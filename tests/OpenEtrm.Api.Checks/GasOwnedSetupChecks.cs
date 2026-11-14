@@ -101,6 +101,15 @@ internal static class GasOwnedSetupChecks
         if(stockUse.Members is not ["consumptionId","expectedRevision"]||stockUse.Choices.Length!=2||
             !stockUse.Choices.Any(c=>c.Id==consumption.ToString()&&c.Label.Contains("synthetic_inventory",StringComparison.Ordinal)&&c.Label.Contains("quantity 0.125",StringComparison.Ordinal))||!stockUse.Choices.Any(c=>c.Id=="new"))
             throw new Exception("Quantity correction requires the selected performance's exact stock-use revisions or an explicit new allocation.");
+        var linked=JsonSerializer.SerializeToElement(new{corrections=new[]{101,102}.Select(number=>new{
+            accountId=account,positionId=Guid.NewGuid(),performanceId=Guid.NewGuid(),reference="Synthetic shared reference",quantity="0.125",financialRevision=3,
+            parentTradeReference=number,deliverySeries="synthetic_monthly_future",deliveryProfile="Synthetic delivery",deliveryProfileRevision=2})});
+        var linkedSetup=GasOwnedSetup.Build(context,new(GasFuturesQuantityBatchActions.Handler,account,account),
+            JsonSerializer.SerializeToElement(correctionState),[..policies],[],[],[],[],[],[],state,[],batch:linked);
+        var variants=linkedSetup.Forms[GasFuturesReconciliationActions.Action].Fields.Single().Variants!.Value;
+        if(variants.Select(v=>v.Label).Distinct().Count()!=2||!variants[0].Label.Contains("TR-000101",StringComparison.Ordinal)||
+            !variants[1].Label.Contains("TR-000102",StringComparison.Ordinal)||variants.Any(v=>!v.Label.Contains("synthetic_monthly_future",StringComparison.Ordinal)))
+            throw new Exception("Identical performance references on different physical parents require readable exact originating trades and delivery contracts.");
         Console.WriteLine("PASS typed gas form source: exact source and financial revisions, explicit physical correction choices, decimal text and user clocks");
     }
 }

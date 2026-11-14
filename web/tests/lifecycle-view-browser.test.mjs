@@ -1,11 +1,40 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {browserAvailable,browserTestTimeout,withBrowserPage} from './browser-page.mjs';
+import {batchFixture} from './gas-owned-fixture.mjs';
 
 const context={contextId:'10000000-0000-0000-0000-000000000001',asOf:'2026-11-02T15:00:00Z',businessDate:'2026-11-02',snapshotId:'20000000-0000-0000-0000-000000000001'};
 const offer={target:{handler:'listed_option',scopeId:'30000000-0000-0000-0000-000000000001',bindingId:'40000000-0000-0000-0000-000000000001'},action:'option.expiry',label:'Determine expiry',occurrenceId:'50000000-0000-0000-0000-000000000001',at:context.asOf,before:null,eligible:true,reason:null,revision:1,stateVersion:2,subject:{reference:'TR-000001',product:'Synthetic gas call',bookId:'60000000-0000-0000-0000-000000000001',book:'Synthetic book'},policyId:'70000000-0000-0000-0000-000000000001',policyRevision:3,selection:{evidenceId:'30000000-0000-0000-0000-000000000001',lots:null,expectedEventVersion:2,profileRevision:4},requiredInputs:[],inputChoices:{}};
 const discovery={context,actions:[offer],policies:[{id:offer.policyId,revision:3,action:offer.action,mode:'review',from_at:'2026-01-01T00:00:00Z',until_at:'2027-01-01T00:00:00Z'}],optionProfiles:[],swapProfiles:[],marginPolicies:[],choices:{actions:[{code:'option.expiry',automatic:true,configurationPermission:'AmendTrade',executionPermission:'BookTrade'}],modes:['manual','review','automatic'],policyImplementation:'explicit_lifecycle_action_policy_v1',swapRounding:[],swapDue:[],swapRecognition:[],swapCorrection:[]}};
 const settle=()=>new Promise(r=>setTimeout(r,40));
+test('initial gas form metadata must echo the exact requested native target',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<div id="host"></div>',async evaluate=>{
+ const gasOffer={...offer,target:{handler:'gas_owned',scopeId:'account',bindingId:'account'},action:'gas.owned.receive_title',selection:null};
+ await evaluate(`(async()=>{const {setupLifecycle}=await import('/lifecycle-view.js');window.errors=[];const api=async(path)=>path==='lifecycle/view'?${JSON.stringify({...discovery,actions:[gasOffer]})}:{context:${JSON.stringify(context)},target:{...${JSON.stringify(gasOffer.target)},scopeId:'another-account'},accounts:[],policies:[],forms:{'gas.owned.receive_title':{label:'Title',permission:'RecordGasOwnedHoldings',fields:[{name:'quantity',label:'Quantity',kind:'text',nullable:false}]}},configuration:{}};window.desk=setupLifecycle(document.querySelector('#host'),{api,act:async f=>{try{await f();}catch(error){errors.push(error.message);}},busy:()=>false,identity:()=> 'operator',context:()=>({snapshotId:'header'}),historical:()=>false,zone:()=> 'America/Chicago',permission:()=>true,changed(){}});await desk.load();})()`);
+ await settle();await evaluate("document.querySelector('[data-lifecycle=rows] .tabulator-row').click()");await settle();
+ assert.equal(await evaluate("document.querySelector('[data-lifecycle=panel] form')===null"),true);assert.match((await evaluate('errors')).join(' '),/target|exact source/i);
+}));
+test('linked correction review displays each principal prefix, source allocation and member revision before execution',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<div id="gas-form"></div><div id="host"></div>',async evaluate=>{
+ const principal=id=>({positionId:'delivery-'+id,originalQuantity:'1',finalPrice:'6',currency:{code:'usd'},principalDueAt:'2026-12-02T12:00:00Z',performances:[{businessReference:'Synthetic performance '+id,at:context.asOf,quantity:'0.125',contribution:'0.75',adjustment:'0.75'}]});
+ const allocations=id=>({policy:'preserve_unallocated_source_quantity_v1',sources:[{sourceKey:'synthetic_source_'+id,oldCapacity:'1',capacity:'0.875',oldAllocated:'0.25',allocated:'0.125',previouslyUnused:'0.75',unused:'0.75',quantity:{code:'synthetic_unit'}}]});
+ const details={willChange:true,principal:[principal('a'),principal('b')],sourceAllocations:[allocations('a'),allocations('b')],corrections:['a','b'].map(id=>({performanceId:id,positionId:'delivery-'+id,acknowledgedRevision:4,currentRevision:4,currentQuantity:'0.125',changed:true}))};
+ await evaluate(`(async()=>{${batchFixture}
+ setup.forms[offer.action].fields[0].variants.forEach((variant,index)=>{variant.label='Synthetic shared reference · originating trade '+(index+101);variant.parentLabel='TR-000'+(index+101)+' · Synthetic monthly future';});
+ document.querySelector('#gas-form').remove();window.errors=[];window.lifecycleSent=[];
+ const {setupLifecycle}=await import('/lifecycle-view.js');const capturedOffer={...offer,subject:{reference:'Synthetic linked account',product:'Physical quantities',bookId:'book',book:'Synthetic book'}};
+ const catalogue={...${JSON.stringify(discovery)},context:setup.context,actions:[capturedOffer],choices:{...${JSON.stringify(discovery.choices)},actions:[{code:offer.action,automatic:false,configurationPermission:'ConfigureGasOwnedHoldings',executionPermission:'RecordGasOwnedHoldings'}]}};
+ const lifeApi=async(path,body)=>{if(path==='lifecycle/view')return catalogue;if(path==='lifecycle/gas/setup')return body.target.handler==='gas_futures_reconciliation_batch'?{...setup,target:body.target}:batchRead(body);if(path==='lifecycle/preview')return{hash:'a'.repeat(64),offer:capturedOffer,details:${JSON.stringify(details)}};if(path==='lifecycle/execute'){lifecycleSent.push(body);return{operationId:body.operationId,changed:true};}throw Error('Unexpected '+path);};
+ window.desk=setupLifecycle(document.querySelector('#host'),{api:lifeApi,act:async f=>{try{await f();}catch(e){errors.push(e.message);}},busy:()=>false,identity:()=> 'operator',context:()=>({snapshotId:'header'}),historical:()=>false,zone:()=>gasZone,permission:()=>true,changed(){}});await desk.load();})()`);
+ await settle();await evaluate("document.querySelector('[data-lifecycle=rows] .tabulator-row').click()");await settle();
+ await evaluate("addMember('a')");await settle();await evaluate("addMember('b')");await settle();
+ await evaluate("fillMember('a');fillMember('b');document.querySelector('[name=policyId]').value='policy-1:2';document.querySelector('[data-lifecycle=panel] form').requestSubmit()");await settle();
+ assert.deepEqual(await evaluate('errors'),[]);const text=await evaluate("document.querySelector('[data-lifecycle-review]').textContent");
+ for(const value of ['Synthetic performance a','Synthetic performance b','synthetic_source_a','synthetic_source_b','Accepted revision','Current revision','0.875','0.125'])assert.ok(text.includes(value),value);
+ assert.equal(await evaluate("[...document.querySelectorAll('[data-lifecycle-review] h4')].filter(h=>h.textContent==='Physical delivery principal').length"),2);
+ const parents=await evaluate("[...document.querySelectorAll('[data-lifecycle-review] [data-physical-parent]')].map(p=>p.textContent)");
+ assert.deepEqual(parents,['TR-000101 · Synthetic monthly future','TR-000102 · Synthetic monthly future']);
+ assert.doesNotMatch(text,/No accepted performance/);assert.deepEqual(await evaluate('lifecycleSent'),[]);
+ await evaluate("document.querySelector('[data-lifecycle-execute]').click()");await settle();assert.equal(await evaluate('lifecycleSent.length'),1);assert.deepEqual((await evaluate('lifecycleSent[0].selection.corrections')).map(c=>c.performanceId),['a','b']);
+}));
 test('physical quantity correction chooses native versions and reviews source capacity and principal before sending',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<div id="host"></div>',async evaluate=>{
  const action='gas.futures.reconcile_quantity',policy='preserve_unallocated_source_quantity_v1';
  const corrected={...offer,target:{...offer.target,handler:'gas_futures_reconciliation'},action,label:'Correct observed physical quantity',selection:null};
@@ -23,7 +52,7 @@ test('physical quantity correction chooses native versions and reviews source ca
   performances:[{businessReference:'Synthetic corrected title',at:context.asOf,quantity:'0.125',contribution:'-0.75',adjustment:'0.75'}]},
   sourceAllocations:{policy,sources:[{sourceKey:'synthetic_title_capacity',oldCapacity:'1',capacity:'0.875',oldAllocated:'0.25',allocated:'0.125',previouslyUnused:'0.75',unused:'0.75',quantity:{code:'synthetic_unit'}}]}};
  await evaluate(`(async()=>{const {setupLifecycle}=await import('/lifecycle-view.js');window.sent=[];window.errors=[];window.correctionReview=${JSON.stringify(details)};const api=async(path,body)=>{
-  if(path==='lifecycle/view')return ${JSON.stringify({...discovery,actions:[corrected],choices:{...discovery.choices,actions:[{code:action,automatic:false,configurationPermission:'ConfigureGasOwnedHoldings',executionPermission:'RecordGasOwnedHoldings'}]}})};if(path==='lifecycle/gas/setup')return ${JSON.stringify(setup)};
+  if(path==='lifecycle/view')return ${JSON.stringify({...discovery,actions:[corrected],choices:{...discovery.choices,actions:[{code:action,automatic:false,configurationPermission:'ConfigureGasOwnedHoldings',executionPermission:'RecordGasOwnedHoldings'}]}})};if(path==='lifecycle/gas/setup')return {...${JSON.stringify(setup)},target:body.target};
   if(path==='lifecycle/preview')return {hash:'a'.repeat(64),offer:${JSON.stringify(corrected)},details:correctionReview};
   if(path==='lifecycle/execute'){sent.push(body);return {operationId:body.operationId,changed:true};}throw Error('Unexpected operation '+path);};
   window.desk=setupLifecycle(document.querySelector('#host'),{api,act:async f=>{try{await f();}catch(e){errors.push(e.message);}},busy:()=>false,identity:()=> 'operator',context:()=>({snapshotId:'header'}),historical:()=>false,zone:()=> 'America/Chicago',permission:()=>true,changed(){}});await desk.load();})()`);

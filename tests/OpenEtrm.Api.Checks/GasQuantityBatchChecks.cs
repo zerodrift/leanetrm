@@ -36,6 +36,26 @@ internal static class GasQuantityBatchChecks
         // Exercise the public identifier through the actual default registry.
         var request=new LifecycleActionRequest(fixture.Id("operationId"),context,new("gas_futures_reconciliation_batch",fixture.Id("accountId"),fixture.Id("accountId")),
             GasFuturesReconciliationActions.Action,fixture.Id("policyId"),1,false,new('0',64),body.Clone());
+        var setup=await database.WithIdentity("trader",null,(connection,ct)=>GasOwnedSetup.Read(connection,database,new(context,request.Target),ct),default);
+        if(setup.Forms[request.Action].Fields is not [{Name:"corrections",Kind:"array"}])
+            throw new Exception("The batch form must select observed members before reading their exact scoped fields.");
+        var field=setup.Forms[request.Action].Fields.Single();
+        if(setup.Target!=request.Target||field.MinItems!=1||field.Variants is not {} variants||variants.IsDefaultOrEmpty)
+            throw new Exception("The native batch form must retain its exact account target and explicit nonempty member requirement.");
+        if(variants.Any(v=>!v.ParentLabel.StartsWith("TR-",StringComparison.Ordinal)||!v.Label.Contains(v.ParentLabel,StringComparison.Ordinal)||
+            !v.ParentLabel.Contains("profile revision",StringComparison.Ordinal)))
+            throw new Exception("Native linked correction choices lost their exact originating trade and saved delivery profile labels.");
+        foreach(var selected in body.GetProperty("corrections").EnumerateArray())
+        {
+            var target=variants.Single(v=>v.Id==selected.Id("performanceId").ToString()).Target;
+            if(target!=new LifecycleTarget(GasFuturesReconciliationActions.Handler,selected.Id("positionId"),selected.Id("performanceId")))
+                throw new Exception("A batch member's lazy field source changed its native obligation or observed performance.");
+            var member=await database.WithIdentity("trader",null,(connection,ct)=>GasOwnedSetup.Read(connection,database,new(context,target),ct),default);
+            var observed=JsonSerializer.SerializeToElement(member.Forms[request.Action].Fields.Single(f=>f.Name=="observedPerformance").Choices.Single().Value);
+            if(member.Target!=target||observed.Id("positionId")!=target.ScopeId||observed.Id("performanceId")!=target.BindingId||
+                observed.GetProperty("expectedRevision").GetInt32()!=selected.GetProperty("expectedRevision").GetInt32())
+                throw new Exception("Lazy member metadata lost the exact captured financial revision.");
+        }
         var review=await database.WithIdentity("trader",null,(connection,ct)=>operations.Preview(connection,request,ct),default);
         var plans=review.Details.GetProperty("principal").EnumerateArray().ToImmutableArray();
         if(!review.Details.GetProperty("willChange").GetBoolean()||plans.Length!=2||plans.Select(p=>p.Id("positionId")).Distinct().Count()!=2)

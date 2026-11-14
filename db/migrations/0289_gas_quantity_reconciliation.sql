@@ -517,12 +517,16 @@ CREATE FUNCTION security.read_gas_futures_reconciliations(catalog uuid,context u
 DECLARE state jsonb;rows jsonb;BEGIN
  state=security.read_gas_owned_operations(read_gas_futures_reconciliations.catalog,read_gas_futures_reconciliations.context,read_gas_futures_reconciliations.as_of,NULL);
  SELECT coalesce(jsonb_agg(jsonb_build_object('positionId',p.position_id,'performanceId',p.id,'reference',p.business_reference,
+  'parentTradeReference',trade.reference_number,'deliverySeries',profile.series_code,'deliveryProfile',profile.name,'deliveryProfileRevision',profile.revision,
   'performedAt',p.performed_at,'quantity',trim_scale(p.quantity)::text,'financialRevision',q.revision,'retracted',q.retracted,
   'principalVersion',principal.revision,'accountId',a.id,'account',a.code,'bookId',a.book_id,'book',book.name,
   'policyId',binding.policy_id,'policyRevision',binding.policy_revision,'policyFrom',policy.from_at,'policyUntil',policy.until_at,'policyMode',policy.mode)
   ORDER BY p.performed_at,convert_to(p.business_reference,'UTF8'),p.id),'[]') INTO rows
  FROM trading.gas_futures_performances_at(read_gas_futures_reconciliations.catalog,read_gas_futures_reconciliations.context,read_gas_futures_reconciliations.as_of) p
  JOIN trading.gas_owned_positions parent ON(parent.catalog_id,parent.id)=(p.catalog_id,p.position_id)
+ JOIN settlement_data.futures_delivery_obligations origin ON(origin.catalog_id,origin.position_id)=(parent.catalog_id,parent.id)
+ JOIN trading.trade_references trade ON(trade.catalog_id,trade.trade_id)=(origin.catalog_id,origin.trade_id)
+ JOIN settlement_data.futures_delivery_profiles profile ON(profile.catalog_id,profile.id,profile.revision)=(origin.catalog_id,origin.profile_id,origin.profile_revision)
  JOIN trading.gas_owned_accounts a ON(a.catalog_id,a.id)=(parent.catalog_id,parent.account_id)
  JOIN trading.books book ON(book.catalog_id,book.id)=(a.catalog_id,a.book_id)
  JOIN trading.gas_futures_performance_quantities q ON(q.catalog_id,q.performance_id,q.publication_order)=(p.catalog_id,p.id,p.publication_order)

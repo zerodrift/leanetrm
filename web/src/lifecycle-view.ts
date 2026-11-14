@@ -11,7 +11,7 @@ type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type Review={hash:string;offer:LifecycleOffer;details:Record<string,unknown>};
 const words=(value:string)=>value.replaceAll('_',' ').replaceAll('.',' · ').replace(/([a-z])([A-Z])/g,'$1 $2');
 const title=(value:string)=>{const text=words(value);return text.charAt(0).toUpperCase()+text.slice(1);};
-const gasHandler=(handler:string)=>['gas_owned','gas_futures_delivery','gas_futures_reconciliation'].includes(handler);
+const gasHandler=(handler:string)=>['gas_owned','gas_futures_delivery','gas_futures_reconciliation','gas_futures_reconciliation_batch'].includes(handler);
 const knownRejection=(code:string|undefined)=>!!code&&/^(lifecycle_|option_|futures_|swap_|gas_|settlement_|historical_|job_|access_denied$|request_denied$)/.test(code);
 const element=<K extends keyof HTMLElementTagNameMap>(tag:K,text?:string)=>{const node=document.createElement(tag);if(text!==undefined)node.textContent=text;return node;};
 
@@ -75,7 +75,7 @@ export function setupLifecycle(root:HTMLElement,o:{api:Api;act:(work:()=>Promise
   }catch(error){if(current(epoch,actor)){if(!confirmed){pending.failed((error as {code?:string}).code,wasUncertain);store();if(!pending.command)invalidate();message.textContent=String(error);}else message.textContent='Lifecycle change recorded. Its updated views could not be read. '+String(error);}throw error;}finally{if(o.identity()===actor){saving=false;sync();}}
  }
  async function queue(path:string,body:Record<string,unknown>,label:string){restore();if(pending.command)throw Error('Reconcile the retained lifecycle request first.');pending.command={path,operationId:lifecycleOperationId(path,body)??(()=>{throw Error('Retain the exact request identity.');})(),body:structuredClone(body),label};store();await send(pending.command);}
- function showReview(review:Review,request:LifecycleRequest,references:{label:string;value:string}[]=[]){panel.querySelector('[data-lifecycle-review]')?.remove();const section=element('section');section.dataset.lifecycleReview='';section.className='lifecycle-review';section.append(element('h3','Review '+(selected?.label??'action')));
+ function showReview(review:Review,request:LifecycleRequest,references:{label:string;value:string;key?:string}[]=[]){panel.querySelector('[data-lifecycle-review]')?.remove();const section=element('section');section.dataset.lifecycleReview='';section.className='lifecycle-review';section.append(element('h3','Review '+(selected?.label??'action')));
   const list=element('dl');list.className='lifecycle-review-facts';
   const add=(label:string,value:unknown)=>{if(value===null||value===undefined||value===''||typeof value==='object')return;list.append(element('dt',label),element('dd',String(value)));};
   add('Holding',selected?.subject?.reference);add('Business date',request.context.businessDate);add('As of',instant(request.context.asOf));
@@ -100,8 +100,20 @@ export function setupLifecycle(root:HTMLElement,o:{api:Api;act:(work:()=>Promise
   const net=request.action==='swap.net'?d.settlement as Record<string,unknown>|undefined:undefined;
   if(net){if(net.existingFact===true)add('Effect','Already recorded · no new cash or allocation');add('Net cash',net.amount);add('Gross paid',net.grossPaid);add('Gross received',net.grossReceived);add('Reverses payment',net.reversesId);}
   section.append(list);
-  const sourceAllocations=d.sourceAllocations as {sources?:Record<string,unknown>[]} | undefined;
-  if(sourceAllocations?.sources?.length){
+  if(request.target.handler==='gas_futures_reconciliation_batch'&&Array.isArray(d.corrections)){
+   const selections=Array.isArray(request.selection.corrections)?request.selection.corrections as Record<string,unknown>[]:[];
+   const table=element('table');table.className='regular-table';const head=element('tr');
+   for(const label of ['Observed performance','Effect','Accepted revision','Current revision','Accepted quantity','Current quantity'])head.append(element('th',label));table.append(head);
+   for(const correction of d.corrections as Record<string,unknown>[]){
+    const selection=selections.find(s=>s.performanceId===correction.performanceId),row=element('tr');
+    for(const value of [references.find(r=>r.key===correction.performanceId)?.value??correction.performanceId,
+     correction.changed===true?'Record correction':'Existing fact acknowledged',correction.acknowledgedRevision,correction.currentRevision,selection?.quantity,correction.currentQuantity])row.append(element('td',String(value??'')));
+    table.append(row);
+   }
+   const scroll=element('div');scroll.className='lifecycle-review-table';scroll.append(table);section.append(scroll);
+  }
+  const allocationGroups=(Array.isArray(d.sourceAllocations)?d.sourceAllocations:[d.sourceAllocations]) as ({sources?:Record<string,unknown>[]} | undefined)[];
+  for(const sourceAllocations of allocationGroups)if(sourceAllocations?.sources?.length){
    section.append(element('h4','Observed source allocations'));
    const table=element('table');table.className='regular-table';const head=element('tr');
    for(const label of ['Source reference','Previous capacity','Current capacity','Previously allocated','Currently allocated','Previously unused','Currently unused','Unit'])head.append(element('th',label));table.append(head);
@@ -118,9 +130,12 @@ export function setupLifecycle(root:HTMLElement,o:{api:Api;act:(work:()=>Promise
   if(marginRows.length){const table=element('table');table.className='regular-table';const head=element('tr');for(const label of ['Occurrence','Exact variation','Rounded payment','Cash adjustment','Due','Currency'])head.append(element('th',label));table.append(head);
    for(const step of marginRows as Record<string,unknown>[]){const row=element('tr');for(const value of [typeof step.at==='string'?instant(step.at):'',step.exactVariation,step.variation,step.adjustment,typeof step.dueAt==='string'?instant(step.dueAt):'',String(step.currency??'').toUpperCase()])row.append(element('td',String(value??'')));table.append(row);}const scroll=element('div');scroll.className='lifecycle-review-table';scroll.append(table);section.append(scroll);
   }
-  const principal=(d.physicalPrincipal??d.principal) as {originalQuantity?:unknown;finalPrice?:unknown;currency?:{code?:string};principalDueAt?:string;performances?:Record<string,unknown>[]} | undefined;
-  if(principal){
+  const principalValue=d.physicalPrincipal??d.principal;
+  const principals=(Array.isArray(principalValue)?principalValue:[principalValue]) as ({positionId?:string;originalQuantity?:unknown;finalPrice?:unknown;currency?:{code?:string};principalDueAt?:string;performances?:Record<string,unknown>[]} | undefined)[];
+  for(const principal of principals)if(principal){
    section.append(element('h4','Physical delivery principal'));
+   const parent=references.find(reference=>reference.key===principal.positionId);
+   if(parent){const label=element('p',parent.value);label.dataset.physicalParent='';section.append(label);}
    const currency=principal.currency?.code?.toUpperCase();
    const terms=element('p',`Original quantity ${String(principal.originalQuantity??'')} · final price ${String(principal.finalPrice??'')}${currency?' '+currency:''} · principal due ${principal.principalDueAt?instant(principal.principalDueAt):''}`);section.append(terms);
    if(principal.performances?.length){const table=element('table');table.className='regular-table';const head=element('tr');for(const label of ['Performance','Effective','Signed quantity','Principal','Adjustment'])head.append(element('th',label));table.append(head);
@@ -205,8 +220,9 @@ export function setupLifecycle(root:HTMLElement,o:{api:Api;act:(work:()=>Promise
   if(!discovery)throw Error('Refresh the gas source.');const source=structuredClone(discovery.context);
   const value=await o.api<GasOwnedSetup>('lifecycle/gas/setup',{context:source,target});
   if(!current(epoch,actor)||view!==panelVersion)return;
-  if(!value.context||value.context.contextId!==source.contextId||value.context.asOf!==source.asOf||value.context.businessDate!==source.businessDate||value.context.snapshotId!==source.snapshotId)
-   throw Error('The gas fields did not retain this exact source. Refresh and review again.');return value;
+  if(!value.context||value.context.contextId!==source.contextId||value.context.asOf!==source.asOf||value.context.businessDate!==source.businessDate||value.context.snapshotId!==source.snapshotId||
+   (target?value.target?.handler!==target.handler||value.target.scopeId!==target.scopeId||value.target.bindingId!==target.bindingId:value.target!=null))
+   throw Error('The gas fields did not retain this exact source and native target. Refresh and review again.');return value;
  }
  async function showGasAction(offer:LifecycleOffer){
   const actor=o.identity(),epoch=generation,view=panelVersion,setup=await gasSetup(offer.target,actor,epoch,view);if(!setup||selected!==offer)return;
