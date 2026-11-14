@@ -354,3 +354,11 @@ opening instant and original read deadline through the same native source-read
 contract used by state materialization. Read-only workers acquire no interactive
 preview grant. Complete worker reports match interactive results under frozen
 binaries, with no appended market, margin or trading facts.
+
+Gas authority follows the selected valuation consumer. A saved expiry action
+profile alone does not add Gas permission to an ordinary vanilla option or
+execution-value job. Economic physical continuation, an explicitly selected
+physical option model and native physical-future state retain the exact causal
+Gas requirement for both actor and service. Ordinary nonconsumers return before
+reading continuation policies; source scope, original deadlines and result
+revocation checks remain in place.

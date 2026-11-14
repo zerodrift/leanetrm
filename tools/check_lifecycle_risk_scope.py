@@ -3,8 +3,22 @@ import json
 from uuid import uuid4
 from check_reference_editing import main
 from check_futures_physical_delivery import fixture, checks as physical_checks
-from check_lifecycle_actions import upgrade_checks
+from check_lifecycle_actions import upgrade_checks as action_upgrade_checks
 from check_risk_jobs_db import provision_worker
+
+
+original_needs_gas=None
+
+def upgrade_checks(query,migration):
+    global original_needs_gas
+    action_upgrade_checks(query,migration)
+    if migration.name=='0290_risk_gas_consumers.sql':
+        original_needs_gas=query("SELECT pg_get_functiondef('risk.needs_gas(risk.jobs)'::regprocedure);")
+        from check_fact_anchor_upgrade import run_checks
+        run_checks(query,migration,number='0290',guard='risk_gas_consumers_upgrade',signatures=('risk.needs_gas(risk.jobs)',))
+        from assistant_context import check_guard
+        check_guard(query,migration.read_text(),'0290','risk_gas_consumers_upgrade',[(
+            "UPDATE pg_proc SET proargnames=ARRAY['synthetic_changed']::text[] WHERE oid='risk.needs_gas(risk.jobs)'::regprocedure;",'risk.needs_gas(risk.jobs)')])
 
 
 def checks(query, manifest):
@@ -57,6 +71,8 @@ def checks(query, manifest):
     profile=dict(operationId=str(uuid4()),tradeId=option['tradeId'],action='option.expiry',expectedRevision=0,
         policyId=action['policyId'],policyRevision=1,marginPolicyId=option_policy['id'],marginPolicyRevision=1,futureMarkCurve='nymex_ng',expiryCurve='nymex_ng')
     user(f"SELECT lifecycle.save_option_profile('{catalog}',{literal(profile)});",'trader')
+    unused_policy={**option_policy,'id':str(uuid4())}
+    user(f"SELECT settlement_data.save_futures_margin_policy('{catalog}',{literal(dict(operationId=str(uuid4()),expectedRevision=0,contextId=capture(),asOf=at,policy=unused_policy))});",'editor')
     context=capture()
     def scope():return f"SELECT security.use_market_context('{catalog}','{context}');SELECT security.use_trading_context('{catalog}','{at}','{day}'::date);"
     seed=next(f for f in manifest['frames']if f['at']==at)
@@ -77,17 +93,37 @@ def checks(query, manifest):
             futuresConvention='native_margin_remaining_value_v1',swapConvention='independent_side_financial_swap_v2',rateNumericalPolicy='rate_curve_lattice30_to_even_18_v1',
             discountInterpolationPolicy='log_discount_geometric_root_to_even_18_v1',bumpConvention='absolute_quote_v1',bumpBasis='trading_tick',bumpTicks=1))
     def submit():return json.loads(user(scope()+f"SELECT risk.submit('{catalog}','{uuid4()}','{context}','{manifest['revisionId']}','{at}',{literal(request)},{literal(frame)})::text;"))
-    # There is no gas-policy request flag and no effective opening stock. The
-    # saved option expiry branch itself establishes the gas-read requirement.
+    # The ordinary option value does not consume its saved physical action
+    # profile. Its exact retained scope must remain readable without Gas.
+    provision_worker(query,manifest,'synthetic_scope_worker');provision_worker(query,manifest,'synthetic_scope_no_gas_worker')
+    ordinary=submit()
+    assert query(f"SELECT NOT risk.needs_gas(j) FROM risk.jobs j WHERE id='{ordinary['jobId']}';")=='t'
+    poison="""CREATE OR REPLACE FUNCTION risk.lifecycle_scope_policies(job risk.jobs) RETURNS TABLE(policy_id uuid,policy_revision integer,book_id uuid)
+      LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $poison$ BEGIN RAISE EXCEPTION 'unused_lifecycle_policy_read';END$poison$;"""
+    assert original_needs_gas
+    for reads in (True,False):
+        restore=original_needs_gas+';' if reads else ''
+        try:value=query(f"BEGIN;{restore}{poison}SELECT risk.needs_gas(j) FROM risk.jobs j WHERE id='{ordinary['jobId']}';ROLLBACK;")
+        except RuntimeError as error:assert reads and 'unused_lifecycle_policy_read' in str(error),str(error)
+        else:assert not reads and value=='f','An ordinary option job read an unused physical continuation policy'
+    plain=json.loads(query("SET SESSION AUTHORIZATION synthetic_scope_worker;SELECT risk.claim(30,'synthetic_lifecycle_reader_scope_v1')::text;"))
+    assert plain['jobId']==ordinary['jobId']
+    query(f"SET SESSION AUTHORIZATION synthetic_scope_worker;BEGIN;SELECT risk.bind('{plain['jobId']}','{plain['leaseToken']}');COMMIT;SELECT risk.finish('{plain['jobId']}','{plain['leaseToken']}',NULL,'qualification_complete');")
+    # Economic continuation does consume that exact source-visible profile.
+    assert query(f"SELECT risk.needs_gas((jsonb_populate_record(NULL::risk.jobs,to_jsonb(j)||jsonb_build_object('request',j.request||jsonb_build_object('economic',jsonb_build_object('projection',jsonb_build_object('gasOwned','[]'::jsonb))))))) FROM risk.jobs j WHERE id='{ordinary['jobId']}';")=='t'
+    # Native physical-future PV reads its saved delivery document even before
+    # stock exists. This actual consumer still requires Gas for user and service.
+    request['tradeIds']=[option['tradeId'],held['trade']]
     assert query(f"SELECT count(*) FROM trading.gas_owned_positions WHERE catalog_id='{catalog}' AND effective_at<='{at}';")=='0'
     reject(submit,'risk_job_denied')
-    provision_worker(query,manifest,'synthetic_scope_worker')
     gas_role=str(uuid4())
     query(f"INSERT INTO security.roles VALUES('{gas_role}','synthetic_scope_gas_reader','Synthetic scope gas reader');INSERT INTO security.role_permissions VALUES('{gas_role}','ReadGasOwnedHoldings');"
         f"INSERT INTO security.role_grants SELECT gen_random_uuid(),principal_id,'{gas_role}','{tenant}','{workspace}',clock_timestamp(),'9999-12-31',false FROM security.identity_bindings WHERE issuer='{issuer}' AND subject='risk';"
         f"INSERT INTO security.role_grants SELECT gen_random_uuid(),principal_id,'{gas_role}','{tenant}','{workspace}',clock_timestamp(),'9999-12-31',false FROM risk.workers WHERE login='synthetic_scope_worker';")
     accepted=submit()
     def worker(sql):return query('SET SESSION AUTHORIZATION synthetic_scope_worker;'+sql)
+    assert query("SET SESSION AUTHORIZATION synthetic_scope_no_gas_worker;SELECT risk.claim(30,'synthetic_lifecycle_reader_scope_v1')::text;")=='', 'A physical native-state job was claimed without service Gas authority'
+    assert query(f"SELECT state='queued' AND attempt=0 FROM risk.jobs WHERE id='{accepted['jobId']}';")=='t'
     claim=json.loads(worker("SELECT risk.claim(30,'synthetic_lifecycle_reader_scope_v1')::text;"));assert claim['jobId']==accepted['jobId']
     bind=f"BEGIN;SELECT risk.bind('{claim['jobId']}','{claim['leaseToken']}');"
     read=worker(bind+f"SELECT security.admit_trading_business_source('{catalog}','{context}','{at}','{day}'::date);"
@@ -95,15 +131,17 @@ def checks(query, manifest):
         f"SELECT jsonb_array_length(security.read_lifecycle_projection_profiles('{catalog}','listed_option','{option['tradeId']}',1,'{context}','{at}','{day}'::date,settlement_data.futures_margin_preview_authority('{catalog}')));"
         f"SELECT jsonb_array_length(lifecycle.read_option_known_history('{catalog}','{option['tradeId']}','{option['optionInstrumentId']}',1,'{context}','{at}','{day}')->'events');COMMIT;")
     assert read.splitlines()[-2:]==['1','0'],read
-    visible=worker(bind+f"SELECT count(*) FROM settlement_data.futures_margin_policies WHERE id='{option_policy['id']}';SELECT count(*) FROM settlement_data.futures_margin_policies WHERE id='{policy}';SELECT count(*) FROM settlement_data.futures_margin_policy_occurrences WHERE policy_id='{policy}';COMMIT;")
+    visible=worker(bind+f"SELECT count(*) FROM settlement_data.futures_margin_policies WHERE id='{option_policy['id']}';SELECT count(*) FROM settlement_data.futures_margin_policies WHERE id='{unused_policy['id']}';SELECT count(*) FROM settlement_data.futures_margin_policy_occurrences WHERE policy_id='{unused_policy['id']}';COMMIT;")
     assert visible.splitlines()[-3:]==['1','0','0'],visible
 
     reject(lambda:worker(bind+f"SELECT settlement_data.read_futures_margin_state('{catalog}','{outside['tradeId']}','{outside['bindingId']}','{context}','{at}');COMMIT;"),'risk_job_scope')
-    reject(lambda:worker(bind+f"SELECT settlement_data.read_futures_margin_state('{catalog}','{held['trade']}','{held['binding']}','{context}','{at}');COMMIT;"),'risk_job_scope')
+    inside=worker(bind+f"SELECT(settlement_data.read_futures_margin_state('{catalog}','{held['trade']}','{held['binding']}','{context}','{at}')->>'available')::boolean;COMMIT;")
+    assert inside.splitlines()[-1]=='t',inside
     worker(f"SELECT risk.finish('{claim['jobId']}','{claim['leaseToken']}',NULL,'qualification_complete');")
     query(f"UPDATE security.role_grants SET revoked=true WHERE role_id='{gas_role}' AND principal_id=(SELECT principal_id FROM security.identity_bindings WHERE issuer='{issuer}' AND subject='risk');")
     reject(lambda:user(f"SELECT risk.read('{accepted['jobId']}');"),'risk_job_denied')
-    print('PASS actual listed-option source callback, physical-policy gas requirement without inventory/flags, exact trade/book scope and result gas revocation',flush=True)
+    user(f"SELECT risk.read('{ordinary['jobId']}');")
+    print('PASS gas consumer scope: unused option profile permits ordinary jobs; physical continuation/native state retain user/service Gas, exact source scope and result revocation',flush=True)
 
 
 if __name__=='__main__':main(checks=checks,fixture_factory=fixture,before_migration=upgrade_checks)
