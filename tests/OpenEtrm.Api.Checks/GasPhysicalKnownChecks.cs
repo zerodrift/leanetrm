@@ -4,6 +4,7 @@ using Npgsql;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Gas;
+using OpenEtrm.MarketData.Risk;
 using OpenEtrm.MarketData.Trading;
 
 internal static class GasPhysicalKnownChecks
@@ -27,14 +28,54 @@ internal static class GasPhysicalKnownChecks
             var data=await MarketInputSelection.Root(database,connection,frame,ct);var snapshot=data.Snapshot(frame).WithKnowledge(context,SchedulePreview.ParseAt(source.KnownAt));
             var books=ImmutableArray.Create(fixture.Id("bookId"));
             var read=await GasPhysicalKnownAttachmentStore.Read(connection,database,frame,snapshot,books,ct);
+            bool currentQuantitySource;
             await using(var publicationContract=ScheduleStore.Command(connection,"SELECT to_regprocedure('security.reconcile_gas_futures_delivery_batch(uuid,uuid,uuid,jsonb,timestamptz,uuid,uuid,integer,boolean,jsonb)') IS NOT NULL"))
-                if((bool)(await publicationContract.ExecuteScalarAsync(ct))!&&read.Attachments.SelectMany(a=>a.Performances).Any(p=>p.OriginalPublicationOrder is null or <1))
+                currentQuantitySource=(bool)(await publicationContract.ExecuteScalarAsync(ct))!;
+            if(currentQuantitySource&&read.Attachments.SelectMany(a=>a.Performances).Any(p=>p.OriginalPublicationOrder is null or <1))
                     throw new Exception("The current native source lost original physical publication identity when materializing a financial revision.");
             if(read.Attachments.Length!=2||read.Attachments.Any(a=>!a.SourceSnapshot.HasSameInputs(snapshot)||a.FinalOccurrence.At>=at||
                 !a.Performances.Any(p=>p.PerformedAt>at)||a.CurrentFinal.Price.ToExactString()!="6.03")||
                 read.Attachments.Select(a=>a.DeliveryOwner).Distinct().Count()!=2)
                 throw new Exception("The typed physical reader lost exact native activation keys, final history or source-known future descendants.");
             var longSide=read.Attachments.Single(a=>a.OriginalQuantity.Amount.CompareTo(default)>0);
+            if(currentQuantitySource)
+            {
+                var whole=await GasOwnedKnownHistoryStore.Read(connection,database,frame,snapshot,books,ct);
+                var actual=await GasOwnedHoldings.Read(connection,database,frame,snapshot,books,ct);
+                var markets=ImmutableDictionary.CreateBuilder<DefinitionRevision,GasOwnedProjectionMarket>();
+                foreach(var market in actual.Markets.Values)
+                {
+                    var curves=ImmutableDictionary.CreateBuilder<ReferenceKey,ISideDiscounting>();
+                    foreach(var selected in read.Attachments.Where(a=>a.Terms.Mark.Curve.Revision==market.Snapshot.Definitions&&a.Terms.Carrying==GasHoldingCarrying.CurrencyCurve).Select(a=>a.Terms.Currency).Distinct())
+                    {
+                        curves.Add(selected,new MappingOnlyDiscounting());
+                    }
+                    markets.Add(market.Snapshot.Definitions,new(market.Snapshot,curves.ToImmutable()));
+                }
+                var mapped=GasPhysicalQuantityMapping.Build(read.Attachments,whole,actual,ImmutableDictionary<AccountingPositionKey,KnownFuturesPhysicalFinal>.Empty,markets.ToImmutable());
+                var future=read.Attachments.SelectMany(a=>a.Performances.Where(p=>!p.Retracted&&p.PerformedAt>at).Select(p=>(Parent:a,Performance:p))).ToArray();
+                if(!mapped.OpeningHoldings.Select(p=>p.Position).ToHashSet().SetEquals(actual.Positions.Where(p=>p.Kind=="delivery_obligation").Select(p=>p.Position))||
+                    !mapped.Transitions.Select(p=>p.Id).ToHashSet().SetEquals(future.Select(p=>LifecycleProjectionEvent.ScopedId(p.Parent.DeliveryOwner,p.Performance.Id)))||
+                    future.Any(p=>mapped.OriginalPublications[LifecycleProjectionEvent.ScopedId(p.Parent.DeliveryOwner,p.Performance.Id)]!=p.Performance.OriginalPublicationOrder))
+                    throw new Exception("The native mapping lost an active obligation, future physical performance, or its original event identity/publication.");
+                _=mapped.RequireSource(whole,actual,markets.ToImmutable());
+                var futureReceipt=read.Attachments.SelectMany(a=>a.Performances).First(p=>!p.Retracted&&p.PerformedAt>at&&p.ReceiptStockOwner is not null).ReceiptStockOwner!.Value;
+                var altered=read.Attachments.Select(a=>a with{Stocks=[..a.Stocks.Select(s=>s.Owner==futureReceipt?s with{Lot=s.Lot with{AvailableAt=s.Lot.AvailableAt.AddHours(1)}}:s)]}).ToImmutableArray();
+                try
+                {
+                    _=GasPhysicalQuantityMapping.Build(altered,whole,actual,ImmutableDictionary<AccountingPositionKey,KnownFuturesPhysicalFinal>.Empty,markets.ToImmutable());
+                    throw new Exception("Physical quantity mapping changed native receipt availability relative to the complete whole-book journal.");
+                }
+                catch(MarketDataException error)when(error.Code=="gas_projection_source"){}
+                try
+                {
+                    _=GasPhysicalQuantityMapping.Build(read.Attachments,whole with{Scope=GasOwnedKnownScope.PhysicalDependencies},actual,
+                        ImmutableDictionary<AccountingPositionKey,KnownFuturesPhysicalFinal>.Empty,markets.ToImmutable());
+                    throw new Exception("Physical quantity mapping treated a dependency closure as a whole-book quantity source.");
+                }
+                catch(MarketDataException error)when(error.Code=="gas_projection_source"){}
+                Console.WriteLine("PASS native physical quantity mapping: exact active obligations, complete future title/supply schedule and original publication identity");
+            }
             var currency=longSide.Terms.Currency;
             if(longSide.Performances.Length!=4||longSide.PrincipalRuns.Length!=6||longSide.Finals.Length!=4||longSide.Stocks.Length!=4||
                 longSide.Cash.Select(c=>ExactMoney.FromMoney(new(c.Quantity.Amount,currency))).Aggregate((a,b)=>a.Add(b))!=ExactMoney.Parse("-6.03",currency)||
@@ -62,5 +103,13 @@ internal static class GasPhysicalKnownChecks
             return true;
         },default);
         Console.WriteLine("PASS typed physical source: exact owner keys, complete future descendants, exact-parent closure, payment revisions and forged-source refusal");
+    }
+    // This test qualifies mapping of native facts, without pricing the fixture's
+    // historical rate curve at a later date. Financial native tests supply valid
+    // captured curves separately; a mapper must never resolve a discount input.
+    private sealed class MappingOnlyDiscounting:ISideDiscounting
+    {
+        public ImmutableArray<SidePaymentFactor> Resolve(ImmutableArray<SidePaymentKey> payments,MarketSnapshot source)=>
+            throw new Exception("Physical quantity mapping attempted financial valuation.");
     }
 }

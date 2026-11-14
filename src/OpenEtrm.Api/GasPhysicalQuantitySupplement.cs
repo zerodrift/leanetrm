@@ -29,7 +29,7 @@ internal sealed record GasPhysicalQuantitySupplement(ImmutableArray<GasProjectio
         }
         var holdings=OpeningHoldings.Concat(Transitions.SelectMany(t=>(t.PhysicalOrigins??[]).Select(o=>o.Holding)))
             .Concat(Transitions.SelectMany(t=>t.Receipts.Select(r=>r.Stock))).ToArray();
-        if(holdings.Length==0||holdings.Select(h=>h.Position).Distinct().Count()!=holdings.Length)throw Error();
+        if(holdings.Length==0&&!Transitions.IsEmpty||holdings.Select(h=>h.Position).Distinct().Count()!=holdings.Length)throw Error();
         foreach(var holding in holdings)
         {
             if(!known.Positions.TryGetValue(holding.Position.Owner.Id,out var native)||native.Owner!=holding.Position||native.AccountId!=holding.Account.Id||
