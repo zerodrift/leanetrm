@@ -6,6 +6,7 @@ using OpenEtrm.Security;
 if(args is ["--contract-eligibility"]){ContractEligibilityChecks.Run();return;}
 if(args is ["--interval-anchors"]){IntervalAnchorChecks.Run();return;}
 if(args is ["--futures-margin"]){FuturesMarginChecks.Run();return;}
+if(args is ["--lifecycle-projection"]){LifecycleProjectionChecks.Run();return;}
 if(args is ["--futures-margin-trajectory"]){FuturesMarginTrajectoryChecks.Run();return;}
 if(args is ["--timed-cash"]){TimedCashChecks.Run();return;}
 if(args is ["--accounting-owners"]){AccountingOwnerChecks.Run();return;}
@@ -601,6 +602,7 @@ PcaHybridRiskChecks.Run();
 ContractEligibilityChecks.Run();passed++;
 FuturesMarginChecks.Run();passed++;
 FuturesMarginTrajectoryChecks.Run();passed++;
+LifecycleProjectionChecks.Run();passed++;
 TimedCashChecks.Run();passed++;
 AccountingOwnerChecks.Run();passed++;
 InstantRateGraphChecks.Run();passed++;

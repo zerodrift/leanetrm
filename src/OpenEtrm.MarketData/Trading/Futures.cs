@@ -137,6 +137,12 @@ public sealed partial record FuturesContract : Instrument
         if(binding.Series!=Series)throw FuturesMarketBinding.Error("futures_identity","The selected binding must retain the exact instrument terms.");
         if(context.Measure==ValuationMeasure.PresentValue)
         {
+            if(context.BindingState is ProjectedFuturesMarginState projected)
+            {
+                RequireProjectedContext(projected,context);
+                return new(Id,"projected_futures_margin_pv_v1",projected.Final?[]:binding.Dependencies,UnitQuantity.Specification,Currency)
+                    {Time=ValuationTimeDependency.Pinned};
+            }
             if(context.BindingState is not FuturesMarginState state)throw FuturesMarketBinding.Error("futures_pv_unsupported","Futures PV requires explicit retained margin state.");
             ValidateValuationState(state);
             RequireVisible(state,context.Snapshot,binding);
@@ -203,6 +209,12 @@ public sealed partial record FuturesContract : Instrument
     {
         if(context.Measure==ValuationMeasure.PresentValue)
         {
+            if(context.BindingState is ProjectedFuturesMarginState projected)
+            {
+                RequireProjectedContext(projected,context);
+                if(projected.Final)return ExactMoney.Parse("0",Currency);
+                return context.Inputs.ExactPrice(context.Futures(Id).Market).Subtract(projected.Basis).ExactTimes(UnitQuantity);
+            }
             if(context.BindingState is not FuturesMarginState state)throw FuturesMarketBinding.Error("futures_pv_unsupported","Futures PV requires explicit retained margin state.");
             ValidateValuationState(state);
             var source=context.Futures(Id);
@@ -219,6 +231,7 @@ public sealed partial record FuturesContract : Instrument
     public override void ValidateValuationState(IBindingValuationState? state)
     {
         if(state is null)return;
+        if(state is ProjectedFuturesMarginState projected){RequireProjected(projected);return;}
         if(state is not FuturesMarginState margin)throw FuturesMarketBinding.Error("futures_margin_state","Select the exact supported futures margin state.");
         FuturesMargin.Require(margin,this);
     }
