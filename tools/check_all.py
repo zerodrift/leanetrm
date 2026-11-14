@@ -87,7 +87,8 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
         ('check_gas_physical_known','captured physical gas delivery dependencies'),
         ('check_gas_cashout_projection','cashout profiles, native valuation and retained economic workers'),
         ('check_gas_accepted_projection','accepted physical gas movements, exact remainders and native economic workers'),
-        ('check_risk_fit_authority','volatility fitting actor and delegated worker authority')):
+        ('check_risk_fit_authority','volatility fitting actor and delegated worker authority'),
+        ('check_retained_swap_schedule_reads','retained swap hydration and original worker read admission')):
         check(label,[sys.executable,f'tools/{helper}.py','--pg-bin',str(pg_bin)],suite='trading')
     for helper,label in (
         ('check_lifecycle_risk_jobs','economic lifecycle custody and native worker scope'),

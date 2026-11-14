@@ -287,6 +287,9 @@ def main():
                 reference,market,security,manifest=add_in_term_fixture(reference,market,security,manifest)
         query((ROOT/'db/bootstrap.sql').read_text())
         for migration in sorted((ROOT/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
+            if args.scheduled_swap_check and migration.name=='0296_retained_swap_schedule_reads.sql':
+                from check_retained_swap_schedule_reads import predecessor_readers
+                predecessor_readers(query)
             if migration.name.startswith(('0228_','0229_')):
                 from check_fact_anchor_upgrade import run_checks as check_point_upgrade
                 point_signatures=('security.materialize_gas_setup(uuid,uuid)','trading.require_gas_program_shape(uuid,uuid,integer,date,date,timestamptz,numeric,numeric,market_data.gas_valuation_assignments,ref_data.gas_delivery_conventions,timestamptz,jsonb)')

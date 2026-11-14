@@ -324,3 +324,17 @@ identities. Signed rational checks use independently selected funding and
 residual factors and retain the original provider snapshots. API selection,
 native input custody, worker replay and UI controls are separate qualification
 gates for this new explicit-map consumer.
+
+Retained scheduled-swap reads share exact invoker relational projections for
+their native period inputs. They preserve the predecessor's complete JSON and
+required-child visibility or refusal behavior. Worker SELECT policies follow
+D282: full current authorization and its original minimum authority cutoff are
+resolved once per SQL statement, with that cutoff checked on every row. A
+revocation, cancellation or lease change is visible on the next statement or
+cursor close; protected readers, writes and publication checks retain their
+current guards. No transaction authorization cache is introduced. Stock-database
+checks cover hidden schedule children, same-protocol statement invalidation,
+mid-query original-grant expiry despite a successor grant, and the original
+29-position dated-observation worker under its unchanged five-second input
+read deadline. Historical and Monte Carlo jobs, delegated financial actions,
+native ledger corrections and exact replay also pass the complete swap flow.

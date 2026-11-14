@@ -54,7 +54,7 @@ END $fixture$;
     return market.rsplit('COMMIT;', 1)[0] + '\n' + '\n'.join(rows) + '\nCOMMIT;\n'
 
 
-def run(c, context, template, query, run_worker=None):
+def run(c, context, template, query, run_worker=None,*,manifest):
     body = deepcopy(template)
     body['operationId'] = str(uuid4())
     for name in ('first', 'second'):
@@ -164,5 +164,8 @@ def run(c, context, template, query, run_worker=None):
     from check_contract_observation_settlement import run as check_settlement
     settlement_fixture = check_settlement(c, context, body, query)
     from check_contract_observation_risk import run as check_risk
+    if query is not None:
+        from check_retained_swap_schedule_reads import projection_parity
+        projection_parity(query,manifest,'2021-01-15T08:00:00Z')
     check_risk(c, context, saved, partial_saved, exact_saved, query, run_worker, settlement=settlement_fixture)
     print('PASS dated-contract booking: explicit prompt roll, historical daily samples, exact retry and retained replay')

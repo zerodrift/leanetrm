@@ -424,5 +424,5 @@ def run_checks(url,query=None,manifest=None,*,run_worker):
     from check_scheduled_observations import run as check_scheduled_observations
     check_scheduled_observations(c,context,manifest)
     from check_contract_observation_booking import run as check_contract_observations
-    check_contract_observations(c,context,body,query,run_worker=run_worker)
+    check_contract_observations(c,context,body,query,run_worker=run_worker,manifest=manifest)
     return dict(frame=partial,tradeId=mixed_saved['tradeId'],currency=value['currency'],netTradeId=net_fixture['tradeId'])

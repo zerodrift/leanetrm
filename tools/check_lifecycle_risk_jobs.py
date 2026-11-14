@@ -55,7 +55,7 @@ def before_migration(query, migration):
         'security.read_gas_owned_holdings(uuid,uuid,timestamptz,uuid[])'))
 
 
-def checks(query, manifest):
+def checks(query, manifest, read_policy_checks=None):
     after=helper_metadata(query)
     assert all(after[s]['oid']==p['oid'] for s,p in _before.items()), 'An existing public helper OID changed'
 
@@ -307,6 +307,8 @@ def checks(query, manifest):
         assert query(f"SELECT security.principal_has_permission(w.principal_id,'{tenant}','{workspace}','{'ReadGasOwnedHoldings'if conditional_gas else'RunScenario'}',clock_timestamp())FROM risk.workers w WHERE w.login='{login}';")=='t'
     print('PASS bind first-wait admission preserves original base and conditional gas deadlines across epoch waits and preexisting successor grants',flush=True)
 
+    if read_policy_checks is not None:
+        read_policy_checks(query,manifest,request,frame,submit)
     print('QUALIFIED authority_until source hash '+query("SELECT md5(prosrc) FROM pg_proc WHERE oid='security.authority_until(text)'::regprocedure;"),flush=True)
 
 
