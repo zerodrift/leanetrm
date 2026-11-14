@@ -501,6 +501,8 @@ api.MapPost("/close-sessions/save",(HttpContext c,CloseSessionSave body)=>DateOp
     Results.Ok(await CloseSessions.Save(connection,database,body,ct))));
 api.MapPost("/close-sessions/publish",(HttpContext c,CloseSessionPublish body)=>DateOperation(c,"SealMarketDefinitions",async(session,connection,ct)=>
     Results.Ok(await CloseSessions.Publish(connection,database.Manifest.CatalogId,body,ct))));
+api.MapPost("/close-sessions/listing",(HttpContext c,CloseSessionListing body)=>DateOperation(c,"SealMarketDefinitions",async(session,connection,ct)=>
+    Results.Ok(await CloseSessions.PublishListing(connection,database.Manifest.CatalogId,body,ct))));
 api.MapGet("/close-sessions/choice",(Func<HttpContext,Task<IResult>>)(c=>DateOperation(c,"ReadMarketData",async(session,connection,ct)=>
     Results.Ok(await CloseSessions.Choice(connection,database.Manifest.CatalogId,ct)))));
 api.MapPost("/close-sessions/choice",(HttpContext c,CloseSessionChoice body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
@@ -1216,6 +1218,7 @@ api.MapPost("/evaluate",(HttpContext c,BuildRequest body)=>Locked(c,async sessio
         {
             json["observations"]=JsonSerializer.SerializeToNode(read.Observations);
             json["observationScope"]="selected_frame";
+            json["inputSelection"]=JsonSerializer.SerializeToNode(read.InputSelection,new JsonSerializerOptions{PropertyNamingPolicy=JsonNamingPolicy.CamelCase});
         }
         if(body.IncludeWorkspace)json["workspace"]=JsonSerializer.SerializeToNode(WorkspaceProjection(session,read.Workspace??throw new InvalidOperationException("The requested workspace projection is missing."),true,pin),new JsonSerializerOptions{PropertyNamingPolicy=JsonNamingPolicy.CamelCase});
         return Results.Ok(json);

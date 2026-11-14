@@ -652,7 +652,8 @@ static class AgentToolChecks
         var (used,unused)=(Guid.NewGuid(),Guid.NewGuid());
         var priced=new PriceRead(new{snapshotId=Working.Id,name=Working.Name,at=Working.At,curve="future",evaluated=1,numericalPolicy="synthetic_policy_v1",
             trace=new[]{new{id="step_0"}},points=new[]{new{contractId=Guid.NewGuid(),priceTick="0.025",value="3.1",quote="synthetic_quote",lineage=new[]{used}}},
-            observationIds=Working.ObservationIds},[Json($$"""{"id":"{{used}}","value":"3.1"}"""),Json($$"""{"id":"{{unused}}","value":"9"}""")]);
+            observationIds=Working.ObservationIds},[Json($$"""{"id":"{{used}}","value":"3.1"}"""),Json($$"""{"id":"{{unused}}","value":"9"}""")],
+            new(Working.Id,new(Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid()),[used],true));
         var curve=ToolResults.Curve(priced);
         var observations=ToolResults.Observations(priced);
         Require(curve.Value.Select(m=>m.Key).SequenceEqual(["curve","numericalPolicy","points"])&&curve.Rows==1&&curve.Displayed

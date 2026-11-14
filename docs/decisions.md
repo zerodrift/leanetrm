@@ -5051,3 +5051,35 @@ boundary has no usable one-tick gamma on either tree. A run retained before a
 change of the stated pricing policy is no longer opened as a scope's current
 report after it.
 
+## D397 · Current close listings and exact price inspection
+
+Close conventions have append-only current presentation listings. A listing pins
+an exact published session version, its display name and whether the convention
+is available. Unlisted conventions disappear from current discovery before the
+frame limit is applied, remembered choices return unavailable, and new session
+versions, choices and close facts refuse. Accepted command retries retain their
+first outcomes; an unchanged fact remains a no-op. Exact retained close reads and
+historical calculation authority remain independent of current listing status.
+No close is retimestamped or rewritten by a listing change.
+
+`SealMarketDefinitions` and current write context authorize listing publication,
+with an explicit expected listing version and request identity. Listing knowledge
+uses certified commit times retained in immutable receipts; conflicting or
+non-increasing knowledge refuses. The current presentation policy selects the
+latest certified listing, or its writer's single in-flight change. A label applies
+only to its exact pinned session version. Existing conventions without a listing
+remain available under the explicit compatibility policy.
+
+Price inspection returns the evaluated snapshot, exact definition/reference
+source and its selected observation ids. The UI validates lineage against that
+selection, rather than the primary frame's observations. Historical revisions
+returned for inspection cannot satisfy a missing selected pin. The existing
+primary and declared input-market correction paths retain their editors; other
+sources offer read-only version inspection. General source-aware correction
+authoring remains a separate consumer.
+
+Isolated stock PostgreSQL checks cover authorization, retirement, immutable
+retained inputs, first outcomes and upgrade preservation. The web checks exercise
+a separately sourced curve and inconsistent snapshot/source/lineage refusal.
+Application/schema publication and installation-specific data consolidation are
+separate, explicitly approved operations.
