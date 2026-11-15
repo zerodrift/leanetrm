@@ -64,7 +64,7 @@ import {curveWorkbook,rateWorkbook,renderWorkbook} from './curve-workbook.js';
 import {type PricingGraph,pricingGraph,pricingEquation} from './pricing-view.js';
 import {renderPricingGraph} from './pricing-graph-view.js';
 import {type Row,type Frame,type Workspace,type CurveResult,type Point,type ReferenceDisplay,type ReferenceRevision,displayReferenceRows,referenceLabel,presentedReferences,val,publicText,friendly,curveName,setCurveNames,exactRow,commodityName,displayInstant,deliveryMonth,frameOptions,quoteUnit,publicColumns,timeLabels,allCurves,displayDate,pointDate,pointIdentity,deliveryLabel,historyPriceLabel,summaryTiles,contractCountText,priceSourceInputIds} from './market-view.js';
-import {dataSections,keylessCategories} from './data-sections.js';
+import {dataSections,keylessCategories,referenceGroups} from './data-sections.js';
 import {renderReferenceItem,renderIndexPublications,type IndexPublication} from './reference-detail.js';
 import {publicationsOfIndex} from './price-authoring-model.js';
 import {renderFuturesProduct} from './futures-product-view.js';
@@ -108,7 +108,7 @@ let sourceOnlyCurve=false;
 let contractOpener:HTMLElement|undefined,contract='',historyPolicy:RevisionPolicy=revisionPolicies[0].policy,overlayRequests:OverlayRequest[]=[],historyData:ContractHistory|undefined,historySeries:OverlaySeries[]=[],historyFailed=false;
 // The overlay catalog, read for one account.
 let overlayCatalog:{scope:string;catalog:OverlayCatalog}|undefined;
-let consoleTables:string[]=[],contextDirty=false,currentProfile='',administrationScope='',permissions:string[]=[];
+let consoleTables:string[]|undefined,contextDirty=false,currentProfile='',administrationScope='',permissions:string[]=[];
 // The active view's convention starts from the profile default; an explicit override belongs to this window.
 let closeSession:string|null=null,closeSessionNames:ReadonlyMap<string,string>=new Map();
 // The name of the close convention in use, or null while none is chosen.
@@ -332,8 +332,8 @@ async function setPage(next:string){
   $('market-close-controls').hidden=$('close-session-control').hidden=usesBusinessDate(next);$('as-of-context').closest<HTMLElement>('.as-of-widget')!.hidden=usesBusinessDate(next)&&!showsContext(next);
   renderBlotterViews();
   text('status',pageStatus());syncControls();
-  // The menu lists reference tables from the catalog this account reads.
-  if(inConsole&&navigation&&!contextDirty){await loadWorkspace();referenceConsole.sync();}
+  // The menu lists reference tables from the catalog this account reads. Curve builder reads no catalog of its own.
+  if(inConsole&&next!=='custom-curves'&&navigation&&!contextDirty){await loadWorkspace();referenceConsole.sync();}
 }
 function showView(view:Preferences['tab']){document.querySelectorAll<HTMLElement>('.view').forEach(n=>n.hidden=n.id!==`view-${view}`);document.querySelectorAll<HTMLButtonElement>('.tab').forEach(b=>{const active=b.dataset.view===view;b.classList.toggle('active',active);b.setAttribute('aria-selected',String(active));});}
 function renderLayout(){
@@ -1080,7 +1080,7 @@ async function loadIdentity(initialAccess?:unknown){
   physicalOperations.reset();$('physical-operations-page').hidden=true;deliverySetup.reset();referenceConsole.reset();curveWorkspace.reset();customCurves.reset();$('custom-curves-page').hidden=true;volSurfaces.reset(true);$('vol-surfaces-page').hidden=true;riskJobs.reset();riskViewsNav.reset();$('risk-page').hidden=true;facilities.reset();$('facilities-page').hidden=true;jobs.reset();$('jobs-page').hidden=true;dashboard.reset();$('dashboard-page').hidden=true;
 
   deliveryPrices.reset();intervalSeries.reset();intervalCurves.reset();ppa.reset();gas.reset();crude.reset();lng.reset();$('lng-page').hidden=true;gasSetup.reset();crudeSetup.reset();$('crude-setup-page').hidden=true;$('gas-setup-page').hidden=true;$('gas-page').hidden=true;$('crude-page').hidden=true;referenceEditor.reset();$('delivery-page').hidden=true;$('interval-series-page').hidden=true;$('interval-curves-page').hidden=true;parties.reset();unitConverter.reset();futures.reset(null);blotterViews={listed:[],shown:null};renderBlotterViews();power.reset();touProducts.reset();schedules.reset();dateEditor.reset();priceSetup.reset();curveDefinitions.reset();$('curve-definitions-page').hidden=true;scheduleWorkspace?.reset();administration.reset();aiSettings.reset();agentGrants.reset();contextDirty=false;$('parties-page').hidden=true;$('power-page').hidden=true;$('futures-page').hidden=true;$('blotter-away').hidden=true;$('no-access-page').hidden=true;
-  $('context-toolbar').hidden=true;curve='';clearPrices();clearReference();referenceTable='';referenceReturn=undefined;referenceNavigation.clear();marketGeneration++;workspace=undefined;consoleTables=[];navigation=undefined;setCurveNames([]);permissions=[];choose('snapshot',[{value:'',name:'Choose a date…'}],'');marketCalendar.reset();workspaceCloses=undefined;closeBasis=undefined;select('snapshot').closest<HTMLElement>('.date-control')!.hidden=true;$('curves').replaceChildren();$('market-page').hidden=true;$('reference-page').hidden=true;$('schedules-page').hidden=true;$('price-setup-page').hidden=true;$('admin-page').hidden=true;$('ai-page').hidden=true;accessPolicy.reset();assistantPolicy.reset();$('date-context').hidden=true;
+  $('context-toolbar').hidden=true;curve='';clearPrices();clearReference();referenceTable='';referenceReturn=undefined;referenceNavigation.clear();marketGeneration++;workspace=undefined;consoleTables=undefined;navigation=undefined;setCurveNames([]);permissions=[];choose('snapshot',[{value:'',name:'Choose a date…'}],'');marketCalendar.reset();workspaceCloses=undefined;closeBasis=undefined;select('snapshot').closest<HTMLElement>('.date-control')!.hidden=true;$('curves').replaceChildren();$('market-page').hidden=true;$('reference-page').hidden=true;$('schedules-page').hidden=true;$('price-setup-page').hidden=true;$('admin-page').hidden=true;$('ai-page').hidden=true;accessPolicy.reset();assistantPolicy.reset();$('date-context').hidden=true;
   if(initialAccess===undefined)permissions=(await api<{permissions:string[]}>('access')).permissions;
   else{
     const access=initialAccess as StartupAccess|null;
@@ -1341,8 +1341,13 @@ function openView(next:string,view:string){
   },contextDirty&&readsContext.includes(next)?'discards':'page');
 }
 const referenceConsole=setupReferenceConsole({host:$('reference-console'),areas:$('nav-reference'),busy:()=>busy,pendingContext:()=>contextDirty,
-  // A changed context drops the catalog until it is read again; the menu keeps the tables this account last read.
-  menu:()=>{if(workspace)consoleTables=Object.keys(workspace.references);return consoleMenu({pageAvailable:next=>pageAvailable(next,permissions),tables:consoleTables});},
+  // A changed context drops the catalog until it is read again; the menu keeps the tables this account last read. Before any is read,
+  // as when Curve builder opens first, a reader of reference data is listed every table: opening one reads the catalog, which says
+  // whether this account has it.
+  menu:()=>{
+    if(workspace)consoleTables=Object.keys(workspace.references);
+    return consoleMenu({pageAvailable:next=>pageAvailable(next,permissions),tables:consoleTables??(pageAvailable('reference',permissions)?referenceGroups.flatMap(g=>g.sections.map(s=>s.value)):[])});
+  },
   open:entry=>{if(entry.table)openReferenceTable(entry.table);else if(entry.view)openView(entry.page,entry.view);else navigate(entry.page)();},
   search:text=>leaving(async()=>{if(page!=='reference')await showPage('reference');await searchReference(text);},'page')});
 // A reference address the person follows, types or returns to with Back opens what it names.

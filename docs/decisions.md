@@ -5202,7 +5202,10 @@ unchanged, and the server still authorizes each operation.
 The console's own menu, a second column that repeated the sidebar's areas, is
 removed. The sidebar lists the areas. The entries of the area shown run across
 the top of its pages, with the search of reference data beside them; an area of
-one entry lists nothing to choose between.
+one entry lists nothing to choose between. Curve builder still reads no reference
+catalogue of its own: before an account's catalogue is read, a reader of
+reference data is listed every table, and opening one reads the catalogue, which
+says whether the account has it.
 
 | Area | Entries |
 | --- | --- |
