@@ -7,6 +7,63 @@ const context={contextId:'10000000-0000-0000-0000-000000000001',asOf:'2026-11-02
 const offer={target:{handler:'listed_option',scopeId:'30000000-0000-0000-0000-000000000001',bindingId:'40000000-0000-0000-0000-000000000001'},action:'option.expiry',label:'Determine expiry',occurrenceId:'50000000-0000-0000-0000-000000000001',at:context.asOf,before:null,eligible:true,reason:null,revision:1,stateVersion:2,subject:{reference:'TR-000001',product:'Synthetic gas call',bookId:'60000000-0000-0000-0000-000000000001',book:'Synthetic book'},policyId:'70000000-0000-0000-0000-000000000001',policyRevision:3,selection:{evidenceId:'30000000-0000-0000-0000-000000000001',lots:null,expectedEventVersion:2,profileRevision:4},requiredInputs:[],inputChoices:{}};
 const discovery={context,actions:[offer],policies:[{id:offer.policyId,revision:3,action:offer.action,mode:'review',from_at:'2026-01-01T00:00:00Z',until_at:'2027-01-01T00:00:00Z'}],optionProfiles:[],swapProfiles:[],marginPolicies:[],choices:{actions:[{code:'option.expiry',automatic:true,configurationPermission:'AmendTrade',executionPermission:'BookTrade'}],modes:['manual','review','automatic'],policyImplementation:'explicit_lifecycle_action_policy_v1',swapRounding:[],swapDue:[],swapRecognition:[],swapCorrection:[]}};
 const settle=()=>new Promise(r=>setTimeout(r,40));
+const feeOffer={...offer,target:{handler:'gas_loan_fee_amendment',scopeId:'account',bindingId:'loan'},action:'gas.loan.amend_fee',label:'Amend loan fee',occurrenceId:'loan',revision:0,stateVersion:0,selection:null,
+ subject:{...offer.subject,reference:'Synthetic account / recorded loan'}};
+const feeSetup={context,accounts:[{id:'account',label:'Synthetic account'}],policies:[{id:offer.policyId,label:'Manual fee amendment',revision:3,action:feeOffer.action,accountId:'account'}],
+ forms:{[feeOffer.action]:{label:'Amend loan fee',permission:'RecordGasOwnedHoldings',fields:[
+  {name:'feeRevision',label:'Current loan fee',kind:'reference',nullable:false,members:['loanId','expectedRevision'],choices:[{id:'fee-2',label:'Fee -4 USD · revision 2',value:{loanId:'loan',expectedRevision:2}}]},
+  {name:'amount',label:'Revised total fee',kind:'text',nullable:false},{name:'dueAt',label:'Revised fee due',kind:'instant',nullable:true},
+  {name:'effectiveAt',label:'Amendment effective time',kind:'instant',nullable:false},
+  {name:'implementation',label:'Cash adjustment rule',kind:'select',nullable:false,choices:[{id:'gross_timed_fixed_fee_adjustments_v1',label:'Keep original cash; add dated fee adjustments',value:'gross_timed_fixed_fee_adjustments_v1'}]},
+  {name:'evidence',label:'Amendment evidence',kind:'text',nullable:false}]}},configuration:{}};
+for(const zero of [false,true])test('loan fee review retains exact source cash and bank payments with '+(zero?'explicit zero and nullable due':'exact revised amounts'),
+ {skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<div id="host"></div>',async evaluate=>{
+ const amount=zero?'0':'-6.000000000000000001';
+ const cash={id:'original-fee',amount:'-4.000000000000000001',currency:'usd',dueAt:'2026-11-04T18:00:00Z',effectiveAt:context.asOf,publicationOrder:1};
+ const details={willChange:true,alreadyRecorded:false,terms:{revision:2,amount:cash.amount,dueAt:cash.dueAt,effectiveAt:context.asOf},rootFee:cash,cash:[cash],
+  payments:[{id:'payment',feeId:cash.id,businessKey:'synthetic_bank_payment',revision:1,amount:'-2.000000000000000001',paidAt:context.asOf,evidence:'Synthetic bank evidence',publicationOrder:2}],currentPaid:'-2.000000000000000001',
+  outcome:{currency:'usd',changed:true,acknowledgedRevision:3,currentRevision:3,currentAmount:amount,currentDueAt:zero?null:'2026-11-05T18:00:00Z',currentEffectiveAt:context.asOf,
+   cashChanges:[{kind:'reverse_prior_fee',feeId:'credit',amount:'4.000000000000000001',dueAt:cash.dueAt,effectiveAt:context.asOf},
+    ...zero?[]:[{kind:'revised_fee',feeId:'debit',amount,dueAt:'2026-11-05T18:00:00Z',effectiveAt:context.asOf}]]}};
+ await evaluate(`(async()=>{window.sent=[];window.previews=[];window.errors=[];const {setupLifecycle}=await import('/lifecycle-view.js');const api=async(path,body)=>{
+  if(path==='lifecycle/view')return ${JSON.stringify({...discovery,actions:[feeOffer],choices:{...discovery.choices,actions:[{code:feeOffer.action,automatic:false,configurationPermission:'ConfigureGasOwnedHoldings',executionPermission:'RecordGasOwnedHoldings'}]}})};
+  if(path==='lifecycle/gas/setup')return {...${JSON.stringify(feeSetup)},target:body.target};
+  if(path==='time/inspect')return{candidates:[{instant:body.localTime.startsWith('2026-11-05')?'2026-11-05T18:00:00Z':'2026-11-02T15:00:00Z',offset:'-06:00'}]};
+  if(path==='lifecycle/preview'){previews.push(body);return{hash:'a'.repeat(64),offer:${JSON.stringify(feeOffer)},details:${JSON.stringify(details)}};}
+  if(path==='lifecycle/execute'){sent.push(body);return{operationId:body.operationId,changed:true};}throw Error('Unexpected '+path);};
+  window.desk=setupLifecycle(document.querySelector('#host'),{api,act:async f=>{try{await f();}catch(e){errors.push(e.message);}},busy:()=>false,identity:()=> 'operator',context:()=>({snapshotId:'header'}),historical:()=>false,zone:()=> 'America/Chicago',permission:()=>true,changed(){}});await desk.load();})()`);
+ await settle();await evaluate("document.querySelector('[data-lifecycle=rows] .tabulator-row').click()");await settle();
+ assert.equal(await evaluate("!!document.querySelector('[name=feeRevision]')"),true,'The fee handler did not open its backend-owned form.');
+ assert.equal(await evaluate("document.querySelector('[name=implementation]').value"),'','The single supported fee rule was silently selected.');
+ await evaluate(`(()=>{for(const[name,value]of Object.entries({policyId:'${offer.policyId}:3',feeRevision:'fee-2',amount:'${amount}','dueAt-disposition':'${zero?'none':'value'}',dueAt:'${zero?'':'2026-11-05T12:00:00'}',effectiveAt:'2026-11-02T09:00:00',implementation:'gross_timed_fixed_fee_adjustments_v1',evidence:'Synthetic reviewed fee change'})){
+  const field=document.querySelector('[name="'+name+'"]');field.value=value;field.dispatchEvent(new Event('input',{bubbles:true}));field.dispatchEvent(new Event('change',{bubbles:true}));}document.querySelector('[data-lifecycle=panel] form').requestSubmit();})()`);await settle();
+ assert.deepEqual(await evaluate('errors'),[]);const text=await evaluate("document.querySelector('[data-lifecycle-review]').textContent");
+ for(const value of ['Original cash fee','Existing cash memberships','Recorded bank payment history','Cash adjustments','synthetic_bank_payment','-4.000000000000000001','-2.000000000000000001','4.000000000000000001','USD',amount])assert.ok(text.includes(value),value);
+ if(zero)assert.match(text,/Revised fee dueNone/);
+ assert.equal(await evaluate('sent.length'),0);await evaluate("document.querySelector('[data-lifecycle-execute]').click()");await settle();
+ const sent=await evaluate('sent');assert.equal(sent.length,1);assert.deepEqual(sent[0].context,context);assert.deepEqual(sent[0].target,feeOffer.target);
+ assert.deepEqual(sent[0].selection,{loanId:'loan',expectedRevision:2,amount,dueAt:zero?null:'2026-11-05T18:00:00Z',effectiveAt:context.asOf,implementation:'gross_timed_fixed_fee_adjustments_v1',evidence:'Synthetic reviewed fee change'});
+}));
+test('loan fee review retains an older acknowledgement and rejects lossy monetary display rows',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<div></div>',async evaluate=>{
+ const result=await evaluate(`(async()=>{const {loanFeeReview}=await import('/gas-loan-fee-review.js');
+  const selection={amount:'0',dueAt:null,effectiveAt:'2026-11-02T15:00:00Z',evidence:'Synthetic prior terms'};
+  const cash={amount:'-4.000000000000000001',currency:'usd',dueAt:'2026-11-04T18:00:00Z',effectiveAt:selection.effectiveAt};
+  const source={willChange:false,alreadyRecorded:true,terms:{revision:3,amount:'-6',dueAt:cash.dueAt,effectiveAt:selection.effectiveAt},rootFee:null,cash:[cash],
+   payments:[{businessKey:'synthetic_recorded_bank',revision:1,amount:'-2',paidAt:selection.effectiveAt,evidence:'Synthetic bank source'}],currentPaid:'-2',
+   outcome:{currency:'usd',acknowledgedRevision:1,currentRevision:3,currentAmount:'-6',currentDueAt:cash.dueAt,currentEffectiveAt:selection.effectiveAt,cashChanges:[{...cash,kind:'reverse_prior_fee',amount:'4.000000000000000001'}]}};
+  const reviewed=loanFeeReview(source,selection,value=>value),rejected=[];
+  for(const [name,edit]of Object.entries({source:d=>d.terms.amount=4,original:d=>d.rootFee={...cash,amount:4},cash:d=>d.cash[0].amount=4,
+   payment:d=>d.payments[0].amount=4,paid:d=>d.currentPaid=4,current:d=>d.outcome.currentAmount=4,adjustment:d=>d.outcome.cashChanges[0].amount=4,
+   currency:d=>d.cash[0].currency='eur',kind:d=>d.outcome.cashChanges[0].kind='unknown',missingDue:d=>delete d.outcome.currentDueAt})){
+    const changed=structuredClone(source);edit(changed);try{loanFeeReview(changed,selection,value=>value);}catch{rejected.push(name);}}
+  try{loanFeeReview(source,{...selection,amount:0},value=>value);}catch{rejected.push('selection');}
+  return{reviewed,rejected};})()`);
+ const facts=Object.fromEntries(result.reviewed.facts);assert.equal(facts.Effect,'Existing fee terms acknowledged · no new effect');
+ assert.equal(facts['Acknowledged fee revision'],'1');assert.equal(facts['Retained current fee revision'],'3');
+ assert.equal(facts['Acknowledged total fee'],'0');assert.equal(facts['Acknowledged fee due'],'None');assert.equal(facts['Retained current total fee'],'-6');
+ assert.deepEqual(result.reviewed.tables[0].rows,[]);assert.equal(result.reviewed.tables[3].label,'Recorded cash adjustments');
+ assert.deepEqual(result.rejected,['source','original','cash','payment','paid','current','adjustment','currency','kind','missingDue','selection']);
+}));
 test('initial gas form metadata must echo the exact requested native target',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<div id="host"></div>',async evaluate=>{
  const gasOffer={...offer,target:{handler:'gas_owned',scopeId:'account',bindingId:'account'},action:'gas.owned.receive_title',selection:null};
  await evaluate(`(async()=>{const {setupLifecycle}=await import('/lifecycle-view.js');window.errors=[];const api=async(path)=>path==='lifecycle/view'?${JSON.stringify({...discovery,actions:[gasOffer]})}:{context:${JSON.stringify(context)},target:{...${JSON.stringify(gasOffer.target)},scopeId:'another-account'},accounts:[],policies:[],forms:{'gas.owned.receive_title':{label:'Title',permission:'RecordGasOwnedHoldings',fields:[{name:'quantity',label:'Quantity',kind:'text',nullable:false}]}},configuration:{}};window.desk=setupLifecycle(document.querySelector('#host'),{api,act:async f=>{try{await f();}catch(error){errors.push(error.message);}},busy:()=>false,identity:()=> 'operator',context:()=>({snapshotId:'header'}),historical:()=>false,zone:()=> 'America/Chicago',permission:()=>true,changed(){}});await desk.load();})()`);

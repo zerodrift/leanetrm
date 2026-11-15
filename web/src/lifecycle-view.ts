@@ -5,13 +5,14 @@ import {zonedInput} from './user-time.js';
 import {mountLifecycleSchedule} from './lifecycle-scheduling.js';
 import {mountLifecycleSettings} from './lifecycle-settings.js';
 import {mountGasOwnedAction,mountGasOwnedSettings,type GasOwnedSetup,type GasOwnedUiOptions} from './gas-owned-lifecycle.js';
+import {loanFeeReview} from './gas-loan-fee-review.js';
 import {lifecycleKey,lifecycleRows,lifecycleReason,lifecycleRequest,lifecycleChangesFinancialSource,restoreLifecycleRequest,lifecycleOperationId,type LifecycleDiscovery,type LifecycleOffer,type LifecycleDraft,type LifecycleRequest} from './lifecycle-model.js';
 
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type Review={hash:string;offer:LifecycleOffer;details:Record<string,unknown>};
 const words=(value:string)=>value.replaceAll('_',' ').replaceAll('.',' · ').replace(/([a-z])([A-Z])/g,'$1 $2');
 const title=(value:string)=>{const text=words(value);return text.charAt(0).toUpperCase()+text.slice(1);};
-const gasHandler=(handler:string)=>['gas_owned','gas_futures_delivery','gas_futures_reconciliation','gas_futures_reconciliation_batch','gas_owned_quantity_reconciliation','gas_quantity_bundle'].includes(handler);
+const gasHandler=(handler:string)=>['gas_owned','gas_futures_delivery','gas_futures_reconciliation','gas_futures_reconciliation_batch','gas_owned_quantity_reconciliation','gas_quantity_bundle','gas_loan_fee_amendment'].includes(handler);
 const knownRejection=(code:string|undefined)=>!!code&&/^(lifecycle_|option_|futures_|swap_|gas_|settlement_|historical_|job_|access_denied$|request_denied$)/.test(code);
 const element=<K extends keyof HTMLElementTagNameMap>(tag:K,text?:string)=>{const node=document.createElement(tag);if(text!==undefined)node.textContent=text;return node;};
 
@@ -81,7 +82,9 @@ export function setupLifecycle(root:HTMLElement,o:{api:Api;act:(work:()=>Promise
   add('Holding',selected?.subject?.reference);add('Business date',request.context.businessDate);add('As of',instant(request.context.asOf));
   for(const reference of references)add(reference.label,reference.value);
   const d=review.details;for(const [key,label] of [['decision','Decision'],['openLots','Open lots'],['lots','Lots affected'],['futureLots','Linked futures lots'],['strike','Strike'],['settlement','Settlement'],['amount','Amount'],['roundedTotal','Rounded payment'],['exactTotal','Exact payment'],['reference','Evidence reference']] as const)add(label,d[key]);
-  if(gasHandler(request.target.handler)){
+  const fee=request.target.handler==='gas_loan_fee_amendment'?loanFeeReview(d,request.selection,instant):undefined;
+  if(fee)for(const[label,value]of fee.facts)add(label,value);
+  if(gasHandler(request.target.handler)&&!fee){
    const effect=d.effects as Record<string,unknown>|undefined;add('Effect',d.willChange===false?'Existing fact acknowledged · no new effect':'Record observed facts');
    const correction=request.target.handler==='gas_futures_reconciliation';
    if(correction){add('Acknowledged financial revision',d.acknowledgedRevision);add('Current financial revision',d.currentRevision);}
@@ -100,6 +103,13 @@ export function setupLifecycle(root:HTMLElement,o:{api:Api;act:(work:()=>Promise
   const net=request.action==='swap.net'?d.settlement as Record<string,unknown>|undefined:undefined;
   if(net){if(net.existingFact===true)add('Effect','Already recorded · no new cash or allocation');add('Net cash',net.amount);add('Gross paid',net.grossPaid);add('Gross received',net.grossReceived);add('Reverses payment',net.reversesId);}
   section.append(list);
+  if(fee)for(const part of fee.tables){
+   section.append(element('h4',part.label));
+   if(!part.rows.length){section.append(element('p','None'));continue;}
+   const table=element('table');table.className='regular-table';const head=element('tr');for(const label of part.columns)head.append(element('th',label));table.append(head);
+   for(const values of part.rows){const row=element('tr');for(const value of values)row.append(element('td',value));table.append(row);}
+   const scroll=element('div');scroll.className='lifecycle-review-table';scroll.append(table);section.append(scroll);
+  }
   const bundle=request.target.handler==='gas_quantity_bundle';
   if((request.target.handler==='gas_owned_quantity_reconciliation'||bundle)&&d.outcome&&typeof d.outcome==='object'){
    const result=d.outcome as Record<string,unknown>,outcome=(bundle?result.ordinary:result) as Record<string,unknown>;
