@@ -260,6 +260,14 @@ lazy member selection, reviewed correction and exact retry after an uncertain
 acknowledgement. Broader loan/operator/fee amendments and changed event-time or
 advance treatment retain separate implementation gates.
 
+The opt-in agent-only `gas_lifecycle_operator` role contains exactly
+`ReadMarketData`, `ReadTrades`, `ReadGasOwnedHoldings` and
+`RecordGasOwnedHoldings`. It creates no principal, assignment or delegation and
+grants no configuration or job capability. Human and service administration
+cannot assign it. Delegated operations still require the live agent, delegator,
+workspace and source intersection and the same explicit review. Losing current
+agent or delegator authority also refuses access to a retained write receipt.
+
 `tools/check_gas_physical_known.py` qualifies the attachment scope and complete
 native histories. `tools/check_gas_applied_sources.py` independently corrects a
 fully consumed dispatch source and an extinguished cashout price, verifies the
@@ -290,3 +298,8 @@ and show acknowledged and current revisions separately without deriving money.
 isolated native database, retaining the scheduler, physical final and title
 checks while also verifying the ordinary correction's stable native owner,
 financial revision and first outcome.
+`tools/check_gas_lifecycle_agents.py` qualifies the actual delegated ordinary
+review, approved execution and exact retry, denied read-only/revoked/foreign
+contexts, role assignment boundaries and current authority loss. Its migration
+probes independently reject changed definitions, function shape and privileges
+of the existing agent-role and administration boundaries.
