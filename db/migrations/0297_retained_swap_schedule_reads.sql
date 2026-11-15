@@ -379,7 +379,9 @@ WITH slots AS(
  FROM slots selected
  JOIN trading.swap_quantity_authoring a ON(a.catalog_id,a.trade_id,a.revision,a.slot)=(selected.catalog_id,selected.trade_id,selected.revision,selected.slot)
  JOIN trading.swap_side_periods p ON(p.catalog_id,p.side_id)=(selected.catalog_id,selected.side_id)
- LEFT JOIN trading.swap_period_input_projection period_input ON(period_input.catalog_id,period_input.side_id,period_input.ordinal)=(p.catalog_id,p.side_id,p.ordinal)
+ -- Hydrate only the selected period, before its protected metadata joins.
+ LEFT JOIN LATERAL(SELECT exact.input,exact.evidence FROM trading.swap_period_input_projection exact
+  WHERE(exact.catalog_id,exact.side_id,exact.ordinal)=(p.catalog_id,p.side_id,p.ordinal) OFFSET 0) period_input ON true
  LEFT JOIN trading.swap_quantity_amounts q ON(q.catalog_id,q.trade_id,q.revision,q.slot,q.ordinal)=(selected.catalog_id,selected.trade_id,selected.revision,selected.slot,p.ordinal)
  GROUP BY selected.catalog_id,selected.trade_id,selected.revision,selected.instrument_id,selected.implementation,selected.quantity_factor_id,selected.slot,selected.side_id,
   a.basis,a.reference_catalog_id,a.reference_revision_id,a.quantity_code,a.contract_amount,a.allocation,a.price_application,a.clock_code,a.delivery_product,a.start_hour,a.end_hour,a.saturday,a.calendar_code
@@ -397,24 +399,17 @@ REVOKE ALL ON trading.scheduled_swap_term_projection FROM PUBLIC;
 GRANT SELECT ON trading.scheduled_swap_term_projection TO openetrm_runtime,openetrm_risk_worker;
 
 CREATE OR REPLACE FUNCTION trading.scheduled_swap_terms(catalog uuid,trade uuid,revision_number integer,instrument uuid) RETURNS jsonb
- LANGUAGE sql STABLE SET search_path=pg_catalog AS $function$
+ -- The outer revision reader preserves its own dependent join order. This
+ -- bounded schedule lookup must plan its metadata joins independently.
+ LANGUAGE sql STABLE SET search_path=pg_catalog SET join_collapse_limit=8 AS $function$
  SELECT p.scheduled_data FROM trading.scheduled_swap_term_projection p
  WHERE(p.catalog_id,p.trade_id,p.revision,p.instrument_id)=(catalog,trade,revision_number,instrument)
 $function$;
 
-DO $projection$
-DECLARE definition text=pg_get_viewdef('pg_temp.openetrm_expected_retained_swap_projection'::regclass,true);
- needle constant text='trading.scheduled_swap_terms(r.catalog_id, r.trade_id, r.revision, i.instrument_id)';
-BEGIN
- IF length(definition)-length(replace(definition,needle,''))<>length(needle)
- THEN RAISE EXCEPTION 'retained_swap_source_upgrade: expected exact schedule projection';END IF;
- definition=replace(definition,needle,'scheduled.scheduled_data');
- -- The exact native parent coordinates remain part of this invoker view. No
- -- source, reference, book, head or current-permission predicate is bypassed.
- definition=regexp_replace(definition,';[[:space:]]*$','');
- EXECUTE 'CREATE OR REPLACE VIEW trading.swap_revision_projection WITH(security_invoker=true) AS '||definition||
-  ' LEFT JOIN trading.scheduled_swap_term_projection scheduled ON(scheduled.catalog_id,scheduled.trade_id,scheduled.revision,scheduled.instrument_id)=(r.catalog_id,r.trade_id,r.revision,i.instrument_id)';
-END$projection$;
+-- Keep the qualified revision view's CASE-guarded function boundary. Ordinary
+-- swaps have no scheduled-side relationship, so they must not require SELECT
+-- on scheduled terms or their observation children. The invoker helper above
+-- reads the new projection only for a selected scheduled instrument.
 DROP VIEW pg_temp.openetrm_expected_retained_swap_projection;
 
 -- Qualify the complete predecessor worker/PUBLIC read-policy inventory before
