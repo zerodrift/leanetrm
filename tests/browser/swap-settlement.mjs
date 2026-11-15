@@ -6,13 +6,18 @@ const q=JSON.stringify;
 export async function run(driver){
  const {evaluate,wait,click,set,submit,check,idle,command,shot}=driver;
  const f=await swapLifecycleFixture(driver,'settlement_risk_browser');
+ // Adopt every setup publication and replace its old watcher before making risk.
+ await wait(idle);await click('#futures-refresh');
+ await check('risk starts from a completed read after lifecycle setup',"document.querySelector('#futures-page').dataset.pricingState==='complete'&&document.querySelector('#error').hidden","({error:document.querySelector('#error').textContent,state:document.querySelector('#futures-page').dataset.pricingState})");
  await click('#blotter-risk');await wait("[...document.querySelector('#risk-factor').options].some(o=>o.value)&&"+idle,60000);
- await click('input[name=risk-choice][value=custom]');await set('#risk-factor',await evaluate("[...document.querySelector('#risk-factor').options].find(o=>o.value).value"));await set('#risk-bump','0.1');await submit('#risk-form');await wait("!document.querySelector('#desk-run').hidden&&"+idle,60000);
+ await click('input[name=risk-choice][value=custom]');await set('#risk-factor',await evaluate("[...document.querySelector('#risk-factor').options].find(o=>o.value).value"));await set('#risk-bump','0.1');await submit('#risk-form');
+ await check('custom risk completes before a lifecycle fact invalidates it',"!document.querySelector('#desk-run').hidden&&"+idle,"({error:document.querySelector('#error').textContent,notice:document.querySelector('#notice').textContent,status:document.querySelector('#risk-status').textContent,invalid:[...document.querySelectorAll('#risk-form :invalid')].map(n=>({id:n.id,message:n.validationMessage}))})");
  await f.legacy();
  await check('Terms retains native settlement measures, gross occurrences and exact evidence without retired write forms',"document.querySelector('#swap-settlement').textContent.includes('Remaining contractual value')&&!!document.querySelector('#swap-settlement details pre')&&!!document.querySelector('#swap-open-lifecycle')&&!document.querySelector('#swap-settlement-determine')&&!document.querySelector('#swap-settlement-payment-form')");
  await click('#swap-settlement-opening');await click('#swap-open-lifecycle');await wait("!document.querySelector('#lifecycle-page').hidden&&"+idle,60000);
  await f.action('swap.determine',0);await f.review();
  await check('determination review uses the selected saved period and backend amount',`document.querySelector(${q(f.panel+' [data-lifecycle-review]')}).textContent.includes('-300')&&document.querySelector(${q(f.panel)}).textContent.includes(${q(f.reference)})`);
+ await check('review leaves the current risk result intact until the lifecycle fact is recorded',"!document.querySelector('#desk-run').hidden","({error:document.querySelector('#error').textContent,notice:document.querySelector('#notice').textContent})");
  await f.record();
  const first=await f.inspect();await check('recorded shared determination retains the signed original once',q(first.settlement.version===1&&first.settlement.determinations.length===1&&first.balances.length===1&&first.balances[0].amount==='-300'));
  await click('#nav-futures');await wait(idle,60000);
