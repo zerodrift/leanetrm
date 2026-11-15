@@ -283,6 +283,7 @@ export function setupEconomicRisk(host:HTMLElement,resultHost:HTMLElement,o:Opti
   const r=report.result;resultHost.append(node('p',`Opening ${o.instant(report.asOf)} · horizon ${o.instant(r.horizon)} · known as of ${o.instant(report.context.knownAt)} · ${o.zone()}`),
    node('p',r.samples===undefined?'No variable market factors · complete lifecycle revaluation.':`${r.samples} complete full-revaluation paths · ${report.factors.length} factors. A failed path stops the complete run.`),
    node('p','Economic loss compares horizon residual value plus horizon-valued period cash with opening value. Signed gains can produce negative VaR and expected shortfall.'));
+  if(report.optionModelHelp)resultHost.append(node('p',report.optionModelHelp));
   const currencyName=(ref:unknown)=>report!.holdings.find(h=>canonicalEconomic(h.currencyReference)===canonicalEconomic(ref))?.currency??'Currency';
   resultHost.append(table(['Currency','Economic VaR','Economic expected shortfall','Mean economic loss'],r.economic.map(p=>[currencyName(p.currency),amountText(p.valueAtRisk,'money'),amountText(p.expectedShortfall,'money'),amountText(p.mean,'money')])));
   resultHost.append(node('h4','No-shock P&L'),table(['Holding','Book','Currency','Opening value','Horizon residual','Period cash at horizon','Economic P&L'],report.holdings.map(h=>[

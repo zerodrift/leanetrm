@@ -244,12 +244,19 @@ public sealed partial class PortfolioRiskPreview
                 openingValue=value.OpeningValue.ToExactString(),residualValue=value.ResidualValue.ToExactString(),
                 periodCash=value.PeriodCash.ToExactString(),economicPnl=value.EconomicPnl.ToExactString()};
         }).ToArray();
-        return new{convention=Convention,engineVersion=RiskJobs.EngineVersion,measure=LifecycleEconomicRiskPolicy.Measure,
-            context=prepared.Portfolio.Context,source=prepared.Request.Context,prepared.Request.BookIds,prepared.Request.TradeIds,pricingPolicy=prepared.Portfolio.Policy,
-            request,snapshotId=prepared.Portfolio.SnapshotId,asOf=prepared.Portfolio.OpeningScope!.Frame.At,horizon=economic.HorizonEvidence,holdings,
-            books=prepared.Books.Where(b=>prepared.BookIds.Contains(b.Id("id"))).Select(b=>new{id=b.Id("id"),name=b.Text("name")}),
-            products=economic.ProductEvidence,optionCalibrations=economic.CalibrationReceipts,history=prepared.History,
-            factors=prepared.HistoricalAxes.Select(axis=>Factor(markets,axis)),result};
+        var response=new Dictionary<string,object?>{
+            ["convention"]=Convention,["engineVersion"]=RiskJobs.EngineVersion,["measure"]=LifecycleEconomicRiskPolicy.Measure,
+            ["context"]=prepared.Portfolio.Context,["source"]=prepared.Request.Context,
+            ["bookIds"]=prepared.Request.BookIds,["tradeIds"]=prepared.Request.TradeIds,["pricingPolicy"]=prepared.Portfolio.Policy,
+            ["request"]=request,["snapshotId"]=prepared.Portfolio.SnapshotId,["asOf"]=prepared.Portfolio.OpeningScope!.Frame.At,
+            ["horizon"]=economic.HorizonEvidence,["holdings"]=holdings,
+            ["books"]=prepared.Books.Where(b=>prepared.BookIds.Contains(b.Id("id"))).Select(b=>new{id=b.Id("id"),name=b.Text("name")}),
+            ["products"]=economic.ProductEvidence,["optionCalibrations"]=economic.CalibrationReceipts,["history"]=prepared.History,
+            ["factors"]=prepared.HistoricalAxes.Select(axis=>Factor(markets,axis)),["result"]=result};
+        var optionPolicy=prepared.Portfolio.Policy.FuturesOptions;
+        if(optionPolicy?.Physical?.Options.IsDefaultOrEmpty==false||optionPolicy?.CashFunding?.Options.IsDefaultOrEmpty==false)
+            response.Add("optionModelHelp",EconomicCashOptionBindings.ModelHelp);
+        return response;
         static MarketDataException MissingHistory()=>new("risk_economic_history","Supply the complete captured economic calibration history.");
     }
 

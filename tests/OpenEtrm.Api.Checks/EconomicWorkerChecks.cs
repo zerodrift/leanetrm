@@ -41,6 +41,9 @@ internal static class EconomicWorkerChecks
         foreach(var request in requests)
         {
             var report=JsonSerializer.SerializeToElement(await calculator.Calculate(connection,data,frame,request,ct),RiskJobs.Json);
+            var selectedOptions=pricing.FuturesOptions?.Physical?.Options.IsDefaultOrEmpty==false||pricing.FuturesOptions?.CashFunding?.Options.IsDefaultOrEmpty==false;
+            if(report.TryGetProperty("optionModelHelp",out var help)!=selectedOptions||selectedOptions&&help.GetString()!=EconomicCashOptionBindings.ModelHelp)
+                throw new Exception("A selected option report must retain its explicit stopping and held-event assumptions; legacy reports keep their original shape.");
             var requestId=Guid.NewGuid();var job=JsonSerializer.SerializeToElement(await RiskJobs.Submit(connection,database.Manifest,calculator,data,frame,new(requestId,request),ct),RiskJobs.Json);
             if(job.Text("state")!="queued"||job.Text("kind")!="economic_lifecycle")throw new Exception("The native product worker fixture was not admitted as an economic job.");
             receipts.Add(JsonSerializer.SerializeToElement(new{id=job.Id("id"),requestId,expectedState="completed",report},RiskJobs.Json));

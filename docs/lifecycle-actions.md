@@ -499,6 +499,10 @@ cash or a duplicated option continuation. Ordinary and economic worker reports
 match their captured interactive reports without financial writes. The real
 application cash selectors remain a separate qualification gate.
 
+Selected cash and physical option reports retain the server's explanation of
+reference stopping and the held event policy. Reopened jobs display that same
+plain text; reports without these selections keep their existing transport.
+
 Reference stopping is the selected valuation assumption. The persisted economic
 Hold/event policy keeps the actual right until a certified native event or its
 explicit expiry transition; a tree decision never fabricates an early exercise.

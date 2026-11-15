@@ -33,7 +33,7 @@ export type EconomicHolding={owner:EconomicOwner;reference:string;instrument:str
 export type EconomicPartition={measure:string;currency:unknown;baseValue:string;mean:string;valueAtRisk:string;expectedShortfall:string;
  books:{id:string;valueAtRisk:string;expectedShortfall:string}[];trades:{id:string;owner:{kind:number;id:string};valueAtRisk:string;expectedShortfall:string}[];
  samples:{id:string;value:string;loss:string;varWeight:string;esWeight:string}[];histogram:{lower:string;upper:string;count:number;probability:string}[]};
-export type EconomicReport={measure:string;convention:string;engineVersion:string;context:EconomicSetup['context'];source:HistoryScope['context'];snapshotId:string;asOf:string;bookIds:string[];tradeIds:string[]|null;pricingPolicy:unknown;
+export type EconomicReport={measure:string;convention:string;engineVersion:string;context:EconomicSetup['context'];source:HistoryScope['context'];snapshotId:string;asOf:string;bookIds:string[];tradeIds:string[]|null;pricingPolicy:unknown;optionModelHelp?:string;
  request:EconomicSpec;horizon:EconomicHorizon;holdings:EconomicHolding[];books:{id:string;name:string}[];products:unknown[];optionCalibrations:unknown[];history:HistoryManifest|null;factors:unknown[];
  result:{policy:EconomicSpec['policy'];horizon:string;historyId?:string;samples?:number;noShockTimeCarry:{owner:EconomicOwner;currency:unknown}[];economic:EconomicPartition[];marketOnlyDiagnostic:EconomicPartition[];monteCarloDiagnostics?:unknown[]}};
 export type EconomicJob={id:string;requestId?:string;state:string;kind:'economic_lifecycle';result?:EconomicReport;error?:{code:string;message:string}};
@@ -48,6 +48,7 @@ export function validateEconomicReport(report:EconomicReport):EconomicReport{
  const bad=()=>Error('The event-aware report has inconsistent captured inputs or incomplete owner, currency or path coverage. Reread the complete report.');
  const r=report?.result,q=report?.request,h=report?.horizon;
  if(report?.measure!=='economic_pnl_v1'||!r||!q||!methods.has(q.policy?.implementation)||canonicalEconomic(r.policy)!==canonicalEconomic(q.policy)||
+  report.optionModelHelp!==undefined&&(typeof report.optionModelHelp!=='string'||!report.optionModelHelp.trim())||
   !q.projection?.policy?.physicalDelivery||!q.projection.policy.inputExpiry||!Array.isArray(q.projection.gasOwned)||
   !report.context?.contextId||report.context.contextId!==report.source?.contextId||report.snapshotId!==report.source?.snapshotId||report.source.knowledgeMode!=='retained'||
   !h||h.contextId!==report.context.contextId||!sameUtcInstant(h.openingAt,report.asOf)||!sameUtcInstant(h.knownAt,report.context.knownAt)||!Array.isArray(h.closes)||h.closes.length!==1||!sameUtcInstant(r.horizon,h.closes[0].instant)||

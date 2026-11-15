@@ -201,6 +201,19 @@ test('the event-aware report shows signed economic tails, surviving wealth and t
  const text=await evaluate("document.querySelector('#result').textContent");assert.match(text,/Economic VaR/);assert.match(text,/-15/);assert.match(text,/No-shock P&L/);assert.match(text,/Horizon residual/);assert.match(text,/Period cash at horizon/);assert.match(text,/Market-only diagnostic/);assert.match(text,/complete lifecycle revaluation/);assert.match(text,/9:00 AM/);
  await evaluate('desk.reset()');
 }));
+test('a retained option report shows the captured model and held-decision assumption as plain text',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<div id="form"></div><div id="result"></div>',async evaluate=>{
+ const report={...economicReport(),optionModelHelp:cashOptionSetup.optionModelHelp+' <b>captured</b>'};
+ await evaluate(`(async()=>{window.actor='reader';window.selected=${JSON.stringify(scope)};window.errors=[];const api=async(path,body)=>path.endsWith('/setup')?${JSON.stringify(setup)}:path==='amounts/display'?body.map(r=>r.value):{id:'job',state:'completed',kind:'economic_lifecycle',result:${JSON.stringify(report)}};${mount}await desk.openJob('job');})()`);await settle();
+ assert.match(await evaluate("document.querySelector('#result').textContent"),/Reference stopping values the option.*decision or time P&L.*<b>captured<\/b>/);
+ assert.equal(await evaluate("document.querySelectorAll('#result b').length"),0);await evaluate('desk.financialChanged()');
+ assert.match(await evaluate("document.querySelector('#result').textContent"),/decision or time P&L/);await evaluate('desk.reset()');
+}));
+for(const help of ['',null,42])test('a retained option report refuses malformed assumption help '+JSON.stringify(help),{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<div id="form"></div><div id="result"></div>',async evaluate=>{
+ const report={...economicReport(),optionModelHelp:help};
+ await evaluate(`(async()=>{window.actor='reader';window.selected=${JSON.stringify(scope)};window.errors=[];const api=async(path,body)=>path.endsWith('/setup')?${JSON.stringify(setup)}:path==='amounts/display'?body.map(r=>r.value):{id:'job',state:'completed',kind:'economic_lifecycle',result:${JSON.stringify(report)}};${mount}try{await desk.openJob('job');}catch(error){errors.push(String(error));}})()`);await settle();
+ assert.ok((await evaluate('errors')).length,'Malformed captured option assumptions reached a successful report.');
+ assert.equal(await evaluate("document.querySelector('#result canvas')===null"),true);await evaluate('desk.reset()');
+}));
 
 for(const simulation of [false,true])test(`economic ${simulation?'Monte Carlo':'historical'} submits the complete captured factor order and matching explicit history`,{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<div id="form"></div><div id="result"></div>',async evaluate=>{
  const method={value:simulation?'economic_lifecycle_monte_carlo_full_revaluation_v1':'economic_lifecycle_historical_full_revaluation_v1',label:simulation?'Monte Carlo market moves':'Historical market moves',history:true,simulation};
