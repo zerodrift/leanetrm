@@ -579,9 +579,8 @@ all rate observations removed from their selected source. Residual demand follow
 each cash membership's recorded net state at the opening and horizon, including
 known refunds. Offsetting flows do not create an artificial residual rate need;
 their separate actual cash amounts retain the selected accumulation treatment.
-Complete accepted physical activation, connected
-multiple-parent composition and actual full-wealth worker replay remain delivery
-gates.
+The native coordinator below composes accepted physical activation and connected
+multiple-parent resources under that selected carrying contract.
 
 The native source coordinator prepares already-active delivery obligations and
 source-known future title, identified short supply and principal changes together.
@@ -609,8 +608,8 @@ then values native title receipts, identified short dispatch and unpaid principa
 on B. Each native owner's ordinary opening, residual wealth and B-only shock are
 checked independently. Missing or substituted B graphs refuse, and read-only
 historical and Monte Carlo workers reproduce the complete report. Selected
-physical-option continuation and its real application browser flow remain
-qualification gates.
+physical-option continuation is qualified separately below; its real application
+browser flow remains a qualification gate.
 
 The fully performed-parent qualifier completes both signed delivery obligations
 through the reviewed business operation and consumes all identified stock. Its
@@ -646,3 +645,28 @@ preparation refuses this combination with `projection_cash_option_value`.
 Existing vanilla and native nominal diagnostic contracts remain unchanged.
 Native cash-option source/worker qualification and the funded strategy remain
 delivery gates.
+
+Selected physical options retain their reference-American valuation strategy and
+the explicit held-right lifecycle event policy separately. Projection activates
+accepted native early exercise, assignment and expiry outcomes without applying
+the pricing tree's stopping decisions as new events. A full close removes the
+parent right; each exact native child has its own economic owner and certified
+parent-event prerequisite. The selected mark interpretation applies to those
+children and is validated again against each child's adopted delivery profile.
+Hypothetical expiry retains the contractual parent owner and selected profile.
+Missing a selected full-model binding refuses at preparation rather than falling
+back to vanilla reference value.
+
+The source assembler retains the parent's current asset source and every native
+child's original source independently. A newly needed child source must occur in
+the explicit complete input matrix and retain its original snapshot, graph,
+authority and declared bindings. It creates no opening holding. Actual native
+checks cover the right and premium, the child before, at and after full accepted
+exercise, and an independent funded VM plus asset/principal exchange oracle.
+Separate cases use one saved asset source or distinct current-parent and native
+child sources with different prices and rates. Missing or substituted child
+sources refuse. Historical and Monte Carlo read-only workers reproduce each
+complete report and source union with frozen binaries and no financial writes.
+Across-time no-shock P&L may include time, known events and the choice to retain
+the right while its valuation model would prefer exercise; no compensating cash
+is inferred. Unit working-scale rounding remains disclosed separately.

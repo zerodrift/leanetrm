@@ -4,6 +4,7 @@ using System.Globalization;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
 if(args is ["--cash-option-value-policy"]){CashOptionPolicyChecks.Run();return;}
+if(args is ["--physical-option-economic",var physicalEconomicPath]){await PhysicalOptionValueChecks.Run(physicalEconomicPath,true);return;}
 if(args is ["--gas-physical-completion-fixture",var completionPath]){await GasPhysicalCompletionFixture.Run(completionPath);return;}
 if(args is ["--gas-physical-projection",var physicalProjectionPath]){await GasPhysicalProjectionChecks.Run(physicalProjectionPath);return;}
 if(args is ["--physical-option-worker-verify",var physicalWorkerPath]){await PhysicalOptionWorkerChecks.Verify(physicalWorkerPath);return;}

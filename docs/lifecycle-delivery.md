@@ -259,10 +259,21 @@ Projected inventory, linked futures, operator claims and returns use ordinary
 Instrument/Side PV. Paid interval cash and unpaid residual claims are disjoint;
 internal position transfers receive no additional gain.
 
+An option's selected reference-American stopping law values its right; the
+separately required held-right event policy projects accepted native events and
+stated contractual expiry. The pricing tree does not manufacture early exercise
+events. An accepted native child retains its own owner, adopted profile and
+original market source, with the exact parent event as its activation prerequisite.
+The selected mark interpretation extends to each child and is validated against
+that child's saved terms. The parent ceases to own that continuation. Both model
+and event choices are retained; choosing to hold rather than exercise may produce
+decision/time P&L under unchanged market levels.
+
 Absolute economic P&L is horizon residual value plus period cash valued at the
 horizon, less opening value. Cash is explicitly nominal or accumulated using the
 selected currency curve. Currency totals remain separate without qualified FX.
-Report the no-shock time/carry result and market-only diagnostic separately.
+Report no-shock P&L, including known lifecycle events, and the market-only
+diagnostic separately.
 Historical and Monte Carlo methods fully revalue this measure; event-aware
 parametric risk needs separate qualification. Failed holdings or paths invalidate
 the complete distribution; they cannot be dropped or resampled.

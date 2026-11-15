@@ -19,7 +19,7 @@ internal static partial class LifecyclePortfolioProjection
         ImmutableDictionary<CurveRequest,CurveKey> Officials,ImmutableArray<SchedulePriceTerm> ActivePrices);
     private sealed record Assembly(LifecycleHorizonSource Horizon,ImmutableArray<LifecycleSourceComponents> Sources,
         ImmutableArray<JsonElement> ProductEvidence,ImmutableArray<FuturesOptionCalibrationReceipt> Receipts,
-        ImmutableArray<LifecycleEconomicOwnerDescription> AdditionalOwners);
+        ImmutableArray<LifecycleEconomicOwnerDescription> AdditionalOwners,ImmutableArray<PortfolioInputMarket> Inputs);
     internal static async Task<PreparedLifecyclePortfolio> Prepare(NpgsqlConnection connection,PreviewDatabase database,
         PortfolioValuation.Prepared opening,PortfolioEconomicProjectionRequest request,ImmutableArray<ConnectedMarketEvidence>? retainedGraphs,CancellationToken ct)
     {
@@ -53,6 +53,7 @@ internal static partial class LifecyclePortfolioProjection
         var sources=ImmutableArray.CreateBuilder<LifecycleSourceComponents>();
         var productEvidence=ImmutableArray.CreateBuilder<JsonElement>();var receipts=ImmutableArray.CreateBuilder<FuturesOptionCalibrationReceipt>();
         var additionalOwners=ImmutableArray.CreateBuilder<LifecycleEconomicOwnerDescription>();
+        var childCarrying=ImmutableArray.CreateBuilder<(MarketSnapshot Source,ISideDiscounting Provider)>();
         var nativePrincipal=opening.OwnedGas?.Principal??[];
         var nominalPrincipal=opening.Policy.GasOwned?.PrincipalCarrying==GasOwnedValuationPolicy.SavedPrincipal?
             nativePrincipal.Where(p=>p.PrincipalCarrying?.Carrying==GasHoldingCarrying.Nominal)
@@ -137,6 +138,9 @@ internal static partial class LifecyclePortfolioProjection
                                 deliveryMarket=new(terms,input.Model,asset,physical.Carrying);
                             }
                             KnownFuturesPhysicalFinal? nativeFinal=null;
+                            if(market.SettlementMethod=="physical"&&known.Determinations.Any(d=>d.Occurrence.Phase==FuturesMarginPhase.Final)&&
+                                physicalRead?.Attachments.Any(a=>a.FutureOwner==owner)!=true)
+                                throw Error("projection_gas_scope","Accepted native physical final requires the complete independently owned delivery, title and principal source in the selected book scope.");
                             if(physicalRead?.Attachments.SingleOrDefault(a=>a.FutureOwner==owner) is {} attached)
                             {
                                 nativeFinal=PhysicalFinal(attached,known,source.Snapshot,market.Instrument);
@@ -155,14 +159,16 @@ internal static partial class LifecyclePortfolioProjection
                             var futureHistories=ImmutableDictionary.CreateBuilder<Guid,FuturesKnownHistory>();
                             foreach(var e in known.Events.Where(e=>e.EffectiveAt>source.Snapshot.ValuationAt&&e.Future is not null))
                                 futureHistories.Add(e.EventId,await FuturesKnownHistoryStore.ReadLinkedFuture(connection,database,source.Data,source.Frame,source.Snapshot,e,ct));
-                            var profile=await OptionProfile(connection,database,source,opening.Context,native,ct);
+                            var profile=await FuturesOptionProjectionProfileStore.Read(connection,database,source.Frame,opening.Context,native,ct);
                             var margin=await FuturesPhysicalDeliveryStore.ReadPolicy(connection,database,source.Frame,
                                 profile.GetProperty("policy"),profile.GetProperty("occurrences"),ct);
                             var selected=profile.GetProperty("profile");var contract=new ContractKey(source.Snapshot.Definitions,selected.Id("underlying_contract_id"));
                             var mark=new CurveRequest(new(source.Snapshot.Definitions,selected.Text("future_mark_curve")),contract);
                             var expiryMarket=new CurveRequest(new(source.Snapshot.Definitions,selected.Text("expiry_curve")),contract);
-                            var future=FuturesStore.Binding(source.Data,mark.Curve.Code,mark.Contract.Id,owner.BindingId,FuturesMarketBinding.Implementation);
-                            RequireFullOptionValue(future,opening.Policy);
+                            var physicalOption=setup.PhysicalOptionValueBindings.GetValueOrDefault(key);
+                            var future=physicalOption?.Underlying??FuturesStore.Binding(source.Data,mark.Curve.Code,mark.Contract.Id,owner.BindingId,FuturesMarketBinding.Implementation);
+                            RequireFullOptionValue(future,opening.Policy,physicalOption);
+                            var optionDelivery=OptionDeliveryMarket(opening,source,physicalOption,margin);
                             var r=source.Data.References["futures_option_rules"].Single(r=>r.Text("code")==option.Series.AutomaticExerciseRule);
                             var rule=new FuturesOptionAutomaticRule(new(source.Data.ReferenceRevision,r.Text("code")),Integer(r,"version"),r.Text("evaluation"),r.Number("in_the_money_threshold"),r.Text("at_the_money_call"),r.Text("at_the_money_put"));
                             var instruction=known.Events.Where(e=>e.Kind is "exercise_instruction" or "abandon_instruction").OrderBy(e=>e.PublicationOrder).LastOrDefault();
@@ -175,7 +181,20 @@ internal static partial class LifecyclePortfolioProjection
                                     throw Error("projection_input_evidence","A selected native input has conflicting official final sources.");
                                 officials[mapped]=heldFuture.MarginPolicy.SettlementCurve;
                             }
-                            components.Add(new FuturesOptionLifecycleProjection(trade,owner.BindingId,setup,future,margin,rule,choice,expiryMarket,mark,source.Data.Model,source.Snapshot,known,futureHistories.ToImmutable()));
+                            ImmutableDictionary<Guid,FuturesLifecycleProjection>? continuations=null;
+                            if(physicalOption is not null)
+                            {
+                                var prepared=await OptionChildren(connection,database,opening,source,physicalOption,known,futureHistories.ToImmutable(),
+                                    curves.ToImmutable(),physicalRead,physicalFinals,additionalOwners,TradingReference.Trade(native.Head),ct);
+                                continuations=prepared.Children;opening=opening with{InputMarkets=prepared.Inputs};childCarrying.AddRange(prepared.Carrying);
+                                foreach(var child in continuations.Values)
+                                {
+                                    components.Add(child);
+                                    if(physicalFinals.ContainsKey(child.Owner))physicalChildren.Add(child.Owner,child);
+                                }
+                            }
+                            components.Add(new FuturesOptionLifecycleProjection(trade,owner.BindingId,setup,future,margin,rule,choice,expiryMarket,mark,
+                                source.Data.Model,source.Snapshot,known,physicalOption is null?futureHistories.ToImmutable():null,optionDelivery,continuations));
                             productEvidence.Add(JsonSerializer.SerializeToElement(new{profile,known,futureHistories=futureHistories.OrderBy(p=>p.Key)},RiskJobs.Json));break;
                         }
                         case SidedInstrument swap when swap is FinancialSwapInstrument or MonthlyFinancialSwap or ScheduledFinancialSwap or CrossCommodityScheduledSwap:
@@ -216,6 +235,7 @@ internal static partial class LifecyclePortfolioProjection
                 sources.Add(new(OriginalMarketSource(opening,snapshot),[],ImmutableDictionary<ReferenceKey,ISideDiscounting>.Empty,[],
                     ImmutableDictionary<CurveRequest,CurveKey>.Empty,[]));
         RetainPhysicalCarrying(sources,opening);
+        foreach(var (source,provider) in childCarrying)RetainCarrying(sources,source,provider);
         if(knownGas is not null)
         {
             var markets=sources.ToImmutableDictionary(s=>s.Source.Snapshot.Definitions,s=>new GasOwnedProjectionMarket(s.Source.Snapshot,s.Curves));
@@ -226,7 +246,7 @@ internal static partial class LifecyclePortfolioProjection
             productEvidence.Add(JsonSerializer.SerializeToElement(new{known=knownGas,profiles=preparedGas.ProfileEvidence},RiskJobs.Json));
             if(physicalRead is not null)productEvidence.Add(JsonSerializer.SerializeToElement(new{implementation="accepted_native_physical_projection_source_v1",source=physicalRead},RiskJobs.Json));
         }
-        return new(horizon,sources.ToImmutable(),productEvidence.ToImmutable(),receipts.ToImmutable(),additionalOwners.ToImmutable());
+        return new(horizon,sources.ToImmutable(),productEvidence.ToImmutable(),receipts.ToImmutable(),additionalOwners.ToImmutable(),opening.InputMarkets);
     }
     internal static async Task<JsonElement> CashFundingChoices(NpgsqlConnection connection,PreviewDatabase database,
         PortfolioValuation.Prepared opening,PortfolioEconomicProjectionRequest request,CancellationToken ct)
@@ -240,6 +260,7 @@ internal static partial class LifecyclePortfolioProjection
         PortfolioValuation.Prepared opening,PortfolioEconomicProjectionRequest request,Assembly assembled,
         ImmutableArray<ConnectedMarketEvidence>? retainedGraphs,CancellationToken ct)
     {
+        opening=opening with{InputMarkets=assembled.Inputs};
         var horizon=assembled.Horizon;var sources=assembled.Sources;
         var scope=opening.OpeningScope??throw Error("projection_scope","Retain the original opening market and exact book/holding scope.");
         var productEvidence=assembled.ProductEvidence.ToBuilder();var finalEvidence=ImmutableArray.CreateBuilder<JsonElement>();
@@ -344,15 +365,6 @@ internal static partial class LifecyclePortfolioProjection
                 Catalog,Kind,Trade,(object?)Profile??DBNull.Value,Revision,Context,At,Day,Until);
             reference.Parameters[3].NpgsqlDbType=NpgsqlTypes.NpgsqlDbType.Uuid;await reference.ExecuteNonQueryAsync(ct);
         }
-    }
-    private static async Task<JsonElement> OptionProfile(NpgsqlConnection connection,PreviewDatabase database,PortfolioProductSource source,ScheduleContext context,FuturesOptionPosition option,CancellationToken ct)
-    {
-        var until=await ConfigurationAuthority(connection,database.Manifest.CatalogId,ct);
-        var rows=await Profiles(connection,database,source,context,"listed_option",option.Trade,option.Revision,until,ct);
-        if(rows.Length!=1)throw Error("projection_option_policy","Save an exact expiry source and linked-future margin profile for every held option.");
-        var admission=new ConfigurationAdmission(database.Manifest.CatalogId,option.Trade,"listed_option",null,Integer(rows[0].GetProperty("profile"),"revision"),context.ContextId!.Value,source.Frame.At,source.Frame.Time.Date,until);
-        database.RegisterCommitAdmission(connection,admission);await admission.RequireCommit(connection,ct);
-        return rows[0];
     }
     private static async Task<ImmutableArray<JsonElement>> SwapProfiles(NpgsqlConnection connection,PreviewDatabase database,PortfolioProductSource source,
         ScheduleContext context,SwapStore.ResolvedSwapHolding holding,CancellationToken ct)

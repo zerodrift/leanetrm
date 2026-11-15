@@ -7,10 +7,11 @@ using OpenEtrm.MarketData.Options;
 using OpenEtrm.MarketData.Calculation;
 using OpenEtrm.MarketData.Risk;
 using OpenEtrm.MarketData.Trading;
+using OpenEtrm.Rates;
 
 internal static class PhysicalOptionValueChecks
 {
-    internal static async Task Run(string path)
+    internal static async Task Run(string path,bool economic=false)
     {
         using var document=JsonDocument.Parse(File.ReadAllText(path));var fixture=document.RootElement;
         var manifest=fixture.GetProperty("manifest").Deserialize<PreviewManifest>(RiskJobs.Json)!;var host=Path.GetFullPath(fixture.Text("host"));
@@ -34,6 +35,16 @@ internal static class PhysicalOptionValueChecks
             var other=new MarketSourceInputs(CatalogueSource.From(foreign),Selected(secondary),[],
                 ImmutableDictionary<string,ImmutableArray<Guid>>.Empty.Add("synthetic_inventory",[fixture.Id("markContractId")]),["synthetic_inventory"]);
             frame=frame with{Source=own.Source,SourceInputs=ImmutableDictionary<Guid,MarketSourceInputs>.Empty.Add(primary,own).Add(secondary,other)};
+            PreviewData? childData=null;MarketSnapshot? childSnapshot=null;
+            if(fixture.TryGetProperty("childRevision",out var childRevision)&&childRevision.ValueKind==JsonValueKind.String)
+            {
+                var revision=childRevision.GetGuid();childData=await database.Read(connection,ct,selectedRevision:revision,observationIds:Selected(revision),
+                    includeCalendarDays:false,observationScope:ObservationReadScope.ExactPins);
+                var childPart=new MarketSourceInputs(CatalogueSource.From(childData),Selected(revision),[],
+                    ImmutableDictionary<string,ImmutableArray<Guid>>.Empty.Add("synthetic_child_inventory",[fixture.Id("markContractId")]),["synthetic_child_inventory"]);
+                frame=frame with{SourceInputs=frame.SourceInputs!.Add(revision,childPart)};
+                childSnapshot=MarketSnapshotBinding.Bind(childData.Snapshot(childPart.Project(frame)),context.ContextId!.Value,SchedulePreview.ParseAt(context.KnownAt));
+            }
             var snapshot=MarketSnapshotBinding.Bind(data.Snapshot(frame),context.ContextId!.Value,SchedulePreview.ParseAt(context.KnownAt));
             var books=ImmutableArray.Create(fixture.Id("bookId"));var trades=ImmutableArray.Create(fixture.Id("tradeId"));
             var scope=await RiskTradeScope.Resolve(connection,manifest.CatalogId,books,trades,ct);
@@ -42,6 +53,9 @@ internal static class PhysicalOptionValueChecks
             var selection=new FuturesOptionPhysicalValuationSelection(fixture.Id("tradeId"),fixture.Id("bindingId"),model,FuturesPhysicalBasisValueBinding.ValuationProxy);
             var policy=PortfolioRiskPreview.AccountingPricingPolicy with{FuturesOptions=FuturesOptionValuationPolicy.Release1 with{
                 Physical=new(FuturesOptionPhysicalValuationPolicy.Version,[selection])}};
+            if(economic)policy=policy with{FuturesConvention=FuturesEconomicValuationPolicy.Version,
+                NativeFutures=new(FuturesMarginValuationPolicy.CurrencyDefault,RateDiscountTiming.Version){
+                    Economic=new(FuturesEconomicValuationPolicy.Version,FuturesMarginValueBinding.FlatReference,[])}};
             readonlyPreparation=async(other,token)=>{_=await new PortfolioValuation(database).Prepare(other,data,frame,snapshot,context,books,policy,[],[],token,selection:scope);};
             var prepared=await new PortfolioValuation(database).Prepare(connection,data,frame,snapshot,context,books,policy,[],[],ct,selection:scope);
             var selected=prepared.Sources.Single().Portfolio.Setup.PhysicalOptionValueBindings;
@@ -112,7 +126,94 @@ internal static class PhysicalOptionValueChecks
                 await PinnedContext.BindExact(current,manifest.CatalogId,context,token);
                 await TradingContext.Bind(current,manifest.CatalogId,context,frame.At,token);
                 var fresh=await database.Read(current,token,selectedRevision:primary,observationIds:Selected(primary),includeCalendarDays:false,observationScope:ObservationReadScope.ExactPins);
-                await PhysicalOptionWorkerChecks.Submit(database,current,fresh,frame,scopeRequest,policy,path,token);
+                if(economic)
+                {
+                    var atSource=await new PortfolioValuation(database).Prepare(current,fresh,frame,snapshot,context,books,policy,[],[],token,selection:scope);
+                    var projection=new PortfolioEconomicProjectionRequest(PortfolioEconomicProjectionRequest.Version2,"synthetic_physical_option_economic",1,
+                        PortfolioEconomicProjectionRequest.SourceKnownSchedule,RateDiscountTiming.Version,PortfolioEconomicProjectionRequest.SelectedContractMarkets,
+                        new(LifecycleProjectionPolicy.Version,LifecycleProjectionPolicy.Hold,LifecycleProjectionPolicy.Outstanding,LifecycleProjectionPolicy.Nominal,
+                            LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry,LifecycleProjectionPolicy.RetainPhysical),[])
+                        {CashAccumulationSelections=[]};
+                    var projected=await LifecyclePortfolioProjection.Prepare(current,database,atSource,projection,null,token);
+                    var values=projected.Projections.SelectMany(p=>p.Evaluate("physical_option_no_shock",[],token).Values).ToArray();
+                    var hasChild=fixture.TryGetProperty("child",out var child)&&child.ValueKind==JsonValueKind.Object;
+                    var sourceCount=childData is null?2:3;
+                    if(projected.Factors.Length!=sourceCount||projected.HistoryPortfolio.Markets.Length!=sourceCount||values.Length!=atSource.Positions.Length+(hasChild?1:0))
+                        throw new Exception("Physical option economic risk must retain exactly its right/premium owners and complete independent A/B graph union.");
+                    foreach(var market in projected.HistoryPortfolio.Markets)
+                    foreach(var value in RiskEngine.CalculateExact(market.Connected,[],RiskEngine.ExactNumericalPolicy,detail:RiskDetail.Holdings).Groups.SelectMany(g=>g.BasePositions))
+                        if(values.Single(v=>v.Owner==new AccountingPositionKey(value.Owner,value.BindingId,value.BookId)).OpeningValue!=value.Value)
+                            throw new Exception("Economic opening must equal its actual exact-instant recalibrated full option measure for each original owner.");
+                    if(hasChild)
+                    {
+                        var original=atSource.Sources.Single();var position=original.Options.Single();
+                        var known=await FuturesOptionKnownHistoryStore.Read(current,database,fresh,frame,context,position,token);
+                        var accepted=known.Events.Single(e=>e.EventId==child.Id("eventId"));var linked=accepted.Future!;
+                        var held=linked.Trade.Instruments.Single(h=>h.Id==linked.BindingId);var execution=FuturesExecution.Require(held);
+                        var owner=new AccountingPositionKey(linked.Trade.Id,linked.BindingId,linked.Trade.BookId);
+                        var nativeValue=values.Single(v=>v.Owner==owner);var optionOwner=new AccountingPositionKey(position.Trade,position.OptionBinding,position.Book.Id("id"));
+                        var zero=ExactMoney.Parse("0",nativeValue.Currency);
+                        var owners=atSource.Positions.Select(p=>new AccountingPositionKey(p.Owner,p.BindingId,p.BookId)).Append(owner).ToHashSet();
+                        if(!owners.SetEquals(values.Select(v=>v.Owner))||nativeValue.OpeningValue!=zero||values.Single(v=>v.Owner==optionOwner).ResidualValue!=zero)
+                            throw new Exception("Accepted exercise must activate one exact native future owner and remove the entire option continuation without fabricated opening wealth.");
+                        var physical=original.Portfolio.Setup.PhysicalOptionValueBindings[new(position.Trade,position.OptionBinding)];
+                        var gas=(OpenEtrm.MarketData.Gas.GasPhysicalDeliveryTerms)linked.MarginPolicy.Delivery!.Terms;
+                        var horizon=projected.Projections.Single(p=>p.Components.Any(c=>c.EconomicOwners.Contains(owner))).Horizon;
+                        var a=projected.Factors.Single(f=>f.Contract==execution.MarketBinding.Market.Contract).BaseValue;
+                        var due=linked.MarginPolicy.Occurrences.Single().DueAt;var currency=execution.Instrument.Currency;
+                        ISideDiscounting? childProvider=physical.Carrying;
+                        if(childData is not null)
+                        {
+                            var childFrame=frame.SourceInputs![childData.DefinitionRevision.RevisionId].Project(frame);
+                            var mapping=await SwapStore.CurrencyDefault(current,manifest.CatalogId,childData,childFrame,currency,token)??throw new Exception("The exact original native child curve is missing.");
+                            childProvider=new LifecycleCurrencyDiscounting(mapping,childSnapshot!,RateDiscountTiming.Version,ClockChange.FrozenInputs);
+                            var incomplete=frame with{SourceInputs=frame.SourceInputs.Remove(childData.DefinitionRevision.RevisionId)};
+                            var partial=await new PortfolioValuation(database).Prepare(current,fresh,incomplete,snapshot,context,books,policy,[],[],token,selection:scope);
+                            try{_=await LifecyclePortfolioProjection.Prepare(current,database,partial,projection,null,token);throw new Exception("Accepted native child silently inherited the current option's B source when its original source was omitted.");}
+                            catch(MarketDataException error)when(error.Code=="market_inputs_missing"){}
+                            var foreignGraph=atSource.InputMarkets.Single();
+                            var replaced=atSource with{InputMarkets=atSource.InputMarkets.Add(new(childData,childFrame,childSnapshot!,foreignGraph.Market,[gas.Mark]))};
+                            try{_=await LifecyclePortfolioProjection.Prepare(current,database,replaced,projection,null,token);throw new Exception("Accepted native child silently replaced a substituted original market graph.");}
+                            catch(MarketDataException error)when(error.Code=="projection_delivery_source"){}
+                        }
+                        ExactMoney Expected(DateTimeOffset valuationAt,bool nativeChild=true)
+                        {
+                            var terms=nativeChild?gas:(OpenEtrm.MarketData.Gas.GasPhysicalDeliveryTerms)physical.Margin.Delivery!.Terms;
+                            var provider=nativeChild?childProvider:physical.Carrying;var assetSource=nativeChild&&childSnapshot is not null?childSnapshot:physical.Asset.Snapshot;
+                            var b=projected.Factors.Single(f=>f.Contract==terms.Mark.Contract).BaseValue;
+                            ExactDecimal Factor(ISideDiscounting provider,MarketSnapshot inputs,DateTimeOffset at)=>
+                                provider.ResolveForValuation([new(execution.Instrument.Id,0,at,currency)],inputs,valuationAt,ClockChange.FrozenInputs).Single().DiscountFactor;
+                            var vm=ExactMoney.FromMoney(new(a-execution.ExecutionPrice.Value,currency)).Scale(Factor(physical.MarginDiscounting,snapshot,due));
+                            var basis=ExactMoney.FromMoney(new(b,currency)).Scale(Factor(provider!,assetSource,terms.From))
+                                .Subtract(ExactMoney.FromMoney(new(a,currency)).Scale(Factor(provider!,assetSource,terms.CashDueAt)));
+                            return vm.Add(basis).Scale(held.Quantity.Amount).Scale(execution.MarketBinding.Series.Multiplier);
+                        }
+                        var expected=Expected(horizon);
+                        if(nativeValue.ResidualValue!=expected||nativeValue.PeriodCash!=zero)
+                            throw new Exception("Accepted native child residual must equal independently funded VM plus its exact saved B asset/A principal exchange, with no invented cash.");
+                        if(original.Portfolio.Setup.OptionBindings.Values.Single().Calibration is not IntrinsicFallback)
+                            throw new Exception("The independent exercise-conservation fixture requires its deliberately selected intrinsic reference fallback.");
+                        foreach(var suffix in new[]{"before","at"})
+                        {
+                            var boundary=await LifecyclePortfolioProjection.Prepare(current,database,atSource,projection with{Session="synthetic_physical_option_"+suffix},null,token);
+                            var result=boundary.Projections.SelectMany(p=>p.Evaluate("actual_exercise_boundary",[],token).Values).ToArray();
+                            var boundaryAt=boundary.Projections[0].Horizon;var futureValue=result.Single(v=>v.Owner==owner);
+                            var right=result.Single(v=>v.Owner==optionOwner);var active=boundaryAt>=accepted.EffectiveAt;
+                            var actual=active?futureValue.ResidualValue:right.ResidualValue;
+                            var difference=actual.Subtract(Expected(boundaryAt,active));if(difference.CompareTo(zero)<0)difference=difference.Scale(ExactDecimal.Parse("-1"));
+                            var rounding=ExactMoney.Parse("1/2000000000000000000",currency).Scale(held.Quantity.Amount).Scale(execution.MarketBinding.Series.Multiplier);
+                            if(!owners.SetEquals(result.Select(v=>v.Owner))||result.Length!=owners.Count||
+                                (active?right.ResidualValue:futureValue.ResidualValue)!=zero||difference.CompareTo(rounding)>0)
+                                throw new Exception("Exactly one native option/future member must retain the funded wealth before and at accepted exercise, with only the disclosed unit working-scale rounding residual.");
+                        }
+                    }
+                    var history=new PortfolioHistoryRequest(scopeRequest,policy,new(RiskHistoryPolicy.Version1,CurveModel.NumericalPolicy,RiskHistoryPolicy.Raw,
+                        RiskHistoryPolicy.Heads,RiskHistoryPolicy.ExactCloses,RiskHistoryPolicy.Absolute,RiskHistoryPolicy.Complete,RiskHistoryPolicy.Fixed,2),
+                        new(fresh.ReferenceRevision,"source_business_days"),"2026-10-14","2026-10-17","16:00:00","reject","reject");
+                    await EconomicWorkerChecks.Submit(database,current,fresh,frame,scopeRequest,policy,projection,projected,path,token,history);
+                    Console.WriteLine("PASS actual selected physical option economic source: exact recalibrated owner values and complete A/B history with no native state fabrication");
+                }
+                else await PhysicalOptionWorkerChecks.Submit(database,current,fresh,frame,scopeRequest,policy,path,token);
             };
             Console.WriteLine("PASS actual ordinary physical option: exact native option/profile and independent asset source, PV, named asset scenario, static derivative refusal and explicit complete scope");
             return true;

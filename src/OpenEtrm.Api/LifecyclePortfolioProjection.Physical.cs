@@ -24,19 +24,23 @@ internal static partial class LifecyclePortfolioProjection
     }
     private static void RetainPhysicalCarrying(ImmutableArray<LifecycleSourceComponents>.Builder sources,PortfolioValuation.Prepared opening)
     {
-        foreach(var selected in opening.Sources.SelectMany(s=>s.Portfolio.Setup.FuturesValueBindings.Values).Select(b=>b.Physical).Where(p=>p?.Carrying is not null))
+        var futures=opening.Sources.SelectMany(s=>s.Portfolio.Setup.FuturesValueBindings.Values).Select(b=>b.Physical).Where(p=>p is not null)
+            .Select(p=>(Source:p!.Asset.Snapshot,Provider:p.Carrying));
+        var options=opening.Sources.SelectMany(s=>s.Portfolio.Setup.PhysicalOptionValueBindings.Values).Select(p=>(Source:p.Asset.Snapshot,Provider:p.Carrying));
+        foreach(var (snapshot,provider) in futures.Concat(options).Where(p=>p.Provider is not null))RetainCarrying(sources,snapshot,provider!);
+    }
+    private static void RetainCarrying(ImmutableArray<LifecycleSourceComponents>.Builder sources,MarketSnapshot snapshot,ISideDiscounting provider)
+    {
+        var index=SourceIndex(sources,snapshot);var part=sources[index];
+        if(provider is not IProjectionCurrencyCurve carrying||!carrying.SourceSnapshot.HasSameInputs(snapshot))
+            throw Error("projection_delivery_source","Retain physical carrying under its exact selected asset market source.");
+        if(part.Curves.TryGetValue(carrying.Currency,out var existing))
         {
-            var snapshot=selected!.Asset.Snapshot;var index=SourceIndex(sources,snapshot);var part=sources[index];
-            if(selected.Carrying is not IProjectionCurrencyCurve carrying||!carrying.SourceSnapshot.HasSameInputs(snapshot))
-                throw Error("projection_delivery_source","Retain physical carrying under its exact selected asset market source.");
-            if(part.Curves.TryGetValue(carrying.Currency,out var existing))
-            {
-                if(existing is not IProjectionCurrencyCurve expected||expected.CurveIdentity!=carrying.CurveIdentity||
-                    !expected.SourceSnapshot.HasSameInputs(carrying.SourceSnapshot))
-                    throw Error("projection_cash_policy","One exact source and currency cannot have conflicting selected carrying curves.");
-            }
-            else sources[index]=part with{Curves=part.Curves.Add(carrying.Currency,selected.Carrying!)};
+            if(existing is not IProjectionCurrencyCurve expected||expected.CurveIdentity!=carrying.CurveIdentity||
+                !expected.SourceSnapshot.HasSameInputs(carrying.SourceSnapshot))
+                throw Error("projection_cash_policy","One exact source and currency cannot have conflicting selected carrying curves.");
         }
+        else sources[index]=part with{Curves=part.Curves.Add(carrying.Currency,provider)};
     }
     private static void ComposePhysical(ImmutableArray<LifecycleSourceComponents>.Builder sources,PortfolioValuation.Prepared opening,
         GasPhysicalKnownRead? physical,ImmutableDictionary<AccountingPositionKey,KnownFuturesPhysicalFinal> finals,

@@ -21,6 +21,10 @@ internal static class CashOptionPolicyChecks
         var full=legacy with{FuturesConvention=FuturesEconomicValuationPolicy.Version,NativeFutures=legacy.NativeFutures! with{
             Economic=new(FuturesEconomicValuationPolicy.Version,FuturesMarginValueBinding.FlatReference,[])}};
         PortfolioValuation.ValidatePolicy(legacy);PortfolioValuation.ValidatePolicy(full);
+        var physical=new FuturesMarketBinding(Guid.NewGuid(),underlying.Market,contract,series with{SettlementMethod="physical"},quote,"physical",FuturesMarketBinding.Implementation);
+        LifecyclePortfolioProjection.RequireFullOptionValue(physical,legacy);
+        try{LifecyclePortfolioProjection.RequireFullOptionValue(physical,full);throw new Exception("Full physical option preparation accepted vanilla reference value without an exact selected physical binding.");}
+        catch(MarketDataException error)when(error.Code=="projection_physical_option_value"){}
         try{LifecyclePortfolioProjection.RequireFullOptionValue(underlying,full);}
         catch(MarketDataException error)when(error.Code=="projection_cash_option_value")
         {
