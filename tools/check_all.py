@@ -20,7 +20,7 @@ CHECK_PROJECTS = (
 )
 
 
-GROUPS = ('workspace', 'standard', 'assistant', 'trading', 'portfolio', 'settlement', 'ppa', 'recovery')
+GROUPS = ('workspace', 'standard', 'assistant', 'trading', 'lifecycle', 'portfolio', 'settlement', 'ppa', 'recovery')
 
 
 def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
@@ -71,8 +71,8 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     check('recorded cash upgrade over existing option bookings',[sys.executable,'tools/check_recorded_cash_upgrade.py','--pg-bin',str(pg_bin)])
     # The projection-source qualifier also runs the complete native journal.
     for part in ('sources','adoption','projection_sources'):
-        check('owned futures margin '+part,[sys.executable,f'tools/check_futures_margin_{part}.py','--pg-bin',str(pg_bin)],suite='trading')
-    check('explicit trading business dates and command source admission',[sys.executable,'tools/check_trading_business_date.py','--pg-bin',str(pg_bin)],suite='trading')
+        check('owned futures margin '+part,[sys.executable,f'tools/check_futures_margin_{part}.py','--pg-bin',str(pg_bin)],suite='lifecycle')
+    check('explicit trading business dates and command source admission',[sys.executable,'tools/check_trading_business_date.py','--pg-bin',str(pg_bin)],suite='lifecycle')
     for helper,label in (
         ('check_lifecycle_actions','shared lifecycle actions and native option history'),
         ('check_lifecycle_swaps','shared swap settlement, netting and exact task sources'),
@@ -98,7 +98,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
         ('check_gas_principal_carrying','saved delivery principal carrying and exact residual curve demand'),
         ('check_risk_fit_authority','volatility fitting actor and delegated worker authority'),
         ('check_retained_swap_schedule_reads','retained swap hydration and original worker read admission')):
-        check(label,[sys.executable,f'tools/{helper}.py','--pg-bin',str(pg_bin)],suite='trading')
+        check(label,[sys.executable,f'tools/{helper}.py','--pg-bin',str(pg_bin)],suite='lifecycle')
     for helper,label in (
         ('check_lifecycle_risk_jobs','economic lifecycle custody and native worker scope'),
         ('check_lifecycle_risk_scope','consumer-specific gas authority in risk jobs'),
@@ -108,7 +108,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
         ('check_lifecycle_future_worker','economic futures replay in separate workers'),
         ('check_physical_futures_value','full native physical futures value and exact linked-source economic workers')):
         check(label,[sys.executable,f'tools/{helper}.py','--pg-bin',str(pg_bin)],suite='portfolio')
-    for helper,suite in (('check_gas_mixed_quantity_browser','trading'),('check_lifecycle_browser','trading'),('check_lifecycle_economic_browser','portfolio')):
+    for helper,suite in (('check_gas_mixed_quantity_browser','lifecycle'),('check_lifecycle_browser','lifecycle'),('check_lifecycle_economic_browser','portfolio')):
         check(helper,[sys.executable,f'tools/{helper}.py','--pg-bin',str(pg_bin),'--dotnet',str(dotnet),
             '--browser',str(browser),'--no-build'],suite=suite)
     for flag in ('--lifecycle-actions','--economic-risk-contract','--lifecycle-schedule-contract','--gas-owned-setup',

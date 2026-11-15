@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: ["workspace", "standard", "assistant", "trading", "portfolio", "settlement", "ppa", "recovery"]
+        group: ["workspace", "standard", "assistant", "trading", "lifecycle", "portfolio", "settlement", "ppa", "recovery"]
     runs-on: ubuntu-24.04
     # Existing exchange/volatility-fit qualification needs headroom beyond 45 minutes.
     timeout-minutes: ${{ (matrix.group == 'standard' || matrix.group == 'trading') && 60 || 45 }}
