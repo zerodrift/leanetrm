@@ -230,9 +230,10 @@ unchanged obligations need no financial continuation. The native command seals
 every retained continuation step to the exact accepted principal run, including
 causal predecessors and chronological order. An exact retry returns its first
 outcome without reloading the source frame. The operational batch form retains
-a separate qualification gate. General operator and loan amendments, and changes
-to observed event times or advance-payment treatment, remain separate
-implementation gates.
+a separate qualification gate. Loan quantity and fixed-fee amendments use their
+own counterpart contracts below; operator writes retain a separate qualification
+gate. Changes to observed event times or advance-payment treatment remain outside
+these profiles.
 
 The ordinary title and dispatch correction source reader retains exact selected
 financial heads, applied and proposed evidence, captured source heads and linked
@@ -266,8 +267,38 @@ an unavailable newer head cannot revive an older document. The same closed
 ordinary, physical and linked-batch contracts are described to assistants.
 The owned full application browser qualifies observed-source configuration,
 lazy member selection, reviewed correction and exact retry after an uncertain
-acknowledgement. Broader loan/operator/fee amendments and changed event-time or
-advance treatment retain separate implementation gates.
+acknowledgement. Loan quantity and fixed-fee amendments have their own qualified
+contracts below; operator writes and changed event-time or advance treatment
+retain separate implementation gates.
+
+Fixed loan fees have immutable versioned terms rooted in the exact original
+accepted borrow, including an explicitly zero fee without an invented cash row.
+`gross_timed_fixed_fee_adjustments_v1` records a complete prior-fee reversal at
+its original due instant and a complete revised fee at its selected due instant.
+A due-only amendment therefore retains two dated gross legs even when their
+amounts sum to zero. Original cash and every bank-allocation revision remain
+unchanged. A revised zero requires an explicit null due time; an explicitly
+overdue fee remains unpaid until an actual bank fact is recorded.
+
+The shared manual action and local-time form retain exact loan/fee revisions,
+selected adjustment law, source and policy. The review shows source/revised terms,
+all gross cash, bank history and the proposed signed adjustments using backend
+decimal text. It does not scale fees with quantity or infer netting or refunds.
+The independent native seal validates the closed request and complete typed
+membership, excludes unrelated financial and availability effects, and rechecks
+the original deadline after outcome work. New financial changes require the
+current source closure; an acknowledgement reconciles a retained fact without
+rewinding the current terms. Exact retries precede source-frame resolution.
+
+`tools/check_gas_fee_browser.py` qualifies native faults at immediate constraints
+and actual commit, source/policy/time boundaries, ordinary cash PV, the real form
+on desktop/mobile and lost-response retry. `tools/check_gas_fee_existing_origins.py`
+seeds native loans before migration 0308, proves unchanged predecessor financial
+and receipt rows, and runs the same amendment consumer after upgrade. Both run
+in the gas CI group on disposable stock PostgreSQL. With an explicitly
+selected discount factor of 0.95, fee −3 less recorded payment −0.5 has unpaid PV
+−2.375; an explicit zero then leaves refund-receivable PV +0.475. No bank refund
+is manufactured by either transition.
 
 The read-only operator-correction source retains one exact claim's complete
 known settlement prefix in original publication order, including future-effective
@@ -303,8 +334,14 @@ the active managed view. Their native identities, zero financial heads, evidence
 and cash links remain available. Isolated checks qualify current and historical
 source views, ordinary whole-book value and fee-only continuation with no
 quantity-profile selection. The public synthetic loan fixture is shared with
-the application qualifier. The actual loan browser, normally configured agent
-path and positive-gross fully repaid cash-only case retain separate gates.
+the application qualifier. `tools/check_gas_loan_quantity_browser.py` qualifies
+the real lazy source form, exact revision and allocation review, separate fixed
+fee/bank history and lost-response retry through the native API. Nine browser
+checks and independent stock/debt assertions cover desktop and mobile; narrow
+reviews stack facts into readable full-width values. A separate native check
+also qualifies positive-gross fully repaid loans using rate inputs alone, with
+no commodity mark or quantity profile, through ordinary PV and economic cash
+continuation. The normally configured agent path retains a separate gate.
 Operator and fee-term counterparts, mixed linked effects and changed clocks are
 not covered by this bounded writer.
 

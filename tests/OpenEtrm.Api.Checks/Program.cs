@@ -47,6 +47,8 @@ if(args is ["--gas-loan-correction",var gasLoanCorrection]){await GasLoanQuantit
 if(args is ["--gas-loan-withdrawal",var gasLoanWithdrawal]){await GasLoanWithdrawalChecks.Run(gasLoanWithdrawal);return;}
 if(args is ["--gas-loan-correction-form",var gasLoanForm]){await GasLoanQuantityFormChecks.Run(gasLoanForm);return;}
 if(args is ["--gas-scope-authority",var gasScopeAuthority]){await GasOwnedScopeAdmissionChecks.Run(gasScopeAuthority);return;}
+if(args is ["--gas-loan-fee",var gasLoanFee]){await GasLoanFeeChecks.Run(gasLoanFee);return;}
+if(args is ["--gas-loan-fee-zero-pv",var zeroFeePv]){await GasLoanFeeChecks.Run(zeroFeePv,true);return;}
 if(args is ["--gas-owned",var gasOwnedFixture]){await GasOwnedChecks.Run(gasOwnedFixture);return;}
 if(args is ["--gas-owned-known",var gasKnownFixture]){await GasOwnedKnownHistoryChecks.Run(gasKnownFixture);return;}
 if(args is ["--gas-physical-known",var physicalKnownFixture]){await GasPhysicalKnownChecks.Run(physicalKnownFixture);return;}

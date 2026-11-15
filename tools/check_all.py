@@ -20,7 +20,7 @@ CHECK_PROJECTS = (
 )
 
 
-GROUPS = ('workspace', 'standard', 'assistant', 'trading', 'lifecycle', 'portfolio', 'settlement', 'ppa', 'recovery')
+GROUPS = ('workspace', 'standard', 'assistant', 'trading', 'lifecycle', 'gas', 'portfolio', 'settlement', 'ppa', 'recovery')
 
 
 def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
@@ -109,7 +109,10 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
         ('check_gas_projection_scope','original gas projection scope authority, fixed source tuples and actual economic workers'),
         ('check_physical_futures_value','full native physical futures value and exact linked-source economic workers')):
         check(label,[sys.executable,f'tools/{helper}.py','--pg-bin',str(pg_bin)],suite='portfolio')
-    for helper,suite in (('check_gas_mixed_quantity_browser','lifecycle'),('check_lifecycle_browser','lifecycle'),('check_lifecycle_economic_browser','portfolio'),
+    check('fixed loan fee upgrade preserves exact existing financial origins and bank history',
+          [sys.executable,'tools/check_gas_fee_existing_origins.py','--pg-bin',str(pg_bin)],suite='gas')
+    for helper,suite in (('check_gas_mixed_quantity_browser','lifecycle'),('check_lifecycle_browser','lifecycle'),('check_gas_fee_browser','gas'),
+                         ('check_gas_loan_quantity_browser','gas'),('check_lifecycle_economic_browser','portfolio'),
                          ('check_agent_operating_settings','assistant')):
         check(helper,[sys.executable,f'tools/{helper}.py','--pg-bin',str(pg_bin),'--dotnet',str(dotnet),
             '--browser',str(browser),'--no-build'],suite=suite)

@@ -18,7 +18,7 @@ const setup={context,target:offer.target,accounts:[{id:'account',label:'Syntheti
  {name:'titleEvidenceId',label:'Observed title head',kind:'select',nullable:false,choices:[choice('title','Synthetic title source head','title-head')]},
  {name:'agreementEvidenceId',label:'Observed agreement head',kind:'select',nullable:false,choices:[choice('agreement','Synthetic agreement source head','agreement-head')]},allocation,
  {name:'feeDisposition',label:'Existing fixed fees',kind:'select',nullable:false,choices:[choice(retainFees,'Retain fixed cash memberships and bank payments',retainFees)]},
- {name:'consumptions',label:'Recorded uses',kind:'array',nullable:false,fields:[],memberLabel:'Recorded use or repayment',variants:[{id:'use',label:'Synthetic dispatch · revision 2',target:childTarget}]},
+ {name:'consumptions',label:'Recorded uses',kind:'array',nullable:false,fields:[],memberLabel:'Recorded use or repayment',variants:[{id:'use',label:'Synthetic dispatch · revision 2',target:childTarget,parentLabel:'Synthetic account · recorded loan agreement'}]},
  {name:'evidence',label:'Correction evidence',kind:'text',nullable:false}]}}};
 const child={...setup,target:childTarget,forms:{[action]:{label:'Correct recorded use',permission:'RecordGasOwnedHoldings',fields:[
  reference('observedQuantity','Recorded use revision',['consumptionId','expectedRevision'],'use-head',{consumptionId:'use',expectedRevision:2}),
@@ -40,7 +40,7 @@ const settle=()=>new Promise(resolve=>setTimeout(resolve,40));
 const fill=`window.setField=(host,name,value)=>{const field=host.querySelector('[name="'+name+'"]');field.value=value;field.dispatchEvent(new Event('input',{bubbles:true}));field.dispatchEvent(new Event('change',{bubbles:true}));};`;
 
 for(const retired of [false,true])test('loan quantity form retains exact source revisions, fixed fees and bank history with '+(retired?'explicit withdrawal':'exact revised quantities'),
- {skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<div id="host"></div>',async evaluate=>{
+ {skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/app.css"><div id="host"></div>',async(evaluate,command)=>{
  const quantity=retired?'0':'0.750000000000000001',used=retired?'0':'0.125000000000000001';
  const reviewed=structuredClone(details);reviewed.outcome.currentQuantity=quantity;reviewed.outcome.consumptions[0].currentQuantity=used;
  await evaluate(`(async()=>{${fill}window.sent=[];window.previews=[];window.reads=[];window.errors=[];const {setupLifecycle}=await import('/lifecycle-view.js');const api=async(path,body)=>{
@@ -58,6 +58,9 @@ for(const retired of [false,true])test('loan quantity form retains exact source 
  await evaluate(`(()=>{const row=document.querySelector('[data-gas-entry=consumptions]');for(const[name,value]of Object.entries({observedQuantity:'use-head',identifiedStock:'stock',quantity:'${used}',retracted:'${retired}',evidenceId:'use-evidence',sourceAllocation:'${retired?'withdraw':'preserve'}'}))setField(row,name,value);document.querySelector('[data-lifecycle=panel] form').requestSubmit();})()`);await settle();
  assert.deepEqual(await evaluate('errors'),[]);const text=await evaluate("document.querySelector('[data-lifecycle-review]').textContent");
  for(const value of ['Source gross loan quantity','Stated received stock quantity','Source return obligation quantity','Original repayment quantity','Current recorded use quantity','Fixed fee cash memberships','Recorded bank payment history','synthetic_loan_bank','0.250000000000000001','-1.000000000000000001','-0.05','-0.075','USD',quantity,used])assert.ok(text.includes(value),value);
+ assert.match(text,/Related positionSynthetic account · recorded loan agreement/);assert.doesNotMatch(text,/Delivery obligation/);
+ await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await settle();
+ assert.equal(await evaluate("(()=>{const facts=document.querySelector('.lifecycle-review-facts'),label=[...facts.querySelectorAll('dt')].find(n=>n.textContent==='Source gross loan quantity'),value=label.nextElementSibling,a=label.getBoundingClientRect(),b=value.getBoundingClientRect();return b.top>=a.bottom&&b.width>=facts.clientWidth*.9;})()"),true,'Narrow loan review values must use the full line below their labels.');
  assert.doesNotMatch(text,/available stock quantity/i);assert.equal(await evaluate('sent.length'),0);
  await evaluate("document.querySelector('[data-lifecycle-execute]').click()");await settle();assert.equal(await evaluate("document.querySelector('[data-lifecycle=pending]').hidden"),false);
  await evaluate("document.querySelector('[data-lifecycle=retry]').click()");await settle();const sent=await evaluate('sent');assert.equal(sent.length,2);assert.deepEqual(sent[0],sent[1]);

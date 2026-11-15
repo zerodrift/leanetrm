@@ -24,7 +24,8 @@ def _utc(value):
 
 def _state(query,catalog):
     tables=['gas_loan_fee_terms','gas_loan_fee_changes','gas_loan_fee_cash_members','gas_owned_fees',
-        'gas_owned_fee_payments','gas_owned_commands','publications','knowledge_receipts']
+        'gas_owned_fee_payments','gas_owned_reservations','gas_owned_releases','gas_owned_claim_settlements',
+        'gas_owned_commands','publications','knowledge_receipts']
     return query('SELECT jsonb_build_object('+','.join(
         "'"+table+"',(SELECT md5(coalesce(jsonb_agg(to_jsonb(x) ORDER BY to_jsonb(x)::text),'[]')::text) "
         f"FROM trading.{table} x WHERE x.catalog_id='{catalog}')" for table in tables)+');')
@@ -62,6 +63,7 @@ def checks(query,call,command,body,capture,manifest,fee,at):
     insert=' INSERT INTO trading.gas_owned_commands VALUES(catalog,actor,operation,account,canonical,outcome,'
     outcome=' outcome=trading.gas_loan_fee_outcome(catalog,operation);'
     assert original.count(insert)==original.count(outcome)==1
+    unrelated=_unrelated_stock(query,call,capture,manifest,fee,at)
     # Every cash mutation still satisfies its ordinary nonzero/FK/type checks.
     # The selected loan's independently sealed amounts and lineage must reject it.
     mutations=[
@@ -75,17 +77,26 @@ def checks(query,call,command,body,capture,manifest,fee,at):
         ('outcome currency',outcome,outcome+"outcome=jsonb_set(outcome,'{currency}','\"synthetic_other\"');",'gas_fee_terms_seal'),
         ('canonical missing due',insert," canonical=canonical#-'{body,dueAt}';"+insert,'gas_owned_input'),
         ('canonical null due',insert," canonical=jsonb_set(canonical,'{body,dueAt}','null');"+insert,'gas_fee_terms_input'),
-        ('canonical source',insert," canonical=jsonb_set(canonical,'{contextId}',to_jsonb(gen_random_uuid()));"+insert,'gas_fee_terms_seal')]
+        ('canonical source',insert," canonical=jsonb_set(canonical,'{contextId}',to_jsonb(gen_random_uuid()));"+insert,'gas_fee_terms_seal'),
+        ('extra unrelated reservation',outcome,
+            f" INSERT INTO trading.gas_owned_reservations VALUES(catalog,gen_random_uuid(),'{unrelated['stock']}'::uuid,'synthetic_unrelated_fee_effect',0.125,actor,publication,trading.gas_owned_at(body->>'effectiveAt'));"+outcome,
+            'gas_fee_terms_seal'),
+        ('extra unrelated release',outcome,
+            f" INSERT INTO trading.gas_owned_releases VALUES(catalog,'{unrelated['reservation']}'::uuid,actor,publication,trading.gas_owned_at(body->>'effectiveAt'));"+outcome,
+            'gas_fee_terms_seal')]
     for label,needle,replacement,error in mutations:
         assert original.count(needle)==1,label
         before=_state(query,catalog)
         try:
             query(original.replace(needle,replacement,1))
-            for immediate in (True,False):
-                _refused(call,command(candidate,str(uuid4()),capture()),error,immediate=immediate)
+            # COMMIT comes first so an absent exact-effect seal cannot be
+            # mistaken for proof from a producer that was merely rolled back.
+            for immediate in (False,True):
+                try:_refused(call,command(candidate,str(uuid4()),capture()),error,immediate=immediate)
+                except AssertionError as failure:raise AssertionError('Fee producer mutation '+label+': '+str(failure)) from failure
                 assert _state(query,catalog)==before,'Rejected '+label+' changed native fee/bank/receipt/publication state.'
         finally:query(original)
-    print('PASS independent native fee seals: valid-FK amount/due/effective/currency/actor/reference corruption, outcome corruption and missing/null canonical due fail at IMMEDIATE and actual COMMIT',flush=True)
+    print('PASS independent native fee seals: valid-FK cash/lineage corruption, unrelated reservation/release, outcome corruption and missing/null canonical due fail at actual COMMIT and IMMEDIATE',flush=True)
 
     before=_state(query,catalog)
     original_cash=query(f"SELECT to_jsonb(f) FROM trading.gas_owned_fees f WHERE(catalog_id,id)=('{catalog}','{fee['id']}');")
@@ -135,6 +146,37 @@ def checks(query,call,command,body,capture,manifest,fee,at):
     _authority(query,call,command,candidate,capture,manifest)
 
 
+def _unrelated_stock(query,call,capture,manifest,fee,at):
+    """Create the same independent resource fixture on fresh and upgrade runs."""
+    catalog=manifest['catalogId'];account=str(uuid4())
+    owner=json.loads(query(f"SELECT to_jsonb(a) FROM trading.gas_owned_accounts a WHERE(a.catalog_id,a.id)=('{catalog}','{fee['accountId']}');"))
+    def record(action,body,policy=None,revision=None):
+        return json.loads(call(f"SELECT security.record_gas_owned('{catalog}','{uuid4()}','{action}','{account}',{_literal(body)},'{at}','{capture()}',"
+            +(f"'{policy}',{revision}" if policy else 'NULL,NULL')+",false)::text;"))
+    record('account',dict(code='synthetic_fee_unrelated_stock',kind='owned_inventory',bookId=owner['book_id'],
+        legalEntityId=owner['legal_entity_id'],legalEntityRevision=owner['legal_entity_revision'],counterpartyId=None,counterpartyRevision=None,
+        referenceCatalogId=owner['reference_catalog_id'],referenceRevisionId=owner['reference_revision_id'],quantity=owner['quantity_code'],location=owner['location_code'],
+        definitionRevisionId=owner['definition_revision_id'],markCurve=owner['mark_curve_code'],markContractId=owner['mark_contract_id'],currency=owner['currency_code'],
+        titlePolicy=owner['title_policy'],lossPolicy=owner['loss_policy'],effectiveAt='2020-12-18T00:00:00Z'))
+    policy=json.loads(query("SELECT jsonb_build_object('id',policy_id,'revision',policy_revision) FROM trading.gas_owned_action_bindings "
+        f"WHERE(catalog_id,account_id,action)=('{catalog}','{fee['accountId']}','gas.owned.receive_title') ORDER BY revision DESC LIMIT 1;"))
+    record('bind_policy',dict(action='gas.owned.receive_title',policyId=policy['id'],policyRevision=policy['revision'],effectiveAt='2020-12-18T00:00:00Z'))
+    title=record('evidence',dict(sourceKey='synthetic_fee_unrelated_stock_title',kind='title_receipt',quantity='1',occurredAt='2020-12-20T15:00:00Z',
+        evidence='Synthetic independent resource for exact fee effect closure',expectedRevision=0))['id']
+    stock=record('receive_title',dict(evidenceId=title,quantity='1',titleAt='2020-12-20T15:00:00Z',availableAt='2020-12-20T15:00:00Z',
+        originPolicy='opening_owned_stock_v1',carrying='nominal_mark_v1'),policy['id'],policy['revision'])['id']
+    reserve_policy=json.loads(query("SELECT jsonb_build_object('id',policy_id,'revision',policy_revision) FROM trading.gas_owned_action_bindings "
+        f"WHERE(catalog_id,account_id,action)=('{catalog}','{fee['accountId']}','gas.owned.reserve') ORDER BY revision DESC LIMIT 1;"))
+    record('bind_policy',dict(action='gas.owned.reserve',policyId=reserve_policy['id'],policyRevision=reserve_policy['revision'],effectiveAt='2020-12-18T00:00:00Z'))
+    reservation=record('reserve',dict(lotId=stock,businessKey='synthetic_fee_release_control',quantity='0.25',effectiveAt='2020-12-20T15:10:00Z'),
+        reserve_policy['id'],reserve_policy['revision'])['id']
+    # Certify the accepted fixture publication before any rejected command's
+    # whole-state snapshot; a later capture must not be mistaken for its effect.
+    capture()
+    assert account!=fee['accountId']
+    return dict(stock=stock,reservation=reservation)
+
+
 def _policy_source(query,call,command,candidate,capture,manifest,fee,at):
     catalog=manifest['catalogId'];account=fee['accountId']
     original=json.loads(query("SELECT jsonb_build_object('id',policy_id,'revision',policy_revision) FROM trading.gas_owned_action_bindings "
@@ -148,8 +190,11 @@ def _policy_source(query,call,command,candidate,capture,manifest,fee,at):
         call(f"SELECT security.record_gas_owned('{catalog}','{uuid4()}','bind_policy','{account}',{_literal(body)},'{at}','{capture()}',NULL,NULL,false);")
     bind(policy,1,'2020-12-20T15:33:00Z')
     try:
+        # Capture certifies the newly committed binding publication. Keep that
+        # deliberate receipt write outside the rejected command's state check.
+        context=capture()
         before=_state(query,catalog)
-        _refused(call,command(candidate,str(uuid4()),capture()),'gas_owned_policy_changed')
+        _refused(call,command(candidate,str(uuid4()),context),'gas_owned_policy_changed')
         assert _state(query,catalog)==before,'Changed-policy refusal retained a fee or command.'
     finally:
         # A later explicit adoption returns the selected original policy. Merely

@@ -23,6 +23,8 @@ LIFECYCLE_NATIVE={f'tools/{name}.py' for name in (
     'check_gas_source_ancestors','check_gas_physical_known','check_gas_cashout_projection','check_gas_accepted_projection','check_gas_quantity_reconciliation',
     'check_gas_quantity_reconciliation_batches','check_gas_mixed_quantity_reconciliation','check_gas_lifecycle_agents','check_gas_mixed_quantity_browser','check_gas_owned_quantity_choices','check_physical_option_value','check_cash_accumulation','check_gas_principal_carrying',
     'check_risk_fit_authority','check_lifecycle_browser','check_retained_swap_schedule_reads')}
+GAS_AMENDMENTS={f'tools/{name}.py' for name in (
+    'check_gas_fee_existing_origins','check_gas_fee_browser','check_gas_loan_quantity_browser')}
 LIFECYCLE_PORTFOLIO={f'tools/{name}.py' for name in (
     'check_lifecycle_risk_jobs','check_lifecycle_risk_scope','check_lifecycle_final_scope',
     'check_lifecycle_projection_horizon','check_lifecycle_swap_worker','check_lifecycle_future_worker',
@@ -34,6 +36,27 @@ AGENT_SETTINGS_BROWSER={'tools/check_agent_operating_settings.py'}
 class CheckAllTests(unittest.TestCase):
     def setUp(self):
         self.enterContext(redirect_stdout(io.StringIO()))
+
+    def test_loan_quantity_and_fee_checks_run_once_with_selected_tools(self):
+        expected={'tools/check_gas_fee_existing_origins.py','tools/check_gas_fee_browser.py','tools/check_gas_loan_quantity_browser.py'}
+        for group in GROUPS:
+            selected=[]
+            def run(command,**options):
+                helpers=expected.intersection(command)
+                if not helpers:return
+                helper=helpers.pop();selected.append(helper)
+                self.assertEqual(command[command.index('--pg-bin')+1],'/stock pg')
+                self.assertEqual(options['env']['DOTNET'],'/selected sdk')
+                if helper.endswith('browser.py'):
+                    self.assertEqual(command[command.index('--dotnet')+1],'/selected sdk')
+                    self.assertEqual(command[command.index('--browser')+1],'/selected browser')
+                    self.assertIn('--no-build',command)
+            run_checks(Path('/stock pg'),Path('/selected sdk'),Path('/selected browser'),group=group,run=run)
+            self.assertEqual(set(selected),expected if group=='gas' else set())
+            self.assertEqual(len(selected),3 if group=='gas' else 0)
+
+    def test_gas_amendments_have_a_required_separate_partition(self):
+        self.assertIn('gas',GROUPS)
 
     def test_frontend_widget_checks_use_the_explicit_browser_on_every_platform(self):
         frontend = []
@@ -296,7 +319,7 @@ class CheckAllTests(unittest.TestCase):
         self.assertEqual(set().union(*(set(value) for value in groups.values())), set(complete))
         margin={f'tools/check_futures_margin_{part}.py' for part in ('sources','adoption','projection_sources')}|{'tools/check_trading_business_date.py'}
         def shared(command):
-            return 'tools/run_preview.py' not in command and not (margin|LIFECYCLE_NATIVE|LIFECYCLE_PORTFOLIO|OPTION_VALUE_APPS|AGENT_SETTINGS_BROWSER).intersection(command)
+            return 'tools/run_preview.py' not in command and not (margin|LIFECYCLE_NATIVE|GAS_AMENDMENTS|LIFECYCLE_PORTFOLIO|OPTION_VALUE_APPS|AGENT_SETTINGS_BROWSER).intersection(command)
         for name, selected in groups.items():
             with self.subTest(group=name):
                 # Each group starts from a clean checkout, including restores,
@@ -350,7 +373,7 @@ class CheckAllTests(unittest.TestCase):
                 with self.subTest(group=group, failure=type(failure).__name__):
                     output = io.StringIO()
                     def run(command, **options):
-                        required = 'tools/check_lifecycle_actions.py' if group == 'lifecycle' else 'tools/run_preview.py'
+                        required = 'tools/check_lifecycle_actions.py' if group == 'lifecycle' else 'tools/check_gas_fee_existing_origins.py' if group=='gas' else 'tools/run_preview.py'
                         if required in command:
                             raise failure
                     with redirect_stdout(output), self.assertRaises(type(failure)):

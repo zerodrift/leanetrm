@@ -113,7 +113,7 @@ function fieldsEditor(root:HTMLElement,fields:GasField[],o:GasOwnedUiOptions,var
  }
  const read=build(root,fields);root.addEventListener('input',changed);root.addEventListener('change',changed);
  return{dirty:()=>dirty,references:()=>[...references.filter(r=>r.input.isConnected&&r.input.value).map(r=>({label:r.label,value:r.input.selectedOptions[0].text,key:r.input.value})),
-  ...parents.filter(r=>r.input.isConnected&&r.input.value).flatMap(r=>{const choice=r.choices.find(c=>c.id===r.input.value);return choice?.parentLabel?[{label:'Delivery obligation',value:choice.parentLabel,key:choice.target.scopeId}]:[];})],refresh(){for(const time of clocks)if(time.input.isConnected)time.control.refresh();},async read(){
+  ...parents.filter(r=>r.input.isConnected&&r.input.value).flatMap(r=>{const choice=r.choices.find(c=>c.id===r.input.value);return choice?.parentLabel?[{label:'Related position',value:choice.parentLabel,key:choice.target.scopeId}]:[];})],refresh(){for(const time of clocks)if(time.input.isConnected)time.control.refresh();},async read(){
   const before=version,zone=o.zone();const value=await read();if(!o.current()||before!==version||zone!==o.zone())throw Error('The gas draft or current source changed. Review its current inputs again.');return value;
  }};
 }

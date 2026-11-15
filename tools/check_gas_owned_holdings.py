@@ -6,7 +6,7 @@ from check_reference_editing import main
 from preview_fixture import catalogue_fixture, trade_booking, trading_fixture
 
 
-def checks(query, manifest, economic_worker=None, *, form_source_counterexamples=True):
+def checks(query, manifest, economic_worker=None, *, form_source_counterexamples=True, native_only=False):
     catalog, tenant, workspace = (manifest[k] for k in ('catalogId', 'tenantId', 'workspaceId'))
     query(trading_fixture(catalog))
     from rate_curve_fixture import discount_default
@@ -264,6 +264,8 @@ def checks(query, manifest, economic_worker=None, *, form_source_counterexamples
     assert query(f"SELECT count(*) FROM trading.gas_owned_reservations WHERE catalog_id='{catalog}';")==before_guard
     print('PASS gas command authority expires after publication-lock waits and immediately before native commit, leaving no partial financial effect',flush=True)
     assert not missing_refusals,'Native producers accepted unsupported facts (rolled back): '+','.join(missing_refusals)
+    if native_only:
+        return
     import os
     from pathlib import Path
     import subprocess

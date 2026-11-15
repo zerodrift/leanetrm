@@ -2792,3 +2792,4 @@ header>div:first-child{flex:1 1 160px}
 .gas-lifecycle-policy,.gas-lifecycle-fields{grid-column:1/-1;min-width:0}
 .lifecycle-review-facts{display:grid;grid-template-columns:max-content 1fr;gap:.5rem 1rem}
 .lifecycle-review-facts dd{margin:0;overflow-wrap:anywhere}
+@media(max-width:600px){.lifecycle-review-facts{grid-template-columns:minmax(0,1fr);gap:.25rem}.lifecycle-review-facts dd{margin-bottom:.5rem}}

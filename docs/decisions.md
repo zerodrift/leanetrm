@@ -5225,6 +5225,15 @@ commit callback recheck the same bound after all native checks return; successor
 grants cannot renew it. Runtime and worker callers use this fixed boundary
 without receiving the underlying permission-kernel functions.
 
+Fixed loan fees remain contractual totals independent of principal quantity.
+An explicit versioned amendment preserves original cash and adds the entire
+prior-fee reversal at its old due time and the revised fee at its selected due
+time. A zero fee explicitly has no due time. Bank payments remain independent;
+removing a paid fee may leave a refund receivable but never records a refund.
+Exact first outcomes and older-fact acknowledgements preserve the current head.
+New effects require complete current source and policy admission, and the native
+publication seal permits only the declared typed fee and cash memberships.
+
 Rebuild incompatible demo configuration and synthetic business records. No legacy
 financial conversion or fallback is required. Publication remains separately approved.
 The delivery document records required contracts; tests and verification records

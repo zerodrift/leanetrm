@@ -2,10 +2,29 @@
 
 For the current complete command and prerequisites, start with
 [Required tools](#required-tools). `tools/check_all.py` runs all suites by
-default; `--group workspace|standard|assistant|trading|lifecycle|portfolio|settlement|ppa|recovery`
+default; `--group workspace|standard|assistant|trading|lifecycle|gas|portfolio|settlement|ppa|recovery`
 selects one CI partition. CI requires every partition and its aggregate check
 to succeed. The implementation records below retain the results and limits of
 each dated increment; older check counts are not the current suite size.
+
+The gas partition runs the native amendment upgrade and real application checks.
+Every partition retains fresh-checkout preparation and the shared checks; the
+required aggregate waits for all ten partitions. The command-union checks require
+each owned consumer exactly once across the matrix.
+
+The fixed-loan-fee consumer qualifies migration 0308 through native, managed and
+real browser paths on stock PostgreSQL 18.1 with synthetic data. The gas
+partition runs `tools/check_gas_fee_browser.py` with the selected SDK/browser and
+`tools/check_gas_fee_existing_origins.py` for the separately seeded predecessor
+schema. Thirteen deliberate producer faults include amount/date/currency/reference
+and outcome corruption, missing canonical fields, and unrelated resource effects;
+they refuse at immediate constraints and actual commit. Permission expiry during
+publication waits, final command seals and final source-helper work also refuses.
+Exact cash/bank membership oracles produce PV −2.375 after a fee amendment and
++0.475 after an explicit zero, using a selected 0.95 discount factor. Fifteen
+actual API/Chrome checks cover local-time entry, desktop/mobile review, retained
+first outcomes after a lost response and reopening with fresh explicit choices.
+The upgrade preserves every predecessor gas financial and command-receipt row.
 
 The side-observation preview checks dependency-specific read authority: revoking
 the scheduled-swap projection leaves ordinary swap terms, history and PV intact;

@@ -128,8 +128,9 @@ def main():
         if not prepared.get('verified'):verify(query)
         _origins(query,manifest,prepared['zero'])
         original=fees.baseline;skipped=[]
-        def already_run(selected_query,selected_manifest):
+        def already_run(selected_query,selected_manifest,*,form_source_counterexamples):
             assert original is prepared['baseline'] and selected_query is query and selected_manifest is manifest
+            assert form_source_counterexamples is False
             skipped.append(True)
         def finished(selected_query,selected_manifest,_):
             assert selected_query is query and selected_manifest is manifest

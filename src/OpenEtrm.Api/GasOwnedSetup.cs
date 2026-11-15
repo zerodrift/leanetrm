@@ -50,6 +50,11 @@ internal static partial class GasOwnedSetup
         {
             await PinnedContext.BindExact(connection,catalog,source,ct);
             await TradingContext.Bind(connection,catalog,source,request.Context.AsOf,ct);
+            if(request.Target?.Handler==GasLoanFeeActions.Handler)
+            {
+                var fee=await LoanFeeSetup(connection,database,request,ct);
+                await admission.RequireCommit(connection,ct);return fee;
+            }
             var physical=request.Target?.Handler is GasFuturesDeliveryActions.Handler or GasFuturesReconciliationActions.Handler or GasFuturesQuantityBatchActions.Handler;
             var ordinary=request.Target?.Handler is GasOwnedQuantityReconciliationActions.Handler or GasOwnedQuantityReconciliationActions.PositionSourceHandler or GasOwnedQuantityReconciliationActions.ConsumptionSourceHandler or GasQuantityBundleActions.Handler;
             var loanTarget=request.Target?.Handler is GasLoanQuantityReconciliationActions.Handler or GasLoanQuantityReconciliationActions.ConsumptionSourceHandler;
