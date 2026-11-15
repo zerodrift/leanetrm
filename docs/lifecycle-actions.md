@@ -407,9 +407,11 @@ validation and pricing identity; a missing or not-yet-eligible selection refuses
 Ordinary physical option value now accepts an explicit
 `physical_futures_option_reference_value_v1` selection for each live native
 physical-underlying option binding. The closed selection retains all five model
-choices and the delivery-mark interpretation. Its calibrated reference mark must
-equal the saved future mark, and the saved expiry source must equal the linked
-future margin source. Ambiguous vanilla reference calibration remains unavailable;
+choices and the delivery-mark interpretation. Its calibrated reference request,
+saved future mark, official expiry and margin source must identify the same exact
+native curve and contract. A separate official index requires another qualified
+relationship and is refused by this valuation law. Ambiguous vanilla reference
+calibration remains unavailable;
 this version does not select a calibration curve from lifecycle settings.
 Legacy policies omit the physical selection and retain their original JSON and
 reference valuation.

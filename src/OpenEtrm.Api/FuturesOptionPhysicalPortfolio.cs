@@ -45,12 +45,17 @@ internal static class FuturesOptionPhysicalPortfolio
         var selected=source.GetProperty("profile");
         var mark=new CurveRequest(new(data.DefinitionRevision,selected.Text("future_mark_curve")),
             new(data.DefinitionRevision,selected.Id("underlying_contract_id")));
-        if(mark!=reference||margin.Delivery is null||margin.Contract!=reference.Contract||
-            margin.SettlementCurve!=new CurveKey(data.DefinitionRevision,selected.Text("expiry_curve")))
+        RequireReferenceMarkets(reference,mark,new(data.DefinitionRevision,selected.Text("expiry_curve")),margin.SettlementCurve,margin.Contract);
+        if(margin.Delivery is null)
             throw Error("The bounded physical option model requires its calibrated native future mark and the saved official expiry/margin source.");
         var owner=new PartyKey(database.Manifest.CatalogId,position.Head.Id("legal_entity_id"),Integer(position.Head,"legal_entity_revision"));
         var delivery=await FuturesPhysicalDeliveryStore.ReadForPolicy(connection,database,frame,context,margin,position.Book.Id("id"),owner,ct);
         return new(margin,delivery);
+    }
+    internal static void RequireReferenceMarkets(CurveRequest reference,CurveRequest futureMark,CurveKey expiry,CurveKey settlement,ContractKey contract)
+    {
+        if(futureMark!=reference||contract!=reference.Contract||expiry!=settlement||expiry!=reference.Curve)
+            throw Error("The bounded physical option model requires one exact reference future, official expiry and margin source.");
     }
     internal static async Task<Prepared> Read(NpgsqlConnection connection,PreviewDatabase database,PreviewData data,InputFrame frame,
         MarketSnapshot snapshot,ScheduleContext context,ImmutableArray<FuturesOptionPosition> positions,FuturesOptionMarket calibrated,

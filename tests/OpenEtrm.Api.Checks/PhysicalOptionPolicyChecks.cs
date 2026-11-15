@@ -18,6 +18,13 @@ internal static class PhysicalOptionPolicyChecks
     internal static void Run()
     {
         var legacy=FuturesOptionValuationPolicy.Release1;
+        var definition=new DefinitionRevision(Guid.NewGuid(),Guid.NewGuid());var contract=new ContractKey(definition,Guid.NewGuid());
+        var reference=new CurveRequest(new(definition,"reference"),contract);var independent=new CurveKey(definition,"independent_official_index");
+        FuturesOptionPhysicalPortfolio.RequireReferenceMarkets(reference,reference,reference.Curve,reference.Curve,contract);
+        Reject("physical_option_source",()=>FuturesOptionPhysicalPortfolio.RequireReferenceMarkets(reference,reference,independent,independent,contract));
+        Reject("physical_option_source",()=>FuturesOptionPhysicalPortfolio.RequireReferenceMarkets(reference,new(independent,contract),reference.Curve,reference.Curve,contract));
+        Reject("physical_option_source",()=>FuturesOptionPhysicalPortfolio.RequireReferenceMarkets(reference,reference,reference.Curve,independent,contract));
+        Reject("physical_option_source",()=>FuturesOptionPhysicalPortfolio.RequireReferenceMarkets(reference,reference,reference.Curve,reference.Curve,new(definition,Guid.NewGuid())));
         var old=JsonSerializer.SerializeToNode(legacy,RiskJobs.Json)!.AsObject();
         if(old.Count!=4||old.ContainsKey("physical"))throw new Exception("The legacy option policy must retain its original four-field transport.");
         var model=new PhysicalOptionPolicy(PhysicalOptionPolicy.Version,PhysicalOptionPolicy.FrozenBasis,PhysicalOptionPolicy.ReferenceStopping,
