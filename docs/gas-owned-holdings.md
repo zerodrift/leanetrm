@@ -122,6 +122,15 @@ from immutable source and profile evidence. New financial commands reject
 source contexts that omit later mark or profile heads; original command receipts
 and older business-fact acknowledgements retain their first outcomes.
 
+Whole-book projection scope captures the original market, trade and selected gas
+read deadlines before base-authority or source work can wait. Its native reader
+and registered commit callback recheck that same minimum after all exact-source
+checks return. A later grant cannot extend an admitted read. An explicitly empty
+scope without a gas valuation policy does not acquire an unrelated gas deadline.
+The public `tools/check_gas_projection_scope.py` qualifier exercises both wait
+boundaries, exact source tuples, upgrade guards and actual historical,
+Monte Carlo and cancellation workers using isolated synthetic records.
+
 Physical-futures performance is a separate observed operation. Final margin
 creates the signed ordinary delivery obligation under its exact enrolled
 delivery profile. A long performance requires accepted positive title evidence

@@ -5219,6 +5219,12 @@ user those permissions. Financial operations retain manual review and the same
 authorized native business handlers. Retained reader-only saves keep their
 original request and replay contract.
 
+Whole-book gas projection scope captures every selected original read deadline
+before base-authority work can wait. Exact source admission and its retained
+commit callback recheck the same bound after all native checks return; successor
+grants cannot renew it. Runtime and worker callers use this fixed boundary
+without receiving the underlying permission-kernel functions.
+
 Rebuild incompatible demo configuration and synthetic business records. No legacy
 financial conversion or fallback is required. Publication remains separately approved.
 The delivery document records required contracts; tests and verification records

@@ -106,6 +106,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
         ('check_lifecycle_projection_horizon','economic horizon and retained projection profiles'),
         ('check_lifecycle_swap_worker','economic swap replay in separate workers'),
         ('check_lifecycle_future_worker','economic futures replay in separate workers'),
+        ('check_gas_projection_scope','original gas projection scope authority, fixed source tuples and actual economic workers'),
         ('check_physical_futures_value','full native physical futures value and exact linked-source economic workers')):
         check(label,[sys.executable,f'tools/{helper}.py','--pg-bin',str(pg_bin)],suite='portfolio')
     for helper,suite in (('check_gas_mixed_quantity_browser','lifecycle'),('check_lifecycle_browser','lifecycle'),('check_lifecycle_economic_browser','portfolio'),

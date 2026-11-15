@@ -26,7 +26,7 @@ LIFECYCLE_NATIVE={f'tools/{name}.py' for name in (
 LIFECYCLE_PORTFOLIO={f'tools/{name}.py' for name in (
     'check_lifecycle_risk_jobs','check_lifecycle_risk_scope','check_lifecycle_final_scope',
     'check_lifecycle_projection_horizon','check_lifecycle_swap_worker','check_lifecycle_future_worker',
-    'check_lifecycle_economic_browser','check_physical_futures_value')}
+    'check_lifecycle_economic_browser','check_physical_futures_value','check_gas_projection_scope')}
 OPTION_VALUE_APPS={'tools/check_lifecycle_valuation_browser.py'}
 AGENT_SETTINGS_BROWSER={'tools/check_agent_operating_settings.py'}
 

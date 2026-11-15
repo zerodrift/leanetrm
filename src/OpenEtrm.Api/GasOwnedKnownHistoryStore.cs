@@ -57,7 +57,7 @@ internal static class GasOwnedKnownHistoryStore
     {
         public async Task RequireCommit(NpgsqlConnection connection,CancellationToken ct)
         {
-            await using var call=ScheduleStore.Command(connection,"SELECT security.require_gas_owned_projection_scope($1,$2,$3,$4::uuid[],$5,$6)",Catalog,Context,At,Books.ToArray(),Configured,Until);
+            await using var call=ScheduleStore.Command(connection,"SELECT security.require_gas_owned_projection_scope_admission($1,$2,$3,$4::uuid[],$5,$6)",Catalog,Context,At,Books.ToArray(),Configured,Until);
             await call.ExecuteScalarAsync(ct);
         }
     }
@@ -65,16 +65,19 @@ internal static class GasOwnedKnownHistoryStore
         ImmutableArray<Guid> books,bool configured,CancellationToken ct)
     {
         if(frame.ContextId is not {} context||books.IsDefaultOrEmpty)throw Error("Retain the exact source and explicit gas projection book scope.");
-        await using var capture=ScheduleStore.Command(connection,configured?
-            "SELECT least(settlement_data.futures_margin_preview_authority($1),security.authority_until('ReadGasOwnedHoldings'))":
-            "SELECT settlement_data.futures_margin_preview_authority($1)",database.Manifest.CatalogId);
-        var until=new DateTimeOffset((DateTime)(await capture.ExecuteScalarAsync(ct))!);
-        database.RegisterCommitAdmission(connection,new ScopeAdmission(database.Manifest.CatalogId,context,frame.At,books,configured,until));
-        await using var call=ScheduleStore.Command(connection,"SELECT security.require_gas_owned_projection_scope($1,$2,$3,$4::uuid[],$5,$6)",
-            database.Manifest.CatalogId,context,frame.At,books.ToArray(),configured,until);
-        try{return(bool)(await call.ExecuteScalarAsync(ct))!;}
+        JsonElement native;
+        try
+        {
+            native=await LifecycleNative.Read(connection,"SELECT security.read_gas_owned_projection_scope($1,$2,$3,$4::uuid[],$5)::text",ct,
+                database.Manifest.CatalogId,context,frame.At,books.ToArray(),configured);
+        }
         catch(PostgresException error)when(error.SqlState=="P0001"&&error.MessageText=="gas_owned_projection_policy_required")
         {throw new MarketDataException(error.MessageText,GasOwnedOperations.Refusal(error.MessageText),error);}
+        if(native.Text("implementation")!="gas_owned_projection_scope_admission_v1")
+            throw Error("Retain the explicit native gas projection scope admission contract.");
+        var admission=new ScopeAdmission(database.Manifest.CatalogId,context,frame.At,books,configured,native.Instant("authorityUntil"));
+        database.RegisterCommitAdmission(connection,admission);await admission.RequireCommit(connection,ct);
+        return native.GetProperty("present").GetBoolean();
     }
     internal static async Task<GasOwnedKnownHistory> Read(NpgsqlConnection connection,PreviewDatabase database,InputFrame frame,MarketSnapshot snapshot,
         ImmutableArray<Guid> books,CancellationToken ct)
