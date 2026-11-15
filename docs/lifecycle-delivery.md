@@ -183,9 +183,9 @@ same-price and value-changing correction closure, surviving cash, partial paymen
 terminal PV without an open mark and an explicit future-cash discount factor.
 Privileged synthetic context construction verifies refusal when the source
 prefix cannot cover a latest accepted determination; it establishes no ordinary
-capture-path failure. Whole-portfolio/worker integration, physical final delivery,
-HTTP/agent adapters, user-facing policy editing and browser qualification remain
-delivery gates; the local native increment does not qualify those capabilities.
+capture-path failure. These isolated checks establish the journal boundary;
+the native adapter, projection and full-application sections record the wider
+integration qualification separately.
 
 The local portfolio adapter now offers an explicit native-margin remaining-value
 convention, separate from execution P&L. It reads the accepted journal and all
@@ -315,5 +315,15 @@ action. A lost response after the native commit retains the exact pending reques
 retry returns the first outcome and independently leaves one title lot. Native
 margin reviews show backend-formatted exact amounts, rounded cash and currency.
 Desktop and phone checks retain wide action tables within their own scroll area.
-This qualification does not establish financial correction or additional physical
-valuation models described in the remaining delivery gates.
+This action qualifier is separate from financial correction and the selected
+valuation-model checks.
+
+The full-application valuation qualifier records exact native source matrices
+and selects each held binding explicitly. One run covers an unfinished physical
+future and two live physical options with independent asset inputs; another
+covers two cash options without Gas authority. Each prepares the complete source,
+runs guided historical full revaluation, queues a real worker and reopens the
+retained model/source report. The selected reference-stopping and held-event
+assumptions remain visible after reopening. These read-only flows create no
+accepted financial or market observations. Separate native checks qualify the
+same consumers under historical and Monte Carlo worker replay.

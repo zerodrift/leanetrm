@@ -100,7 +100,7 @@ def read_admission(query,manifest,packet,login,foreign):
     print('PASS cash option history admission: exact selected read-only worker scope, original source/history cutoffs, unchanged permission/origin ACLs and no Gas grant',flush=True)
 
 
-def checks(query,manifest,*,economic=False,native_child=False,solved=False,margin_v2=False):
+def checks(query,manifest,*,economic=False,native_child=False,solved=False,margin_v2=False,browser=None):
     catalog,tenant,workspace=(manifest[k] for k in ('catalogId','tenantId','workspaceId'));issuer=manifest['identityIssuer']
     query(f"SELECT security.initialize_operating_policies('{tenant}','{workspace}');")
     query(catalogue_fixture(manifest,issuer))
@@ -176,6 +176,7 @@ def checks(query,manifest,*,economic=False,native_child=False,solved=False,margi
     read_admission(query,manifest,packet,'synthetic_cash_option_worker',foreign)
     run_saved(query,manifest,packet,frozen,'synthetic_cash_option_worker',permissions=(),expected_jobs=2,
         verify_mode='--economic-worker-verify' if economic else '--physical-option-worker-verify')
+    if browser is not None:browser(query,manifest,packet,frozen)
 
 
 if __name__=='__main__':

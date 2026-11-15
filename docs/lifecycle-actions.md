@@ -311,8 +311,9 @@ discounts and mixed selected/vanilla scopes. The total rounds once to the option
 working scale before the multiplier; its displayed contractual and delivery
 parts retain any resulting numerical difference as `working_scale_rounding`,
 never as cash. Generic frozen-clock children are explicitly pinned; economic
-projections redeclare their supported inputs at their own event clock. API
-source assembly, economic workers and UI model selection remain separate gates.
+projections redeclare their supported inputs at their own event clock. The native
+adapter and full-application checks below qualify source assembly, economic
+workers and explicit UI model selection for this bounded consumer.
 
 The pure horizon engine also accepts an explicit currency accumulation map,
 separate from product residual discounting. Each partition covers exactly the
@@ -496,8 +497,17 @@ retain the original calibration and complete source proof. An accepted native
 exercise followed by daily VM checks the exact independent future owner and
 funded amount before, at and after both event boundaries, without fabricated
 cash or a duplicated option continuation. Ordinary and economic worker reports
-match their captured interactive reports without financial writes. The real
-application cash selectors remain a separate qualification gate.
+match their captured interactive reports without financial writes.
+
+The full-application valuation qualifier records a native primary/secondary close
+and selects one unfinished physical future plus two live physical options. A
+separate run selects two cash options without Gas authority or an asset source.
+Both use the actual per-binding setup, opaque model choices, complete source
+preparation and guided historical full revaluation. A real worker retains the
+exact selected policies and source; reloading opens its completed report and
+model/event explanation. Native financial and observation counts stay unchanged.
+The qualifier uses disposable owned processes and databases, and checks retain
+the original authority and loading bounds.
 
 Selected cash and physical option reports retain the server's explanation of
 reference stopping and the held event policy. Reopened jobs display that same

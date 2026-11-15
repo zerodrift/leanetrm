@@ -45,7 +45,7 @@ def unique_reference(source):
     return reference,';'.join(selected),security,manifest
 
 
-def option_value(query,manifest,call,capture,delivery,margin,book,booking,contract,mark,*,economic=False,native_child=False):
+def option_value(query,manifest,call,capture,delivery,margin,book,booking,contract,mark,*,economic=False,native_child=False,browser=None):
     catalog=manifest['catalogId'];primary=manifest['revisionId'];secondary=manifest['physicalSecondaryRevision']
     def literal(value):return "'"+json.dumps(value).replace("'","''")+"'::jsonb"
     series=query(f"SELECT s.code FROM ref_data.futures_option_series s JOIN market_data.contracts c "
@@ -115,10 +115,11 @@ def option_value(query,manifest,call,capture,delivery,margin,book,booking,contra
     admission.check(query,manifest,login,packet,foreign,original_until)
     run_saved(query,manifest,packet,frozen,login,permissions=('ReadGasOwnedHoldings',),expected_jobs=2,
         verify_mode='--economic-worker-verify' if economic else '--physical-option-worker-verify')
+    if browser is not None:browser(query,manifest,packet,frozen,dict(marginId=margin['id'],booking=booking,foreignTradeId=foreign['tradeId']))
 
 
-def checks(query,manifest,*,economic=False,native_child=False):
-    physical_setup(query,manifest,option_value=lambda *args:option_value(*args,economic=economic,native_child=native_child))
+def checks(query,manifest,*,economic=False,native_child=False,browser=None):
+    physical_setup(query,manifest,option_value=lambda *args:option_value(*args,economic=economic,native_child=native_child,browser=browser))
 
 
 if __name__=='__main__':
