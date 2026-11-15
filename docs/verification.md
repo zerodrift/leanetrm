@@ -7,6 +7,15 @@ selects one CI partition. CI requires every partition and its aggregate check
 to succeed. The implementation records below retain the results and limits of
 each dated increment; older check counts are not the current suite size.
 
+The side-observation preview checks dependency-specific read authority: revoking
+the scheduled-swap projection leaves ordinary swap terms, history and PV intact;
+revoking either observation relation still denies a swap that retains that
+observation schedule. Migration 0297 keeps the conditional invoker-function
+boundary around scheduled terms while hydrating each selected period by its exact
+keys. Its join planning setting is confined to the schedule helper. The native
+retained-swap qualifier checks predecessor parity, caller-setting restoration,
+required-child refusal and worker expiry separately.
+
 D399's local native futures increment has focused owned PostgreSQL consumers:
 `tools/check_futures_margin_sources.py`, `tools/check_futures_margin_adoption.py`
 and `tools/check_futures_margin_journal.py`. Each takes `--pg-bin`; its managed

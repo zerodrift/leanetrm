@@ -149,6 +149,13 @@ def projection_parity(query,manifest,as_of,require_observations=True):
             return ('refused',str(error).splitlines()[0])
     old='public.synthetic_before_swap_projection';new='trading.swap_revision_projection'
     assert read(old)==read(new) and read(new)[0]=='value'
+    expected=json.loads(read(new)[1])
+    assert any(row['scheduled_data'] is not None for row in expected)
+    scoped=runtime(bind+'SET LOCAL join_collapse_limit=1;'
+        f"SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY r.trade_id,r.revision),'[]'::jsonb) FROM {new} r;"
+        "SELECT current_setting('join_collapse_limit');").splitlines()
+    assert json.loads(scoped[-2])==expected and scoped[-1]=='1'
+    print('PASS retained-swap planning preserves exact values and the caller join setting',flush=True)
     for table in ('trading.swap_quantity_authoring','trading.swap_payment_rules','trading.swap_observation_schedules','ref_data.quote_specifications'):
         if table=='trading.swap_observation_schedules'and query(f'SELECT count(*)FROM {table};')=='0':
             assert not require_observations,'An observation omission check requires actual retained observations.'
