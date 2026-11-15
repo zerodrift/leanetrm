@@ -259,6 +259,17 @@ Projected inventory, linked futures, operator claims and returns use ordinary
 Instrument/Side PV. Paid interval cash and unpaid residual claims are disjoint;
 internal position transfers receive no additional gain.
 
+The quantity-only operator/loan projection admits a consumed title transfer only
+when the obligation and received or identified supplied stock retain the same
+exact curve, definition revision and contract. Equal price levels do not make
+different marks interchangeable. A different marking basis requires a separately
+qualified continuation valuation; this version refuses it when the transition
+falls within the selected horizon. Unused future choices and already materialized
+native holdings keep their ordinary valuation. Accepted early performance may
+produce an explicit timing benefit or cost under the original contractual due
+date and carrying convention; it creates no transfer cash. Physical-future
+delivery remains governed by its selected complete principal/asset valuation.
+
 An option's selected reference-American stopping law values its right; the
 separately required held-right event policy projects accepted native events and
 stated contractual expiry. The pricing tree does not manufacture early exercise

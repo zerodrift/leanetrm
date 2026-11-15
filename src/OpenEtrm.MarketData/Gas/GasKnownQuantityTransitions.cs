@@ -189,7 +189,8 @@ public sealed partial class GasQuantityLifecycleProjection
             members=members.SetItem(origin.Holding.Position,member with{Residuals=[Portfolio(origin.Holding)]});
         }
         foreach(var movement in transition.Stock)
-            members=ChangeStock(members,movement.Stock,movement.Stock.BindingId,stock=>stock.AcceptKnown(movement.Operation));
+            members=ChangeStock(members,movement.Stock,movement.Stock.BindingId,stock=>stock.AcceptKnown(movement.Operation),
+                movement.Obligation is {} counterfact?holdings[counterfact]:null);
         foreach(var discharge in transition.Discharges)
         {
             var member=members[discharge.Obligation];var held=holdings[discharge.Obligation];
@@ -204,6 +205,7 @@ public sealed partial class GasQuantityLifecycleProjection
         }
         foreach(var receipt in transition.Receipts)
         {
+            RequireQuantityMark(holdings[receipt.Obligation],receipt.Stock.Instrument.Mark);
             var member=members[receipt.Stock.Position];
             if(!member.Residuals.IsEmpty)throw Error("gas_projection_title","An accepted native receipt cannot create title twice.");
             members=members.SetItem(receipt.Stock.Position,member with{Residuals=[Portfolio(receipt.Stock)]});
@@ -212,13 +214,19 @@ public sealed partial class GasQuantityLifecycleProjection
     }
     private ImmutableDictionary<AccountingPositionKey,LifecycleProjectionState> ChangeStock(
         ImmutableDictionary<AccountingPositionKey,LifecycleProjectionState> members,AccountingPositionKey owner,Guid binding,
-        Func<ProjectedGasStockValuation,ProjectedGasStockValuation> change)
+        Func<ProjectedGasStockValuation,ProjectedGasStockValuation> change,GasProjectionHolding? obligation=null)
     {
         if(!members.TryGetValue(owner,out var member))throw Error("gas_projection_supply","The identified stock is outside the connected economic component.");
         var portfolio=member.Residuals.SingleOrDefault(p=>p.Positions.Any(r=>r.BindingId==binding&&r.Owner==owner.Owner));
         var position=portfolio?.Positions.Single(r=>r.BindingId==binding&&r.Owner==owner.Owner);
         if(portfolio is null||position is null||portfolio.Setup.BindingStates.GetValueOrDefault(new(position.Owner,binding)) is not ProjectedGasStockValuation resource)
             throw Error("gas_projection_supply","The exact supplied stock is absent or has not received native title.");
+        if(obligation is not null)
+        {
+            if(portfolio.Instruments.Single() is not IGasQuantityInstrument gas)
+                throw Error("gas_projection_supply","The identified stock must retain its exact ordinary gas mark before quantity performance.");
+            RequireQuantityMark(obligation,gas.Mark);
+        }
         var next=change(resource);var residuals=member.Residuals.Remove(portfolio);
         if(next.Quantity.Amount!=default||next.KnownSchedule is not null)
         {

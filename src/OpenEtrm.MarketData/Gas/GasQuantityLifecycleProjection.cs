@@ -261,6 +261,7 @@ public sealed partial class GasQuantityLifecycleProjection:ILifecycleProjection
         if(held.Quantity.Amount.CompareTo(default)>0)
         {
             var receipt=instruction.Receipt!;var binding=ProjectedStockBinding(held.Position,instruction.Id);
+            RequireQuantityMark(held,receipt.Instrument.Mark);
             var position=new AccountingPositionKey(held.Position.Owner,binding,held.Position.BookId);
             var stock=new GasProjectionHolding(position,receipt.Account,GasProjectionHoldingKind.OwnedStock,receipt.Instrument,instruction.Quantity,
                 receipt.AvailableAt,ImmutableDictionary<Guid,ExactDecimal>.Empty,null){Source=receipt.Source};
@@ -270,7 +271,7 @@ public sealed partial class GasQuantityLifecycleProjection:ILifecycleProjection
         {
             if(!Compatible(held.Account,StockAccount(supply)))
                 throw Error("gas_projection_supply","The selected supply must be compatible existing or explicitly linked incoming owned stock.");
-            members=ChangeStock(members,supply.EconomicOwner,supply.BindingId,resource=>resource.Consume(supply.Quantity,instruction.At,supply.ReservationId));
+            members=ChangeStock(members,supply.EconomicOwner,supply.BindingId,resource=>resource.Consume(supply.Quantity,instruction.At,supply.ReservationId),held);
         }
         return LifecycleProjectionState.Compose(members) with{CompletedEvents=state.CompletedEvents};
     }
@@ -315,6 +316,11 @@ public sealed partial class GasQuantityLifecycleProjection:ILifecycleProjection
         Money.RequireKey(p.Account.Location);
     }
     private static bool Compatible(GasProjectionAccount a,GasProjectionAccount b)=>a is not null&&b is not null&&a.BookId==b.BookId&&a.LegalOwner==b.LegalOwner&&a.Location==b.Location;
+    private static void RequireQuantityMark(GasProjectionHolding obligation,CurveRequest stock)
+    {
+        if((obligation.Kind is GasProjectionHoldingKind.OperatorClaim or GasProjectionHoldingKind.LoanReturn)&&obligation.Instrument.Mark!=stock)
+            throw Error("gas_projection_operator_basis","A quantity-only operator or loan transfer requires the same exact mark on its obligation and received or consumed inventory. A different basis requires a qualified continuation valuation.");
+    }
     private static ExactDecimal Abs(ExactDecimal n)=>n.CompareTo(default)<0?-n:n;
     private static MarketDataException Error(string code,string message)=>new(code,message);
 }
