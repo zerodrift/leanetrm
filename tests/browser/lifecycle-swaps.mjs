@@ -30,11 +30,17 @@ export async function swapLifecycleFixture(driver,name,{net=false,shared=false}=
  await evaluate(`(async()=>{const f=window.__swapFixture,post=window.__swapPost;let d=await post('lifecycle/view',{...f.context,convention:'trading_workspace_v1'});
   const rows=d.swapOccurrences.filter(r=>r.trade_id===f.tradeId);if(rows.length!==2)throw Error('Expected two exact synthetic payment occurrences');
   f.occurrences=rows;f.profiles=[];f.currency={revision:{catalogId:rows[0].reference_catalog_id,revisionId:rows[0].reference_revision_id},code:rows[0].currency_code};
-  f.policies={};for(const action of ['swap.determine','swap.payment',...${net?'["swap.net"]':'[]'}]){const policyId=crypto.randomUUID();f.policies[action]=policyId;
+  f.policies={};
+ })()`);
+ // Keep each saved action inside its own browser command budget.
+ for(const action of ['swap.determine','swap.payment',...(net?['swap.net']:[])]){
+  await evaluate(`(async()=>{const f=window.__swapFixture,post=window.__swapPost,rows=f.occurrences,action=${q(action)},policyId=crypto.randomUUID();f.policies[action]=policyId;
    await post('lifecycle/policies/save',{operationId:crypto.randomUUID(),policyId,expectedRevision:0,action,mode:'review',fromAt:'2020-01-01T00:00:00Z',untilAt:'2035-01-01T00:00:00Z',implementation:'explicit_lifecycle_action_policy_v1'});
    if(action==='swap.net')await post('lifecycle/swaps/net/configure',{operationId:crypto.randomUUID(),profileId:crypto.randomUUID(),tradeId:f.tradeId,expectedRevision:0,originRevision:1,action,policyId,policyRevision:1,referenceCatalogId:rows[0].reference_catalog_id,referenceRevisionId:rows[0].reference_revision_id,currency:rows[0].currency_code,decimalPlaces:2,roundingPolicy:'currency_minor_units_to_even_v1',duePolicy:'swap_due_nominal_v1',recognitionPolicy:'swap_completed_period_trading_pnl_v1',correctionPolicy:'swap_explicit_correction_due_v1',netPolicy:'explicit_same_due_swap_net_v1'});
    else for(const row of rows){const profileId=crypto.randomUUID();await post('lifecycle/swaps/configure',{operationId:crypto.randomUUID(),profileId,tradeId:f.tradeId,expectedRevision:0,originRevision:1,action,policyId,policyRevision:1,membershipOrdinal:row.membership_ordinal,paymentOrdinal:row.payment_ordinal,deliveryFrom:row.delivery_from,deliveryTo:row.delivery_to,referenceCatalogId:row.reference_catalog_id,referenceRevisionId:row.reference_revision_id,currency:row.currency_code,decimalPlaces:2,roundingPolicy:'currency_minor_units_to_even_v1',duePolicy:'swap_due_nominal_v1',recognitionPolicy:'swap_completed_period_trading_pnl_v1',correctionPolicy:'swap_explicit_correction_due_v1'});f.profiles.push({id:profileId,action,membership:row.membership_ordinal});}
-  }
+  })()`);
+ }
+ await evaluate(`(async()=>{const f=window.__swapFixture,post=window.__swapPost;
   const report=await post('trading/blotter',{context:{...f.context,convention:'trading_workspace_v1'},view:{mode:'trades',bookIds:[],portfolioIds:[],groupBy:[],measures:[],pivotConvention:null}});f.reference=report.holdings.find(h=>h.tradeId===f.tradeId).tradeReference;
   window.__swapInspect=()=>post('swaps/settlement/inspect',{context:f.context,tradeId:f.tradeId,revision:null,duePolicy:'swap_due_nominal_v1',recognitionPolicy:'swap_completed_period_trading_pnl_v1'});
   window.__swapWrites=[];const send=window.fetch;window.fetch=async(input,init)=>{const path=String(input),body=init?.body?JSON.parse(init.body):null,response=await send(input,init);if(path==='/api/lifecycle/execute'){window.__swapWrites.push({body,status:response.status,outcome:response.ok?await response.clone().json():null});if(window.__loseSwapReply&&response.ok){window.__loseSwapReply=false;throw new TypeError('Synthetic reply lost after the committed lifecycle action');}}return response;};
