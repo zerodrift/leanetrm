@@ -697,6 +697,7 @@ DECLARE h trading.gas_loan_quantity_corrections;c trading.gas_owned_commands;loa
   END LOOP;
  ELSIF EXISTS(SELECT 1 FROM trading.gas_loan_quantity_sources s WHERE(s.catalog_id,s.operation_id)=(h.catalog_id,h.operation_id)) THEN RAISE EXCEPTION 'gas_loan_quantity_seal';END IF;
  IF c.outcome IS DISTINCT FROM trading.gas_loan_correction_outcome(h.catalog_id,h.operation_id) THEN RAISE EXCEPTION 'gas_loan_quantity_seal';END IF;
+ PERFORM security.require_gas_owned_commit(h.catalog_id,c.authority_until,false,false);
  RETURN NULL;
 END$$;
 
@@ -723,6 +724,7 @@ DO $upgrade$DECLARE spec record;p pg_proc;definition text;replacement text;needl
    OR p.provariadic<>0 OR p.proargmodes IS NOT NULL OR p.prokind<>'f' OR p.proisstrict OR p.proleakproof
    OR p.proargnames IS DISTINCT FROM spec.names OR p.proallargtypes IS NOT NULL OR p.pronargdefaults<>0 OR p.proargdefaults IS NOT NULL
    OR p.provolatile::text<>spec.volatility OR p.proparallel<>'u' OR p.prosecdef IS DISTINCT FROM spec.definer
+   OR p.procost<>100 OR p.prorows<>0
    OR(SELECT lanname FROM pg_language WHERE oid=p.prolang)<>'plpgsql' OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']
    OR p.prosupport<>0 OR p.probin IS NOT NULL OR p.prosqlbody IS NOT NULL OR p.protrftypes IS NOT NULL
    OR has_function_privilege('openetrm_runtime',p.oid,'EXECUTE') IS DISTINCT FROM spec.runtime_execute
