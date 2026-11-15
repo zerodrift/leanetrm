@@ -269,6 +269,17 @@ lazy member selection, reviewed correction and exact retry after an uncertain
 acknowledgement. Broader loan/operator/fee amendments and changed event-time or
 advance treatment retain separate implementation gates.
 
+The read-only operator-correction source retains one exact claim's complete
+known settlement prefix in original publication order, including future-effective
+settlements. It exposes saved cashout terms, receipt and funding lots, known stock
+uses and reservations, original cash and bank revisions, applied evidence and
+captured correction heads. Its dependency scope is explicit and its encoded
+families are bounded before aggregation. Native checks qualify cashout and signed
+quantity counterparts, earlier knowledge prefixes and expiry during the final
+source guard: a successor permission does not extend the original deadline.
+Operator quantity/cashout correction writes, managed review and operational forms
+remain separate implementation gates.
+
 The bounded loan quantity amendment pairs the exact native received-stock and
 return-obligation owners with a versioned loan principal. A reviewed correction
 names the selected title and agreement revisions, both position revisions and
