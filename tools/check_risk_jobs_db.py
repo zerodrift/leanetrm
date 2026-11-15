@@ -421,10 +421,15 @@ def run_checks(query, manifest, psql=None, environment=None):
     ppa_guard = f"security.ppa_scope_has_positions('{catalog}',ARRAY[{','.join(repr(b)+'::uuid' for b in books)}])"
     assert worker(f"BEGIN;SELECT risk.bind('{job['jobId']}','{claim['leaseToken']}');SELECT {ppa_guard};COMMIT").splitlines()[-1] == 'f'
     reject(lambda: worker(f"SELECT {ppa_guard}"), 'No current risk worker authority')
+    # Worker reads check current authority per statement and retain its original
+    # deadline for every row, including expiry during a long-running statement.
+    worker_read_policy = ("(( SELECT risk.worker_read() AS worker_read) AND (clock_timestamp() < "
+                          "( SELECT security.authority_until('ReadMarketData'::text) AS authority_until)))")
     for table in ('generation_assets','generation_asset_versions','volume_sources','location_valuation_assignments'):
         assert query(f"SELECT has_table_privilege('synthetic_risk_worker','market_data.{table}','SELECT') AND NOT has_table_privilege('synthetic_risk_worker','market_data.{table}','INSERT,UPDATE,DELETE');") == 't'
         assert query(f"SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE oid='market_data.{table}'::regclass;") == 't'
-        assert query(f"SELECT count(*)=1 FROM pg_policies WHERE schemaname='market_data' AND tablename='{table}' AND policyname='risk_worker_service' AND permissive='RESTRICTIVE' AND roles=ARRAY['openetrm_risk_worker']::name[] AND cmd='SELECT' AND qual='risk.worker_read()';") == 't'
+        policy = query(f"SELECT regexp_replace(qual,'[[:space:]]+',' ','g') FROM pg_policies WHERE schemaname='market_data' AND tablename='{table}' AND policyname='risk_worker_service' AND permissive='RESTRICTIVE' AND roles=ARRAY['openetrm_risk_worker']::name[] AND cmd='SELECT';")
+        assert policy == worker_read_policy, (table, policy)
     assert query("SELECT has_function_privilege('synthetic_risk_worker','security.ppa_scope_heads(uuid,text,uuid[])','EXECUTE');") == 'f'
     assert query("SELECT has_table_privilege('synthetic_risk_worker','trading.ppa_trade_revisions','SELECT');") == 'f'
     metadata = f"security.risk_ppa_trade_heads('{catalog}',ARRAY[{','.join(repr(b)+'::uuid' for b in books)}],NULL::uuid[])"

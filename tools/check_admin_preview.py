@@ -12,10 +12,10 @@ def run_checks(Client, check):
           [(k['code'], k['creatable']) for k in directory['kinds']] == [('human', True), ('service', True), ('agent', False)] and all(k['name'] for k in directory['kinds']))
     admin.call('workspace', expected=403)
     check('access administration does not imply market-data access')
-    check('the eleven human roles are assignable, and both agent-only roles are listed only to name what agents hold',
+    check('the eleven human roles are assignable, and all three agent-only roles are listed only to name what agents hold',
           sorted(r['code'] for r in directory['roles'] if r['assignable']) == ['access_administrator', 'assistant_prompt_editor', 'facility_limits_admin', 'facility_operator', 'gas_operator', 'gas_service_admin', 'market_data_approver', 'market_data_editor', 'risk_analyst', 'trader', 'viewer']
-          and sorted(r['code'] for r in directory['roles'] if not r['assignable']) == ['agent_reader', 'swap_settlement_operator'])
-    check('role choices carry stored display names', all(isinstance(r.get('name'), str) and r['name'].strip() for r in directory['roles']) and len({r['name'] for r in directory['roles']}) == len(directory['roles']) == 13)
+          and sorted(r['code'] for r in directory['roles'] if not r['assignable']) == ['agent_reader', 'gas_lifecycle_operator', 'swap_settlement_operator'])
+    check('role choices carry stored display names', all(isinstance(r.get('name'), str) and r['name'].strip() for r in directory['roles']) and len({r['name'] for r in directory['roles']}) == len(directory['roles']) == 14)
     check('facility and gas operations roles start unassigned to existing members',
           all(not {'facility_operator', 'facility_limits_admin', 'gas_operator', 'gas_service_admin'}.intersection(m['roles']) for m in directory['members']))
     context = dict(effectiveOn='2020-12-18', knowledgeMode='current', retained=None,
@@ -67,7 +67,7 @@ def run_checks(Client, check):
     # changes none, and grants no one an agent-only role.
     refusals = [admin.call('admin/create', {**request, 'operationId': str(uuid4()), 'login': 'synthetic_agent', 'name': 'Synthetic agent', 'kind': 'agent'}, expected=422),
                 admin.call('admin/create', {**request, 'operationId': str(uuid4()), 'login': 'synthetic_second_reader', 'roles': ['agent_reader', 'viewer']}, expected=422)]
-    for role in ('agent_reader', 'swap_settlement_operator'):
+    for role in ('agent_reader', 'swap_settlement_operator', 'gas_lifecycle_operator'):
         refusals.append(admin.call('admin/create', {**request, 'operationId': str(uuid4()), 'login': 'synthetic_restricted_role', 'roles': [role]}, expected=422))
         refusals.append(admin.call('admin/update', {**update, 'operationId': str(uuid4()), 'expectedVersion': restored['version'], 'roles': [role]}, expected=422))
     listed = admin.call('settings/ai/agents/create', {'operationId': str(uuid4()), 'name': 'Synthetic listed agent'})

@@ -213,7 +213,10 @@ def check_publication_expiry(client,query,manifest,positions,principal,grants):
       PERFORM nextval('security.publication_expiry_barrier');
       PERFORM pg_sleep(GREATEST(0,extract(epoch FROM ((SELECT granted_to FROM security.role_grants WHERE id='{market_grant}')-clock_timestamp())))+0.05);
     END IF;"""
-    assert '\nBEGIN\n' in original
+    # The lifecycle wrapper delegates ordinary callers to this existing reader.
+    # Match that exact handoff rather than whitespace around its BEGIN token.
+    handoff='RETURN security.has_permission_pre_lifecycle_jobs(permission);'
+    assert original.count(handoff)==1
     try:
         query(f"""CREATE SEQUENCE security.publication_expiry_barrier;
         GRANT USAGE ON SEQUENCE security.publication_expiry_barrier TO openetrm_security_owner;
@@ -224,7 +227,7 @@ def check_publication_expiry(client,query,manifest,positions,principal,grants):
           ('{read_grant}','{principal}','{read_role}','{manifest['tenantId']}','{manifest['workspaceId']}',clock_timestamp()-interval '1 minute',clock_timestamp()+interval '1 hour',false),
           ('{market_grant}','{principal}','{market_role}','{manifest['tenantId']}','{manifest['workspaceId']}',clock_timestamp()-interval '1 minute',clock_timestamp()+interval '2 seconds',false);
         UPDATE security.role_grants SET revoked=true WHERE id::text IN({grants});""")
-        query(original.replace('\nBEGIN\n','\nBEGIN\n'+barrier+'\n',1))
+        query(original.replace(handoff,barrier+'\n '+handoff,1))
         client.call('trading/positions',positions,expected=403)
         assert query('SELECT is_called FROM security.publication_expiry_barrier;')=='t', 'Grant must expire during Rights, not before the business read'
     finally:
