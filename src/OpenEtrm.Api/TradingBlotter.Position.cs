@@ -51,10 +51,16 @@ public sealed partial class TradingBlotter
   if(matching.Length!=1)throw TradePositionSelection.Unavailable();
   var result=matching[0];
   var formats=await DealAmountFormats.All(connection,manifest.CatalogId,ct);
-  AmountFormats(result,formats.GetValueOrDefault(selected.TradeId));
+  Listed(result,formats.GetValueOrDefault(selected.TradeId),sideSchedules);
   return result;
  }
- internal static void AmountFormats(JsonObject row,Dictionary<string,DealAmountFormats.Selection>? formats)
+ // A row as the Blotter lists it: its deal's display formats, and whether its position has Side schedules to read.
+ internal static void Listed(JsonObject row,Dictionary<string,DealAmountFormats.Selection>? formats,Func<string,bool> sideSchedules)
+ {
+  AmountFormats(row,formats);
+  row["sideSchedules"]=sideSchedules(row["instrumentType"]!.GetValue<string>());
+ }
+ static void AmountFormats(JsonObject row,Dictionary<string,DealAmountFormats.Selection>? formats)
  {
   row["amountFormat"]=JsonSerializer.SerializeToNode(DealAmountFormats.Resolve(formats,"trade"),Json);
   row["fixedAmountFormat"]=JsonSerializer.SerializeToNode(DealAmountFormats.Resolve(formats,"fixed"),Json);

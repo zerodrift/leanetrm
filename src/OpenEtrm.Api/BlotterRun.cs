@@ -16,11 +16,11 @@ internal interface IBlotterProductRun
 // then PPAs, gas, crude and futures options), and the report of all their rows. trading/workspace collects its units; the stream sends each as it completes.
 internal sealed class BlotterRun(FuturesBlotterView view,ImmutableArray<FuturesBlotterView> summaries,FuturesStore.FuturesBlotterRun? futures,
     SwapStore.SwapBlotterRun? swaps,PpaBlotter.PpaBlotterRun? ppas,
-    Dictionary<Guid,Dictionary<string,DealAmountFormats.Selection>> formats,IBlotterProductRun? gas=null,IBlotterProductRun? crude=null,
+    Dictionary<Guid,Dictionary<string,DealAmountFormats.Selection>> formats,Func<string,bool> sideSchedules,IBlotterProductRun? gas=null,IBlotterProductRun? crude=null,
     IBlotterProductRun? options=null,IBlotterProductRun? lng=null)
 {
     // A run of an empty directory has no products (D160).
-    internal static BlotterRun Empty(FuturesBlotterView view,ImmutableArray<FuturesBlotterView> summaries)=>new(view,summaries,null,null,null,[]);
+    internal static BlotterRun Empty(FuturesBlotterView view,ImmutableArray<FuturesBlotterView> summaries,Func<string,bool> sideSchedules)=>new(view,summaries,null,null,null,[],sideSchedules);
 
     internal int Positions{get;}=(futures?.Positions??0)+(swaps?.Positions??0)+(ppas?.Positions??0)+(gas?.Positions??0)+(crude?.Positions??0)+(options?.Positions??0)+(lng?.Positions??0);
 
@@ -34,7 +34,7 @@ internal sealed class BlotterRun(FuturesBlotterView view,ImmutableArray<FuturesB
             {
                 foreach(var row in unit)
                 {
-                    TradingBlotter.AmountFormats(row,formats.GetValueOrDefault(Guid.Parse(row["tradeId"]!.GetValue<string>())));
+                    TradingBlotter.Listed(row,formats.GetValueOrDefault(Guid.Parse(row["tradeId"]!.GetValue<string>())),sideSchedules);
                 }
                 yield return unit;
             }

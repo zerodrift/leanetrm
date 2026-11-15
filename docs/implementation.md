@@ -1290,7 +1290,7 @@ screenshots were inspected. These results are not throughput or production claim
 
 ## Independent schedules, publication and contract dates
 
-**Reference Data → Schedules & date mappings** creates date schedules independently of curves. Canonical
+**Reference Data → Calendars → Date schedules** creates date schedules independently of curves. Canonical
 references use `oe.name`; configurable namespace aliases remain future authoring
 convenience. A schedule generates monthly anchors with explicit first/last months,
 day-of-month or month-end intent, short-month handling, business-day adjustment
@@ -1325,7 +1325,7 @@ permission is checked again after lock waits. The displayed publication timestam
 is audit metadata. Timestamp-based certification now exists for the schedule path described above;
 broader market/reference temporal context remains unfinished.
 
-**Reference Data → Price setup** uses already published
+**Reference Data → Calendars → Date rules** uses already published
 schedules in `start`, `end` and last-trading fields. `date` is used for a single
 resolved date. No existing curve specification is required. The example explicitly
 binds consecutive months and a last-trading offset of three business days before

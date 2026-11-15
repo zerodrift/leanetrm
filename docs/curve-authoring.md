@@ -87,10 +87,10 @@ checks run and remaining limits. No live feed or production activation is implie
 
 The application now opens the Objects canvas by default. Its selectable operation
 connections edit the existing managed graph, and source/contract cards open the
-exact saved version's pricing terms. Contract pricing and Publications share the Price setup view in Curves & prices.
-Date rules remain in the existing Schedules & date mappings workspace. Unconfirmed
+exact saved version's pricing terms. Contract pricing and Publications are entries of their own under
+Reference Data → Pricing, and Date rules, the date-mapping editor of the schedules workspace, under Calendars (D399). Unconfirmed
 writes retain their exact request and payload across retry; navigation protects
-unsaved edits. Price setup is a human editor; it does not expose the older
+unsaved edits. Contract pricing and Publications are human editors; they do not expose the older
 date-definition assistant report as if it described publication or pricing terms.
 The Curve builder retains its existing assistant operations.
 

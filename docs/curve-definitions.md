@@ -179,8 +179,9 @@ adopted silently. Rendered curves offer no way to change a definition.
   `curve_terms_mismatch`, `curve_unsupported`, `curve_contract_count`,
   `curve_contract_series`, `curve_contract_order`).
 - **Reference Data → Curve definitions** (D365): lists saved definitions and edits
-  one on a page of its own. Schedules and date mappings stay on
-  Reference Data → Schedules & date mappings.
+  one on a page of its own. Date mappings are edited on
+  Reference Data → Calendars → Date rules, beside the saved date schedules on
+  Reference Data → Calendars → Date schedules (D399).
 - A configuration action appears beside every listed native curve, on its market
   card and in its details. The navigation read (`curveConfigurations`) carries the
   exact admitted definition when available, whether it is editable and the reason

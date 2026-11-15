@@ -6,14 +6,15 @@ import {withBrowserPage,browserAvailable,browserTestTimeout} from './browser-pag
 const markup=readFileSync(new URL('../src/index.html',import.meta.url),'utf8');
 const shell=markup.match(/<nav id="reference-console"[^>]*>.*?<\/nav>/s)[0];
 // The sidebar's Reference Data entries, one for each area of the menu.
-const areas='<div id="areas">'+['curves','time','products'].map(id=>`<button data-area="${id}"></button>`).join('')+'</div>';
+const areas='<div id="areas">'+['curves','time','products','pricing'].map(id=>`<button data-area="${id}"></button>`).join('')+'</div>';
 const html=`<link rel="stylesheet" href="/app.css">${areas}${shell}`;
 const setup=`(async()=>{window.opened=[];window.searched=[];window.blocked=false;
- window.menu=[{id:'curves',name:'Curves & pricing',entries:[{id:'custom-curves',name:'Curve builder',page:'custom-curves'}]},
-  {id:'time',name:'Time',entries:[{id:'calendars',name:'Calendars',page:'reference',table:'calendars'},{id:'power',name:'Power TOUs',page:'power'}]}];
- window.console_=(await import('/reference-console.js')).setupReferenceConsole({host:document.querySelector('#reference-console'),menu:()=>menu,open:entry=>opened.push(entry.id),search:text=>searched.push(text),areas:document.querySelector('#areas'),busy:()=>blocked,pendingContext:()=>!!window.pendingContext,unfolded:()=>window.unfoldings=(window.unfoldings||0)+1});
+ window.menu=[{id:'curves',name:'Curves',entries:[{id:'custom-curves',name:'Curve builder',page:'custom-curves'}]},
+  {id:'time',name:'Calendars',entries:[{id:'calendars',name:'Calendars',page:'reference',table:'calendars'},{id:'power',name:'Power TOUs',page:'power'}]}];
+ window.console_=(await import('/reference-console.js')).setupReferenceConsole({host:document.querySelector('#reference-console'),menu:()=>menu,open:entry=>opened.push(entry.id),search:text=>searched.push(text),areas:document.querySelector('#areas'),busy:()=>blocked,pendingContext:()=>!!window.pendingContext});
  console_.show('power');})()`;
-const group=name=>`[...document.querySelectorAll('#reference-console details')].find(d=>d.querySelector('summary').textContent.includes('${name}'))`;
+// The entries the page lists: those of the area shown.
+const listed=`[...document.querySelectorAll('#reference-console ul:not([hidden]) li')].map(n=>n.textContent)`;
 const current=`document.querySelector('#reference-console [aria-current=page]')?.textContent`;
 const browser={skip:!browserAvailable,timeout:browserTestTimeout};
 
@@ -41,35 +42,58 @@ test('a pending context change lets the shown page be opened again, so the exist
   assert.deepEqual(await evaluate('opened'),['power']);
  });
 });
-test('only the shown group is open and another can be opened by hand',browser,async()=>{
+test('the page lists the entries of the area shown, and no other area',browser,async()=>{
  await withBrowserPage(html,async evaluate=>{
   await evaluate(setup);
-  assert.equal(await evaluate(`${group('Time')}.open`),true);
-  assert.equal(await evaluate(`${group('Curves')}.open`),false);
-  await evaluate(`${group('Curves')}.open=true`);
-  await evaluate('console_.sync()');
-  assert.equal(await evaluate(`${group('Curves')}.open`),true,'a refresh leaves a group opened by hand');
+  assert.deepEqual(await evaluate(listed),['Calendars','Power TOUs']);
+  assert.equal(await evaluate("document.querySelectorAll('#reference-console :is(details,summary)').length"),0,'nothing to unfold');
+  await evaluate("menu=[{id:'curves',name:'Curves',entries:[{id:'curve-definitions',name:'Curve definitions',page:'curve-definitions'},menu[0].entries[0]]},menu[1]];console_.show('custom-curves')");
+  assert.deepEqual(await evaluate(listed),['Curve definitions','Curve builder']);
  });
 });
-test('typing narrows the menu and submitting searches reference data',browser,async()=>{
+test('an area of one entry lists nothing to choose between, and the search stays',browser,async()=>{
  await withBrowserPage(html,async evaluate=>{
   await evaluate(setup);
-  const type=value=>`{const t=document.querySelector('#reference-search-all-text');t.value='${value}';t.dispatchEvent(new Event('input',{bubbles:true}))}`;
-  await evaluate(type('tou'));
-  const listed=`[...document.querySelectorAll('#reference-console li')].filter(n=>!n.hidden).map(n=>n.textContent)`;
-  assert.deepEqual(await evaluate(listed),['Power TOUs']);
-  assert.equal(await evaluate(`${group('Curves')}.hidden`),true,'a group with no match is hidden');
-  await evaluate("document.querySelector('#reference-search-all').requestSubmit()");
+  await evaluate("console_.show('custom-curves')");
+  assert.deepEqual(await evaluate(listed),[]);
+  assert.equal(await evaluate("document.querySelector('#reference-console').hidden||document.querySelector('#reference-search-all').hidden"),false);
+ });
+});
+test('submitting the search box searches reference data and leaves the entries listed',browser,async()=>{
+ await withBrowserPage(html,async evaluate=>{
+  await evaluate(setup);
+  await evaluate("{const t=document.querySelector('#reference-search-all-text');t.value='tou';t.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('#reference-search-all').requestSubmit();}");
   assert.deepEqual(await evaluate('searched'),['tou']);
-  await evaluate(type(''));
-  assert.equal((await evaluate(listed)).length,3);
+  assert.deepEqual(await evaluate(listed),['Calendars','Power TOUs']);
+ });
+});
+const views=`menu=[{id:'pricing',name:'Pricing',entries:[{id:'configuration',name:'Contract pricing',page:'configuration',view:'contracts'},{id:'publications',name:'Publications',page:'configuration',view:'publications',alsoTables:['price_index_definitions']},{id:'sources',name:'Data sources',page:'reference',table:'sources'}]}];`;
+test('an entry that is one view of a page is marked by that view, and another view of the page opens',browser,async()=>{
+ await withBrowserPage(html,async evaluate=>{
+  await evaluate(setup);
+  await evaluate(views+"console_.show('configuration',undefined,'contracts')");
+  assert.equal(await evaluate(current),'Contract pricing');
+  await evaluate("document.querySelector('#nav-configuration').click();document.querySelector('#nav-publications').click()");
+  assert.deepEqual(await evaluate('opened'),['publications'],'the view shown is not opened again');
+  await evaluate("console_.show('configuration',undefined,'publications')");
+  assert.equal(await evaluate(current),'Publications');
+  assert.equal(await evaluate("document.querySelector('#areas [data-area=pricing]').classList.contains('active')"),true);
+ });
+});
+test('a table read from another entry marks that entry, which opens its own page when chosen',browser,async()=>{
+ await withBrowserPage(html,async evaluate=>{
+  await evaluate(setup);
+  await evaluate(views+"console_.show('reference','price_index_definitions')");
+  assert.equal(await evaluate(current),'Publications');
+  await evaluate("document.querySelector('#nav-publications').click()");
+  assert.deepEqual(await evaluate('opened'),['publications']);
  });
 });
 const area=id=>`document.querySelector('#areas [data-area=${id}]')`;
 test('the sidebar lists the areas this menu has and marks the one shown',browser,async()=>{
  await withBrowserPage(html,async evaluate=>{
   await evaluate(setup);
-  assert.deepEqual(await evaluate(`['curves','time','products'].map(id=>document.querySelector('#areas [data-area='+id+']').hidden)`),[false,false,true]);
+  assert.deepEqual(await evaluate(`['curves','time','products','pricing'].map(id=>document.querySelector('#areas [data-area='+id+']').hidden)`),[false,false,true,true]);
   assert.deepEqual(await evaluate(`['curves','time'].map(id=>document.querySelector('#areas [data-area='+id+']').classList.contains('active'))`),[false,true]);
   await evaluate('console_.reset()');
   assert.equal(await evaluate(`${area('time')}.classList.contains('active')`),false,'no area is marked outside the console');
@@ -79,13 +103,13 @@ test('an area opens the entry last shown in it, else its first, and the area sho
  await withBrowserPage(html,async evaluate=>{
   await evaluate(setup);
   await evaluate(`${area('time')}.click()`);
-  assert.deepEqual(await evaluate('opened'),[],'Power TOUs is shown, in Time');
+  assert.deepEqual(await evaluate('opened'),[],'Power TOUs is shown, in Calendars');
   await evaluate(`${area('curves')}.click()`);
   assert.deepEqual(await evaluate('opened'),['custom-curves']);
   await evaluate(`console_.show('custom-curves');${area('time')}.click()`);
-  assert.deepEqual(await evaluate('opened'),['custom-curves','power'],'the entry last shown in Time');
+  assert.deepEqual(await evaluate('opened'),['custom-curves','power'],'the entry last shown in Calendars');
   await evaluate(`console_.reset();console_.show('custom-curves');${area('time')}.click()`);
-  assert.deepEqual(await evaluate('opened'),['custom-curves','power','calendars'],'the first entry of Time');
+  assert.deepEqual(await evaluate('opened'),['custom-curves','power','calendars'],'the first entry of Calendars');
   await evaluate(`blocked=true;${area('time')}.click()`);
   assert.equal((await evaluate('opened')).length,3,'nothing opens while the application is busy');
  });
@@ -95,26 +119,6 @@ test('entries are disabled while the application is busy',browser,async()=>{
   await evaluate(setup);
   await evaluate('blocked=true;console_.sync()');
   assert.equal(await evaluate("document.querySelector('#nav-custom-curves').disabled"),true);
- });
-});
-test('the menu folds to a slim strip and unfolds',browser,async()=>{
- await withBrowserPage(html,async evaluate=>{
-  await evaluate(setup);
-  const toggle="document.querySelector('#reference-console-toggle')";
-  await evaluate(`${toggle}.click()`);
-  assert.equal(await evaluate(`${toggle}.getAttribute('aria-expanded')`),'false');
-  assert.equal(await evaluate("document.querySelector('#reference-console-body').hidden"),true);
-  await evaluate(`${toggle}.click()`);
-  assert.equal(await evaluate(`${toggle}.getAttribute('aria-expanded')`),'true');
- });
-});
-test('unfolding the menu reports it, so the page can read what the menu lists; folding does not',browser,async()=>{
- await withBrowserPage(html,async evaluate=>{
-  await evaluate(setup);
-  await evaluate("document.querySelector('#reference-console-toggle').click()");
-  assert.equal(await evaluate('window.unfoldings||0'),0);
-  await evaluate("document.querySelector('#reference-console-toggle').click()");
-  assert.equal(await evaluate('window.unfoldings||0'),1);
  });
 });
 test('the console shows for its pages and hides elsewhere',browser,async()=>{
@@ -160,20 +164,13 @@ test('a refused move leaves focus where it is, even after the application is fre
 test('the shown entry takes focus back once its page has opened',browser,async()=>{
  await withBrowserPage(html,async evaluate=>{
   await evaluate(setup);
-  await evaluate("document.querySelector('#nav-custom-curves').click();blocked=true;console_.sync();blocked=false;console_.show('custom-curves')");
-  assert.equal(await evaluate('document.activeElement.id'),'nav-custom-curves');
- });
-});
-test('a folded menu gives focus to its toggle rather than a hidden entry',browser,async()=>{
- await withBrowserPage(html,async evaluate=>{
-  await evaluate(setup);
-  await evaluate("document.querySelector('#nav-custom-curves').click();blocked=true;console_.sync();console_.fold(true);blocked=false;console_.show('custom-curves')");
-  assert.equal(await evaluate('document.activeElement.id'),'reference-console-toggle');
+  await evaluate("document.querySelector('#nav-table-calendars').click();blocked=true;console_.sync();blocked=false;console_.show('reference','calendars')");
+  assert.equal(await evaluate('document.activeElement.id'),'nav-table-calendars');
  });
 });
 test('an entry with several pages reopens the one last shown',browser,async()=>{
  await withBrowserPage(html,async evaluate=>{
-  await evaluate(`(async()=>{window.pages=[];window.menu=[{id:'physical',name:'Physical',entries:[{id:'delivery-setup',name:'Delivery setup',page:'gas-setup',alsoPages:['crude-setup']}]}];
+  await evaluate(`(async()=>{window.pages=[];window.menu=[{id:'physical',name:'Locations & delivery',entries:[{id:'delivery-setup',name:'Delivery setup',page:'gas-setup',alsoPages:['crude-setup']}]}];
    window.console_=(await import('/reference-console.js')).setupReferenceConsole({host:document.querySelector('#reference-console'),menu:()=>menu,open:entry=>pages.push(entry.page),search:()=>{},busy:()=>false});
    console_.show('crude-setup');console_.show('market');})()`);
   await evaluate("document.querySelector('#nav-delivery-setup').click()");

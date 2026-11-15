@@ -100,7 +100,7 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await evaluate("document.querySelector('#position-details-tabs-history').focus()");await press('ArrowRight','ArrowRight',39);
   await wait("!!document.querySelector('#position-details-body .side-panel-section')");
   await check('the tabs are a tablist, the arrow keys move along it and choose what they reach, and the tab panel is named by the selected tab',
-    `(()=>{const tabs=[...document.querySelectorAll('#position-details-tabs [role=tab]')];return document.querySelector('#position-details-tabs').getAttribute('role')==='tablist'&&tabs.map(t=>t.textContent).join()==='Terms,Side schedules,Risk,History'&&tabs.filter(t=>t.getAttribute('aria-selected')==='true').length===1&&document.activeElement.id==='position-details-tabs-terms'&&document.activeElement.getAttribute('aria-selected')==='true'&&tabs.filter(t=>t.tabIndex===0).length===1&&document.querySelector('#position-details-body').getAttribute('role')==='tabpanel'&&document.querySelector('#position-details-body').getAttribute('aria-labelledby')==='position-details-tabs-terms';})()`,
+    `(()=>{const tabs=[...document.querySelectorAll('#position-details-tabs [role=tab]')];return document.querySelector('#position-details-tabs').getAttribute('role')==='tablist'&&tabs.map(t=>t.textContent).join()==='Terms,Risk,History'&&tabs.filter(t=>t.getAttribute('aria-selected')==='true').length===1&&document.activeElement.id==='position-details-tabs-terms'&&document.activeElement.getAttribute('aria-selected')==='true'&&tabs.filter(t=>t.tabIndex===0).length===1&&document.querySelector('#position-details-body').getAttribute('role')==='tabpanel'&&document.querySelector('#position-details-body').getAttribute('aria-labelledby')==='position-details-tabs-terms';})()`,
     `[document.activeElement.id,document.querySelector('#position-details-body').getAttribute('aria-labelledby')]`);
   await check('Terms reuses the revision read on opening and lists its terms: the booking facts, the position and the dated contract',
     `(()=>{const read=window.__futuresResponses.filter(r=>r.path==='/api/futures/editor'),h=${held(futureReference)},terms=Object.fromEntries([...document.querySelectorAll('#position-details-body .side-term')].map(r=>[r.children[0].textContent,r.children[1].textContent]));return read.length===${reads}&&read.at(-1).data.state.tradeReference===${JSON.stringify(futureReference)}&&terms.Lots===h.lots.replace('-','−')&&terms['Execution price']?.endsWith(' '+h.currency+'/'+h.unit)&&!!terms.Product&&terms.Trade.startsWith(${JSON.stringify(futureReference)})&&[...document.querySelectorAll('#position-details-body h3')].map(n=>n.textContent).join()==='Trade,Position,Contract';})()`,
@@ -111,9 +111,7 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
     `[document.querySelector('#position-details-tabs [aria-selected=true]').textContent,${editorReads},${reads}]`);
   // The tab strip's keys below start from Terms, whichever tab the press left the panel on.
   await click('#position-details-tabs-terms');await evaluate("document.querySelector('#position-details-tabs-terms').focus()");
-  await press('ArrowRight','ArrowRight',39);
-  await check('Side schedules is a separate tab and never substitutes a curve',
-    "document.activeElement.id==='position-details-tabs-schedules'&&!document.querySelector('#position-details-view .chart')&&document.querySelector('#position-details-view .side-schedule-inspection summary')?.textContent==='Pricing & lifecycle details'&&!document.querySelector('#position-details-view .side-schedule-inspection').open");
+  await check('a future has no Side schedules, so no tab for them, and no curve stands in',"!document.querySelector('#position-details-tabs-schedules')&&!document.querySelector('#position-details-view .chart')");
   await press('ArrowRight','ArrowRight',39);
   await check('Risk says its results come from the risk run on the desk, without claiming one, and points to the Risk report',`document.activeElement.id==='position-details-tabs-risk'&&document.querySelector('#position-details-view').textContent==="This position's risk comes from the risk run on the desk, and there is none yet. Run one from the Risk report."`);
   await press('ArrowRight','ArrowRight',39);
@@ -140,9 +138,9 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
     `(()=>{const form=document.querySelector('#position-details-form'),box=${panel}.getBoundingClientRect();return form.scrollWidth<=form.clientWidth&&[...form.querySelectorAll('input:not([type=hidden]),select,textarea')].filter(n=>n.getClientRects().length).every(n=>n.getBoundingClientRect().right<=box.right+1)&&!document.querySelector('dialog[open]');})()`);
   // Another tab keeps the form out of sight, and what it holds.
   await evaluate("document.querySelector('#trade-lots').value='11'");
-  await click('#position-details-tabs-schedules');
+  await click('#position-details-tabs-risk');
   await check('another tab shows its own view, and keeps the form and what it holds out of sight',
-    `document.querySelector('#position-details-form').hidden&&!document.querySelector('#position-details-view').hidden&&!!document.querySelector('#position-details-view .side-schedule-inspection')&&document.querySelector('#position-details-form')?.contains(document.querySelector('#trade-editing'))&&document.querySelector('#trade-lots').value==='11'&&document.querySelector('#side-panel-amend').textContent==='Close editor'`);
+    `document.querySelector('#position-details-form').hidden&&!document.querySelector('#position-details-view').hidden&&document.querySelector('#position-details-view').textContent.includes('risk run on the desk')&&document.querySelector('#position-details-form')?.contains(document.querySelector('#trade-editing'))&&document.querySelector('#trade-lots').value==='11'&&document.querySelector('#side-panel-amend').textContent==='Close editor'`);
   await click('#position-details-tabs-terms');
   await check('and Terms shows the form again as it was left',`${formShown}&&document.querySelector('#trade-lots').value==='11'`);
   await click('#side-panel-amend');

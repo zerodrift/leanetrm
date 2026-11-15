@@ -11,7 +11,7 @@ namespace OpenEtrm.Api;
 
 // Report adapter over the same authorized product valuation operations. Numeric
 // values stay typed in the backend; unsupported measures remain unavailable.
-public sealed partial class TradingBlotter(PreviewDatabase database,FuturesStore futures,SwapStore swaps)
+public sealed partial class TradingBlotter(PreviewDatabase database,FuturesStore futures,SwapStore swaps,Func<string,bool> sideSchedules)
 {
  private PreviewManifest manifest=>database.Manifest;
  public const string Convention="trading_workspace_v1";
@@ -75,7 +75,7 @@ public sealed partial class TradingBlotter(PreviewDatabase database,FuturesStore
   var books=await futures.Books(connection,ct);
   BookScope.Validate(books,view.BookIds,view.PortfolioIds);
   await MarketBundle.RequireObservationPins(connection,manifest,frame.ObservationIds,ct);
-  return BlotterRun.Empty(view,summaries);
+  return BlotterRun.Empty(view,summaries,sideSchedules);
  }
  public async Task<BlotterRead> Read(NpgsqlConnection connection,PreviewData data,InputFrame frame,FuturesBlotterView view,ImmutableArray<FuturesBlotterView> summaries,CancellationToken ct)
   =>await (await Begin(connection,data,frame,view,summaries,ct)).Collect(ct);
@@ -92,7 +92,7 @@ public sealed partial class TradingBlotter(PreviewDatabase database,FuturesStore
   var lngRun=await LngBlotter.Run(connection,database,frame,view.BookIds,view.PortfolioIds,ct);
   var optionRun=await FuturesOptionBlotter.Run(connection,database,data,frame,view.BookIds,view.PortfolioIds,ct);
   var formats=await DealAmountFormats.All(connection,manifest.CatalogId,ct);
-  return new(view,summaries,futuresRun,swapRun,ppaRun,formats,gasRun,crudeRun,optionRun,lngRun);
+  return new(view,summaries,futuresRun,swapRun,ppaRun,formats,sideSchedules,gasRun,crudeRun,optionRun,lngRun);
  }
  // The report of a view and, grouped from the same valuation, each requested summary in request order.
  public sealed record BlotterRead(object Blotter,ImmutableArray<Summary> Summaries);

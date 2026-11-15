@@ -89,16 +89,32 @@ export async function run(actions){
  await blotter.click('#nav-futures');
  const inspectionFrame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2021-01-31T08:')&&w.initialFrameIds.includes(f.id)).id;})()");
  await set('#snapshot',inspectionFrame);await blotter.wait(idle);await open();
- await evaluate(`window.facilityTicketPayload=null;window.facilityTradeFetch=window.fetch;window.fetch=async(...args)=>{const response=await facilityTradeFetch(...args);if(String(args[0]).endsWith('/trading/gas')&&response.ok)window.facilityTicketPayload=await response.clone().json();if(String(args[0]).endsWith('/trading/side-schedules')&&response.ok)window.facilityScheduleRead=await response.clone().json();return response;};
+ await evaluate(`window.facilityTicketPayload=null;window.facilityTradeFetch=window.fetch;window.fetch=async(...args)=>{const response=await facilityTradeFetch(...args);if(String(args[0]).endsWith('/trading/gas')&&response.ok)window.facilityTicketPayload=await response.clone().json();if(String(args[0]).endsWith('/trading/side-schedules')&&response.ok){const read=await response.clone().json();if(read.page){window.facilityScheduleRead=read;window.facilityScheduleReads=(window.facilityScheduleReads??0)+1;}}return response;};
   const row=[...document.querySelectorAll('#facility-allocation-table tbody tr')].find(r=>r.querySelector('input')?.value==='60');row.querySelector('[data-facility-trade]').click();`);
  await openBookedSchedules(blotter);
- await inspectPositionSide(actions,0);
+ // A valued gas trade shows its Sides as the booked ticket's own tabs; one the close cannot value shows the shared inspector's.
+ await blotter.wait("!!document.querySelector('#position-details-view :is(.deal-ticket,.side-schedule-inspection)')");
+ const inTicket=await evaluate("!!document.querySelector('#position-details-view .deal-ticket')");
+ const showSide=async slot=>{
+  if(!inTicket)return inspectPositionSide(actions,slot);
+  for(const tab of await evaluate("[...document.querySelectorAll('#position-details .ticket-tab')].map(t=>t.dataset.tab)")){
+   // The tab already shown has read its rows; another reads them when it is chosen.
+   const selector=JSON.stringify(`#position-details .ticket-tab[data-tab="${tab}"]`),before=await evaluate('window.facilityScheduleReads??0');
+   const shown=await evaluate(`document.querySelector(${selector}).getAttribute('aria-selected')==='true'`);
+   if(!shown){await evaluate(`document.querySelector(${selector}).click()`);await blotter.wait(idle);}
+   if(!await evaluate("!!document.querySelector('#position-details .ticket-grid .side-schedule-inspection')"))continue;
+   await blotter.wait(`(window.facilityScheduleReads??0)>${shown?0:before}&&!!document.querySelector('#position-details .inspection-rows tbody tr')`);
+   if(await evaluate(`window.facilityScheduleRead.sideSlot===${slot}`))return;
+  }
+  throw Error('The booked ticket has no tab for the native Side slot '+slot+'.');
+ };
+ await showSide(0);
  // The 2021-01-01 gas day has ended by the 2021-01-31 view (D360): the physical day contributes nothing further and never settles,
  // and its 1000 MMBtu at 3 USD is accrued, unpaid cash that is not yet due on 2021-02-02.
  const lifecycle="JSON.stringify(facilityScheduleRead.page.rows.map(r=>({day:r.operatingDate,from:r.deliveryFrom,due:r.valueAt,pv:r.presentValue,accrued:r.accrued,paid:r.paid,outstanding:r.outstanding,lifecycle:r.lifecycle})))";
  await check('a historical physical Side retains its dated ended row, with no further value and no settlement',
   "facilityScheduleRead.page.rows.length===1&&(r=>r.operatingDate==='2021-01-01'&&r.presentValue==='0'&&r.lifecycle.delivery==='Ended'&&r.lifecycle.cash==='NotApplicable'&&r.lifecycle.unavailableReason===null&&r.accrued===null)(facilityScheduleRead.page.rows[0])&&[...document.querySelectorAll('#position-details .inspection-rows tbody tr')].some(r=>r.textContent.includes('2021-01-01'))",lifecycle);
- await inspectPositionSide(actions,1);
+ await showSide(1);
  await check('its cash Side accrues the ended day as realized unsettled cash before the due date',
   "facilityScheduleRead.page.rows.length===1&&(r=>r.deliveryFrom==='2021-01-01'&&r.valueAt.startsWith('2021-02-02')&&r.presentValue==='-3000'&&r.accrued==='-3000'&&r.paid==='0'&&r.outstanding==='-3000'&&r.lifecycle.delivery==='Ended'&&r.lifecycle.due==='NotDue'&&r.lifecycle.cash==='AccruedUnpaid'&&r.lifecycle.coverage==='RealizedUnsettled'&&r.lifecycle.unavailableReason===null)(facilityScheduleRead.page.rows[0])",lifecycle);
  await check('a historical allocation opens read-only Side schedules and retains only its own allocation evidence',

@@ -1,15 +1,13 @@
 import {blotterAt,decemberClose} from './gas-ticket.mjs';
-export async function inspectPositionSide({evaluate,wait,set},slot,{host='#position-details-view',deliveryWindow}={}){
- const root=host+' .side-schedule-inspection';
- await wait(`!!document.querySelector(${JSON.stringify(root)})`,30000);
- await evaluate(`document.querySelector(${JSON.stringify(root)}).open=true`);
- await wait(`!!document.querySelector(${JSON.stringify(root+' .inspection-side option[value="'+slot+'"]')})`,30000);
- await set(root+' .inspection-side',String(slot));
- if(deliveryWindow!==undefined){
-  await wait(`!!document.querySelector(${JSON.stringify(root+' .inspection-window option[value="'+deliveryWindow+'"]')})`,30000);
-  if(await evaluate(`document.querySelector(${JSON.stringify(root+' .inspection-window')}).value`)!==deliveryWindow)await set(root+' .inspection-window',deliveryWindow);
- }
- await wait(`!!document.querySelector(${JSON.stringify(root+' .inspection-rows tbody tr')})`,30000).catch(async error=>{
+// Shows a Side of a position's schedules by its tab and waits for its rows: those of one delivery window when it names one, reading on
+// through the windows before it.
+export async function inspectPositionSide({evaluate,wait},slot,{host='#position-details-view',deliveryWindow}={}){
+ const root=host+' .side-schedule-inspection',tab=JSON.stringify(`${root} .inspection-sides [role=tab][id$="-${slot}"]`);
+ await wait(`!!document.querySelector(${tab})`,30000);
+ await evaluate(`(()=>{const tab=document.querySelector(${tab});if(tab.getAttribute('aria-selected')!=='true')tab.click();})()`);
+ const rows=JSON.stringify(`${root} .inspection-rows tbody${deliveryWindow===undefined?'':`[data-window="${deliveryWindow}"]`} tr:not(.inspection-window-heading)`);
+ await wait(`(()=>{if(document.querySelector(${tab})?.getAttribute('aria-selected')!=='true')return false;if(document.querySelector(${rows}))return true;
+  const box=document.querySelector(${JSON.stringify(root+' .inspection-rows')});box.scrollTop=box.scrollHeight;return false;})()`,30000).catch(async error=>{
   throw Error(error.message+' · '+await evaluate(`document.querySelector(${JSON.stringify(root+' [role=status]')})?.textContent`),{cause:error});
  });
 }

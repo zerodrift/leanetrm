@@ -15,7 +15,10 @@ import {excludedPositions,valuationNote,valuationReason,type ValuationReason} fr
 export type Reference={revision:{catalogId:string;revisionId:string};code:string};
 /** A position as the trading workspace reads it. */
 export type Holding={booking:Booking;commodity:{code:string;name:string};priceTick?:string;markTick?:string;fixedAmountFormat:DisplayPrecision;quoteMultiplier?:string;amountFormat:DisplayPrecision;
-  instrumentType:string;traderId:string|null;trader:string|null;traderCode:string|null;memo:string|null;tradeReference:string;instrumentReference:string;tradeId:string;bindingId:string;
+  instrumentType:string;
+  /** Whether the position has Side schedules to read, as the backend's registered schedule sources say. */
+  sideSchedules:boolean;
+  traderId:string|null;trader:string|null;traderCode:string|null;memo:string|null;tradeReference:string;instrumentReference:string;tradeId:string;bindingId:string;
   bookId:string;book:string;portfolioId:string;portfolio:string;contractId:string;revision:string;curve:string;definitionRevisionId:string;deliveryFrom:string;deliveryTo:string;
   lots:string|null;quantity:string|null;unit:string;quantitySpecification:Reference;executedAt:string;executionPrice:string|null;fixedPrice:string|null;mark:string|null;markMinusPrice:string|null;
   executionPnl:string|null;presentValue:string|null;currency:string;currencyReference:Reference;settlement:string;direction:'pay_fixed'|'receive_fixed'|'multi_side'|'receive'|'deliver'|null;unavailableReason:ValuationReason|null;

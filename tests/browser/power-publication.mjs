@@ -4,7 +4,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await command('Runtime.enable');await command('Page.enable');
  await command('Emulation.setDeviceMetricsOverride',{width:1500,height:1100,deviceScaleFactor:1,mobile:false});
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelector('#nav-configuration')&&"+idle,30000);await persona('viewer');
- await click('#nav-configuration');await click('#price-setup-tabs-publications');
+ await click('#nav-configuration');await click('#nav-publications');
  const fixture=await evaluate(`(async()=>{
   const prices=await(await fetch('/api/power-imports')).json();
   const source=prices.sources.find(s=>s.provider==='PJM'&&s.market==='DA'&&s.availableDates.includes('2021-03-14'));

@@ -9,7 +9,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   if(control.protocol!=='http:'||control.hostname!=='127.0.0.1'||!control.port)throw Error('Use the owned synthetic provider.');
   const script=async answers=>{if(!(await fetch(new URL('/respond',control),{method:'POST',body:JSON.stringify(answers)})).ok)throw Error('Synthetic provider refused the script.');};
   const side=await sideSession(url);
-  // The retained contract_definitions catalog entry navigates to Schedules; Price setup has no report contract.
+  // The retained contract_definitions catalog entry navigates to Date rules; Contract pricing and Publications have no report contract.
   const reportPages=(await side.call('settings/ai/page-prompts')).pages.map(page=>page.id).filter(id=>id!=='contract_definitions').sort();
   const agent=(await side.call('settings/ai/agents')).agents.find(a=>a.name.includes('workspace operations'));
   if(!agent)throw Error('The workspace fixture must publish its explicitly enabled guide.');
@@ -44,7 +44,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
       base,{...base,risk:true},{...base,lens:'risk'},...[null,'futures','options','swaps','ppa','gas','crude','lng'].map(product=>({...base,entry:{product}})),
       {page:'risk',view:'risk'},...['physical-operations','facilities','dashboard','crude-setup','gas-setup','gas','crude','delivery','interval-series','interval-curves','vol-surfaces','admin','ai'].map(page=>({page}))];
     const actual=[...new Set(states.map(state=>pageReport(state).page))].sort();return JSON.stringify(actual)===${JSON.stringify(JSON.stringify(reportPages))}&&JSON.stringify(actual)===JSON.stringify(reportedPages.filter(page=>page!=='contract_definitions').sort());});})()`);
-  await check('Price setup refuses an assistant report until it has an admitted read contract',`import('/assistant-pages.js').then(({pageReport})=>{try{pageReport({page:'configuration'});return false;}catch(error){return error.message==='The assistant’s page is inconsistent. Reload it.';}})`);
+  await check('Contract pricing and Publications refuse an assistant report until they have an admitted read contract',`import('/assistant-pages.js').then(({pageReport})=>{try{pageReport({page:'configuration'});return false;}catch(error){return error.message==='The assistant’s page is inconsistent. Reload it.';}})`);
   await check('an administrator can explicitly configure both new workspace tools',"['read_page_digest','present_walkthrough'].every(code=>[...document.querySelectorAll('#ai-agent-tools input')].some(i=>i.value===code))&&document.querySelector('#error').hidden");
   await persona('trader');await click('#nav-futures');await wait(idle);
   await wait("document.querySelectorAll('#desk-positions .tabulator-row[data-row-key]').length>=3");

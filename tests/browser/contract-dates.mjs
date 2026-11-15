@@ -1,8 +1,8 @@
 export async function run({command,evaluate,wait,click,set,submit,persona,check,idle,url}){
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);
  await persona('viewer');
- await check('market readers can open the shared contract-date library',"!document.querySelector('#nav-schedules').hidden&&!!document.querySelector('#schedule-tab-contracts')");
- await persona('editor');await click('#nav-schedules');await click('#schedule-tab-contracts');
+ await check('market readers can open the shared contract-date library',"!document.querySelector('#nav-schedules').hidden&&!!document.querySelector('#nav-date-rules')");
+ await persona('editor');await click('#nav-schedules');await click('#nav-date-rules');
  await set('#dates-import','2021-01-01\n2021-02-01');
  await check('an imported date list disables unrelated monthly generator controls',"['dates-first','dates-last','dates-anchor','dates-day','dates-short','dates-adjustment'].every(id=>document.getElementById(id).disabled)");
  await click('#date-context-latest');
@@ -29,16 +29,16 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await set('#curve-dates-name','Synthetic shared daily dates with a stale token');await click('#curve-dates-keep');
  await check('a save refused for an expired request token keeps no request',"window.contractTokenSaves.join()==='400 request_token'&&!document.querySelector('#error').hidden&&document.querySelector('#curve-dates-pending').hidden&&!Object.keys(sessionStorage).some(k=>k.startsWith('openetrm.contract-dates.request.'))");
  await click('#nav-table-currencies');await wait("!document.querySelector('#schedules-page-prompt').hidden&&document.querySelector('#schedules-page-prompt').getClientRects().length>0");await click('#schedules-page-prompt button:last-child');
- await persona('approver');await click('#nav-schedules');await click('#schedule-tab-contracts');
+ await persona('approver');await click('#nav-schedules');await click('#nav-date-rules');
  await evaluate("[...document.querySelectorAll('#curve-dates-saved .shortcut-saved-row')].find(row=>row.textContent.includes('Synthetic shared daily dates')).querySelector('button').click()");await wait(idle);
  await click('#curve-dates-publish');
  await check('a separate publisher publishes the retained draft',"document.querySelector('#error').hidden&&document.querySelector('#curve-dates-version').textContent.includes('published')");
- await persona('viewer');await click('#nav-schedules');await click('#schedule-tab-contracts');
+ await persona('viewer');await click('#nav-schedules');await click('#nav-date-rules');
  await check('readers see the published library with authoring disabled',"document.querySelector('#curve-dates-saved').textContent.includes('Synthetic shared daily dates')&&document.querySelector('#curve-dates-fields').disabled&&document.querySelector('#curve-dates-keep').hidden");
  await evaluate("[...document.querySelectorAll('#curve-dates-saved .shortcut-saved-row')].find(row=>row.textContent.includes('Synthetic shared daily dates')).querySelector('[data-resolve]').click()");await wait(idle);
  await check('an exact published version resolves under the selected context',"document.querySelector('#error').hidden&&!document.querySelector('#curve-dates-result').hidden&&document.querySelectorAll('#curve-dates-table tbody tr').length===2&&document.querySelector('#curve-dates-spec').textContent.includes('version 1')","({error:document.querySelector('#error').textContent,hidden:document.querySelector('#curve-dates-result').hidden,rows:document.querySelectorAll('#curve-dates-table tbody tr').length,receipt:document.querySelector('#curve-dates-spec').textContent})");
  // D357: a generated daily schedule and a date-list mapping are authored in Settings and resolved in the selected context.
- await persona('editor');await click('#nav-schedules');await click('#schedule-tab-exchange');await click('#dates-new');
+ await persona('editor');await click('#nav-schedules');await click('#dates-new');
  await set('#dates-daily','calendar');
  await check('daily schedules offer only next-date selection',
   "[...document.querySelectorAll('#dates-selection option')].filter(o=>o.value&&!o.disabled).map(o=>o.value).join()==='on_or_after'&&['dates-import','dates-first','dates-last','dates-anchor','dates-day','dates-short','dates-adjustment'].every(id=>document.getElementById(id).disabled)");
@@ -47,13 +47,13 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await evaluate("(()=>{const n=document.querySelector('#dates-calendar');n.value=[...n.options].find(o=>o.value.endsWith('|test_business')).value;n.dispatchEvent(new Event('change',{bubbles:true}));})()");
  await set('#dates-selection','on_or_after');await set('#dates-effective-from','2021-01-01');await set('#dates-effective-to','2022-01-01');
  await click('#dates-keep');await wait(idle);
- await persona('approver');await click('#nav-schedules');await click('#schedule-tab-exchange');
+ await persona('approver');await click('#nav-schedules');
  await evaluate("[...document.querySelectorAll('#dates-saved .shortcut-saved-row')].find(row=>row.textContent.includes('oe.browser_days')).querySelectorAll('button')[1].click()");await wait(idle);
  await click('#dates-publish');await wait(idle);
  await check('a daily schedule is saved and published from Settings',
   "document.querySelector('#error').hidden&&[...document.querySelectorAll('#dates-saved .shortcut-saved-row')].some(row=>row.textContent.includes('oe.browser_days')&&row.textContent.includes('published')&&row.textContent.includes('daily'))",
   "({error:document.querySelector('#error').textContent,saved:document.querySelector('#dates-saved').textContent})");
- await persona('editor');await click('#nav-schedules');await click('#schedule-tab-contracts');await click('#date-context-latest');await click('#current-view-context');await wait(idle);
+ await persona('editor');await click('#nav-schedules');await click('#nav-date-rules');await click('#date-context-latest');await click('#current-view-context');await wait(idle);
  await click('#curve-dates-new');await set('#curve-dates-kind','dates');
  await check('a date-list mapping is authored with a label and one date per row',
   "[...document.querySelectorAll('#curve-dates-head th')].map(th=>th.textContent).filter(Boolean).join('|')==='Label|Date · date or reference'");

@@ -14,6 +14,11 @@ cover secondary-source inspection and inconsistent selection refusal. Activation
 requires a separately approved application/schema release; deployment data and
 private maintenance programs are outside this repository.
 
+D399 lists a publication's indexes with it and selects them from the reference
+catalogue. Authoring a new reference index from its publication is not
+implemented: it needs a reference-catalogue write operation with its own
+authorization, revision and knowledge-time contract.
+
 The initial [valuation context and scenario layers](valuation-context-layers.md)
 are implemented locally: complete time/discount/IV declarations, immutable
 combined children, source-anchored discount and held-IV inputs, shared finite

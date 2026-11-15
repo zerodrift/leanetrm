@@ -17,9 +17,12 @@ headers and any bounded opaque window choices, evaluates with the ordinary nativ
 path, then rechecks current authority. The shared `BookedScheduleReader` validates
 the exact selected membership and evaluated coordinates and dispatches pages and
 calculation requests. It contains no product switch. A new registered source needs
-no schedule route or UI branch. `withSideSchedules` adds the lazy renderer to any
+no schedule route or UI branch. `withSideSchedules` adds the shared renderer to any
 position view without an integrated editor; an unknown product gets a generic
-position view. A new product still needs normal booking and position integration.
+position view. Each Blotter row, and the one position a trade window reads,
+states `sideSchedules`: whether its instrument type has a registered source.
+The position details list **Side schedules** only where it is true, so a future
+and a futures option have no such tab, and a row that does not say is refused. A new product still needs normal booking and position integration.
 
 PPA windows are declared monthly by its native source; TypeScript performs no
 delivery calendar arithmetic. PPA, swap, gas, crude and LNG use the same page and
@@ -113,8 +116,20 @@ Side chooser beneath it. The Instrument aggregate and quantity links remain
 separate tabs. Exact backend membership slots select the displayed Side;
 daily quantity entry uses the existing record/status workflow in Physical operations.
 Crude, LNG and unavailable gas plans use the same read-only inspector directly.
-Opening a displayed Side reads its authorized directory and 32 contribution rows. The API caps pages at
-128. Calculation inputs load only after selecting **Calculation**, following
+
+The inspector shows its rows as soon as its tab opens: nothing is expanded or
+chosen first. It has a tab for each Side, the first selected, and under it one
+table. A Side with delivery windows lists every window in that table in order,
+each under its own heading with its row count; the next window is read when the
+rows before it are reached, and a window longer than its first rows offers the
+rest in place. A Side without windows reads on the same way until its last row.
+The end of the rows is judged inside their own scrolling box, wherever that box
+sits on the page. Rows already shown stay where they are. A read that fails
+keeps them, says why and is repeated only when asked. A newer read of the same
+position, such as a refresh or a live correction, opens on the Side last shown.
+
+Opening a displayed Side reads its authorized directory and 32 contribution rows; each window opens with 32,
+and further rows are read 128 at a time, the API's cap. Calculation inputs load only after selecting **Calculation**, following
 stored typed operand addresses rather than generating another schedule. A
 reduction includes its actual averaging/application inputs. An input-page read
 is bounded to 65,536 discovered cells and supports cancellation.

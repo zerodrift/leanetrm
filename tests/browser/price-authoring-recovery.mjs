@@ -8,7 +8,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     if(path==='/api/price-publications/save'&&response.ok&&window.loseAuthoringReply){window.loseAuthoringReply=false;throw new TypeError('Synthetic lost response after the server committed');}}
    return response;};}`});
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelector('#nav-configuration')&&"+idle,30000);
- await persona('editor');await click('#nav-configuration');await click('#price-setup-tabs-publications');
+ await persona('editor');await click('#nav-configuration');await click('#nav-publications');
  const choose=async(selector,match)=>{const value=await evaluate(`Array.from(document.querySelector(${JSON.stringify(selector)}).options).find(o=>o.textContent.includes(${JSON.stringify(match)}))?.value`);if(!value)throw Error('Missing authoring choice: '+match);await set(selector,value);await wait(idle);};
  await selectPublicationByName({evaluate,click,wait,idle},'Synthetic API monthly report');
  await set('#price-publications-name','Synthetic recovery control test');
@@ -29,17 +29,17 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  // Structural edits to a schedule also count, even without typing into an input.
  await click('#price-publications-add-period');
  await check('adding a covered period registers unsaved changes',unload);
- await evaluate("document.querySelector('#price-setup-tabs-contracts').click()");await wait("!document.querySelector('#price-publications-occurrence-prompt').hidden||!document.querySelector('#price-publications-editor-prompt').hidden");
- await evaluate("document.querySelector('#price-setup-tabs-publications').click()");
+ await evaluate("document.querySelector('#nav-configuration').click()");await wait("!document.querySelector('#price-publications-occurrence-prompt').hidden||!document.querySelector('#price-publications-editor-prompt').hidden");
+ await evaluate("document.querySelector('#nav-publications').click()");
  await evaluate("[...document.querySelectorAll('#price-publications-editor .side-panel-prompt:not([hidden]) button')].at(-1).click()");await wait(idle);
  await check('discarding a structural edit removes the browser-close warning',`!${unload}&&!document.querySelector('#contract-price-terms-editor').hidden`);
- await check('a second tab click cannot replace the pending navigation or skip its read',"document.querySelector('#price-setup-tabs-contracts').getAttribute('aria-selected')==='true'&&document.querySelector('#schedules-page').hidden&&document.querySelector('#error').hidden");
- await click('#price-setup-tabs-dates');await set('#curve-dates-name','Synthetic unsaved date rule');
+ await check('a second tab click cannot replace the pending navigation or skip its read',"document.querySelector('#nav-configuration').getAttribute('aria-current')==='page'&&document.querySelector('#schedules-page').hidden&&document.querySelector('#error').hidden");
+ await click('#nav-date-rules');await set('#curve-dates-name','Synthetic unsaved date rule');
  await check('typing into linked Date mappings registers the existing browser-close warning',unload);
  await evaluate("document.querySelector('#nav-configuration').click()");await wait("!document.querySelector('#schedules-page-prompt').hidden");
  await click('#schedules-page-prompt button:first-child');
  await check('keeping a Date mapping edit retains its Schedules page and browser-close warning',`!document.querySelector('#schedules-page').hidden&&document.querySelector('#curve-dates-name').value==='Synthetic unsaved date rule'&&${unload}`);
  await evaluate("document.querySelector('#nav-configuration').click()");await wait("!document.querySelector('#schedules-page-prompt').hidden");
  await click('#schedules-page-prompt button:last-child');
- await check('discarding a Date mapping edit returns to Price setup without a browser-close warning',`!${unload}&&!document.querySelector('#price-setup-page').hidden&&!document.querySelector('#contract-price-terms-editor').hidden`);
+ await check('discarding a Date mapping edit returns to Contract pricing without a browser-close warning',`!${unload}&&!document.querySelector('#price-setup-page').hidden&&!document.querySelector('#contract-price-terms-editor').hidden`);
 }

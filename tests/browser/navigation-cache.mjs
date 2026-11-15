@@ -16,10 +16,11 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     const reads=()=>evaluate("window.__navigationReads.filter(r=>['/api/trading/workspace','/api/trading/workspace/stream','/api/trading/directory','/api/trading/positions'].includes(r.path)).length");
     await wait("document.querySelectorAll('#desk-positions .tabulator-row').length>0");
     await check('the authorized Blotter has rows before cache validation',"document.querySelectorAll('#desk-positions .tabulator-row').length>0");
+    // This book holds futures, which have no Side schedules: History is the tab kept.
     await evaluate("document.querySelector('#desk-positions .tabulator-row[data-row-key]').click()");
-    await wait("!!document.querySelector('#position-details-tabs-schedules')&&"+idle);
-    await click('#position-details-tabs-schedules');await wait("!!document.querySelector('#position-details-view .side-schedule-inspection')");
-    await evaluate("window.__retainedBlotterGrid=document.querySelector('#desk-positions .standard-data-grid');window.__retainedSchedule=document.querySelector('#position-details-view .side-schedule-inspection');window.__retainedPosition=window.__retainedBlotterGrid.dataset.selectedRow");
+    await wait("!!document.querySelector('#position-details-tabs-history')&&"+idle);
+    await click('#position-details-tabs-history');await wait("!!document.querySelector('#position-details-view .side-panel-section')");
+    await evaluate("window.__retainedBlotterGrid=document.querySelector('#desk-positions .standard-data-grid');window.__retainedPosition=window.__retainedBlotterGrid.dataset.selectedRow");
     let before=await reads();const context=await evaluate("document.querySelector('#futures-page').dataset.pricingContext");
     await click('#nav-market');
     await evaluate(`window.__navigationFetch=window.fetch;window.fetch=async(...args)=>{const response=await window.__navigationFetch(...args);if(String(args[0])==='/api/trading/freshness')await new Promise(resolve=>window.__releaseFreshness=resolve);return response;};document.querySelector('#nav-futures').click()`);
@@ -28,8 +29,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     await evaluate('window.__releaseFreshness();window.fetch=window.__navigationFetch');await wait(idle);
     await check('returning to an unchanged Blotter checks the server without refetching positions or valuations',`window.__navigationReads.some(r=>r.path==='/api/trading/freshness')&&document.querySelector('#futures-page').dataset.pricingContext===${JSON.stringify(context)}&&document.querySelector('#error').hidden`);
     await check('an unchanged Blotter keeps all completed data reads',`${await reads()}===${before}`);
-    await check('returning to an unchanged Blotter keeps its selected position, detail tab and schedule widget',
-      "document.querySelector('#desk-positions .standard-data-grid')===window.__retainedBlotterGrid&&document.querySelector('#desk-positions .standard-data-grid').dataset.selectedRow===window.__retainedPosition&&document.querySelector('#position-details-tabs-schedules')?.getAttribute('aria-selected')==='true'&&document.querySelector('#position-details-view .side-schedule-inspection')===window.__retainedSchedule");
+    await check('returning to an unchanged Blotter keeps its selected position and detail tab',
+      "document.querySelector('#desk-positions .standard-data-grid')===window.__retainedBlotterGrid&&document.querySelector('#desk-positions .standard-data-grid').dataset.selectedRow===window.__retainedPosition&&document.querySelector('#position-details-tabs-history')?.getAttribute('aria-selected')==='true'&&!!document.querySelector('#position-details-view .side-panel-section')");
     await set('#blotter-name','Synthetic retained desk');await evaluate("document.querySelector('#blotter-sidebar').checked=true");await click('#blotter-save');await wait("document.querySelector('#futures-page').dataset.pricingState==='complete'&&"+idle);
     await click('#blotter-risk');await wait("!document.querySelector('#risk-fields').disabled");
     await click('input[name=risk-choice][value=held]');
