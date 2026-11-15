@@ -293,10 +293,20 @@ The native reader and writer and the default shared action handler are qualified
 for same-instant loan principal corrections with separate repayment funding.
 Original authorization bounds apply through waits and commit, and retained
 receipts precede mutable source reads. Independent seals reject altered request,
-member and outcome facts. The operational forms, normally configured agent path,
-ordinary valuation continuation and public fixture packaging for this loan
-amendment remain separate delivery gates. Operator and fee-term counterparts,
-mixed linked effects and changed clocks are not covered by this bounded writer.
+member and outcome facts. Source-backed forms retain the loan, stock and debt
+revision tuple and lazy-read each exact editable use or repayment. Quantities,
+source allocation, retraction and fixed-fee treatment require explicit choices.
+Read-only native eligibility excludes linked operator and futures uses.
+
+A complete zero withdrawal removes retired loan and repayment quantities from
+the active managed view. Their native identities, zero financial heads, evidence
+and cash links remain available. Isolated checks qualify current and historical
+source views, ordinary whole-book value and fee-only continuation with no
+quantity-profile selection. The public synthetic loan fixture is shared with
+the application qualifier. The actual loan browser, normally configured agent
+path and positive-gross fully repaid cash-only case retain separate gates.
+Operator and fee-term counterparts, mixed linked effects and changed clocks are
+not covered by this bounded writer.
 
 The opt-in agent-only `gas_lifecycle_operator` role contains exactly
 `ReadMarketData`, `ReadTrades`, `ReadGasOwnedHoldings` and

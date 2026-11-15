@@ -94,7 +94,16 @@ DECLARE rows_sql constant text=$rows$
   to_jsonb(p)||jsonb_build_object('positionId',p.id,'quantity',trim_scale(p.quantity)::text,'financialRevision',p.financial_revision)
   FROM positions p CROSS JOIN chosen l
  UNION ALL SELECT 'consumptions',to_jsonb(c)||jsonb_build_object('quantity',trim_scale(c.quantity)::text,'financialRevision',q.revision,
-  'originalPublicationOrder',o.publication_order,'knownAt',k.known_from) FROM uses c
+  'originalPublicationOrder',o.publication_order,'originalQuantity',trim_scale(o.quantity)::text,'knownAt',k.known_from,
+  'editable',((o.kind IN('delivery','loss') AND o.lot_id IN(SELECT received_lot_id FROM chosen))
+    OR(o.kind='return' AND o.id IN(SELECT consumption_id FROM repayments)))
+   AND NOT EXISTS(SELECT 1 FROM trading.gas_owned_claim_settlements settled WHERE(settled.catalog_id,settled.consumption_id)=($1,o.id)
+    AND trading.gas_owned_visible($1,settled.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00',$3,$4))
+   AND NOT EXISTS(SELECT 1 FROM trading.gas_futures_performance_quantity_supplies supplied
+    JOIN trading.gas_futures_performance_quantities performance ON(performance.catalog_id,performance.performance_id,performance.revision)=
+     (supplied.catalog_id,supplied.performance_id,supplied.performance_revision)
+    WHERE(supplied.catalog_id,supplied.consumption_id)=($1,o.id)
+     AND trading.gas_owned_visible($1,performance.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00',$3,$4))) FROM uses c
   JOIN trading.gas_owned_consumptions o ON(o.catalog_id,o.id)=(c.catalog_id,c.id)
   JOIN trading.gas_owned_consumption_quantities q ON(q.catalog_id,q.consumption_id,q.publication_order)=(c.catalog_id,c.id,c.publication_order)
   JOIN trading.knowledge_receipts k ON(k.catalog_id,k.publication_order)=(c.catalog_id,c.publication_order)
@@ -156,7 +165,8 @@ DECLARE until_at timestamptz;owner trading.gas_owned_accounts;selected trading.g
   OR coalesce((stats#>>'{counts,return}')::integer,0)<>1 OR(stats->>'bytes')::bigint+4*(stats->>'count')::bigint+2048>16777216
  THEN RAISE EXCEPTION 'gas_owned_scope';END IF;
  result=jsonb_build_object('implementation','gas_loan_quantity_reconciliation_source_v1','scope','gas_loan_reconciliation_dependency_facts_v1',
-  'loanId',loan,'accountId',owner.id,'contextId',context,'asOf',as_of,'authorityUntil',until_at)
+  'loanId',loan,'accountId',owner.id,'contextId',context,'asOf',as_of,'authorityUntil',until_at,
+  'quantityChoiceProfile','gas_loan_quantity_choices_v1','quantityUnit',owner.quantity_code,'currency',owner.currency_code)
   ||trading.gas_loan_reconciliation_rows(catalog,loan,context,as_of,false);
  IF octet_length(convert_to(result::text,'UTF8'))>16777216 THEN RAISE EXCEPTION 'gas_owned_scope';END IF;
  PERFORM security.require_gas_owned_read(catalog,context,as_of,until_at);

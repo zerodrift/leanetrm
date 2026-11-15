@@ -161,9 +161,11 @@ internal static class GasOwnedKnownHistoryStore
         var consumptions=Rows("consumptions").Where(row=>!quantities.Consumptions[row.Id("id")].Retracted).Select(row=>new GasStockConsumption(row.Id("id"),row.Id("lot_id"),new(row.Number("quantity"),positions[row.Id("lot_id")].Quantity.Specification),
             row.Text("kind") switch{"delivery"=>GasStockUse.Delivery,"return"=>GasStockUse.Return,"loss"=>GasStockUse.Loss,_=>throw Error("Unknown native gas consumption kind.")},
             row.Instant("effective_at"),row.Instant("known_at"),row.Id("evidence_id"),row.OptionalId("reservation_id"))).ToImmutableArray();
-        var loans=Rows("loans").Select(row=>{var p=positions[row.Id("return_position_id")];return new GasCommodityLoan(row.Id("id"),row.Id("account_id"),row.Id("received_lot_id"),
+        // These are active quantity facts. The complete native identities,
+        // zero heads and cash counterparts remain in Positions/Quantities/Links.
+        var loans=Rows("loans").Where(row=>!quantities.Positions[row.Id("return_position_id")].Retracted).Select(row=>{var p=positions[row.Id("return_position_id")];return new GasCommodityLoan(row.Id("id"),row.Id("account_id"),row.Id("received_lot_id"),
             new(row.Number("quantity"),p.Quantity.Specification),p.Time.EffectiveAt,row.Instant("return_at"),p.Time.KnownAt,row.Text("title_policy"),p.EvidenceId);}).ToImmutableArray();
-        var repayments=Rows("repayments").Select(row=>{var use=consumptions.Single(c=>c.Id==row.Id("consumption_id"));return new GasLoanRepayment(row.Id("id"),row.Id("loan_id"),use.LotId,use.Quantity,use.At,use.KnownAt,use.EvidenceId);}).ToImmutableArray();
+        var repayments=Rows("repayments").Where(row=>!quantities.Consumptions[row.Id("consumption_id")].Retracted).Select(row=>{var use=consumptions.Single(c=>c.Id==row.Id("consumption_id"));return new GasLoanRepayment(row.Id("id"),row.Id("loan_id"),use.LotId,use.Quantity,use.At,use.KnownAt,use.EvidenceId);}).ToImmutableArray();
         var settlements=Rows("settlements").Select(row=>new GasOwnedKnownSettlement(row.Id("id"),row.Id("position_id"),new(row.Number("quantity"),positions[row.Id("position_id")].Quantity.Specification),
             row.OptionalId("receipt_lot_id"),row.OptionalId("consumption_id"),row.OptionalId("cash_id"),row.Id("evidence_id"),row.OptionalId("source_observation_id"),Time(row))).ToImmutableArray();
         var paymentRows=Rows("payments");

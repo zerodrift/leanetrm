@@ -52,7 +52,12 @@ internal static partial class GasOwnedSetup
             await TradingContext.Bind(connection,catalog,source,request.Context.AsOf,ct);
             var physical=request.Target?.Handler is GasFuturesDeliveryActions.Handler or GasFuturesReconciliationActions.Handler or GasFuturesQuantityBatchActions.Handler;
             var ordinary=request.Target?.Handler is GasOwnedQuantityReconciliationActions.Handler or GasOwnedQuantityReconciliationActions.PositionSourceHandler or GasOwnedQuantityReconciliationActions.ConsumptionSourceHandler or GasQuantityBundleActions.Handler;
-            var state=ordinary?
+            var loanTarget=request.Target?.Handler is GasLoanQuantityReconciliationActions.Handler or GasLoanQuantityReconciliationActions.ConsumptionSourceHandler;
+            JsonElement? loanSource=loanTarget?await GasLoanQuantityReconciliationActions.ReadSource(connection,database,request.Context,
+                request.Target!.Handler==GasLoanQuantityReconciliationActions.Handler?request.Target.BindingId:request.Target.ScopeId,ct):null;
+            if(loanSource is {} loan&&request.Target!.Handler==GasLoanQuantityReconciliationActions.Handler&&loan.Id("accountId")!=request.Target.ScopeId)
+                throw GasOwnedOperations.Error("Retain this exact loan and ownership account.");
+            var state=loanSource is {} selectedLoan?await GasOwnedOperations.Read(connection,database,request.Context,selectedLoan.Id("accountId"),ct):ordinary?
                 await GasOwnedQuantityReconciliationActions.ReadChoices(connection,database,request.Context,request.Target!.ScopeId,ct):physical?
                 await LifecycleNative.Read(connection,"SELECT security.read_gas_futures_delivery_actions($1,$2,$3)::text",ct,catalog,request.Context.ContextId,request.Context.AsOf):
                 await GasOwnedOperations.Read(connection,database,request.Context,null,ct);
@@ -104,7 +109,7 @@ internal static partial class GasOwnedSetup
                 counted AS(SELECT h.*,count(*) OVER(PARTITION BY catalog_id,definition_revision_id,series_id,source_code,role,observed_at) head_count FROM heads h)
                 SELECT row_to_json(o)::text FROM counted o WHERE head_count=1 AND publication_state='final' ORDER BY observed_at,id
                 """,[catalog,state.GetProperty("cashoutTerms").GetRawText(),state.GetProperty("positions").GetRawText(),state.GetProperty("accounts").GetRawText(),request.Context.AsOf],ct);
-            var value=Build(request.Context,request.Target,state,policies,marks,books,entities,counterparties,sources,observations,known,profiles,correction,batch);
+            var value=Build(request.Context,request.Target,state,policies,marks,books,entities,counterparties,sources,observations,known,profiles,correction,batch,loanSource);
             await admission.RequireCommit(connection,ct);return value;
         }
         finally
@@ -116,7 +121,7 @@ internal static partial class GasOwnedSetup
     internal static GasSetup Build(LifecycleReadContext context,LifecycleTarget? target,JsonElement state,ImmutableArray<JsonElement> policies,
         ImmutableArray<JsonElement> marks,ImmutableArray<JsonElement> books,ImmutableArray<TradeParties.Choice> entities,
         ImmutableArray<TradeParties.Choice> counterparties,ImmutableArray<JsonElement> sources,ImmutableArray<JsonElement> observations,JsonElement known,
-        ImmutableArray<JsonElement> profiles,JsonElement? correction=null,JsonElement? batch=null)
+        ImmutableArray<JsonElement> profiles,JsonElement? correction=null,JsonElement? batch=null,JsonElement? loanSource=null)
     {
         JsonElement[] Rows(string part)=>state.GetProperty(part).EnumerateArray().ToArray();
         var accounts=Rows("accounts");var positions=Rows("positions");
@@ -135,6 +140,8 @@ internal static partial class GasOwnedSetup
             GasFuturesQuantityBatchActions.Handler=>target.ScopeId,
             GasOwnedQuantityReconciliationActions.Handler or GasOwnedQuantityReconciliationActions.PositionSourceHandler or GasOwnedQuantityReconciliationActions.ConsumptionSourceHandler=>target.ScopeId,
             GasQuantityBundleActions.Handler=>target.ScopeId,
+            GasLoanQuantityReconciliationActions.Handler=>target.ScopeId,
+            GasLoanQuantityReconciliationActions.ConsumptionSourceHandler=>loanSource?.Id("accountId"),
             null=>null,_=>throw GasOwnedOperations.Error("Select a native gas lifecycle target.")};
         if(target is not null&&(accountId is null||!accounts.Any(a=>a.Id("id")==accountId)))
             throw GasOwnedOperations.Error("The selected gas holding is unavailable at this source.");
@@ -300,6 +307,8 @@ internal static partial class GasOwnedSetup
                         new(GasFuturesReconciliationActions.Handler,row.Id("positionId"),row.Id("performanceId")),Parent(row)))]}]));
         if(target?.Handler is GasOwnedQuantityReconciliationActions.Handler or GasOwnedQuantityReconciliationActions.PositionSourceHandler or GasOwnedQuantityReconciliationActions.ConsumptionSourceHandler)
             forms=QuantityForms(context,target,state,known);
+        if(target?.Handler is GasLoanQuantityReconciliationActions.Handler or GasLoanQuantityReconciliationActions.ConsumptionSourceHandler)
+            forms=LoanQuantityForms(context,target,state,known,loanSource??throw GasOwnedOperations.Error("Read the selected native loan correction source."));
         if(target?.Handler==GasQuantityBundleActions.Handler)forms=QuantityBundleForms(context,target,state,known,batch);
         var configuration=GasOwnedOperations.ConfigurationCommands.ToImmutableDictionary(c=>c,c=>new GasForm(c switch{
             "account"=>"Account","evidence"=>"Observed evidence","bind_policy"=>"Account action policy","mark_binding"=>"Inventory mark","projection_profile"=>"Quantity projection policy",_=>throw GasOwnedOperations.Error("Unknown gas configuration.")},

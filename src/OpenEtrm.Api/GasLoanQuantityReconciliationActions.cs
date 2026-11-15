@@ -11,6 +11,7 @@ namespace OpenEtrm.Api;
 internal sealed class GasLoanQuantityReconciliationActions(PreviewDatabase database):ILifecycleActionHandler
 {
     internal const string Handler="gas_loan_quantity_reconciliation";
+    internal const string ConsumptionSourceHandler="gas_loan_consumption_quantity_source";
     internal const string Action="gas.loan.reconcile_quantity";
     internal const string Version="gas_loan_quantity_reconciliation_v1";
     internal const string RetainFees="retain_fixed_fee_memberships_v1";
@@ -79,7 +80,15 @@ internal sealed class GasLoanQuantityReconciliationActions(PreviewDatabase datab
             await using var restore=ScheduleStore.Command(connection,"ROLLBACK TO SAVEPOINT gas_loan_correction_review;RELEASE SAVEPOINT gas_loan_correction_review");
             await restore.ExecuteNonQueryAsync(CancellationToken.None);
         }
-        var details=JsonSerializer.SerializeToElement(new{selection=body,loan=source.GetProperty("loan"),stock=source.GetProperty("stock"),returnObligation=source.GetProperty("return"),
+        var consumptions=source.GetProperty("consumptions").EnumerateArray().ToImmutableDictionary(row=>row.Id("id"));
+        var repaymentFacts=source.GetProperty("repayments").EnumerateArray().Select(row=>
+        {
+            var use=consumptions[row.Id("consumption_id")];
+            return new{repaymentId=row.Id("id"),loanId=row.Id("loan_id"),consumptionId=use.Id("id"),originalQuantity=use.Text("originalQuantity"),
+                currentQuantity=use.Text("quantity"),currentRevision=use.GetProperty("financialRevision").GetInt32(),lotId=use.Id("lot_id"),effectiveAt=use.Instant("effective_at")};
+        }).ToImmutableArray();
+        var details=JsonSerializer.SerializeToElement(new{selection=body,quantityUnit=source.Text("quantityUnit"),currency=source.Text("currency"),repaymentFacts,
+            loan=source.GetProperty("loan"),stock=source.GetProperty("stock"),returnObligation=source.GetProperty("return"),
             funding=source.GetProperty("funding"),consumptions=source.GetProperty("consumptions"),repayments=source.GetProperty("repayments"),
             fees=source.GetProperty("fees"),payments=source.GetProperty("payments"),
             sourceAllocations=Allocations(outcome),outcome,alreadyRecorded,willChange=!alreadyRecorded&&outcome.GetProperty("changed").GetBoolean()},GasOwnedOperations.Json);
@@ -119,7 +128,7 @@ internal sealed class GasLoanQuantityReconciliationActions(PreviewDatabase datab
         if(!access.Allows("ReadGasOwnedHoldings")){if(target is not null)throw new PreviewDeniedException();return [];}
         await using(var capture=ScheduleStore.Command(connection,"SELECT security.gas_futures_delivery_discovery_authority($1)",database.Manifest.CatalogId))
             database.RegisterCommitAdmission(connection,new GasOwnedOperationReadAdmission(database.Manifest.CatalogId,new DateTimeOffset((DateTime)(await capture.ExecuteScalarAsync(ct))!)));
-        var state=await GasOwnedOperations.ReadScoped(connection,database,new(context,target?.ScopeId),ct);
+        var state=await GasOwnedOperations.Read(connection,database,context,target?.ScopeId,ct);
         var accounts=state.GetProperty("accounts").EnumerateArray().ToImmutableDictionary(row=>row.Id("id"));
         var positions=state.GetProperty("positions").EnumerateArray().ToImmutableDictionary(row=>row.Id("id"));
         var evidence=state.GetProperty("evidence").EnumerateArray().ToImmutableDictionary(row=>row.Id("id"));
