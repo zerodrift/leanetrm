@@ -36,12 +36,13 @@ internal static class OptionClockResolutionChecks
             new(new(revision.CatalogId,Guid.NewGuid()),series,R("source"),role,PublicationState.Final,at,D(value)));
         var source=new MarketSnapshot(Guid.NewGuid(),revision,at,at,InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering,
             [Select(underlyingSeries,"3",ObservationRole.DailySettlement),Select(settlementSeries,"0.3",ObservationRole.DailySettlement),
-                Select(rateSeries[0],"-0.1",ObservationRole.Parameter),Select(rateSeries[1],"0",ObservationRole.Parameter)]);
+                Select(rateSeries[0],"-0.1",ObservationRole.Parameter),Select(rateSeries[1],"0",ObservationRole.Parameter)]).WithKnowledge(Guid.NewGuid(),at);
         var definition=new RateCurveDefinition(C("rates"),R("usd"),R("source"),
             RateConventionSet.Parse("actual_365_fixed","simple","linear_zero","none","decimal_per_year"),
             [new("182D",rateSeries[0],DateOnly.FromDateTime(horizon.UtcDateTime)),new("365D",rateSeries[1],DateOnly.FromDateTime(expiry.UtcDateTime))],Guid.NewGuid(),1);
         var payment=new SidePaymentKey(option.Id,0,expiry,R("usd"));
-        var provider=new CurrencyDefaultDiscounting([payment],source,true,new(Guid.NewGuid(),R("usd"),definition));
+        var mapping=new CurrencyDiscountCurve(Guid.NewGuid(),R("usd"),definition);
+        var provider=new CurrencyDefaultDiscounting([payment],source,true,mapping);
         var sourceFactor=provider.Resolve([payment],source).Single();
         var rolledFactor=provider.ResolveForValuation([payment],source,horizon,ClockChange.FrozenInputs).Single();
         // Independent rational curve oracle: D(0,H)=round18(1825/1734);
@@ -72,6 +73,34 @@ internal static class OptionClockResolutionChecks
             LatticeDecimal.From(rolledFactor.DiscountFactor),horizon,numerical,default).ToExact()*D("100");
         if(value!=ExactMoney.FromMoney(new(pv,R("usd")))||binding.Receipt!=receipt||!ReferenceEquals(rolled.Valuation.Snapshot,source)||!prepared.DeclaredPriceSteps.IsEmpty)
             throw new Exception("The actual rolled model resolution must retain original calibration, source and base metadata.");
+        // A lifecycle redeclaration consumes an exact H->expiry factor from the
+        // original curve. It is not a generic frozen-clock roll receipt.
+        var lifecycle=new LifecycleCurrencyDiscounting(mapping,source,RateDiscountTiming.Version,ClockChange.FrozenInputs);
+        var lifecycleFactor=lifecycle.ResolveForValuation([payment],source,horizon,ClockChange.FrozenInputs).Single();
+        if(lifecycleFactor.ClockRoll is not null||lifecycleFactor.RateDefinition?.Timing?.CalculationAt!=horizon||
+            lifecycleFactor.DiscountFactor!=rolledFactor.DiscountFactor)throw new Exception("The exact lifecycle factor lost its native conditional evidence.");
+        var lifecycleBinding=binding with{Discounting=lifecycle};
+        var lifecyclePortfolio=ValuationPortfolio.FromTrades([trade],setup with{OptionBindings=ImmutableDictionary<Guid,FuturesOptionMarketBinding>.Empty.Add(option.Id,lifecycleBinding)});
+        var owner=new AccountingPositionKey(trade.Id,trade.Instruments.Single().Id,trade.BookId);
+        var component=new SurvivingOption(owner,source,requests.Underlying,lifecyclePortfolio);
+        var policy=new LifecycleProjectionPolicy(LifecycleProjectionPolicy.Version,LifecycleProjectionPolicy.Hold,LifecycleProjectionPolicy.PayAtDue,
+            LifecycleProjectionPolicy.Nominal,LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry,LifecycleProjectionPolicy.RetainPhysical);
+        var end=new LifecycleProjectionHorizon(new(Guid.NewGuid(),"synthetic_option_close",1),R("calendar"),[new(DateOnly.FromDateTime(horizon.UtcDateTime),horizon,0)]);
+        var projection=LifecycleProjection.Prepare(model,source,end,policy,[component],[]);
+        if(projection.Evaluate("option",[]).Values.Single().ResidualValue!=ExactMoney.FromMoney(new(pv,R("usd")))||lifecycleBinding.Receipt!=receipt)
+            throw new Exception("Lifecycle option PV must consume the exact conditional curve and preserve its original reference calibration.");
+        void LifecycleValue(ISideDiscounting selected)
+        {
+            var changedPortfolio=ValuationPortfolio.FromTrades([trade],setup with{OptionBindings=ImmutableDictionary<Guid,FuturesOptionMarketBinding>.Empty.Add(option.Id,binding with{Discounting=selected})});
+            _=LifecycleProjection.Prepare(model,source,end,policy,[new SurvivingOption(owner,source,requests.Underlying,changedPortfolio)],[]).Evaluate("changed",[]);
+        }
+        Reject("risk_dependency",()=>LifecycleValue(new Changed(lifecycle,f=>f with{Snapshot=source with{Id=Guid.NewGuid()}})));
+        Reject("discount_curve",()=>LifecycleValue(new Changed(lifecycle,f=>f with{RateDefinition=null})));
+        Reject("discount_timing",()=>LifecycleValue(new Changed(lifecycle,f=>f with{RateDefinition=f.RateDefinition! with{
+            Timing=f.RateDefinition.Timing! with{CalculationAt=horizon.AddTicks(10)}}})));
+        Reject("discount_curve",()=>LifecycleValue(new Changed(lifecycle,f=>f with{DiscountFactor=D("1")})));
+        var generic=RiskEngine.PrepareConnected(ConnectedValuation.Prepare(built.Graph,source),bindings,[lifecyclePortfolio],built);
+        Reject("option_context",()=>RiskEngine.CalculateExact(RiskEngine.WithClock(generic,new(horizon,ClockChange.FrozenInputs)),[],RiskEngine.ExactNumericalPolicy));
         Reject("valuation_time_coverage",()=>RiskEngine.WithClock(prepared,new(expiry,ClockChange.FrozenInputs)));
         var changed=binding with{Discounting=new Changed(provider,f=>f with{Snapshot=source with{Id=Guid.NewGuid()}})};
         var changedPortfolio=ValuationPortfolio.FromTrades([trade],setup with{OptionBindings=ImmutableDictionary<Guid,FuturesOptionMarketBinding>.Empty.Add(option.Id,changed)});
@@ -83,6 +112,16 @@ internal static class OptionClockResolutionChecks
         Reject("risk_dependency",()=>RiskEngine.PrepareConnected(ConnectedValuation.Prepare(built.Graph,source),bindings,[escaped],built));
         Console.WriteLine("PASS rolled LR resolution: independent nonflat DF1-to-discounted curve, actual conditional provider and unchanged source calibration");
         return 1;
+    }
+    private sealed record SurvivingOption(AccountingPositionKey Owner,MarketSnapshot SourceSnapshot,CurveRequest Market,ValuationPortfolio Portfolio):ILifecycleProjection
+    {
+        public string Implementation=>"synthetic_surviving_option_v1";
+        public ReferenceKey Currency=>Portfolio.Instruments.Single().Currency;
+        public ImmutableArray<CurveRequest> Dependencies=>[Market];
+        public LifecycleProjectionState Opening=>new([Portfolio],[]);
+        public ImmutableArray<LifecycleProjectionEvent> Events=>[];
+        public ImmutableArray<LifecycleProjectionEvent> EventsFor(DateTimeOffset horizon)=>[];
+        public LifecycleProjectionState Apply(LifecycleProjectionEvent occurrence,LifecycleProjectionState state,LifecycleProjectionContext context)=>throw new NotSupportedException();
     }
     private static ExactDecimal D(string text)=>ExactDecimal.Parse(text);
     private static void Reject(string code,Action run)

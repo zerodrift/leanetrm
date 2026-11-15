@@ -96,7 +96,13 @@ public sealed partial record FuturesOptionInstrument : Instrument
     private SidePaymentFactor Discount(UnitValuationContext context,FuturesOptionMarketBinding binding)
     {
         var discount=context.Inputs.Discounts([new(Id,0,Series.Terms.ExpiryAt,Currency)]).Single();
-        if(LatticeDecimal.From(discount.ClockRoll?.SourceFactor??discount.DiscountFactor)!=binding.DiscountToExpiry)
+        // Binding already verifies the original provider factor against the
+        // calibration. Lifecycle redeclaration consumes separately verified
+        // exact-instant evidence at its event clock, without a generic roll.
+        var exactLifecycle=context.IsLifecycleProjection&&context.CalculationAt>context.Snapshot.ValuationAt&&discount.ClockRoll is null&&
+            discount.Source==DiscountFactorSource.CurrencyDefault&&discount.RateDefinition is{CurveTerms:not null,Timing:{} timing}&&
+            timing.Implementation==RateDiscountTiming.Version&&timing.CalculationAt==context.CalculationAt&&timing.PaymentAt==Series.Terms.ExpiryAt;
+        if(!exactLifecycle&&LatticeDecimal.From(discount.ClockRoll?.SourceFactor??discount.DiscountFactor)!=binding.DiscountToExpiry)
             throw Error("option_context","The discount provider must retain the calibration's exact source factor.");
         return discount;
     }
