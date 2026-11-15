@@ -159,9 +159,13 @@ DECLARE until_at timestamptz;owner trading.gas_owned_accounts;selected trading.g
   'loanId',loan,'accountId',owner.id,'contextId',context,'asOf',as_of,'authorityUntil',until_at)
   ||trading.gas_loan_reconciliation_rows(catalog,loan,context,as_of,false);
  IF octet_length(convert_to(result::text,'UTF8'))>16777216 THEN RAISE EXCEPTION 'gas_owned_scope';END IF;
- PERFORM security.require_gas_owned_read(catalog,context,as_of,until_at);RETURN result;
+ PERFORM security.require_gas_owned_read(catalog,context,as_of,until_at);
+ IF until_at IS NULL OR NOT isfinite(until_at) OR clock_timestamp()>=until_at THEN RAISE EXCEPTION 'gas_owned_denied' USING ERRCODE='42501';END IF;
+ RETURN result;
 EXCEPTION WHEN NO_DATA_FOUND THEN
- PERFORM security.require_gas_owned_read(catalog,context,as_of,until_at);RAISE EXCEPTION 'gas_loan_quantity_source';
+ PERFORM security.require_gas_owned_read(catalog,context,as_of,until_at);
+ IF until_at IS NULL OR NOT isfinite(until_at) OR clock_timestamp()>=until_at THEN RAISE EXCEPTION 'gas_owned_denied' USING ERRCODE='42501';END IF;
+ RAISE EXCEPTION 'gas_loan_quantity_source';
 END$$;
 
 DO $$DECLARE f regprocedure;BEGIN
