@@ -26,8 +26,8 @@ export function setupEconomicRisk(host:HTMLElement,resultHost:HTMLElement,o:Opti
  const path=select(sourceFields,'price-path','Market path to the next close'),disposition=select(sourceFields,'cash-disposition','Scheduled cash'),accumulation=select(sourceFields,'cash-accumulation','Cash value at the horizon');
  const expiry=select(sourceFields,'input-expiry','Expiring market inputs'),physical=select(sourceFields,'physical-delivery','New physical delivery obligations');
  const gas=node('details'),gasBody=node('div');gas.append(node('summary','Saved gas account projection profiles'),node('p','Select profiles for required owned-gas accounts and any explicitly linked supply or inventory destinations. The backend checks the complete scope.'),gasBody);gasBody.className='factor-history-fields';
- const bindingSettings=node('details'),bindingBody=node('div'),bindingSearch=input(bindingSettings,'binding-search','Find a holding','search');bindingSearch.required=false;
- bindingSettings.dataset.economic='physical-bindings';bindingSettings.open=true;bindingBody.className='factor-history-fields';bindingSettings.prepend(node('summary','Physical futures and option valuation'));bindingSettings.append(bindingBody);
+ const bindingSettings=node('details'),bindingBody=node('div'),bindingHelp=node('p'),bindingSearch=input(bindingSettings,'binding-search','Find a holding','search');bindingSearch.required=false;
+ bindingSettings.dataset.economic='physical-bindings';bindingSettings.open=true;bindingBody.className='factor-history-fields';bindingSettings.prepend(node('summary','Futures and option valuation'));bindingSettings.append(bindingHelp,bindingBody);
  const funding=node('div'),fundingBody=node('div'),fundingRead=button('funding-read','Read cash funding choices');funding.dataset.economic='funding';fundingBody.className='factor-history-fields';fundingRead.className='secondary';
  funding.append(node('p','Choose a captured funding curve for each currency. These choices carry period cash to the horizon.'),fundingRead,fundingBody);
  const method=select(riskFields,'method','Event-aware method'),confidence=input(riskFields,'confidence','Confidence · decimal, for example 0.99');confidence.inputMode='decimal';
@@ -43,7 +43,7 @@ export function setupEconomicRisk(host:HTMLElement,resultHost:HTMLElement,o:Opti
  let epoch=0,owner='',scopeStamp='',configuration:EconomicSetup|undefined,source:EconomicSources|undefined,history:EconomicHistory|undefined;
  let report:EconomicReport|undefined,job:EconomicJob|undefined,timer:ReturnType<typeof setTimeout>|undefined,chart:HTMLElement|undefined,dirty=false,allowed=false;
  let fundingChoices:EconomicCashFunding|undefined,fundingStamp='';const fundingInputs=new Map<string,HTMLSelectElement>();
- const bindingInputs:{kind:'futures'|'options';binding:EconomicPhysicalBinding;input:HTMLSelectElement;host:HTMLElement}[]=[];
+ const bindingInputs:{kind:'futures'|'options'|'cashOptions';binding:EconomicPhysicalBinding;input:HTMLSelectElement;host:HTMLElement}[]=[];
  const gasInputs=new Map<string,HTMLSelectElement>(),commands=new Map<string,PendingCommand>(),transports=new Map<string,ReturnType<typeof actorTransport<RequestCommand>>>();
  function transport(actor:string){let saved=transports.get(actor);if(!saved){saved=actorTransport(()=>`openetrm.economic-risk.submission:${actor}`,()=>sessionStorage);transports.set(actor,saved);}return saved;}
  function pending(actor=o.identity()){let command=commands.get(actor);if(!command){command=new PendingCommand(knownRiskRejection);command.command=restoreEconomicCommand(transport(actor).read());commands.set(actor,command);}return command;}
@@ -55,19 +55,27 @@ export function setupEconomicRisk(host:HTMLElement,resultHost:HTMLElement,o:Opti
  function stop(){if(timer!==undefined)clearTimeout(timer);timer=undefined;}
  function clearReport(){stop();if(chart)clearChart(chart);chart=undefined;report=undefined;job=undefined;resultHost.replaceChildren();resultHost.hidden=true;}
  function clearFunding(){fundingChoices=undefined;fundingStamp='';fundingInputs.clear();fundingBody.replaceChildren();}
- function clearBindings(){bindingInputs.length=0;bindingBody.replaceChildren();bindingSearch.value='';}
+ function clearBindings(){bindingInputs.length=0;bindingBody.replaceChildren();bindingHelp.textContent='';bindingSearch.value='';}
  function bindingChoices(c:EconomicSetup){
-  const bad=()=>Error('Reread the exact physical holding and valuation choices.');
-  if(!c.physicalBindings){if(c.pricing.some(p=>p.requiresFuturesBindings===true||p.requiresOptionBindings===true))throw bad();return;}
-  if(c.pricing.some(p=>typeof p.requiresFuturesBindings!=='boolean'||typeof p.requiresOptionBindings!=='boolean'))throw bad();
-  for(const kind of ['futures','options'] as const){
-   const groups=c.physicalBindings[kind];
-   if(!Array.isArray(groups)||new Set(groups.map(g=>canonicalEconomic([g?.tradeId,g?.bindingId]))).size!==groups.length)throw bad();
-   for(const binding of groups){
+  const bad=()=>Error('Reread the exact holding and valuation choices.');
+  if(!c.physicalBindings&&c.pricing.some(p=>p.requiresFuturesBindings===true||p.requiresOptionBindings===true))throw bad();
+  if(c.physicalBindings&&c.pricing.some(p=>typeof p.requiresFuturesBindings!=='boolean'||typeof p.requiresOptionBindings!=='boolean'))throw bad();
+  if(c.cashOptionBindings===undefined&&c.pricing.some(p=>p.requiresCashOptionBindings===true))throw bad();
+  if(c.cashOptionBindings!==undefined&&(c.pricing.some(p=>typeof p.requiresCashOptionBindings!=='boolean')||
+   typeof c.optionModelHelp!=='string'||!c.optionModelHelp.trim()))throw bad();
+  if(c.optionModelHelp!==undefined&&(typeof c.optionModelHelp!=='string'||!c.optionModelHelp.trim()))throw bad();
+  bindingHelp.textContent=c.optionModelHelp??'';
+  const groups:[typeof bindingInputs[number]['kind'],EconomicPhysicalBinding[]|undefined][]=[
+   ['futures',c.physicalBindings?.futures],['options',c.physicalBindings?.options],['cashOptions',c.cashOptionBindings]];
+  for(const [kind,rows] of groups){
+   if(rows===undefined){if(kind!=='cashOptions'&&c.physicalBindings)throw bad();continue;}
+   if(!Array.isArray(rows)||new Set(rows.map(g=>canonicalEconomic([g?.tradeId,g?.bindingId]))).size!==rows.length)throw bad();
+   for(const binding of rows){
     if(!binding?.tradeId||!binding.bindingId||!binding.label||!Array.isArray(binding.choices)||new Set(binding.choices.map(c=>c?.value)).size!==binding.choices.length||
      binding.choices.some(c=>!c?.value||!c.label||!c.selection||c.selection.tradeId!==binding.tradeId||c.selection.bindingId!==binding.bindingId)||
-     binding.unavailableReason!==undefined&&(typeof binding.unavailableReason!=='string'||!binding.unavailableReason.trim()||binding.choices.length>0))throw bad();
-    const row=node('div'),control=select(row,kind==='futures'?'future-binding':'option-binding',binding.label);
+     binding.unavailableReason!==undefined&&(typeof binding.unavailableReason!=='string'||!binding.unavailableReason.trim()||binding.choices.length>0)||
+     bindingInputs.some(row=>row.binding.tradeId===binding.tradeId&&row.binding.bindingId===binding.bindingId))throw bad();
+    const row=node('div'),control=select(row,kind==='futures'?'future-binding':kind==='options'?'option-binding':'cash-option-binding',binding.label);
     row.dataset.bindingKind=kind;control.dataset.trade=binding.tradeId;control.dataset.binding=binding.bindingId;
     fill(control,binding.choices);control.onchange=invalidateSource;bindingBody.append(row);bindingInputs.push({kind,binding,input:control,host:row});
     if(!binding.choices.length)row.append(node('p',binding.unavailableReason??'No supported valuation choice is available for this holding. Update its configuration before preparing the source.'));
@@ -75,10 +83,10 @@ export function setupEconomicRisk(host:HTMLElement,resultHost:HTMLElement,o:Opti
   }
  }
  function bindingPolicy(price:EconomicSetup['pricing'][number]){
-  const policy=structuredClone(price.policy),bad=()=>Error('Reread the complete physical valuation settings.');
+  const policy=structuredClone(price.policy),bad=()=>Error('Reread the complete holding valuation settings.');
   const object=(value:unknown):value is Record<string,unknown>=>!!value&&typeof value==='object'&&!Array.isArray(value);
-  function selected(kind:'futures'|'options'){
-   if(!configuration?.physicalBindings)throw bad();
+  function selected(kind:typeof bindingInputs[number]['kind']){
+   if(kind==='cashOptions'?configuration?.cashOptionBindings===undefined:!configuration?.physicalBindings)throw bad();
    return bindingInputs.filter(r=>r.kind===kind).map(row=>{
     const choice=row.binding.choices.find(c=>c.value===row.input.value);if(!choice)throw Error('Choose the valuation for '+row.binding.label+'.');
     return structuredClone(choice.selection);
@@ -93,6 +101,11 @@ export function setupEconomicRisk(host:HTMLElement,resultHost:HTMLElement,o:Opti
     !Array.isArray(options.physical.options)||options.physical.options.length)throw bad();
    options.physical.options=selected('options');
   }
+  if(price.requiresCashOptionBindings===true){
+   const options=policy.futuresOptions;if(!object(options)||!object(options.cashFunding)||typeof options.cashFunding.implementation!=='string'||!options.cashFunding.implementation||
+    !Array.isArray(options.cashFunding.options)||options.cashFunding.options.length)throw bad();
+   options.cashFunding.options=selected('cashOptions');
+  }
   return policy;
  }
  function invalidatePrepared(){epoch++;source=undefined;history=undefined;sourceSummary.textContent='';coverage.replaceChildren();method.replaceChildren(new Option('Prepare the complete source first…',''));dirty=true;describe();sync();o.changed();}
@@ -106,7 +119,8 @@ export function setupEconomicRisk(host:HTMLElement,resultHost:HTMLElement,o:Opti
   for(const control of simulationFields.querySelectorAll<HTMLInputElement|HTMLSelectElement>('input,select'))control.disabled=simulationFields.hidden;
   gas.hidden=!configuration?.gasAccounts.length||!configuration.pricing.find(p=>p.value===pricing.value)?.policy.gasOwned;
   const profile=configuration?.pricing.find(p=>p.value===pricing.value);
-  const required=(kind:'futures'|'options')=>(kind==='futures'?profile?.requiresFuturesBindings:profile?.requiresOptionBindings)===true;
+  const required=(kind:typeof bindingInputs[number]['kind'])=>(kind==='futures'?profile?.requiresFuturesBindings:kind==='options'?profile?.requiresOptionBindings:profile?.requiresCashOptionBindings)===true;
+  bindingHelp.hidden=!bindingHelp.textContent||!(required('options')||required('cashOptions'));
   bindingSettings.hidden=!bindingInputs.some(row=>required(row.kind));
   bindingSearch.disabled=bindingSettings.hidden;
   for(const row of bindingInputs){const enabled=required(row.kind);

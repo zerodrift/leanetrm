@@ -26,6 +26,63 @@ const physicalSetup={...setup,pricing:[
  {value:'physical',label:'Physical holdings',requiresFuturesBindings:true,requiresOptionBindings:true,policy:{nativeFutures:{economic:{implementation:'synthetic_economic_future',physical:[]}},futuresOptions:{physical:{implementation:'physical_futures_option_reference_value_v1',options:[]}}}}],
  physicalBindings:{futures:[{tradeId:'future',bindingId:'future-binding',label:'TR-000101 · Synthetic future',choices:[physicalChoice('future','future-binding','saved_delivery')]}],
  options:['a','b'].map(id=>({tradeId:'option-'+id,bindingId:'option-binding-'+id,label:'TR-00020'+id+' · Synthetic option',choices:[physicalChoice('option-'+id,'option-binding-'+id,'synthetic_tree_first'),physicalChoice('option-'+id,'option-binding-'+id,'synthetic_tree_second')]}))}};
+const cashOptionChoice=(tradeId,bindingId,model)=>({value:model,label:'Reference stopping · cash future · '+model,selection:{tradeId,bindingId,model:{implementation:model,stopping:'synthetic_reference_stopping',funding:'synthetic_saved_due'}}});
+const cashOptionSetup={...setup,pricing:[{...setup.pricing[0],requiresFuturesBindings:false,requiresOptionBindings:false,requiresCashOptionBindings:false},
+ {value:'cash-options',label:'Full cash option value',requiresFuturesBindings:false,requiresOptionBindings:false,requiresCashOptionBindings:true,
+ policy:{nativeFutures:{economic:{implementation:'synthetic_economic_future',physical:[]}},futuresOptions:{cashFunding:{implementation:'cash_futures_option_reference_value_v1',options:[]}}}}],
+ optionModelHelp:'Reference stopping values the option. The selected event policy retains the right until a native event or expiry; holding may produce decision or time P&L.',
+ cashOptionBindings:['a','b'].map(id=>({tradeId:'cash-'+id,bindingId:'cash-binding-'+id,label:'TR-00030'+id+' · Synthetic cash option',
+ choices:[cashOptionChoice('cash-'+id,'cash-binding-'+id,'synthetic_cash_first'),cashOptionChoice('cash-'+id,'cash-binding-'+id,'synthetic_cash_second')]}))};
+test('cash options require each explicit native binding and keep funding separate from physical selections',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<div id="form"></div><div id="result"></div>',async evaluate=>{
+ await evaluate(`(async()=>{window.actor='operator';window.selected=${JSON.stringify(scope)};window.errors=[];window.reads=[];window.originalSetup=${JSON.stringify(cashOptionSetup)};const api=async(path,body)=>{reads.push({path,body});if(path.endsWith('/setup'))return originalSetup;if(path.endsWith('/sources'))return {...${JSON.stringify(prepared)},source:body};throw Error('Unexpected '+path);};${mount}})()`);
+ await evaluate(selectSource);await evaluate("(()=>{const p=document.querySelector('[data-economic=pricing]');p.value='cash-options';p.dispatchEvent(new Event('change',{bubbles:true}));document.querySelector('[data-economic=prepare]').click();})()");await settle();
+ assert.equal(await evaluate("reads.filter(r=>r.path.endsWith('/sources')).length"),0,'A missing cash model decision reached source preparation.');
+ assert.deepEqual(await evaluate("[...document.querySelectorAll('[data-economic=cash-option-binding]')].map(s=>s.value)"),['','']);
+ assert.match(await evaluate("document.querySelector('[data-economic=physical-bindings]').textContent"),/Reference stopping values.*decision or time P&L/);
+ await evaluate("(()=>{const rows=document.querySelectorAll('[data-economic=cash-option-binding]');rows[0].selectedIndex=1;rows[1].selectedIndex=2;for(const row of rows)row.dispatchEvent(new Event('change',{bubbles:true}));document.querySelector('[data-economic=prepare]').click();})()");await settle();
+ const sent=await evaluate("reads.find(r=>r.path.endsWith('/sources')).body.pricingPolicy");
+ assert.deepEqual(sent.futuresOptions.cashFunding.options,[cashOptionSetup.cashOptionBindings[0].choices[0].selection,cashOptionSetup.cashOptionBindings[1].choices[1].selection]);
+ assert.equal('physical' in sent.futuresOptions,false);assert.deepEqual(await evaluate('originalSetup'),cashOptionSetup);
+ await evaluate("(()=>{const p=document.querySelector('[data-economic=pricing]');p.value='native';p.dispatchEvent(new Event('change',{bubbles:true}));document.querySelector('[data-economic=prepare]').click();})()");await settle();
+ assert.deepEqual(await evaluate("reads.filter(r=>r.path.endsWith('/sources')).at(-1).body.pricingPolicy"),setup.pricing[0].policy);
+ assert.equal(await evaluate("[...document.querySelectorAll('[data-economic=cash-option-binding]')].every(s=>s.disabled)"),true);await evaluate('desk.reset()');
+}));
+for(const malformed of ['foreign-selection','duplicate-binding','missing-required-groups','missing-capability-flag'])test('cash option setup refuses '+malformed,{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<div id="form"></div><div id="result"></div>',async evaluate=>{
+ const config=structuredClone(cashOptionSetup);
+ if(malformed==='foreign-selection')config.cashOptionBindings[0].choices[0].selection.bindingId='foreign';
+ else if(malformed==='duplicate-binding')config.cashOptionBindings.push(structuredClone(config.cashOptionBindings[0]));
+ else if(malformed==='missing-required-groups')delete config.cashOptionBindings;
+ else delete config.pricing[0].requiresCashOptionBindings;
+ await evaluate(`(async()=>{window.actor='operator';window.selected=${JSON.stringify(scope)};window.errors=[];window.reads=[];const api=async(path,body)=>{reads.push({path,body});if(path.endsWith('/setup'))return ${JSON.stringify(config)};throw Error('Unexpected '+path);};${mount.replace('await desk.configure();','try{await desk.configure();}catch(error){errors.push(String(error));}')}})()`);
+ assert.ok((await evaluate('errors')).length,'Malformed cash option metadata was accepted.');assert.equal(await evaluate("document.querySelector('[data-economic=prepare]').disabled"),true);
+ assert.equal(await evaluate("reads.some(r=>r.path.endsWith('/sources'))"),false);await evaluate('desk.reset()');
+}));
+test('an unavailable cash option displays the captured reason and blocks source preparation',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<div id="form"></div><div id="result"></div>',async evaluate=>{
+ const config=structuredClone(cashOptionSetup);config.cashOptionBindings[0].choices=[];config.cashOptionBindings[0].unavailableReason='Select the exact recorded cash-future source and margin profile.';
+ await evaluate(`(async()=>{window.actor='operator';window.selected=${JSON.stringify(scope)};window.errors=[];window.reads=[];const api=async(path,body)=>{reads.push({path,body});if(path.endsWith('/setup'))return ${JSON.stringify(config)};throw Error('Unexpected '+path);};${mount}})()`);
+ await evaluate(selectSource);await evaluate("(()=>{const p=document.querySelector('[data-economic=pricing]');p.value='cash-options';p.dispatchEvent(new Event('change',{bubbles:true}));document.querySelector('[data-economic=prepare]').click();})()");await settle();
+ assert.match(await evaluate("document.querySelector('[data-economic=physical-bindings]').textContent"),/exact recorded cash-future source/);
+ assert.equal(await evaluate("document.querySelector('[data-economic=cash-option-binding]').disabled"),true);assert.equal(await evaluate("reads.some(r=>r.path.endsWith('/sources'))"),false);await evaluate('desk.reset()');
+}));
+test('cash and physical option choices remain independent when presentation search hides a holding',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<div id="form"></div><div id="result"></div>',async evaluate=>{
+ const config={...physicalSetup,optionModelHelp:cashOptionSetup.optionModelHelp,cashOptionBindings:cashOptionSetup.cashOptionBindings,
+ pricing:[{...physicalSetup.pricing[0],requiresCashOptionBindings:false},{...physicalSetup.pricing[1],requiresCashOptionBindings:true,
+ policy:{...physicalSetup.pricing[1].policy,futuresOptions:{...physicalSetup.pricing[1].policy.futuresOptions,cashFunding:cashOptionSetup.pricing[1].policy.futuresOptions.cashFunding}}}]};
+ await evaluate(`(async()=>{window.actor='operator';window.selected=${JSON.stringify(scope)};window.errors=[];window.reads=[];const api=async(path,body)=>{reads.push({path,body});if(path.endsWith('/setup'))return ${JSON.stringify(config)};if(path.endsWith('/sources'))return {...${JSON.stringify(prepared)},source:body};throw Error('Unexpected '+path);};${mount}})()`);
+ await evaluate(selectSource);await evaluate("(()=>{const p=document.querySelector('[data-economic=pricing]');p.value='physical';p.dispatchEvent(new Event('change',{bubbles:true}));for(const n of document.querySelectorAll('[data-economic=future-binding],[data-economic=option-binding],[data-economic=cash-option-binding]')){n.selectedIndex=1;n.dispatchEvent(new Event('change',{bubbles:true}));}const search=document.querySelector('[data-economic=binding-search]');search.value='cash option';search.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('[data-economic=prepare]').click();})()");await settle();
+ const sent=await evaluate("reads.find(r=>r.path.endsWith('/sources')).body.pricingPolicy");
+ assert.deepEqual(sent.futuresOptions.cashFunding.options,cashOptionSetup.cashOptionBindings.map(g=>g.choices[0].selection));
+ assert.deepEqual(sent.futuresOptions.physical.options,physicalSetup.physicalBindings.options.map(g=>g.choices[0].selection));
+ assert.deepEqual(sent.nativeFutures.economic.physical,physicalSetup.physicalBindings.futures.map(g=>g.choices[0].selection));await evaluate('desk.reset()');
+}));
+test('changing a cash option model invalidates a delayed period-cash funding receipt',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<div id="form"></div><div id="result"></div>',async evaluate=>{
+ const config={...cashOptionSetup,projection:fundingSetup.projection};
+ await evaluate(`(async()=>{window.actor='operator';window.selected=${JSON.stringify(scope)};window.errors=[];window.reads=[];window.releaseFunding=null;const api=async(path,body)=>{reads.push({path,body});if(path.endsWith('/setup'))return ${JSON.stringify(config)};if(path.endsWith('/cash-funding'))return new Promise(resolve=>releaseFunding=()=>resolve({context:${JSON.stringify(setup.context)},snapshotId:${JSON.stringify(scope.context.snapshotId)},currencies:[${JSON.stringify(fundingCurrency)}],choices:[${JSON.stringify(fundingChoice)}]}));throw Error('Unexpected '+path);};${mount}})()`);
+ await evaluate(selectSource);await evaluate("(()=>{const p=document.querySelector('[data-economic=pricing]');p.value='cash-options';p.dispatchEvent(new Event('change',{bubbles:true}));for(const row of document.querySelectorAll('[data-economic=cash-option-binding]')){row.selectedIndex=1;row.dispatchEvent(new Event('change',{bubbles:true}));}const cash=document.querySelector('[data-economic=cash-accumulation]');cash.selectedIndex=2;cash.dispatchEvent(new Event('change',{bubbles:true}));document.querySelector('[data-economic=funding-read]').click();})()");await settle();
+ await evaluate("(()=>{const n=document.querySelector('[data-economic=cash-option-binding]');n.selectedIndex=2;n.dispatchEvent(new Event('change',{bubbles:true}));releaseFunding();})()");await settle();
+ assert.equal(await evaluate("document.querySelectorAll('[data-economic=funding-curve]').length"),0);await evaluate("document.querySelector('[data-economic=prepare]').click()");await settle();
+ assert.equal(await evaluate("reads.some(r=>r.path.endsWith('/sources'))"),false);assert.match((await evaluate('errors')).join(' '),/Read cash funding choices/);await evaluate('desk.reset()');
+}));
 test('physical setup shows the captured reason for an unavailable holding model',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<div id="form"></div><div id="result"></div>',async evaluate=>{
  const config=structuredClone(physicalSetup);config.physicalBindings.futures[0].choices=[];
  config.physicalBindings.futures[0].unavailableReason='Select a source matrix containing the saved delivery mark definition.';
@@ -53,7 +110,7 @@ for(const malformed of ['foreign-selection','duplicate-binding'])test('physical 
  if(malformed==='foreign-selection')config.physicalBindings.options[0].choices[0].selection.tradeId='another-trade';
  else config.physicalBindings.options.push(structuredClone(config.physicalBindings.options[0]));
  await evaluate(`(async()=>{window.actor='operator';window.selected=${JSON.stringify(scope)};window.errors=[];window.reads=[];const api=async(path,body)=>{reads.push({path,body});if(path.endsWith('/setup'))return ${JSON.stringify(config)};throw Error('Unexpected '+path);};${mount.replace('await desk.configure();','try{await desk.configure();}catch(error){errors.push(String(error));}')}})()`);
- assert.match((await evaluate('errors')).join(' '),/exact physical holding/);assert.equal(await evaluate("document.querySelector('[data-economic=prepare]').disabled"),true);
+ assert.match((await evaluate('errors')).join(' '),/exact holding/);assert.equal(await evaluate("document.querySelector('[data-economic=prepare]').disabled"),true);
  assert.equal(await evaluate("reads.some(r=>r.path.endsWith('/sources'))"),false);await evaluate('desk.reset()');
 }));
 test('a captured scope with no physical bindings keeps explicit empty selections and hides unused controls',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<div id="form"></div><div id="result"></div>',async evaluate=>{

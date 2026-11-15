@@ -13,8 +13,9 @@ export type EconomicCashFunding={context:EconomicSetup['context'];snapshotId:str
 export type EconomicProjectionPolicy={implementation:string;pricePath:string;cashDisposition:string;cashAccumulation:string;numericalPolicy:string;nonPriceInputs:string;inputExpiry:string;physicalDelivery:string};
 export type EconomicProjection={implementation:string;session:string;sessionVersion:number;horizonPolicy:string;rateTimingPolicy:string;eventMarketPolicy:string;policy:EconomicProjectionPolicy;gasOwned:{accountId:string;profileId:string;revision:number}[];cashAccumulationSelections?:EconomicCashFundingSelection[]};
 export type EconomicSetup={context:{contextId:string;knownAt:string;effectiveOn:string};asOf:string;scope:HistoryScope;convention:string;numericalPolicy:string;engineVersion:string;
- sessions:{code:string;version:number;name:string}[];pricing:(EconomicChoice&{policy:Record<string,unknown>;requiresFuturesBindings?:boolean;requiresOptionBindings?:boolean})[];
+ sessions:{code:string;version:number;name:string}[];pricing:(EconomicChoice&{policy:Record<string,unknown>;requiresFuturesBindings?:boolean;requiresOptionBindings?:boolean;requiresCashOptionBindings?:boolean})[];
  physicalBindings?:{futures:EconomicPhysicalBinding[];options:EconomicPhysicalBinding[]};
+ cashOptionBindings?:EconomicPhysicalBinding[];optionModelHelp?:string;
  gasAccounts:{accountId:string;code:string;book:string;profiles:{profileId:string;revision:number;label:string;quantityDisposition:string;effectiveAt:string}[]}[];
  projection:{implementation:string;horizonPolicy:string;rateTimingPolicy:string;eventMarketPolicy:string;policy:Pick<EconomicProjectionPolicy,'implementation'|'numericalPolicy'|'nonPriceInputs'>;
  cashFunding?:boolean;pricePaths:EconomicChoice[];cashDisposition:EconomicChoice[];cashAccumulation:(EconomicChoice&{requiresFunding?:boolean})[];inputExpiry:EconomicChoice[];physicalDelivery:EconomicChoice[]};
