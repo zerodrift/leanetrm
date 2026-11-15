@@ -27,6 +27,7 @@ LIFECYCLE_PORTFOLIO={f'tools/{name}.py' for name in (
     'check_lifecycle_risk_jobs','check_lifecycle_risk_scope','check_lifecycle_final_scope',
     'check_lifecycle_projection_horizon','check_lifecycle_swap_worker','check_lifecycle_future_worker',
     'check_lifecycle_economic_browser','check_physical_futures_value')}
+OPTION_VALUE_APPS={'tools/check_lifecycle_valuation_browser.py'}
 
 
 class CheckAllTests(unittest.TestCase):
@@ -135,6 +136,24 @@ class CheckAllTests(unittest.TestCase):
             actual=[value for command in selected for value in command if value in LIFECYCLE_NATIVE]
             self.assertEqual(set(actual),LIFECYCLE_NATIVE if group=='lifecycle' else set())
             self.assertEqual(len(actual),len(LIFECYCLE_NATIVE) if group=='lifecycle' else 0)
+
+    def test_each_option_model_is_qualified_in_the_real_app_with_selected_tools(self):
+        helper='tools/check_lifecycle_valuation_browser.py'
+        for group in GROUPS:
+            selected=[]
+            def run(command,**options):
+                if helper in command:
+                    self.assertEqual(options['env']['DOTNET'],'/selected sdk')
+                    selected.append(command)
+            run_checks(Path('/stock pg'),Path('/selected sdk'),Path('/selected browser'),group=group,run=run)
+            self.assertEqual(len(selected),2 if group=='trading' else 0)
+            if selected:
+                self.assertEqual({command[command.index('--kind')+1] for command in selected},{'physical','cash'})
+                for command in selected:
+                    self.assertEqual(command[command.index('--pg-bin')+1],'/stock pg')
+                    self.assertEqual(command[command.index('--dotnet')+1],'/selected sdk')
+                    self.assertEqual(command[command.index('--browser')+1],'/selected browser')
+                    self.assertIn('--no-build',command)
 
     def test_economic_workers_and_real_browsers_keep_selected_tools_and_partitions(self):
         browsers={'tools/check_gas_mixed_quantity_browser.py':'lifecycle','tools/check_lifecycle_browser.py':'lifecycle','tools/check_lifecycle_economic_browser.py':'portfolio'}
@@ -263,7 +282,7 @@ class CheckAllTests(unittest.TestCase):
         self.assertEqual(set().union(*(set(value) for value in groups.values())), set(complete))
         margin={f'tools/check_futures_margin_{part}.py' for part in ('sources','adoption','projection_sources')}|{'tools/check_trading_business_date.py'}
         def shared(command):
-            return 'tools/run_preview.py' not in command and not (margin|LIFECYCLE_NATIVE|LIFECYCLE_PORTFOLIO).intersection(command)
+            return 'tools/run_preview.py' not in command and not (margin|LIFECYCLE_NATIVE|LIFECYCLE_PORTFOLIO|OPTION_VALUE_APPS).intersection(command)
         for name, selected in groups.items():
             with self.subTest(group=name):
                 # Each group starts from a clean checkout, including restores,

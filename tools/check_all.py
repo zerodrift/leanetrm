@@ -111,6 +111,9 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     for helper,suite in (('check_gas_mixed_quantity_browser','lifecycle'),('check_lifecycle_browser','lifecycle'),('check_lifecycle_economic_browser','portfolio')):
         check(helper,[sys.executable,f'tools/{helper}.py','--pg-bin',str(pg_bin),'--dotnet',str(dotnet),
             '--browser',str(browser),'--no-build'],suite=suite)
+    for kind in ('physical','cash'):
+        check('native '+kind+' option models in the application',[sys.executable,'tools/check_lifecycle_valuation_browser.py',
+            '--pg-bin',str(pg_bin),'--dotnet',str(dotnet),'--browser',str(browser),'--kind',kind,'--no-build'],suite='trading')
     for flag in ('--lifecycle-actions','--economic-risk-contract','--lifecycle-schedule-contract','--gas-owned-setup',
         '--shared-native-markets','--derivative-methods','--gas-accepted-order','--lifecycle-residual-currencies'):
         check('managed lifecycle '+flag,[str(dotnet),'run','--no-restore','--project',
