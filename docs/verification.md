@@ -2,7 +2,7 @@
 
 For the current complete command and prerequisites, start with
 [Required tools](#required-tools). `tools/check_all.py` runs all suites by
-default; `--group workspace|standard|assistant|trading|portfolio|settlement|ppa|recovery`
+default; `--group workspace|standard|assistant|trading|lifecycle|portfolio|settlement|ppa|recovery`
 selects one CI partition. CI requires every partition and its aggregate check
 to succeed. The implementation records below retain the results and limits of
 each dated increment; older check counts are not the current suite size.
@@ -11,7 +11,7 @@ D399's local native futures increment has focused owned PostgreSQL consumers:
 `tools/check_futures_margin_sources.py`, `tools/check_futures_margin_adoption.py`
 and `tools/check_futures_margin_journal.py`. Each takes `--pg-bin`; its managed
 child uses the explicitly selected `DOTNET` executable and already-built API check
-project. The trading CI partition runs all three. The journal consumer qualifies
+project. The lifecycle CI partition runs all three. The journal consumer qualifies
 actual booking/adoption, causal corrections, distinct surviving cash, partial
 payment, terminal PV without an open mark, explicit future-cash discounting,
 review/source changes, original admission deadlines and immutable run membership.
@@ -2271,12 +2271,18 @@ request runs no CI; its pull request run verifies the same head. Checkout and to
 pinned to exact commits. The checks job has read-only repository access, does not
 persist checkout credentials and requires no repository secrets. The full local
 `check_all.py` command remains available. CI partitions its existing stages into
-eight groups (`check_all.py` `GROUPS`): `workspace`, `standard`, `assistant`,
-`trading`, `portfolio`, `settlement`, `ppa` and `recovery`;
-each fresh checkout repeats all shared preparation and checks (about 2.5 minutes). The union covers every full-gate stage,
-with no duplicated preview stages. Each group retains a 45-minute job deadline;
-individual command and owned-resource deadlines remain in force. The partitions
-follow measured preview durations on four October 2026 runs: shared preparation
+nine groups (`check_all.py` `GROUPS`): `workspace`, `standard`, `assistant`,
+`trading`, `lifecycle`, `portfolio`, `settlement`, `ppa` and `recovery`;
+each fresh checkout repeats all shared preparation and checks. The union covers
+every full-gate stage, with each owned qualification suite in exactly one group.
+Standard and trading have 60-minute job deadlines; the other groups have
+45 minutes. Individual command and owned-resource deadlines remain in force.
+The lifecycle group runs native margin, scheduling, delivery, ownership and
+authority qualification, including its two application browser suites. A November
+2026 trading run reached its 60-minute limit while still passing checks; these
+native stages had taken about 21 minutes before the trading previews. Separating
+them preserves the complete gate without increasing its existing deadlines.
+The original partitions followed measured preview durations on four October 2026 runs: shared preparation
 took about 2.5 minutes per group, while the scheduled swap settlement (10-15
 minutes), renewable close recovery (13-20), standard browser (8-13) and
 page-assistant (about 6) stages dominated. Those long stages run in `settlement`,
