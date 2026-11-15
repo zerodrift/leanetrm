@@ -441,5 +441,19 @@ cannot renew the operation while those initial queries wait.
 In the selected option contract, delivery-mark interpretation also applies to
 each exact accepted native child. Economic assembly must revalidate that meaning
 against the child's own adopted profile and original captured sources; the
-current expiry profile cannot replace them. The economic child assembly and
-option-to-physical continuation remain separate qualification gates.
+current expiry profile cannot replace them. The pure economic continuation now
+keeps the remaining right and each accepted future under independent native
+owners. Each child's activation requires its exact certified parent event;
+child cash and residuals are not also valued by the option. Fully closed rights
+stop demanding the current expiry profile's hypothetical future and mark inputs.
+Native instruction events update the surviving right using the latest active
+publication, preserving the source reader's nondecreasing effective chronology.
+
+Hypothetical exercise retains the selected saved-next-margin funding and
+unfixed physical exchange, advancing the exact occurrence prefix at each reset.
+Independent signed A/B checks reconcile 56,000 as 18,000 funded VM plus 38,000
+delivery value, before and after reset, with distinct physical/principal carrying
+and no transfer gain. An early full exercise test uses the child's own later
+asset profile after the parent's unused mark expires. The API/native assembly,
+retained workers and real application flow for this economic option path remain
+separate qualification gates.

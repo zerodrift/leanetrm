@@ -59,14 +59,34 @@ public sealed class FuturesLifecycleProjection:ILifecycleProjection
     public ImmutableArray<LifecycleInputFinal> InputFinals{get;}
     public ImmutableArray<LifecycleProjectionEvent> Events{get;}
     public LifecycleProjectionEvent? Activation{get;}
+    internal KnownFuturesOptionEvent? NativeOptionEvent{get;}
+    internal FuturesOptionKnownHistory? NativeOptionParent{get;}
     private readonly Guid? pricingExpiryId;
     public FuturesLifecycleProjection(Trade trade,Guid bindingId,FuturesMarginState state,FuturesMarginHistory history,
         ValuationSetup setup,CurveRequest settlementProjection,CurveModel model,MarketSnapshot source,FuturesKnownHistory? known=null,FuturesDeliveryProjectionMarket? deliveryMarket=null,KnownFuturesPhysicalFinal? nativeDelivery=null)
         :this(trade,bindingId,state,history,setup,settlementProjection,model,source,known,null,deliveryMarket,nativeDelivery){}
     public FuturesLifecycleProjection(KnownFuturesOptionEvent causal,FuturesKnownHistory known,ValuationSetup setup,
-        CurveRequest settlementProjection,CurveModel model,MarketSnapshot source,FuturesDeliveryProjectionMarket? deliveryMarket=null,KnownFuturesPhysicalFinal? nativeDelivery=null)
+        CurveRequest settlementProjection,CurveModel model,MarketSnapshot source,FuturesDeliveryProjectionMarket? deliveryMarket=null,KnownFuturesPhysicalFinal? nativeDelivery=null,
+        FuturesOptionKnownHistory? parent=null)
         :this(causal.Future?.Trade??throw Error("Retain the accepted option's exact linked future."),causal.Future.BindingId,null,null,
-            setup,settlementProjection,model,source,known,causal,deliveryMarket,nativeDelivery){}
+            setup,settlementProjection,model,source,known,causal,deliveryMarket,nativeDelivery)
+    {
+        NativeOptionEvent=causal;
+        if(parent is null)return;
+        var matches=parent.Events.IsDefault?[]:parent.Events.Where(e=>e.EventId==causal.EventId).ToArray();
+        var expected=matches.Length==1?matches[0]:null;var actual=causal.Future!;var linked=expected?.Future;
+        if(!parent.Owner.IsValid||parent.Owner.Owner.Kind!=AccountingOwnerKind.Trade||parent.Owner.Owner==Owner.Owner||parent.Owner.BookId!=Owner.BookId||
+            parent.SourceContextId!=source.Knowledge!.ContextId||parent.KnownThrough!=source.Knowledge.KnownAt||parent.OriginalLots==default||
+            parent.Series.Revision!=market.Series.Key.Revision||expected is null||linked is null||causal.EffectiveAt<=source.ValuationAt||
+            causal.Kind is not("exercise" or "assignment" or "expiry")||causal.Kind=="expiry"&&causal.Outcome!="exercised"||
+            (expected with{Future=null})!=(causal with{Future=null})||(linked with{Trade=actual.Trade})!=actual||
+            linked.Trade.Id!=actual.Trade.Id||linked.Trade.BookId!=actual.Trade.BookId||linked.Trade.Booking!=actual.Trade.Booking||
+            !linked.Trade.Instruments.SequenceEqual(actual.Trade.Instruments))
+            throw Error("An independent generated future requires its exact accepted parent event, native link and common certified source.");
+        NativeOptionParent=parent;
+        var original=Activation!;Activation=original with{Requires=[LifecycleProjectionEvent.ScopedId(parent.Owner,causal.EventId)]};
+        Events=[..Events.Select(e=>e==original?Activation:e)];
+    }
     private FuturesLifecycleProjection(Trade trade,Guid bindingId,FuturesMarginState? state,FuturesMarginHistory? history,
         ValuationSetup setup,CurveRequest settlementProjection,CurveModel model,MarketSnapshot source,FuturesKnownHistory? known,KnownFuturesOptionEvent? causal,FuturesDeliveryProjectionMarket? deliveryMarket,KnownFuturesPhysicalFinal? nativeDelivery)
     {
