@@ -45,7 +45,7 @@ internal sealed class GasFuturesQuantityBatchActions(PreviewDatabase database):I
         return await command.ExecuteScalarAsync(ct) is string text?JsonSerializer.Deserialize<JsonElement>(text):null;
     }
 
-    private async Task<GasFuturesDeliveryReview> Plan(NpgsqlConnection connection,LifecycleActionRequest request,JsonElement body,ScheduleContext context,CancellationToken ct)
+    internal async Task<GasFuturesDeliveryReview> Plan(NpgsqlConnection connection,LifecycleActionRequest request,JsonElement body,ScheduleContext context,CancellationToken ct)
     {
         await using(var save=ScheduleStore.Command(connection,"SAVEPOINT gas_quantity_batch_source"))await save.ExecuteNonQueryAsync(ct);
         try
@@ -136,7 +136,7 @@ internal sealed class GasFuturesQuantityBatchActions(PreviewDatabase database):I
         var outcome=(await Record(connection,request,body,principal.Continuation,false,ct))!.Value;
         _=Allocations(outcome);return new(outcome,admission);
     }
-    private static ImmutableArray<JsonElement> Allocations(JsonElement outcome)=>[..outcome.GetProperty("corrections").EnumerateArray()
+    internal static ImmutableArray<JsonElement> Allocations(JsonElement outcome)=>[..outcome.GetProperty("corrections").EnumerateArray()
         .Where(row=>row.GetProperty("changed").GetBoolean()).Select(row=>GasFuturesReconciliationActions.AllocationReview(row)!.Value)];
     private static string Hash(LifecycleActionRequest request,JsonElement body,JsonElement? continuation)=>Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(
         JsonSerializer.Serialize(new{implementation=Version,request.OperationId,request.Context,request.Target,request.Action,request.PolicyId,request.PolicyRevision,selection=body,continuation},GasOwnedOperations.Json))));

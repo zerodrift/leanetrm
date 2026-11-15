@@ -46,7 +46,7 @@ internal sealed class GasOwnedQuantityReconciliationActions(PreviewDatabase data
             database.Manifest.CatalogId,request.OperationId,request.Target.ScopeId,body.GetRawText(),request.Context.AsOf,request.Context.ContextId,request.PolicyId,request.PolicyRevision,receipt);
         return await command.ExecuteScalarAsync(ct) is string text?JsonSerializer.Deserialize<JsonElement>(text):null;
     }
-    private async Task<JsonElement> Source(NpgsqlConnection connection,LifecycleActionRequest request,JsonElement body,ScheduleContext context,CancellationToken ct)
+    internal async Task<JsonElement> Source(NpgsqlConnection connection,LifecycleActionRequest request,JsonElement body,ScheduleContext context,CancellationToken ct)
     {
         await using(var save=ScheduleStore.Command(connection,"SAVEPOINT gas_owned_correction_source"))await save.ExecuteNonQueryAsync(ct);
         try
@@ -100,7 +100,7 @@ internal sealed class GasOwnedQuantityReconciliationActions(PreviewDatabase data
         if(Hash(request,body)!=request.PreviewHash)throw new MarketDataException("gas_quantity_stale_review","The reviewed source, exact quantities or policy changed. Review the complete ordinary correction again.");
         var outcome=(await Record(connection,request,body,false,ct))!.Value;_=Allocations(outcome);return new(outcome,admission);
     }
-    private static ImmutableArray<JsonElement> Allocations(JsonElement outcome)
+    internal static ImmutableArray<JsonElement> Allocations(JsonElement outcome)
     {
         if(!outcome.GetProperty("changed").GetBoolean())return [];
         return [..outcome.GetProperty("sourceAllocations").EnumerateArray().Select(fact=>

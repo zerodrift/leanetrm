@@ -91,6 +91,8 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
         ('check_gas_quantity_reconciliation','native quantity corrections, exact source allocations and retained principal refunds'),
         ('check_gas_quantity_reconciliation_batches','atomic linked gas corrections, exact review metadata and complete native principal prefixes'),
         ('check_gas_owned_quantity_choices','ordinary gas corrections, exact member choices and encoded source budgets'),
+        ('check_gas_mixed_quantity_reconciliation','atomic ordinary and physical quantity corrections, exact source closure and sealed first outcomes'),
+        ('check_gas_lifecycle_agents','opt-in gas lifecycle role, delegated review and current actor authority'),
         ('check_physical_option_value','selected native physical option value, source admission and retained workers'),
         ('check_cash_accumulation','explicit cash funding choices, native source custody and economic worker replay'),
         ('check_gas_principal_carrying','saved delivery principal carrying and exact residual curve demand'),
@@ -106,7 +108,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
         ('check_lifecycle_future_worker','economic futures replay in separate workers'),
         ('check_physical_futures_value','full native physical futures value and exact linked-source economic workers')):
         check(label,[sys.executable,f'tools/{helper}.py','--pg-bin',str(pg_bin)],suite='portfolio')
-    for helper,suite in (('check_lifecycle_browser','trading'),('check_lifecycle_economic_browser','portfolio')):
+    for helper,suite in (('check_gas_mixed_quantity_browser','trading'),('check_lifecycle_browser','trading'),('check_lifecycle_economic_browser','portfolio')):
         check(helper,[sys.executable,f'tools/{helper}.py','--pg-bin',str(pg_bin),'--dotnet',str(dotnet),
             '--browser',str(browser),'--no-build'],suite=suite)
     for flag in ('--lifecycle-actions','--economic-risk-contract','--lifecycle-schedule-contract','--gas-owned-setup',

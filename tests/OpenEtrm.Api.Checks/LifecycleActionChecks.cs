@@ -48,7 +48,8 @@ internal static class LifecycleActionChecks
         var contracts=selection["contracts"]!;
         foreach(var (handler,contract) in new[]{(GasFuturesReconciliationActions.Handler,nameof(GasFuturesQuantityReconciliationSelection)),
             (GasFuturesQuantityBatchActions.Handler,nameof(GasFuturesQuantityBatchSelection)),
-            (GasOwnedQuantityReconciliationActions.Handler,nameof(GasOwnedQuantityReconciliationSelection))})
+            (GasOwnedQuantityReconciliationActions.Handler,nameof(GasOwnedQuantityReconciliationSelection)),
+            (GasQuantityBundleActions.Handler,nameof(GasQuantityBundleSelection))})
             Require(contracts[handler]?["contract"]?.GetValue<string>()==contract&&contracts[handler]?["additionalProperties"]?.GetValue<bool>()==false,
                 "Every gas reconciliation assistant selection exposes its exact closed native contract.");
         var ordinary=contracts[GasOwnedQuantityReconciliationActions.Handler]!;
