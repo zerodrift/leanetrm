@@ -1,4 +1,8 @@
-"""Upgrade real pre-fee-terms loans without rewriting their cash or bank history."""
+"""Upgrade pre-fee-terms loans, then run the current fee source and action checks.
+
+The predecessor runs the native fixture prefix only. The separate ordinary fee
+qualifier retains the complete managed gas baseline on the fully migrated schema.
+"""
 from decimal import Decimal
 import json
 from pathlib import Path
@@ -27,7 +31,7 @@ def _state(query,catalog,tables):
         f"FROM trading.{table} x WHERE x.catalog_id='{catalog}') digest" for table in tables)+')states;')
 
 
-def _calls(query,manifest):
+def _record(query,manifest):
     catalog,tenant,workspace=(manifest[k] for k in ('catalogId','tenantId','workspaceId'))
     at='2020-12-20T16:00:00Z'
     def call(statement):
@@ -40,11 +44,11 @@ def _calls(query,manifest):
         result=json.loads(call(f"SELECT security.record_gas_owned('{catalog}','{operation}','{action}','{account}',{_literal(body)},'{at}','{context}',"
             +(f"'{policy}',{revision}" if policy else 'NULL,NULL')+",false)::text;"))
         return operation,result
-    return call,record
+    return record
 
 
 def _seed_zero(query,manifest):
-    catalog=manifest['catalogId'];_,record=_calls(query,manifest)
+    catalog=manifest['catalogId'];record=_record(query,manifest)
     source=json.loads(query("SELECT jsonb_build_object('account',l.account_id,'lender',l.lender_id,'revision',l.lender_revision) "
         "FROM trading.gas_owned_loans l JOIN trading.gas_owned_accounts a ON(a.catalog_id,a.id)=(l.catalog_id,l.account_id) "
         f"WHERE l.catalog_id='{catalog}' AND a.code='synthetic_owned_inventory_1' AND l.quantity=100;"))
@@ -104,7 +108,7 @@ def main():
         assert not prepared and query("SELECT to_regclass('trading.gas_loan_fee_terms') IS NULL;")=='t'
         reference,market,security,manifest=fees.fixture(root)
         for sql in (reference,market,security):query(sql)
-        fees.baseline(query,manifest)
+        fees.baseline(query,manifest,native_only=True)
         zero=_seed_zero(query,manifest);tables=_tables(query)
         prepared.update(manifest=manifest,zero=zero,tables=tables,state=_state(query,manifest['catalogId'],tables),baseline=fees.baseline)
         print('PASS predecessor fixture: actual nonzero-fee and explicit zero-fee native borrow operations, retained bank revisions and a distinct zero-loan acknowledgement before 0308',flush=True)
@@ -137,7 +141,7 @@ def main():
         try:
             fees.baseline=already_run
             fees.checks(query,manifest,after_amendments=finished)
-            assert skipped==[True],'Only the already-qualified predecessor baseline may be skipped.'
+            assert skipped==[True],'Only the already-run predecessor native fixture prefix may be skipped.'
         finally:fees.baseline=original
 
     native_main(checks=checks,before_migration=before_migration,fixture_factory=loaded_fixture)
