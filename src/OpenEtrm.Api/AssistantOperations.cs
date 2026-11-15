@@ -197,6 +197,7 @@ internal static class AssistantOperations
                 variants[GasFuturesQuantityBatchActions.Handler]=Describe(typeof(GasFuturesQuantityBatchSelection),path.Add(type));
                 variants[GasOwnedQuantityReconciliationActions.Handler]=Describe(typeof(GasOwnedQuantityReconciliationSelection),path.Add(type));
                 variants[GasQuantityBundleActions.Handler]=Describe(typeof(GasQuantityBundleSelection),path.Add(type));
+                variants[GasLoanQuantityReconciliationActions.Handler]=Describe(typeof(GasLoanQuantityReconciliationSelection),path.Add(type));
                 properties["selection"]=new JsonObject{["type"]="object",["discriminator"]="target.handler",["contracts"]=variants};
             }else properties[JsonNamingPolicy.CamelCase.ConvertName(property.Name)]=Describe(property.PropertyType,path.Add(type));
         }

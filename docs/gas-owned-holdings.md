@@ -260,6 +260,24 @@ lazy member selection, reviewed correction and exact retry after an uncertain
 acknowledgement. Broader loan/operator/fee amendments and changed event-time or
 advance treatment retain separate implementation gates.
 
+The bounded loan quantity amendment pairs the exact native received-stock and
+return-obligation owners with a versioned loan principal. A reviewed correction
+names the selected title and agreement revisions, both position revisions and
+every changed dispatch or identified repayment use. It retains each use's
+original clock and business reference. Complete stock, reservation and repayment
+prefixes, including source-known future facts, must remain valid. Source
+allocation remains explicit; fixed fee memberships and recorded bank payments
+are retained independently rather than scaled with principal.
+
+The native reader and writer and the default shared action handler are qualified
+for same-instant loan principal corrections with separate repayment funding.
+Original authorization bounds apply through waits and commit, and retained
+receipts precede mutable source reads. Independent seals reject altered request,
+member and outcome facts. The operational forms, normally configured agent path,
+ordinary valuation continuation and public fixture packaging for this loan
+amendment remain separate delivery gates. Operator and fee-term counterparts,
+mixed linked effects and changed clocks are not covered by this bounded writer.
+
 The opt-in agent-only `gas_lifecycle_operator` role contains exactly
 `ReadMarketData`, `ReadTrades`, `ReadGasOwnedHoldings` and
 `RecordGasOwnedHoldings`. It creates no principal, assignment or delegation and
