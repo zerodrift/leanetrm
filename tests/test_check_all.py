@@ -21,7 +21,7 @@ LIFECYCLE_NATIVE={f'tools/{name}.py' for name in (
     'check_lifecycle_option_scheduling','check_lifecycle_option_expiries',
     'check_lifecycle_scheduling','check_lifecycle_scheduled_bookings',
     'check_gas_source_ancestors','check_gas_physical_known','check_gas_cashout_projection','check_gas_accepted_projection','check_gas_quantity_reconciliation',
-    'check_gas_quantity_reconciliation_batches','check_gas_owned_quantity_choices','check_physical_option_value','check_cash_accumulation','check_gas_principal_carrying',
+    'check_gas_quantity_reconciliation_batches','check_gas_mixed_quantity_reconciliation','check_gas_lifecycle_agents','check_gas_mixed_quantity_browser','check_gas_owned_quantity_choices','check_physical_option_value','check_cash_accumulation','check_gas_principal_carrying',
     'check_risk_fit_authority','check_lifecycle_browser','check_retained_swap_schedule_reads')}
 LIFECYCLE_PORTFOLIO={f'tools/{name}.py' for name in (
     'check_lifecycle_risk_jobs','check_lifecycle_risk_scope','check_lifecycle_final_scope',
@@ -137,7 +137,7 @@ class CheckAllTests(unittest.TestCase):
             self.assertEqual(len(actual),len(LIFECYCLE_NATIVE) if group=='trading' else 0)
 
     def test_economic_workers_and_real_browsers_keep_selected_tools_and_partitions(self):
-        browsers={'tools/check_lifecycle_browser.py':'trading','tools/check_lifecycle_economic_browser.py':'portfolio'}
+        browsers={'tools/check_gas_mixed_quantity_browser.py':'trading','tools/check_lifecycle_browser.py':'trading','tools/check_lifecycle_economic_browser.py':'portfolio'}
         for group in ('portfolio','trading','standard'):
             selected=[]
             def run(command,**options):

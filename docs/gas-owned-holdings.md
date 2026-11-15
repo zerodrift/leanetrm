@@ -268,6 +268,24 @@ cannot assign it. Delegated operations still require the live agent, delegator,
 workspace and source intersection and the same explicit review. Losing current
 agent or delegator authority also refuses access to a retained write receipt.
 
+An owned title that funds an accepted futures dispatch can require one linked
+correction: reducing the title first exceeds stock capacity, while replacing the
+dispatch allocation first leaves its applied title source unreconciled. The
+`ordinary_futures_quantity_bundle_v1` contract takes the complete ordinary and
+physical selections, both exact accounts and both saved manual policy versions.
+It preflights every selected member under the original knowledge prefix,
+including unchanged physical members, before either product writes. Both native
+product journals then share one publication. Typed membership, source allocation
+and independently reconstructed child and outer outcomes seal the composition.
+It changes neither accepted bank payments nor original fee memberships.
+
+An existing linked fact returns its first outcome or acknowledges its retained
+financial revision without another publication or a rewind of current state.
+Historical acknowledgements retain a read publication even when no financial
+publication exists. The independent seal validates closed nested request shapes
+before counting or iterating members, including on acknowledgements. Original
+authority deadlines apply through waits and final commit admission.
+
 `tools/check_gas_physical_known.py` qualifies the attachment scope and complete
 native histories. `tools/check_gas_applied_sources.py` independently corrects a
 fully consumed dispatch source and an extinguished cashout price, verifies the
@@ -303,3 +321,19 @@ review, approved execution and exact retry, denied read-only/revoked/foreign
 contexts, role assignment boundaries and current authority loss. Its migration
 probes independently reject changed definitions, function shape and privileges
 of the existing agent-role and administration boundaries.
+`tools/check_gas_mixed_quantity_reconciliation.py` qualifies both sequential
+refusals, the atomic title and dispatch replacement, unchanged signed principal
+and bank history, stale reviews, evicted-source retries, exact knowledge-prefix
+admission and malformed child/outer receipts at immediate constraints and commit.
+Its upgrade probes pin both original product writers and their source and seal
+helpers, including function metadata, ownership and privileges.
+`tools/check_gas_mixed_quantity_browser.py` runs the linked action through the
+real API and browser over an exact recorded close. It qualifies lazy native
+member choices, explicit quantities and allocation terms, both source reviews,
+desktop layout and exact first-outcome retry after a lost acknowledgement.
+Independent native assertions then check one financial publication, both product
+journals, the revised original/replacement stock split and unchanged principal
+and bank history. Its close-convention setup has its own typed publication,
+which is checked separately before the financial action. Both Lifecycle browser
+qualifiers share one owned API/worker launcher and remove their disposable
+processes and database after the run.

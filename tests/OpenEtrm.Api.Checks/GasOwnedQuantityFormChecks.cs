@@ -43,6 +43,21 @@ internal static class GasOwnedQuantityFormChecks
         var useTuple=JsonSerializer.SerializeToElement(row.Single(f=>f.Name=="observedQuantity").Choices.Single().Value);
         if(useTuple.GetProperty("consumptionId").GetGuid()!=use||useTuple.GetProperty("expectedRevision").GetInt32()!=2||row.Single(f=>f.Name=="evidenceId").Choices is not [{Id:var signed}]||signed!=delivery.ToString())
             throw new Exception("Ordinary delivery correction must retain its exact use revision and signed source evidence.");
+        var book=Guid.NewGuid();var physicalPolicy=Guid.NewGuid();var performance=Guid.NewGuid();var obligation=Guid.NewGuid();
+        values["accounts"]=new[]{new{id=account,code="synthetic_quantity_account",kind="owned_inventory",book_id=book,book_name="Synthetic owned book"}};
+        var batch=JsonSerializer.SerializeToElement(new{corrections=new[]{new{accountId=account,account="Synthetic owned account",bookId=book,positionId=obligation,
+            performanceId=performance,reference="Synthetic dispatch",quantity="0.125",financialRevision=2,parentTradeReference=101,
+            deliverySeries="synthetic_monthly_future",deliveryProfile="Synthetic delivery",deliveryProfileRevision=1,policyId=physicalPolicy,policyRevision=3}}});
+        var mixed=GasOwnedSetup.Build(context,new("gas_quantity_bundle",account,account),JsonSerializer.SerializeToElement(values),[..policies],[],[],[],[],[],[],
+            JsonSerializer.SerializeToElement(values),[],batch:batch).Forms["gas.owned.reconcile_quantity"].Fields;
+        var ordinaryFields=mixed.Single(f=>f.Name=="ordinary");var physicalFields=mixed.Single(f=>f.Name=="physical");
+        if(ordinaryFields.Kind!="object"||ordinaryFields.Fields.Single(f=>f.Name=="positions").Variants!.Value.Single().Target!=titles[0].Target||
+            physicalFields.Kind!="object"||physicalFields.Fields.Single().Variants!.Value.Single().Target!=new LifecycleTarget("gas_futures_reconciliation",obligation,performance))
+            throw new Exception("Mixed correction forms must reuse exact lazy title and physical member sources.");
+        var policyChoice=mixed.Single(f=>f.Name=="physicalAccountPolicy");var policyTuple=JsonSerializer.SerializeToElement(policyChoice.Choices.Single().Value);
+        if(policyChoice.Members is not ["physicalAccountId","physicalPolicyId","physicalPolicyRevision"]||
+            policyTuple.GetProperty("physicalAccountId").GetGuid()!=account||policyTuple.GetProperty("physicalPolicyId").GetGuid()!=physicalPolicy||policyTuple.GetProperty("physicalPolicyRevision").GetInt32()!=3)
+            throw new Exception("The physical account and saved policy revision require one explicit exact choice.");
         values["evidence"]=evidence.Append(new{id=next,account_id=account,source_key="synthetic_observed_title",revision=3,kind="title_receipt",quantity="1",occurred_at="2020-12-22T12:00:00Z"}).ToArray();
         if(Build(titles[0].Target).Forms["gas.owned.reconcile_quantity"].Fields.Single(f=>f.Name=="evidenceId").Choices.Length!=0)
             throw new Exception("A later source head cannot fall back to older evidence merely because its observed clock is in the future.");
