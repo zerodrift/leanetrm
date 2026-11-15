@@ -32,12 +32,13 @@
     </nav></details>
     <details id="nav-group-reference" class="nav-group" open><summary>Reference Data</summary><nav aria-label="Reference Data">
       <div id="nav-reference">
-        <button id="reference-area-curves" class="nav-item" data-area="curves" aria-label="Curves & pricing" title="Curves & pricing" hidden><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5v14h16"/><path d="M7 15c3 0 4-7 10-8"/></svg></span><span class="nav-text">Curves &amp; pricing</span></button>
-        <button id="reference-area-time" class="nav-item" data-area="time" aria-label="Time" title="Time" hidden><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 3h12M6 21h12M7 3v3l5 6 5-6V3M7 21v-3l5-6 5 6v3"/></svg></span><span class="nav-text">Time</span></button>
-        <button id="reference-area-products" class="nav-item" data-area="products" aria-label="Products" title="Products" hidden><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/></svg></span><span class="nav-text">Products</span></button>
+        <button id="reference-area-curves" class="nav-item" data-area="curves" aria-label="Curves" title="Curves" hidden><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5v14h16"/><path d="M7 15c3 0 4-7 10-8"/></svg></span><span class="nav-text">Curves</span></button>
+        <button id="reference-area-pricing" class="nav-item" data-area="pricing" aria-label="Pricing" title="Pricing" hidden><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7h7l9 9-5 5-9-9z"/><circle cx="8" cy="11" r="1.2"/></svg></span><span class="nav-text">Pricing</span></button>
+        <button id="reference-area-products" class="nav-item" data-area="products" aria-label="Exchanges & conventions" title="Exchanges & conventions" hidden><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/></svg></span><span class="nav-text">Exchanges &amp; conventions</span></button>
+        <button id="reference-area-time" class="nav-item" data-area="time" aria-label="Calendars" title="Calendars" hidden><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 3h12M6 21h12M7 3v3l5 6 5-6V3M7 21v-3l5-6 5 6v3"/></svg></span><span class="nav-text">Calendars</span></button>
         <button id="reference-area-units" class="nav-item" data-area="units" aria-label="Commodities & units" title="Commodities & units" hidden><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="8" rx="1.5"/><path d="M7 8v3M11 8v4M15 8v3"/></svg></span><span class="nav-text">Commodities &amp; units</span></button>
-        <button id="reference-area-physical" class="nav-item" data-area="physical" aria-label="Physical" title="Physical" hidden><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 21s7-6.2 7-11a7 7 0 10-14 0c0 4.8 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg></span><span class="nav-text">Physical</span></button>
-        <button id="reference-area-entities" class="nav-item" data-area="entities" aria-label="Entities" title="Entities" hidden><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 21V5a1 1 0 011-1h9a1 1 0 011 1v16M15 10h4a1 1 0 011 1v10M3 21h18M8 8h3M8 12h3M8 16h3"/></svg></span><span class="nav-text">Entities</span></button>
+        <button id="reference-area-physical" class="nav-item" data-area="physical" aria-label="Locations & delivery" title="Locations & delivery" hidden><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 21s7-6.2 7-11a7 7 0 10-14 0c0 4.8 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg></span><span class="nav-text">Locations &amp; delivery</span></button>
+        <button id="reference-area-entities" class="nav-item" data-area="entities" aria-label="Legal entities" title="Legal entities" hidden><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 21V5a1 1 0 011-1h9a1 1 0 011 1v16M15 10h4a1 1 0 011 1v10M3 21h18M8 8h3M8 12h3M8 16h3"/></svg></span><span class="nav-text">Legal entities</span></button>
       </div>
     </nav></details>
     <details id="nav-group-administration" class="nav-group" open><summary>Administration</summary><nav aria-label="Administration">
@@ -48,13 +49,6 @@
   </div>
   <div class="side-note"><strong><span class="dot" aria-hidden="true"></span><span id="workspace-host-mode">Workspace</span></strong><p id="workspace-mode-description">Verifying workspace information.</p><div class="example-switch"><label for="example-dataset">Market example</label><select id="example-dataset" aria-label="Market example"></select></div></div>
 </aside>
-<nav id="reference-console" class="reference-console" aria-label="Reference Data" hidden>
-  <button id="reference-console-toggle" type="button" class="reference-console-toggle" aria-controls="reference-console-body" aria-expanded="true" aria-label="Collapse the Reference Data menu"><span aria-hidden="true">‹</span></button>
-  <div id="reference-console-body" class="reference-console-body">
-    <form id="reference-search-all" class="reference-search-all" role="search"><label for="reference-search-all-text" class="sr-only">Search reference data</label><input id="reference-search-all-text" type="search" required maxlength="160" autocomplete="off" placeholder="Search reference data"></form>
-    <div id="reference-console-groups"></div>
-  </div>
-</nav>
 <main>
   <header>
     <div><div id="page-section" class="eyebrow">MARKETS</div><h1 id="page-title">Curves & prices</h1><div id="page-heading-slot" class="page-heading-slot" hidden></div></div>
@@ -89,6 +83,10 @@
       </div>
       <button id="profile-open" class="profile-button" aria-haspopup="dialog"><span id="profile-avatar" class="avatar" aria-hidden="true">U</span><span id="profile-label">Profile</span></button></div>
   </header>
+  <nav id="reference-console" class="reference-console" aria-label="Reference Data" hidden>
+    <div id="reference-console-groups"></div>
+    <form id="reference-search-all" class="reference-search-all" role="search"><label for="reference-search-all-text" class="sr-only">Search reference data</label><input id="reference-search-all-text" type="search" required maxlength="160" autocomplete="off" placeholder="Search reference data"></form>
+  </nav>
   <div id="error" role="alert" hidden></div><div id="notice" role="status" hidden></div>
   <div id="blotter-window-question" class="blotter-window-question" tabindex="-1" aria-label="The Blotter’s window"><div id="blotter-window-question-prompt" class="side-panel-prompt" role="alertdialog" hidden></div></div>
   <div class="status-bar sr-only"><span id="status" role="status" aria-live="polite">Loading market data…</span></div>
@@ -153,7 +151,7 @@
   </nav>
   <section id="curve-definitions-page" hidden aria-label="Curve definitions"><div id="curve-definition"></div></section>
   <section id="custom-curves-page" hidden aria-label="Curve builder"></section>
-  <section id="price-setup-page" hidden aria-label="Price setup"><div id="price-setup-tabs" class="price-authoring-tabs"></div><div id="price-setup-panel"><section id="contract-price-terms-editor" class="card"></section><section id="price-publications-editor" class="card" hidden></section></div></section>
+  <section id="price-setup-page" hidden><div id="price-setup-panel"><section id="contract-price-terms-editor" class="card"></section><section id="price-publications-editor" class="card" hidden></section></div></section>
   <section id="vol-surfaces-page" hidden aria-label="Volatility surfaces"></section>
   <section id="delivery-page" hidden aria-label="Delivery prices">
     <form id="delivery-price-form" class="delivery-filters" aria-label="Delivery prices to show">

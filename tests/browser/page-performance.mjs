@@ -36,7 +36,7 @@ await withOwnedBrowser(process.argv[2],process.argv[3],async({command,evaluate,w
    window.__pageMeasurement={done:false};const accept=result=>{window.__pageMeasurement={done:true,result};},reject=error=>{window.__pageMeasurement={done:true,error:String(error)};};
    const start=performance.now(),first=window.__pageRequests.length;document.querySelector('#nav-${navIds[page]??page}').click();
    const poll=()=>{if(performance.now()-start>60000){reject(Error('Page readiness timed out: ${page}'));return;}
-    if(${idle}&&${JSON.stringify(page)}==='configuration'&&document.querySelector('#curve-date-editor').hidden)document.querySelector('#schedule-tab-contracts').click();
+    if(${idle}&&${JSON.stringify(page)}==='configuration'&&document.querySelector('#curve-date-editor').hidden)document.querySelector('#nav-date-rules').click();
     if(${idle}&&!document.querySelector('#${section}').hidden&&(${ready})){
      if(!document.querySelector('#error').hidden){reject(Error(document.querySelector('#error').textContent));return;}
      requestAnimationFrame(()=>requestAnimationFrame(()=>accept({page:${JSON.stringify(page)},readyMs:performance.now()-start,requests:window.__pageRequests.slice(first)})));

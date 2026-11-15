@@ -51,6 +51,12 @@ internal static class BookedScheduleReaderChecks
   await Refused(request with{SideSlot=8},"side_schedule_inspection");
   source.WrongContext=true;await Refused(request with{SideSlot=7,Window="opaque-period"},"side_schedule_inspection");source.WrongContext=false;
   source.Revoked=true;try{await reader.Read(connection,view,selected,request with{SideSlot=7,Window="opaque-period"},default);throw new Exception("Publication must recheck current authority.");}catch(PreviewDeniedException){}
-  Console.WriteLine("PASS shared schedule reader: new registered product, lazy directory, native slot and window, paging, detail, exact context and revoked authority");
+  // A Blotter row says whether its position has Side schedules to read, from the same registration that reads them.
+  System.Text.Json.Nodes.JsonObject Listed(string type){var row=new System.Text.Json.Nodes.JsonObject{["instrumentType"]=type};TradingBlotter.Listed(row,null,reader.Covers);return row;}
+  if(!reader.Covers("synthetic_unlisted_product")||reader.Covers("synthetic_unregistered_product")||
+   Listed("synthetic_unlisted_product")["sideSchedules"]!.GetValue<bool>()!=true||Listed("synthetic_unregistered_product")["sideSchedules"]!.GetValue<bool>()!=false||
+   Listed("synthetic_unlisted_product")["amountFormat"] is null)
+   throw new Exception("A listed position must state whether its instrument type has a registered Side schedule source, beside its display formats.");
+  Console.WriteLine("PASS shared schedule reader: new registered product, lazy directory, native slot and window, paging, detail, exact context, revoked authority and listed capability");
  }
 }

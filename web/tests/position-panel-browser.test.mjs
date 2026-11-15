@@ -79,3 +79,22 @@ test('operational schedule edits keep their widget until the shared leave guard 
  assert.deepEqual(result,{asks:2,held:true,kept:true,destroyed:1,selected:'true'});
 
 }));
+
+test('a position without Side schedules has no Side schedules tab, and the tab kept from another position gives way to Terms',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<div id="host"><div id="head"></div><div id="tabs"></div><div id="body"><div id="view"></div></div></div>',async evaluate=>{
+ const result=await evaluate(`(async()=>{
+  const {setupPositionPanel}=await import('/position-panel.js'),{positionRows}=await import('/desk-model.js'),{setCurveNames}=await import('/market-view.js');
+  const fixture=${JSON.stringify(fixture)};setCurveNames(fixture.curveNames);
+  const formats=Object.fromEntries(['money','quantity','price','mark','markMinusPrice'].map(k=>[k,v=>v]));
+  const input=holding=>({holding,row:positionRows([holding])[0],formats,color:'#123456',risk:{state:'none'}}),swap=fixture.holdings[0],future=fixture.holdings[1];
+  const read={view:()=>({terms:[],history:[],schedules:host=>{host.textContent='Payment schedule';return()=>{};}})};
+  const panel=setupPositionPanel({element:part=>document.querySelector('#'+part),form(){},reveal(){},focusForm(){}},{zone:()=> 'UTC',busy:()=>false,canAmend:()=>false,curveListed:()=>false,context:()=> 'same',read:async()=>read,amendment:{shown:()=>false,open(){},close:async()=>{}},onDenied(){throw Error('Unexpected denial');}});
+  const tick=()=>new Promise(resolve=>setTimeout(resolve,0)),tabs=()=>[...document.querySelectorAll('#tabs [role=tab]')].map(t=>t.textContent+(t.getAttribute('aria-selected')==='true'?'*':''));
+  panel.show(input(swap),'schedules');await tick();const withSides=tabs();
+  panel.show(input(future));await tick();const without=tabs();
+  let refused='';try{panel.show(input(future),'schedules');}catch(error){refused=error.message;}
+  panel.show(input(swap));await tick();const back=tabs();
+  return {types:[swap.instrumentType,future.instrumentType],withSides,without,refused,back};
+ })()`);
+ assert.deepEqual(result,{types:['financial_swap','future'],withSides:['Terms','Side schedules*','Risk','History'],without:['Terms*','Risk','History'],refused:'Choose an available position tab.',
+  back:['Terms','Side schedules*','Risk','History']},'the tab a trader chose comes back on the next position that has it');
+}));

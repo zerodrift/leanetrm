@@ -31,7 +31,7 @@ test('Power TOUs reports power hours once an As of frame is chosen, and TOU prod
 });
 
 test('every other page reports the view it shows in its read tool input form, and a page the assistant does not read an empty selection',()=>{
-  assert.throws(()=>pageReport({page:'configuration'}),/page is inconsistent/,'Price setup has no assistant report contract');
+  assert.throws(()=>pageReport({page:'configuration'}),/page is inconsistent/,'Contract pricing and Publications have no assistant report contract');
   assert.deepEqual(pageReport({page:'schedules'}),{page:'schedules',selection:{view:'library'}});
   assert.deepEqual(pageReport({page:'reference',table:'units',search:'mega'}),{page:'reference_data',selection:{table:'units',search:'mega'}});
   assert.deepEqual(pageReport({page:'parties',kind:'counterparty'}),{page:'parties',selection:{kind:'counterparty'}});

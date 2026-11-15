@@ -93,7 +93,7 @@ export function setupCurveDefinitionEditor(api:Api,run:(work:()=>Promise<void>)=
   actions.className='schedule-actions';preview.type='submit';save.type='button';save.id='curve-definition-save';save.className='secondary';
   publish.type='button';publish.id='curve-definition-publish';publish.hidden=true;
   actions.append(preview,save,publish);form.append(actions,status);
-  const intro=el('p','A curve changes only here, through a new version of its definition. Contracts and tenors come from a date mapping (Reference Data › Schedules & date mappings) and can be edited below; preview resolves them at the close selected above.');
+  const intro=el('p','A curve changes only here, through a new version of its definition. Contracts and tenors come from a date mapping (Reference Data › Calendars › Date rules) and can be edited below; preview resolves them at the close selected above.');
   const fresh=el('button','New definition');fresh.type='button';fresh.id='curve-definition-new';fresh.className='secondary';
   intro.className='muted';element.append(el('h2','Curve definitions'),intro,list,fresh,form,result);
 
@@ -178,13 +178,13 @@ export function setupCurveDefinitionEditor(api:Api,run:(work:()=>Promise<void>)=
     set('rate-interpolation',d.contractKind==='interest_rate'?d.interpolation:'');
     kindChanged();if(d.contracts)set('mapping',d.contracts.mappingId+'|'+d.contracts.mappingVersion);showRows(selectedMapping());staleRows();renderList();
   }
-  // The opened draft pinned its mapping draft at one generation; rows changed since then (in Schedules & date mappings) are shown but adopted only on request.
+  // The opened draft pinned its mapping draft at one generation; rows changed since then (in Date rules) are shown but adopted only on request.
   function staleRows(){
     const pinned=opened?.definition.contracts,current=selectedMapping();
     stale.hidden=!(opened&&pinned&&current?.id===pinned.mappingId&&current.version===pinned.mappingVersion&&current.generation!==opened.mappingGeneration);
     if(stale.hidden)return;
     const use=el('button','Use the changed rows');use.type='button';use.className='secondary';use.onclick=()=>{stale.hidden=true;clear();};
-    stale.replaceChildren(el('p',`The rows of ${current!.definition.code} v${current!.version} changed in Schedules & date mappings after this curve was saved. Review them before saving the curve.`),use);
+    stale.replaceChildren(el('p',`The rows of ${current!.definition.code} v${current!.version} changed in Date rules after this curve was saved. Review them before saving the curve.`),use);
   }
   function startNew(){opened=undefined;stale.hidden=true;form.reset();(fields.get('code') as HTMLInputElement).readOnly=false;status.textContent='';clear();kindChanged();renderList();}
   fresh.onclick=()=>{if(!isBusy())startNew();};

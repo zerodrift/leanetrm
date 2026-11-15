@@ -184,7 +184,7 @@ export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal
   amendment:{open:(h:Holding)=>void;shown:(h:Holding)=>boolean;close:()=>Promise<void>};
   openCurve?:(curve:string,contractId:string|null)=>void;onDenied:()=>void;
 }){
-  let input:PositionInput|undefined,tab:PositionTab='terms',detail:Detail|undefined,generation=0,tabs:ReturnType<typeof setupTabs>|undefined,actions:{amend:HTMLButtonElement;open:HTMLButtonElement;note:HTMLElement;openNote:HTMLElement}|undefined;
+  let input:PositionInput|undefined,tab:PositionTab='terms',chosen:PositionTab='terms',detail:Detail|undefined,generation=0,tabs:ReturnType<typeof setupTabs>|undefined,actions:{amend:HTMLButtonElement;open:HTMLButtonElement;note:HTMLElement;openNote:HTMLElement}|undefined;
   // Whether the last drawing found the position's amendment open, and whether the person has just opened it, which takes focus into it.
   let amending=false,focusOnOpen=false,reading:{key:string;done:Promise<unknown>}|undefined;
   // Schedule widgets release their reads and grids when their tab or position changes.
@@ -199,7 +199,7 @@ export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal
     const started=generation;
     if(detail?.state==='ready'&&detail.read.unsaved?.()&&(!o.leave||!await o.leave()))return;
     if(started!==generation)return;
-    tab=id as PositionTab;tabs?.mark(tab);paint();shell.element('body').scrollTop=0;
+    chosen=tab=id as PositionTab;tabs?.mark(tab);paint();shell.element('body').scrollTop=0;
   }
 
   function status(text:string,className='side-panel-status'){const p=el('p',className,text);p.setAttribute('role','status');return p;}
@@ -371,11 +371,15 @@ export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal
   return {
     /**
      * Shows a position on its requested tab, or on the tab last chosen, Terms at first: a trader moving between positions keeps reading
-     * the same tab of each.
+     * the same tab of each. A position without Side schedules has no tab for them and opens on Terms, and the tab chosen comes back on
+     * the next position that has it.
      */
     show(next:PositionInput,requested?:PositionTab){
-      const available=o.tabs?positionTabs.filter(([id])=>o.tabs!.includes(id)):positionTabs,start=requested??tab;
+      const sides=next.holding.sideSchedules;
+      if(typeof sides!=='boolean')throw Error('The Blotter returned a position that does not say whether it has Side schedules.');
+      const available=positionTabs.filter(([id])=>(!o.tabs||o.tabs.includes(id))&&(id!=='schedules'||sides)),start=requested??(chosen==='schedules'&&!sides?'terms':chosen);
       if(!available.some(([id])=>id===start))throw Error('Choose an available position tab.');
+      if(requested)chosen=requested;
       input=next;tab=start;detail=undefined;held=undefined;generation++;
       tabs=setupTabs(shell.element('tabs'),available,{label:'Position details',panel:shell.element('body'),selected:start,select:id=>void selectTab(id)});
       paint();

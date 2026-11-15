@@ -41,7 +41,7 @@ def main():
         close=query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');"
             f"SELECT security.register_market_close('{catalog}','{manifest['revisionId']}','{uuid4()}','Synthetic mixed quantity close','synthetic_mixed_quantity_close','2026-11-06','{packet['at']}',{literal(pins)},{literal(members)});COMMIT;")
         # Publishing the fixture's close convention has its own typed trading
-        # publication (D399); count the financial action after that setup fact.
+        # publication (D401); count the financial action after that setup fact.
         prepared=int(query(f"SELECT max(publication_order) FROM trading.publications WHERE catalog_id='{catalog}';"))
         assert prepared==before+1 and query(f"SELECT publication_order FROM market_data.lifecycle_close_session_publications WHERE(catalog_id,session_code,session_version)=('{catalog}','synthetic_mixed_quantity_close',1);")==str(prepared)
         run_browser(query,manifest,args.dotnet.resolve(),args.browser.resolve(),children,{**packet,'closeId':close},

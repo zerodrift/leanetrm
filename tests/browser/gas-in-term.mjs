@@ -19,15 +19,10 @@ export async function run(actions){
  const sideRows=async code=>{
   const tab=`#position-details .ticket-tab[data-tab="${code}"]`;
   await wait(`!!document.querySelector(${q(tab)})`,30000);await click(tab);
-  await wait(`!!document.querySelector(${q(rows)})&&document.querySelector(${q(inspector+' [role=status]')})?.textContent.startsWith('1–')`,30000);
+  await wait(`!!document.querySelector(${q(rows)})&&/ rows · Valued /.test(document.querySelector(${q(inspector+' [role=status]')})?.textContent)`,30000);
  };
- // Each row's text, from the page nearest the first row; a later page replaces it.
- const page=()=>evaluate(`[...document.querySelectorAll(${q(rows)})].map(r=>r.textContent)`);
- const nextPage=async()=>{
-  const before=await evaluate(`document.querySelector(${q(inspector+' [role=status]')}).textContent`);
-  await click(inspector+' > .inspection-pager button:last-child');
-  await wait(`document.querySelector(${q(inspector+' [role=status]')}).textContent!==${q(before)}&&!!document.querySelector(${q(rows)})`,30000);
- };
+ // Reads on to the Side's last row, beneath the rows already shown.
+ const everyRow=()=>wait(`(()=>{const box=document.querySelector(${q(inspector+' .inspection-rows')});box.scrollTop=box.scrollHeight;return /^\\d+ rows · /.test(document.querySelector(${q(inspector+' [role=status]')}).textContent);})()`,30000);
 
  await open(fixture);
  await click('#position-details-tabs-terms');await wait("!!document.querySelector('#position-details-view .side-term')",30000);
@@ -55,7 +50,7 @@ export async function run(actions){
   `(()=>{const r=[...document.querySelectorAll(${q(rows)})].map(x=>x.textContent),paid=r.filter(t=>t.includes('Cash: Paid')),unpaid=r.filter(t=>t.includes('Cash: Accrued unpaid'));
    return paid.length>0&&unpaid.length>0&&paid.every(t=>/Paid on Oct 10, 2026/.test(t)&&!t.includes('Due date'))&&unpaid.every(t=>t.includes('Due date')&&!t.includes('Paid on')&&t.includes('Realized, unsettled (delivered, not paid)'));})()`,
   `(()=>{const r=[...document.querySelectorAll(${q(rows)})].map(x=>x.textContent);return [r[0],r[r.length-1]];})()`);
- await nextPage();await nextPage();
+ await everyRow();
  await check('undelivered cash days are remaining, due on a date, never paid',
   `(()=>{const r=[...document.querySelectorAll(${q(rows)})].map(x=>x.textContent),remaining=r.filter(t=>t.includes('Cash: Remaining'));
    return remaining.length>0&&remaining.every(t=>t.includes('Due date')&&!t.includes('Paid on')&&t.includes('Unrealized (remaining delivery)'));})()`);

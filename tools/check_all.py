@@ -77,6 +77,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
         ('check_lifecycle_actions','shared lifecycle actions and native option history'),
         ('check_lifecycle_swaps','shared swap settlement, netting and exact task sources'),
         ('check_futures_physical_delivery','physical futures final margin and delivery obligation'),
+        ('check_futures_delivery_settings','bounded retained physical delivery settings'),
         ('check_selected_physical_authority','selected physical action authority'),
         ('check_physical_delivery_authority','physical delivery original authority'),
         ('check_physical_margin_qualification','new physical futures require qualified delivery terms'),

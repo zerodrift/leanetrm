@@ -432,6 +432,7 @@ padding. Resizing preserves the grid’s row anchor, selected row and horizontal
 scroll, including while another page hides it. Returning keeps the read-only
 position and detail tab after server freshness validation. An authority or context
 change still invalidates retained data; edits keep their existing leave guards.
-Side schedules keep their widget while the position/context is unchanged. Paging
-rows or calculation inputs leaves the previous page visible and inert until its
+Side schedules keep their widget while the position/context is unchanged. Rows
+read on beneath the rows already shown, which keep their place. Paging
+calculation inputs leaves the previous page visible and inert until its
 validated replacement arrives, retaining the table’s scroll position.

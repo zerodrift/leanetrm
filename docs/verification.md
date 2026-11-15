@@ -35,7 +35,7 @@ keys. Its join planning setting is confined to the schedule helper. The native
 retained-swap qualifier checks predecessor parity, caller-setting restoration,
 required-child refusal and worker expiry separately.
 
-D399's local native futures increment has focused owned PostgreSQL consumers:
+D401's local native futures increment has focused owned PostgreSQL consumers:
 `tools/check_futures_margin_sources.py`, `tools/check_futures_margin_adoption.py`
 and `tools/check_futures_margin_journal.py`. Each takes `--pg-bin`; its managed
 child uses the explicitly selected `DOTNET` executable and already-built API check

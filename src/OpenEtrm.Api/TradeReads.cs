@@ -20,7 +20,7 @@ public sealed partial class TradeReads
 
     public TradeReads(PreviewDatabase database)
     {
-        this.database=database;futures=new(database);swaps=new(database);blotter=new(database,futures,swaps);scheduleReader=new(BookedScheduleSources.Create(database));
+        this.database=database;futures=new(database);swaps=new(database);scheduleReader=new(BookedScheduleSources.Create(database));blotter=new(database,futures,swaps,scheduleReader.Covers);
     }
 
     // The Blotter with the booking catalog, or with only the catalog's directory of books and parties, and the groupings

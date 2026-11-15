@@ -61,7 +61,7 @@ export function pageReport(state:PageState):PageReport{
     case 'risk':return {page:'risk_jobs',selection:{view:riskReportViews[state.view],...(state.view==='risk'&&state.assistant?state.assistant:{})}};
     case 'market':return {page:'curves',selection:state.curve===null?{view:'curves',curve:null}:{view:state.tab==='inputs'?'observations':'curve',curve:state.curve}};
     case 'power':return {page:'power_tous',selection:{view:state.frame?'power_hours':'tou_products'}};
-    // Price setup has no assistant read contract; the panel stays unavailable on that view.
+    // Contract pricing and Publications have no assistant read contract; the panel stays unavailable on those views.
     case 'configuration':throw inconsistent();
     // Curve builder names the saved curve it has open, if any, and whether it holds unsaved edits, which the assistant does not save over (D260).
     case 'custom-curves':return {page:'custom_curves',selection:{curve:state.curve,unsaved:state.unsaved}};

@@ -476,3 +476,20 @@ their publication reads 18 event/receipt tuples for seventeen market revisions
 and one captured after it reads 2; the earlier view read 49,235 before. A
 reference version that only a later publication uses stays unknown to the
 earlier view.
+
+## Physical delivery settings probes
+
+Migration 0313 resolves receipt, book, exact legal-entity revision, mark contract,
+curve and quote metadata from each eligible owned account. Correlated inner
+probes prevent the planner from combining unrelated catalogue rows before
+matching accounts. The original permission deadlines, source checks, certified
+publication cutoff, business-effective filter and complete profile-revision
+history remain unchanged, as do output ordering and scope limits. The migration
+attests the existing function body, owner, privileges and execution settings.
+
+`tools/check_futures_delivery_settings.py` checks bounded tuple work under both
+generic and custom plans for six visible accounts. It independently checks every
+returned metadata field, both retained profile revisions, exclusion of a later
+effective account and later-published backdated accounts, and refusal after
+reference access is revoked. Existing selected-physical-authority checks cover
+original grant deadlines, ordered revocation and delegated permission subsets.

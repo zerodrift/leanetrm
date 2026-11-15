@@ -1,6 +1,6 @@
 # Delivery plan and acceptance criteria
 
-The current lifecycle increment follows [D399’s delivery contract](lifecycle-delivery.md).
+The current lifecycle increment follows [D401’s delivery contract](lifecycle-delivery.md).
 It requires native operations, inventory continuation, event-aware risk, independent
 review and disposable browser qualification. Incompatible synthetic demo records
 may be rebuilt; there is no legacy financial conversion layer. This increment
@@ -33,6 +33,11 @@ new-write refusal and accepted retries, including schema upgrade. The web checks
 cover secondary-source inspection and inconsistent selection refusal. Activation
 requires a separately approved application/schema release; deployment data and
 private maintenance programs are outside this repository.
+
+D399 lists a publication's indexes with it and selects them from the reference
+catalogue. Authoring a new reference index from its publication is not
+implemented: it needs a reference-catalogue write operation with its own
+authorization, revision and knowledge-time contract.
 
 The initial [valuation context and scenario layers](valuation-context-layers.md)
 are implemented locally: complete time/discount/IV declarations, immutable

@@ -5193,8 +5193,74 @@ PostgreSQL server/client revisions remain exact. This changes CI acquisition,
 not application financial contracts, database state or release admission. See
 [implementation and qualification](ci-dependencies.md).
 
+## D399 · Reference Data has one menu, the sidebar's, and each setup screen is an entry of its own
 
-## D399 · Shared lifecycle, ownership and economic horizon risk
+2026-11-14. Decided by the owner. Amends D365 and D368. Presentation only: page
+identifiers, `#reference…` addresses, permissions and every read and write are
+unchanged, and the server still authorizes each operation.
+
+The console's own menu, a second column that repeated the sidebar's areas, is
+removed. The sidebar lists the areas. The entries of the area shown run across
+the top of its pages, with the search of reference data beside them; an area of
+one entry lists nothing to choose between. Curve builder still reads no reference
+catalogue of its own: before an account's catalogue is read, a reader of
+reference data is listed every table, and opening one reads the catalogue, which
+says whether the account has it.
+
+| Area | Entries |
+| --- | --- |
+| Curves | Curve definitions, Curve builder, Interest rates |
+| Pricing | Contract pricing, Publications, Data sources |
+| Exchanges & conventions | Futures, Exchanges, Clearing houses, Price conventions, Settlement rules |
+| Calendars | Calendars, Calendar dates, Market clocks, Date schedules, Date rules, Power TOUs |
+| Commodities & units | Commodities, Units, Unit conversions, Currencies, Measurement bases, Quantity definitions, Numeric input types |
+| Locations & delivery | Locations, Location types, Delivery patterns, Delivery setup |
+| Legal entities | Entities & counterparties |
+
+Price setup's tabs are entries. Contract pricing and Publications remain two
+views of the `configuration` page. Date rules sits in Calendars beside the Date
+schedules it refers to, the two views of `schedules`; the page title names the view shown, and a page's first view
+keeps its `nav-<page>` address. Moving between the two date views keeps the
+edits of each, as their tabs did. Every other move asks about unsaved edits
+through the existing leave guard.
+
+Price indexes has no entry of its own. A publisher comes first, then its
+publications, and each publication states the indexes it publishes. The page
+opens with a grid of publishers, each with its count of publications and of the
+indexes they publish; choosing one lists its publications, and a new
+publication then starts under it. The list of publications names each one's
+indexes, a publication's editor lists its own before those it could add, and
+reference indexes that no saved publication publishes are listed on the same
+page. The Price indexes
+table keeps its address, its search results and its item pages, and marks
+Publications in the menu. An index and its fixings exist whether or not a
+publication carries it; an index's page lists the publications whose latest
+version publishes it, with the publisher and the symbol used there, and each
+opens that publication. A reference index is still created by the reference
+catalogue; this page selects existing ones.
+
+## D400 · A position's Side schedules show as their tab opens
+
+2026-11-14. Decided by the owner. Amends the presentation of D352. The read
+contract, its bounded pages, the certified context and authorization are
+unchanged.
+
+The shared inspector no longer sits behind a disclosure with a Side chooser and
+a delivery-window chooser. Its tab has a tab for each Side, the first selected,
+and one table that lists every delivery window in order under its own heading.
+A window opens with its first 32 rows. The next window is read when the rows
+before it are reached, and the rest of a long window when asked, 128 rows at a
+time. A Side without windows reads on the same way to its last row. A newer
+read of the same position opens on the Side last shown, and the tab a trader
+chose comes back on the next position that has it.
+
+A position whose instrument type has no registered Side schedule source, a
+future or a futures option, has no Side schedules tab. The backend states it on
+each Blotter row and on the position a trade window reads, as `sideSchedules`,
+from the same registration that reads the schedules, so the two cannot differ;
+a row that does not say is refused. See [side schedules](side-schedules.md).
+
+## D401 · Shared lifecycle, ownership and economic horizon risk
 
 Owner-directed, 2026-11-13. Adopt the [shared lifecycle delivery contract](lifecycle-delivery.md).
 Product-owned pure rules compose existing Instrument/Side and native typed stores;
@@ -5265,7 +5331,7 @@ acknowledgement does not reinstate an older basis. Whole-portfolio, worker,
 physical-delivery and user/agent/browser workflows remain unfinished.
 
 
-D399’s scheduled execution choice retains one source-derived occurrence at one
+D401’s scheduled execution choice retains one source-derived occurrence at one
 recorded close, exact native trade/product and action-policy versions, and fresh
 certified knowledge at execution. It invokes the same managed Lifecycle registry
 for manual notice, review or automatic execution. Observed facts remain separate

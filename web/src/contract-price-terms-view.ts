@@ -43,7 +43,7 @@ export function setupContractPriceTerms(host:HTMLElement,o:PriceAuthoringOptions
    (record(applied.publication)?.id??null)===(requested.publicationId??null)&&(record(applied.publication)?.version??null)===(requested.publicationVersion??null)&&
    (record(applied.index)?.code??null)===(requested.index??null);
  });
- const head=element('div');head.className='card-heading';const title=element('div');title.append(element('h2','Contract pricing'),help('Choose the inputs for a saved curve, map its contracts, and define where each final price comes from.'));
+ const head=element('div');head.className='card-heading';const title=element('div');title.append(help('Choose the inputs for a saved curve, map its contracts, and define where each final price comes from.'));
  const reload=button('Reload',()=>void change(async()=>load()),'contract-terms-reload');head.append(title,reload);host.append(head);
  const status=element('p');status.id='contract-terms-status';status.setAttribute('role','status');host.append(status);
  const curve=select('contract-terms-curve'),node=select('contract-terms-source');host.append(group(field('Saved curve version',curve),field('Input curve',node)));

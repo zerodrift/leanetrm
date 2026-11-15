@@ -27,6 +27,8 @@ internal sealed class BookedScheduleReader
    throw Error("Register each native position source once, under its exact instrument type.");
   this.sources=entries.ToImmutableDictionary(e=>e.Type,e=>e.Source,StringComparer.Ordinal);
  }
+ // Whether an instrument type has a registered source, and so Side schedules to read.
+ internal bool Covers(string instrumentType)=>sources.ContainsKey(instrumentType);
  internal async Task<object> Read(NpgsqlConnection connection,TradingView view,TradePositionSelection selected,SideScheduleReadRequest request,CancellationToken ct)
  {
   SideScheduleInspection.RequirePage(request.Offset,request.Limit);

@@ -11,6 +11,17 @@ export function utcMicrosecondText(value:string){
 export function publicationIndicesFor<T extends {commodity:string;quote:string}>(publication:{indices:T[]},commodity:string,quote:string):T[]{
  return publication.indices.filter(index=>index.commodity===commodity&&index.quote===quote);
 }
+type Listed={key:{id:string;version:number};name:string;publisher:{name:string};indices:readonly {key:{code:string};symbol:string;statistic:string}[]};
+/** Each listed publication once, at its latest version, in the order its first version is listed. */
+export function latestPublications<T extends {key:{id:string;version:number}}>(publications:readonly T[]):T[]{
+ const latest=new Map<string,T>();
+ for(const d of publications)if((latest.get(d.key.id)?.key.version??0)<d.key.version)latest.set(d.key.id,d);
+ return [...latest.values()];
+}
+/** The publications whose latest version publishes an index, each with its publisher and the index's symbol and statistic there. */
+export function publicationsOfIndex(publications:readonly Listed[],code:string){
+ return latestPublications(publications).flatMap(d=>d.indices.filter(i=>i.key.code===code).map(i=>({id:d.key.id,version:d.key.version,name:d.name,publisher:d.publisher.name,symbol:i.symbol,statistic:i.statistic})));
+}
 export function publicationVersion<T extends {key:{version:number}}>(definition:T):T{
  const next=structuredClone(definition);next.key.version++;return next;
 }

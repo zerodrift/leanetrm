@@ -16,7 +16,7 @@ sys.path.insert(0, str(ROOT / 'tools'))
 from check_all import GROUPS, run_checks
 
 LIFECYCLE_NATIVE={f'tools/{name}.py' for name in (
-    'check_lifecycle_actions','check_lifecycle_swaps','check_futures_physical_delivery',
+    'check_lifecycle_actions','check_lifecycle_swaps','check_futures_physical_delivery','check_futures_delivery_settings',
     'check_selected_physical_authority','check_physical_delivery_authority','check_physical_margin_qualification',
     'check_lifecycle_option_scheduling','check_lifecycle_option_expiries',
     'check_lifecycle_scheduling','check_lifecycle_scheduled_bookings',
