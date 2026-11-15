@@ -2,6 +2,8 @@ using System.Globalization;
 using System.Text.Json;
 using Npgsql;
 using OpenEtrm.MarketData;
+using OpenEtrm.MarketData.Options;
+using OpenEtrm.MarketData.Trading;
 
 namespace OpenEtrm.Api;
 
@@ -10,6 +12,19 @@ namespace OpenEtrm.Api;
 // independent of the financial model selected by either consumer.
 internal static class FuturesOptionProjectionProfileStore
 {
+    internal static FuturesOptionAutomaticRule AutomaticRule(PreviewData data,FuturesOptionInstrument option)
+    {
+        var rule=data.References["futures_option_rules"].Single(r=>r.Text("code")==option.Series.AutomaticExerciseRule);
+        return new(new(data.ReferenceRevision,rule.Text("code")),int.Parse(rule.Text("version"),CultureInfo.InvariantCulture),rule.Text("evaluation"),
+            rule.Number("in_the_money_threshold"),rule.Text("at_the_money_call"),rule.Text("at_the_money_put"));
+    }
+    internal static PhysicalOptionTerminal Terminal(FuturesOptionKnownHistory history,DateTimeOffset at)
+    {
+        var instruction=history.Events.Where(e=>e.EffectiveAt<=at&&(e.Kind is "exercise_instruction" or "abandon_instruction"))
+            .OrderBy(e=>e.PublicationOrder).LastOrDefault();
+        return instruction?.Kind switch{"exercise_instruction"=>PhysicalOptionTerminal.Exercise,
+            "abandon_instruction"=>PhysicalOptionTerminal.Abandon,_=>PhysicalOptionTerminal.Automatic};
+    }
     private sealed record Admission(Guid Catalog,Guid Trade,int Revision,Guid Context,DateTimeOffset At,DateOnly Day,DateTimeOffset Until):ICommitAdmission
     {
         public async Task RequireCommit(NpgsqlConnection connection,CancellationToken ct)

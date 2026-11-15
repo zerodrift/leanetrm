@@ -17,6 +17,8 @@ public sealed record FuturesOptionValuationPolicy(string ObservationRole,string 
 {
     [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]
     public FuturesOptionPhysicalValuationPolicy? Physical{get;init;}
+    [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]
+    public FuturesOptionCashValuationPolicy? CashFunding{get;init;}
     public const string NoFallback="none";
     // The policy the Blotter's trading_workspace_v1 convention and the portfolio risk catalog state.
     public static FuturesOptionValuationPolicy Release1=>new(FuturesOptionPricing.DailySettlement,OptionNumericalPolicies.CoxRossRubinstein,
@@ -25,6 +27,7 @@ public sealed record FuturesOptionValuationPolicy(string ObservationRole,string 
     internal OptionNumericalPolicy Validate()
     {
         Physical?.Validate();
+        CashFunding?.Validate();
         if(ObservationRole!=FuturesOptionPricing.DailySettlement||ScenarioPolicy!=FuturesOptionPricing.ScenarioPolicy||
             CalibrationFallback is not(ImpliedVolatility.FallbackMode or NoFallback))
             throw new MarketDataException("option_policy",$"Select the {FuturesOptionPricing.DailySettlement} role, the {FuturesOptionPricing.ScenarioPolicy} "+

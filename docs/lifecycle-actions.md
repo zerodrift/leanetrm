@@ -454,9 +454,10 @@ unfixed physical exchange, advancing the exact occurrence prefix at each reset.
 Independent signed A/B checks reconcile 56,000 as 18,000 funded VM plus 38,000
 delivery value, before and after reset, with distinct physical/principal carrying
 and no transfer gain. An early full exercise test uses the child's own later
-asset profile after the parent's unused mark expires. The API/native assembly,
-retained workers and real application flow for this economic option path remain
-separate qualification gates.
+asset profile after the parent's unused mark expires. Native API checks retain
+the child's independently adopted original asset source, refuse its omission or
+graph substitution, and replay complete historical/Monte Carlo reports through
+read-only workers. The real application selection flow remains a separate gate.
 
 The pure cash-option reference strategy is separately selected as
 `cash_futures_option_reference_strategy_v1`. Its quoted vanilla calibrates the
@@ -475,8 +476,28 @@ from accepted exercise and margin state. Independent checks retain vanilla
 negative terminal payoffs. A common-due economic check preserves 19,000 before
 and after margin reset, with no transfer gain or physical terms. Full-PV
 named scenarios are admitted; static derivatives remain explicitly unqualified.
-The API/native source, worker custody and real application selectors for this
-cash law remain separate qualification gates.
+The API selects this law through the closed
+`cash_futures_option_reference_value_v1` container and its exact
+trade/binding/model rows. Full native economic valuation requires the selected
+typed binding; the explicitly named vanilla diagnostic keeps its existing law.
+Cash and physical option selections have separate backend metadata groups.
+Missing source profiles remain visible as unavailable choices rather than a
+financial fallback. A cash-only selection reads no gas or asset graph and needs
+no Gas authority. Its protected worker history guard retains the exact native
+owner, original source/history deadlines and selected consumer versions.
+
+Native checks compare ordinary selected PV and its original calibration receipt
+against economic opening under solved near-the-money, nonflat intraday inputs.
+Selected reference calibration and the native premium's carrying provider stay
+unchanged; funded VM and physical carrying keep their separately declared
+providers. A reused cash definition retains independent carrying for an
+unselected owner. Following-day valuation and historical/Monte Carlo workers
+retain the original calibration and complete source proof. An accepted native
+exercise followed by daily VM checks the exact independent future owner and
+funded amount before, at and after both event boundaries, without fabricated
+cash or a duplicated option continuation. Ordinary and economic worker reports
+match their captured interactive reports without financial writes. The real
+application cash selectors remain a separate qualification gate.
 
 Reference stopping is the selected valuation assumption. The persisted economic
 Hold/event policy keeps the actual right until a certified native event or its

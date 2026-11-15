@@ -10,10 +10,22 @@ namespace OpenEtrm.Api;
 
 internal static partial class LifecyclePortfolioProjection
 {
-    internal static void RequireFullOptionValue(FuturesMarketBinding underlying,PortfolioValuationPolicy pricing,FuturesOptionPhysicalValueBinding? physical=null)
+    internal static ValuationSetup RetainOptionPremiums(ValuationPortfolio original,ValuationSetup projected,
+        ImmutableArray<FuturesOptionPosition> selected)
     {
-        if(underlying.SettlementMethod=="cash"&&pricing.NativeFutures?.Economic is not null)
-            throw Error("projection_cash_option_value","This full valuation profile requires a qualified saved-margin-due cash-option funding model, which is unavailable.");
+        foreach(var option in selected)
+        {
+            var premium=original.Positions.SingleOrDefault(p=>p.Owner.Matches(option.Trade)&&p.BindingId==option.PremiumBinding);
+            if(premium is not null&&original.Setup.InstrumentDiscounting.TryGetValue(premium.ValuationId,out var provider))
+                projected=projected with{BindingDiscounting=projected.BindingDiscounting.SetItem(new(premium.Owner,premium.BindingId),provider)};
+        }
+        return projected;
+    }
+    internal static void RequireFullOptionValue(FuturesMarketBinding underlying,PortfolioValuationPolicy pricing,FuturesOptionPhysicalValueBinding? physical=null,
+        FuturesOptionCashValueBinding? cash=null)
+    {
+        if(underlying.SettlementMethod=="cash"&&pricing.NativeFutures?.Economic is not null&&cash is null)
+            throw Error("projection_cash_option_value","The full valuation profile requires this option's exact selected cash model and saved margin-due funding source.");
         if(underlying.SettlementMethod=="physical"&&pricing.NativeFutures?.Economic is not null&&physical is null)
             throw Error("projection_physical_option_value","The full valuation profile requires this option's exact selected physical model, native profile and captured asset source.");
     }
@@ -30,7 +42,7 @@ internal static partial class LifecyclePortfolioProjection
     private sealed record PreparedOptionChildren(ImmutableDictionary<Guid,FuturesLifecycleProjection> Children,
         ImmutableArray<PortfolioInputMarket> Inputs,ImmutableArray<(MarketSnapshot Source,ISideDiscounting Provider)> Carrying);
     private static async Task<PreparedOptionChildren> OptionChildren(NpgsqlConnection connection,PreviewDatabase database,
-        PortfolioValuation.Prepared opening,PortfolioProductSource source,FuturesOptionPhysicalValueBinding selected,
+        PortfolioValuation.Prepared opening,PortfolioProductSource source,FuturesOptionPhysicalValueBinding? selected,FuturesOptionCashValueBinding? cash,
         FuturesOptionKnownHistory parent,ImmutableDictionary<Guid,FuturesKnownHistory> histories,
         ImmutableDictionary<ReferenceKey,ISideDiscounting> curves,GasPhysicalKnownRead? physical,
         ImmutableDictionary<AccountingPositionKey,KnownFuturesPhysicalFinal>.Builder finals,
@@ -43,33 +55,40 @@ internal static partial class LifecyclePortfolioProjection
             var native=accepted.Future!;var holding=native.Trade.Instruments.Single(h=>h.Id==native.BindingId);
             var market=FuturesExecution.Require(holding).MarketBinding;var owner=new AccountingPositionKey(native.Trade.Id,native.BindingId,native.Trade.BookId);
             var history=histories[accepted.EventId];
-            if(market.SettlementMethod!="physical"||history.Terms.Policy.Delivery is null)
-                throw Error("projection_option_state","The selected physical option must activate its exact adopted physical future policy.");
-            if(history.Determinations.Any(d=>d.Occurrence.Phase==FuturesMarginPhase.Final)&&physical?.Attachments.Any(a=>a.FutureOwner==owner)!=true)
+            if(selected is null&&cash is null||selected is not null&&(market.SettlementMethod!="physical"||history.Terms.Policy.Delivery is null)||
+                cash is not null&&(selected is not null||market.SettlementMethod!="cash"||history.Terms.Policy.Delivery is not null))
+                throw Error("projection_option_state","The selected option must activate its exact adopted cash or physical future policy.");
+            if(selected is not null&&history.Determinations.Any(d=>d.Occurrence.Phase==FuturesMarginPhase.Final)&&physical?.Attachments.Any(a=>a.FutureOwner==owner)!=true)
                 throw Error("projection_gas_scope","Accepted native physical final requires the complete independently owned delivery, title and principal source in the selected book scope.");
-            var profile=await FuturesPhysicalDeliveryStore.ReadForPolicy(connection,database,source.Frame,opening.Context,history.Terms.Policy,
-                owner.BookId,native.Trade.Booking?.LegalEntity.Key??throw Error("trade_party","Retain the accepted linked future's native legal owner."),ct);
-            var asset=await OptionChildMarket(connection,database,opening with{InputMarkets=inputs},source,profile.Terms.Mark,ct);
-            inputs=inputs.Where(i=>i.Snapshot.Definitions!=asset.Snapshot.Definitions).ToImmutableArray().Add(asset);
-            PhysicalMarkInterpretation.Require(selected.MarkInterpretation,market.Market,source.Data,profile,asset.Data);
-            ISideDiscounting? provider=null;
-            if(profile.Terms.Carrying==GasHoldingCarrying.CurrencyCurve)
+            FuturesDeliveryProjectionMarket? delivery=null;
+            FuturesPhysicalBasisValueBinding? basis=null;
+            if(selected is not null)
             {
-                var existing=curves.GetValueOrDefault(profile.Terms.Currency);
-                if(asset.Snapshot.HasSameInputs(source.Snapshot))provider=existing;
-                else
+                var profile=await FuturesPhysicalDeliveryStore.ReadForPolicy(connection,database,source.Frame,opening.Context,history.Terms.Policy,
+                    owner.BookId,native.Trade.Booking?.LegalEntity.Key??throw Error("trade_party","Retain the accepted linked future's native legal owner."),ct);
+                var asset=await OptionChildMarket(connection,database,opening with{InputMarkets=inputs},source,profile.Terms.Mark,ct);
+                inputs=inputs.Where(i=>i.Snapshot.Definitions!=asset.Snapshot.Definitions).ToImmutableArray().Add(asset);
+                PhysicalMarkInterpretation.Require(selected.MarkInterpretation,market.Market,source.Data,profile,asset.Data);
+                ISideDiscounting? provider=null;
+                if(profile.Terms.Carrying==GasHoldingCarrying.CurrencyCurve)
                 {
-                    var mapping=await SwapStore.CurrencyDefault(connection,database.Manifest.CatalogId,asset.Data,asset.Frame,profile.Terms.Currency,ct)??
-                        throw Error("discount_curve","The native child requires its exact selected delivery-source currency carrying curve.");
-                    provider=new LifecycleCurrencyDiscounting(mapping,asset.Snapshot,selected.MarginDiscounting is IProjectionCurrencyCurve marginCurve?
-                        marginCurve.TimingPolicy:throw Error("projection_option_state","Retain the option's complete captured margin curve."),ClockChange.FrozenInputs);
+                    var existing=curves.GetValueOrDefault(profile.Terms.Currency);
+                    if(asset.Snapshot.HasSameInputs(source.Snapshot))provider=existing;
+                    else
+                    {
+                        var mapping=await SwapStore.CurrencyDefault(connection,database.Manifest.CatalogId,asset.Data,asset.Frame,profile.Terms.Currency,ct)??
+                            throw Error("discount_curve","The native child requires its exact selected delivery-source currency carrying curve.");
+                        provider=new LifecycleCurrencyDiscounting(mapping,asset.Snapshot,selected.MarginDiscounting is IProjectionCurrencyCurve marginCurve?
+                            marginCurve.TimingPolicy:throw Error("projection_option_state","Retain the option's complete captured margin curve."),ClockChange.FrozenInputs);
+                    }
+                    if(provider is null)throw Error("discount_curve","Retain the native child's complete exact-source delivery carrying curve.");
+                    carrying.Add((asset.Snapshot,provider));
                 }
-                if(provider is null)throw Error("discount_curve","Retain the native child's complete exact-source delivery carrying curve.");
-                carrying.Add((asset.Snapshot,provider));
+                basis=new(FuturesPhysicalBasisValueBinding.Version,selected.MarkInterpretation,profile.Id,profile.Revision,
+                    new(profile.Terms.Mark,asset.Market.Valuation,asset.Market.Bindings[profile.Terms.Mark]),provider);
+                delivery=new(profile.Terms,asset.Data.Model,asset.Snapshot,provider);
             }
-            var funded=new FuturesMarginValueBinding(history.Terms,[],FuturesMarginValueBinding.FlatReference){Physical=new(
-                FuturesPhysicalBasisValueBinding.Version,selected.MarkInterpretation,profile.Id,profile.Revision,
-                new(profile.Terms.Mark,asset.Market.Valuation,asset.Market.Bindings[profile.Terms.Mark]),provider)};
+            var funded=new FuturesMarginValueBinding(history.Terms,[],FuturesMarginValueBinding.FlatReference){Physical=basis};
             var childSetup=new ValuationSetup(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty.Add(market.Instrument.Id,market),null){
                 FuturesValueBindings=ImmutableDictionary<MeasureBinding,FuturesMarginValueBinding>.Empty.Add(new(owner.Owner,owner.BindingId),funded),
                 InstrumentDiscounting=ImmutableDictionary<Guid,ISideDiscounting>.Empty.Add(market.Instrument.Id,curves[market.Instrument.Currency])};
@@ -79,7 +98,7 @@ internal static partial class LifecyclePortfolioProjection
                 final=PhysicalFinal(attachment,history,source.Snapshot,market.Instrument);finals.Add(owner,final);
             }
             children.Add(accepted.EventId,new(accepted,history,childSetup,market.Market,source.Data.Model,source.Snapshot,
-                new(profile.Terms,asset.Data.Model,asset.Snapshot,provider),final,parent));
+                delivery,final,parent));
             descriptions.Add(new(owner,reference+" · linked future","Accepted native option continuation"));
         }
         return new(children.ToImmutable(),inputs,carrying.ToImmutable());

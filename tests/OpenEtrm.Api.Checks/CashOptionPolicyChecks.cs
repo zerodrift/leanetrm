@@ -1,11 +1,33 @@
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
+using OpenEtrm.MarketData.Options;
 using OpenEtrm.MarketData.Trading;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 
 internal static class CashOptionPolicyChecks
 {
     internal static void Run()
     {
+        var model=new CashFuturesOptionPolicy(CashFuturesOptionPolicy.Version,CashFuturesOptionPolicy.ReferenceStopping,CashFuturesOptionPolicy.ReferenceCalibration,
+            CashFuturesOptionPolicy.IntrinsicStrategy,FuturesMarginValueBinding.FlatReference);
+        var selected=new FuturesOptionCashValuationSelection(Guid.NewGuid(),Guid.NewGuid(),model);
+        var cash=new FuturesOptionCashValuationPolicy(FuturesOptionCashValuationPolicy.Version,[selected]);cash.Validate();
+        var optionPolicy=FuturesOptionValuationPolicy.Release1 with{CashFunding=cash};_=optionPolicy.Validate();
+        var retained=JsonSerializer.Deserialize<FuturesOptionValuationPolicy>(JsonSerializer.Serialize(optionPolicy,RiskJobs.Json),RiskJobs.Json)!;
+        if(retained.Physical is not null||retained.CashFunding?.Implementation!=cash.Implementation||!retained.CashFunding.Options.SequenceEqual(cash.Options)||
+            JsonSerializer.SerializeToElement(FuturesOptionValuationPolicy.Release1,RiskJobs.Json).EnumerateObject().Count()!=4)
+            throw new Exception("The selected cash strategy must retain every exact model input while legacy option transport stays unchanged.");
+        foreach(var invalid in new[]{cash with{Implementation=""},cash with{Options=default},cash with{Options=[selected,selected]},cash with{Options=[null!]},
+            cash with{Options=[selected with{TradeId=Guid.Empty}]},cash with{Options=[selected with{BindingId=Guid.Empty}]},cash with{Options=[selected with{Model=null!}]}})
+        {
+            try{invalid.Validate();throw new Exception("An incomplete cash binding choice was accepted.");}
+            catch(MarketDataException error)when(error.Code=="cash_option_policy"){}
+        }
+        var encoded=JsonSerializer.SerializeToNode(optionPolicy,RiskJobs.Json)!.AsObject();
+        var saved=encoded["cashFunding"]!["options"]![0]!["model"]!.AsObject();saved["unselectedFallback"]=true;Closed(encoded);
+        saved.Remove("unselectedFallback");saved.Remove("funding");Closed(encoded);
+        var missing=JsonSerializer.SerializeToNode(optionPolicy,RiskJobs.Json)!.AsObject();missing["cashFunding"]!.AsObject().Remove("options");Closed(missing);
         var reference=new ReferenceRevision(Guid.NewGuid(),Guid.NewGuid());var revision=new DefinitionRevision(Guid.NewGuid(),Guid.NewGuid());
         ReferenceKey R(string code)=>new(reference,code);
         var at=new DateTimeOffset(2040,12,18,0,0,0,TimeSpan.Zero);var expiry=at.AddDays(10);
@@ -32,4 +54,6 @@ internal static class CashOptionPolicyChecks
         }
         throw new Exception("Full economic risk admitted vanilla cash-option value without an explicit qualified saved-margin-due funding model.");
     }
+    private static void Closed(JsonNode value)
+    {try{_=JsonSerializer.Deserialize<FuturesOptionValuationPolicy>(value.ToJsonString(),RiskJobs.Json);}catch(JsonException){return;}throw new Exception("A selected cash strategy lost missing or unknown model fields during retained transport.");}
 }

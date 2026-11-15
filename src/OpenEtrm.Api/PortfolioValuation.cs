@@ -434,6 +434,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         var optionModes=ImmutableDictionary<(Guid,Guid),string>.Empty;
         var allOptionExclusions=ImmutableArray.CreateBuilder<ExcludedPosition>();
         var physicalOptions=new HashSet<(Guid Trade,Guid Binding)>();
+        var cashOptions=new HashSet<(Guid Trade,Guid Binding)>();
         foreach(var source in await FuturesOptionPortfolio.Inputs(connection,database,frame,optionPositions,MarketInputSelection.WithRoot(data,frame,supplemental),retainedGraphs is not null,ct))
         {
             var selected=MarketSnapshotBinding.Bind(source.Data.Snapshot(source.Frame),exact.ContextId!.Value,known);
@@ -445,12 +446,19 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             ImmutableArray<PortfolioInputMarket> physicalInputs=[];
             if(policy.FuturesOptions?.Physical is not null)
                 physicalOptions.UnionWith(FuturesOptionPhysicalPortfolio.LivePhysical(source.Positions,source.Data,selected.ValuationAt).Select(p=>(p.Trade,p.OptionBinding)));
+            if(policy.FuturesOptions?.CashFunding is not null)
+                cashOptions.UnionWith(FuturesOptionCashPortfolio.LiveCash(source.Positions,source.Data,selected.ValuationAt).Select(p=>(p.Trade,p.OptionBinding)));
             if(options.Portfolio(source.Positions) is not {} portfolio)continue;
             if(policy.FuturesOptions?.Physical is {} physical)
             {
                 var prepared=await FuturesOptionPhysicalPortfolio.Read(connection,database,source.Data,source.Frame,selected,exact,source.Positions,options,portfolio,physical,
                     MarketInputSelection.WithRoot(data,frame,supplemental),retainedGraphs is not null,ct);
                 portfolio=prepared.Portfolio;physicalInputs=prepared.Inputs;instantDiscounts.AddRange(prepared.Discounts);
+            }
+            if(policy.FuturesOptions?.CashFunding is {} cashFunding)
+            {
+                var prepared=await FuturesOptionCashPortfolio.Read(connection,database,source.Data,source.Frame,selected,exact,source.Positions,options,portfolio,cashFunding,ct);
+                portfolio=prepared.Portfolio;instantDiscounts.AddRange(prepared.Discounts);
             }
             materialized.Add(new(source.Data,source.Frame,selected,portfolio,FuturesOptionPositions.Measure){Trades=options.Trades(source.Positions),Options=source.Positions,Inputs=physicalInputs});
             var heads=source.Positions.ToDictionary(p=>p.Trade);
@@ -466,6 +474,8 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         }
         if(policy.FuturesOptions?.Physical is {} optionPolicy&&!physicalOptions.SetEquals(optionPolicy.Options.Select(p=>(p.TradeId,p.BindingId))))
             throw new MarketDataException("physical_option_policy","Physical option models must cover exactly the live held physical-underlying bindings in this selected scope.");
+        if(policy.FuturesOptions?.CashFunding is {} cashPolicy&&!cashOptions.SetEquals(cashPolicy.Options.Select(p=>(p.TradeId,p.BindingId))))
+            throw new MarketDataException("cash_option_policy","Cash funding models must cover exactly the live held cash-underlying bindings in this selected scope.");
         var unvaluedOptions=allOptionExclusions.ToImmutable();
         if(optionExclusions.Length!=unvaluedOptions.Length||!optionExclusions.ToHashSet().SetEquals(unvaluedOptions))
             throw optionExclusions.IsEmpty&&retainedGraphs is null&&unvaluedOptions.Length>0?new MarketDataException(unvaluedOptions[0].Reason,"An option position has no value at the selected close.")

@@ -269,6 +269,13 @@ that child's saved terms. The parent ceases to own that continuation. Both model
 and event choices are retained; choosing to hold rather than exercise may produce
 decision/time P&L under unchanged market levels.
 
+Selected cash and physical option models retain the original reference
+calibration, provider and receipt at the opening source clock. Their native
+premium retains its original carrying under the exact held owner/binding, even
+when another holding reuses its cash instrument. Reference/premium clock rolls,
+saved-next-margin funding and delivery carrying are separate declared inputs;
+economic preparation does not recalibrate or replace one with another.
+
 Absolute economic P&L is horizon residual value plus period cash valued at the
 horizon, less opening value. Cash is explicitly nominal or accumulated using the
 selected currency curve. Currency totals remain separate without qualified FX.

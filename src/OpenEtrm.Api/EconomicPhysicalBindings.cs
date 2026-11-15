@@ -78,7 +78,10 @@ internal static class EconomicPhysicalBindings
             try{reference=FuturesOptionPricing.Requests(source.Data.Model,source.Data.FuturesOptionSeries.Single(s=>s.Key==position.SeriesKey),FuturesOptionPricing.DailySettlement).Underlying;}
             catch(MarketDataException error)when(error.Code is "valuation_binding" or "option_observation_role" or "option_underlying_missing" or "option_settlement_missing")
             {options.Add(Group(position.Trade,position.OptionBinding,label,"The bounded reference model requires one exact unambiguous native calibration source: "+error.Message));continue;}
-            var profile=await FuturesOptionPhysicalPortfolio.ReadProfile(connection,database,source.Data,source.Frame,exact,position,reference,ct,saved);
+            FuturesOptionPhysicalPortfolio.Profile profile;
+            try{profile=await FuturesOptionPhysicalPortfolio.ReadProfile(connection,database,source.Data,source.Frame,exact,position,reference,ct,saved);}
+            catch(MarketDataException error)when(error.Code=="physical_option_source")
+            {options.Add(Group(position.Trade,position.OptionBinding,label,"The saved native sources do not support this bounded physical reference model: "+error.Message));continue;}
             var asset=await Asset(profile.Delivery);
             if(asset is null){options.Add(Group(position.Trade,position.OptionBinding,label,"Select a source matrix containing the saved option delivery mark definition."));continue;}
             var model=new PhysicalOptionPolicy(PhysicalOptionPolicy.Version,PhysicalOptionPolicy.FrozenBasis,PhysicalOptionPolicy.ReferenceStopping,

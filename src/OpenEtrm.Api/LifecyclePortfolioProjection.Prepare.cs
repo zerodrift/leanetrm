@@ -78,15 +78,23 @@ internal static partial class LifecyclePortfolioProjection
                 if(!setup.OptionBindings.IsEmpty)
                 {
                     var options=setup.OptionBindings.Values.Select(b=>b.Instrument).DistinctBy(i=>i.Id).OrderBy(i=>i.Id).ToArray();
+                    var retainedOptions=source.Portfolio.Positions.Where(p=>setup.PhysicalOptionValueBindings.ContainsKey(new(p.Owner,p.BindingId))||
+                        setup.CashOptionValueBindings.ContainsKey(new(p.Owner,p.BindingId))).Select(p=>p.ValuationId).ToHashSet();
                     var p=opening.Policy.FuturesOptions??throw Error("option_policy","Select the exact option calibration and fallback policy.");
                     var build=source.Data.Model.Build(source.Snapshot,[..options.SelectMany(o=>{
                         var r=FuturesOptionPricing.Requests(source.Data.Model,o.Series,p.ObservationRole);return new[]{r.Underlying,r.Settlement};}).Distinct()],ct);
                     foreach(var option in options)
                     {
-                        var binding=FuturesOptionPricing.Prepare(option,build,source.Snapshot,curves[option.Currency],p.ObservationRole,p.Validate(),p.FallbackDeclared,ct);
+                        // Selected full models retain their already qualified
+                        // reference quote calibration and original carrying.
+                        // Their margin/delivery curves are separate inputs.
+                        var binding=retainedOptions.Contains(option.Id)?setup.OptionBindings[option.Id]:
+                            FuturesOptionPricing.Prepare(option,build,source.Snapshot,curves[option.Currency],p.ObservationRole,p.Validate(),p.FallbackDeclared,ct);
                         calibrated.Add(option.Id,binding);receipts.Add(binding.Receipt);
                     }
                     setup=setup with{OptionBindings=calibrated.ToImmutable()};
+                    setup=RetainOptionPremiums(source.Portfolio,setup,[..source.Options.Where(o=>setup.PhysicalOptionValueBindings.ContainsKey(new(o.Trade,o.OptionBinding))||
+                        setup.CashOptionValueBindings.ContainsKey(new(o.Trade,o.OptionBinding)))]);
                 }
                 histories.Add(new(source.Portfolio.Instruments,source.Portfolio.Positions,setup));
                 foreach(var position in source.Portfolio.Positions)
@@ -166,8 +174,9 @@ internal static partial class LifecyclePortfolioProjection
                             var mark=new CurveRequest(new(source.Snapshot.Definitions,selected.Text("future_mark_curve")),contract);
                             var expiryMarket=new CurveRequest(new(source.Snapshot.Definitions,selected.Text("expiry_curve")),contract);
                             var physicalOption=setup.PhysicalOptionValueBindings.GetValueOrDefault(key);
-                            var future=physicalOption?.Underlying??FuturesStore.Binding(source.Data,mark.Curve.Code,mark.Contract.Id,owner.BindingId,FuturesMarketBinding.Implementation);
-                            RequireFullOptionValue(future,opening.Policy,physicalOption);
+                            var cashOption=setup.CashOptionValueBindings.GetValueOrDefault(key);
+                            var future=physicalOption?.Underlying??cashOption?.Underlying??FuturesStore.Binding(source.Data,mark.Curve.Code,mark.Contract.Id,owner.BindingId,FuturesMarketBinding.Implementation);
+                            RequireFullOptionValue(future,opening.Policy,physicalOption,cashOption);
                             var optionDelivery=OptionDeliveryMarket(opening,source,physicalOption,margin);
                             var r=source.Data.References["futures_option_rules"].Single(r=>r.Text("code")==option.Series.AutomaticExerciseRule);
                             var rule=new FuturesOptionAutomaticRule(new(source.Data.ReferenceRevision,r.Text("code")),Integer(r,"version"),r.Text("evaluation"),r.Number("in_the_money_threshold"),r.Text("at_the_money_call"),r.Text("at_the_money_put"));
@@ -182,9 +191,9 @@ internal static partial class LifecyclePortfolioProjection
                                 officials[mapped]=heldFuture.MarginPolicy.SettlementCurve;
                             }
                             ImmutableDictionary<Guid,FuturesLifecycleProjection>? continuations=null;
-                            if(physicalOption is not null)
+                            if(physicalOption is not null||cashOption is not null)
                             {
-                                var prepared=await OptionChildren(connection,database,opening,source,physicalOption,known,futureHistories.ToImmutable(),
+                                var prepared=await OptionChildren(connection,database,opening,source,physicalOption,cashOption,known,futureHistories.ToImmutable(),
                                     curves.ToImmutable(),physicalRead,physicalFinals,additionalOwners,TradingReference.Trade(native.Head),ct);
                                 continuations=prepared.Children;opening=opening with{InputMarkets=prepared.Inputs};childCarrying.AddRange(prepared.Carrying);
                                 foreach(var child in continuations.Values)
@@ -194,7 +203,7 @@ internal static partial class LifecyclePortfolioProjection
                                 }
                             }
                             components.Add(new FuturesOptionLifecycleProjection(trade,owner.BindingId,setup,future,margin,rule,choice,expiryMarket,mark,
-                                source.Data.Model,source.Snapshot,known,physicalOption is null?futureHistories.ToImmutable():null,optionDelivery,continuations));
+                                source.Data.Model,source.Snapshot,known,physicalOption is null&&cashOption is null?futureHistories.ToImmutable():null,optionDelivery,continuations));
                             productEvidence.Add(JsonSerializer.SerializeToElement(new{profile,known,futureHistories=futureHistories.OrderBy(p=>p.Key)},RiskJobs.Json));break;
                         }
                         case SidedInstrument swap when swap is FinancialSwapInstrument or MonthlyFinancialSwap or ScheduledFinancialSwap or CrossCommodityScheduledSwap:

@@ -103,14 +103,8 @@ internal static class FuturesOptionPhysicalPortfolio
             var carrying=gas.Carrying==GasHoldingCarrying.Nominal?null:await CurrencyCurve(source.Data,source.Frame,source.Snapshot);
             var marginDiscounting=await CurrencyCurve(data,frame,snapshot);
             var history=await FuturesOptionKnownHistoryStore.Read(connection,database,data,frame,context,position,ct);
-            var instruction=history.Events.Where(e=>e.EffectiveAt<=snapshot.ValuationAt&&(e.Kind is "exercise_instruction" or "abandon_instruction"))
-                .OrderBy(e=>e.PublicationOrder).LastOrDefault();
-            var terminal=instruction?.Kind switch{"exercise_instruction"=>PhysicalOptionTerminal.Exercise,
-                "abandon_instruction"=>PhysicalOptionTerminal.Abandon,_=>PhysicalOptionTerminal.Automatic};
-            var option=reference.Instrument;
-            var rule=data.References["futures_option_rules"].Single(r=>r.Text("code")==option.Series.AutomaticExerciseRule);
-            var automatic=new FuturesOptionAutomaticRule(new(data.ReferenceRevision,rule.Text("code")),Integer(rule,"version"),rule.Text("evaluation"),
-                rule.Number("in_the_money_threshold"),rule.Text("at_the_money_call"),rule.Text("at_the_money_put"));
+            var terminal=FuturesOptionProjectionProfileStore.Terminal(history,snapshot.ValuationAt);
+            var automatic=FuturesOptionProjectionProfileStore.AutomaticRule(data,reference.Instrument);
             bindings.Add(new(position.Trade,position.OptionBinding),new(selected.Model,automatic,terminal,profile.Margin,
                 new(gas.Mark,market.Market.Valuation,market.Market.Bindings[gas.Mark]),carrying,marginDiscounting,selected.MarkInterpretation,
                 FuturesStore.Binding(data,reference.Underlying.Curve.Code,reference.Underlying.Contract.Id,position.OptionBinding,FuturesMarketBinding.Implementation)));
