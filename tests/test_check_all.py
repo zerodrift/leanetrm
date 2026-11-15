@@ -138,7 +138,7 @@ class CheckAllTests(unittest.TestCase):
             self.assertEqual(set(actual),LIFECYCLE_NATIVE if group=='lifecycle' else set())
             self.assertEqual(len(actual),len(LIFECYCLE_NATIVE) if group=='lifecycle' else 0)
 
-    def test_each_option_model_is_qualified_in_the_real_app_with_selected_tools(self):
+    def test_each_option_model_is_qualified_once_in_lifecycle_with_selected_tools(self):
         helper='tools/check_lifecycle_valuation_browser.py'
         for group in GROUPS:
             selected=[]
@@ -147,7 +147,7 @@ class CheckAllTests(unittest.TestCase):
                     self.assertEqual(options['env']['DOTNET'],'/selected sdk')
                     selected.append(command)
             run_checks(Path('/stock pg'),Path('/selected sdk'),Path('/selected browser'),group=group,run=run)
-            self.assertEqual(len(selected),2 if group=='trading' else 0)
+            self.assertEqual(len(selected),2 if group=='lifecycle' else 0)
             if selected:
                 self.assertEqual({command[command.index('--kind')+1] for command in selected},{'physical','cash'})
                 for command in selected:
