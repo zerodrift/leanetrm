@@ -7,6 +7,7 @@ import secrets
 import shutil
 import socket
 import subprocess
+import tempfile
 import time
 from urllib.request import urlopen
 from uuid import uuid4
@@ -84,7 +85,7 @@ def run(query,manifest,dotnet,browser,children):
                 assert query(f"SELECT count(*) FROM settlement_data.futures_delivery_obligations WHERE(catalog_id,trade_id,binding_id)=('{catalog}','{booked['tradeId']}','{booked['bindingId']}');")=='1'
                 assert query(f"SELECT count(*) FROM trading.gas_owned_lots l JOIN trading.gas_owned_positions p ON(p.catalog_id,p.id)=(l.catalog_id,l.id) JOIN trading.gas_owned_evidence e ON(e.catalog_id,e.id)=(p.catalog_id,p.evidence_id) WHERE l.catalog_id='{catalog}' AND e.source_key='{title_key}' AND p.quantity=0.125;")=='1'
                 for name in ['lifecycle-desktop.png','lifecycle-mobile.png','lifecycle-physical-review.png','lifecycle-gas-review.png']:
-                    shutil.copyfile(root/name,Path('/private/tmp')/name)
+                    shutil.copyfile(root/name,Path(tempfile.gettempdir())/name)
                 print('PASS full app Lifecycle browser: real API, shared financial action, local time, scheduled native worker, retained outcome and independent obligation',flush=True)
         finally:
             stop_owned_groups(children)
