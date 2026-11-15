@@ -13,6 +13,14 @@ public sealed record AgentLimits(int? ToolSteps,long? InputTokens,int? OutputTok
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record SaveAgentRequest(Guid OperationId,Guid AgentId,int? ExpectedVersion,string? Description,string? Instructions,
     Guid ModelId,int? ModelVersion,string? Reasoning,bool? Caching,string[]? Tools,string[]? AllowedRoles,AgentLimits? Limits,int? GrantDays);
+// The explicit operating-role version uses a separate endpoint so retained reader-only saves keep their original shape.
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record SaveAgentOperatingRoleRequest(Guid OperationId,Guid AgentId,int? ExpectedVersion,string? Description,string? Instructions,
+    Guid ModelId,int? ModelVersion,string? Reasoning,bool? Caching,string[]? Tools,string[]? AllowedRoles,AgentLimits? Limits,int? GrantDays,
+    [property:JsonRequired]string? OperatingRole)
+{
+    internal SaveAgentRequest Version=>new(OperationId,AgentId,ExpectedVersion,Description,Instructions,ModelId,ModelVersion,Reasoning,Caching,Tools,AllowedRoles,Limits,GrantDays);
+}
 // Publish and Retire name only the agent and the version the administrator saw.
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record AgentCommandRequest(Guid OperationId,Guid AgentId,int? ExpectedVersion);
@@ -37,17 +45,23 @@ public static class AgentAdministration
             ?ModelProviders.Read(connection,"SELECT assistant.create_agent($1,$2)::text",[operation,Text(name)],ct)
             :throw Input();
 
-    public static Task<JsonElement> Save(NpgsqlConnection connection,SaveAgentRequest body,CancellationToken ct)
+    public static Task<JsonElement> Save(NpgsqlConnection connection,SaveAgentRequest body,CancellationToken ct)=>SaveVersion(connection,body,null,ct);
+
+    public static Task<JsonElement> SaveOperatingRole(NpgsqlConnection connection,SaveAgentOperatingRoleRequest body,CancellationToken ct)=>
+        body.OperatingRole is "none" or "gas_lifecycle_operator"?SaveVersion(connection,body.Version,body.OperatingRole,ct):throw Input();
+
+    static Task<JsonElement> SaveVersion(NpgsqlConnection connection,SaveAgentRequest body,string? operatingRole,CancellationToken ct)
     {
         if(body is not {OperationId:var operation,AgentId:var agent,ExpectedVersion:{} expected,Description:{} description,Instructions:{} instructions,
                 ModelId:var model,ModelVersion:{} modelVersion,Reasoning:{} reasoning,Caching:{} caching,Tools:{} tools,AllowedRoles:{} roles,
                 Limits:{ToolSteps:{} steps,InputTokens:{} input,OutputTokens:{} output,ElapsedSeconds:{} elapsed,ReadSeconds:{} read,Retries:{} retries,HistoryTurns:{} history},GrantDays:{} days}
             ||operation==Guid.Empty||agent==Guid.Empty||model==Guid.Empty)
             throw Input();
-        return ModelProviders.Read(connection,
-            "SELECT assistant.save_agent_version($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,(security.operating_values('assistant')->>'maxGrantDays')::integer)::text",
-            [operation,agent,expected,Text(description),Text(instructions),model,modelVersion,Text(reasoning),caching,Texts(tools),Texts(roles),
-             steps,input,output,elapsed,read,retries,history,days,RuntimeSet.AgentInstructions],ct);
+        object[] parameters=[operation,agent,expected,Text(description),Text(instructions),model,modelVersion,Text(reasoning),caching,Texts(tools),Texts(roles),
+             steps,input,output,elapsed,read,retries,history,days,RuntimeSet.AgentInstructions];
+        var sql="SELECT assistant.save_agent_version($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,(security.operating_values('assistant')->>'maxGrantDays')::integer";
+        if(operatingRole is not null){sql+=",$21";parameters=[..parameters,operatingRole];}
+        return ModelProviders.Read(connection,sql+")::text",parameters,ct);
     }
 
     public static Task<JsonElement> Publish(NpgsqlConnection connection,AgentCommandRequest body,CancellationToken ct)=>

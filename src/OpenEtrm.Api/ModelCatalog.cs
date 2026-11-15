@@ -168,6 +168,7 @@ public sealed partial class ModelCatalog
         "grant_duration_exceeded"=>"The selected grant duration exceeds the current workspace operating policy.",
         "instructions_too_long"=>string.Create(CultureInfo.InvariantCulture,$"Instructions are limited to {RuntimeSet.AgentInstructions:N0} characters."),
         "agent_retired"=>"This agent is retired: it can no longer be changed or granted.",
+        "agent_operating_role_conflict"=>"This agent has an operating role outside the saved settings contract. Review its current role assignments before publishing.",
         "agent_managed"=>"Users & access neither creates nor changes agents, and grants the agent reader role to no one.",
         "admin_limit"=>"A workspace has at most 256 members, agents included.",
         "parameter_required"=>"Choose one of the reasoning efforts the model's capability version records.",

@@ -9,15 +9,28 @@ const tools=[{code:'navigate',permissions:[]},{code:'read_current_page',permissi
   {code:'read_reference_data',permissions:['ReadMarketData']},{code:'read_schedules',permissions:['ReadMarketData']},
   {code:'read_trade_parties',permissions:['ReadMarketData','ReadTradeParties']},{code:'read_trades',permissions:['ReadMarketData','ReadTrades']}];
 const models=[{id:'m1',version:3,vendor:'anthropic',identifier:'model-one',displayName:'Model one',outputLimit:4096,reasoningEfforts:['low','high']}];
-const directory={vendors,roles,tools,models,bounds:{instructions:6000,grantDays:90}};
+const operatingRoles=[{code:'none',name:'No additional operating role',permissions:[]},
+  {code:'gas_lifecycle_operator',name:'Gas lifecycle operator',permissions:['ReadGasOwnedHoldings','ReadMarketData','ReadTrades','RecordGasOwnedHoldings']}];
+const directory={vendors,roles,operatingRoles,tools,models,bounds:{instructions:6000,grantDays:90}};
 const version=(changes={})=>({version:2,description:'Answers questions about the page.',instructions:'Quote only values you read.\nSay when something is unavailable.',
   model:{id:'m1',version:3,vendor:'anthropic',identifier:'model-one',displayName:'Model one',current:true},reasoning:'low',caching:false,
-  tools:['read_current_page','read_trades'],allowedRoles:['risk_analyst','trader'],limits:{toolSteps:8,inputTokens:200000,outputTokens:2048,elapsedSeconds:120,readSeconds:15,retries:2,historyTurns:20},
+  tools:['read_current_page','read_trades'],allowedRoles:['risk_analyst','trader'],operatingRole:'none',limits:{toolSteps:8,inputTokens:200000,outputTokens:2048,elapsedSeconds:120,readSeconds:15,retries:2,historyTurns:20},
   grantDays:28,savedBy:'Synthetic admin',savedAt:'2026-10-20T12:00:00Z',...changes});
 const agent=(changes={})=>({id:'a1',name:'Page guide',version:4,state:'active',publishedVersion:1,newest:version(),published:version({version:1}),...changes});
 const instant=at=>`at ${at}`;
 const entry=(changes={})=>({description:'Answers questions.',instructions:'Quote only values you read.',modelId:'m1',reasoning:'low',caching:'off',
-  tools:['read_trades'],allowedRoles:['trader'],limits:{toolSteps:'8',inputTokens:'200000',outputTokens:'2048',elapsedSeconds:'120',readSeconds:'15',retries:'0',historyTurns:'20'},grantDays:'28',...changes});
+  tools:['read_trades'],allowedRoles:['trader'],operatingRole:'none',limits:{toolSteps:'8',inputTokens:'200000',outputTokens:'2048',elapsedSeconds:'120',readSeconds:'15',retries:'0',historyTurns:'20'},grantDays:'28',...changes});
+
+test('an additional operating role is chosen explicitly and stays separate from delegator roles',()=>{
+  const choices={...directory,operatingRoles:[{code:'none',name:'No additional operating role',permissions:[]},
+    {code:'gas_lifecycle_operator',name:'Gas lifecycle operator',permissions:['ReadGasOwnedHoldings','ReadMarketData','ReadTrades','RecordGasOwnedHoldings']}]};
+  assert.throws(()=>agentSaveRequest(entry({operatingRole:''}),choices),/^Error: Choose an additional operating role\.$/);
+  assert.throws(()=>agentSaveRequest(entry({operatingRole:'access_administrator'}),choices),/Choose an additional operating role again/);
+  const request=agentSaveRequest(entry({operatingRole:'gas_lifecycle_operator'}),choices);
+  assert.equal(request.operatingRole,'gas_lifecycle_operator');
+  assert.deepEqual(request.allowedRoles,['trader']);
+  assert.equal(agentSaveRequest(entry({operatingRole:'none'}),choices).operatingRole,'none');
+});
 
 test('each Settings › AI tab is offered by its own permission, in the order Usage, Models & prices, Providers, Agents',()=>{
   assert.deepEqual(aiTabs(['ReadModelUsage']),['usage']);
@@ -59,7 +72,7 @@ test("a version's rows state every field it was saved with, by name",()=>{
   const rows=versionRows(version(),directory,instant);
   assert.deepEqual(rows,[['Description','Answers questions about the page.'],['Instructions','Quote only values you read.\nSay when something is unavailable.'],
     ['Model','Model one · model-one (Anthropic) · capability version 3'],['Reasoning effort','low'],['Prompt caching','Off'],['Tools','Read current page, Read trades'],
-    ['Allowed roles','Risk analyst, Trader'],['Tool steps per turn','8'],['Input tokens per turn','200,000'],['Output tokens per call','2,048'],['Time per turn','120 seconds'],['Time per read','15 seconds'],
+    ['Allowed roles','Risk analyst, Trader'],['Additional operating role','No additional operating role'],['Tool steps per turn','8'],['Input tokens per turn','200,000'],['Output tokens per call','2,048'],['Time per turn','120 seconds'],['Time per read','15 seconds'],
     ['Retries per call','2'],['Earlier turns sent per turn','20'],['Grant duration','28 days'],['Saved','Synthetic admin · at 2026-10-20T12:00:00Z']]);
   assert.deepEqual(versionRows(version({tools:[],allowedRoles:[],caching:true,model:{...version().model,current:false}}),directory,instant).slice(2,7).map(r=>r[1]),
     ['Model one · model-one (Anthropic) · capability version 3 · no longer current','low','On','None','None']);
@@ -88,7 +101,7 @@ test('a chosen model holds only at the capability version it was chosen at, neve
 
 test('a save names every field as entered, nothing blank is inferred, and numbers are whole',()=>{
   assert.deepEqual(agentSaveRequest(entry(),directory),{description:'Answers questions.',instructions:'Quote only values you read.',modelId:'m1',modelVersion:3,reasoning:'low',
-    caching:false,tools:['read_trades'],allowedRoles:['trader'],limits:{toolSteps:8,inputTokens:200000,outputTokens:2048,elapsedSeconds:120,readSeconds:15,retries:0,historyTurns:20},grantDays:28});
+    caching:false,tools:['read_trades'],allowedRoles:['trader'],operatingRole:'none',limits:{toolSteps:8,inputTokens:200000,outputTokens:2048,elapsedSeconds:120,readSeconds:15,retries:0,historyTurns:20},grantDays:28});
   assert.equal(agentSaveRequest(entry({caching:'on'}),directory).caching,true);
   // Text travels exactly as entered: the server owns its rules.
   assert.equal(agentSaveRequest(entry({instructions:' Leading space'}),directory).instructions,' Leading space');

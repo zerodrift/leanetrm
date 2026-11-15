@@ -372,20 +372,34 @@ audit as history.
 - A version's allowed roles may contain only roles holding `UseAgents` and every
   permission its switched-on tools need; a database check enforces it
   (`agent_role_lacks_permission`, naming role and permission).
-- A new **agent reader** role holds exactly `ReadMarketData`, `ReadTrades` and
-  `ReadTradeParties`, from migration 0119 `ReadJobs` (D241), and from migration 0128
-  `DraftCustomCurves`, the agent's own authority to save a custom-curve draft it
-  claimed for a step of its turn while its delegator holds `WriteMarketDefinitions`
-  (D260); no other role holds it, and the role never holds `WriteMarketDefinitions`. A database check allows it only on agent principals and allows
-  agent principals no other role. The migration fails, never revokes silently, if an
-  agent principal already holds another role.
+- The base **agent reader** role holds `ReadMarketData`, `ReadTrades`,
+  `ReadTradeParties`, `ReadJobs` and `UseAssistantWorkspace`. The former direct
+  custom-curve draft permission is withdrawn; changes use the shared approval
+  boundary. Native guards restrict agent-only roles to agent principals and
+  prevent ordinary human or service roles from being assigned to agents.
+- **Additional operating role.** An immutable version explicitly chooses None or
+  the qualified gas lifecycle operator. This choice is separate from allowed
+  delegator roles. The gas role has exactly `ReadMarketData`, `ReadTrades`,
+  `ReadGasOwnedHoldings` and `RecordGasOwnedHoldings`; it grants no configuration
+  or job execution permission. The version requests those four permissions in
+  addition to its tools' permissions. A user's actual current permissions must
+  cover the complete request, even when their allowed role supplies only the
+  workspace tools and another assigned role supplies gas access.
+- Saving a draft does not activate its operating role. Publish changes the
+  additional principal grant under exclusive control-table admission and ends
+  existing delegations when that role changes. Switching back requires a fresh
+  explicit grant; an older delegation cannot gain rights from the new role.
+  The base reader grant remains. The legacy save API retains its reader-only
+  request and first-outcome contract; explicit role saves have their own closed
+  endpoint and native signature. Other agent-only roles are not offered by this
+  qualified settings consumer.
 - Creating an agent is one `ManageAgents` security-definer operation: the principal,
   an `agent_credential` binding at the manifest issuer with the principal id as
   subject, its workspace membership (counted in the 256-member limit) and the agent
   reader grant. No login or password. It appends to `security.administration_audit`.
 - Retire disables the principal, revokes its open grants and cancels its running
   turns. It is permanent and keeps history.
-- **Control-table admission.** Creation, Retire, grant and revoke write control
+- **Control-table admission.** Creation, Retire, operating-role publication, grant and revoke write control
   tables. Each first runs all checks in an ordinary short read; refusals and no-ops
   answer from it. Only a command that will write opens an exclusive admission, which
   takes the epoch row `FOR UPDATE` before binding, then repeats the checks. The

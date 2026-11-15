@@ -42,6 +42,7 @@ if(args is ["--gas-mixed-correction",var gasMixedCorrection]){await GasQuantityB
 if(args is ["--gas-owned-correction-contract"]){await GasOwnedQuantityCorrectionChecks.Contract();return;}
 if(args is ["--gas-owned-correction-form"]){GasOwnedQuantityFormChecks.Run();return;}
 if(args is ["--gas-lifecycle-agent",var gasAgentPath]){await GasLifecycleAgentChecks.Run(gasAgentPath);return;}
+if(args is ["--configured-gas-lifecycle-agent",var configuredGasAgentPath]){await GasLifecycleAgentChecks.RunConfigured(configuredGasAgentPath);return;}
 if(args is ["--gas-loan-correction",var gasLoanCorrection]){await GasLoanQuantityCorrectionChecks.Run(gasLoanCorrection);return;}
 if(args is ["--gas-owned",var gasOwnedFixture]){await GasOwnedChecks.Run(gasOwnedFixture);return;}
 if(args is ["--gas-owned-known",var gasKnownFixture]){await GasOwnedKnownHistoryChecks.Run(gasKnownFixture);return;}

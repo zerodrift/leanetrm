@@ -28,6 +28,7 @@ LIFECYCLE_PORTFOLIO={f'tools/{name}.py' for name in (
     'check_lifecycle_projection_horizon','check_lifecycle_swap_worker','check_lifecycle_future_worker',
     'check_lifecycle_economic_browser','check_physical_futures_value')}
 OPTION_VALUE_APPS={'tools/check_lifecycle_valuation_browser.py'}
+AGENT_SETTINGS_BROWSER={'tools/check_agent_operating_settings.py'}
 
 
 class CheckAllTests(unittest.TestCase):
@@ -154,6 +155,19 @@ class CheckAllTests(unittest.TestCase):
                     self.assertEqual(command[command.index('--dotnet')+1],'/selected sdk')
                     self.assertEqual(command[command.index('--browser')+1],'/selected browser')
                     self.assertIn('--no-build',command)
+
+    def test_normal_agent_settings_and_gas_approval_run_once_in_assistant_with_selected_tools(self):
+        for group in ('assistant','standard','trading'):
+            commands=[]
+            run_checks(Path('/stock pg'),Path('/selected sdk'),Path('/selected browser'),group=group,
+                run=lambda command,**options:commands.append(command))
+            selected=[command for command in commands if 'tools/check_agent_operating_settings.py' in command]
+            self.assertEqual(len(selected),1 if group=='assistant' else 0)
+            for command in selected:
+                self.assertEqual(command[command.index('--pg-bin')+1],'/stock pg')
+                self.assertEqual(command[command.index('--dotnet')+1],'/selected sdk')
+                self.assertEqual(command[command.index('--browser')+1],'/selected browser')
+                self.assertIn('--no-build',command)
 
     def test_economic_workers_and_real_browsers_keep_selected_tools_and_partitions(self):
         browsers={'tools/check_gas_mixed_quantity_browser.py':'lifecycle','tools/check_lifecycle_browser.py':'lifecycle','tools/check_lifecycle_economic_browser.py':'portfolio'}
@@ -282,7 +296,7 @@ class CheckAllTests(unittest.TestCase):
         self.assertEqual(set().union(*(set(value) for value in groups.values())), set(complete))
         margin={f'tools/check_futures_margin_{part}.py' for part in ('sources','adoption','projection_sources')}|{'tools/check_trading_business_date.py'}
         def shared(command):
-            return 'tools/run_preview.py' not in command and not (margin|LIFECYCLE_NATIVE|LIFECYCLE_PORTFOLIO|OPTION_VALUE_APPS).intersection(command)
+            return 'tools/run_preview.py' not in command and not (margin|LIFECYCLE_NATIVE|LIFECYCLE_PORTFOLIO|OPTION_VALUE_APPS|AGENT_SETTINGS_BROWSER).intersection(command)
         for name, selected in groups.items():
             with self.subTest(group=name):
                 # Each group starts from a clean checkout, including restores,

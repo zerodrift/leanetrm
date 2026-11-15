@@ -240,7 +240,7 @@ const string malformed="The request is incomplete or malformed.";
     PostgresException p when p.SqlState=="P0001" && p.MessageText=="model_admin_conflict" || p.SqlState=="23505" && context.Items.ContainsKey("model_admin_attempted")
         => (409,"model_admin_conflict","This provider, model or request changed, or its current state does not allow the change. Reload Settings › AI before repeating the change under a new request."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText is "model_provider_unqualified" or "model_provider_disabled" or "model_unqualified" or "model_mapping_unconfirmed"
-        or "model_unpriced" or "test_in_progress" or "model_changed" or "model_disabled" or "agent_retired"
+        or "model_unpriced" or "test_in_progress" or "model_changed" or "model_disabled" or "agent_retired" or "agent_operating_role_conflict"
         => (409,p.MessageText,ModelCatalog.Refusal(p.MessageText)),
     PostgresException p when p.SqlState=="P0001" && p.MessageText=="agent_role_lacks_permission" => (422,p.MessageText,AgentAdministration.RoleRefusal(AgentAdministration.Lacking(p.Hint))),
     PostgresException p when p.SqlState=="P0001" && p.MessageText is "agent_not_allowed" or "grant_permission_missing" => (403,p.MessageText,AgentGrants.Refusal(p.MessageText,p.Hint)),
@@ -2266,7 +2266,8 @@ api.MapPost("/settings/ai/page-prompts/save",(HttpContext c,SavePagePromptReques
     database.WithIdentity(Profile(session),"ManageAssistantPrompts",async(connection,ct)=>Results.Ok(await AssistantPagePrompts.Save(connection,body,ct)),c.RequestAborted)));
 api.MapPost("/settings/ai/agents/create",(HttpContext c,CreateAgentRequest body)=>AgentCommand(c,(connection,ct)=>AgentAdministration.Create(connection,body,ct),control:true));
 api.MapPost("/settings/ai/agents/save",(HttpContext c,SaveAgentRequest body)=>AgentCommand(c,(connection,ct)=>AgentAdministration.Save(connection,body,ct)));
-api.MapPost("/settings/ai/agents/publish",(HttpContext c,AgentCommandRequest body)=>AgentCommand(c,(connection,ct)=>AgentAdministration.Publish(connection,body,ct)));
+api.MapPost("/settings/ai/agents/save-operating-role",(HttpContext c,SaveAgentOperatingRoleRequest body)=>AgentCommand(c,(connection,ct)=>AgentAdministration.SaveOperatingRole(connection,body,ct)));
+api.MapPost("/settings/ai/agents/publish",(HttpContext c,AgentCommandRequest body)=>AgentCommand(c,(connection,ct)=>AgentAdministration.Publish(connection,body,ct),control:true));
 api.MapPost("/settings/ai/agents/retire",(HttpContext c,AgentCommandRequest body)=>AgentCommand(c,(connection,ct)=>AgentAdministration.Retire(connection,body,ct),control:true));
 // Grants (§7.1, §8): the agents a user may use and the user's grants. Grant and Revoke write control tables, so like
 // Create and Retire they repeat under exclusive admission only once every check has passed; Revoke needs no UseAgents.

@@ -5210,6 +5210,15 @@ with return obligations. Include both shock-held and elapsed-linear price paths,
 explicit payment/cash carrying choices and complete one-session economic risk.
 This extends D387's event-crossing scope only as its new capabilities are qualified.
 
+Agent versions separate allowed delegator roles from an explicit additional
+operating role. The first settings consumer offers None or the gas lifecycle
+operator, retaining the base reader. Publish activates that role and ends older
+delegations when it changes. Actual delegator authority must independently cover
+every requested gas permission; selecting an operating role does not grant the
+user those permissions. Financial operations retain manual review and the same
+authorized native business handlers. Retained reader-only saves keep their
+original request and replay contract.
+
 Rebuild incompatible demo configuration and synthetic business records. No legacy
 financial conversion or fallback is required. Publication remains separately approved.
 The delivery document records required contracts; tests and verification records

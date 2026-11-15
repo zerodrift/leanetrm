@@ -6,7 +6,10 @@ using OpenEtrm.MarketData;
 
 internal static class GasLifecycleAgentChecks
 {
-    internal static async Task Run(string path)
+    internal static Task Run(string path)=>Run(path,["ReadMarketData","ReadTrades","ReadGasOwnedHoldings","RecordGasOwnedHoldings"]);
+    internal static Task RunConfigured(string path)=>Run(path,["ReadMarketData","ReadTrades","ReadGasOwnedHoldings","RecordGasOwnedHoldings","UseAssistantWorkspace"]);
+
+    static async Task Run(string path,ImmutableArray<string> expectedPermissions)
     {
         using var packet=JsonDocument.Parse(File.ReadAllText(path));var f=packet.RootElement;
         var manifest=f.GetProperty("manifest").Deserialize<PreviewManifest>(LifecycleNative.Json)!;
@@ -41,7 +44,7 @@ internal static class GasLifecycleAgentChecks
             await using var read=ScheduleStore.Command(connection,"SELECT security.current_permissions()");
             return (string[])(await read.ExecuteScalarAsync(ct))!;
         },default);
-        if(!permissions.ToHashSet().SetEquals(["ReadMarketData","ReadTrades","ReadGasOwnedHoldings","RecordGasOwnedHoldings"]))
+        if(!permissions.ToHashSet().SetEquals(expectedPermissions))
             throw new Exception("The opted-in gas agent acquired a configuration, jobs or unrelated capability.");
         await database.WithIdentity("admin","ManageAccess",async(connection,ct)=>
         {

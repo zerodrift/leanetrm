@@ -285,6 +285,11 @@ grants no configuration or job capability. Human and service administration
 cannot assign it. Delegated operations still require the live agent, delegator,
 workspace and source intersection and the same explicit review. Losing current
 agent or delegator authority also refuses access to a retained write receipt.
+Settings › AI saves the additional operating role explicitly with the agent
+version, independently of allowed delegator roles. Publish activates None or
+Gas and ends old delegations when that choice changes. A fresh user grant must
+cover the version's exact gas and tool permissions. The reader role remains;
+neither selecting Gas nor publishing it supplies the user's missing gas rights.
 
 An owned title that funds an accepted futures dispatch can require one linked
 correction: reducing the title first exceeds stock capacity, while replacing the
@@ -339,6 +344,12 @@ review, approved execution and exact retry, denied read-only/revoked/foreign
 contexts, role assignment boundaries and current authority loss. Its migration
 probes independently reject changed definitions, function shape and privileges
 of the existing agent-role and administration boundaries.
+`tools/check_agent_operating_settings.py` adds the normal settings path: actual
+browser save/Publish, None/Gas transitions, immutable grants, exact closed legacy
+and explicit save contracts, and then approved native gas execution and retained
+receipt authority checks by the normally configured agent. It also refuses
+changed predecessor metadata and a pre-existing new-signature function that
+could otherwise retain an unauthorized execution grant during upgrade.
 `tools/check_gas_mixed_quantity_reconciliation.py` qualifies both sequential
 refusals, the atomic title and dispatch replacement, unchanged signed principal
 and bank history, stale reviews, evicted-source retries, exact knowledge-prefix

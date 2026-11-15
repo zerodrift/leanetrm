@@ -5,14 +5,14 @@ import {PendingCommand,type RequestCommand} from './pending-command.js';
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type Limits={toolSteps:number;inputTokens:number;outputTokens:number;elapsedSeconds:number;readSeconds:number;retries:number;historyTurns:number};
 type VersionModel={id:string;version:number;vendor:string;identifier:string;displayName:string;current:boolean};
-type AgentVersion={version:number;description:string;instructions:string;model:VersionModel;reasoning:string;caching:boolean;tools:string[];allowedRoles:string[];
+type AgentVersion={version:number;description:string;instructions:string;model:VersionModel;reasoning:string;caching:boolean;tools:string[];allowedRoles:string[];operatingRole:string;
   limits:Limits;grantDays:number;savedBy:string;savedAt:string};
 type Agent={id:string;name:string;version:number;state:string;publishedVersion:number|null;newest:AgentVersion|null;published:AgentVersion|null};
 type Model={id:string;version:number;vendor:string;identifier:string;displayName:string;outputLimit:number;reasoningEfforts:string[]};
-type Choices={vendors:{code:string;name:string}[];roles:{code:string;name:string;permissions:string[]}[];tools:{code:string;permissions:string[]}[];models:Model[];
+type Choices={vendors:{code:string;name:string}[];roles:{code:string;name:string;permissions:string[]}[];operatingRoles:{code:string;name:string;permissions:string[]}[];tools:{code:string;permissions:string[]}[];models:Model[];
   bounds:{instructions:number;grantDays:number}};
 type Directory=Choices&{agents:Agent[];audit:{operationId:string;at:string;actor:string;action:string;agent:string}[]};
-export type AgentEntry={description:string;instructions:string;modelId:string;reasoning:string;caching:string;tools:string[];allowedRoles:string[];
+export type AgentEntry={description:string;instructions:string;modelId:string;reasoning:string;caching:string;tools:string[];allowedRoles:string[];operatingRole:string;
   limits:Record<keyof Limits,string>;grantDays:string};
 // A model as it was chosen: the exact capability version the choice named.
 export type ModelPin={id:string;version:number};
@@ -30,10 +30,11 @@ const limitNames:[keyof Limits,string][]=[['toolSteps','tool steps per turn'],['
   ['historyTurns','earlier turns sent per turn']];
 // Refusals that prove a first attempt wrote nothing, so its retained request can be released.
 const rejections=['model_admin_input','model_admin_conflict','agent_retired','agent_role_lacks_permission','model_changed','model_disabled','model_unqualified',
+  'agent_operating_role_conflict',
   'model_unpriced','model_provider_disabled','model_provider_unqualified','parameter_required','model_limit_exceeded','grant_duration_exceeded','instructions_too_long',
   'admin_limit','definition_rejected','access_denied','request_format','request_too_large','request_token'];
 export const knownAgentRejection=(code:string|undefined)=>!!code&&rejections.includes(code);
-const paths=['create','save','publish','retire'].map(path=>'settings/ai/agents/'+path);
+const paths=['create','save','save-operating-role','publish','retire'].map(path=>'settings/ai/agents/'+path);
 const roleAdvice='Allow only roles that use agents and hold every permission its tools need.';
 function toolName(code:string){if(!Object.hasOwn(toolNames,code))throw inconsistent();return toolNames[code];}
 
@@ -60,12 +61,13 @@ export function agentRow(agent:Agent,choices:Choices,instant:(at:string)=>string
 }
 // A role a version allowed that no longer uses agents is still named, as it was saved.
 const roleName=(choices:Choices,code:string)=>choices.roles.find(r=>r.code===code)?.name??`${code} (no longer uses agents)`;
+function operatingRoleName(choices:Choices,code:string){const role=choices.operatingRoles.find(r=>r.code===code);if(!role)throw inconsistent();return role.name;}
 export function versionRows(version:AgentVersion,choices:Choices,instant:(at:string)=>string){
   const {limits}=version;
   return [['Description',version.description],['Instructions',version.instructions],
     ['Model',`${modelLabel(choices,version.model)} · capability version ${version.model.version}${version.model.current?'':' · no longer current'}`],
     ['Reasoning effort',version.reasoning],['Prompt caching',version.caching?'On':'Off'],['Tools',version.tools.map(toolName).join(', ')||'None'],
-    ['Allowed roles',version.allowedRoles.map(code=>roleName(choices,code)).join(', ')||'None'],['Tool steps per turn',String(limits.toolSteps)],
+    ['Allowed roles',version.allowedRoles.map(code=>roleName(choices,code)).join(', ')||'None'],['Additional operating role',operatingRoleName(choices,version.operatingRole)],['Tool steps per turn',String(limits.toolSteps)],
     ['Input tokens per turn',grouped(limits.inputTokens)],['Output tokens per call',grouped(limits.outputTokens)],['Time per turn',`${limits.elapsedSeconds} seconds`],
     ['Time per read',`${limits.readSeconds} seconds`],['Retries per call',String(limits.retries)],
     ['Earlier turns sent per turn',String(limits.historyTurns)],['Grant duration',`${version.grantDays} days`],['Saved',`${version.savedBy} · ${instant(version.savedAt)}`]];
@@ -91,9 +93,11 @@ export function agentSaveRequest(entry:AgentEntry,choices:Choices){
   const model=choices.models.find(m=>m.id===entry.modelId);if(!model)throw Error('Choose a model again after refreshing AI settings.');
   if(!entry.reasoning)throw Error('Choose a reasoning effort.');
   if(entry.caching!=='on'&&entry.caching!=='off')throw Error('Choose whether prompt caching is on.');
+  if(!entry.operatingRole)throw Error('Choose an additional operating role.');
+  if(!choices.operatingRoles.some(role=>role.code===entry.operatingRole))throw Error('Choose an additional operating role again after refreshing AI settings.');
   const limits=Object.fromEntries(limitNames.map(([key,name])=>[key,whole(entry.limits[key],`Enter the ${name} as a whole number.`)])) as Limits;
   return {description:entry.description,instructions:entry.instructions,modelId:model.id,modelVersion:model.version,reasoning:entry.reasoning,caching:entry.caching==='on',
-    tools:[...entry.tools],allowedRoles:[...entry.allowedRoles],limits,grantDays:whole(entry.grantDays,'Enter the grant duration as a whole number of days.')};
+    tools:[...entry.tools],allowedRoles:[...entry.allowedRoles],operatingRole:entry.operatingRole,limits,grantDays:whole(entry.grantDays,'Enter the grant duration as a whole number of days.')};
 }
 export function boundsHelp(choices:Choices){
   const {instructions,grantDays}=choices.bounds??{};
@@ -117,7 +121,7 @@ const agentMessages:Record<string,string>={
 // Create and Save send what the administrator typed. While the page and the server agree, only an entry outside its
 // range makes one of their requests the server cannot read or one larger than it accepts, so the ranges explain those
 // refusals; Publish and Retire keep the general message.
-const entryPaths=['create','save'].map(path=>'settings/ai/agents/'+path);
+const entryPaths=['create','save','save-operating-role'].map(path=>'settings/ai/agents/'+path);
 export function agentMessage(code:string|undefined,path:string){
   if(entryPaths.includes(path)&&(code==='request_format'||code==='request_too_large'))return agentMessages.model_admin_input;
   return code&&Object.hasOwn(agentMessages,code)?agentMessages[code]:undefined;
@@ -168,7 +172,7 @@ export function setupAgentSettings(options:{api:Api;act:(work:()=>Promise<void>)
   // The choices follow the directory. The model stays chosen only at the capability version it was chosen at, and
   // its effort only with it, or the form says why it is unchosen; tools stay checked while offered. A chosen role that
   // no longer uses agents stays chosen, named rather than offered, and is checked again once it is offered again.
-  function fillChoices(chosen:{effort:string;tools:string[];roles:string[]}){
+  function fillChoices(chosen:{effort:string;tools:string[];roles:string[];operatingRole:string}){
     if(!directory)return;const offered=directory;
     if(pin&&!keptModel(directory,pin)){pin=undefined;get('ai-agent-model-pin-note').hidden=false;}
     fillSelect('ai-agent-model','Choose a model…',modelChoices(directory),pin?.id??'');
@@ -179,10 +183,12 @@ export function setupAgentSettings(options:{api:Api;act:(work:()=>Promise<void>)
       new Set(chosen.tools));
     const roles=new Set([...chosen.roles,...dropped]);dropped=[...roles].filter(code=>!offered.roles.some(r=>r.code===code));
     boxes('ai-agent-roles',offered.roles.map(r=>({value:r.code,label:r.name,detail:r.permissions.join(', ')})),roles);
+    fillSelect('ai-agent-operating-role','Choose an additional operating role…',offered.operatingRoles.map(r=>({value:r.code,
+      label:r.name+(r.permissions.length?` · ${r.permissions.join(', ')}`:'')})),chosen.operatingRole);
     const note=get('ai-agent-roles-note');note.hidden=!dropped.length;
     note.textContent=dropped.length?publicText(`A save leaves out ${dropped.join(', ')}: only roles that use agents can be allowed.`):'';
   }
-  const entries=()=>({effort:value('ai-agent-effort'),tools:checked('ai-agent-tools'),roles:checked('ai-agent-roles')});
+  const entries=()=>({effort:value('ai-agent-effort'),tools:checked('ai-agent-tools'),roles:checked('ai-agent-roles'),operatingRole:value('ai-agent-operating-role')});
   // The form starts from the newest version, every field shown.
   function prefill(){
     if(!directory)return;const a=agent(),version=a?.newest;
@@ -190,7 +196,7 @@ export function setupAgentSettings(options:{api:Api;act:(work:()=>Promise<void>)
     basis=a&&{agent:a.id,newest:version?.version??0};
     pin=version?{id:version.model.id,version:version.model.version}:undefined;
     dropped=[];
-    fillChoices({effort:version?.reasoning??'',tools:version?.tools??[],roles:version?.allowedRoles??[]});
+    fillChoices({effort:version?.reasoning??'',tools:version?.tools??[],roles:version?.allowedRoles??[],operatingRole:version?.operatingRole??''});
     get<HTMLSelectElement>('ai-agent-caching').value=version?(version.caching?'on':'off'):'';
     if(!version)return;
     get<HTMLTextAreaElement>('ai-agent-description').value=version.description;get<HTMLTextAreaElement>('ai-agent-instructions').value=version.instructions;
@@ -208,7 +214,7 @@ export function setupAgentSettings(options:{api:Api;act:(work:()=>Promise<void>)
   function wipe(){
     clear();selected=undefined;basis=undefined;pin=undefined;dropped=[];refill=false;
     for(const id of ['ai-agent-tools','ai-agent-roles'])get(id).replaceChildren();
-    for(const [id,first] of [['ai-agent-model','Choose a model…'],['ai-agent-effort','Choose an effort…']])get(id).replaceChildren(new Option(first,''));
+    for(const [id,first] of [['ai-agent-model','Choose a model…'],['ai-agent-effort','Choose an effort…'],['ai-agent-operating-role','Choose an additional operating role…']])get(id).replaceChildren(new Option(first,''));
     for(const id of ['ai-agent-create-form','ai-agent-form'])form(id).reset();input('ai-agent-retire-confirm').checked=false;
     for(const id of ['ai-agent-title','ai-agent-facts','ai-agent-output-help','ai-agent-roles-note'])get(id).textContent='';
     for(const id of ['ai-agent-model-pin-note','ai-agent-stale','ai-agent-roles-note'])get(id).hidden=true;
@@ -245,7 +251,7 @@ export function setupAgentSettings(options:{api:Api;act:(work:()=>Promise<void>)
     get('ai-agent-stale').hidden=!stale(shown)||!!pending.command;
     const body=pending.command?.body,named=directory?.agents.find(a=>a.id===body?.agentId)?.name;
     const subject=pending.command?.path.endsWith('/create')?`A create of the agent “${String(body?.name)}”`
-      :`${{save:'A saved version of',publish:'A Publish of',retire:'A Retire of'}[pending.command?.path.split('/').at(-1) as 'save'|'publish'|'retire']??'A change to'} ${named?`“${named}”`:'an agent these settings cannot list now'}`;
+      :`${{save:'A saved version of','save-operating-role':'A saved version of',publish:'A Publish of',retire:'A Retire of'}[pending.command?.path.split('/').at(-1) as 'save'|'save-operating-role'|'publish'|'retire']??'A change to'} ${named?`“${named}”`:'an agent these settings cannot list now'}`;
     get('ai-agents-pending-text').textContent=pending.command?publicText(`${subject} has no confirmed outcome. Retry sends the same request: it reads the stored outcome if the change was saved, and otherwise makes it once. Discarding the request leaves any saved change in place.`):'';
   }
   async function load(){
@@ -285,7 +291,7 @@ export function setupAgentSettings(options:{api:Api;act:(work:()=>Promise<void>)
     const action=command.path.split('/').at(-1);
     // A confirmed save refills the open card from its newest version at the next successful read, even if this reload
     // fails; Publish and Retire keep the form, and a created agent opens afresh.
-    if(action==='create')form('ai-agent-create-form').reset();else if(action==='save')refill=true;
+    if(action==='create')form('ai-agent-create-form').reset();else if(action==='save'||action==='save-operating-role')refill=true;
     await load();
     if(action==='create')select(answer.id);
   }
@@ -307,9 +313,9 @@ export function setupAgentSettings(options:{api:Api;act:(work:()=>Promise<void>)
     const a=current();
     if(stale(a))throw Error('A newer version of this agent was saved after this form was filled. Start again from the newest version.');
     const request=agentSaveRequest({description:value('ai-agent-description'),instructions:value('ai-agent-instructions'),modelId:value('ai-agent-model'),
-      reasoning:value('ai-agent-effort'),caching:value('ai-agent-caching'),tools:checked('ai-agent-tools'),allowedRoles:checked('ai-agent-roles'),
+      reasoning:value('ai-agent-effort'),caching:value('ai-agent-caching'),tools:checked('ai-agent-tools'),allowedRoles:checked('ai-agent-roles'),operatingRole:value('ai-agent-operating-role'),
       limits:Object.fromEntries(limitFields.map(([key,id])=>[key,value(id)])) as AgentEntry['limits'],grantDays:value('ai-agent-grant-days')},directory!);
-    await change('settings/ai/agents/save',{agentId:a.id,expectedVersion:a.version,...request});
+    await change('settings/ai/agents/save-operating-role',{agentId:a.id,expectedVersion:a.version,...request});
   });};
   get('ai-agent-publish').onclick=()=>void options.act(async()=>{const a=current();await change('settings/ai/agents/publish',{agentId:a.id,expectedVersion:a.version});});
   get('ai-agent-retire').onclick=()=>void options.act(async()=>{

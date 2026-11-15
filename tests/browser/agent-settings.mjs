@@ -28,7 +28,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
 
   const rows=table=>`[...document.querySelectorAll('#${table} tbody tr')].map(r=>[...r.cells].map(c=>c.textContent))`;
   const row=(table,text)=>`${rows(table)}.find(r=>r.some(c=>c.includes(${JSON.stringify(text)})))`;
-  const sent=path=>`window.__requests.filter(r=>r.path==='/api/settings/ai/agents/${path}')`;
+  const sent=path=>`window.__requests.filter(r=>r.path==='/api/settings/ai/agents/${path==='save'?'save-operating-role':path}')`;
   const shown="!document.querySelector('#error').hidden&&document.querySelector('#error').textContent";
   const retained="Object.keys(sessionStorage).find(k=>k.startsWith('openetrm.ai.agents.request.'))";
   const tabs="['usage','models','providers','agents','prompts'].filter(t=>!document.querySelector('#ai-tab-'+t).hidden).join()";
@@ -37,10 +37,10 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const agentsTab=async()=>{await click('#nav-ai');await click('#ai-tab-agents');};
   async function fill(changes={}){
     const entry={description:'Answers questions about the page it is opened on.',instructions:'Quote only values you read.\nSay when something is unavailable.',
-      model:added.id,effort:'low',caching:'off',tools:['read_current_page','read_trades'],roles:['trader','risk_analyst'],toolSteps:'8',inputTokens:'200000',outputTokens:'2048',
+      model:added.id,effort:'low',caching:'off',operatingRole:'none',tools:['read_current_page','read_trades'],roles:['trader','risk_analyst'],toolSteps:'8',inputTokens:'200000',outputTokens:'2048',
       elapsed:'120',read:'15',retries:'2',history:'20',grant:'28',...changes};
     for(const [id,value] of [['description',entry.description],['instructions',entry.instructions],['model',entry.model],['effort',entry.effort],['caching',entry.caching],
-      ['tool-steps',entry.toolSteps],['input-tokens',entry.inputTokens],['output-tokens',entry.outputTokens],['elapsed',entry.elapsed],['read',entry.read],['retries',entry.retries],['history',entry.history],['grant-days',entry.grant]])
+      ['operating-role',entry.operatingRole],['tool-steps',entry.toolSteps],['input-tokens',entry.inputTokens],['output-tokens',entry.outputTokens],['elapsed',entry.elapsed],['read',entry.read],['retries',entry.retries],['history',entry.history],['grant-days',entry.grant]])
       await set('#ai-agent-'+id,value);
     await tick('ai-agent-tools',entry.tools);await tick('ai-agent-roles',entry.roles);
   }
@@ -113,7 +113,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     `(()=>{const r=${row('ai-agent-table',name)};return r&&r[2]==='Version 1 · draft'&&r[3]==='Not published'&&document.querySelector('#error').hidden;})()`
     +`&&document.querySelector('#ai-agent-draft').textContent.includes('Quote only values you read.')&&${row('ai-agent-audit',name)}?.[3]==='Version saved'`);
   await check('the save sent every field, with the exact model version the directory listed',
-    `(()=>{const b=${sent('save')}.at(-1).body;return b.modelId===${JSON.stringify(added.id)}&&b.modelVersion===1&&b.reasoning==='low'&&b.caching===false`
+    `(()=>{const b=${sent('save')}.at(-1).body;return b.operatingRole==='none'&&b.modelId===${JSON.stringify(added.id)}&&b.modelVersion===1&&b.reasoning==='low'&&b.caching===false`
     +"&&JSON.stringify(b.tools)==='[\"read_current_page\",\"read_trades\"]'&&JSON.stringify(b.allowedRoles)==='[\"risk_analyst\",\"trader\"]'"
     +"&&JSON.stringify(b.limits)==='{\"toolSteps\":8,\"inputTokens\":200000,\"outputTokens\":2048,\"elapsedSeconds\":120,\"readSeconds\":15,\"retries\":2,\"historyTurns\":20}'&&b.grantDays===28"
     +"&&b.instructions==='Quote only values you read.\\nSay when something is unavailable.';})()");
@@ -153,7 +153,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     +"&&document.querySelector('#ai-agent-description').value==='Answers questions about the page it is opened on.'");
 
   // A lost answer after the server saved keeps the request for the identity that sent it; Retry reads the stored outcome.
-  await evaluate("window.__dropSave=true;window.__tracked=window.fetch;window.fetch=async(...args)=>{const r=await window.__tracked(...args);if(window.__dropSave&&String(args[0])==='/api/settings/ai/agents/save'){window.__dropSave=false;throw new TypeError('Synthetic dropped response after server commit');}return r;}");
+  await evaluate("window.__dropSave=true;window.__tracked=window.fetch;window.fetch=async(...args)=>{const r=await window.__tracked(...args);if(window.__dropSave&&String(args[0])==='/api/settings/ai/agents/save-operating-role'){window.__dropSave=false;throw new TypeError('Synthetic dropped response after server commit');}return r;}");
   await fill({description:'Answers questions about the page, on the current model version.'});await submit('#ai-agent-form');
   const kept=await evaluate(`JSON.parse(sessionStorage.getItem(${retained}))`);
   // The version the reload shows is newer than the form, and may be this request's own, so the form does not call it newer.
@@ -167,7 +167,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('the identity that sent it is offered it again',
     `!document.querySelector('#ai-agents-pending').hidden&&JSON.parse(sessionStorage.getItem(${retained})).operationId===${JSON.stringify(kept?.operationId)}`);
   // A refusal after an uncertain attempt says nothing about that attempt, so the request stays kept.
-  await evaluate("window.__refuseSave=true;window.__tracked3=window.fetch;window.fetch=async(...args)=>{if(window.__refuseSave&&String(args[0])==='/api/settings/ai/agents/save'){window.__refuseSave=false;"
+  await evaluate("window.__refuseSave=true;window.__tracked3=window.fetch;window.fetch=async(...args)=>{if(window.__refuseSave&&String(args[0])==='/api/settings/ai/agents/save-operating-role'){window.__refuseSave=false;"
     +"return new Response(JSON.stringify({code:'model_admin_conflict',message:'Synthetic'}),{status:409,headers:{'Content-Type':'application/json'}});}return window.__tracked3(...args);}");
   await click('#ai-agents-retry');
   await check('a refusal after an uncertain attempt keeps the request',
@@ -181,7 +181,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   // then not newer than the form.
   await evaluate("window.__failReload='armed';window.__tracked5=window.fetch;window.fetch=async(...args)=>{if(window.__failReload==='due'&&String(args[0])==='/api/settings/ai/agents'){"
     +"window.__failReload='spent';throw new TypeError('Synthetic network failure');}const r=await window.__tracked5(...args);"
-    +"if(window.__failReload==='armed'&&String(args[0])==='/api/settings/ai/agents/save'&&r.ok)window.__failReload='due';return r;}");
+    +"if(window.__failReload==='armed'&&String(args[0])==='/api/settings/ai/agents/save-operating-role'&&r.ok)window.__failReload='due';return r;}");
   await open();
   const answered=await evaluate(`${sent('save')}.length`);
   await fill({description:'Saved before its reload failed.'});await submit('#ai-agent-form');
