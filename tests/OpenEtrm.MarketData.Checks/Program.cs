@@ -4,6 +4,8 @@ using OpenEtrm.MarketData;
 using OpenEtrm.Security;
 
 if(args is ["--physical-option"]){PhysicalOptionChecks.Run();return;}
+if(args is ["--cash-option-model"]){CashOptionModelChecks.Run();return;}
+if(args is ["--cash-option-binding"]){CashOptionBindingChecks.Run();return;}
 if(args is ["--physical-option-binding"]){PhysicalOptionBindingChecks.Run();return;}
 if(args is ["--derivative-capabilities"]){DerivativeCapabilityChecks.Run();return;}
 if(args is ["--gas-known-stock"]){GasKnownStockChecks.Run();return;}
@@ -640,6 +642,8 @@ GasQuantityProjectionChecks.Run();passed++;
 GasKnownStockChecks.Run();passed++;
 GasKnownQuantityChecks.Run();passed++;
 PhysicalOptionChecks.Run();passed++;
+CashOptionModelChecks.Run();passed++;
+CashOptionBindingChecks.Run();passed++;
 PhysicalOptionBindingChecks.Run();passed++;
 DerivativeCapabilityChecks.Run();passed++;
 CapturedDiscountSourceChecks.Run();passed++;

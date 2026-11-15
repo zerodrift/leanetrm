@@ -457,3 +457,33 @@ and no transfer gain. An early full exercise test uses the child's own later
 asset profile after the parent's unused mark expires. The API/native assembly,
 retained workers and real application flow for this economic option path remain
 separate qualification gates.
+
+The pure cash-option reference strategy is separately selected as
+`cash_futures_option_reference_strategy_v1`. Its quoted vanilla calibrates the
+reference process and stopping rule; signed exercised value is carried to the
+first eligible saved cash-future margin due. Both native schedule versions are
+admitted for cash when delivery is absent. A source-instant inception VM due
+is explicitly nominal and does not request a discount factor. It has no asset
+mark, gas terms or physical principal. Calibration, intrinsic stopping and saved-next-due funding
+are explicit policy fields. Native automatic and contrary terminal decisions
+remain distinct from the reference tree's earlier stopping decisions.
+
+Operation-owned pricing bindings select this law per real held option, separate
+from accepted exercise and margin state. Independent checks retain vanilla
+20,000 alongside funded 19,000 for two 10,000-unit contracts at A=3, K=2 and a
+.95 saved-due factor. Signed, solved CRR/LR and contrary-exercise checks cover
+negative terminal payoffs. A common-due economic check preserves 19,000 before
+and after margin reset, with no transfer gain or physical terms. Full-PV
+named scenarios are admitted; static derivatives remain explicitly unqualified.
+The API/native source, worker custody and real application selectors for this
+cash law remain separate qualification gates.
+
+Reference stopping is the selected valuation assumption. The persisted economic
+Hold/event policy keeps the actual right until a certified native event or its
+explicit expiry transition; a tree decision never fabricates an early exercise.
+A separate check places a daily margin before expiry: foregoing the modeled
+immediate exercise changes held-right value from 19,000 to 16,000 as the next
+eligible .8 due replaces .95. The resulting -3,000 is model/time/held-decision
+P&L, with no cash. At the expiry boundary the remaining right and its cash-future
+continuation both retain 16,000. No across-time conservation is claimed when
+modeled stopping and the held decision differ.

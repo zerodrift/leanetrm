@@ -66,6 +66,8 @@ public sealed class FuturesOptionLifecycleProjection:ILifecycleProjection
     private readonly ValuationSetup setup;
     private readonly CurveModel model;
     private readonly FuturesOptionPhysicalValueBinding? physical;
+    private readonly FuturesOptionCashValueBinding? cash;
+    private bool SelectedValue=>physical is not null||cash is not null;
     private readonly FuturesDeliveryProjectionMarket? deliveryMarket;
     private readonly DateTimeOffset? nativeClosedAt;
     private readonly Guid expiryId;
@@ -90,11 +92,21 @@ public sealed class FuturesOptionLifecycleProjection:ILifecycleProjection
         this.setup=setup=setup.ForPosition(Owner,option.Id);
         this.model=model;SourceSnapshot=source;
         physical=setup.PhysicalOptionValueBindings.GetValueOrDefault(new(trade.Id,bindingId));
+        cash=setup.CashOptionValueBindings.GetValueOrDefault(new(trade.Id,bindingId));
+        if(physical is not null&&cash is not null)throw Error("Select one exact option continuation strategy.");
+        if(SelectedValue)
+        {
+            var selectedMargin=physical?.Margin??cash!.Margin;
+            if(selectedMargin is null||selectedMargin.Occurrences.IsDefault||margin is null||margin.Occurrences.IsDefault||
+                (selectedMargin with{Occurrences=ImmutableArray<FuturesMarginOccurrence>.Empty})!=(margin with{Occurrences=ImmutableArray<FuturesMarginOccurrence>.Empty})||
+                !selectedMargin.Occurrences.SequenceEqual(margin.Occurrences)||(physical?.Rule??cash!.Rule)!=rule||(physical?.Underlying??cash!.Underlying)!=future)
+                throw Error("The option continuation requires its exact selected model, underlying, rule and saved margin policy.");
+            if(cash is not null&&(future.SettlementMethod!="cash"||margin.Implementation is not(FuturesMarginPolicy.Version or FuturesMarginPolicy.DeliveryVersion)||margin.Delivery is not null))
+                throw Error("A cash option strategy requires an exact native cash-future policy without delivery terms.");
+        }
         if(physical is not null)
         {
-            if((physical.Margin with{Occurrences=ImmutableArray<FuturesMarginOccurrence>.Empty})!=(margin with{Occurrences=ImmutableArray<FuturesMarginOccurrence>.Empty})||
-                !physical.Margin.Occurrences.SequenceEqual(margin.Occurrences)||physical.Rule!=rule||physical.Underlying!=future||
-                margin.Delivery?.Terms is not GasPhysicalDeliveryTerms gas)
+            if(margin.Delivery?.Terms is not GasPhysicalDeliveryTerms gas)
                 throw Error("The option continuation requires its exact selected model, underlying, rule and saved margin/delivery policy.");
             deliveryMarket??=physical.Asset.Snapshot.HasSameInputs(source)&&gas.Mark.Curve.Revision==source.Definitions?
                 new(gas,model,source,physical.Carrying):null;
@@ -118,8 +130,8 @@ public sealed class FuturesOptionLifecycleProjection:ILifecycleProjection
             PriceUnit.FromQuote(model.QuoteFor(marginMarket))!=PriceUnit.FromQuote(future.Quote))
             throw Error("Retain exact live option terms, calibration, linked-future multiplier, source markets and source certificate.");
         underlyingMarket=calibration.Underlying;
-        if(physical is not null&&(future.Market!=underlyingMarket||expiryMarket!=underlyingMarket||marginMarket!=underlyingMarket||margin.SettlementCurve!=underlyingMarket.Curve))
-            throw Error("The selected physical option stopping law requires the exact calibrated reference request for future, expiry and margin.");
+        if(SelectedValue&&(future.Market!=underlyingMarket||expiryMarket!=underlyingMarket||marginMarket!=underlyingMarket||margin.SettlementCurve!=underlyingMarket.Curve))
+            throw Error("The selected option stopping law requires the exact calibrated reference request for future, expiry and margin.");
         _=rule.Decide(option.Series.Terms.Right,option.Series.Terms.Strike,option.Series.Terms.Strike);
         if(instruction is not null&&(!option.Series.ContraryInstructionsAllowed||instruction.EventId==Guid.Empty||
             instruction.Instruction is not("exercise" or "abandon")||!TradingInstant.IsSupported(instruction.EffectiveAt)||
@@ -137,21 +149,21 @@ public sealed class FuturesOptionLifecycleProjection:ILifecycleProjection
             .OrderBy(o=>o.At).ThenBy(o=>o.Phase).ToArray();
         marginOccurrences=selected.ToImmutableDictionary(o=>LifecycleProjectionEvent.ScopedId(Owner,o.Id));
         if(known is not null)RequireKnown(known);
-        knownInstructions=physical is null||known is null?[]:[..known.Events.Where(e=>e.Kind is "exercise_instruction" or "abandon_instruction")];
+        knownInstructions=!SelectedValue||known is null?[]:[..known.Events.Where(e=>e.Kind is "exercise_instruction" or "abandon_instruction")];
         instructionEvents=knownInstructions.Where(e=>e.EffectiveAt>source.ValuationAt).ToImmutableDictionary(e=>LifecycleProjectionEvent.ScopedId(Owner,e.EventId));
-        if(physical is not null&&known is not null)
+        if(SelectedValue&&known is not null)
         {
             if(instruction is not null&&!knownInstructions.Any(e=>e.EventId==instruction.EventId&&e.EffectiveAt==instruction.EffectiveAt&&e.KnownAt==instruction.KnownAt&&
                 e.Kind==(instruction.Instruction=="exercise"?"exercise_instruction":"abandon_instruction")))
                 throw Error("The selected instruction must belong to this complete native option history.");
             instructionId=null;
         }
-        if(physical is not null&&physical.Terminal!=TerminalAt(source.ValuationAt))
+        if(SelectedValue&&(physical?.Terminal??cash!.Terminal)!=TerminalAt(source.ValuationAt))
             throw Error("The selected option value must retain the native instruction active at its opening clock.");
         var native=known?.Events.Where(e=>e.EffectiveAt>source.ValuationAt&&e.Kind is "exercise" or "assignment" or "expiry").ToArray()??[];
         actualEvents=native.ToImmutableDictionary(e=>LifecycleProjectionEvent.ScopedId(Owner,e.EventId));
         var knownExpiry=native.Any(e=>e.Kind=="expiry");
-        nativeClosedAt=physical is null?null:native.Where(e=>e.RemainingLots==default).OrderBy(e=>e.PublicationOrder).Select(e=>(DateTimeOffset?)e.EffectiveAt).FirstOrDefault();
+        nativeClosedAt=!SelectedValue?null:native.Where(e=>e.RemainingLots==default).OrderBy(e=>e.PublicationOrder).Select(e=>(DateTimeOffset?)e.EffectiveAt).FirstOrDefault();
         var hypotheticalExpiry=!knownExpiry&&nativeClosedAt is null;
         var events=actualEvents.Select(p=>new LifecycleProjectionEvent(p.Key,p.Value.EffectiveAt,
             [..actualEvents.Where(prior=>prior.Value.PublicationOrder<p.Value.PublicationOrder||prior.Value.PublicationOrder==p.Value.PublicationOrder&&
@@ -168,13 +180,13 @@ public sealed class FuturesOptionLifecycleProjection:ILifecycleProjection
         }
         var children=ImmutableArray.CreateBuilder<FuturesLifecycleProjection>();
         var childEvents=ImmutableDictionary.CreateBuilder<Guid,(FuturesLifecycleProjection,LifecycleProjectionEvent)>();
-        if(physical is not null&&native.Any(e=>e.Future is not null)&&nativeContinuations is null)
-            throw Error("Prepare independent native children explicitly for the selected physical option model.");
+        if(SelectedValue&&native.Any(e=>e.Future is not null)&&nativeContinuations is null)
+            throw Error("Prepare independent native children explicitly for the selected option model.");
         if(nativeContinuations is not null)
         {
-            if(physical is null||known is null||futureHistories is{Count:>0}||
+            if(!SelectedValue||known is null||futureHistories is{Count:>0}||
                 !native.Where(e=>e.Future is not null).Select(e=>e.EventId).ToHashSet().SetEquals(nativeContinuations.Keys))
-                throw Error("Select exactly the future-effective native children of this physical option, with independent ownership.");
+                throw Error("Select exactly the future-effective native children of this selected option, with independent ownership.");
             foreach(var accepted in native.Where(e=>e.Future is not null))
             {
                 var child=nativeContinuations[accepted.EventId];var linked=accepted.Future!;
@@ -221,7 +233,7 @@ public sealed class FuturesOptionLifecycleProjection:ILifecycleProjection
     public ImmutableArray<LifecycleProjectionEvent> EventsFor(DateTimeOffset horizon)
     {
         foreach(var child in children)_=child.EventsFor(horizon);
-        if((physical is null?instruction?.Instruction!="abandon":TerminalAt(option.Series.Terms.ExpiryAt)!=PhysicalOptionTerminal.Abandon)&&
+        if((!SelectedValue?instruction?.Instruction!="abandon":TerminalAt(option.Series.Terms.ExpiryAt)!=PhysicalOptionTerminal.Abandon)&&
             future.SettlementMethod!="cash"&&Events.Any(e=>e.At<=horizon&&e.Kind=="final_margin"))
             ProjectedFuturesDelivery.Require(future.Instrument,margin,model,FutureSetup(),SourceSnapshot,null,deliveryMarket);
         return [..Events.Where(e=>e.At<=horizon)];
@@ -243,9 +255,9 @@ public sealed class FuturesOptionLifecycleProjection:ILifecycleProjection
         {
             var remaining=actual.RemainingLots*(holding.Quantity.Amount.CompareTo(default)<0?ExactDecimal.Parse("-1"):ExactDecimal.Parse("1"));
             return state with{Residuals=[..state.Residuals.Where(p=>!p.Positions.Any(p=>p.Owner==Owner.Owner&&p.BindingId==holding.Id)),
-                ..remaining==default?Array.Empty<ValuationPortfolio>():new[]{OptionPortfolio(remaining,physical is null?null:TerminalAt(occurrence.At))}]};
+                ..remaining==default?Array.Empty<ValuationPortfolio>():new[]{OptionPortfolio(remaining,!SelectedValue?null:TerminalAt(occurrence.At))}]};
         }
-        if(physical is not null&&(instructionEvents.ContainsKey(occurrence.Id)||occurrence.Id==instructionId))
+        if(SelectedValue&&(instructionEvents.ContainsKey(occurrence.Id)||occurrence.Id==instructionId))
         {
             var right=state.Residuals.SingleOrDefault(p=>p.Positions.Any(p=>p.Owner==Owner.Owner&&p.BindingId==holding.Id&&p.ValuationId==option.Id));
             if(right is null)return state;
@@ -259,7 +271,7 @@ public sealed class FuturesOptionLifecycleProjection:ILifecycleProjection
             if(active is null)return state;
             var remaining=active.Positions.Single(p=>p.Owner==Owner.Owner&&p.BindingId==holding.Id).Quantity.Amount;
             var fixing=context.Fix(new(expiryMarket,ObservationRole.DailySettlement,occurrence.At));
-            var terminal=physical is null?(instruction is null?PhysicalOptionTerminal.Automatic:instruction.Instruction=="exercise"?PhysicalOptionTerminal.Exercise:PhysicalOptionTerminal.Abandon):TerminalAt(occurrence.At);
+            var terminal=!SelectedValue?(instruction is null?PhysicalOptionTerminal.Automatic:instruction.Instruction=="exercise"?PhysicalOptionTerminal.Exercise:PhysicalOptionTerminal.Abandon):TerminalAt(occurrence.At);
             var decision=terminal==PhysicalOptionTerminal.Automatic?rule.Decide(option.Series.Terms.Right,option.Series.Terms.Strike,fixing.Price.ToUnitPriceExact().Value):
                 terminal==PhysicalOptionTerminal.Exercise?"exercised":"abandoned";
             return state with{Residuals=[..state.Residuals.Where(p=>!ReferenceEquals(p,active)),..decision=="abandoned"?Array.Empty<ValuationPortfolio>():
@@ -291,13 +303,17 @@ public sealed class FuturesOptionLifecycleProjection:ILifecycleProjection
     private ValuationSetup FutureSetup(TradeInstrument? projectedHolding=null,FuturesMarginValueBinding? funding=null)
     {
         var result=new ValuationSetup(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty.Add(future.Instrument.Id,future),null){
-            InstrumentDiscounting=ImmutableDictionary<Guid,ISideDiscounting>.Empty.Add(future.Instrument.Id,physical?.MarginDiscounting??setup.OptionBindings[option.Id].Discounting)};
-        if(physical is null)return result;
+            InstrumentDiscounting=ImmutableDictionary<Guid,ISideDiscounting>.Empty.Add(future.Instrument.Id,physical?.MarginDiscounting??cash?.MarginDiscounting??setup.OptionBindings[option.Id].Discounting)};
+        if(!SelectedValue)return result;
         projectedHolding??=FuturesExecution.Bind(holding.Id,future,holding.Quantity.Amount*(option.Series.Terms.Right==OptionRight.Call?ExactDecimal.Parse("1"):ExactDecimal.Parse("-1")),
             new(option.Series.Terms.Strike,future.Quote),option.Series.Terms.ExpiryAt,FuturesSettlementState.Unprocessed);
         var projectedTrade=new Trade(trade.Id,trade.BookId,[projectedHolding],trade.Booking);
-        funding??=new(future.Instrument.RetainKnownMarginTerms(projectedTrade,projectedHolding.Id,margin,model,SourceSnapshot),[],FuturesMarginValueBinding.FlatReference){
-            Physical=new(FuturesPhysicalBasisValueBinding.Version,physical.MarkInterpretation,margin.Delivery!.ProfileId,margin.Delivery.ProfileRevision,physical.Asset,physical.Carrying)};
+        if(funding is null)
+        {
+            funding=new(future.Instrument.RetainKnownMarginTerms(projectedTrade,projectedHolding.Id,margin,model,SourceSnapshot),[],FuturesMarginValueBinding.FlatReference);
+            if(physical is not null)funding=funding with{Physical=new(FuturesPhysicalBasisValueBinding.Version,physical.MarkInterpretation,
+                margin.Delivery!.ProfileId,margin.Delivery.ProfileRevision,physical.Asset,physical.Carrying)};
+        }
         return result with{FuturesValueBindings=ImmutableDictionary<MeasureBinding,FuturesMarginValueBinding>.Empty.Add(new(trade.Id,holding.Id),funding)};
     }
     private PhysicalOptionTerminal TerminalAt(DateTimeOffset at)
@@ -307,8 +323,9 @@ public sealed class FuturesOptionLifecycleProjection:ILifecycleProjection
         return instruction is {} selected&&selected.EffectiveAt<=at?(selected.Instruction=="exercise"?PhysicalOptionTerminal.Exercise:PhysicalOptionTerminal.Abandon):PhysicalOptionTerminal.Automatic;
     }
     private ValuationPortfolio OptionPortfolio(ExactDecimal lots,PhysicalOptionTerminal? terminal=null)=>ValuationPortfolio.FromTrades([new(trade.Id,trade.BookId,
-        [new(holding.Id,option,new(lots,holding.Quantity.Specification))],trade.Booking)],physical is null||terminal is null?setup:
-            setup with{PhysicalOptionValueBindings=setup.PhysicalOptionValueBindings.SetItem(new(trade.Id,holding.Id),physical with{Terminal=terminal.Value})});
+        [new(holding.Id,option,new(lots,holding.Quantity.Specification))],trade.Booking)],!SelectedValue||terminal is null?setup:physical is not null?
+            setup with{PhysicalOptionValueBindings=setup.PhysicalOptionValueBindings.SetItem(new(trade.Id,holding.Id),physical with{Terminal=terminal.Value})}:
+            setup with{CashOptionValueBindings=setup.CashOptionValueBindings.SetItem(new(trade.Id,holding.Id),cash! with{Terminal=terminal.Value})});
     private void RequireKnown(FuturesOptionKnownHistory known)
     {
         if(known.Owner!=Owner||known.Series!=option.Series.Key||known.TradeRevision<1||known.SourceContextId!=SourceSnapshot.Knowledge!.ContextId||

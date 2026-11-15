@@ -1,6 +1,5 @@
 using System.Collections.Immutable;
 using OpenEtrm.MarketData.Trading;
-using OpenEtrm.Shared.Numerics;
 
 namespace OpenEtrm.MarketData.Options;
 
@@ -41,16 +40,7 @@ public static class PhysicalFuturesOptionModel
     // explicit next due. The provider resolves these exact saved due inputs.
     public static ImmutableArray<FuturesMarginOccurrence> RequiredMarginOccurrences(FuturesOptionTerms terms,FuturesMarginPolicy margin,
         DateTimeOffset at,OptionNumericalPolicy numerical)=>
-        [..NodeMargins(terms,margin,at,numerical).DistinctBy(o=>o.Id).OrderBy(o=>o.At).ThenBy(o=>o.Phase)];
-    private static ImmutableArray<FuturesMarginOccurrence> NodeMargins(FuturesOptionTerms terms,FuturesMarginPolicy margin,
-        DateTimeOffset at,OptionNumericalPolicy numerical)
-    {
-        if(terms is null||numerical is null||numerical.Steps<1||!TradingInstant.IsSupported(at)||
-            !TradingInstant.IsSupported(terms.ExpiryAt)||at>=terms.ExpiryAt)throw Error();
-        var ticks=terms.ExpiryAt.UtcTicks-at.UtcTicks;
-        return [..Enumerable.Range(0,numerical.Steps+1).Select(step=>
-            FuturesMarginSchedule.NextAfterExecution(margin,at,new SignedRatio((System.Numerics.BigInteger)ticks*step,numerical.Steps)))];
-    }
+        [..ReferenceFuturesOptionStrategy.NodeMargins(terms,margin,at,numerical).DistinctBy(o=>o.Id).OrderBy(o=>o.At).ThenBy(o=>o.Phase)];
 
     public static PhysicalOptionValue Price(FuturesOptionTerms terms,LatticeDecimal futures,LatticeDecimal asset,
         OptionCalibration calibration,LatticeDecimal referenceExpiryDiscount,DateTimeOffset at,OptionNumericalPolicy numerical,
@@ -58,15 +48,15 @@ public static class PhysicalFuturesOptionModel
         FuturesMarginPolicy margin,PhysicalOptionCarrying carrying,CancellationToken ct)
     {
         RequirePolicy(policy);
-        if(terms is null||numerical is null||calibration is null||rule is null||!Enum.IsDefined(terminal)||
-            carrying is null||!TradingInstant.IsSupported(carrying.DeliveryAt)||!TradingInstant.IsSupported(carrying.PrincipalDueAt)||
+        if(terms is null||numerical is null||rule is null||!Enum.IsDefined(terminal)||
+            calibration is not(SolvedVolatility or IntrinsicFallback)||carrying is null||!TradingInstant.IsSupported(carrying.DeliveryAt)||!TradingInstant.IsSupported(carrying.PrincipalDueAt)||
             carrying.PrincipalDueAt<carrying.DeliveryAt||carrying.AssetFactor.CompareTo(Zero)<=0||carrying.PrincipalFactor.CompareTo(Zero)<=0||
             margin?.Implementation!=FuturesMarginPolicy.DeliveryVersion||margin.Delivery?.Terms is null||margin.Delivery.Terms.From!=carrying.DeliveryAt)
             throw Error();
         ct.ThrowIfCancellationRequested();
         _=AmericanFuturesOptionModel.ValidateInputs(terms,futures,referenceExpiryDiscount,at,numerical);
         _=rule.Decide(terms.Right,terms.Strike,terms.Strike);
-        var nodeMargins=NodeMargins(terms,margin,at,numerical);var required=nodeMargins.DistinctBy(o=>o.Id).ToArray();
+        var nodeMargins=ReferenceFuturesOptionStrategy.NodeMargins(terms,margin,at,numerical);var required=nodeMargins.DistinctBy(o=>o.Id).ToArray();
         if(margin.Occurrences.Single(o=>o.Phase==FuturesMarginPhase.Final).At>carrying.DeliveryAt||
             carrying.DeliveryAt<terms.ExpiryAt||carrying.MarginDiscounts.IsDefault||carrying.MarginDiscounts.Any(d=>d is null)||carrying.MarginDiscounts.Length!=required.Length||
             carrying.MarginDiscounts.Select(d=>d.OccurrenceId).Distinct().Count()!=required.Length||required.Any(o=>
@@ -80,46 +70,11 @@ public static class PhysicalFuturesOptionModel
             return (sign*(underlying-strike)*discounts[occurrence.Id],
                 sign*((underlying+basis)*carrying.AssetFactor-underlying*carrying.PrincipalFactor));
         }
-        bool AtExpiry(LatticeDecimal underlying)=>terminal==PhysicalOptionTerminal.Exercise||terminal==PhysicalOptionTerminal.Automatic&&
-            rule.Decide(terms.Right,strike,underlying)=="exercised";
-        if(calibration is IntrinsicFallback fallback)
-        {
-            ct.ThrowIfCancellationRequested();
-            var intrinsic=LatticeDecimal.Max(sign*(futures-strike),Zero);
-            var vanilla=LatticeDecimal.Max(intrinsic+fallback.Residual,Zero);
-            var payoff=intrinsic.CompareTo(Zero)>0?Exercise(0,futures):AtExpiry(futures)?Exercise(numerical.Steps,futures):(Zero,Zero);
-            return new(vanilla,payoff.Item1,payoff.Item2,payoff.Item1+payoff.Item2,PhysicalOptionPolicy.IntrinsicStrategy);
-        }
-        if(calibration is not SolvedVolatility solved)throw Error();
-        var lattice=AmericanFuturesOptionModel.CreateLattice(terms,futures,solved.Volatility,referenceExpiryDiscount,at,numerical);
-        var reference=AmericanFuturesOptionModel.SolveReference(terms,lattice,true,ct);
-        var values=new (LatticeDecimal Reference,LatticeDecimal Delivery)[lattice.Nodes(lattice.Steps)];
-        for(var node=0;node<values.Length;node++)
-        {
-            var underlying=lattice.Underlying(lattice.Steps,node);
-            if(AtExpiry(underlying))values[node]=Exercise(lattice.Steps,underlying);
-        }
-        for(var step=lattice.Steps-1;step>=0;step--)
-        {
-            ct.ThrowIfCancellationRequested();
-            var current=new (LatticeDecimal Reference,LatticeDecimal Delivery)[lattice.Nodes(step)];
-            for(var node=0;node<current.Length;node++)
-            {
-                if(reference.Chosen!.Code(step,node,FuturesOptionState.Alive)=="exercise")
-                    current[node]=Exercise(step,lattice.Underlying(step,node));
-                else foreach(var (successor,probability) in lattice.Next(step,node))
-                {
-                    current[node].Reference+=probability*values[successor].Reference;
-                    current[node].Delivery+=probability*values[successor].Delivery;
-                }
-            }
-            values=current;
-        }
-        // Each stopping payoff is already expressed at the root using its exact
-        // cash/physical due factors. Applying lattice discount again would double carry.
-        var result=values.Single();
-        return new(reference.Root,result.Reference,result.Delivery,result.Reference+result.Delivery,policy.Stopping);
+        var value=ReferenceFuturesOptionStrategy.Price(terms,futures,calibration,referenceExpiryDiscount,at,numerical,rule,terminal,
+            policy.Stopping,policy.IntrinsicStopping,Exercise,ct);
+        return new(value.Vanilla,value.Contract,value.Continuation,value.Contract+value.Continuation,value.Mode);
     }
+
     private static MarketDataException Error()=>new("physical_option_policy",
         "Select the supported physical option law, reference calibration/stopping strategy, exact delivery carrying and every saved possible margin due.");
 }

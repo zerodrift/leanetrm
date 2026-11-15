@@ -20,6 +20,7 @@ public sealed record ValuationSetup(ValuationMeasure Measure,
     public ImmutableDictionary<Guid,FuturesOptionMarketBinding> OptionBindings{get;init;}=ImmutableDictionary<Guid,FuturesOptionMarketBinding>.Empty;
     public ImmutableDictionary<MeasureBinding,FuturesMarginValueBinding> FuturesValueBindings{get;init;}=ImmutableDictionary<MeasureBinding,FuturesMarginValueBinding>.Empty;
     public ImmutableDictionary<MeasureBinding,FuturesOptionPhysicalValueBinding> PhysicalOptionValueBindings{get;init;}=ImmutableDictionary<MeasureBinding,FuturesOptionPhysicalValueBinding>.Empty;
+    public ImmutableDictionary<MeasureBinding,FuturesOptionCashValueBinding> CashOptionValueBindings{get;init;}=ImmutableDictionary<MeasureBinding,FuturesOptionCashValueBinding>.Empty;
     [System.Text.Json.Serialization.JsonIgnore]
     public ImmutableDictionary<MeasureBinding,ISideDiscounting> BindingDiscounting{get;init;}=ImmutableDictionary<MeasureBinding,ISideDiscounting>.Empty;
     // A lifecycle component keeps one held consumer from a source portfolio;
@@ -36,13 +37,14 @@ public sealed record ValuationSetup(ValuationMeasure Measure,
     }
     private ValuationSetup ForInputs(HashSet<Guid> instruments,HashSet<MeasureBinding> bindings)
     {
-        if(FuturesBindings is null||InstrumentDiscounting is null||OptionBindings is null||BindingStates is null||AccountingFacts is null||FuturesValueBindings is null||PhysicalOptionValueBindings is null||BindingDiscounting is null)
+        if(FuturesBindings is null||InstrumentDiscounting is null||OptionBindings is null||BindingStates is null||AccountingFacts is null||FuturesValueBindings is null||PhysicalOptionValueBindings is null||CashOptionValueBindings is null||BindingDiscounting is null)
             throw new MarketDataException("valuation_context","Retain complete explicit valuation inputs.");
         return this with{FuturesBindings=FuturesBindings.Where(p=>instruments.Contains(p.Key)).ToImmutableDictionary(),
             InstrumentDiscounting=InstrumentDiscounting.Where(p=>instruments.Contains(p.Key)).ToImmutableDictionary(),
             OptionBindings=OptionBindings.Where(p=>instruments.Contains(p.Key)).ToImmutableDictionary(),
             FuturesValueBindings=FuturesValueBindings.Where(p=>bindings.Contains(p.Key)).ToImmutableDictionary(),
             PhysicalOptionValueBindings=PhysicalOptionValueBindings.Where(p=>bindings.Contains(p.Key)).ToImmutableDictionary(),
+            CashOptionValueBindings=CashOptionValueBindings.Where(p=>bindings.Contains(p.Key)).ToImmutableDictionary(),
             BindingDiscounting=BindingDiscounting.Where(p=>bindings.Contains(p.Key)).ToImmutableDictionary(),
             BindingStates=BindingStates.Where(p=>bindings.Contains(p.Key)).ToImmutableDictionary(),
             AccountingFacts=AccountingFacts.Where(p=>bindings.Contains(p.Key)).ToImmutableDictionary()};
@@ -128,6 +130,8 @@ public sealed class UnitValuationContext
         Setup.FuturesValueBindings.GetValueOrDefault(new(state.Owner,state.BindingId)):null;
     internal FuturesOptionPhysicalValueBinding? PhysicalOptionValue()=>PricingBinding is {} binding?
         Setup.PhysicalOptionValueBindings.GetValueOrDefault(binding):null;
+    internal FuturesOptionCashValueBinding? CashOptionValue()=>PricingBinding is {} binding?
+        Setup.CashOptionValueBindings.GetValueOrDefault(binding):null;
     internal UnitValuationContext(MarketSnapshot snapshot,ValuationSetup setup,PreparedValuationEnvironment? market=null,UnitPricingContract? declaration=null,CancellationToken cancellation=default,DeliveryCoverage? coverage=null,IntervalValuationSession? intervalSession=null,
         SideValuationContexts? sideContexts=null,IBindingValuationState? bindingState=null,DateTimeOffset? calculationAt=null,MeasureBinding? pricingBinding=null)
     {
@@ -346,7 +350,7 @@ public sealed class ValuationPortfolio
         }
         if(Positions.Select(p=>p.ValuationId).Distinct().Count()!=Instruments.Length)
             throw Error("risk_contract","Every unit instrument must have a held consumer.");
-        if(Setup.BindingStates is null||Setup.FuturesValueBindings is null||Setup.PhysicalOptionValueBindings is null)throw Error("settlement_scope","Supply explicit binding valuation inputs.");
+        if(Setup.BindingStates is null||Setup.FuturesValueBindings is null||Setup.PhysicalOptionValueBindings is null||Setup.CashOptionValueBindings is null)throw Error("settlement_scope","Supply explicit binding valuation inputs.");
         var held=Positions.ToDictionary(p=>new MeasureBinding(p.Owner,p.BindingId));
         if(Setup.BindingDiscounting is null)throw Error("payment_discount_scope","Retain explicit held cash carrying inputs.");
         foreach(var(binding,provider)in Setup.BindingDiscounting)
@@ -361,6 +365,11 @@ public sealed class ValuationPortfolio
             if(Setup.Measure!=ValuationMeasure.PresentValue||value is null||!held.TryGetValue(binding,out var position)||
                 Instruments[indexes[position.ValuationId]] is not FuturesOptionInstrument||!Setup.OptionBindings.ContainsKey(position.ValuationId))
                 throw Error("physical_option_binding","Physical option pricing inputs must belong to an exact held option with its retained reference calibration.");
+        foreach(var(binding,value)in Setup.CashOptionValueBindings)
+            if(Setup.Measure!=ValuationMeasure.PresentValue||value is null||!held.TryGetValue(binding,out var position)||
+                Instruments[indexes[position.ValuationId]] is not FuturesOptionInstrument||!Setup.OptionBindings.ContainsKey(position.ValuationId)||
+                Setup.PhysicalOptionValueBindings.ContainsKey(binding))
+                throw Error("cash_option_binding","Cash option pricing inputs must belong to one exact held option and retained reference calibration, with a single selected strategy.");
         foreach(var (binding,state) in Setup.BindingStates)
         {
             if(state is null||!held.TryGetValue(binding,out var position)||position.Quantity!=state.Quantity||
@@ -379,7 +388,7 @@ public sealed class ValuationPortfolio
     }
     private (Guid ValuationId,DeliveryCoverage? Coverage,MeasureBinding? BindingState,MeasureBinding? PricingBinding) ScopeKey(RiskPosition p) =>
         (p.ValuationId,p.Coverage,Setup.BindingStates.ContainsKey(new(p.Owner,p.BindingId))?new(p.Owner,p.BindingId):null,
-            Setup.PhysicalOptionValueBindings.ContainsKey(new(p.Owner,p.BindingId))?new(p.Owner,p.BindingId):null);
+            (Setup.PhysicalOptionValueBindings.ContainsKey(new(p.Owner,p.BindingId))||Setup.CashOptionValueBindings.ContainsKey(new(p.Owner,p.BindingId)))?new(p.Owner,p.BindingId):null);
     // The index of a holding's unit valuation in Scopes and in this portfolio's declarations.
     internal int ScopeIndex(RiskPosition position)=>scopeIndexes[ScopeKey(position)];
     public ImmutableArray<BookRiskFactors> RiskFactors(CurveModel model,MarketSnapshot snapshot,CancellationToken cancellation=default)

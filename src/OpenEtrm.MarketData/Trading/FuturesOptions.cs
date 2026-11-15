@@ -57,6 +57,7 @@ public sealed partial record FuturesOptionInstrument : Instrument
     {
         var binding = Binding(context);
         if(context.PhysicalOptionValue() is {} physical)return DeclarePhysical(context,binding,physical);
+        if(context.CashOptionValue() is {} cash)return DeclareCash(context,binding,cash);
         return new(Id, binding.Policy.Id, [binding.Underlying], UnitQuantity.Specification, Currency) { Time = binding.Calibration is SolvedVolatility?
             ValuationTimeDependency.Between(context.CalculationAt,Series.InstructionCutoffAt is {} cutoff&&cutoff>context.CalculationAt?cutoff:Series.Terms.ExpiryAt):ValuationTimeDependency.Pinned,
             DiscountInputs=[new(new(Id,0,Series.Terms.ExpiryAt,Currency),binding.Discounting)],
@@ -67,7 +68,7 @@ public sealed partial record FuturesOptionInstrument : Instrument
     }
     public override ImmutableArray<DeclaredPriceStep> ResolvePriceSteps(UnitValuationContext context,UnitPricingContract declaration)
     {
-        if(context.PhysicalOptionValue() is not null)return [];
+        if(context.PhysicalOptionValue() is not null||context.CashOptionValue() is not null)return [];
         var binding=Binding(context);
         return binding.Calibration is SolvedVolatility?PriceSteps(binding,LatticeDecimal.From(Discount(context,binding).DiscountFactor),context.CalculationAt):[];
     }
@@ -83,6 +84,7 @@ public sealed partial record FuturesOptionInstrument : Instrument
             throw new MarketDataException("valuation_measure", "Futures options implement present value only.");
         var binding = Binding(context);
         if(context.PhysicalOptionValue() is {} physical)return PhysicalValue(context,binding,physical);
+        if(context.CashOptionValue() is {} cash)return CashValue(context,binding,cash);
         var inputs = context.Inputs;
         if (inputs.SnapshotId != binding.SnapshotId)
             throw Error("option_context", $"Option series {Series.Key.Code} was calibrated on another snapshot.");
@@ -92,6 +94,13 @@ public sealed partial record FuturesOptionInstrument : Instrument
         var volatility=binding.Calibration is SolvedVolatility?LatticeDecimal.Parse(inputs.Volatility(binding.Id).Format(30,MidpointRounding.ToEven)):(LatticeDecimal?)null;
         var unit = binding.UnitPrice(futures, inputs.ValuationAt, context.Cancellation,LatticeDecimal.From(discount.DiscountFactor),volatility).ToExact();
         return new(context, ExactMoney.FromMoney(new Money(unit, Currency)).Scale(Series.Multiplier), UnitQuantity.Specification);
+    }
+    private SidePaymentKey MarginPayment(FuturesMarginOccurrence occurrence)=>new(occurrence.Id,0,occurrence.DueAt,Currency);
+    private ImmutableArray<PhysicalOptionMarginDiscount> MarginFactors(UnitValuationContext context,ImmutableArray<FuturesMarginOccurrence> margins)
+    {
+        var factors=context.Inputs.Discounts([..margins.Where(o=>o.DueAt>context.CalculationAt).Select(MarginPayment)]).ToDictionary(f=>f.Payment);
+        return [..margins.Select(o=>new PhysicalOptionMarginDiscount(o.Id,o.DueAt,o.DueAt<=context.CalculationAt?LatticeDecimal.Parse("1"):
+            LatticeDecimal.From(factors[MarginPayment(o)].DiscountFactor)))];
     }
     private SidePaymentFactor Discount(UnitValuationContext context,FuturesOptionMarketBinding binding)
     {

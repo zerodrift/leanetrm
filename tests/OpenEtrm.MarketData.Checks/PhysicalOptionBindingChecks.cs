@@ -56,6 +56,14 @@ internal static class PhysicalOptionBindingChecks
         var vanillaUnit=AmericanFuturesOptionModel.UnitPrice(option.Series.Terms,L("3"),sigma,L("0.999"),at,numerical,default);
         Equal(values[vanilla.Id].Value,ExactMoney.FromMoney(new(vanillaUnit.ToExact(),option.Currency)).Scale(option.Series.Multiplier));
         if(reference.TreePrices!=3)throw new Exception("Physical reference tree prices were omitted from the shared option work counter.");
+        var immediate=margin with{Opening=FuturesMarginOpening.IncludeOpeningInstant,
+            Occurrences=[new(Guid.NewGuid(),at,at,FuturesMarginPhase.Daily),final]};
+        var immediatePortfolio=ValuationPortfolio.FromTrades([first],setup with{PhysicalOptionValueBindings=ImmutableDictionary<MeasureBinding,FuturesOptionPhysicalValueBinding>.Empty
+            .Add(Key(first),selected with{Margin=immediate})});
+        if(immediatePortfolio.Declare(source).SelectMany(d=>d.DiscountInputs).Any(d=>d.Payment.PaymentAt<=at))
+            throw new Exception("A physical option requested discounting for already-due inception VM.");
+        Equal(RiskEngine.CalculateExact(RiskEngine.PrepareConnected(basis.Connected,basis.PricingBindings,[immediatePortfolio],basis),[],RiskEngine.ExactNumericalPolicy)
+            .Groups.Single().BaseValues.Single().Value,values[first.Id].Value);
         if(portfolio.Scopes.Any(s=>s.BindingState is not null)||portfolio.Scopes.Count(s=>s.PricingBinding is not null)!=2)
             throw new Exception("Selected pricing introduced an actual state or lost its distinct pricing scopes.");
         var legacy=ValuationPortfolio.FromTrades([vanilla],setup.ForPosition(new(vanilla.Id,vanilla.Instruments.Single().Id,vanilla.BookId),option.Id));

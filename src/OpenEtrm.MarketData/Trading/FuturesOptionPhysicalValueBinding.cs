@@ -38,7 +38,6 @@ public sealed partial record FuturesOptionInstrument
     private Guid DeliveryPaymentId(FuturesOptionPhysicalValueBinding selected)=>ContractIdentity.FromCanonical(
         DefinitionIdentity.CanonicalTerm(new object[]{PhysicalOptionPolicy.Version,SeriesKey,selected.Margin.Id,selected.Margin.Revision,
             selected.Margin.Delivery!.ProfileId,selected.Margin.Delivery.ProfileRevision}));
-    private SidePaymentKey MarginPayment(FuturesMarginOccurrence occurrence)=>new(occurrence.Id,0,occurrence.DueAt,Currency);
     private UnitPricingContract DeclarePhysical(UnitValuationContext context,FuturesOptionMarketBinding reference,FuturesOptionPhysicalValueBinding selected)
     {
         var gas=PhysicalTerms(context,reference,selected);
@@ -49,7 +48,7 @@ public sealed partial record FuturesOptionInstrument
             // generic frozen-clock child cannot invent new margin-due inputs.
             Time=ValuationTimeDependency.Pinned,
             DiscountInputs=[new(new(Id,0,Series.Terms.ExpiryAt,Currency),reference.Discounting),
-                ..margins.Select(o=>new DiscountInput(MarginPayment(o),selected.MarginDiscounting)),
+                ..margins.Where(o=>o.DueAt>context.CalculationAt).Select(o=>new DiscountInput(MarginPayment(o),selected.MarginDiscounting)),
                 ..physical.Select(p=>new DiscountInput(p,selected.Carrying!){Source=selected.Asset.Snapshot})],
             Volatility=reference.Calibration is SolvedVolatility solved?[new(reference.Id,solved.Volatility.ToString(),VolatilityInput.Annualized)]:[],
             StaticDerivatives=new(StaticDerivativeRestriction.Version,"physical_option_reference_strategy_derivatives_not_qualified"),
@@ -77,9 +76,8 @@ public sealed partial record FuturesOptionInstrument
         var assetFactor=gas.Carrying==GasHoldingCarrying.Nominal?one:LatticeDecimal.From(factors.Single(f=>f.Payment.Ordinal==1).DiscountFactor);
         var principalFactor=gas.Carrying==GasHoldingCarrying.Nominal?one:LatticeDecimal.From(factors.Single(f=>f.Payment.Ordinal==0).DiscountFactor);
         var margins=PhysicalFuturesOptionModel.RequiredMarginOccurrences(Series.Terms,selected.Margin,context.CalculationAt,reference.Policy);
-        var marginFactors=inputs.Discounts([..margins.Select(MarginPayment)]).ToDictionary(f=>f.Payment);
         var carrying=new PhysicalOptionCarrying(gas.From,gas.CashDueAt,assetFactor,principalFactor,
-            [..margins.Select(o=>new PhysicalOptionMarginDiscount(o.Id,o.DueAt,LatticeDecimal.From(marginFactors[MarginPayment(o)].DiscountFactor)))]);
+            MarginFactors(context,margins));
         var calibration=reference.Calibration is SolvedVolatility solved?solved with{Volatility=LatticeDecimal.Parse(inputs.Volatility(reference.Id).Format(30,MidpointRounding.ToEven))}:reference.Calibration;
         if(calibration is SolvedVolatility)reference.RecordTreePrice();
         var value=PhysicalFuturesOptionModel.Price(Series.Terms,LatticeDecimal.From(a.ToUnitPriceExact().Value),LatticeDecimal.From(b.ToUnitPriceExact().Value),
