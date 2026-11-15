@@ -51,6 +51,8 @@ internal static class GasPhysicalProjectionChecks
                 NativeFutures:new(FuturesMarginValuationPolicy.CurrencyDefault,RateDiscountTiming.Version){Economic=new(FuturesEconomicValuationPolicy.Version,
                     FuturesMarginValueBinding.FlatReference,futureOrigin?physical:[])},GasOwned:new(GasOwnedValuationPolicy.ProfileVersion,GasOwnedValuationPolicy.WholeBooks,
                     GasOwnedValuationPolicy.CurrencyDefault,RateDiscountTiming.Version){PrincipalCarrying=GasOwnedValuationPolicy.SavedPrincipal});
+            if(fixture.TryGetProperty("optionOrigin",out var optionOrigin)&&optionOrigin.GetBoolean())pricing=pricing with{
+                FuturesOptions=FuturesOptionValuationPolicy.Release1 with{Physical=new(FuturesOptionPhysicalValuationPolicy.Version,[])}};
             var opening=await new PortfolioValuation(database).Prepare(connection,data,frame,snapshot,context,[fixture.Id("bookId")],pricing,[],[],ct);
             if(!futureOrigin)
             {

@@ -670,3 +670,11 @@ complete report and source union with frozen binaries and no financial writes.
 Across-time no-shock P&L may include time, known events and the choice to retain
 the right while its valuation model would prefer exercise; no compensating cash
 is inferred. Unit working-scale rounding remains disclosed separately.
+
+A separate sealed synthetic past listing qualifies an accepted option exercise
+through its same-publication native future adoption, later final margin and
+observed physical title, identified supply and principal memberships. The source
+retains the option premium separately. Independent owner/quantity/cash oracles and
+both read-only full-revaluation workers reuse the ordinary physical coordinator.
+The listing is explicitly synthetic; observed final facts precede the actual
+knowledge receipt rather than relying on a future observation timestamp.

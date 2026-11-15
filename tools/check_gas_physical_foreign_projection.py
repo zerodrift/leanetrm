@@ -2,6 +2,7 @@
 import json
 import os
 from decimal import Decimal
+from datetime import datetime,timedelta
 from pathlib import Path
 import shutil
 import subprocess
@@ -27,7 +28,10 @@ def fixture(root):
 
 def configured(query,manifest,state):
     catalog,tenant,workspace=(manifest[k] for k in ('catalogId','tenantId','workspaceId'))
-    issuer=manifest['identityIssuer'];at='2026-11-05T16:00:00Z';secondary=manifest['physicalSecondaryRevision']
+    issuer=manifest['identityIssuer'];secondary=manifest['physicalSecondaryRevision']
+    delivery_start=datetime.fromisoformat(state['delivery']['profile']['fromAt'].replace('Z','+00:00'))
+    def instant(days,hours):return (delivery_start+timedelta(days=days,hours=hours)).isoformat().replace('+00:00','Z')
+    at=instant(4,16);publication_at=instant(6,16)
     def literal(value):return "'"+json.dumps(value).replace("'","''")+"'::jsonb"
     def call(sql):
         token=query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('{issuer}','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
@@ -51,28 +55,29 @@ def configured(query,manifest,state):
     for trade,quantity in ((long,size),(short,-size)):
         request=dict(operationId=str(uuid4()),tradeId=trade['tradeId'],bindingId=trade['bindingId'],expectedRevision=1,expectedMarginRevision=1,
             contextId=capture(final['at'][:10]),asOf=final['at'],throughOccurrence=final['id'],implementation='native_futures_margin_journal_v1',correctionDue=[],previewHash='0'*64)
-        amount=str(quantity*2)
-        step=dict(occurrenceId=final['id'],previousDeterminationId=None,sourceObservationId=observation,previousBasis='3',
+        execution_price=Decimal(state.get('executionPrice','3')) if trade is long else Decimal('3')
+        amount=str(quantity*(Decimal('5')-execution_price))
+        step=dict(occurrenceId=final['id'],previousDeterminationId=None,sourceObservationId=observation,previousBasis=str(execution_price),
             exactVariation=amount,roundedTotal=amount,adjustment=amount,adjustmentDue=final['dueAt'],noChange=False)
         continuation=dict(implementation='gas_futures_delivery_continuation_v1',positionId=None,expectedVersion=0,finalOccurrenceId=final['id'],sourceObservationId=observation,steps=[])
         accepted=json.loads(call(f"SELECT settlement_data.determine_futures_margin('{catalog}',{literal(request)},{literal([step])},{literal(continuation)})::text;"))
         parents.append(dict(tradeId=trade['tradeId'],bindingId=trade['bindingId'],positionId=accepted['deliveryPositionId']))
     account=state['delivery']['accountId'];action=state['delivery']['actionPolicy']['policyId']
     call(f"SELECT security.record_gas_owned('{catalog}','{uuid4()}','bind_policy','{account}',{literal(dict(action='gas.futures.delivery',policyId=action,
-        policyRevision=1,effectiveAt='2026-10-01T00:00:00Z'))},'2026-11-07T16:00:00Z','{capture('2026-11-07')}',NULL,NULL,false);")
+        policyRevision=1,effectiveAt='2026-10-01T00:00:00Z'))},'{publication_at}','{capture(publication_at[:10])}',NULL,NULL,false);")
     def evidence(kind,quantity,when,key):
         body=dict(sourceKey=key,kind=kind,quantity=str(quantity),occurredAt=when,evidence='Synthetic observed independent-market title or dispatch',expectedRevision=0)
-        return json.loads(call(f"SELECT security.record_gas_owned('{catalog}','{uuid4()}','evidence','{account}',{literal(body)},'2026-11-07T16:00:00Z','{capture('2026-11-07')}',NULL,NULL,false)::text;"))['id']
+        return json.loads(call(f"SELECT security.record_gas_owned('{catalog}','{uuid4()}','evidence','{account}',{literal(body)},'{publication_at}','{capture(publication_at[:10])}',NULL,NULL,false)::text;"))['id']
     def perform(parent,quantity,when,title,supply):
         version=int(query(f"SELECT coalesce(max(revision),0) FROM trading.gas_futures_delivery_principal_runs WHERE(catalog_id,position_id)=('{catalog}','{parent['positionId']}');"))
         body=dict(positionId=parent['positionId'],businessReference='synthetic_foreign_'+when,expectedVersion=version,quantity=str(quantity),
             performedAt=when,titleEvidenceId=title,availableAt=when if title else None,supply=supply)
-        return execute(query,manifest,capture,dict(action_policy_id=action),body,at='2026-11-07T16:00:00Z',business_date='2026-11-07')
-    title=perform(parents[0],size/4,'2026-11-03T10:00:00Z',evidence('title_receipt',size/4,'2026-11-03T10:00:00Z','synthetic_foreign_title_first'),[])
-    perform(parents[0],size/4,'2026-11-06T10:00:00Z',evidence('title_receipt',size/4,'2026-11-06T10:00:00Z','synthetic_foreign_title_next'),[])
+        return execute(query,manifest,capture,dict(action_policy_id=action),body,at=publication_at,business_date=publication_at[:10])
+    title=perform(parents[0],size/4,instant(2,10),evidence('title_receipt',size/4,instant(2,10),'synthetic_foreign_title_first'),[])
+    perform(parents[0],size/4,instant(5,10),evidence('title_receipt',size/4,instant(5,10),'synthetic_foreign_title_next'),[])
     lot=query(f"SELECT receipt_lot_id FROM trading.gas_futures_delivery_performances WHERE(catalog_id,id)=('{catalog}','{title['id']}');")
-    perform(parents[1],size/8,'2026-11-06T13:00:00Z',None,[dict(lotId=lot,reservationId=None,quantity=str(size/8),
-        evidenceId=evidence('physical_delivery',size/8,'2026-11-06T13:00:00Z','synthetic_foreign_dispatch'))])
+    perform(parents[1],size/8,instant(5,13),None,[dict(lotId=lot,reservationId=None,quantity=str(size/8),
+        evidenceId=evidence('physical_delivery',size/8,instant(5,13),'synthetic_foreign_dispatch'))])
     profile=dict(profileId=str(uuid4()),expectedRevision=0,implementation='gas_accepted_quantity_lifecycle_projection_v3',
         quantityDisposition='retain_quantity_obligations_v1',effectiveAt='2026-10-01T00:00:00Z',performances=[],cashouts=[])
     call(f"SELECT security.configure_gas_owned_projection('{catalog}','{uuid4()}','projection_profile','{account}',{literal(profile)},'{at}','{capture(at[:10])}',false);")
@@ -82,7 +87,7 @@ def configured(query,manifest,state):
     contracts=json.loads(query(f"SELECT jsonb_agg(contract_id ORDER BY ordinal) FROM market_data.curve_members WHERE(catalog_id,revision_id,curve_code)=('{catalog}','{manifest['revisionId']}','nymex_ng');"))
     directory=Path(query('SHOW unix_socket_directories;'));packet=directory/'native-foreign-physical-projection.json'
     packet.write_text(json.dumps(dict(manifest=manifest,host=str(directory),contextId=capture(at[:10]),at=at,bookId=book,pins=pins(manifest['revisionId']),
-        contracts=contracts,parents=parents,gasProfiles=[dict(accountId=account,profileId=profile['profileId'],revision=1)],mode='foreign',
+        contracts=contracts,parents=parents,gasProfiles=[dict(accountId=account,profileId=profile['profileId'],revision=1)],mode='foreign',optionOrigin=state.get('optionOrigin',False),
         sources=[dict(revisionId=secondary,curve='synthetic_inventory',contractId=state['delivery']['accountTerms']['markContractId'],pins=pins(secondary))])));packet.chmod(0o600)
     root=Path(__file__).resolve().parents[1];frozen=directory/'foreign-physical-binaries';shutil.copytree(root/'tests/OpenEtrm.Api.Checks/bin/Debug/net10.0',frozen)
     provision(query,manifest,'synthetic_foreign_physical_worker',permissions=('ReadGasOwnedHoldings',))
