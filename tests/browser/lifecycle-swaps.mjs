@@ -7,26 +7,32 @@ const q=JSON.stringify,root='#lifecycle-page',panel=root+' [data-lifecycle="pane
 // Every financial action below goes through the actual shared browser form.
 export async function swapLifecycleFixture(driver,name,{net=false,shared=false}={}){
  const {command,evaluate,wait,click,set,submit,persona,check,idle,url}=driver;
+ const bookId=driver.lifecycleSwapBooks?.[name];if(!bookId)throw Error('Missing isolated synthetic lifecycle book '+name);
+ async function scopeBook(){
+  if(!await evaluate("document.querySelector('#blotter-scope').open"))await click('#blotter-scope>summary');
+  await evaluate(`(()=>{const options=[...document.querySelector('#blotter-books').options];if(!options.some(o=>o.value===${q(bookId)}))throw Error('Missing selected lifecycle book');options.forEach(o=>{o.selected=o.value===${q(bookId)};});})()`);
+  await click('#blotter-scope-apply');await wait(idle);
+ }
  await command('Page.enable');await command('Runtime.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
  await command('Page.navigate',{url});await wait(idle);await persona('admin');
  await evaluate(`(async()=>{const b=await(await fetch('/api/bootstrap')).json();const r=await fetch('/api/admin/create',{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':b.csrfToken},body:JSON.stringify({operationId:crypto.randomUUID(),login:${q(name)},name:${q(name)},kind:'human',roles:['trader','risk_analyst']})});if(!r.ok)throw Error(await r.text());})()`);
  await persona(name);await setupWorkspaceProbe(evaluate);
  const dates=await evaluate(`(async()=>{const w=await(await fetch('/api/workspace')).json();return ['2020-12-18','2021-01-15'].map(day=>{const f=w.frames.find(f=>w.initialFrameIds.includes(f.id)&&f.at.startsWith(day));if(!f)throw Error('Missing explicit synthetic close '+day);return {id:f.id,session:f.close?.session??'demo_close_1600',at:f.at};});})()`);
- await blotterAt({set,wait,click},dates[0]);
+ await blotterAt({set,wait,click},dates[0]);await scopeBook();
  const selected=await evaluate(`(async()=>{
   const token=(await(await fetch('/api/bootstrap')).json()).csrfToken;
   window.__swapPost=async(path,body)=>{const r=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':token},body:JSON.stringify(body)});if(!r.ok)throw Error(path+': '+await r.text());return r.json();};
   const context={snapshotId:${q(dates[0].id)},convention:'independent_side_financial_swap_v2',knowledgeMode:'current'},c=await window.__swapPost('swaps/catalog',context),index=c.indices.find(i=>i.curve==='base_forward');
   const entity=c.legalEntities[0],party=c.counterparties[0],payment={frequency:'monthly',rule:'days_after_period_end',days:18,dayOfMonth:null,dayBasis:'calendar_days',shortMonth:null,adjustment:'unadjusted',calendar:null,implementation:'monthly_payment_date_rules_v1'};
-  if(!index||!entity||!party)throw Error('Missing explicit synthetic booking choices');
+  if(!c.books.some(b=>b.id===${q(bookId)})||!index||!entity||!party)throw Error('Missing explicit synthetic booking choices');
   const terms={currency:index.currencyCode,deliveryFrom:'2021-01-01',deliveryTo:'2021-02-01',paymentSchedule:payment};
   const floating={...terms,curve:index.curve,index:index.index,resetFrequency:'monthly',averagingMethod:'none',spread:'0',settlement:{mode:'curve_target',index:null,projectionPolicy:null}},
    side={basis:'period_total',quantity:index.quantityChoices[0].specification,amount:null,allocation:null,priceApplication:'period_average_times_quantity_v1',power:null,periods:[{amount:'100',fixed:null,floating}]};
-  const booked=await window.__swapPost('swaps/book',{...context,operationId:crypto.randomUUID(),bookId:c.books[0].id,executedAt:null,quantity:${shared?'null':q('100')},fixedCoefficient:${shared?'null':q('-1')},discounting:false,definitionRevisionId:index.definitionRevisionId,commodity:index.commodity,
+  const booked=await window.__swapPost('swaps/book',{...context,operationId:crypto.randomUUID(),bookId:${q(bookId)},executedAt:null,quantity:${shared?'null':q('100')},fixedCoefficient:${shared?'null':q('-1')},discounting:false,definitionRevisionId:index.definitionRevisionId,commodity:index.commodity,
    fixed:${shared?'null':"{...terms,price:'3'}"},floating:${shared?'null':'floating'},${shared?"swapType:'scheduled_financial_swap',firstCoefficient:'-1',scheduled:{implementation:'whole_term_scheduled_financial_swap_v1',first:side,second:structuredClone(side)},":''}legalEntityId:entity.id,legalEntityRevision:entity.revision,counterpartyId:party.id,counterpartyRevision:party.revision});
-  window.__swapFixture={tradeId:booked.tradeId,frame:${q(dates[1].id)},context:{...context,snapshotId:${q(dates[1].id)}}};return window.__swapFixture;
+  window.__swapFixture={tradeId:booked.tradeId,bookId:${q(bookId)},frame:${q(dates[1].id)},context:{...context,snapshotId:${q(dates[1].id)}}};return window.__swapFixture;
  })()`);
- await blotterAt({set,wait,click},dates[1]);
+ await blotterAt({set,wait,click},dates[1]);await scopeBook();
  await evaluate(`(async()=>{const f=window.__swapFixture,post=window.__swapPost;let d=await post('lifecycle/view',{...f.context,convention:'trading_workspace_v1'});
   const rows=d.swapOccurrences.filter(r=>r.trade_id===f.tradeId);if(rows.length!==2)throw Error('Expected two exact synthetic payment occurrences');
   f.occurrences=rows;f.profiles=[];f.currency={revision:{catalogId:rows[0].reference_catalog_id,revisionId:rows[0].reference_revision_id},code:rows[0].currency_code};
@@ -63,7 +69,7 @@ export async function swapLifecycleFixture(driver,name,{net=false,shared=false}=
   const version=(await inspect()).settlement.version,origin=await evaluate('performance.timeOrigin');await command('Page.reload');await wait(`performance.timeOrigin!==${origin}&&${idle}`,60000);
   // A reload starts with an unselected workspace. Reselect the same actor and
   // read-only header; the retained command itself remains byte-for-byte intact.
-  await persona(name);await blotterAt({set,wait,click},dates[1]);await lifecycle();await check('reload retains the exact uncertain lifecycle request before receipt-first retry',`sessionStorage.getItem(${q(pending[0])})===${q(pending[1])}&&!document.querySelector(${q(root+' [data-lifecycle="pending"]')}).hidden`);
+  await persona(name);await blotterAt({set,wait,click},dates[1]);await scopeBook();await lifecycle();await check('reload retains the exact uncertain lifecycle request before receipt-first retry',`sessionStorage.getItem(${q(pending[0])})===${q(pending[1])}&&!document.querySelector(${q(root+' [data-lifecycle="pending"]')}).hidden`);
   // The helper functions are intentionally page-local; restore only read access
   // after reload, never the retained financial body.
   await evaluate(`(async()=>{const token=(await(await fetch('/api/bootstrap')).json()).csrfToken;window.__swapPost=async(path,body)=>{const r=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':token},body:JSON.stringify(body)});if(!r.ok)throw Error(await r.text());return r.json();};window.__swapFixture=${q(selected)};window.__swapInspect=()=>window.__swapPost('swaps/settlement/inspect',{context:window.__swapFixture.context,tradeId:window.__swapFixture.tradeId,revision:null,duePolicy:'swap_due_nominal_v1',recognitionPolicy:'swap_completed_period_trading_pnl_v1'});})()`);

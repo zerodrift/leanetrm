@@ -1335,8 +1335,9 @@ def main():
                 from check_hosted_http import run_checks as check_hosted_http
                 check_hosted_http(temporary,manifest,query,dotnet,frozen_dll,app_env,args.browser if args.browser_check else None,url,run_id,psql=psql,psql_environment=env)
             elif args.lifecycle_swap_browser_check:
+                from lifecycle_swap_browser_fixture import prepare as prepare_lifecycle_books
                 target=temporary/'browser-target.json'
-                target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,'lifecycleSwapBooks':prepare_lifecycle_books(query,manifest)}))
                 browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--lifecycle-swaps'],cwd=ROOT,env={**env,'OPENETRM_BROWSER_ACTION_WAIT_MS':'30000'},start_new_session=True)
                 if browser_process.wait(timeout=420):raise RuntimeError('Owned shared lifecycle swap browser checks failed')
             elif args.scheduled_swap_check:
@@ -1351,8 +1352,9 @@ def main():
                 subprocess.run([str(dotnet),'run','--project','tests/OpenEtrm.Api.Checks','--','--swap-holding-markets',str(agent_fixture)],cwd=ROOT,env=app_env,check=True,timeout=120)
                 subprocess.run([str(dotnet),'run','--project','tests/OpenEtrm.Api.Checks','--','--swap-settlement-agent',str(agent_fixture)],cwd=ROOT,env=app_env,check=True,timeout=120)
                 if args.browser_check:
+                    from lifecycle_swap_browser_fixture import prepare as prepare_lifecycle_books
                     target=temporary/'browser-target.json'
-                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,'lifecycleSwapBooks':prepare_lifecycle_books(query,manifest)}))
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--scheduled-swaps'],cwd=ROOT,env={**env,'OPENETRM_BROWSER_ACTION_WAIT_MS':'30000'},start_new_session=True)
                     # Four owned browser suites: authoring, schedules, settlement and netting.
                     # Every action here re-reads scheduled swaps, so each may wait up to thirty seconds; keep an overall bound too.
