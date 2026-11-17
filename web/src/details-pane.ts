@@ -6,9 +6,11 @@ import {askInPanel,askLeave,modeLabel,sameMode,type PanelMode,type SidePanel} fr
 /**
  * The pane over `host`, the dock's Details body. `unsaved` says whether leaving the mode shown would lose edits, which the person is asked
  * about first, before another mode is shown or the details collapse. `step` hears ◂ and ▸, `collapsed` that the person collapsed the
- * details (⌄ or Escape), `expand` that a mode wants the pane in view, and `changed` every change of the mode.
+ * details (⌄ or Escape), `expand` that a mode wants the pane in view, and `changed` every change of the mode. `rest` is what the pane
+ * shows when it holds nothing: nothing below the Blotter's positions, and the instrument chooser on New trade's page, where the pane is
+ * the page and never closes.
  */
-export function setupDetailsPane(host:HTMLElement,o:{unsaved:()=>boolean;busy:()=>boolean;step:(direction:-1|1)=>void;collapsed:()=>void;expand:()=>void;changed:()=>void}){
+export function setupDetailsPane(host:HTMLElement,o:{unsaved:()=>boolean;busy:()=>boolean;step:(direction:-1|1)=>void;collapsed:()=>void;expand:()=>void;changed:()=>void;rest:()=>PanelMode}){
   const node=<K extends keyof HTMLElementTagNameMap>(tag:K,id:string,className=''):HTMLElementTagNameMap[K]=>{const n=document.createElement(tag);if(id)n.id=id;if(className)n.className=className;return n;};
   const pane=node('section','position-details','details-pane');pane.tabIndex=-1;pane.hidden=true;
   const button=(id:string,text:string,label:string)=>{const b=node('button',id,'icon-button details-control');b.type='button';b.textContent=text;b.setAttribute('aria-label',label);return b;};
@@ -54,13 +56,15 @@ export function setupDetailsPane(host:HTMLElement,o:{unsaved:()=>boolean;busy:()
     if(mode&&mode.kind!=='position')pane.focus({preventScroll:true});
     return true;
   }
+  /** Puts the pane at its rest, drawing it only when that is another mode than the one shown. */
+  function settle(){const rest=o.rest();if(sameMode(mode,rest))return;mode=rest;draw();}
   /** Closes the details without asking, for a page whose reads, and so whose positions, no longer stand. */
-  function reset(){abandonQuestion();if(mode===null)return;mode=null;draw();}
+  function reset(){abandonQuestion();settle();}
   /** The person collapses the details: a question still open is answered no, the edits are asked about, and the pane closes. */
   async function close(){
     abandonQuestion();
     if(!await leave())return;
-    if(mode!==null){mode=null;draw();}
+    settle();
     o.collapsed();
   }
   function focusForm(){

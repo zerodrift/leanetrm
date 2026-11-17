@@ -49,7 +49,7 @@ test('maximizing Details preserves its form and unsaved guard, and closing resto
    const grid=document.createElement('section'),details=document.createElement('section');window.edits=false;
    const group=id=>({kind:'group',tabs:[id],active:id});
    window.dock=setupDock(document.getElementById('host'),{tabs:[{id:'grid',label:'Positions',body:grid},{id:'details',label:'Details',body:details}],initial:{layout:{kind:'split',direction:'column',ratio:.5,children:[group('grid'),group('details')]},collapsed:[]},rules:{maxDepth:3,fixed:['grid'],ratioRange:[.05,.95]},narrow:()=>false,maximizable:true,ownCollapse:['details'],changed:()=>{}});
-   window.pane=setupDetailsPane(details,{unsaved:()=>edits,busy:()=>false,step:()=>{},collapsed:()=>dock.collapse('details'),expand:()=>dock.reveal('details'),changed:()=>{if(pane.shell.current()===null)dock.collapse('details');}});
+   window.pane=setupDetailsPane(details,{unsaved:()=>edits,busy:()=>false,step:()=>{},rest:()=>null,collapsed:()=>dock.collapse('details'),expand:()=>dock.reveal('details'),changed:()=>{if(pane.shell.current()===null)dock.collapse('details');}});
    await pane.show({kind:'new',product:'swaps'});pane.shell.form(true);
    window.form=pane.shell.element('form');form.innerHTML='<input value="Synthetic edit">';edits=true;
    document.querySelector('[aria-label="Maximize Details"]').click();

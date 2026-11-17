@@ -324,7 +324,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   let position!:ReturnType<typeof setupPositionPanel>;
   const editing=()=>!!position?.unsaved()||editor.unsaved()||swapEditor.unsaved()||booking.unsaved()||options.tickets.unsaved()||risk.edited();
   const detailsPane=setupDetailsPane(get('blotter-pane-details'),{unsaved:editing,busy,step:direction=>void stepPosition(direction),
-    collapsed:()=>{if(!deskPanel.closed())focusSelected();},expand:()=>{dock.reveal('details');makeRoom();fitRoom();},changed:modeChanged});
+    collapsed:()=>{if(!deskPanel.closed())focusSelected();},expand:()=>{dock.reveal('details');makeRoom();fitRoom();},changed:modeChanged,rest:()=>null});
   const panel=detailsPane.shell;
   placeDock();
   // A request whose outcome is not known is kept with its Check status and Retry in a card on the page, above the panes, whatever the details
