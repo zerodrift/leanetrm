@@ -234,16 +234,16 @@ def run_checks(url, query, psql, environment, manifest):
         return {'context':at_work(selected),'bookIds':[],'portfolioIds':[]}
     observation_waiters="SELECT count(DISTINCT pid) FROM pg_locks WHERE relation='market_data.observations'::regclass AND NOT granted AND mode='AccessShareLock';"
     publication_waiters="SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND objid=730849102 AND NOT granted;"
-    def reading(client,path,body):
+    def reading(client,path,body,expected=200):
         result={}
         def work():
-            try:result['value']=client.call(path,body)
+            try:result['value']=client.call(path,body,expected=expected)
             except Exception as error:result['error']=repr(error)[:200]
         thread=threading.Thread(target=work);thread.start()
         return thread,result
-    def valuing_together(path,body):
+    def valuing_together(path,body,expected=200):
         def held():
-            first=reading(c,path,body);waiting(1)
+            first=reading(c,path,body,expected);waiting(1)
             second=reading(other,'portfolio/risk/catalog',scope_at_work(other_frame))
             deadline=time.monotonic()+4
             while int(query(observation_waiters))!=2:
@@ -260,8 +260,9 @@ def run_checks(url, query, psql, environment, manifest):
     # A ticket read also reads its trade's current head, under the same gate, before it values.
     ticket,_=valuing_together('futures/editor',{'context':at_work(frame,working['futuresConvention']),'tradeId':held['tradeId'],'revision':int(held['revision'])})
     check('a trade ticket read does not hold the publication gate while it values',ticket['canAmend'] is True or ticket.get('amendUnavailableReason'))
-    # A P&L run captures the knowledge cutoff of both its dates under the same gate, then values both. It explains
-    # remaining present value, which a swap has and a future's execution P&L does not.
+    # A P&L run captures the knowledge cutoff of both its dates under the same gate, then reads and values both. The
+    # standard example records no cash facts for its swap, so this run reads both dates and is then refused for its
+    # accounting coverage; the cash and P&L check qualifies complete reports.
     policies=c.call('portfolio/pnl/policies')
     prior=max((f for f in working['frames'] if f['id'] in working['initialFrameIds'] and f['at']<frame['at']),key=lambda f:f['at'])
     def dated(selected):
@@ -269,8 +270,8 @@ def run_checks(url, query, psql, environment, manifest):
     pnl={'opening':dated(prior),'closing':dated(frame),'knownAt':blotter['context']['knownAt'],'bookIds':[swap['bookId']],'portfolioIds':[],
          'tradeIds':[swap['tradeId']],'accountingPolicy':policies['accounting'],'attributionPolicy':policies['attribution'],'factorPolicy':policies['factors'],
          'factorBump':policies['factorBump']['offered'],'time':{'mode':'opening_to_closing_clock_v1','policy':policies['clockPolicy'],'clock':None}}
-    run,_=valuing_together('portfolio/pnl/run',pnl)
-    check('a P&L run does not hold the publication gate while it values',run['report']['positions'] and run['saveRefusal'] is None)
+    run,_=valuing_together('portfolio/pnl/run',pnl,expected=422)
+    check('a P&L run does not hold the publication gate after it captures its dates',run['code']=='pnl_accounting_coverage')
     # The ordinary routes of the covered reads execute outside the session gate (docs/async-reads.md).
     LOCK='LOCK market_data.observations IN ACCESS EXCLUSIVE MODE'
     def tab():
