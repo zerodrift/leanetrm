@@ -437,6 +437,10 @@ The page states:
 - **Calibrating at** the close, queued or running, checking back every 1.5 seconds
   while the page is shown. A hidden page sends no reads and reads at once when shown
   again. When the job finishes, the product's chips and the cards are read again.
+  In a current view, a newly completed job gets one fresh surface read before the
+  final result is shown: completion can follow the preceding read's knowledge
+  cutoff. This stays within the selected product and context; historical cutoffs
+  remain pinned, and a fresh read that still has no surface stays not calibrated.
 - **Calibrated at** the close, with its knowledge time, or **Inputs revised after
   this fit** with *Recalibrate*. A failed or cancelled last job is shown with its
   code.

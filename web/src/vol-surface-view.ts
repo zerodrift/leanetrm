@@ -357,7 +357,7 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
   timeline:LibrarySurface[]|undefined,shown:SurfaceRead|undefined,drawn:View[]=[],view3d:{reset():void;dispose():void}|undefined,cells:HeatCell[]=[],
   drawnFor:VolSurfaceResult|undefined,drawnRevision='',here:Here|undefined;
  let axisOffer:AxisOffer|undefined;
- let generation=0,lifecycle=0,timer:ReturnType<typeof setTimeout>|undefined,submitting=false,fitMessage='',moveMessage='';
+ let generation=0,lifecycle=0,timer:ReturnType<typeof setTimeout>|undefined,submitting=false,completionPending=false,fitMessage='',moveMessage='';
  const day=longDay;
  const shortDay=(date:string)=>new Intl.DateTimeFormat('en',{month:'short',day:'numeric',timeZone:'UTC'}).format(new Date(date+'T00:00:00Z'));
  const expiryLabel=(e:SurfaceExpiry)=>new Intl.DateTimeFormat('en',{month:'short',day:'numeric',year:'numeric',timeZone:o.zone()}).format(new Date(e.expiryAt));
@@ -415,18 +415,28 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
  // running, one timer reads again, unless the product, context or page changed or the page is hidden.
  async function read(number:number){
   const context=o.context(),scope=scopeOf(),definition=requireDefinition();
+  const reconciling=completionPending;
+  completionPending=false;
+  const sameView=()=>{try{return number===generation&&!root.hidden&&scopeOf()===scope;}catch{return false;}};
   let answer:SurfaceRead;
   reading.push(number);try{answer=await o.api<SurfaceRead>('vol-surfaces/read',{context,product,model,definitionRevisionId:definition,axis:axisSelect.value,points:pointEditor.value.split(',').map(p=>p.trim())});}finally{reading.splice(reading.indexOf(number),1);}
   if(number!==generation)return;
   if(answer.definitionRevisionId!==definition||answer.model!==model||answer.snapshotId!==context.snapshotId||(answer.state==='fitted')!==!!answer.surface||answer.surface&&answer.surface.modelId!==model)
    throw Error('The surface read does not match the selected product, model and context. Refresh and try again.');
-  const finished=shown?.job&&active(shown.job)&&!active(answer.job);
-  shown=answer;canFit=answer.canFit;render();stop();
+  // The surface obeys this read's knowledge cutoff; the job reports current state. A fit may commit between them.
+  // Reconcile each newly completed job once in the selected current view before displaying its final result.
+  completionPending=!o.historical()&&answer.job?.state==='completed'&&(shown?.job?.id!==answer.job.id||shown.job.state!=='completed');
+  const finished=reconciling||completionPending||shown?.job&&active(shown.job)&&!active(answer.job);
+  shown=answer;canFit=answer.canFit;stop();
+  if(completionPending){
+   if(!document.hidden&&sameView())await read(number);else render();
+   return;
+  }
+  render();
   // A fit that finished here adds this close to the product's closes and to the library.
   if(finished)void readTimeline(number).then(()=>readLibrary(number)).catch(cause=>{if(number===generation)failed(cause);});
   if(active(answer.job)&&!document.hidden)timer=setTimeout(()=>{timer=undefined;
-   let same=false;try{same=scopeOf()===scope;}catch{/* an unapplied context reads nothing */}
-   if(number===generation&&same&&!root.hidden)void read(number).catch(cause=>{if(number===generation)failed(cause);});
+   if(sameView())void read(number).catch(cause=>{if(number===generation)failed(cause);});
   },checkBackMs);
  }
  type LibraryPage={definitionRevisionId:string;snapshotId:string;model:string;product:string|null;offset:number;pageSize:number;surfaces:LibrarySurface[];hasMore:boolean;canFit:boolean};
@@ -446,7 +456,7 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
   timeline=page.surfaces;renderTimeline();renderMissing();
  }
  // A newly chosen product or context: what was shown and any read or check-back under way are given up.
- function restart(){stop();generation++;lifecycle++;axisOffer=undefined;axesForm.hidden=true;moreProducts.disabled=false;pending.clear();fitMessage='';moveMessage='';shown=undefined;timeline=undefined;return generation;}
+ function restart(){stop();generation++;lifecycle++;completionPending=false;axisOffer=undefined;axesForm.hidden=true;moreProducts.disabled=false;pending.clear();fitMessage='';moveMessage='';shown=undefined;timeline=undefined;return generation;}
  async function readProduct(){
   const number=restart();
   root.dataset.state=product?'loading':'idle';error.hidden=true;
@@ -541,7 +551,7 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
  // A hidden page stops checking back; shown again, it reads at once unless a read is already under way.
  document.addEventListener('visibilitychange',()=>{
   if(document.hidden){stop();return;}
-  if(!root.hidden&&!reading.includes(generation)&&active(shown?.job??null)){const number=generation;void read(number).catch(cause=>{if(number===generation)failed(cause);});}
+  if(!root.hidden&&!reading.includes(generation)&&(active(shown?.job??null)||completionPending)){const number=generation;void read(number).catch(cause=>{if(number===generation)failed(cause);});}
  });
 
  // Opening another close is the header's own move: an offered close is selected there, so every page reads it; any other is named.
