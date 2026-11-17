@@ -251,7 +251,7 @@ stops on panel close. `assistant-walkthroughs.ts` resolves a page-owned anchor
 through `presentationLocate`, aims a top-layer cursor, fences cancellation, invokes
 the existing typed adapter and tracks its returned control. Intended transitions
 retire the old anchor before awaiting reads. `app.ts` routes native entry through
-`futures-view.ts.loadEntry`; this reads only the authorized trading directory
+`futures-view.ts.enterEntry`, which shows New trade's page (D421); this reads only the authorized trading directory
 before the ordinary product catalog. `data-grid.ts` exposes page-owned row/cell/
 column anchors. `swap-editor.ts` owns the closed unsaved swap setters and revision;
 no synthetic change/submit event reaches the native form. Book/Save/Authorize

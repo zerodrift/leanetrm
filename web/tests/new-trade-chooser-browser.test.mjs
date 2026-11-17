@@ -44,6 +44,9 @@ test('the chooser is disabled while the page is busy, withheld where booking is 
   assert.deepEqual(await evaluate(`(state.busy=true,entry.sync(),[document.querySelector('#new-trade-ppa').disabled,document.querySelector('#new-trade-operating-right').disabled,document.querySelector('.ticket-soon').disabled])`),[true,true,true]);
   assert.deepEqual(await evaluate(`(state.busy=false,entry.sync(),[document.querySelector('#new-trade-ppa').disabled,document.querySelector('.ticket-soon').disabled])`),[false,true]);
   assert.equal(await evaluate(`(state.offered=false,entry.sync(),document.querySelector('#new-trade-product').hidden)`),true);
+  assert.equal(await evaluate(`document.querySelector('[role=status]').checkVisibility()`),false,'nothing invites a choice where no chooser is drawn');
+  assert.equal(await evaluate(`(entry.loading('futures'),document.querySelector('[role=status]').checkVisibility())`),true,'what is being read is still said');
+  await evaluate(`entry.show({kind:'new',product:null},'choose')`);
   assert.deepEqual(await evaluate(`(state.offered=true,state.main=false,entry.sync(),[document.querySelector('#new-trade-product').hidden,[...document.querySelectorAll('#new-trade-product button')].map(b=>b.id)])`),[false,['new-trade-futures','new-trade-swaps']]);
  });
 });

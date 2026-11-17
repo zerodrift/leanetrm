@@ -24,12 +24,13 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
 
   await chooseProduct({click,wait},'swaps');
   await check('choosing an instrument names the page for it and puts its form in the page',`${title}==='New swap'&&${entry}&&document.querySelector('#new-trade-product').dataset.state==='chosen'&&document.querySelector('#new-trade-swaps').getAttribute('aria-pressed')==='true'`,state);
-  // An edit: any field of the form the person changed.
-  await evaluate("(()=>{const field=[...document.querySelectorAll('#position-details-form select:enabled')].find(s=>s.options.length>1&&s.checkVisibility());field.selectedIndex=1;field.dispatchEvent(new Event('input',{bubbles:true}));field.dispatchEvent(new Event('change',{bubbles:true}));window.__entryEdited=[field.id,field.value];})()");
+  // An edit is the person's own input: a key typed into the first text field of the form.
+  await evaluate("(()=>{const field=[...document.querySelectorAll('#position-details-form input:enabled,#position-details-form textarea:enabled')].find(n=>!['hidden','date','checkbox','radio','button','submit'].includes(n.type)&&n.checkVisibility());field.scrollIntoView({block:'center'});field.focus();window.__entryEdited=field;})()");
+  await command('Input.insertText',{text:'7'});
   await click('#nav-futures');await wait("!document.querySelector('#position-details-prompt').hidden");
   await evaluate("document.querySelector('#position-details-prompt').querySelectorAll('button')[0].click()");await wait(idle);
   await check('leaving a ticket with entries asks first, and keeping them keeps the page, its title and the entries',
-    `${title}==='New swap'&&${entry}&&document.getElementById(window.__entryEdited[0]).value===window.__entryEdited[1]&&document.querySelector('#nav-new-trade').classList.contains('active')`,state);
+    `${title}==='New swap'&&${entry}&&window.__entryEdited.isConnected&&window.__entryEdited.value.includes('7')&&document.querySelector('#nav-new-trade').classList.contains('active')`,state);
   await click('#nav-futures');await wait("!document.querySelector('#position-details-prompt').hidden");
   await evaluate("document.querySelector('#position-details-prompt').querySelectorAll('button')[1].click()");
   await wait(`${title}==='Blotter'&&`+idle);
@@ -38,16 +39,23 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
 
   await click('#futures-new');await wait(`${title}==='New trade'&&`+idle);
   await check('the Blotter\'s New trade button opens the same page',`${entry}&&document.querySelector('#new-trade-product').dataset.state==='choose'`,state);
-  // Future reads the whole Blotter for its priced contracts: the page says so while it does.
+  // Future reads the whole Blotter for its priced contracts: the page says so while it does, also from a ticket that was open.
+  await chooseProduct({click,wait},'swaps');
   await evaluate(`(()=>{const send=window.fetch;window.__entryFetch=send;window.fetch=async(input,init)=>{if(String(input)==='/api/trading/workspace'&&!window.__entryHeld){window.__entryHeld=true;await new Promise(resolve=>{window.__entryRelease=resolve;});}return send(input,init);};})()`);
   await click('#new-trade-futures');await wait('window.__entryHeld===true');
   await check('while a new future\'s contracts are read the page says so, and offers no other choice',
-    `${entry}&&document.querySelector('#position-details-view [role=status]').textContent==='Loading the futures contracts…'&&[...document.querySelectorAll('#new-trade-product button')].every(b=>b.disabled)&&!${shown}('#new-trade-availability')`,
+    `${entry}&&${shown}('#position-details-view [role=status]')&&document.querySelector('#position-details-view [role=status]').textContent==='Loading the futures contracts…'&&[...document.querySelectorAll('#new-trade-product button')].every(b=>b.disabled)&&!${shown}('#new-trade-availability')`,
     "document.querySelector('#position-details-view').textContent");
   await evaluate("window.__entryRelease();window.fetch=window.__entryFetch");
   await wait(`${title}==='New future'&&document.querySelector('#position-details-form').contains(document.querySelector('#futures-new-trade'))&&!document.querySelector('#futures-new-trade').hidden&&`+idle);
   await check('the future\'s form then opens in the page',`${entry}&&document.querySelector('#new-trade-futures').getAttribute('aria-pressed')==='true'`,state);
 
+  // A read of the Blotter that fails takes the booking directory with it: the page reads it again, so the chooser is back with the failure said.
+  await click('#new-trade-swaps');await wait(`${title}==='New swap'&&`+idle);
+  await evaluate(`(()=>{const send=window.fetch;window.fetch=async(input,init)=>{if(String(input)==='/api/trading/workspace'){window.fetch=send;return new Response(JSON.stringify({error:'Synthetic failure of the Blotter read.'}),{status:500,headers:{'content-type':'application/json'}});}return send(input,init);};})()`);
+  await click('#new-trade-futures');await wait(`${title}==='New trade'&&!document.querySelector('#error').hidden&&`+idle);
+  await check('a failed read of the contracts brings the chooser back with the failure said',
+    `${entry}&&${shown}('#new-trade-product')&&document.querySelector('#new-trade-product').dataset.state==='choose'&&!${shown}('#new-trade-availability')&&document.querySelector('#error').textContent.length>0`,state);
   // Another As of date: the page keeps showing the chooser, or says why booking is unavailable.
   const other=await evaluate("(()=>{const s=document.querySelector('#snapshot');return [...s.options].map(o=>o.value).find(v=>v&&v!==s.value)??null;})()");
   if(other){

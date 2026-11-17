@@ -65,6 +65,8 @@ export function setupDetailsPane(host:HTMLElement,o:{unsaved:()=>boolean;busy:()
     abandonQuestion();
     if(!await leave())return;
     settle();
+    // A pane that rests on a mode stays on screen: focus goes to it, as the form that had it is gone.
+    if(mode!==null)pane.focus({preventScroll:true});
     o.collapsed();
   }
   function focusForm(){

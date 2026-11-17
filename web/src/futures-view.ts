@@ -352,7 +352,9 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // The main window offers every instrument, the page another is entered on where this account's sidebar lists it, and those not yet
   // offered; the pop-out only what it can open itself, as the product tickets are the main window's.
   const entryPage=options.window.kind==='main'?options.window.entry:undefined;
-  const entry=setupNewTrade(panel,{choose:product=>void chooseProduct(product),busy,link:page=>entryPage?.link(page),offered:()=>bookingControl().enabled,
+  // The main window chooses an instrument on New trade's page alone: a close-out draft in the Blotter's details is of the position it was
+  // drawn from, with no other instrument to switch to. The pop-out keeps its chooser while a request is retained, as before.
+  const entry=setupNewTrade(panel,{choose:product=>void chooseProduct(product),busy,link:page=>entryPage?.link(page),offered:()=>entryPage?presentation==='entry'&&bookingControl().enabled:true,
     groups:()=>chooserGroups(entryPage?{opens:()=>true,links:entryPage.links,soon:true}:{opens:product=>product==='futures'||product==='swaps',links:()=>false,soon:false})});
   // The forms belong to the panel's mode: when it moves to another, whatever they held is dropped (the person was asked first if they
   // held edits), and the page says what it now reports. A new trade is drawn as its head and what it says until its form is in the panel.
@@ -616,7 +618,10 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // New trade (D221) opens the panel on its instrument-type choice with no product selected, and reads nothing until the person chooses one.
   // It is offered only where the backend allows booking; the toolbar says why when it does not, so no field opens where booking is impossible.
   // What the panel held is left only when the person says so, which is asked before the page is busy.
-  const bookingControl=()=>newTradeControl({catalog,retained:!!pending.command||options.tickets.pending().length>0,fallback:options.bookingUnavailableReason()});
+  // On New trade's page a booking directory that could not be read is said as that, with the way to read it again.
+  let directoryFailed=false;
+  const directoryUnread='The booking choices could not be read. Choose New trade again to read them.';
+  const bookingControl=()=>newTradeControl({catalog,retained:!!pending.command||options.tickets.pending().length>0,fallback:presentation==='entry'&&directoryFailed?directoryUnread:options.bookingUnavailableReason()});
   async function openNewTrade(){
     if(busy()||!bookingControl().enabled)return;
     if(options.window.kind==='main'){asked(()=>enterEntry());return;}
@@ -647,11 +652,15 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     const source=options.source(),stale=unchecked();snapshot=source.snapshotId;
     if(source.context&&!source.context.contextId)throw Error('Select a retained historical context before opening a ticket.');
     const scope=whereAmI(),request=readContext();
-    const directory=await api<Catalog>('trading/directory',{...request,convention:'trading_workspace_v1'},signal);
+    let directory:Catalog;
+    // A read that fails leaves no unchecked catalog in force: the page then says the choices could not be read.
+    try{directory=await api<Catalog>('trading/directory',{...request,convention:'trading_workspace_v1'},signal);}
+    catch(error){if(scope===whereAmI()){if(stale)catalog=undefined;directoryFailed=!catalog;}throw error;}
     signal?.throwIfAborted();if(scope!==whereAmI())throw Error('The account or financial context changed.');
     if(directory.kind!=='directory'||Object.hasOwn(directory,'contracts')||!directory.context?.contextId||!Array.isArray(directory.books)||source.context&&directory.context.contextId!==source.context.contextId)throw Error('The trading directory returned an inconsistent context.');
+    directoryFailed=false;
     if(catalog&&!stale)return;
-    catalog=directory;viewControls();options.onReadContext(directory.asOf,directory.context.knownAt);
+    catalog=directory;viewControls();
   }
   /** Shows New trade's page without reading: it says why booking is unavailable until a catalog is read. */
   function showEntry(){if(tie?.out())return;present('entry');announce();sync();}
@@ -660,9 +669,13 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     signal?.throwIfAborted();restore();
     if(tie?.out())throw Error('Bring the Blotter back before opening a ticket.');
     present('entry');announce();
-    if(!catalog||unchecked())await readDirectory(signal);
-    sync();
+    try{if(!catalog||unchecked())await readDirectory(signal);}
+    finally{sync();}
+    // The header says what the page's choices were read at, as it does for the Blotter.
+    if(catalog)options.onReadContext(catalog.asOf,catalog.context.knownAt);
   }
+  /** Shows the Blotter itself again: every route that opens the Blotter ends New trade's page. */
+  function showDesk(){present('desk');}
   // A product ticket's retained request is reconciled in its ticket, which New trade's page holds: from the Blotter that is one step.
   function reconcileProduct(product:TicketProduct){
     if(options.window.kind==='main'&&presentation==='desk')asked(async()=>{await enterEntry();await chooseProduct(product,true,true);});
@@ -677,6 +690,8 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   async function openFuture(next:PanelMode,signal?:AbortSignal){
     // The priced contracts come with a new read of the whole Blotter, which closes the panel and the forms it held. On New trade's page
     // the chooser stays, saying what is being read.
+    // A ticket open there gives the chooser its place first, so that what is being read is on screen and not behind a form.
+    if(presentation==='entry'){resetForms();await panel.show(newTrade,signal);signal?.throwIfAborted();}
     if(panel.current()?.kind==='new')entry.loading('futures');
     await load('priced_contracts');signal?.throwIfAborted();
     const control=bookingControl();
@@ -714,7 +729,15 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
       ran=true;
       try{
         try{opened=product==='futures'?await openFuture(next,signal):product==='swaps'?await openSwap(next,signal):await openAdditional(product,next);}
-        catch(error){if(current())await panel.show(newTrade,signal);throw error;}
+        catch(error){
+          if(current()){
+            await panel.show(newTrade,signal);
+            // A failed read of the Blotter took the booking directory with it: New trade's page reads it again, so that the chooser is back
+            // with the failure said. Should that fail too, the page says so (directoryUnread) and the failure reported is the first.
+            if(presentation==='entry'&&!catalog)await readDirectory(signal).catch(()=>undefined);
+          }
+          throw error;
+        }
         signal?.throwIfAborted();if(!current())return;
         if(sameMode(panel.current(),next)){if(opened)showForm();else await panel.show(newTrade,signal);}
       }
@@ -1057,6 +1080,9 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   function reset(cause:ReadCause|null){
     // Another account ends a Blotter popped out for the last one, which the account's change said first.
     if(cause===null&&tie?.out()){tie.end('account_changed');placeWindow();}
+    // Another account starts on the Blotter, never on a page of the last one's.
+    if(cause===null)present('desk');
+    directoryFailed=false;
     if(cause)replaceRead(cause);else clear();restore();forgetViews();viewControls();snapshot='';get('futures-pending').hidden=true;}
   // A new read of the Blotter replaces the one a run on screen was made at: the run is cleared and the page says why (D222). A live
   // correction and a settlement record say so in their own words.
@@ -1779,7 +1805,9 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   }
   return {load:({background=true}:{background?:boolean}={})=>load('directory',false,background),open:()=>{leavePage();return load('directory',false,true,true);},reset,sync,show,
     /** Whether New trade's page is shown in place of the Blotter. */
-    entry:()=>presentation==='entry',showEntry,enterEntry,
+    entry:()=>presentation==='entry',showEntry,enterEntry,showDesk,
+    /** Whether New trade's page holds the booking choices it shows: false after a read of them failed, which pressing New trade repeats. */
+    entryRead:()=>catalog!==undefined,
     /** The values of the read under way, which a read in the background draws after `load` returns: rejects with the read's failure. */
     valued:()=>pricingRead,
     presentationRevision:()=>booking.presentationRevision()+":"+swapEditor.presentationRevision(),
@@ -1816,7 +1844,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
       }else if(step.kind==='open'){
         if(step.pane==='new_future'){
           if(editing())throw Error('Finish the unsaved form before opening a ticket.');
-          await acting(act,async()=>{await openFuture({kind:'new',product:'futures'},signal);signal.throwIfAborted();booking.presentationBlank();showForm();});
+          await acting(act,async()=>{if(options.window.kind==='main')await enterEntry(signal);await openFuture({kind:'new',product:'futures'},signal);signal.throwIfAborted();booking.presentationBlank();showForm();});
         }else if(step.pane==='charts')await apply({kind:'collapsePane',pane:'charts',collapsed:false});
         else if(step.pane==='details'){
           if(step.target){

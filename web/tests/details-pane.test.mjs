@@ -127,3 +127,12 @@ test('a pane whose rest becomes nothing closes on the next reset',async()=>{
  rest=null;f.shell.reset();
  assert.equal(f.shell.current(),null);assert.equal(f.host.querySelector('#position-details').hidden,true);
 });
+
+test('collapsing a ticket to the chooser puts focus on the pane, as the form that had it is gone',async()=>{
+ const f=fixture({rest:()=>chooser});
+ await f.show({kind:'new',product:'swaps'});
+ const pane=f.host.querySelector('#position-details'),before=pane.focused??0;
+ await f.collapse();
+ assert.deepEqual(f.shell.current(),chooser);
+ assert.equal(pane.focused,before+1);
+});

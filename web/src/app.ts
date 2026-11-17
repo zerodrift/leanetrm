@@ -384,6 +384,8 @@ async function setPage(next:string){
   // The Blotter is left on the person's word, whichever route took them, so no form of its panel stays held, with edits that the browser would be asked
   // about and that nothing can return to. Completed values are checked before they are shown again.
   if(page==='futures'&&next!=='futures')futures.leavePage();
+  // Every route to the Blotter shows the Blotter itself: New trade's page (D421) is entered after this, by the routes that open it.
+  if(next==='futures')futures.showDesk();
   // The Dashboard releases its widgets, and any run a widget follows, when left; it is read afresh when opened again.
   if(page==='dashboard'&&next!=='dashboard')dashboard.leave();
   // Vol surfaces releases its views, and stops checking on a fit, when left; it is read afresh when opened again.
@@ -1572,7 +1574,7 @@ async function showPage(next:string){
 let newTradeTitle:string|null=null;
 function newTradeShown(title:string|null){newTradeTitle=title;if(page!=='futures')return;text('page-title',title??'Blotter');$('page-title').title=title??'Blotter';renderBlotterViews();}
 $('nav-new-trade').onclick=()=>{
-  if(page==='futures'&&futures.entry())return;
+  if(page==='futures'&&futures.entry()&&(futures.entryRead()||!select('snapshot').value))return;
   leaving(async()=>{
     if(contextDirty)await applyContext();
     await setPage('futures');
@@ -1794,7 +1796,8 @@ function tableName(code:string){
 // The assistant panel, for a person who uses agents (docs/ai-assistant.md §10.1).
 $('assistant-hide').onclick=()=>{prefs.assistantMinimized=true;persist();assistant.sync();};
 const assistant=setupAssistant({launcherHidden:()=>prefs.assistantHidden,launcherMinimized:()=>prefs.assistantMinimized,restoreLauncher:()=>{prefs.assistantMinimized=false;persist();},api,root:apiRoot,identity:()=>administrationScope+':'+currentProfile,zone:()=>prefs.timeZone,
-  changed:async()=>{if(!unsaved())await showPage(page);},
+  // What the assistant changed is read again where the person is: New trade's page reads nothing of it and stays.
+  changed:async()=>{if(!unsaved()&&!(page==='futures'&&futures.entry()))await showPage(page);},
   presentationRevision:()=>futures.presentationRevision(),
   presentationLocate:step=>{
     if(step.kind==='go'){

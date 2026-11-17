@@ -100,7 +100,7 @@ export function setupNewTrade(shell:SidePanel,o:{choose:(product:NewProduct)=>vo
       button.id=`new-trade-${entry.product}`;button.onclick=()=>o.choose(entry.product);button.append(el('span','instrument-about',productAbout(entry.product)));products.set(entry.product,button);
     }else if(entry.kind==='link'){
       const mark=el('span','instrument-mark','↗');mark.setAttribute('aria-hidden','true');
-      button.id=`new-trade-${entry.id}`;button.classList.add('instrument-link');button.onclick=()=>o.link(entry.page);button.append(mark,el('span','instrument-about',entry.about));links.push(button);
+      button.id=`new-trade-${entry.id}`;button.onclick=()=>o.link(entry.page);button.append(mark,el('span','instrument-about',entry.about));links.push(button);
     }else{
       // Not yet offered: disabled for good, which the page's busy sweep leaves as drawn.
       button.classList.add('ticket-soon');button.dataset.ownControls='';button.disabled=true;button.setAttribute('aria-disabled','true');button.title=entry.about;button.append(el('span','ticket-soon-tag','Coming soon'));
@@ -117,12 +117,15 @@ export function setupNewTrade(shell:SidePanel,o:{choose:(product:NewProduct)=>vo
       entries.append(...group.entries.map(tile));section.append(el('h3','instrument-group-name',group.name),entries);return section;
     }));
   }
+  // What the panel says while it holds no form. An invitation to choose is withheld where no chooser is drawn; what is being read is not.
+  let status:HTMLElement|undefined,inviting=false;
   function sync(){
     draw();chooser.hidden=!o.offered();
+    if(status)status.hidden=inviting&&chooser.hidden;
     for(const [key,button] of products){button.disabled=o.busy();button.setAttribute('aria-pressed',String(key===chosen));}
     for(const button of links)button.disabled=o.busy();
   }
-  const say=(text:string)=>{const status=el('p','side-panel-status',text);status.setAttribute('role','status');shell.element('view').replaceChildren(status);};
+  const say=(text:string,invites:boolean)=>{status=el('p','side-panel-status',text);status.setAttribute('role','status');inviting=invites;status.hidden=invites&&chooser.hidden;shell.element('view').replaceChildren(status);};
   return {
     /**
      * Draws the head for a mode, with the chooser showing its product, and the body with what the panel says until the form of that product
@@ -134,11 +137,12 @@ export function setupNewTrade(shell:SidePanel,o:{choose:(product:NewProduct)=>vo
       title.textContent=label;chosen=mode.product;chooser.dataset.state=chosen===null?'choose':'chosen';
       note.textContent=chosen===null?'Choose an instrument type. Each ticket keeps its own delivery, pricing and lifecycle terms.':productAbout(chosen);
       body.setAttribute('role','group');body.setAttribute('aria-label',label);
-      say(state==='loading'&&chosen!==null?loading[chosen]:chooseText);
+      const reading=state==='loading'&&chosen!==null;
+      say(reading?loading[chosen!]:chooseText,!reading);
       sync();
     },
     /** Says that a product is being read while the panel still shows the choice of one: the next `show` replaces it. */
-    loading(key:NewProduct){say(loading[key]);},
+    loading(key:NewProduct){say(loading[key],false);},
     sync,
   };
 }
