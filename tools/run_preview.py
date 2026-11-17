@@ -1321,7 +1321,7 @@ def main():
                     if browser_process.wait(timeout=180):raise RuntimeError('Owned factor swap browser checks failed')
             elif args.market_dates_reads_check:
                 from check_market_dates_reads import run_checks as check_market_dates_reads
-                check_market_dates_reads(url,query,manifest,psql,env,temporary/'postgres.log')
+                check_market_dates_reads(url,query,manifest,psql,env,temporary/'postgres.log',child.pid)
             elif args.market_dates_check:
                 from check_market_dates import run_checks as check_market_dates
                 check_market_dates(url,query,manifest)

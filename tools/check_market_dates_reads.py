@@ -1,11 +1,14 @@
 """Statement scaling and disclosure boundaries in the launcher's disposable database."""
 from copy import deepcopy
 from datetime import date, timedelta
+from pathlib import Path
 import json
 import hashlib
+import platform
 import re
 import threading
 import time
+from uuid import uuid4
 from assistant_context import holding
 from preview_client import PreviewClient
 from seed_session_closes import publish_session, record_close
@@ -33,7 +36,52 @@ def projection(answer):
     return value
 
 
-def run_checks(url, query, manifest, psql, environment, log):
+def mixed_source_checks(client, query, manifest, source):
+    """Independent evaluate oracle for the same exact mixed close under a metadata fault."""
+    session = 'synthetic_calendar_mixed'
+    publish_session(query, manifest, session, 'Synthetic mixed sources', [
+        {'curves': ['ng_monthly'], 'cutoff': '16:00', 'from': '2020-01-01', 'to': '2100-01-01'}])
+    secondary = manifest['inputMarkets'][0]
+    revision = secondary['revisionId']
+    query(f"INSERT INTO market_data.close_session_curves VALUES('{manifest['catalogId']}','{session}',1,'{revision}','daily_gas');")
+    selected = deepcopy(next(f for f in secondary['frames'] if f['at'] == source['at']))
+    selected['curveContracts'] = {'daily_gas': json.loads(query(f"SELECT json_agg(contract_id ORDER BY ordinal) FROM market_data.curve_members WHERE(catalog_id,revision_id,curve_code)=('{manifest['catalogId']}','{revision}','daily_gas');"))}
+    close = record_close(query, manifest, session, 1, source, retained=[(revision, selected)])
+    request = {'session': session, 'curve': 'ng_monthly', 'timeZone': 'UTC'}
+    assert client.call('market/dates', request)['dates'][0]['frames'][0]['id'] == close
+    client.call('profile', {'profile': 'approver'})
+    prior = client.call('catalogue')
+    original = {key: prior[key] for key in ('effectiveFrom', 'effectiveTo', 'curves', 'roles')}
+    changed = deepcopy(original)
+    next(curve for curve in changed['curves'] if curve['code'] == 'interest_rates')['definitionRevisionId'] = revision
+    published = client.call('catalogue/publish', {'requestId': str(uuid4()), 'expectedHead': prior['id'], 'definition': changed})
+    failures = []
+    try:
+        query(f"CREATE POLICY synthetic_calendar_missing_terms ON market_data.contracts AS RESTRICTIVE FOR SELECT TO openetrm_runtime USING(revision_id<>'{revision}'::uuid);")
+        try:
+            # Typed rate membership remains readable; its unrelated commodity
+            # terms must not become a condition for this primary commodity.
+            assert client.call('evaluate', {'snapshotId': close, 'curve': 'ng_monthly'})['points']
+            if not client.call('market/dates', request)['dates']:
+                failures.append('An unrequested rate owner materialized unrelated missing commodity terms')
+            # The selected supplemental commodity does require those terms.
+            # Its unchanged evaluation read supplies the exact refusal oracle.
+            refusal = client.call('evaluate', {'snapshotId': close, 'curve': 'daily_gas'}, expected=422)
+            try:
+                answer = client.call('market/dates', {**request, 'curve': 'daily_gas'})
+                assert answer['dates'] == [] and answer['unavailable'] == [{'date': '2020-12-18', 'reason': refusal['code']}], answer
+            except AssertionError as error:
+                failures.append('Supplemental metadata failure escaped its date: '+str(error))
+        finally:
+            query('DROP POLICY synthetic_calendar_missing_terms ON market_data.contracts;')
+    finally:
+        client.call('catalogue/publish', {'requestId': str(uuid4()), 'expectedHead': published['id'], 'definition': original})
+        client.call('profile', {'profile': 'viewer'})
+    assert not failures, '; '.join(failures)
+    print('PASS mixed-source calendar metadata faults match independent exact evaluation and do not materialize unrequested rate-owner terms', flush=True)
+
+
+def run_checks(url, query, manifest, psql, environment, log, api_pid):
     client = PreviewClient(url); client.bootstrap(); client.call('profile', {'profile': 'viewer'})
     body = {'session': 'demo_close_1600', 'curve': 'bridge_basis', 'timeZone': 'UTC'}
     answers = {}
@@ -60,6 +108,18 @@ def run_checks(url, query, manifest, psql, environment, log):
     actual = {name: hashlib.sha256(json.dumps(answer, sort_keys=True).encode()).hexdigest() for name, answer in answers.items()}
     assert actual == EXPECTED, (actual, answers)
     print('PASS calendar answers equal the unchanged implementation for curve, workspace, rate, retained, replaced, hidden and denied reads', flush=True)
+    signature = 'security.read_request_catalogue(uuid,date)'
+    original = query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);")
+    try:
+        assert original.count('\nBEGIN\n') == 1
+        query(original.replace('\nBEGIN\n', "\nBEGIN\n IF effective_on=DATE '2020-12-16' THEN RAISE EXCEPTION 'catalogue_missing' USING ERRCODE='P0001';END IF;\n", 1))
+        expected = deepcopy(answers['replaced'])
+        expected['dates'] = [day for day in expected['dates'] if day['date'] != '2020-12-16']
+        expected['unavailable'] = sorted([*expected['unavailable'], {'date': '2020-12-16', 'reason': 'catalogue_missing'}], key=lambda day: (day['date'], day['reason']))
+        assert projection(client.call('market/dates', body)) == expected, 'One missing dated catalogue must retain its own refusal and the other dates'
+    finally:
+        query(original)
+    mixed_source_checks(client, query, manifest, source)
     # Keep 96 candidates within the global 128-frame discovery bound. Existing facts stay immutable.
     query("INSERT INTO presentation.close_session_listings SELECT v.catalog_id,v.code,1,max(v.version),'Synthetic retired fixture session',false,pg_current_xact_id() FROM market_data.close_session_versions v GROUP BY v.catalog_id,v.code;")
 
@@ -99,23 +159,29 @@ def run_checks(url, query, manifest, psql, environment, log):
                                           ('navigation', 'workspace/navigation', None)]:
                 answer, sample = measure(path, selected)
                 report.append({'closes': total, 'request': name, 'samples': [sample]})
-    workload = query(f"SELECT count(DISTINCT p.definition_revision_id),count(*),count(DISTINCT p.observation_id),count(DISTINCT m.contract_id) FROM market_data.market_closes c JOIN market_data.market_close_pins p ON(p.catalog_id,p.close_id)=(c.catalog_id,c.id) LEFT JOIN market_data.market_close_members m ON(m.catalog_id,m.close_id,m.definition_revision_id)=(p.catalog_id,p.close_id,p.definition_revision_id) WHERE c.session_code='{SESSION}';")
-    print('CALENDAR_MEASUREMENTS=' + json.dumps({'runs': report, 'sourcePinMemberJoin': workload}), flush=True)
+    workload = json.loads(query(f"""SELECT json_build_object('definitionRevisions',count(DISTINCT p.definition_revision_id),
+      'pins',count(*),'uniquePins',count(DISTINCT p.observation_id),'minPins',min(n.pins),'maxPins',max(n.pins),
+      'contracts',(SELECT count(DISTINCT m.contract_id) FROM market_data.market_close_members m JOIN market_data.market_closes c ON(c.catalog_id,c.id)=(m.catalog_id,m.close_id) WHERE c.session_code='{SESSION}'))
+      FROM market_data.market_close_pins p JOIN market_data.market_closes c ON(c.catalog_id,c.id)=(p.catalog_id,p.close_id)
+      JOIN(SELECT close_id,count(*) pins FROM market_data.market_close_pins GROUP BY close_id)n USING(close_id) WHERE c.session_code='{SESSION}';"""))
+    memory = {line.split(':')[0]: line.split(':')[1].strip() for line in Path(f'/proc/{api_pid}/status').read_text().splitlines() if line.startswith(('VmRSS:', 'VmHWM:'))}
+    print('CALENDAR_MEASUREMENTS=' + json.dumps({'runs': report, 'workload': workload, 'memory': memory,
+          'environment': {'platform': platform.platform(), 'postgres': query('SHOW server_version;')}, 'scenarios': 0}), flush=True)
     failures = []
-    if not (0 < counts[24] == counts[48] == counts[96]):
-        failures.append(f'Statements grow with unselected closes: {counts}')
+    try:require_constant_statements(counts)
+    except AssertionError as error:failures.append(str(error))
     print('CALENDAR_SCALING=' + str(counts), flush=True)
 
     # Hold only observation reads: frame discovery can finish under the gate before execution blocks.
     waiting_sql = "SELECT count(DISTINCT pid) FROM pg_locks WHERE relation='market_data.observations'::regclass AND NOT granted AND mode='AccessShareLock';"
-    def start_read(expected=200):
+    def start_read(expected=200, relation='observations'):
         outcome = {}
         def work():
             try: outcome['answer'] = client.call('market/dates', {**body, 'session': SESSION}, expected=expected)
             except Exception as error: outcome['error'] = repr(error)
         worker = threading.Thread(target=work); worker.start()
         deadline = time.monotonic()+8
-        while query(waiting_sql) != '1':
+        while query(waiting_sql.replace("market_data.observations", 'market_data.'+relation)) != '1':
             assert worker.is_alive() and time.monotonic()<deadline, outcome
             time.sleep(.025)
         return worker, outcome
@@ -133,8 +199,8 @@ def run_checks(url, query, manifest, psql, environment, log):
     grants = json.loads(query(f"SELECT json_agg(json_build_object('id',id,'until',granted_to)) FROM security.role_grants WHERE principal_id={principal};"))
     try:
         def expired():
+            query(f"UPDATE security.role_grants SET granted_to=clock_timestamp()+interval '2 seconds' WHERE principal_id={principal};")
             worker, outcome = start_read(expected=403)
-            query(f"UPDATE security.role_grants SET granted_to=clock_timestamp()+interval '1 second' WHERE principal_id={principal};")
             deadline = time.monotonic()+5
             while query(f"SELECT bool_and(granted_to<clock_timestamp()) FROM security.role_grants WHERE principal_id={principal};") != 't':
                 assert time.monotonic()<deadline
@@ -146,5 +212,12 @@ def run_checks(url, query, manifest, psql, environment, log):
     finally:
         for grant in grants:
             query(f"UPDATE security.role_grants SET granted_to='{grant['until']}'::timestamptz WHERE id='{grant['id']}';")
+    def replacement():
+        worker, outcome = start_read(expected=422, relation='rate_curves')
+        record_close(query, manifest, SESSION, 2, source)
+        return worker, outcome
+    worker, outcome = holding(psql, environment, 'LOCK market_data.rate_curves IN ACCESS EXCLUSIVE MODE', replacement)
+    worker.join(20)
+    assert not worker.is_alive() and 'error' not in outcome and outcome['answer']['code'] == 'close_replaced', outcome
     assert not failures, '; '.join(failures)
     print('PASS calendar read statement count is independent of unselected closes; ordinary requests proceed and expired authority refuses disclosure', flush=True)
