@@ -145,6 +145,27 @@ def limited_matrix_check(client, query, older):
     print('PASS latest calendar and last closes do not reattest unvisited older matrices after discovery', flush=True)
 
 
+def discovery_work_check(client, query, request):
+    """Warm readers reauthorize headers without rebuilding unchanged discovery payloads."""
+    signature = 'security.read_market_close_parts(uuid,uuid[],uuid)'
+    native = query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);")
+    query('CREATE SEQUENCE public.synthetic_calendar_discovery_reads;GRANT USAGE ON SEQUENCE public.synthetic_calendar_discovery_reads TO openetrm_security_owner;')
+    counts = {}
+    try:
+        assert native.count('\nBEGIN\n') == 1
+        query(native.replace('\nBEGIN\n', "\nBEGIN\n PERFORM nextval('public.synthetic_calendar_discovery_reads');\n", 1))
+        for name, path, body in [('full', 'market/dates', request), ('latest', 'market/dates', {**request, 'maximumDates': 1}),
+                                  ('last', 'market/last-closes', {'session': request['session']}), ('navigation', 'workspace/navigation', None)]:
+            query('ALTER SEQUENCE public.synthetic_calendar_discovery_reads RESTART;')
+            client.call(path, body)
+            counts[name] = int(query('SELECT CASE WHEN is_called THEN last_value ELSE 0 END FROM public.synthetic_calendar_discovery_reads;'))
+    finally:
+        query(native);query('DROP SEQUENCE public.synthetic_calendar_discovery_reads;')
+    print('CALENDAR_MATRIX_READS=' + json.dumps(counts), flush=True)
+    assert counts == {'full': 1, 'latest': 1, 'last': 1, 'navigation': 0}, counts
+    print('PASS warm discovery does not rematerialize immutable matrices; calendar execution still reattests its exact inputs', flush=True)
+
+
 def batch_authority_check(query, manifest):
     """A prepublished successor grant cannot extend a native batch's initial authority."""
     catalog, tenant, workspace = (manifest[key] for key in ('catalogId', 'tenantId', 'workspaceId'))
@@ -396,6 +417,7 @@ def run_checks(url, query, manifest, psql, environment, log, api_pid, *, verify=
     if not verify:
         print('Calendar benchmark only: statement scaling and disclosure are not qualified by this run', flush=True)
         return
+    discovery_work_check(client, query, request)
     older_close = query(f"SELECT id FROM market_data.market_closes WHERE session_code='{SESSION}' ORDER BY business_date LIMIT 1;")
     limited_matrix_check(client, query, older_close)
     failed_build_check(client, query, manifest, measure)
