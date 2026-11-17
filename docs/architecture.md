@@ -1,6 +1,6 @@
 # Architecture and domain contracts
 
-D421 adds [explicit server-defined surface axes](vol-surfaces.md#server-defined-surface-coordinates-d421):
+D423 adds [explicit server-defined surface axes](vol-surfaces.md#server-defined-surface-coordinates-d423):
 retained option year fractions, versioned k/quick-delta coordinates, visible point
 presets and no-extrapolation coverage gaps. It changes viewing coordinates and
 synthetic wing examples; pricing and risk keep their existing contracts.

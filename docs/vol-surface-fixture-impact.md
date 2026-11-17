@@ -59,7 +59,7 @@ four snapshots.
 - Browser chain/heatmap dimensions and mesh topology expand. Add axes/points/gap checks; preserve
   linked highlights and existing navigation checks.
 - Storage-only surfaces in `check_vol_surface_storage.py` use deliberately synthetic JSON and do not
-  constitute executable axis inputs. Migration 0358 versions refit comparison without modifying
+  constitute executable axis inputs. Migration 0360 versions refit comparison without modifying
   retained content; old axis reads explicitly refuse missing inputs.
 - Current demo documentation now states thirteen strikes. Historical measured runtimes retain their
   workload labels.

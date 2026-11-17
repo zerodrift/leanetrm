@@ -123,7 +123,7 @@ strike axis, and the page leaves it out of the heat map, the 3D surface and the
 smiles, naming it once as expired. Months that have lapsed therefore never widen
 the axis or add rows.
 
-## Server-defined surface coordinates (D421)
+## Server-defined surface coordinates (D423)
 
 The 3D mesh consumes a separate projection of the retained fit. No coordinate is
 computed from current prices, current time or a series' market volatility.
@@ -205,7 +205,7 @@ them; no external numerical dependency is added.
 Coverage codes are per-node gaps, visible on hover and keyboard focus, rather
 than a request failure. Missing retained inputs are a structured request error.
 Older revisions remain immutable. Metadata discovery exposes an explicit refit
-recovery state; migration `0358_vol_surface_axis_inputs.sql` compares refits
+recovery state; migration `0360_vol_surface_axis_inputs.sql` compares refits
 within the same retained plot-input policy so a new-policy fit records a new
 revision without weakening same-policy determinism or request-id replay.
 
