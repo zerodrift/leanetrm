@@ -260,13 +260,14 @@ def run_checks(url, query, psql, environment, manifest):
     # A ticket read also reads its trade's current head, under the same gate, before it values.
     ticket,_=valuing_together('futures/editor',{'context':at_work(frame,working['futuresConvention']),'tradeId':held['tradeId'],'revision':int(held['revision'])})
     check('a trade ticket read does not hold the publication gate while it values',ticket['canAmend'] is True or ticket.get('amendUnavailableReason'))
-    # A P&L run captures the knowledge cutoff of both its dates under the same gate, then values both.
+    # A P&L run captures the knowledge cutoff of both its dates under the same gate, then values both. It explains
+    # remaining present value, which a swap has and a future's execution P&L does not.
     policies=c.call('portfolio/pnl/policies')
     prior=max((f for f in working['frames'] if f['id'] in working['initialFrameIds'] and f['at']<frame['at']),key=lambda f:f['at'])
     def dated(selected):
         return {'snapshotId':selected['id'],'convention':'trading_workspace_v1','knowledgeMode':'at'}
-    pnl={'opening':dated(prior),'closing':dated(frame),'knownAt':blotter['context']['knownAt'],'bookIds':[held['bookId']],'portfolioIds':[],
-         'tradeIds':[held['tradeId']],'accountingPolicy':policies['accounting'],'attributionPolicy':policies['attribution'],'factorPolicy':policies['factors'],
+    pnl={'opening':dated(prior),'closing':dated(frame),'knownAt':blotter['context']['knownAt'],'bookIds':[swap['bookId']],'portfolioIds':[],
+         'tradeIds':[swap['tradeId']],'accountingPolicy':policies['accounting'],'attributionPolicy':policies['attribution'],'factorPolicy':policies['factors'],
          'factorBump':policies['factorBump']['offered'],'time':{'mode':'opening_to_closing_clock_v1','policy':policies['clockPolicy'],'clock':None}}
     run,_=valuing_together('portfolio/pnl/run',pnl)
     check('a P&L run does not hold the publication gate while it values',run['report']['positions'] and run['saveRefusal'] is None)
