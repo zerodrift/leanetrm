@@ -3,7 +3,7 @@
 Every name, date and price is synthetic. Five monthly futures E to J expire at 19:30 UTC and settle daily; every observation
 is sampled at 12:00 UTC. Four closes hold the context marks, and a fifth omits one for a refusal; the other settlements
 are history read at their own day's 12:00. The 2027-01-19 settlement of G is recorded by the check, after its first knowledge view."""
-from preview_fixture import CAT, REV, R, M
+from preview_fixture import CAT, REV, R, M, commodity
 
 CURVE, DIFFERENTIAL, CALENDAR = 'synthetic_crude_future', 'synthetic_crude_differential', 'synthetic_crude_days'
 # Contract, delivery month, last trading day; each expires at 19:30 UTC.
@@ -44,7 +44,7 @@ def observation(oid, contract, day, value, role='daily_settlement'):
 def prepare(market, manifest):
     """Add the synthetic crude definitions to the primary bundle, extend its effective period through these contexts and
     add one 12:00 close per context date."""
-    refs = [f"INSERT INTO ref_data.commodities VALUES({R},'synthetic_crude','Synthetic crude oil','volume');",
+    refs = [commodity(R,'synthetic_crude','Synthetic crude oil','volume','drop'),
             f"INSERT INTO ref_data.commodity_units VALUES({R},'synthetic_crude','petroleum_barrel','volume');",
             f"INSERT INTO ref_data.measurement_bases VALUES({R},'synthetic_crude_standard','synthetic_crude','volume');",
             f"INSERT INTO ref_data.quantity_specifications VALUES({R},'synthetic_crude_quantity','synthetic_crude','synthetic_crude_standard','petroleum_barrel','volume');",

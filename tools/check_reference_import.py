@@ -23,7 +23,7 @@ INSERT INTO security.role_grants VALUES('{grant}','{actor}','{role}','{tenant}',
 INSERT INTO ref_data.revisions(catalog_id,id,revision_key) VALUES('{catalog}','20000000-0000-0000-0000-000000000099','synthetic_import_units');
 INSERT INTO ref_data.dimensions VALUES('{catalog}','20000000-0000-0000-0000-000000000099','energy',1,2,-2,0,0,0,0);
 INSERT INTO ref_data.units VALUES('{catalog}','20000000-0000-0000-0000-000000000099','mwh','MWh','energy');
-INSERT INTO ref_data.commodities VALUES('{catalog}','20000000-0000-0000-0000-000000000099','electricity','Synthetic power','energy');
+INSERT INTO ref_data.commodities VALUES('{catalog}','20000000-0000-0000-0000-000000000099','electricity','Synthetic power','energy','bolt');
 INSERT INTO ref_data.commodity_units VALUES('{catalog}','20000000-0000-0000-0000-000000000099','electricity','mwh','energy');
 INSERT INTO ref_data.measurement_bases VALUES('{catalog}','20000000-0000-0000-0000-000000000099','energy','electricity','energy');
 INSERT INTO ref_data.quantity_specifications VALUES('{catalog}','20000000-0000-0000-0000-000000000099','synthetic_power_mwh','electricity','energy','mwh','energy');

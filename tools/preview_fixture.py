@@ -18,6 +18,14 @@ CURRENCY = 'usd'
 TENANT = 'b0000000-0000-0000-0000-000000000001'
 WORKSPACE = 'b1000000-0000-0000-0000-000000000001'
 R = f"'{RCAT}','{RREV}'"
+
+
+def commodity(key, code, name, dimension, icon):
+    """One commodity row that names its icon. An upgrade check loads fixtures before the icon column exists, so the row is
+    built from named fields: an earlier schema ignores the icon, and the migration that adds the column then assigns one."""
+    return ("INSERT INTO ref_data.commodities SELECT(jsonb_populate_record(NULL::ref_data.commodities,jsonb_build_object("
+            f"'catalog_id',k.c,'revision_id',k.r,'code','{code}','name','{name}','quantity_dimension_code','{dimension}','icon_code','{icon}'))).* "
+            f"FROM(VALUES({key}))k(c,r);")
 M = f"'{CAT}','{REV}'"
 
 

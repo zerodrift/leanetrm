@@ -3,6 +3,7 @@ import json
 from uuid import uuid4
 
 from gas_transport_capacity_fixture import TransportCapacityFixture, fixture, literal
+from preview_fixture import commodity
 
 
 PROFILE = 'physical_gas_transport_direct_rights_v1'
@@ -77,14 +78,14 @@ INSERT INTO ref_data.revisions(catalog_id,id,revision_key) VALUES({r},'synthetic
 INSERT INTO ref_data.currencies VALUES({r},'usd','USD','Synthetic package currency',2);
 INSERT INTO ref_data.dimensions VALUES({r},'whole_package',0,0,0,0,0,0,0);
 INSERT INTO ref_data.units VALUES({r},'whole_package','package','whole_package');
-INSERT INTO ref_data.commodities VALUES({r},'transport_rights','Synthetic Transport rights','whole_package');
+{commodity(r,'transport_rights','Synthetic Transport rights','whole_package','cube')}
 INSERT INTO ref_data.commodity_units VALUES({r},'transport_rights','whole_package','whole_package');
 INSERT INTO ref_data.measurement_bases VALUES({r},'whole_remaining_rights','transport_rights','whole_package');
 INSERT INTO ref_data.quantity_specifications VALUES({r},'whole_transport_package','transport_rights','whole_remaining_rights','whole_package','whole_package');
 INSERT INTO ref_data.quote_specifications VALUES({r},'signed_transport_pv','transport_rights','outright','whole_transport_package','usd',1,.01,.01,-999999999,999999999);
 INSERT INTO ref_data.dimensions VALUES({r},'energy',1,2,-2,0,0,0,0);
 INSERT INTO ref_data.units VALUES({r},'gas_energy','synthetic-energy','energy');
-INSERT INTO ref_data.commodities VALUES({r},'ordinary_gas','Synthetic ordinary gas','energy');
+{commodity(r,'ordinary_gas','Synthetic ordinary gas','energy','flame')}
 INSERT INTO ref_data.commodity_units VALUES({r},'ordinary_gas','gas_energy','energy');
 INSERT INTO ref_data.measurement_bases VALUES({r},'ordinary_gas_basis','ordinary_gas','energy');
 INSERT INTO ref_data.quantity_specifications VALUES({r},'ordinary_gas_quantity','ordinary_gas','ordinary_gas_basis','gas_energy','energy');
