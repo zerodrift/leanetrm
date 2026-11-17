@@ -132,6 +132,41 @@ def limited_matrix_check(client, query, older):
     print('PASS latest calendar and last closes do not reattest unvisited older matrices after discovery', flush=True)
 
 
+def failed_build_check(client, query, manifest, measure):
+    """Selected roots with independently invalid future pins must not restore a per-close SQL loop."""
+    session = 'synthetic_calendar_failed_builds'
+    def listing(code, listed):
+        query(f"""INSERT INTO presentation.close_session_listings
+          SELECT s.catalog_id,s.code,coalesce((SELECT max(l.version) FROM presentation.close_session_listings l WHERE(l.catalog_id,l.code)=(s.catalog_id,s.code)),0)+1,
+           max(s.version),'Synthetic calendar workload',{str(listed).lower()},pg_current_xact_id()
+          FROM market_data.close_session_versions s WHERE s.code='{code}' GROUP BY s.catalog_id,s.code;""")
+    listing(SESSION, False)
+    publish_session(query, manifest, session, 'Synthetic failed qualification', [
+        {'curves': ['ng_monthly'], 'cutoff': '16:00', 'from': '2020-01-01', 'to': '2100-01-01'}])
+    counts, runs = {}, []
+    try:
+        for day in ('2020-12-17', '2020-12-18'):
+            record_close(query, manifest, session, 1, next(f for f in manifest['frames'] if f['at'].startswith(day+'T16:00:00')))
+        original = next(f for f in manifest['frames'] if f['at'].startswith('2020-12-11T16:00:00'))
+        for total in (24, 48, 96):
+            for index in range(max(counts, default=2)-2, total-2):
+                frame = deepcopy(original)
+                frame['at'] = (date(2020, 10, 1)-timedelta(days=index)).isoformat()+'T16:00:00Z'
+                frame['curveContracts'] = {'ng_monthly': frame['curveContracts']['ng_monthly']}
+                # Deliberately invalid retained inputs: the observations follow
+                # the close. The managed cutoff rule must refuse every one.
+                record_close(query, manifest, session, 1, frame)
+            answer, sample = measure('market/dates', {'session': session, 'curve': 'ng_monthly', 'timeZone': 'UTC', 'maximumDates': 10})
+            assert len(answer['dates']) == 2 and len(answer['unavailable']) == total-2, answer
+            assert {day['reason'] for day in answer['unavailable']} == {'market_data_unavailable'}
+            counts[total] = sample['statements'];runs.append({'closes': total, **sample})
+        print('CALENDAR_FAILED_BUILD_MEASUREMENTS=' + json.dumps(runs), flush=True)
+        require_constant_statements(counts)
+    finally:
+        listing(session, False);listing(SESSION, True)
+    print('PASS selected roots that fail cutoff qualification keep constant limited-calendar statement counts', flush=True)
+
+
 def run_checks(url, query, manifest, psql, environment, log, api_pid, *, verify=True):
     client = PreviewClient(url); client.bootstrap(); client.call('profile', {'profile': 'viewer'})
     body = {'session': 'demo_close_1600', 'curve': 'bridge_basis', 'timeZone': 'UTC'}
@@ -241,6 +276,7 @@ def run_checks(url, query, manifest, psql, environment, log, api_pid, *, verify=
         return
     older_close = query(f"SELECT id FROM market_data.market_closes WHERE session_code='{SESSION}' ORDER BY business_date LIMIT 1;")
     limited_matrix_check(client, query, older_close)
+    failed_build_check(client, query, manifest, measure)
     failures = []
     try:require_constant_statements(counts)
     except AssertionError as error:failures.append(str(error))
