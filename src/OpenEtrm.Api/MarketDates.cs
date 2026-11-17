@@ -62,7 +62,7 @@ public static class MarketDates
             catalogue=await new CatalogueStore(database.Manifest.CatalogId).ReadBound(connection,ct);
             data=await database.Read(connection,ct,ppaBundle:catalogue.RequireRole("primary"),observationIds:[],includeCalendarDays:request.Definition is null);
         }
-        var inputs=new MarketDateInputs(database,connection);
+        var inputs=new MarketDateInputs(database,connection,MarketDateRead.Calendar);
         if(request.Curve is {} code&&!data.IsRateCurve(code))
         {
             catalogue??=await new CatalogueStore(database.Manifest.CatalogId).ReadBound(connection,ct,pin.Frame?.Time.Date);
@@ -275,7 +275,7 @@ public static class MarketDates
         var found=ImmutableArray.CreateBuilder<CurveLastClose>();
         // A historical view reads only its own business day, as its calendar does.
         var candidates=pin.Context is {} context?frames.Where(frame=>Day(frame).ToString("yyyy-MM-dd",CultureInfo.InvariantCulture)==context.EffectiveOn).ToImmutableArray():frames;
-        var inputs=new MarketDateInputs(database,connection);
+        var inputs=new MarketDateInputs(database,connection,MarketDateRead.LastCloses);
         await inputs.Prepare(candidates,pending,null,false,ct);
         foreach(var batch in CandidateBatches(candidates,TimeZoneInfo.Utc,limited:true))
         {

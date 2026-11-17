@@ -177,19 +177,19 @@ public static partial class MarketCloses
     }
     private static CloseParts ParsePart(JsonElement row)
     {
-            var sources=row.GetProperty("sources").EnumerateArray().Select(source=>
-            {
-                var owner=new CatalogueSource(source.Id("definition_revision_id"),source.Id("reference_catalog_id"),source.Id("reference_revision_id"));
-                var pins=source.GetProperty("pins").EnumerateArray().ToArray();
-                return new MarketSourceInputs(owner,[..pins.Select(p=>p.Id("observation_id"))],
-                    [..pins.Where(p=>p.Text("input_use")=="frozen").Select(p=>p.Id("observation_id"))],
-                    source.GetProperty("members").EnumerateArray().GroupBy(m=>m.Text("curve_code"),StringComparer.Ordinal)
-                        .ToImmutableDictionary(g=>g.Key,g=>g.Select(m=>m.Id("contract_id")).ToImmutableArray(),StringComparer.Ordinal),
-                    [..source.GetProperty("members").EnumerateArray().Where(m=>m.Text("scope")=="root").Select(m=>m.Text("curve_code")).Distinct(StringComparer.Ordinal)]);
-            }).ToImmutableDictionary(part=>part.Source.DefinitionRevisionId);
-            if(!sources.TryGetValue(row.Id("primary_definition_revision_id"),out var primary))
-                throw new MarketDataException("pilot_close_inputs","The recorded close has no exact primary source.");
-            return new CloseParts(primary.Source,sources);
+        var sources=row.GetProperty("sources").EnumerateArray().Select(source=>
+        {
+            var owner=new CatalogueSource(source.Id("definition_revision_id"),source.Id("reference_catalog_id"),source.Id("reference_revision_id"));
+            var pins=source.GetProperty("pins").EnumerateArray().ToArray();
+            return new MarketSourceInputs(owner,[..pins.Select(p=>p.Id("observation_id"))],
+                [..pins.Where(p=>p.Text("input_use")=="frozen").Select(p=>p.Id("observation_id"))],
+                source.GetProperty("members").EnumerateArray().GroupBy(m=>m.Text("curve_code"),StringComparer.Ordinal)
+                    .ToImmutableDictionary(g=>g.Key,g=>g.Select(m=>m.Id("contract_id")).ToImmutableArray(),StringComparer.Ordinal),
+                [..source.GetProperty("members").EnumerateArray().Where(m=>m.Text("scope")=="root").Select(m=>m.Text("curve_code")).Distinct(StringComparer.Ordinal)]);
+        }).ToImmutableDictionary(part=>part.Source.DefinitionRevisionId);
+        if(!sources.TryGetValue(row.Id("primary_definition_revision_id"),out var primary))
+            throw new MarketDataException("pilot_close_inputs","The recorded close has no exact primary source.");
+        return new CloseParts(primary.Source,sources);
     }
     private static FrameClose Close(Guid id,string session,int version,DateOnly day,Guid inForce)=>new(session,version,day,inForce==id?null:inForce);
     private static InputFrame CreateFrame(Guid close,string name,DateTimeOffset at,CloseParts parts,Guid? contextId,FrameClose session)

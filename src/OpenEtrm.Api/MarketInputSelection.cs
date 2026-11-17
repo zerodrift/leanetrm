@@ -156,7 +156,7 @@ internal static class MarketInputSelection
                     [database.Manifest.CatalogId,missing],ct);
                 foreach(var revision in missing)rows.Add(revision,[..loaded.Where(row=>row.Id("revision_id")==revision)]);
             }
-            return [..requested.SelectMany(revision=>rows[revision])];
+            return [..requested.Order().SelectMany(revision=>rows[revision])];
         }
         internal async Task<CatalogueSource> Source(Guid revision,CancellationToken ct)
         {

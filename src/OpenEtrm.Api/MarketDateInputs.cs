@@ -6,10 +6,12 @@ using OpenEtrm.Shared.Temporal;
 
 namespace OpenEtrm.Api;
 
+internal enum MarketDateRead{Calendar,LastCloses}
+
 // One operation, one knowledge view. Native matrices are reattested before this
 // scope is created. Metadata and exact pins are shared by source, never by code
 // or across requests. Limited calendars leave older candidates' pins unread.
-internal sealed class MarketDateInputs(PreviewDatabase database,NpgsqlConnection connection)
+internal sealed class MarketDateInputs(PreviewDatabase database,NpgsqlConnection connection,MarketDateRead read)
 {
     sealed record Candidate(ImmutableArray<(string Code,CatalogueSource Source)> Selected,Exception? Error);
     readonly Dictionary<CatalogueSource,PreviewData> metadata=[];
@@ -63,7 +65,7 @@ internal sealed class MarketDateInputs(PreviewDatabase database,NpgsqlConnection
         await Attest(full?frames:frames.IsEmpty?[]:[..frames.Where(frame=>frame.Time.Date==dates[^1])],ct);
         catalogues=await new CatalogueStore(database.Manifest.CatalogId).ReadDates(connection,full?dates:dates.TakeLast(1),ct);
         if(!full)return;
-        foreach(var frame in frames)await Plan(frame,requested,ct);
+        foreach(var frame in frames.OrderBy(frame=>frame.At).ThenBy(frame=>frame.Id))await Plan(frame,requested,ct);
         var selections=frames.Where(f=>candidates[f.Id] is {Error:null,Selected.IsEmpty:false})
             .SelectMany(frame=>Sources(frame,candidates[frame.Id]).Select(source=>(Frame:frame,Source:source)));
         foreach(var group in selections.GroupBy(item=>item.Source))
@@ -102,7 +104,16 @@ internal sealed class MarketDateInputs(PreviewDatabase database,NpgsqlConnection
                     catalogues.Add(day,outcome);
             var(catalogue,error,denied)=catalogues[frame.Time.Date];
             if(denied)throw new PreviewDeniedException();
-            if(error is not null)throw new MarketDataException(error,CatalogueStore.Refusal(error));
+            if(error is not null)
+            {
+                var refusal=new MarketDataException(error,CatalogueStore.Refusal(error));
+                // The legacy calendar's per-date catch could not recover an
+                // aborted native transaction. Preserve its whole-read failure
+                // explicitly, without poisoning the transaction or returning a
+                // new partial calendar. Last-closes keeps its structured error.
+                if(read==MarketDateRead.Calendar)throw new InvalidOperationException("The dated catalogue selector failed to complete the calendar read.",refusal);
+                throw refusal;
+            }
             AsyncReadVisibility.Catalogue(database.Manifest.CatalogId,catalogue!);
             var parts=frame.SourceInputs!;
             var selectedRates=await MarketInputSelection.SelectedRates(database,connection,frame,catalogue!,ct,rateReads);

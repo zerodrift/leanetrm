@@ -163,11 +163,12 @@ def run_checks(url, query, manifest, psql, environment, log, api_pid, *, verify=
     original = query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);")
     try:
         assert original.count('\nBEGIN\n') == 1
-        query(original.replace('\nBEGIN\n', "\nBEGIN\n IF effective_on=DATE '2020-12-16' THEN RAISE EXCEPTION 'catalogue_missing' USING ERRCODE='P0001';END IF;\n", 1))
-        expected = deepcopy(answers['replaced'])
-        expected['dates'] = [day for day in expected['dates'] if day['date'] != '2020-12-16']
-        expected['unavailable'] = sorted([*expected['unavailable'], {'date': '2020-12-16', 'reason': 'catalogue_missing'}], key=lambda day: (day['date'], day['reason']))
-        assert projection(client.call('market/dates', body)) == expected, 'One missing dated catalogue must retain its own refusal and the other dates'
+        query(original.replace('\nBEGIN\n', "\nBEGIN\n IF effective_on IN(DATE '2020-12-16',DATE '2020-12-18') THEN RAISE EXCEPTION 'catalogue_missing' USING ERRCODE='P0001';END IF;\n", 1))
+        # The unchanged calendar catches the translated SQL error per date,
+        # then fails on its aborted transaction. Last-closes propagates the
+        # structured error immediately. Batching must preserve both boundaries.
+        assert client.call('market/dates', body, expected=500)['code'] == 'preview_error'
+        assert client.call('market/last-closes', {'session': body['session']}, expected=422)['code'] == 'catalogue_missing'
     finally:
         query(original)
     try:
