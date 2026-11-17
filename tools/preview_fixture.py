@@ -18,14 +18,6 @@ CURRENCY = 'usd'
 TENANT = 'b0000000-0000-0000-0000-000000000001'
 WORKSPACE = 'b1000000-0000-0000-0000-000000000001'
 R = f"'{RCAT}','{RREV}'"
-
-
-def commodity(key, code, name, dimension, icon):
-    """One commodity row that names its icon. An upgrade check loads fixtures before the icon column exists, so the row is
-    built from named fields: an earlier schema ignores the icon, and the migration that adds the column then assigns one."""
-    return ("INSERT INTO ref_data.commodities SELECT(jsonb_populate_record(NULL::ref_data.commodities,jsonb_build_object("
-            f"'catalog_id',k.c,'revision_id',k.r,'code','{code}','name','{name}','quantity_dimension_code','{dimension}','icon_code','{icon}'))).* "
-            f"FROM(VALUES({key}))k(c,r);")
 M = f"'{CAT}','{REV}'"
 
 
@@ -35,6 +27,14 @@ CURVE_NAMES = {
     'gas_basis': 'Regional gas spread', 'local_gas': 'Regional gas forwards', 'power_spread': 'Power spread',
     'hub_power': 'Hub power forwards', 'power_basis': 'Local power spread', 'local_power': 'Local power forwards',
     'local_power_all_in': 'Local power · all-in prices', 'interest_rates': 'Interest rates'}
+
+
+def commodity(key, code, name, dimension, icon):
+    """One commodity row that names its icon. An upgrade check loads fixtures before the icon column exists, so the row is
+    built from named fields: an earlier schema ignores the icon, and the migration that adds the column then assigns one."""
+    return ("INSERT INTO ref_data.commodities SELECT(jsonb_populate_record(NULL::ref_data.commodities,jsonb_build_object("
+            f"'catalog_id',k.c,'revision_id',k.r,'code','{code}','name','{name}','quantity_dimension_code','{dimension}','icon_code','{icon}'))).* "
+            f"FROM(VALUES({key}))k(c,r);")
 
 
 def named_curves(sql):

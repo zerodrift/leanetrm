@@ -5,8 +5,10 @@ using OpenEtrm.MarketData.CustomCurves;
 
 namespace OpenEtrm.Api;
 
-// A commodity as reference data names it: its code, its name and the icon it declares (D424).
+// A curve's commodity in the directory: its code, its name and the icon its reference data declares (D424).
 public sealed record NavigationCategory(string Code,string Name,string Icon);
+// A position names its commodity by code and name only.
+public sealed record PositionCommodity(string Code,string Name);
 // A commodity curve names its commodity. An interest-rate curve has none; its market type identifies it.
 public sealed record NavigationCurve(string Code,string Name,string MarketType,NavigationCategory? Category,string Kind)
 {
@@ -62,7 +64,7 @@ public sealed record MarketNavigation(string Profile,ScheduleContext? Context,De
             while(await reader.ReadAsync(ct))
             {
                 var total=reader.GetInt64(4);var futures=reader.GetInt64(6);var forwards=reader.GetInt64(7);
-                if(reader.IsDBNull(3)||reader.IsDBNull(10)||total==0||reader.GetInt64(5)!=total||futures+forwards!=total)
+                if(reader.IsDBNull(3)||total==0||reader.GetInt64(5)!=total||futures+forwards!=total)
                     throw Invalid();
                 var kind=futures==total?"futures":forwards==total?"forwards":"mixed";
                 curves.Add(new(reader.GetString(0),reader.GetString(1),kind,new(reader.GetString(2),reader.GetString(3),reader.GetString(10)),PreviewData.CurveKind(reader.GetString(8),reader.IsDBNull(9)?null:reader.GetString(9))));

@@ -32,7 +32,7 @@ def fixture(export_path):
     r('currencies',('usd','USD','US dollar',2))
     r('dimensions',('energy',1,2,-2,0,0,0,0))
     r('units',('mmbtu','MMBtu','energy'))
-    r('commodities',('gas','Synthetic natural gas','energy'))
+    r('commodities',('gas','Synthetic natural gas','energy','flame'))
     r('commodity_units',('gas','mmbtu','energy'))
     r('measurement_bases',('gas_energy','gas','energy'))
     r('quantity_specifications',('gas_mmbtu','gas','gas_energy','mmbtu','energy'))

@@ -994,15 +994,14 @@ public sealed class PreviewData
             throw new MarketDataException("reference_pin_mismatch","The admitted market requires its exact persisted sealed definition.");
         return selected with{ReferenceCatalogId=row.Id("reference_catalog_id"),ReferenceRevisionId=row.Id("reference_revision_id")};
     }
-    // The commodity a curve belongs to: the code, name and icon its commodity reference has, as the curve directory's category
-    // for the curve has them before any reviewed display label. A curve whose commodity reference is missing or ambiguous,
-    // or names no icon, fails the read; a position's commodity is never defaulted or read from a name.
-    public NavigationCategory Commodity(string curve)
+    // The commodity a curve belongs to: the code and name its commodity reference has, as the curve directory's category
+    // for the curve has them before any reviewed display label. A curve whose commodity reference is missing or ambiguous
+    // fails the read; a position's commodity is never defaulted or read from a name.
+    public PositionCommodity Commodity(string curve)
     {
         var code=Single(DefinitionRows("curves","code",curve)).Text("commodity_code");
         var commodity=Single(ReferenceRows("commodities","code",code));
-        var icon=Single(commodity.TryGetProperty("icon_code",out var named)&&named.ValueKind==JsonValueKind.String?[named.GetString()!]:Array.Empty<string>());
-        return new(commodity.Text("code"),commodity.Text("name"),icon);
+        return new(commodity.Text("code"),commodity.Text("name"));
     }
     // The unit a curve's prices are quoted in, named as the Blotter names the price units of its pivots.
     public string PriceUnit(string curve)
