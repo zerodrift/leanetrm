@@ -111,9 +111,10 @@ BEGIN
   END LOOP;
   SELECT coalesce(jsonb_agg(value),'[]'::jsonb) INTO rows FROM(SELECT DISTINCT value FROM jsonb_array_elements(rows))unique_rows;
  END IF;
+ rows=jsonb_build_object('rows',rows,'denied',denied);
  IF clock_timestamp()>=until_at OR security.market_access(catalog,'ReadMarketData') IS NOT TRUE
  THEN RAISE EXCEPTION 'Observation read access expired' USING ERRCODE='42501';END IF;
- RETURN jsonb_build_object('rows',rows,'denied',denied);
+ RETURN rows;
 END;$$;
 ALTER FUNCTION security.read_observation_pin_sets(uuid,uuid,jsonb) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION security.read_observation_pin_sets(uuid,uuid,jsonb) FROM PUBLIC;

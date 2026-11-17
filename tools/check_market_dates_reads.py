@@ -1,5 +1,6 @@
 """Statement scaling and disclosure boundaries in the launcher's disposable database."""
 from copy import deepcopy
+from contextlib import contextmanager
 from datetime import date, timedelta
 from pathlib import Path
 import json
@@ -36,6 +37,32 @@ def projection(answer):
     for curve in value.get('curves', []):
         curve.pop('id')
     return value
+
+
+@contextmanager
+def original_read_probe(query):
+    """Identify the materializing identity transaction from its native point reads."""
+    signature = 'security.read_observation_pins(uuid,uuid,uuid[])'
+    pins = query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);")
+    query("""CREATE TABLE public.synthetic_calendar_read_context(id uuid PRIMARY KEY);
+      CREATE FUNCTION public.synthetic_calendar_read_finished() RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog AS $$
+       INSERT INTO public.synthetic_calendar_read_context SELECT id FROM security.request_contexts
+        WHERE backend_pid=pg_backend_pid() AND transaction_id=pg_current_xact_id_if_assigned() AND runtime_login=session_user ON CONFLICT DO NOTHING;
+      $$;
+      CREATE FUNCTION public.synthetic_calendar_source_visible() RETURNS boolean LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog AS $$
+       SELECT NOT EXISTS(SELECT 1 FROM public.synthetic_calendar_read_context saved WHERE NOT EXISTS(
+        SELECT 1 FROM security.request_contexts c WHERE c.id=saved.id AND c.backend_pid=pg_backend_pid()
+         AND c.transaction_id=pg_current_xact_id_if_assigned() AND c.runtime_login=session_user));
+      $$;
+      REVOKE ALL ON FUNCTION public.synthetic_calendar_read_finished(),public.synthetic_calendar_source_visible() FROM PUBLIC;
+      GRANT EXECUTE ON FUNCTION public.synthetic_calendar_read_finished(),public.synthetic_calendar_source_visible() TO openetrm_security_owner;""")
+    try:
+        assert pins.count('\nEND;\n$function$') == 1
+        query(pins.replace('\nEND;\n$function$', '\nPERFORM public.synthetic_calendar_read_finished();\nEND;\n$function$', 1))
+        yield
+    finally:
+        query(pins)
+        query('DROP FUNCTION public.synthetic_calendar_read_finished(),public.synthetic_calendar_source_visible();DROP TABLE public.synthetic_calendar_read_context;')
 
 
 def mixed_source_checks(client, query, manifest, source, publication_check=True):
@@ -89,29 +116,14 @@ def mixed_source_checks(client, query, manifest, source, publication_check=True)
     # transaction. The immutable matrix was valid throughout execution; final
     # header RLS must still refuse disclosure without another matrix payload.
     fact_signature = 'security.market_fact_visible(uuid,uuid,uuid)'
-    pin_signature = 'security.read_observation_pins(uuid,uuid,uuid[])'
     fact = query(f"SELECT pg_get_functiondef('{fact_signature}'::regprocedure);")
-    pins = query(f"SELECT pg_get_functiondef('{pin_signature}'::regprocedure);")
-    query("""CREATE TABLE public.synthetic_calendar_read_context(id uuid PRIMARY KEY);
-      CREATE FUNCTION public.synthetic_calendar_read_finished() RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog AS $$
-       INSERT INTO public.synthetic_calendar_read_context SELECT id FROM security.request_contexts
-        WHERE backend_pid=pg_backend_pid() AND transaction_id=pg_current_xact_id_if_assigned() AND runtime_login=session_user ON CONFLICT DO NOTHING;
-      $$;
-      CREATE FUNCTION public.synthetic_calendar_source_visible() RETURNS boolean LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog AS $$
-       SELECT NOT EXISTS(SELECT 1 FROM public.synthetic_calendar_read_context saved WHERE NOT EXISTS(
-        SELECT 1 FROM security.request_contexts c WHERE c.id=saved.id AND c.backend_pid=pg_backend_pid()
-         AND c.transaction_id=pg_current_xact_id_if_assigned() AND c.runtime_login=session_user));
-      $$;
-      REVOKE ALL ON FUNCTION public.synthetic_calendar_read_finished(),public.synthetic_calendar_source_visible() FROM PUBLIC;
-      GRANT EXECUTE ON FUNCTION public.synthetic_calendar_read_finished(),public.synthetic_calendar_source_visible() TO openetrm_security_owner;""")
-    try:
-        assert fact.count('\nBEGIN\n') == 1 and pins.count('\nEND;\n$function$') == 1
-        query(fact.replace('\nBEGIN\n', f"\nBEGIN\n IF revision='{revision}'::uuid AND NOT public.synthetic_calendar_source_visible() THEN RETURN false;END IF;\n", 1))
-        query(pins.replace('\nEND;\n$function$', '\nPERFORM public.synthetic_calendar_read_finished();\nEND;\n$function$', 1))
-        client.call('market/dates', request, expected=403)
-    finally:
-        query(fact);query(pins)
-        query('DROP FUNCTION public.synthetic_calendar_read_finished(),public.synthetic_calendar_source_visible();DROP TABLE public.synthetic_calendar_read_context;')
+    with original_read_probe(query):
+        try:
+            assert fact.count('\nBEGIN\n') == 1
+            query(fact.replace('\nBEGIN\n', f"\nBEGIN\n IF revision='{revision}'::uuid AND NOT public.synthetic_calendar_source_visible() THEN RETURN false;END IF;\n", 1))
+            client.call('market/dates', request, expected=403)
+        finally:
+            query(fact)
     print('PASS calendar disclosure rechecks unconsumed supplemental source authority through native close RLS', flush=True)
 
 
@@ -229,6 +241,12 @@ def failed_build_check(client, query, manifest, measure):
             actual = client.call('market/dates', {**request, 'maximumDates': 2})
             assert [day['date'] for day in actual['dates']] == ['2020-12-16', '2020-12-18'], actual
             assert actual['unavailable'] == [{'date': '2020-12-17', 'reason': 'market_data_unavailable'}]
+        # The successful union also contains a third good close. Its facts
+        # are prefetched, but maximumDates:2 does not consume their authority.
+        unvisited = next(pin for pin in third['observationIds'] if pin not in first['observationIds'] and pin not in second['observationIds'])
+        with original_read_probe(query), visibility_probe(query, f"v.observation<>'{unvisited}'::uuid OR public.synthetic_calendar_source_visible()"):
+            actual = client.call('market/dates', {**request, 'maximumDates': 2})
+            assert [day['date'] for day in actual['dates']] == ['2020-12-17', '2020-12-18'], actual
         print('PASS limited pin reads defer unvisited denials, refuse reached denials and isolate missing pins to their own frame', flush=True)
         require_constant_statements(counts)
     finally:
@@ -310,7 +328,7 @@ def run_checks(url, query, manifest, psql, environment, log, api_pid, *, verify=
         db_ms = sum(float(re.search(r'duration: ([\d.]+) ms', line)[1]) for line in statements)
         categories = {}
         for line in statements:
-            category = next((name for name in ('read_request_catalogues', 'read_market_close_parts_results', 'read_market_close_parts', 'read_observation_pins', 'close_in_force', 'close_session_hidden_days') if name+'(' in line), 'other')
+            category = next((name for name in ('read_request_catalogues', 'read_market_close_parts_results', 'read_market_close_parts', 'read_observation_pin_sets', 'read_observation_pins', 'close_in_force', 'close_session_hidden_days') if name+'(' in line), 'other')
             categories[category] = round(categories.get(category, 0) + float(re.search(r'duration: ([\d.]+) ms', line)[1]), 3)
         return answer, {'seconds': round(elapsed, 6), 'statements': len(statements), 'databaseMs': round(db_ms, 3),
                         'apiCpuMs': round((cpu()-cpu_start)*1000, 3), 'databaseBreakdownMs': categories}
