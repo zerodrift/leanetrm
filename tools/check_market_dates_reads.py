@@ -13,6 +13,7 @@ from uuid import uuid4
 from assistant_context import holding
 from preview_client import PreviewClient
 from seed_session_closes import publish_session, record_close
+from check_market_dates import visibility_probe
 
 SESSION = 'synthetic_calendar_scaling'
 # Business projections captured from unchanged cb582382 in this exact synthetic fixture.
@@ -161,6 +162,29 @@ def failed_build_check(client, query, manifest, measure):
             assert {day['reason'] for day in answer['unavailable']} == {'market_data_unavailable'}
             counts[total] = sample['statements'];runs.append({'closes': total, **sample})
         print('CALENDAR_FAILED_BUILD_MEASUREMENTS=' + json.dumps(runs), flush=True)
+        # A third genuine close lets a missing pin in the second close prove
+        # that other frames in the same future batch remain independently usable.
+        first = next(f for f in manifest['frames'] if f['at'].startswith('2020-12-18T16:00:00'))
+        second = next(f for f in manifest['frames'] if f['at'].startswith('2020-12-17T16:00:00'))
+        third = next(f for f in manifest['frames'] if f['at'].startswith('2020-12-16T16:00:00'))
+        record_close(query, manifest, session, 1, third)
+        old_pin = next(pin for pin in original['observationIds'] if pin not in first['observationIds'] and pin not in second['observationIds'] and pin not in third['observationIds'])
+        signature = 'security.read_observation_pins(uuid,uuid,uuid[])'
+        native = query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);")
+        request = {'session': session, 'curve': 'ng_monthly', 'timeZone': 'UTC'}
+        try:
+            assert native.count('\nBEGIN\n') == 1
+            query(native.replace('\nBEGIN\n', f"\nBEGIN\n IF '{old_pin}'::uuid=ANY(requested_pins) THEN RAISE EXCEPTION 'Synthetic unvisited older pin denial' USING ERRCODE='42501';END IF;\n", 1))
+            assert len(client.call('market/dates', {**request, 'maximumDates': 2})['dates']) == 2
+            client.call('market/dates', {**request, 'maximumDates': 4}, expected=403)
+        finally:
+            query(native)
+        missing = next(pin for pin in second['observationIds'] if pin not in first['observationIds'] and pin not in third['observationIds'] and pin not in original['observationIds'])
+        with visibility_probe(query, f"v.observation<>'{missing}'::uuid"):
+            actual = client.call('market/dates', {**request, 'maximumDates': 2})
+            assert [day['date'] for day in actual['dates']] == ['2020-12-16', '2020-12-18'], actual
+            assert actual['unavailable'] == [{'date': '2020-12-17', 'reason': 'market_data_unavailable'}]
+        print('PASS limited pin reads defer unvisited denials, refuse reached denials and isolate missing pins to their own frame', flush=True)
         require_constant_statements(counts)
     finally:
         listing(session, False);listing(SESSION, True)
