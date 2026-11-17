@@ -1403,7 +1403,7 @@ const openVolSurface=(product:string,definitionRevisionId:string,series?:string)
 const optionChains=setupOptions({api,zone:()=>prefs.timeZone,context:optionContext,frames:{here:frameHere,sessionName:code=>closeSessionNames.get(code)??code},
  openSurface:(product,definitionRevisionId,series)=>void openVolSurface(product,definitionRevisionId,series),
  book:series=>void leaving(async()=>{
-  if(contextDirty)await applyContext();await setPage('futures');await futures.loadEntry();
+  if(contextDirty)await applyContext();await setPage('futures');await futures.enterEntry();
   optionTicket.request(series);try{await futures.openProduct('options');}finally{optionTicket.request(null);}
  },contextDirty?'discards':'page')});
 // A series on its surface links to its row in the chain of its expiry.
@@ -1453,7 +1453,7 @@ const tickets=productTickets({
  options:optionTicket,
 });
 async function ticketBooked(tradeId:string):Promise<void>{if(tickets.active())await futures.bookedExternal(tradeId);}
-const futures=setupFutures({lifecycle:()=>leaving(async()=>{if(contextDirty)await applyContext();await setPage('lifecycle');await lifecycle.load();},contextDirty?'discards':'page'),volSurface:openVolSurface,riskReportUrl:id=>riskReportAddress(id,{hosted:hostedPilot,example:exampleId}),narrow:()=>main.clientWidth<dockedGroupsFrom,assistant:{available:()=>can('UseAgents'),inPlace:kind=>assistant.draft(kind==='pivot'?askPivotText:askSelectionText),about:({reference})=>assistant.draft(askAboutText(reference))},window:{kind:'main',example:exampleId as 'baseline'|'exchange',open:(url,target,features)=>window.open(url,target,features)},failed:showFailure,failureCleared:clearFailure,onViews:(listed,shown)=>{blotterViews={listed,shown};renderBlotterViews();},tickets,api,stream:(body,handlers,signal)=>streamBlotter((path,payload,abort)=>responseFor(path,payload,apiRoot,abort),body,handlers,signal),act,busy:()=>busy,updatesBlocked:()=>assistant.working(),canRunRisk:()=>permissions.includes('RunScenario'),bookingUnavailableReason:()=>bookingFallback({contextDirty,view:knowledgeView(),canBook:permissions.includes('BookTrade')}),knowledge:knowledgeView,contextDirty:()=>contextDirty,zone:()=>prefs.timeZone,profile:()=>administrationScope+':'+currentProfile,onReadContext:(at,known)=>text('header-calculation-time',`As of ${instant(at)} · knowledge cutoff ${instant(known)}`),notice,curveListed:code=>!!navigation?.curves.some(c=>c.code===code),openCurve:(code,contractId)=>openCurve(code,contractId),reported:()=>assistant.sync(),unsavedChanged:()=>syncUnloadQuestion(),source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,convention:directory().futuresConvention,context:historicalContext()};}});
+const futures=setupFutures({lifecycle:()=>leaving(async()=>{if(contextDirty)await applyContext();await setPage('lifecycle');await lifecycle.load();},contextDirty?'discards':'page'),volSurface:openVolSurface,riskReportUrl:id=>riskReportAddress(id,{hosted:hostedPilot,example:exampleId}),narrow:()=>main.clientWidth<dockedGroupsFrom,assistant:{available:()=>can('UseAgents'),inPlace:kind=>assistant.draft(kind==='pivot'?askPivotText:askSelectionText),about:({reference})=>assistant.draft(askAboutText(reference))},window:{kind:'main',entry:{shown:newTradeShown,links:page=>pageAvailable(page,permissions),link:page=>navigate(page)()},example:exampleId as 'baseline'|'exchange',open:(url,target,features)=>window.open(url,target,features)},failed:showFailure,failureCleared:clearFailure,onViews:(listed,shown)=>{blotterViews={listed,shown};renderBlotterViews();},tickets,api,stream:(body,handlers,signal)=>streamBlotter((path,payload,abort)=>responseFor(path,payload,apiRoot,abort),body,handlers,signal),act,busy:()=>busy,updatesBlocked:()=>assistant.working(),canRunRisk:()=>permissions.includes('RunScenario'),bookingUnavailableReason:()=>bookingFallback({contextDirty,view:knowledgeView(),canBook:permissions.includes('BookTrade')}),knowledge:knowledgeView,contextDirty:()=>contextDirty,zone:()=>prefs.timeZone,profile:()=>administrationScope+':'+currentProfile,onReadContext:(at,known)=>text('header-calculation-time',`As of ${instant(at)} · knowledge cutoff ${instant(known)}`),notice,curveListed:code=>!!navigation?.curves.some(c=>c.code===code),openCurve:(code,contractId)=>openCurve(code,contractId),reported:()=>assistant.sync(),unsavedChanged:()=>syncUnloadQuestion(),source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,convention:directory().futuresConvention,context:historicalContext()};}});
 // The contract panel beside the curve's chart and table: docked when the main area has the room and the assistant is closed, an overlay
 // otherwise, and on a phone a sheet over the page. Closing it returns focus to the contract's row, or else to what opened it.
 const contractPanel=setupContractPanel($('contract-panel'),{
@@ -1566,6 +1566,19 @@ async function showPage(next:string){
   }
 }
 // Pages that read the selected historical view apply a changed one before they open.
+// New trade (D421) is the Blotter's page shown another way, so the app's page stays the Blotter's and its guards, reads and context
+// controls apply unchanged: the title follows what the Blotter view says it shows. Its sidebar entry opens it through the leave question
+// of the page it is left from; while the Blotter is in its own window it shows where the Blotter went, as the Blotter's entry does.
+function newTradeShown(title:string|null){if(page!=='futures')return;text('page-title',title??'Blotter');$('page-title').title=title??'Blotter';}
+$('nav-new-trade').onclick=()=>{
+  if(page==='futures'&&futures.entry())return;
+  leaving(async()=>{
+    if(contextDirty)await applyContext();
+    await setPage('futures');
+    if(futures.poppedOut()){futures.front();return;}
+    if(select('snapshot').value)await futures.enterEntry();else futures.showEntry();
+  },contextDirty?'discards':'page');
+};
 const readsContext=['rec-inventory','physical-power','lifecycle','physical-operations','crude-setup','gas-setup','gas','crude','dashboard','market','curve-definitions','custom-curves','vol-surfaces','options','delivery','interval-curves','power','reference','configuration','schedules','parties','futures'];
 const navigate=(next:string)=>()=>leaving(async()=>{if(contextDirty&&readsContext.includes(next))await applyContext();await showPage(next);},contextDirty&&readsContext.includes(next)?'discards':'page');
 const riskViewsNav=setupRiskViews({show:view=>{riskJobs.showView(view);text('page-title',riskViewNames[view]);$('page-title').title=riskViewNames[view];syncControls();},open:()=>navigate('risk')(),onPage:()=>page==='risk',busy:()=>busy,available:()=>pageAvailable('risk',permissions)});
@@ -1664,7 +1677,7 @@ async function showTarget(report:string,selection:Record<string,unknown>|null,ki
   if(report==='blotter_new_trade'||report==='blotter_new_future'||report==='blotter_new_swap'){
     if(futures.poppedOut())throw Error('Bring the Blotter back to this window before opening a ticket here.');
     await setPage('futures');signal?.throwIfAborted();
-    await futures.loadEntry(signal);signal?.throwIfAborted();
+    await futures.enterEntry(signal);signal?.throwIfAborted();
     await futures.openEntry(report==='blotter_new_trade'?null:report==='blotter_new_future'?'futures':'swaps',signal);return;
   }
   if(!selection)return showPage(next);

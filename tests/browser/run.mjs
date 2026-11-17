@@ -55,6 +55,7 @@ import {run as scheduleExamples} from './schedule-examples.mjs';
 import {run as power} from './power.mjs';
 import {checkProfileLifetime} from './profile-lifecycle.mjs';
 import {run as futures} from './futures.mjs';
+import {run as newTradePage} from './new-trade-page.mjs';
 import {run as futuresAdmission} from './futures-admission.mjs';
 import {run as futuresLoading} from './futures-loading.mjs';
 import {run as tradeEditor} from './trade-editor.mjs';
@@ -102,7 +103,7 @@ import {run as intervalSeries} from './interval-series.mjs';
 import {run as intervalCurves} from './interval-curves.mjs';
 import {run as valuationStatus} from './valuation-status.mjs';
 async function marketNavigation(browser){await startupRequests(browser);await dateContext(browser);await marketNavigationRead(browser);await marketsDesk(browser);await deliveryDesk(browser);await startupAccess(browser);await reference(browser);await marketContext(browser);await scheduleExamples(browser);await referenceEditor(browser);await navigationCache(browser);await lazyReads(browser);}
-async function tradingNavigation(browser){await blotterStreaming(browser);await futuresLoading(browser);await futuresAdmission(browser);await futures(browser);}
+async function tradingNavigation(browser){await blotterStreaming(browser);await futuresLoading(browser);await futuresAdmission(browser);await futures(browser);await newTradePage(browser);}
 // The Dashboard shares the risk suite's browser: each owned browser opens a preview session, and the preview caps them.
 async function ppaEntry(browser){await ppa(browser);await ppaComposed(browser);}
 async function riskAndDashboard(browser){await risk(browser);await riskWorkspace(browser);await dashboard(browser);}
