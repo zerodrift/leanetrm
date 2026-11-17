@@ -3,7 +3,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await command('Runtime.enable');await command('Page.enable');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
  await command('Page.addScriptToEvaluateOnNewDocument',{source:`
-  window.marketDateRequests=[];window.marketDateCalls=[];
+  window.marketDateRequests=[];window.marketDateCalls=[];window.curveCloseRequests=[];
   const original=window.fetch;window.fetch=async(...args)=>{
    const path=new URL(typeof args[0]==='string'?args[0]:args[0].url,location.href).pathname;
    // A curve's own short list of closes is a separate read from the calendars these counts follow.
@@ -29,6 +29,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     response=new Response(JSON.stringify(data),{status:response.status,headers:{'Content-Type':'application/json'}});
    }
    if(!curveCloses&&(path.endsWith('/market/dates')||path.endsWith('/custom-curves/preview')))window.marketDateRequests.push({path,body:JSON.parse(args[1].body),status:response.status,payload:await response.clone().json()});
+   if(curveCloses)window.curveCloseRequests.push({body:JSON.parse(args[1].body),status:response.status,payload:await response.clone().json()});
    return response;
   };
  `});
@@ -219,7 +220,10 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  const address=await evaluate("window.windowAddress");
  await command('Page.navigate',{url:address});await wait("document.querySelectorAll('.curve-button').length>0&&document.querySelector('#close-window-note').textContent.length>0&&"+idle,30000);
  await check('a separate window opens at that close, on that curve, and says so',"document.querySelector('#snapshot').value===new URLSearchParams(location.search).get('close')||document.querySelector('#close-window-note').textContent.startsWith('Separate window')");
- await check('the separate window shows the curve at the linked close',"document.querySelector('#curve-title').textContent.length>0&&document.querySelector('#curve-closes .vol-close-chip[aria-current=true]')!==null");
+ // Global idle does not include the curve's detached availability read. Wait
+ // for that actual consumer, independently of the completed pricing read.
+ await wait("document.querySelector('#curve-title').textContent.length>0&&document.querySelector('#curve-closes .vol-close-chip[aria-current=true]')!==null&&"+idle,30000);
+ await check('the separate window shows the curve at the linked close',"document.querySelector('.curve-button[data-curve=ng_monthly][aria-pressed=true]')!==null&&document.querySelector('#curve-closes .vol-close-chip[aria-current=true]').dataset.close===new URLSearchParams(location.search).get('close')", "({title:document.querySelector('#curve-title').textContent,selected:document.querySelector('#snapshot').value,closes:window.curveCloseRequests})");
  await set('#snapshot',await evaluate("document.querySelector('#curve-closes .vol-close-chip[aria-current=false]').dataset.close"));await wait(idle,30000);
  await check('choosing another close in that window retires its separate-window note',"document.querySelector('#close-window-note').hidden");
  await command('Page.navigate',{url:url+'/?page=market&curve=ng_monthly&close=00000000-0000-4000-8000-000000000000'});await wait("document.querySelector('#close-window-note')?.textContent.length>0&&"+idle,30000);
