@@ -149,6 +149,10 @@ def run_checks(url,query,dotnet,owned_root,environment):
     repeated=client.call('trading/close-out-draft',pinned)
     assert repeated==client.call('trading/close-out-draft',pinned) and repeated['terms']=={**first['terms'],'knowledgeMode':'retained'} and repeated['price']==first['price'],repeated
     assert client.call('trading/close-out-draft',{**request,'instrumentType':'ppa'},expected=422)['code']=='close_out'
+    # An adjustment answers through the same read: the stated lots on the position's own side, echoed as stated, and bookable.
+    more=client.call('trading/position-adjustment-draft',{**request,'direction':'increase','quantity':'10'})
+    assert more['terms']['lots']=='10' and more['adjustment']=={'direction':'increase','quantity':'10'} and more['canBook'] and more['price']==first['price'],more
+    assert client.call('trading/position-adjustment-draft',{**request,'direction':'reduce','quantity':'41'},expected=422)['code']=='close_out'
     # Current trading authority is required before any position is selected, whatever the instrument type: also in a retained context,
     # whose own knowledge would otherwise only hide the position.
     client.call('profile',{'profile':'admin'})
@@ -156,6 +160,7 @@ def run_checks(url,query,dotnet,owned_root,environment):
         for body in (request,pinned):
             for instrument in ('future','ppa'):
                 assert client.call('trading/close-out-draft',{**body,'instrumentType':instrument},expected=403)['code']=='access_denied'
+                assert client.call('trading/position-adjustment-draft',{**body,'instrumentType':instrument,'direction':'increase','quantity':'10'},expected=403)['code']=='access_denied'
     finally:
         client.call('profile',{'profile':'trader'})
     # The daily swap's separate bundle has no frame at the February close: the whole Blotter read there refuses, naming the missing frame.
