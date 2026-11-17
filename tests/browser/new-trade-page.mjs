@@ -7,7 +7,10 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   const width=1440,height=1050;
   await command('Page.enable');await command('Runtime.enable');await command('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});
   await command('Page.navigate',{url});await wait(idle);await persona('trader');
-  await wait("document.querySelector('#page-title').textContent==='Blotter'&&document.querySelector('#futures-page').dataset.pricingState==='ready'&&"+idle);
+  // The close the standard fixture's trades are booked at, as the Blotter's own checks choose it.
+  const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')&&w.initialFrameIds.includes(f.id)).id;})()");
+  await set('#snapshot',frame);await wait(idle);await click('#nav-futures');
+  await wait("document.querySelector('#page-title').textContent==='Blotter'&&document.querySelector('#futures-page').dataset.pricingState==='complete'&&"+idle);
   const shown="(selector=>{const node=document.querySelector(selector);return !!node&&node.checkVisibility();})";
   const title="document.querySelector('#page-title').textContent";
   const entry="document.querySelector('#futures-page').hasAttribute('data-entry')";
@@ -24,8 +27,8 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
 
   await chooseProduct({click,wait},'swaps');
   await check('choosing an instrument names the page for it and puts its form in the page',`${title}==='New swap'&&${entry}&&document.querySelector('#new-trade-product').dataset.state==='chosen'&&document.querySelector('#new-trade-swaps').getAttribute('aria-pressed')==='true'`,state);
-  // An edit is the person's own input: a key typed into the first text field of the form.
-  await evaluate("(()=>{const field=[...document.querySelectorAll('#position-details-form input:enabled,#position-details-form textarea:enabled')].find(n=>!['hidden','date','checkbox','radio','button','submit'].includes(n.type)&&n.checkVisibility());field.scrollIntoView({block:'center'});field.focus();window.__entryEdited=field;})()");
+  // An edit is the person's own input: a key typed into the swap's memo, or into the first text field of the form where no memo is drawn.
+  await evaluate("(()=>{const memo=document.querySelector('#swap-memo'),field=memo?.checkVisibility()&&!memo.disabled&&!memo.readOnly?memo:[...document.querySelectorAll('#position-details-form input:enabled,#position-details-form textarea:enabled')].find(n=>!n.readOnly&&!['hidden','date','checkbox','radio','button','submit'].includes(n.type)&&n.checkVisibility());field.scrollIntoView({block:'center'});field.focus();window.__entryEdited=field;})()");
   await command('Input.insertText',{text:'7'});
   await click('#nav-futures');await wait("!document.querySelector('#position-details-prompt').hidden");
   await evaluate("document.querySelector('#position-details-prompt').querySelectorAll('button')[0].click()");await wait(idle);
@@ -52,7 +55,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
 
   // A read of the Blotter that fails takes the booking directory with it: the page reads it again, so the chooser is back with the failure said.
   await click('#new-trade-swaps');await wait(`${title}==='New swap'&&`+idle);
-  await evaluate(`(()=>{const send=window.fetch;window.fetch=async(input,init)=>{if(String(input)==='/api/trading/workspace'){window.fetch=send;return new Response(JSON.stringify({error:'Synthetic failure of the Blotter read.'}),{status:500,headers:{'content-type':'application/json'}});}return send(input,init);};})()`);
+  await evaluate(`(()=>{const send=window.fetch;window.fetch=async(input,init)=>{if(String(input)==='/api/trading/workspace'){window.fetch=send;return new Response(JSON.stringify({code:'request_failed',message:'Synthetic failure of the Blotter read.'}),{status:500,headers:{'Content-Type':'application/json'}});}return send(input,init);};})()`);
   await click('#new-trade-futures');await wait(`${title}==='New trade'&&!document.querySelector('#error').hidden&&`+idle);
   await check('a failed read of the contracts brings the chooser back with the failure said',
     `${entry}&&${shown}('#new-trade-product')&&document.querySelector('#new-trade-product').dataset.state==='choose'&&!${shown}('#new-trade-availability')&&document.querySelector('#error').textContent.length>0`,state);
@@ -67,7 +70,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await check('a narrow window still shows the chooser alone',`${entry}&&(${shown}('#new-trade-product')||${shown}('#new-trade-availability'))&&!${shown}('#desk-positions')&&document.documentElement.scrollWidth<=document.documentElement.clientWidth+1`,state);
   await command('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});await wait(idle);
 
-  if(await evaluate("!!document.querySelector('#new-trade-operating-right')")){
+  if(await evaluate(`${shown}('#new-trade-operating-right')&&!document.querySelector('#new-trade-operating-right').disabled`)){
     await click('#new-trade-operating-right');await wait(`${title}==='Operating facilities'&&`+idle);
     await check('the operating right goes to Operating facilities and chooses nothing there',"!document.querySelector('#physical-power-page').hidden&&document.querySelector('#futures-page').hidden");
   }
