@@ -5,6 +5,7 @@ from pathlib import Path
 import json
 import hashlib
 import platform
+import os
 import re
 import threading
 import time
@@ -82,6 +83,34 @@ def mixed_source_checks(client, query, manifest, source):
         client.call('profile', {'profile': 'viewer'})
     assert not failures, '; '.join(failures)
     print('PASS mixed-source calendar metadata faults match independent exact evaluation and do not materialize unrequested rate-owner terms', flush=True)
+    # End authority for the unconsumed part only in the NEXT identity
+    # transaction. The immutable matrix was valid throughout execution; final
+    # header RLS must still refuse disclosure without another matrix payload.
+    fact_signature = 'security.market_fact_visible(uuid,uuid,uuid)'
+    pin_signature = 'security.read_observation_pins(uuid,uuid,uuid[])'
+    fact = query(f"SELECT pg_get_functiondef('{fact_signature}'::regprocedure);")
+    pins = query(f"SELECT pg_get_functiondef('{pin_signature}'::regprocedure);")
+    query("""CREATE TABLE public.synthetic_calendar_read_context(id uuid PRIMARY KEY);
+      CREATE FUNCTION public.synthetic_calendar_read_finished() RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog AS $$
+       INSERT INTO public.synthetic_calendar_read_context SELECT id FROM security.request_contexts
+        WHERE backend_pid=pg_backend_pid() AND transaction_id=pg_current_xact_id_if_assigned() AND runtime_login=session_user ON CONFLICT DO NOTHING;
+      $$;
+      CREATE FUNCTION public.synthetic_calendar_source_visible() RETURNS boolean LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog AS $$
+       SELECT NOT EXISTS(SELECT 1 FROM public.synthetic_calendar_read_context saved WHERE NOT EXISTS(
+        SELECT 1 FROM security.request_contexts c WHERE c.id=saved.id AND c.backend_pid=pg_backend_pid()
+         AND c.transaction_id=pg_current_xact_id_if_assigned() AND c.runtime_login=session_user));
+      $$;
+      REVOKE ALL ON FUNCTION public.synthetic_calendar_read_finished(),public.synthetic_calendar_source_visible() FROM PUBLIC;
+      GRANT EXECUTE ON FUNCTION public.synthetic_calendar_read_finished(),public.synthetic_calendar_source_visible() TO openetrm_security_owner;""")
+    try:
+        assert fact.count('\nBEGIN\n') == 1 and pins.count('\nEND;\n$function$') == 1
+        query(fact.replace('\nBEGIN\n', f"\nBEGIN\n IF revision='{revision}'::uuid AND NOT public.synthetic_calendar_source_visible() THEN RETURN false;END IF;\n", 1))
+        query(pins.replace('\nEND;\n$function$', '\nPERFORM public.synthetic_calendar_read_finished();\nEND;\n$function$', 1))
+        client.call('market/dates', request, expected=403)
+    finally:
+        query(fact);query(pins)
+        query('DROP FUNCTION public.synthetic_calendar_read_finished(),public.synthetic_calendar_source_visible();DROP TABLE public.synthetic_calendar_read_context;')
+    print('PASS calendar disclosure rechecks unconsumed supplemental source authority through native close RLS', flush=True)
 
 
 def run_checks(url, query, manifest, psql, environment, log, api_pid):
@@ -122,6 +151,14 @@ def run_checks(url, query, manifest, psql, environment, log, api_pid):
         assert projection(client.call('market/dates', body)) == expected, 'One missing dated catalogue must retain its own refusal and the other dates'
     finally:
         query(original)
+    try:
+        query(original.replace('\nBEGIN\n', "\nBEGIN\n IF effective_on=DATE '2020-11-18' THEN RAISE EXCEPTION 'Synthetic inaccessible older catalogue' USING ERRCODE='42501';END IF;\n", 1))
+        for maximum in (1, 2):
+            limited = projection(client.call('market/dates', {**body, 'maximumDates': maximum}))
+            assert limited['dates'] == answers['replaced']['dates'][-maximum:]
+        client.call('market/dates', body, expected=403)
+    finally:
+        query(original)
     mixed_source_checks(client, query, manifest, source)
     # Keep 96 candidates within the global 128-frame discovery bound. Existing facts stay immutable.
     query("INSERT INTO presentation.close_session_listings SELECT v.catalog_id,v.code,1,max(v.version),'Synthetic retired fixture session',false,pg_current_xact_id() FROM market_data.close_session_versions v GROUP BY v.catalog_id,v.code;")
@@ -137,12 +174,21 @@ def run_checks(url, query, manifest, psql, environment, log, api_pid):
     counts, report = {}, []
     def measure(path, request):
         offset = log.stat().st_size
+        def cpu():
+            fields = Path(f'/proc/{api_pid}/stat').read_text().rsplit(')', 1)[1].split()
+            return (int(fields[11])+int(fields[12])) / os.sysconf('SC_CLK_TCK')
+        cpu_start = cpu()
         start = time.perf_counter(); answer = client.call(path, request); elapsed = time.perf_counter()-start
         with log.open() as stream:
             stream.seek(offset); lines = stream.read().splitlines()
         statements = [line for line in lines if re.match(r'preview_runtime \d+ LOG:  duration: .* (?:execute [^:]*|statement):', line)]
         db_ms = sum(float(re.search(r'duration: ([\d.]+) ms', line)[1]) for line in statements)
-        return answer, {'seconds': round(elapsed, 6), 'statements': len(statements), 'databaseMs': round(db_ms, 3)}
+        categories = {}
+        for line in statements:
+            category = next((name for name in ('read_request_catalogues', 'read_market_close_parts', 'read_observation_pins', 'close_in_force', 'close_session_hidden_days') if name+'(' in line), 'other')
+            categories[category] = round(categories.get(category, 0) + float(re.search(r'duration: ([\d.]+) ms', line)[1]), 3)
+        return answer, {'seconds': round(elapsed, 6), 'statements': len(statements), 'databaseMs': round(db_ms, 3),
+                        'apiCpuMs': round((cpu()-cpu_start)*1000, 3), 'databaseBreakdownMs': categories}
     for total in (24, 48, 96):
         for index in range(len(counts) and max(counts)-2 or 0, total-2):
             frame = deepcopy(older)

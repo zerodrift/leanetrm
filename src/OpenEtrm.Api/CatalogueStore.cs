@@ -35,6 +35,7 @@ public sealed record CataloguePublishRequest(Guid RequestId,Guid? ExpectedHead,C
 
 internal sealed class CatalogueStore(Guid catalog)
 {
+    internal sealed record Dated(CataloguePublication? Publication,string? Error,bool Denied);
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     // Null explicitly means current published metadata, never a pricing cutoff.
     internal async Task<CataloguePublication> Read(NpgsqlConnection connection,Guid? context,CancellationToken ct)
@@ -49,16 +50,16 @@ internal sealed class CatalogueStore(Guid catalog)
         await using var command=ScheduleStore.Command(connection,"SELECT security.read_request_catalogue($1,$2::date)::text",catalog,(object?)effectiveOn??DBNull.Value);
         return await Execute(command,ct);
     }
-    internal async Task<Dictionary<DateOnly,(CataloguePublication? Publication,string? Error)>> ReadDates(
+    internal async Task<Dictionary<DateOnly,Dated>> ReadDates(
         NpgsqlConnection connection,IEnumerable<DateOnly> days,CancellationToken ct)
     {
         var requested=days.Distinct().Order().ToArray();
-        var result=new Dictionary<DateOnly,(CataloguePublication?,string?)>();
+        var result=new Dictionary<DateOnly,Dated>();
         if(requested.Length==0)return result;
-        await using var command=ScheduleStore.Command(connection,"SELECT effective_on,publication::text,error FROM security.read_request_catalogues($1,$2::date[])",catalog,requested);
+        await using var command=ScheduleStore.Command(connection,"SELECT effective_on,publication::text,error,denied FROM security.read_request_catalogues($1,$2::date[])",catalog,requested);
         await using var reader=await command.ExecuteReaderAsync(ct);
         while(await reader.ReadAsync(ct))result.Add(reader.GetFieldValue<DateOnly>(0),
-            (reader.IsDBNull(1)?null:Observe(reader.GetString(1)),reader.IsDBNull(2)?null:reader.GetString(2)));
+            new(reader.IsDBNull(1)?null:Parse(reader.GetString(1)),reader.IsDBNull(2)?null:reader.GetString(2),reader.GetBoolean(3)));
         return result;
     }
     internal async Task<CataloguePublication> Publish(NpgsqlConnection connection,CataloguePublishRequest request,CancellationToken ct)

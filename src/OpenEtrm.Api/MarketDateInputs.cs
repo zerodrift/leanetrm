@@ -13,28 +13,42 @@ internal sealed class MarketDateInputs(PreviewDatabase database,NpgsqlConnection
 {
     sealed record Candidate(ImmutableArray<(string Code,CatalogueSource Source)> Selected,Exception? Error);
     readonly Dictionary<CatalogueSource,PreviewData> metadata=[];
+    readonly Dictionary<CatalogueSource,Exception> metadataErrors=[];
+    readonly MarketInputSelection.RateReads rateReads=new(database,connection);
     readonly Dictionary<Guid,Candidate> candidates=[];
     readonly Dictionary<(Guid Frame,CatalogueSource Source),PreviewData> inputs=[];
+    readonly Dictionary<(Guid Frame,CatalogueSource Source),Exception> inputErrors=[];
     readonly Dictionary<(CatalogueSource Source,string Code),RateTenorSource?> rates=[];
-    Dictionary<DateOnly,(CataloguePublication? Publication,string? Error)> catalogues=[];
+    Dictionary<DateOnly,CatalogueStore.Dated> catalogues=[];
+    DateOnly[] dates=[];
 
     internal async Task Prepare(ImmutableArray<InputFrame> frames,IEnumerable<string>? requested,PreviewData? initial,bool full,CancellationToken ct)
     {
-        if(initial is not null)metadata.Add(CatalogueSource.From(initial),initial);
-        catalogues=await new CatalogueStore(database.Manifest.CatalogId).ReadDates(connection,frames.Select(f=>f.Time.Date),ct);
+        if(initial is not null){metadata.Add(CatalogueSource.From(initial),initial);rateReads.Seed(initial);}
+        dates=frames.Select(f=>f.Time.Date).Distinct().Order().ToArray();
+        catalogues=await new CatalogueStore(database.Manifest.CatalogId).ReadDates(connection,full?dates:dates.TakeLast(1),ct);
         if(!full)return;
         foreach(var frame in frames)await Plan(frame,requested,ct);
         var selections=frames.Where(f=>candidates[f.Id] is {Error:null,Selected.IsEmpty:false})
             .SelectMany(frame=>Sources(frame,candidates[frame.Id]).Select(source=>(Frame:frame,Source:source)));
         foreach(var group in selections.GroupBy(item=>item.Source))
-            await ReadPins([..group.Select(item=>item.Frame)],group.Key,ct);
+        {
+            try{await ReadPins([..group.Select(item=>item.Frame)],group.Key,ct);}
+            catch(Exception error)when(error is MarketDataException or TemporalException)
+            {
+                foreach(var item in group)inputErrors.TryAdd((item.Frame.Id,item.Source),error);
+            }
+        }
     }
     async Task<PreviewData> Metadata(CatalogueSource source,CancellationToken ct)
     {
+        if(metadataErrors.TryGetValue(source,out var prior))ExceptionDispatchInfo.Capture(prior).Throw();
         if(!metadata.TryGetValue(source,out var data))
         {
-            data=await database.Read(connection,ct,ppaBundle:source,observationIds:[],includeCalendarDays:true);
+            try{data=await database.Read(connection,ct,ppaBundle:source,observationIds:[],includeCalendarDays:true);}
+            catch(Exception error)when(error is MarketDataException or TemporalException){metadataErrors.Add(source,error);throw;}
             metadata.Add(source,data);
+            rateReads.Seed(data);
         }
         return data;
     }
@@ -46,24 +60,20 @@ internal sealed class MarketDateInputs(PreviewDatabase database,NpgsqlConnection
         {
             // Retain root-metadata error precedence over the dated catalogue.
             _=await Metadata(frame.Source!,ct);
-            var(catalogue,error)=catalogues[frame.Time.Date];
+            if(!catalogues.ContainsKey(frame.Time.Date))
+                foreach(var(day,outcome)in await new CatalogueStore(database.Manifest.CatalogId).ReadDates(connection,dates.Where(day=>!catalogues.ContainsKey(day)),ct))
+                    catalogues.Add(day,outcome);
+            var(catalogue,error,denied)=catalogues[frame.Time.Date];
+            if(denied)throw new PreviewDeniedException();
             if(error is not null)throw new MarketDataException(error,CatalogueStore.Refusal(error));
+            AsyncReadVisibility.Catalogue(database.Manifest.CatalogId,catalogue!);
             var parts=frame.SourceInputs!;
-            var selectedRates=ImmutableArray.CreateBuilder<CatalogueCurve>();
-            foreach(var choice in catalogue!.Curves.Where(c=>c.Kind=="rate"&&parts.ContainsKey(c.DefinitionRevisionId)))
-            {
-                var data=await Metadata(choice.Source,ct);
-                var rows=data.Definitions["rate_curves"].Where(r=>r.Text("code")==choice.Code).ToArray();
-                if(rows.Length==0)continue;
-                if(parts[choice.DefinitionRevisionId].Source!=choice.Source||rows.Any(r=>r.Id("reference_catalog_id")!=choice.ReferenceCatalogId||r.Id("reference_revision_id")!=choice.ReferenceRevisionId))
-                    throw new MarketDataException("market_inputs","Selected rate inputs differ from the exact published choice.");
-                selectedRates.Add(choice);
-            }
+            var selectedRates=await MarketInputSelection.SelectedRates(database,connection,frame,catalogue!,ct,rateReads);
             var codes=requested??parts.Values.SelectMany(p=>p.RootCurves).Concat(selectedRates.Select(r=>r.Code));
             var selected=ImmutableArray.CreateBuilder<(string,CatalogueSource)>();
             foreach(var code in codes.Distinct(StringComparer.Ordinal))
             {
-                try{selected.Add((code,MarketInputSelection.SelectedCurve(frame,code,catalogue,selectedRates.ToImmutable())));}
+                try{selected.Add((code,MarketInputSelection.SelectedCurve(frame,code,catalogue!,selectedRates)));}
                 catch(MarketDataException refusal)when(refusal.Code is "curve_not_selected" or "catalogue_curve" or "market_inputs_missing"){}
             }
             result=new(selected.ToImmutable(),null);
@@ -86,7 +96,10 @@ internal sealed class MarketDateInputs(PreviewDatabase database,NpgsqlConnection
         if(candidate.Error is {} error)ExceptionDispatchInfo.Capture(error).Throw();
         if(candidate.Selected.IsEmpty)return [];
         foreach(var source in Sources(frame,candidate))
+        {
+            if(inputErrors.TryGetValue((frame.Id,source),out var failure))ExceptionDispatchInfo.Capture(failure).Throw();
             if(!inputs.ContainsKey((frame.Id,source)))await ReadPins([frame],source,ct);
+        }
         var qualified=ImmutableArray.CreateBuilder<string>();
         foreach(var group in candidate.Selected.GroupBy(item=>item.Source))
         {

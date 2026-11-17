@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json;
 using Npgsql;
 using OpenEtrm.MarketData;
 
@@ -108,18 +109,18 @@ internal static class MarketInputSelection
     // The dated catalogue owns generic rate choices; retained execution sources do
     // not compete for those codes. Prices still require exact selected tenor pins.
     internal static async Task<ImmutableArray<CatalogueCurve>> SelectedRates(PreviewDatabase database,NpgsqlConnection connection,
-        InputFrame frame,CataloguePublication catalogue,CancellationToken ct)
+        InputFrame frame,CataloguePublication catalogue,CancellationToken ct,RateReads? reads=null)
     {
         if(frame.SourceInputs is not {} parts)return [];
         var owners=catalogue.Curves.Where(c=>c.Kind=="rate"&&parts.ContainsKey(c.DefinitionRevisionId)).ToDictionary(c=>c.Code,StringComparer.Ordinal);
         if(owners.Count==0)return [];
-        var rows=await PreviewDatabase.Rows(connection,"SELECT row_to_json(r)::text FROM market_data.rate_curves r "+
+        var rows=reads is not null?await reads.Rows(owners.Values.Select(c=>c.DefinitionRevisionId),ct):await PreviewDatabase.Rows(connection,"SELECT row_to_json(r)::text FROM market_data.rate_curves r "+
             "WHERE r.catalog_id=$1 AND r.revision_id=ANY($2::uuid[]) ORDER BY r.revision_id,r.code",
             [database.Manifest.CatalogId,owners.Values.Select(c=>c.DefinitionRevisionId).Distinct().ToArray()],ct);
         var result=ImmutableArray.CreateBuilder<CatalogueCurve>();
         foreach(var group in rows.Where(r=>owners.TryGetValue(r.Text("code"),out var owner)&&owner.DefinitionRevisionId==r.Id("revision_id")).GroupBy(r=>r.Id("revision_id")))
         {
-            var source=await ExactSource(database,connection,group.Key,ct);
+            var source=reads is not null?await reads.Source(group.Key,ct):await ExactSource(database,connection,group.Key,ct);
             if(parts[group.Key].Source!=source||group.Any(r=>owners[r.Text("code")].Source!=source))
                 throw Invalid("Selected rate inputs differ from the exact published choice.");
             foreach(var row in group)
@@ -130,6 +131,39 @@ internal static class MarketInputSelection
             }
         }
         return result.ToImmutable();
+    }
+
+    // Typed rate membership does not require materializing the owner's unrelated
+    // commodity definitions or references. Calendar candidates share only these
+    // immutable rows and exact source admissions within their one knowledge view.
+    internal sealed class RateReads(PreviewDatabase database,NpgsqlConnection connection)
+    {
+        readonly Dictionary<Guid,ImmutableArray<JsonElement>> rows=[];
+        readonly Dictionary<Guid,CatalogueSource> sources=[];
+        internal void Seed(PreviewData data)
+        {
+            var source=CatalogueSource.From(data);
+            rows.TryAdd(source.DefinitionRevisionId,data.Definitions["rate_curves"]);
+            sources.TryAdd(source.DefinitionRevisionId,source);
+        }
+        internal async Task<ImmutableArray<JsonElement>> Rows(IEnumerable<Guid> revisions,CancellationToken ct)
+        {
+            var requested=revisions.Distinct().ToArray();
+            var missing=requested.Where(revision=>!rows.ContainsKey(revision)).ToArray();
+            if(missing.Length!=0)
+            {
+                var loaded=await PreviewDatabase.Rows(connection,"SELECT row_to_json(r)::text FROM market_data.rate_curves r WHERE r.catalog_id=$1 AND r.revision_id=ANY($2::uuid[]) ORDER BY r.revision_id,r.code",
+                    [database.Manifest.CatalogId,missing],ct);
+                foreach(var revision in missing)rows.Add(revision,[..loaded.Where(row=>row.Id("revision_id")==revision)]);
+            }
+            return [..requested.SelectMany(revision=>rows[revision])];
+        }
+        internal async Task<CatalogueSource> Source(Guid revision,CancellationToken ct)
+        {
+            if(!sources.TryGetValue(revision,out var source))
+            {source=await ExactSource(database,connection,revision,ct);sources.Add(revision,source);}
+            return source;
+        }
     }
 
     internal static CatalogueSource SelectedCurve(InputFrame frame,string curve,CataloguePublication catalogue,

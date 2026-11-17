@@ -52,6 +52,7 @@ public static class MarketDates
         {throw new TemporalException("time_zone","Choose an available display time zone explicitly.");}
         frames=await BindSessionCloses(database,connection,pin,frames,request.Session,ct);
         if(request.MaximumDates is <1 or >128)throw new MarketDataException("market_dates_input","Request from one to 128 dates explicitly.");
+        await MarketCloses.RequireFrames(connection,database.Manifest.CatalogId,frames,pin.Context?.ContextId,ct);
         var data=pin.Frame is {} anchorFrame
             ?await MarketInputSelection.Root(database,connection,anchorFrame,ct,observationIds:[],includeCalendarDays:request.Definition is null)
             :await database.Read(connection,ct,observationIds:[],includeCalendarDays:request.Definition is null);
@@ -178,7 +179,6 @@ public static class MarketDates
         }
         else
         {
-            await MarketCloses.RequireFrames(connection,database.Manifest.CatalogId,frames,pin.Context?.ContextId,ct);
             var inputs=new MarketDateInputs(database,connection);
             var candidates=pin.Context is {} retained?frames.Where(f=>Day(f)==DateWorkspace.Date(retained.EffectiveOn)).ToImmutableArray():frames;
             await inputs.Prepare(candidates,request.Curve is {} requestedCode?[requestedCode]:null,data,request.MaximumDates is null,ct);
@@ -316,9 +316,11 @@ public static class MarketDates
         {
             await pin.Bind(current,database.Manifest.CatalogId,cancellation);
             await SelectedClose.BindSession(current,database.Manifest.CatalogId,session,cancellation);
-            await MarketCloses.RequireFrames(current,database.Manifest.CatalogId,frames,pin.Context?.ContextId,cancellation);
             if(!frames.IsEmpty)
             {
+                // Matrix facts are immutable and were reattested in execution.
+                // Header RLS rechecks every close's complete source authority;
+                // do not move another full matrix payload through the gate.
                 var rows=await PreviewDatabase.Rows(current,"SELECT json_build_object('id',id,'at',at,'day',business_date,'session',session_code,'version',session_version,"+
                     "'current',security.close_in_force(catalog_id,session_code,business_date))::text FROM market_data.market_closes WHERE catalog_id=$1 AND id=ANY($2::uuid[])",
                     [database.Manifest.CatalogId,frames.Select(f=>f.OriginCloseId!.Value).Distinct().ToArray()],cancellation);
