@@ -95,11 +95,12 @@ repeated book, stores no context: each case failed while its refusal came after
 the separate capture and passes with it ahead of the capture.
 A malformed run from a profile without the right is denied before its shape is
 refused: this failed while the shape was refused outside the authorized
-transaction. All 39 checks passed on the same machine. The standard example
-records no cash facts for its swap, so the held run reads both dates and ends
-in an accounting-coverage refusal. Complete reports are qualified by the cash
-and P&L check on the exchange example, which passed on the final code on the
-same machine, including saving and re-reading a report.
+transaction. All 39 checks passed on the same machine. The standard example's
+swaps are not booked for a complete report, so the held run reads its dates and
+ends in a refusal of its own: for its market revision or for its accounting
+coverage, by which swap the Blotter lists first. Complete reports are qualified
+by the cash and P&L check on the exchange example, which passed on the final
+code on the same machine, including saving and re-reading a report.
 
 In owned disposable previews on one two-processor Linux machine with PostgreSQL
 18.7 and .NET 10.0.402, the live-calculation check and the latest-risk-run check

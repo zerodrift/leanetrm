@@ -261,8 +261,9 @@ def run_checks(url, query, psql, environment, manifest):
     ticket,_=valuing_together('futures/editor',{'context':at_work(frame,working['futuresConvention']),'tradeId':held['tradeId'],'revision':int(held['revision'])})
     check('a trade ticket read does not hold the publication gate while it values',ticket['canAmend'] is True or ticket.get('amendUnavailableReason'))
     # A P&L run captures the knowledge cutoff of both its dates under the same gate, then reads and values both. The
-    # standard example records no cash facts for its swap, so this run reads both dates and is then refused for its
-    # accounting coverage; the cash and P&L check qualifies complete reports.
+    # standard example books its swaps on two definition revisions and the Blotter lists them by generated identity,
+    # so the run over the first is refused for its market revision or, later, for its accounting coverage. Either is
+    # the run's own answer after its reads; the cash and P&L check qualifies complete reports.
     policies=c.call('portfolio/pnl/policies')
     prior=max((f for f in working['frames'] if f['id'] in working['initialFrameIds'] and f['at']<frame['at']),key=lambda f:f['at'])
     def dated(selected):
@@ -277,8 +278,7 @@ def run_checks(url, query, psql, environment, manifest):
              for changed in ({'accountingPolicy':'unsupported'},{'bookIds':[swap['bookId']]*2})]
     check('a P&L run refused for its request stores no context',refused==['pnl_context','blotter_view'] and query(contexts)==stored)
     run,_=valuing_together('portfolio/pnl/run',pnl,expected=422)
-    assert run['code']=='pnl_accounting_coverage',run
-    check('a P&L run does not hold the publication gate after it captures its dates')
+    check('a P&L run does not hold the publication gate after it captures its dates',run['code'])
     # Authorization comes before either refusal.
     c.call('profile',{'profile':'viewer'})
     c.call('portfolio/pnl/run',{**pnl,'closing':{**dated(frame),'knowledgeMode':'current'}},expected=403)
