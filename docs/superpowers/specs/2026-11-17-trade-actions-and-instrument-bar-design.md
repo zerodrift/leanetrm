@@ -1,6 +1,6 @@
 # Trade actions on a position, risk for one trade, and New trade without the board
 
-Status: design. Nothing here is implemented until the decision record says so.
+Status: implemented by D424. Database and live browser checks run in CI.
 
 ## Intent
 
@@ -141,7 +141,8 @@ built on the same code, with the same authority (`ReadTrades` in the trading vie
 
 Request, every member required, unknown members refused: `context`, `tradeId`,
 `bindingId`, `revision`, `instrumentType` as for the close-out draft, plus
-`direction` (`increase` or `reduce`) and `quantity` (an exact positive decimal).
+`direction` (`increase` or `reduce`) and `quantity` (a plain positive decimal in the
+project's one decimal syntax).
 
 Result: the close-out draft's shape (`kind`, `terms`, `price`, and for a swap
 `periods` and `settledPeriodsExcluded`) plus `adjustment:{direction,quantity}`

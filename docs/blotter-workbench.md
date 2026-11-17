@@ -285,9 +285,30 @@ perform them; otherwise they are shown disabled with the reason.
 | --- | --- |
 | Close out… | Opens a new-trade form in details, pre-filled with the offsetting trade |
 | Amend… | Opens the amendment form in details (existing) |
+| Buy more… / Sell… | Shows the position and asks the adjustment's quantity in its details (D424) |
+| Risk… | Opens the risk report scoped to this trade (D424) |
 | Open in its own window | The existing position pop-out |
 | Copy trade ID | Copies the trade reference |
 | Ask the assistant about this position | Opens the assistant panel with this position as context |
+
+The head of a position's details offers the same actions as buttons, from one
+definition (`position-actions.ts`, D424): Close out…, Amend, the two adjustments,
+Risk… and Open curve, then Terminate and Novate drawn Coming soon. The adjustments
+are named from the direction the position states (Buy more and Sell for a long
+future, Sell more and Buy back for a short one, Increase and Reduce otherwise).
+Pressing one asks its quantity in one row under the buttons; Draft trade sends it
+as typed.
+
+Adjustment (D424):
+
+- `POST /api/trading/position-adjustment-draft` returns the draft of a new trade of
+  the position's own instrument, book and parties for the stated quantity: on the
+  position's side to increase it, on the other side to reduce it, at the curve
+  price of the pinned close. It is read, refused and opened as the close-out
+  draft is, for the revision the person saw when they asked.
+- Refused with a reason shown in the details: a quantity that is not a plain
+  positive decimal; a reduction beyond what is held; a scheduled swap; an
+  instrument neither draft supports; and everything the close-out draft refuses.
 
 Close-out:
 
