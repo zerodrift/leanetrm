@@ -2632,3 +2632,12 @@ text, with no production seeds. Qualification covers no-data questions, exact re
 financial reads, retained close aliases, configuration changes, authority and deadline
 fencing, upgrade drift and browser behavior. Hosted configuration, publication and
 rollout remain separate operations; no production activation is implied.
+
+### New trade page and grouped instruments (D421)
+
+New trade is a sidebar entry and a presentation of the Blotter's page: grouped
+instrument chooser, tickets at the page's width, a booked trade followed on the
+Blotter. Presentation only. Remaining: stay on the page for the next trade once
+booking receipts carry the trade reference (backend); one order of parts for every
+ticket, with the description-driven ticket; a Storage instrument, still Coming soon.
+

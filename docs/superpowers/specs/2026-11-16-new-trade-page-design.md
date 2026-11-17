@@ -1,6 +1,6 @@
 # New trade page and grouped instrument chooser
 
-Status: proposed design, not implemented.
+Status: implemented by D421. Live browser checks run in CI.
 
 ## Intent
 

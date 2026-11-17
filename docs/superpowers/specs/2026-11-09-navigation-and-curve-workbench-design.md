@@ -50,7 +50,7 @@ Groups, in order. `navigationGroups` in `web/src/navigation-groups.ts` and the
 | Group | Entries (page id) |
 | --- | --- |
 | Overview | Dashboard (`dashboard`) |
-| Trading | Blotter (`futures`) and saved views |
+| Trading | New trade (a presentation of the Blotter's page, D421), Blotter (`futures`) and saved views |
 | Markets | Curves & prices (`market`), Delivery prices (`delivery`), Interval data (`interval-series`), Vol surfaces (`vol-surfaces`) |
 | Risk | Reports (`risk`), Scenarios & Greeks (`risk-scenarios`), VaR / ES (`risk-var`), Run history (`risk-runs`) |
 | Operations | Physical operations (`physical-operations`), Facilities (`facilities`) |

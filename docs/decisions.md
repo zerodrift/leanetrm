@@ -6196,3 +6196,44 @@ leaving 18; their ordinary routes remain.
   channel's encoding, compression and lifetime, and pushed job status. See
   [the design](superpowers/specs/2026-11-16-non-blocking-page-reads-design.md).
 - **Evidence.** [Verification](verification.md#ordinary-reads-outside-the-session-gate-d419).
+
+## D421 — New trade is a page of its own with grouped instruments
+
+New trade listed ten instruments in one row and opened every ticket in the Blotter's
+Details pane, below the positions, where a ticket with two or three sides had no
+room. **New trade** is now a sidebar entry under Trading, above Blotter, and a page
+to the person: its own title, the whole area, none of the Blotter's toolbar,
+positions or charts. Instruments are chosen from five groups, **Financial**,
+**Power**, **Gas & LNG**, **Oil & liquids** and **Structured**, drawn from one
+ordered definition (`web/src/new-trade.ts`); none is chosen for the person and a
+group with nothing to show is not drawn. With none chosen the chooser is the page,
+each instrument a tile that says what it is; once one is chosen it is a strip above
+the ticket. Operating rights are entered on Operating facilities, so the chooser
+links there for an account whose sidebar lists it; Storage stays Coming soon.
+
+The page is a second presentation of the Blotter's page, as Risk's sidebar entries
+are views of Risk (D365, D392): the one entry pane fills the dock and rests on the
+chooser, and the Blotter's read, values and a risk run stay as they are behind it.
+A section of its own was rejected because the Blotter's reads stop while its section
+is hidden, a new future is opened by such a read and a booked trade is followed by
+one. There is still one pane, one mode and one instance of each editor; the
+retained-request slot, its storage keys, the leave questions and the assistant's
+`blotter_new_*` page reports are unchanged, and the assistant names such a page
+"New trade". The Blotter's New trade button, a retained product request's Reconcile,
+the Options page's booking and the assistant's ticket targets all open the page. A
+booked trade is followed on the Blotter, where its position opens, as before. The
+pop-out Blotter keeps entry in its Details pane and lists only the instruments it
+can open there, futures and swaps.
+
+On the page a ticket's sides sit next to each other with one field per row inside
+each; a ticket without sides keeps one field per row at a readable width, and a new
+future's price preview sits beside its fields. Amendments, close-out drafts,
+positions, the risk report and shocked contracts stay in the Blotter's Details pane.
+
+This changes presentation only: no operation, permission, API, stored data or
+valuation. It supersedes the placement of new-trade forms in D221 and in the
+[Blotter workbench](blotter-workbench.md) and [deal ticket](deal-ticket.md), not
+their booking rules. Left for later: staying on the page for the next trade, once
+booking receipts carry the trade reference; and one order of parts for every
+ticket, with the description-driven ticket. See the
+[design](superpowers/specs/2026-11-16-new-trade-page-design.md).

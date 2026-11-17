@@ -209,7 +209,8 @@ ticket setters scroll their native field into view before positioning the cursor
 D319: workspace page reads issue fixed page handles after authorization and complete
 result bounds. `AssistantOperations.ForPage` supplies closed entry aliases without
 changing the underlying operation contracts. `app.ts` routes New trade/future/swap
-targets through `futures-view.ts` native entry methods; ordinary navigation and
+targets through `futures-view.ts` native entry methods, which show New trade's page
+(D421: `enterEntry`, a presentation of the Blotter's page); ordinary navigation and
 walkthrough `go` share this route. Swap opening checks AbortSignal, source and
 editor generation before mount; product opening guards fallback/focus work too.
 No presentation path invokes price, preview, booking or authorization. The owned
