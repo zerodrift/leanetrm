@@ -2432,23 +2432,35 @@ var pnlReports=new TradingPnlReport(database);
 var pnlArtifacts=new PnlReportArtifacts(database,app.Services.GetRequiredService<IDataProtectionProvider>().CreateProtector(ApplicationDataProtection.PnlPurpose));
 app.Lifetime.ApplicationStopped.Register(pnlArtifacts.Dispose);
 api.MapGet("/portfolio/pnl/policies",()=>Results.Ok(TradingPnlReport.Policies));
-api.MapPost("/portfolio/pnl/run",(HttpContext c,TradingPnlRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>
+// The run captures the knowledge cutoff of both dates in a transaction of its own, whose commit releases the publication
+// gate (D420). The second transaction reads those contexts again under its own authority and values at them.
+api.MapPost("/portfolio/pnl/run",(HttpContext c,TradingPnlRequest body)=>Locked(c,async session=>
 {
     if(body.Opening is not {KnowledgeMode:"at",ContextId:null,Convention:TradingBlotter.Convention}||body.Closing is not {KnowledgeMode:"at",ContextId:null,Convention:TradingBlotter.Convention}||body.KnownAt is null)
         throw new MarketDataException("pnl_context","Supply both explicit trading frames and one exact shared knowledge cutoff.");
-    var owner=await PnlReportArtifacts.Owner(connection,ct);
-    async Task<TradingView> PnlView(Guid id)
+    var profile=Profile(session);
+    var captured=await database.WithIdentity(profile,"RunScenario",async(connection,ct)=>
     {
-        var frame=Frame(session,id);
-        var retained=(await knowledgeStore.Capture(connection,new(frame.BusinessDate.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),body.KnownAt,"at"),ct)).Context;
-        return TradingView.Reread(frame with{ContextId=null},retained);
-    }
-    var opening=await PnlView(body.Opening.SnapshotId);var closing=await PnlView(body.Closing.SnapshotId);
-    var calculation=(PnlCalculated)await pnlReports.Run(connection,opening,closing,body,ct);
-    if(await PnlReportArtifacts.Owner(connection,ct)!=owner)throw new PreviewDeniedException();
-    var capture=pnlArtifacts.Seal(owner,calculation,DateTimeOffset.UtcNow);
-    return Results.Ok(new{report=calculation.Report,artifact=capture.Artifact,saveRefusal=capture.Refusal});
-},c.RequestAborted)));
+        var owner=await PnlReportArtifacts.Owner(connection,ct);
+        async Task<(InputFrame Frame,ScheduleContext Knowledge)> Dated(Guid id)
+        {
+            var frame=Frame(session,id);
+            return (frame with{ContextId=null},(await knowledgeStore.Capture(connection,new(frame.BusinessDate.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),body.KnownAt,"at"),ct)).Context);
+        }
+        return (Owner:owner,Opening:await Dated(body.Opening.SnapshotId),Closing:await Dated(body.Closing.SnapshotId));
+    },c.RequestAborted);
+    return await database.WithIdentity(profile,"RunScenario",async(connection,ct)=>
+    {
+        if(await PnlReportArtifacts.Owner(connection,ct)!=captured.Owner)throw new PreviewDeniedException();
+        async Task<TradingView> PnlView((InputFrame Frame,ScheduleContext Knowledge) dated)=>
+            TradingView.Reread(dated.Frame,await knowledgeStore.Retained(connection,dated.Knowledge,ct));
+        var opening=await PnlView(captured.Opening);var closing=await PnlView(captured.Closing);
+        var calculation=(PnlCalculated)await pnlReports.Run(connection,opening,closing,body,ct);
+        if(await PnlReportArtifacts.Owner(connection,ct)!=captured.Owner)throw new PreviewDeniedException();
+        var capture=pnlArtifacts.Seal(captured.Owner,calculation,DateTimeOffset.UtcNow);
+        return Results.Ok(new{report=calculation.Report,artifact=capture.Artifact,saveRefusal=capture.Refusal});
+    },c.RequestAborted);
+}));
 api.MapPost("/portfolio/pnl/save",(HttpContext c,SavePnlReportRequest body)=>Locked(c,async session=>
 {
     var result=await database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await pnlArtifacts.Save(connection,body,ct)),c.RequestAborted);
