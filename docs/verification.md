@@ -126,6 +126,9 @@ PostgreSQL 18.7 server, .NET runtime 10.0.13, SDK 10.0.402 and Node 24.22.0.
 The container has two CPUs and a 3 GiB memory limit. The launcher's Debug API,
 HTTP client and database run together over loopback. The hosted demo's 330 ms
 plain-request round trip is not emulated or added to these results.
+The control uses `--market-dates-benchmark-only`, which retains the business-answer
+assertions but skips the new scaling and disclosure qualification. Its `src/`
+matches `cb582382` exactly; current tools and migrations supply the shared fixture.
 
 The synthetic session has 96 recorded closes: two that qualify `bridge_basis`
 and 94 whose recorded roots omit it. They span one definition revision, 95
@@ -134,8 +137,9 @@ unique contracts, 6,978 recorded pins and 281 distinct observation IDs, with
 qualifications and rejects 94 candidates by exact root/rate choice. Workspace
 qualification visits the same 96 matrices and their selected commodity/rate
 curves. Calendar qualification performs no Risk scenarios or trade PV
-evaluations; trade count is not used as a workload proxy. Last-closes stops once the listed curves have their newest qualifying
-close; it does not exhaust the calendar merely to count unavailable dates.
+evaluations; trade count is not used as a workload proxy. Last-closes stops once
+the listed curves have their newest qualifying close; it does not exhaust the
+calendar merely to count unavailable dates.
 
 Each timing below is the median of three requests. Each full-curve size has
 one warm-up first; the other reads follow the 96-close curve samples. PostgreSQL
@@ -168,9 +172,11 @@ and 100 ms after. Workspace is 677.9/463.6 ms database duration and 500/160 ms
 API CPU. Process CPU uses Linux clock ticks with 10 ms resolution and includes
 all API threads; it is not additive with the database durations or wall time.
 After batching, full-curve native discovery/matrix statements account for about
-260 ms, dated catalogue selection 49 ms, hidden-day checks 73 ms and exact
-pin reads 2 ms. Native authority and matrix work still grows with the facts and
-dates checked: constant statement count is not constant native CPU.
+260 ms, dated catalogue selection 49 ms, hidden-day checks 73 ms and final
+pin reauthorization 2 ms. These labels identify top-level logged statements;
+multiline execution pin reads remain in the other-statement category. Native
+authority and matrix work still grows with the facts and dates checked:
+constant statement count is not constant native CPU.
 The API high-water resident set at the measurement point is 305.3 MiB before
 and 305.2 MiB after, including the preceding qualification requests. This small
 shared-pin fixture does not qualify memory with many distinct sources/pins;
@@ -212,6 +218,14 @@ static review reports no blocking finding. The reviewer did not independently
 execute the database/browser suites. The complete CI matrix, hosted deployment,
 hosted curve-click timing and the separate evaluation-payload/page-sizing work
 remain unverified by this increment.
+
+The final code also passes `--regional-closes-check` (HTTP, native and managed
+exact-pin/history checks), `--context-read-check` with 14 browser checks,
+`--async-workbench-check` with 39 HTTP and 11 browser checks, and the existing
+`--market-dates-check` with its managed demand checks and 65 calendar/session
+browser assertions. Local `--async-reads` passes all three managed groups;
+the runner and impact-selection tests pass 45 and 17 checks respectively, and
+the standalone boundary check passes. Builds have no warnings or errors.
 
 ## Current runner
 

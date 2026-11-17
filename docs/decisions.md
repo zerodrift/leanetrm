@@ -6449,18 +6449,19 @@ reference, calendar-day scope and knowledge view own request-local metadata.
 Generic rates reuse typed membership checks without materializing an unrequested
 owner's commodity terms. Full reads batch exact pins per source; each frame still
 builds from its own complete pin selection, including unrelated retained pins.
-Limited reads materialize the first frame requiring pins exactly, then batch the remaining
-potentially selected pin sets per source only if another frame is reached.
+Limited reads materialize the first frame requiring pins exactly, then batch the
+remaining potentially selected pin sets per source only if another frame is reached.
 The conservative prefetch filter reuses the exact selection contract; it never
 replaces native matrix attestation, typed rate admission or curve qualification.
 Selected rate tenors retain D359's loading and per-close compilation contracts.
 
-An ordinary listed-curve limited read first attests the newest candidate, then prefetches the remaining
-matrices and dated catalogues in bounded batches only if needed. Prefetch is not
+An ordinary listed-curve limited read first attests the newest candidate, then
+prefetches the remaining matrices and dated catalogues in bounded batches only if
+needed. Prefetch is not
 consumption. Legacy roots outside the current catalogue prefetch their possible
 owners; custom definitions prefetch matrices before graph planning, including
-limited custom reads. Migration 0361 adds invoker functions over the existing native
-selectors: per-date catalogue outcomes, per-close matrix outcomes and exact pin
+limited custom reads. Migration 0361 adds invoker functions over the existing
+native selectors: per-date catalogue outcomes, per-close matrix outcomes and exact pin
 sets carry private denial tags with no protected payload for the refused item.
 Successful matrix and pin batches retain the existing native fast paths; only a
 denied batch retries individual exact selections in subtransactions. Only
@@ -6468,8 +6469,8 @@ existing named catalogue errors and SQLSTATE `42501` are handled; unknown errors
 timeouts and cancellation escape. These native wrappers
 refuse global authority expiry before returning. All three wrappers capture the
 initial `authority_until('ReadMarketData')` and refuse expiry after materializing
-their payload, even if a later-starting grant is then active. A tagged unvisited refusal
-cannot poison an otherwise complete limited result. Missing pins remain local to
+their payload, even if a later-starting grant is then active. A tagged unvisited
+refusal cannot poison an otherwise complete limited result. Missing pins remain local to
 their frame; a shared union does not turn one incomplete selection into a global
 incomplete-input flag.
 
