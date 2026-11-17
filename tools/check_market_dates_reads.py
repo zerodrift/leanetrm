@@ -276,34 +276,43 @@ def failed_build_check(client, query, manifest, measure):
 
 
 def profile_native(client, query, request):
-    """Sample completed child-function work in each of the read's identity transactions."""
+    """Measure completed child-function deltas around each native invocation."""
     signatures = ['security.read_market_close_parts(uuid,uuid[],uuid)', 'security.close_session_hidden_days(uuid,text)']
     originals = [query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);") for signature in signatures]
     query("""CREATE TABLE public.synthetic_calendar_function_work(ordinal bigint GENERATED ALWAYS AS IDENTITY,transaction_id xid8,label text,work jsonb);
-      CREATE FUNCTION public.synthetic_calendar_capture_work(label text) RETURNS void LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
-       INSERT INTO public.synthetic_calendar_function_work(transaction_id,label,work)
-       SELECT pg_current_xact_id(),label,jsonb_object_agg(funcid::regprocedure::text,jsonb_build_object('calls',calls,'selfMs',self_time,'totalMs',total_time))
+      CREATE FUNCTION public.synthetic_calendar_work() RETURNS jsonb LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
+       SELECT coalesce(jsonb_object_agg(funcid::regprocedure::text,jsonb_build_object('calls',calls,'selfMs',self_time,'totalMs',total_time)),'{}')
        FROM pg_stat_xact_user_functions;
       $$;
-      REVOKE ALL ON FUNCTION public.synthetic_calendar_capture_work(text) FROM PUBLIC;
-      GRANT EXECUTE ON FUNCTION public.synthetic_calendar_capture_work(text) TO openetrm_security_owner;""")
+      CREATE FUNCTION public.synthetic_calendar_capture_work(label text,prior jsonb) RETURNS void LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
+       INSERT INTO public.synthetic_calendar_function_work(transaction_id,label,work)
+       SELECT pg_current_xact_id(),label,jsonb_object_agg(signature,jsonb_build_object(
+        'calls',calls-coalesce((prior->signature->>'calls')::bigint,0),
+        'selfMs',self_time-coalesce((prior->signature->>'selfMs')::double precision,0),
+        'totalMs',total_time-coalesce((prior->signature->>'totalMs')::double precision,0)))
+       FROM(SELECT *,funcid::regprocedure::text signature FROM pg_stat_xact_user_functions)s;
+      $$;
+      REVOKE ALL ON FUNCTION public.synthetic_calendar_work(),public.synthetic_calendar_capture_work(text,jsonb) FROM PUBLIC;
+      GRANT EXECUTE ON FUNCTION public.synthetic_calendar_work(),public.synthetic_calendar_capture_work(text,jsonb) TO openetrm_security_owner;""")
     try:
         parts, hidden = originals
         assert parts.count('RETURN payload;') == 1
-        query(parts.replace('RETURN payload;', "PERFORM public.synthetic_calendar_capture_work('matrix');RETURN payload;"))
+        query(parts.replace('\nDECLARE ', '\nDECLARE work_before jsonb;', 1)
+              .replace('\nBEGIN\n', '\nBEGIN\nwork_before=public.synthetic_calendar_work();\n', 1)
+              .replace('RETURN payload;', "PERFORM public.synthetic_calendar_capture_work('matrix',work_before);RETURN payload;"))
         assert hidden.count('\nBEGIN\n') == 1 and hidden.count('RETURN coalesce(') == 1
-        query(hidden.replace(' STABLE ', ' VOLATILE ').replace('\nBEGIN\n', '\nDECLARE payload date[];\nBEGIN\n', 1)
+        query(hidden.replace(' STABLE ', ' VOLATILE ').replace('\nBEGIN\n', '\nDECLARE payload date[];work_before jsonb;\nBEGIN\nwork_before=public.synthetic_calendar_work();\n', 1)
               .replace('RETURN coalesce(', 'payload=coalesce(', 1)
-              .replace('\nEND;', "\nPERFORM public.synthetic_calendar_capture_work('hidden');RETURN payload;\nEND;", 1))
+              .replace('\nEND;', "\nPERFORM public.synthetic_calendar_capture_work('hidden',work_before);RETURN payload;\nEND;", 1))
         for name, path, body in [('full', 'market/dates', request), ('latest', 'market/dates', {**request, 'maximumDates': 1}),
                                   ('last', 'market/last-closes', {'session': request['session']}), ('navigation', 'workspace/navigation', None)]:
             query('TRUNCATE public.synthetic_calendar_function_work;')
             client.call(path, body)
-            work = json.loads(query("SELECT coalesce(json_agg(json_build_object('stage',label,'work',work) ORDER BY ordinal),'[]') FROM(SELECT DISTINCT ON(transaction_id) * FROM public.synthetic_calendar_function_work ORDER BY transaction_id,ordinal DESC)latest;"))
+            work = json.loads(query("SELECT coalesce(json_agg(json_build_object('stage',label,'work',work) ORDER BY ordinal),'[]') FROM public.synthetic_calendar_function_work;"))
             print('CALENDAR_NATIVE_WORK=' + json.dumps({'request': name, 'transactions': work}), flush=True)
     finally:
         for original in originals:query(original)
-        query('DROP FUNCTION public.synthetic_calendar_capture_work(text);DROP TABLE public.synthetic_calendar_function_work;')
+        query('DROP FUNCTION public.synthetic_calendar_work(),public.synthetic_calendar_capture_work(text,jsonb);DROP TABLE public.synthetic_calendar_function_work;')
 
 
 def run_checks(url, query, manifest, psql, environment, log, api_pid, *, verify=True, profile=False):
