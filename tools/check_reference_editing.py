@@ -56,6 +56,14 @@ def run_checks(query, manifest):
     assert call('viewer', 'SELECT count(*) FROM ref_data.display_edits', bound=context) == '0', 'Historical raw reads leaked later draft metadata'
     assert call('viewer', f"SELECT security.reference_display_state('{catalog}','{source}')::text", bound=context) == 'null'
     assert saved['revisionId'] == operation and saved['state'] == 'draft'
+    # A commodity's icon is reference data: required, from the fixed vocabulary, and carried into every cloned revision.
+    icons=lambda revision:query(f"SELECT string_agg(code||'='||icon_code,',' ORDER BY code) FROM ref_data.commodities WHERE catalog_id='{catalog}' AND revision_id='{revision}';")
+    assert {'test_gas=flame','test_power=bolt'}<=set(icons(source).split(',')),'The fixture commodities must name their icons'
+    assert icons(operation)==icons(source),'A cloned reference revision must keep each commodity icon'
+    commodity=lambda columns,values:query(f"BEGIN;INSERT INTO ref_data.commodities(catalog_id,revision_id,code,name,quantity_dimension_code{columns}) VALUES('{catalog}','{operation}','synthetic_unmarked','Synthetic unmarked','energy'{values});ROLLBACK;")
+    rejected(lambda:commodity('',''),'null value in column "icon_code"')
+    rejected(lambda:commodity(',icon_code',",'barrel'"),'commodities_icon_code_check')
+    commodity(',icon_code',",'drop'")
     assert save() == saved, 'An exact retry must retain one immutable reference version'
     rejected(lambda: save(values={'name': 'Different retry'}), 'reference_conflict')
     rejected(lambda: save('viewer', operation_id=str(uuid4())), 'reference_denied')
