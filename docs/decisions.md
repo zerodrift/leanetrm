@@ -6431,3 +6431,74 @@ No table, migration, permission, stored data or valuation changes. Left for late
 termination and novation; adjustments of scheduled swaps and of instruments the
 close-out draft does not support; a position's own retained run beside the desk's.
 See the [design](superpowers/specs/2026-11-17-trade-actions-and-instrument-bar-design.md).
+
+## D424 · Request-local market-date qualification
+
+Amends D419's ordinary-read coverage. `market/dates` and `market/last-closes`
+capture their session selection under the gate, qualify outside it through
+`UngatedRead`, and reacquire the gate for `ReadAuthority` before answering.
+Frame discovery and `session.ApplyFrames` remain in the capture gate hold.
+The existing two-read session bound applies; the response-channel allowlist does
+not expand. Delegated assistant reads retain their existing gated execution.
+
+The selection policy remains `exact_snapshot_no_close_substitution_v1`.
+Complete recorded matrices are reattested in the execution transaction before
+using root membership. A commodity absent from that matrix and from the dated
+catalogue's rate choices requires no pin read or curve build. Exact source,
+reference, calendar-day scope and knowledge view own request-local metadata.
+Generic rates reuse typed membership checks without materializing an unrequested
+owner's commodity terms. Full reads batch exact pins per source; each frame still
+builds from its own complete pin selection, including unrelated retained pins.
+Limited reads materialize the first frame exactly, then batch the remaining
+potentially selected pin sets per source only if another frame is reached.
+The conservative prefetch filter reuses the exact selection contract; it never
+replaces native matrix attestation, typed rate admission or curve qualification.
+Selected rate tenors retain D359's loading and per-close compilation contracts.
+
+A limited read first attests the newest candidate, then prefetches the remaining
+matrices and dated catalogues in bounded batches only if needed. Prefetch is not
+consumption. Migration 0361 adds invoker functions over the existing native
+selectors: per-date catalogue outcomes, per-close matrix outcomes and exact pin
+sets carry private denial tags with no protected payload for the refused item.
+Successful matrix and pin batches retain the existing native fast paths; only a
+denied batch retries individual exact selections in subtransactions. Only
+existing named catalogue errors and SQLSTATE `42501` are handled; unknown errors,
+timeouts and cancellation escape. These native wrappers
+refuse global authority expiry before returning. All three wrappers capture the
+initial `authority_until('ReadMarketData')` and refuse expiry after materializing
+their payload, even if a later-starting grant is then active. An unvisited failure
+cannot poison an otherwise complete limited result. Missing pins remain local to
+their frame; a shared union does not turn one incomplete selection into a global
+incomplete-input flag.
+
+Failure boundaries remain explicit. Pure managed metadata refusals retain each
+calendar date's original reason. A reached native catalogue error preserves the
+ordinary calendar's existing whole-request `500`; last-closes preserves its
+structured error. The former calendar caught the translated error but could not
+recover its aborted transaction. Batching does not silently replace that failure
+with a partial calendar, and does not deliberately abort a transaction to mimic
+it. Changing this legacy error contract is separate work. Custom definitions keep
+their existing savepoint, sample-window and failure contracts.
+
+Before disclosure, a fresh identity transaction binds the captured context and
+session and checks every consulted close through native header RLS, its exact
+header and its close-in-force identity. That RLS rechecks all recorded sources,
+including unconsumed supplemental parts. The calendar's original hidden-day
+evidence is checked again. Successful consumed catalogue choices and the actual
+returned pins of each consulted selection are reauthorized at their original knowledge
+coordinates; temporary custom contexts use savepoints. Source/bundle evidence,
+current profile, sign-in and permissions retain D419's final checks. Immutable
+matrices need not be retransmitted in that gate hold.
+
+No availability table, cross-request answer cache, dependency, database fork or
+new financial convention is introduced. Proof storage is operation-local and
+deduplicates the facts consumed per source/context; it ends with the request.
+Unvisited prefetched facts do not enter this proof. The existing 128-frame,
+custom-window and shared bundle/reference evidence bounds remain unchanged.
+No additional observation-count limit changes the accepted workload.
+
+This does not split D420's remaining knowledge captures. In particular, custom
+calendar capture retains its existing publication-gate lifetime. Page request
+sizing, evaluation payloads, hosted rollout and wider concurrency qualification
+remain separate work. [Measurements and correctness evidence](verification.md#market-date-read-batching-d424)
+record the actual scope.

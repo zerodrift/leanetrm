@@ -1,5 +1,12 @@
 # Delivery plan and acceptance criteria
 
+D424 implements request-local calendar input batching and ordinary read gate
+release. Qualification requires unchanged answer projections, statement counts
+independent of additional unselected or selected-but-unpriceable closes, lazy limited-read failures, and
+current authority at disclosure. The [verification record](verification.md#market-date-read-batching-d424)
+distinguishes bounded synthetic evidence from hosted latency and capacity. Page
+request sizing and evaluation payload reduction remain separate increments.
+
 D423 adds [explicit server-defined surface axes](vol-surfaces.md#server-defined-surface-coordinates-d423):
 retained option year fractions, versioned k/quick-delta coordinates, visible point
 presets and no-extrapolation coverage gaps. It changes viewing coordinates and
