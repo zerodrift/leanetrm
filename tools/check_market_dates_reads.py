@@ -113,6 +113,22 @@ def mixed_source_checks(client, query, manifest, source):
     print('PASS calendar disclosure rechecks unconsumed supplemental source authority through native close RLS', flush=True)
 
 
+def limited_matrix_check(client, query, older):
+    """Discovery attests all frames; a successful newest read attests only its candidate again."""
+    signature = 'security.read_market_close_parts(uuid,uuid[],uuid)'
+    original = query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);")
+    query('CREATE SEQUENCE public.synthetic_calendar_matrix_reads;GRANT USAGE ON SEQUENCE public.synthetic_calendar_matrix_reads TO openetrm_security_owner;')
+    try:
+        assert original.count('\nBEGIN\n') == 1
+        query(original.replace('\nBEGIN\n', f"\nBEGIN\n IF nextval('public.synthetic_calendar_matrix_reads')>1 AND '{older}'::uuid=ANY(close_ids) THEN RAISE EXCEPTION 'Synthetic unvisited older matrix read' USING ERRCODE='42501';END IF;\n", 1))
+        client.call('market/dates', {'session': SESSION, 'curve': 'bridge_basis', 'timeZone': 'UTC', 'maximumDates': 1})
+        query('ALTER SEQUENCE public.synthetic_calendar_matrix_reads RESTART;')
+        client.call('market/last-closes', {'session': SESSION})
+    finally:
+        query(original);query('DROP SEQUENCE public.synthetic_calendar_matrix_reads;')
+    print('PASS latest calendar and last closes do not reattest unvisited older matrices after discovery', flush=True)
+
+
 def run_checks(url, query, manifest, psql, environment, log, api_pid):
     client = PreviewClient(url); client.bootstrap(); client.call('profile', {'profile': 'viewer'})
     body = {'session': 'demo_close_1600', 'curve': 'bridge_basis', 'timeZone': 'UTC'}
@@ -216,6 +232,8 @@ def run_checks(url, query, manifest, psql, environment, log, api_pid):
     memory = {line.split(':')[0]: line.split(':')[1].strip() for line in Path(f'/proc/{api_pid}/status').read_text().splitlines() if line.startswith(('VmRSS:', 'VmHWM:'))}
     print('CALENDAR_MEASUREMENTS=' + json.dumps({'runs': report, 'workload': workload, 'memory': memory,
           'environment': {'platform': platform.platform(), 'postgres': query('SHOW server_version;')}, 'scenarios': 0}), flush=True)
+    older_close = query(f"SELECT id FROM market_data.market_closes WHERE session_code='{SESSION}' ORDER BY business_date LIMIT 1;")
+    limited_matrix_check(client, query, older_close)
     failures = []
     try:require_constant_statements(counts)
     except AssertionError as error:failures.append(str(error))
