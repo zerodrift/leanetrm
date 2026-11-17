@@ -118,7 +118,8 @@ public static partial class MarketCloses
         await using var command=ScheduleStore.Command(connection,"SELECT security.close_history($1,$2,$3)::text",catalog,request.Session,request.BusinessDate);
         return JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
     }
-    public static async Task<MarketCloseFrames> Frames(NpgsqlConnection connection,Guid catalog,Guid? contextId,CancellationToken ct,int limit=128)
+    public static async Task<MarketCloseFrames> Frames(NpgsqlConnection connection,Guid catalog,Guid? contextId,CancellationToken ct,int limit=128,
+        ImmutableArray<InputFrame> recordedInputs=default)
     {
         if(limit is <0 or >128)throw new MarketDataException("preview_limit","The retained frame catalog is limited to 128 choices.");
         var rows=await PreviewDatabase.Rows(connection,"SELECT row_to_json(t)::text FROM(SELECT id,name,at,session_code,session_version,business_date,"+
@@ -126,8 +127,15 @@ public static partial class MarketCloses
             "FROM market_data.market_closes WHERE catalog_id=$1 AND security.close_session_is_listed(catalog_id,session_code) ORDER BY at DESC,id DESC LIMIT $2)t",[catalog,limit+1],ct);
         var headers=rows.Take(limit).OrderBy(row=>row.Instant("at")).ThenBy(row=>row.Id("id")).ToArray();
         if(headers.Length==0)return new([],limit,rows.Length>limit);
-        var ids=headers.Select(row=>row.Id("id")).ToArray();
-        var parts=await Parts(connection,catalog,ids,contextId,ct);
+        // Fresh runtime RLS headers own visibility, ordering and capacity. Reuse
+        // only the immutable native payload for an exact close/context already
+        // discovered by this session. Calendar execution reattests it again.
+        var parts=(recordedInputs.IsDefault?ImmutableArray<InputFrame>.Empty:recordedInputs)
+            .Where(frame=>frame.ContextId==contextId&&frame.OriginCloseId==frame.Id&&frame.Source is not null&&frame.SourceInputs is not null)
+            .ToDictionary(frame=>frame.Id,frame=>new CloseParts(frame.Source!,frame.SourceInputs!));
+        var missing=headers.Select(row=>row.Id("id")).Where(id=>!parts.ContainsKey(id)).ToArray();
+        if(missing.Length!=0)
+            foreach(var(id,part)in await Parts(connection,catalog,missing,contextId,ct))parts.Add(id,part);
         var frames=headers.Select(header=>CreateFrame(header.Id("id"),header.Text("name"),header.Instant("at"),parts[header.Id("id")],contextId,
             Close(header.Id("id"),header.Text("session_code"),int.Parse(header.Text("session_version"),CultureInfo.InvariantCulture),DateOnly.Parse(header.Text("business_date"),CultureInfo.InvariantCulture),header.Id("in_force")))).ToImmutableArray();
         return new(frames,limit,rows.Length>limit);

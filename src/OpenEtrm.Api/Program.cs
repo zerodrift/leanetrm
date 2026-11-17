@@ -571,19 +571,20 @@ InputFrame Frame(PreviewSession session,Guid id)
 }
 LifecycleEndpoints.Map(api,database,Locked,Profile,Frame);
 PointTraderMarkEndpoints.Map(api,database,Locked,Profile);
-async Task<SessionFramePlan> DiscoverFrames(NpgsqlConnection connection,PreviewSession session,CancellationToken ct)
+async Task<SessionFramePlan> DiscoverFrames(NpgsqlConnection connection,PreviewSession session,CancellationToken ct,bool reuseRecordedInputs=false)
 {
     if(session.Live is not null)return new([],session.FrameCatalog);
     var aliases=session.ContextAliases(session.MarketContext);
-    var stored=await MarketCloses.Frames(connection,database.Manifest.CatalogId,session.MarketContext?.ContextId,ct,session.DurableLimit(aliases));
+    var stored=await MarketCloses.Frames(connection,database.Manifest.CatalogId,session.MarketContext?.ContextId,ct,session.DurableLimit(aliases),
+        reuseRecordedInputs?session.RecordedInputs:[]);
     return session.PlanFrames(stored,session.MarketContext,aliases);
 }
-async Task RefreshFrames(PreviewSession session,CancellationToken ct)
+async Task RefreshFrames(PreviewSession session,CancellationToken ct,bool reuseRecordedInputs=false)
 {
     var plan=await database.WithIdentity(Profile(session),"ReadMarketData",async(connection,cancellation)=>
     {
         await Pin(session).Bind(connection,database.Manifest.CatalogId,cancellation);
-        return await DiscoverFrames(connection,session,cancellation);
+        return await DiscoverFrames(connection,session,cancellation,reuseRecordedInputs);
     },ct);
     session.ApplyFrames(plan);
 }
@@ -593,7 +594,7 @@ api.MapMarketDates(database,async(c,closeSession,work)=>
     {
         // Discovery assigns session state. Only this capture and application of
         // its plan hold the gate; qualification runs on immutable selections.
-        await RefreshFrames(session,c.RequestAborted);
+        await RefreshFrames(session,c.RequestAborted,reuseRecordedInputs:true);
         var pin=Pin(session);var frames=session.VisibleFrames;var catalog=session.FrameCatalog;
         var profile=Profile(session);var digest=hosted is null?null:session.Digest;
         return new(new("market.calendar.v1",new AsyncReadEmpty(),null,["ReadMarketData"]),ct=>
@@ -1412,7 +1413,7 @@ api.MapGet("/workspace/navigation",(Func<HttpContext,Task<IResult>>)(c=>Locked(c
         var navigation=await marketReads.Navigation(connection,Pin(session,ContextVersions.CatalogueSnapshot(c.Request.Query)),ct);
         // Keep inspection available when authoring is unavailable, with the exact reason.
         var configurations=navigation.Configurations;
-        return(navigation,configurations,plan:await DiscoverFrames(connection,session,ct));
+        return(navigation,configurations,plan:await DiscoverFrames(connection,session,ct,reuseRecordedInputs:true));
     },c.RequestAborted);
     session.ApplyFrames(read.plan);var frames=session.VisibleFrames;
     return Results.Ok(new MarketNavigation(Profile(session),session.MarketContext,read.navigation.DefinitionRevision,read.navigation.ReferenceRevision,
