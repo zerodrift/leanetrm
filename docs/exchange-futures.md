@@ -106,8 +106,9 @@ facts only and no document text or prices.
   - Exercise-notice cutoffs: 4:15 p.m. and 4:30 p.m. The rule states no time zone, so no
     instruction-cutoff instant is derived.
 - **Option series (`ref_data.futures_option_series`):** explicit rows for the December
-  2026–April 2027 maturities. Each maturity has seven strikes on the listed grid, at the
-  maturity's centre and 2, 4 and 6 strike intervals either side, as calls and puts. One deep in-the-money ON call (December 2026, strike 2.00) is added for the
+  2026–April 2027 maturities. Each maturity retains seven original strikes on the listed grid, at the
+  maturity's centre and 2, 4 and 6 strike intervals either side, and adds six
+  explicit synthetic wing strikes, all as calls and puts (D421). One deep in-the-money ON call (December 2026, strike 2.00) is added for the
   intrinsic-value fallback. Each series:
   - names its exact underlying futures series;
   - takes its published expiry date;

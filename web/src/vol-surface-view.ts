@@ -23,12 +23,18 @@ export type Measure={value:string|null;missing:string|null};
 /** A series' value and sensitivities per unit of quote, as its fit stored them. */
 export type SeriesAnalytics={value:string;priceBump:string|null;delta:Measure;gamma:Measure;vega:Measure;theta:Measure};
 export type SurfaceSeries={series:{code:string;right:Right;strike:string;expiryAt:string;underlyingCode:string;settlement:string|null;outcome:string;marketVolatility:string|null};
- logMoneyness:string|null;fitted:string|null;richCheap:string|null;fitPoint:boolean;inTheMoney:boolean|null;analytics:SeriesAnalytics|null};
+ logMoneyness:string|null;fitted:string|null;richCheap:string|null;fitPoint:boolean;inTheMoney:boolean|null;analytics:SeriesAnalytics|null;axisValue:string|null};
+export type AxisPoint={id:string;value:string;label:string};
+export type AxisPolicy={id:string;label:string;unit:string;preset:{name:string;points:AxisPoint[]}};
+export type AxisOffer={definitionRevisionId:string;snapshotId:string;model:string;initialAxis:string;axes:AxisPolicy[];requiresRefit:boolean;canFit:boolean;sensitivities:SensitivityOffer;job:Job|null};
+export type AxisNode={pointId:string;axisValue:string;label:string;logMoneyness:string|null;strike:string|null;fitted:string|null;covered:boolean;reason:{code:string;message:string}|null};
+type PlotAxis={id:string;label:string;unit:string;ticks:AxisPoint[]};
+export type SurfaceProjection={numericalPolicy:string;normalImplementation:string;tolerance:string;axes:AxisPolicy[];x:PlotAxis;depth:PlotAxis;height:PlotAxis};
 export type SurfaceExpiry={expiryAt:string;underlyingCode:string;futures:string|null;status:string;parameters:{a:string;b:string;c:string}|null;points:number;
- rmsResidual:string|null;maxAbsResidual:string|null;grid:{strike:string;logMoneyness:string;fitted:string}[];atTheMoneyStrike:string|null;daysToExpiry:string|null};
+ rmsResidual:string|null;maxAbsResidual:string|null;grid:{strike:string;logMoneyness:string;fitted:string}[];atTheMoneyStrike:string|null;daysToExpiry:string|null;yearFraction:string|null;timeLabel:string|null;nodes:AxisNode[]};
 /** The sensitivity selection a surface's analytics were computed under, with the clock and instant of its one day. */
 export type SurfaceSensitivities={policy:string;ticks:number;priceSteps:number|null;volatilityBump:string;clockSource:string|null;clockZone:string|null;dayTo:string|null};
-export type VolSurfaceResult={modelId:string;strikeAxis:string[];expiries:SurfaceExpiry[];series:SurfaceSeries[];sensitivities:SurfaceSensitivities|null};
+export type VolSurfaceResult={modelId:string;strikeAxis:string[];expiries:SurfaceExpiry[];series:SurfaceSeries[];sensitivities:SurfaceSensitivities|null;projection:SurfaceProjection};
 type Job={id:string;state:string;errorCode:string|null};
 type ClockRule={code:string;kind:string;fixedOffsetSeconds:number|null;ianaZone:string|null;tzdbVersion:string|null};
 /** What a fit may select: the selection the backend offers, sent back unchanged, and the clocks a working snapshot names one of. */
@@ -149,7 +155,7 @@ function heatMap(host:HTMLElement,surface:VolSurfaceResult,cells:HeatCell[],labe
     {id:'halves',type:'category',data:halves,position:'top',axisLine:{show:false},axisTick:{show:false},
      axisLabel:{show:cell>=12,interval:0,color:colors.text3,fontSize:10,formatter:(v:string)=>v.endsWith('|call')?'C':'P'}},
     {id:'strikes',type:'category',data:surface.strikeAxis,position:'bottom',z:3,axisLine:{show:false},axisTick:{show:false},
-     axisLabel:{color:colors.text2,fontSize:11,hideOverlap:true},splitLine:{show:true,interval:0,lineStyle:{color:colors.surface,width:4}},name:'Strike',nameLocation:'middle',nameGap:22,nameTextStyle:{color:colors.text3,fontSize:11}}],
+     axisLabel:{color:colors.text2,fontSize:11,hideOverlap:true},splitLine:{show:true,interval:0,lineStyle:{color:colors.surface,width:4}},name:surface.projection.axes.find(a=>a.id==='strike_v1')!.label,nameLocation:'middle',nameGap:22,nameTextStyle:{color:colors.text3,fontSize:11}}],
    yAxis:[{type:'category',data:rows,inverse:true,axisLine:{show:false},axisTick:{show:false},axisLabel:{color:colors.text2,fontSize:11,lineHeight:14}}],
    visualMap:{type:'continuous',seriesIndex:0,show:false,min:-extent,max:extent,inRange:{color:[colors.cheap,colors.surface3,colors.rich]}},
    series:[
@@ -302,7 +308,7 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
  const note=el('span','vol-fit-note');
  // A working snapshot belongs to no close convention, so its fit names the calendar clock one day of decay is counted on.
  const clockLabel=el('label','vol-fit-clock'),clock=el('select');clock.id='vol-fit-clock';
- clockLabel.append('One day counted on ',clock);clock.onchange=()=>{fitMessage='';render();};
+ clockLabel.append('One day counted on ',clock);clock.onchange=()=>{fitMessage='';if(shown)render();else renderRecovery();};
  actions.append(note,failure,clockLabel,retry,fit);productHead.append(naming,actions);
  const status=el('p','vol-status');status.id='vol-fit-status';status.setAttribute('role','status');
  const closes=el('nav','vol-closes');closes.id='vol-closes';closes.setAttribute('aria-label','Closes this product is calibrated at');
@@ -320,6 +326,13 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
  const resetView=button('secondary','Reset view','vol-surface-reset');
  const head3d=el('div','vol-card-head'),tools3d=el('div','vol-3d-tools');tools3d.append(el('span','vol-3d-hint','Drag or use the arrow keys to rotate'),resetView);
  head3d.append(el('h3',undefined,'Surface'),tools3d);
+ const axesForm=el('form','vol-axis-controls');axesForm.id='vol-axis-controls';
+ const axisSelect=el('select');axisSelect.id='vol-axis';axisSelect.setAttribute('aria-label','Surface x axis');
+ const pointEditor=el('input');pointEditor.id='vol-axis-points';pointEditor.setAttribute('aria-label','Axis points');
+ const presetName=el('span','vol-axis-preset');presetName.id='vol-axis-preset';
+ const applyPoints=button('secondary','Apply points','vol-axis-apply');applyPoints.type='submit';
+ axesForm.append(axisSelect,pointEditor,applyPoints,presetName);axesForm.hidden=true;
+ const axisGaps=el('div','vol-axis-gaps');axisGaps.id='vol-axis-gaps';
  const canvasHost=el('div','vol-3d-canvas'),levelScale=el('span','vol-3d-levels');
  const legend3d=el('p','vol-3d-legend');
  // Each key item keeps its swatch with its own words when the legend wraps.
@@ -327,7 +340,7 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
  legend3d.append(item(el('span','vol-key-row'),'Rows: the fitted smile at each expiry'),
   item(el('span','vol-key-join'),'Straight panels between expiries: a visual join, not a fit, shaded by volatility level',levelScale),
   item('Stalks: from the fitted smile to the market’s implied volatility,',el('span','vol-key-rich'),'rich above,',el('span','vol-key-cheap'),'cheap below'));
- surface3d.append(head3d,canvasHost,legend3d);
+ surface3d.append(head3d,canvasHost,axisGaps,legend3d);
  // The term structure: the fitted level at the money by expiry, and a card per expiry that opens its smile below.
  const term=el('section','vol-card vol-term');term.id='vol-term';
  const termHead=el('div','vol-card-head');termHead.append(el('h3',undefined,'Term structure'),el('span','vol-3d-hint','Fitted volatility at the money, by expiry'));
@@ -335,7 +348,7 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
  term.append(termHead,termChart,strip);
  const smiles=el('section','vol-smiles');smiles.id='vol-smiles';
  const views=el('div','vol-views');views.append(heat,readout,surface3d,term,smiles);
- detail.append(placeholder,productHead,status,closes,missing,views);
+ detail.append(placeholder,productHead,status,closes,missing,axesForm,views);
  root.replaceChildren(hero,error,shelf,detail);
 
  // The generations of the reads under way: only a read of the current product and context stands for the next one.
@@ -343,7 +356,8 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
  let products:{code:string;name:string}[]=[],library:LibrarySurface[]=[],libraryComplete=false,canFit=false,product='',definitionRevisionId:string|undefined,publishedDefinition:string|undefined,
   timeline:LibrarySurface[]|undefined,shown:SurfaceRead|undefined,drawn:View[]=[],view3d:{reset():void;dispose():void}|undefined,cells:HeatCell[]=[],
   drawnFor:VolSurfaceResult|undefined,drawnRevision='',here:Here|undefined;
- let generation=0,timer:ReturnType<typeof setTimeout>|undefined,submitting=false,fitMessage='',moveMessage='';
+ let axisOffer:AxisOffer|undefined;
+ let generation=0,lifecycle=0,timer:ReturnType<typeof setTimeout>|undefined,submitting=false,fitMessage='',moveMessage='';
  const day=longDay;
  const shortDay=(date:string)=>new Intl.DateTimeFormat('en',{month:'short',day:'numeric',timeZone:'UTC'}).format(new Date(date+'T00:00:00Z'));
  const expiryLabel=(e:SurfaceExpiry)=>new Intl.DateTimeFormat('en',{month:'short',day:'numeric',year:'numeric',timeZone:o.zone()}).format(new Date(e.expiryAt));
@@ -402,7 +416,7 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
  async function read(number:number){
   const context=o.context(),scope=scopeOf(),definition=requireDefinition();
   let answer:SurfaceRead;
-  reading.push(number);try{answer=await o.api<SurfaceRead>('vol-surfaces/read',{context,product,model,definitionRevisionId:definition});}finally{reading.splice(reading.indexOf(number),1);}
+  reading.push(number);try{answer=await o.api<SurfaceRead>('vol-surfaces/read',{context,product,model,definitionRevisionId:definition,axis:axisSelect.value,points:pointEditor.value.split(',').map(p=>p.trim())});}finally{reading.splice(reading.indexOf(number),1);}
   if(number!==generation)return;
   if(answer.definitionRevisionId!==definition||answer.model!==model||answer.snapshotId!==context.snapshotId||(answer.state==='fitted')!==!!answer.surface||answer.surface&&answer.surface.modelId!==model)
    throw Error('The surface read does not match the selected product, model and context. Refresh and try again.');
@@ -432,14 +446,50 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
   timeline=page.surfaces;renderTimeline();renderMissing();
  }
  // A newly chosen product or context: what was shown and any read or check-back under way are given up.
- function restart(){stop();generation++;moreProducts.disabled=false;pending.clear();fitMessage='';moveMessage='';shown=undefined;timeline=undefined;return generation;}
+ function restart(){stop();generation++;lifecycle++;axisOffer=undefined;axesForm.hidden=true;moreProducts.disabled=false;pending.clear();fitMessage='';moveMessage='';shown=undefined;timeline=undefined;return generation;}
  async function readProduct(){
   const number=restart();
   root.dataset.state=product?'loading':'idle';error.hidden=true;
   renderDetail();
   if(!product)return;
-  try{await Promise.all([read(number),readTimeline(number)]);}catch(cause){if(number===generation)failed(cause);}
+  try{
+   const context=o.context(),definition=requireDefinition();
+   const offer=await o.api<AxisOffer>('vol-surfaces/axes',{context,product,model,definitionRevisionId:definition});
+   if(number!==generation)return;
+   if(offer.definitionRevisionId!==definition||offer.snapshotId!==context.snapshotId||offer.model!==model)throw Error('The axis offer does not match the selected context.');
+   axisOffer=offer;axisSelect.replaceChildren(...offer.axes.map(a=>new Option(`${a.label} (${a.unit})`,a.id)));
+   axisSelect.value=offer.initialAxis;fillPreset();axesForm.hidden=false;
+   if(offer.requiresRefit){
+    renderRecovery();
+    if(active(offer.job)&&!document.hidden)timer=setTimeout(()=>void readProduct(),checkBackMs);
+    return;
+   }
+   await Promise.all([read(number),readTimeline(number)]);
+  }catch(cause){if(number===generation)failed(cause);}
  }
+ function renderRecovery(){
+  const offer=axisOffer;if(!offer?.requiresRefit)return;
+  root.dataset.state='requiresRefit';views.hidden=true;actions.hidden=false;missing.hidden=true;
+  error.hidden=false;error.textContent='This revision lacks retained axis inputs (vol_axis_inputs_missing). Recalibrate explicitly to record them.';
+  status.textContent=active(offer.job)?'Calibrating retained axis inputs…':'Retained axis inputs unavailable';
+  fit.hidden=!offer.canFit||o.historical()||active(offer.job)||submitting||!!pending.command;fit.textContent='Recalibrate with axis inputs';
+  retry.hidden=!pending.command||submitting;failure.textContent=publicText(fitMessage);note.textContent=submitting?'Submitting the calibration…':'';
+  clockLabel.hidden=!offer.sensitivities.clockRequired||!offer.canFit||o.historical()||active(offer.job);
+  const chosen=clock.value;clock.replaceChildren(new Option('Choose a clock',''),...offer.sensitivities.clocks.map(r=>new Option(r.code,r.code)));
+  clock.value=offer.sensitivities.clocks.some(r=>r.code===chosen)?chosen:'';
+ }
+ function fillPreset(){
+  const policy=axisOffer?.axes.find(a=>a.id===axisSelect.value);
+  if(!policy)throw Error('Select a declared axis.');
+  pointEditor.value=policy.preset.points.map(p=>p.value).join(', ');presetName.textContent=publicText(policy.preset.name);
+ }
+ function readPoints(){
+  const number=++generation;stop();drawnRevision='';
+  void read(number).catch(cause=>{if(number===generation)failed(cause);});
+ }
+ axisSelect.onchange=()=>{fillPreset();readPoints();};
+ pointEditor.onchange=()=>readPoints();
+ axesForm.onsubmit=event=>{event.preventDefault();readPoints();};
  // Product metadata is paged too; another page requires an explicit search or More.
  let nextProductOffset:number|null=null,productQuery='';
  type ProductPage={definitionRevisionId:string;rows:Record<string,string|number|null>[];offset:number;pageSize:number;hasMore:boolean};
@@ -578,11 +628,11 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
 
  async function submit(){
   if(submitting)return;
-  const offer=shown?.sensitivities,named=offer?.clocks.find(rule=>rule.code===clock.value)??null;
-  if(!offer||offer.clockRequired&&!named){fitMessage='Choose the clock one day is counted on, then calibrate.';render();return;}
+  const offer=shown?.sensitivities??axisOffer?.sensitivities,named=offer?.clocks.find(rule=>rule.code===clock.value)??null;
+  if(!offer||offer.clockRequired&&!named){fitMessage='Choose the clock one day is counted on, then calibrate.';if(shown)render();else failure.textContent=fitMessage;return;}
   let command;try{const c=o.context();command=pending.begin('vol-surfaces/fit',{snapshotId:c.snapshotId,product,model,
-   sensitivities:{...offer.offered,clock:offer.clockRequired?named:null},definitionRevisionId:requireDefinition()});}catch(cause){fitMessage=messageOf(cause);render();return;}
-  const number=generation;submitting=true;fitMessage='';render();
+   sensitivities:{...offer.offered,clock:offer.clockRequired?named:null},definitionRevisionId:requireDefinition()});}catch(cause){fitMessage=messageOf(cause);if(shown)render();else renderRecovery();return;}
+  const submittedScope=scopeOf(),submittedLifecycle=lifecycle;submitting=true;fitMessage='';if(shown)render();else renderRecovery();
   const previouslyUncertain=pending.sending();
   let queued=false;
   try{await o.api('vol-surfaces/fit',{requestId:command.operationId,...command.body});pending.clear();queued=true;}
@@ -590,9 +640,13 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
    pending.failed(codeOf(cause),previouslyUncertain);
    fitMessage=pending.command?`The calibration request is not confirmed: ${messageOf(cause)} Retry it to submit the same request.`:`Calibration refused: ${messageOf(cause)}`;
   }finally{submitting=false;}
-  if(number!==generation)return;
+  if(submittedLifecycle!==lifecycle)return;
+  let sameScope=false;try{sameScope=submittedScope===scopeOf();}catch{/* A reset or unapplied context has no read scope. */}
+  if(!sameScope)return;
+  const number=generation;
   // The job is read back at once, and checked on until it ends.
-  if(queued)await read(number).catch(cause=>{if(number===generation)failed(cause);});else render();
+  if(queued&&axisOffer?.requiresRefit)await readProduct();
+  else if(queued)await read(number).catch(cause=>{if(number===generation)failed(cause);});else if(shown)render();else renderRecovery();
  }
  fit.onclick=()=>void submit();retry.onclick=()=>void submit();
  resetView.onclick=()=>view3d?.reset();
@@ -600,20 +654,26 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
  // The surface's views, drawn for each stored revision a read returns; reading the same revision again, as checking on a refit
  // does, keeps them as drawn.
  function drawSurface(listed:VolSurfaceResult,revision:string){
-  if(drawnRevision===revision)return;
-  const keep=link.current();clearViews();const {surface,expired}=liveSurface(listed);drawnFor=surface;drawnRevision=revision;
+  const projectionKey=revision+JSON.stringify(listed.projection);
+  if(drawnRevision===projectionKey)return;
+  const keep=link.current();clearViews();const {surface,expired}=liveSurface(listed);drawnFor=surface;drawnRevision=projectionKey;
   cells=heatCells(surface);
   const rich=surface.series.filter(s=>s.richCheap!==null);
   const largest=rich.reduce<SurfaceSeries|undefined>((top,s)=>!top||Math.abs(plotNumber(s.richCheap!))>Math.abs(plotNumber(top.richCheap!))?s:top,undefined);
   const extent=largest?Math.abs(plotNumber(largest.richCheap!))||1:1;
   if(largest){const end=points(largest.richCheap!.replace(/^-/,''));scale.append(el('span',undefined,'Cheap'),el('span','vol-scale-end','-'+end),el('span','vol-scale-bar'),el('span','vol-scale-end','+'+end),el('span',undefined,'Rich'));}
   drawn.push(heatMap(heatChart,surface,cells,expiryLabel,extent,link));
+  axisGaps.replaceChildren(...surface.expiries.flatMap(e=>e.nodes.filter(n=>!n.covered).map(n=>{
+   const reason=`${expiryLabel(e)} · ${n.label}: ${n.reason!.message} (${n.reason!.code})`,gap=button('secondary vol-axis-gap',`${expiryLabel(e)} · ${n.label}`);
+   gap.title=reason;gap.setAttribute('aria-label',reason);gap.onfocus=()=>{gap.textContent=reason;};gap.onblur=()=>{gap.textContent=`${expiryLabel(e)} · ${n.label}`;};
+   return gap;
+  })));
   const levels=levelRange(surface);
   if(levels){
    const canvas=el('canvas');canvasHost.append(canvas);
    levelScale.append(el('span','vol-scale-end',points(levels.low)),el('span','vol-3d-level-bar'),el('span','vol-scale-end',`${points(levels.high)} vol pts`));
-   view3d=drawSurface3d(canvas,surface,link,expiryLabel);
-  }else canvasHost.append(el('p','vol-gap','No expiry is fitted at this date, so there is no surface to draw.'));
+   view3d=drawSurface3d(canvas,surface,link);
+  }else canvasHost.append(el('p','vol-gap','None of the selected points is covered by a fitted expiry. See the point coverage reasons.'));
   // Choosing an expiry, on the term structure or its card, brings its smile into view.
   const chooseExpiry=(expiryAt:string)=>{
    for(const card of strip.querySelectorAll<HTMLElement>('.vol-expiry-card'))card.setAttribute('aria-pressed',String(card.dataset.expiry===expiryAt));

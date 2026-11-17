@@ -2639,6 +2639,8 @@ api.MapPost("/vol-surfaces/fit",(HttpContext c,VolSurfaceFitRequest body)=>Locke
 }));
 api.MapPost("/vol-surfaces/read",(HttpContext c,VolSurfaceReadRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("vol_surface_context","Supply the selected context."),
     (connection,view,ct)=>tradeReads.ReadBound(connection,view,()=>VolSurfaceStore.Read(connection,database,view,body,ct),ct),expectedConvention:FuturesOptionStore.Convention));
+api.MapPost("/vol-surfaces/axes",(HttpContext c,VolSurfaceAxesRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("vol_surface_context","Supply the selected context."),
+    (connection,view,ct)=>tradeReads.ReadBound(connection,view,()=>VolSurfaceStore.Axes(connection,database,view,body,ct),ct),expectedConvention:FuturesOptionStore.Convention));
 api.MapPost("/vol-surfaces/library",(HttpContext c,VolSurfaceLibraryRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("vol_surface_context","Supply the selected context."),
     (connection,view,ct)=>tradeReads.ReadBound(connection,view,()=>VolSurfaceStore.Library(connection,database,view,body,ct),ct),expectedConvention:FuturesOptionStore.Convention));
 api.MapGet("/jobs",(HttpContext c,int? page,int? collectionPage)=>Locked(c,session=>database.WithIdentity(Profile(session),null,

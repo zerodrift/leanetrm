@@ -13,6 +13,7 @@ public sealed record SurfaceSeries(string Code, OptionRight Right, ExactDecimal 
 public sealed record SurfaceExpiryInput(DateTimeOffset ExpiryAt, string UnderlyingCode, LatticeDecimal? Futures)
 {
     public ExactDecimal? DaysToExpiry { get; init; }
+    public LatticeDecimal? YearFraction { get; init; }
 }
 
 // RichCheap = MarketVolatility - Fitted, for every solved series of a fitted expiry. InTheMoney is a call struck below
@@ -22,7 +23,10 @@ public sealed record SurfaceSeriesResult(SurfaceSeries Series, LatticeDecimal? L
     bool? InTheMoney)
 {
     public OptionSeriesSensitivities? Analytics { get; init; }
+    public LatticeDecimal? AxisValue { get; init; }
 }
+
+public sealed record SurfacePlotInputs(string StrikeUnit, string OptionPolicy, string AxisNumericalPolicy, string NormalImplementation);
 
 public sealed record SurfaceGridPoint(ExactDecimal Strike, LatticeDecimal LogMoneyness, LatticeDecimal Fitted);
 
@@ -33,6 +37,9 @@ public sealed record SurfaceExpiry(DateTimeOffset ExpiryAt, string UnderlyingCod
     int Points, LatticeDecimal? RmsResidual, LatticeDecimal? MaxAbsResidual, ImmutableArray<SurfaceGridPoint> Grid, ExactDecimal? AtTheMoneyStrike)
 {
     public ExactDecimal? DaysToExpiry { get; init; }
+    public LatticeDecimal? YearFraction { get; init; }
+    public string? TimeLabel { get; init; }
+    public ImmutableArray<SurfaceAxisNode> Nodes { get; init; } = [];
 }
 
 // The sensitivity selection a fit computed its series' analytics under, every member as stated, with the calendar clock
@@ -44,6 +51,8 @@ public sealed record SurfaceSensitivities(string Policy, int Ticks, int? PriceSt
 public sealed record VolSurfaceResult(string ModelId, ImmutableArray<ExactDecimal> StrikeAxis, ImmutableArray<SurfaceExpiry> Expiries, ImmutableArray<SurfaceSeriesResult> Series)
 {
     public SurfaceSensitivities? Sensitivities { get; init; }
+    public SurfacePlotInputs? PlotInputs { get; init; }
+    public SurfaceProjection? Projection { get; init; }
 }
 
 public static class VolSurfaces
@@ -107,12 +116,12 @@ public static class VolSurfaces
                 return new SurfaceGridPoint(strike, k, model.Evaluate(fitted.Parameters, k));
             }).ToImmutableArray();
         var expiry = new SurfaceExpiry(input.ExpiryAt, input.UnderlyingCode, futures, "fitted", fitted.Parameters, fitted.Points, fitted.RmsResidual, fitted.MaxAbsResidual, grid,
-            atTheMoney) { DaysToExpiry = input.DaysToExpiry };
+            atTheMoney) { DaysToExpiry = input.DaysToExpiry, YearFraction = input.YearFraction };
         return (expiry, results);
     }
 
     private static SurfaceExpiry Gap(SurfaceExpiryInput input, string code, ExactDecimal? atTheMoney) =>
-        new(input.ExpiryAt, input.UnderlyingCode, input.Futures, code, null, 0, null, null, [], atTheMoney) { DaysToExpiry = input.DaysToExpiry };
+        new(input.ExpiryAt, input.UnderlyingCode, input.Futures, code, null, 0, null, null, [], atTheMoney) { DaysToExpiry = input.DaysToExpiry, YearFraction = input.YearFraction };
 
     private static OptionRight OtmRight(ExactDecimal strike, LatticeDecimal futures) =>
         LatticeDecimal.From(strike).CompareTo(futures) < 0 ? OptionRight.Put : OptionRight.Call;

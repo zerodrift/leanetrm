@@ -1,4 +1,5 @@
 import {test} from 'node:test';
+import {readFile} from 'node:fs/promises';
 import assert from 'node:assert/strict';
 import {closeLink,closeLinkHref} from '../dist/close-choice.js';
 import {surfaceLink} from '../dist/vol-surface-link.js';
@@ -44,7 +45,7 @@ test('exact decimal fractions are shown as volatility points to two decimals, ro
 
 const series=(code,expiryAt,strike,right,outcome,richCheap=null)=>({series:{code,right,strike,expiryAt,underlyingCode:'u',settlement:outcome==='option_settlement_missing'?null:'0.1',outcome,
   marketVolatility:outcome==='solved'?'0.5':null},logMoneyness:'0',fitted:richCheap===null?null:'0.5',richCheap,fitPoint:richCheap!==null});
-const expiry=(expiryAt,status)=>({expiryAt,underlyingCode:'u',futures:'3',status,parameters:null,points:status==='fitted'?5:0,rmsResidual:null,maxAbsResidual:null,grid:[]});
+const expiry=(expiryAt,status)=>({expiryAt,underlyingCode:'u',futures:'3',status,parameters:null,points:status==='fitted'?5:0,rmsResidual:null,maxAbsResidual:null,grid:[],nodes:[]});
 
 test('each expiry, strike and right is a value, a gap with its reason, or not listed',()=>{
   const surface={modelId:'m',strikeAxis:['1','2'],expiries:[expiry('e1','fitted'),expiry('e2','vol_fit_insufficient_strikes')],series:[
@@ -80,27 +81,35 @@ test('expired expiries and their series are left out of the drawn surface, and n
   assert.throws(()=>liveSurface({...surface,series:[...surface.series,series('y','e0','2','put','solved','0.01')]}),/expired/);
 });
 
-const fittedAt=(expiryAt,strikes,status='fitted')=>({...expiry(expiryAt,status),grid:strikes.map(strike=>({strike,logMoneyness:'0',fitted:'0.4'+strike.replace('.','')}))});
+const fittedAt=(expiryAt,strikes,status='fitted')=>({...expiry(expiryAt,status),nodes:strikes.map(strike=>({pointId:strike,axisValue:strike,label:strike,covered:true,reason:null,fitted:'0.4'+strike.replace('.','')}))});
 const surfaceOf=expiries=>({modelId:'m',strikeAxis:[],expiries,series:[]});
 
 test('the 3D mesh draws a row per fitted expiry and joins neighbouring rows only where both list the same consecutive strikes',()=>{
   const mesh=surfaceMesh(surfaceOf([fittedAt('2026-11-01T00:00:00Z',['1','2','3']),fittedAt('2026-12-01T00:00:00Z',['2','3','4']),
     expiry('2027-01-01T00:00:00Z','vol_fit_insufficient_strikes'),fittedAt('2027-02-01T00:00:00Z',['1','2'])]));
-  assert.deepEqual(mesh.rows.map(r=>[r.expiry,r.points.map(p=>p.strike)]),[[0,['1','2','3']],[1,['2','3','4']],[3,['1','2']]]);
-  assert.deepEqual(mesh.rows[0].points[1],{strike:'2',fitted:'0.42'});
+  assert.deepEqual(mesh.rows.map(r=>[r.expiry,r.points.map(p=>p.pointId)]),[[0,['1','2','3']],[1,['2','3','4']],[3,['1','2']]]);
+  assert.deepEqual(mesh.rows[0].points[1],{pointId:'2',axisValue:'2',label:'2',covered:true,reason:null,fitted:'0.42'});
   // The gap expiry has no row, and no join reaches across it to the next fitted expiry.
-  assert.deepEqual(mesh.joins,[{from:0,to:1,strikes:['2','3']}]);
+  assert.deepEqual(mesh.joins,[{from:0,to:1,points:['2','3']}]);
 });
 
 test('a join never spans a strike that one of its rows lists between the two',()=>{
   const mesh=surfaceMesh(surfaceOf([fittedAt('2026-11-01T00:00:00Z',['1','2','2.5']),fittedAt('2026-12-01T00:00:00Z',['1','2','3'])]));
-  assert.deepEqual(mesh.joins,[{from:0,to:1,strikes:['1','2']}]);
+  assert.deepEqual(mesh.joins,[{from:0,to:1,points:['1','2']}]);
 });
 
 test('a surface whose fitted grids disagree with their expiry status or order is refused rather than drawn',()=>{
-  assert.throws(()=>surfaceMesh(surfaceOf([fittedAt('2026-11-01T00:00:00Z',[])])),/grid/);
-  assert.throws(()=>surfaceMesh(surfaceOf([fittedAt('2026-11-01T00:00:00Z',['1'],'vol_fit_nonpositive')])),/grid/);
+  assert.throws(()=>surfaceMesh(surfaceOf([fittedAt('2026-11-01T00:00:00Z',[])])),/nodes/);
+  assert.throws(()=>surfaceMesh(surfaceOf([fittedAt('2026-11-01T00:00:00Z',['1'],'vol_fit_nonpositive')])),/nodes/);
   assert.throws(()=>surfaceMesh(surfaceOf([fittedAt('2026-12-01T00:00:00Z',['1']),fittedAt('2026-11-01T00:00:00Z',['1'])])),/order/);
+});
+
+test('uncovered axis nodes break row lines and mesh panels without joining across the gap',()=>{
+ const first=fittedAt('2026-11-01T00:00:00Z',['a','b','c','d']),second=fittedAt('2026-12-01T00:00:00Z',['a','b','c','d']);
+ first.nodes[1]={...first.nodes[1],covered:false,fitted:null,reason:{code:'vol_axis_outside_fit',message:'Outside fit'}};
+ const mesh=surfaceMesh(surfaceOf([first,second]));
+ assert.equal(mesh.rows[0].points.length,4);
+ assert.deepEqual(mesh.joins,[{from:0,to:1,points:['c','d']}]);
 });
 
 test('the page reads each colour from the theme, and a token the theme does not define is refused rather than left empty',async()=>{
@@ -159,4 +168,10 @@ test('a volatility close link opens the same option definition in a separate win
  const address=new URL(closeLinkHref(link,'/','?example=exchange&definitionRevisionId=old'), 'https://preview.invalid');
  assert.deepEqual(closeLink(address.search),link);
  assert.equal(address.searchParams.get('example'),'exchange');
+});
+
+test('the surface client projects supplied coordinates without a volatility, moneyness or delta evaluator',async()=>{
+ const source=await readFile(new URL('../src/vol-surface-3d.ts',import.meta.url),'utf8');
+ assert.doesNotMatch(source,/Math\.(exp|log|sqrt)|NormalDistribution|\.parameters|Date\.parse/);
+ for(const member of ['node.axisValue','e.yearFraction','s.axisValue','supplied.x.label','supplied.depth.label','supplied.height.label'])assert.ok(source.includes(member),member);
 });

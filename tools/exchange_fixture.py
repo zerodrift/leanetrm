@@ -98,6 +98,23 @@ OPTION_PRODUCTS=[
 ]
 # Each maturity lists these strikes, in strike intervals from its centre, each as a call and a put.
 STRIKE_STEPS=(-6,-4,-2,0,2,4,6)
+# Explicit additional strikes per expiry under synthetic_flat_wings_v1. Only
+# these new series use the flatter smile; all original settlements stay exact.
+ADDED_WING_STRIKES={
+ 'nymex_on':[
+  ('2.45','2.60','2.80','3.80','4.00','4.25'),
+  ('2.20','2.40','2.70','4.10','4.60','5.00'),
+  ('2.05','2.30','2.70','4.30','5.00','5.50'),
+  ('1.95','2.25','2.65','4.50','5.20','5.80'),
+  ('1.85','2.20','2.60','4.70','5.50','6.20')],
+ 'nymex_lo':[
+  ('50.00','53.00','55.50','66.00','69.00','72.00'),
+  ('47.00','50.00','54.00','70.00','75.00','80.00'),
+  ('44.00','48.00','53.00','73.00','80.00','87.00'),
+  ('42.00','46.00','52.00','75.00','83.00','92.00'),
+  ('40.00','45.00','51.00','77.00','86.00','96.00')],
+}
+ADDED_WING_SMILES={'nymex_on':('0.55','-0.05','0.10','0.10'),'nymex_lo':('0.36','-0.05','0.10','0.08')}
 # Fixed synthetic volatility offsets of single series from the smile: the rich (+) and cheap (-) points a fitted
 # surface shows. Each is an out-of-the-money series at every close, away from the missing-settlement cases.
 SMILE_OFFSETS={
@@ -166,10 +183,11 @@ def option_reference(R):
           f"VALUES({R},'{code}','{name}','candidate','nymex','{underlying}','{code}_quote','{code}_contract',{multiplier},'american','exercise_into_future','premium_paid_up_front',false,{interval},'nymex_option_strikes',"
           f"'{code}_american_v1','{code}_expiry_v1','nymex_itm_settlement_v1','nymex_exercise_notice_v1');")
         refs.append(close_time(R,'option_expiry',code,OPTION_EXPIRY_CLOSE[code]))
-        # Seven strikes per maturity on the listed grid around the example's centre.
+        # Original seven strikes plus six explicit wing strikes per maturity.
         for i,expiry in enumerate(expiries):
             month=MONTHS[i+1].replace('-','');centre_i=Decimal(centre)+i*Decimal(step)
             strikes=[(right,centre_i+n*Decimal(interval)) for n in STRIKE_STEPS for right in ('call','put')]
+            strikes.extend((right,Decimal(strike)) for strike in ADDED_WING_STRIKES[code][i] for right in ('call','put'))
             if AT_INTRINSIC[:2]==(code,month):strikes.append(AT_INTRINSIC[2:])
             for right,strike in strikes:
                 sc=f'{code}_{month}_{right[0]}{strike}'
@@ -345,7 +363,9 @@ def fixture(root, *, rate_inputs=tuple(USD_RATES)):
             if AT_INTRINSIC==(code,sc.split('_')[2],right,strike):value=max(futures-strike if right=='call' else strike-futures,Decimal(0))
             else:
                 years=Decimal((expiry_at-datetime.fromisoformat(at)).total_seconds())/Decimal(365*86400)
-                volatility=smile_volatility(products[code][9],futures,strike,years,SMILE_OFFSETS.get(sc,Decimal(0)))
+                wing=strike in {Decimal(s) for s in ADDED_WING_STRIKES[code][[m.replace('-','') for m in MONTHS[1:]].index(sc.split('_')[2])]}
+                smile=ADDED_WING_SMILES[code] if wing else products[code][9]
+                volatility=smile_volatility(smile,futures,strike,years,SMILE_OFFSETS.get(sc,Decimal(0)))
                 value=option_settlement(price,futures,strike,right,years,volatility,increment)
             observe(sid,value,'daily_settlement')
         for sid,rate in rate_rows:observe(sid,rate,'parameter')

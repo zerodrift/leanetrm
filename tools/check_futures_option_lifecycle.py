@@ -35,7 +35,7 @@ def run_checks(url, query, manifest):
     options = catalog['options']
     reference = (manifest['referenceCatalogId'], manifest['referenceRevisionId'])
     check('the option catalog lists every unexpired listed ON and LO series with its exact-version instrument identity',
-          len(options) == 141 and all(o['instrumentId'] == str(uuid.UUID(hashlib.sha256(
+          len(options) == 261 and all(o['instrumentId'] == str(uuid.UUID(hashlib.sha256(
               f"futures_option_v1:{reference[0]}:{reference[1]}:{o['series']}".encode()).hexdigest()[:32])) for o in options))
     check('each listed series carries its product multiplier and premium tick from reference data',
           all((Decimal(o['multiplier']), Decimal(o['premiumTick'])) == SPECIFICATION[o['product']] for o in options))
@@ -233,12 +233,12 @@ def check_agent_catalog(url, query, manifest, fake):
     series = {row['code']: row['last_trading_date'] for row in json.loads(query(
         f"SELECT coalesce(json_agg(json_build_object('code',code,'last_trading_date',last_trading_date)),'[]')::text FROM ref_data.futures_option_series WHERE (catalog_id,revision_id)=({R});"))}
     results = {call: json.loads(contents[call]) for call in reads}
-    assert len(page['options']) == 141 and all(
+    assert len(page['options']) == 261 and all(
         read.get('operation') == 'trades.futures_option_catalog_v2' and read['result'] == {'convention': CONVENTION, 'options': [
             o for o in page['options'] if o['product'] == body['product'] and series[o['series']] == body['expiry']]}
         and read['result']['options'] for body, read in zip(reads.values(), results.values())) \
-        and sum(len(read['result']['options']) for read in results.values()) == 141, {call: read.get('code', read.get('operation')) for call, read in results.items()}
-    print("PASS the agent's futures option catalog equals options/catalog's series of each product and expiry at the turn's frame, together all 141", flush=True)
+        and sum(len(read['result']['options']) for read in results.values()) == 261, {call: read.get('code', read.get('operation')) for call, read in results.items()}
+    print("PASS the agent's futures option catalog equals options/catalog's series of each product and expiry at the turn's frame, together all 261", flush=True)
     # Each read reports the turn's pinned knowledge, cutoff and As of frame, and records the Blotter's accesses.
     pinned = {'knowledge': 'working_data', 'contextId': current['context']['contextId'], 'cutoff': current['context']['cutoff']}
     assert all({k: v for k, v in read['context'].items() if k != 'frame'} == pinned and read['context']['frame']['id'] == frame['id']

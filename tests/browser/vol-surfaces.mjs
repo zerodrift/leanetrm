@@ -293,6 +293,27 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,fi
    `[${canvas3d}.dataset.linked,${canvas3d}.dataset.linkedAt]`);
   await check('the 3D view paints its shaded surface in the light theme',`(p=>p.share>0.1&&p.colours>=50)(${painted})`,painted);
   await capture3d('vol-surface-3d-light');
+  const offeredAxes=await evaluate(`${calls('vol-surfaces/axes')}.at(-1).answer`);
+  await check('the axis toggle is built from the read metadata and the editor visibly contains the server preset',
+   `(()=>{const axes=${q(offeredAxes.axes)},select=document.querySelector('#vol-axis');
+    return [...select.options].map(o=>o.value).join()===axes.map(a=>a.id).join()&&axes.every(a=>[...select.options].find(o=>o.value===a.id).textContent.includes(a.label))&&
+      document.querySelector('#vol-axis-points').value===axes.find(a=>a.id===select.value).preset.points.map(p=>p.value).join(', ');})()`);
+  await capture3d('vol-surface-log-moneyness');
+  await set('#vol-axis','quick_delta_v1');
+  await settled(`${ready}==='fitted'&&${canvas3d}?.dataset.axis==='quick_delta_v1'`,30000);
+  await check('quick delta sends the preset explicitly and every standard point is covered on widened chains',
+   `(()=>{const read=${calls('vol-surfaces/read')}.at(-1),policy=read.answer.surface.projection.axes.find(a=>a.id==='quick_delta_v1');
+    return read.body.points.join()===policy.preset.points.map(p=>p.value).join()&&document.querySelector('#vol-axis-points').value===read.body.points.join(', ')&&
+      read.answer.surface.expiries.filter(e=>e.status==='fitted').every(e=>e.nodes.length===5&&e.nodes.every(n=>n.covered))&&
+      read.answer.surface.projection.depth.unit==='years';})()`);
+  await capture3d('vol-surface-quick-delta');
+  await set('#vol-axis-points','0.999999, 0.5, 0.000001');
+  await settled(`${ready}==='fitted'&&Number(${canvas3d}?.dataset.gaps)>0`,30000);
+  await check('uncovered points are mesh gaps and expose their backend reason on hover and focus',
+   `(()=>{const s=${calls('vol-surfaces/read')}.at(-1).answer.surface,gaps=s.expiries.flatMap(e=>e.nodes.filter(n=>!n.covered)),buttons=[...document.querySelectorAll('.vol-axis-gap')];
+    const first=buttons[0];first.focus();return gaps.length===buttons.length&&gaps.every(n=>buttons.some(b=>b.title.includes(n.reason.code)))&&first.textContent.includes(gaps[0].reason.code)&&${canvas3d}.dataset.joins==='';})()`);
+  await set('#vol-axis','log_moneyness_v1');
+  await settled(`${ready}==='fitted'&&${canvas3d}?.dataset.axis==='log_moneyness_v1'`,30000);
   // The canvas takes its colours from the theme's tokens each time it draws. An emulated colour scheme does not fire the media query's
   // change event the view redraws on, so Reset view, which draws again, stands in for it.
   await evaluate("document.querySelector('#vol-surface-3d').style.setProperty('--vol-rich','rgb(255, 0, 255)')");
@@ -347,6 +368,12 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,fi
   await check('a surface whose inputs were revised after its fit says so and offers Recalibrate',
    "document.querySelector('#vol-fit-status').textContent.includes('Inputs revised after this fit')&&document.querySelector('#vol-fit')?.textContent==='Recalibrate'");
   const on=(await lastRead()).answer;
+  await capture3d('vol-surface-on-log-moneyness');
+  await set('#vol-axis','quick_delta_v1');
+  await settled(`${ready}==='fitted'&&${canvas3d}?.dataset.axis==='quick_delta_v1'`,30000);
+  await capture3d('vol-surface-on-quick-delta');
+  await set('#vol-axis','log_moneyness_v1');
+  await settled(`${ready}==='fitted'&&${canvas3d}?.dataset.axis==='log_moneyness_v1'`,30000);
   // The deep in-the-money series settles at intrinsic: a gap with its reason; a strike an expiry does not list is not a gap.
   const intrinsic=on.surface.series.find(s=>s.series.outcome==='at_intrinsic');
   const listedKeys=new Set(on.surface.series.map(s=>[s.series.expiryAt,s.series.strike,s.series.right].join()));

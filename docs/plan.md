@@ -1,5 +1,10 @@
 # Delivery plan and acceptance criteria
 
+D421 adds [explicit server-defined surface axes](vol-surfaces.md#server-defined-surface-coordinates-d421):
+retained option year fractions, versioned k/quick-delta coordinates, visible point
+presets and no-extrapolation coverage gaps. It changes viewing coordinates and
+synthetic wing examples; pricing and risk keep their existing contracts.
+
 D422 implements the bounded [delivery workbench](delivery-workbench.md) over
 existing gas and crude native behavior. Its qualification gates cover common
 interval/event presentation, conserved route-to-obligation allocations, reviewed

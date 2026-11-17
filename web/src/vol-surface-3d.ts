@@ -1,41 +1,30 @@
 import {plotNumber} from './plot-number.js';
 import type {SurfaceLink} from './vol-surface-link.js';
 import {richCheapColour,themeToken,volTheme} from './vol-surface-theme.js';
-import type {SurfaceExpiry,VolSurfaceResult} from './vol-surface-view.js';
+import type {AxisNode,VolSurfaceResult} from './vol-surface-view.js';
 
-// The fitted volatility surface in 3D, drawn on a canvas by this module: strike across, expiry in depth and volatility up. It places
-// the surface read's own points and nothing between them. Each fitted expiry's grid is a row; straight panels join neighbouring rows
-// where both list the same strikes, as a visual join, never a fit; each market point sits on a stalk from its fitted value.
-
-/** One fitted expiry's row: its index among the surface's expiries and its fitted grid. */
-export type MeshRow={expiry:number;points:{strike:string;fitted:string}[]};
-/** A straight panel between neighbouring rows, over two strikes that follow each other in both rows' grids. */
-export type MeshJoin={from:number;to:number;strikes:[string,string]};
-
-/**
- * The rows and joins the 3D view draws. An expiry without a fit has no row, and no join reaches across it; a grid that disagrees
- * with its expiry's status, or expiries out of order, are refused rather than drawn.
- */
+// The backend supplies every coordinate, tick label and unit. Only projection,
+// rotation, shading and hit testing belong here. Point ids define mesh adjacency.
+export type MeshRow={expiry:number;points:AxisNode[]};
+export type MeshJoin={from:number;to:number;points:[string,string]};
 export function surfaceMesh(surface:VolSurfaceResult):{rows:MeshRow[];joins:MeshJoin[]}{
  const rows:MeshRow[]=[];
  surface.expiries.forEach((expiry,index)=>{
-  if(index&&Date.parse(expiry.expiryAt)<=Date.parse(surface.expiries[index-1].expiryAt))throw Error('The surface lists its expiries out of order.');
-  if((expiry.status==='fitted')!==(expiry.grid.length>0))throw Error('The surface gives an expiry a fitted grid that disagrees with its status.');
-  if(expiry.grid.length)rows.push({expiry:index,points:expiry.grid.map(g=>({strike:g.strike,fitted:g.fitted}))});
+  if(index&&expiry.expiryAt<=surface.expiries[index-1].expiryAt)throw Error('The surface lists its expiries out of order.');
+  if((expiry.status==='fitted')!==(expiry.nodes.length>0))throw Error('The surface gives an expiry nodes that disagree with its status.');
+  if(expiry.nodes.length)rows.push({expiry:index,points:expiry.nodes});
  });
- const following=(row:MeshRow)=>new Map(row.points.slice(0,-1).map((point,i)=>[point.strike,row.points[i+1].strike]));
+ const following=(row:MeshRow)=>new Map(row.points.slice(0,-1).flatMap((point,i)=>point.covered&&row.points[i+1].covered?[[point.pointId,row.points[i+1].pointId]]:[]));
  const joins:MeshJoin[]=[];
  for(let i=1;i<rows.length;i++){
   const [near,far]=[rows[i-1],rows[i]];if(far.expiry!==near.expiry+1)continue;
   const farNext=following(far);
-  for(const [strike,next] of following(near))if(farNext.get(strike)===next)joins.push({from:near.expiry,to:far.expiry,strikes:[strike,next]});
+  for(const [point,next] of following(near))if(farNext.get(point)===next)joins.push({from:near.expiry,to:far.expiry,points:[point,next]});
  }
  return {rows,joins};
 }
-
-/** The lowest and highest fitted volatility of the surface's grids, as returned: the ends of the mesh's shading. */
 export function levelRange(surface:VolSurfaceResult):{low:string;high:string}|null{
- const fitted=surface.expiries.flatMap(e=>e.grid.map(g=>g.fitted));
+ const fitted=surface.expiries.flatMap(e=>e.nodes.filter(n=>n.covered).map(n=>n.fitted!));
  if(!fitted.length)return null;
  const by=(pick:(a:number,b:number)=>boolean)=>fitted.reduce((best,v)=>pick(plotNumber(v),plotNumber(best))?v:best);
  return {low:by((a,b)=>a<b),high:by((a,b)=>a>b)};
@@ -55,25 +44,27 @@ const height=1.1,focal=6;
  * Draws `surface` on `canvas` and keeps it drawn: it rotates on a drag or the arrow keys, redraws at the canvas's size and pixel
  * ratio and in the theme's colours, and highlights the linked series' stalk. `dispose` releases every listener and observer.
  */
-export function drawSurface3d(canvas:HTMLCanvasElement,surface:VolSurfaceResult,link:SurfaceLink,label:(expiry:SurfaceExpiry)=>string):{reset():void;dispose():void}{
+export function drawSurface3d(canvas:HTMLCanvasElement,surface:VolSurfaceResult,link:SurfaceLink):{reset():void;dispose():void}{
  const mesh=surfaceMesh(surface),levels=levelRange(surface);
  if(!levels)throw Error('The surface has no fitted expiry to draw in 3D.');
- const fittedOf=new Map(mesh.rows.map(row=>[row.expiry,new Map(row.points.map(p=>[p.strike,p.fitted]))]));
- const stalks=surface.series.filter(s=>s.richCheap!==null&&s.fitted!==null&&s.series.marketVolatility!==null);
- // The box spans the strikes and volatilities shown and every expiry listed, those without a fit among them.
- const strikes=[...mesh.rows.flatMap(r=>r.points.map(p=>plotNumber(p.strike))),...stalks.map(s=>plotNumber(s.series.strike))];
- const vols=[...mesh.rows.flatMap(r=>r.points.map(p=>plotNumber(p.fitted))),...stalks.map(s=>plotNumber(s.series.marketVolatility!))];
- const times=surface.expiries.map(e=>Date.parse(e.expiryAt));
+ const supplied=surface.projection;
+ const fittedOf=new Map(mesh.rows.map(row=>[row.expiry,new Map(row.points.map(p=>[p.pointId,p]))]));
+ const stalks=surface.series.filter(s=>s.axisValue!==null&&s.richCheap!==null&&s.fitted!==null&&s.series.marketVolatility!==null);
+ const xs=[...supplied.x.ticks.map(p=>plotNumber(p.value)),...stalks.map(s=>plotNumber(s.axisValue!))];
+ const times=surface.expiries.map(e=>plotNumber(e.yearFraction!));
  const span=(values:number[])=>({min:Math.min(...values),max:Math.max(...values)});
- const strikeSpan=span(strikes),timeSpan=span(times),volTicks=ticks(span(vols).min*100,span(vols).max*100);
- const volSpan={min:volTicks[0]/100,max:volTicks.at(-1)!/100};
+ const strikeSpan=span(xs),timeSpan=span(times),volTicks=supplied.height.ticks;
+ const volSpan=span(volTicks.map(t=>plotNumber(t.value)));
  const unit=(value:number,{min,max}:{min:number;max:number})=>max>min?(value-min)/(max-min):.5;
- const world=(strike:number,time:number,vol:number):[number,number,number]=>[unit(strike,strikeSpan)*2-1,unit(time,timeSpan)*2-1,unit(vol,volSpan)*height];
- const timeOf=new Map(surface.expiries.map(e=>[e.expiryAt,Date.parse(e.expiryAt)]));
- const placedStalks:Stalk[]=stalks.map(s=>{const k=plotNumber(s.series.strike),t=timeOf.get(s.series.expiryAt)!;
-  return {code:s.series.code,richCheap:s.richCheap!,base:world(k,t,plotNumber(s.fitted!)),tip:world(k,t,plotNumber(s.series.marketVolatility!))};});
- const point=(expiry:number,strike:string)=>world(plotNumber(strike),times[expiry],plotNumber(fittedOf.get(expiry)!.get(strike)!));
- const shade=(expiry:number,strike:string)=>unit(plotNumber(fittedOf.get(expiry)!.get(strike)!),{min:plotNumber(levels.low),max:plotNumber(levels.high)});
+ const world=(x:number,time:number,vol:number):[number,number,number]=>[unit(x,strikeSpan)*2-1,unit(time,timeSpan)*2-1,unit(vol,volSpan)*height];
+ const timeOf=new Map(surface.expiries.map(e=>[e.expiryAt,plotNumber(e.yearFraction!)]));
+ const placedStalks:Stalk[]=stalks.map(s=>{const x=plotNumber(s.axisValue!),t=timeOf.get(s.series.expiryAt)!;
+  return {code:s.series.code,richCheap:s.richCheap!,base:world(x,t,plotNumber(s.fitted!)),tip:world(x,t,plotNumber(s.series.marketVolatility!))};});
+ const point=(expiry:number,id:string)=>{const node=fittedOf.get(expiry)!.get(id)!;return world(plotNumber(node.axisValue),times[expiry],plotNumber(node.fitted!));};
+ const shade=(expiry:number,id:string)=>unit(plotNumber(fittedOf.get(expiry)!.get(id)!.fitted!),{min:plotNumber(levels.low),max:plotNumber(levels.high)});
+ const gaps=mesh.rows.flatMap(r=>r.points.filter(n=>!n.covered).map(n=>({text:`${n.label}: ${n.reason!.message} (${n.reason!.code})`,at:world(plotNumber(n.axisValue),times[r.expiry],volSpan.min)})));
+ let gapScreens:{text:string;at:Screen}[]=[];
+ canvas.dataset.axis=supplied.x.id;canvas.dataset.gaps=String(gaps.length);
 
  canvas.dataset.rows=mesh.rows.map(r=>surface.expiries[r.expiry].expiryAt).join(' ');
  canvas.dataset.joins=[...new Set(mesh.joins.map(j=>`${surface.expiries[j.from].expiryAt}/${surface.expiries[j.to].expiryAt}`))].join(' ');
@@ -116,7 +107,7 @@ export function drawSurface3d(canvas:HTMLCanvasElement,surface:VolSurfaceResult,
   quad([[-1,-nearY,0],[1,-nearY,0],[1,-nearY,top],[-1,-nearY,top]],colours.surface2,colours.border);
   const line=(a:[number,number,number],b:[number,number,number],stroke:string,widthPx=1)=>{const p=at(a),q=at(b);ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(q.x,q.y);ctx.strokeStyle=stroke;ctx.lineWidth=widthPx;ctx.stroke();};
   ctx.setLineDash([3,3]);
-  for(const tick of volTicks){const z=unit(tick/100,volSpan)*height;line([-nearX,-1,z],[-nearX,1,z],colours.border);line([-1,-nearY,z],[1,-nearY,z],colours.border);}
+  for(const tick of volTicks){const z=unit(plotNumber(tick.value),volSpan)*height;line([-nearX,-1,z],[-nearX,1,z],colours.border);line([-1,-nearY,z],[1,-nearY,z],colours.border);}
   ctx.setLineDash([]);
 
   // The axes' labels, each kept only where it does not overlap the one before it.
@@ -127,17 +118,17 @@ export function drawSurface3d(canvas:HTMLCanvasElement,surface:VolSurfaceResult,
     if(kept.some(k=>Math.abs(k.x-p.x)<(k.w+w)/2&&Math.abs(k.y-p.y)<14))continue;
     kept.push({x:p.x,y:p.y,w});ctx.setLineDash([2,4]);line(l.floor[0],l.floor[1],colours.border);ctx.setLineDash([]);text(l.text,p,l.fill);}
   };
-  spaced(surface.strikeAxis.filter(k=>{const v=plotNumber(k);return v>=strikeSpan.min&&v<=strikeSpan.max;}).map(k=>{const x=unit(plotNumber(k),strikeSpan)*2-1;
-   return {text:k,at:[x,nearY*out,0],floor:[[x,-1,0],[x,1,0]],fill:colours.text3};}));
+  spaced(supplied.x.ticks.map(t=>{const x=unit(plotNumber(t.value),strikeSpan)*2-1;
+   return {text:t.label,at:[x,nearY*out,0],floor:[[x,-1,0],[x,1,0]],fill:colours.text3};}));
   spaced(surface.expiries.map((e,i)=>{const y=unit(times[i],timeSpan)*2-1;
-   return {text:label(e)+(e.status==='fitted'?'':' · no fit'),at:[nearX*(out+.08),y,0],floor:[[-1,y,0],[1,y,0]],fill:e.status==='fitted'?colours.text2:colours.text3};}));
+   return {text:e.timeLabel!+(e.status==='fitted'?'':' · no fit'),at:[nearX*(out+.08),y,0],floor:[[-1,y,0],[1,y,0]],fill:e.status==='fitted'?colours.text2:colours.text3};}));
   const corner=[[-nearX,nearY],[-nearX,-nearY],[nearX,-nearY]].map(([x,y])=>({x,y,p:at([x,y,0])})).sort((a,b)=>a.p.x-b.p.x)[0];
   line([corner.x,corner.y,0],[corner.x,corner.y,top],colours.borderStrong);
   let lastTick=Infinity;
-  for(const tick of volTicks){const p=at([corner.x,corner.y,unit(tick/100,volSpan)*height]);if(Math.abs(lastTick-p.y)<13)continue;lastTick=p.y;text(String(+tick.toFixed(4)),{...p,x:p.x-8},colours.text3,'right');}
-  text('Strike',at([0,nearY*(out+.16),0]),colours.text2,'center',true);
-  text('Expiry',at([nearX*(out+.62),0,0]),colours.text2,'center',true);
-  text('Vol %',{...at([corner.x,corner.y,top]),y:at([corner.x,corner.y,top]).y-14},colours.text2,'center',true);
+  for(const tick of volTicks){const p=at([corner.x,corner.y,unit(plotNumber(tick.value),volSpan)*height]);if(Math.abs(lastTick-p.y)<13)continue;lastTick=p.y;text(tick.label,{...p,x:p.x-8},colours.text3,'right');}
+  text(`${supplied.x.label} (${supplied.x.unit})`,at([0,nearY*(out+.16),0]),colours.text2,'center',true);
+  text(`${supplied.depth.label} (${supplied.depth.unit})`,at([nearX*(out+.62),0,0]),colours.text2,'center',true);
+  text(`${supplied.height.label} (${supplied.height.unit})`,{...at([corner.x,corner.y,top]),y:at([corner.x,corner.y,top]).y-14},colours.text2,'center',true);
 
   // The surface, the fitted rows and the stalks, painted far to near.
   const light=normalise([-.35,-.55,.75]);
@@ -145,8 +136,8 @@ export function drawSurface3d(canvas:HTMLCanvasElement,surface:VolSurfaceResult,
   const shapes:Shape[]=[];
   for(const j of mesh.joins){
    const corners:[number,number][]=[[j.from,0],[j.from,1],[j.to,1],[j.to,0]];
-   const points=corners.map(([e,k])=>point(e,j.strikes[k])),screen=points.map(at);
-   const level=corners.reduce((sum,[e,k])=>sum+shade(e,j.strikes[k]),0)/4;
+   const points=corners.map(([e,k])=>point(e,j.points[k])),screen=points.map(at);
+   const level=corners.reduce((sum,[e,k])=>sum+shade(e,j.points[k]),0)/4;
    const normal=normalise(cross(minus(points[2],points[0]),minus(points[3],points[1])));
    const lit=.7+.3*Math.abs(dot(normal,light));
    const fill=rgb(mix(colours.low,colours.high,level).map(c=>c*lit) as Rgb);
@@ -154,9 +145,12 @@ export function drawSurface3d(canvas:HTMLCanvasElement,surface:VolSurfaceResult,
     ctx.globalAlpha=.9;ctx.fillStyle=fill;ctx.fill();ctx.strokeStyle=fill;ctx.lineWidth=.6;ctx.stroke();ctx.globalAlpha=1;}});
   }
   for(const row of mesh.rows)for(let i=1;i<row.points.length;i++){
-   const a=at(point(row.expiry,row.points[i-1].strike)),b=at(point(row.expiry,row.points[i].strike));
+   if(!row.points[i-1].covered||!row.points[i].covered)continue;
+   const a=at(point(row.expiry,row.points[i-1].pointId)),b=at(point(row.expiry,row.points[i].pointId));
    shapes.push({depth:(a.depth+b.depth)/2-.02,paint(){ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.strokeStyle=colours.accent;ctx.lineWidth=1.6;ctx.stroke();}});
   }
+  gapScreens=gaps.map(g=>({text:g.text,at:at(g.at)}));
+  for(const gap of gapScreens){ctx.beginPath();ctx.arc(gap.at.x,gap.at.y,4,0,Math.PI*2);ctx.strokeStyle=colours.text3;ctx.setLineDash([2,2]);ctx.stroke();ctx.setLineDash([]);}
   placed=[];
   for(const s of placedStalks){
    const base=at(s.base),tip=at(s.tip),linked=s.code===highlighted,colour=richCheapColour(colours,s.richCheap);
@@ -198,7 +192,8 @@ export function drawSurface3d(canvas:HTMLCanvasElement,surface:VolSurfaceResult,
  const move=(event:PointerEvent)=>{
   if(drag){turn((event.clientX-drag.x)*.008,(event.clientY-drag.y)*.006);drag={x:event.clientX,y:event.clientY};return;}
   const r=canvas.getBoundingClientRect(),code=stalkAt(event.clientX-r.left,event.clientY-r.top);
-  canvas.style.cursor=code?'pointer':'grab';if(code)link.set(code);
+  const gap=gapScreens.find(g=>Math.hypot(g.at.x-(event.clientX-r.left),g.at.y-(event.clientY-r.top))<9);
+  canvas.title=gap?.text??'';canvas.style.cursor=code||gap?'pointer':'grab';if(code)link.set(code);
  };
  const up=(event:PointerEvent)=>{if(!drag)return;drag=null;if(canvas.hasPointerCapture(event.pointerId))canvas.releasePointerCapture(event.pointerId);canvas.style.cursor='grab';};
  const keys:Record<string,[number,number]>={ArrowLeft:[-.12,0],ArrowRight:[.12,0],ArrowUp:[0,.06],ArrowDown:[0,-.06]};
@@ -218,13 +213,6 @@ export function drawSurface3d(canvas:HTMLCanvasElement,surface:VolSurfaceResult,
  };
 }
 
-// Round tick values, in volatility points, that span `low` to `high`.
-function ticks(low:number,high:number):number[]{
- const wide=high-low||Math.max(Math.abs(high)*.1,1),raw=wide/5,magnitude=10**Math.floor(Math.log10(raw));
- const step=[1,2,2.5,5,10].map(m=>m*magnitude).find(s=>s>=raw)!;
- const first=Math.floor(low/step)*step,last=Math.ceil(high/step)*step,count=Math.max(1,Math.round((last-first)/step));
- return Array.from({length:count+1},(_,i)=>first+i*step);
-}
 type V3=[number,number,number];
 const minus=(a:V3,b:V3):V3=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]];
 const cross=(a:V3,b:V3):V3=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];

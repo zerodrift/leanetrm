@@ -51,6 +51,28 @@ internal static class VolSurfaceFitChecks
             Console.WriteLine($"INFO surface fit runtime {product}: {fit.Result.Series.Length} series, {solved} solved, {clock.ElapsedMilliseconds} ms");
         }
 
+        foreach (var fit in fits.Values)
+        {
+            foreach (var expiry in fit.Result.Expiries.Where(e => e.Status == "fitted"))
+                Check("surface retains the option model's exact year fraction", expiry.YearFraction ==
+                    AmericanFuturesOptionModel.YearFraction(settled.Frame.At, expiry.ExpiryAt,
+                        OptionNumericalPolicies.Require(OptionNumericalPolicies.CoxRossRubinstein)), expiry.ExpiryAt.ToString());
+            var deltaAxis=SurfaceAxes.Declare(fit.Result).Single(a=>a.Id==SurfaceAxes.QuickDelta);
+            var deltaSurface=SurfaceAxes.Project(fit.Result,new(SurfaceAxes.QuickDelta,deltaAxis.Preset.Points.Select(p=>p.Value.ToString()).ToArray()));
+            Check("widened synthetic chain covers every standard delta at each fitted expiry",
+                deltaSurface.Expiries.Where(e=>e.Status=="fitted").All(e=>e.Nodes.All(n=>n.Covered)),
+                string.Join(";",deltaSurface.Expiries.SelectMany(e=>e.Nodes.Where(n=>!n.Covered).Select(n=>$"{e.ExpiryAt} {n.Label} {n.Reason?.Code}"))));
+            foreach (var axis in SurfaceAxes.Declare(fit.Result))
+            {
+                var selection = new SurfaceAxisRequest(axis.Id, axis.Preset.Points.Select(p => p.Value.ToString()).ToArray());
+                var computed = SurfaceAxes.Project(fit.Result, selection);
+                var stored = VolSurfaceStore.ProjectContent(System.Text.Json.Nodes.JsonNode.Parse(VolSurfaceStore.Encode(fit.Result))!, selection);
+                Check("stored surface axes equal projections of the fit's own inputs", System.Text.Json.Nodes.JsonNode.DeepEquals(System.Text.Json.Nodes.JsonNode.Parse(VolSurfaceStore.Encode(computed)), stored), axis.Id);
+                Check("read declares axes, presets, exact T and one node per explicit point", computed.Projection is { Axes.Length: 3 } &&
+                    computed.Expiries.Where(e => e.Status == "fitted").All(e => e.YearFraction is not null && e.Nodes.Length == selection.Points!.Length), axis.Id);
+            }
+        }
+
         // Each live listed series calibrated alone, from a base build of its own two requests and a discount context of its own
         // expiry under the currency's configured default curve: its receipt and every observation that calibration touched.
         var live=settled.Data.FuturesOptionSeries.Where(s=>products.Contains(s.Product.Code)&&settled.Frame.At<s.Terms.ExpiryAt)

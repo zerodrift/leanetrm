@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json;
 using Npgsql;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Options;
@@ -49,10 +50,19 @@ internal static class VolSurfaceFit
         var numerical=policy.Validate();var year=LatticeDecimal.Parse("365");
         var expiries=listed.GroupBy(o=>(o.Series.Terms.ExpiryAt,Underlying:o.Series.UnderlyingSeries.Code)).Select(expiry=>new SurfaceExpiryInput(expiry.Key.ExpiryAt,
             expiry.Key.Underlying,expiry.Select(o=>Value(o,true)).FirstOrDefault(v=>v is not null) is {} futures?LatticeDecimal.From(futures.Price.Value):null)
-            {DaysToExpiry=snapshot.ValuationAt<expiry.Key.ExpiryAt?(AmericanFuturesOptionModel.YearFraction(snapshot.ValuationAt,expiry.Key.ExpiryAt,numerical)*year).ToExact():null}).ToImmutableArray();
+            {YearFraction=snapshot.ValuationAt<expiry.Key.ExpiryAt?AmericanFuturesOptionModel.YearFraction(snapshot.ValuationAt,expiry.Key.ExpiryAt,numerical):null,
+             DaysToExpiry=snapshot.ValuationAt<expiry.Key.ExpiryAt?(AmericanFuturesOptionModel.YearFraction(snapshot.ValuationAt,expiry.Key.ExpiryAt,numerical)*year).ToExact():null}).ToImmutableArray();
         var discounts=calibrations.Discounting.Values.SelectMany(d=>d.Inputs.Values).SelectMany(d=>d.Observations);
         ImmutableArray<Guid> observations=[..values.Values.SelectMany(v=>v.Lineage).Concat(discounts).Select(o=>o.Id).Distinct().Order()];
-        return new(observations,VolSurfaces.Build(model,expiries,series,product[0].Number("strike_interval")),calibrations,[..listed]);
+        return new(observations,VolSurfaces.Build(model,expiries,series,product[0].Number("strike_interval")) with
+            {PlotInputs=new(StrikeUnit(data,product[0]),policy.NumericalPolicy,SurfaceAxes.NumericalPolicy,NormalDistribution.ImplementationId)},calibrations,[..listed]);
+    }
+
+    internal static string StrikeUnit(PreviewData data,JsonElement product)
+    {
+        var underlying=data.ReferenceRows("futures_products","code",product.Text("underlying_product_code")).Single();
+        return PreviewData.PriceUnitLabel(data.ReferenceRows("currencies","code",underlying.Text("quote_currency_code")).Single().Text("display_code"),
+            data.ReferenceRows("units","code",underlying.Text("quote_unit_code")).Single().Text("symbol"),underlying.Number("quote_multiplier").ToString());
     }
 
     // Why no listed series has a settlement: every series is expired, every live one falls outside the discount curve, or

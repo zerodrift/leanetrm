@@ -416,7 +416,13 @@ export function setupOptions(o:{api:Api;context:()=>FuturesReadRequest;zone:()=>
   if(!product)return;
   try{
    const context=o.context();
-   const surface=await o.api<SurfaceRead>('vol-surfaces/read',{context,product,model:volModel,definitionRevisionId:definition});
+   const offer=await o.api<import('./vol-surface-view.js').AxisOffer>('vol-surfaces/axes',{context,product,model:volModel,definitionRevisionId:definition});
+   if(number!==generation)return;
+   if(offer.definitionRevisionId!==definition||offer.snapshotId!==context.snapshotId||offer.model!==volModel)throw Error('The axis offer does not match the selected context.');
+   const axis=offer.axes.find(a=>a.id===offer.initialAxis);
+   if(!axis)throw Error('The surface declares no initial axis.');
+   const surface=await o.api<SurfaceRead>('vol-surfaces/read',{context,product,model:volModel,definitionRevisionId:definition,
+    axis:axis.id,points:axis.preset.points.map(p=>p.value)});
    if(number!==generation)return;
    if(surface.definitionRevisionId!==definition||surface.model!==volModel||surface.snapshotId!==context.snapshotId||(surface.state==='fitted')!==!!surface.surface)
     throw Error('The option chain read does not match the selected product, model and context. Refresh and try again.');

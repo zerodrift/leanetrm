@@ -6334,3 +6334,43 @@ and other delivery capabilities require their own executable consumers and
 independent qualification. See [the contract](delivery-workbench.md) for APIs,
 extension steps and actual verification boundaries. Deployment and independent
 review remain separate gates.
+
+## D421 · Explicit server-defined volatility surface axes
+
+Decided by the owner, 2026-11-17. Surface reads require an explicitly selected
+versioned axis and explicit decimal points. The backend declares labels, units
+and named presets: `strike_v1` (retained listed strikes),
+`log_moneyness_v1` (−0.10 through +0.10 by 0.01) and `quick_delta_v1`
+(10P, 25P, ATM, 25C, 10C; call deltas 0.90, 0.75, 0.50, 0.25, 0.10).
+Metadata discovery offers the initial k selection; the UI displays its preset and
+sends it back. Missing or invalid points are structured errors, never defaults.
+
+Quick delta is N(−k/(σ̂(k)√T)); put quick delta subtracts one, and ATM means k=0.
+The quadratic inverse selects the branch continuous with the linear-smile
+solution and independently verifies its residual. No real/finite root or a root
+outside the fitted range is an uncovered point with a structured reason. The
+renderer joins only shared covered point ids on neighbouring expiry rows.
+Listed-series coordinates use fitted volatility, preserving linked stalks.
+
+Each fit retains the option model's exact year fraction, underlying quote unit
+and numerical/normal implementation pins. Projection uses those retained inputs;
+missing old inputs refuse instead of consulting current prices or time.
+`vol_surface_axes_decimal_v1` and project-owned
+`normal_decimal_taylor_bisection_v1` declare 30-place half-even arithmetic,
+90-place normal integration and a 10⁻²⁰ delta residual tolerance. There is no
+external numerical dependency and no change to pricing, risk or held-series IV.
+
+Migration 0358 preserves old content and scopes deterministic refit comparison
+to the retained plot-input policy. Explicit new-policy refitting creates a new
+revision; same-policy identical inputs still cannot produce different content.
+Request identity semantics remain unchanged. The metadata recovery view permits
+an authorized explicit refit, including a required working-snapshot clock.
+
+The owner also approved flatter volatilities for added synthetic wings while
+preserving every existing strike and settlement. Six added strikes per expiry
+extend ON/LO to 131/130 series using the existing premium pricing and rounding.
+The retained original-settlement digest, coverage checks and affected-consumer
+inventory accompany the change. This is synthetic viewing data, not a market
+feed or a production activation.
+
+See [the axis contract](vol-surfaces.md#server-defined-surface-coordinates-d421).
