@@ -2433,31 +2433,28 @@ var pnlArtifacts=new PnlReportArtifacts(database,app.Services.GetRequiredService
 app.Lifetime.ApplicationStopped.Register(pnlArtifacts.Dispose);
 api.MapGet("/portfolio/pnl/policies",()=>Results.Ok(TradingPnlReport.Policies));
 // The run captures the knowledge cutoff of both dates in a transaction of its own, whose commit releases the publication
-// gate (D420). The second transaction reads those contexts again under its own authority and values at them.
+// gate (D420), and values in a second. What the request and its two frames refuse comes before the capture, so a run
+// refused there stores no context. Each bind of the second transaction reads the stored contexts again.
 api.MapPost("/portfolio/pnl/run",(HttpContext c,TradingPnlRequest body)=>Locked(c,async session=>
 {
     if(body.Opening is not {KnowledgeMode:"at",ContextId:null,Convention:TradingBlotter.Convention}||body.Closing is not {KnowledgeMode:"at",ContextId:null,Convention:TradingBlotter.Convention}||body.KnownAt is null)
         throw new MarketDataException("pnl_context","Supply both explicit trading frames and one exact shared knowledge cutoff.");
     var profile=Profile(session);
-    var captured=await database.WithIdentity(profile,"RunScenario",async(connection,ct)=>
+    var dated=await database.WithIdentity(profile,"RunScenario",async(connection,ct)=>
     {
         var owner=await PnlReportArtifacts.Owner(connection,ct);
-        async Task<(InputFrame Frame,ScheduleContext Knowledge)> Dated(Guid id)
-        {
-            var frame=Frame(session,id);
-            return (frame with{ContextId=null},(await knowledgeStore.Capture(connection,new(frame.BusinessDate.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),body.KnownAt,"at"),ct)).Context);
-        }
-        return (Owner:owner,Opening:await Dated(body.Opening.SnapshotId),Closing:await Dated(body.Closing.SnapshotId));
+        var opening=Frame(session,body.Opening.SnapshotId);var closing=Frame(session,body.Closing.SnapshotId);
+        TradingPnlReport.Admit(body,opening,closing);
+        async Task<TradingView> PnlView(InputFrame frame)=>TradingView.Reread(frame with{ContextId=null},
+            (await knowledgeStore.Capture(connection,new(frame.BusinessDate.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),body.KnownAt,"at"),ct)).Context);
+        return (Owner:owner,Opening:await PnlView(opening),Closing:await PnlView(closing));
     },c.RequestAborted);
     return await database.WithIdentity(profile,"RunScenario",async(connection,ct)=>
     {
-        if(await PnlReportArtifacts.Owner(connection,ct)!=captured.Owner)throw new PreviewDeniedException();
-        async Task<TradingView> PnlView((InputFrame Frame,ScheduleContext Knowledge) dated)=>
-            TradingView.Reread(dated.Frame,await knowledgeStore.Retained(connection,dated.Knowledge,ct));
-        var opening=await PnlView(captured.Opening);var closing=await PnlView(captured.Closing);
-        var calculation=(PnlCalculated)await pnlReports.Run(connection,opening,closing,body,ct);
-        if(await PnlReportArtifacts.Owner(connection,ct)!=captured.Owner)throw new PreviewDeniedException();
-        var capture=pnlArtifacts.Seal(captured.Owner,calculation,DateTimeOffset.UtcNow);
+        if(await PnlReportArtifacts.Owner(connection,ct)!=dated.Owner)throw new PreviewDeniedException();
+        var calculation=(PnlCalculated)await pnlReports.Run(connection,dated.Opening,dated.Closing,body,ct);
+        if(await PnlReportArtifacts.Owner(connection,ct)!=dated.Owner)throw new PreviewDeniedException();
+        var capture=pnlArtifacts.Seal(dated.Owner,calculation,DateTimeOffset.UtcNow);
         return Results.Ok(new{report=calculation.Report,artifact=capture.Artifact,saveRefusal=capture.Refusal});
     },c.RequestAborted);
 }));

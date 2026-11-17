@@ -117,15 +117,23 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
         ImmutableArray<RiskTradeChoice> Trades,ImmutableArray<Guid> Books,ImmutableArray<JsonElement> BookDescriptions,ImmutableArray<AccountingFlow> Cash,ImmutableArray<Guid>? CashTradeSelection);
     private sealed record Samples(PortfolioValuation.MarketPartition Market,ConnectedFiniteDifferenceRequest? Request);
 
-    internal async Task<object> Run(NpgsqlConnection connection,TradingView opening,TradingView closing,TradingPnlRequest request,CancellationToken ct)
+    // What a request and its two frames decide by themselves: its policies, the order of its dates, its factor
+    // selection, its trade scope and its time effect. A run refused here has captured and read nothing.
+    internal static (FactorSelection Selection,TimeEffect? Time) Admit(TradingPnlRequest request,InputFrame opening,InputFrame closing)
     {
-        if(request.AccountingPolicy!=TradingPnlAccounting.Version1||request.AttributionPolicy!=TradingPnlAttribution.OpeningGreeks||
-            opening.Frame.At>=closing.Frame.At||SchedulePreview.ParseAt(opening.Context.KnownAt)>SchedulePreview.ParseAt(closing.Context.KnownAt))
-            throw Error("pnl_context","Select increasing closes, nondecreasing knowledge cutoffs and the explicit supported P&L policies.");
+        if(request.AccountingPolicy!=TradingPnlAccounting.Version1||request.AttributionPolicy!=TradingPnlAttribution.OpeningGreeks||opening.At>=closing.At)
+            throw UnsupportedContext();
         var selection=Select(request);
         if(request.TradeIds is {} ids&&(ids.IsDefaultOrEmpty||ids.Length>RiskTradeScope.MaxSelected||ids.Any(i=>i==Guid.Empty)||ids.Distinct().Count()!=ids.Length))
             throw Error("risk_trade_scope","Choose distinct trades, or explicitly select the whole book scope.");
-        var time=RequestTime(request.Time,opening.Frame.Close is not null,opening.Frame.At,closing.Frame.At);
+        return (selection,RequestTime(request.Time,opening.Close is not null,opening.At,closing.At));
+    }
+    private static MarketDataException UnsupportedContext()=>
+        Error("pnl_context","Select increasing closes, nondecreasing knowledge cutoffs and the explicit supported P&L policies.");
+    internal async Task<object> Run(NpgsqlConnection connection,TradingView opening,TradingView closing,TradingPnlRequest request,CancellationToken ct)
+    {
+        var (selection,time)=Admit(request,opening.Frame,closing.Frame);
+        if(SchedulePreview.ParseAt(opening.Context.KnownAt)>SchedulePreview.ParseAt(closing.Context.KnownAt))throw UnsupportedContext();
         // Endpoint pricing does not qualify custody's time, knowledge, reservation
         // or independent-cash bridge. Check both retained cuts before valuing
         // either endpoint, including agreements born inside the selected window.
