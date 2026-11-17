@@ -3,7 +3,6 @@ from copy import deepcopy
 from datetime import date, timedelta
 import json
 import re
-import statistics
 import threading
 import time
 from assistant_context import holding
@@ -79,7 +78,7 @@ def run_checks(url, query, manifest, psql, environment, log):
         request = {**body, 'session': SESSION}
         client.call('market/dates', request)  # warm JIT/pool
         samples = [measure('market/dates', request) for _ in range(3)]
-        assert all(len(answer['dates']) == 2 and len(answer['unavailable']) == total-2 for answer, _ in samples)
+        assert all(len(answer['dates']) == 2 and len(answer['unavailable']) == total-2 for answer, _ in samples), samples[0]
         counts[total] = max(sample['statements'] for _, sample in samples)
         report.append({'closes': total, 'request': 'curve', 'samples': [sample for _, sample in samples]})
         if total == 96:
