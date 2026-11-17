@@ -79,6 +79,18 @@ internal static class VolSurfaceChecks
             Near(n.Strike!.Value, L("100") * k.Exp(), Tolerance25, "implied strike");
         }
         Expect(nodes.Any(n => !n.Covered && n.Reason?.Code == "vol_axis_outside_fit"), "Uncovered delta reason.");
+        foreach (var text in new[] { "100", "3.28", "999960000000000000000000" })
+        {
+            var forward = L(text); var low = forward * L("0.8"); var high = forward * L("1.000001");
+            var atmSurface = surface with { Series = [], Expiries = [surface.Expiries.Single() with
+                { Futures = forward, Parameters = new(L("0.45"), L("0"), L("0")), Grid = [
+                    new(low.ToExact(), (low / forward).Ln(), L("0.45")), new(high.ToExact(), (high / forward).Ln(), L("0.45"))] }] };
+            foreach (var (axis, point) in new[] { (SurfaceAxes.LogMoneyness, "0"), (SurfaceAxes.QuickDelta, "0.5") })
+            {
+                var atm = SurfaceAxes.Project(atmSurface, new(axis, [point])).Expiries.Single().Nodes.Single();
+                Expect(atm.Covered && atm.Strike == forward, "ATM is covered at exactly its retained forward, including the supported upper range.");
+            }
+        }
         var ks = SurfaceAxes.Project(surface, new("log_moneyness_v1", ["-0.1", "0", "0.05", "0.5"]));
         foreach (var n in ks.Expiries.Single().Nodes.Where(n => n.Covered))
             Near(n.Fitted!.Value, L("0.45") - L("0.10") * n.AxisValue + L("0.80") * n.AxisValue * n.AxisValue, Tolerance20, "k smile");

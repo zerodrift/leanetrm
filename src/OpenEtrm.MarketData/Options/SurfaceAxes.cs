@@ -127,7 +127,7 @@ public static class SurfaceAxes
         if (k is null) return Gap("vol_axis_no_real_root", "The selected quick delta has no finite real root on the branch continuous from zero curvature.");
         try
         {
-            var implied = (e.Futures!.Value.Ln() + k.Value).Exp();
+            var implied = k.Value == Zero ? e.Futures!.Value : (e.Futures!.Value.Ln() + k.Value).Exp();
             if (implied.CompareTo(Zero) > 0) strike ??= implied;
         }
         catch (MarketDataException error) when (error.Code == "numeric_range") { /* The k coordinate can still state an outside-fit gap. */ }
