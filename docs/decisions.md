@@ -6204,7 +6204,7 @@ leaving 18; their ordinary routes remain.
   [the design](superpowers/specs/2026-11-16-non-blocking-page-reads-design.md).
 - **Evidence.** [Verification](verification.md#ordinary-reads-outside-the-session-gate-d419).
 
-## D420 · A working trading read captures current knowledge in a transaction of its own
+## D420 · A working trading read and a P&L run capture knowledge in a transaction of their own
 
 Amends how D134's publication gate applies to reads. `security.capture_date_context`
 certifies committed publications and returns a context under the catalog's
@@ -6222,29 +6222,40 @@ one gate hold, as they did. The read remains a working view: its context is
 current knowledge captured for that read, and the second transaction refuses a
 stored context whose coordinates differ from the captured ones.
 
+The P&L run does the same for the exact knowledge cutoff of its two dates. Its
+first transaction authorizes the run, refuses what the request and its two
+frames decide by themselves, and captures both contexts; its commit releases the
+gate. The second requires the same report owner, values at those contexts, and
+requires the owner once more before it seals the report. Each bind in it reads
+the stored context again and refuses one whose coordinates differ. A run
+refused for its request stores no context. A run refused for its dates' data,
+which the second transaction reads, has stored them.
+
 - **A publication may commit between the capture and the read.** The read is of
   the captured context and does not see it, as a retained re-read does not. An
   amendment that commits in that interval leaves the read showing the revision
   its context knows, with the head it read just before; the amendment command
   still validates its expected revision under the gate.
-- **Cost.** One more identity transaction for each working trading read. A read
-  that fails or is abandoned after its capture keeps the temporal context that
-  capture stored; before, its rollback discarded it. A catalog holds at most
-  4,096 contexts (O07), and each current-knowledge capture already adds one.
-- **Concurrency.** The gate had also limited working valuations to one at a time
-  across the database. They now run side by side up to the connection pool.
-  Throughput and memory under that load are not measured.
+- **Cost.** One more identity transaction for each working trading read and each
+  P&L run. A read that fails or is abandoned after its capture keeps the temporal
+  context that capture stored; before, its rollback discarded it. A catalog holds
+  at most 4,096 contexts (O07), and each current-knowledge capture already adds
+  one. A P&L run that is refused or fails after its capture keeps its contexts
+  too: at most one for each date and cutoff, since an exact-cutoff capture
+  reuses the context stored for the same date and cutoff.
+- **Concurrency.** The gate had also limited working valuations and P&L runs to
+  one at a time across the database. They now run side by side up to the
+  connection pool. Throughput and memory under that load are not measured.
 - **Unchanged.** Commands capture inside their write transaction under the gate.
   Every other reader that captures for itself still holds the gate for its
-  transaction: the P&L run, swap settlement P&L and preview, the live-context
-  stream and context selection, selected-close page reads, party views,
-  lifecycle operations, market dates, interval data, PPA, operating-facility,
-  crude-setup preview and REC reads, and the assistant's settlement view. The
-  P&L run holds it longest and is the next candidate. A function that needs the
-  gate takes it itself. A trading read that declares a source admission, as the
-  Transport ticket reads and the selected operating-trade read do, keeps one
-  transaction: its admission is captured before anything can wait and required
-  again at the commit that publishes the read.
+  transaction: swap settlement P&L and preview, the live-context stream and
+  context selection, selected-close page reads, party views, lifecycle
+  operations, market dates, interval data, PPA, operating-facility, crude-setup
+  preview and REC reads, and the assistant's settlement view. A function that
+  needs the gate takes it itself. A trading read that declares a source
+  admission, as the Transport ticket reads and the selected operating-trade read
+  do, keeps one transaction: its admission is captured before anything can wait
+  and required again at the commit that publishes the read.
 - **Evidence.** [Verification](verification.md#working-reads-and-the-publication-gate-d420).
 
 ## D421 — New trade is a page of its own with grouped instruments
