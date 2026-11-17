@@ -133,6 +133,41 @@ def limited_matrix_check(client, query, older):
     print('PASS latest calendar and last closes do not reattest unvisited older matrices after discovery', flush=True)
 
 
+def batch_authority_check(query, manifest):
+    """A prepublished successor grant cannot extend a native batch's initial authority."""
+    catalog, tenant, workspace = (manifest[key] for key in ('catalogId', 'tenantId', 'workspaceId'))
+    principal = "(SELECT principal_id FROM security.identity_bindings WHERE issuer='https://preview.invalid' AND subject='viewer')"
+    closes = query(f"SELECT string_agg(quote_literal(id)||'::uuid',',') FROM(SELECT id FROM market_data.market_closes WHERE session_code='demo_close_1600' ORDER BY business_date DESC LIMIT 2)c;")
+    failures = []
+    for name, signature, call, fallback in [
+        ('catalogue', 'security.read_request_catalogue(uuid,date)', f"security.read_request_catalogues('{catalog}',ARRAY[DATE '2020-12-18'])", False),
+        ('matrix fast', 'security.read_market_close_parts(uuid,uuid[],uuid)', f"security.read_market_close_parts_results('{catalog}',ARRAY[{closes}],NULL)", False),
+        ('matrix fallback', 'security.read_market_close_parts(uuid,uuid[],uuid)', f"security.read_market_close_parts_results('{catalog}',ARRAY[{closes}],NULL)", True),
+    ]:
+        native = query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);")
+        assert native.count('\nBEGIN\n') == 1
+        delay = (" IF cardinality(close_ids)>1 THEN RAISE EXCEPTION 'Synthetic batch fallback' USING ERRCODE='42501';END IF;\n" if fallback else '') + ' PERFORM pg_sleep(2.3);\n'
+        patched = native.replace('\nBEGIN\n', '\nBEGIN\n'+delay, 1)
+        # One owner transaction rolls back both the grants and native fault.
+        # No concurrent grant write or security-generation change masks expiry.
+        actual = query('BEGIN;'+patched+';'
+            + f"UPDATE security.role_grants SET granted_to=clock_timestamp()+interval '2 seconds' WHERE principal_id={principal} AND NOT revoked;"
+            + f"INSERT INTO security.role_grants SELECT gen_random_uuid(),principal_id,role_id,tenant_id,workspace_id,granted_to-interval '1 second','9999-12-31',false FROM security.role_grants WHERE principal_id={principal} AND NOT revoked;"
+            + 'CREATE TEMP TABLE synthetic_calendar_token(token uuid);GRANT SELECT,INSERT ON synthetic_calendar_token TO preview_authenticator,preview_runtime;'
+            + 'SET SESSION AUTHORIZATION preview_authenticator;'
+            + f"INSERT INTO synthetic_calendar_token SELECT security.issue_context('https://preview.invalid','viewer','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);"
+            + 'SET SESSION AUTHORIZATION preview_runtime;SELECT security.use_context((SELECT token FROM synthetic_calendar_token));'
+            + f"DO $$DECLARE denied boolean=false;until_at timestamptz=security.authority_until('ReadMarketData');BEGIN "
+            + "IF until_at IS NULL OR clock_timestamp()>=until_at OR until_at>clock_timestamp()+interval '3 seconds' THEN RAISE EXCEPTION 'synthetic_initial_grant';END IF;"
+            + f"BEGIN PERFORM * FROM {call};EXCEPTION WHEN insufficient_privilege THEN denied=true;END;"
+            + f"IF clock_timestamp()<until_at OR security.market_access('{catalog}','ReadMarketData') IS NOT TRUE THEN RAISE EXCEPTION 'synthetic_successor_not_live';END IF;"
+            + "PERFORM set_config('openetrm.synthetic_calendar_denied',denied::text,true);END$$;"
+            + "SELECT current_setting('openetrm.synthetic_calendar_denied');ROLLBACK;").splitlines()[-1]
+        if actual != 'true':failures.append(name+' extended its initial authority')
+    assert not failures, '; '.join(failures)
+    print('PASS catalogue and matrix batches retain their original authority despite a live later-starting grant', flush=True)
+
+
 def failed_build_check(client, query, manifest, measure):
     """Selected roots with independently invalid future pins must not restore a per-close SQL loop."""
     session = 'synthetic_calendar_failed_builds'
@@ -243,6 +278,7 @@ def run_checks(url, query, manifest, psql, environment, log, api_pid, *, verify=
     finally:
         query(original)
     mixed_source_checks(client, query, manifest, source, publication_check=verify)
+    if verify:batch_authority_check(query, manifest)
     # Keep 96 candidates within the global 128-frame discovery bound. Existing facts stay immutable.
     query("INSERT INTO presentation.close_session_listings SELECT v.catalog_id,v.code,1,max(v.version),'Synthetic retired fixture session',false,pg_current_xact_id() FROM market_data.close_session_versions v GROUP BY v.catalog_id,v.code;")
 
