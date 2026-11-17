@@ -154,6 +154,10 @@ def failed_build_check(client, query, manifest, measure):
                 frame = deepcopy(original)
                 frame['at'] = (date(2020, 10, 1)-timedelta(days=index)).isoformat()+'T16:00:00Z'
                 frame['curveContracts'] = {'ng_monthly': frame['curveContracts']['ng_monthly']}
+                # Distinct pin sets prevent an identical-input memo from
+                # satisfying the scaling check instead of batching the read.
+                frame['observationIds'] = [pin for bit, pin in enumerate(original['observationIds'])
+                                           if bit >= 7 or not index & (1 << bit)]
                 # Deliberately invalid retained inputs: the observations follow
                 # the close. The managed cutoff rule must refuse every one.
                 record_close(query, manifest, session, 1, frame)
