@@ -118,7 +118,7 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
     private sealed record Samples(PortfolioValuation.MarketPartition Market,ConnectedFiniteDifferenceRequest? Request);
 
     // What a request and its two frames decide by themselves: its policies, the order of its dates, its factor
-    // selection, its trade scope and its time effect. A run refused here has captured and read nothing.
+    // selection, its trade and book selections and its time effect. A run refused here has captured and read nothing.
     internal static (FactorSelection Selection,TimeEffect? Time) Admit(TradingPnlRequest request,InputFrame opening,InputFrame closing)
     {
         if(request.AccountingPolicy!=TradingPnlAccounting.Version1||request.AttributionPolicy!=TradingPnlAttribution.OpeningGreeks||opening.At>=closing.At)
@@ -126,7 +126,9 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
         var selection=Select(request);
         if(request.TradeIds is {} ids&&(ids.IsDefaultOrEmpty||ids.Length>RiskTradeScope.MaxSelected||ids.Any(i=>i==Guid.Empty)||ids.Distinct().Count()!=ids.Length))
             throw Error("risk_trade_scope","Choose distinct trades, or explicitly select the whole book scope.");
-        return (selection,RequestTime(request.Time,opening.Close is not null,opening.At,closing.At));
+        var time=RequestTime(request.Time,opening.Close is not null,opening.At,closing.At);
+        BookScope.RequireSelection(request.BookIds,request.PortfolioIds);
+        return (selection,time);
     }
     private static MarketDataException UnsupportedContext()=>
         Error("pnl_context","Select increasing closes, nondecreasing knowledge cutoffs and the explicit supported P&L policies.");
