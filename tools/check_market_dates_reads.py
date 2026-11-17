@@ -55,6 +55,7 @@ def mixed_source_checks(client, query, manifest, source):
     changed = deepcopy(original)
     next(curve for curve in changed['curves'] if curve['code'] == 'interest_rates')['definitionRevisionId'] = revision
     published = client.call('catalogue/publish', {'requestId': str(uuid4()), 'expectedHead': prior['id'], 'definition': changed})
+    restored = False
     failures = []
     try:
         query(f"CREATE POLICY synthetic_calendar_missing_terms ON market_data.contracts AS RESTRICTIVE FOR SELECT TO openetrm_runtime USING(revision_id<>'{revision}'::uuid);")
@@ -64,6 +65,8 @@ def mixed_source_checks(client, query, manifest, source):
             assert client.call('evaluate', {'snapshotId': close, 'curve': 'ng_monthly'})['points']
             if not client.call('market/dates', request)['dates']:
                 failures.append('An unrequested rate owner materialized unrelated missing commodity terms')
+            client.call('catalogue/publish', {'requestId': str(uuid4()), 'expectedHead': published['id'], 'definition': original})
+            restored = True
             # The selected supplemental commodity does require those terms.
             # Its unchanged evaluation read supplies the exact refusal oracle.
             refusal = client.call('evaluate', {'snapshotId': close, 'curve': 'daily_gas'}, expected=422)
@@ -75,7 +78,7 @@ def mixed_source_checks(client, query, manifest, source):
         finally:
             query('DROP POLICY synthetic_calendar_missing_terms ON market_data.contracts;')
     finally:
-        client.call('catalogue/publish', {'requestId': str(uuid4()), 'expectedHead': published['id'], 'definition': original})
+        if not restored:client.call('catalogue/publish', {'requestId': str(uuid4()), 'expectedHead': published['id'], 'definition': original})
         client.call('profile', {'profile': 'viewer'})
     assert not failures, '; '.join(failures)
     print('PASS mixed-source calendar metadata faults match independent exact evaluation and do not materialize unrequested rate-owner terms', flush=True)
