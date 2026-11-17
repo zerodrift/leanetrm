@@ -1487,6 +1487,10 @@ def main():
                         risk_worker_process=subprocess.Popen([str(dotnet),str(frozen_dll),'--risk-worker','serve'],cwd=ROOT,env=prepare_risk_worker(exchange_manifest,'exchange_browser_worker',timeout=300),start_new_session=True)
                         browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--futures-options'],cwd=ROOT,env={**env,'OPENETRM_BROWSER_ACTION_WAIT_MS':'30000'},start_new_session=True)
                         if browser_process.wait(timeout=720):raise RuntimeError('Owned futures option browser checks failed')
+                        # The browser deliberately leaves a refit running. Release its worker's authority lock before the
+                        # unrelated cash/P&L checks revoke reference access; those checks require no background worker.
+                        stop_owned_group(risk_worker_process)
+                        risk_worker_process=None
                 from check_recorded_cash import run_checks as check_recorded_cash
                 def verify_pnl_persistence(fixture):
                     path=temporary/'pnl-persistence.json'

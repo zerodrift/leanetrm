@@ -234,16 +234,16 @@ def run_checks(url, query, psql, environment, manifest):
         return {'context':at_work(selected),'bookIds':[],'portfolioIds':[]}
     observation_waiters="SELECT count(DISTINCT pid) FROM pg_locks WHERE relation='market_data.observations'::regclass AND NOT granted AND mode='AccessShareLock';"
     publication_waiters="SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND objid=730849102 AND NOT granted;"
-    def reading(client,path,body):
+    def reading(client,path,body,expected=200):
         result={}
         def work():
-            try:result['value']=client.call(path,body)
+            try:result['value']=client.call(path,body,expected=expected)
             except Exception as error:result['error']=repr(error)[:200]
         thread=threading.Thread(target=work);thread.start()
         return thread,result
-    def valuing_together(path,body):
+    def valuing_together(path,body,expected=200):
         def held():
-            first=reading(c,path,body);waiting(1)
+            first=reading(c,path,body,expected);waiting(1)
             second=reading(other,'portfolio/risk/catalog',scope_at_work(other_frame))
             deadline=time.monotonic()+4
             while int(query(observation_waiters))!=2:
@@ -260,6 +260,30 @@ def run_checks(url, query, psql, environment, manifest):
     # A ticket read also reads its trade's current head, under the same gate, before it values.
     ticket,_=valuing_together('futures/editor',{'context':at_work(frame,working['futuresConvention']),'tradeId':held['tradeId'],'revision':int(held['revision'])})
     check('a trade ticket read does not hold the publication gate while it values',ticket['canAmend'] is True or ticket.get('amendUnavailableReason'))
+    # A P&L run captures the knowledge cutoff of both its dates under the same gate, then reads and values both. The
+    # standard example books its swaps on two definition revisions and the Blotter lists them by generated identity,
+    # so the run over the first is refused for its market revision or, later, for its accounting coverage. Either is
+    # the run's own answer after its reads; the cash and P&L check qualifies complete reports.
+    policies=c.call('portfolio/pnl/policies')
+    prior=max((f for f in working['frames'] if f['id'] in working['initialFrameIds'] and f['at']<frame['at']),key=lambda f:f['at'])
+    def dated(selected):
+        return {'snapshotId':selected['id'],'convention':'trading_workspace_v1','knowledgeMode':'at'}
+    pnl={'opening':dated(prior),'closing':dated(frame),'knownAt':blotter['context']['knownAt'],'bookIds':[swap['bookId']],'portfolioIds':[],
+         'tradeIds':[swap['tradeId']],'accountingPolicy':policies['accounting'],'attributionPolicy':policies['attribution'],'factorPolicy':policies['factors'],
+         'factorBump':policies['factorBump']['offered'],'time':{'mode':'opening_to_closing_clock_v1','policy':policies['clockPolicy'],'clock':None}}
+    # What the request and its two frames refuse comes before the capture, so a run refused there stores no context.
+    contexts=f"SELECT count(*) FROM market_data.temporal_contexts WHERE known_at='{pnl['knownAt']}'::timestamptz;"
+    stored=query(contexts)
+    refused=[c.call('portfolio/pnl/run',{**pnl,**changed},expected=422)['code']
+             for changed in ({'accountingPolicy':'unsupported'},{'bookIds':[swap['bookId']]*2})]
+    check('a P&L run refused for its request stores no context',refused==['pnl_context','blotter_view'] and query(contexts)==stored)
+    run,_=valuing_together('portfolio/pnl/run',pnl,expected=422)
+    check('a P&L run does not hold the publication gate after it captures its dates',run['code'])
+    # Authorization comes before either refusal.
+    c.call('profile',{'profile':'viewer'})
+    c.call('portfolio/pnl/run',{**pnl,'closing':{**dated(frame),'knowledgeMode':'current'}},expected=403)
+    c.call('profile',{'profile':'risk'})
+    check('a malformed P&L run is refused for its authority before its shape')
     # The ordinary routes of the covered reads execute outside the session gate (docs/async-reads.md).
     LOCK='LOCK market_data.observations IN ACCESS EXCLUSIVE MODE'
     def tab():

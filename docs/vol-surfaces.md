@@ -123,6 +123,101 @@ strike axis, and the page leaves it out of the heat map, the 3D surface and the
 smiles, naming it once as expired. Months that have lapsed therefore never widen
 the axis or add rows.
 
+## Server-defined surface coordinates (D423)
+
+The 3D mesh consumes a separate projection of the retained fit. No coordinate is
+computed from current prices, current time or a series' market volatility.
+`POST /api/vol-surfaces/axes` takes the same context, product, model and optional
+exact definition selection as the surface read. It returns the available axis
+policies and their named presets, with `initialAxis` explicitly offered as
+`log_moneyness_v1`. The page displays that selection and its preset points before
+sending them explicitly in a surface read. The metadata operation calculates no
+surface nodes. Each fitted read returns the same policies in `surface.projection`.
+
+| Axis id | Coordinate | Named preset |
+| --- | --- | --- |
+| `strike_v1` | Absolute underlying strike, in the underlying futures product's exact quote unit | Listed strikes: the retained union of live listed strikes |
+| `log_moneyness_v1` | k = ln(K/F) | −0.10 to +0.10 by 0.01, including both ends |
+| `quick_delta_v1` | Call quick delta N(−k / (σ̂(k)√T)) | 10P, 25P, ATM, 25C, 10C: 0.90, 0.75, 0.50, 0.25, 0.10, in strike order |
+
+Put quick delta is call quick delta minus one. ATM is at the money forward:
+call quick delta 0.50 and k = 0. This is a display coordinate, distinct from the
+American option model's finite-difference delta stored in series analytics.
+Every label and unit, including custom point labels, is supplied by the server.
+
+Every live expiry retains `yearFraction`: the exact
+`AmericanFuturesOptionModel.YearFraction` under the fit's option policy at its
+valuation instant. It also retains the existing `daysToExpiry`. The depth axis
+uses that year fraction, in years; height is fitted annualized volatility. The
+server supplies all three axes' labels, units and tick values/labels.
+
+`points` is a required array of exact decimal strings, between 1 and 501 entries.
+A missing or empty list, nondecimal or nonstring value, duplicate numeric value
+(including `0.5` and `0.50`), nonpositive strike, or delta outside (0,1) raises
+`vol_axis_points`. An unknown or missing axis raises `vol_axis_unknown` when
+points are otherwise valid. Points are ordered by strike: ascending for strike
+and k, descending for call quick delta. The server declares quick delta
+`reversed` so strike order runs left to right. Their canonical value is their point id.
+
+For each explicit point, each fitted expiry supplies `nodes`: `pointId`,
+`axisValue`, `label`, `logMoneyness`, implied `strike`, `fitted`, `covered` and a
+structured `reason` (`code`, `message`) when uncovered. A node outside the fitted
+range has no fitted volatility; its k and implied strike remain available where
+the numerical range permits them. No expiry without a fit gets a mesh row. The
+renderer joins consecutive point ids only when all four corners are covered and
+the expiry rows are neighbours. It never joins across an uncovered point or a
+gap expiry. Each listed series also carries `axisValue`, evaluated with the
+fitted smile at its own k, so a market-volatility stalk stands at the surface's
+coordinate. A listed series outside the fitted range has no stalk coordinate.
+
+For a target call quick delta, put z = N⁻¹(Δq). With σ̂(k) = A + Bk + Ck²,
+solve:
+
+```text
+(z√T C) k² + (1 + z√T B) k + z√T A = 0
+```
+
+The selected root is continuous with −z√T A/(1 + z√T B) as C tends to zero.
+A rationalized evaluation avoids cancellation. A vanished linear denominator
+has no finite branch and does not select the other root. The result must
+reproduce its target delta within the stated tolerance and must lie inside the
+retained fit grid's inclusive bounds. Extrapolation is prohibited.
+
+`vol_surface_axes_decimal_v1` uses the project's 30-place, half-even
+`LatticeDecimal` arithmetic and a delta residual tolerance of 10⁻²⁰.
+`normal_decimal_taylor_bisection_v1` evaluates the normal integral by a
+project-owned Taylor series with 90 fractional digits and rounds once to 30;
+its inverse bisects the wide integral to a 30-place root. Normal tails beyond
+12 standard deviations round to zero/one (omitted probability below 2×10⁻³³).
+The retained plot inputs and returned projection identify both implementations.
+Independent reference, symmetry, inverse-grid, tail and branch checks accompany
+them; no external numerical dependency is added.
+
+| Code | Meaning |
+| --- | --- |
+| `vol_axis_inputs_missing` | A stored fit lacks its own year fraction, forward, fitted range, unit or supported policy/implementation pin; current data is never substituted |
+| `vol_axis_outside_fit` | This point lies outside an expiry's inclusive fitted range |
+| `vol_axis_no_real_root` | The quadratic has no real root on the branch continuous from zero curvature, or that branch has no finite linear limit |
+| `vol_axis_root_range` | That root exceeds the supported decimal range |
+| `vol_axis_nonpositive_volatility` | The fitted volatility is not positive at the selected root |
+| `vol_axis_invalid_root` | The selected root fails the quick-delta residual tolerance |
+
+Coverage codes are per-node gaps, visible on hover and keyboard focus, rather
+than a request failure. Missing retained inputs are a structured request error.
+Older revisions remain immutable. Metadata discovery exposes an explicit refit
+recovery state; migration `0360_vol_surface_axis_inputs.sql` compares refits
+within the same retained plot-input policy so a new-policy fit records a new
+revision without weakening same-policy determinism or request-id replay.
+
+The sample retains every original strike and all 564 original settlements,
+pinned by an independent digest regression. Six additional wing strikes per
+expiry use `synthetic_flat_wings_v1`: the existing Black-76 premium generator
+and clearing rounding with flatter, explicitly synthetic wing volatilities.
+The original high-curvature synthetic smile has no 10-delta roots at several
+expiries, so extending it unchanged cannot establish coverage. Added wings
+change the fitted smiles and rich/cheap, but no old settlement. The inventory
+of affected consumers is recorded in [fixture impact](vol-surface-fixture-impact.md).
+
 ## Market volatilities and rich/cheap
 
 Each listed series is calibrated by the same calibration option valuation uses:
@@ -140,8 +235,8 @@ positive value is rich and a negative one cheap.
 
 The exchange example's settlements come from a synthetic smile in log-moneyness and
 time to expiry, with fixed synthetic offsets on eight out-of-the-money series so that
-both products show rich and cheap points. Each product lists five expiries of seven
-strikes, each as a call and a put: 70 series for LO, and 71 for ON, which also keeps
+both products show rich and cheap points. Each product lists five expiries of thirteen
+strikes, each as a call and a put: 130 series for LO, and 131 for ON, which also keeps
 its existing deep in-the-money call that settles at intrinsic. None of these values
 is a market level.
 
@@ -232,9 +327,11 @@ Recording follows D238:
   contents is refused with `vol_surface_input`.
 - The inputs of a revision are its valuation instant and its pinned observations.
   If the key's latest revision at the same close (or working snapshot) and valuation
-  instant has the same inputs and the same content, it is returned and nothing new is
-  stored. The same inputs with different content are
-  refused with `vol_surface_nondeterministic`.
+  instant has the same inputs, sensitivity selection, retained plot-input policy
+  and content, it is returned and nothing new is stored. The same inputs under
+  those same policies with different content are refused with
+  `vol_surface_nondeterministic`. An explicit new plot-input policy records a new
+  revision while preserving the old one.
 - Different inputs, for example after a settlement or a discount-curve point is
   revised, or a fit at another valuation instant, record a new revision with its
   own knowledge time. Earlier revisions stay readable at earlier
@@ -288,7 +385,7 @@ through the same operation.
 
 ## Reading
 
-**`POST /api/vol-surfaces/read`** takes `{context, product, model}`, where `context`
+**`POST /api/vol-surfaces/read`** takes `{context, product, model, axis, points}`, where `context`
 is the trading read context the option operations use (`snapshotId`, convention
 `futures_option_premium_v1`, `knowledgeMode` and, for a historical view,
 `contextId`). It returns `snapshotId`, `model`, `solverPolicy`, `state` (`fitted` or
@@ -340,6 +437,10 @@ The page states:
 - **Calibrating at** the close, queued or running, checking back every 1.5 seconds
   while the page is shown. A hidden page sends no reads and reads at once when shown
   again. When the job finishes, the product's chips and the cards are read again.
+  In a current view, a newly completed job gets one fresh surface read before the
+  final result is shown: completion can follow the preceding read's knowledge
+  cutoff. This stays within the selected product and context; historical cutoffs
+  remain pinned, and a fresh read that still has no surface stays not calibrated.
 - **Calibrated at** the close, with its knowledge time, or **Inputs revised after
   this fit** with *Recalibrate*. A failed or cancelled last job is shown with its
   code.

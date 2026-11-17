@@ -223,4 +223,13 @@ def run_checks(query, manifest):
           and refused(record(uuid4(), first_inputs, {**other_surface, 'synthetic': 'changed'}), 'vol_surface_nondeterministic')
           and refused(record(uuid4(), second_inputs, {**second_surface, 'synthetic': 'changed'}), 'vol_surface_nondeterministic') and counts() == settled,
           (unchanged, counts()))
+    # Populated transition: the same pins and valuation instant under the retained
+    # axis-input policy create a new revision without mutating prior content.
+    axis_surface={**second_surface,'plotInputs':{'axisNumericalPolicy':'vol_surface_axes_decimal_v1','normalImplementation':'normal_decimal_taylor_bisection_v1'}}
+    axis_revision=json.loads(query(record(uuid4(),second_inputs,axis_surface)+';'))
+    check('explicit axis-input refit preserves legacy history and records one new policy revision',
+          axis_revision['created'] and axis_revision['revision']!=second['revision'] and
+          json.loads(query(record(uuid4(),second_inputs,axis_surface)+';'))['revision']==axis_revision['revision'] and
+          json.loads(query(record(uuid4(),second_inputs,second_surface)+';'))['revision']==second['revision'] and
+          refused(record(uuid4(),second_inputs,{**axis_surface,'synthetic':'different'}),'vol_surface_nondeterministic'))
     check('the Options page is a page whose guidance can be configured', query("SELECT assistant.is_prompt_page('options') AND NOT assistant.is_prompt_page('option');") == 't')

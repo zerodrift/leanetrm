@@ -86,6 +86,22 @@ transaction, the ticket case still failed that way. With the head read before
 the capture, both cases pass with the other 32 checks. Merged with D419's
 ordinary-read checks, the same check passed all 36 on the same machine.
 
+The check then holds a P&L run while it reads its two dates and starts a second
+session's read of working data. Before the change that read waited on the gate
+behind the run. With the run's capture in a transaction of its own, it reaches
+its own work with nothing waiting on the gate. Two more checks cover what the
+split moved. A run refused for its request, by an unsupported policy or a
+repeated book, stores no context: each case failed while its refusal came after
+the separate capture and passes with it ahead of the capture.
+A malformed run from a profile without the right is denied before its shape is
+refused: this failed while the shape was refused outside the authorized
+transaction. All 39 checks passed on the same machine. The standard example's
+swaps are not booked for a complete report, so the held run reads its dates and
+ends in a refusal of its own: for its market revision or for its accounting
+coverage, by which swap the Blotter lists first. Complete reports are qualified
+by the cash and P&L check on the exchange example, which passed on the final
+code on the same machine, including saving and re-reading a report.
+
 In owned disposable previews on one two-processor Linux machine with PostgreSQL
 18.7 and .NET 10.0.402, the live-calculation check and the latest-risk-run check
 passed on the final code, and the complete exchange check passed on the capture
@@ -93,9 +109,10 @@ split before the head was moved. Locally, `--trading-read-selection`,
 `--async-reads` and `--assistant-workspace` passed.
 
 This shows that a working trading read, with or without a head trade, no longer
-holds the gate while it values. It does not measure throughput or memory with
-several valuations at once, and the readers D420 lists as unchanged still hold
-the gate for their transaction. Browser suites and the complete gate were not
+holds the gate while it values, and that a P&L run no longer holds it once its
+dates are captured. It does not measure throughput or memory with several
+valuations at once, and the readers D420 lists as unchanged still hold the gate
+for their transaction. Browser suites and the complete gate were not
 run for this change outside CI.
 
 ## Current runner

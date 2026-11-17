@@ -7,6 +7,9 @@ internal static class VolSurfaceChecks
 {
     public static void Run()
     {
+        Check("normal distribution independent references, symmetry, inverse grid and tails", NormalDistributionContract);
+        Check("surface axes explicit points, shared identities, fitted coordinates and coverage", AxisContract);
+        Check("surface height domain contains both ends of every plotted stalk", StalkHeightDomain);
         Check("quadratic smile recovers known parameters", RecoversKnownParameters);
         Check("rich cheap equals a deliberate offset", DeliberateOffset);
         Check("fewer than five strikes is a gap", FewStrikes);
@@ -26,6 +29,131 @@ internal static class VolSurfaceChecks
         Check("an expiry whose series all expired is option_expired and off the axis", ExpiredExpiryIsOffTheAxis);
         Check("a series is in the money by its strike against the underlying settlement", InTheMoneyFollowsSettlement);
         Check("the at-the-money strike is the listed strike nearest the settlement, the higher on a tie", AtTheMoneyIsNearestStrike);
+    }
+
+    private static void NormalDistributionContract()
+    {
+        foreach (var (x, expected) in new[] { ("0", "0.5"), ("1", "0.841344746068542948585232545632"),
+            ("2", "0.977249868051820792799717362833"), ("5", "0.999999713348428120806088326248"),
+            ("-8", "0.000000000000000622096057427178"), ("-10", "0.000000000000000000000007619853") })
+            Near(NormalDistribution.Cdf(L(x)), L(expected), L("0.000000000000000000000000000002"), "normal reference " + x);
+        Near(NormalDistribution.Inverse(L("0.1")), L("-1.281551565544600466965103329449"), Tolerance25, "inverse reference");
+        Near(NormalDistribution.Inverse(L("0.025")), L("-1.95996398454005423552459443052"), Tolerance25, "inverse tail reference");
+        Near(NormalDistribution.Inverse(L("0.00000000000000000001")), L("-9.262340089798407573717356977875"), Tolerance25, "inverse far tail");
+        for (var i = -100; i <= 100; i++)
+        {
+            var x = L(i.ToString(CultureInfo.InvariantCulture)) / L("10");
+            Expect(NormalDistribution.Cdf(L("0") - x) == L("1") - NormalDistribution.Cdf(x), "Normal symmetry.");
+        }
+        foreach (var p in new[] { "0.000000000000000000000000000001", "0.0000000001", "0.001", "0.01", "0.1", "0.25", "0.5", "0.9", "0.999", "0.99999999999999999999" })
+            Expect(NormalDistribution.Cdf(NormalDistribution.Inverse(L(p))) == L(p), "Normal inverse roundtrip, including the smallest representable tail: " + p);
+        Expect(NormalDistribution.Cdf(L("-12")) == L("0") && NormalDistribution.Cdf(L("12")) == L("1"), "Rounded tails.");
+        foreach (var p in new[] { "0", "1", "-0.1", "1.1" })
+            Refuses("normal_probability", () => NormalDistribution.Inverse(L(p)));
+    }
+
+    private static void Refuses(string code, Action action)
+    {
+        try { action(); throw new Exception("Expected " + code); }
+        catch (MarketDataException e) when (e.Code == code) { }
+    }
+
+    private static void AxisContract()
+    {
+        var input = Expiries("100").Select(e => e with { YearFraction = L("0.25") }).ToImmutableArray();
+        var surface = VolSurfaces.Build(Model, input, BothRights(Expiry1, Strikes), Interval) with
+            { PlotInputs = new SurfacePlotInputs("USD/unit", "american_futures_option_crr_v1", SurfaceAxes.NumericalPolicy, NormalDistribution.ImplementationId) };
+        var axes = SurfaceAxes.Declare(surface);
+        Expect(axes.Select(a => a.Id).SequenceEqual(["strike_v1", "log_moneyness_v1", "quick_delta_v1"]), "Declared axes.");
+        var delta = axes.Single(a => a.Id == "quick_delta_v1");
+        Expect(delta.Preset.Points.Select(p => p.Label).SequenceEqual(["10P", "25P", "ATM", "25C", "10C"]), "Put/call labels.");
+        var projected = SurfaceAxes.Project(surface, new("quick_delta_v1", ["0.75", "0.5", "0.25", "0.1"]));
+        Expect(projected.Projection!.X.Reversed, "Quick-delta coordinates display in ascending strike order.");
+        var nodes = projected.Expiries.Single().Nodes;
+        Expect(nodes.Length == 4 && nodes.Single(n => n.AxisValue == L("0.5")).LogMoneyness == L("0"), "Explicit nodes and ATM.");
+        foreach (var n in nodes.Where(n => n.Covered))
+        {
+            var k = n.LogMoneyness!.Value;
+            var vol = n.Fitted!.Value;
+            Near(NormalDistribution.Cdf((L("0") - k) / (vol * L("0.5"))), n.AxisValue, Tolerance20, "covered delta");
+            Near(n.Strike!.Value, L("100") * k.Exp(), Tolerance25, "implied strike");
+        }
+        Expect(nodes.Any(n => !n.Covered && n.Reason?.Code == "vol_axis_outside_fit"), "Uncovered delta reason.");
+        foreach (var text in new[] { "100", "3.28", "999960000000000000000000" })
+        {
+            var forward = L(text); var low = forward * L("0.8"); var high = forward * L("1.000001");
+            var atmSurface = surface with { Series = [], Expiries = [surface.Expiries.Single() with
+                { Futures = forward, Parameters = new(L("0.45"), L("0"), L("0")), Grid = [
+                    new(low.ToExact(), (low / forward).Ln(), L("0.45")), new(high.ToExact(), (high / forward).Ln(), L("0.45"))] }] };
+            foreach (var (axis, point) in new[] { (SurfaceAxes.LogMoneyness, "0"), (SurfaceAxes.QuickDelta, "0.5") })
+            {
+                var atm = SurfaceAxes.Project(atmSurface, new(axis, [point])).Expiries.Single().Nodes.Single();
+                Expect(atm.Covered && atm.Strike == forward, "ATM is covered at exactly its retained forward, including the supported upper range.");
+            }
+        }
+        var ks = SurfaceAxes.Project(surface, new("log_moneyness_v1", ["-0.1", "0", "0.05", "0.5"]));
+        foreach (var n in ks.Expiries.Single().Nodes.Where(n => n.Covered))
+            Near(n.Fitted!.Value, L("0.45") - L("0.10") * n.AxisValue + L("0.80") * n.AxisValue * n.AxisValue, Tolerance20, "k smile");
+        var outside = ks.Expiries.Single().Nodes.Last();
+        Expect(outside is { Covered: false, Fitted: null, Reason.Code: "vol_axis_outside_fit" } && outside.Strike is not null,
+            "An uncovered k retains its implied strike without an extrapolated volatility.");
+        Near(outside.Strike!.Value, L("164.872127070012814684865078781"), Tolerance20, "uncovered implied strike reference");
+        foreach (var s in projected.Series.Where(s => s.AxisValue is not null))
+            Near(s.AxisValue!.Value, NormalDistribution.Cdf((L("0") - s.LogMoneyness!.Value) /
+                (Model.Evaluate(surface.Expiries.Single().Parameters!, s.LogMoneyness.Value) * L("0.5"))), Tolerance25, "stalk fitted-smile delta");
+        foreach (var points in new string[]?[] { null, [], ["0"], ["1"], ["NaN"], ["0.5", "0.50"] })
+            Refuses("vol_axis_points", () => SurfaceAxes.Project(surface, new("quick_delta_v1", points)));
+        Refuses("vol_axis_unknown", () => SurfaceAxes.Project(surface, new("unknown", ["0.5"])));
+        Refuses("vol_axis_inputs_missing", () => SurfaceAxes.Project(surface with
+            { Expiries = [surface.Expiries.Single() with { YearFraction = null }] }, new("quick_delta_v1", ["0.5"])));
+        Refuses("vol_axis_inputs_missing", () => SurfaceAxes.Project(surface with
+            { Expiries = [surface.Expiries.Single() with { Grid = default }] }, new("quick_delta_v1", ["0.5"])));
+        var unbounded = surface with { Expiries = [surface.Expiries.Single() with
+            { Parameters = new(L("0.45"), L("-2.965204437011203721094152958718"), L("0")) }] };
+        Expect(SurfaceAxes.Project(unbounded, new("quick_delta_v1", ["0.75"])).Expiries.Single().Nodes.Single().Reason?.Code == "vol_axis_root_range",
+            "An unrepresentable root is a gap, not a failed read.");
+        Expect(SurfaceAxes.Project(surface, new("strike_v1", ["0.000000000000000000000000000001", "999999999999999999999999"]))
+            .Expiries.Single().Nodes.All(n => n.Reason?.Code == "vol_axis_outside_fit"), "Extreme strikes are outside coverage without division overflow.");
+        foreach (var (forward, k, expected, tolerance) in new[] {
+            ("0.0000000001", "56", "209165949601299.615390707115721467", "0.000000000000001"),
+            ("100000000000000000000000", "-80", "0.000000000001804851387845415172", "0.000000000000000000000000000001") })
+        {
+            var scaled = surface with { Expiries = [surface.Expiries.Single() with { Futures = L(forward) }], Series = [] };
+            var node = SurfaceAxes.Project(scaled, new("log_moneyness_v1", [k])).Expiries.Single().Nodes.Single();
+            Expect(!node.Covered && node.Strike is not null, "Representable implied strike survives exponential scaling.");
+            Near(node.Strike!.Value, L(expected), L(tolerance), "scaled implied strike reference");
+        }
+        var flat = surface with { Expiries = [surface.Expiries.Single() with { Parameters = new(L("0.45"), L("0"), L("0")) }] };
+        var almostFlat = flat with { Expiries = [flat.Expiries.Single() with { Parameters = new(L("0.45"), L("0"), L("0.000000000001")) }] };
+        var flatNode = SurfaceAxes.Project(flat, new("quick_delta_v1", ["0.75"])).Expiries.Single().Nodes.Single();
+        var curvedNode = SurfaceAxes.Project(almostFlat, new("quick_delta_v1", ["0.75"])).Expiries.Single().Nodes.Single();
+        Near(flatNode.LogMoneyness!.Value, L("-0.151760193794118392220501078272"), Tolerance25, "linear root independent reference");
+        Near(curvedNode.LogMoneyness!.Value, flatNode.LogMoneyness.Value, L("0.000000000001"), "continuous curvature branch");
+        var tiny = surface with { Expiries = [surface.Expiries.Single() with
+            { Parameters = new(L("0.008100000000000000000000000001"), L("-0.18"), L("1")) }],
+            Series = [surface.Series.First() with { LogMoneyness = L("0.09") }] };
+        Expect(SurfaceAxes.Project(tiny, new("quick_delta_v1", ["0.5"])).Series.Single().AxisValue == L("0"), "Far standardized tail saturates before division.");
+        var noRoot = surface with { Expiries = [surface.Expiries.Single() with { Parameters = new(L("0.6"), L("0"), L("10")) }] };
+        Expect(SurfaceAxes.Project(noRoot, new("quick_delta_v1", ["0.9"])).Expiries.Single().Nodes.Single().Reason?.Code == "vol_axis_no_real_root", "No real root.");
+    }
+
+    private static void StalkHeightDomain()
+    {
+        var members = new[] { "-0.9", "-0.8", "-0.7", "0.7", "0.8", "0.9" }.Select(text =>
+        {
+            var k = L(text);
+            return new SurfaceSeries(text, k.CompareTo(L("0")) < 0 ? OptionRight.Put : OptionRight.Call,
+                (L("100") * k.Exp()).ToExact(), Expiry1, "f", null, "solved", L("3") - L("3") * k * k);
+        }).Append(new("atm-put", OptionRight.Put, ExactDecimal.Parse("100"), Expiry1, "f", null, "solved", L("1")));
+        var surface = VolSurfaces.Build(Model, [new(Expiry1, "f", L("100")) { YearFraction = L("0.25") }], [..members], Interval) with
+            { PlotInputs = new("USD/unit", "american_futures_option_crr_v1", SurfaceAxes.NumericalPolicy, NormalDistribution.ImplementationId) };
+        var projected = SurfaceAxes.Project(surface, new(SurfaceAxes.LogMoneyness, ["0.8"]));
+        var ticks = projected.Projection!.Height.Ticks.Select(t => t.Value).ToArray();
+        var stalks = projected.Series.Where(s => s.AxisValue is not null && s.Fitted is not null && s.RichCheap is not null && s.Series.MarketVolatility is not null);
+        Expect(stalks.Any(s => s.Series.Code == "atm-put" && !s.FitPoint && s.Fitted!.Value.CompareTo(L("2.9")) > 0), "The sparse selection omits a high fitted stalk base.");
+        foreach (var stalk in stalks)
+            foreach (var end in new[] { stalk.Fitted!.Value, stalk.Series.MarketVolatility!.Value })
+                Expect(end.CompareTo(ticks.Min()) >= 0 && end.CompareTo(ticks.Max()) <= 0, "The server height ticks enclose each plotted stalk's base and tip.");
     }
 
     private static readonly string[] Moneyness = ["-0.3", "-0.2", "-0.1", "0", "0.1", "0.2", "0.3"];

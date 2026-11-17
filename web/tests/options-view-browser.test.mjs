@@ -52,6 +52,7 @@ const setup=`
   calls.push(path.split('?')[0]);
   if(path.startsWith('reference/catalog'))return {definitionRevisionId:'definition-a',rows:[{code:'synthetic_on',name:'Synthetic gas options'},{code:'synthetic_lo',name:'Synthetic crude options'}],hasMore:false};
   if(path==='options/positions'){if(failPositions)throw Object.assign(Error('The positions could not be read.'),{code:'synthetic_failure'});return positions;}
+  if(path==='vol-surfaces/axes')return {definitionRevisionId:'definition-a',snapshotId:'synthetic-close',model,initialAxis:'server_axis',axes:[{id:'server_axis',preset:{points:[{value:'0'}]}}]};
   if(path==='vol-surfaces/read')return {definitionRevisionId:'definition-a',snapshotId:'synthetic-close',model,state:fitted?'fitted':'notFitted',job:null,surface:fitted?surface:null};
   if(path==='options/strategy/setup')return {...strategySetup,product:body.product,expiryAt:body.expiryAt};
   if(path==='options/strategy/analyze'){

@@ -2961,3 +2961,9 @@ header>div:first-child{flex:1 1 160px}
 .vol-expiry-level{font-size:18px;font-weight:650;font-variant-numeric:tabular-nums}
 .vol-expiry-facts,.vol-expiry-gap{font-size:12px;color:var(--text-3);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 .vol-expiry-gap{color:var(--warn)}
+
+.vol-axis-controls{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:12px 0}
+.vol-axis-controls input{flex:1;min-width:240px;font-family:var(--mono)}
+.vol-axis-preset{width:100%;font-size:12px;color:var(--text-3)}
+.vol-axis-gaps{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.vol-axis-gap{font-size:12px;white-space:normal;text-align:left}

@@ -19,7 +19,11 @@ public sealed record VolSurfaceFitRequest(Guid RequestId,Guid SnapshotId,string 
 
 /// <summary>A read of one option product's stored surface at a trading context, under an explicit vol model.</summary>
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record VolSurfaceReadRequest(FuturesReadRequest Context,string Product,string Model,Guid? DefinitionRevisionId=null);
+public sealed record VolSurfaceReadRequest(FuturesReadRequest Context,string Product,string Model,Guid? DefinitionRevisionId=null,string? Axis=null,JsonElement Points=default);
+
+/// <summary>Axis metadata for explicit client selection; computes no surface coordinates.</summary>
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record VolSurfaceAxesRequest(FuturesReadRequest Context,string Product,string Model,Guid? DefinitionRevisionId=null);
 
 /// <summary>A page of the surfaces stored at or before a trading context, under an explicit vol model.</summary>
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
@@ -66,6 +70,8 @@ internal static class VolSurfaceStore
     // context, whether its inputs were revised since, the caller's newest fit job for the key there and whether the caller may fit.
     internal static async Task<object> Read(NpgsqlConnection connection,PreviewDatabase database,TradingView view,VolSurfaceReadRequest body,CancellationToken ct)
     {
+        var selection=AxisSelection(body);
+        SurfaceAxes.Points(selection);
         var (manifest,key)=await Locate(connection,database,view,body.Product,body.Model,body.DefinitionRevisionId,ct);
         var stored=await Value(connection,StoredSurface,key,ct);
         var job=await Value(connection,"SELECT risk.vol_surface_fit_job($1,$2,$3::jsonb,$4,$5,$6::uuid,$7,$8)::text",key,ct);
@@ -80,10 +86,43 @@ internal static class VolSurfaceStore
         var canFit=await PreviewDatabase.HasPermission(connection,"PublishMarketData",ct)&&await PreviewDatabase.HasPermission(connection,"ReadTrades",ct);
         return new JsonObject{["snapshotId"]=view.Frame.Id,["definitionRevisionId"]=manifest.RevisionId,["model"]=body.Model,
             ["solverPolicy"]=stored?["solverPolicy"]?.DeepClone()??SolverPolicy,["state"]=stored is null?"notFitted":"fitted",
-            ["revision"]=revision,["job"]=job,["canFit"]=canFit,["surface"]=stored?["content"]?.DeepClone(),
+            ["revision"]=revision,["job"]=job,["canFit"]=canFit,["surface"]=stored is null?null:ProjectContent(stored["content"]!,selection),
             // What a fit may select: offered for the page to send back, with the clocks a working snapshot may name.
             ["sensitivities"]=new JsonObject{["offered"]=JsonSerializer.SerializeToNode(OptionSurfaceAnalytics.Offered,RiskJobs.Json),
                 ["clocks"]=JsonSerializer.SerializeToNode(TradingPnlReport.Clocks(),RiskJobs.Json),["clockRequired"]=view.Frame.Close is null}};
+    }
+
+    internal static SurfaceAxisRequest AxisSelection(VolSurfaceReadRequest body)
+    {
+        if(body.Points.ValueKind!=JsonValueKind.Array||body.Points.EnumerateArray().Any(p=>p.ValueKind!=JsonValueKind.String))
+            throw new MarketDataException("vol_axis_points","Supply an explicit array of exact decimal point strings.");
+        return new(body.Axis,body.Points.EnumerateArray().Select(p=>p.GetString()!).ToArray());
+    }
+
+    internal static string Encode(VolSurfaceResult surface)=>JsonSerializer.Serialize(surface,Json);
+    internal static JsonNode ProjectContent(JsonNode content,SurfaceAxisRequest selection)=>
+        JsonSerializer.SerializeToNode(SurfaceAxes.Project(content.Deserialize<VolSurfaceResult>(Json)??
+            throw new MarketDataException("vol_axis_inputs_missing","The revision contains no fitted inputs."),selection),Json)!;
+
+    internal static async Task<object> Axes(NpgsqlConnection connection,PreviewDatabase database,TradingView view,VolSurfaceAxesRequest body,CancellationToken ct)
+    {
+        var (manifest,key)=await Locate(connection,database,view,body.Product,body.Model,body.DefinitionRevisionId,ct);
+        var stored=await Value(connection,StoredSurface,key,ct);
+        var surface=stored?["content"].Deserialize<VolSurfaceResult>(Json);
+        var requiresRefit=surface is not null && (surface.PlotInputs is null || surface.Expiries.Any(e=>e.Status=="fitted"&&e.YearFraction is null));
+        if(surface is null || requiresRefit)
+        {
+            var source=await ProductSource(connection,database,view.CalculationFrame,ct,body.DefinitionRevisionId);
+            var data=await database.Read(connection,ct,ppaBundle:source,observationIds:[],includeCalendarDays:false);
+            if(!data.ReferenceRows("futures_option_products","code",body.Product).Any())
+                throw new MarketDataException("vol_surface_product","Select a listed option product.");
+            surface=new(body.Model,[],[],[]){PlotInputs=new(VolSurfaceFit.StrikeUnit(data,data.ReferenceRows("futures_option_products","code",body.Product).Single()),SolverPolicy,SurfaceAxes.NumericalPolicy,NormalDistribution.ImplementationId)};
+        }
+        var job=await Value(connection,"SELECT risk.vol_surface_fit_job($1,$2,$3::jsonb,$4,$5,$6::uuid,$7,$8)::text",key,ct);
+        return new{snapshotId=view.Frame.Id,definitionRevisionId=manifest.RevisionId,model=body.Model,
+            initialAxis=SurfaceAxes.LogMoneyness,axes=JsonSerializer.SerializeToNode(SurfaceAxes.Declare(surface!),Json),requiresRefit,job,
+            canFit=await PreviewDatabase.HasPermission(connection,"PublishMarketData",ct)&&await PreviewDatabase.HasPermission(connection,"ReadTrades",ct),
+            sensitivities=new{offered=OptionSurfaceAnalytics.Offered,clocks=TradingPnlReport.Clocks(),clockRequired=view.Frame.Close is null}};
     }
 
     // The stored surface itself for a product at the view's location, or none: what another read scales or draws from.
@@ -202,7 +241,7 @@ internal static class VolSurfaceStore
         var analysed=await OptionSurfaceAnalytics.Attach(connection,database,data,frame,snapshot,context,fitted,plan,ct);
         analysing.Stop();
         await transaction.CommitAsync(ct);
-        var surface=JsonSerializer.Serialize(analysed.Surface,Json);
+        var surface=Encode(analysed.Surface);
         return new(analysed.ObservationIds,surface,Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(surface))),
             fitted.Result.Series.Length,fitted.Result.Series.Count(s=>s.Series.Outcome==FuturesOptionPricing.SolvedMode),elapsed.ElapsedMilliseconds,
             analysed.TreePrices,analysing.ElapsedMilliseconds);

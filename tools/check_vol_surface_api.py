@@ -26,12 +26,16 @@ DAY = '2026-10-16'
 
 
 def run_checks(url, query, manifest, *, run_worker, worker_login):
-    base = PreviewClient(url); base.bootstrap()
-    c = PreviewClient(url, 'exchange'); c.opener = base.opener; c.bootstrap()
+    def sign_in():
+        base = PreviewClient(url); base.bootstrap()
+        client = PreviewClient(url, 'exchange'); client.opener = base.opener; client.bootstrap()
+        client.call('profile', {'profile': 'trader'})
+        return client
+
+    c = sign_in()
     catalog, tenant, workspace = (manifest[key] for key in ('catalogId', 'tenantId', 'workspaceId'))
     R = f"'{manifest['referenceCatalogId']}','{manifest['referenceRevisionId']}'"
     M = f"'{catalog}','{manifest['revisionId']}'"
-    c.call('profile', {'profile': 'trader'})
     frame = next(f for f in c.call('workspace')['frames'] if f['at'].startswith(DAY))
 
     def check(name, condition, actual=None):
@@ -40,7 +44,7 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
 
     def read(product=PRODUCT, snapshot=None, definition=None, **context):
         return c.call('vol-surfaces/read', {'context': {'snapshotId': snapshot or frame['id'], 'convention': OPTION, 'knowledgeMode': 'current', **context},
-                                            'product': product, 'model': MODEL, **({'definitionRevisionId': definition} if definition else {})}, timeout=TIMEOUT)
+                                            'product': product, 'model': MODEL, 'axis': 'log_moneyness_v1', 'points': ['-0.1','0','0.1'], **({'definitionRevisionId': definition} if definition else {})}, timeout=TIMEOUT)
 
     def selection_at(snapshot):
         """The selection a fit at this frame states: a recorded close counts its day on its convention's clock and names
@@ -58,6 +62,31 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
 
     def revisions(product):
         return int(query(f"SELECT count(*) FROM trading.vol_surface_revisions WHERE catalog_id='{catalog}' AND product_code='{product}' AND effective_on='{DAY}';"))
+
+    def fresh_scenario():
+        # Each independent group starts a new sign-in: widened fits can outlast
+        # the preview's 30-minute session on CI. Never renew an authority-loss
+        # scenario or retry a denial; re-resolve the exact original input pins.
+        nonlocal c, frame
+        previous, old_frame = read(), frame
+        c = sign_in()
+        page = c.call('workspace')
+        def inputs(f):
+            return (f['at'], f['businessDate'], f['ppaBundle'], sorted(f['observationIds']),
+                    sorted((curve, sorted(contracts)) for curve, contracts in f['curveContracts'].items()))
+        candidates = [f for f in page['frames'] if f['id'] in page['initialFrameIds'] and inputs(f) == inputs(old_frame)]
+        assert len(candidates) == 1, 'A fresh scenario needs exactly the original source, valuation and input pins.'
+        frame = candidates[0]
+        refused = c.call('vol-surfaces/read', {'context': {'snapshotId': old_frame['id'], 'convention': OPTION, 'knowledgeMode': 'current'},
+                                             'product': PRODUCT, 'model': MODEL, 'axis': 'log_moneyness_v1', 'points': ['0']}, expected=422)
+        # The backend binds the exact definition and its private source/frozen
+        # pins; those internal fields are intentionally absent from page JSON.
+        restored = read(definition=previous['definitionRevisionId'])
+        check('a fresh sign-in rejects the prior session frame and reads the same retained fit through its exact new alias',
+              frame['id'] != old_frame['id'] and refused['code'] == 'snapshot_missing'
+              and restored['definitionRevisionId'] == previous['definitionRevisionId']
+              and restored['revision']['id'] == previous['revision']['id'] and restored['surface'] == previous['surface']
+              and restored['job']['id'] == previous['job']['id'])
 
     # The fitter: the trader, with only PublishMarketData added by a synthetic role.
     trader = query(f"SELECT principal_id FROM security.workspace_memberships WHERE(tenant_id,workspace_id,login_handle)=('{tenant}','{workspace}','trader');")
@@ -85,6 +114,10 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
         {**SENSITIVITIES, 'bump': {**SENSITIVITIES['bump'], 'priceSteps': 3}})]
     check('a fit that does not state a supported sensitivity selection and its clock is refused at submit',
           unstated == ['option_sensitivity_policy'] * 5 and read()['job'] is None, unstated)
+    base_read={'context':{'snapshotId':frame['id'],'convention':OPTION,'knowledgeMode':'current'},'product':PRODUCT,'model':MODEL,'axis':'quick_delta_v1'}
+    check('surface points are explicit and invalid JSON values are structured refusals',
+          all(c.call('vol-surfaces/read',{**base_read,**extra},expected=422)['code']=='vol_axis_points'
+              for extra in ({},{'points':[]},{'points':['0']},{'points':['1']},{'points':['NaN']},{'points':['0.5','0.50']},{'points':[0.5]})))
     request = str(uuid4())
     first = fit(request=request)
     check('same request id returns the same job', first['state'] == 'queued' and fit(request=request) == first, first)
@@ -144,16 +177,21 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
         ('delta', lambda v, s=s: 0 < v < 1 if s['series']['right'] == 'call' else -1 < v < 0), ('gamma', lambda v: v > 0), ('vega', lambda v: v > 0),
         ('theta', lambda v: v < 0)) if figure(s, m) is not None and not holds(figure(s, m))]
     check('stored sensitivities have the sign their measure must have', not signs and measured['analyticsTreePrices'] > 0 and measured['analyticsMs'] >= 0, signs[:5])
-    # A call and a put of one strike and expiry differ in delta by close to one and share gamma and vega, to within the
-    # small effect of early exercise under this example's discounting.
+    # Preserve the original near-money parity qualification. Farther wings can
+    # have material early-exercise/clearing-rounding effects under discounting;
+    # every added ON series still has the price/sign checks above.
+    original_calls={f'{PRODUCT}_{month}_c{Decimal("3.25")+i*Decimal("0.05")+n*Decimal("0.05")}'
+                    for i,month in enumerate(('20261201','20270101','20270201','20270301','20270401'))
+                    for n in (-6,-4,-2,0,2,4,6)}
     pairs = {}
     for row in solved:
         pairs.setdefault((row['series']['expiryAt'], row['series']['strike']), {})[row['series']['right']] = row
     both = [p for p in pairs.values() if len(p) == 2 and all(figure(r, m) is not None for r in p.values() for m in ('delta', 'gamma', 'vega'))]
-    parity = [(p['call']['series']['code'], figure(p['call'], 'delta') - figure(p['put'], 'delta')) for p in both
+    qualified = [p for p in both if p['call']['series']['code'] in original_calls]
+    parity = [(p['call']['series']['code'], figure(p['call'], 'delta') - figure(p['put'], 'delta')) for p in qualified
               if abs(figure(p['call'], 'delta') - figure(p['put'], 'delta') - 1) > Decimal('0.05')
               or abs(figure(p['call'], 'vega') - figure(p['put'], 'vega')) > Decimal('0.05') * figure(p['call'], 'vega')]
-    check('a call and a put of one strike agree in their sensitivities', both and len(both) * 2 >= len(pairs) and not parity, (len(both), len(pairs), parity[:5]))
+    check('the original near-money call and put pairs agree in their sensitivities', len(qualified) == 35 and not parity, (len(qualified), len(pairs), parity[:5]))
     check('most solved series have every sensitivity', sum(absent.values()) * 10 <= len(solved) * 4, absent)
 
     # Booked option positions are scaled from these stored analytics; the read prices nothing.
@@ -482,6 +520,7 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
     # synthetic sessions with the same cutoff: a fit at one session's close is not the other's, nor the working snapshot's at the
     # same instant, and a close that replaces it starts without one. No member chooses these sessions, so the browser checks
     # that follow still open on working snapshots.
+    fresh_scenario()
     from seed_session_closes import publish_session, record_close
     window = [{'curves': sorted(frame['curveContracts']), 'cutoff': frame['at'][11:16], 'from': '2026-10-13', 'to': '2026-10-17'}]
     for session in ('synthetic_east', 'synthetic_west'):
@@ -520,7 +559,7 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
     stranger = PreviewClient(url, 'exchange'); stranger.opener = signed_in.opener; stranger.bootstrap()
     stranger.call('profile', {'profile': 'risk'})
     seen = stranger.call('vol-surfaces/read', {'context': {'snapshotId': close_frame(stranger, east)['id'], 'convention': OPTION, 'knowledgeMode': 'current'},
-                                               'product': PRODUCT, 'model': MODEL}, timeout=TIMEOUT)
+                                               'product': PRODUCT, 'model': MODEL, 'axis': 'log_moneyness_v1', 'points': ['0']}, timeout=TIMEOUT)
     check('another sign-in reads the same surface at that close', seen['state'] == 'fitted' and seen['revision']['id'] == fitted_east['revision']['id'], seen['state'])
     # A historical view sees the close under a session-scoped alias id, and still reads the surface fitted at that close.
     view = c.call('market/context', {'effectiveOn': DAY, 'knownAt': datetime.now(timezone.utc).isoformat(), 'mode': 'at', 'selection': 'latest_correction'})['context']
@@ -561,6 +600,10 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
                     f"WHERE(p.catalog_id,p.close_id,p.observation_id)=(o.catalog_id,'{west}',o.id)) ORDER BY o.id LIMIT 1;")
     check('a recording at a close is refused for an input the close does not pin, and admitted for one it does',
           attributed([outside]) == 'vol_surface_input' and attributed([inside]) == 'recorded', (attributed([outside]), attributed([inside])))
+    # Discover the fitted close in the new session while it is still in force.
+    # The same session then proves replacement preserves that retained history.
+    fresh_scenario()
+    at_east, at_west = close_frame(c, east), close_frame(c, west)
     replacement = record_close(query, manifest, 'synthetic_east', 1, frame)
     at_replacement = close_frame(c, replacement)
     replaced = library(c, at_replacement['id'], PRODUCT)['surfaces']

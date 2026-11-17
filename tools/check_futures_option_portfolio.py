@@ -62,7 +62,8 @@ def run_checks(url, query, manifest, *, run_worker):
           and described['nymex_ng_20261201'] == {'definitionRevisionId': manifest['revisionId'], 'series': 'nymex_ng_20261201', 'name': 'NYMEX Henry Hub Natural Gas · NG', 'deliveryFrom': '2026-12-01', 'deliveryTo': '2027-01-01'}, catalog['underlyings'])
     # The long ON call is the series the later close leaves without a settlement; no earlier check books it.
     on = options[manifest['missingSettlement']['series']]
-    lo = next(o for o in catalog['options'] if o['product'] == 'nymex_lo' and o['right'] == 'put' and o['underlyingSeries'] == 'nymex_cl_20270101')
+    # Preserve the original independent Greek specimen when wing listings grow.
+    lo = options['nymex_lo_20270101_p58.00']
     deep = options[FALLBACK_SERIES]
     book = catalog['books'][0]['id']
     from lifecycle_option_client import LifecycleOptionClient
