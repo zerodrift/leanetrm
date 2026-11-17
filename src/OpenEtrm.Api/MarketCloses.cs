@@ -139,6 +139,21 @@ public static partial class MarketCloses
         return CreateFrame(close,header.Name,header.At,parts,contextId,new(header.Session,header.SessionVersion,header.BusinessDate,header.ReplacedBy));
     }
     private sealed record CloseParts(CatalogueSource Primary,ImmutableDictionary<Guid,MarketSourceInputs> Sources);
+    // Reattest the complete recorded matrix in this read's transaction before
+    // using any cached root membership, including a negative availability answer.
+    internal static async Task RequireFrames(NpgsqlConnection connection,Guid catalog,ImmutableArray<InputFrame> frames,Guid? contextId,CancellationToken ct)
+    {
+        if(frames.IsEmpty)return;
+        var parts=await Parts(connection,catalog,frames.Select(f=>f.OriginCloseId??throw new PreviewDeniedException()).Distinct().ToArray(),contextId,ct);
+        foreach(var frame in frames)
+        {
+            var native=parts[frame.OriginCloseId!.Value];
+            if(frame.Source!=native.Primary||frame.SourceInputs is null||frame.SourceInputs.Count!=native.Sources.Count||
+                frame.SourceInputs.Any(p=>!native.Sources.TryGetValue(p.Key,out var source)||!source.Matches(p.Value))||
+                !native.Sources[native.Primary.DefinitionRevisionId].Matches(frame))
+                throw new MarketDataException("market_inputs","The frame differs from its recorded exact source inputs.");
+        }
+    }
     private static async Task<Dictionary<Guid,CloseParts>> Parts(NpgsqlConnection connection,Guid catalog,Guid[] ids,Guid? contextId,CancellationToken ct)
     {
         await using var command=ScheduleStore.Command(connection,"SELECT security.read_market_close_parts($1,$2,$3::uuid)::text",catalog,ids,(object?)contextId??DBNull.Value);

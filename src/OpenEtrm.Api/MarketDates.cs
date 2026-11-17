@@ -26,8 +26,8 @@ public sealed record LastClosesRequest([property:JsonRequired] string Session);
 // The newest close in force of the session that can price a listed curve. A curve with none is left out.
 public sealed record CurveLastClose(string Curve,Guid Id,string BusinessDate,DateTimeOffset At);
 public sealed record LastClosesResponse(ScheduleContext? Context,string Session,ImmutableArray<CurveLastClose> Curves);
-public delegate Task<IResult> MarketDatesOperation(HttpContext context,
-    Func<NpgsqlConnection,PinnedContext,ImmutableArray<InputFrame>,FrameCatalogInfo,CancellationToken,Task<IResult>> work);
+public delegate Task<IResult> MarketDatesOperation(HttpContext context,string session,
+    Func<NpgsqlConnection,PinnedContext,ImmutableArray<InputFrame>,FrameCatalogInfo,CancellationToken,Task<object>> work);
 
 // Calendar availability is a business read. It qualifies exact retained snapshot
 // choices without filling prices, selecting a close, or widening knowledge.
@@ -36,10 +36,10 @@ public static class MarketDates
     public const string SelectionPolicy="exact_snapshot_no_close_substitution_v1";
     public static void MapMarketDates(this RouteGroupBuilder api,PreviewDatabase database,MarketDatesOperation operation)
     {
-        api.MapPost("/market/dates",(HttpContext context,MarketDatesRequest body)=>operation(context,async(connection,pin,frames,catalog,ct)=>
-            Results.Ok((await Read(database,connection,pin,frames,body,ct)) with{FrameCatalog=catalog})));
-        api.MapPost("/market/last-closes",(HttpContext context,LastClosesRequest body)=>operation(context,async(connection,pin,frames,_,ct)=>
-            Results.Ok(await LastCloses(database,connection,pin,frames,body,ct))));
+        api.MapPost("/market/dates",(HttpContext context,MarketDatesRequest body)=>operation(context,body.Session,async(connection,pin,frames,catalog,ct)=>
+            (await Read(database,connection,pin,frames,body,ct)) with{FrameCatalog=catalog}));
+        api.MapPost("/market/last-closes",(HttpContext context,LastClosesRequest body)=>operation(context,body.Session,async(connection,pin,frames,_,ct)=>
+            await LastCloses(database,connection,pin,frames,body,ct)));
     }
     public static async Task<MarketDatesResponse> Read(PreviewDatabase database,NpgsqlConnection connection,PinnedContext pin,
         ImmutableArray<InputFrame> frames,MarketDatesRequest request,CancellationToken ct)
@@ -53,17 +53,14 @@ public static class MarketDates
         frames=await BindSessionCloses(database,connection,pin,frames,request.Session,ct);
         if(request.MaximumDates is <1 or >128)throw new MarketDataException("market_dates_input","Request from one to 128 dates explicitly.");
         var data=pin.Frame is {} anchorFrame
-            ?await MarketInputSelection.Root(database,connection,anchorFrame,ct,observationIds:[],includeCalendarDays:false)
-            :await database.Read(connection,ct,observationIds:[],includeCalendarDays:false);
+            ?await MarketInputSelection.Root(database,connection,anchorFrame,ct,observationIds:[],includeCalendarDays:request.Definition is null)
+            :await database.Read(connection,ct,observationIds:[],includeCalendarDays:request.Definition is null);
         if(request.Curve is {} code&&!data.IsRateCurve(code)&&
             !frames.Any(frame=>frame.SourceInputs?.Values.Any(part=>part.RootCurves.Contains(code,StringComparer.Ordinal))==true)&&
             !(await new CatalogueStore(database.Manifest.CatalogId).ReadBound(connection,ct,pin.Frame?.Time.Date)).Curves.Any(curve=>curve.Code==code))
             throw new MarketDataException("missing_curve","Choose an exact curve in the published catalogue or selected close scope.");
         var metadata=data;
         Func<InputFrame,CancellationToken,Task> qualify;
-        // Rate curves' pinned date lists load once, before frames stream: each close's tenors then resolve in memory (D359).
-        var inputReads=new MarketInputReadScope(database,connection,pin.Frame is {} rootFrame?rootFrame.ContextId:pin.Context?.ContextId);
-        var rateSources=new Dictionary<(CatalogueSource Source,string Code),RateTenorSource?>();
         if(request.Definition is {} definition)
         {
             CustomCurves.Validate(definition);
@@ -179,11 +176,18 @@ public static class MarketDates
                     references.Sources,references.Calendars,references.Schedules,selected,cancellation,retainedObservations:retainedSamples,sourceFrame:sourceFrame,calendarReads:calendarReads);
             }
         }
-        else qualify=async(frame,cancellation)=>
+        else
         {
-            var qualified=await QualifiedCurves(database,connection,frame,request.Curve is {} selected?[selected]:null,inputReads,rateSources,cancellation);
-            if(qualified.Length==0)throw new MarketDataException("market_data_unavailable","No complete selected curve can be evaluated from this exact snapshot.");
-        };
+            await MarketCloses.RequireFrames(connection,database.Manifest.CatalogId,frames,pin.Context?.ContextId,ct);
+            var inputs=new MarketDateInputs(database,connection);
+            var candidates=pin.Context is {} retained?frames.Where(f=>Day(f)==DateWorkspace.Date(retained.EffectiveOn)).ToImmutableArray():frames;
+            await inputs.Prepare(candidates,request.Curve is {} requestedCode?[requestedCode]:null,data,request.MaximumDates is null,ct);
+            qualify=async(frame,cancellation)=>
+            {
+                var qualified=await inputs.Qualified(frame,request.Curve is {} selected?[selected]:null,cancellation);
+                if(qualified.IsEmpty)throw new MarketDataException("market_data_unavailable","No complete selected curve can be evaluated from this exact snapshot.");
+            };
+        }
         var available=new List<(string Date,MarketDateFrame Frame)>();
         var unavailable=new List<UnavailableMarketDate>();
         var processed=0;
@@ -221,6 +225,7 @@ public static class MarketDates
 
         async Task<T> AtContext<T>(ScheduleContext context,Func<Task<T>> read)
         {
+            using var evidence=AsyncReadVisibility.AtMarketContext(context);
             await using(var save=ScheduleStore.Command(connection,"SAVEPOINT market_dates_read"))await save.ExecuteNonQueryAsync(ct);
             try
             {
@@ -250,15 +255,16 @@ public static class MarketDates
             var codes=source.Select(c=>c.Code).ToHashSet(StringComparer.Ordinal);
             pending.UnionWith((await MarketNavigation.ReadCurves(connection,source.Key.Apply(database.Manifest),ct)).Where(c=>codes.Contains(c.Code)).Select(c=>c.Code));
         }
-        var inputReads=new MarketInputReadScope(database,connection,pin.Frame is {} rootFrame?rootFrame.ContextId:pin.Context?.ContextId);
-        var rateSources=new Dictionary<(CatalogueSource Source,string Code),RateTenorSource?>();
         var found=ImmutableArray.CreateBuilder<CurveLastClose>();
         // A historical view reads only its own business day, as its calendar does.
         var candidates=pin.Context is {} context?frames.Where(frame=>Day(frame).ToString("yyyy-MM-dd",CultureInfo.InvariantCulture)==context.EffectiveOn).ToImmutableArray():frames;
+        await MarketCloses.RequireFrames(connection,database.Manifest.CatalogId,frames,pin.Context?.ContextId,ct);
+        var inputs=new MarketDateInputs(database,connection);
+        await inputs.Prepare(candidates,pending,null,false,ct);
         foreach(var batch in CandidateBatches(candidates,TimeZoneInfo.Utc,limited:true))
         {
             foreach(var frame in batch)
-                foreach(var code in await QualifiedCurves(database,connection,frame,pending,inputReads,rateSources,ct))
+                foreach(var code in await inputs.Qualified(frame,pending,ct))
                 {
                     found.Add(new(code,frame.Id,Day(frame).ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),frame.At));
                     pending.Remove(code);
@@ -301,6 +307,34 @@ public static class MarketDates
         await using var command=ScheduleStore.Command(connection,"SELECT array(SELECT to_char(d,'YYYY-MM-DD') FROM unnest(security.close_session_hidden_days($1,$2))d)",catalog,session);
         return (string[])(await command.ExecuteScalarAsync(ct))!;
     }
+    internal static async Task<Func<NpgsqlConnection,CancellationToken,Task>> AnswerCheck(PreviewDatabase database,NpgsqlConnection connection,
+        PinnedContext pin,ImmutableArray<InputFrame> frames,string session,CancellationToken ct)
+    {
+        frames=[..frames.Where(f=>f.Close?.Session==session&&f.Close.ReplacedBy is null)];
+        var hidden=await HiddenDays(connection,database.Manifest.CatalogId,session,ct);
+        return async(current,cancellation)=>
+        {
+            await pin.Bind(current,database.Manifest.CatalogId,cancellation);
+            await SelectedClose.BindSession(current,database.Manifest.CatalogId,session,cancellation);
+            await MarketCloses.RequireFrames(current,database.Manifest.CatalogId,frames,pin.Context?.ContextId,cancellation);
+            if(!frames.IsEmpty)
+            {
+                var rows=await PreviewDatabase.Rows(current,"SELECT json_build_object('id',id,'at',at,'day',business_date,'session',session_code,'version',session_version,"+
+                    "'current',security.close_in_force(catalog_id,session_code,business_date))::text FROM market_data.market_closes WHERE catalog_id=$1 AND id=ANY($2::uuid[])",
+                    [database.Manifest.CatalogId,frames.Select(f=>f.OriginCloseId!.Value).Distinct().ToArray()],cancellation);
+                var headers=rows.ToDictionary(row=>row.Id("id"));
+                foreach(var frame in frames)
+                {
+                    if(!headers.TryGetValue(frame.OriginCloseId!.Value,out var row)||row.OptionalId("current") is null)throw new PreviewDeniedException();
+                    if(row.Id("current")!=frame.OriginCloseId)throw new MarketDataException("close_replaced","A recorded close has been replaced. Reload the calendar's exact choices.");
+                    if(row.Instant("at")!=frame.At||DateWorkspace.Date(row.Text("day"))!=frame.Time.Date||row.Text("session")!=frame.Close!.Session||
+                        int.Parse(row.Text("version"),CultureInfo.InvariantCulture)!=frame.Close.SessionVersion)throw new PreviewDeniedException();
+                }
+            }
+            if(!hidden.Order(StringComparer.Ordinal).SequenceEqual((await HiddenDays(current,database.Manifest.CatalogId,session,cancellation)).Order(StringComparer.Ordinal)))
+                throw new PreviewDeniedException();
+        };
+    }
     static async Task RequireAccess(PreviewDatabase database,NpgsqlConnection connection,CancellationToken ct,PreviewData? selected=null)
     {
         var source=selected is null?(await new CatalogueStore(database.Manifest.CatalogId).ReadBound(connection,ct)).RequireRole("primary"):
@@ -308,51 +342,6 @@ public static class MarketDates
         await using var command=ScheduleStore.Command(connection,"SELECT security.market_fact_visible($1,$2,NULL) AND security.reference_version_visible($3,$4)",
             database.Manifest.CatalogId,source.DefinitionRevisionId,source.ReferenceCatalogId,source.ReferenceRevisionId);
         if(!Equals(await command.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
-    }
-    // Qualify each signed source against its own observations and tenor metadata.
-    // An unrelated curve's absence cannot hide a complete selected curve.
-    static async Task<ImmutableArray<string>> QualifiedCurves(PreviewDatabase database,NpgsqlConnection connection,InputFrame frame,
-        IEnumerable<string>? requested,MarketInputReadScope reads,
-        Dictionary<(CatalogueSource Source,string Code),RateTenorSource?> rateSources,CancellationToken ct)
-    {
-        var root=await MarketInputSelection.Root(database,connection,frame,ct,reads:reads);
-        var catalogue=await new CatalogueStore(database.Manifest.CatalogId).ReadBound(connection,ct,frame.Time.Date);
-        var selectedRates=await MarketInputSelection.SelectedRates(database,connection,frame,catalogue,ct);
-        var codes=requested??(frame.SourceInputs is {} parts?parts.Values.SelectMany(p=>p.RootCurves):frame.CurveContracts.Keys)
-            .Concat(frame.SourceInputs is null?root.Definitions["rate_curves"].Select(r=>r.Text("code")):selectedRates.Select(r=>r.Code));
-        var selected=new List<(string Code,CatalogueSource Source)>();
-        foreach(var code in codes.Distinct(StringComparer.Ordinal))
-        {
-            try{selected.Add((code,MarketInputSelection.SelectedCurve(frame,code,catalogue,selectedRates)));}
-            catch(MarketDataException error)when(error.Code is "curve_not_selected" or "catalogue_curve" or "market_inputs_missing"){}
-        }
-        var qualified=ImmutableArray.CreateBuilder<string>();
-        foreach(var group in selected.GroupBy(c=>c.Source))
-        {
-            (PreviewData Data,InputFrame Frame) input;
-            try{input=await MarketInputSelection.Resolve(database,connection,frame,group.Key,[(root,frame)],false,ct,reads);}
-            catch(MarketDataException error)when(error.Code=="market_inputs_missing"){continue;}
-            var rates=new Dictionary<string,RateTenorSource>(StringComparer.Ordinal);
-            foreach(var code in group.Select(c=>c.Code).Where(input.Data.IsRateCurve))
-            {
-                var key=(group.Key,code);
-                if(!rateSources.TryGetValue(key,out var source))
-                {
-                    try{source=await RateCurveResolver.Load(connection,input.Data,input.Frame,code,ct);}
-                    catch(Exception error)when(error is MarketDataException or TemporalException){source=null;}
-                    if(rateSources.Count==128)rateSources.Remove(rateSources.Keys.First());
-                    rateSources.Add(key,source);
-                }
-                if(source is not null)rates.Add(code,source);
-            }
-            foreach(var item in group)
-            {
-                ct.ThrowIfCancellationRequested();
-                try{QualifyCurve(input.Data,input.Frame,item.Code,rates);qualified.Add(item.Code);}
-                catch(Exception error)when(error is MarketDataException or TemporalException){}
-            }
-        }
-        return qualified.ToImmutable();
     }
     internal static void QualifyCurve(PreviewData data,InputFrame frame,string code,IReadOnlyDictionary<string,RateTenorSource> rateSources)
     {

@@ -19,6 +19,7 @@ public sealed partial class PreviewDatabase
         {
             var exact=await ReadObservationPins(connection,metadata.DefinitionRevision.CatalogId,metadata.DefinitionRevision.RevisionId,exactPins.IsDefault?[]:exactPins,ct);
             Interlocked.Add(ref observationRowsRead,exact.Length);
+            AsyncReadVisibility.Observations(metadata.DefinitionRevision.CatalogId,metadata.DefinitionRevision.RevisionId,exact);
             return metadata.WithObservations(exact);
         }
         var requested=JsonSerializer.Serialize(windows.Distinct().Select(window=>new{series=window.SeriesId,source=window.SourceCode,role=window.Role,from=window.From,to=window.To}));
@@ -40,6 +41,7 @@ public sealed partial class PreviewDatabase
             """,[metadata.DefinitionRevision.CatalogId,metadata.DefinitionRevision.RevisionId,requested,
                 (exactPins.IsDefault?ImmutableArray<Guid>.Empty:exactPins).ToArray()],ct);
         Interlocked.Add(ref observationRowsRead,rows.Length);
+        AsyncReadVisibility.Observations(metadata.DefinitionRevision.CatalogId,metadata.DefinitionRevision.RevisionId,rows);
         return metadata.WithObservations(rows);
     }
 
@@ -144,6 +146,7 @@ public sealed partial class PreviewDatabase
             }
             var rows=payload.EnumerateArray().Select(row=>ReferenceJson.PreserveNumericLexemes(row.GetRawText())).ToImmutableArray();
             Interlocked.Add(ref observationRowsRead,rows.Length);
+            AsyncReadVisibility.Observations(metadata.DefinitionRevision.CatalogId,metadata.DefinitionRevision.RevisionId,rows);
             yield return metadata.WithObservations(rows,complete);
         }
     }

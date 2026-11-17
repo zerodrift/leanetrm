@@ -587,11 +587,30 @@ async Task RefreshFrames(PreviewSession session,CancellationToken ct)
     },ct);
     session.ApplyFrames(plan);
 }
-api.MapMarketDates(database,(c,work)=>Locked(c,async session=>
+api.MapMarketDates(database,async(c,closeSession,work)=>
 {
-    await RefreshFrames(session,c.RequestAborted);
-    return await database.WithIdentity(Profile(session),"ReadMarketData",(connection,ct)=>work(connection,Pin(session),session.VisibleFrames,session.FrameCatalog,ct),c.RequestAborted);
-}));
+    async Task<ReadPlan> Capture(PreviewSession session)
+    {
+        // Discovery assigns session state. Only this capture and application of
+        // its plan hold the gate; qualification runs on immutable selections.
+        await RefreshFrames(session,c.RequestAborted);
+        var pin=Pin(session);var frames=session.VisibleFrames;var catalog=session.FrameCatalog;
+        var profile=Profile(session);var digest=hosted is null?null:session.Digest;
+        return new(new("market.calendar.v1",new AsyncReadEmpty(),null,["ReadMarketData"]),ct=>
+            database.WithIdentity(profile,"ReadMarketData",async(connection,t)=>
+            {
+                var value=await work(connection,pin,frames,catalog,t);
+                return new ReadOutcome(value,await MarketDates.AnswerCheck(database,connection,pin,frames,closeSession,t));
+            },ct,hostedDigest:digest));
+    }
+    if(c.Features.Get<AssistantInvocation>() is not null)
+    {
+        return await Locked(c,async session=>Results.Ok((await (await Capture(session)).Execute(c.RequestAborted)).Value));
+    }
+    var selected=Session(c);var hostedDigest=hosted is null?null:selected.Digest;
+    return Results.Ok(await UngatedRead.Run(selected,async session=>AsyncReadVisibility.Observed(await Capture(session),marketDates:true,context:session.MarketContext),
+        (profile,plan,outcome,ct)=>ReadAuthority.Require(database,profile,hostedDigest,plan.Input.Permissions,ct,outcome.Recheck),c.RequestAborted));
+});
 api.MapGet("/close-sessions/catalog",(Func<HttpContext,Task<IResult>>)(c=>DateOperation(c,"ReadMarketData",async(session,connection,ct)=>
     Results.Ok(await CloseSessions.Catalog(connection,database.Manifest.CatalogId,ct)))));
 api.MapPost("/close-sessions/save",(HttpContext c,CloseSessionSave body)=>DateOperation(c,"WriteMarketDefinitions",async(session,connection,ct)=>

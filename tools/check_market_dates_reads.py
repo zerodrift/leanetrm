@@ -15,6 +15,10 @@ SESSION = 'synthetic_calendar_scaling'
 EXPECTED = {'curve': 'f899a197032bd27475da3adee6f027f3be06778230ca80405e18f1087153ba63', 'denied': '4292f04ecba1c37badc016fc5649e1131f4737bf9fca2ef2d44ce615f7af1d65', 'hidden': 'c40959aaece96f7549b10036de77257a0682d1793a40b7d9a31cbc66b5019baf', 'rate': '67399245cd08d8a1f0b07d00827e581fe398d136af30a46d915ead808e35ee0d', 'replaced': 'd444694f6c3a9de28159180e0ccd77d9f622f11cb091944c69249410c82967e5', 'retained': 'e88ca9402cd8c6d63bfefa0d89d6971fa261b8253e1c124e2e2becdc0486611b', 'workspace': '640376bb23df1cf40d66d4ceac651a820d7729c68d2ff60cb143c0bd0d3d442b'}
 
 
+def require_constant_statements(counts):
+    assert len(set(counts.values())) == 1 and min(counts.values()) > 0, f'Statements grow with unselected closes: {counts}'
+
+
 def projection(answer):
     """Keep business answers; random fixture identities and capture instants vary per run."""
     value = deepcopy(answer)
@@ -100,6 +104,7 @@ def run_checks(url, query, manifest, psql, environment, log):
     failures = []
     if not (0 < counts[24] == counts[48] == counts[96]):
         failures.append(f'Statements grow with unselected closes: {counts}')
+    print('CALENDAR_SCALING=' + str(counts), flush=True)
 
     # Hold only observation reads: frame discovery can finish under the gate before execution blocks.
     waiting_sql = "SELECT count(DISTINCT pid) FROM pg_locks WHERE relation='market_data.observations'::regclass AND NOT granted AND mode='AccessShareLock';"
@@ -123,6 +128,7 @@ def run_checks(url, query, manifest, psql, environment, log):
         return worker, outcome
     worker, outcome = holding(psql, environment, 'LOCK market_data.observations IN ACCESS EXCLUSIVE MODE', concurrent)
     worker.join(20); assert not worker.is_alive() and 'error' not in outcome, outcome
+    print('CALENDAR_GATE=' + ('blocked' if failures and failures[-1].startswith('An ordinary') else 'released'), flush=True)
     principal = "(SELECT principal_id FROM security.identity_bindings WHERE issuer='https://preview.invalid' AND subject='viewer')"
     grants = json.loads(query(f"SELECT json_agg(json_build_object('id',id,'until',granted_to)) FROM security.role_grants WHERE principal_id={principal};"))
     try:
@@ -135,7 +141,8 @@ def run_checks(url, query, manifest, psql, environment, log):
                 time.sleep(.025)
             return worker, outcome
         worker, outcome = holding(psql, environment, 'LOCK market_data.observations IN ACCESS EXCLUSIVE MODE', expired)
-        worker.join(20); assert not worker.is_alive() and 'error' not in outcome, outcome
+        worker.join(20)
+        if worker.is_alive() or 'error' in outcome:failures.append('Authority expiry did not return a denial: '+str(outcome))
     finally:
         for grant in grants:
             query(f"UPDATE security.role_grants SET granted_to='{grant['until']}'::timestamptz WHERE id='{grant['id']}';")
