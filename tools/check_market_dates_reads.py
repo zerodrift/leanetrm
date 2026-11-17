@@ -121,7 +121,9 @@ def limited_matrix_check(client, query, older):
     try:
         assert original.count('\nBEGIN\n') == 1
         query(original.replace('\nBEGIN\n', f"\nBEGIN\n IF nextval('public.synthetic_calendar_matrix_reads')>1 AND '{older}'::uuid=ANY(close_ids) THEN RAISE EXCEPTION 'Synthetic unvisited older matrix read' USING ERRCODE='42501';END IF;\n", 1))
-        client.call('market/dates', {'session': SESSION, 'curve': 'bridge_basis', 'timeZone': 'UTC', 'maximumDates': 1})
+        for maximum in (1, 2):
+            query('ALTER SEQUENCE public.synthetic_calendar_matrix_reads RESTART;')
+            client.call('market/dates', {'session': SESSION, 'curve': 'bridge_basis', 'timeZone': 'UTC', 'maximumDates': maximum})
         query('ALTER SEQUENCE public.synthetic_calendar_matrix_reads RESTART;')
         client.call('market/last-closes', {'session': SESSION})
     finally:
