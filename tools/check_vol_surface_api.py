@@ -26,12 +26,16 @@ DAY = '2026-10-16'
 
 
 def run_checks(url, query, manifest, *, run_worker, worker_login):
-    base = PreviewClient(url); base.bootstrap()
-    c = PreviewClient(url, 'exchange'); c.opener = base.opener; c.bootstrap()
+    def sign_in():
+        base = PreviewClient(url); base.bootstrap()
+        client = PreviewClient(url, 'exchange'); client.opener = base.opener; client.bootstrap()
+        client.call('profile', {'profile': 'trader'})
+        return client
+
+    c = sign_in()
     catalog, tenant, workspace = (manifest[key] for key in ('catalogId', 'tenantId', 'workspaceId'))
     R = f"'{manifest['referenceCatalogId']}','{manifest['referenceRevisionId']}'"
     M = f"'{catalog}','{manifest['revisionId']}'"
-    c.call('profile', {'profile': 'trader'})
     frame = next(f for f in c.call('workspace')['frames'] if f['at'].startswith(DAY))
 
     def check(name, condition, actual=None):
@@ -58,6 +62,28 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
 
     def revisions(product):
         return int(query(f"SELECT count(*) FROM trading.vol_surface_revisions WHERE catalog_id='{catalog}' AND product_code='{product}' AND effective_on='{DAY}';"))
+
+    def fresh_scenario():
+        # Each independent group starts a new sign-in: widened fits can outlast
+        # the preview's 30-minute session on CI. Never renew an authority-loss
+        # scenario or retry a denial; re-resolve the exact original input pins.
+        nonlocal c, frame
+        previous, old_frame = read(), frame
+        c = sign_in()
+        page = c.call('workspace')
+        def inputs(f):
+            return (f['at'], f['source'], sorted(f['observationIds']), sorted(f['frozenObservationIds']),
+                    sorted((curve, sorted(contracts)) for curve, contracts in f['curveContracts'].items()))
+        candidates = [f for f in page['frames'] if f['id'] in page['initialFrameIds'] and inputs(f) == inputs(old_frame)]
+        assert len(candidates) == 1, 'A fresh scenario needs exactly the original source, valuation and input pins.'
+        frame = candidates[0]
+        refused = c.call('vol-surfaces/read', {'context': {'snapshotId': old_frame['id'], 'convention': OPTION, 'knowledgeMode': 'current'},
+                                             'product': PRODUCT, 'model': MODEL, 'axis': 'log_moneyness_v1', 'points': ['0']}, expected=422)
+        restored = read()
+        check('a fresh sign-in rejects the prior session frame and reads the same retained fit through its exact new alias',
+              frame['id'] != old_frame['id'] and refused['code'] == 'snapshot_missing'
+              and restored['revision']['id'] == previous['revision']['id'] and restored['surface'] == previous['surface']
+              and restored['job']['id'] == previous['job']['id'])
 
     # The fitter: the trader, with only PublishMarketData added by a synthetic role.
     trader = query(f"SELECT principal_id FROM security.workspace_memberships WHERE(tenant_id,workspace_id,login_handle)=('{tenant}','{workspace}','trader');")
@@ -491,6 +517,7 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
     # synthetic sessions with the same cutoff: a fit at one session's close is not the other's, nor the working snapshot's at the
     # same instant, and a close that replaces it starts without one. No member chooses these sessions, so the browser checks
     # that follow still open on working snapshots.
+    fresh_scenario()
     from seed_session_closes import publish_session, record_close
     window = [{'curves': sorted(frame['curveContracts']), 'cutoff': frame['at'][11:16], 'from': '2026-10-13', 'to': '2026-10-17'}]
     for session in ('synthetic_east', 'synthetic_west'):
@@ -584,6 +611,8 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
 
     # The same reference product can have a second exact definition source.
     # Keep the original close inputs and publish the option role on the new part.
+    fresh_scenario()
+    at_east, at_replacement = close_frame(c, east), close_frame(c, replacement)
     second_definition = str(uuid4())
     original_definition = manifest['revisionId']
     copies = []
