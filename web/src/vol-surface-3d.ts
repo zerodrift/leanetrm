@@ -151,6 +151,11 @@ export function drawSurface3d(canvas:HTMLCanvasElement,surface:VolSurfaceResult,
    const a=at(point(row.expiry,row.points[i-1].pointId)),b=at(point(row.expiry,row.points[i].pointId));
    shapes.push({depth:(a.depth+b.depth)/2-.02,paint(){ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.strokeStyle=colours.accent;ctx.lineWidth=1.6;ctx.stroke();}});
   }
+  for(const row of mesh.rows)for(let i=0;i<row.points.length;i++){
+   const node=row.points[i];if(!node.covered||row.points[i-1]?.covered||row.points[i+1]?.covered)continue;
+   const p=at(point(row.expiry,node.pointId));
+   shapes.push({depth:p.depth-.02,paint(){ctx.beginPath();ctx.arc(p.x,p.y,2.5,0,Math.PI*2);ctx.fillStyle=colours.accent;ctx.fill();}});
+  }
   gapScreens=gaps.map(g=>({text:g.text,at:at(g.at)}));
   for(const gap of gapScreens){ctx.beginPath();ctx.arc(gap.at.x,gap.at.y,4,0,Math.PI*2);ctx.strokeStyle=colours.text3;ctx.setLineDash([2,2]);ctx.stroke();ctx.setLineDash([]);}
   placed=[];

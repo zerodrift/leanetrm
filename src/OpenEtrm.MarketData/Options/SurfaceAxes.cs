@@ -88,7 +88,8 @@ public static class SurfaceAxes
         }).ToImmutableArray();
         var selected = axes.Single(a => a.Id == request.Axis);
         var vols = expiries.SelectMany(e => e.Nodes).Where(n => n.Covered).Select(n => n.Fitted!.Value)
-            .Concat(series.Where(s => s.AxisValue is not null && s.Series.MarketVolatility is not null).Select(s => s.Series.MarketVolatility!.Value)).ToArray();
+            .Concat(series.Where(s => s.AxisValue is not null && s.Fitted is not null && s.RichCheap is not null && s.Series.MarketVolatility is not null)
+                .SelectMany(s => new[] { s.Fitted!.Value, s.Series.MarketVolatility!.Value })).ToArray();
         ImmutableArray<SurfaceAxisPoint> height = vols.Length == 0 ? [] : [..Enumerable.Range(0, 6).Select(i =>
         {
             var value = vols.Min() + (vols.Max() - vols.Min()) * L(i.ToString(CultureInfo.InvariantCulture)) / L("5");

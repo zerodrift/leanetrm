@@ -61,3 +61,19 @@ for(const action of ['leave','reset'])browser(`a fit answer after ${action} does
  release();await tick();await tick();await tick();
  return {extraReads:calls.filter(c=>c.path==='vol-surfaces/read').length-before,controlsHidden:$('#vol-axis-controls').hidden,errors};
 `,{extraReads:0,controlsHidden:true,errors:[]});
+
+test('a covered singleton is visible without any market stalk', {skip:!browserAvailable,timeout:browserTestTimeout},()=>
+ withBrowserPage('<link rel="stylesheet" href="/app.css"><canvas style="width:800px"></canvas>',async evaluate=>{
+  assert.equal(await evaluate(`(async()=>{
+   const {drawSurface3d}=await import('/vol-surface-3d.js');
+   const canvas=document.querySelector('canvas'),ctx=canvas.getContext('2d');let dots=0;
+   const arc=ctx.arc.bind(ctx);ctx.arc=(...args)=>{dots++;arc(...args);};
+   const tick=(value,label)=>({id:value,value,label});
+   const surface={expiries:[{expiryAt:'2027-01-01',status:'fitted',yearFraction:'0.25',timeLabel:'0.25',nodes:[
+    {pointId:'0',axisValue:'0',label:'ATM',logMoneyness:'0',strike:'100',fitted:'0.4',covered:true,reason:null}]}],series:[],
+    projection:{x:{id:'log_moneyness_v1',label:'Log-moneyness',unit:'ln(K/F)',reversed:false,ticks:[tick('0','ATM')]},
+     depth:{label:'Time to expiry',unit:'years'},height:{label:'Volatility',unit:'%',ticks:[tick('0.3','30'),tick('0.5','50')]}}};
+   const drawing=drawSurface3d(canvas,surface,{current:()=>null,subscribe:()=>()=>{},set:()=>{}});
+   drawing.dispose();return dots>0;
+  })()`),true);
+ }));

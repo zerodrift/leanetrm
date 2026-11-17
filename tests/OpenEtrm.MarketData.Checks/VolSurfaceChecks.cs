@@ -9,6 +9,7 @@ internal static class VolSurfaceChecks
     {
         Check("normal distribution independent references, symmetry, inverse grid and tails", NormalDistributionContract);
         Check("surface axes explicit points, shared identities, fitted coordinates and coverage", AxisContract);
+        Check("surface height domain contains both ends of every plotted stalk", StalkHeightDomain);
         Check("quadratic smile recovers known parameters", RecoversKnownParameters);
         Check("rich cheap equals a deliberate offset", DeliberateOffset);
         Check("fewer than five strikes is a gap", FewStrikes);
@@ -122,6 +123,25 @@ internal static class VolSurfaceChecks
         Expect(SurfaceAxes.Project(tiny, new("quick_delta_v1", ["0.5"])).Series.Single().AxisValue == L("0"), "Far standardized tail saturates before division.");
         var noRoot = surface with { Expiries = [surface.Expiries.Single() with { Parameters = new(L("0.6"), L("0"), L("10")) }] };
         Expect(SurfaceAxes.Project(noRoot, new("quick_delta_v1", ["0.9"])).Expiries.Single().Nodes.Single().Reason?.Code == "vol_axis_no_real_root", "No real root.");
+    }
+
+    private static void StalkHeightDomain()
+    {
+        var members = new[] { "-0.9", "-0.8", "-0.7", "0.7", "0.8", "0.9" }.Select(text =>
+        {
+            var k = L(text);
+            return new SurfaceSeries(text, k.CompareTo(L("0")) < 0 ? OptionRight.Put : OptionRight.Call,
+                (L("100") * k.Exp()).ToExact(), Expiry1, "f", null, "solved", L("3") - L("3") * k * k);
+        }).Append(new("atm-put", OptionRight.Put, ExactDecimal.Parse("100"), Expiry1, "f", null, "solved", L("1")));
+        var surface = VolSurfaces.Build(Model, [new(Expiry1, "f", L("100")) { YearFraction = L("0.25") }], [..members], Interval) with
+            { PlotInputs = new("USD/unit", "american_futures_option_crr_v1", SurfaceAxes.NumericalPolicy, NormalDistribution.ImplementationId) };
+        var projected = SurfaceAxes.Project(surface, new(SurfaceAxes.LogMoneyness, ["0.8"]));
+        var ticks = projected.Projection!.Height.Ticks.Select(t => t.Value).ToArray();
+        var stalks = projected.Series.Where(s => s.AxisValue is not null && s.Fitted is not null && s.RichCheap is not null && s.Series.MarketVolatility is not null);
+        Expect(stalks.Any(s => s.Series.Code == "atm-put" && !s.FitPoint && s.Fitted!.Value.CompareTo(L("2.9")) > 0), "The sparse selection omits a high fitted stalk base.");
+        foreach (var stalk in stalks)
+            foreach (var end in new[] { stalk.Fitted!.Value, stalk.Series.MarketVolatility!.Value })
+                Expect(end.CompareTo(ticks.Min()) >= 0 && end.CompareTo(ticks.Max()) <= 0, "The server height ticks enclose each plotted stalk's base and tip.");
     }
 
     private static readonly string[] Moneyness = ["-0.3", "-0.2", "-0.1", "0", "0.1", "0.2", "0.3"];
