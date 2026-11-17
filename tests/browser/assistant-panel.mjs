@@ -169,21 +169,21 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await script({tools:[['toolu_panel_05','navigate',{page:'schedules',target:null}]]},{text:'Here are the schedules.'});
   await ask('Take me to the schedules.');await wait(finished);
   await check('a live target that would leave unsaved booking edits does not move the page: its notice says so and offers Go anyway',
-    `${q('#page-title')}.textContent==='Blotter'&&${shown('#futures-new-trade')}&&${notice}.textContent.includes('Go would leave unsaved changes on this page.')&&${buttons}==='Go anyway'`
+    `${q('#page-title')}.textContent==='New future'&&${shown('#futures-new-trade')}&&${notice}.textContent.includes('Go would leave unsaved changes on this page.')&&${buttons}==='Go anyway'`
     +`&&(()=>{const r=${asks}.at(-1).body.pageReport;return r.page==='blotter_new_future'&&JSON.stringify(r.selection)==='{}'&&r.layout.pane.details&&JSON.stringify(r.layout)===${drawnLayout};})()`,
     `[${notice}?.textContent,JSON.stringify(${asks}.at(-1).body.pageReport),${drawnLayout}]`);
-  // The page report names the new trade in the panel, and its product: the assistant is told what the page shows, and reads no unsent entry.
-  await check('Looking at names the new future being entered, and says the assistant does not read it',`JSON.stringify(${looking}.slice(0,2))===${JSON.stringify(JSON.stringify(['Blotter','A new future is being entered. The assistant can inspect available terms, preview explicit drafts and prepare changes for your authorization.']))}`,looking);
+  // The page report names the new trade on New trade's page, and its product: the assistant is told what the page shows, and reads no unsent entry.
+  await check('Looking at names the new future being entered, and says the assistant does not read it',`JSON.stringify(${looking}.slice(0,2))===${JSON.stringify(JSON.stringify(['New trade','A new future is being entered. The assistant can inspect available terms, preview explicit drafts and prepare changes for your authorization.']))}`,looking);
   await press('Go anyway');await wait(`${q('#page-title')}.textContent==='Date schedules'&&${idle}`);
   await check('Go anyway leaves the unsaved booking for the target, with Back',`${notice}.textContent.startsWith('Took you to Schedules')&&${buttons}==='Back'`);
-  await press('Back');await wait(`${q('#page-title')}.textContent==='Blotter'&&${idle}`);
+  await press('Back');await wait(`${q('#page-title')}.textContent==='New future'&&${idle}`);
   // Back says so too before it would leave unsaved edits.
   await newTrade({click,wait},'futures');
   await evaluate(`${q('#futures-lots')}.focus()`);await command('Input.insertText',{text:'5'});
   await press('Back');await wait(`${buttons}==='Back anyway'`);
   await check('Back from a page with unsaved edits first says so, keeping them, and offers Back anyway',
     `${shown('#futures-new-trade')}&&${q('#futures-lots')}.value==='5'&&${notice}.textContent.includes('Back would leave unsaved changes on this page.')`);
-  await press('Back anyway');await wait(`${shown('#futures-new-trade')}&&${q('#page-title')}.textContent==='Blotter'&&${q('#futures-lots')}.value===''&&${idle}`);
+  await press('Back anyway');await wait(`${shown('#futures-new-trade')}&&${q('#page-title')}.textContent==='New future'&&${q('#futures-lots')}.value===''&&${idle}`);
   await check('Back anyway restores the native entry page without the discarded terms',`${shown('#futures-new-trade')}&&${q('#futures-lots')}.value===''&&${q('#futures-execution')}.value===''&&${q('#futures-book')}.value===''&&${q('#futures-contract')}.value===''&&${q('#error')}.hidden&&!window.__requests.some(request=>['/futures/book','/swaps/book','/assistant/actions/authorize'].some(path=>request.path.endsWith(path)))`);
 
   // A trade open in the panel is not a dialog (D221): the assistant stays open beside it and can be asked about it, and Looking at names
@@ -321,11 +321,11 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('the legacy agent needs the explicit workspace tool set to read this page',
     `[...${latest}.querySelectorAll('.assistant-steps li')].map(l=>l.textContent).join()==='Read the page · this agent does not read the page you asked from'`
     +`&&JSON.stringify(${asks}.at(-1).body.pageReport)===JSON.stringify({page:'delivery_prices',selection:{}})`);
-  // Entry stays in the Blotter; the assistant never reads unsaved PPA terms.
+  // Entry is on New trade's page; the assistant never reads unsaved PPA terms.
   await openPpaBookings({click,wait,evaluate});
   await set('#assistant-question','Which PPAs are in this book?');
   await check('Looking at recognizes PPA entry while keeping its unsaved terms unreadable',
-    `${looking}[0]==='Blotter'&&${looking}[1]==='A new PPA is being entered. The assistant does not read a trade being entered.'`,looking);
+    `${looking}[0]==='New trade'&&${looking}[1]==='A new PPA is being entered. The assistant does not read a trade being entered.'`,looking);
   await script({tools:[['toolu_ppa_panel_unsent','read_current_page',{}]]},{text:'I do not read unsaved trade entry.'});
   await ask('Which PPAs are in this book?');await wait(finished);
   // The report carries view/selection pointers alongside page/layout, never a term of the PPA being entered.

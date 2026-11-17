@@ -48,7 +48,7 @@ async function run(driver){
   await sideCards(driver,ticket,await evaluate("calls.findLast(c=>c.path==='/api/tickets/preview'&&c.status===200).result"),{label:'conditional custody fee review contains one actual cash Side without invented principal/title Sides',roles:['Ordinary cash payment']});
   await check('the custody profile exposes no title-transfer principal mark, claim account or elapsed fee fields',`['mark_curve','claim_account','principal_quantity','fee_rate_amount'].every(id=>document.querySelector(${q(ticket)}+' [data-field="'+id+'"]')===null)`);
   if(input.perspective==='provider')await check('provider explicitly selects foreign custody without any inventory account',`document.querySelector(${q(control(null,'owned_account'))}).value==='none'&&document.querySelectorAll(${q(control(null,'owned_account')+' option')}).length===2`);
-  await click('#blotter-dock [data-maximize=details]');await evaluate("document.querySelector('#park-loan-ticket .deal-ticket').scrollIntoView({block:'start'})");await shot(f.artifactPrefix+'-entry');await click('#blotter-dock [data-maximize=details]');
+  await evaluate("document.querySelector('#park-loan-ticket .deal-ticket').scrollIntoView({block:'start'})");await shot(f.artifactPrefix+'-entry');
   await evaluate('window.loseCustodyBooking=true');await click(ticket+' .ticket-book',60000);
   const recover=`[...document.querySelectorAll('#park-loan-ticket .ticket-booking button')].find(b=>b.textContent==='Check booking status'&&!b.disabled)`;
   await wait(`!!(${recover})&&${idle}`,60000);await evaluate(`(${recover}).click()`);await wait(`document.querySelector('#position-details').dataset.mode==='position'&&${idle}`,60000);

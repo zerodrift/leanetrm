@@ -123,7 +123,7 @@ async function run(driver){
   const roles=['Commercial entitlement rights',...(input.fixedFeeAmount==='0'?[]:['Ordinary cash payment'])];
   await serviceFieldGroups(driver,ticket.ticket,['agreement','rights','fee'],'Transport edits distinguish whole-rights Side terms from independent fee terms');
   await sideCards(driver,ticket.ticket,await evaluate("calls.findLast(call=>call.path==='/api/tickets/preview'&&call.status===200).result"),{label:'Transport review exposes one whole-rights Side and only the explicitly selected fee Instrument',roles});
-  if(index===0){await click('#blotter-dock [data-maximize=details]');await evaluate("document.querySelector('#transport-ticket').scrollIntoView({block:'start'})");await shot('transport-financial-entry');await click('#blotter-dock [data-maximize=details]');await evaluate('window.loseBooking=true');}
+  if(index===0){await evaluate("document.querySelector('#transport-ticket').scrollIntoView({block:'start'})");await shot('transport-financial-entry');await evaluate('window.loseBooking=true');}
   await click(ticket.ticket+' .ticket-book',60000);
   if(index===0){const recover="[...document.querySelectorAll('#transport-ticket .ticket-booking button')].find(button=>button.textContent==='Check booking status'&&!button.disabled)";await wait(`!!(${recover})&&${idle}`,60000);await evaluate(`(${recover}).click()`);}
   await wait(`document.querySelector('#position-details').dataset.mode==='position'&&!!document.querySelector('#position-details .deal-ticket[data-mode=booked]')&&${idle}`,60000);

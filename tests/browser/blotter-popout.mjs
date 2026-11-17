@@ -2,7 +2,7 @@ import {sideSession} from './side-session.mjs';
 import {newTrade} from './new-trade.mjs';
 import {qualifyProvider,pricedModel} from './model-fixture.mjs';
 import {chooseFutures} from './futures-selection.mjs';
-import {popOut as openPopOut} from './blotter-window.mjs';
+import {newTradeInPopOut,popOut as openPopOut} from './blotter-window.mjs';
 
 // The pop-out Blotter (blotter-workbench.md, Pop-out Blotter), after the assistant panel in the assistant check's preview: the Blotter opens
 // in a window of its own, tied to the main window, which shows where it went and can bring it back. The pop-out follows the main window's
@@ -62,10 +62,14 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   const reported=()=>evaluate('new Promise(resolve=>setTimeout(resolve,500))');
   // Typed as a person types: only the person's own input is an edit of a form.
   const lots=async(driver,value)=>{
-    await newTrade({click:driver.click,wait:driver.wait},'futures');
+    await newTradeInPopOut(driver,'futures');
     await driver.evaluate("(()=>{const n=document.querySelector('#futures-lots');n.focus();n.select();})()");await driver.command('Input.insertText',{text:value});await reported();
   };
   await lots(popup,'2');
+  // The pop-out has no page of New trade's (D421): the ticket opens in its own Details pane, and its chooser lists only what it opens itself.
+  await check('New trade in the pop-out opens in its Details pane, offering only the future and the swap',
+    JSON.stringify(await popup.evaluate("document.querySelector('#position-details').dataset.mode==='new'&&!document.querySelector('#futures-page').hasAttribute('data-entry')&&[...document.querySelectorAll('#new-trade-product button')].map(b=>b.id).join()==='new-trade-futures,new-trade-swaps'")),
+    JSON.stringify(await popup.evaluate("[...document.querySelectorAll('#new-trade-product button')].map(b=>b.id)")));
   await click('#nav-market',30000);
   await check('moving to another page of the main window asks nothing of the pop-out\'s edits',`${prompt}.hidden&&${q('#page-title')}.textContent==='Curves & prices'`);
   // Opening the native ticket performs a fresh read. Keep must preserve the displayed context held immediately before this request.
@@ -183,7 +187,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await click('#nav-futures',30000);await wait(`!!document.querySelector('#desk-positions .tabulator-row[data-row-key]')&&${idle}`,60000);
   // Books a future in `driver`'s Blotter whose first send is lost, so its outcome is not known, and gives the identity it was sent under.
   async function holdBooking(driver){
-    await newTrade({click:driver.click,wait:driver.wait},'futures');
+    await newTradeInPopOut(driver,'futures');
     await chooseFutures({evaluate:driver.evaluate,set:driver.set,click:driver.click});await driver.evaluate("document.querySelector('#futures-book').selectedIndex=1;");
     await driver.set('#futures-lots','1');await driver.set('#futures-execution','2.6');
     await driver.evaluate("for(const id of ['futures-legal-entity','futures-counterparty']){const s=document.getElementById(id);s.selectedIndex=1;s.dispatchEvent(new Event('input',{bubbles:true}));}");

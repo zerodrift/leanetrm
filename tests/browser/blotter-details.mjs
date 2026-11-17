@@ -2,6 +2,8 @@
 // keyboard moves the selection and the details follow it; the last chosen tab is kept from position to position; unsaved edits are asked
 // about before the details show another position or collapse; Escape, on the row or in the details, collapses them and gives focus back to
 // the row. The open details keep room of their own beside the grid's, taking the Charts pane's for as long as they need it.
+import {closeNewTrade,startNewTrade} from './new-trade.mjs';
+
 export async function run({command,evaluate,wait,click,set,persona,check,idle,url}){
   const frames='new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))';
   // 1440 by 1050 is the shortest desktop window whose dock holds the summary strip, a 250 px grid and 240 px of open details at once.
@@ -127,11 +129,6 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await evaluate(`[...${prompt}.querySelectorAll('button')].find(b=>b.textContent==='Discard changes').click()`);
   await wait(`${collapsed}&&document.activeElement===${row(JSON.stringify(shown))}&&${idle}`).catch(observed);
   await check('discarding collapses the details and gives focus back to the selected row',`${selected}===${JSON.stringify(shown)}&&document.querySelector('#position-details').hidden&&!${room}.charts`);
-  // A new trade collapsed from the details gives focus back to the selected row, as no position row is open.
-  await click('#futures-new');await wait(`document.querySelector('#position-details')?.dataset.mode==='new'&&${idle}`);
-  await press('Escape');
-  await wait(`${collapsed}&&document.activeElement===${row(JSON.stringify(shown))}&&${idle}`).catch(observed);
-  await check('collapsing a new trade gives focus back to the selected row',`document.activeElement===${row(JSON.stringify(shown))}`);
   // A new read shows the selected position again in the details, on the tab they were on; one that no longer holds it collapses them.
   await press('Enter');await wait(`document.querySelector('#position-details')?.hidden===false&&${idle}`);
   await click('#position-details-tabs-history');await wait(`document.querySelector('#position-details-tabs-history').getAttribute('aria-selected')==='true'&&${idle}`);
@@ -154,15 +151,17 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await check('a new read that no longer holds the selected position collapses the details, never leaving the pane empty',`${collapsed}&&document.querySelector('#position-details').hidden`,room);
   await evaluate("(()=>{for(const o of document.querySelector('#blotter-books').options)o.selected=false;})()");
   await click('#blotter-apply');await wait(`document.querySelector('#futures-page').dataset.pricingState==='complete'&&!!document.querySelector('#desk-positions .tabulator-row[data-row-key]')&&${idle}`);
-  // A read for the priced contracts, as a future's New trade makes, keeps every summary strip item on screen marked stale until it lands.
-  await click('#futures-new');await wait(`document.querySelector('#position-details')?.dataset.mode==='new'&&!!document.querySelector('#new-trade-futures')&&${idle}`);
+  // A read for the priced contracts, as a future chosen on New trade's page makes, keeps every summary strip item of the Blotter behind
+  // that page marked stale until it lands.
+  await startNewTrade({click,wait,evaluate});
   await evaluate("window.__detailsHold=true;document.querySelector('#new-trade-futures').click()");await wait("typeof window.__detailsRelease==='function'");
   const strip="[...document.querySelectorAll('#blotter-strip .strip-item')]";
-  await check('a read for the priced contracts keeps every summary strip item on screen, each marked stale',
+  await check('a read for the priced contracts keeps every summary strip item of the Blotter, each marked stale',
     `${strip}.length>0&&${strip}.every(i=>i.hasAttribute('data-stale')&&!!i.querySelector('.strip-stale'))`,`${strip}.map(i=>[i.textContent,i.hasAttribute('data-stale')])`);
   await evaluate('window.__detailsRelease();window.__detailsRelease=undefined');
   await wait(`document.querySelector('#futures-page').dataset.pricingState==='complete'&&!!document.querySelector('#position-details-form #futures-new-trade')&&${idle}`).catch(observed);
-  await click('#details-collapse');await wait(`${collapsed}&&${idle}`).catch(observed);
+  // Leaving New trade's page shows the Blotter again with its details collapsed; the read that checks it is over before the next begins.
+  await closeNewTrade({click,evaluate,wait});await wait(`${collapsed}&&document.querySelector('#futures-page').dataset.readState!=='pending'&&${idle}`).catch(observed);
   // A count of the positions that fails beside the valuation is said as the count's own failure, never as the valuation's.
   await evaluate("window.__failCount=true;document.querySelector('#futures-refresh').click()");
   await wait(`document.querySelector('#futures-page').dataset.pricingState==='failed'&&${idle}`).catch(()=>undefined);

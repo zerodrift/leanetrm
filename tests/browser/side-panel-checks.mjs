@@ -1,4 +1,4 @@
-// A position, a new trade and the risk report open in the Details pane below the positions grid.
+// A position and the risk report open in the Details pane below the positions grid, and a new trade in the same pane on its own page.
 // Exercise the same edits, context fencing and keyboard paths in each of them.
 import {chooseProduct,newTrade,startNewTrade,closeNewTrade} from './new-trade.mjs';
 const panel="(document.querySelector('#position-details')??{hidden:true})",side="document.querySelector('#position-details')";
@@ -423,19 +423,19 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   // PPA entry shares the product panel and its unsaved-edit guard.
   await amend(refB);
   await startNewTrade({click,wait});await click('#new-trade-ppa');
-  await check('New trade for a PPA leaves a form with no edits without a question',`${prompt}.hidden&&${title}==='Blotter'&&document.querySelector('#side-panel-title').textContent==='New PPA'&&document.querySelector('#position-details-form').contains(document.querySelector('#ppa-page'))`,`[${prompt}.textContent,${title}]`);
+  await check('New trade for a PPA leaves a form with no edits without a question',`${prompt}.hidden&&${title}==='New PPA'&&document.querySelector('#side-panel-title').textContent==='New PPA'&&document.querySelector('#position-details-form').contains(document.querySelector('#ppa-page'))`,`[${prompt}.textContent,${title}]`);
   await closeNewTrade({click,evaluate,wait});await back();
   await newTrade({click,wait},'futures');await typeInto('#futures-lots','5');
   await click('#new-trade-ppa');await asks();
-  await check('Switching to PPA asks first, and keeping edits preserves the current trade',`${prompt}.querySelectorAll('button').length===2&&${title}==='Blotter'&&${newForm}&&document.querySelector('#futures-lots').value==='5'`,`[${prompt}.textContent,${title}]`);
+  await check('Switching to PPA asks first, and keeping edits preserves the current trade',`${prompt}.querySelectorAll('button').length===2&&${title}==='New future'&&${newForm}&&document.querySelector('#futures-lots').value==='5'`,`[${prompt}.textContent,${title}]`);
   await answer(0);
   await click('#new-trade-ppa');await asks();await answer(1);await wait(idle);
-  await check('and agreeing opens the PPA form in the common workspace',`${title}==='Blotter'&&document.querySelector('#side-panel-title').textContent==='New PPA'&&document.querySelector('#position-details-form').contains(document.querySelector('#ppa-page'))`,title);
+  await check('and agreeing opens the PPA form in the common workspace',`${title}==='New PPA'&&document.querySelector('#side-panel-title').textContent==='New PPA'&&document.querySelector('#position-details-form').contains(document.querySelector('#ppa-page'))`,title);
   await closeNewTrade({click,evaluate,wait});await back();
   await check('the Blotter comes back without the form: it starts fresh',`${side}.hidden&&document.querySelector('#futures-new-trade').hidden&&document.querySelector('#trade-editing').hidden`);
 
-  // The form of a new trade is the panel's too: what is typed in it is an edit like an amendment's, and a switch of product, a closing of the
-  // panel and every other way out of the form ask first. A form with no edits is left at once, and a new trade starts empty each time.
+  // The form of a new trade is the panel's too: what is typed in it is an edit like an amendment's, and a switch of product, leaving its
+  // page and every other way out of the form ask first. A form with no edits is left at once, and a new trade starts empty each time.
   await newTrade({click,wait},'futures');
   await click('#new-trade-swaps');
   await check('a new trade with no edits is switched to the other product without a question, and the first product\'s form is gone',`${prompt}.hidden&&document.querySelector('#side-panel-title').textContent==='New swap'&&!document.querySelector('#swap-editing').hidden&&document.querySelector('#futures-new-trade').hidden&&!document.querySelector('#position-details-form').contains(document.querySelector('#futures-form'))`);
@@ -449,20 +449,21 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await check('discarding them opens the other product\'s form, and the swap form and what was typed in it are gone',`${prompt}.hidden&&document.querySelector('#swap-editing').hidden&&document.querySelector('#swap-memo').value===''&&document.querySelector('#new-trade-futures').getAttribute('aria-pressed')==='true'&&document.querySelector('#new-trade-swaps').getAttribute('aria-pressed')==='false'`);
   await check('and the browser is asked nothing when the page is left, because nothing is held now',`!${unloadAsks}`);
   await typeInto('#futures-lots','4');
-  await click('#details-collapse');await asks();
-  await check('closing the panel with a new trade\'s edits asks first, and keeping them leaves the panel on its form',`${prompt}.querySelectorAll('button').length===2&&!${side}.hidden&&${newForm}&&document.querySelector('#futures-lots').value==='4'`);
+  await click('#nav-futures');await asks();
+  await check('leaving the page for the Blotter with a new trade\'s edits asks first, and keeping them leaves the page on its form',`${prompt}.querySelectorAll('button').length===2&&${title}==='New future'&&!${side}.hidden&&${newForm}&&document.querySelector('#futures-lots').value==='4'`,`[${prompt}.textContent,${title}]`);
   await answer(0);
-  await click('#futures-refresh');await asks();
-  await check('a new read of the Blotter, which closes the panel, asks first about a new trade\'s edits too',`${prompt}.querySelectorAll('button').length===2&&!${side}.hidden&&${newForm}&&document.querySelector('#futures-lots').value==='4'`);
+  // The Blotter's Refresh is not on New trade's page: the As of date is, and choosing another reads the Blotter again.
+  await set('#snapshot',closeOther);await asks();
+  await check('another As of date, which reads the Blotter again, asks first about a new trade\'s edits too',`${prompt}.querySelectorAll('button').length===2&&${title}==='New future'&&!${side}.hidden&&${newForm}&&document.querySelector('#futures-lots').value==='4'`,`[${prompt}.textContent,${title},document.querySelector('#snapshot').value]`);
   await answer(0);
   await click('#nav-market');await asks();
-  await check('the sidebar asks before it leaves a new trade with edits, and nothing moves while it does',`${prompt}.querySelectorAll('button').length===2&&${title}==='Blotter'&&${newForm}&&document.querySelector('#futures-lots').value==='4'`,`[${prompt}.textContent,${title}]`);
+  await check('the sidebar asks before it leaves a new trade with edits, and nothing moves while it does',`${prompt}.querySelectorAll('button').length===2&&${title}==='New future'&&${newForm}&&document.querySelector('#futures-lots').value==='4'`,`[${prompt}.textContent,${title}]`);
   await answer(1);await wait(`${title}==='Curves & prices'&&${idle}`);
   await back();
   await check('the Blotter comes back without the new trade, which is given up whole: no panel, no form and nothing for the browser to ask about',`${side}.hidden&&document.querySelector('#futures-new-trade').hidden&&!${unloadAsks}`);
   await newTrade({click,wait},'futures');
   await check('a new trade starts empty, with none of what the one before held',`document.querySelector('#futures-lots').value===''&&!document.querySelector('#futures-contract').value&&!document.querySelector('#futures-book').value&&!document.querySelector('#futures-execution').value`);
-  await click('#details-collapse');await asks();await answer(1);await wait(`${side}.hidden&&${idle}`);
+  await closeNewTrade({click,evaluate,wait});
 
   // Escape inside a calendar closes only the calendar, and travel along the tabs is not an opening of the form: focus stays on the tab.
   await amend(refA);
