@@ -3,11 +3,12 @@ import type {Context} from './date-editor.js';
 import {validFrameCatalog,type FrameCatalog} from './frame-catalog.js';
 import type {LiveSelection} from './live-context.js';
 import {isCurveKind,kindsVersion,type CurveKind} from './curve-kinds.js';
+import {isCommodityIcon,type CommodityIcon} from './commodity-icons.js';
 
 import type {FrameClose} from './close-sessions.js';
 // close names a recorded close's session and business day (D334); a working snapshot has none.
 export type FrameSummary={id:string;name:string;at:string;businessDate:string;originCloseId?:string|null;close?:FrameClose|null};
-export type NavigationCategory={code:string;name:string};
+export type NavigationCategory={code:string;name:string;icon:CommodityIcon};
 // A commodity curve names its commodity. An interest-rate curve has none; its market type identifies it. Its kind is the backend's (D259).
 export type CatalogueSource=Readonly<{definitionRevisionId:string;referenceCatalogId:string;referenceRevisionId:string}>;
 export function isCatalogueSource(value:unknown):value is CatalogueSource{
@@ -32,7 +33,7 @@ export function validateMarketNavigation(value:MarketNavigation){
   value.live!=null&&(!value.context||!text(value.live.id)||!Number.isSafeInteger(value.live.generation)||value.live.generation<1||value.live.policy!=='selected_facts_latest_committed_corrections_v1')||
   value.example!==null&&(!value.example||!text(value.example.at)||!text(value.example.curve))||
   !Array.isArray(value.curves)||value.curves.some(c=>!c||!isCatalogueSource(c.source)||!text(c.code)||!text(c.name)||!['futures','forwards','mixed','rates'].includes(c.marketType)||!isCurveKind(c.kind)||
-   (c.marketType==='rates'?c.category!==null:!c.category||!text(c.category.code)||!text(c.category.name)))||
+   (c.marketType==='rates'?c.category!==null:!c.category||!text(c.category.code)||!text(c.category.name)||!isCommodityIcon(c.category.icon)))||
   new Set(value.curves.map(c=>c.code)).size!==value.curves.length||conflictingLabels(value.curves)||
   !Array.isArray(value.curveConfigurations)||value.curveConfigurations.some(c=>!c||!value.curves.some(listed=>listed.code===c.curve)||
    !['native','definition'].includes(c.kind)||typeof c.canEdit!=='boolean'||(c.canEdit?c.reason!==null:!text(c.reason))||

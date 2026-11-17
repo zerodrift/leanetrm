@@ -19,7 +19,10 @@ def run_checks(c, check, query, manifest):
         definitions, references = workspace['definitions'], workspace['references']
         contracts = {row['id']: row for row in definitions['contracts']}
         interval_contracts = {row['contract_id'] for row in definitions['contract_intervals']}
-        commodities = {row['code']: row['name'] for row in references['commodities']}
+        commodities = {row['code']: row for row in references['commodities']}
+        # D424: each commodity names its icon in reference data; the fixture's gas is a flame and its power a bolt.
+        if not {'test_gas': 'flame', 'test_power': 'bolt'}.items() <= {code: row['icon_code'] for code, row in commodities.items()}.items():
+            raise AssertionError('Fixture commodities must name their icons')
         expected = []
         # D259: a market curve's kind follows its stored rule and, for a direct curve, its role.
         def curve_kind(curve):
@@ -36,7 +39,8 @@ def run_checks(c, check, query, manifest):
                 raise AssertionError('Fixture curve has no explicit supported classification')
             kind = 'mixed' if len(kinds) == 2 else {'future': 'futures', 'forward': 'forwards'}[next(iter(kinds))]
             expected.append({'code': curve['code'], 'name': curve['name'], 'marketType': kind,
-                             'category': {'code': curve['commodity_code'], 'name': commodities[curve['commodity_code']]}, 'kind': curve_kind(curve)})
+                             'category': {'code': curve['commodity_code'], 'name': commodities[curve['commodity_code']]['name'],
+                                          'icon': commodities[curve['commodity_code']]['icon_code']}, 'kind': curve_kind(curve)})
         expected += [{'code': curve['code'], 'name': curve['name'], 'marketType': 'rates', 'category': None, 'kind': 'interest_rate'}
                      for curve in definitions['rate_curves']]
         revision = definitions['revisions'][0]

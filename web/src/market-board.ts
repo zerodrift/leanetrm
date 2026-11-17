@@ -8,6 +8,7 @@ import {curveName,deliveryLabel,displayDate,marketTypeName} from './market-view.
 import {drawSparkline} from './mini-chart-view.js';
 import {kpi,node} from './tiles.js';
 import {kindBadge,type CurveKind} from './curve-kinds.js';
+import {commodityIconPath} from './commodity-icons.js';
 
 type BoardFilters={by:'commodity'|'marketType';commodity:string|null;type:string};
 /**
@@ -58,15 +59,14 @@ export function marketBoard(navigation:MarketNavigation,filters:BoardFilters,sha
   const colors=commodityColors(navigation.curves.flatMap(c=>c.category?[c.category.code]:[]));
   return navigationGroups(navigation,filters.by,filters.commodity,filters.type).map(({key,name,curves})=>({key,name,cards:curves.map(c=>card(c,colors,shapes.get(c.code)))}));
 }
-/** Commodity identity uses a named shape as well as colour. Rates retain their existing curve-kind icon. */
+/** Commodity identity uses the icon its reference data names as well as colour. Rates retain their existing curve-kind icon. */
 export function commodityIcon(card:Pick<BoardCard,'commodity'|'color'>){
  if(!card.commodity)return null;
- const code=card.commodity.code,kind=code==='gas'||code==='test_gas'?'gas':code==='electricity'||code==='test_power'?'power':'other';
- const paths={gas:'M10 2c1 4 5 5 5 10a5 5 0 0 1-10 0c0-3 2-5 3-6 0 3 1 4 2 4 2-2 1-5 0-8z',power:'M11 2 4 11h5l-1 7 8-10h-5z',other:'M10 2 18 6v8l-8 4-8-4V6zM2 6l8 4 8-4M10 10v8'};
+ const drawing=commodityIconPath(card.commodity.icon);
  const icon=node('i','commodity-icon'),ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg'),path=document.createElementNS(ns,'path');
- icon.dataset.commodityIcon=kind;icon.setAttribute('role','img');icon.setAttribute('aria-label',card.commodity.name);icon.setAttribute('title',card.commodity.name);
+ icon.dataset.commodityIcon=card.commodity.icon;icon.setAttribute('role','img');icon.setAttribute('aria-label',card.commodity.name);icon.setAttribute('title',card.commodity.name);
  if(card.color)icon.style.setProperty('--commodity',card.color);
- svg.setAttribute('viewBox','0 0 20 20');svg.setAttribute('aria-hidden','true');svg.setAttribute('focusable','false');path.setAttribute('d',paths[kind]);svg.append(path);icon.append(svg);return icon;
+ svg.setAttribute('viewBox','0 0 20 20');svg.setAttribute('aria-hidden','true');svg.setAttribute('focusable','false');path.setAttribute('d',drawing);svg.append(path);icon.append(svg);return icon;
 }
 /** The library row's sparkline: the card's line, small and decorative beside the curve's name; none while the close prices nothing. */
 export function librarySparkline(card:BoardCard){

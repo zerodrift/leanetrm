@@ -8,9 +8,9 @@ import {setCurveNames} from '../dist/market-view.js';
 
 const fixture=JSON.parse(readFileSync(new URL('./fixtures/desk.json',import.meta.url)));
 const curves=[
- {code:'gas_forward',name:'Gas forward',marketType:'forwards',category:{code:'test_gas',name:'Synthetic gas'},kind:'weighted_blend'},
- {code:'gas_futures',name:'Gas futures',marketType:'futures',category:{code:'test_gas',name:'Synthetic gas'},kind:'market_settlement'},
- {code:'power_forward',name:'Power forward',marketType:'forwards',category:{code:'test_power',name:'Synthetic power'},kind:'basis_spread'},
+ {code:'gas_forward',name:'Gas forward',marketType:'forwards',category:{code:'test_gas',name:'Synthetic gas',icon:'flame'},kind:'weighted_blend'},
+ {code:'gas_futures',name:'Gas futures',marketType:'futures',category:{code:'test_gas',name:'Synthetic gas',icon:'flame'},kind:'market_settlement'},
+ {code:'power_forward',name:'Power forward',marketType:'forwards',category:{code:'test_power',name:'Synthetic power',icon:'bolt'},kind:'basis_spread'},
  {code:'usd_rates',name:'USD rates',marketType:'rates',category:null,kind:'interest_rate'},
 ];
 const navigation={kind:'market_navigation',profile:'viewer',context:null,curves,curveConfigurations:[],curveNames:curves.map(({code,name})=>({code,name}))};
@@ -123,15 +123,17 @@ test('each card shows the backend\'s curve kind as a badge named by its label be
 });
 
 
-test('commodity icons use distinct gas and power shapes with names, no hollow marker for rates',()=>{
+test('a commodity icon is the drawing its reference data names, never one inferred from its code',()=>{
  globalThis.document=dom;
  try{
   const board=marketBoard(navigation,all,new Map()),gas=commodityIcon(card(board,'gas_futures')),power=commodityIcon(card(board,'power_forward'));
   assert.equal(gas.getAttribute('aria-label'),'Synthetic gas');assert.equal(power.getAttribute('aria-label'),'Synthetic power');
-  assert.notEqual(JSON.stringify(gas.children),JSON.stringify(power.children));
-  assert.equal(gas.dataset.commodityIcon,'gas');assert.equal(power.dataset.commodityIcon,'power');
+  assert.equal(gas.dataset.commodityIcon,'flame');assert.equal(power.dataset.commodityIcon,'bolt');
   assert.equal(commodityIcon(card(board,'usd_rates')),null);
-  const other=commodityIcon({...card(board,'gas_futures'),commodity:{code:'synthetic_other',name:'Other commodity'}});
-  assert.equal(other.dataset.commodityIcon,'other');assert.equal(other.getAttribute('aria-label'),'Other commodity');
+  const named=icon=>commodityIcon({...card(board,'gas_futures'),commodity:{code:'test_gas',name:'Synthetic gas',icon}});
+  assert.equal(named('drop').dataset.commodityIcon,'drop');
+  const drawings=['flame','bolt','drop','tanker','leaf','cube'].map(icon=>JSON.stringify(named(icon).children));
+  assert.equal(new Set(drawings).size,6);
+  assert.throws(()=>named('barrel'),/Unknown commodity icon/);
  }finally{delete globalThis.document;}
 });

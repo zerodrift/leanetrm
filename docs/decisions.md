@@ -6374,3 +6374,34 @@ inventory accompany the change. This is synthetic viewing data, not a market
 feed or a production activation.
 
 See [the axis contract](vol-surfaces.md#server-defined-surface-coordinates-d423).
+
+## D424 · A commodity names its icon in reference data
+
+Decided by the owner, 2026-11-17. The Curves page drew a flame for the codes
+`gas` and `test_gas`, a bolt for `electricity` and `test_power` and a cube for
+every other commodity, so crude, LNG and certificates shared one picture and a
+commodity under any other code could not be told apart.
+
+A commodity now states its icon where it is configured: `ref_data.commodities`
+carries a required `icon_code` from the fixed list `flame`, `bolt`, `drop`,
+`tanker`, `leaf`, `cube`. The database rejects a missing or unlisted value. The
+navigation read sends the name with each curve's commodity and fails when a
+commodity names none; the browser draws the named icon and rejects a name it
+does not know. There is no fallback at any layer, and `cube` is a deliberate
+choice for a commodity without a picture of its own. Colour stays assigned by
+the browser, and the commodity dots of other pages are unchanged.
+
+Migration 0361 adds the column and carries each existing commodity over once to
+the picture its code had until now; that statement is the only place a code
+still selects an icon. The reference import states `flame` for gas and `bolt`
+for electricity. A cloned reference revision keeps its source's icons.
+
+The list grows only with a commodity that needs a new picture; none is added
+for a commodity the catalogs do not yet hold.
+
+Not chosen: an icon edited as a reviewed display detail (it needs a new editor
+field kind, and the curve directory deliberately reads commodities before
+display labels), and a longer list of codes in the browser (it fails for any
+code an installation chooses).
+
+See [the Markets desk](markets-desk.md).

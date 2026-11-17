@@ -205,11 +205,14 @@ the curve's kind (D259) as a coloured icon badge named by its label: Market
 settlement, Trader mark, Interest rate, Basis / spread or Scaled. The kind
 comes with the navigation read; the browser never infers it.
 
-Commodity identity uses a flame for gas, a lightning bolt for electricity and a
-cube for other commodities, named by the catalog's commodity label in a tooltip
-and accessible text. These icons replace dots on library rows and market-board
+Commodity identity uses the icon the commodity names in reference data (D424):
+`flame`, `bolt`, `drop`, `tanker`, `leaf` or `cube`. The navigation read sends
+the name with the curve's commodity; the browser draws it, named by the
+catalog's commodity label in a tooltip and accessible text, and rejects a name
+outside that list. These icons replace dots on library rows and market-board
 cards. Curves without a commodity have no commodity marker; rates retain their
-existing interest-rate kind badge. No commodity is inferred from a curve name.
+existing interest-rate kind badge. No icon is inferred from a commodity's code
+or name, and no commodity is inferred from a curve name.
 
 **Library.** Unchanged in behavior, with the commodity icon, the kind badge and
 the curve's sparkline beside each name. `.curve-button` keeps its markup; its
