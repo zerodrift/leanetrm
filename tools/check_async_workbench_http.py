@@ -271,10 +271,11 @@ def run_checks(url, query, psql, environment, manifest):
          'tradeIds':[swap['tradeId']],'accountingPolicy':policies['accounting'],'attributionPolicy':policies['attribution'],'factorPolicy':policies['factors'],
          'factorBump':policies['factorBump']['offered'],'time':{'mode':'opening_to_closing_clock_v1','policy':policies['clockPolicy'],'clock':None}}
     # What the request and its two frames refuse comes before the capture, so a run refused there stores no context.
-    contexts="SELECT count(*) FROM market_data.temporal_contexts;"
+    contexts=f"SELECT count(*) FROM market_data.temporal_contexts WHERE known_at='{pnl['knownAt']}'::timestamptz;"
     stored=query(contexts)
-    unsupported=c.call('portfolio/pnl/run',{**pnl,'accountingPolicy':'unsupported'},expected=422)
-    check('a P&L run refused for its request stores no context',unsupported['code']=='pnl_context' and query(contexts)==stored)
+    refused=[c.call('portfolio/pnl/run',{**pnl,**changed},expected=422)['code']
+             for changed in ({'accountingPolicy':'unsupported'},{'bookIds':[swap['bookId']]*2})]
+    check('a P&L run refused for its request stores no context',refused==['pnl_context','blotter_view'] and query(contexts)==stored)
     run,_=valuing_together('portfolio/pnl/run',pnl,expected=422)
     assert run['code']=='pnl_accounting_coverage',run
     check('a P&L run does not hold the publication gate after it captures its dates')
