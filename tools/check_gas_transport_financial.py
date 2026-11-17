@@ -18,6 +18,16 @@ def rejected(work, code):
 
 def checks(query, manifest):
     f = FinancialTransportFixture(query, manifest)
+    # Other products can inspect future valuation dates with an earlier knowledge
+    # cutoff. An empty Transport scope must not impose its valuation restriction.
+    future_at = '2198-12-19T16:00:00Z'
+    future_context = f.capture(day=future_at[:10])
+    assert query(f"SELECT known_at<'{future_at}' FROM market_data.temporal_contexts WHERE(catalog_id,id)=('{f.catalog}','{future_context}');") == 't'
+    def future_scope(trades='NULL'):
+        return f.call(f"SELECT security.use_market_context('{f.catalog}','{future_context}');"
+            f"SELECT security.use_trading_context('{f.catalog}','{future_at}','{future_at[:10]}');"
+            f"SELECT security.require_gas_transport_financial_scope('{f.catalog}','{future_context}','{future_at}',ARRAY['{f.book}']::uuid[],{trades});")
+    assert future_scope() == 'f'
     from gas_transport_financial_capacities import capacity_facts
     capacity_facts(f, rejected)
     assert f.valuation_reference != manifest['referenceRevisionId']
@@ -37,6 +47,13 @@ def checks(query, manifest):
     empty_definition = f.empty_pricing_definition()
     rejected(lambda: f.book_financial({**booking, 'operationId': str(uuid4()), 'contextId': f.capture(), 'definitionRevisionId': empty_definition}), 'gas_transport_financial_source')
     outcome = f.book_financial(booking)
+    # The old cut remains empty after booking; a fresh cut finds the agreement
+    # only within the selected scope and retains the financial context refusal.
+    assert future_scope() == 'f'
+    future_context = f.capture(day=future_at[:10])
+    assert future_scope(f"ARRAY['{uuid4()}']::uuid[]") == 'f'
+    rejected(future_scope, 'gas_transport_financial_context')
+    print('PASS future-date Transport absence respects exact scope and retained knowledge; a present financial agreement retains its context refusal.', flush=True)
     source = f.read_financial(outcome['tradeId'])
     assert source['terms']['valuationReferenceRevisionId'] == f.valuation_reference
     assert source['terms']['operationalReferenceRevisionId'] == manifest['referenceRevisionId']

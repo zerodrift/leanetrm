@@ -854,7 +854,10 @@ BEGIN
  PERFORM security.require_gas_park_loan_worker_scope(catalog,context,as_of,books,coalesce(trades,ARRAY[]::uuid[]),NULL);
  IF NOT security.trading_context_day_matches(catalog,context,as_of) OR NOT EXISTS(SELECT 1 FROM market_data.temporal_contexts t
   JOIN trading.contexts x ON(x.catalog_id,x.context_id)=(t.catalog_id,t.id) JOIN market_data.market_contexts m ON(m.catalog_id,m.context_id)=(t.catalog_id,t.id)
-  WHERE(t.catalog_id,t.id)=(catalog,context) AND t.known_at>=as_of)
+  WHERE(t.catalog_id,t.id)=(catalog,context) AND(t.known_at>=as_of OR NOT EXISTS(
+   SELECT 1 FROM trading.gas_transport_financial_trades a WHERE a.catalog_id=catalog AND a.book_id=ANY(books)
+    AND(coalesce(cardinality(trades),0)=0 OR a.trade_id=ANY(trades))
+    AND trading.gas_owned_visible(catalog,a.publication_order,a.effective_at,context,as_of))))
  THEN RAISE EXCEPTION 'gas_transport_financial_context';END IF;
  IF until_at IS NULL OR clock_timestamp()>=until_at THEN RAISE EXCEPTION 'gas_transport_financial_denied' USING ERRCODE='42501';END IF;
 END$$;

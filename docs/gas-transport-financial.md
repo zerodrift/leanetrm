@@ -164,6 +164,11 @@ ReadGasOperations and AmendTrade. Mark adoption and expiry require AmendTrade.
 No inventory or physical-facility permission is implied. Optional operating
 discovery retains its originally captured absence/deadline.
 
+Scope presence retains the selected books, trades and certified knowledge cutoff.
+An empty Transport scope does not impose its valuation-time restriction on other
+products. A scope containing a visible Transport agreement still refuses a
+valuation instant later than its knowledge cutoff.
+
 Original authority is captured before waiting source/owner reads and rechecked
 through native and managed commit boundaries. Exact request recovery and
 semantic old-fact acknowledgement precede new source resolution. A receipt may
