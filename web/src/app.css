@@ -1040,7 +1040,7 @@ body.assistant-open:not(.assistant-overlay) .side-panel[data-placement=overlay]{
 .new-trade-head .side-panel-title{margin-top:0}
 /* New trade's instrument chooser (new-trade.ts): with none chosen, each group is a block of tiles that say what the instrument is; once
    one is chosen it is a single strip above the ticket, every instrument still one press away. Both wrap; neither scrolls sideways. */
-.instrument-chooser{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));align-items:start;gap:14px;margin-top:12px;min-width:0}
+.instrument-chooser{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));align-items:start;gap:14px;margin-top:12px;min-width:0}
 .instrument-group{min-width:0;margin:0;padding:12px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface)}
 .instrument-group-name{margin:0 0 8px;font-size:11px;font-weight:650;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3)}
 .instrument-entries{display:grid;gap:6px;min-width:0}
@@ -1058,6 +1058,8 @@ body.assistant-open:not(.assistant-overlay) .side-panel[data-placement=overlay]{
 .instrument-chooser[data-state=chosen] button.instrument{display:inline-flex;align-items:center;gap:6px;width:auto;min-height:30px;padding:4px 12px;font-size:13px}
 .instrument-chooser[data-state=chosen] .instrument-name{font-size:13px;font-weight:550}
 .instrument-chooser[data-state=chosen] .instrument-about{display:none}
+/* Each tile says what its instrument is, so the line under the chooser is for the one chosen. */
+.instrument-chooser[data-state=choose]~#new-trade-note{display:none}
 .new-trade-head .side-panel-note{margin:8px 0 0}
 /* Price before booking: a title over the draft's price, its exposure and the curve of each of its markets with its delivery period marked. */
 .draft-valuation{margin:20px 0 12px;padding-top:14px;border-top:1px solid var(--border)}
@@ -1830,6 +1832,18 @@ main:has(>section:not([hidden]) .floating-context){--dock-band:140px}
 #futures-page[data-entry] .dock-panels{padding:2px 2px 0}
 #futures-page[data-entry] #position-details.stale{opacity:1}
 #futures-page[data-entry] .trade-editor-actions{top:0}
+/* The page's title names the trade; the pane's own title would say it twice. */
+#futures-page[data-entry] .new-trade-head .side-panel-title{display:none}
+/* A ticket without sides (a future, a futures option, a REC forward) keeps one field per row at a readable width. A new future's price
+   preview sits beside its fields where the page has room; its Book button follows both, in the order a person tabs through them. */
+.entry-form :is(#option-page,.rec-forward){max-width:640px}
+.entry-form #futures-fields{display:grid;grid-template-columns:minmax(0,560px);column-gap:32px;align-items:start}
+.entry-form #futures-fields>*{grid-column:1;min-width:0}
+.entry-form :is(#futures-new-trade,#option-page,.rec-forward) :is(.schedule-fields,.trade-annotation-fields,.schedule-date-fields,.instrument-choices){grid-template-columns:minmax(0,1fr)}
+@container (min-width:900px){
+  .entry-form #futures-fields{grid-template-columns:minmax(0,560px) minmax(280px,1fr)}
+  .entry-form #futures-fields>#futures-draft-valuation{grid-column:2;grid-row:1 / span 3}
+}
 .details-pane .side-panel-prompt{margin:0 0 10px;padding-right:16px;border:1px solid var(--warn-border);border-radius:var(--radius)}
 /* A ticket in the details pane is vertical: one field per row, as in a side panel. */
 .details-form .schedule-fields,.details-form .trade-annotation-fields,.details-form .schedule-date-fields,.details-form .swap-term-columns,.details-form .scheduled-side-columns{grid-template-columns:minmax(0,1fr);gap:14px}

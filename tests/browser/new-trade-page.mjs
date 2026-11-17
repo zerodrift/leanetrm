@@ -42,7 +42,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await evaluate(`(()=>{const send=window.fetch;window.__entryFetch=send;window.fetch=async(input,init)=>{if(String(input)==='/api/trading/workspace'&&!window.__entryHeld){window.__entryHeld=true;await new Promise(resolve=>{window.__entryRelease=resolve;});}return send(input,init);};})()`);
   await click('#new-trade-futures');await wait('window.__entryHeld===true');
   await check('while a new future\'s contracts are read the page says so, and offers no other choice',
-    `${entry}&&document.querySelector('#position-details-view [role=status]').textContent==='Loading the futures contracts…'&&[...document.querySelectorAll('#new-trade-product button')].every(b=>b.disabled)`,
+    `${entry}&&document.querySelector('#position-details-view [role=status]').textContent==='Loading the futures contracts…'&&[...document.querySelectorAll('#new-trade-product button')].every(b=>b.disabled)&&!${shown}('#new-trade-availability')`,
     "document.querySelector('#position-details-view').textContent");
   await evaluate("window.__entryRelease();window.fetch=window.__entryFetch");
   await wait(`${title}==='New future'&&document.querySelector('#position-details-form').contains(document.querySelector('#futures-new-trade'))&&!document.querySelector('#futures-new-trade').hidden&&`+idle);

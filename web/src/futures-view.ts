@@ -1007,7 +1007,8 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // assistive technology at: not in a tooltip, and not left for the person to find out by pressing it.
   function syncNewTrade(){
     const control=bookingControl(),button=get<HTMLButtonElement>('futures-new');
-    get('new-trade-availability').hidden=control.reason===null;text('new-trade-availability',control.reason??'');
+    // On New trade's page a read under way has no catalog yet: the pane says what is being read, not what the person has yet to choose.
+    get('new-trade-availability').hidden=control.reason===null||presentation==='entry'&&catalog===undefined&&busy();text('new-trade-availability',control.reason??'');
     button.disabled=busy()||!control.enabled;
     if(control.reason===null)button.removeAttribute('aria-describedby');else button.setAttribute('aria-describedby','new-trade-availability');
   }

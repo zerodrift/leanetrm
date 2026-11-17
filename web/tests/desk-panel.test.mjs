@@ -25,9 +25,9 @@ test('the modes of one trade\'s two bindings differ, and each is found where the
 });
 
 // The desk's side of the panel, with the shell, the position view and the grid as plain recorders.
-function desk({holdings=read,drawn=true,answer=async()=>true}={}){
+function desk({holdings=read,drawn=true,answer=async()=>true,rest=null}={}){
  const log=[],notices=[];let shown=holdings,drawing=drawn,mode=null;
- const shell={current:()=>mode,async show(next){log.push(['shell.show',next.bindingId]);if(sameMode(next,mode))return true;const ok=await answer();if(ok)mode=next;return ok;},reset(){log.push(['shell.reset']);mode=null;}};
+ const shell={current:()=>mode,async show(next){log.push(['shell.show',next.bindingId]);if(sameMode(next,mode))return true;const ok=await answer();if(ok)mode=next;return ok;},reset(){log.push(['shell.reset']);mode=rest;}};
  const position={show:(at,tab)=>log.push(['position.show',at.index,...(tab?[tab]:[])]),update:at=>log.push(['position.update',at.index]),clear:()=>log.push(['position.clear'])};
  const grid={selectRow:index=>log.push(['grid.select',index]),focusRow:index=>log.push(['grid.focus',index]),revealRow:index=>log.push(['grid.reveal',index])};
  const controller=setupDeskPanel({shell,position,holdings:()=>shown,input:index=>drawing&&index<shown.length?{index}:undefined,grid:()=>grid,notice:message=>notices.push(message)});
@@ -107,6 +107,14 @@ test('resetting drops the position without asking and without moving focus',asyn
  await state.controller.open(0);state.log.length=0;
  state.controller.reset();
  assert.deepEqual(state.log,[['shell.reset'],['position.clear'],['grid.select',null]]);
+});
+
+// New trade's page (D421): the pane rests on the instrument chooser, which another mode drew and a reset must leave drawn.
+test('resetting a panel that rests on another mode clears nothing that mode drew',async()=>{
+ const state=desk({rest:{kind:'new',product:null}});
+ state.controller.reset();
+ assert.deepEqual(state.log,[['shell.reset']]);
+ assert.deepEqual(state.mode(),{kind:'new',product:null});
 });
 
 test('collapsing the details says whether a position row took focus back',async()=>{

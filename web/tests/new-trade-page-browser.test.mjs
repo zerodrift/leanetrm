@@ -44,3 +44,33 @@ test('the page shows values the Blotter has yet to check again only where the Bl
   assert.equal(await evaluate(`getComputedStyle(document.querySelector('#blotter-dock')).visibility`),'hidden');
  });
 });
+
+// A ticket without sides keeps one field per row at a readable width; a new future's price preview sits beside its fields where there
+// is room and below them where there is not, and the Book button follows both, as the order a person tabs through them.
+const futureTicket=width=>`<meta charset="utf-8"><link rel="stylesheet" href="/app.css"><section id="futures-page" data-entry><div class="dock-panels" style="width:${width}px"><div id="host" class="entry-form"></div></div></section>`;
+const mountFuture=`(async()=>{
+ const source=new DOMParser().parseFromString(await (await fetch('/index.html')).text(),'text/html'),ticket=source.querySelector('#futures-new-trade');
+ document.getElementById('host').append(ticket);ticket.hidden=false;
+ for(const id of ['futures-form','futures-draft-valuation'])document.getElementById(id).hidden=false;
+ document.getElementById('futures-fields').disabled=false;
+ window.box=id=>{const b=document.getElementById(id).getBoundingClientRect();return {left:b.left,right:b.right,top:b.top,bottom:b.bottom,width:b.width};};
+})()`;
+test('a new future keeps a readable field column with its price preview beside it on a wide page',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+ await withBrowserPage(futureTicket(1440),async evaluate=>{
+  await evaluate(mountFuture);
+  const [terms,preview,book]=await evaluate(`[box('futures-trade-terms'),box('futures-draft-valuation'),box('futures-book-submit')]`);
+  assert.ok(terms.width<=560,`the fields are at most 560px wide (${terms.width})`);
+  assert.ok(preview.left>=terms.right&&preview.top<terms.bottom,'the preview is beside the fields');
+  assert.ok(book.top>=terms.bottom&&book.left<terms.right,'Book follows the fields');
+  assert.equal(await evaluate(`[...document.querySelectorAll('#futures-trade-terms select,#futures-trade-terms input:not([type=hidden])')].filter(n=>n.checkVisibility()).every((n,i,all)=>i===0||n.getBoundingClientRect().top>=all[i-1].getBoundingClientRect().bottom-1)`),true,'one field per row');
+ });
+});
+test('a new future\'s price preview goes below its fields where the page is narrow',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+ await withBrowserPage(futureTicket(700),async evaluate=>{
+  await evaluate(mountFuture);
+  const [terms,preview,book]=await evaluate(`[box('futures-trade-terms'),box('futures-draft-valuation'),box('futures-book-submit')]`);
+  assert.ok(preview.top>=terms.bottom,'the preview is below the fields');
+  assert.ok(book.top>=preview.bottom,'Book follows the preview');
+  assert.equal(await evaluate(`(p=>p.scrollWidth<=p.clientWidth+1)(document.querySelector('.dock-panels'))`),true);
+ });
+});
