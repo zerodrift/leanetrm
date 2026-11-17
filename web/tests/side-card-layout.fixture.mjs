@@ -6,12 +6,12 @@ export async function sideCardLayoutChecks() {
  const source=new DOMParser().parseFromString(await (await fetch('/index.html')).text(),'text/html');
  const host=document.createElement('div');host.id='side-panel';host.className='side-panel-form details-form';host.style.cssText='width:960px;max-width:100%;margin:20px auto';document.body.append(host);
  const panel=(id)=>{const node=document.createElement('section');node.id=id;host.append(node);return node;};
- const {setupNewTrade,newTradeProducts}=await import('/new-trade.js');
+ const {setupNewTrade,chooserGroups,newProducts}=await import('/new-trade.js');
  const parts=Object.fromEntries(['head','body','view'].map(key=>[key,panel('entry-test-'+key)])),chosen=[];
- const entry=setupNewTrade({element:key=>parts[key]},{choose:product=>chosen.push(product),busy:()=>false});
+ const entry=setupNewTrade({element:key=>parts[key]},{choose:product=>chosen.push(product),link:()=>undefined,busy:()=>false,offered:()=>true,groups:()=>chooserGroups({opens:()=>true,links:()=>true,soon:true})});
  entry.show({kind:'new',product:null},'choose');
- for(const button of parts.head.querySelectorAll('#new-trade-product button'))button.click();
- check('Every instrument type is available before ownership is entered',JSON.stringify(chosen)===JSON.stringify(newTradeProducts.map(([key])=>key)));
+ for(const button of parts.head.querySelectorAll('#new-trade-product button:enabled'))button.click();
+ check('Every instrument type is available before ownership is entered',JSON.stringify(chosen)===JSON.stringify(newProducts));
  const o={api:async()=>{throw Error('Unexpected API request');},act:async work=>work(),source:()=>({snapshotId:'synthetic'}),historical:()=>false,actor:()=>'synthetic',zone:()=>'UTC',busy:()=>false,canBook:()=>true};
  const {setupPhysicalCrude}=await import('/physical-crude-editor.js');
  panel('crude-page');setupPhysicalCrude(o);

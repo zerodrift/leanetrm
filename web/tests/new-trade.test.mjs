@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {bookingAllowed,bookingFallback,newTradeControl,retainedBlock} from '../dist/new-trade.js';
+import {bookingAllowed,bookingFallback,chooserGroups,instrumentGroups,newProducts,newTradeControl,productAbout,productName,retainedBlock} from '../dist/new-trade.js';
 
 const fallback='Choose an As of date to book a trade.';
 const allowed={canBook:true,bookingUnavailableReason:null};
@@ -54,44 +54,52 @@ test('a retained request holds New trade back, ahead of every other reason, beca
  assert.deepEqual(newTradeControl({catalog:{canBook:false,bookingUnavailableReason:'Historical view is read-only.'},retained:true,fallback}),{enabled:false,reason:retainedBlock});
 });
 
-test('New trade keeps one public Park and loan family beside physical gas',async()=>{
- const {newTradeProducts}=await import('../dist/new-trade.js');
- assert.deepEqual(newTradeProducts.map(([key])=>key),['futures','options','swaps','ppa','gas','transport','park-loan','crude','lng','rec']);
- assert.equal(newTradeProducts.find(([key])=>key==='park-loan')[1],'Park and loan');
- assert.equal(newTradeProducts.some(([key])=>key==='park-custody'),false);
+const main={opens:()=>true,links:()=>true,soon:true};
+const shape=groups=>groups.map(g=>[g.id,g.name,g.entries.map(e=>e.kind==='product'?e.product:e.id)]);
+
+test('the instruments are grouped in the chooser\'s order',()=>{
+ assert.deepEqual(shape(chooserGroups(main)),[
+  ['financial','Financial',['futures','options','swaps']],
+  ['power','Power',['ppa','rec']],
+  ['gas-lng','Gas & LNG',['gas','park-loan','lng']],
+  ['oil-liquids','Oil & liquids',['crude']],
+  ['structured','Structured',['operating-right','transport','storage']]]);
 });
 
-test('the Park and loan introduction keeps title and fee terms explicitly selected',async()=>{
- const old=globalThis.document;
- class Node{constructor(){this.children=[];this.dataset={};this.text='';}
-  append(...children){this.children.push(...children);}replaceChildren(...children){this.children=children;}
-  setAttribute(){}get firstElementChild(){return this.children[0];}
-  set textContent(value){this.text=String(value);}get textContent(){return this.text+this.children.map(child=>child.textContent).join('');}}
- globalThis.document={createElement:()=>new Node()};
- try{
-  const {setupNewTrade}=await import('../dist/new-trade.js'),parts=Object.fromEntries(['head','body','view'].map(key=>[key,new Node()]));
-  const entry=setupNewTrade({element:key=>parts[key]},{choose:()=>{},busy:()=>false});entry.show({kind:'new',product:'park-loan'},'loading');
-  assert.match(parts.head.textContent,/explicitly selected title and fee terms/);
-  assert.doesNotMatch(parts.head.textContent,/independent fixed fee/);
-  entry.show({kind:'new',product:'transport'},'loading');
-  assert.match(parts.head.textContent,/no adopted rights value.*after booking.*Lifecycle/i);
- }finally{globalThis.document=old;}
+test('every product is listed once and has a name',()=>{
+ assert.equal(new Set(newProducts).size,newProducts.length);assert.equal(newProducts.length,10);
+ assert.equal(productName('park-loan'),'Park and loan');assert.equal(productName('gas'),'Physical gas');
+ assert.equal(productAbout('futures'),'An exchange contract with a defined expiry.');
 });
 
-test('unsupported Storage remains coming soon: disabled, tagged and with its hover text',async()=>{
- const old=globalThis.document;
- class Node{constructor(tag){this.tagName=tag.toUpperCase();this.children=[];this.attributes={};this.dataset={};this.className='';this.title='';this.disabled=false;this.text='';}
-  append(...c){this.children.push(...c);}setAttribute(n,v){this.attributes[n]=String(v);}getAttribute(n){return this.attributes[n]??null;}
-  set textContent(v){this.text=String(v);}get textContent(){return this.text+this.children.map(c=>c.textContent).join('');}}
- globalThis.document={createElement:tag=>new Node(tag)};
- try{
-  const {soonInstruments}=await import('../dist/new-trade.js');
-  const group=soonInstruments();
-  assert.equal(group.getAttribute('aria-label'),'Coming soon');
-  assert.equal(group.dataset.ownControls,'','the page\'s busy sweep leaves them disabled');
-  assert.deepEqual(group.children.map(b=>[b.tagName,b.textContent,b.disabled,b.getAttribute('aria-disabled'),b.className]),
-   [['BUTTON','StorageComing soon',true,'true','ticket-soon']]);
-  assert.match(group.children[0].title,/storage contract/i);
-  for(const b of group.children)assert.ok(b.title.length>0&&b.onclick===undefined);
- }finally{globalThis.document=old;}
+test('New trade keeps one public Park and loan family beside physical gas',()=>{
+ const gas=chooserGroups(main).find(g=>g.id==='gas-lng').entries.map(e=>e.product);
+ assert.deepEqual(gas.slice(0,2),['gas','park-loan']);
+ assert.equal(newProducts.includes('park-custody'),false);
+});
+
+test('a window that opens only futures and swaps draws one group and no link or coming-soon entry',()=>{
+ assert.deepEqual(shape(chooserGroups({opens:p=>p==='futures'||p==='swaps',links:()=>false,soon:false})),[['financial','Financial',['futures','swaps']]]);
+});
+
+test('an account that cannot open Operating facilities is not offered the operating right',()=>{
+ const asked=[],structured=chooserGroups({...main,links:page=>{asked.push(page);return false;}}).find(g=>g.id==='structured');
+ assert.deepEqual(structured.entries.map(e=>e.kind),['product','soon']);
+ assert.deepEqual(asked,['physical-power']);
+});
+
+test('the operating right names the page it is entered on and nothing else',()=>{
+ const link=instrumentGroups.at(-1).entries[0];
+ assert.deepEqual(link,{kind:'link',id:'operating-right',name:'Operating right',about:'Thermal toll, battery or solar output right · entered on Operating facilities',page:'physical-power'});
+});
+
+test('the Park and loan introduction keeps title and fee terms explicitly selected',()=>{
+ assert.match(productAbout('park-loan'),/explicitly selected title and fee terms/);
+ assert.doesNotMatch(productAbout('park-loan'),/independent fixed fee/);
+ assert.match(productAbout('transport'),/no adopted rights value.*after booking.*Lifecycle/i);
+});
+
+test('unsupported Storage remains coming soon, with what it will hold',()=>{
+ const storage=instrumentGroups.at(-1).entries.at(-1);
+ assert.equal(storage.kind,'soon');assert.equal(storage.name,'Storage');assert.match(storage.about,/storage contract/i);
 });

@@ -35,7 +35,7 @@ import {setupFuturesBooking} from './futures-booking.js';
 import {draftShapes,curveSelectionKey,readInputCurveShapes,curvesPerRead} from './curve-shapes.js';
 import {batchReads} from './batch-reads.js';
 import {visibleReads} from './visible-read.js';
-import {newTradeControl,newTradeProducts,setupNewTrade,type NewProduct} from './new-trade.js';
+import {chooserGroups,newTradeControl,productName,setupNewTrade,type NewProduct} from './new-trade.js';
 import {createTableWorkspace} from './table-workspace.js';
 import {setupBookScopePicker} from './scope-picker.js';
 import {renderDataGrid} from './data-grid.js';
@@ -338,10 +338,10 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   function syncProductPending(){
     const pendingProducts=options.tickets.pending();productPending.hidden=pendingProducts.length===0;
     productPending.replaceChildren();
-    for(const product of pendingProducts){const button=document.createElement('button');button.type='button';button.className='secondary';button.textContent=`Reconcile ${newTradeProducts.find(([key])=>key===product)![1].replace(/^Physical/,'physical')} request`;button.disabled=busy();button.onclick=()=>void chooseProduct(product,true);productPending.append(button);}
+    for(const product of pendingProducts){const button=document.createElement('button');button.type='button';button.className='secondary';button.textContent=`Reconcile ${productName(product).replace(/^Physical/,'physical')} request`;button.disabled=busy();button.onclick=()=>void chooseProduct(product,true);productPending.append(button);}
   }
   // The head of the panel's New trade mode, which asks the page for the product the person chooses and the page mounts that product's editor.
-  const entry=setupNewTrade(panel,{choose:product=>void chooseProduct(product),busy});
+  const entry=setupNewTrade(panel,{choose:product=>void chooseProduct(product),busy,link:()=>undefined,offered:()=>true,groups:()=>chooserGroups({opens:()=>true,links:()=>false,soon:true})});
   // The forms belong to the panel's mode: when it moves to another, whatever they held is dropped (the person was asked first if they
   // held edits), and the page says what it now reports. A new trade is drawn as its head and what it says until its form is in the panel.
   let formsFor:PanelMode=null;
@@ -657,7 +657,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     };
     if(inAction)await open();else await act(open);
     // A page that became busy while the person was asked does nothing: the panel is as it was, and the person is told, not left to wonder.
-    if(!ran)options.notice(`${newTradeProducts.find(([key])=>key===product)![1]} was not opened because the page was busy. Choose it again.`);
+    if(!ran)options.notice(`${productName(product)} was not opened because the page was busy. Choose it again.`);
     // The form takes focus once the page is no longer busy, which disables every control of it.
     signal?.throwIfAborted();if(opened&&current()&&sameMode(panel.current(),next)){panel.focusForm();return true;}return false;
   }
