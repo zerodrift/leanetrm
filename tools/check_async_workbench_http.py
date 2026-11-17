@@ -270,6 +270,15 @@ def run_checks(url, query, psql, environment, manifest):
     pnl={'opening':dated(prior),'closing':dated(frame),'knownAt':blotter['context']['knownAt'],'bookIds':[swap['bookId']],'portfolioIds':[],
          'tradeIds':[swap['tradeId']],'accountingPolicy':policies['accounting'],'attributionPolicy':policies['attribution'],'factorPolicy':policies['factors'],
          'factorBump':policies['factorBump']['offered'],'time':{'mode':'opening_to_closing_clock_v1','policy':policies['clockPolicy'],'clock':None}}
+    # What the request and its two frames refuse comes before the capture, and authorization before either.
+    contexts="SELECT count(*) FROM market_data.temporal_contexts;"
+    stored=query(contexts)
+    unsupported=c.call('portfolio/pnl/run',{**pnl,'accountingPolicy':'unsupported'},expected=422)
+    check('a P&L run refused for its request stores no context',unsupported['code']=='pnl_context' and query(contexts)==stored)
+    c.call('profile',{'profile':'viewer'})
+    c.call('portfolio/pnl/run',{**pnl,'closing':{**dated(frame),'knowledgeMode':'current'}},expected=403)
+    c.call('profile',{'profile':'risk'})
+    check('a malformed P&L run is refused for its authority before its shape')
     run,_=valuing_together('portfolio/pnl/run',pnl,expected=422)
     check('a P&L run does not hold the publication gate after it captures its dates',run['code']=='pnl_accounting_coverage')
     # The ordinary routes of the covered reads execute outside the session gate (docs/async-reads.md).
