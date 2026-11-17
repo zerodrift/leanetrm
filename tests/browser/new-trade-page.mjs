@@ -45,7 +45,8 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   // Future reads the whole Blotter for its priced contracts: the page says so while it does, also from a ticket that was open.
   await chooseProduct({click,wait},'swaps');
   await evaluate(`(()=>{const send=window.fetch;window.__entryFetch=send;window.fetch=async(input,init)=>{if(String(input)==='/api/trading/workspace'&&!window.__entryHeld){window.__entryHeld=true;await new Promise(resolve=>{window.__entryRelease=resolve;});}return send(input,init);};})()`);
-  await click('#new-trade-futures');await wait('window.__entryHeld===true');
+  // The read is held, so the page stays busy: the press is made without waiting for it to settle.
+  await evaluate("document.querySelector('#new-trade-futures').click()");await wait('window.__entryHeld===true',30000);
   await check('while a new future\'s contracts are read the page says so, and offers no other choice',
     `${entry}&&${shown}('#position-details-view [role=status]')&&document.querySelector('#position-details-view [role=status]').textContent==='Loading the futures contracts…'&&[...document.querySelectorAll('#new-trade-product button')].every(b=>b.disabled)&&!${shown}('#new-trade-availability')`,
     "document.querySelector('#position-details-view').textContent");
