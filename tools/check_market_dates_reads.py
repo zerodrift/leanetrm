@@ -166,6 +166,25 @@ def discovery_work_check(client, query, request):
     print('PASS warm discovery does not rematerialize immutable matrices; calendar execution still reattests its exact inputs', flush=True)
 
 
+def native_source_work_check(client, query, request):
+    """One-source matrix admission must not repeat source authority for every close."""
+    signatures = ['security.read_market_close_parts(uuid,uuid[],uuid)', 'security.market_fact_visible(uuid,uuid,uuid)']
+    parts, fact = [query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);") for signature in signatures]
+    query('CREATE SEQUENCE public.synthetic_calendar_source_checks;GRANT USAGE ON SEQUENCE public.synthetic_calendar_source_checks TO openetrm_security_owner;')
+    try:
+        assert parts.count('\nBEGIN\n') == 1 and parts.count('RETURN payload;') == 1 and fact.count('\nBEGIN\n') == 1
+        query(parts.replace('\nBEGIN\n', "\nBEGIN\n PERFORM set_config('openetrm.synthetic_calendar_batch','on',true);\n", 1)
+              .replace('RETURN payload;', "PERFORM set_config('openetrm.synthetic_calendar_batch','off',true);RETURN payload;"))
+        query(fact.replace('\nBEGIN\n', "\nBEGIN\n IF current_setting('openetrm.synthetic_calendar_batch',true)='on' THEN PERFORM nextval('public.synthetic_calendar_source_checks');END IF;\n", 1))
+        client.call('market/dates', request)
+        calls = int(query('SELECT CASE WHEN is_called THEN last_value ELSE 0 END FROM public.synthetic_calendar_source_checks;'))
+    finally:
+        query(parts);query(fact);query('DROP SEQUENCE public.synthetic_calendar_source_checks;')
+    print('CALENDAR_MATRIX_SOURCE_CHECKS=' + str(calls), flush=True)
+    assert 0 < calls <= 4, f'One exact source was authorized {calls} times in one matrix batch'
+    print('PASS native matrix admission shares exact-source checks within its statement', flush=True)
+
+
 def batch_authority_check(query, manifest):
     """A prepublished successor grant cannot extend a native batch's initial authority."""
     catalog, tenant, workspace = (manifest[key] for key in ('catalogId', 'tenantId', 'workspaceId'))
@@ -427,6 +446,7 @@ def run_checks(url, query, manifest, psql, environment, log, api_pid, *, verify=
         print('Calendar benchmark only: statement scaling and disclosure are not qualified by this run', flush=True)
         return
     discovery_work_check(client, query, request)
+    native_source_work_check(client, query, request)
     older_close = query(f"SELECT id FROM market_data.market_closes WHERE session_code='{SESSION}' ORDER BY business_date LIMIT 1;")
     limited_matrix_check(client, query, older_close)
     failed_build_check(client, query, manifest, measure)
