@@ -19,7 +19,7 @@ test('cancelled PPA loading cannot restore a requested trade after its editor wa
 });
 const branch=source.match(/case 'ppa':(await setPage\('futures'\);[^\n]+return;)/)[1];
 const handler='async()=>{'+branch+'}';
-const navigation=(setPage,load,open=async()=>{})=>new Function('setPage','futures','return '+handler)(setPage,{load,openProduct:open});
+const navigation=(setPage,load,open=async()=>{})=>new Function('setPage','futures','return '+handler)(setPage,{enterEntry:load,openProduct:open});
 
 test('PPA reads wait for live pause and page readiness',async()=>{
  let resume;const events=[];

@@ -209,7 +209,8 @@ ticket setters scroll their native field into view before positioning the cursor
 D319: workspace page reads issue fixed page handles after authorization and complete
 result bounds. `AssistantOperations.ForPage` supplies closed entry aliases without
 changing the underlying operation contracts. `app.ts` routes New trade/future/swap
-targets through `futures-view.ts` native entry methods; ordinary navigation and
+targets through `futures-view.ts` native entry methods, which show New trade's page
+(D421: `enterEntry`, a presentation of the Blotter's page); ordinary navigation and
 walkthrough `go` share this route. Swap opening checks AbortSignal, source and
 editor generation before mount; product opening guards fallback/focus work too.
 No presentation path invokes price, preview, booking or authorization. The owned
@@ -250,7 +251,7 @@ stops on panel close. `assistant-walkthroughs.ts` resolves a page-owned anchor
 through `presentationLocate`, aims a top-layer cursor, fences cancellation, invokes
 the existing typed adapter and tracks its returned control. Intended transitions
 retire the old anchor before awaiting reads. `app.ts` routes native entry through
-`futures-view.ts.loadEntry`; this reads only the authorized trading directory
+`futures-view.ts.enterEntry`, which shows New trade's page (D421); this reads only the authorized trading directory
 before the ordinary product catalog. `data-grid.ts` exposes page-owned row/cell/
 column anchors. `swap-editor.ts` owns the closed unsaved swap setters and revision;
 no synthetic change/submit event reaches the native form. Book/Save/Authorize

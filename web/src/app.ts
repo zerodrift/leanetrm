@@ -384,6 +384,8 @@ async function setPage(next:string){
   // The Blotter is left on the person's word, whichever route took them, so no form of its panel stays held, with edits that the browser would be asked
   // about and that nothing can return to. Completed values are checked before they are shown again.
   if(page==='futures'&&next!=='futures')futures.leavePage();
+  // Every route to the Blotter shows the Blotter itself: New trade's page (D421) is entered after this, by the routes that open it.
+  if(next==='futures')futures.showDesk();
   // The Dashboard releases its widgets, and any run a widget follows, when left; it is read afresh when opened again.
   if(page==='dashboard'&&next!=='dashboard')dashboard.leave();
   // Vol surfaces releases its views, and stops checking on a fit, when left; it is read afresh when opened again.
@@ -1406,7 +1408,7 @@ const openVolSurface=(product:string,definitionRevisionId:string,series?:string)
 const optionChains=setupOptions({api,zone:()=>prefs.timeZone,context:optionContext,frames:{here:frameHere,sessionName:code=>closeSessionNames.get(code)??code},
  openSurface:(product,definitionRevisionId,series)=>void openVolSurface(product,definitionRevisionId,series),
  book:series=>void leaving(async()=>{
-  if(contextDirty)await applyContext();await setPage('futures');await futures.loadEntry();
+  if(contextDirty)await applyContext();await setPage('futures');await futures.enterEntry();
   optionTicket.request(series);try{await futures.openProduct('options');}finally{optionTicket.request(null);}
  },contextDirty?'discards':'page')});
 // A series on its surface links to its row in the chain of its expiry.
@@ -1456,7 +1458,7 @@ const tickets=productTickets({
  options:optionTicket,
 });
 async function ticketBooked(tradeId:string):Promise<void>{if(tickets.active())await futures.bookedExternal(tradeId);}
-const futures=setupFutures({lifecycle:()=>leaving(async()=>{if(contextDirty)await applyContext();await setPage('lifecycle');await lifecycle.load();},contextDirty?'discards':'page'),volSurface:openVolSurface,riskReportUrl:id=>riskReportAddress(id,{hosted:hostedPilot,example:exampleId}),narrow:()=>main.clientWidth<dockedGroupsFrom,assistant:{available:()=>can('UseAgents'),inPlace:kind=>assistant.draft(kind==='pivot'?askPivotText:askSelectionText),about:({reference})=>assistant.draft(askAboutText(reference))},window:{kind:'main',example:exampleId as 'baseline'|'exchange',open:(url,target,features)=>window.open(url,target,features)},failed:showFailure,failureCleared:clearFailure,onViews:(listed,shown)=>{blotterViews={listed,shown};renderBlotterViews();},tickets,api,stream:(body,handlers,signal)=>streamBlotter((path,payload,abort)=>responseFor(path,payload,apiRoot,abort),body,handlers,signal),act,busy:()=>busy,updatesBlocked:()=>assistant.working(),canRunRisk:()=>permissions.includes('RunScenario'),bookingUnavailableReason:()=>bookingFallback({contextDirty,view:knowledgeView(),canBook:permissions.includes('BookTrade')}),knowledge:knowledgeView,contextDirty:()=>contextDirty,zone:()=>prefs.timeZone,profile:()=>administrationScope+':'+currentProfile,onReadContext:(at,known)=>text('header-calculation-time',`As of ${instant(at)} · knowledge cutoff ${instant(known)}`),notice,curveListed:code=>!!navigation?.curves.some(c=>c.code===code),openCurve:(code,contractId)=>openCurve(code,contractId),reported:()=>assistant.sync(),unsavedChanged:()=>syncUnloadQuestion(),source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,convention:directory().futuresConvention,context:historicalContext()};}});
+const futures=setupFutures({lifecycle:()=>leaving(async()=>{if(contextDirty)await applyContext();await setPage('lifecycle');await lifecycle.load();},contextDirty?'discards':'page'),volSurface:openVolSurface,riskReportUrl:id=>riskReportAddress(id,{hosted:hostedPilot,example:exampleId}),narrow:()=>main.clientWidth<dockedGroupsFrom,assistant:{available:()=>can('UseAgents'),inPlace:kind=>assistant.draft(kind==='pivot'?askPivotText:askSelectionText),about:({reference})=>assistant.draft(askAboutText(reference))},window:{kind:'main',entry:{shown:newTradeShown,links:page=>pageAvailable(page,permissions),link:page=>navigate(page)()},example:exampleId as 'baseline'|'exchange',open:(url,target,features)=>window.open(url,target,features)},failed:showFailure,failureCleared:clearFailure,onViews:(listed,shown)=>{blotterViews={listed,shown};renderBlotterViews();},tickets,api,stream:(body,handlers,signal)=>streamBlotter((path,payload,abort)=>responseFor(path,payload,apiRoot,abort),body,handlers,signal),act,busy:()=>busy,updatesBlocked:()=>assistant.working(),canRunRisk:()=>permissions.includes('RunScenario'),bookingUnavailableReason:()=>bookingFallback({contextDirty,view:knowledgeView(),canBook:permissions.includes('BookTrade')}),knowledge:knowledgeView,contextDirty:()=>contextDirty,zone:()=>prefs.timeZone,profile:()=>administrationScope+':'+currentProfile,onReadContext:(at,known)=>text('header-calculation-time',`As of ${instant(at)} · knowledge cutoff ${instant(known)}`),notice,curveListed:code=>!!navigation?.curves.some(c=>c.code===code),openCurve:(code,contractId)=>openCurve(code,contractId),reported:()=>assistant.sync(),unsavedChanged:()=>syncUnloadQuestion(),source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,convention:directory().futuresConvention,context:historicalContext()};}});
 // The contract panel beside the curve's chart and table: docked when the main area has the room and the assistant is closed, an overlay
 // otherwise, and on a phone a sheet over the page. Closing it returns focus to the contract's row, or else to what opened it.
 const contractPanel=setupContractPanel($('contract-panel'),{
@@ -1544,9 +1546,9 @@ async function showPage(next:string){
     case 'interval-curves':await setPage('interval-curves');await intervalCurves.load();return;
     case 'crude-setup':await setPage('crude-setup');await crudeSetup.load();return;
     case 'gas-setup':await setPage('gas-setup');await gasSetup.load();return;
-    case 'crude':await setPage('futures');await futures.load();await futures.openProduct('crude');return;
-    case 'gas':await setPage('futures');await futures.load();await futures.openProduct('gas');return;
-    case 'ppa':await setPage('futures');await futures.load();await futures.openProduct('ppa');return;
+    case 'crude':await setPage('futures');await futures.enterEntry();await futures.openProduct('crude');return;
+    case 'gas':await setPage('futures');await futures.enterEntry();await futures.openProduct('gas');return;
+    case 'ppa':await setPage('futures');await futures.enterEntry();await futures.openProduct('ppa');return;
     case 'dashboard':await setPage('dashboard');await dashboard.load();return;
     case 'lifecycle':await setPage('lifecycle');await lifecycle.load();return;
     case 'physical-operations':await setPage('physical-operations');await physicalOperations.load();return;
@@ -1569,6 +1571,20 @@ async function showPage(next:string){
   }
 }
 // Pages that read the selected historical view apply a changed one before they open.
+// New trade (D421) is the Blotter's page shown another way, so the app's page stays the Blotter's and its guards, reads and context
+// controls apply unchanged: the title and the sidebar's mark follow what the Blotter view says it shows. Its sidebar entry opens it through the leave question
+// of the page it is left from; while the Blotter is in its own window it shows where the Blotter went, as the Blotter's entry does.
+let newTradeTitle:string|null=null;
+function newTradeShown(title:string|null){newTradeTitle=title;if(page!=='futures')return;text('page-title',title??'Blotter');$('page-title').title=title??'Blotter';renderBlotterViews();}
+$('nav-new-trade').onclick=()=>{
+  if(page==='futures'&&futures.entry()&&(futures.entryRead()||!select('snapshot').value))return;
+  leaving(async()=>{
+    if(contextDirty)await applyContext();
+    await setPage('futures');
+    if(futures.poppedOut()){futures.front();return;}
+    if(select('snapshot').value)await futures.enterEntry();else futures.showEntry();
+  },contextDirty?'discards':'page');
+};
 const readsContext=['rec-inventory','physical-power','lifecycle','physical-operations','crude-setup','gas-setup','gas','crude','dashboard','market','curve-definitions','custom-curves','vol-surfaces','options','delivery','interval-curves','power','reference','configuration','schedules','parties','futures'];
 const navigate=(next:string)=>()=>leaving(async()=>{if(contextDirty&&readsContext.includes(next))await applyContext();await showPage(next);},contextDirty&&readsContext.includes(next)?'discards':'page');
 const riskViewsNav=setupRiskViews({show:view=>{riskJobs.showView(view);text('page-title',riskViewNames[view]);$('page-title').title=riskViewNames[view];syncControls();},open:()=>navigate('risk')(),onPage:()=>page==='risk',busy:()=>busy,available:()=>pageAvailable('risk',permissions)});
@@ -1579,8 +1595,9 @@ for(const name of ['lifecycle','physical-operations','facilities','physical-powe
 // The saved Blotter views the person lists in the sidebar, each under the Blotter, which is marked while none of them is the view it shows.
 let blotterViews:{listed:string[];shown:string|null}={listed:[],shown:null};
 function renderBlotterViews(){
-  const shown=page==='futures'&&blotterViews.listed.includes(blotterViews.shown??'')?blotterViews.shown:null;
-  $('nav-futures').classList.toggle('active',page==='futures'&&shown===null);
+  const entering=page==='futures'&&newTradeTitle!==null,shown=page==='futures'&&!entering&&blotterViews.listed.includes(blotterViews.shown??'')?blotterViews.shown:null;
+  $('nav-new-trade').classList.toggle('active',entering);
+  $('nav-futures').classList.toggle('active',page==='futures'&&!entering&&shown===null);
   $('nav-blotter-views').replaceChildren(...blotterViews.listed.map(name=>{
     const entry=document.createElement('button'),icon=document.createElement('span'),label=document.createElement('span');
     entry.type='button';entry.className='nav-item nav-view';entry.classList.toggle('active',name===shown);entry.title=entry.ariaLabel=`Blotter view · ${name}`;entry.disabled=busy;
@@ -1667,7 +1684,7 @@ async function showTarget(report:string,selection:Record<string,unknown>|null,ki
   if(report==='blotter_new_trade'||report==='blotter_new_future'||report==='blotter_new_swap'){
     if(futures.poppedOut())throw Error('Bring the Blotter back to this window before opening a ticket here.');
     await setPage('futures');signal?.throwIfAborted();
-    await futures.loadEntry(signal);signal?.throwIfAborted();
+    await futures.enterEntry(signal);signal?.throwIfAborted();
     await futures.openEntry(report==='blotter_new_trade'?null:report==='blotter_new_future'?'futures':'swaps',signal);return;
   }
   if(!selection)return showPage(next);
@@ -1782,11 +1799,13 @@ function tableName(code:string){
 // The assistant panel, for a person who uses agents (docs/ai-assistant.md §10.1).
 $('assistant-hide').onclick=()=>{prefs.assistantMinimized=true;persist();assistant.sync();};
 const assistant=setupAssistant({launcherHidden:()=>prefs.assistantHidden,launcherMinimized:()=>prefs.assistantMinimized,restoreLauncher:()=>{prefs.assistantMinimized=false;persist();},api,root:apiRoot,identity:()=>administrationScope+':'+currentProfile,zone:()=>prefs.timeZone,
-  changed:async()=>{if(!unsaved())await showPage(page);},
+  // What the assistant changed is read again where the person is: New trade's page reads nothing of it and stays.
+  changed:async()=>{if(!unsaved()&&!(page==='futures'&&futures.entry()))await showPage(page);},
   presentationRevision:()=>futures.presentationRevision(),
   presentationLocate:step=>{
     if(step.kind==='go'){
-      const id=step.target.page.startsWith('blotter')?(page==='futures'&&['blotter_new_trade','blotter_new_future','blotter_new_swap'].includes(step.target.page)?'futures-new':'nav-futures'):'nav-'+webPage(step.target.page);
+      // A ticket is opened from the Blotter's own button where the Blotter is shown, and from New trade's sidebar entry anywhere else.
+      const id=step.target.page.startsWith('blotter_new_')?(page==='futures'&&!futures.entry()?'futures-new':'nav-new-trade'):step.target.page.startsWith('blotter')?'nav-futures':'nav-'+webPage(step.target.page);
       const control=$(id);return control?.getClientRects().length&&!control.closest('[hidden]')?control:null;
     }
     return page==='futures'?futures.presentationLocate(step):pagePresentationTarget(main);

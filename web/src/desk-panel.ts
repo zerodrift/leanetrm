@@ -90,12 +90,15 @@ export function setupDeskPanel(o:{
   // The row the panel was opened from, which focus returns to when the person closes the panel.
   let openedAt:number|undefined;
   function drop(){o.position.clear();openedAt=undefined;o.grid()?.selectRow(null);}
+  // Closes the panel without asking. A shell that rests on a mode of its own (the instrument chooser, on New trade's page) is left as
+  // that mode drew it: a position it moved from was dropped as it moved (`left`).
+  function close(){o.shell.reset();if(o.shell.current()===null)drop();}
   // Draws the position the panel is on from the read on screen now, or closes the panel, saying so, when that read does not hold it.
   function draw(opening:boolean,tab?:PositionTab,reveal=true){
     const mode=o.shell.current();
     if(mode?.kind!=='position')return;
     const index=positionIndex(o.holdings()??[],mode),at=index<0?undefined:o.input(index);
-    if(!at){o.shell.reset();drop();o.notice('The position the panel showed is not in this read, so the panel was closed.');return;}
+    if(!at){close();o.notice('The position the panel showed is not in this read, so the panel was closed.');return;}
     openedAt=index;
     if(opening)o.position.show(at,tab);else o.position.update(at);
     o.grid()?.selectRow(index);
@@ -134,6 +137,6 @@ export function setupDeskPanel(o:{
     /** The panel moved to another mode: the position and its row are forgotten, and focus stays where the person put it. */
     left:drop,
     /** The reads the panel was opened from no longer stand. */
-    reset(){o.shell.reset();drop();},
+    reset:close,
   };
 }

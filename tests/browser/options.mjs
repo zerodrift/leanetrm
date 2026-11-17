@@ -113,13 +113,13 @@ export async function run({command,evaluate,wait,click,persona,check,idle,fitsWi
    `document.querySelector('#options-chain td.options-selected').dataset.series===${q(call.series.code)}&&
     document.querySelector('#options-expiries [aria-current=true]').dataset.expiry===${q(call.series.expiryAt)}&&document.querySelector('.options-product[aria-pressed=true]').dataset.product==='nymex_on'`,
    "[document.querySelector('#options-chain td.options-selected')?.dataset.series,document.querySelector('#options-expiries [aria-current=true]')?.dataset.expiry]");
-  // Booking opens the Blotter's option ticket with the series selected as a person would select it. The risk analyst books nothing.
+  // Booking opens the option ticket on New trade's page with the series selected as a person would select it. The risk analyst books nothing.
   await persona('trader');await click('#example');await click('#nav-options');await choose('nymex_on');
   await settled(`${state}==='fitted'&&!!document.querySelector('#options-chain tbody tr')`,30000);
   await click(`#options-chain td[data-series="${call.series.code}"]`);
   // Opening the native ticket consumes entry metadata; an unrelated portfolio valuation may be unavailable.
   await evaluate('window.refuseOptionEntryValuation=true');await click('#options-book');
-  await settled("document.querySelector('#page-title').textContent==='Blotter'&&!!document.querySelector('#option-page')?.offsetParent&&document.querySelector('#option-strike').value!==''",30000);
+  await settled("document.querySelector('#page-title').textContent==='New futures option'&&document.querySelector('#futures-page').hasAttribute('data-entry')&&!!document.querySelector('#option-page')?.offsetParent&&document.querySelector('#option-strike').value!==''",30000);
   await check('opening a selected option ticket needs no portfolio valuation',"window.optionEntryValuations.length===0&&document.querySelector('#error').hidden","window.optionEntryValuations");
   await check('Book opens the option ticket on that series, with no execution terms filled in',
    `document.querySelector('#option-right').value===${q(call.series.right)}&&Number(document.querySelector('#option-strike').value)===${Number(call.series.strike)}&&

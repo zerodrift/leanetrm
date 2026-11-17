@@ -10,7 +10,7 @@ test('a proposed curve and a saved draft wait for explicit review on an idle unc
  const {targetAction}=await import('../dist/assistant-pages.js');
  assert.equal(targetAction({live:true,changesContext:false,unsaved:false,review:true}),'go');
 });
-import {pageReport,lookingAt,askKnowledge,changesContext,targetAction,NavigationHistory,stepLine,endingLine,startsOver,usageLine,consentText,grantExpiry,webPage,agentChoice,preselect,conversationChoice,panelMessage,keptAsk} from '../dist/assistant-pages.js';
+import {pageReport,lookingAt,reportedPages,askKnowledge,changesContext,targetAction,NavigationHistory,stepLine,endingLine,startsOver,usageLine,consentText,grantExpiry,webPage,agentChoice,preselect,conversationChoice,panelMessage,keptAsk} from '../dist/assistant-pages.js';
 
 test('independent delivery and facility views retain their display-only report identities',()=>{
  for(const [facilitySection,page]of [['definitions','facility_definitions'],['activity','facility_activity'],['gas-delivery','delivery_workbench_gas'],['crude-delivery','delivery_workbench_crude']]){
@@ -309,7 +309,7 @@ test('a new trade in the Blotter\'s panel is reported by its product, and no uns
     ['blotter_new_future','A new future is being entered. The assistant does not read a trade being entered.'],['blotter_new_swap','A new swap is being entered. The assistant does not read a trade being entered.'],['blotter_new_ppa','A new PPA is being entered. The assistant does not read a trade being entered.'],['blotter_new_gas','A new physical gas trade is being entered. The assistant does not read a trade being entered.'],['blotter_new_transport','A new Transport agreement is being entered. The assistant does not read a trade being entered.'],['blotter_new_crude','A new physical crude trade is being entered. The assistant does not read a trade being entered.'],['blotter_new_lng','A new physical LNG cargo is being entered. The assistant does not read a trade being entered.'],['blotter_new_option','A new futures option is being entered. The assistant does not read a trade being entered.']]){
     const expected=shown.replace('The assistant does not read a trade being entered.', ['blotter_new_trade','blotter_new_future','blotter_new_swap'].includes(id)?'The assistant can inspect available terms, preview explicit drafts and prepare changes for your authorization.':'The assistant does not read a trade being entered.');
     const view=lookingAt({page:id,selection:{}},current,names);
-    assert.deepEqual([view.page,view.shows,view.supported],['Blotter',expected,['blotter_new_trade','blotter_new_future','blotter_new_swap'].includes(id)],id);
+    assert.deepEqual([view.page,view.shows,view.supported],['New trade',expected,['blotter_new_trade','blotter_new_future','blotter_new_swap'].includes(id)],id);
   }
 });
 
@@ -444,4 +444,11 @@ test('a selected unqualified gas service permits questions and identifies its un
   assert.equal(seen.supported,false);
   assert.equal(seen.shows,'Trade TR-000009, revision 1. The assistant does not read this trade.');
   }
+});
+
+test('a trade being entered is named New trade, whichever instrument it is',()=>{
+ const nameOf=page=>lookingAt({page,selection:{}},{mode:'current',frameId:null,frameLabel:null},{curve:code=>code,table:code=>code}).page;
+ const entered=reportedPages.filter(page=>page.startsWith('blotter_new_'));
+ assert.equal(entered.length,11);
+ for(const page of entered)assert.equal(nameOf(page),'New trade',page);
 });

@@ -6,12 +6,12 @@ export async function sideCardLayoutChecks() {
  const source=new DOMParser().parseFromString(await (await fetch('/index.html')).text(),'text/html');
  const host=document.createElement('div');host.id='side-panel';host.className='side-panel-form details-form';host.style.cssText='width:960px;max-width:100%;margin:20px auto';document.body.append(host);
  const panel=(id)=>{const node=document.createElement('section');node.id=id;host.append(node);return node;};
- const {setupNewTrade,newTradeProducts}=await import('/new-trade.js');
+ const {setupNewTrade,chooserGroups,newProducts}=await import('/new-trade.js');
  const parts=Object.fromEntries(['head','body','view'].map(key=>[key,panel('entry-test-'+key)])),chosen=[];
- const entry=setupNewTrade({element:key=>parts[key]},{choose:product=>chosen.push(product),busy:()=>false});
+ const entry=setupNewTrade({element:key=>parts[key]},{choose:product=>chosen.push(product),link:()=>undefined,busy:()=>false,offered:()=>true,groups:()=>chooserGroups({opens:()=>true,links:()=>true,soon:true})});
  entry.show({kind:'new',product:null},'choose');
- for(const button of parts.head.querySelectorAll('#new-trade-product button'))button.click();
- check('Every instrument type is available before ownership is entered',JSON.stringify(chosen)===JSON.stringify(newTradeProducts.map(([key])=>key)));
+ for(const button of parts.head.querySelectorAll('#new-trade-product button:enabled'))button.click();
+ check('Every instrument type is available before ownership is entered',JSON.stringify(chosen)===JSON.stringify(newProducts));
  const o={api:async()=>{throw Error('Unexpected API request');},act:async work=>work(),source:()=>({snapshotId:'synthetic'}),historical:()=>false,actor:()=>'synthetic',zone:()=>'UTC',busy:()=>false,canBook:()=>true};
  const {setupPhysicalCrude}=await import('/physical-crude-editor.js');
  panel('crude-page');setupPhysicalCrude(o);
@@ -109,6 +109,19 @@ export async function sideCardLayoutChecks() {
  check('Narrow panels do not overflow',host.scrollWidth<=host.clientWidth+1);
  host.style.width='960px';await settle();price.dispatchEvent(new Event('input',{bubbles:true}));
  check('Responsive layout preserves controls and edits',document.getElementById('crude-price')===price&&price.value==='3.50'&&edits===1);
+ // New trade's page (D421) hosts the same tickets in its form part, `.entry-form`, at the page's width.
+ host.className='side-panel-form entry-form';host.style.maxWidth='none';
+ for(const width of [1280,1440,1920]){
+  host.style.width=width+'px';await settle();
+  check(`Sides sit next to each other on a ${width}px page`,sameTop('#lng-cargo-side','#lng-cash-side')&&box('#lng-cash-side').left>box('#lng-cargo-side').left&&sameTop('#crude-delivery-side','#crude-consideration-side')&&sameTop('#swap-fixed-editor .instrument-side','#swap-floating-editor .instrument-side')&&sameTop('#gas-test [data-kind=physical]','#gas-test [data-kind=cash]')&&tops(scheduledCards));
+  check(`Side rows stay aligned on a ${width}px page`,sameTop('#crude-direction','#crude-cash-direction')&&sameTop('#swap-fixed-from','#swap-floating-from')&&sameTop('#ppa-component-0-payment-rule','#ppa-component-1-payment-rule','#ppa-component-2-payment-rule')&&['direction','start','quantity','price','payment'].every(band=>sameTop(`#gas-test [data-kind=physical] [data-band=${band}]`,`#gas-test [data-kind=cash] [data-band=${band}]`)));
+  check(`No side card is squeezed on a ${width}px page`,[...host.querySelectorAll('.entry-side-card,.instrument-side,.ppa-component')].filter(card=>card.getClientRects().length).every(card=>card.getBoundingClientRect().width>=220));
+  check(`A ${width}px page does not overflow`,host.scrollWidth<=host.clientWidth+1);
+ }
+ host.style.width='560px';await settle();
+ check('Sides stack on a narrow page',box('#lng-cash-side').top>=box('#lng-cargo-side').bottom&&box('#gas-test [data-kind=cash]').top>=box('#gas-test [data-kind=physical]').bottom&&scheduledCards[1].getBoundingClientRect().top>=scheduledCards[0].getBoundingClientRect().bottom);
+ check('A narrow page does not overflow',host.scrollWidth<=host.clientWidth+1);
+ host.className='side-panel-form details-form';host.style.maxWidth='100%';host.style.width='960px';await settle();
  ppa.id='ppa-components-fixture';panel('ppa-page');
  const {setupPpa}=await import('/ppa-editor.js');setupPpa({...o,can:()=>true});
  check('PPA composition and sides precede ownership',before(document.getElementById('ppa-composition'),document.getElementById('ppa-book'))&&before(document.getElementById('ppa-components'),document.getElementById('ppa-book')));

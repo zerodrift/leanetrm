@@ -2,6 +2,7 @@ import {sideSession} from './side-session.mjs';
 import {press} from './blotter-window.mjs';
 import {openPhysical} from './physical-workspace.mjs';
 import {assistantPageCases} from './assistant-page-states.mjs';
+import {closeNewTrade} from './new-trade.mjs';
 
 // Real page selection -> admitted report -> pinned digest, in the owned synthetic workspace fixture.
 export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,url,provider}){
@@ -113,7 +114,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const swapPlan=[{kind:'go',target:'n4'},{kind:'pause',page:'blotter_new_swap'}];
   const openSwap=async(walkthrough,tag)=>{
     const fast=walkthrough&&tag!=='unsaved_walkthrough';
-    if(await evaluate("!!document.querySelector('#swap-form')?.getBoundingClientRect().height&&!!document.querySelector('#details-collapse')?.getClientRects().length")){await click('#details-collapse');await wait("!document.querySelector('#swap-form')?.getBoundingClientRect().height");}
+    if(await evaluate("!!document.querySelector('#swap-form')?.getBoundingClientRect().height")){await closeNewTrade({click,evaluate,wait});await wait("!document.querySelector('#swap-form')?.getBoundingClientRect().height");}
     await script([...(tag==='navigation'?[{tools:[['toolu_full_catalog','discover_page_operations',{page:'all',operation:null}]]}]:[]),
       {tools:[[ 'toolu_'+tag+'_read',fast?'read_page_digest':'read_workspace_page',fast?{mode:'controls'}:{page:'blotter_new_swap'}]]},
       {tools:[[ 'toolu_'+tag+'_open',walkthrough?'present_walkthrough':'navigate',walkthrough?{planJson:JSON.stringify(fast?swapPlan:[{kind:'go',target:'n1'},{kind:'pause',page:'blotter_new_swap'}])}:{page:'blotter_new_swap',target:null}]]},
@@ -192,6 +193,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await click('.assistant-walkthrough-continue');
   await wait("document.querySelector('#futures-lots').value==='2'&&document.querySelector('#futures-execution').value==='3.4'");
   await wait("!document.querySelector('.assistant-walkthrough-continue').hidden");
+  await check('the walkthrough opens the new future on New trade\'s page, not in the Blotter\'s details',"document.querySelector('#page-title').textContent==='New future'&&document.querySelector('#futures-page').hasAttribute('data-entry')&&document.querySelector('#position-details-form').contains(document.querySelector('#futures-new-trade'))","[document.querySelector('#page-title').textContent,document.querySelector('#futures-page').hasAttribute('data-entry')]");
   await check('ticket fills remain unsaved and choose no unstated book or contract',"document.querySelector('#futures-book').value===''&&document.querySelector('#futures-contract').value===''&&!__selectionRequests.some(r=>r.path.endsWith('/futures/book')||r.path.endsWith('/assistant/actions/authorize'))");
   await check('the narration remains visible while paused',"document.querySelector('.assistant-walkthrough-status').textContent.includes('These terms remain unsaved')");
   await check('the filled control and labelled assistant cursor are visible',"(()=>{const field=document.querySelector('#futures-execution').getBoundingClientRect(),cursor=document.querySelector('.assistant-walkthrough-cursor');return field.top>=0&&field.bottom<=innerHeight&&!cursor.hidden&&cursor.getBoundingClientRect().top<innerHeight;})()");

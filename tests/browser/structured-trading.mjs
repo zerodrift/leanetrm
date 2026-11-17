@@ -2,6 +2,7 @@ import {readFile,copyFile,mkdtemp} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {sideCards,sidePhone} from './instrument-side-qualification.mjs';
+import {startNewTrade} from './new-trade.mjs';
 
 // Only native fixtures created by the owned HTTP qualification are named here.
 // Business responses come from the real preview API and its disposable database.
@@ -72,5 +73,5 @@ await enter(rec,'Certificate account',target.rec.accountId);
  await evaluate("document.querySelector('#rec-inventory-page').scrollIntoView({block:'start'})");await capture('structured-trading-rec-desktop');await evaluate("document.querySelector('#rec-inventory-page .rec-forward').scrollIntoView({block:'start'})");await capture('structured-trading-rec-forward-desktop');await evaluate("for(const d of document.querySelectorAll('#rec-inventory-page .rec-forward details'))d.open=true;[...document.querySelectorAll('#rec-inventory-page .rec-forward h4')].find(n=>n.textContent.includes('contractual present value')).parentElement.scrollIntoView({block:'start'})");await capture('structured-trading-rec-value-desktop');await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await check('REC inventory and forward Side tables fit a phone',fitsWidth);await evaluate("document.querySelector('#rec-inventory-page').scrollIntoView({block:'start'})");await capture('structured-trading-rec-phone');await evaluate("document.querySelector('#rec-inventory-page .rec-forward').scrollIntoView({block:'start'})");await capture('structured-trading-rec-forward-phone');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1080,deviceScaleFactor:1,mobile:false});await press(rec,'Open REC forward in Blotter');await wait(idle);
  await check('native saved REC forwards open in the common Blotter and retained Side inspector',"!document.querySelector('#futures-page').hidden&&document.querySelector('#error').hidden&&document.querySelector('#position-details').textContent.includes('REC')");
- await click('#futures-new');await click('#new-trade-rec');await wait(idle);await check('New Trade reuses the same qualified REC editor and exact selected financial close',"document.querySelector('#position-details .embedded-trade')?.textContent.includes('Standalone REC forward')&&document.querySelectorAll('.embedded-trade').length===1&&document.querySelector('#error').hidden");
+ await startNewTrade(driver);await click('#new-trade-rec');await wait("document.querySelector('#page-title').textContent==='New REC forward'&&"+idle);await check('New Trade reuses the same qualified REC editor and exact selected financial close',"document.querySelector('#position-details .embedded-trade')?.textContent.includes('Standalone REC forward')&&document.querySelectorAll('.embedded-trade').length===1&&document.querySelector('#error').hidden");
 }

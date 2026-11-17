@@ -35,7 +35,7 @@ import {setupFuturesBooking} from './futures-booking.js';
 import {draftShapes,curveSelectionKey,readInputCurveShapes,curvesPerRead} from './curve-shapes.js';
 import {batchReads} from './batch-reads.js';
 import {visibleReads} from './visible-read.js';
-import {newTradeControl,newTradeProducts,setupNewTrade,type NewProduct} from './new-trade.js';
+import {chooserGroups,newTradeControl,productName,setupNewTrade,type NewMode,type NewProduct} from './new-trade.js';
 import {createTableWorkspace} from './table-workspace.js';
 import {setupBookScopePicker} from './scope-picker.js';
 import {renderDataGrid} from './data-grid.js';
@@ -56,7 +56,7 @@ import {guardedCsv,downloadCsv} from './csv-export.js';
 import {friendly,publicText,displayInstant,deliveryLabel,curveName} from './market-view.js';
 import {valuationReason,valuationNote,excludedPositions,valuationMeasure} from './valuation-status.js';
 import {commodityColors,deskGroups,rowKey,deskSummaryViews,holdingFormats,positionChartPanels,positionRows,positionsTile,priceUnit,projectsFromSeveralCurves,pvChartPanels,severalCurvesShape,signOf,signedText,staleStripItems,summaryStripItems,waitingStripItems,summaryTiles,valueFields,type CurveShape,type DeskRow,type Holding,type StripItem,type StripRisk,type Summary} from './desk-model.js';
-import {askInPanel,liveRefreshPlan,riskRefreshPlan,sameMode,type PanelMode,type RiskRefresh} from './side-panel.js';
+import {askInPanel,liveRefreshPlan,modeLabel,riskRefreshPlan,sameMode,type PanelMode,type RiskRefresh} from './side-panel.js';
 import {amendRefusal,setupPositionPanel,type PositionInput,type PositionRisk} from './position-panel.js';
 import {setupDetailsPane} from './details-pane.js';
 import {bookedPosition,followedPosition,positionIndex,requireTradeRows,revisionNote,setupDeskPanel,tradeIndex} from './desk-panel.js';
@@ -130,7 +130,9 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // The window the Blotter is in (blotter-workbench.md, Pop-out Blotter): the main window, which pops it out into a window of its own that
   // `open` opens and brings it back; or that window, which `close`s to bring it back.
   // `example` is the example both windows read, which a position's own window reads too; a window that cannot say opens no position window.
-  window:({kind:'main';open:(url:string,target:string,features:string)=>Window|null}|{kind:'popout';close:()=>void})&{example:'baseline'|'exchange'|undefined}}){
+  // The main window also shows New trade as a page of its own (D421): `entry.shown` hears the title that page shows, or null when the
+  // Blotter itself is shown; `links` says whether this account's sidebar lists a page a chooser entry is entered on, and `link` goes there.
+  window:({kind:'main';open:(url:string,target:string,features:string)=>Window|null;entry:{shown:(title:string|null)=>void;links:(page:string)=>boolean;link:(page:string)=>void}}|{kind:'popout';close:()=>void})&{example:'baseline'|'exchange'|undefined}}){
   const {api,act,busy}=options;
   // A completed read stays in this window only. Its server version was sampled before the read began.
   let cachedRead:{key:string;version:string}|undefined,stopUpdates=()=>{};
@@ -212,6 +214,9 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // the view. Moving or collapsing a pane draws the grid again where it now stands, never builds it again. The details collapse by their own
   // control, which asks first about edits they hold.
   let setUp=false,retainedOnly=false;
+  // Which of its two presentations the page shows, the Blotter or New trade's page (`present`), and the mode of a new trade of no product.
+  let presentation:'desk'|'entry'='desk';
+  const newTrade:NewMode={kind:'new',product:null};
   const dock=setupDock(get('blotter-dock'),{label:'Blotter panes',rules:blotterDockRules,narrow:options.narrow,initial:view.panes,ownCollapse:['details'],maximizable:true,
     tabs:[{id:'summary',label:'Summary',body:get('blotter-pane-summary')},{id:'grid',label:'Positions',body:get('blotter-pane-grid')},{id:'details',label:'Details',body:get('blotter-pane-details')},{id:'charts',label:'Charts',body:get('blotter-pane-charts')}],
     changed:arrangement=>{
@@ -231,6 +236,8 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     if(get('futures-page').hidden)return;
     const now=options.narrow(),body=get('blotter-pane-details'),focused=body.contains(document.activeElement);
     dock.relayout();
+    // New trade's page keeps the details filling the dock, also after a saved arrangement was applied under it.
+    if(presentation==='entry'&&dock.maximized()!=='details')dock.maximize('details');
     if(dock.maximized()===null&&now!==narrowed&&(now||panel.current()!==null))dock.reveal(panel.current()===null?'grid':'details');
     narrowed=now;fitRoom();
     if(focused&&!body.contains(document.activeElement)&&!body.hidden)get('position-details').focus({preventScroll:true});
@@ -324,7 +331,8 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   let position!:ReturnType<typeof setupPositionPanel>;
   const editing=()=>!!position?.unsaved()||editor.unsaved()||swapEditor.unsaved()||booking.unsaved()||options.tickets.unsaved()||risk.edited();
   const detailsPane=setupDetailsPane(get('blotter-pane-details'),{unsaved:editing,busy,step:direction=>void stepPosition(direction),
-    collapsed:()=>{if(!deskPanel.closed())focusSelected();},expand:()=>{dock.reveal('details');makeRoom();fitRoom();},changed:modeChanged});
+    collapsed:()=>{if(presentation==='desk'&&!deskPanel.closed())focusSelected();},expand:()=>{dock.reveal('details');makeRoom();fitRoom();},changed:modeChanged,
+    rest:()=>presentation==='entry'?newTrade:null});
   const panel=detailsPane.shell;
   placeDock();
   // A request whose outcome is not known is kept with its Check status and Retry in a card on the page, above the panes, whatever the details
@@ -338,10 +346,16 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   function syncProductPending(){
     const pendingProducts=options.tickets.pending();productPending.hidden=pendingProducts.length===0;
     productPending.replaceChildren();
-    for(const product of pendingProducts){const button=document.createElement('button');button.type='button';button.className='secondary';button.textContent=`Reconcile ${newTradeProducts.find(([key])=>key===product)![1].replace(/^Physical/,'physical')} request`;button.disabled=busy();button.onclick=()=>void chooseProduct(product,true);productPending.append(button);}
+    for(const product of pendingProducts){const button=document.createElement('button');button.type='button';button.className='secondary';button.textContent=`Reconcile ${productName(product).replace(/^Physical/,'physical')} request`;button.disabled=busy();button.onclick=()=>reconcileProduct(product);productPending.append(button);}
   }
   // The head of the panel's New trade mode, which asks the page for the product the person chooses and the page mounts that product's editor.
-  const entry=setupNewTrade(panel,{choose:product=>void chooseProduct(product),busy});
+  // The main window offers every instrument, the page another is entered on where this account's sidebar lists it, and those not yet
+  // offered; the pop-out only what it can open itself, as the product tickets are the main window's.
+  const entryPage=options.window.kind==='main'?options.window.entry:undefined;
+  // The main window chooses an instrument on New trade's page alone: a close-out draft in the Blotter's details is of the position it was
+  // drawn from, with no other instrument to switch to. The pop-out keeps its chooser while a request is retained, as before.
+  const entry=setupNewTrade(panel,{choose:product=>void chooseProduct(product),busy,link:page=>entryPage?.link(page),offered:()=>entryPage?presentation==='entry'&&bookingControl().enabled:true,
+    groups:()=>chooserGroups(entryPage?{opens:()=>true,links:entryPage.links,soon:true}:{opens:product=>product==='futures'||product==='swaps',links:()=>false,soon:false})});
   // The forms belong to the panel's mode: when it moves to another, whatever they held is dropped (the person was asked first if they
   // held edits), and the page says what it now reports. A new trade is drawn as its head and what it says until its form is in the panel.
   let formsFor:PanelMode=null;
@@ -350,6 +364,8 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     if(sameMode(mode,formsFor))return;
     // Set before the forms are reset, which places the panel and so calls this again: the mode is then already the one handled.
     const left=formsFor;formsFor=mode;resetForms();
+    // New trade's page holds new trades only: a position, the risk report or a shocked contract is the Blotter's to show.
+    if(presentation==='entry'){if(mode!==null&&mode.kind!=='new')present('desk');else announce();}
     if(left?.kind==='risk')risk.shelve();
     if(mode!==null&&mode.kind!=='position')deskPanel.left();
     if(mode?.kind==='new')entry.show(mode,mode.product===null?'choose':'loading');
@@ -426,7 +442,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   const guarded=(work:()=>Promise<void>,kept?:()=>void)=>guard({busy,leave,act},work,kept);
   const asked=(work:()=>Promise<void>,kept?:()=>void)=>void guarded(work,kept).catch(error=>{if((error as {shown?:boolean}).shown!==true)options.failed(error);});
   // Forms and pending reads are released; completed values remain hidden until current authority is checked again.
-  function leavePage(){const keep=panel.current()?.kind==='position'&&position.retainable();get('futures-page').classList.add('checking-cache');pauseFullReport();cancelRead();dropForms();if(!keep)deskPanel.reset();}
+  function leavePage(){present('desk');const keep=panel.current()?.kind==='position'&&position.retainable();get('futures-page').classList.add('checking-cache');pauseFullReport();cancelRead();dropForms();if(!keep)deskPanel.reset();}
   // A trade request whose outcome is not confirmed is owned by the window that sent it, which keeps its Check status and Retry.
   // A main window's unconfirmed requests stay with it; a pop-out's go back with the Blotter (handOver).
   const retainedStays=(move:string)=>{
@@ -602,11 +618,68 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // New trade (D221) opens the panel on its instrument-type choice with no product selected, and reads nothing until the person chooses one.
   // It is offered only where the backend allows booking; the toolbar says why when it does not, so no field opens where booking is impossible.
   // What the panel held is left only when the person says so, which is asked before the page is busy.
-  const newTrade:PanelMode={kind:'new',product:null};
-  const bookingControl=()=>newTradeControl({catalog,retained:!!pending.command||options.tickets.pending().length>0,fallback:options.bookingUnavailableReason()});
+  // On New trade's page a booking directory that could not be read is said as that, with the way to read it again.
+  let directoryFailed=false;
+  const directoryUnread='The booking choices could not be read. Choose New trade again to read them.';
+  const bookingControl=()=>newTradeControl({catalog,retained:!!pending.command||options.tickets.pending().length>0,fallback:presentation==='entry'&&directoryFailed?directoryUnread:options.bookingUnavailableReason()});
   async function openNewTrade(){
     if(busy()||!bookingControl().enabled)return;
+    if(options.window.kind==='main'){asked(()=>enterEntry());return;}
     if(await panel.show(panel.current()?.kind==='new'?panel.current():newTrade))panel.reveal();
+  }
+  // New trade's page (D421) is this page shown another way: the pane alone, at the page's width, resting on the instrument chooser, with
+  // the Blotter's own parts put away by style and its read, its values and a risk run kept as they are behind it. Only the main window
+  // has it; the pop-out enters a new trade in its Details pane. It is entered by `enterEntry` and `showEntry` alone, and ends when the
+  // Blotter is opened or left, when a trade is booked, and when the pane comes to show anything but a new trade.
+  function announce(){if(options.window.kind==='main')options.window.entry.shown(presentation==='entry'?modeLabel(panel.current()??newTrade):null);}
+  function present(next:'desk'|'entry'){
+    if(options.window.kind!=='main'||next===presentation)return;
+    presentation=next;const entering=next==='entry';
+    get('futures-page').toggleAttribute('data-entry',entering);
+    // The form has the page's width there, and the Details pane's single column here (app.css).
+    const form=panel.element('form');form.classList.toggle('details-form',!entering);form.classList.toggle('entry-form',entering);
+    // The pane settles on what this presentation rests on when it holds what only the other shows; forms it held go with that, unasked,
+    // as every way here has asked already or acts on the person's word.
+    if((panel.current()?.kind==='new')!==entering)deskPanel.reset();
+    if(entering)dock.maximize('details');else dock.restore();
+    announce();
+  }
+  // The booking directory alone, for New trade opened where the Blotter holds no read it has checked: no position is valued for it. A
+  // catalog kept from before the page was left is read again, as the account's authority and its books may have changed since; one that
+  // a read of the Blotter brought meanwhile stands.
+  const unchecked=()=>get('futures-page').classList.contains('checking-cache');
+  async function readDirectory(signal?:AbortSignal){
+    const source=options.source(),stale=unchecked();snapshot=source.snapshotId;
+    if(source.context&&!source.context.contextId)throw Error('Select a retained historical context before opening a ticket.');
+    const scope=whereAmI(),request=readContext();
+    let directory:Catalog;
+    // A read that fails leaves no unchecked catalog in force: the page then says the choices could not be read.
+    try{directory=await api<Catalog>('trading/directory',{...request,convention:'trading_workspace_v1'},signal);}
+    catch(error){if(scope===whereAmI()){if(stale)catalog=undefined;directoryFailed=!catalog;}throw error;}
+    signal?.throwIfAborted();if(scope!==whereAmI())throw Error('The account or financial context changed.');
+    if(directory.kind!=='directory'||Object.hasOwn(directory,'contracts')||!directory.context?.contextId||!Array.isArray(directory.books)||source.context&&directory.context.contextId!==source.context.contextId)throw Error('The trading directory returned an inconsistent context.');
+    directoryFailed=false;
+    if(catalog&&!stale)return;
+    catalog=directory;viewControls();
+  }
+  /** Shows New trade's page without reading: it says why booking is unavailable until a catalog is read. */
+  function showEntry(){if(tie?.out())return;present('entry');announce();sync();}
+  /** Shows New trade's page and makes sure a booking catalog is held: the one the Blotter read, or the directory alone. */
+  async function enterEntry(signal?:AbortSignal){
+    signal?.throwIfAborted();restore();
+    if(tie?.out())throw Error('Bring the Blotter back before opening a ticket.');
+    present('entry');announce();
+    try{if(!catalog||unchecked())await readDirectory(signal);}
+    finally{sync();}
+    // The header says what the page's choices were read at, as it does for the Blotter.
+    if(catalog)options.onReadContext(catalog.asOf,catalog.context.knownAt);
+  }
+  /** Shows the Blotter itself again: every route that opens the Blotter ends New trade's page. */
+  function showDesk(){present('desk');}
+  // A product ticket's retained request is reconciled in its ticket, which New trade's page holds: from the Blotter that is one step.
+  function reconcileProduct(product:TicketProduct){
+    if(options.window.kind==='main'&&presentation==='desk')asked(async()=>{await enterEntry();await chooseProduct(product,true,true);});
+    else void chooseProduct(product,true);
   }
   // A product's form takes the panel's place, scrolled to so that it has the window's height.
   function showForm(){panel.form(true);panel.reveal();}
@@ -615,7 +688,11 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   const whereAmI=()=>{try{return JSON.stringify([options.profile(),options.source()]);}catch{return undefined;}};
   // Each product opens its form once what it needs has been read, and says whether it did: a swap's reset, or a change of selection while it was read, leaves it closed.
   async function openFuture(next:PanelMode,signal?:AbortSignal){
-    // The priced contracts come with a new read of the whole Blotter, which closes the panel and the forms it held.
+    // The priced contracts come with a new read of the whole Blotter, which closes the panel and the forms it held. On New trade's page
+    // the chooser stays, saying what is being read.
+    // A ticket open there gives the chooser its place first, so that what is being read is on screen and not behind a form.
+    if(presentation==='entry'){resetForms();await panel.show(newTrade,signal);signal?.throwIfAborted();}
+    if(panel.current()?.kind==='new')entry.loading('futures');
     await load('priced_contracts');signal?.throwIfAborted();
     const control=bookingControl();
     if(!control.enabled)throw Error(control.reason);
@@ -650,14 +727,26 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     const at=whereAmI(),requested=++productOpening,current=()=>requested===productOpening&&at!==undefined&&whereAmI()===at&&!signal?.aborted;let ran=false,opened=false;
     const open=async()=>{
       ran=true;
-      try{opened=product==='futures'?await openFuture(next,signal):product==='swaps'?await openSwap(next,signal):await openAdditional(product,next);}
-      catch(error){if(current())await panel.show(newTrade,signal);throw error;}
-      signal?.throwIfAborted();if(!current())return;
-      if(sameMode(panel.current(),next)){if(opened)showForm();else await panel.show(newTrade,signal);}
+      try{
+        try{opened=product==='futures'?await openFuture(next,signal):product==='swaps'?await openSwap(next,signal):await openAdditional(product,next);}
+        catch(error){
+          if(current()){
+            await panel.show(newTrade,signal);
+            // A failed read of the Blotter took the booking directory with it: New trade's page reads it again, so that the chooser is back
+            // with the failure said. Should that fail too, the page says so (directoryUnread) and the failure reported is the first.
+            if(presentation==='entry'&&!catalog)await readDirectory(signal).catch(()=>undefined);
+          }
+          throw error;
+        }
+        signal?.throwIfAborted();if(!current())return;
+        if(sameMode(panel.current(),next)){if(opened)showForm();else await panel.show(newTrade,signal);}
+      }
+      // A chooser still on screen says again that a product is to be chosen: what it said was being read is no longer.
+      finally{if(sameMode(panel.current(),newTrade))entry.show(newTrade,'choose');}
     };
     if(inAction)await open();else await act(open);
     // A page that became busy while the person was asked does nothing: the panel is as it was, and the person is told, not left to wonder.
-    if(!ran)options.notice(`${newTradeProducts.find(([key])=>key===product)![1]} was not opened because the page was busy. Choose it again.`);
+    if(!ran)options.notice(`${productName(product)} was not opened because the page was busy. Choose it again.`);
     // The form takes focus once the page is no longer busy, which disables every control of it.
     signal?.throwIfAborted();if(opened&&current()&&sameMode(panel.current(),next)){panel.focusForm();return true;}return false;
   }
@@ -941,7 +1030,8 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // assistive technology at: not in a tooltip, and not left for the person to find out by pressing it.
   function syncNewTrade(){
     const control=bookingControl(),button=get<HTMLButtonElement>('futures-new');
-    get('new-trade-availability').hidden=control.reason===null;text('new-trade-availability',control.reason??'');
+    // On New trade's page a read under way has no catalog yet: the pane says what is being read, not what the person has yet to choose.
+    get('new-trade-availability').hidden=control.reason===null||presentation==='entry'&&catalog===undefined&&busy();text('new-trade-availability',control.reason??'');
     button.disabled=busy()||!control.enabled;
     if(control.reason===null)button.removeAttribute('aria-describedby');else button.setAttribute('aria-describedby','new-trade-availability');
   }
@@ -990,6 +1080,9 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   function reset(cause:ReadCause|null){
     // Another account ends a Blotter popped out for the last one, which the account's change said first.
     if(cause===null&&tie?.out()){tie.end('account_changed');placeWindow();}
+    // Another account starts on the Blotter, never on a page of the last one's.
+    if(cause===null)present('desk');
+    directoryFailed=false;
     if(cause)replaceRead(cause);else clear();restore();forgetViews();viewControls();snapshot='';get('futures-pending').hidden=true;}
   // A new read of the Blotter replaces the one a run on screen was made at: the run is cleared and the page says why (D222). A live
   // correction and a settlement record say so in their own words.
@@ -1488,6 +1581,8 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     done(command);
     pending.clear();uncertain=false;store();
     if(isLifecycleCommand(command.path)){await settled(command);return;}
+    // A trade booked from New trade's page is followed on the Blotter, where its position opens.
+    present('desk');
     await load();
     await follow(amended,receipt);await followBooked(command,receipt);
   }
@@ -1540,6 +1635,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
       const command=pending.command,amended=amendedPosition(command);
       pending.clear();uncertain=false;store();
       if(isLifecycleCommand(command.path)){await settled(command);return;}
+      present('desk');
       await load();
       await follow(amended,result);await followBooked(command,result);
     }catch(error){if((error as {code?:string}).code==='access_denied')clear();throw error;}
@@ -1708,24 +1804,17 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     const target=control??[get('position-details'),get('desk-positions'),get('page-title'),get('futures-page')].find(element=>element?.getClientRects().length&&!element.closest('[hidden]'));if(!target)throw Error('The native page control is unavailable.');return target;
   }
   return {load:({background=true}:{background?:boolean}={})=>load('directory',false,background),open:()=>{leavePage();return load('directory',false,true,true);},reset,sync,show,
-    async loadEntry(signal?:AbortSignal){
-      signal?.throwIfAborted();restore();
-      if(tie?.out())throw Error('Bring the Blotter back before opening a ticket.');
-      clear();const source=options.source();snapshot=source.snapshotId;
-      if(source.context&&!source.context.contextId)throw Error('Select a retained historical context before opening a ticket.');
-      const started=generation,scope=whereAmI(),request=readContext();
-      const directory=await api<Catalog>('trading/directory',{...request,convention:'trading_workspace_v1'},signal);
-      signal?.throwIfAborted();if(started!==generation||scope!==whereAmI())throw Error('The account or financial context changed.');
-      if(directory.kind!=='directory'||Object.hasOwn(directory,'contracts')||!directory.context?.contextId||!Array.isArray(directory.books)||source.context&&directory.context.contextId!==source.context.contextId)throw Error('The trading directory returned an inconsistent context.');
-      catalog=directory;viewControls();options.onReadContext(directory.asOf,directory.context.knownAt);sync();
-    },
+    /** Whether New trade's page is shown in place of the Blotter. */
+    entry:()=>presentation==='entry',showEntry,enterEntry,showDesk,
+    /** Whether New trade's page holds the booking choices it shows: false after a read of them failed, which pressing New trade repeats. */
+    entryRead:()=>catalog!==undefined,
     /** The values of the read under way, which a read in the background draws after `load` returns: rejects with the read's failure. */
     valued:()=>pricingRead,
     presentationRevision:()=>booking.presentationRevision()+":"+swapEditor.presentationRevision(),
     presentationTarget,
     presentationLocate(step:PresentationStep):HTMLElement|null{
       if(step.kind==='fill')return step.field.startsWith('swap.')?swapEditor.presentationField(step.field):booking.presentationField(step.field);
-      if(step.kind==='open'&&step.pane==='new_future')return get('futures-new');
+      if(step.kind==='open'&&step.pane==='new_future')return presentation==='entry'?document.getElementById('new-trade-futures'):get('futures-new');
       if(step.kind==='filter')return table?.presentationFilter(step.field)??null;
       if(step.kind==='sort')return table?.presentationColumn(step.column)??null;
       if(step.kind==='select'){
@@ -1755,7 +1844,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
       }else if(step.kind==='open'){
         if(step.pane==='new_future'){
           if(editing())throw Error('Finish the unsaved form before opening a ticket.');
-          await acting(act,async()=>{await openFuture({kind:'new',product:'futures'},signal);signal.throwIfAborted();booking.presentationBlank();showForm();});
+          await acting(act,async()=>{if(options.window.kind==='main')await enterEntry(signal);await openFuture({kind:'new',product:'futures'},signal);signal.throwIfAborted();booking.presentationBlank();showForm();});
         }else if(step.pane==='charts')await apply({kind:'collapsePane',pane:'charts',collapsed:false});
         else if(step.pane==='details'){
           if(step.target){
@@ -1813,6 +1902,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     },
     async bookedExternal(tradeId:string){
       try{
+        present('desk');
         await load();
         const rows=holdings?.holdings??[],matches=rows.map((h,index)=>({h,index})).filter(x=>x.h.tradeId===tradeId);
         if(view.mode==='trades'&&matches.length===1)await deskPanel.open(matches[0].index,'terms');

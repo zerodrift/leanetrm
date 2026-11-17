@@ -24,7 +24,7 @@ async function blotterFixture(work){
    window.dock=setupDock(get('blotter-dock'),{label:'Blotter panes',rules:blotterDockRules,narrow:()=>false,initial:defaultBlotterArrangement(),maximizable:true,ownCollapse:['details'],
     tabs:['summary','grid','details','charts'].map((id,i)=>({id,label:['Summary','Positions','Details','Charts'][i],body:get('blotter-pane-'+id)})),changed(){}});
    dock.collapse('charts');
-   window.pane=setupDetailsPane(get('blotter-pane-details'),{unsaved:()=>false,busy:()=>false,step(){},collapsed:()=>dock.collapse('details'),expand:()=>dock.reveal('details'),changed(){}});
+   window.pane=setupDetailsPane(get('blotter-pane-details'),{unsaved:()=>false,busy:()=>false,step(){},collapsed:()=>dock.collapse('details'),expand:()=>dock.reveal('details'),changed(){},rest:()=>null});
    await pane.show({kind:'new',product:'gas'});pane.shell.form(true);
    pane.shell.element('form').innerHTML='<label>Synthetic edit<input value="keep this edit"></label>'+Array.from({length:40},(_,i)=>'<p>Schedule detail '+i+'</p>').join('');
    window.grid=workspace.update('blotter','synthetic',['Trade','Quantity'],Array.from({length:100},(_,i)=>['TR-'+String(i).padStart(6,'0'),'100']),[1],()=>false,{keys:['trade','quantity'],rowKeys:Array.from({length:100},(_,i)=>'trade-'+i),layout:{order:[],widths:{},sort:[]},onLayout(){}});

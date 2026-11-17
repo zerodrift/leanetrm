@@ -13,12 +13,12 @@ class Element{
  querySelectorAll(){return [];}
  contains(node){return node===this||this.descendants().includes(node);}
 }
-function fixture({unsaved=false}={}){
+function fixture({unsaved=false,rest=()=>null}={}){
  globalThis.requestAnimationFrame=()=>0;
  globalThis.document={createElement:()=>new Element()};
  const steps=[],collapsed=[],expanded=[],changed=[];let edits=unsaved;
  const host=new Element();host.id='blotter-pane-details';
- const pane=setupDetailsPane(host,{unsaved:()=>edits,busy:()=>false,step:direction=>steps.push(direction),collapsed:()=>collapsed.push(true),expand:()=>expanded.push(true),changed:()=>changed.push(true)});
+ const pane=setupDetailsPane(host,{unsaved:()=>edits,busy:()=>false,step:direction=>steps.push(direction),collapsed:()=>collapsed.push(true),expand:()=>expanded.push(true),changed:()=>changed.push(true),rest});
  const all=()=>host.descendants();
  const labelled=label=>all().find(node=>node.attributes['aria-label']===label);
  const prompt=()=>all().find(node=>node.attributes.role==='alertdialog');
@@ -100,4 +100,39 @@ test('the page collapses the details as ⌄ does, as for Escape on a grid row: a
  assert.deepEqual(f.shell.current(),position('t1'));assert.equal(f.collapsed.length,0);
  f.edit(false);await f.collapse();
  assert.equal(f.shell.current(),null);assert.equal(f.collapsed.length,1);
+});
+
+// New trade's page (D421): the pane rests on the instrument chooser, so it never closes on nothing there.
+const chooser={kind:'new',product:null};
+test('a pane that rests on the chooser returns to it when reset, and is never empty',async()=>{
+ const f=fixture({rest:()=>chooser});
+ await f.show({kind:'new',product:'swaps'});f.shell.reset();
+ assert.deepEqual(f.shell.current(),chooser);
+ assert.equal(f.host.querySelector('#position-details').hidden,false);
+});
+
+test('collapsing a ticket with edits asks first: kept edits stay, discarded ones return the pane to its rest',async()=>{
+ const f=fixture({rest:()=>chooser});
+ await f.show({kind:'new',product:'swaps'});f.edit(true);
+ const kept=f.collapse();await settle();f.answer('Keep editing');await kept;
+ assert.deepEqual(f.shell.current(),{kind:'new',product:'swaps'});
+ const gone=f.collapse();await settle();f.answer('Discard changes');await gone;
+ assert.deepEqual(f.shell.current(),chooser);
+ assert.equal(f.collapsed.length,1,'the page hears the collapse that went through');
+});
+
+test('a pane whose rest becomes nothing closes on the next reset',async()=>{
+ let rest=chooser;const f=fixture({rest:()=>rest});
+ f.shell.reset();assert.deepEqual(f.shell.current(),chooser);
+ rest=null;f.shell.reset();
+ assert.equal(f.shell.current(),null);assert.equal(f.host.querySelector('#position-details').hidden,true);
+});
+
+test('collapsing a ticket to the chooser puts focus on the pane, as the form that had it is gone',async()=>{
+ const f=fixture({rest:()=>chooser});
+ await f.show({kind:'new',product:'swaps'});
+ const pane=f.host.querySelector('#position-details'),before=pane.focused??0;
+ await f.collapse();
+ assert.deepEqual(f.shell.current(),chooser);
+ assert.equal(pane.focused,before+1);
 });

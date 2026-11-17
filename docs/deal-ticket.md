@@ -311,7 +311,7 @@ preview never books and never writes.
 
 | Mode | Opened from | Editable |
 | --- | --- | --- |
-| New | New trade; the Blotter's New trade | All editable fields |
+| New | New trade's page (D421), from the sidebar or the Blotter's New trade | All editable fields |
 | Booked | A Blotter row (Details pane), its pop-out | None; the Amend action opens the amendment mode |
 | Amend | Amend… in the row menu or the ticket | The fields the amendment operation admits at the valuation date; others show a lock with the reason |
 | Close-out | Close out… in the row menu | The close-out draft's fields, pre-filled by the backend close-out draft |
@@ -438,9 +438,9 @@ profile's lifecycle and explicit no-discounting policy are unchanged.
   majeure and credit terms, read-only, which no agreement table stores yet; the
   a soon Volume column beside the physical quantity; and a soon
   Imbalance tab (nominated against actual, the imbalance, its cash-out price and
-  amount). New trade lists Transport, Park and loan and Storage as coming-soon
-  instruments, which cannot be opened. They are presentation copy in New trade,
-  since no instrument description exists for them.
+  amount). New trade lists Storage as a coming-soon instrument, which cannot be
+  opened. It is presentation copy in New trade, since no instrument description
+  exists for it.
 
 - The schedule grid (`web/src/schedule-grid.ts`) turns a schedule view into the
   Instrument and side tabs: side-coloured header groups and a Trade group, the

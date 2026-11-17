@@ -3,9 +3,9 @@ import {run as contractObservationAuthoring} from './contract-observation-author
 import {mkdtemp,copyFile} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
 import {tmpdir} from 'node:os';
-import {closeNewTrade,newTrade} from './new-trade.mjs';
-// Qualified scheduled swap authoring (D216) in the scheduled ticket, which the Blotter's side panel hosts (D221): each new ticket is begun
-// with New trade, and a booked trade is amended from its row's panel.
+import {closeNewTrade,newTrade,onNewTradePage} from './new-trade.mjs';
+// Qualified scheduled swap authoring (D216) in the scheduled ticket, which New trade's page hosts for a new trade (D421) and the Blotter's
+// details for an amendment (D221): each new ticket is begun with New trade, and a booked trade is amended from its row's panel.
 export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,url}){
  await command('Page.enable');await command('Runtime.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
  await command('Page.navigate',{url});await wait(idle);await persona('trader');
@@ -16,8 +16,9 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  const catalog=await evaluate(`(async()=>{const token=(await(await fetch('/api/bootstrap')).json()).csrfToken;window.syntheticPost=async(path,body)=>{const r=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':token},body:JSON.stringify(body)});if(!r.ok)throw Error(await r.text());return r.json();};const c=await window.syntheticPost('swaps/catalog',{snapshotId:${JSON.stringify(frame)},convention:'independent_side_financial_swap_v2',knowledgeMode:'current'});const send=window.fetch;window.fetch=async(input,init)=>{const r=await send(input,init);if(String(input).endsWith('/api/swaps/book')&&r.ok)window.syntheticScheduledBook={request:JSON.parse(init.body),result:await r.clone().json()};return r;};return c;})()`);
  // The scheduled ticket is in the details' form part, open for entry.
  const ticket="(()=>{const root=document.querySelector('#scheduled-swap-editor'),form=root?.closest('#position-details-form,#position-details-form');return !!root&&!root.hidden&&!!form&&form.contains(root)&&!form.hidden;})()";
- // A panel left open by the last booking is closed first, giving up anything its form holds.
- async function closePanel(){if(await evaluate("document.querySelector('#position-details')?.hidden===false")){await click('#details-collapse');if(await evaluate("document.querySelector('#position-details-prompt')?.hidden===false"))await click('#position-details-prompt button:not(.secondary)');}else if(await evaluate("!document.querySelector('#position-details').hidden"))await closeNewTrade({click,evaluate,wait});}
+ // What the last step left open is closed first, giving up anything its form holds: a new ticket by leaving New trade's page for the
+ // Blotter, a position or its amendment by collapsing the Blotter's details.
+ async function closePanel(){if(await evaluate(onNewTradePage))await closeNewTrade({click,evaluate,wait});else if(await evaluate("document.querySelector('#position-details')?.hidden===false")){await click('#details-collapse');if(await evaluate("document.querySelector('#position-details-prompt')?.hidden===false"))await click('#position-details-prompt button:not(.secondary)');}}
  // A booked trade opens from its row, once the search leaves only that row, and Amend puts its ticket in the panel.
  async function reopen(reference){
   await closePanel();await set('#blotter-filters .table-search',reference);await wait(idle);
@@ -85,8 +86,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('selected price and payment bulk groups preserve quantity and independent side terms',`(()=>{const p=${period(0,1)};return p.querySelector('[data-role=fixed-price]').value==='3'&&p.querySelector('[data-role=period-amount]').value==='100'&&[...p.querySelectorAll('input')].find(n=>n.previousElementSibling?.textContent==='Lag days').value===[...${period(0,0)}.querySelectorAll('input')].find(n=>n.previousElementSibling?.textContent==='Lag days').value&&${period(1,1)}.querySelector('[data-role=period-amount]').value==='100';})()`,"({error:document.querySelector('#scheduled-swap-editor [role=alert]').textContent,inputs:[...document.querySelectorAll('#scheduled-swap-editor .scheduled-side-columns>.instrument-side')[0].querySelectorAll('input')].map(n=>[n.previousElementSibling?.textContent,n.value,n.checked])})");passed++;
  const artifacts=await mkdtemp(join(tmpdir(),'openetrm-scheduled-authoring-'));console.log('AUTHORING_VISUAL_ARTIFACTS='+artifacts);
  const bulkInView="document.querySelector('#scheduled-swap-editor .scheduled-bulk').scrollIntoView({block:'center'})";await evaluate(bulkInView);await shot('qualified-authoring-desktop');await copyFile(join(dirname(process.argv[2]),'qualified-authoring-desktop.png'),join(artifacts,'desktop.png'));
- await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await wait("(!document.querySelector('#blotter-pane-details').hidden&&document.querySelector('#blotter-pane-grid').hidden)");await evaluate(bulkInView);await shot('qualified-authoring-narrow');await copyFile(join(dirname(process.argv[2]),'qualified-authoring-narrow.png'),join(artifacts,'narrow.png'));
- await check('qualified authoring and bulk controls fit the narrow ticket in the details',"document.querySelector('#scheduled-swap-editor').scrollWidth<=document.querySelector('#scheduled-swap-editor').clientWidth+1");passed++;
+ await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await wait(`document.documentElement.clientWidth<=390&&${onNewTradePage}&&${ticket}&&document.querySelector('#scheduled-swap-editor').checkVisibility()&&!document.querySelector('#desk-positions').checkVisibility()`);await evaluate(bulkInView);await shot('qualified-authoring-narrow');await copyFile(join(dirname(process.argv[2]),'qualified-authoring-narrow.png'),join(artifacts,'narrow.png'));
+ await check('qualified authoring and bulk controls fit the narrow ticket on New trade\'s page',"document.querySelector('#scheduled-swap-editor').scrollWidth<=document.querySelector('#scheduled-swap-editor').clientWidth+1");passed++;
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
  await evaluate(`(()=>{const send=window.fetch;let once=true;window.fetch=async(input,init)=>{const response=await send(input,init);if(once&&String(input).endsWith('/api/swaps/scheduled-price')){once=false;await new Promise(resolve=>window.syntheticRelease=resolve);}return response;};})()`);
  await evaluate("document.querySelector('#scheduled-swap-form').requestSubmit()");await wait('!!window.syntheticRelease');

@@ -1033,11 +1033,33 @@ body.assistant-open:not(.assistant-overlay) .side-panel[data-placement=overlay]{
 /* Above the rows, that the open position's row is hidden by the table's own filters, with the way to show it. */
 .table-open-note{margin:0 0 8px;padding:8px 12px;border:1px solid var(--warn-border);border-radius:var(--radius-sm);background:var(--warn-soft);font-size:12.5px;color:var(--text)}
 .table-open-note .text-button{margin-left:6px}
-.product-switch,.revision-switch,.custom-curve-mode{display:inline-flex;gap:3px;margin-top:10px;padding:3px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)}
-.product-switch button,.revision-switch button,.custom-curve-mode button{min-height:30px;padding:5px 18px;border:1px solid transparent;background:transparent;color:var(--text-2);font-size:13px}
-.product-switch button:hover:not(:disabled),.revision-switch button:hover:not(:disabled),.custom-curve-mode button:hover:not(:disabled){background:var(--surface-3);color:var(--text)}
-.product-switch button[aria-pressed=true],.revision-switch button[aria-pressed=true],.custom-curve-mode button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.revision-switch,.custom-curve-mode{display:inline-flex;gap:3px;margin-top:10px;padding:3px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)}
+.revision-switch button,.custom-curve-mode button{min-height:30px;padding:5px 18px;border:1px solid transparent;background:transparent;color:var(--text-2);font-size:13px}
+.revision-switch button:hover:not(:disabled),.custom-curve-mode button:hover:not(:disabled){background:var(--surface-3);color:var(--text)}
+.revision-switch button[aria-pressed=true],.custom-curve-mode button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 .new-trade-head .side-panel-title{margin-top:0}
+/* New trade's instrument chooser (new-trade.ts): with none chosen, each group is a block of tiles that say what the instrument is; once
+   one is chosen it is a single strip above the ticket, every instrument still one press away. Both wrap; neither scrolls sideways. */
+.instrument-chooser{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));align-items:start;gap:14px;margin-top:12px;min-width:0}
+.instrument-group{min-width:0;margin:0;padding:12px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface)}
+.instrument-group-name{margin:0 0 8px;font-size:11px;font-weight:650;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3)}
+.instrument-entries{display:grid;gap:6px;min-width:0}
+.new-trade-head button.instrument{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:baseline;gap:2px 8px;width:100%;min-width:0;min-height:44px;padding:9px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface-2);color:var(--text);text-align:left;white-space:normal;font-weight:400}
+.instrument-name{font-size:13.5px;font-weight:600}
+.instrument-mark{color:var(--text-3)}
+.instrument-about{grid-column:1/-1;font-size:12px;line-height:1.4;color:var(--text-2);overflow-wrap:anywhere}
+.new-trade-head button.instrument:hover:not(:disabled){border-color:var(--accent-border);background:var(--accent-soft)}
+.new-trade-head button.instrument[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.new-trade-head button.instrument.ticket-soon{justify-content:space-between}
+.instrument-chooser[data-state=chosen]{display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px}
+.instrument-chooser[data-state=chosen] .instrument-group{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:0;border:0;background:none}
+.instrument-chooser[data-state=chosen] .instrument-group-name{margin:0}
+.instrument-chooser[data-state=chosen] .instrument-entries{display:flex;flex-wrap:wrap;gap:4px}
+.instrument-chooser[data-state=chosen] button.instrument{display:inline-flex;align-items:center;gap:6px;width:auto;min-height:30px;padding:4px 12px;font-size:13px}
+.instrument-chooser[data-state=chosen] .instrument-name{font-size:13px;font-weight:550}
+.instrument-chooser[data-state=chosen] .instrument-about{display:none}
+/* Each tile says what its instrument is, so the line under the chooser is for the one chosen. */
+.instrument-chooser[data-state=choose]~#new-trade-note{display:none}
 .new-trade-head .side-panel-note{margin:8px 0 0}
 /* Price before booking: a title over the draft's price, its exposure and the curve of each of its markets with its delivery period marked. */
 .draft-valuation{margin:20px 0 12px;padding-top:14px;border-top:1px solid var(--border)}
@@ -1129,7 +1151,7 @@ body.assistant-open:not(.assistant-overlay) .side-panel[data-placement=overlay]{
 .advanced-settings[open]>summary{margin-bottom:.75rem}
 .advanced-settings input[type=number]{max-width:8rem}
 .instrument-editor{border-top:1px solid var(--border);margin-top:1.25rem;padding-top:.75rem}
-:is(.trade-booking-terms,.details-form) input[readonly]{background:var(--surface-3);color:var(--text-2);cursor:default}
+:is(.trade-booking-terms,.details-form,.entry-form) input[readonly]{background:var(--surface-3);color:var(--text-2);cursor:default}
 .swap-sides>#swap-fixed-editor,.swap-sides>#swap-floating-editor{display:contents}
 /* Empty lists read as an intentional empty state, not stray text. */
 #dates-saved:not(:has(*)),#curve-dates-saved:not(:has(*)){padding:18px;border:1px dashed var(--border-strong);border-radius:var(--radius-sm);background:var(--surface-2);text-align:center;font-size:13px}
@@ -1801,6 +1823,27 @@ main:has(>section:not([hidden]) .floating-context){--dock-band:140px}
 .tab-dock[data-maximized] :is(.dock-split,.dock-group):not([data-maximized-path]),
 .tab-dock[data-maximized] :is(.dock-divider,.dock-grip){display:none}
 .tab-dock[data-maximized] :is(.dock-split,.dock-group)[data-maximized-path]{flex:1 1 0!important;min-height:0!important;min-width:0}
+/* New trade's page (D421; futures-view.ts, `present`): the Blotter's section showing its entry pane alone. The dock is maximized on the
+   Details pane, and the Blotter's own controls, the dock's and the pane's are not drawn: the pane is the page, resting on the instrument
+   chooser. Its form part is `.entry-form`, which has the page's width; the one-column rules of `.details-form` are the Details pane's. */
+#futures-page[data-entry] .table-workspace>:not(.table-workspace-note,.table-workspace-stage),
+#futures-page[data-entry] :is(#desk-lens,.dock-head,.dock-bar,.details-bar,#details-stale-note){display:none}
+#futures-page[data-entry] .dock-group{border:0;border-radius:0;background:none;box-shadow:none}
+#futures-page[data-entry] .dock-panels{padding:2px 2px 0}
+#futures-page[data-entry] #position-details.stale{opacity:1}
+#futures-page[data-entry] .trade-editor-actions{top:0}
+/* The page's title names the trade; the pane's own title would say it twice. */
+#futures-page[data-entry] .new-trade-head .side-panel-title{display:none}
+/* A ticket without sides (a future, a futures option, a REC forward) keeps one field per row at a readable width. A new future's price
+   preview sits beside its fields where the page has room; its Book button follows both, in the order a person tabs through them. */
+.entry-form :is(#option-page,.rec-forward){max-width:640px}
+.entry-form #futures-fields{display:grid;grid-template-columns:minmax(0,560px);column-gap:32px;align-items:start}
+.entry-form #futures-fields>*{grid-column:1;min-width:0}
+.entry-form :is(#futures-new-trade,#option-page,.rec-forward) :is(.schedule-fields,.trade-annotation-fields,.schedule-date-fields,.instrument-choices){grid-template-columns:minmax(0,1fr)}
+@container (min-width:900px){
+  .entry-form #futures-fields{grid-template-columns:minmax(0,560px) minmax(280px,1fr)}
+  .entry-form #futures-fields>#futures-draft-valuation{grid-column:2;grid-row:1 / span 3}
+}
 .details-pane .side-panel-prompt{margin:0 0 10px;padding-right:16px;border:1px solid var(--warn-border);border-radius:var(--radius)}
 /* A ticket in the details pane is vertical: one field per row, as in a side panel. */
 .details-form .schedule-fields,.details-form .trade-annotation-fields,.details-form .schedule-date-fields,.details-form .swap-term-columns,.details-form .scheduled-side-columns{grid-template-columns:minmax(0,1fr);gap:14px}
@@ -2099,7 +2142,6 @@ main:has(>section:not([hidden]) .floating-context){--dock-band:140px}
 .embedded-trade{min-width:0}
 .embedded-trade > .card{margin:0 0 1rem}
 .embedded-trade #lng-book-directory,.embedded-trade #crude-book-directory,.embedded-trade #ppa-book-directory{display:none}
-#side-panel .product-switch{flex-wrap:wrap}
 #side-panel .embedded-trade .schedule-fields{grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr))}
 
 #crude-operations table{width:100%;table-layout:fixed}
@@ -2188,7 +2230,7 @@ body.assistant-open.assistant-overlay main .floating-context{display:none}
 @container workspace (max-width:600px){
   .schedule-fields,.schedule-fields.three,.converter-fields,.trade-annotation-fields,.swap-term-columns,.scheduled-side-columns{grid-template-columns:minmax(0,1fr)}
   .schedule-actions{flex-wrap:wrap}
-  .product-switch,.revision-switch,.custom-curve-mode{flex-wrap:wrap;max-width:100%}
+  .revision-switch,.custom-curve-mode{flex-wrap:wrap;max-width:100%}
   .pivot-builder{grid-template-columns:minmax(0,1fr)}
   .pivot-builder>fieldset:nth-child(3){grid-column:auto}
   .pivot-builder-heading,.analysis-heading{align-items:flex-start;flex-direction:column}
@@ -2462,7 +2504,7 @@ body.assistant-open.assistant-overlay main .floating-context{display:none}
 #risk-history-panel{min-width:0;max-width:100%}#risk-history-fields{border:0;padding:0;margin:0}#risk-history-results .table-wrap{max-width:100%;overflow-x:auto}
 
 /* Retained Blotter values cannot appear before the server rechecks current access. */
-#futures-page.checking-cache>*{visibility:hidden}
+#futures-page.checking-cache:not([data-entry])>*{visibility:hidden}
 #risk-parametric-fields{border:1px solid var(--border);border-radius:8px;padding:16px;margin:20px 0 0;min-width:0}#risk-parametric-fields legend{font-weight:650;padding:0 8px}.parametric-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:12px;margin:16px 0}.parametric-stat{border:1px solid var(--border);border-radius:8px;padding:16px;display:grid;gap:8px;min-width:0}.parametric-stat span{font-size:12px;color:var(--text-3)}.parametric-stat strong{font-size:21px;overflow-wrap:anywhere}.risk-result-controls{display:flex;flex-wrap:wrap;gap:12px;align-items:end}.risk-result-controls label{display:grid;gap:6px;min-width:0;max-width:100%}.risk-result-controls select{max-width:100%}#risk-workspace-results p{overflow-wrap:anywhere}#risk-workspace-results details{min-width:0;max-width:100%}
 
 #lng-page,#lng-page .card,#lng-page label{min-width:0}

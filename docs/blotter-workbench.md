@@ -119,7 +119,7 @@ The default arrangement, top to bottom:
 
 | Pane | Contents | Default |
 | --- | --- | --- |
-| Toolbar | View, books and portfolios, row grouping, filter, columns, New trade, pop-out, As-of | Fixed, not a pane |
+| Toolbar | View, books and portfolios, row grouping, filter, columns, New trade (opens New trade's page, D421), pop-out, As-of | Fixed, not a pane |
 | Summary strip | One line: swap PV, futures execution P&L, positions, not valued, risk status, by currency | Open |
 | Positions grid | The trade rows or pivot | Takes the remaining height |
 | Details | The selected position | Collapsed until a row is opened |
@@ -237,8 +237,12 @@ positions and native booking operations remain in the common Blotter.
   as it does for Summary, Positions and Charts. Maximizing temporarily fills
   the dock with Details without changing its saved arrangement or remounting
   the editor. Collapse or reset restores the arrangement.
-- New trade, amendment and close-out forms open in the details pane; the
-  unsaved-edit guard applies before it shows another position or collapses.
+- Amendment and close-out forms open in the details pane; the unsaved-edit
+  guard applies before it shows another position or collapses. A new trade is
+  entered on New trade's page (D421), which shows this same pane alone, filling
+  the dock, with the Blotter's read kept behind it; a booked trade is followed
+  here, where its position opens. The pop-out Blotter, which has no sidebar,
+  keeps new futures and swaps in its details pane.
 - Futures and swap amendment editors keep **Preview changes** and **Save
   amendment** together in a sticky action bar. Saving is enabled only after
   the current terms have been previewed and explicitly confirmed. Editing

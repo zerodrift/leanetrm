@@ -18,9 +18,9 @@ export async function run(a){
  // Its gas compositions select the started-delivery lifecycles, so their total is their own measure (D360), apart from contractual PV.
  await check('gas has an explicit lifecycle value measure in the common workspace',`[...document.querySelectorAll('#blotter-strip .strip-item .strip-label')].some(l=>l.textContent==='Gas unrealized + realized unsettled')`);
  await capture('unified-blotter');
- for(const [product,selector] of [['futures','#futures-new-trade'],['swaps','#swap-editing'],['ppa','#ppa-page'],['gas','#gas-page']]){
+ for(const [product,selector,title] of [['futures','#futures-new-trade','New future'],['swaps','#swap-editing','New swap'],['ppa','#ppa-page','New PPA'],['gas','#gas-page','New physical gas trade']]){
   await newTrade(a,product);
-  await check(product+' enters through the same trade panel',`document.querySelector('#page-title').textContent==='Blotter'&&document.querySelector('#position-details-form').contains(document.querySelector('${selector}'))&&!document.querySelector('${selector}').hidden`);
+  await check(product+' enters through the same New trade page',`document.querySelector('#page-title').textContent===${q(title)}&&document.querySelector('#futures-page').hasAttribute('data-entry')&&document.querySelector('#position-details-form').contains(document.querySelector('${selector}'))&&!document.querySelector('${selector}').hidden`);
   await closeNewTrade(a);
   await check(product+' closes without retaining a browser page-leave warning',`(()=>{const event=new Event('beforeunload',{cancelable:true});window.dispatchEvent(event);return !event.defaultPrevented;})()`);
  }
