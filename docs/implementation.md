@@ -831,7 +831,9 @@ curve and id and not by what the form offers now, and a swap's from each floatin
 position's Curve tab draws too). The curve is the desk's own read of the curves it holds when the
 desk holds it for the revision of the close's curves, which is waited for while it is under way, and
 otherwise one read of that curve, kept until the desk reads again and never repeated for a second
-price (`draftShapes`, `readCurveShapes`). A market defined in another revision than the close's
+price (`draftShapes`, `readCurveShapes`). The desk reads the curves of the rows it draws, and New
+trade's page (D421) draws none: a new future, whose form reads the Blotter again, is drawn from its
+own one read there. A market defined in another revision than the close's
 curves is said not to have a shape, and one that names its revision is said so too when the revision
 of the close's curves cannot be read, as that is not the same reason. A curve that cannot be read or
 drawn, a desk read that failed included, says why beside the price and never fails it. A booked
