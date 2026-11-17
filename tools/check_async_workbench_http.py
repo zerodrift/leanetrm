@@ -280,7 +280,8 @@ def run_checks(url, query, psql, environment, manifest):
     c.call('profile',{'profile':'risk'})
     check('a malformed P&L run is refused for its authority before its shape')
     run,_=valuing_together('portfolio/pnl/run',pnl,expected=422)
-    check('a P&L run does not hold the publication gate after it captures its dates',run['code']=='pnl_accounting_coverage')
+    assert run['code']=='pnl_accounting_coverage',run
+    check('a P&L run does not hold the publication gate after it captures its dates')
     # The ordinary routes of the covered reads execute outside the session gate (docs/async-reads.md).
     LOCK='LOCK market_data.observations IN ACCESS EXCLUSIVE MODE'
     def tab():
