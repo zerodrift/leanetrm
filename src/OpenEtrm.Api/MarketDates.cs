@@ -68,18 +68,16 @@ public static class MarketDates
             catalogue??=await new CatalogueStore(database.Manifest.CatalogId).ReadBound(connection,ct,pin.Frame?.Time.Date);
             if(!catalogue.Curves.Any(curve=>curve.Code==code))
             {
-                // A legacy root absent from the published catalogue needs the
-                // entire matrix attested before its membership can answer this.
-                await inputs.Attest(frames,ct);
-                if(!frames.Any(frame=>frame.SourceInputs?.Values.Any(part=>part.RootCurves.Contains(code,StringComparer.Ordinal))==true))
-                    throw new MarketDataException("missing_curve","Choose an exact curve in the published catalogue or selected close scope.");
+                // A legacy root absent from the published catalogue needs a
+                // native matrix result before its membership can answer this.
+                await inputs.RequireRoot(frames,code,ct);
             }
         }
         var metadata=data;
         Func<InputFrame,CancellationToken,Task> qualify;
         if(request.Definition is {} definition)
         {
-            await inputs.Attest(frames,ct);
+            await inputs.PrefetchMatrices(frames,ct);
             CustomCurves.Validate(definition);
             var contexts=new Dictionary<DateOnly,ScheduleContext>();
             ScheduleContext? knowledge=pin.Context;
@@ -131,6 +129,7 @@ public static class MarketDates
                     var selected=await Context(day);
                     try
                     {
+                        inputs.RequireMatrix(frame);
                         var planned=await AtContext(selected,async()=>
                         {
                             var projected=await MarketInputSelection.FrameFor(database,connection,data,frame with{ContextId=selected.ContextId},ct);
@@ -177,6 +176,7 @@ public static class MarketDates
             };
             async Task<RecipeResult> Evaluate(InputFrame frame,ScheduleContext selected,CancellationToken cancellation)
             {
+                inputs.RequireMatrix(frame);
                 frame=await MarketInputSelection.FrameFor(database,connection,data,frame,cancellation);
                 var samples=data;
                 InputFrame? sourceFrame=null;

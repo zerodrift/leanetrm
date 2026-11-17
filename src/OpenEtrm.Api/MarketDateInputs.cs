@@ -20,16 +20,39 @@ internal sealed class MarketDateInputs(PreviewDatabase database,NpgsqlConnection
     readonly Dictionary<(Guid Frame,CatalogueSource Source),Exception> inputErrors=[];
     readonly Dictionary<(CatalogueSource Source,string Code),RateTenorSource?> rates=[];
     readonly HashSet<Guid> attested=[];
+    readonly Dictionary<Guid,Exception> matrixErrors=[];
     Dictionary<DateOnly,CatalogueStore.Dated> catalogues=[];
     DateOnly[] dates=[];
     ImmutableArray<InputFrame> frames=[];
 
     internal async Task Attest(ImmutableArray<InputFrame> selected,CancellationToken ct)
     {
+        await PrefetchMatrices(selected,ct);
+        foreach(var frame in selected)RequireMatrix(frame);
+    }
+    internal async Task PrefetchMatrices(ImmutableArray<InputFrame> selected,CancellationToken ct)
+    {
         selected=[..selected.Where(frame=>!attested.Contains(frame.Id))];
         if(selected.IsEmpty)return;
-        await MarketCloses.RequireFrames(connection,database.Manifest.CatalogId,selected,selected[0].ContextId,ct);
+        foreach(var(id,error)in await MarketCloses.ReadFrameResults(connection,database.Manifest.CatalogId,selected,selected[0].ContextId,ct))
+            if(error is not null)matrixErrors.Add(id,error);
         attested.UnionWith(selected.Select(frame=>frame.Id));
+    }
+    internal void RequireMatrix(InputFrame frame)
+    {
+        if(!attested.Contains(frame.Id))throw new InvalidOperationException("A calendar candidate must have its native matrix result before use.");
+        if(matrixErrors.TryGetValue(frame.Id,out var error))ExceptionDispatchInfo.Capture(error).Throw();
+    }
+    internal async Task RequireRoot(ImmutableArray<InputFrame> selected,string code,CancellationToken ct)
+    {
+        var roots=selected.Where(frame=>frame.SourceInputs?.Values.Any(part=>part.RootCurves.Contains(code,StringComparer.Ordinal))==true).ToImmutableArray();
+        if(roots.IsEmpty)
+        {
+            await Attest(selected,ct);
+            throw new MarketDataException("missing_curve","Choose an exact curve in the published catalogue or selected close scope.");
+        }
+        await PrefetchMatrices(roots,ct);
+        if(roots.All(frame=>matrixErrors.ContainsKey(frame.Id)))RequireMatrix(roots[0]);
     }
 
     internal async Task Prepare(ImmutableArray<InputFrame> frames,IEnumerable<string>? requested,PreviewData? initial,bool full,CancellationToken ct)
@@ -70,7 +93,8 @@ internal sealed class MarketDateInputs(PreviewDatabase database,NpgsqlConnection
         Candidate result;
         try
         {
-            if(!attested.Contains(frame.Id))await Attest(frames,ct);
+            if(!attested.Contains(frame.Id))await PrefetchMatrices(frames,ct);
+            RequireMatrix(frame);
             // Retain root-metadata error precedence over the dated catalogue.
             _=await Metadata(frame.Source!,ct);
             if(!catalogues.ContainsKey(frame.Time.Date))

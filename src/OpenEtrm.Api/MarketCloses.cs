@@ -141,25 +141,42 @@ public static partial class MarketCloses
     private sealed record CloseParts(CatalogueSource Primary,ImmutableDictionary<Guid,MarketSourceInputs> Sources);
     // Reattest the complete recorded matrix in this read's transaction before
     // using any cached root membership, including a negative availability answer.
-    internal static async Task RequireFrames(NpgsqlConnection connection,Guid catalog,ImmutableArray<InputFrame> frames,Guid? contextId,CancellationToken ct)
+    internal static async Task<Dictionary<Guid,Exception?>> ReadFrameResults(NpgsqlConnection connection,Guid catalog,ImmutableArray<InputFrame> frames,Guid? contextId,CancellationToken ct)
     {
-        if(frames.IsEmpty)return;
-        var parts=await Parts(connection,catalog,frames.Select(f=>f.OriginCloseId??throw new PreviewDeniedException()).Distinct().ToArray(),contextId,ct);
+        var result=new Dictionary<Guid,Exception?>();
+        if(frames.IsEmpty)return result;
+        var parts=new Dictionary<Guid,CloseParts?>();
+        await using var command=ScheduleStore.Command(connection,"SELECT close_id,parts::text,denied FROM security.read_market_close_parts_results($1,$2,$3::uuid)",
+            catalog,frames.Select(f=>f.OriginCloseId??throw new PreviewDeniedException()).Distinct().ToArray(),(object?)contextId??DBNull.Value);
+        await using(var reader=await command.ExecuteReaderAsync(ct))
+            while(await reader.ReadAsync(ct))
+            {
+                CloseParts? selected=null;
+                if(!reader.GetBoolean(2))
+                {
+                    using var json=JsonDocument.Parse(reader.GetString(1));selected=ParsePart(json.RootElement);
+                }
+                parts.Add(reader.GetGuid(0),selected);
+            }
         foreach(var frame in frames)
         {
-            var native=parts[frame.OriginCloseId!.Value];
-            if(frame.Source!=native.Primary||frame.SourceInputs is null||frame.SourceInputs.Count!=native.Sources.Count||
+            if(!parts.TryGetValue(frame.OriginCloseId!.Value,out var native)||native is null)
+            {result.Add(frame.Id,new PreviewDeniedException());continue;}
+            var invalid=frame.ContextId!=contextId||frame.Source!=native.Primary||frame.SourceInputs is null||frame.SourceInputs.Count!=native.Sources.Count||
                 frame.SourceInputs.Any(p=>!native.Sources.TryGetValue(p.Key,out var source)||!source.Matches(p.Value))||
-                !native.Sources[native.Primary.DefinitionRevisionId].Matches(frame))
-                throw new MarketDataException("market_inputs","The frame differs from its recorded exact source inputs.");
+                !native.Sources[native.Primary.DefinitionRevisionId].Matches(frame);
+            result.Add(frame.Id,invalid?new MarketDataException("market_inputs","The frame differs from its recorded exact source inputs."):null);
         }
+        return result;
     }
     private static async Task<Dictionary<Guid,CloseParts>> Parts(NpgsqlConnection connection,Guid catalog,Guid[] ids,Guid? contextId,CancellationToken ct)
     {
         await using var command=ScheduleStore.Command(connection,"SELECT security.read_market_close_parts($1,$2,$3::uuid)::text",catalog,ids,(object?)contextId??DBNull.Value);
         using var json=JsonDocument.Parse((string)(await command.ExecuteScalarAsync(ct)??throw new PreviewDeniedException()));
-        return json.RootElement.EnumerateArray().ToDictionary(row=>row.Id("close_id"),row=>
-        {
+        return json.RootElement.EnumerateArray().ToDictionary(row=>row.Id("close_id"),ParsePart);
+    }
+    private static CloseParts ParsePart(JsonElement row)
+    {
             var sources=row.GetProperty("sources").EnumerateArray().Select(source=>
             {
                 var owner=new CatalogueSource(source.Id("definition_revision_id"),source.Id("reference_catalog_id"),source.Id("reference_revision_id"));
@@ -173,7 +190,6 @@ public static partial class MarketCloses
             if(!sources.TryGetValue(row.Id("primary_definition_revision_id"),out var primary))
                 throw new MarketDataException("pilot_close_inputs","The recorded close has no exact primary source.");
             return new CloseParts(primary.Source,sources);
-        });
     }
     private static FrameClose Close(Guid id,string session,int version,DateOnly day,Guid inForce)=>new(session,version,day,inForce==id?null:inForce);
     private static InputFrame CreateFrame(Guid close,string name,DateTimeOffset at,CloseParts parts,Guid? contextId,FrameClose session)

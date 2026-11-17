@@ -204,7 +204,7 @@ def run_checks(url, query, manifest, psql, environment, log, api_pid, *, verify=
         db_ms = sum(float(re.search(r'duration: ([\d.]+) ms', line)[1]) for line in statements)
         categories = {}
         for line in statements:
-            category = next((name for name in ('read_request_catalogues', 'read_market_close_parts', 'read_observation_pins', 'close_in_force', 'close_session_hidden_days') if name+'(' in line), 'other')
+            category = next((name for name in ('read_request_catalogues', 'read_market_close_parts_results', 'read_market_close_parts', 'read_observation_pins', 'close_in_force', 'close_session_hidden_days') if name+'(' in line), 'other')
             categories[category] = round(categories.get(category, 0) + float(re.search(r'duration: ([\d.]+) ms', line)[1]), 3)
         return answer, {'seconds': round(elapsed, 6), 'statements': len(statements), 'databaseMs': round(db_ms, 3),
                         'apiCpuMs': round((cpu()-cpu_start)*1000, 3), 'databaseBreakdownMs': categories}
