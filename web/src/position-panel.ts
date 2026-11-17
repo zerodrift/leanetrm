@@ -258,19 +258,21 @@ export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal
     actions={amend:found<HTMLButtonElement>('side-panel-amend')!,open:found<HTMLButtonElement>('side-panel-open-curve')!,note:found('side-panel-amend-note')!,openNote:found('side-panel-open-curve-note')!,trade,tradeNote:found('side-panel-actions-note')};
   }
   // The one row an adjustment's quantity is asked in, under the buttons: it is the panel's own and outlives each drawing of the head, so
-  // that what the person has typed stays while the desk is read again. It is of the position as it was when the person asked.
-  const adjustForm=el('form','side-panel-adjust'),adjustLabel=el('label'),adjustQuantity=el('input'),adjustSubmit=el('button',undefined,'Draft trade'),adjustCancel=el('button','secondary','Cancel');
+  // that what the person has typed stays while the same position is drawn again. It is of the position as it was when the person asked,
+  // and is given up when the adjustment is no longer offered.
+  const adjustForm=el('form','side-panel-adjust'),adjustLabel=el('label'),adjustQuantity=el('input'),adjustSubmit=el('button',undefined,'Draft trade'),adjustCancel=el('button','secondary','Cancel'),adjustNote=el('p','field-help side-panel-adjust-note');
   adjustForm.id='side-panel-adjust';adjustForm.hidden=true;adjustQuantity.id='side-panel-adjust-quantity';adjustLabel.htmlFor=adjustQuantity.id;adjustQuantity.required=true;adjustQuantity.inputMode='decimal';adjustQuantity.autocomplete='off';adjustQuantity.maxLength=64;
-  adjustSubmit.type='submit';adjustSubmit.id='side-panel-adjust-submit';adjustCancel.type='button';adjustCancel.id='side-panel-adjust-cancel';adjustForm.append(adjustLabel,adjustQuantity,adjustSubmit,adjustCancel);
+  adjustSubmit.type='submit';adjustSubmit.id='side-panel-adjust-submit';adjustCancel.type='button';adjustCancel.id='side-panel-adjust-cancel';adjustNote.id='side-panel-adjust-note';adjustNote.setAttribute('role','alert');adjustNote.hidden=true;adjustForm.append(adjustLabel,adjustQuantity,adjustSubmit,adjustCancel,adjustNote);
   let adjusting:{direction:AdjustDirection;holding:Holding}|undefined;
-  function endAdjusting(){adjusting=undefined;adjustForm.hidden=true;adjustQuantity.value='';}
+  function sayRefusal(reason:string|null){adjustNote.hidden=reason===null;adjustNote.textContent=reason===null?'':publicText(reason);if(reason===null)adjustQuantity.removeAttribute('aria-describedby');else adjustQuantity.setAttribute('aria-describedby',adjustNote.id);}
+  function endAdjusting(){adjusting=undefined;adjustForm.hidden=true;adjustQuantity.value='';sayRefusal(null);}
   function askQuantity(direction:AdjustDirection){
     if(!input||!o.actions)return;
     const action=o.actions.list(input.holding).find(a=>a.id===direction);
     if(action?.state.kind!=='enabled')return;
     adjusting={direction,holding:input.holding};
     adjustLabel.textContent=publicText(`${action.label.replace(/…$/,'')}: quantity in ${adjustUnit(input.holding)}`);
-    adjustForm.hidden=false;adjustQuantity.focus();adjustQuantity.select();
+    sayRefusal(null);adjustForm.hidden=false;adjustQuantity.focus();adjustQuantity.select();
   }
   adjustCancel.onclick=()=>{const back=adjusting&&actions?.trade.get(adjusting.direction);endAdjusting();back?.focus();};
   adjustForm.onsubmit=event=>{
@@ -475,6 +477,15 @@ export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal
     sync,
     /** Asks the quantity of an adjustment of the position shown, as its button does: for the row menu's item. */
     adjust(direction:AdjustDirection){askQuantity(direction);},
+    /**
+     * Says why the backend refused an adjustment beside the quantity that was asked, in its row, for the person to correct. False where
+     * the adjustment is no longer offered for the position shown: the reason is then the page's to say.
+     */
+    refuseAdjustment(direction:AdjustDirection,quantity:string,reason:string):boolean{
+      askQuantity(direction);
+      if(adjusting?.direction!==direction)return false;
+      adjustQuantity.value=quantity;sayRefusal(reason);adjustQuantity.select();return true;
+    },
     block(value:boolean){if(value)held=focused()??held;view().inert=value;if(!value)refocus();},
     /** Completed read-only details can remain hidden until their Blotter passes its next freshness check. */
     retainable:()=>!!input&&detail?.state==='ready'&&detail.key===key(input)&&!amending&&!detail.read.unsaved?.()&&!detail.read.updatesBlocked?.(),

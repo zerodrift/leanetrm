@@ -6397,7 +6397,8 @@ else Increase and Reduce. The name is a label; the request says `increase` or
 `POST /api/trading/position-adjustment-draft` is a second draft read beside the
 close-out's, on the same code and with the same authority. The request states the
 direction and a quantity; the result is the close-out draft's shape with the
-adjustment echoed, and the booking forms open it for review. A future trades the
+adjustment echoed, and the booking forms open it for review. A refusal is said
+beside the quantity that was asked, which stays for the person to correct. A future trades the
 stated lots on the position's own side to increase it and on the other side to
 reduce it. A swap of one schedule takes the stated quantity, its coefficient kept
 or reversed. The price is the curve price at the close, labelled so, as for a
@@ -6421,7 +6422,9 @@ Calls made in this decision:
 D292). The desk still holds one run: a one-trade run replaces the desk's, its run
 bar and the report's scope line say which trade it covers, and a row outside it
 reads "Not in this run", never as unvalued. The toolbar's Run risk returns to the
-books on screen. A pricing policy that needs whole books refuses a one-trade scope
+books on screen. A change of scope that takes a run off the desk says so, and a
+trade the read on screen no longer holds is refused by name, never widened to its
+books. A pricing policy that needs whole books refuses a one-trade scope
 with its own reason.
 
 No table, migration, permission, stored data or valuation changes. Left for later:

@@ -155,8 +155,8 @@ echoing what was drafted. The forms open it as they open a close-out.
 - **Swap with one schedule.** Same terms with the stated quantity as its quantity,
   its coefficient kept for `increase` and reversed for `reduce`, the fixed price set
   to the floating side's curve price as for Close out.
-- **Refused, with a reason, code `close_out`** so the details show it in place of a
-  form: a quantity that is not an exact positive decimal; a `reduce` larger than the
+- **Refused, with a reason, code `close_out`**, which the details show beside the
+  quantity that was asked, kept for the person to correct: a quantity that is not an exact positive decimal; a `reduce` larger than the
   open quantity (that would reverse the position: close it out and book the new
   side); a scheduled swap; every case the close-out draft refuses (contract not
   trading at the close, no mark, settled or ambiguous periods, revision not current,

@@ -984,6 +984,7 @@ body.assistant-open:not(.assistant-overlay) .side-panel[data-placement=overlay]{
 .side-panel-adjust label{margin:0;font-size:12px;font-weight:600;color:var(--text-2)}
 .side-panel-adjust input{flex:1 1 96px;min-width:0;max-width:160px;margin:0;font-variant-numeric:tabular-nums}
 .side-panel-adjust button{font-size:12px;padding:6px 12px}
+.side-panel-adjust-note{flex-basis:100%;margin:0;color:var(--danger)}
 .side-panel-head .side-panel-note{margin:8px 0 0}
 .side-panel-tabs{display:flex;gap:18px;padding:0 16px;border-bottom:1px solid var(--border);background:var(--surface)}
 .side-panel-tab{background:transparent;color:var(--text-2);border:0;border-bottom:2px solid transparent;border-radius:0;margin-bottom:-1px;padding:10px 0 8px;font-size:13px;font-weight:550}

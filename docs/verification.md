@@ -5265,7 +5265,7 @@ separate work.
 ## Trade actions, adjustment drafts and one-trade risk (D424)
 
 Local results on 2026-11-17, on this Mac without a database: `npm test --prefix
-web` passed 2235 tests, including the instrument bar's layout at four widths, the
+web` passed 2238 tests, including the instrument bar's layout at four widths, the
 position's action buttons and quantity row in a headless browser, the action list,
 the operation reader, the draft readers and the risk scope. The API and its checks
 build with no warnings, and `--position-adjustment` passed 40 database-free checks

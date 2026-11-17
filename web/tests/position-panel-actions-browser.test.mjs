@@ -16,7 +16,7 @@ const setup=`(async()=>{
  window.input=h=>({holding:h,row,formats,color:'#123456',risk:{state:'none'}});
  window.panel=setupPositionPanel({element:part=>document.querySelector('#'+part),form(){},reveal(){},focusForm(){}},{zone:()=> 'UTC',busy:()=>state.busy,canAmend:()=>true,curveListed:()=>true,context:()=> 'same',
   read:async()=>({view:()=>({terms:[],history:[]})}),amendment:{shown:()=>false,open(){},close:async()=>{}},onDenied(){},openCurve(){},
-  actions:{list:h=>positionActions(h,state.can),closeOut:h=>ran.push(['closeOut',h.revision]),adjust:(h,direction,quantity)=>ran.push([direction,h.revision,quantity]),risk:h=>ran.push(['risk',h.tradeId])}});
+  actions:{list:h=>positionActions(h,state.can),closeOut:h=>ran.push(['closeOut',h.revision]),adjust:(h,direction,quantity)=>{ran.push([direction,h.revision,quantity]);},risk:h=>ran.push(['risk',h.tradeId])}});
  window.tick=()=>new Promise(resolve=>setTimeout(resolve,0));
  panel.show(input(holding),'terms');await tick();
 })()`;
@@ -86,5 +86,25 @@ for(const width of [320,900])test(`the action buttons wrap inside the details at
   await evaluate(`document.querySelector('#side-panel-increase').click()`);
   assert.equal(await evaluate(`(h=>h.scrollWidth<=h.clientWidth+1)(document.querySelector('#position-details-head'))`),true);
   assert.equal(await evaluate(`[...document.querySelectorAll('.side-panel-actions button,#side-panel-adjust>*')].every(n=>{const b=n.getBoundingClientRect(),h=document.querySelector('#position-details-head').getBoundingClientRect();return b.left>=h.left-1&&b.right<=h.right+1;})`),true);
+ });
+});
+
+test('a refused adjustment keeps its quantity row, with the typed quantity and the reason, for the person to correct',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+ await withBrowserPage(page.replace('WIDTH','900'),async evaluate=>{
+  await evaluate(setup);
+  await evaluate(`(document.querySelector('#side-panel-reduce').click(),document.querySelector('#side-panel-adjust-quantity').value='99',document.querySelector('#side-panel-adjust').requestSubmit())`);
+  assert.equal(await evaluate(`document.querySelector('#side-panel-adjust').checkVisibility()`),false,'the row closes once the draft is asked for');
+  const why='Sell was not drafted for TRD-7. The position holds 40 lots; reducing it by 99 would reverse it.';
+  assert.equal(await evaluate(`panel.refuseAdjustment('reduce','99',${JSON.stringify(why)})`),true);
+  assert.deepEqual(await evaluate(`[document.querySelector('#side-panel-adjust').checkVisibility(),document.querySelector('#side-panel-adjust-quantity').value,document.querySelector('label[for=side-panel-adjust-quantity]').textContent,
+    (n=>n.checkVisibility()&&n.getAttribute('role')+'|'+n.textContent)(document.querySelector('#side-panel-adjust-note')),document.querySelector('#side-panel-adjust-quantity').getAttribute('aria-describedby'),document.activeElement.id]`),
+   [true,'99','Sell: quantity in lots','alert|'+why,'side-panel-adjust-note','side-panel-adjust-quantity']);
+  // Asking again, or giving the row up, takes the reason away.
+  await evaluate(`(document.querySelector('#side-panel-adjust-quantity').value='10',document.querySelector('#side-panel-adjust').requestSubmit())`);
+  assert.deepEqual(await evaluate(`[ran.at(-1)[2],document.querySelector('#side-panel-adjust-note').hidden,document.querySelector('#side-panel-adjust-note').textContent]`),['10',true,'']);
+  // Where the adjustment is no longer offered the reason is not shown in a row that cannot be used: the page says it instead.
+  await evaluate(`(state.can={book:false,amend:true,risk:true,why:{book:'Historical view is read-only.'}},panel.sync())`);
+  assert.equal(await evaluate(`panel.refuseAdjustment('reduce','99',${JSON.stringify(why)})`),false);
+  assert.equal(await evaluate(`document.querySelector('#side-panel-adjust').checkVisibility()`),false);
  });
 });

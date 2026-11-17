@@ -297,10 +297,11 @@ export async function adjustments(page){
   await check('Sell drafts a sale of the stated lots',`${draftOf('-10',`Sell: ${reference}`)}&&window.__closeOut.sent.length===${sentBefore}`,drafted);
   await showPosition();
   await adjust('reduce','9999');
-  await check('a reduction that would reverse the position is refused in the details, with no form and no banner',
-    `(()=>{const said=document.querySelector('#position-details-view #close-out-refusal');return !!said&&said.textContent.startsWith(${JSON.stringify(`Sell was not drafted for ${reference}. `)})&&document.querySelector('#position-details-form').hidden&&document.querySelector('#error').hidden;})()`,drafted);
+  const refusedBeside=(label,quantity)=>`(()=>{const said=document.querySelector('#side-panel-adjust-note');return !!said&&said.checkVisibility()&&said.textContent.startsWith(${JSON.stringify(`${label} was not drafted for ${reference}. `)})&&
+    document.querySelector('#side-panel-adjust-quantity').value===${JSON.stringify(quantity)}&&document.querySelector('#position-details').dataset.mode==='position'&&document.querySelector('#error').hidden;})()`;
+  const beside="({mode:document.querySelector('#position-details').dataset.mode,note:document.querySelector('#side-panel-adjust-note')?.textContent,quantity:document.querySelector('#side-panel-adjust-quantity')?.value,error:document.querySelector('#error').textContent})";
+  await check('a reduction that would reverse the position is refused beside its quantity, which stays for the person to correct, with no form and no banner',refusedBeside('Sell','9999'),beside);
   await showPosition();
   await adjust('increase','1e3');
-  await check('a quantity that is not an exact positive decimal is refused in the details',
-    `(()=>{const said=document.querySelector('#position-details-view #close-out-refusal');return !!said&&said.textContent.startsWith(${JSON.stringify(`Buy more was not drafted for ${reference}. `)})&&document.querySelector('#position-details-form').hidden;})()`,drafted);
+  await check('a quantity that is not a plain positive decimal is refused beside it',refusedBeside('Buy more','1e3'),beside);
 }

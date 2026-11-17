@@ -306,7 +306,8 @@ Adjustment (D424):
   position's side to increase it, on the other side to reduce it, at the curve
   price of the pinned close. It is read, refused and opened as the close-out
   draft is, for the revision the person saw when they asked.
-- Refused with a reason shown in the details: a quantity that is not a plain
+- Refused with a reason shown beside the quantity, which stays for the person to
+  correct: a quantity that is not a plain
   positive decimal; a reduction beyond what is held; a scheduled swap; an
   instrument neither draft supports; and everything the close-out draft refuses.
 

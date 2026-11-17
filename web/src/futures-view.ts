@@ -53,7 +53,7 @@ import {retainedActions,tieMainWindow,type BlotterContext,type BlotterHeld,type 
 import {setupMenu} from './context-menu.js';
 import {adjustmentRequest,closeOutRefusal,closeOutRequest,readCloseOutDraft,type Adjustment} from './close-out-draft.js';
 import {adjustLabels,positionActions,type PositionCan} from './position-actions.js';
-import {blotterRiskScope,outsideRunScope,tradeScopeNote} from './risk-scope.js';
+import {blotterRiskScope,outsideRunScope,scopeChangeNotice,tradeScopeNote} from './risk-scope.js';
 import {guardedCsv,downloadCsv} from './csv-export.js';
 import {friendly,publicText,displayInstant,deliveryLabel,curveName} from './market-view.js';
 import {valuationReason,valuationNote,excludedPositions,valuationMeasure} from './valuation-status.js';
@@ -283,7 +283,10 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   let riskTrade:{tradeId:string;reference:string}|null=null;
   const risk=setupRisk({api,act,busy,failed:options.failed,failureCleared:options.failureCleared,zone:options.zone,profile:options.profile,canRun:()=>options.canRunRisk()&&!!holdings,onDenied:clear,onChange:riskChanged,edited:options.unsavedChanged,scopeNote:()=>riskTrade?tradeScopeNote({tradeIds:[riskTrade.tradeId]},()=>riskTrade?.reference):null,scope:()=>{
     if(!lastReadRequest)throw Error('Load the blotter before running risk.');
-    return blotterRiskScope((lastReadRequest as {context:Record<string,unknown>}).context,view,riskTrade);
+    // A trade the read on screen no longer holds is refused once, by name, and given up: the next report is asked for anew.
+    const trade=riskTrade;
+    try{return blotterRiskScope((lastReadRequest as {context:Record<string,unknown>}).context,view,trade,id=>!holdings||holdings.holdings.some(h=>h.tradeId===id));}
+    catch(error){riskTrade=null;throw error;}
   }});
   const fullReport=setupRiskResults(get('desk-risk-full-results'),options.zone,options.riskReportUrl),fullReportPanel=get<HTMLDetailsElement>('desk-risk-full');
   let fullReportKey='',preparingFullReport='',fullReportVersion=0;
@@ -404,7 +407,10 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     actions:{
       list:h=>positionActions(h,positionCan(h)),
       closeOut:h=>void pinned(h,()=>perform({kind:'draftCloseOut',key:rowKey(h)})),
-      adjust:(h,direction,quantity)=>void pinned(h,()=>perform({kind:'draftAdjustment',key:rowKey(h),direction,quantity})),
+      adjust:(h,direction,quantity)=>void pinned(h,()=>perform({kind:'draftAdjustment',key:rowKey(h),direction,quantity})).then(()=>{
+        const why=adjustmentRefused;adjustmentRefused=undefined;
+        if(why!==undefined&&!position.refuseAdjustment(direction,quantity,why))options.failed(Error(why));
+      }),
       risk:h=>void openRiskReport({tradeId:h.tradeId,reference:h.tradeReference}),
     },
     openCurve:(curve,contractId)=>asked(()=>options.openCurve(curve,contractId))});
@@ -581,7 +587,9 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // until the person presses Book. The draft is of the revision the row's menu was opened on, or the row showed when the operation was
   // dispatched without one: a row that holds another revision by then, or after the read made for the priced contracts, refuses it.
   // An adjustment is drafted and opened the same way: more or less of the position, by the quantity the person stated.
+  let adjustmentRefused:string|undefined;
   async function draftCloseOut(key:string,adjustment?:Adjustment){
+    adjustmentRefused=undefined;
     const row=()=>{const h=holdings?.holdings.find(h=>rowKey(h)===key);if(!h)throw refuse('that position is not among the rows on screen');return h;};
     const chosen=menuRevision?.key===key?menuRevision.revision:row().revision,before=panel.current();
     const named=(h:Holding)=>adjustment?adjustLabels(h)[adjustment.direction]:undefined;
@@ -606,13 +614,15 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
         // The backend's own refusal is said in the details, in place of a form, and still refuses the operation; any other failure is the page's.
         if((error as {code?:string}).code==='access_denied')clear();
         refused=closeOutRefusal(error,h.tradeReference,named(h));if(!refused)throw error;
-        await showRefusal(refused);return;
+        // A refused adjustment is said beside the quantity that was asked, which the person corrects there; a refused close-out in place of a form.
+        if(adjustment)adjustmentRefused=refused.message;else await showRefusal(refused);
+        return;
       }
       const shown={reference:h.tradeReference,...(adjustment?{adjustment:{direction:adjustment.direction,label:named(h)!}}:{})},next:PanelMode={kind:'new',product};
       // A draft a form cannot hold whole leaves no form, and the details as they were: never a part-filled form that could be booked.
       try{
         if(drafted.kind==='future'){await panel.show(next);booking.populate();booking.open();booking.closeOut(drafted,shown);}
-        else{resetForms();await panel.show(next);if(!await swapEditor.openCloseOut(drafted,shown))throw Error(`The close-out of ${h.tradeReference} was not opened, as the market selection changed while it was read.`);}
+        else{resetForms();await panel.show(next);if(!await swapEditor.openCloseOut(drafted,shown))throw Error(`${named(h)?`${named(h)!.replace(/…$/,'')} for ${h.tradeReference}`:`The close-out of ${h.tradeReference}`} was not opened, as the market selection changed while it was read.`);}
       }catch(error){resetForms();await restoreDetails(before);throw error;}
       showForm();
     });
@@ -1045,7 +1055,10 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     if(!await panel.show(riskMode))return;
     panel.reveal();
     // Another scope than the report holds is another catalog and another run: what it holds is forgotten, its setup's choices carried over.
-    if(trade?.tradeId!==riskTrade?.tradeId){riskTrade=trade;risk.inputsChanged(true);}
+    if(trade?.tradeId!==riskTrade?.tradeId){
+      const said=scopeChangeNotice(!!risk.current(),trade);
+      riskTrade=trade;risk.inputsChanged(true);if(said)options.notice(said);
+    }
     await act(risk.open);
   }
   // Risk report is offered to an account that can run scenarios once the Blotter is read, and says why to one that cannot.

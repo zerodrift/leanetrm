@@ -626,7 +626,7 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
    const started=generation,source=key();
    await safe(async()=>{
     if(!catalog!.books.some(b=>b.id===t.bookId))throw Error('The drafted book is not one you can book for.');
-    fill(t);annotations.populate(catalog!.bookingActor,catalog!,t as Partial<Annotation>);text('swap-template-note','Close-out draft terms. Each side shows its drafted values.');
+    fill(t);annotations.populate(catalog!.bookingActor,catalog!,t as Partial<Annotation>);text('swap-template-note',`${shown.adjustment?'Drafted':'Close-out draft'} terms. Each side shows its drafted values.`);
     await refreshObservations();if(started!==generation||source!==key())return;
     renderCloseOut(closeOut,drafted,shown);priceSource.show(drafted.price);edits.clear();sync();
    });

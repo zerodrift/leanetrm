@@ -172,11 +172,11 @@ public sealed partial class SwapStore
         // The first side states the fixed price the draft sets, the second the floating curve price it is set to; each is
         // checked on its own, so no side's terms are read before its kind is known.
         if(scheduled is null?terms.FirstFloating is not null:scheduled.First.Periods.All(p=>p.Floating is not null)&&scheduled.Second.Periods.All(p=>p.Floating is not null))
-            throw CloseOutTerms.Refused("A swap of two floating sides has no fixed price to close at the curve price.");
+            throw CloseOutTerms.Refused("A swap of two floating sides has no fixed price to draft at the curve price.");
         if(scheduled is null?terms.Fixed is null:scheduled.First.Periods.Any(p=>p.Fixed is null))
-            throw CloseOutTerms.Refused("The swap's first side has no fixed price in every period to close at the curve price.");
+            throw CloseOutTerms.Refused("The swap's first side has no fixed price in every period to draft at the curve price.");
         if(scheduled is null?terms.Floating is null:scheduled.Second.Periods.Any(p=>p.Floating is null))
-            throw CloseOutTerms.Refused("The swap's second side has no floating curve price in every period to close at.");
+            throw CloseOutTerms.Refused("The swap's second side has no floating curve price in every period to draft at.");
         // Each side's delivery periods, in contract order.
         (DateOnly From,DateOnly To)[] Deliveries(IEnumerable<(string? From,string? To)> periods)=>[..periods.Select(p=>(Date(p.From),Date(p.To)))];
         var deliveries=Deliveries(scheduled is null?new[]{(terms.Fixed!.DeliveryFrom,terms.Fixed.DeliveryTo)}:scheduled.First.Periods.Select(p=>(p.Fixed!.DeliveryFrom,p.Fixed.DeliveryTo)));
@@ -208,7 +208,7 @@ public sealed partial class SwapStore
             else if(sides==1)throw CloseOutTerms.Refused($"{Period(deliveries[n])} is settled on one side only, so whether it is still open is ambiguous.");
             else open.Add(n);
         }
-        if(open.Count==0)throw CloseOutTerms.Refused("Every period of this swap is settled; nothing is left open to close out.");
+        if(open.Count==0)throw CloseOutTerms.Refused("Every period of this swap is settled; nothing is left open to draft.");
         var coefficient=ExactDecimal.Parse(Required(scheduled is null?terms.FixedCoefficient:terms.FirstCoefficient));
         var reversed=(default(ExactDecimal)-coefficient).ToString();
         SwapWriteRequest draft;
