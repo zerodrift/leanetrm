@@ -12,7 +12,10 @@ public sealed record TicketSideDraft(string Kind,string Code,ImmutableDictionary
 {
  [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public SideCalendarPolicyInput? CalendarPolicy { get; init; }
 }
-public sealed record TicketDraft(string Product,int Version,ImmutableDictionary<string,string> Trade,ImmutableArray<TicketSideDraft> Sides);
+public sealed record TicketDraft(string Product,int Version,ImmutableDictionary<string,string> Trade,ImmutableArray<TicketSideDraft> Sides)
+{
+ internal static TicketDraft Require(TicketDraft? draft)=>draft??throw new MarketDataException("ticket_input","Supply the complete ticket draft.");
+}
 
 public sealed record TicketChoice(string Value,string Label);
 public sealed record TicketSource(string Kind,string Label);

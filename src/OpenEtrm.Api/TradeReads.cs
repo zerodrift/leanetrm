@@ -40,7 +40,7 @@ public sealed partial class TradeReads
         // Without any visible trade revision, the directory's empty Blotter needs no valuation (D160).
         async Task<object?> EmptyDirectory()
         {
-            if(await blotter.ReadEmptyDirectory(connection,view.Frame,report,summaries,ct) is not {} empty)return null;
+            if(await blotter.ReadEmptyDirectory(connection,view.CalculationFrame,report,summaries,ct) is not {} empty)return null;
             var catalog=await futures.Directory(connection,ct);
             await MarketBundle.RequireReferenceVisibility(connection,database.Manifest,ct);
             return await Complete(catalog,empty);

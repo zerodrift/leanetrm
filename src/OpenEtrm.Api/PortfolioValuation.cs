@@ -356,6 +356,28 @@ public sealed class PortfolioValuation(PreviewDatabase database)
                 evidence.AddRange(service.Evidence);instantDiscounts.AddRange(service.DiscountInputs);
             }
         }
+        if(await GasParkCustodyPositions.Present(connection,database,frame,bookIds,selection?.Ids.ToImmutableArray(),ct))
+        {
+            if(closePolicy is not null)throw new MarketDataException("gas_custody_close","Generated close valuation for retained-title custody requires separate qualification.");
+            var agreements=await GasParkCustodyPositions.Read(connection,database,frame,bookIds,[],ct,trades:selection?.Ids);
+            foreach(var service in await GasParkCustodyPortfolio.PrepareAgreements(connection,database,frame,snapshot,
+                [..agreements.Select(a=>a.Agreement)],MarketInputSelection.WithRoot(data,frame,supplemental),retainedGraphs is not null,false,ct))
+            {
+                materialized.Add(new(service.Data,service.Frame,service.Snapshot,service.Portfolio,GasParkCustodyTicket.Measure));
+                evidence.AddRange(service.Evidence);instantDiscounts.AddRange(service.DiscountInputs);
+            }
+        }
+        if(await GasTransportFinancialPositions.Present(connection,database,frame,bookIds,selection?.Ids.ToImmutableArray(),ct))
+        {
+            if(closePolicy is not null)throw new MarketDataException("gas_transport_financial_close","Generated close valuation for this Transport profile requires separate qualification.");
+            var agreements=await GasTransportFinancialPositions.Read(connection,database,frame,bookIds,[],ct,trades:selection?.Ids);
+            foreach(var service in await GasTransportFinancialPortfolio.PrepareAgreements(connection,database,frame,snapshot,
+                [..agreements.Select(a=>a.Agreement)],MarketInputSelection.WithRoot(data,frame,supplemental),retainedGraphs is not null,false,ct))
+            {
+                materialized.Add(new(service.Data,service.Frame,service.Snapshot,service.Portfolio,GasTransportFinancialTicket.Measure));
+                evidence.AddRange(service.Evidence);instantDiscounts.AddRange(service.DiscountInputs);
+            }
+        }
         var heldGas=await GasPositions.ReadComplete(connection,database.Manifest,bookIds,[],ct,selection?.Ids);
         if(!gasExclusions.IsSubsetOf(heldGas.Select(p=>(p.Trade,p.Binding))))
             throw new MarketDataException("risk_contract","Every excluded gas position must be a held position in scope.");
@@ -510,7 +532,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
                 :new MarketDataException("risk_contract","A risk run leaves out exactly the option positions the selected close cannot value.");
         if(selection is not null&&!selection.Ids.IsSubsetOf(evidence.Select(p=>p.TradeId).Concat(excluded.Select(p=>p.TradeId)).ToImmutableHashSet()))
             throw new MarketDataException("risk_trade_scope","Every selected trade must have its held bindings or explicit valuation exclusions in this retained context.");
-        if(materialized.Count==0)throw new MarketDataException("risk_position",excluded.IsEmpty?"The selected books have no visible holdings.":
+        if(materialized.Count==0)throw new MarketDataException("risk_position",excluded.IsEmpty?"The selected books have no financial holdings to revalue.":
             "No held position in the selected scope is qualified for this risk calculation.");
         if(evidence.Select(p=>(p.Owner,p.BindingId)).Distinct().Count()!=evidence.Count)
             throw new MarketDataException("risk_contract","Every held binding must belong to exactly one market and valuation measure.");

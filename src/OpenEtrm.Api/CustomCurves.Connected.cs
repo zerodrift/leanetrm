@@ -97,12 +97,11 @@ public static partial class CustomCurves
             !MarketSnapshotBinding.Bind(data.Snapshot(frame),exact.ContextId!.Value,SchedulePreview.ParseAt(exact.KnownAt)).HasSameInputs(snapshot)))
             throw Invalid("Complete valuation must retain this source's exact selected observations, values and original uses.");
         var prices=activePrices??instruments.OfType<SidedInstrument>().SelectMany(instrument=>instrument.Sides)
-            // Retained programs already pin their source queries; their native
-            // columns are not replacement scalar ScheduleRows. Retained custom
-            // recipes keep the caller's explicit activePrices admission. The
-            // complete declared dependencies below still enter preparation.
-            .Where(member=>member.Side is not RetainedProgramSide)
-            .SelectMany(member=>member.Side.GenerateSchedule().Rows).SelectMany(row=>row.Prices).ToImmutableArray();
+            // Schedules expose scalar observation/recipe terms explicitly.
+            // Native programs and whole-rights claims retain other source shapes;
+            // their complete declared dependencies still enter preparation below.
+            // Retained custom recipes keep the caller's activePrices admission.
+            .SelectMany(member=>member.Side.GenerateSchedule().PriceTerms).ToImmutableArray();
         var custom=prices.Where(price=>price.Lookup?.CustomProjection is not null)
             .Select(price=>new{Binding=price.Lookup!.CustomProjection!,Original=price.Lookup.Market,Request=price.Lookup.ProjectionRequest,Interval=price.Lookup.ForecastDelivery}).Distinct().ToArray();
         var linked=linkedMarkets.IsDefault?ImmutableArray<PreparedMarket>.Empty:linkedMarkets;

@@ -7,6 +7,10 @@ operations perform accepted advances and returns. Disposable local managed,
 native, browser and retained-price-worker qualification has passed. Aggregate CI,
 release and deployment qualification remain separate gates.
 
+The separately selected [outstanding-balance elapsed-hour fee
+profile](gas-park-loan-balance-fee.md) reuses the same principal contract with
+its own retained fee law and independent cumulative cash determinations.
+
 ## Installed terms
 
 The profile requires explicit service kind (park or loan), customer or provider
@@ -27,8 +31,8 @@ The installed advance window starts at the selected advance time and excludes
 the return due time. It permits one full advance and partial returns strictly
 after accepted advance. Late returns remain recordable, and passing return due
 does not discharge principal. Custody-only arrangements, multiple advances,
-other points or quantity bases, balance-based charges and additional return
-rights require further qualified profiles.
+other points or quantity bases and additional return rights require further
+qualified profiles. Balance-time charges use the separate profile linked above.
 
 ## Independent owners
 

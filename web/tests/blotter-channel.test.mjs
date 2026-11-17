@@ -75,6 +75,8 @@ test('a popped-out Blotter reports the selected Park and loan ticket and its exa
  assert.deepEqual(readBlotterMessage(msg('pageReport',{state:entry}),S).state,entry);
  const agreement={...futures,trade:{tradeId:'synthetic-trade',instrumentType:'physical_gas_park_loan',revision:1,reference:'Synthetic agreement'}};
  assert.deepEqual(readBlotterMessage(msg('pageReport',{state:agreement}),S).state,agreement);
+ const custody={...agreement,trade:{...agreement.trade,instrumentType:'physical_gas_park_custody'}};
+ assert.deepEqual(readBlotterMessage(msg('pageReport',{state:custody}),S).state,custody);
 });
 
 // A BroadcastChannel in one realm: posts reach every other open channel of the same name.

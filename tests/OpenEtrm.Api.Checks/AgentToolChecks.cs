@@ -41,7 +41,7 @@ static class AgentToolChecks
             instrumentType="future",bookId=Book,book="Synthetic book",unit="lots",currency="USD",deliveryFrom="2021-01-01",deliveryTo="2021-02-01",quantity="5",
             quantitySpecification=new{revision=new{catalogId=Catalog,revisionId=Catalog},code="synthetic_lots"},
             currencyReference=new{revision=new{catalogId=Catalog,revisionId=Catalog},code="usd"}}))}};
-        foreach(var page in new[]{"blotter_new_rec","blotter_operating_right","blotter_rec_forward"})
+        foreach(var page in new[]{"blotter_new_rec","blotter_operating_right","blotter_rec_forward","blotter_new_transport"})
         {
             var report=JsonSerializer.SerializeToElement(new{page,selection=new{},
                 layout=new{pane=new{details=true,charts=false},poppedOut=true},focus=new{tradeIds=new[]{Trade},pivotCell=(object?)null}});
@@ -75,7 +75,7 @@ static class AgentToolChecks
         }
         var operation=AssistantOperations.RequireRead("trading.workspace_v1");
         Require(operation.NeedsFinancialContext&&!operation.CurrentOnly&&operation.Permissions.Order().SequenceEqual(new[]{"ReadMarketData","ReadTrades"})
-            &&AssistantOperations.Catalog.All(o=>o.Page is not("physical_power" or "rec_inventory" or "blotter_new_rec" or "blotter_operating_right" or "blotter_rec_forward")),
+            &&AssistantOperations.Catalog.All(o=>o.Page is not("blotter_new_transport" or "physical_power" or "rec_inventory" or "blotter_new_rec" or "blotter_operating_right" or "blotter_rec_forward")),
             "Background financial overview keeps the ordinary workspace authority and explicit-context requirement, without adding product operations.");
         foreach(var kind in new[]{"operating_right","rec_forward"})
             Require(Code(()=>AgentTools.Parse("read_trades",Json($$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"{{kind}}","revision":1}""")))=="tool_arguments_invalid",
@@ -522,19 +522,22 @@ static class AgentToolChecks
 
     static void Reports()
     {
-        var parkLoan=$$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"physical_gas_park_loan","revision":1}""";
-        var parkReport=Json(Report("blotter",parkLoan));
-        PageReports.Require(parkReport);
-        var parkTurn=new TurnReads(Pin("current",Guid.NewGuid(),Working),new("agent",Guid.NewGuid()),parkReport,
-            ["read_current_page","read_trades"],Guid.NewGuid(),TimeSpan.FromSeconds(15),new(500,65536));
-        Require(PageReports.Dispatch(parkReport) is null
-            &&Code(()=>AgentTools.Requested(parkTurn,new("synthetic_park_read","read_current_page",Json("{}"))))=="page_not_supported"
-            &&Code(()=>AgentTools.Parse("read_trades",Json(parkLoan)))=="tool_arguments_invalid",
-            "a selected Park and Loan permits a question but cannot dispatch a swap or an unqualified trade read");
-        foreach(var invalid in new[]{parkLoan.Replace(Trade.ToString(),"invalid"),parkLoan.Replace("\"revision\":1","\"revision\":0"),
-            parkLoan.Replace("\"mode\":null","\"mode\":\"trades\""),parkLoan.Replace("physical_gas_park_loan","unknown")})
-            Require(Code(()=>PageReports.Require(Json(Report("blotter",invalid))))=="page_report_invalid","unsupported trade metadata is still strictly validated");
-        Console.WriteLine("PASS selected Park and Loan admits questions, validates metadata and refuses unqualified current-page reads");
+        foreach(var kind in new[]{"physical_gas_park_loan","physical_gas_park_custody","physical_gas_transport"})
+        {
+            var tradeSelection=$$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"{{kind}}","revision":1}""";
+            var tradeReport=Json(Report("blotter",tradeSelection));
+            PageReports.Require(tradeReport);
+            var tradeTurn=new TurnReads(Pin("current",Guid.NewGuid(),Working),new("agent",Guid.NewGuid()),tradeReport,
+                ["read_current_page","read_trades"],Guid.NewGuid(),TimeSpan.FromSeconds(15),new(500,65536));
+            Require(PageReports.Dispatch(tradeReport) is null
+                &&Code(()=>AgentTools.Requested(tradeTurn,new("synthetic_unread_trade","read_current_page",Json("{}"))))=="page_not_supported"
+                &&Code(()=>AgentTools.Parse("read_trades",Json(tradeSelection)))=="tool_arguments_invalid",
+                "a selected unqualified gas service permits a question but cannot dispatch a swap or an unqualified trade read");
+            foreach(var invalid in new[]{tradeSelection.Replace(Trade.ToString(),"invalid"),tradeSelection.Replace("\"revision\":1","\"revision\":0"),
+                tradeSelection.Replace("\"mode\":null","\"mode\":\"trades\""),tradeSelection.Replace(kind,"unknown")})
+                Require(Code(()=>PageReports.Require(Json(Report("blotter",invalid))))=="page_report_invalid","unsupported trade metadata is still strictly validated");
+            Console.WriteLine("PASS selected unqualified gas service admits questions, validates metadata and refuses unqualified current-page reads");
+        }
         var blotter=Blotter;
         foreach(var (report,page,operation) in new[]{
             ("""{"page":"curves","selection":{"view":"curves","curve":null}}""","curves","market_data.curves_v1"),
@@ -553,7 +556,7 @@ static class AgentToolChecks
             PageReports.Require(Json(report));
             Require(PageReports.Dispatch(Json(report)) is {Call:{} dispatchedCall} read&&read.Page==page&&dispatchedCall.Operation.Id==operation,$"{report} dispatches {operation}");
         }
-        var unsupported=new[]{"physical_power","rec_inventory","blotter_new_rec","blotter_operating_right","blotter_rec_forward","dashboard","vol_surfaces","options","blotter_new_lng","blotter_new_ppa","blotter_new_gas","blotter_new_park_loan","blotter_new_crude","blotter_new_option","physical_gas","physical_crude"};
+        var unsupported=new[]{"physical_power","facility_definitions","facility_activity","transport_capacity","transport_route_plans","rec_inventory","blotter_new_rec","blotter_operating_right","blotter_rec_forward","dashboard","vol_surfaces","options","blotter_new_lng","blotter_new_ppa","blotter_new_gas","blotter_new_park_loan","blotter_new_transport","blotter_new_crude","blotter_new_option","physical_gas","physical_crude"};
         var workspace=new[]{"lifecycle","physical_operations","gas_setup","crude_setup","facility_quantities","risk_jobs","blotter_risk","blotter_risk_lens","blotter_new_trade","blotter_new_future","blotter_new_swap","delivery_prices","interval_series","interval_curves","users_access","settings_ai"};
         Require(PageReports.NotSupported.Order().SequenceEqual(unsupported.Order())&&PageReports.Supported.Order()
                 .SequenceEqual(new[]{"curves","contract_definitions","schedules","power_tous","reference_data","parties","blotter","custom_curves","jobs","ppa"}.Concat(workspace).Order()),

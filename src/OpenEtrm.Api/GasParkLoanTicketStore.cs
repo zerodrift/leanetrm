@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Npgsql;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Gas;
@@ -8,7 +9,18 @@ using OpenEtrm.MarketData.Trading;
 
 namespace OpenEtrm.Api;
 
-public sealed record TicketStatusRequest(Guid OperationId,string? Product=null);
+public sealed record TicketStatusRequest(Guid OperationId,string? Product=null,string? Profile=null)
+{
+    internal bool UsesCustody()
+    {
+        if(Product==GasParkLoanTicket.Product&&Profile is null||
+            Profile is not(null or GasParkAndLoanTerms.Version or GasParkLoanBalanceFeeTerms.Version or GasParkCustodyTerms.Version)||
+            Product==GasParkCustodyTicket.Product&&Profile is not(null or GasParkCustodyTerms.Version)||
+            Product is not(GasParkLoanTicket.Product or GasParkCustodyTicket.Product)&&Profile is not null)
+            throw new MarketDataException("ticket_input","Retain the exact supported product family and selected profile for booking recovery.");
+        return Product==GasParkCustodyTicket.Product||Product==GasParkLoanTicket.Product&&Profile==GasParkCustodyTerms.Version;
+    }
+}
 internal sealed class GasParkLoanTicketStore(PreviewDatabase database)
 {
     internal static readonly JsonSerializerOptions Json=GasOwnedOperations.Json;
@@ -20,7 +32,7 @@ internal sealed class GasParkLoanTicketStore(PreviewDatabase database)
 
     internal Task<object> Choices(NpgsqlConnection c,PreviewData data,InputFrame frame,TicketFieldRequest request,CancellationToken ct)=>Certified<object>(c,data,frame,async(d,f)=>
     {
-        if(request.Draft.Product!=GasParkLoanTicket.Product||request.Side is not null||!GasParkLoanTicket.Description.TradeFields.Any(x=>x.Id==request.Field))
+        if(request.Draft.Product!=GasParkLoanTicket.Product||request.Side is not null||!GasParkLoanTicket.Describe(request.Draft).TradeFields.Any(x=>x.Id==request.Field))
             throw GasParkLoanTicket.Invalid(request.Field,"Select a declared agreement field.");
         if(GasParkLoanTicket.StaticChoices(request.Field) is {} fixedChoices)return new TicketChoices(fixedChoices,null);
         if(request.Field is "book" or "legal_entity" or "counterparty")
@@ -84,8 +96,8 @@ internal sealed class GasParkLoanTicketStore(PreviewDatabase database)
             return new{snapshotId=frame.Id,definitionRevisionId=body.DefinitionRevisionId,presentValue=value,currency=account.Text("currency_code"),
                 quantityUnit=account.Text("quantity_code"),schedule=Schedule(agreement,value,f.At),summaries=Array.Empty<object>(),scheduleRefusal=(object?)null,links=Array.Empty<object>(),
                 source=new CatalogueSource(body.DefinitionRevisionId,account.Id("reference_catalog_id"),account.Id("reference_revision_id")),context=knowledge,
-                measure=GasParkLoanTicket.Measure,measureLabel="Remaining scheduled plan PV",overviewSections=Sections(agreement),
-                ownershipNote="Accepted principal and fee cash are valued through their independent holdings after advance."};
+                measure=GasParkLoanTicket.Measure,measureLabel=MeasureLabel(agreement),overviewSections=Sections(agreement),
+                ownershipNote=OwnershipNote(agreement)};
         },ct);
 
     internal async Task<JsonElement> Book(string profile,InputFrame frame,TicketBookRequest request,CancellationToken ct)
@@ -124,7 +136,7 @@ internal sealed class GasParkLoanTicketStore(PreviewDatabase database)
         var snapshot=MarketSnapshotBinding.Bind(data.Snapshot(frame),frame.ContextId.Value,SchedulePreview.ParseAt(knowledge.KnownAt));
         string? value=null;string? unavailable=null;
         try{value=await Value(c,data,frame,snapshot,row,false,ct);}
-        catch(MarketDataException error)when(ValuationStatus.PositionSpecific(error)||error.Code is "gas_park_loan_reconciliation" or "discount_curve")
+        catch(MarketDataException error)when(ValuationStatus.PositionSpecific(error)||error.Code is "gas_park_loan_reconciliation" or "discount_curve" or "gas_balance_fee_advance_window")
         {unavailable=error.Message;}
 
         var t=row.GetProperty("terms");
@@ -132,7 +144,7 @@ internal sealed class GasParkLoanTicketStore(PreviewDatabase database)
             presentValue=value,currency=t.Text("currency"),quantityUnit=t.Text("quantity"),schedule=Schedule(row,value,frame.At),summaries=Array.Empty<object>(),scheduleRefusal=(object?)null,
             source=new CatalogueSource(t.Id("definitionRevisionId"),t.Id("referenceCatalogId"),t.Id("referenceRevisionId")),facilityAllocations=Array.Empty<object>(),links=Array.Empty<object>(),sideSlots=ImmutableDictionary<string,int>.Empty,
             actions=new{amend=new{allowed=false,reason="Agreement amendments require an installed continuity profile."},closeOut=new{allowed=false,reason="Complete the independent principal and cash obligations."},record=new{allowed=false,reason="Use the agreement's lifecycle actions to accept advances and returns."}},
-            overviewSections=Sections(row,unavailable),unavailableReason=unavailable,measureLabel="Remaining scheduled plan PV",ownershipNote="Accepted principal and fee cash are valued through their independent holdings after advance.",
+            overviewSections=Sections(row,unavailable),unavailableReason=unavailable,measureLabel=MeasureLabel(row),ownershipNote=OwnershipNote(row),
             lifecycleTarget=new LifecycleTarget(GasParkLoanActions.Handler,request.TradeId,request.BindingId)};
     }
 
@@ -174,7 +186,9 @@ internal sealed class GasParkLoanTicketStore(PreviewDatabase database)
     }
 
     static bool Compatible(JsonElement owner,JsonElement account)=>new[]{"book_id","legal_entity_id","legal_entity_revision","reference_catalog_id","reference_revision_id","quantity_code","location_code","definition_revision_id","mark_curve_code","mark_contract_id","currency_code"}.All(k=>owner.Text(k)==account.Text(k));
-    static JsonElement Draft(GasParkLoanBooking b,JsonElement a,InputFrame f,MarketSnapshot snapshot)=>JsonSerializer.SerializeToElement(new{
+    internal static JsonElement Draft(GasParkLoanBooking b,JsonElement a,InputFrame f,MarketSnapshot snapshot)
+    {
+        var draft=JsonSerializer.SerializeToElement(new{
         implementation=b.Profile,tradeId=GasParkAndLoanValuation.PreviewIdentity(b.OperationId,f.Id,"trade"),instrumentId=GasParkAndLoanValuation.PreviewIdentity(b.OperationId,f.Id,"instrument"),revision=1,
         bookId=b.BookId,quantity=b.Quantity,ownedAccountId=b.OwnedAccountId,claimAccountId=b.ClaimAccountId,legalEntityId=b.LegalEntityId,legalEntityRevision=b.LegalEntityRevision,counterpartyId=b.CounterpartyId,counterpartyRevision=b.CounterpartyRevision,
         publicationOrder=0,tradeReference=(string?)null,instrumentReference=(string?)null,reconciliationRequired=false,effectiveAt=f.At,contextId=f.ContextId,asOf=f.At,knownAt=snapshot.Knowledge!.KnownAt,effectiveOn=f.BusinessDate,
@@ -183,13 +197,41 @@ internal sealed class GasParkLoanTicketStore(PreviewDatabase database)
             markCurve=a.Text("mark_curve_code"),markContractId=a.Id("mark_contract_id"),b.AdvanceAt,b.ReturnAt,b.FixedFeeAmount,b.FeeDirection,feeRecognition=GasParkAndLoanTerms.FeeAtAdvance,b.FeeDueAt,b.TitlePolicy,b.ReturnPolicy,b.ReturnTiming,b.Carrying},
         advance=(object?)null,balances=new{acceptedPrincipal="0",acceptedReturn="0",outstandingPrincipal="0"},
         fee=new{amount=b.FixedFeeAmount,unpaid=b.FixedFeeAmount,dueAt=b.FeeDueAt}},Json);
+        if(b.Profile!=GasParkLoanBalanceFeeTerms.Version)return draft;
+        if(b.BalanceFee is null||b.FixedFeeAmount!="0"||b.FeeDueAt is null)
+            throw GasParkLoanTicket.Invalid("profile","Retain the complete explicitly selected balance-time fee contract.");
+        var selected=JsonNode.Parse(draft.GetRawText())!.AsObject();
+        selected["terms"]!["feeRecognition"]=GasParkLoanBalanceFeeTerms.CumulativeDifference;
+        selected["terms"]!["balanceFee"]=JsonSerializer.SerializeToNode(b.BalanceFee,Json);
+        selected["returns"]=new JsonArray();
+        selected["fee"]=JsonSerializer.SerializeToNode(new{amount="0",paid="0",unpaid="0",cumulativeDeterminedTotal="0",dueAt=b.FeeDueAt,determinations=Array.Empty<object>()},Json);
+        return JsonSerializer.SerializeToElement(selected,Json);
+    }
+    internal static string MeasureLabel(JsonElement agreement)=>agreement.Text("implementation")==GasParkLoanBalanceFeeTerms.Version?"Remaining service plan PV":"Remaining scheduled plan PV";
+    internal static string OwnershipNote(JsonElement agreement)=>agreement.Text("implementation")==GasParkLoanBalanceFeeTerms.Version?
+        "This service value includes planned gas before advance and undetermined fee cash. Accepted principal and determined fee cash, paid or unpaid, belong to independent native holdings. The whole-book ownership policy includes those holdings.":
+        "Accepted principal and fee cash are valued through their independent holdings after advance.";
     static object[] Sections(JsonElement agreement,string? unavailable=null)
     {
         var t=agreement.GetProperty("terms");var b=agreement.GetProperty("balances");var fee=agreement.GetProperty("fee");
         var principal=b.Text("outstandingPrincipal");
         var sections=new List<object>{new{label="Principal",values=new[]{new{label="Committed quantity",value=agreement.Text("quantity")+" "+t.Text("quantity")},new{label="Accepted advance",value=b.Text("acceptedPrincipal")},new{label="Accepted returns",value=b.Text("acceptedReturn")},new{label="Outstanding return",value=principal}}},
             new{label="Dates",values=new[]{new{label="Advance",value=t.Text("advanceAt")},new{label="Return due",value=t.Text("returnAt")},new{label="Fee due",value=t.OptionalText("feeDueAt")??"Not applicable"}}},
-            new{label="Independent fee",values=new[]{new{label="Fixed fee",value=t.Text("fixedFeeAmount")+" "+t.Text("currency")},new{label="Unpaid fee",value=fee.Text("unpaid")+" "+t.Text("currency")}}}};
+            };
+        if(agreement.Text("implementation")==GasParkLoanBalanceFeeTerms.Version)
+        {
+            var terms=t.GetProperty("balanceFee");
+            sections.Add(new{label="Outstanding-balance fee",values=new[]{
+                new{label="Absolute rate",value=terms.Text("rateAmount")+" "+t.Text("currency")+" / "+t.Text("quantity")+" / elapsed UTC hour"},
+                new{label="Direction",value=t.Text("feeDirection")},new{label="Accrue through",value=terms.Text("accrualThroughAt")},
+                new{label="Overdue treatment",value="Accrue accepted outstanding principal until the fee cutoff; principal remains owed after cutoff."},
+                new{label="Remaining-return plan",value="Outstanding principal returns at the fee cutoff for valuation. Contractual return due remains unchanged."},
+                new{label="Unadvanced plan",value="Before return due, advance at the later of earliest advance or evaluation time. No actual accrual before acceptance."},
+                new{label="Cash rounding",value=terms.Text("roundingIncrement")+" "+t.Text("currency")+" · "+terms.Text("roundingTieRule")+" · cumulative payment total"},
+                new{label="Cumulative determined fee",value=fee.Text("amount")+" "+t.Text("currency")},
+                new{label="Net unpaid determined fee",value=fee.Text("unpaid")+" "+t.Text("currency")}}});
+        }
+        else sections.Add(new{label="Independent fee",values=new[]{new{label="Fixed fee",value=t.Text("fixedFeeAmount")+" "+t.Text("currency")},new{label="Unpaid fee",value=fee.Text("unpaid")+" "+t.Text("currency")}}});
         if(unavailable is not null)sections.Add(new{label="Valuation",values=new[]{new{label="Unavailable",value=unavailable}}});
         return [..sections];
     }

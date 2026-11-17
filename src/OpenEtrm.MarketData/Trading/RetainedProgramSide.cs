@@ -77,6 +77,7 @@ public sealed record RetainedProgramSchedule:SideSchedule
     public BookedSideProgram Program=>Side.Program;
     public override ImmutableArray<CurveRequest> Dependencies=>Side.Dependencies;
     public override ImmutableArray<CurveRequest> DependenciesAt(MarketSnapshot snapshot)=>Side.DependenciesAt(snapshot);
+    public override ImmutableArray<SchedulePriceTerm> PriceTerms=>[];
     // Native block columns are the schedule. Materializing replacement scalar
     // rows would discard its geometry, source policies and retained addresses.
     public override IReadOnlyList<ScheduleRow> Rows=>throw new MarketDataException("retained_schedule_rows","Inspect the retained program's native schedule columns or evaluated schedule snapshot.");

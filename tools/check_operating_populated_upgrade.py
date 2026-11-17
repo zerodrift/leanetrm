@@ -49,7 +49,7 @@ def run_checks(query, manifest, positions):
     assert all(row['request']['plan']['valuation'] is not None and
                'composition' not in row['request']['plan'] for row in positions)
     old = (root / 'db/migrations/0345_operating_right_bookings.sql').read_text()
-    migration = migration_body((root / 'db/migrations/0349_operating_side_composition.sql').read_text())
+    migration = migration_body((root / 'db/migrations/0355_operating_side_composition.sql').read_text())
     calendar = query("SELECT pg_get_functiondef('trading.request_side_calendar_policy(jsonb,integer)'::regprocedure);")
     added = " IF command->>'convention'='supplied_operating_right_trade_v1' AND command->'plan' ? 'composition' THEN"
     original = " IF command->>'convention'='supplied_operating_right_trade_v1' THEN"

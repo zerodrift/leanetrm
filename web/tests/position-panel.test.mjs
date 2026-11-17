@@ -94,6 +94,10 @@ test('Open curve refuses a shape of another market',()=>{
  assert.throws(()=>openCurveTarget(held['TR-000001'],rows['TR-000001'],shapeOf('gas_future')),{message:'The curve shape belongs to another market than the position.'});
 });
 
+test('an explicit no-price-navigation capability refuses commodity curve navigation',()=>{
+ assert.throws(()=>openCurveTarget({...held['TR-000001'],priceNavigation:false},rows['TR-000001'],undefined),/does not expose commodity price navigation/);
+});
+
 test('Open curve names the curve and the one contract the position is in, or the curve alone when there is none',()=>{
  assert.deepEqual(openCurveTarget(held['TR-000002'],rows['TR-000002'],shapeOf('gas_future')),{curve:'gas_future',contractId:'c0000000-0000-0000-0000-000000000002'},'a future is in its own contract, curve read or not');
  assert.deepEqual(openCurveTarget(held['TR-000002'],rows['TR-000002'],undefined),{curve:'gas_future',contractId:'c0000000-0000-0000-0000-000000000002'});
@@ -225,4 +229,12 @@ test('a position with no single quantity states its note once, without a unit',(
  assert.equal(positionSummary(held['TR-000001'],gas,formats).subtitle,'Jan 2021 · By physical side');
  const scheduled={...rows['TR-000001'],quantity:null,quantityNote:'By period'};
  assert.equal(positionSummary(held['TR-000001'],scheduled,formats).subtitle,'Jan 2021 · Pay fixed · By period');
+});
+
+test('a service with explicit no-price capability states its quantity and value without price or mark facts',()=>{
+ const holding={...held['TR-000001'],priceNavigation:false,markMinusPrice:null};
+ const row={...rows['TR-000001'],price:null,priceLabel:'Fee',priceNote:'By contract',mark:null,markNote:'Fee terms',priceUnit:null};
+ const facts=positionSummary(holding,row,formats).facts;
+ assert.equal(facts.some(f=>/price|mark/i.test(f.label)),false);
+ assert.equal(facts.find(f=>f.label==='Quantity').text,'1000');
 });

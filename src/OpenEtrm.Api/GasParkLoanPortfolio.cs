@@ -13,37 +13,42 @@ namespace OpenEtrm.Api;
 internal sealed record GasParkLoanPortfolioScope(Guid Catalog,Guid Context,DateTimeOffset At,DateTimeOffset KnownAt,
     DateOnly BusinessDate,ImmutableArray<JsonElement> Agreements,GasOwnedSourceReadAdmission Admission);
 
-// Service contributions end at accepted advance. Independent native gas and
-// cash owners are then loaded by GasOwnedHoldings, including after full return.
+// Native gas replaces service principal at accepted advance. Fixed cash or
+// determined balance fees have independent native cash owners; the balance-fee
+// service retains only its still-undetermined fee under the selected plan.
 internal static class GasParkLoanPortfolio
 {
     internal static GasParkAndLoanTerms Terms(Guid catalog,JsonElement agreement)
     {
-        if(catalog==Guid.Empty||agreement.Text("implementation")!=GasParkAndLoanTerms.Version)
+        var balance=agreement.Text("implementation")==GasParkLoanBalanceFeeTerms.Version;
+        if(catalog==Guid.Empty||agreement.Text("implementation") is not(GasParkAndLoanTerms.Version or GasParkLoanBalanceFeeTerms.Version))
             throw Invalid("Retain the exact installed service profile and native catalog.");
         if(!agreement.TryGetProperty("reconciliationRequired",out var reconciliation)||reconciliation.ValueKind is not(JsonValueKind.True or JsonValueKind.False))
             throw Invalid("Retain the native agreement's explicit reconciliation status at the selected knowledge cutoff.");
         if(reconciliation.GetBoolean())
             throw new MarketDataException("gas_park_loan_reconciliation","Accepted service performance references corrected evidence. Reconcile the native facts before a complete scheduled-plan valuation.");
         var t=agreement.GetProperty("terms");
-        if(!t.TryGetProperty("feeRecognition",out var recognition)||recognition.ValueKind!=JsonValueKind.String||recognition.GetString()!=GasParkAndLoanTerms.FeeAtAdvance)
-            throw Invalid("Retain the installed profile's explicit fixed-fee determination at accepted advance.");
+        if(!t.TryGetProperty("feeRecognition",out var recognition)||recognition.ValueKind!=JsonValueKind.String||
+            recognition.GetString()!=(balance?GasParkLoanBalanceFeeTerms.CumulativeDifference:GasParkAndLoanTerms.FeeAtAdvance))
+            throw Invalid("Retain the selected profile's explicit fee determination law.");
         var reference=new ReferenceRevision(t.Id("referenceCatalogId"),t.Id("referenceRevisionId"));
         var definition=new DefinitionRevision(catalog,t.Id("definitionRevisionId"));
         var fee=t.Number("fixedFeeAmount");
+        if(balance&&fee!=default)throw Invalid("The selected balance-time profile has its own fee law and cannot also carry a fixed fee.");
         var direction=t.Text("feeDirection") switch{"pay"=>ExactDecimal.Parse("-1"),"receive"=>ExactDecimal.Parse("1"),
             _=>throw Invalid("Retain the independently selected fee direction.")};
         if(fee!=default&&fee.CompareTo(default)!=direction.CompareTo(default))
             throw Invalid("The native signed fee conflicts with its saved pay or receive direction.");
-        var terms=new GasParkAndLoanTerms(agreement.Text("implementation"),t.Text("serviceKind"),t.Text("perspective"),
+        var terms=new GasParkAndLoanTerms(GasParkAndLoanTerms.Version,t.Text("serviceKind"),t.Text("perspective"),
             t.Text("titlePolicy"),t.Text("returnPolicy"),new(reference,t.Text("location")),new(reference,t.Text("quantity")),
             new(reference,t.Text("currency")),new(new(definition,t.Text("markCurve")),new(definition,t.Id("markContractId"))),
             t.Instant("advanceAt"),t.Instant("returnAt"),t.Text("carrying")=="nominal_mark_v1"?GasHoldingCarrying.Nominal:
                 throw Invalid("The installed service profile requires its explicit nominal principal carrying law."),
             new(fee.CompareTo(default)<0?-fee:fee,new(reference,t.Text("currency"))),direction,
-            t.OptionalText("feeDueAt") is {} due?TradingInstant.Parse(due,"gas_park_loan_context"):null,t.Text("returnTiming"));
+            balance?null:t.OptionalText("feeDueAt") is {} due?TradingInstant.Parse(due,"gas_park_loan_context"):null,t.Text("returnTiming"));
         if(Integer(t,"principalDirection")!=terms.AdvanceDirection.CompareTo(default))
             throw Invalid("The saved principal direction conflicts with the explicit service and commercial perspective.");
+        if(balance)_=GasParkLoanBalanceFeeAdapter.FeeTerms(terms,agreement);
         return terms;
     }
 
@@ -105,7 +110,8 @@ internal static class GasParkLoanPortfolio
             var quantity=new Quantity(agreement.Number("quantity"),terms.Quantity);var balances=agreement.GetProperty("balances");
             var advanced=new Quantity(balances.Number("acceptedPrincipal"),terms.Quantity);var returned=new Quantity(balances.Number("acceptedReturn"),terms.Quantity);
             _=GasParkAndLoanPrincipal.Plan(terms,quantity,advanced,returned,frame.At);
-            var components=GasParkAndLoanValuation.Components(terms,quantity,advanced,frame.At);
+            var components=agreement.Text("implementation")==GasParkLoanBalanceFeeTerms.Version?
+                BalanceComponents(terms,agreement):GasParkAndLoanValuation.Components(terms,quantity,advanced,frame.At);
             if(!components.IsEmpty)remaining.Add((agreement,terms,components));
         }
         var result=ImmutableArray.CreateBuilder<GasOwnedPortfolioInput>();
@@ -156,6 +162,11 @@ internal static class GasParkLoanPortfolio
     {
         if(frame.ContextId is null||snapshot.Knowledge?.ContextId!=frame.ContextId||snapshot.ValuationAt!=frame.At)
             throw Invalid("Select an exact certified service source with explicit business and knowledge coordinates.");
+    }
+    private static ImmutableArray<GasParkAndLoanComponent> BalanceComponents(GasParkAndLoanTerms principal,JsonElement agreement)
+    {
+        var state=GasParkLoanBalanceFeeAdapter.Read(principal,agreement);
+        return GasParkLoanBalanceFeeValuation.Components(principal,state.Terms,state.Source,state.CumulativeDeterminedTotal);
     }
     private static void RequireAgreement(JsonElement agreement,InputFrame frame,MarketSnapshot snapshot,bool draft)
     {

@@ -1,11 +1,28 @@
 import {displayPaymentDate} from './payment-date.js';
 import type {TermSection} from './position-panel.js';
 import {priceUnit} from './desk-model.js';
-import {displayInstant,friendly} from './market-view.js';
+import {displayInstant,displayExactInstant,friendly} from './market-view.js';
 export function renderPhysicalSections(host:HTMLElement,sections:readonly TermSection[]){
  const root=document.createElement('div');root.className='physical-instrument';
- for(const section of sections){const box=document.createElement('section');box.className='side-panel-section';const title=document.createElement('h3');title.textContent=section.title;const list=document.createElement('dl');list.className='side-terms-list';for(const [name,value] of section.rows){const row=document.createElement('div');row.className='side-term';row.dataset.field=name;const key=document.createElement('dt'),text=document.createElement('dd');key.textContent=name;text.textContent=value;row.append(key,text);list.append(row);}box.append(title,list);root.append(box);}
+ for(const section of sections){const box=document.createElement('section');box.className='side-panel-section';const title=document.createElement('h3');title.textContent=section.title;const list=document.createElement('dl');list.className='side-terms-list';for(const [name,value,exact] of section.rows){const row=document.createElement('div');row.className='side-term';row.dataset.field=name;const key=document.createElement('dt'),text=document.createElement('dd');key.textContent=name;text.textContent=value;if(exact!==undefined)text.title=exact;row.append(key,text);list.append(row);}box.append(title,list);root.append(box);}
  host.append(root);return()=>root.remove();
+}
+export type PhysicalOverviewSection={label:string;values:{label:string;value:string;kind?:'instant'}[]};
+// Only backend-declared instants are formatted. Plain evidence, including text
+// that resembles an ISO timestamp, remains unchanged.
+export function overviewTermSections(sections:readonly PhysicalOverviewSection[],zone:string):TermSection[]{
+ const bad=()=>Error('Reread the complete native overview and its marked instants.');
+ if(!Array.isArray(sections))throw bad();
+ return sections.map(section=>{
+  if(!section||typeof section.label!=='string'||!section.label||!Array.isArray(section.values))throw bad();
+  return{title:section.label,rows:section.values.map((row:PhysicalOverviewSection['values'][number])=>{
+   if(!row||typeof row.label!=='string'||!row.label||typeof row.value!=='string'||Object.hasOwn(row,'kind')&&row.kind!=='instant')throw bad();
+   if(row.kind==='instant'){
+    try{return[row.label,displayExactInstant(row.value,zone),row.value] as const;}catch{throw bad();}
+   }
+   return[row.label,row.value] as const;
+  })};
+ });
 }
 export type GasIndexedCashFacts={slot:string;index_code:string;observation_convention:string;payment_convention:string;payment_day:string;spread:string;projection_id:string|null};
 export type GasInstrumentFacts={head:Record<string,string|number|boolean|null>;physical:Record<string,string|number|null>[];components:Record<string,string|number|null>[];indexedCash?:GasIndexedCashFacts[]};

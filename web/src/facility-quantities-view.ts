@@ -208,7 +208,7 @@ export function setupFacilityQuantities(o:{api:Api;act:(work:()=>Promise<void>)=
  });
  get('facility-discard').onclick=()=>{if(!o.busy()&&confirm('Discard this request only after checking its status and the ledger history. Continue?')){pending.clear();pendingStatus='';store();sync();}};
  get('facility-forms').addEventListener('input',()=>{sync();o.changed();});get('facility-forms').addEventListener('change',()=>{sync();o.changed();});
- return{load,sync,selected:()=>view?.facts.ledger.id??null,edited:()=>edits.edited()||!!pending.command,
+ return{load,sync,selected:()=>view?.facts.ledger.id??null,edited:()=>edits.edited()||!!pending.command,unconfirmed:()=>!!pending.command,
   leave:()=>!!pending.command||!edits.edited()||confirm('Discard unsaved facility edits?'),
   refresh(){effective.refresh();if(view){renderAllocations();history();}},
   reset(){generation++;directory=undefined;selected='';pending.clear();pendingStatus='';clearEdits();effective.clear();clearView();select('facility-ledger').replaceChildren(new Option('Choose a ledger…',''));select('facility-create-target').replaceChildren(new Option('Choose a booked delivery…',''));set('facility-context','');set('facility-saved','');get('facility-empty').hidden=false;sync();}};

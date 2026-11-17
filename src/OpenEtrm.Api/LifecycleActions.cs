@@ -12,7 +12,19 @@ namespace OpenEtrm.Api;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record LifecycleTarget(string Handler,Guid ScopeId,Guid BindingId);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record LifecycleReadContext(Guid ContextId,[property:JsonRequired]DateTimeOffset AsOf,[property:JsonRequired]DateOnly BusinessDate,Guid? SnapshotId=null);
+public sealed record LifecycleReadContext(Guid ContextId,[property:JsonRequired,JsonConverter(typeof(LifecycleContextInstantConverter))]DateTimeOffset AsOf,[property:JsonRequired]DateOnly BusinessDate,Guid? SnapshotId=null);
+
+// This clock participates in source identity and review hashes. Validate its
+// original wire text before CLR date parsing can discard sub-tick digits.
+public sealed class LifecycleContextInstantConverter:JsonConverter<DateTimeOffset>
+{
+    public override DateTimeOffset Read(ref Utf8JsonReader reader,Type type,JsonSerializerOptions options)
+    {
+        if(reader.TokenType!=JsonTokenType.String)throw new JsonException("Supply an exact UTC lifecycle context instant.");
+        return TradingInstant.Parse(reader.GetString(),"lifecycle_context");
+    }
+    public override void Write(Utf8JsonWriter writer,DateTimeOffset value,JsonSerializerOptions options)=>writer.WriteStringValue(value);
+}
 public sealed record LifecycleActionKindChoice(string Code,bool Automatic,string ConfigurationPermission,string ExecutionPermission);
 public sealed record LifecycleSettingsChoices(ImmutableArray<LifecycleActionKindChoice> Actions,ImmutableArray<string> Modes,string PolicyImplementation,
     ImmutableArray<string> SwapRounding,ImmutableArray<string> SwapDue,ImmutableArray<string> SwapRecognition,ImmutableArray<string> SwapCorrection,

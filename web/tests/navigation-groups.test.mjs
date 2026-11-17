@@ -34,6 +34,11 @@ test('facility quantities require explicit complete-pool access',()=>{
  assert.equal(pageAvailable('facilities',['ReadMarketData','ReadTrades','ReadFacilityQuantities']),true);
  for(const permissions of [[],['ReadMarketData','ReadTrades'],['ReadFacilityQuantities']])assert.equal(pageAvailable('facilities',permissions),false);
 });
+
+test('Transport capacity can be reached without physical-facility authority',()=>{
+ assert.equal(pageAvailable('facilities',['ReadMarketData','ReadTrades','ReadGasOperations']),true);
+ for(const permissions of [['ReadMarketData','ReadGasOperations'],['ReadTrades','ReadGasOperations']])assert.equal(pageAvailable('facilities',permissions),false);
+});
 test('Delivery setup sits in the console and Facilities in Scheduling without widening pool authority',()=>{
  for(const page of ['gas-setup','crude-setup']){assert.equal(pageGroup(page),'Reference Data');assert.ok(!allPages.includes(page));}
  assert.equal(pageGroup('facilities'),'Scheduling');assert.ok(allPages.includes('facilities'));

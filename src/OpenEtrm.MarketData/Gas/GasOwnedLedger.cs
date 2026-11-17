@@ -22,7 +22,27 @@ public sealed record GasLoanRepayment(Guid Id,Guid LoanId,Guid LotId,Quantity Qu
 public static class GasOwnedLedger
 {
     public static GasStockBalance Balance(GasOwnedLot lot,ImmutableArray<GasStockReservation> reservations,
-        ImmutableArray<GasStockConsumption> consumptions,DateTimeOffset at,DateTimeOffset knownAt)
+        ImmutableArray<GasStockConsumption> consumptions,DateTimeOffset at,DateTimeOffset knownAt)=>
+        Evaluate(lot,reservations,consumptions,at,knownAt,null);
+
+    // Admission only: a proposed reservation has no native identity or invented
+    // knowledge time. It must preserve every source-known stock boundary, even
+    // when an already accepted use is business-effective after the proposal.
+    public static void RequireReservation(GasOwnedLot lot,ImmutableArray<GasStockReservation> reservations,
+        ImmutableArray<GasStockConsumption> consumptions,Quantity quantity,DateTimeOffset at,DateTimeOffset knownAt)
+    {
+        _=Balance(lot,reservations,consumptions,at,knownAt);
+        if(!Same(quantity,lot.Quantity)||at<lot.AvailableAt||lot.KnownAt>knownAt)
+            throw Error("gas_stock_availability","A proposed reservation requires identified titled stock that is physically available at its effective instant.");
+        var horizon=reservations.Where(r=>r.KnownAt<=knownAt).Select(r=>r.At)
+            .Concat(reservations.Where(r=>r.KnownAt<=knownAt&&r.ReleasedAt is not null).Select(r=>r.ReleasedAt!.Value))
+            .Concat(consumptions.Where(c=>c.KnownAt<=knownAt).Select(c=>c.At)).Append(at).Max();
+        _=Evaluate(lot,reservations,consumptions,horizon,knownAt,(at,quantity.Amount));
+    }
+
+    private static GasStockBalance Evaluate(GasOwnedLot lot,ImmutableArray<GasStockReservation> reservations,
+        ImmutableArray<GasStockConsumption> consumptions,DateTimeOffset at,DateTimeOffset knownAt,
+        (DateTimeOffset At,ExactDecimal Quantity)? proposal)
     {
         if(lot is null||lot.Id==Guid.Empty||lot.AccountId==Guid.Empty||lot.EvidenceId==Guid.Empty||
             !Positive(lot.Quantity)||!Instant(lot.TitleAt)||!Instant(lot.AvailableAt)||!Instant(lot.KnownAt)||lot.AvailableAt<lot.TitleAt||
@@ -54,12 +74,13 @@ public static class GasOwnedLedger
             var owned=lot.Quantity.Amount-Sum(used.Where(c=>c.At<=instant).Select(c=>c.Quantity.Amount));
             var reserved=Sum(claims.Where(r=>r.At<=instant&&(r.ReleasedAt is null||instant<r.ReleasedAt)).Select(r=>
                 r.Quantity.Amount-Sum(used.Where(c=>c.ReservationId==r.Id&&c.At<=instant).Select(c=>c.Quantity.Amount))));
+            if(proposal is {} proposed&&proposed.At<=instant)reserved+=proposed.Quantity;
             if(owned.CompareTo(default)<0)throw Error("gas_stock_capacity","Actual stock consumption cannot create a negative owned lot.");
             if(reserved.CompareTo(default)<0||owned.CompareTo(reserved)<0)throw Error("gas_stock_reservation","Reservations and unreserved consumption cannot claim the same owned quantity.");
             return(owned,reserved);
         }
         foreach(var instant in claims.Select(r=>r.At).Concat(claims.Where(r=>r.ReleasedAt<=at).Select(r=>r.ReleasedAt!.Value))
-            .Concat(used.Select(c=>c.At)).Distinct().Order())_=At(instant);
+            .Concat(used.Select(c=>c.At)).Concat(proposal is {} candidate?[candidate.At]:Array.Empty<DateTimeOffset>()).Distinct().Order())_=At(instant);
         var balance=held?At(at):(default,default);
         if(!held&&(claims.Length>0||used.Length>0))throw Error("gas_stock_context","A quantity fact cannot supply title absent at this cutoff.");
         return new(new(balance.Item1,lot.Quantity.Specification),new(balance.Item2,lot.Quantity.Specification),

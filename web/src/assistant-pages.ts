@@ -35,7 +35,7 @@ export type PageState=(
   |({page:'futures';risk:boolean;trade:TradeShown|null;entry:EntryShown|null;lens:'values'|'risk';view:BlotterSelection}&BlotterLayoutShown)
   |{page:'jobs';job:string|null}|({page:'ppa'}&PpaShown)|{page:'custom-curves';curve:string|null;unsaved:boolean}
   |{page:'physical-operations';physical?:PhysicalShown}|{page:'lifecycle'}|{page:'risk';view:RiskView}
-  |{page:'rec-inventory'|'physical-power'|'facilities'|'dashboard'|'crude-setup'|'gas-setup'|'gas'|'crude'|'delivery'|'interval-series'|'interval-curves'|'vol-surfaces'|'options'|'admin'|'ai'})&{assistant?:WorkspaceSelection;digestView?:BlotterDigestView;focus?:PageFocus;businessDate?:string;facilityLedger?:string|null};
+  |{page:'rec-inventory'|'physical-power'|'facilities'|'dashboard'|'crude-setup'|'gas-setup'|'gas'|'crude'|'delivery'|'interval-series'|'interval-curves'|'vol-surfaces'|'options'|'admin'|'ai'})&{assistant?:WorkspaceSelection;digestView?:BlotterDigestView;focus?:PageFocus;businessDate?:string;facilityLedger?:string|null;facilitySection?:'quantities'|'definitions'|'activity'|'transport'|'route'};
 // The knowledge a page shows: working data, with its As of frame once one is chosen; the selected historical view; or a
 // historical selection not yet applied, which pins nothing.
 export type PageContext={mode:'current';frameId:string|null;frameLabel:string|null;businessDate?:string}
@@ -49,7 +49,7 @@ const unopened:readonly string[]=['ppa'];
 const noBlotter={mode:null,portfolioIds:null,groupBy:null,measures:null};
 
 // The page a trade being entered is reported as: one id per product, and one while none is chosen. The assistant reads none of them.
-const entryPages={rec:'blotter_new_rec',none:'blotter_new_trade',futures:'blotter_new_future',swaps:'blotter_new_swap',ppa:'blotter_new_ppa',gas:'blotter_new_gas','park-loan':'blotter_new_park_loan',crude:'blotter_new_crude',lng:'blotter_new_lng',options:'blotter_new_option'} as const;
+const entryPages={rec:'blotter_new_rec',none:'blotter_new_trade',futures:'blotter_new_future',swaps:'blotter_new_swap',ppa:'blotter_new_ppa',gas:'blotter_new_gas',transport:'blotter_new_transport','park-loan':'blotter_new_park_loan',crude:'blotter_new_crude',lng:'blotter_new_lng',options:'blotter_new_option'} as const;
 // The report an ask sends: a read page's selection is its read tool's input for the view the page shows; any other
 // page's is empty. Blotter trade rows name no grouping, which the Blotter keeps for when its totals are shown again. What the
 // Blotter's panel holds comes first, its risk report, a new trade or a position; then its trade rows under the Risk lens, whose
@@ -58,7 +58,8 @@ export function pageReport(state:PageState):PageReport{
   switch(state.page){
     case 'lifecycle':return {page:'lifecycle',selection:{}};
     case 'physical-operations':return {page:'physical_operations',selection:state.physical?{...state.physical}:{}};
-    case 'facilities':return {page:'facility_quantities',selection:state.businessDate?{ledgerId:state.facilityLedger??null}:{},...(state.businessDate?{businessDate:state.businessDate}:{})};
+    case 'facilities':return state.facilitySection&&state.facilitySection!=='quantities'?{page:state.facilitySection==='route'?'transport_route_plans':state.facilitySection==='transport'?'transport_capacity':state.facilitySection==='definitions'?'facility_definitions':'facility_activity',selection:{}}:
+      {page:'facility_quantities',selection:state.businessDate?{ledgerId:state.facilityLedger??null}:{},...(state.businessDate?{businessDate:state.businessDate}:{})};
     // Risk names the view it shows, and only Reports the retained report open there (D392).
     case 'risk':return {page:'risk_jobs',selection:{view:riskReportViews[state.view],...(state.view==='risk'&&state.assistant?state.assistant:{})}};
     case 'market':return {page:'curves',selection:state.curve===null?{view:'curves',curve:null}:{view:state.tab==='inputs'?'observations':'curve',curve:state.curve}};
@@ -102,15 +103,15 @@ export function askKnowledge(context:PageContext){
   return context.mode==='current'?{mode:'current',contextId:null,frameId:context.frameId}:{mode:'retained',contextId:context.contextId,frameId:context.frameId};
 }
 
-const pageNames:Record<string,string>={lifecycle:'Lifecycle',physical_operations:'Physical operations',gas_setup:'Gas delivery setup',crude_setup:'Crude delivery setup',facility_quantities:'Facilities',curves:'Curves & prices',contract_definitions:'Contract definitions',schedules:'Schedules',power_tous:'Power TOUs',
-  reference_data:'Reference data',parties:'Entities & counterparties',blotter:'Blotter',blotter_operating_right:'Blotter',blotter_rec_forward:'Blotter',blotter_risk:'Blotter',blotter_risk_lens:'Blotter',blotter_new_rec:'Blotter',blotter_new_trade:'Blotter',blotter_new_future:'Blotter',blotter_new_swap:'Blotter',blotter_new_ppa:'Blotter',blotter_new_gas:'Blotter',blotter_new_park_loan:'Blotter',blotter_new_option:'Blotter',blotter_new_crude:'Blotter',blotter_new_lng:'Blotter',delivery_prices:'Delivery prices',
+const pageNames:Record<string,string>={lifecycle:'Lifecycle',physical_operations:'Physical operations',gas_setup:'Gas delivery setup',crude_setup:'Crude delivery setup',facility_quantities:'Facilities',facility_definitions:'Facility definitions',facility_activity:'Physical facility activity',transport_capacity:'Transport capacity',transport_route_plans:'Transport route plans',curves:'Curves & prices',contract_definitions:'Contract definitions',schedules:'Schedules',power_tous:'Power TOUs',
+  reference_data:'Reference data',parties:'Entities & counterparties',blotter:'Blotter',blotter_operating_right:'Blotter',blotter_rec_forward:'Blotter',blotter_risk:'Blotter',blotter_risk_lens:'Blotter',blotter_new_rec:'Blotter',blotter_new_trade:'Blotter',blotter_new_future:'Blotter',blotter_new_swap:'Blotter',blotter_new_ppa:'Blotter',blotter_new_gas:'Blotter',blotter_new_transport:'Blotter',blotter_new_park_loan:'Blotter',blotter_new_option:'Blotter',blotter_new_crude:'Blotter',blotter_new_lng:'Blotter',delivery_prices:'Delivery prices',
   custom_curves:'Curve builder',interval_series:'Interval data',interval_curves:'Curves & prices · Hourly / sub-hourly',jobs:'Jobs',users_access:'Users & access',
   rec_inventory:'REC inventory',physical_power:'Operating facilities',risk_jobs:'Risk',settings_ai:'AI',dashboard:'Dashboard',physical_gas:'Physical gas bookings',physical_crude:'Physical crude bookings',ppa:'PPA bookings',vol_surfaces:'Vol surfaces',options:'Options'};
 // The label catalog is checked against server admission by the owned browser fixture.
 export const reportedPages:readonly string[]=Object.freeze(Object.keys(pageNames));
 const dimensions:Record<string,string>={portfolio:'portfolio',book:'book',market:'market',contract:'contract',instrumentType:'instrument type',commodity:'commodity'};
 const counted=(n:number,noun:string)=>`${n} ${noun}${n===1?'':'s'}`;
-const unreadTrade=(report:PageReport)=>report.page==='blotter'&&report.selection.view==='trade'&&report.selection.instrumentType==='physical_gas_park_loan';
+const unreadTrade=(report:PageReport)=>report.page==='blotter'&&report.selection.view==='trade'&&(report.selection.instrumentType==='physical_gas_park_loan'||report.selection.instrumentType==='physical_gas_park_custody'||report.selection.instrumentType==='physical_gas_transport');
 const joined=(names:string[])=>names.length>1?`${names.slice(0,-1).join(', ')} and ${names.at(-1)}`:names[0];
 export type Names={curve:(code:string)=>string;table:(code:string)=>string};
 
@@ -149,6 +150,7 @@ function shows(report:PageReport,names:Names,trade?:string){
     case 'blotter_new_crude':return 'A new physical crude trade is being entered. The assistant does not read a trade being entered.';
     case 'blotter_new_option':return 'A new futures option is being entered. The assistant does not read a trade being entered.';
     case 'blotter_new_gas':return 'A new physical gas trade is being entered. The assistant does not read a trade being entered.';
+    case 'blotter_new_transport':return 'A new Transport agreement is being entered. The assistant does not read a trade being entered.';
     case 'blotter_new_park_loan':return 'A new Park and loan trade is being entered. The assistant does not read a trade being entered.';
     case 'lifecycle':return 'Lifecycle actions and saved policies at the header context. Unsaved inputs are not sent.';
     case 'physical_operations':{

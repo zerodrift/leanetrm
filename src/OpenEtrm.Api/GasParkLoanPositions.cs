@@ -36,7 +36,7 @@ internal sealed record GasParkLoanPosition(JsonElement Agreement,JsonElement Boo
         currency=Metadata.Text("currency"),currencyReference=Currency,quoteMultiplier=Metadata.Text("multiplier"),
         executedAt=Booking.Text("executed_at"),bookingFacts=new{implementation=Booking.Text("implementation"),labelCapturedAt=Booking.Text("label_captured_at")},
         executionPrice=(string?)null,fixedPrice=(string?)null,mark=(string?)null,markMinusPrice=(string?)null,executionPnl=(string?)null,
-        settlement="unprocessed",measure=GasParkLoanTicket.Measure,measureLabel="Remaining scheduled plan PV",quantityPolicy=GasParkAndLoanTerms.Version,
+        settlement="unprocessed",measure=GasParkLoanTicket.Measure,measureLabel=GasParkLoanTicketStore.MeasureLabel(Agreement),quantityPolicy=Agreement.Text("implementation"),ownershipNote=GasParkLoanTicketStore.OwnershipNote(Agreement),
         presentValue=(string?)null,unavailableReason=(string?)null
     },TradingBlotter.Json)!.AsObject();
 }
@@ -97,7 +97,7 @@ internal static class GasParkLoanPositions
         {
             var booking=agreement.GetProperty("booking");
             if(agreement.Id("contextId")!=frame.ContextId||agreement.Instant("asOf")!=frame.At||agreement.Instant("knownAt")!=SchedulePreview.ParseAt(context.KnownAt)||
-                DateWorkspace.Date(agreement.Text("effectiveOn"))!=frame.BusinessDate||agreement.Text("implementation")!=GasParkAndLoanTerms.Version||
+                DateWorkspace.Date(agreement.Text("effectiveOn"))!=frame.BusinessDate||agreement.Text("implementation") is not(GasParkAndLoanTerms.Version or GasParkLoanBalanceFeeTerms.Version)||
                 !books.ContainsKey(agreement.Id("bookId"))||agreement.GetProperty("revision").GetInt32()!=1||agreement.Number("quantity").CompareTo(default)<=0||
                 booking.ValueKind!=JsonValueKind.Object||booking.Id("catalog_id")!=database.Manifest.CatalogId||booking.Id("trade_id")!=agreement.Id("tradeId")||
                 new[]{"booker_name","booker_login","trade_date","executed_at","implementation","label_captured_at"}.Any(k=>string.IsNullOrWhiteSpace(booking.Text(k)))||booking.Id("booker_id")==Guid.Empty)

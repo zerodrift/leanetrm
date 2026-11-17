@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Npgsql;
 using OpenEtrm.MarketData;
+using OpenEtrm.MarketData.Gas;
 
 namespace OpenEtrm.Api;
 
@@ -16,6 +17,9 @@ internal sealed record GasParkLoanReturnSelection(int ExpectedVersion,string Bus
     [property:JsonRequired]Guid? LotId,[property:JsonRequired]Guid? ReservationId,string Quantity,DateTimeOffset EffectiveAt);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 internal sealed record GasParkLoanPaymentSelection(int ExpectedVersion,Guid FeeId,string BusinessKey,int ExpectedRevision,DateTimeOffset PaidAt,string Amount,string Evidence);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+internal sealed record GasParkLoanFeeSelection(int ExpectedVersion,[property:JsonRequired]Guid? PreviousDeterminationId,
+    DateTimeOffset Through,DateTimeOffset EffectiveAt,string BusinessKey,string Evidence);
 
 internal sealed record GasParkLoanWriteAdmission(Guid Catalog,DateTimeOffset Until):ICommitAdmission
 {
@@ -30,8 +34,14 @@ internal sealed class GasParkLoanActions(PreviewDatabase database):ILifecycleAct
 {
     internal const string Handler="gas_park_loan";
     internal const string Advance="gas.park_loan.advance",Return="gas.park_loan.return",Payment="gas.park_loan.fee_payment";
+    internal const string Determine="gas.park_loan.fee_determine";
     internal static string Refusal(string code)=>code switch
     {
+        "gas_balance_fee_cash_range"=>"The maximum rounded cumulative fee exceeds the supported native cash amount. Select a smaller explicit rate, principal or accrual window.",
+        "gas_balance_fee_window"=>"Determine an observed fee window after accepted advance and no later than the certified business/knowledge cut or contractual fee cutoff.",
+        "gas_balance_fee_context" or "gas_balance_fee_source" or "gas_balance_fee_stale" or "gas_balance_fee_policy_changed"=>"The exact accepted-event, cumulative fee source or action policy changed or is unavailable at this context. Reload and review the retained source again.",
+        "gas_balance_fee_terms"=>"Select the complete installed balance-time fee law, absolute rate, independent direction, bounded accrual cutoff and cumulative cash rounding.",
+        "gas_balance_fee_conflict"=>"This fee request identity belongs to different accepted terms. Retry the exact original request or review a new operation.",
         "gas_park_loan_correction_required" or "gas_park_loan_counterpart"=>"This contract profile has no installed correction operation for linked principal or fees. Accepted effects remain unchanged; use a qualified reconciliation profile.",
         "gas_park_loan_fee"=>"This profile determines fee cash on accepted advance. Choose a due time no earlier than planned advance, or explicitly no date for a zero fee.",
         "gas_park_loan_stale" or "gas_park_loan_context" or "gas_park_loan_policy"=>"The agreement source or action policy changed. Reload the current state and review the operation again.",
@@ -53,6 +63,7 @@ internal sealed class GasParkLoanActions(PreviewDatabase database):ILifecycleAct
             Advance=>(source.Id("ownedAccountId"),receiver?"gas.loan.borrow":"gas.owned.dispatch"),
             Return=>(receiver?source.Id("ownedAccountId"):source.Id("claimAccountId"),receiver?"gas.loan.repay":"gas.operator.settle"),
             Payment=>(receiver?source.Id("ownedAccountId"):source.Id("claimAccountId"),"gas.cash.record_payment"),
+            Determine=>(receiver?source.Id("ownedAccountId"):source.Id("claimAccountId"),Determine),
             _=>throw GasParkLoanTicket.Invalid("profile","Select an installed agreement action.")
         };
     }
@@ -78,21 +89,30 @@ internal sealed class GasParkLoanActions(PreviewDatabase database):ILifecycleAct
             await restore.ExecuteNonQueryAsync(CancellationToken.None);
         }
     }
-    static string Command(string action)=>action switch{Advance=>"advance",Return=>"return",Payment=>"fee_payment",_=>throw GasParkLoanTicket.Invalid("profile","Select an installed agreement action.")};
-    static string Label(string action)=>action switch{Advance=>"Accept principal advance",Return=>"Accept principal return",Payment=>"Record service fee payment",_=>throw new InvalidOperationException()};
+    static string Command(string action)=>action switch{Advance=>"advance",Return=>"return",Payment=>"fee_payment",Determine=>"fee_determine",_=>throw GasParkLoanTicket.Invalid("profile","Select an installed agreement action.")};
+    static string Label(string action)=>action switch{Advance=>"Accept principal advance",Return=>"Accept principal return",Payment=>"Record service fee payment",Determine=>"Determine accrued service fee",_=>throw new InvalidOperationException()};
     static ImmutableArray<string> Fields(string action)=>action switch{
         Advance=>["expectedVersion","agreementEvidenceId","evidenceId","claimEvidenceId","lotId","reservationId","effectiveAt"],
         Return=>["expectedVersion","businessKey","evidenceId","lotId","reservationId","quantity","effectiveAt"],
+        Determine=>["expectedVersion","previousDeterminationId","through","effectiveAt","businessKey","evidence"],
         Payment=>["expectedVersion","feeId","businessKey","expectedRevision","paidAt","amount","evidence"],_=>[]};
     internal static LifecycleActionRequest Normalize(LifecycleActionRequest request)
     {
         LifecycleNative.Require(request,Handler);
         if(request.Automatic)throw new MarketDataException("lifecycle_policy","The installed agreement profile requires a reviewed manual action.");
-        var type=request.Action switch{Advance=>typeof(GasParkLoanAdvanceSelection),Return=>typeof(GasParkLoanReturnSelection),Payment=>typeof(GasParkLoanPaymentSelection),
+        var type=request.Action switch{Advance=>typeof(GasParkLoanAdvanceSelection),Return=>typeof(GasParkLoanReturnSelection),Payment=>typeof(GasParkLoanPaymentSelection),Determine=>typeof(GasParkLoanFeeSelection),
             _=>throw GasParkLoanTicket.Invalid("profile","Select an installed agreement action.")};
         try
         {
             var selected=request.Selection.Deserialize(type,GasOwnedOperations.Json)??throw new JsonException();
+            if(selected is GasParkLoanFeeSelection fee)
+            {
+                var key=fee.BusinessKey.Trim(' ');var evidence=fee.Evidence.Trim(' ');
+                if(fee.ExpectedVersion<1||fee.PreviousDeterminationId==Guid.Empty||fee.Through>fee.EffectiveAt||
+                    key.Length is <1 or >128||evidence.Length is <1 or >2000||key.Any(char.IsControl)||evidence.Contains('\0'))
+                    throw GasParkLoanTicket.Invalid("profile","Retain the exact agreement head, previous determination and observed fee window, business reference and evidence.");
+                selected=fee with{BusinessKey=key,Evidence=evidence};
+            }
             return request with{Selection=JsonSerializer.SerializeToElement(selected,type,GasOwnedOperations.Json)};
         }
         catch(JsonException error)
@@ -121,8 +141,23 @@ internal sealed class GasParkLoanActions(PreviewDatabase database):ILifecycleAct
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(
             new{request.Target,request.Action,request.PolicyId,request.PolicyRevision,request.Context,source=stable,selection=request.Selection},GasOwnedOperations.Json))));
     }
-    internal static object Effects(JsonElement source,LifecycleActionRequest request,JsonElement outcome)
+    internal static object Effects(Guid catalog,JsonElement source,LifecycleActionRequest request,JsonElement outcome)
     {
+        if(request.Action==Determine)
+        {
+            var principalTerms=GasParkLoanPortfolio.Terms(catalog,source);
+            var state=GasParkLoanBalanceFeeAdapter.Read(principalTerms,source);
+            if(request.Selection.OptionalId("previousDeterminationId")!=state.Checkpoint?.Id)
+                throw new MarketDataException("lifecycle_preview_stale","Review the current cumulative fee determination.");
+            var expected=GasParkLoanBalanceFee.Determine(state.Terms,state.Source,request.Selection.Instant("through"),state.Checkpoint);
+            var native=ExactMoney.Parse(outcome.Text("exactNumerator")+"/"+outcome.Text("exactDenominator"),state.Terms.Currency);
+            if(native!=expected.ExactTotal||outcome.Number("roundedTotal")!=expected.RoundedTotal.Amount||outcome.Number("contribution")!=expected.Contribution.Amount)
+                throw new MarketDataException("gas_park_loan_context","The independent native and managed cumulative fee determinations disagree.");
+            return new{accruedThrough=request.Selection.Text("through"),exactTotal=expected.ExactTotal.ToExactString(),
+                previousCumulativeRoundedFee=state.CumulativeDeterminedTotal.Amount.ToString(),
+                cumulativeRoundedFee=expected.RoundedTotal.Amount.ToString(),independentCash=expected.Contribution.Amount.ToString(),
+                currency=state.Terms.Currency.Code,dueAt=state.Terms.DueAt,principalUnchanged=true};
+        }
         var terms=source.GetProperty("terms");
         var principal=terms.GetProperty("principalDirection").GetInt32()==1?ExactDecimal.Parse("1"):ExactDecimal.Parse("-1");
         var quantity=request.Action==Advance?source.Number("quantity"):request.Action==Return?request.Selection.Number("quantity"):default;
@@ -131,7 +166,7 @@ internal sealed class GasParkLoanActions(PreviewDatabase database):ILifecycleAct
             stockQuantity=request.Action==Advance?(quantity*principal).ToString():request.Action==Return?(-quantity*principal).ToString():null,
             returnQuantity=request.Action==Advance?(-quantity*principal).ToString():request.Action==Return?(quantity*principal).ToString():null,
             outstandingPrincipal=request.Action==Advance?source.Text("quantity"):request.Action==Return?outcome.OptionalText("outstandingPrincipal"):null,
-            feeAmount=request.Action==Advance?terms.Text("fixedFeeAmount"):null,cashAmount=request.Action==Payment?request.Selection.Text("amount"):null,
+            feeAmount=request.Action==Advance&&source.Text("implementation")==GasParkAndLoanTerms.Version?terms.Text("fixedFeeAmount"):null,cashAmount=request.Action==Payment?request.Selection.Text("amount"):null,
             currency=terms.Text("currency"),effectiveAt=request.Selection.Text(request.Action==Payment?"paidAt":"effectiveAt"),
             returnAt=terms.Text("returnAt"),feeDueAt=terms.OptionalText("feeDueAt")
         };
@@ -143,7 +178,7 @@ internal sealed class GasParkLoanActions(PreviewDatabase database):ILifecycleAct
         var outcome=await Record(connection,request,true,ct);
         var offer=new LifecycleActionOffer(request.Target,request.Action,Label(request.Action),request.Target.BindingId,request.Context.AsOf,null,true,null,1,source.GetProperty("stateVersion").GetInt32())
             {PolicyId=request.PolicyId,PolicyRevision=request.PolicyRevision,Selection=request.Selection};
-        var review=new LifecycleActionReview(offer,Hash(request,source),JsonSerializer.SerializeToElement(new{selection=request.Selection,effects=Effects(source,request,outcome)},GasOwnedOperations.Json),database.Manifest.CatalogId,admission.Until);
+        var review=new LifecycleActionReview(offer,Hash(request,source),JsonSerializer.SerializeToElement(new{selection=request.Selection,effects=Effects(database.Manifest.CatalogId,source,request,outcome)},GasOwnedOperations.Json),database.Manifest.CatalogId,admission.Until);
         await admission.RequireCommit(connection,ct);return review;
     }
     public async Task<LifecycleActionWrite> Execute(NpgsqlConnection connection,LifecycleActionRequest request,CancellationToken ct)
@@ -171,10 +206,12 @@ internal sealed class GasParkLoanActions(PreviewDatabase database):ILifecycleAct
         {
             if(target is not null&&source.Id("instrumentId")!=target.BindingId)throw GasParkLoanTicket.Invalid("profile","Select this agreement's exact instrument binding.");
             var advanced=source.GetProperty("advance").ValueKind==JsonValueKind.Object;
-            foreach(var action in !advanced?new[]{Advance}:new[]{Return,Payment})
+            var balance=source.Text("implementation")==GasParkLoanBalanceFeeTerms.Version;
+            foreach(var action in !advanced?new[]{Advance}:balance?new[]{Return,Determine,Payment}:new[]{Return,Payment})
             {
                 if(action==Return&&source.GetProperty("balances").Number("outstandingPrincipal")==default)continue;
-                if(action==Payment&&(source.GetProperty("terms").Number("fixedFeeAmount")==default||source.GetProperty("fee").Number("unpaid")==default))continue;
+                if(action==Payment&&(balance?!source.GetProperty("fee").GetProperty("determinations").EnumerateArray().Any(row=>row.OptionalId("feeId") is not null&&row.Number("unpaid")!=default):
+                    source.GetProperty("terms").Number("fixedFeeAmount")==default||source.GetProperty("fee").Number("unpaid")==default))continue;
                 Guid? policyId=null;int? policyRevision=null;string? reason=null;
                 try{var policy=Policy(source,action);policyId=policy.Id("policy_id");policyRevision=policy.GetProperty("policy_revision").GetInt32();}
                 catch(MarketDataException e){reason=e.Code;}

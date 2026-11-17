@@ -66,3 +66,8 @@ test('additional booked fact pages preserve one exact context and reject overlap
  for(const changed of [{...next,total:4,nextOffset:3},{...next,context:{...next.context,contextId:'other'}},{...next,positions:[p('a')]},{...next,asOf:'2030-01-02T00:00:00Z'}])assert.throws(()=>appendPositionFacts(first,changed,2));
  assert.throws(()=>appendPositionFacts(all,next,2));
 });
+
+test('custody keeps its retained subtype and custody quantity in mixed fact pages',()=>{
+ const custody={...fact('custody-agreement'),instrumentType:'physical_gas_park_custody',bookedQuantity:'720',bookedUnit:'MMBtu'};
+ assert.deepEqual(readPositionFacts(page([custody],1,null),1).positions,[custody]);
+});

@@ -199,11 +199,12 @@ public sealed class MarketReads(PreviewDatabase database)
             data.DefinitionRevision.RevisionId,frame.ObservationIds,ct);
         var source=new CatalogueSource(data.DefinitionRevision.RevisionId,data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId);
         var root=pin.RequireFrame();
+        var primarySource=await MarketInputSelection.RootSource(database,connection,root,ct);
         var primary=root.ObservationIds.ToHashSet();
         var legacy=(database.Manifest.InputMarkets??[]).Select(m=>(m.RevisionId,Pins:(database.InputMarketPins(root,m)??[]).ToHashSet())).ToArray();
         var correctionsSupported=frame.ObservationIds.All(id=>
         {
-            if(primary.Contains(id))return source.DefinitionRevisionId==database.Manifest.RevisionId;
+            if(primary.Contains(id))return source==primarySource;
             var owners=legacy.Where(m=>m.Pins.Contains(id)).ToArray();
             return owners.Length==1&&owners[0].RevisionId==source.DefinitionRevisionId;
         });

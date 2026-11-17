@@ -150,10 +150,10 @@ export async function run({command,evaluate,wait,click,persona,set,submit,check,
  const riskNote='Risk results cleared · live corrections changed the inputs';
  const catalogs="window.liveResponses.filter(r=>r.path==='/api/portfolio/risk/catalog')";
  const reportOpen="document.querySelector('#position-details').dataset.mode==='risk'&&!document.querySelector('#risk-fields').disabled";
+ const futureRiskTarget=()=>evaluate(`(()=>{const c=${catalogs}.at(-1).data,source=c.factors.find(f=>f.curves.includes('future')&&f.deliveryFrom==='2021-01-01');return c.scenarioTargets.find(t=>t.id===source.id&&JSON.stringify(t.factor)===JSON.stringify(source.factor)).id;})()`);
  const runRisk=async()=>{
   await click('#blotter-risk');await wait(reportOpen+"&&"+idle);await click('input[name=risk-choice][value=custom]');
-  const factor=await evaluate(`(()=>{const c=${catalogs}.at(-1).data,source=c.factors.find(f=>f.curves.includes('future')&&f.deliveryFrom==='2021-01-01');return c.scenarioTargets.find(t=>t.id===source.id&&JSON.stringify(t.factor)===JSON.stringify(source.factor)).id;})()`);
-  await set('#risk-factor',factor);await set('#risk-bump','0.1');await submit('#risk-form');await wait("!document.querySelector('#desk-run').hidden&&"+idle);
+  await set('#risk-factor',await futureRiskTarget());await set('#risk-bump','0.1');await submit('#risk-form');await wait("!document.querySelector('#desk-run').hidden&&"+idle);
  };
  await runRisk();
  const catalogsBefore=await evaluate(catalogs+'.length');
@@ -203,7 +203,8 @@ export async function run({command,evaluate,wait,click,persona,set,submit,check,
  await check('a carried choice the catalog read at the corrected inputs no longer offers is named and left out, and the person\'s other entries stay',
   `document.querySelector('input[name=risk-choice][value=custom]').checked&&document.querySelector('#risk-factor').value===''&&document.querySelector('#risk-bump').value==='0.2'&&document.querySelector('#risk-carried').textContent.endsWith('No longer offered, so left out: '+${JSON.stringify(dropped.label)}+'.')`,
   "[document.querySelector('#risk-factor').value,document.querySelector('#risk-bump').value,document.querySelector('#risk-carried').textContent]");
- await click('input[name=risk-choice][value=held]');
+ // Use one explicit shock so this exercises the single-job recovery panel even when the held-contract preset needs several parts.
+ await click('input[name=risk-choice][value=custom]');await set('#risk-factor',await futureRiskTarget());await set('#risk-bump','0.1');
  // An unconfirmed queued submission is shown again after a correction, under the inputs it was captured at, and the page says so rather than
  // that its results were cleared.
  await evaluate('window.loseRiskJob=true');await click('#risk-queue',60000);await wait("!document.querySelector('#risk-job-retry').hidden&&"+idle);

@@ -31,6 +31,8 @@ internal sealed record GasSetup(LifecycleReadContext Context,ImmutableArray<GasF
 {
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public LifecycleTarget? Target{get;init;}
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? OwnerId{get;init;}
 }
 
 // Presentation metadata for the closed, native gas operations. Choices retain

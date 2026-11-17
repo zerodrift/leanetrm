@@ -76,8 +76,11 @@ async function run(driver){
  for(const input of f.cases){
   await at('before');await click('#nav-futures',60000);await startNewTrade(driver);await click('#new-trade-park-loan',60000);
   await wait(`!!document.querySelector(${q(control(null,'profile'))})&&${idle}`,60000);
+  await check('fee entry waits for an explicit backend profile selection',`document.querySelector(${q(ticket+' [data-field=fixed_fee_amount]')})===null&&document.querySelector(${q(ticket+' [data-field=fee_rate_amount]')})===null`);
+  await choose(null,'profile','physical_gas_park_loan_v1');
+  await until(`!!document.querySelector(${q(control(null,'fixed_fee_amount'))})&&!document.querySelector(${q(control(null,'fixed_fee_amount'))}).disabled`);
   for(const[id,selected]of [['book',input.bookId],['legal_entity',input.legalEntityId+'@1'],['counterparty',input.counterpartyId+'@1'],
-   ['profile','physical_gas_park_loan_v1'],['service_kind',input.serviceKind],['perspective',input.perspective],['owned_account',input.ownedAccountId],
+   ['service_kind',input.serviceKind],['perspective',input.perspective],['owned_account',input.ownedAccountId],
    ['claim_account',input.claimAccountId??'none'],['title_policy','fungible_gas_title_transfer_return_v1'],['return_policy','same_quantity_partial_returns_v1'],
    ['return_timing','accepted_advance_then_returns_v1'],['carrying','nominal_mark_v1'],['fee_direction',input.feeDirection]])await choose(null,id,selected);
   await set(control(null,'principal_quantity'),'720');await setInstant(null,'advance_at','2020-12-20T10:00:00Z');await setInstant(null,'return_at','2020-12-21T12:00:00Z');

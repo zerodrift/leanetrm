@@ -290,6 +290,9 @@ public sealed class ValuationPortfolio
             if(instruments.TryGetValue(instrument.Id,out var prior))prior.RequireSameDefinition(instrument);
             else instruments.Add(instrument.Id,instrument);
         }
+        if(portfolios.SelectMany(p=>p.Positions).Where(p=>instruments[p.ValuationId].SupportsWholePosition)
+            .GroupBy(p=>p.ValuationId).Any(g=>g.Count()!=1))
+            throw Error("risk_whole_position","One whole-contract identity may occur only once in a complete valuation scope.");
         return [..instruments.Values.OrderBy(i=>i.Id)];
     }
     public static ValuationPortfolio FromTrades(ImmutableArray<Trade> trades,ValuationSetup setup)
@@ -351,9 +354,9 @@ public sealed class ValuationPortfolio
             if(!p.Owner.Matches(p.TradeId)||p.BindingId==Guid.Empty||p.BookId==Guid.Empty||!indexes.TryGetValue(p.ValuationId,out var index))
                 throw Error("risk_position","Each holding requires an exact owner, binding, book and unit instrument.");
             var instrument=Instruments[index];
-            if(!instrument.SupportsQuantityScaling&&!instrument.SupportsFixedUnitBinding)
-                throw Error("risk_quantity_scaling","This instrument has not declared linear scaling in booked quantity.");
-            instrument.ValidateBinding(p.Quantity,p.Coverage);
+            instrument.RequireHolding(p.Quantity,p.Coverage);
+            if(instrument.SupportsWholePosition&&Setup.Measure!=ValuationMeasure.PresentValue)
+                throw Error("valuation_measure","A whole-contract position supports present value only, without an execution or cash-only reinterpretation.");
             if(p.Quantity.Specification!=instrument.UnitQuantity.Specification||p.UnitBasis.Quantity!=p.Quantity.Specification||
                 p.FixedBasis.Currency!=instrument.Currency||p.UnitBasis.Money.Currency!=instrument.Currency)
                 throw Error("risk_position","Each external holding requires the instrument's exact quantity basis and currency.");
@@ -361,6 +364,8 @@ public sealed class ValuationPortfolio
                 (p.FixedBasis.Amount!=default||p.UnitBasis.Money.Numerator!="0"))
                 throw Error("valuation_measure","Execution bases require the explicitly selected execution-P&L operation.");
         }
+        if(Positions.Where(p=>Instruments[indexes[p.ValuationId]].SupportsWholePosition).GroupBy(p=>p.ValuationId).Any(g=>g.Count()!=1))
+            throw Error("risk_whole_position","One whole-contract identity may occur only once in this portfolio.");
         // This projection cannot infer an intended termination or coverage envelope.
         // It can still refuse double-counted delivery across retained/amended bindings.
         foreach(var trade in Positions.Where(p=>p.Coverage is not null).GroupBy(p=>p.Owner))

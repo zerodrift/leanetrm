@@ -11,7 +11,7 @@ internal static class GasParkLoanSetupChecks
         var future=Guid.NewGuid();var fee=Guid.NewGuid();var reservation=Guid.NewGuid();
         var context=new LifecycleReadContext(Guid.NewGuid(),DateTimeOffset.Parse("2041-02-02T12:00:00Z"),new(2041,2,2));
         var target=new LifecycleTarget("gas_park_loan",trade,instrument);
-        var definitions=new[]{(owned,"gas.loan.borrow"),(owned,"gas.loan.repay"),(owned,"gas.owned.dispatch"),(claim,"gas.operator.record"),(claim,"gas.operator.settle"),(owned,"gas.cash.record_payment"),(claim,"gas.cash.record_payment")}
+        var definitions=new[]{(owned,"gas.loan.borrow"),(owned,"gas.loan.repay"),(owned,"gas.owned.dispatch"),(claim,"gas.operator.record"),(claim,"gas.operator.settle"),(owned,"gas.cash.record_payment"),(claim,"gas.cash.record_payment"),(owned,"gas.park_loan.fee_determine"),(claim,"gas.park_loan.fee_determine")}
             .Select(pair=>new{account_id=pair.Item1,action=pair.Item2,policy_id=Guid.NewGuid(),policy_revision=2,revision=3}).ToArray();
         var policies=definitions.Select(binding=>JsonSerializer.SerializeToElement(new{id=binding.policy_id,revision=2,action=binding.action,mode="review"})).ToImmutableArray();
         var ownedState=JsonSerializer.SerializeToElement(new{
@@ -64,6 +64,28 @@ internal static class GasParkLoanSetupChecks
                 throw new Exception("Fee payment must select only its independent owner and preserve manual fact revision and signed amount text.");
             if(setup.Policies.Length!=3||setup.Policies.Any(policy=>policy.AccountId!=trade.ToString()||!setup.Forms.ContainsKey(policy.Action)||policy.Revision!=2))
                 throw new Exception("The common selector must retain each exact native policy under the agreement target.");
+        }
+        foreach(var direction in new[]{1,-1})
+        {
+            var refund=Guid.NewGuid();var opposite=Guid.NewGuid();var previous=Guid.NewGuid();
+            var balance=JsonSerializer.SerializeToElement(new{implementation="physical_gas_park_loan_balance_time_v1",tradeId=trade,instrumentId=instrument,
+                contextId=context.ContextId,asOf=context.AsOf,stateVersion=9,ownedAccountId=owned,claimAccountId=direction==1?(Guid?)null:claim,
+                terms=new{principalDirection=direction,currency="synthetic_currency"},advance=new{feeId=(Guid?)null},policies=definitions,
+                fee=new{unpaid="0",determinations=new[]{
+                    new{id=Guid.NewGuid(),feeId=fee,roundedTotal="-2.88",contribution="-2.88",unpaid="0",through="2041-02-01T10:00:00Z"},
+                    new{id=Guid.NewGuid(),feeId=refund,roundedTotal="-2.34",contribution="0.54",unpaid="0.54",through="2041-02-01T11:00:00Z"},
+                    new{id=previous,feeId=opposite,roundedTotal="-2.88",contribution="-0.54",unpaid="-0.54",through="2041-02-01T12:00:00Z"}}}});
+            var setup=GasOwnedSetup.BuildParkLoanSetup(context,target,balance,ownedState,direction==1?null:claimState,policies);
+            var determine=setup.Forms["gas.park_loan.fee_determine"].Fields;
+            var prior=determine.Single(f=>f.Name=="previousDetermination");
+            if(prior.Nullable||prior.Members is not ["previousDeterminationId"]||JsonSerializer.SerializeToElement(prior.Choices.Single().Value).Id("previousDeterminationId")!=previous||
+                determine.Any(field=>field.Name=="amount")||setup.Policies.Single(p=>p.Action=="gas.park_loan.fee_determine").Revision!=2)
+                throw new Exception("Fee determination must select its exact previous cumulative head and distinct action policy without a trusted amount.");
+            if(prior.Choices.Single().Label!="Rounded cumulative fee -2.88 synthetic_currency")
+                throw new Exception("The previous determination choice must name its retained rounded cumulative total and exact currency, not its contribution or raw timestamp.");
+            var fees=setup.Forms["gas.park_loan.fee_payment"].Fields.Single(f=>f.Name=="feeId").Choices.Select(c=>c.Id).ToHashSet();
+            if(!fees.SetEquals([refund.ToString(),opposite.ToString()]))
+                throw new Exception("Independent refund and charge owners remain selectable when aggregate unpaid cash nets to zero; paid owners stay excluded.");
         }
         Console.WriteLine("PASS Park and Loan typed lifecycle form references, explicit null choices, source heads and independent fee payments");
     }

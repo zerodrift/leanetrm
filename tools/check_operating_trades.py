@@ -163,9 +163,9 @@ def run_checks(query, manifest, psql=None, environment=None):
 
 
 def before_migration(query,migration):
-    if migration.name=='0349_operating_side_composition.sql':
+    if migration.name=='0355_operating_side_composition.sql':
         from check_fact_anchor_upgrade import run_checks
-        run_checks(query,migration,number='0349',guard='operating_composition_upgrade',signatures=(
+        run_checks(query,migration,number='0355',guard='operating_composition_upgrade',signatures=(
             'trading.operating_plan_admission(physical.power_operating_facility_versions,jsonb,timestamp with time zone)',
             'trading.require_operating_program_shape(uuid,uuid,integer,uuid)',
             'security.book_operating_right(uuid,jsonb,jsonb,timestamp with time zone)',

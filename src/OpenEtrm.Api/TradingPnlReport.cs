@@ -126,6 +126,11 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
         if(request.TradeIds is {} ids&&(ids.IsDefaultOrEmpty||ids.Length>RiskTradeScope.MaxSelected||ids.Any(i=>i==Guid.Empty)||ids.Distinct().Count()!=ids.Length))
             throw Error("risk_trade_scope","Choose distinct trades, or explicitly select the whole book scope.");
         var time=RequestTime(request.Time,opening.Frame.Close is not null,opening.Frame.At,closing.Frame.At);
+        // Endpoint pricing does not qualify custody's time, knowledge, reservation
+        // or independent-cash bridge. Check both retained cuts before valuing
+        // either endpoint, including agreements born inside the selected window.
+        await RequireServiceContinuation(connection,opening,closing.Frame.At,request,ct);
+        await RequireServiceContinuation(connection,closing,closing.Frame.At,request,ct);
         var timeDiagnostics=new List<object>();var timeValues=new List<ExactMoney>();var missingTime=false;
         var first=await Read(connection,opening,request,ct);
         // A recorded prior close's clock is read with its endpoint, and decided before the closing endpoint is prepared.
@@ -252,6 +257,34 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
                 JsonSerializer.SerializeToElement(RetainedFrames.Record(m.Frame),RiskJobs.Json))).ToImmutableArray()??[],[..e.Cash.Select(PnlCashReceipt.From)],e.CashTradeSelection)).ToImmutableArray();
         await Reauthorize(connection,receipts,ct);
         return new PnlCalculated(JsonSerializer.SerializeToElement(result,RiskJobs.Json),receipts);
+    }
+
+    private async Task RequireServiceContinuation(NpgsqlConnection connection,TradingView view,DateTimeOffset through,TradingPnlRequest request,CancellationToken ct)
+    {
+        await using(var save=ScheduleStore.Command(connection,"SAVEPOINT pnl_custody_fence"))await save.ExecuteNonQueryAsync(ct);
+        try
+        {
+            await view.Bind(connection,database.Manifest.CatalogId,ct);
+            await TradingContext.Bind(connection,database.Manifest.CatalogId,view.CalculationFrame,view.Context,ct);
+            var books=BookScope.Select(await BookScope.Read(connection,database.Manifest.CatalogId,ct),request.BookIds,request.PortfolioIds)
+                .Select(b=>b.Id("id")).Order().ToArray();
+            if(books.Length==0)return;
+            await using(var transport=ScheduleStore.Command(connection,
+                "SELECT security.gas_transport_financial_projection_fence($1,$2,$3,$4,$5::uuid[],$6::uuid[])",database.Manifest.CatalogId,
+                view.Context.ContextId!.Value,view.Frame.At,through,books,(object?)request.TradeIds?.ToArray()??DBNull.Value))
+                if(Equals(await transport.ExecuteScalarAsync(ct),true))
+                    throw Error("gas_transport_financial_pnl","Cross-clock Transport P&L requires qualified market-value, expiry and independent cash continuation. Current-clock valuation and price stress remain available.");
+            await using var fence=ScheduleStore.Command(connection,
+                "SELECT security.gas_park_custody_projection_fence($1,$2,$3,$4,$5::uuid[],$6::uuid[])",database.Manifest.CatalogId,
+                view.Context.ContextId!.Value,view.Frame.At,through,books,request.TradeIds?.ToArray()??Array.Empty<Guid>());
+            if(Equals(await fence.ExecuteScalarAsync(ct),true))
+                throw Error("gas_custody_pnl","Cross-clock custody P&L requires a separately qualified continuation for custody, title-preserving reservations and independent cash. Current-clock valuation and market stress remain available.");
+        }
+        finally
+        {
+            await using var rollback=ScheduleStore.Command(connection,"ROLLBACK TO SAVEPOINT pnl_custody_fence; RELEASE SAVEPOINT pnl_custody_fence");
+            await rollback.ExecuteNonQueryAsync(ct);
+        }
     }
 
     private async Task<Endpoint> Read(NpgsqlConnection connection,TradingView view,TradingPnlRequest request,CancellationToken ct)

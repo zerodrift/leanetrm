@@ -57,7 +57,8 @@ public sealed partial class TradingBlotter(PreviewDatabase database,FuturesStore
  // The caller has already bound the exact certified market and trading cut.
  internal async Task<BlotterRun?> ReadEmptyDirectory(NpgsqlConnection connection,InputFrame frame,FuturesBlotterView view,ImmutableArray<FuturesBlotterView> summaries,CancellationToken ct)
  {
-  await MarketBundle.Require(connection,manifest,ct);
+  var source=(await MarketInputSelection.RootSource(database,connection,frame,ct)).Apply(manifest);
+  await MarketBundle.Require(connection,source,ct);
   // Base revision tables are checked before joins or report filters. A visible
   // revision of either product requires the unchanged complete valuation path.
   await using var command=ScheduleStore.Command(connection,"""
@@ -66,6 +67,8 @@ public sealed partial class TradingBlotter(PreviewDatabase database,FuturesStore
        OR EXISTS(SELECT 1 FROM trading.ppa_trade_revisions WHERE catalog_id=$1)
        OR EXISTS(SELECT 1 FROM trading.gas_trade_revisions WHERE catalog_id=$1)
        OR EXISTS(SELECT 1 FROM trading.trades t WHERE t.catalog_id=$1 AND security.gas_park_loan_trade_head(t.catalog_id,t.id))
+       OR EXISTS(SELECT 1 FROM trading.trades t WHERE t.catalog_id=$1 AND security.gas_park_custody_trade_head(t.catalog_id,t.id))
+       OR EXISTS(SELECT 1 FROM trading.trades t WHERE t.catalog_id=$1 AND security.gas_transport_financial_trade_head(t.catalog_id,t.id))
        OR EXISTS(SELECT 1 FROM trading.lng_trade_revisions WHERE catalog_id=$1)
        OR EXISTS(SELECT 1 FROM trading.crude_trade_revisions WHERE catalog_id=$1)
        OR EXISTS(SELECT 1 FROM trading.futures_option_trade_revisions WHERE catalog_id=$1)
@@ -77,7 +80,7 @@ public sealed partial class TradingBlotter(PreviewDatabase database,FuturesStore
   ValidateView(view);ValidateSummaries(view,summaries);
   var books=await futures.Books(connection,ct);
   BookScope.Validate(books,view.BookIds,view.PortfolioIds);
-  await MarketBundle.RequireObservationPins(connection,manifest,frame.ObservationIds,ct);
+  await MarketBundle.RequireObservationPins(connection,source,frame.ObservationIds,ct);
   return BlotterRun.Empty(view,summaries,sideSchedules);
  }
  public async Task<BlotterRead> Read(NpgsqlConnection connection,PreviewData data,InputFrame frame,FuturesBlotterView view,ImmutableArray<FuturesBlotterView> summaries,CancellationToken ct)
@@ -92,13 +95,15 @@ public sealed partial class TradingBlotter(PreviewDatabase database,FuturesStore
   var ppaRun=await PpaBlotter.Run(connection,database,data,frame,view.BookIds,view.PortfolioIds,ct);
   var gasRun=await GasBlotter.Run(connection,database,frame,view.BookIds,view.PortfolioIds,ct);
   var parkLoanRun=await GasParkLoanBlotter.Run(connection,database,frame,view.BookIds,view.PortfolioIds,ct);
+  var custodyRun=await GasParkCustodyBlotter.Run(connection,database,frame,view.BookIds,view.PortfolioIds,ct);
+  var transportRun=await GasTransportFinancialBlotter.Run(connection,database,frame,view.BookIds,view.PortfolioIds,ct);
   var crudeRun=await CrudeBlotter.Run(connection,database,frame,view.BookIds,view.PortfolioIds,ct);
   var lngRun=await LngBlotter.Run(connection,database,frame,view.BookIds,view.PortfolioIds,ct);
   var optionRun=await FuturesOptionBlotter.Run(connection,database,data,frame,view.BookIds,view.PortfolioIds,ct);
   var operatingRun=await OperatingBlotter.Run(connection,database,frame,view.BookIds,view.PortfolioIds,ct);
   var recRun=await RecBlotter.Run(connection,database,frame,view.BookIds,view.PortfolioIds,ct);
   var formats=await DealAmountFormats.All(connection,manifest.CatalogId,ct);
-  return new(view,summaries,futuresRun,swapRun,ppaRun,formats,sideSchedules,gasRun,crudeRun,optionRun,lngRun,parkLoanRun,[operatingRun,recRun]);
+  return new(view,summaries,futuresRun,swapRun,ppaRun,formats,sideSchedules,gasRun,crudeRun,optionRun,lngRun,parkLoanRun,custodyRun,transportRun,[operatingRun,recRun]);
  }
  // The report of a view and, grouped from the same valuation, each requested summary in request order.
  public sealed record BlotterRead(object Blotter,ImmutableArray<Summary> Summaries);

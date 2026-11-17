@@ -15,6 +15,12 @@ from owned_process import stop_owned_groups
 ROOT=Path(__file__).resolve().parents[1]
 
 
+def api_artifact(path):
+    source=Path(path).resolve()
+    for name in ['OpenEtrm.Api.dll','OpenEtrm.Api.deps.json','OpenEtrm.Api.runtimeconfig.json']:
+        if not (source/name).is_file():raise ValueError('A coherent current-tree API artifact is required: '+str(source/name))
+    return source
+
 
 def build_assets(dotnet):
     for project in ['tests/OpenEtrm.Api.Checks','src/OpenEtrm.Worker']:
@@ -23,14 +29,16 @@ def build_assets(dotnet):
     subprocess.run(['npm','run','build','--prefix','web'],cwd=ROOT,check=True,timeout=120)
 
 
-def run(query,manifest,dotnet,browser,children,fixture,script,*,worker_enabled=True,timeout=240,artifacts=()):
+def run(query,manifest,dotnet,browser,children,fixture,script,*,worker_enabled=True,timeout=240,artifacts=(),api_bin=None):
+    api_source=api_artifact(ROOT/'src/OpenEtrm.Api/bin/Debug/net10.0' if api_bin is None else api_bin)
     root=Path(query('SHOW unix_socket_directories;')).resolve()
     run_id=str(uuid4());(root/'.openetrm-preview').write_text(run_id)
     (root/'manifest.json').write_text(json.dumps(manifest));(root/'manifest.json').chmod(0o600)
     shutil.copyfile(ROOT/'deploy/process-limits.example.json',root/'process-limits.json')
     shutil.copytree(ROOT/'web/dist',root/'web')
-    shutil.copytree(ROOT/'src/OpenEtrm.Api/bin/Debug/net10.0',root/'api')
-    shutil.copytree(ROOT/'src/OpenEtrm.Worker/bin/Debug/net10.0',root/'worker')
+    shutil.copytree(api_source,root/'api')
+    if worker_enabled:
+        shutil.copytree(ROOT/'src/OpenEtrm.Worker/bin/Debug/net10.0',root/'worker')
     environment={k:v for k,v in os.environ.items() if not k.startswith(('PG','OPENETRM_','ASPNETCORE_','DOTNET_'))}
     environment.update(OPENETRM_PREVIEW_ROOT=str(root),OPENETRM_PREVIEW_WEB=str(root/'web'),OPENETRM_BROWSER_ACTION_WAIT_MS='30000')
     for variable,name in [('OPENETRM_PREVIEW_CREDENTIAL_KEY','credential.key'),('OPENETRM_PREVIEW_CREDENTIAL_RETRY_KEY','credential-retry.key')]:

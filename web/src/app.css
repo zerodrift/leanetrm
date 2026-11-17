@@ -1607,7 +1607,7 @@ header:has(.context-toolbar:not([hidden])) .header-actions{flex:1 1 740px;flex-w
 .knowledge-panel button{font-size:11px}
 .as-of-context[data-context-mode=retained]>summary{color:var(--warn)}
 .as-of-context[data-context-mode=draft]>summary{color:var(--danger)}
-.context-actions{display:flex;align-items:center;gap:5px;padding-top:19px}
+.context-actions{display:flex;flex-wrap:wrap;align-items:center;gap:5px;padding-top:19px;max-width:100%}
 .context-actions button{font-size:12px;padding:6px 9px;min-height:32px}
 .context-help{margin-top:19px;max-width:100%}
 .context-help>summary{display:grid;place-items:center;list-style:none;width:30px;height:30px;cursor:pointer;border:1px solid var(--border);border-radius:50%;color:var(--text-3);background:var(--surface);font-weight:600}
@@ -2491,6 +2491,8 @@ body.assistant-open.assistant-overlay main .floating-context{display:none}
 #facilities-page select,#facilities-page input:not([type=checkbox]){box-sizing:border-box;max-width:100%}
 #facilities-page fieldset{border:0;padding:0}
 #facility-ledger,#facility-create-target{width:100%}
+.facility-operations [data-facility-allocation]{max-width:100%;white-space:normal;overflow-wrap:anywhere}
+#facilities-workspace-tabs{flex-wrap:wrap}
 #facility-ledger{display:block;max-width:640px}
 
 .standard-data-grid .tabulator-cell.selected-cell{outline:2px solid var(--accent);outline-offset:-2px}
@@ -2805,7 +2807,7 @@ header>div:first-child{flex:1 1 160px}
 .lifecycle-panel>h2{overflow-wrap:anywhere}
 .lifecycle-form{display:grid;gap:1rem}
 .lifecycle-form fieldset{border:1px solid var(--border);border-radius:.4rem;padding:1rem}
-.lifecycle-form button{justify-self:start}
+.lifecycle-form button{justify-self:start;max-width:100%;white-space:normal}
 .lifecycle-review{margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border)}
 .lifecycle-review-table{max-width:100%;overflow:auto}
 .gas-lifecycle-policy,.gas-lifecycle-fields{grid-column:1/-1;min-width:0}

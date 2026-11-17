@@ -80,10 +80,12 @@ export function positionSummary(h:Holding,row:DeskRow,formats:HoldingFormats):Po
   if(h.markMinusPrice!==null&&row.priceUnit===null)throw Error('A mark minus price requires one explicit price unit.');
   const markMinusPrice=h.markMinusPrice===null?null:{text:signedText(h.markMinusPrice,formats.markMinusPrice),exact:h.markMinusPrice,label:`Mark − ${row.priceLabel.toLowerCase()}`,unit:row.priceUnit!};
   const facts:PositionSummary['facts']=[
+    ...(h.priceNavigation===false?[]:[
     // A scheduled swap whose fixed periods differ in price states none, by period, in that price unit; a swap with no fixed side has none.
     {label:`${row.priceLabel} price`,text:row.price!==null?minus(formats.price(row.price)):row.priceNote??'None',unit:row.price===null&&row.priceNote===null?null:row.priceUnit},
     // An option's mark is its settlement price at the close, which it is called.
     ...(row.mark!==null?[{label:row.pill==='OPT'?'Settlement price':'Mark',text:minus(formats.mark(row.mark)),unit:row.priceUnit}]:row.markNote!==null?[{label:'Mark',text:row.markNote,unit:null}]:[]),
+    ]),
     {label:'Quantity',text:quantityText(row,formats.quantity),unit:row.unit},
     ...(h.instrumentType==='ppa'&&h.unavailableReason===null?[{label:'Complete PV',text:h.completePv===null?'Unavailable while cash is overdue':formats.money(h.completePv??h.presentValue!),unit:h.currency},{label:'Overdue known',text:formats.money(h.overdueKnown!),unit:h.currency},{label:'Overdue estimated',text:formats.money(h.overdueEstimated!),unit:h.currency}]:[]),
     ...(typeof h.settlement==='string'&&row.pill!=='OPT'?[{label:'Settlement',text:settlementText(h.settlement),unit:null}]:[]),
@@ -100,6 +102,7 @@ const ownShape=(shape:CurveShape,h:Holding)=>{if(shape.curve!==h.curve)throw Err
  * period, when the curve shows exactly one, and otherwise names the curve alone.
  */
 export function openCurveTarget(h:Holding,row:DeskRow,shape:CurveShape|string|undefined):{curve:string;contractId:string|null}{
+  if(h.priceNavigation===false)throw Error('This position does not expose commodity price navigation.');
   if(typeof shape==='object')ownShape(shape,h);
   if(row.pill==='FUT')return {curve:h.curve,contractId:h.contractId};
   if(typeof shape!=='object')return {curve:h.curve,contractId:null};
@@ -108,7 +111,7 @@ export function openCurveTarget(h:Holding,row:DeskRow,shape:CurveShape|string|un
 }
 
 /** What the Terms and History tabs show of one trade revision, drawn from its editor read: titled lists of exact facts. */
-export type TermSection={title:string;rows:readonly (readonly [string,string])[]};
+export type TermSection={title:string;rows:readonly (readonly [label:string,value:string,title?:string])[]};
 export type DetailView={
   termsLabel?:string;terms:TermSection[];history:TermSection[];
   /** Draws the independently retained side schedules; returns their disposer. */
@@ -360,7 +363,7 @@ export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal
     for(const button of view().querySelectorAll<HTMLButtonElement>('.side-panel-terms-actions button'))button.disabled=o.busy()||detail?.state==='loading'||detail?.key!==key(at);
     actions.note.hidden=control.note===null;actions.note.textContent=control.note===null?'':publicText(control.note);
     const several=at.row.severalCurves,listed=!several&&o.curveListed(at.holding.curve);
-    actions.open.hidden=!o.openCurve;actions.open.disabled=o.busy()||!listed;say(actions.openNote,actions.open,o.openCurve?curveNote(listed,several):null);
+    actions.open.hidden=!o.openCurve||at.holding.priceNavigation===false;actions.open.disabled=o.busy()||!listed||at.holding.priceNavigation===false;say(actions.openNote,actions.open,o.openCurve&&at.holding.priceNavigation!==false?curveNote(listed,several):null);
     if(!o.busy())refocus();
   }
   // Shows a reason beside a button, and points the button at it for assistive technology; nothing shown and nothing pointed at for none.

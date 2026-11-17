@@ -77,7 +77,9 @@ function editor(f:TicketField,value:string,choices:TicketChoice[]|undefined,edit
   input.onchange=()=>{if(!input.value){edit('');return;}void payment.instant().then(edit);};return input;
  }
  if(f.type==='datetime'&&zone&&editLocal){
-  const absent=f.allowNotApplicable===true&&value==='none';
+  // A retained no-date selection can become invalid under a new description.
+  // Leave the control empty; the backend must refuse it until explicitly entered.
+  const absent=value==='none';
   const input=el('input','ticket-control');input.type='datetime-local';input.value=value&&!absent?localTimeValue(value,zone):'';input.setAttribute('aria-label',`${f.label} · ${zone}`);
   input.onchange=()=>editLocal(input.value);
   if(!f.allowNotApplicable)return input;

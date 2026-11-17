@@ -29,7 +29,7 @@ export function pageAvailable(page:string,permissions:string[]):boolean{
  switch(page){
   case 'rec-inventory':return has('ReadMarketData','ReadTrades');
   case 'physical-power':return has('ReadMarketData','ReadPhysical');
-  case 'facilities':return has('ReadMarketData','ReadTrades','ReadFacilityQuantities');
+  case 'facilities':return has('ReadMarketData','ReadTrades')&&(has('ReadFacilityQuantities')||has('ReadGasOperations'));
   // Options and Vol surfaces read option products, which trade readers see.
   case 'lifecycle':case 'physical-operations':case 'futures':case 'options':case 'ppa':case 'gas':case 'crude':case 'vol-surfaces':return has('ReadMarketData','ReadTrades');
   case 'dashboard':case 'market':case 'custom-curves':case 'curve-definitions':case 'delivery':case 'interval-series':case 'interval-curves':

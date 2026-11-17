@@ -558,6 +558,32 @@ test('Park and loan displays managed principal and scheduled-plan PV without der
  assert.throws(()=>positionRows([{...service,quantity:null}]),/principal/);
 });
 
+test('custody service rows show backend service value without a commodity price or owned exposure',()=>{
+ const custody={...fixture.holdings[0],instrumentType:'physical_gas_park_custody',contractIdentityKind:'gas_park_custody_agreement',direction:'multi_side',
+  quantity:'720',lots:null,curve:'',projectionCurves:[],priceNavigation:false,marketLabel:'Synthetic custody point',executionPrice:null,fixedPrice:null,mark:null,markMinusPrice:null,executionPnl:null,
+  presentValue:'12.5',measure:'custody_remaining_plan_present_value_v1',unavailableReason:null};
+ const [row]=positionRows([custody]);
+ assert.deepEqual([row.measure,row.quantity,row.exposure,row.price,row.priceUnit,row.mark],['Remaining custody service PV','720',null,null,null,null]);
+ assert.deepEqual(valueFields(custody.instrumentType),['presentValue']);
+ assert.equal(row.value,'12.5');assert.equal(row.market,'Synthetic custody point');
+ assert.throws(()=>positionRows([{...custody,priceNavigation:true}]),/price navigation/);
+});
+
+test('Transport shows one backend-priced rights package without gas quantity exposure or inferred perspective sign',()=>{
+ const transport={...fixture.holdings[0],instrumentType:'physical_gas_transport',contractIdentityKind:'gas_transport_agreement',direction:'multi_side',
+  quantity:'1',lots:null,priceNavigation:false,curve:'',projectionCurves:[],marketLabel:'Synthetic Transport entitlement',executionPrice:null,fixedPrice:null,mark:null,
+  markMinusPrice:null,executionPnl:null,presentValue:'7.5',measure:'transport_remaining_rights_and_fee_present_value_v1',unavailableReason:null};
+ const [row]=positionRows([transport]);
+ assert.deepEqual([row.measure,row.side,row.quantity,row.exposure,row.value,row.priceUnit],['Remaining Transport rights and fee PV','Whole Transport package','1',null,'7.5',null]);
+ assert.match(noteMeaning(row.markNote),/whole-rights.*independent fee/i);
+ assert.throws(()=>positionRows([{...transport,quantity:'720'}]),/one whole/);
+ assert.throws(()=>positionRows([{...transport,measure:'gas_contractual_present_value'}]),/rights and fee/);
+ const [unpriced]=positionRows([{...transport,presentValue:null,unavailableReason:'rights_mark_required'}]);
+ assert.equal(unpriced.value,null);assert.match(unpriced.unavailable,/whole-rights mark/);
+ for(const reason of ['financial_state_unavailable','financial_state_future','rights_mark_future','rights_mark_corrected','expiry_transition_required','gas_transport_financial_unpriced','discount_curve','missing_observation'])
+  assert.equal(positionRows([{...transport,presentValue:null,unavailableReason:reason}])[0].value,null,reason);
+});
+
 test('Park and loan scheduled-plan totals stay in their own backend-supplied tile',()=>{
  const summaries=clone(fixture.summaries);
  for(const index of [0,1,2,3])for(const group of summaries[index].groups)if(group.instrumentType==='financial_swap'){

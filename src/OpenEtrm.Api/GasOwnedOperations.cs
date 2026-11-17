@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using Npgsql;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Gas;
+using OpenEtrm.MarketData.Trading;
 
 namespace OpenEtrm.Api;
 
@@ -92,7 +93,10 @@ internal static class GasOwnedOperations
     {
         public override DateTimeOffset Read(ref Utf8JsonReader reader,Type type,JsonSerializerOptions options)
         {
-            var at=reader.GetDateTimeOffset();_=LifecycleNative.Instant(at);return at;
+            if(reader.TokenType!=JsonTokenType.String)throw new JsonException("Supply an exact UTC instant string.");
+            // Validate the original fractional text before the CLR JSON reader
+            // can truncate sub-tick digits into an apparently valid instant.
+            return TradingInstant.Parse(reader.GetString(),"lifecycle_instant");
         }
         public override void Write(Utf8JsonWriter writer,DateTimeOffset value,JsonSerializerOptions options)=>writer.WriteStringValue(LifecycleNative.Instant(value));
     }

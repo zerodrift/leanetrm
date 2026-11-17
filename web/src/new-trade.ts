@@ -6,7 +6,7 @@ import {modeLabel,type PanelMode,type SidePanel} from './side-panel.js';
 export type NewMode=Extract<PanelMode,{kind:'new'}>;
 export type NewProduct=NonNullable<NewMode['product']>;
 /** The products a new trade can be of, in the order the switch lists them: none is chosen for the person. */
-export const newTradeProducts:readonly (readonly [NewProduct,string])[]=[['futures','Future'],['options','Futures option'],['swaps','Swap'],['ppa','PPA'],['gas','Physical gas'],['park-loan','Park and loan'],['crude','Physical crude'],['lng','Physical LNG'],['rec','REC forward']];
+export const newTradeProducts:readonly (readonly [NewProduct,string])[]=[['futures','Future'],['options','Futures option'],['swaps','Swap'],['ppa','PPA'],['gas','Physical gas'],['transport','Transport'],['park-loan','Park and loan'],['crude','Physical crude'],['lng','Physical LNG'],['rec','REC forward']];
 /** What holds New trade back while a request of the person's has no known outcome: it is settled before another is entered. */
 export const retainedBlock='A trade request is retained. Reconcile or retry it before creating another.';
 const noReason='Booking is not available in this view, and the backend did not say why.';
@@ -41,14 +41,13 @@ export function bookingFallback(state:{contextDirty:boolean;view:ReadView;canBoo
   return state.canBook?'Choose an As of date to book a trade.':'Your current role does not have Book Trade permission.';
 }
 
-const about:Readonly<Record<NewProduct,string>>={rec:'qualified certificates with exact generation vintage, independent physical market value and consideration',futures:'an exchange contract with a defined expiry',options:'a listed option on an exchange futures contract, with its premium paid up front',swaps:'fixed or floating prices on independent sides',ppa:'power delivery and cash components on independent schedules',gas:'physical delivery, cash and fees on independent sides','park-loan':'an explicit title-transfer gas advance and equal-quantity return, with an independent fixed fee',crude:'fixed standard-volume crude delivery with independent cash and handling fees',lng:'a future LNG cargo with separate loading and discharge terms, Incoterms and fixed consideration'};
+const about:Readonly<Record<NewProduct,string>>={rec:'qualified certificates with exact generation vintage, independent physical market value and consideration',futures:'an exchange contract with a defined expiry',options:'a listed option on an exchange futures contract, with its premium paid up front',swaps:'fixed or floating prices on independent sides',ppa:'power delivery and cash components on independent schedules',gas:'physical delivery, cash and fees on independent sides',transport:'one whole Transport rights package with an independently selected fixed fee. The agreement initially has no adopted rights value; after booking, select a published value for the whole package in Lifecycle','park-loan':'a gas Park or Loan service with explicitly selected title and fee terms',crude:'fixed standard-volume crude delivery with independent cash and handling fees',lng:'a future LNG cargo with separate loading and discharge terms, Incoterms and fixed consideration'};
 // A line on the product chosen, or on both while none is: the person is told what each is, and none is chosen for them.
 const aboutLine=(product:NewProduct|null)=>product===null?'Choose an instrument type. Each ticket keeps its own delivery, pricing and lifecycle terms.':`${about[product][0].toUpperCase()}${about[product].slice(1)}.`;
-const loading:Readonly<Record<NewProduct,string>>={rec:'Loading qualified REC choices…',futures:'Loading the futures contracts…',options:'Loading the listed options…',swaps:'Loading the swap choices…',ppa:'Loading PPA choices…',gas:'Loading physical gas choices…','park-loan':'Loading Park and loan choices…',crude:'Loading physical crude choices…',lng:'Loading physical LNG choices…'};
+const loading:Readonly<Record<NewProduct,string>>={rec:'Loading qualified REC choices…',futures:'Loading the futures contracts…',options:'Loading the listed options…',swaps:'Loading the swap choices…',ppa:'Loading PPA choices…',gas:'Loading physical gas choices…',transport:'Loading Transport choices…','park-loan':'Loading Park and loan choices…',crude:'Loading physical crude choices…',lng:'Loading physical LNG choices…'};
 const chooseText='Choose an instrument type to enter a new trade.';
 // Instruments New trade will offer, each with what it will hold; none can be opened yet.
 const comingSoon:readonly (readonly [string,string])[]=[
-  ['Transport','Will book gas transport: receipt and delivery sides, with the instrument holding the shipper contract, its capacity and fuel.'],
   ['Storage','Will book a storage contract: injections and withdrawals against its capacity and inventory.']];
 
 function el<K extends keyof HTMLElementTagNameMap>(tag:K,className?:string,text?:string){

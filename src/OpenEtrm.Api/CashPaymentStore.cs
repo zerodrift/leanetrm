@@ -15,6 +15,14 @@ public sealed record RecordCashPaymentRequest(Guid SnapshotId,string KnowledgeMo
 // Native currency cash memberships share one recorded-payment reader, independently of their parent deal's family.
 internal static class CashPaymentStore
 {
+    private sealed record StatusAdmission(Guid Catalog,Guid Trade,Guid Binding,DateTimeOffset Until):ICommitAdmission
+    {
+        public async Task RequireCommit(NpgsqlConnection connection,CancellationToken ct)
+        {
+            await using var guard=ScheduleStore.Command(connection,"SELECT security.require_cash_payment_status($1,$2,$3,$4)",Catalog,Trade,Binding,Until);
+            await guard.ExecuteNonQueryAsync(ct);
+        }
+    }
     internal static CashPaymentInstrument Materialize(JsonElement row)
     {
         var currency=new ReferenceKey(new(row.Id("reference_catalog_id"),row.Id("reference_revision_id")),row.Text("currency_code"));
@@ -95,12 +103,30 @@ internal static class CashPaymentStore
     }
     internal static async Task<JsonElement> Record(NpgsqlConnection connection,Guid catalog,InputFrame frame,RecordCashPaymentRequest body,CancellationToken ct)
     {
-        if(body.KnowledgeMode!="current")throw new MarketDataException("historical_read_only","Recorded cash requires explicit current knowledge.");
         // The native operation repeats ingress checks and owns authorization, fact and command idempotency.
-        var request=JsonSerializer.Serialize(new{body.OperationId,body.AllocationId,body.TradeId,body.BindingId,body.ExpectedRevision,
-            body.PaidAt,body.Amount,body.Policy},new JsonSerializerOptions(JsonSerializerDefaults.Web));
-        await using var command=ScheduleStore.Command(connection,"SELECT security.record_cash_payment($1,$2::jsonb,$3)::text",catalog,request,frame.At);
+        await using var command=ScheduleStore.Command(connection,"SELECT security.record_cash_payment($1,$2::jsonb,$3)::text",catalog,Payload(body).GetRawText(),frame.At);
         return JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
+    }
+    internal static JsonElement Payload(RecordCashPaymentRequest body)
+    {
+        if(body.KnowledgeMode!="current")throw new MarketDataException("historical_read_only","Recorded cash requires explicit current knowledge.");
+        return JsonSerializer.SerializeToElement(new{body.OperationId,body.AllocationId,body.TradeId,body.BindingId,body.ExpectedRevision,
+            body.PaidAt,body.Amount,body.Policy},new JsonSerializerOptions(JsonSerializerDefaults.Web));
+    }
+    internal static async Task<JsonElement> Status(NpgsqlConnection connection,PreviewDatabase database,RecordCashPaymentRequest body,CancellationToken ct)
+    {
+        if(body.SnapshotId==Guid.Empty)throw new MarketDataException("cash_payment_input","Retain the original payment request's navigation identity.");
+        // The first native financial receipt survives navigation-frame eviction.
+        // Absence is read-only and never creates another bank allocation.
+        var row=await LifecycleNative.Read(connection,"SELECT security.cash_payment_status($1,$2::jsonb)::text",ct,database.Manifest.CatalogId,Payload(body).GetRawText());
+        if(row.GetProperty("found").GetBoolean())
+        {
+            var outcome=row.GetProperty("outcome");
+            if(outcome.Id("operationId")!=body.OperationId||outcome.Id("allocationId")!=body.AllocationId||outcome.Id("tradeId")!=body.TradeId||outcome.Id("bindingId")!=body.BindingId)
+                throw Error("The native cash receipt must attest the exact original operation and cash owner.");
+        }
+        var admission=new StatusAdmission(database.Manifest.CatalogId,body.TradeId,body.BindingId,row.Instant("authorityUntil"));
+        database.RegisterCommitAdmission(connection,admission);await admission.RequireCommit(connection,ct);return row;
     }
     private static MarketDataException Error(string message)=>new("payment_state",message);
 }

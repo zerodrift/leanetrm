@@ -308,6 +308,8 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
         RecPositions.Measure=>"Certificate contractual PV",
         GasPositions.Measure=>"Gas contractual PV",GasPositions.LifecycleMeasure=>"Gas "+GasPositions.LifecycleLabel.ToLowerInvariant(),
         GasParkLoanTicket.Measure=>"Remaining scheduled plan PV",GasOwnedPortfolio.Measure=>"Independent gas holdings and cash PV",
+        GasParkCustodyTicket.Measure=>GasParkCustodyTicketStore.MeasureLabel,
+        GasTransportFinancialTicket.Measure=>GasTransportFinancialTicketStore.MeasureLabel,
         GasOwnedPortfolio.ProfileMeasure=>"Independent gas holdings and saved principal cash PV",
         _=>throw new MarketDataException("valuation_measure","The report requires an explicit valuation measure label.")};
     private static string Currency(ImmutableArray<PreviewData> markets,ReferenceKey key)=>Reference(markets,"currencies",key).Text("display_code");

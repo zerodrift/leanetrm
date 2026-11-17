@@ -11,11 +11,18 @@ test('a separate trade window always reads the exact retained selection, without
   tradeId:selection.tradeId,bindingId:selection.bindingId,revision:2,instrumentType:'ppa'});
 });
 test('gas windows retain their instrument binding and exact context like other positions',()=>{
- for(const instrumentType of ['physical_gas','physical_gas_park_loan']){
+ for(const instrumentType of ['physical_gas','physical_gas_transport','physical_gas_park_loan','physical_gas_park_custody']){
   const gas={...selection,instrumentType};
   assert.deepEqual(readPositionWindowUrl(positionWindowUrl('https://example.invalid/',gas)),gas);
   assert.deepEqual(positionWindowRequest(gas),{...positionWindowRequest(selection),instrumentType});
  }
+});
+test('a Transport window preserves an explicit business date independently of the UTC valuation date',()=>{
+ const transport={...selection,instrumentType:'physical_gas_transport',revision:1,
+  context:{...selection.context,effectiveOn:'2020-12-20'},asOf:'2020-12-19T23:00:00Z'};
+ assert.deepEqual(readPositionWindowUrl(positionWindowUrl('https://example.invalid/',transport)),transport);
+ assert.deepEqual(positionWindowRequest(transport),{context:{snapshotId:transport.snapshotId,convention:'trading_workspace_v1',knowledgeMode:'retained',contextId:transport.context.contextId},
+  tradeId:transport.tradeId,bindingId:transport.bindingId,revision:1,instrumentType:'physical_gas_transport'});
 });
 test('opening requests a separate popup without an opener, and a null browser result never becomes a false blocked warning',()=>{
  const calls=[];assert.doesNotThrow(()=>openPositionWindow('https://example.invalid/',selection,(...args)=>{calls.push(args);return null;}));
@@ -34,7 +41,7 @@ test('malformed, duplicate or missing window context refuses explicitly',()=>{
  for(const change of [u=>u.hash+='&context='+selection.context.contextId,u=>u.hash=u.hash.replace('type=ppa','type=unknown'),
   u=>u.hash=u.hash.replace('revision=2','revision=0'),u=>u.hash=u.hash.replace('snapshot='+selection.snapshotId,'snapshot='),
   u=>u.hash+='&knowledgeMode=current',u=>u.search='?context=current',u=>u.hash=u.hash.replace('zone=America%2FChicago','zone=not-a-zone'),
-  u=>u.hash=u.hash.replace('effective=2031-03-12','effective=2031-03-13')]){
+  u=>u.hash=u.hash.replace('effective=2031-03-12','effective=2031-3-13')]){
   const url=new URL(base);change(url);assert.throws(()=>readPositionWindowUrl(url.href),/exact position and retained market context/);
  }
 });

@@ -32,7 +32,7 @@ def checks(query, manifest):
     query("INSERT INTO security.role_permissions SELECT role_id,'ReadGasOwnedHoldings' FROM security.role_permissions "
           "WHERE permission='RunScenario' ON CONFLICT DO NOTHING;")
     frozen = directory / 'service-price-binaries'
-    shutil.copytree(ROOT / 'tests/OpenEtrm.Api.Checks/bin/Debug/net10.0', frozen)
+    shutil.copytree(Path(os.environ.get('PARK_LOAN_PRICE_BINARIES', ROOT / 'tests/OpenEtrm.Api.Checks/bin/Debug/net10.0')), frozen)
     stamps = {p.name: p.read_bytes() for p in frozen.glob('OpenEtrm.*.dll')}
     dotnet = str(Path(os.environ['DOTNET']).resolve())
     connection = directory / 'service-price-connection'

@@ -25,9 +25,7 @@ public sealed record TradeInstrument
     {
         if(id==Guid.Empty||instrument is null||quantity is null||quantity.Specification!=instrument.UnitQuantity.Specification||retainedInstrumentId==Guid.Empty)
             throw new MarketDataException("trade_binding","A trade binding requires an exact instrument and external quantity in its declared basis.");
-        if(!instrument.SupportsQuantityScaling&&!instrument.SupportsFixedUnitBinding)
-            throw new MarketDataException("risk_quantity_scaling","This instrument has not declared linear scaling in booked quantity.");
-        instrument.ValidateBinding(quantity,coverage);execution?.Validate(instrument,quantity);
+        instrument.RequireHolding(quantity,coverage,execution);execution?.Validate(instrument,quantity);
         Id=id;Instrument=instrument;Quantity=quantity;Execution=execution;RetainedInstrumentId=retainedInstrumentId??instrument.Id;Coverage=coverage;
     }
 }

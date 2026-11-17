@@ -14,9 +14,13 @@ export async function run({command,evaluate,wait,click,persona,check,idle,fitsWi
  // Every surface and position read the page makes with its answer; and a switch that answers the next surface read as a
  // close with no surface, which this example's latest snapshot no longer is for either product.
  const {identifier}=await command('Page.addScriptToEvaluateOnNewDocument',{source:`
-  window.optionCalls=[];window.optionsUnfitted=false;const send=window.fetch;
+  window.optionCalls=[];window.optionsUnfitted=false;window.optionEntryValuations=[];const send=window.fetch;
   window.fetch=async(input,init)=>{
    const path=String(typeof input==='string'?input:input.url),call=/[/](vol-surfaces[/]read|options[/]positions|options[/]strategy[/]setup)$/.exec(path);
+   if(window.refuseOptionEntryValuation&&/[/]trading[/](workspace|blotter)([/]|$)/.test(path)){
+    window.optionEntryValuations.push(path);
+    return new Response(JSON.stringify({code:'request_failed',message:'Synthetic portfolio valuation refusal.'}),{status:503,headers:{'Content-Type':'application/json'}});
+   }
    if(!call)return send(input,init);
    const record={path:call[1],body:init?.body?JSON.parse(init.body):null};window.optionCalls.push(record);
    const response=await send(input,init);record.status=response.status;record.answer=await response.clone().json().catch(()=>null);
@@ -26,7 +30,9 @@ export async function run({command,evaluate,wait,click,persona,check,idle,fitsWi
   };`});
  const calls=path=>`window.optionCalls.filter(c=>c.path===${q(path)})`;
  const settled=(expression,ms)=>wait(expression,ms).catch(async error=>{throw Error(error.message+' · observed '+q(await evaluate(
-  `({state:${state},error:document.querySelector('#options-error')?.textContent,calls:window.optionCalls.slice(-3).map(c=>[c.path,c.status,c.answer?.state??c.answer?.code])})`)));});
+  `({state:${state},page:document.querySelector('#page-title').textContent,error:document.querySelector('#options-error')?.textContent,
+   globalError:document.querySelector('#error')?.textContent,entryValuations:window.optionEntryValuations,
+   calls:window.optionCalls.slice(-3).map(c=>[c.path,c.status,c.answer?.state??c.answer?.code])})`)));});
  const chip=product=>`document.querySelector('.options-product[data-product=${product}]')`;
  // Choosing a product's chip reads its surface. A product already chosen is read by the page itself when it opens, so its
  // newest read is waited for instead.
@@ -110,14 +116,17 @@ export async function run({command,evaluate,wait,click,persona,check,idle,fitsWi
   // Booking opens the Blotter's option ticket with the series selected as a person would select it. The risk analyst books nothing.
   await persona('trader');await click('#example');await click('#nav-options');await choose('nymex_on');
   await settled(`${state}==='fitted'&&!!document.querySelector('#options-chain tbody tr')`,30000);
-  await click(`#options-chain td[data-series="${call.series.code}"]`);await click('#options-book');
+  await click(`#options-chain td[data-series="${call.series.code}"]`);
+  // Opening the native ticket consumes entry metadata; an unrelated portfolio valuation may be unavailable.
+  await evaluate('window.refuseOptionEntryValuation=true');await click('#options-book');
   await settled("document.querySelector('#page-title').textContent==='Blotter'&&!!document.querySelector('#option-page')?.offsetParent&&document.querySelector('#option-strike').value!==''",30000);
+  await check('opening a selected option ticket needs no portfolio valuation',"window.optionEntryValuations.length===0&&document.querySelector('#error').hidden","window.optionEntryValuations");
   await check('Book opens the option ticket on that series, with no execution terms filled in',
    `document.querySelector('#option-right').value===${q(call.series.right)}&&Number(document.querySelector('#option-strike').value)===${Number(call.series.strike)}&&
     document.querySelector('#option-underlying').value===${q(call.series.underlyingCode)}&&document.querySelector('#option-page').textContent.includes(${q(call.series.code)})&&
     ['#option-side','#option-lots','#option-premium'].every(id=>document.querySelector(id).value==='')`,
    "['exchange','commodity','underlying','right','strike','side','lots','premium'].map(id=>document.querySelector('#option-'+id)?.value)");
-  await persona('risk');await click('#example');
+  await evaluate('window.refuseOptionEntryValuation=false');await persona('risk');await click('#example');
 
   // Positions: the booked option positions with the backend's figures, subtotals and totals. The page adds nothing up.
   await click('#nav-options');await choose('nymex_on');await settled(`${state}==='fitted'`,30000);

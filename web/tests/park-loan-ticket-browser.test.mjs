@@ -27,7 +27,7 @@ const api=async(path,body)=>{
 window.until=async test=>{for(let i=0;i<300&&!test();i++)await new Promise(resolve=>setTimeout(resolve,10));if(!test())throw Error('Park and loan condition not ready');};
 window.editor=setupParkLoanTicket({api,source:()=>({snapshotId:'synthetic-snapshot'}),historical:()=>historical,actor:()=>actor,instant:at=>at,zone:()=>'UTC',onBooked:async id=>saved.push(id)});
 window.setTerm=(id,value)=>{const control=document.querySelector('[data-field="'+id+'"] .ticket-control');control.value=value;control.dispatchEvent(new Event('change'));};
-window.holding={tradeId:'synthetic-trade',bindingId:'synthetic-binding',revision:'1',tradeReference:'Synthetic service',instrumentReference:'Synthetic agreement',book:'Synthetic book',executedAt:'2040-12-01T12:00:00Z',trader:'Synthetic trader',booking:{tradeDate:'2040-12-01'}};
+window.holding={instrumentType:product,tradeId:'synthetic-trade',bindingId:'synthetic-binding',revision:'1',tradeReference:'Synthetic service',instrumentReference:'Synthetic agreement',book:'Synthetic book',executedAt:'2040-12-01T12:00:00Z',trader:'Synthetic trader',booking:{tradeDate:'2040-12-01'}};
 `;
 const page='<div id="park-loan-page"></div><div id="terms"></div>';
 

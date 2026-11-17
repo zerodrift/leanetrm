@@ -9,7 +9,8 @@ using OpenEtrm.MarketData.Trading;
 namespace OpenEtrm.Api;
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record TicketDescriptionRequest([property:JsonRequired]FuturesReadRequest Context,[property:JsonRequired]string Product);
+public sealed record TicketDescriptionRequest([property:JsonRequired]FuturesReadRequest Context,[property:JsonRequired]string Product,
+ [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]TicketDraft? Draft=null);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record TicketFieldRequest([property:JsonRequired]FuturesReadRequest Context,[property:JsonRequired]TicketDraft Draft,[property:JsonRequired]string? Side,[property:JsonRequired]string Field);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
@@ -35,8 +36,12 @@ public sealed class GasTicketStore(PreviewDatabase database)
  // nominated record, else the contract's. Amounts stay the contract's: recorded quantities do not revalue the trade.
  const string QuantityPolicy=GasDailyQuantitySelection.ProjectionPolicy;
 
- public static TicketDescription Description(string product)=>product==GasParkLoanTicket.Product?GasParkLoanTicket.Description:product==GasTicket.Description.Product?GasTicket.Description:
-  throw new MarketDataException("ticket_input",$"No deal ticket describes product '{product}'.");
+ public static TicketDescription Description(string product,TicketDraft? draft=null)
+ {
+  if(draft is not null&&draft.Product!=product)throw new MarketDataException("ticket_input","The description draft must belong to the explicitly requested product.");
+  return product==GasTransportFinancialTicket.Product?GasTransportFinancialTicket.Describe(draft):product==GasParkLoanTicket.Product?GasParkLoanTicket.Describe(draft):product==GasTicket.Description.Product?GasTicket.Description:
+   throw new MarketDataException("ticket_input",$"No deal ticket describes product '{product}'.");
+ }
 
  // The catalog's books and parties are trading records under row security: the bound read context
  // shows only those known and effective in it, so historical choices list that context's revisions.

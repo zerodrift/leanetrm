@@ -17,18 +17,18 @@ internal interface IBlotterProductRun
 internal sealed class BlotterRun(FuturesBlotterView view,ImmutableArray<FuturesBlotterView> summaries,FuturesStore.FuturesBlotterRun? futures,
     SwapStore.SwapBlotterRun? swaps,PpaBlotter.PpaBlotterRun? ppas,
     Dictionary<Guid,Dictionary<string,DealAmountFormats.Selection>> formats,Func<string,bool> sideSchedules,IBlotterProductRun? gas=null,IBlotterProductRun? crude=null,
-    IBlotterProductRun? options=null,IBlotterProductRun? lng=null,IBlotterProductRun? parkLoan=null,ImmutableArray<IBlotterProductRun> additional=default)
+    IBlotterProductRun? options=null,IBlotterProductRun? lng=null,IBlotterProductRun? parkLoan=null,IBlotterProductRun? custody=null,IBlotterProductRun? transport=null,ImmutableArray<IBlotterProductRun> additional=default)
 {
     // A run of an empty directory has no products (D160).
     internal static BlotterRun Empty(FuturesBlotterView view,ImmutableArray<FuturesBlotterView> summaries,Func<string,bool> sideSchedules)=>new(view,summaries,null,null,null,[],sideSchedules);
 
-    internal int Positions{get;}=(futures?.Positions??0)+(swaps?.Positions??0)+(ppas?.Positions??0)+(gas?.Positions??0)+(crude?.Positions??0)+(options?.Positions??0)+(lng?.Positions??0)+(parkLoan?.Positions??0)+
+    internal int Positions{get;}=(futures?.Positions??0)+(swaps?.Positions??0)+(ppas?.Positions??0)+(gas?.Positions??0)+(crude?.Positions??0)+(options?.Positions??0)+(lng?.Positions??0)+(parkLoan?.Positions??0)+(custody?.Positions??0)+(transport?.Positions??0)+
         (additional.IsDefault?0:additional.Sum(p=>p.Positions));
 
     // Each unit's rows, decorated as the Blotter lists them.
     internal async IAsyncEnumerable<ImmutableArray<JsonObject>> Units([EnumeratorCancellation]CancellationToken ct)
     {
-        foreach(var product in new IBlotterProductRun?[]{futures,swaps,ppas,gas,parkLoan,crude,lng,options}.Concat(additional.IsDefault?[]:additional))
+        foreach(var product in new IBlotterProductRun?[]{futures,swaps,ppas,gas,parkLoan,custody,transport,crude,lng,options}.Concat(additional.IsDefault?[]:additional))
         {
             if(product is null)continue;
             await foreach(var unit in product.Units(ct).WithCancellation(ct))

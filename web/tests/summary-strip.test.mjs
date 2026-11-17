@@ -83,8 +83,16 @@ test('a strip kept on screen while the Blotter is read again keeps every last va
 test('before any values, the strip lists every money total the Blotter can show, waiting, never a figure',()=>{
  for(const state of ['pending','unavailable']){
   const strip=waitingStripItems({state,reason:'Retry to value again'},15,money);
-  assert.deepEqual(strip.filter(i=>i.state===state&&i.label!=='Not valued').map(i=>i.label),['Swap PV','Futures execution P&L','Heat-rate PV','PPA value excluding overdue cash','Gas contractual PV','Gas unrealized + realized unsettled','Park and loan remaining scheduled plan PV','Crude contractual PV','LNG contractual PV','Option value excluding settled premium','Operating-right PV','REC forward PV']);
+  assert.deepEqual(strip.filter(i=>i.state===state&&i.label!=='Not valued').map(i=>i.label),['Swap PV','Futures execution P&L','Heat-rate PV','PPA value excluding overdue cash','Gas contractual PV','Gas unrealized + realized unsettled','Remaining Transport rights and fee PV','Park and loan remaining scheduled plan PV','Remaining custody service PV','Crude contractual PV','LNG contractual PV','Option value excluding settled premium','Operating-right PV','REC forward PV']);
   assert.ok(strip.filter(i=>i.state===state).every(i=>i.value===(state==='pending'?'Pending':'Unavailable')&&i.exact===undefined));
   assert.equal(strip.find(i=>i.label==='Positions').value,'15');
  }
+});
+
+test('custody service value remains a separate exact currency total alongside title-transfer and other trades',()=>{
+ const summaries=structuredClone(fixture.summaries);
+ for(const index of [0,1,3])for(const group of summaries[index].groups)if(group.instrumentType==='financial_swap'&&group.currency==='EUR')group.instrumentType='physical_gas_park_custody';
+ const values=items(summaries);
+ assert.deepEqual(labelled(values,'Remaining custody service PV').map(i=>[i.currency,i.value,i.exact]),[['EUR','+#15','15']]);
+ assert.deepEqual(labelled(values,'Swap PV').map(i=>[i.currency,i.exact]),[['USD','220']]);
 });

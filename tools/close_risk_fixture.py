@@ -1,6 +1,7 @@
 """Synthetic retained-close inputs; no clock or retained definitions are rewritten."""
 from copy import deepcopy
-from datetime import datetime,timedelta,timezone
+from datetime import date,datetime,timedelta,timezone
+import re
 from zoneinfo import ZoneInfo
 
 from preview_fixture import CAT,REV,R,M,identity
@@ -10,6 +11,7 @@ from interval_curve_fixture import next_month
 def prepare(reference,market,security,manifest):
     manifest=deepcopy(manifest);config=manifest['ppaBookings']['workloads']['60']
     now=datetime.now(timezone.utc);current=now.date().replace(day=1)
+    close_at=(now+timedelta(minutes=6)).replace(second=0,microsecond=0)
     prior=(current-timedelta(days=1)).replace(day=1)
     first=(prior-timedelta(days=1)).replace(day=1);last=next_month(first)
     zone=ZoneInfo('America/New_York')
@@ -33,14 +35,22 @@ def prepare(reference,market,security,manifest):
         f"INSERT INTO market_data.shaped_curve_blocks VALUES({M},'{shaped}','{energy}','period');",
         f"INSERT INTO market_data.shaped_curve_actual_rules VALUES({M},'{shaped}',{R},'{config['source']}','interval_end',60,'interval_actual_due_v1');",
         f"INSERT INTO market_data.location_valuation_assignments VALUES({M},'test_existing_close_energy_assignment',{R},'{config['location']}','energy','{start}','{end}',NULL,'{shaped}',0);"])
-    market=market.replace(f"INSERT INTO market_data.revision_periods VALUES ({M},'2020-01-01','2022-01-01');",f"INSERT INTO market_data.revision_periods VALUES ({M},'2020-01-01','{current.year+2}-01-01');")
+    # The interval fixture has already declared a contemporary source period.
+    # Extend that exact owned declaration through this close's UTC business day,
+    # including when the later close crosses midnight. Preserve any longer end.
+    period=re.compile(r"INSERT INTO market_data\.revision_periods VALUES \("+re.escape(M)+r",'2020-01-01','(\d{4}-\d{2}-\d{2})'\);")
+    ends=period.findall(market)
+    if len(ends)!=1:
+        raise ValueError('The close-risk fixture requires exactly one explicit source applicability period.')
+    effective_to=max(date.fromisoformat(ends[0]),close_at.date()+timedelta(days=1))
+    market=period.sub(f"INSERT INTO market_data.revision_periods VALUES ({M},'2020-01-01','{effective_to.isoformat()}');",market,count=1)
     market=market.replace('UPDATE market_data.revisions SET','\n'.join(definitions)+'\nUPDATE market_data.revisions SET',1)
     market=market.rsplit('COMMIT;',1)[0]+'\n'+'\n'.join(observations)+'\nCOMMIT;\n'
     # API booking now seals retained schedules in resumable transactions. Keep
     # this synthetic close after setup so every deliberately supplied input can
     # be certified before its unchanged valuation-instant cutoff.
     # A close session cuts off on a whole minute (D334).
-    at=(now+timedelta(minutes=6)).replace(second=0,microsecond=0).isoformat()
+    at=close_at.isoformat()
     template=manifest['frames'][0]
     live=deepcopy(template);live.update(name='Synthetic existing-close live PPA',at=at)
     live['curveContracts']={key:values for key,values in template['curveContracts'].items() if key in ('test_ppa_long_60_peak','test_ppa_long_60_off','test_ppa_long_15_peak','test_ppa_long_15_off')}

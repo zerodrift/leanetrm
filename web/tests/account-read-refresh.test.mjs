@@ -14,6 +14,11 @@ const functions=['cancelCurveRead','openProfile','loadIdentity'].map(name=>{
  assert.ok(match,`Missing account entry point ${name}`);return match[0];
 });
 const script=(await transform(functions.join('\n'),{loader:'ts',target:'es2022'})).code;
+const switchScript=(await transform([
+ source.match(/^function renderProfileIdentity[^\n]+/m)?.[0],
+ source.match(/^async function profileChoices[^\n]+/m)?.[0],
+ source.match(/^\$\('open'\)\.onclick=[^\n]+/m)?.[0],
+].map(value=>{assert.ok(value,'Missing account switch entry point');return value;}).join('\n'),{loader:'ts',target:'es2022'})).code;
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
 class Source extends EventTarget{
  closed=false;
@@ -24,11 +29,11 @@ class Source extends EventTarget{
 test('permission refresh retires pending reads before temporarily clearing account context',async()=>{
  const nodes=new Map(),node=id=>{if(!nodes.has(id))nodes.set(id,{dataset:{},replaceChildren(){},closest(){return this;}});return nodes.get(id);};
  const noop=()=>{},curveController=new AbortController(),pageController=new AbortController();
- let parkLoanResets=0;const productResets=[];
+ let parkLoanResets=0,transportResets=0;const productResets=[];
  const context={currentProfile:'synthetic-reader',navigation:{context:{contextId:'synthetic-retained-context',knownThrough:4}},
   permissions:['ReadMarketData'],marketGeneration:0,curveRead:curveController,pageRead:{controller:pageController},
   $:node,select:node,choose:noop,clearPrices:noop,clearReference:noop,setCurveNames:noop,renderBlotterViews:noop,scheduleWorkspace:undefined,
-  parkLoan:{reset(){parkLoanResets++;}}};
+  parkLoan:{reset(){parkLoanResets++;}},transportTicket:{reset(){transportResets++;}}};
  for(const name of ['recInventory','structuredPower','closeConventionDefaults','lifecycle','physicalOperations','deliverySetup','referenceConsole','curveWorkspace','customCurves',
   'volSurfaces','optionChains','riskJobs','riskViewsNav','facilities','jobs','dashboard','deliveryPrices','intervalSeries','intervalCurves','ppa','gas','crude',
   'lng','gasSetup','crudeSetup','referenceEditor','parties','unitConverter','futures','power','touProducts','schedules','dateEditor','priceSetup',
@@ -53,6 +58,7 @@ test('permission refresh retires pending reads before temporarily clearing accou
   refreshing=context.openProfile().catch(error=>error.message);await flush();
   assert.equal(accessReads,2,'a changed permission list must enter identity refresh and await fresh access');
   assert.equal(parkLoanResets,1,'the Park and loan ticket must release the previous account draft');
+  assert.equal(transportResets,1,'the Transport ticket must release the previous account draft');
   assert.deepEqual(productResets.sort(),['optionChains','recInventory','structuredPower'],'REC, power and options must each release the prior account state before access returns');
   assert.equal(node('rec-inventory-page').hidden,true,'the previous account REC view must be hidden while access is pending');
   assert.equal(node('physical-power-page').hidden,true,'the previous account power view must be hidden while access is pending');
@@ -65,4 +71,28 @@ test('permission refresh retires pending reads before temporarily clearing accou
  }finally{
   context.readClient.close();denyAccess(Error('Synthetic access read ended'));await refreshing;
  }
+});
+
+for(const admitted of [true,false])test(admitted?'an accepted actor is named even when its selected market context cannot load':'a refused actor switch keeps the original identity',async()=>{
+ const nodes=new Map(),node=id=>{if(!nodes.has(id))nodes.set(id,{value:'',textContent:'',hidden:false,open:true,selectedOptions:[],setAttribute(name,value){this[name]=value;},close(){this.open=false;}});return nodes.get(id);};
+ node('profile').options=[{value:'viewer',textContent:'Viewer'},{value:'trader',textContent:'Trader'}];node('profile').value='trader';node('profile-label').textContent='Viewer';node('profile-title').textContent='Viewer';
+ let failure,identityLoads=0,backs=0;
+ const context={currentProfile:'viewer',permissions:['ReadMarketData'],bootstrapPath:'bootstrap',hostedPilot:false,
+  $:node,select:node,text(id,value){node(id).textContent=value;},friendly:value=>value,
+  choose(id,options,value){node(id).options=options.map(option=>({value:option.value,textContent:option.name}));const selected=options.find(option=>option.value===value);node(id).value=value;node(id).selectedOptions=selected?[{textContent:selected.name}]:[];},
+  deadlines:{read(){}},setHostMode(){},mayLeaveForDialog:async()=>true,
+  futures:{ended(){}},savedPreferences:{invalidate(){}},blotterBack:async()=>{backs++;},
+  profileAction:async(_control,work)=>{try{await work();}catch(error){failure=error.message;}},
+  api:async(path,body)=>{if(path==='profile'){assert.equal(body.profile,'trader');if(!admitted)throw Error('Synthetic actor admission denied');return {};}
+   assert.equal(path,'bootstrap');return {profiles:[{id:'viewer',name:'Viewer'},{id:'trader',name:'Trader'}],customProfiles:[],requestDeadlines:{},mode:'preview'};},
+  loadIdentity:async()=>{identityLoads++;context.permissions=['ReadMarketData','BookTrade'];throw Error('Choose a market date above.');}};
+ vm.createContext(context);vm.runInContext(switchScript,context);node('open').onclick();
+ for(let i=0;i<8&&failure===undefined;i++)await flush();
+ assert.equal(context.currentProfile,admitted?'trader':'viewer');
+ assert.equal(node('profile-label').textContent,admitted?'Trader':'Viewer','the header must name the actor whose admission succeeded');
+ assert.equal(node('profile-title').textContent,admitted?'Trader':'Viewer');
+ assert.equal(identityLoads,admitted?1:0);assert.equal(backs,admitted?0:1);
+ assert.equal(failure,admitted?'Choose a market date above.':'Synthetic actor admission denied','the original source or admission refusal remains visible');
+ assert.equal(node('profile-dialog').open,true,'a context refusal must not look like a completed dialog action');
+ if(admitted)assert.match(node('profile-access').textContent,/Book Trade/);
 });

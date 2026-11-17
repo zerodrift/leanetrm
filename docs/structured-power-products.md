@@ -22,7 +22,7 @@ Only consumed physical parameters are saved; guarantees, entitlement, state,
 dispatch, prices and fees remain explicit preview inputs. Unsupported planned
 fields appear disabled as **Coming soon**.
 
-D413 implements explicit operating assembly through concrete Side composition,
+D417 implements explicit operating assembly through concrete Side composition,
 with separate independent dates and prices, repeated quantity sources and native
 saved admission. It preserves the qualified D412 request/identity contract below.
 Fixed/floating pricing is shared economics; the concrete Side owns its

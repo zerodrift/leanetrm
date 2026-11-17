@@ -1,6 +1,6 @@
 # Unit instruments and trade bindings
 
-## Mandatory composition boundary (D413)
+## Mandatory composition boundary (D417)
 
 Every financial instrument derives from `Instrument`. The only products allowed
 to have no Sides are `FuturesContract` and exchange-traded
@@ -29,7 +29,7 @@ and schedules. They remain separate contributions. A Side contains neither peer
 Sides nor an Instrument whose PV it calls. Shared operating feasibility produces
 typed quantity/state outputs consumed by those Sides; it adds no separate PV.
 
-The D413 increment implements this boundary for power, REC and their required
+The D417 increment implements this boundary for power, REC and their required
 common adapters. `RetainedProgramSide` owns exact retained schedule execution and
 inspection, with ordinary signed Side aggregation and context-bound reuse.
 Managed numerical checks, native admission and the owned saved-trade HTTP workflow
@@ -37,6 +37,12 @@ qualify this bounded scope. The rule alone establishes no capability or
 qualification for another product family. Existing booking versions and retained
 identities remain readable under their original financial and authorization
 contracts.
+
+The current Transport whole-rights owner also composes a concrete
+`GasTransportDirectRightsSide`. Its exact horizon and accepted expiry remain a
+claim schedule, with the same signed mark, context/dependency fence and published
+identities. It does not introduce payment rows or scale the whole position;
+independent fee cash retains its own owner and valuation.
 
 ## Trade ownership
 

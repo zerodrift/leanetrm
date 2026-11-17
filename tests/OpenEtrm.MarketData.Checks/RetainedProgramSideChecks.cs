@@ -18,6 +18,7 @@ internal static class RetainedProgramSideChecks
             var side=(RetainedProgramSide)memberships[n].Side;
             if(side.Id!=instrument.Members[n].SideId||!ReferenceEquals(side.Program,instrument.Members[n].Program)||
                 !ReferenceEquals(side.GenerateSchedule().Program,side.Program)||side.ProgramDigest!=instrument.Members[n].ProgramDigest||
+                !side.GenerateSchedule().PriceTerms.IsEmpty||
                 memberships[n].Coefficient!=instrument.Members[n].Coefficient)
                 throw new Exception("Side membership must retain the exact sealed program, identity and sign without recompilation.");
             _=DefinitionIdentity.For(side);

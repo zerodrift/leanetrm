@@ -1,6 +1,7 @@
 using OpenEtrm.MarketData.Trading;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Power;
+using OpenEtrm.MarketData.Gas;
 using System.Collections.Immutable;
 
 internal static class SideCompositionChecks
@@ -11,10 +12,12 @@ internal static class SideCompositionChecks
         var leaves = typeof(Instrument).Assembly.GetTypes()
             .Where(type => !type.IsAbstract && typeof(Instrument).IsAssignableFrom(type)).ToArray();
         // This independently owned workload covers power/REC and the common
-        // retained-program family. Other commodity/cash migrations are separate
+        // retained-program family and the current whole Transport-rights owner.
+        // Other legacy commodity/cash migrations are separate
         // work; they do not become permanent architectural exceptions.
         var workload=leaves.Where(type=>(type.Namespace==typeof(Instrument).Namespace&&!typeof(CashPaymentInstrument).IsAssignableFrom(type))||
             type.Namespace?.StartsWith("OpenEtrm.MarketData.Power",StringComparison.Ordinal)==true||
+            type==typeof(GasTransportDirectRightsInstrument)||
             Ancestors(type).Any(parent=>parent.IsGenericType&&parent.GetGenericTypeDefinition()==typeof(RetainedProgramInstrument<>)));
         var bypasses = workload.Where(type => !exceptions.Contains(type)&&!typeof(SidedInstrument).IsAssignableFrom(type)).ToArray();
         if (bypasses.Length != 0)

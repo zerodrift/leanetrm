@@ -1,6 +1,6 @@
 # Booked executable Side schedules
 
-D413 requires the retained program to execute through a concrete subclass of
+D417 requires the retained program to execute through a concrete subclass of
 abstract `Side`. Its exact immutable program supplies that Side's schedule and PV;
 the owning Instrument combines signed Side memberships rather than looping over
 raw programs as a substitute for Sides. The power/REC increment and its required

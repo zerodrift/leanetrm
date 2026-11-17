@@ -356,7 +356,7 @@ remaining bounds are recorded with the executable consumers in the linked contra
 | D334 | Close by regional session; the latest close for a session and business day is in force | Owner decisions and implementation recorded in [regional closes](regional-closes.md); design calls await review. Refines D162 and D219: a close names an exact versioned close session (clock, local cutoff, business calendar, curves) and an explicit business day, and its UTC instant is the session cutoff on that day. For each session and business day the close with the highest publication order is in force, evaluated on read; earlier ones are history and are refused for new work (`close_replaced`). A close must carry exactly its session's curves; nothing is carried forward. Recording needs a per-session grant. Every view, historical ones included, reads the close in force; this lifts only the knowledge-time checks on the close and its pins and is a recorded exception to the knowledge-cutoff rule. Saved results keep their exact close; pilot reports disclose replacement, while portfolio-job disclosure and historical worker close-session binding remain documented limitations. Each person's chosen session is remembered; no session is chosen for anyone. Only recorded closes are closes; unrecorded snapshots are working data offered separately, and built-in demo frames are seeded as session closes. Existing closes are retired and deployments reseeded (migration 0202 refuses a non-empty close history). Implemented in the repository; hosted activation requires separate qualification |
 
 | D412 | Keep consumed facility parameters separate from saved operating rights, their independent Sides and evidenced REC ownership | Decided 2026-11-16; [facility contract](operating-facilities.md), [trading and inventory contract](structured-power-trading.md), [details](#d412--operating-facility-versions-and-supplied-plan-previews). Extend exact reference locations with consumed physical/model parameters. Book complete exclusive supplied-plan rights through retained membership-owned schedules; compare separately booked financial hedges under shared scenarios. Standalone REC forwards own delivery/consideration Sides; durable manual inventory uses exact serial evidence, delivery capacity, certified history and idempotent commands. GUI consumers use those same authorized operations. Optimization and external registry submission remain separate. |
-| D413 | Require concrete Side composition for every instrument except futures and exchange-traded options | Decided 2026-11-16; [contract](instrument-contracts.md#mandatory-composition-boundary-d413), [implementation gates](plan.md#mandatory-side-composition-d413), [details](#d413--mandatory-concrete-side-composition). All instruments derive from Instrument. Non-exempt products compose independently scheduled concrete Side subclasses, including retained-program and claim paths. Share fixed/floating economics without bypassing Side PV; combine explicit signed memberships and apply trade quantity once. Operating assembly selects independent terms through one managed API/UI contract. Implemented with bounded local managed/native/HTTP qualification for power, REC and required common adapters; legacy identities and accepted outcomes remain unchanged. |
+| D417 | Require concrete Side composition for every instrument except futures and exchange-traded options | Decided 2026-11-16; [contract](instrument-contracts.md#mandatory-composition-boundary-d417), [implementation gates](plan.md#mandatory-side-composition-d417), [details](#d417--mandatory-concrete-side-composition). All instruments derive from Instrument. Non-exempt products compose independently scheduled concrete Side subclasses, including retained-program and claim paths. Share fixed/floating economics without bypassing Side PV; combine explicit signed memberships and apply trade quantity once. Operating assembly selects independent terms through one managed API/UI contract. Implemented with bounded local managed/native/HTTP qualification for power, REC and required common adapters; legacy identities and accepted outcomes remain unchanged. |
 
 ## Proposed implementation choices
 
@@ -5753,6 +5753,29 @@ value they state are unchanged.
   from the fitted smile; volatility in Risk; rho; scheduled fitting; assistant
   reading of the page.
 
+## D414 · Physical storage assets and independently tracked activity
+
+**Status:** implemented operating profile with local managed, native, upgrade and
+browser qualification. Integration and release checks remain separate gates.
+
+**Requirement.** Define the physical facility's operating parameters and track
+its pipeline-linked physical activity independently from commercial contracts.
+
+**Decision.** Keep exact versioned asset/port/rule relationships separate from
+commercial entitlement, title and charges. A dated opening physical fact and an
+explicit complete activity window supply total inventory. The first storage
+profile uses absolute step ratchets and native quantity per elapsed hour; shared
+gross flows consume physical limits together. Actual evidence retains breaches,
+while prospective admission requires independent native witness validation.
+Missing opening or complete coverage is unassessed. Reuse existing quantity
+allocation sources and own-trade projections through exact links; do not create
+a parallel financial ledger or infer a movement from title transfer.
+
+**Boundaries.** This is a physical operations consumer. Full Storage/Transport
+agreements, other ratchet laws, loss/conversion rules and complete optionality
+valuation require their own qualified contracts. See
+[storage facility operations](storage-facility-operations.md).
+
 ## D409 · A strategy of option legs on one expiry is analysed by a read, and Options draws it
 
 2026-11-16. Scope decided by the owner on 15 November 2026: legs on one option
@@ -5855,7 +5878,7 @@ trading P&L and every value they state are unchanged.
   valuing options from the fitted smile; volatility in Risk; rho; scheduled
   fitting; assistant reading of the page.
 
-## D413 — Mandatory concrete Side composition
+## D417 — Mandatory concrete Side composition
 
 **Decided 2026-11-16.** Every financial instrument derives from `Instrument`.
 Only `FuturesContract` and exchange-traded `FuturesOptionInstrument` may be
@@ -5887,15 +5910,191 @@ contract. Saved-v2 admission must independently verify its original terms,
 sealed programs, exact relationships, current authority and certified history.
 It must preserve full-right facility exclusion across versions/profiles.
 
+The integrated current Transport whole-rights consumer composes one concrete
+`GasTransportDirectRightsSide`. It owns the admitted direct mark and exact
+horizon/expiry claim schedule, without delivery or payment rows. Its published
+economic/pricing identities, whole-position admission, current-clock/source
+fences and independently held fee cash remain unchanged. This applies the
+composition boundary to the current consumer without qualifying another gas
+valuation profile or introducing a generic claim framework.
+
 **Status:** implemented and locally qualified for power, REC and their required
 common adapters. Managed numerical checks, native admission/rejection and the
 owned saved-trade HTTP workflow cover this bounded contract. Final merged
 frontend/browser verification is recorded in the
-[capability contract](structured-power-trading.md#d413-qualification). The universal rule does
+[capability contract](structured-power-trading.md#d417-qualification). The universal rule does
 not qualify another product family. Existing legacy JSON, definition identities
 and first-outcome receipts remain unchanged. This decision
 does not add shared-resource pooling, optimization, started-delivery valuation,
 cash settlement or another generic event/persistence framework. Remaining
 product/release gates and the independent composition, numerical, retained-reopen,
 native rejection, authorization and temporal checks are in
-[the plan](plan.md#mandatory-side-composition-d413).
+[the plan](plan.md#mandatory-side-composition-d417).
+## D410 · Explicit balance-time fees and cumulative independent cash
+
+**Status:** implemented bounded profile with disposable local qualification;
+the exact combined artifact and release remain separately gated.
+
+**Requirement.** Charge accepted outstanding Park and Loan principal over time,
+preserving principal, service value, fee determinations and bank payments as
+independent facts.
+
+**Decision.** Install `physical_gas_park_loan_balance_time_v1` alongside the
+fixed-fee title-transfer profile. Retain an absolute currency/native-quantity rate,
+elapsed-hour basis, accepted advance start, contractual cutoff, overdue treatment,
+cash due instant, remaining-return plan and cumulative rounding law. Integrate
+accepted partial returns exactly, round cumulative payment totals once and append
+only their signed differences. Each nonzero contribution has an independent cash
+owner; a zero delta records a checkpoint without cash. Explicit restatement after
+a newly accepted backdated return may create a refund without rewriting paid
+cash. Remaining service value subtracts all determined contributions, including
+paid ones; native outstanding cash includes only unpaid amounts.
+
+The shared ticket renders the explicitly selected profile's fields under an exact
+description-selector attestation. It does not submit inactive economic fields.
+Native persistence independently validates rational math, event membership, exact
+previous heads, operation receipts, current authority and original deadlines.
+
+**Boundaries.** An expired unaccepted advance plan is unavailable and cannot
+become zero or an invented actual advance. The cutoff never discharges principal.
+Quantity scaling, source-correction continuity and complete economic horizon
+projection remain unqualified. The economic fence includes source-known future,
+zero-rate, rounded-zero and cash-only states. See the [fee contract and actual
+qualification](gas-park-loan-balance-fee.md).
+
+## D411 · Retained-title parking with independent reservations and fee cash
+
+**Status:** bounded implementation with disposable local qualification; aggregate
+CI, release and production activation remain separate gates.
+
+**Requirement.** Represent parking that retains customer title, with auditable
+observations, explicit performance and surviving independent cash, rather than
+creating a title-transfer claim or an artificial provider commodity position.
+
+**Decision.** Install `physical_gas_park_custody_v1` as an explicit profile of
+the shared Park and Loan authoring family. Capture one exact point, native
+quantity basis, currency, acceptance window and return due. Customer acceptance
+reserves identified owned lots; provider acceptance records foreign custody with
+an explicitly absent owned account. Partial return releases an original native
+reservation and creates its exact same-lot remainder atomically. Final return
+requires release authority without requiring authority to create a nonexistent
+remainder. No custody transition changes owned quantity or physical activity.
+
+Record supported raw observations independently of financial application. Exact
+manual/review action policies, observation revisions and accepted return order
+are explicit. Changed pinned evidence requires reconciliation without rewriting
+accepted title or cash. Original request recovery precedes fresh-source lookup;
+a fresh acknowledgement of a sealed fact beyond the selected view reports no
+new effect and does not promote that view's business or knowledge cutoff.
+
+Recognize the independently directed fixed fee at acceptance as an ordinary
+`TimedCashPayment` membership. Recorded bank payments use the existing cash
+operation and its `AmendTrade` authority, with read-only actor-bound receipt
+recovery. The completed custody workbench remains available for independent
+unpaid cash and raw observation history. Contractual instants display in the
+user's zone; exact wire instants retain native microsecond precision.
+
+**Boundaries.** The installed contract prohibits use and sale of custody and
+does not implement loss application, cross-point conversion, source correction
+adapters, quantity scaling or automatic performance. An expired unaccepted plan
+is unavailable even with a zero fee. Current-clock price qualification does not
+qualify generated closes, cross-clock P&L or complete economic horizon risk;
+source-known zero, future-effective, completed and cash-only states require
+the same explicit continuation fence. See the [contract](gas-park-custody.md).
+
+## D415 · Explicit gross transport capacity across shared paths
+
+**Status:** locally qualified capacity operating consumer; financial Transport
+booking and deployment qualification remain open.
+
+**Requirement.** Validate shared commercial entitlement, eligible points and
+routes throughout explicit operating intervals, independently of physical
+evidence, title, custody and cash.
+
+**Decision.** The first capacity law uses complete versioned dated rate limits,
+gross receipt quantity for agreement/receipt/route claims and gross delivery
+quantity for delivery-point claims. Each explicit stage interval has a uniform
+rate per actual elapsed hour. Evaluate every rate and limit boundary exactly;
+alternate paths cannot multiply their parent capacity. Report actual breaches,
+while a prospective replacement requires feasibility. A separately selected
+empty release can remove only its own claims while retaining other breaches.
+Missing coverage refuses rather than selecting a financial or operational fallback.
+
+The current consumer is a manually declared entitlement with exact book, party,
+reference and direct-path relationships. Independent chosen plans share every
+parent/point/path limit. Revising limits retains earlier claims and exposes
+breaches; replacing one plan releases only that plan's earlier claims. Complete
+source generations, immutable typed facts and exact retry receipts govern
+admission. Any latest-known future-effective head freezes new changes at the
+earlier business context. Earlier facts can be acknowledged without reinstating
+their heads. See the [operating contract](gas-transport-capacity-operations.md)
+and [wire boundary](gas-transport-capacity-api.md).
+
+**Boundaries.** This component does not establish route conservation, fuel,
+loss, transit, asset linepack, financial booking or any valuation. Those
+consumers require their own explicit qualified policies and complete current
+authority. See [Transport implementation status](gas-transport.md).
+
+## D413 · Retained routes over exclusive exact capacity-plan sources
+
+**Status:** locally qualified operating consumer; integrated release remains open.
+
+**Requirement.** Compose a complete chosen route from exact admitted capacity
+claims, conserve its declared fuel/loss/timing and split/merge quantities, and
+prevent source corrections from duplicating logical route membership.
+
+**Decision.** Use immutable exact graph/law definitions and append route-plan or
+own-membership-release facts. Each selected complete capacity-plan stream is
+exclusively linked through its first and current exact headers; every current
+claim is mapped once. Source changes make current assessment unavailable until
+explicit re-adoption. New assertions retain complete capacity version/generation
+as source value. Numerical policy, source authority, original deadlines and D238
+apply at managed and native boundaries.
+
+**Boundaries.** The first profile has exact same-pipeline-point handoffs, one
+uniform claim per segment, no node storage and no inferred interconnects. It does
+not establish physical performance, title, cash, financial Transport value or
+broader assignment rights. See the [route contract](gas-transport-routes.md).
+
+## D416 · Direct Transport rights values with independent fixed-fee cash
+
+**Status:** bounded implementation with local native, managed and actual browser
+qualification; first-value market publication and integrated release remain open.
+
+**Requirement.** Book and value a complete Transport service-rights package using
+an explicitly selected direct market value, without inferring gas exposure or
+conflating operating plans, physical performance, title and cash.
+
+**Decision.** Install `physical_gas_transport_direct_rights_v1` over one exact
+commercial entitlement/version. Require the company-signed current PV of the
+whole remaining rights package, excluding independent fees and owned gas. Pin
+the selected direct outright valuation definition, exact package/currency
+references, explicit price/fee/expiry laws and company perspective. Perspective
+supplies neither mark sign nor payment direction. Missing marks remain unpriced;
+zero is an explicit observation. Publish market data through its ordinary
+authorized operation, then adopt the exact observation for one financial state
+and valuation instant. Do not copy monetary values into an editable ledger.
+
+An explicit capacity-version adoption changes financial state and requires a
+new mark application. Operating plan changes do not amend financial rights.
+Valuation identity follows the accepted state while the retained agreement and
+binding preserve their native identities. Shared holding admission accepts
+exactly positive one complete package; quantity scaling and duplicate whole
+positions refuse. The ordinary black-box PV and immutable factor-scenario
+contracts retain their dependency semantics.
+
+The first fee is an independently directed, unconditional one-off obligation at
+booking. Nonzero fees own an ordinary `TimedCashPayment`; explicit zero has no
+cash owner. Existing recorded payments preserve complete correction histories
+and the selected same-sign capacity. The rights mark is already PV and receives
+no second discount factor. Exact manual/review lifecycle policy closes the
+rights at the fixed contractual end. Closed rights have known zero value;
+independent unpaid cash survives.
+
+**Boundaries.** One exclusive financial owner per entitlement is supported.
+Automatic service valuation, assignment, partition, source/fee/party amendment,
+residual rights and complete economic horizon continuation require separately
+qualified contracts. Current-clock price risk does not establish cross-clock
+P&L or generated-close support. Exact operating and valuation reference versions
+remain independent; equal currency labels do not authorize netting. See the
+[financial contract and qualification gates](gas-transport-financial.md).

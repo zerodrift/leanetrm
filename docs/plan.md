@@ -1,6 +1,6 @@
 # Delivery plan and acceptance criteria
 
-## Mandatory Side composition (D413)
+## Mandatory Side composition (D417)
 
 Status: implemented and locally qualified for power, REC and required common
 adapters. Final merged verification results are recorded in the capability
@@ -11,6 +11,9 @@ exchange-traded `FuturesOptionInstrument` may have no Sides. The current increme
 covers power, REC and their required common retained-program/claim adapters,
 using concrete subclasses of abstract `Side` with immutable independent schedules
 and Side-owned PV. The universal rule does not qualify another product family.
+The integrated current Transport whole-rights owner also composes a concrete
+claim Side while preserving its signed mark, horizon/expiry, exact identities and
+whole-position/source/time fences; independently held fee cash is unchanged.
 Reuse shared fixed/floating economics without replacing asset-specific behavior
 with product switches. Instruments combine signed memberships; Trade applies external typed
 quantity once. Shared operating feasibility supplies typed quantities/state and
@@ -45,10 +48,45 @@ The implemented operating assembly contract:
    authority boundaries. Native expiry checks reject a semantic no-op whose
    receipt insertion outlives its authority. Final merged frontend/browser and
    managed/native/HTTP results are recorded in the
-   [D413 qualification](structured-power-trading.md#d413-qualification).
+   [D417 qualification](structured-power-trading.md#d417-qualification).
 
 See [the developer contract](instrument-contracts.md) and
-[the operating profile](structured-power-trading.md#explicit-side-assembly-d413).
+[the operating profile](structured-power-trading.md#explicit-side-assembly-d417).
+
+D416 implements the selected [financial Transport rights and fixed-fee
+contract](gas-transport-financial.md). Native and managed value/upgrade controls
+and actual shared browser checks provide local evidence. First-value market
+publication, integrated upstream qualification and release remain delivery gates.
+Physical performance and commercial Storage retain separate planned contracts.
+
+D413 locally qualifies [retained chosen routes](gas-transport-routes.md) with
+explicit graph/law definitions, complete exact source claims and exclusive
+logical memberships. Correction makes a current assessment unavailable until
+explicit re-adoption, while own release can free stale memberships. Local native,
+managed, populated-upgrade and actual browser gates passed. Integrated release,
+Transport performance and financial product qualification remain separate.
+
+The route checkpoint passed 742 managed core, the full API schedule suite,
+1,997 frontend and 152 Python checks. Native gates include exact full-witness
+parity through nine actual managed checkpoints, source/membership concurrency,
+deferred source changes, original authority, historical reads and populated
+upgrades. The same frozen application artifact passed 55 route, 64 capacity and
+30 storage browser checks, with desktop, local-zone and phone views reviewed.
+
+D415 implements [commercial Transport capacity operations](gas-transport-capacity-operations.md)
+with immutable legal/reference/path scope, complete dated gross limits and
+independent chosen plans. Explicit empty release permits cleanup while retaining
+other breaches. Local managed/native, populated-upgrade and actual browser
+checks passed. Integration/release gates remain open.
+This operating consumer does not enable financial Transport booking, route
+conservation, accepted flow or complete service value.
+
+The D415 checkpoint passed 741 managed core, 1,984 frontend and 146 Python
+checks, the full API schedule suite, native source/concurrency/receipt/authority
+controls and populated predecessor/drift checks. Actual browser qualification
+passed 64 Transport checks and 30 existing-storage regression checks against
+the same API, SQL and shared UI artifact. These results qualify the declared
+operating consumer, not the remaining financial or physical Transport products.
 
 D406 locally qualifies a bounded [Park and Loan consumer](gas-park-loan.md):
 explicit booking, native advance and partial return, independent fee cash, shared
@@ -56,6 +94,28 @@ ticket and lifecycle forms, and ordinary/retained current-clock price risk. Real
 browser, native financial and populated-upgrade qualifiers passed. Aggregate CI,
 release and service economic-horizon qualification remain open. Broader service
 terms require separately qualified executable profiles.
+
+D414 adds a [storage physical operations consumer](storage-facility-operations.md):
+versioned asset rules, pipeline ports, dated opening evidence and independent
+planned/measured activity. Native persistence, explicit coverage, concurrent plan
+admission, existing allocation links and shared UI have local qualification.
+Complete commercial Storage/Transport, further operating laws and integrated
+release checks remain open.
+
+D410 implements [outstanding-balance elapsed-hour fees](gas-park-loan-balance-fee.md)
+with explicit timing, remaining-return plans and cumulative cash rounding. Native
+and managed determination, independent contributions and refunds, shared entry,
+current-clock price scenarios and retained PRICE workers have disposable local
+qualification. Complete economic horizon risk, broader service laws and source
+reconciliation remain separate qualification work. The exact combined artifact
+still requires its integration and release gates.
+
+D411 implements [retained-title parking](gas-park-custody.md) as a distinct
+Park and Loan profile. It preserves customer title through identified-lot
+reservations, accepts provider foreign custody without a stock account, and
+uses ordinary independent fee cash. Native operations, shared entry, browser
+workflows and current-clock pricing have disposable local qualification. Transport, commercial
+Storage, wider rights, correction adapters and economic continuation remain open.
 
 D404 is implemented for 25 selected main-workbench curve, trading and Risk reads,
 with independent view progress, bounded execution, cancellation admission fences
@@ -86,7 +146,7 @@ instants and exchange option expiry retain their explicit timing and rate inputs
 required purpose bindings and Side-owned rules; omission checks are mandatory
 in the verification runner.
 
-The integrated verification runner requires 190 commands, including required
+The integrated verification runner requires all selected checks, including required
 Park and Loan native, populated-upgrade, retained-worker and browser qualifiers,
 with domain, native database, agent and browser coverage. Local checks at D406
 passed 738 managed core checks and 1,889 frontend checks. The earlier D403
@@ -845,7 +905,7 @@ Variation-margin processing and full futures settlement PV remain unimplemented.
 
 Simple futures contracts are leaf instruments keyed by the exact futures-series
 primary key, independent of the curve recipe. Explicit pricing bindings retain
-selected curve/member and quote policy. D413 requires every other financial
+selected curve/member and quote policy. D417 requires every other financial
 product except exchange-traded options to use concrete Side composition with
 nonempty immutable memberships; fixed/floating swaps are one existing consumer.
 Fused exact aggregation preserves final arithmetic and trade-owned

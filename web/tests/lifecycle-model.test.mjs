@@ -27,6 +27,14 @@ test('inactive contracts retain a readable reason and distinct occurrence identi
  assert.match(lifecycleReason(inactive.reason),/closed/i);
  assert.notEqual(lifecycleKey(offer),lifecycleKey({...offer,occurrenceId:'different'}));
 });
+test('Transport inspection rows explain expiry and source availability without changing backend eligibility',()=>{
+ const reasons={gas_transport_financial_not_due:'The Transport rights have not reached their contractual expiry.',
+  gas_transport_financial_closed:'The Transport rights are closed. Independent fee cash remains available.',
+  financial_state_future:'The latest financial state is not yet effective in this selected view.'};
+ const offers=Object.keys(reasons).map(reason=>({...offer,target:{...offer.target,handler:'gas_transport_financial'},eligible:false,reason}));
+ assert.deepEqual(lifecycleRows(offers,at=>at).map(row=>row[5]),Object.values(reasons));
+ assert.deepEqual(offers.map(value=>[value.eligible,value.reason]),Object.keys(reasons).map(reason=>[false,reason]));
+});
 test('independent swap memberships sharing one payment template retain distinct saved-profile identities',()=>{
  const shared={...offer,target:{...offer.target,handler:'financial_swap'},action:'swap.determine',occurrenceId:'shared-side-period'};
  const first={...shared,profileId:'first-membership-profile'},second={...shared,profileId:'second-membership-profile'};
@@ -62,4 +70,29 @@ test('only committed financial-source operations invalidate current valuation in
  for(const action of ['evidence','mark_binding','projection_profile'])assert.equal(lifecycleChangesFinancialSource({path:'lifecycle/gas/configure',body:{action}}),true);
  for(const path of ['lifecycle/policies/save','lifecycle/futures/policies/save','lifecycle/swaps/net/configure','lifecycle/futures/delivery/configure'])assert.equal(lifecycleChangesFinancialSource({path,body:{}}),false);
  for(const action of ['account','bind_policy'])assert.equal(lifecycleChangesFinancialSource({path:'lifecycle/gas/configure',body:{action}}),false);
+});
+
+test('target-scoped custody evidence retains its exact source for recovery and invalidates financial inputs',async()=>{
+ const {lifecycleChangesFinancialSource}=await import('../dist/lifecycle-model.js');
+ const body={operationId:'observation-operation',context,target:{handler:'gas_park_custody',scopeId:'agreement',bindingId:'instrument'},selection:{evidence:'Synthetic receipt'}};
+ const saved={operationId:body.operationId,path:'gas/park-custody/evidence',body,uncertain:true};
+ assert.deepEqual(restoreLifecycleRequest(saved),saved);
+ assert.equal(lifecycleChangesFinancialSource(saved),true);
+ assert.equal(restoreLifecycleRequest({...saved,path:'gas/park-custody/evidence/status'}),undefined);
+});
+
+test('ordinary accepted cash payment recovery retains its flat membership, source and allocation revision',async()=>{
+ const {lifecycleChangesFinancialSource}=await import('../dist/lifecycle-model.js');
+ const body={operationId:'cash-operation',snapshotId:'close',knowledgeMode:'current',tradeId:'service',bindingId:'cash',allocationId:'payment',expectedRevision:2,paidAt:context.asOf,amount:'-5.000000000000000001',policy:'explicit_paid_cash_nominal_due_v1'};
+ const saved={operationId:body.operationId,path:'cash-payments/record',body,uncertain:true};
+ assert.deepEqual(restoreLifecycleRequest(saved),saved);assert.equal(lifecycleChangesFinancialSource(saved),true);
+});
+
+test('financial Transport recovery retains its exact canonical source command and invalidates values only on confirmation',async()=>{
+ const {lifecycleChangesFinancialSource}=await import('../dist/lifecycle-model.js');
+ const body={operationId:'transport-operation',ownerId:'transport-owner',context,effectiveAt:context.asOf,
+  command:{kind:'adopt_rights_mark',tradeId:'transport-agreement',financialStateId:'state',observationId:'exact-observation',evidence:'Synthetic published quote adoption'}};
+ const saved={operationId:body.operationId,path:'gas/transport/financial/record',body,uncertain:true};
+ assert.deepEqual(restoreLifecycleRequest(saved),saved);assert.equal(lifecycleChangesFinancialSource(saved),true);
+ assert.equal(restoreLifecycleRequest({...saved,path:'gas/transport/financial/status'}),undefined);
 });

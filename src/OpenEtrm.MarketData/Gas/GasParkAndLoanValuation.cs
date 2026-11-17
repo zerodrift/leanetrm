@@ -42,7 +42,7 @@ public static class GasParkAndLoanValuation
         return components.ToImmutable();
     }
 
-    private static GasCommodityHoldingInstrument Principal(GasParkAndLoanTerms terms,DateTimeOffset at)
+    internal static GasCommodityHoldingInstrument Principal(GasParkAndLoanTerms terms,DateTimeOffset at)
     {
         var identity=DefinitionIdentity.CanonicalTerm(new object[]{"gas_park_loan_principal_v1",terms.Mark,terms.Quantity,terms.Currency,at,terms.Carrying});
         return new(ContractIdentity.FromCanonical(identity),terms.Mark,terms.Quantity,terms.Currency,at,terms.Carrying);

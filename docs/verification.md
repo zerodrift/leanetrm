@@ -38,9 +38,8 @@ The gas partition includes the Park and Loan native, populated-upgrade, retained
 price-worker and real application browser qualifiers, alongside its existing
 amendment upgrades and application checks.
 
-The current integrated runner contains 190 commands: 65 shared checks,
-64 isolated application previews and 61 partition-specific native/application
-checks. The D404 local checkpoint passed 1,866 frontend checks and 122 Python
+The integrated runner requires shared, isolated application and partition-specific
+native/application checks. The D404 local checkpoint passed 1,866 frontend checks and 122 Python
 checks. The earlier calendar/lifecycle checkpoint passed 737 managed core checks,
 88 rate checks, 1,806 frontend checks and 121 Python checks; those counts describe
 that increment. Calendar migrations 0318–0337 follow
@@ -4770,6 +4769,118 @@ UI time-resolution races. Aggregate CI and exact-release checks remain mandatory
 local qualification does not activate a production schema or qualify service
 horizon continuation.
 
+## Outstanding-balance fee qualification (D410)
+
+The [balance-time fee contract](gas-park-loan-balance-fee.md) has four required
+consumers in the gas partition:
+
+- `tools/check_gas_park_loan_balance_fee.py` verifies native booking, principal
+  and fee operations, exact rational/cumulative rounding, explicit refunds,
+  authority, immutable operation seals and 26 independent whole-book price and
+  scenario checkpoints with the selected SDK supplied through `DOTNET`.
+- `tools/check_gas_balance_fee_upgrade.py` applies the additive migration over
+  populated fixed-fee agreements, preserves exact prior facts and outcomes,
+  and refuses altered protected producer, probe and privilege contracts.
+- `tools/check_gas_balance_fee_worker.py` executes nine retained PRICE jobs,
+  including the required unavailable-plan refusal, ordinary/report parity,
+  independent paid/refund cash and exact source and authority checks. Economic
+  continuation refuses zero-rate, rounded-zero and principal-complete cash-only
+  scopes; excluded scopes remain unaffected.
+- `tools/check_gas_balance_fee_browser.py` operates shared profile entry,
+  reopening, lifecycle and normal whole-book Risk in an owned application with
+  synthetic data and disposable PostgreSQL. It checks independent service,
+  principal and cash owners, monetary review fields, lost-response recovery,
+  local-time display and phone layout.
+
+The integrated local managed core passed 739 checks, the frontend passed 1,943
+checks with none skipped, and Python passed 142 checks. API and worker builds
+passed with zero warnings or errors; the full API schedule checks and native,
+populated-upgrade and queued-worker consumers passed on stock PostgreSQL 16
+with the pinned .NET SDK. The combined artifact passed 185 actual fee browser
+checks and the 72-check fixed-fee browser regression, including native
+postconditions. Review screenshots show the monetary facts and record control
+on desktop and phone. All owned resources were removed. The complete CI matrix
+still gates the exact commit. These checks do not qualify complete economic
+continuation, quantity scaling, correction adapters or production activation.
+
+After integrating the current master and facility foundation, migration 0350
+retains the original fee SQL unchanged. Local qualification passes 740 managed
+core, the full API schedule suite, 1,966 frontend and 144 Python checks. Native
+qualification retains all 26 independent whole-book checkpoints; populated
+upgrade, nine retained PRICE jobs, 185 balance-fee browser checks and 72 fixed-fee
+browser regression checks pass on the same application artifact. Independent
+review verifies both parents' source and verification registrations are retained.
+Aggregate CI and production activation remain separate gates.
+
+
+## Retained-title parking qualification (D411)
+
+The [custody contract](gas-park-custody.md) adds five required commands in the gas
+partition: native/source/value qualification, populated predecessor upgrade,
+queued PRICE workers, normal application browser and restricted-provider browser.
+Twelve managed boundary commands run once in the managed partition. The runner
+tests prove those placements and selected-tool propagation.
+
+The native/managed matrix passes 18 actual service/source checkpoints
+(13 whole-book valuations and five explicit empty-financial refusals), including both fee signs, exact retained customer stock, provider
+custody without commodity inputs, and paid/due cash without unused rates. A
+zero-fee provider retains physical custody and service value zero; the empty
+financial portfolio refuses explicitly, while independent stock in the same book
+is valued normally. Payment heads are resolved by knowledge before business-time
+application, including a later known bank revision effective after evaluation.
+
+Independent adversarial checks cover exact typed parent/member receipts,
+exclusive original/remainder reservation ownership, generic release/spending
+bypasses, all accepted stock boundaries, future-effective source changes,
+quantity corrections, current-source reconciliation and first-outcome recovery.
+Raw keys canonicalize ASCII padding and refuse control characters at both public
+RPC and typed persistence boundaries; free multiline evidence remains supported.
+Opaque non-ASCII-space keys and supplementary characters also pass native-to-managed
+rereads, with matching 128-scalar key and 2,000-scalar free-evidence bounds.
+Populated upgrade preserves fixed-fee, balance-time and ordinary premium cash
+facts, aliases, historical cuts, original outcomes and later supported operations,
+and refuses protected producer/worker-boundary drift.
+
+Actual source-history lock waits separately qualify missing original owned
+authority, expired original owned authority and expired original gas-operations
+authority despite valid successor grants. Provider setup succeeds without owned
+authority. Explicit customer discovery obeys its original captured access.
+The exact outer lifecycle source instant also passed an HTTP precision check:
+valid input returns a review, while a nonzero sub-microsecond fraction refuses
+instead of being truncated into the same source identity.
+
+Three actual custody PRICE jobs match their ordinary complete reports and retain
+source, scope, actor/delegator/current-worker authority and original deadlines.
+The existing fixed-fee and balance-time worker regressions pass nine jobs each.
+Economic horizon, generated-close and cross-clock P&L consumers refuse the
+unqualified custody continuation for zero, future-effective, completed and
+cash-only states; excluded scopes remain unaffected.
+
+The corrected combined runtime passes 111 normal and 48 restricted-provider
+full-application browser checks. They cover shared profile entry, booking and
+reopening, raw/superseded/unapplied observations, refused mismatched performance,
+partial/final returns, independent bank payments, uncertain-response recovery,
+completed-custody inspection, user-zone times and phone layout. Desktop, phone
+and maximized accepted/raw-history screenshots were inspected independently.
+Existing fixed-fee and balance-time application regressions pass 72 and 185 checks.
+
+Managed core passes 740 checks, the full API schedule checks pass, and API builds
+have zero warnings/errors. The frontend passes 1,970 full checks followed by 19
+focused final presentation checks; Python passes 144 checks. These results use
+synthetic data, stock PostgreSQL 16 and the pinned .NET SDK in disposable
+resources. Aggregate CI gates the exact published commit; release and production
+activation remain separate.
+
+After integrating the current master, facilities and balance-time fees,
+migration 0351 retains the custody SQL unchanged. The integrated artifact passes
+741 managed core checks, the full API schedule suite, 1,993 frontend and 146
+Python checks. Native qualification retains all 18 source/value checkpoints;
+populated upgrade, three retained PRICE jobs, four original-authority wait
+controls, 111 normal and 48 restricted-provider browser checks pass. Independent
+merge review verifies both parents' source and verification registrations are
+retained. All checks use disposable synthetic resources; aggregate CI and
+production activation remain separate gates.
+
 ## Requested assistant context and private prompt configuration (D407)
 
 Local verification on 2026-11-16 uses disposable PostgreSQL databases, synthetic
@@ -4823,3 +4934,75 @@ sign-out, expiry, cross-account refusal and browser checks remain enforced.
 
 The repository verification group also passes. The complete 190-command runner
 was not executed locally; aggregate CI and release checks remain required.
+
+
+## Commercial Transport capacity integration (D415)
+
+The integrated capacity artifact passes 742 managed core checks, the full API
+schedule suite, 2,009 frontend and 148 Python checks. Native source, concurrency,
+receipt and authority checks, populated upgrade, 64 Transport and 30 existing
+Storage browser checks pass against the same API, SQL and served web artifacts.
+The protected page helper recognizes the approved Options identifier; all
+original metadata guards and definition/privilege drift refusals remain enforced.
+Independent merge review verifies both parents' source and verification
+registrations are retained. Disposable synthetic resources were cleaned. These
+results do not qualify physical performance, financial Transport, complete
+economic continuation or production activation.
+
+
+## Retained Transport route integration (D413)
+
+The integrated route artifact passes 743 managed core checks, the full API
+schedule suite, 2,020 frontend and 154 Python checks. Nine actual managed route
+source/witness checkpoints, native membership/source/authority/concurrency
+controls and populated upgrade pass. The same API, SQL and served web artifacts
+pass 55 route, 64 capacity and 30 existing Storage browser checks, including
+native postconditions and cleanup. Only the exact protected page-helper
+fingerprint changes for the approved Options identifier; capacity verifier
+extraction, owner/ACL/settings checks and drift refusals remain enforced.
+Independent merge review preserves both parents' source and verification
+registrations. These disposable synthetic checks do not qualify financial
+Transport, physical performance, complete economic continuation or production
+activation.
+
+
+## Direct Transport rights and independent cash (D416)
+
+The local financial Transport artifact passes 744 managed core checks, the full
+API schedule suite, 2,020 frontend and 155 Python checks, with zero API build
+warnings/errors. Thirty-two actual managed source/command/value checkpoints,
+shared lifecycle execution/recovery, populated upgrade and two retained PRICE
+jobs pass on the same API and SQL. The 26 full-application browser checks also
+verify native postconditions, exact empty-portfolio source/context binding,
+accepted actor identity, both signed perspectives, capacity amendment, payment
+recovery, independent cash and expiry. Desktop and phone views were inspected.
+
+Adversarial controls cover strict selected-instant source expiry, deferred typed
+source/receipt seals, original permission capture across scope/publication waits,
+current-closed semantic expiry acknowledgement and retained report stability
+after market correction. Disposable synthetic resources were cleaned. First-value
+market publication, integration with the current upstream stack and release
+remain separate gates; no production activation or complete economic horizon
+continuation is implied.
+
+
+## Integrated financial Transport qualification (D416)
+
+The combined current-master and service-stack artifact passes 745 managed core
+checks, the full API schedule suite, 2,044 frontend and 157 Python checks, with
+zero API build warnings/errors. Native qualification passes 32 actual managed
+source/command/value checkpoints, shared current-closed expiry acknowledgement
+and original-authority/source/deferred controls. Populated upgrade preserves
+operating routes and supports mixed-reference financial booking/adoption. Two
+retained PRICE jobs and 26 actual application browser checks pass on the same
+API and SQL, including independent fee cash, exact source/actor identity, expiry
+and native postconditions. The retained-window regression preserves business
+date independently of the UTC valuation date.
+
+Independent source and merge review preserves both parents' contracts and
+verification registrations. The only native change beyond migration 0354
+renumbering is the exact protected prompt-helper fingerprint for the approved
+Options identifier; all original metadata/ACL guards and drift refusals remain.
+Disposable synthetic resources were cleaned. First-value market publication,
+aggregate CI and release remain separate gates; no production activation or
+complete economic continuation is implied.

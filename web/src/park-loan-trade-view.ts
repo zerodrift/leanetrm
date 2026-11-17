@@ -1,28 +1,32 @@
 import type {Holding} from './desk-model.js';
 import {displayInstant} from './market-view.js';
 import type {DetailRead} from './position-panel.js';
-import {renderPhysicalSections} from './physical-instrument.js';
+import {renderPhysicalSections,overviewTermSections,type PhysicalOverviewSection} from './physical-instrument.js';
 import {setupTicket,ticketBookingRetained,type TicketHandle} from './ticket-controller.js';
 import type {TicketTrade} from './ticket-types.js';
 
 type Api=<T>(path:string,body?:unknown,signal?:AbortSignal)=>Promise<T>;
 const product='physical_gas_park_loan',convention='physical_gas_fixed_quantity_v4';
-type ParkLoanTrade=TicketTrade&{measureLabel:string;ownershipNote:string;overviewSections:{label:string;values:{label:string;value:string}[]}[]};
+type ParkLoanTrade=TicketTrade&{lifecycleTarget?:{handler:string;scopeId:string;bindingId:string};measureLabel:string;ownershipNote:string;overviewSections:PhysicalOverviewSection[]};
 
 // The exact selected trade stays inspectable after performance begins. Saved
 // terms use the backend's description; native lifecycle actions retain their own
 // authority, previews and request recovery in the Lifecycle workspace.
 export async function readParkLoanView(api:Api,context:Record<string,unknown>,h:Holding,o:{actor:()=>string;lifecycle?:()=>void}):Promise<DetailRead>{
- const selected={tradeId:h.tradeId,bindingId:h.bindingId,revision:Number(h.revision)};
+ if(h.instrumentType!==product&&h.instrumentType!=='physical_gas_park_custody')throw Error('Select an exact Park and loan family holding.');
+ const selected={tradeId:h.tradeId,bindingId:h.bindingId,revision:Number(h.revision),product:h.instrumentType};
  const requested:Record<string,unknown>={...context,convention};
- const detail=await api<ParkLoanTrade>('tickets/trade',{context:requested,product,...selected});
+ const detail=await api<ParkLoanTrade>('tickets/trade',{context:requested,...selected});
  if(detail.draft.product!==product||detail.snapshotId!==requested.snapshotId||!detail.context?.contextId||!detail.context.effectiveOn||!detail.context.knownAt||
   requested.knowledgeMode==='retained'&&detail.context.contextId!==requested.contextId)
   throw Error('The Park and loan response does not match its selected product, snapshot and context. Refresh the Blotter.');
  if(typeof detail.measureLabel!=='string'||!detail.measureLabel||typeof detail.ownershipNote!=='string'||!detail.ownershipNote||
-  !Array.isArray(detail.overviewSections)||!detail.overviewSections.length||detail.overviewSections.some(section=>typeof section.label!=='string'||!section.label||!Array.isArray(section.values)||
-   section.values.some(row=>typeof row.label!=='string'||!row.label||typeof row.value!=='string')))
+  !Array.isArray(detail.overviewSections)||!detail.overviewSections.length)
   throw Error('The Park and loan response did not identify its native balances, value measure and ownership. Refresh the Blotter.');
+ if(h.instrumentType==='physical_gas_park_custody'&&(detail.draft.trade.profile!=='physical_gas_park_custody_v1'||
+  detail.lifecycleTarget?.handler!=='gas_park_custody'||detail.lifecycleTarget.scopeId!==h.tradeId||detail.lifecycleTarget.bindingId!==h.bindingId))
+  throw Error('The custody response did not retain its selected profile and exact agreement target. Refresh the Blotter.');
+ overviewTermSections(detail.overviewSections,'UTC');
  const certified={...requested,knowledgeMode:'retained',contextId:detail.context.contextId};
  let ticket:TicketHandle|undefined;
  return {amend:{allowed:false,reason:detail.actions.amend.reason},view:zone=>({
@@ -31,7 +35,7 @@ export async function readParkLoanView(api:Api,context:Record<string,unknown>,h:
   termsContent:host=>{
    const content=document.createElement('div'),ticketHost=document.createElement('div');content.className='park-loan-terms';content.append(ticketHost);host.append(content);
    ticket=setupTicket(ticketHost,{api,context:()=>certified,product,opened:selected,readOnly:true,presentation:'terms',instant:at=>displayInstant(at,zone),zone:()=>zone,actor:o.actor});
-   renderPhysicalSections(content,detail.overviewSections.map(section=>({title:section.label,rows:section.values.map(row=>[row.label,row.value])})));
+   renderPhysicalSections(content,overviewTermSections(detail.overviewSections,zone));
    return ()=>{ticket?.destroy();ticket=undefined;content.remove();};
   },
   history:[{title:`Revision ${h.revision}`,rows:[['Booked',displayInstant(h.executedAt,zone)],['Booker',h.trader??''],['Trade date',h.booking.tradeDate??'Unavailable']]}],
@@ -39,7 +43,7 @@ export async function readParkLoanView(api:Api,context:Record<string,unknown>,h:
  })};
 }
 
-/** The first installed service profile uses the shared description-driven entry and retained booking protocol. */
+/** The selected Park and Loan family profile uses the shared description-driven entry and retained booking protocol. */
 export function setupParkLoanTicket(o:{api:Api;source:()=>{snapshotId:string};historical:()=>boolean;actor:()=>string;instant:(at:string)=>string;zone:()=>string;onBooked:(tradeId:string)=>Promise<void>}){
  const root=document.getElementById('park-loan-page')!,host=document.createElement('div');host.id='park-loan-ticket';root.replaceChildren(host);
  let ticket:TicketHandle|undefined;

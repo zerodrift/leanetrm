@@ -18,7 +18,7 @@ const instant=(value:string)=>/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})
 export function requirePositionWindowSelection(selection:PositionWindowSelection):PositionWindowSelection{
  if(!selection||!selection.context||![selection.snapshotId,selection.context.contextId,selection.tradeId,selection.bindingId].every(v=>typeof v==='string'&&guid(v))||
    !/^\d{4}-\d{2}-\d{2}$/.test(selection.context.effectiveOn)||!instant(selection.context.knownAt)||!instant(selection.asOf)||
-   selection.asOf.slice(0,10)!==selection.context.effectiveOn||!Number.isInteger(selection.revision)||selection.revision<1||selection.revision>256||
+   !Number.isInteger(selection.revision)||selection.revision<1||selection.revision>256||
    !tradingInstrumentTypes.includes(selection.instrumentType)||!validTimeZone(selection.zone)||!['baseline','exchange'].includes(selection.example)||!['working','read_only'].includes(selection.lifecycle))throw Error(invalid);
  return selection;
 }

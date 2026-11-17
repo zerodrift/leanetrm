@@ -27,7 +27,8 @@ internal static partial class GasOwnedSetup
         JsonElement ownedState,JsonElement? claimState,ImmutableArray<JsonElement> policies)
     {
         var direction=Int(source.GetProperty("terms"),"principalDirection");
-        if(target.Handler!=GasParkLoanActions.Handler||source.Text("implementation")!=GasParkAndLoanTerms.Version||
+        var balance=source.Text("implementation")==GasParkLoanBalanceFeeTerms.Version;
+        if(target.Handler!=GasParkLoanActions.Handler||source.Text("implementation") is not(GasParkAndLoanTerms.Version or GasParkLoanBalanceFeeTerms.Version)||
             source.Id("tradeId")!=target.ScopeId||source.Id("instrumentId")!=target.BindingId||
             source.Id("contextId")!=context.ContextId||source.Instant("asOf")!=context.AsOf||direction is not(1 or -1))
             throw GasOwnedOperations.Error("Retain the exact Park and Loan agreement, native target and certified source.");
@@ -70,6 +71,10 @@ internal static partial class GasOwnedSetup
         GasFormField Text(string name,string label)=>new(name,label,"text",false,[],[],[]);
         GasFormField Instant(string name,string label)=>new(name,label,"instant",false,[],[],[]);
         var advance=source.GetProperty("advance");var fee=advance.ValueKind==JsonValueKind.Object?advance.OptionalId("feeId"):null;
+        var determinations=balance?source.GetProperty("fee").GetProperty("determinations").EnumerateArray().ToArray():[];
+        var paymentChoices=balance?determinations.Where(row=>row.OptionalId("feeId") is not null&&row.Number("unpaid")!=default)
+            .Select(row=>Choice(row.Id("feeId").ToString(),"Independent fee cash · unpaid "+row.Text("unpaid")+" · "+row.Id("feeId"),row.Id("feeId"))).ToImmutableArray():
+            fee is {} feeId?ImmutableArray.Create(Choice(feeId.ToString(),"Independent agreement fee · "+feeId,feeId)):[];
         var forms=new Dictionary<string,GasForm>{
             [GasParkLoanActions.Advance]=new("Accept principal advance","RecordGasOwnedHoldings",[
                 Version(),Evidence("agreementEvidenceId","Accepted agreement evidence",owned,"loan_agreement"),
@@ -78,10 +83,19 @@ internal static partial class GasOwnedSetup
             [GasParkLoanActions.Return]=new("Accept principal return","RecordGasOwnedHoldings",[
                 Version(),Text("businessKey","Return business reference"),Evidence("evidenceId",receiver?"Observed principal return":"Observed returned title",owned,receiver?"loan_return":"title_receipt"),
                 Stock(receiver),Text("quantity","Observed return quantity"),Instant("effectiveAt","Observed return time")]),
-            [GasParkLoanActions.Payment]=new("Record independent fixed-fee payment","RecordGasOwnedHoldings",[
-                Version(),Select("feeId","Agreement's fixed-fee cash holding",false,fee is {} feeId?[Choice(feeId.ToString(),"Independent agreement fee · "+feeId,feeId)]:[]),
+            [GasParkLoanActions.Payment]=new(balance?"Record independent fee payment or refund":"Record independent fixed-fee payment","RecordGasOwnedHoldings",[
+                Version(),Select("feeId",balance?"Determined fee cash holding":"Agreement's fixed-fee cash holding",false,paymentChoices),
                 Text("businessKey","Bank payment business reference"),new("expectedRevision","Bank payment revision (0 for a new fact)","integer",false,[],[],[]),
                 Instant("paidAt","Observed bank payment time"),Text("amount","Observed signed fee payment"),Text("evidence","Bank payment evidence")])};
+        if(balance)
+        {
+            var previous=determinations.LastOrDefault();var hasPrevious=previous.ValueKind==JsonValueKind.Object;
+            forms.Add(GasParkLoanActions.Determine,new("Determine accrued service fee","RecordGasOwnedHoldings",[
+                Version(),Reference("previousDetermination","Previous cumulative determination",!hasPrevious,["previousDeterminationId"],hasPrevious?
+                    [Choice(previous.Id("id").ToString(),"Rounded cumulative fee "+previous.Text("roundedTotal")+" "+source.GetProperty("terms").Text("currency"),new{previousDeterminationId=previous.Id("id")})]:[]),
+                Instant("through","Observed fee accrual through"),Instant("effectiveAt","Fee determination effective time"),
+                Text("businessKey","Determination business reference"),Text("evidence","Determination evidence")]));
+        }
         var bound=ImmutableArray.CreateBuilder<GasFormPolicy>();
         foreach(var action in forms.Keys)
         {

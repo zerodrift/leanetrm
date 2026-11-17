@@ -31,7 +31,7 @@ internal static class GasParkLoanBlotter
                     var snapshot=source.Data.Snapshot(source.Frame).WithKnowledge(frame.ContextId!.Value,position.Agreement.Instant("knownAt"));
                     row["presentValue"]=await store.Value(connection,source.Data,source.Frame,snapshot,position.Agreement,false,ct);
                 }
-                catch(MarketDataException error)when(ValuationStatus.PositionSpecific(error)||error.Code is "gas_park_loan_reconciliation" or "discount_curve")
+                catch(MarketDataException error)when(ValuationStatus.PositionSpecific(error)||error.Code is "gas_park_loan_reconciliation" or "gas_balance_fee_advance_window" or "discount_curve")
                 {row["unavailableReason"]=error.Code;}
                 yield return [row];
             }

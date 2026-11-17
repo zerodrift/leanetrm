@@ -410,6 +410,9 @@ public abstract record SideSchedule
     public string Implementation { get; }
     public abstract ImmutableArray<CurveRequest> Dependencies { get; }
     public abstract IReadOnlyList<ScheduleRow> Rows { get; }
+    // Scalar observation/recipe admission is separate from the complete declared
+    // dependencies. Claim and native-program schedules own other source shapes.
+    public virtual ImmutableArray<SchedulePriceTerm> PriceTerms=>[..Rows.SelectMany(row=>row.Prices)];
     public abstract SideValuation Evaluate(SideValuationContext context);
     public virtual ImmutableArray<CurveRequest> DependenciesAt(MarketSnapshot snapshot)=>Dependencies;
     protected SideSchedule(Guid sideId,ReferenceKey currency,Quantity unitQuantity,string implementation)

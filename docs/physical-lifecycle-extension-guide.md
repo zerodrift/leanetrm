@@ -16,7 +16,7 @@ object names do not justify a parallel persistence or event framework.
 
 ## Start with the contract and current consumers
 
-The [mandatory instrument contract](instrument-contracts.md#mandatory-composition-boundary-d413)
+The [mandatory instrument contract](instrument-contracts.md#mandatory-composition-boundary-d417)
 applies before selecting a lifecycle extension. Futures and exchange-traded
 options are the only financial products without Sides. Retained programs, cash
 claims and physical claims must execute through concrete Side implementations.

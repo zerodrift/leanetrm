@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Trading;
 
@@ -8,7 +9,7 @@ public static class TicketBand { public static readonly ImmutableArray<string> R
 // Unit names the unit a field's or column's values are in, resolved per trade, never a unit symbol: "quantity" is the trade's quantity unit,
 // which the product's preview and booked read return.
 public sealed record TicketField(string Id,string Label,string Meaning,string Type,string? Unit,string State,bool Required,string? Band,string? Choices,ImmutableArray<string> DependsOn,string? Lookup,string? Soon,string? Rule)
-{public ImmutableArray<string> RefreshOn{get;init;}=[];public bool AllowNotApplicable{get;init;}}
+{public ImmutableArray<string> RefreshOn{get;init;}=[];public bool AllowNotApplicable{get;init;}[JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)]public bool RefreshDescription{get;init;}}
 // Input names the modes in which a side column's day cells are entered in the side's tab, each recorded by the product's own operation.
 // Soon, on a field, side kind, column or tab, is the hover text of an item drawn as coming soon: it holds no value, is never sent and reads nothing.
 public sealed record TicketColumn(string Id,string Label,string? Unit,string Measure,ImmutableArray<string> Input,string? Soon=null);
@@ -20,7 +21,7 @@ public sealed record TicketSideKind(string Kind,string Pill,string Colour,int Mi
 public sealed record TicketSideLimit(ImmutableArray<string> Kinds,int Max);
 public sealed record TicketTab(string Id,string Label,string? Soon=null);
 public sealed record TicketDescription(string Product,int Version,string RowShape,ImmutableArray<TicketField> TradeFields,ImmutableArray<TicketSideKind> Sides,ImmutableArray<TicketSideLimit> SideLimits,ImmutableArray<TicketColumn> TradeColumns,ImmutableArray<string> Levels,ImmutableArray<TicketTab> Tabs,ImmutableArray<string> Modes)
-{public ImmutableArray<SideCalendarChoice> SideCalendars{get;init;}=[];}
+{public ImmutableArray<SideCalendarChoice> SideCalendars{get;init;}=[];[JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public ImmutableDictionary<string,string>? Selection{get;init;}}
 // A refusal of one draft value, naming its side (null for a trade field) and field, so the ticket shows the reason on that field.
 public sealed class TicketFieldException(string code,string message,string? side,string field):MarketDataException(code,message)
 {
@@ -58,6 +59,9 @@ public static class TicketDescriptions
    if(!ids.Add(field.Id))Fail(d,$"field '{field.Id}' is declared more than once");
    CheckField(d,field);
   }
+  var selectors=d.TradeFields.Where(field=>field.RefreshDescription).Select(field=>field.Id).ToHashSet();
+  if(selectors.Count>0&&d.Selection is null)Fail(d,"a refreshing description must attest its selected values, including an empty selection");
+  if(d.Selection is {} selected&&selected.Any(pair=>!selectors.Contains(pair.Key)||string.IsNullOrWhiteSpace(pair.Value)))Fail(d,"description selection must name only refreshing trade fields with explicit values");
   var units=all.Select(f=>(f.Id,f.Unit)).Concat(d.TradeColumns.Concat(d.Sides.SelectMany(s=>s.Columns)).Select(c=>(c.Id,c.Unit)));
   if(d.TradeColumns.FirstOrDefault(c=>c.Soon is not null) is {} later)Fail(d,$"trade column '{later.Id}' cannot be coming soon; only a side column can");
   if(d.Sides.SelectMany(s=>s.Columns).FirstOrDefault(c=>c.Soon is not null&&(string.IsNullOrWhiteSpace(c.Soon)||!c.Input.IsDefaultOrEmpty||c.Unit is not null)) is {} soon)
@@ -99,6 +103,8 @@ public static class TicketDescriptions
   if(field.State=="soon"&&(field.Choices is not null||field.Lookup is not null))Fail(d,$"soon field '{field.Id}' cannot name choices or a lookup");
   if(field.State=="derived"&&string.IsNullOrWhiteSpace(field.Rule))Fail(d,$"derived field '{field.Id}' needs its rule text");
   if(field.Band is not null&&!TicketBand.Rows.Contains(field.Band))Fail(d,$"field '{field.Id}' names unknown band row '{field.Band}'");
+  if(field.RefreshDescription&&(field.State!="editable"||field.Type!="choice"||field.Choices is null||!d.TradeFields.Contains(field)))
+   Fail(d,$"field '{field.Id}' may refresh the description only as an editable trade choice");
  }
 
  static void Fail(TicketDescription d,string reason)=>throw new MarketDataException("ticket_description",$"Ticket description '{d.Product}' v{d.Version}: {reason}.");

@@ -38,10 +38,18 @@ public sealed class LifecycleOperations
     internal LifecycleOperations(PreviewDatabase database,Func<Guid,InputFrame> frame,IEnumerable<ILifecycleActionHandler>? additional=null)
     {
         this.database=database;frames=frame;
-        registry=new([new OptionLifecycleActions(database,RequireFrame),new SwapLifecycleActions(database,frame),new SwapNetLifecycleActions(database,frame),new FuturesLifecycleActions(database,RequireFrame),new GasOwnedActions(database),new GasParkLoanActions(database),new GasFuturesDeliveryActions(database),new GasFuturesReconciliationActions(database),new GasFuturesQuantityBatchActions(database),new GasOwnedQuantityReconciliationActions(database),new GasQuantityBundleActions(database),new GasLoanQuantityReconciliationActions(database),new GasLoanFeeActions(database),new GasOperatorQuantityActions(database),..additional??[]]);
+        registry=new([new OptionLifecycleActions(database,RequireFrame),new SwapLifecycleActions(database,frame),new SwapNetLifecycleActions(database,frame),new FuturesLifecycleActions(database,RequireFrame),new GasOwnedActions(database),new GasParkLoanActions(database),new GasParkCustodyActions(database),new GasTransportFinancialActions(database),new GasFuturesDeliveryActions(database),new GasFuturesReconciliationActions(database),new GasFuturesQuantityBatchActions(database),new GasOwnedQuantityReconciliationActions(database),new GasQuantityBundleActions(database),new GasLoanQuantityReconciliationActions(database),new GasLoanFeeActions(database),new GasOperatorQuantityActions(database),..additional??[]]);
     }
-    private sealed record DiscoveryAdmission(DateTimeOffset Until,DateTimeOffset? GasUntil,LifecycleDiscoveryAccess Access);
-    private async Task<DiscoveryAdmission> CaptureDiscovery(NpgsqlConnection connection,bool requiresGas,CancellationToken ct)
+    private sealed record CustodyDiscoveryAdmission(Guid Catalog,DateTimeOffset Until):ICommitAdmission
+    {
+        public async Task RequireCommit(NpgsqlConnection connection,CancellationToken ct)
+        {
+            await using var guard=ScheduleStore.Command(connection,"SELECT security.require_gas_park_custody_discovery($1,$2)",Catalog,Until);
+            await guard.ExecuteNonQueryAsync(ct);
+        }
+    }
+    private sealed record DiscoveryAdmission(DateTimeOffset Until,DateTimeOffset? GasUntil,DateTimeOffset? CustodyUntil,LifecycleDiscoveryAccess Access);
+    private async Task<DiscoveryAdmission> CaptureDiscovery(NpgsqlConnection connection,bool requiresGas,bool requiresCustody,CancellationToken ct)
     {
         var catalog=database.Manifest.CatalogId;
         var captured=await LifecycleNative.Read(connection,"SELECT lifecycle.discovery_authority($1,$2)::text",ct,catalog,requiresGas);
@@ -53,20 +61,32 @@ public sealed class LifecycleOperations
             database.RegisterCommitAdmission(connection,new GasOwnedOperationReadAdmission(catalog,captured.Instant("gasUntil")));
             permissions=permissions.Add("ReadGasOwnedHoldings");
         }
-        return new(until,captured.GetProperty("gasUntil").ValueKind==JsonValueKind.Null?null:captured.Instant("gasUntil"),new(permissions));
+        // Optional authority is captured before source resolution. A later grant
+        // cannot add custody to this read, and its original deadline survives
+        // the temporary source binding just like the independent stock grant.
+        await using var capture=ScheduleStore.Command(connection,"SELECT security.gas_park_custody_discovery_authority($1,$2)",catalog,requiresCustody);
+        var value=await capture.ExecuteScalarAsync(ct);
+        DateTimeOffset? custodyUntil=value switch{DateTime instant=>new DateTimeOffset(instant),DateTimeOffset instant=>instant,
+            null or DBNull=>null,_=>throw new MarketDataException("lifecycle_context","Custody discovery requires its exact captured native authority deadline.")};
+        if(custodyUntil is {} custody)
+        {
+            database.RegisterCommitAdmission(connection,new CustodyDiscoveryAdmission(catalog,custody));
+            permissions=permissions.Add("ReadGasOperations");
+        }
+        return new(until,captured.GetProperty("gasUntil").ValueKind==JsonValueKind.Null?null:captured.Instant("gasUntil"),custodyUntil,new(permissions));
     }
     internal async Task<LifecycleDiscovery> View(NpgsqlConnection connection,FuturesReadRequest request,TradingReadSelection selection,CancellationToken ct)
     {
         if(request.Convention!=TradingBlotter.Convention)throw new MarketDataException("lifecycle_context","Select the shared trading workspace source convention.");
-        var admission=await CaptureDiscovery(connection,false,ct);
+        var admission=await CaptureDiscovery(connection,false,false,ct);
         var view=await selection.Resolve(connection,new KnowledgeStore(database.Manifest.CatalogId),request,ct);
         return await DiscoverCore(connection,new(new(view.Context.ContextId!.Value,view.Frame.At,view.Frame.BusinessDate,view.Frame.Id),null),admission,ct);
     }
     internal async Task<LifecycleDiscovery> Discover(NpgsqlConnection connection,LifecycleDiscoveryRequest request,CancellationToken ct)
     {
         if(request.Context is null||request.Context.ContextId==Guid.Empty)throw new MarketDataException("lifecycle_context","Select an exact certified context.");
-        var requiresGas=request.Target is not null&&registry.Require(request.Target.Handler).Permissions.Contains("ReadGasOwnedHoldings");
-        return await DiscoverCore(connection,request,await CaptureDiscovery(connection,requiresGas,ct),ct);
+        var permissions=request.Target is null?ImmutableArray<string>.Empty:registry.Require(request.Target.Handler).Permissions;
+        return await DiscoverCore(connection,request,await CaptureDiscovery(connection,permissions.Contains("ReadGasOwnedHoldings"),permissions.Contains("ReadGasOperations"),ct),ct);
     }
     private async Task<LifecycleDiscovery> DiscoverCore(NpgsqlConnection connection,LifecycleDiscoveryRequest request,DiscoveryAdmission admission,CancellationToken ct)
     {
@@ -75,6 +95,7 @@ public sealed class LifecycleOperations
         var until=admission.Until;
         await new LifecycleReadAdmission(database.Manifest.CatalogId,until).RequireCommit(connection,ct);
         if(admission.GasUntil is {} gasUntil)await new GasOwnedOperationReadAdmission(database.Manifest.CatalogId,gasUntil).RequireCommit(connection,ct);
+        if(admission.CustodyUntil is {} custodyUntil)await new CustodyDiscoveryAdmission(database.Manifest.CatalogId,custodyUntil).RequireCommit(connection,ct);
         // The source admission must survive the temporary read bindings below.
         // Its native tuple and managed commit callback have the same lifetime.
         var context=await LifecycleNative.Source(connection,database,request.Context,ct);
@@ -86,7 +107,8 @@ public sealed class LifecycleOperations
             await TradingContext.Bind(connection,database.Manifest.CatalogId,context,request.Context.AsOf,ct);
             var selected=request.Target is null?registry.Handlers:[registry.Require(request.Target.Handler)];
             var result=ImmutableArray.CreateBuilder<LifecycleActionOffer>();
-            foreach(var handler in selected.Where(h=>!h.Permissions.Contains("ReadGasOwnedHoldings")||admission.Access.Allows("ReadGasOwnedHoldings")))
+            foreach(var handler in selected.Where(h=>(!h.Permissions.Contains("ReadGasOwnedHoldings")||admission.Access.Allows("ReadGasOwnedHoldings"))&&
+                (!h.Permissions.Contains("ReadGasOperations")||admission.Access.Allows("ReadGasOperations"))))
                 result.AddRange(await handler.Discover(connection,request.Context,request.Target,admission.Access,ct));
             actions=result.ToImmutable();
             policies=await PreviewDatabase.Rows(connection,"SELECT row_to_json(p)::text FROM lifecycle.action_policies p WHERE p.catalog_id=$1 ORDER BY p.id,p.revision",[database.Manifest.CatalogId],ct);
