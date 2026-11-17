@@ -2437,11 +2437,11 @@ api.MapGet("/portfolio/pnl/policies",()=>Results.Ok(TradingPnlReport.Policies));
 // refused there stores no context. Each bind of the second transaction reads the stored contexts again.
 api.MapPost("/portfolio/pnl/run",(HttpContext c,TradingPnlRequest body)=>Locked(c,async session=>
 {
-    if(body.Opening is not {KnowledgeMode:"at",ContextId:null,Convention:TradingBlotter.Convention}||body.Closing is not {KnowledgeMode:"at",ContextId:null,Convention:TradingBlotter.Convention}||body.KnownAt is null)
-        throw new MarketDataException("pnl_context","Supply both explicit trading frames and one exact shared knowledge cutoff.");
     var profile=Profile(session);
     var dated=await database.WithIdentity(profile,"RunScenario",async(connection,ct)=>
     {
+        if(body.Opening is not {KnowledgeMode:"at",ContextId:null,Convention:TradingBlotter.Convention}||body.Closing is not {KnowledgeMode:"at",ContextId:null,Convention:TradingBlotter.Convention}||body.KnownAt is null)
+            throw new MarketDataException("pnl_context","Supply both explicit trading frames and one exact shared knowledge cutoff.");
         var owner=await PnlReportArtifacts.Owner(connection,ct);
         var opening=Frame(session,body.Opening.SnapshotId);var closing=Frame(session,body.Closing.SnapshotId);
         TradingPnlReport.Admit(body,opening,closing);
