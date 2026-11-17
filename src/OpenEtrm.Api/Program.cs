@@ -600,7 +600,7 @@ api.MapMarketDates(database,async(c,closeSession,work)=>
             database.WithIdentity(profile,"ReadMarketData",async(connection,t)=>
             {
                 var value=await work(connection,pin,frames,catalog,t);
-                return new ReadOutcome(value,await MarketDates.AnswerCheck(database,connection,pin,frames,closeSession,t));
+                return new ReadOutcome(value,MarketDates.AnswerCheck(database,pin,AsyncReadVisibility.CalendarFrames(frames),closeSession,value));
             },ct,hostedDigest:digest));
     }
     if(c.Features.Get<AssistantInvocation>() is not null)

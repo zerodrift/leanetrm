@@ -20,6 +20,7 @@ public sealed record MarketDatesResponse(ScheduleContext? Context,string? Curve,
 {
     public FrameCatalogInfo? FrameCatalog{get;init;}
     public bool HasMoreCandidates{get;init;}
+    [JsonIgnore] internal ImmutableArray<string> HiddenDays{get;init;}=[];
 }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record LastClosesRequest([property:JsonRequired] string Session);
@@ -52,18 +53,33 @@ public static class MarketDates
         {throw new TemporalException("time_zone","Choose an available display time zone explicitly.");}
         frames=await BindSessionCloses(database,connection,pin,frames,request.Session,ct);
         if(request.MaximumDates is <1 or >128)throw new MarketDataException("market_dates_input","Request from one to 128 dates explicitly.");
-        await MarketCloses.RequireFrames(connection,database.Manifest.CatalogId,frames,pin.Context?.ContextId,ct);
-        var data=pin.Frame is {} anchorFrame
-            ?await MarketInputSelection.Root(database,connection,anchorFrame,ct,observationIds:[],includeCalendarDays:request.Definition is null)
-            :await database.Read(connection,ct,observationIds:[],includeCalendarDays:request.Definition is null);
-        if(request.Curve is {} code&&!data.IsRateCurve(code)&&
-            !frames.Any(frame=>frame.SourceInputs?.Values.Any(part=>part.RootCurves.Contains(code,StringComparer.Ordinal))==true)&&
-            !(await new CatalogueStore(database.Manifest.CatalogId).ReadBound(connection,ct,pin.Frame?.Time.Date)).Curves.Any(curve=>curve.Code==code))
-            throw new MarketDataException("missing_curve","Choose an exact curve in the published catalogue or selected close scope.");
+        CataloguePublication? catalogue=null;
+        PreviewData data;
+        if(pin.Frame is {} anchorFrame)
+            data=await MarketInputSelection.Root(database,connection,anchorFrame,ct,observationIds:[],includeCalendarDays:request.Definition is null);
+        else
+        {
+            catalogue=await new CatalogueStore(database.Manifest.CatalogId).ReadBound(connection,ct);
+            data=await database.Read(connection,ct,ppaBundle:catalogue.RequireRole("primary"),observationIds:[],includeCalendarDays:request.Definition is null);
+        }
+        var inputs=new MarketDateInputs(database,connection);
+        if(request.Curve is {} code&&!data.IsRateCurve(code))
+        {
+            catalogue??=await new CatalogueStore(database.Manifest.CatalogId).ReadBound(connection,ct,pin.Frame?.Time.Date);
+            if(!catalogue.Curves.Any(curve=>curve.Code==code))
+            {
+                // A legacy root absent from the published catalogue needs the
+                // entire matrix attested before its membership can answer this.
+                await inputs.Attest(frames,ct);
+                if(!frames.Any(frame=>frame.SourceInputs?.Values.Any(part=>part.RootCurves.Contains(code,StringComparer.Ordinal))==true))
+                    throw new MarketDataException("missing_curve","Choose an exact curve in the published catalogue or selected close scope.");
+            }
+        }
         var metadata=data;
         Func<InputFrame,CancellationToken,Task> qualify;
         if(request.Definition is {} definition)
         {
+            await inputs.Attest(frames,ct);
             CustomCurves.Validate(definition);
             var contexts=new Dictionary<DateOnly,ScheduleContext>();
             ScheduleContext? knowledge=pin.Context;
@@ -179,7 +195,6 @@ public static class MarketDates
         }
         else
         {
-            var inputs=new MarketDateInputs(database,connection);
             var candidates=pin.Context is {} retained?frames.Where(f=>Day(f)==DateWorkspace.Date(retained.EffectiveOn)).ToImmutableArray():frames;
             await inputs.Prepare(candidates,request.Curve is {} requestedCode?[requestedCode]:null,data,request.MaximumDates is null,ct);
             qualify=async(frame,cancellation)=>
@@ -194,6 +209,7 @@ public static class MarketDates
         async Task Qualify(InputFrame frame)
         {
             ct.ThrowIfCancellationRequested();
+            AsyncReadVisibility.CalendarFrame(frame);
             var businessDate=Day(frame).ToString("yyyy-MM-dd",CultureInfo.InvariantCulture);
             var date=businessDate;
             if(pin.Context is {} context&&businessDate!=context.EffectiveOn)
@@ -213,7 +229,8 @@ public static class MarketDates
         }
         var replaced=await ReplacedCounts(connection,database.Manifest.CatalogId,request.Session,ct);
         // A day whose close in force this reader cannot see is unavailable, never answered with the close it replaced.
-        unavailable.AddRange((await HiddenDays(connection,database.Manifest.CatalogId,request.Session,ct)).Select(day=>new UnavailableMarketDate(day,"close_not_visible")));
+        var hidden=await HiddenDays(connection,database.Manifest.CatalogId,request.Session,ct);
+        unavailable.AddRange(hidden.Select(day=>new UnavailableMarketDate(day,"close_not_visible")));
         var dates=available.GroupBy(row=>row.Date,StringComparer.Ordinal).OrderBy(group=>group.Key,StringComparer.Ordinal)
             .Select(group=>new MarketDateChoice(group.Key,[..group.Select(row=>row.Frame).OrderBy(frame=>frame.At).ThenBy(frame=>frame.Id)],
                 replaced.GetValueOrDefault(group.Key))).ToImmutableArray();
@@ -221,7 +238,7 @@ public static class MarketDates
         await RequireAccess(database,connection,ct,metadata);
         return new(pin.Context,request.Curve,zone.Id,SelectionPolicy,dates,
             [..unavailable.Where(day=>!validDates.Contains(day.Date)).Distinct().OrderBy(day=>day.Date,StringComparer.Ordinal).ThenBy(day=>day.Reason,StringComparer.Ordinal)],
-            dates.IsEmpty?null:dates[0].Date,dates.IsEmpty?null:dates[^1].Date){HasMoreCandidates=processed<frames.Length};
+            dates.IsEmpty?null:dates[0].Date,dates.IsEmpty?null:dates[^1].Date){HasMoreCandidates=processed<frames.Length,HiddenDays=[..hidden]};
 
         async Task<T> AtContext<T>(ScheduleContext context,Func<Task<T>> read)
         {
@@ -258,17 +275,19 @@ public static class MarketDates
         var found=ImmutableArray.CreateBuilder<CurveLastClose>();
         // A historical view reads only its own business day, as its calendar does.
         var candidates=pin.Context is {} context?frames.Where(frame=>Day(frame).ToString("yyyy-MM-dd",CultureInfo.InvariantCulture)==context.EffectiveOn).ToImmutableArray():frames;
-        await MarketCloses.RequireFrames(connection,database.Manifest.CatalogId,frames,pin.Context?.ContextId,ct);
         var inputs=new MarketDateInputs(database,connection);
         await inputs.Prepare(candidates,pending,null,false,ct);
         foreach(var batch in CandidateBatches(candidates,TimeZoneInfo.Utc,limited:true))
         {
             foreach(var frame in batch)
+            {
+                AsyncReadVisibility.CalendarFrame(frame);
                 foreach(var code in await inputs.Qualified(frame,pending,ct))
                 {
                     found.Add(new(code,frame.Id,Day(frame).ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),frame.At));
                     pending.Remove(code);
                 }
+            }
             if(pending.Count==0)break;
         }
         await RequireAccess(database,connection,ct);
@@ -307,11 +326,11 @@ public static class MarketDates
         await using var command=ScheduleStore.Command(connection,"SELECT array(SELECT to_char(d,'YYYY-MM-DD') FROM unnest(security.close_session_hidden_days($1,$2))d)",catalog,session);
         return (string[])(await command.ExecuteScalarAsync(ct))!;
     }
-    internal static async Task<Func<NpgsqlConnection,CancellationToken,Task>> AnswerCheck(PreviewDatabase database,NpgsqlConnection connection,
-        PinnedContext pin,ImmutableArray<InputFrame> frames,string session,CancellationToken ct)
+    internal static Func<NpgsqlConnection,CancellationToken,Task> AnswerCheck(PreviewDatabase database,
+        PinnedContext pin,ImmutableArray<InputFrame> frames,string session,object answer)
     {
         frames=[..frames.Where(f=>f.Close?.Session==session&&f.Close.ReplacedBy is null)];
-        var hidden=await HiddenDays(connection,database.Manifest.CatalogId,session,ct);
+        var hidden=(answer as MarketDatesResponse)?.HiddenDays;
         return async(current,cancellation)=>
         {
             await pin.Bind(current,database.Manifest.CatalogId,cancellation);
@@ -333,7 +352,7 @@ public static class MarketDates
                         int.Parse(row.Text("version"),CultureInfo.InvariantCulture)!=frame.Close.SessionVersion)throw new PreviewDeniedException();
                 }
             }
-            if(!hidden.Order(StringComparer.Ordinal).SequenceEqual((await HiddenDays(current,database.Manifest.CatalogId,session,cancellation)).Order(StringComparer.Ordinal)))
+            if(hidden is {} days&&!days.Order(StringComparer.Ordinal).SequenceEqual((await HiddenDays(current,database.Manifest.CatalogId,session,cancellation)).Order(StringComparer.Ordinal)))
                 throw new PreviewDeniedException();
         };
     }

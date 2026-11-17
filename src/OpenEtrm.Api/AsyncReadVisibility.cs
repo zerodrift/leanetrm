@@ -60,6 +60,7 @@ internal sealed class AsyncReadVisibility:IDisposable
     ScheduleContext? marketContext;
     readonly Dictionary<(Guid Catalog,Guid Revision,ScheduleContext? Context),HashSet<Guid>> observationPins=[];
     readonly HashSet<(Guid Catalog,CatalogueSource Source,ScheduleContext? Context)> catalogueSources=[];
+    readonly HashSet<Guid> calendarFrames=[];
     internal AsyncReadVisibility(bool marketDates=false,ScheduleContext? context=null)
     {prior=current.Value;current.Value=this;this.marketDates=marketDates;rootContext=marketContext=context;}
     // The plan run while its exact coordinates are collected: its outcome's recheck then also requires them, in the
@@ -96,6 +97,15 @@ internal sealed class AsyncReadVisibility:IDisposable
         lock(scope.gate)
             foreach(var source in publication.Curves.Select(c=>c.Source).Concat(publication.Roles.Values))
                 scope.catalogueSources.Add((catalog,source,scope.marketContext));
+    }
+    internal static void CalendarFrame(InputFrame frame)
+    {
+        if(current.Value is {marketDates:true} scope)lock(scope.gate)scope.calendarFrames.Add(frame.Id);
+    }
+    internal static ImmutableArray<InputFrame> CalendarFrames(ImmutableArray<InputFrame> captured)
+    {
+        if(current.Value is not {marketDates:true} scope)return captured;
+        lock(scope.gate)return [..captured.Where(frame=>scope.calendarFrames.Contains(frame.Id))];
     }
     async Task RequireMarketInputs(NpgsqlConnection connection,CancellationToken ct)
     {

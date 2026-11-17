@@ -19,13 +19,25 @@ internal sealed class MarketDateInputs(PreviewDatabase database,NpgsqlConnection
     readonly Dictionary<(Guid Frame,CatalogueSource Source),PreviewData> inputs=[];
     readonly Dictionary<(Guid Frame,CatalogueSource Source),Exception> inputErrors=[];
     readonly Dictionary<(CatalogueSource Source,string Code),RateTenorSource?> rates=[];
+    readonly HashSet<Guid> attested=[];
     Dictionary<DateOnly,CatalogueStore.Dated> catalogues=[];
     DateOnly[] dates=[];
+    ImmutableArray<InputFrame> frames=[];
+
+    internal async Task Attest(ImmutableArray<InputFrame> selected,CancellationToken ct)
+    {
+        selected=[..selected.Where(frame=>!attested.Contains(frame.Id))];
+        if(selected.IsEmpty)return;
+        await MarketCloses.RequireFrames(connection,database.Manifest.CatalogId,selected,selected[0].ContextId,ct);
+        attested.UnionWith(selected.Select(frame=>frame.Id));
+    }
 
     internal async Task Prepare(ImmutableArray<InputFrame> frames,IEnumerable<string>? requested,PreviewData? initial,bool full,CancellationToken ct)
     {
+        this.frames=frames;
         if(initial is not null){metadata.Add(CatalogueSource.From(initial),initial);rateReads.Seed(initial);}
         dates=frames.Select(f=>f.Time.Date).Distinct().Order().ToArray();
+        await Attest(full?frames:frames.IsEmpty?[]:[..frames.Where(frame=>frame.Time.Date==dates[^1])],ct);
         catalogues=await new CatalogueStore(database.Manifest.CatalogId).ReadDates(connection,full?dates:dates.TakeLast(1),ct);
         if(!full)return;
         foreach(var frame in frames)await Plan(frame,requested,ct);
@@ -58,6 +70,7 @@ internal sealed class MarketDateInputs(PreviewDatabase database,NpgsqlConnection
         Candidate result;
         try
         {
+            if(!attested.Contains(frame.Id))await Attest(frames,ct);
             // Retain root-metadata error precedence over the dated catalogue.
             _=await Metadata(frame.Source!,ct);
             if(!catalogues.ContainsKey(frame.Time.Date))
