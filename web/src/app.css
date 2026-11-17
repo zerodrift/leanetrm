@@ -1038,28 +1038,18 @@ body.assistant-open:not(.assistant-overlay) .side-panel[data-placement=overlay]{
 .revision-switch button:hover:not(:disabled),.custom-curve-mode button:hover:not(:disabled){background:var(--surface-3);color:var(--text)}
 .revision-switch button[aria-pressed=true],.custom-curve-mode button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 .new-trade-head .side-panel-title{margin-top:0}
-/* New trade's instrument chooser (new-trade.ts): with none chosen, each group is a block of tiles that say what the instrument is; once
-   one is chosen it is a single strip above the ticket, every instrument still one press away. Both wrap; neither scrolls sideways. */
-.instrument-chooser{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));align-items:start;gap:14px;margin-top:12px;min-width:0}
-.instrument-group{min-width:0;margin:0;padding:12px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface)}
-.instrument-group-name{margin:0 0 8px;font-size:11px;font-weight:650;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3)}
-.instrument-entries{display:grid;gap:6px;min-width:0}
-.new-trade-head button.instrument{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:baseline;gap:2px 8px;width:100%;min-width:0;min-height:44px;padding:9px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface-2);color:var(--text);text-align:left;white-space:normal;font-weight:400}
-.instrument-name{font-size:13.5px;font-weight:600}
+/* New trade's instrument bar (new-trade.ts): the one list of instruments, each group a label over a segmented set, drawn the same whether
+   or not one is chosen. It wraps, a group at a time and then within a group; it never scrolls sideways. */
+.instrument-chooser{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 16px;margin-top:12px;min-width:0;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface)}
+.instrument-group{display:flex;flex-direction:column;gap:5px;min-width:0;margin:0}
+.instrument-group-name{margin:0 0 0 4px;font-size:11px;font-weight:650;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3)}
+.instrument-entries{display:flex;flex-wrap:wrap;gap:2px;min-width:0;padding:3px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface-2)}
+.new-trade-head button.instrument{display:inline-flex;align-items:center;gap:6px;min-width:0;min-height:30px;padding:4px 12px;border:1px solid transparent;border-radius:calc(var(--radius) - 2px);background:transparent;color:var(--text-2);font-size:13px;font-weight:550;white-space:nowrap}
+.instrument-name{min-width:0}
 .instrument-mark{color:var(--text-3)}
-.instrument-about{grid-column:1/-1;font-size:12px;line-height:1.4;color:var(--text-2);overflow-wrap:anywhere}
-.new-trade-head button.instrument:hover:not(:disabled){border-color:var(--accent-border);background:var(--accent-soft)}
-.new-trade-head button.instrument[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
-.new-trade-head button.instrument.ticket-soon{justify-content:space-between}
-.instrument-chooser[data-state=chosen]{display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px}
-.instrument-chooser[data-state=chosen] .instrument-group{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:0;border:0;background:none}
-.instrument-chooser[data-state=chosen] .instrument-group-name{margin:0}
-.instrument-chooser[data-state=chosen] .instrument-entries{display:flex;flex-wrap:wrap;gap:4px}
-.instrument-chooser[data-state=chosen] button.instrument{display:inline-flex;align-items:center;gap:6px;width:auto;min-height:30px;padding:4px 12px;font-size:13px}
-.instrument-chooser[data-state=chosen] .instrument-name{font-size:13px;font-weight:550}
-.instrument-chooser[data-state=chosen] .instrument-about{display:none}
-/* Each tile says what its instrument is, so the line under the chooser is for the one chosen. */
-.instrument-chooser[data-state=choose]~#new-trade-note{display:none}
+.new-trade-head button.instrument:hover:not(:disabled){background:var(--surface-3);color:var(--text)}
+.new-trade-head button.instrument[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--on-accent);box-shadow:var(--shadow)}
+.new-trade-head button.instrument.ticket-soon{border-color:var(--border)}
 .new-trade-head .side-panel-note{margin:8px 0 0}
 /* Price before booking: a title over the draft's price, its exposure and the curve of each of its markets with its delivery period marked. */
 .draft-valuation{margin:20px 0 12px;padding-top:14px;border-top:1px solid var(--border)}

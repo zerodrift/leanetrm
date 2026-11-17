@@ -25,13 +25,11 @@ for(const width of [1280,1440,1920,400])test(`New trade's page shows the chooser
   assert.deepEqual(await evaluate(`['summary','grid','charts'].filter(id=>document.getElementById('blotter-pane-'+id).checkVisibility())`),[]);
   assert.equal(await evaluate(`(()=>{const pane=document.querySelector('#position-details').getBoundingClientRect(),host=document.querySelector('#futures-page').getBoundingClientRect();return pane.width>=host.width-80;})()`),true,'the pane has the page\'s width');
   assert.equal(await evaluate(`(()=>{const panels=document.querySelector('#blotter-pane-details').closest('.dock-panels');return panels.scrollWidth<=panels.clientWidth+1;})()`),true,'nothing scrolls sideways');
-  assert.equal(await evaluate(`[...document.querySelectorAll('.instrument:not(.ticket-soon)')].every(b=>b.getBoundingClientRect().height>=44)`),true);
-  const rows=await evaluate(`new Set([...document.querySelectorAll('.instrument-group')].map(g=>Math.round(g.getBoundingClientRect().top))).size`);
-  assert.equal(rows<5,width>=1280,'the groups share rows where there is room and stack where there is not');
-  const tiles=await evaluate(`document.querySelector('#new-trade-product').getBoundingClientRect().height`);
-  const strip=await evaluate(`(entry.show({kind:'new',product:'swaps'},'loading'),document.querySelector('#new-trade-product').getBoundingClientRect().height)`);
-  assert.ok(strip<(width>=1280?80:tiles/2),`an instrument chosen leaves one compact strip (${strip}px, tiles ${tiles}px)`);
-  assert.equal(await evaluate(`document.querySelector('.instrument-about').checkVisibility()`),false);
+  assert.equal(await evaluate(`[...document.querySelectorAll('.instrument')].every(b=>b.getBoundingClientRect().height>=30)`),true);
+  assert.equal(await evaluate(`(b=>b.scrollWidth<=b.clientWidth+1)(document.querySelector('#new-trade-product'))`),true,'the bar wraps and never scrolls sideways');
+  const bar=`document.querySelector('#new-trade-product').getBoundingClientRect().height`,unchosen=await evaluate(bar);
+  if(width>=1280)assert.ok(unchosen<=150,`the bar is at most two rows where there is room (${unchosen}px)`);
+  assert.equal(await evaluate(`(entry.show({kind:'new',product:'swaps'},'loading'),${bar})`),unchosen,'choosing an instrument does not redraw the bar');
  });
 });
 
