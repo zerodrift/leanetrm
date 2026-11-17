@@ -224,6 +224,42 @@ def run_checks(url, query, psql, environment, manifest):
         stream.close()
         for grant in saved:
             query(f"UPDATE security.role_grants SET granted_to='{grant['until']}'::timestamptz WHERE id='{grant['id']}';")
+    # A read of working data captures current knowledge under the publication gate. It must not keep that gate while
+    # it values: every other read of working data, in any session, would wait behind it and fail at its command timeout.
+    other=PreviewClient(url);other.bootstrap();other.call('profile',{'profile':'risk'})
+    other_frame=initial_frame(other.call('workspace/catalog'),'2020-12-18')
+    def at_work(selected,convention='trading_workspace_v1'):
+        return {'snapshotId':selected['id'],'convention':convention,'knowledgeMode':'current'}
+    def scope_at_work(selected):
+        return {'context':at_work(selected),'bookIds':[],'portfolioIds':[]}
+    observation_waiters="SELECT count(DISTINCT pid) FROM pg_locks WHERE relation='market_data.observations'::regclass AND NOT granted AND mode='AccessShareLock';"
+    publication_waiters="SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND objid=730849102 AND NOT granted;"
+    def reading(client,path,body):
+        result={}
+        def work():
+            try:result['value']=client.call(path,body)
+            except Exception as error:result['error']=repr(error)[:200]
+        thread=threading.Thread(target=work);thread.start()
+        return thread,result
+    def valuing_together(path,body):
+        def held():
+            first=reading(c,path,body);waiting(1)
+            second=reading(other,'portfolio/risk/catalog',scope_at_work(other_frame))
+            deadline=time.monotonic()+4
+            while int(query(observation_waiters))!=2:
+                assert time.monotonic()<deadline,f'behind {path}, a read of working data waits for the publication gate ({query(publication_waiters)} waiting): first {first[1]}, second {second[1]}'
+                time.sleep(.025)
+            assert query(publication_waiters)=='0',f'a read of working data waits for the publication gate behind {path}'
+            return first,second
+        first,second=holding(psql,environment,'LOCK market_data.observations IN ACCESS EXCLUSIVE MODE',held)
+        for thread,_ in (first,second):thread.join(timeout=20)
+        assert all('value' in result for _,result in (first,second)),f'{path}: {first[1].get("error")} {second[1].get("error")}'
+        return first[1]['value'],second[1]['value']
+    one,two=valuing_together('portfolio/risk/catalog',scope_at_work(frame))
+    check('a read of working data does not hold the publication gate while it values')
+    # A ticket read also reads its trade's current head, under the same gate, before it values.
+    ticket,_=valuing_together('futures/editor',{'context':at_work(frame,working['futuresConvention']),'tradeId':held['tradeId'],'revision':int(held['revision'])})
+    check('a trade ticket read does not hold the publication gate while it values',ticket['canAmend'] is True or ticket.get('amendUnavailableReason'))
     # The ordinary routes of the covered reads execute outside the session gate (docs/async-reads.md).
     LOCK='LOCK market_data.observations IN ACCESS EXCLUSIVE MODE'
     def tab():

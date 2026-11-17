@@ -6197,6 +6197,49 @@ leaving 18; their ordinary routes remain.
   [the design](superpowers/specs/2026-11-16-non-blocking-page-reads-design.md).
 - **Evidence.** [Verification](verification.md#ordinary-reads-outside-the-session-gate-d419).
 
+## D420 · A working trading read captures current knowledge in a transaction of its own
+
+Amends how D134's publication gate applies to reads. `security.capture_date_context`
+certifies committed publications and returns a context under the catalog's
+publication gate, a transaction-scoped lock. A working trading read captured
+inside its read transaction, so it held the gate until it had valued. Every other
+working read and every publication, in any session, waited behind it, and a
+wait longer than the command timeout failed the waiting read.
+
+The shared trading executor and the Blotter row stream now run a working read as
+two identity transactions. The first admits the read, reads the trade head a
+ticket compares, and captures current knowledge; its commit releases the gate.
+The second reads at that context. What refuses a read still comes before its
+capture, so a refused read captures nothing, and the head and the capture share
+one gate hold, as they did. The read remains a working view: its context is
+current knowledge captured for that read, and the second transaction refuses a
+stored context whose coordinates differ from the captured ones.
+
+- **A publication may commit between the capture and the read.** The read is of
+  the captured context and does not see it, as a retained re-read does not. An
+  amendment that commits in that interval leaves the read showing the revision
+  its context knows, with the head it read just before; the amendment command
+  still validates its expected revision under the gate.
+- **Cost.** One more identity transaction for each working trading read. A read
+  that fails or is abandoned after its capture keeps the temporal context that
+  capture stored; before, its rollback discarded it. A catalog holds at most
+  4,096 contexts (O07), and each current-knowledge capture already adds one.
+- **Concurrency.** The gate had also limited working valuations to one at a time
+  across the database. They now run side by side up to the connection pool.
+  Throughput and memory under that load are not measured.
+- **Unchanged.** Commands capture inside their write transaction under the gate.
+  Every other reader that captures for itself still holds the gate for its
+  transaction: the P&L run, swap settlement P&L and preview, the live-context
+  stream and context selection, selected-close page reads, party views,
+  lifecycle operations, market dates, interval data, PPA, operating-facility,
+  crude-setup preview and REC reads, and the assistant's settlement view. The
+  P&L run holds it longest and is the next candidate. A function that needs the
+  gate takes it itself. A trading read that declares a source admission, as the
+  Transport ticket reads and the selected operating-trade read do, keeps one
+  transaction: its admission is captured before anything can wait and required
+  again at the commit that publishes the read.
+- **Evidence.** [Verification](verification.md#working-reads-and-the-publication-gate-d420).
+
 ## D421 — New trade is a page of its own with grouped instruments
 
 New trade listed ten instruments in one row and opened every ticket in the Blotter's

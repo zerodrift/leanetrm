@@ -26,7 +26,14 @@ internal static class TradingReadSelectionChecks
             throw new Exception("Historical reads must preserve their selected exact context and read-only state.");
         session.Profile="viewer";Denied(()=>selected.RequireSession(session));
         session.Profile="trader";Denied(()=>(selected with {Ends=DateTimeOffset.UtcNow.AddSeconds(-1)}).RequireSession(session));
-        Console.WriteLine("PASS concurrent trading read: immutable selection, historical mode, changed actor and ended UI session");
+        // Current knowledge is captured apart from the read that uses it. Only a working read captures, and a session
+        // that ended between the capture and the read does not get the view.
+        var store=new KnowledgeStore(manifest.CatalogId);
+        try{retained.CaptureKnowledge(null!,store,CancellationToken.None).GetAwaiter().GetResult();throw new Exception("A historical read must not capture current knowledge.");}
+        catch(InvalidOperationException){}
+        Denied(()=>_=(selected with {Ends=DateTimeOffset.UtcNow.AddSeconds(-1)}).Captured(null!,store,historical,CancellationToken.None));
+        Denied(()=>(selected with {Ends=DateTimeOffset.UtcNow.AddSeconds(-1)}).CaptureKnowledge(null!,store,CancellationToken.None).GetAwaiter().GetResult());
+        Console.WriteLine("PASS concurrent trading read: immutable selection, historical mode, changed actor, ended UI session and separately captured knowledge");
     }
     private static void Denied(Action action)
     {

@@ -68,6 +68,36 @@ check passed, including ordinary history after a live update. Locally,
 web suite 1,955 tests. Browser suites and the complete gate were not run for
 this change outside CI.
 
+## Working reads and the publication gate (D420)
+
+The exchange browser suite failed intermittently on slower CI runners at the
+step that opens the Blotter's option ticket from the Options page: the page
+showed that the operation could not be completed, and the server logged a
+database command timeout inside the knowledge capture of a trading read. The
+same step passed on a runner where it took about five seconds.
+
+The asynchronous workbench check now holds one session's read of working data
+while it values and starts a second session's read of working data, once behind
+a Risk catalog read and once behind a futures ticket read. It requires both
+reads to reach their own work with nothing waiting on the publication gate.
+Before the change the second read waited on the gate and never reached its own
+work. With the capture split but the trade head still read in the valuing
+transaction, the ticket case still failed that way. With the head read before
+the capture, both cases pass with the other 32 checks. Merged with D419's
+ordinary-read checks, the same check passed all 36 on the same machine.
+
+In owned disposable previews on one two-processor Linux machine with PostgreSQL
+18.7 and .NET 10.0.402, the live-calculation check and the latest-risk-run check
+passed on the final code, and the complete exchange check passed on the capture
+split before the head was moved. Locally, `--trading-read-selection`,
+`--async-reads` and `--assistant-workspace` passed.
+
+This shows that a working trading read, with or without a head trade, no longer
+holds the gate while it values. It does not measure throughput or memory with
+several valuations at once, and the readers D420 lists as unchanged still hold
+the gate for their transaction. Browser suites and the complete gate were not
+run for this change outside CI.
+
 ## Current runner
 
 For the current complete command and prerequisites, start with

@@ -1666,24 +1666,22 @@ Task<(object Result,TradingView View)> ExecuteTrading(string profile,Func<Tradin
     bool scenario=false,Guid? headTrade=null,bool amendmentPreview=false,string? expectedConvention=null,bool dealRisk=false,bool combinedWorkspace=false,
     Func<NpgsqlConnection,TradingView,CancellationToken,Task>? publicationCheck=null,string? hostedDigest=null,
     Func<NpgsqlConnection,CancellationToken,Task>? sourceAdmission=null)=>
-    database.WithIdentity(profile,"ReadTrades",async(connection,ct)=>
+    TradingTransaction(profile,capture,body,async(connection,selection,ct)=>
     {
-
-        if(sourceAdmission is not null)await sourceAdmission(connection,ct);
-        var selection=capture();
+        // What refuses the read, and the head a ticket compares, come before the knowledge the read is of: a refused
+        // read captures nothing, and the head is read under the same gate hold as that capture, as it always was.
         RequireConvention(body,expectedConvention);
         if(scenario && !await PreviewDatabase.HasPermission(connection,"RunScenario",ct)||dealRisk && !await PreviewDatabase.HasPermission(connection,"RunDealRisk",ct))throw new PreviewDeniedException();
-        var working=selection.Working;
-        if(amendmentPreview&&!working)
+        if(amendmentPreview&&!selection.Working)
             throw new MarketDataException("historical_read_only","Amendments require working data.");
         if(amendmentPreview&&!await PreviewDatabase.HasPermission(connection,"AmendTrade",ct))throw new PreviewDeniedException();
-        int? currentHead=null;
-        if(working&&headTrade is {} trade)
-        {
-            await using var head=ScheduleStore.Command(connection,expectedConvention==SwapStore.Convention?"SELECT security.swap_current_head($1,$2)":"SELECT security.futures_current_head($1,$2)",database.Manifest.CatalogId,trade);
-            currentHead=await head.ExecuteScalarAsync(ct) is int revision?revision:null;
-        }
-        var view=await selection.Resolve(connection,knowledgeStore,body,ct);
+        if(!selection.Working||headTrade is not {} trade)return null;
+        await using var head=ScheduleStore.Command(connection,expectedConvention==SwapStore.Convention?"SELECT security.swap_current_head($1,$2)":"SELECT security.futures_current_head($1,$2)",database.Manifest.CatalogId,trade);
+        return await head.ExecuteScalarAsync(ct) is int revision?revision:null;
+    },async(connection,selection,currentHead,resolve,ct)=>
+    {
+        var working=selection.Working;
+        var view=await resolve();
         var value=await read(connection,view,ct);
         if(scenario && !await PreviewDatabase.HasPermission(connection,"RunScenario",ct)||dealRisk && !await PreviewDatabase.HasPermission(connection,"RunDealRisk",ct))throw new PreviewDeniedException();
         var response=System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(value,tradingJson))!.AsObject();
@@ -1711,7 +1709,37 @@ Task<(object Result,TradingView View)> ExecuteTrading(string profile,Func<Tradin
             database.Manifest.CatalogId,scenario,dealRisk);
         if(!Equals(await publication.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
         return ((object)response,view);
+    },cancellation,hostedDigest,sourceAdmission);
+// A trading read in its identity transaction. A working read first admits itself and captures current knowledge in
+// a transaction of its own: the capture certifies under the catalog's publication gate, and holding that gate while
+// the read values would make every other working read, in any session, wait behind it (D420). The read's transaction
+// then reads at that context. `admit` refuses what it must before anything is captured and returns the trade head a
+// ticket read compares. A retained or historical view takes no gate and reads in the one transaction.
+// Neither transaction's result is an outcome an assistant invocation may record or replay: no trading read needs
+// an approval receipt. A read that declares a source admission keeps one transaction: the admission is captured before
+// anything can wait and is required again at the commit that publishes the read, so the two cannot be split.
+async Task<T> TradingTransaction<T>(string profile,Func<TradingReadSelection> capture,FuturesReadRequest body,
+    Func<NpgsqlConnection,TradingReadSelection,CancellationToken,Task<int?>> admit,
+    Func<NpgsqlConnection,TradingReadSelection,int?,Func<Task<TradingView>>,CancellationToken,Task<T>> read,CancellationToken cancellation,string? hostedDigest=null,
+    Func<NpgsqlConnection,CancellationToken,Task>? sourceAdmission=null)
+{
+    if(sourceAdmission is not null)return await database.WithIdentity(profile,"ReadTrades",async(connection,ct)=>
+    {
+        await sourceAdmission(connection,ct);
+        var admitted=capture();var head=await admit(connection,admitted,ct);
+        return await read(connection,admitted,head,()=>admitted.Resolve(connection,knowledgeStore,body,ct),ct);
     },cancellation,hostedDigest:hostedDigest);
+    TradingReadSelection? selection=null;
+    var first=await database.WithIdentity(profile,"ReadTrades",async(connection,ct)=>
+    {
+        selection=capture();var head=await admit(connection,selection,ct);
+        if(selection.Working)return (Head:head,Knowledge:await selection.CaptureKnowledge(connection,knowledgeStore,ct),Value:default(T));
+        return (Head:head,Knowledge:(ScheduleContext?)null,Value:await read(connection,selection,head,()=>selection.Resolve(connection,knowledgeStore,body,ct),ct));
+    },cancellation,hostedDigest:hostedDigest);
+    if(first.Knowledge is not {} knowledge)return first.Value!;
+    return await database.WithIdentity(profile,"ReadTrades",(connection,ct)=>
+        read(connection,selection!,first.Head,()=>selection!.Captured(connection,knowledgeStore,knowledge,ct),ct),cancellation,hostedDigest:hostedDigest);
+}
 TradingReadSelection Capture(PreviewSession session,FuturesReadRequest body)=>TradingReadSelection.Capture(session,body,
     session.LivePin(body.SnapshotId)?.RequireFrame()??Frame(session,body.SnapshotId));
 void RequireConvention(FuturesReadRequest body,string? expected)
@@ -2226,9 +2254,9 @@ api.MapPost("/trading/workspace/stream",async(HttpContext c,TradingWorkspaceStre
  var writer=new BlotterStreamWriter(c.Response.Body,tradingJson);
  c.Items[typeof(BlotterStreamWriter)]=writer;
  var positions=0;
- var result=await Concurrent(c,context,(session,capture)=>database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>
+ var result=await Concurrent(c,context,(session,capture)=>TradingTransaction(Profile(session),capture,context,
+  (_,_,_)=>{RequireConvention(context,TradingBlotter.Convention);return Task.FromResult<int?>(null);},async(connection,selection,_,resolve,ct)=>
  {
-  var selection=capture();
   // The reader's authority on the run's own connection and epoch, checked before every frame: start and each rows frame.
   async Task Authorize(CancellationToken ct)
   {
@@ -2236,8 +2264,7 @@ api.MapPost("/trading/workspace/stream",async(HttpContext c,TradingWorkspaceStre
    await database.RequireSignedIn(connection,ct);
    selection.RequireSession(session);
   }
-  RequireConvention(context,TradingBlotter.Convention);
-  var view=await selection.Resolve(connection,knowledgeStore,context,ct);
+  var view=await resolve();
   var value=await tradeReads.WorkspaceRun(connection,view,body.View,body.Summaries.IsDefault?[]:body.Summaries,body.BookingCatalog=="directory",async run=>
   {
    positions=run.Positions;

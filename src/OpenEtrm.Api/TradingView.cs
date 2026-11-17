@@ -27,6 +27,11 @@ public sealed record TradingView
         var on=WorkingDate(frame).ToString("yyyy-MM-dd",CultureInfo.InvariantCulture);
         return new(frame,(await store.Capture(connection,new(on,null,"current"),ct)).Context,true);
     }
+    // Working data as of current knowledge that a transaction of its own captured for this read a moment earlier
+    // (TradingReadSelection.CaptureKnowledge). The read's transaction reads that context again under its own authority
+    // and refuses one whose stored coordinates differ from the captured ones.
+    internal static async Task<TradingView> Captured(NpgsqlConnection connection,KnowledgeStore store,InputFrame? frame,ScheduleContext knowledge,CancellationToken ct)=>
+        frame is {ContextId:null}?new(frame,await store.Retained(connection,knowledge,ct),true):throw PinnedContext.Missing();
     // The date working data is captured at for a frame: its instant's UTC date.
     public static DateOnly WorkingDate(InputFrame frame)=>PreviewSession.BusinessDay(frame);
     // Working data as of a context captured earlier. The read refuses a context effective on another date.
