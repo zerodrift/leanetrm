@@ -2,6 +2,7 @@
 from copy import deepcopy
 from datetime import date, timedelta
 import json
+import hashlib
 import re
 import threading
 import time
@@ -10,6 +11,8 @@ from preview_client import PreviewClient
 from seed_session_closes import publish_session, record_close
 
 SESSION = 'synthetic_calendar_scaling'
+# Business projections captured from unchanged cb582382 in this exact synthetic fixture.
+EXPECTED = {'curve': 'f899a197032bd27475da3adee6f027f3be06778230ca80405e18f1087153ba63', 'denied': '4292f04ecba1c37badc016fc5649e1131f4737bf9fca2ef2d44ce615f7af1d65', 'hidden': 'c40959aaece96f7549b10036de77257a0682d1793a40b7d9a31cbc66b5019baf', 'rate': '67399245cd08d8a1f0b07d00827e581fe398d136af30a46d915ead808e35ee0d', 'replaced': 'd444694f6c3a9de28159180e0ccd77d9f622f11cb091944c69249410c82967e5', 'retained': 'e88ca9402cd8c6d63bfefa0d89d6971fa261b8253e1c124e2e2becdc0486611b', 'workspace': '640376bb23df1cf40d66d4ceac651a820d7729c68d2ff60cb143c0bd0d3d442b'}
 
 
 def projection(answer):
@@ -50,7 +53,11 @@ def run_checks(url, query, manifest, psql, environment, log):
     client.call('profile', {'profile': 'admin'})
     answers['denied'] = client.call('market/dates', body, expected=403)
     client.call('profile', {'profile': 'viewer'})
-    print('CALENDAR_EQUIVALENCE=' + json.dumps(answers, sort_keys=True), flush=True)
+    actual = {name: hashlib.sha256(json.dumps(answer, sort_keys=True).encode()).hexdigest() for name, answer in answers.items()}
+    assert actual == EXPECTED, (actual, answers)
+    print('PASS calendar answers equal the unchanged implementation for curve, workspace, rate, retained, replaced, hidden and denied reads', flush=True)
+    # Keep 96 candidates within the global 128-frame discovery bound. Existing facts stay immutable.
+    query("INSERT INTO presentation.close_session_listings SELECT v.catalog_id,v.code,1,max(v.version),'Synthetic retired fixture session',false,pg_current_xact_id() FROM market_data.close_session_versions v GROUP BY v.catalog_id,v.code;")
 
     # Two complete bridge closes, then increasingly many closes which only declare ng_monthly.
     # Session versions make root membership explicit; no inferred roots or financial inputs.
