@@ -12,7 +12,7 @@ existing publication enablement/environment controls.
 | `web/tests/` | Frontend |
 | Rates/Shared managed test projects | Managed |
 | Explicitly mapped browser scenarios | Every declared consumer, including frontend startup consumers |
-| `web/src/` | Frontend, database and all fourteen integration groups |
+| `web/src/` | Frontend, database and all sixteen integration groups |
 | Managed runtime, API/MarketData check projects, shared fixtures, SQL, dependencies, build/tooling, workflow, deployment, unknown paths/helpers | Every group |
 
 The browser map is deliberately bounded. Update `BROWSER_GROUPS` when a scenario
@@ -32,7 +32,15 @@ Each integration group builds its own locked frontend assets, API checks,
 MarketData checks and worker. No mutable application, database, market scenario
 or previous result is shared as test evidence. Lightweight groups skip PostgreSQL
 installation; other jobs preserve pinned verified package acquisition and caches.
-The complete local gate retains all 185 original commands in the same order.
+The complete local gate retains every command in the same order.
+
+Gas qualification runs in three independently prepared jobs: `gas-native` owns
+the 24 native, populated-upgrade and retained-worker helpers; `gas-browser` owns
+the nine application-browser invocations, including the separate provider-only
+custody case; `gas` owns the seven preview workflows. This separates the queue
+that reached the 90-minute job limit without removing checks or extending that
+limit. The dynamic matrix and full-gate indicator include all three jobs; every
+behavior command still runs exactly once across a complete matrix.
 
 Local qualification covers disposable Git histories, union/unknown path selection,
 merge-result and stale-checkout handling, CLI outputs, partition command coverage,

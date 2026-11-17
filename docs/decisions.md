@@ -5566,7 +5566,7 @@ tested merge result, include both sides of renames, and retain complete Git
 history without a changed-file API limit.
 
 Separate repository, frontend, managed and database behavior checks from the
-fourteen existing integration groups. Run shared suites once across the matrix.
+integration groups. Run shared suites once across the matrix.
 Each integration checkout retains locked builds of the API checks, MarketData
 checks and worker, plus frontend assets and owned disposable resources. Preserve
 all existing native/browser consumers and the pinned dependency acquisition
@@ -5579,6 +5579,13 @@ controls. The pull operator requires an exact latest-head release; documentation
 pushes retain that path so they cannot strand earlier runtime changes. See
 [CI impact selection](ci-impact.md) for the executable boundaries and remaining
 qualification. No application, schema or financial contract changes are included.
+
+The 2026-11-17 amendment splits the gas queue into `gas-native`, `gas-browser`
+and `gas` preview jobs after its complete sequential workload reached the
+90-minute job limit. Each retains its own locked preparation and disposable
+resources. The full gate keeps every existing command in order, and its matrix
+requires every behavior command exactly once. The job limit and stable aggregate
+failure rules remain unchanged; hosted qualification covers the new partitioning.
 
 ## D406 · Bookable Park and Loan with independent native owners
 
@@ -6280,3 +6287,39 @@ their booking rules. Left for later: staying on the page for the next trade, onc
 booking receipts carry the trade reference; and one order of parts for every
 ticket, with the description-driven ticket. See the
 [design](superpowers/specs/2026-11-16-new-trade-page-design.md).
+
+## D422 · Reuse typed delivery behavior and native operating workbench contracts
+
+**Requirement.** Connect existing gas transport plans to booked delivery
+obligations while sharing proven behavior and presentation with the existing
+crude receipt/dispatch consumer. Future commodities and movement methods must be
+extendible without inferring their physical or financial laws.
+
+**Decision.** Use a shallow pure `DeliveryBehavior<TInputs>` contract with
+immutable resolved inputs and exact common assessment output. Gas interval and
+crude transfer implementations call their existing native domain kernels.
+Commodity, transport method, units, measurement, title, custody and cash remain
+independent. Backend descriptors drive shared UI fields, activities, constraints,
+reviews and recovery. Authorization and immutable/idempotent persistence remain
+outside overridable calculation hooks.
+
+Add exact chosen-route allocations to native booked gas occurrences under
+`exact_terminal_native_interval_v1`. Retain complete source and target ownership,
+conservation, current-authority and historical-source checks. These links neither
+reserve capacity again nor create physical performance, title or cash. Manual
+nomination batches consume one complete accepted allocation plan through existing
+native nomination commands and retain their grouped outcome atomically. External
+responses and explicit schedule adoption remain separate operations.
+
+**Compatibility and limits.** Preserve existing economic identity, source facts,
+accepted commands and native gas/crude restrictions. New relationships are
+additive; there is no generic object store, event framework or runtime script.
+The workbench reads an explicit operating context; native nomination batches
+check source applicability at the selected allocation's effective business date
+under current knowledge, and retain their separate explicit input-frame context
+for native nomination reviews. Each native read binds its own scope once.
+Future LNG, truck, blending
+and other delivery capabilities require their own executable consumers and
+independent qualification. See [the contract](delivery-workbench.md) for APIs,
+extension steps and actual verification boundaries. Deployment and independent
+review remain separate gates.

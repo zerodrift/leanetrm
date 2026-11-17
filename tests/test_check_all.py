@@ -44,7 +44,45 @@ OPERATING_FACILITIES={'tools/check_operating_facilities.py','tools/check_operati
 POINT_TRADER_MARKS={f'tools/check_point_trader_marks{suffix}.py' for suffix in ('', '_upgrade', '_browser')}
 
 
+def gas_helpers(group, helpers):
+    if group == 'all':
+        return helpers
+    if group == 'gas-native':
+        return {helper for helper in helpers if not helper.endswith('_browser.py')}
+    if group == 'gas-browser':
+        return {helper for helper in helpers if helper.endswith('_browser.py')}
+    return set()
+
+
 class CheckAllTests(unittest.TestCase):
+    def test_gas_jobs_separate_native_browser_and_preview_workloads(self):
+        self.assertTrue({'gas', 'gas-native', 'gas-browser'}.issubset(GROUPS))
+        workloads = {}
+        for group in ('gas', 'gas-native', 'gas-browser'):
+            commands = []
+            run_checks(Path('/pg'), Path('/sdk'), Path('/browser'), group=group,
+                       run=lambda command, **options: commands.append(command))
+            workloads[group] = [command for command in commands
+                                if command[0] == sys.executable and command[1].startswith('tools/')]
+        previews = workloads['gas']
+        self.assertEqual(len(previews), 7)
+        self.assertTrue(all(command[1] == 'tools/run_preview.py' for command in previews))
+        preview_flags = {
+            '--gas-basis-demo-check', '--gas-operations-check', '--gas-billing-check',
+            '--gas-daily-quantity-check', '--gas-amendments-check', '--gas-indexed-check',
+            '--gas-in-term-check'}
+        self.assertEqual({part for command in previews for part in command if part in preview_flags},
+                         preview_flags)
+        native = workloads['gas-native']
+        self.assertEqual(len(native), 24)
+        self.assertTrue(all(command[1] != 'tools/run_preview.py' and '--browser' not in command
+                            for command in native))
+        browsers = workloads['gas-browser']
+        self.assertEqual(len(browsers), 9)
+        self.assertTrue(all(command[1].endswith('_browser.py') and '--browser' in command
+                            for command in browsers))
+        self.assertEqual(sum('--provider-only' in command for command in browsers), 1)
+
     def test_point_trader_mark_native_upgrade_and_browser_are_required_once_with_selected_tools(self):
         helpers = POINT_TRADER_MARKS
         api = 'tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj'
@@ -61,7 +99,7 @@ class CheckAllTests(unittest.TestCase):
                 self.assertEqual(command[command.index('--pg-bin') + 1], '/stock pg')
                 self.assertEqual(options['env']['DOTNET'], '/selected sdk')
                 self.assertIn(['/selected sdk', 'restore', api, '--locked-mode'], commands)
-                if group == 'gas':
+                if group in ('gas-native', 'gas-browser'):
                     self.assertIn(['/selected sdk', 'build', api, '--no-restore'], commands)
                 if helper.endswith('_browser.py'):
                     self.assertEqual(command[command.index('--dotnet') + 1], '/selected sdk')
@@ -70,8 +108,8 @@ class CheckAllTests(unittest.TestCase):
             with patch.dict(os.environ, {'DOTNET': '/unrelated sdk'}), redirect_stdout(io.StringIO()):
                 run_checks(Path('/stock pg'), Path('/selected sdk'), Path('/selected browser'), group=group, run=run)
             selected = [part for command in commands for part in command if part in helpers]
-            self.assertEqual(set(selected), helpers if group in ('all', 'gas') else set())
-            self.assertEqual(len(selected), len(helpers) if group in ('all', 'gas') else 0)
+            self.assertEqual(set(selected), gas_helpers(group, helpers))
+            self.assertEqual(len(selected), len(gas_helpers(group, helpers)))
 
     def test_point_trader_mark_managed_contracts_are_required_once_in_managed(self):
         flags = {'--point-trader-mark-' + name for name in ('identity', 'inputs', 'commands', 'receipts')}
@@ -89,6 +127,24 @@ class CheckAllTests(unittest.TestCase):
                 run_checks(Path('/pg'), Path('/selected sdk'), Path('/browser'), group=group, run=run)
             self.assertEqual(set(selected), flags if group in ('all', 'managed') else set())
             self.assertEqual(len(selected), len(flags) if group in ('all', 'managed') else 0)
+
+    def test_delivery_workbench_requires_native_and_actual_application_qualification(self):
+        helpers={'tools/check_delivery_workbench.py','tools/check_delivery_workbench_http.py'}
+        flags={'--delivery-workbench','--delivery-nomination-batch'}
+        for group in ALL_GROUPS:
+            commands=[]
+            def run(command,**options):
+                commands.append(command)
+                if 'tools/check_delivery_workbench_http.py' in command:
+                    self.assertEqual(command[command.index('--dotnet')+1],'/selected sdk')
+                    self.assertEqual(command[command.index('--browser')+1],'/selected browser')
+                    self.assertIn('--no-build',command)
+            with redirect_stdout(io.StringIO()):
+                run_checks(Path('/stock pg'),Path('/selected sdk'),Path('/selected browser'),group=group,run=run)
+            selected={part for command in commands for part in command if part in helpers}
+            self.assertEqual(selected,helpers if group=='physical' else set())
+            selected_flags={part for command in commands for part in command if part in flags}
+            self.assertEqual(selected_flags,flags if group=='managed' else set())
 
     def test_financial_transport_requires_native_upgrade_worker_and_actual_browser(self):
         helpers = {f'tools/check_gas_transport_financial{suffix}.py'
@@ -114,8 +170,8 @@ class CheckAllTests(unittest.TestCase):
                 run_checks(Path('/stock pg'), Path('/selected sdk'), Path('/selected browser'),
                            group=group, run=run)
             selected = [part for command in commands for part in command if part in helpers]
-            self.assertEqual(set(selected), helpers if group == 'gas' else set())
-            self.assertEqual(len(selected), len(helpers) if group == 'gas' else 0)
+            self.assertEqual(set(selected), gas_helpers(group, helpers))
+            self.assertEqual(len(selected), len(gas_helpers(group, helpers)))
 
     def test_financial_transport_managed_contracts_run_once_in_managed(self):
         flags = {'--gas-transport-financial-' + name for name in
@@ -205,10 +261,10 @@ class CheckAllTests(unittest.TestCase):
                     self.assertEqual(command[command.index('--browser')+1],'/selected browser')
                     self.assertIn('--no-build',command)
             run_checks(Path('/stock pg'),Path('/selected sdk'),Path('/selected browser'),group=group,run=run)
-            self.assertEqual(len(selected),5 if group=='gas' else 0)
-            if selected:
-                self.assertEqual({part for command in selected for part in command}&helpers,helpers)
-                self.assertEqual(sum('--provider-only' in command for command in selected),1)
+            expected = gas_helpers(group, helpers)
+            self.assertEqual(len(selected), len(expected) + int(group == 'gas-browser'))
+            self.assertEqual({part for command in selected for part in command} & helpers, expected)
+            self.assertEqual(sum('--provider-only' in command for command in selected), int(group == 'gas-browser'))
 
     def test_custody_managed_boundaries_run_once_in_managed_partition(self):
         flags={'--gas-park-custody','--gas-park-custody-ticket','--gas-park-custody-evidence',
@@ -277,7 +333,7 @@ class CheckAllTests(unittest.TestCase):
                     self.assertEqual(failure.exception.code, 2)
                     selected.assert_not_called()
 
-    def test_balance_fee_native_upgrade_worker_and_browser_run_once_in_gas(self):
+    def test_balance_fee_native_upgrade_worker_and_browser_run_once_in_gas_jobs(self):
         expected = {f'tools/{name}.py' for name in (
             'check_gas_park_loan_balance_fee', 'check_gas_balance_fee_upgrade',
             'check_gas_balance_fee_worker', 'check_gas_balance_fee_browser')}
@@ -297,18 +353,19 @@ class CheckAllTests(unittest.TestCase):
                     self.assertIn('--no-build', command)
             run_checks(Path('/stock pg'), Path('/selected sdk'), Path('/selected browser'),
                        group=group, run=run)
-            self.assertEqual(set(selected), expected if group == 'gas' else set())
-            self.assertEqual(len(selected), len(expected) if group == 'gas' else 0)
+            self.assertEqual(set(selected), gas_helpers(group, expected))
+            self.assertEqual(len(selected), len(gas_helpers(group, expected)))
 
-    def test_park_loan_qualifiers_are_required_in_gas_partition(self):
-        commands = []
-        with redirect_stdout(io.StringIO()):
-            run_checks(Path('/pg'), Path('/dotnet'), Path('/browser'), group='gas',
-                       run=lambda command, **options: commands.append(command))
+    def test_park_loan_qualifiers_are_required_once_in_gas_jobs(self):
         expected = {'tools/check_gas_park_loan.py', 'tools/check_gas_park_loan_upgrade.py',
                     'tools/check_gas_park_loan_browser.py', 'tools/check_gas_park_loan_worker.py'}
-        observed = {part for command in commands for part in command if part in expected}
-        self.assertEqual(observed, expected)
+        for group in GROUPS:
+            commands = []
+            run_checks(Path('/pg'), Path('/dotnet'), Path('/browser'), group=group,
+                       run=lambda command, **options: commands.append(command))
+            observed = [part for command in commands for part in command if part in expected]
+            self.assertEqual(set(observed), gas_helpers(group, expected))
+            self.assertEqual(len(observed), len(gas_helpers(group, expected)))
 
     def test_storage_facility_native_upgrade_and_browser_run_once_in_physical(self):
         expected=STORAGE_FACILITY
@@ -387,8 +444,8 @@ class CheckAllTests(unittest.TestCase):
                     self.assertEqual(command[command.index('--browser')+1],'/selected browser')
                     self.assertIn('--no-build',command)
             run_checks(Path('/stock pg'),Path('/selected sdk'),Path('/selected browser'),group=group,run=run)
-            self.assertEqual(set(selected),expected if group=='gas' else set())
-            self.assertEqual(len(selected),len(expected) if group=='gas' else 0)
+            self.assertEqual(set(selected),gas_helpers(group,expected))
+            self.assertEqual(len(selected),len(gas_helpers(group,expected)))
 
     def test_gas_amendments_have_a_required_separate_partition(self):
         self.assertIn('gas',GROUPS)
@@ -595,6 +652,7 @@ class CheckAllTests(unittest.TestCase):
                            '--gas-transport-capacity-adapters','--gas-transport-capacity-source',
                            '--gas-transport-capacity-metadata','--operational-business-context',
                            '--gas-transport-route-adapters','--gas-transport-route-source','--gas-transport-route-metadata',
+                           '--delivery-workbench','--delivery-nomination-batch',
                            '--gas-transport-financial-commands','--gas-transport-financial-source',
                            '--gas-transport-financial-ticket','--gas-transport-financial-positions',
                            '--gas-transport-financial-adapters','--gas-transport-financial-labels','--gas-transport-financial-setup',
@@ -749,8 +807,7 @@ class CheckAllTests(unittest.TestCase):
                 with self.subTest(group=group, failure=type(failure).__name__):
                     output = io.StringIO()
                     def run(command, **options):
-                        required = 'tools/check_lifecycle_actions.py' if group == 'lifecycle' else 'tools/check_gas_fee_existing_origins.py' if group=='gas' else 'tools/run_preview.py'
-                        if required in command:
+                        if '--pg-bin' in command:
                             raise failure
                     with redirect_stdout(output), self.assertRaises(type(failure)):
                         run_checks(Path('/pg'), Path('/dotnet'), Path('/browser'), group=group, run=run)

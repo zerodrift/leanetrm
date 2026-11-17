@@ -73,6 +73,18 @@ class ImpactTests(unittest.TestCase):
         self.assertTrue(plan(['docs/plan.md'], event='push')['full'])
         self.assertTrue(plan(['src/new.cs'], event='push')['full'])
 
+    def test_all_gas_jobs_are_required_for_shared_changes_and_release(self):
+        gas_jobs = {'gas', 'gas-native', 'gas-browser'}
+        for event, path in (
+            ('pull_request', 'src/OpenEtrm.Api/Program.cs'),
+            ('pull_request', 'web/src/app.ts'),
+            ('pull_request', 'tests/browser/gas-operations.mjs'),
+            ('push', 'docs/plan.md'),
+            ('workflow_dispatch', 'docs/plan.md'),
+        ):
+            with self.subTest(event=event, path=path):
+                self.assertTrue(gas_jobs.issubset(self.groups(path, event=event)))
+
     def test_missing_or_empty_diff_runs_everything(self):
         for paths in (None, []):
             self.assertEqual(plan(paths, event='pull_request')['groups'], list(ALL_GROUPS))

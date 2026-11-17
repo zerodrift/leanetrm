@@ -17,6 +17,7 @@ import {readPositionFacts,appendPositionFacts,type PositionFact} from './positio
 import {gasInstrumentSections,renderPhysicalSections,type GasInstrumentFacts} from './physical-instrument.js';
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type Tab='overview'|'delivery'|'cash';
+export type PhysicalDeliveryTarget={tradeId:string;bindingId:string;revision:number;instrumentType:'physical_gas'|'physical_crude';tab:'delivery'};
 const tradeLayout=():GridLayout=>({...emptyGridLayout(),sort:[{key:'trade',direction:'asc' as const}]});
 const commandAllowed=(c:RequestCommand)=>c.path.startsWith('gas/operations/')||['gas/quantities/record','gas/billing/determine'].includes(c.path)||isCrudeOperation(c.path);
 
@@ -97,14 +98,21 @@ export function setupPhysicalOperations(root:HTMLElement,o:{api:Api;act:(work:()
    }
   }catch(error){if(current(epoch,actor)){clearWidgets();message.textContent=String(error);}}finally{if(current(epoch,actor)){reading=false;sync();}}
  }
- async function load(){restore();const previous=selected&&physicalTradeKey(selected),actor=o.identity(),epoch=++generation;clearWidgets();clearGrid(true);positions=[];selected=undefined;clearInstrument();tradeHost.textContent='Loading physical trades…';reading=true;sync();try{
+ async function load(target?:PhysicalDeliveryTarget){restore();const previous=selected&&physicalTradeKey(selected),actor=o.identity(),epoch=++generation;clearWidgets();clearGrid(true);positions=[];selected=undefined;clearInstrument();tradeHost.textContent='Loading physical trades…';reading=true;sync();try{
    const context=structuredClone(o.context());let facts=readPositionFacts(await o.api('physical/operations/directory',{context,bookIds:[],portfolioIds:[],offset:0,limit:64}),64);if(!current(epoch,actor))return;
    while(facts.nextOffset!==null){const offset=facts.nextOffset;facts=appendPositionFacts(facts,await o.api('physical/operations/directory',{context:{...context,knowledgeMode:'retained',contextId:facts.context.contextId},bookIds:[],portfolioIds:[],offset,limit:64}),64);if(!current(epoch,actor))return;}
-   positions=facts.positions;selected=positions.find(p=>physicalTradeKey(p)===previous)??(positions.length===1?positions[0]:undefined);drawTrades();reading=false;await mount();if(selected)grid?.selectRow(positions.indexOf(selected));
-  }catch(error){if(current(epoch,actor)){positions=[];selected=undefined;filters=undefined;clearGrid();message.textContent=String(error);}}finally{if(current(epoch,actor)){reading=false;sync();}}}
+   positions=facts.positions;
+   selected=target?positions.find(p=>p.tradeId===target.tradeId&&p.bindingId===target.bindingId&&p.revision===target.revision&&p.instrumentType===target.instrumentType):positions.find(p=>physicalTradeKey(p)===previous)??(positions.length===1?positions[0]:undefined);
+   if(target&&!selected)throw Error('The exact delivery trade and revision are not visible under the selected financial close and knowledge context.');
+   if(target)tab=target.tab;
+   drawTrades();reading=false;await mount();if(selected)grid?.selectRow(positions.indexOf(selected));
+  }catch(error){if(current(epoch,actor)){positions=[];selected=undefined;filters=undefined;clearGrid();message.textContent=String(error);if(target)throw error;}}finally{if(current(epoch,actor)){reading=false;sync();}}}
  get('refresh').onclick=()=>void o.act(async()=>{if(await leave())await load();});get('retry').onclick=()=>void o.act(async()=>{if(pending.command)await send(pending.command);});get('status').onclick=()=>void o.act(check);
  // The instrument and tab shown and, on a gas delivery, its selected row and stage (PageState's physical).
  const shown=():PhysicalShown|undefined=>selected&&{tradeId:selected.tradeId,bindingId:selected.bindingId,revision:selected.revision,
   instrumentType:selected.instrumentType as PhysicalShown['instrumentType'],tab,...(tab==='delivery'&&gas?.shown())||{day:null,obligationId:null,stage:null}};
- return{load,sync,leave,edited:()=>edited()||!!pending.command,selected:()=>selected,shown,reset(){generation++;reading=false;asking?.abort();asking=undefined;clearWidgets();positions=[];selected=undefined;tab='overview';pending.clear();identity='';clearGrid();filters=undefined;clearInstrument();message.textContent='';},async refresh(){if(await leave())await load();}};
+ return{load:()=>load(),async open(target:PhysicalDeliveryTarget){
+  if(!target||!target.tradeId||!target.bindingId||!Number.isSafeInteger(target.revision)||target.revision<1||!['physical_gas','physical_crude'].includes(target.instrumentType)||target.tab!=='delivery')throw Error('Choose an exact supported native delivery target.');
+  if(await leave())await load(structuredClone(target));
+ },sync,leave,edited:()=>edited()||!!pending.command,selected:()=>selected,shown,reset(){generation++;reading=false;asking?.abort();asking=undefined;clearWidgets();positions=[];selected=undefined;tab='overview';pending.clear();identity='';clearGrid();filters=undefined;clearInstrument();message.textContent='';},async refresh(){if(await leave())await load();}};
 }

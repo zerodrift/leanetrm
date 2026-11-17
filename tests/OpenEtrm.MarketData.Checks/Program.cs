@@ -17,6 +17,7 @@ if(args is ["--cash-option-model"]){CashOptionModelChecks.Run();return;}
 if(args is ["--cash-option-binding"]){CashOptionBindingChecks.Run();return;}
 if(args is ["--physical-option-binding"]){PhysicalOptionBindingChecks.Run();return;}
 if(args is ["--derivative-capabilities"]){DerivativeCapabilityChecks.Run();return;}
+if(args is ["--delivery-behaviors"]){DeliveryBehaviorChecks.Run();return;}
 if(args is ["--gas-known-stock"]){GasKnownStockChecks.Run();return;}
 if(args is ["--gas-known-quantity"]){GasKnownQuantityChecks.Run();return;}
 if(args is ["--gas-unfixed-delivery"]){GasUnfixedDeliveryChecks.Run();return;}
@@ -197,6 +198,7 @@ if (args.Length > 0)
 
 GenericScheduleChecks.Run();
 CrudeReceiptCashChecks.Run();
+DeliveryBehaviorChecks.Run();
 FacilityQuantityChecks.Run();
 StorageFacilityChecks.Run();
 CrudeInventorySalesChecks.Run();

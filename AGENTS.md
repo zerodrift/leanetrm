@@ -58,6 +58,11 @@ choices. Update the decision record when a decision changes.
   `docs/facility-quantity-ledger.md` for the implemented relational operations;
   reuse its exact source/target relationships and immutable receipts rather than
   introducing a parallel persistence or event framework.
+  Read `docs/delivery-workbench.md` when adding an operating delivery consumer.
+  Reuse the typed behavior and shared UI contracts; keep interval flows,
+  discrete transfers and stock balances distinct. New molecules or movement
+  methods require explicit supported policies and independent examples, not
+  another commodity switch or inferred measurement/conversion defaults.
 - Only check in work the author would be proud to say they wrote. Review the
   result for correctness, readability and restraint; remove temporary scaffolding,
   dead code and needless duplication. Passing tests alone is not that review.

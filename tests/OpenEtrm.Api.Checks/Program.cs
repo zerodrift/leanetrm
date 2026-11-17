@@ -8,6 +8,9 @@ if(args is ["--point-trader-mark-identity"]){PointTraderMarkIdentityChecks.Run()
 if(args is ["--point-trader-mark-inputs"]){PointTraderMarkInputSelectionChecks.Run();return;}
 if(args is ["--point-trader-mark-commands"]){PointTraderMarkCommandChecks.Run();return;}
 if(args is ["--point-trader-mark-receipts"]){PointTraderMarkReceiptChecks.Run();return;}
+
+if(args is ["--delivery-nomination-batch"]){DeliveryNominationBatchChecks.Run();return;}
+if(args is ["--delivery-workbench"]){DeliveryWorkbenchChecks.Run();return;}
 if(args is ["--gas-transport-financial-commands"]){GasTransportFinancialCommandChecks.Run();return;}
 if(args is ["--gas-transport-financial-source"]){GasTransportFinancialSourceChecks.Run();return;}
 if(args is ["--instrument-side-presentation"]){InstrumentSidePresentationChecks.Run();return;}

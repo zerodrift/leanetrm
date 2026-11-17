@@ -24,7 +24,7 @@ test('Back restores Route plans under their operating date without selecting cap
 });
 
 test('Back retains each explicit facility operations section and the exact quantity ledger selection',async()=>{
- for(const [page,section]of [['facility_definitions','definitions'],['facility_activity','activity']])assert.deepEqual((await run({page,selection:{}})).at(-1),['section',section]);
+ for(const [page,section]of [['facility_definitions','definitions'],['facility_activity','activity'],['delivery_workbench_gas','gas-delivery'],['delivery_workbench_crude','crude-delivery']])assert.deepEqual((await run({page,selection:{}})).at(-1),['section',section]);
  assert.deepEqual((await run({page:'facility_quantities',selection:{ledgerId:'synthetic-original-ledger'}})).at(-1),['ledger','synthetic-original-ledger',false]);
 });
 

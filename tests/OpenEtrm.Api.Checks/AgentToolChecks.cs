@@ -556,7 +556,7 @@ static class AgentToolChecks
             PageReports.Require(Json(report));
             Require(PageReports.Dispatch(Json(report)) is {Call:{} dispatchedCall} read&&read.Page==page&&dispatchedCall.Operation.Id==operation,$"{report} dispatches {operation}");
         }
-        var unsupported=new[]{"physical_power","facility_definitions","facility_activity","transport_capacity","transport_route_plans","rec_inventory","blotter_new_rec","blotter_operating_right","blotter_rec_forward","dashboard","vol_surfaces","options","blotter_new_lng","blotter_new_ppa","blotter_new_gas","blotter_new_park_loan","blotter_new_transport","blotter_new_crude","blotter_new_option","physical_gas","physical_crude"};
+        var unsupported=new[]{"physical_power","facility_definitions","facility_activity","transport_capacity","transport_route_plans","delivery_workbench_gas","delivery_workbench_crude","rec_inventory","blotter_new_rec","blotter_operating_right","blotter_rec_forward","dashboard","vol_surfaces","options","blotter_new_lng","blotter_new_ppa","blotter_new_gas","blotter_new_park_loan","blotter_new_transport","blotter_new_crude","blotter_new_option","physical_gas","physical_crude"};
         var workspace=new[]{"lifecycle","physical_operations","gas_setup","crude_setup","facility_quantities","risk_jobs","blotter_risk","blotter_risk_lens","blotter_new_trade","blotter_new_future","blotter_new_swap","delivery_prices","interval_series","interval_curves","users_access","settings_ai"};
         Require(PageReports.NotSupported.Order().SequenceEqual(unsupported.Order())&&PageReports.Supported.Order()
                 .SequenceEqual(new[]{"curves","contract_definitions","schedules","power_tous","reference_data","parties","blotter","custom_curves","jobs","ppa"}.Concat(workspace).Order()),
@@ -586,6 +586,14 @@ static class AgentToolChecks
         TurnReads Turn(string report,params string[] tools)=>new(working,new("agent",Guid.NewGuid()),Json(report),[..tools],Guid.NewGuid(),TimeSpan.FromSeconds(15),new(500,65536));
         var curve="""{"page":"curves","selection":{"view":"curve","curve":"future"}}""";
         ModelToolRequest Current(string input="{}")=>new("toolu_synthetic_01","read_current_page",Json(input));
+        foreach(var page in new[]{"delivery_workbench_gas","delivery_workbench_crude"})
+        {
+            Require(Code(()=>AgentTools.Requested(Turn(Report(page,"{}"),"read_current_page","read_trades"),Current()))=="page_not_supported"
+                &&!PageReports.Navigable.Contains(page),
+                "a delivery workbench admits a question without granting an assistant read or navigation operation");
+            Require(Code(()=>PageReports.Require(Json(Report(page,$$"""{"scopeId":"{{Trade}}"}"""))))=="page_report_invalid",
+                "an unsupported delivery report accepts only an empty selection");
+        }
         var (call,dispatched)=AgentTools.Requested(Turn(curve,"read_current_page","read_market_data"),Current());
         var (own,ownDispatched)=AgentTools.Requested(Turn(curve,"read_market_data"),new("toolu_synthetic_02","read_market_data",Json("""{"view":"curves","curve":null}""")));
         Require(call.Operation.Id=="market_data.curve_v1"&&call.Arguments==new CurveArguments("future")&&dispatched is {Page:"curves"}&&own.Operation.Id=="market_data.curves_v1"&&ownDispatched is null,

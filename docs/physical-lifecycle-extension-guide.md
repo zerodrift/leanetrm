@@ -1,5 +1,12 @@
 # Extending physical lifecycle behavior
 
+The [delivery workbench](delivery-workbench.md) adds the concrete
+`DeliveryBehavior<TInputs>` extension point and the first gas-interval and
+crude-transfer consumers. Start from those compiled adapters, the shared
+assessment renderer and native source/target contracts. The guide's broader
+proposed lifecycle names below remain proposed unless their own consumer is
+implemented and qualified.
+
 Developer guide for the D303 object-oriented reuse direction and proposed
 [physical lifecycle design](physical-lifecycle-design.md). This guide implements
 no APIs and does not approve the proposed financial policies. Read the current

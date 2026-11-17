@@ -172,6 +172,15 @@ const string malformed="The request is incomplete or malformed.";
         => (422,p.MessageText,"The complete retained schedule requires compatible exact references, typed operations and an immutable validated manifest."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText is "settlement_version_conflict" or "settlement_operation_conflict" => (409,p.MessageText,"Reconcile the original operation or reload the settlement version."),
     MarketDataException m when m.Code is "facility_quantity_conflict" or "facility_quantity_owner_changed" => (409,m.Code,m.Message),
+    MarketDataException m when (m.Code.StartsWith("delivery_workbench_",StringComparison.Ordinal)||m.Code.StartsWith("delivery_nomination_batch_",StringComparison.Ordinal))&&
+        (m.Code.EndsWith("stale",StringComparison.Ordinal)||m.Code.EndsWith("stale_preview",StringComparison.Ordinal)||m.Code.EndsWith("conflict",StringComparison.Ordinal)||m.Code.EndsWith("owner_changed",StringComparison.Ordinal)) => (409,m.Code,m.Message),
+    PostgresException p when p.MessageText.StartsWith("delivery_workbench_",StringComparison.Ordinal)||p.MessageText.StartsWith("delivery_nomination_batch_",StringComparison.Ordinal)
+        =>(p.SqlState=="42501"?403:p.MessageText.Contains("conflict",StringComparison.Ordinal)||p.MessageText.Contains("stale",StringComparison.Ordinal)?409:422,
+            p.MessageText,"Review the exact delivery sources, allocation plan, native targets and current authority before recording the operation."),
+    PostgresException p when apiPath.StartsWithSegments("/api/delivery/workbench")&&p.SqlState is "23503" or "23514" or "22P02" or "22003" or "22001" or "22008"
+        =>(422,"delivery_workbench_input","Supply compatible exact delivery sources, target occurrences, quantities and evidence."),
+    PostgresException p when apiPath.StartsWithSegments("/api/delivery/workbench")&&p.SqlState=="23505"
+        =>(409,"delivery_workbench_conflict","The delivery request or source head changed. Reconcile the original command or review its current successor."),
     MarketDataException m when m.Code is "gas_transport_route_stale" or "gas_transport_route_conflict" or "gas_transport_route_owner_changed" or "gas_transport_route_context" or "gas_transport_route_source" => (409,m.Code,m.Message),
     PostgresException p when apiPath.StartsWithSegments("/api/gas/transport/routes")&&p.SqlState is "23503" or "23514" or "22P02" or "22003" or "22001" or "22008"
         =>(422,"gas_transport_route_input",GasTransportRouteStore.Refusal("gas_transport_route_input")),
@@ -2006,6 +2015,38 @@ foreach(var configureGasService in new[]{true,false}){
  },c.RequestAborted)));
 }
 var gasDaily=new GasDailyQuantities(database);
+var deliveryWorkbench=new DeliveryWorkbenchStore(database);
+foreach(var deliveryProfile in new[]{"gas-transport","crude-receipt"})
+{
+ var profile=deliveryProfile;
+ var readPermission=profile=="gas-transport"?"ReadGasOperations":"ReadTrades";
+ var writePermission=profile=="gas-transport"?"RecordGasOperations":"AmendTrade";
+ api.MapPost("/delivery/workbench/"+profile+"/directory",(HttpContext c,FacilityDirectoryRequest body)=>Locked(c,session=>
+  database.WithIdentity(Profile(session),readPermission,async(connection,ct)=>Results.Ok(await deliveryWorkbench.Directory(connection,body,session.MarketContext,profile,ct)),c.RequestAborted)));
+ api.MapPost("/delivery/workbench/"+profile+"/read",(HttpContext c,DeliveryWorkbenchReadRequest body)=>Locked(c,session=>
+  database.WithIdentity(Profile(session),readPermission,async(connection,ct)=>Results.Ok(await deliveryWorkbench.Read(connection,body,session.MarketContext,profile,ct)),c.RequestAborted)));
+ api.MapPost("/delivery/workbench/"+profile+"/preview",(HttpContext c,DeliveryWorkbenchWriteRequest body)=>Locked(c,session=>
+  database.WithIdentity(Profile(session),writePermission,async(connection,ct)=>Results.Ok(await deliveryWorkbench.Preview(connection,body,session.MarketContext,profile,ct)),c.RequestAborted)));
+ api.MapPost("/delivery/workbench/"+profile+"/record",(HttpContext c,DeliveryWorkbenchWriteRequest body)=>Locked(c,session=>
+  database.WithIdentity(Profile(session),writePermission,async(connection,ct)=>Results.Ok(await deliveryWorkbench.Record(connection,body,session.MarketContext,profile,ct)),c.RequestAborted)));
+ api.MapPost("/delivery/workbench/"+profile+"/status",(HttpContext c,FacilityStatusRequest body)=>Locked(c,session=>
+  database.WithIdentity(Profile(session),readPermission,async(connection,ct)=>Results.Ok(await deliveryWorkbench.Status(connection,body,profile,ct)),c.RequestAborted)));
+}
+var deliveryNominations=new DeliveryNominationBatchStore(database);
+api.MapPost("/delivery/workbench/gas-transport/nominations/preview",(HttpContext c,DeliveryNominationBatchPreviewRequest body)=>Locked(c,session=>
+ database.WithIdentity(Profile(session),"ReadGasOperations",async(connection,ct)=>
+ {
+  if(body.Input?.Context is not {} context||!TradingReadSelection.IsWorking(session,context))throw new MarketDataException("historical_read_only","Return to working data before reviewing nominations.");
+  return Results.Ok(await deliveryNominations.Preview(connection,Frame(session,context.SnapshotId),body,ct));
+ },c.RequestAborted)));
+api.MapPost("/delivery/workbench/gas-transport/nominations/record",(HttpContext c,DeliveryNominationBatchRecordRequest body)=>Locked(c,session=>
+ database.WithIdentity(Profile(session),"RecordGasOperations",async(connection,ct)=>
+ {
+  if(body.Input?.Context is not {} context||!TradingReadSelection.IsWorking(session,context))throw new MarketDataException("historical_read_only","Return to working data before recording nominations.");
+  return Results.Ok(await deliveryNominations.Record(connection,Frame(session,context.SnapshotId),body,ct));
+ },c.RequestAborted)));
+api.MapPost("/delivery/workbench/gas-transport/nominations/status",(HttpContext c,FacilityStatusRequest body)=>Locked(c,session=>
+ database.WithIdentity(Profile(session),"ReadGasOperations",async(connection,ct)=>Results.Ok(await deliveryNominations.Status(connection,body,ct)),c.RequestAborted)));
 var facilityQuantities=new FacilityQuantityStore(database);
 var storageFacilities=new StorageFacilityStore(database);
 var transportRoutes=new GasTransportRouteStore(database);

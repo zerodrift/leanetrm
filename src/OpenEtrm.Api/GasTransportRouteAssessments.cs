@@ -157,7 +157,7 @@ internal static class GasTransportRouteAssessments
                 residualPerHour=Ratio(i.ResidualPerHour),conserved=i.Conserved})})});
     }
 
-    static GasTransportRouteProfile Profile(JsonElement facts)
+    internal static GasTransportRouteProfile Profile(JsonElement facts)
     {
         var route=facts.GetProperty("route");var definition=facts.GetProperty("definition");
         if(route.Id("definition_id")!=definition.Id("id")||definition.Id("route_id")!=route.Id("id"))throw Invalid();

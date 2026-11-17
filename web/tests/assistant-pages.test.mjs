@@ -12,8 +12,8 @@ test('a proposed curve and a saved draft wait for explicit review on an idle unc
 });
 import {pageReport,lookingAt,reportedPages,askKnowledge,changesContext,targetAction,NavigationHistory,stepLine,endingLine,startsOver,usageLine,consentText,grantExpiry,webPage,agentChoice,preselect,conversationChoice,panelMessage,keptAsk} from '../dist/assistant-pages.js';
 
-test('physical facility setup and activity cannot be described as an existing quantity ledger to the assistant',()=>{
- for(const [facilitySection,page]of [['definitions','facility_definitions'],['activity','facility_activity']]){
+test('independent delivery and facility views retain their display-only report identities',()=>{
+ for(const [facilitySection,page]of [['definitions','facility_definitions'],['activity','facility_activity'],['gas-delivery','delivery_workbench_gas'],['crude-delivery','delivery_workbench_crude']]){
   const report=pageReport({page:'facilities',facilitySection,businessDate:'2032-03-14',facilityLedger:'old-ledger'});
   assert.deepEqual(report,{page,selection:{}});
   assert.equal(lookingAt(report,{mode:'current',frameId:null,frameLabel:null},{curve:String,table:String}).supported,false);

@@ -24,6 +24,8 @@ export function assistantPageCases(){
     ['facility_activity',{page:'facilities',facilitySection:'activity'}],
     ['transport_capacity',{page:'facilities',facilitySection:'transport'}],
     ['transport_route_plans',{page:'facilities',facilitySection:'route'}],
+    ['delivery_workbench_gas',{page:'facilities',facilitySection:'gas-delivery'}],
+    ['delivery_workbench_crude',{page:'facilities',facilitySection:'crude-delivery'}],
     ['rec_inventory',{page:'rec-inventory'}],
     ['options',{page:'options'}],
     ...[['physical-operations','physical_operations'],['facilities','facility_quantities'],['dashboard','dashboard'],['crude-setup','crude_setup'],['gas-setup','gas_setup'],['gas','physical_gas'],['crude','physical_crude'],['delivery','delivery_prices'],['interval-series','interval_series'],['interval-curves','interval_curves'],['vol-surfaces','vol_surfaces'],['admin','users_access'],['ai','settings_ai']]

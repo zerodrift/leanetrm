@@ -103,7 +103,7 @@ run for this change outside CI.
 For the current complete command and prerequisites, start with
 [Required tools](#required-tools). `tools/check_all.py` runs all suites by
 default. CI adds four shared groups (`repository`, `frontend`, `managed`,
-`database`) to the fourteen existing integration partitions. Pull requests select
+`database`) to sixteen integration partitions. Pull requests select
 the union of declared path consumers; master pushes and manual dispatch retain
 the complete gate. See [impact selection](ci-impact.md) for rules and limits.
 
@@ -116,9 +116,18 @@ each behavior command once, and each preview queue bounded to twelve suites.
 Jobs keep their 90-minute limit; the existing aggregate check rejects failed,
 cancelled or skipped selection/jobs. Lightweight groups do not install PostgreSQL.
 
-The gas partition includes the Park and Loan native, populated-upgrade, retained
-price-worker and real application browser qualifiers, alongside its existing
-amendment upgrades and application checks.
+Gas qualification is split into `gas-native` (24 native, populated-upgrade and
+retained-worker helpers), `gas-browser` (nine browser invocations, including the
+provider-only custody case) and `gas` (seven preview workflows). The previous
+single job reached its 90-minute limit while the amendment workflow was still
+passing, after the earlier native and browser consumers had completed. See the
+[timed-out job](https://github.com/zerodrift/leanetrm/actions/runs/44097805646/job/134089647005).
+The complete local command list and order are unchanged; each new job retains
+the ordinary locked preparation and existing timeout. Orchestration checks cover
+complete coverage, exactly-once execution and rejection of failed or cancelled
+groups. Local qualification on 2026-11-17 passes all 166 Python checks and
+compares all 258 complete-gate commands and their order with the prior plan.
+Hosted qualification of the split remains pending.
 
 The integrated runner requires shared, isolated application and partition-specific
 native/application checks. The D404 local checkpoint passed 1,866 frontend checks and 122 Python

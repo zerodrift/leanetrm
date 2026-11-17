@@ -1,5 +1,13 @@
 # Architecture and domain contracts
 
+D422 adds the [reusable delivery workbench](delivery-workbench.md): small typed
+managed behaviors for gas intervals and crude transfer events, shared operating
+presentation, and exact chosen-route allocation links to booked gas occurrences.
+Native ledgers, economic Sides, title, custody and cash retain their owners.
+Reviewed manual nomination batches reuse existing gas commands; they do not
+transmit requests or adopt operator schedules. Qualification and limits are
+recorded with the implementation contract.
+
 D417 requires every non-exchange Instrument to expose independent reusable Sides
 through explicit memberships. Futures and futures options are the only exceptions.
 The Side owns its schedule, inputs and valuation; the Instrument owns composition.

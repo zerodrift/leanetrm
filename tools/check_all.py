@@ -28,7 +28,8 @@ CHECK_PROJECTS = (
 )
 
 
-GROUPS = ('workspace', 'reference', 'standard', 'exchange', 'assistant', 'risk', 'trading', 'lifecycle', 'physical', 'gas',
+GROUPS = ('workspace', 'reference', 'standard', 'exchange', 'assistant', 'risk',
+          'trading', 'lifecycle', 'physical', 'gas', 'gas-native', 'gas-browser',
           'portfolio', 'settlement', 'ppa', 'recovery')
 SHARED_GROUPS = ('repository', 'frontend', 'managed', 'database')
 ALL_GROUPS = (*SHARED_GROUPS, *GROUPS)
@@ -168,20 +169,20 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
         ('check_gas_operator_existing_origins','operator upgrades preserve exact financial origins and original bank history'),
         ('check_gas_operator_upgrade','operator source upgrades retain exact predecessor execution metadata and privileges'),
         ('check_gas_operator_native_upgrade','native operator continuation retains exact dependencies, function identities and privileges')):
-        check(label,[sys.executable,f'tools/{helper}.py','--pg-bin',str(pg_bin)],suite='gas')
+        check(label,[sys.executable,f'tools/{helper}.py','--pg-bin',str(pg_bin)],suite='gas-native')
     for helper,label in (
         ('check_gas_operator_physical_value','corrected operator stock and debt through complete economic workers'),
         ('check_gas_operator_ordinary_value','ordinary and zero operator corrections retain exact owners through economic workers'),
         ('check_gas_known_cashout','source-known future cashouts retain exact commodity and independent cash owners')):
         check(label,[sys.executable,f'tools/{helper}.py','--pg-bin',str(pg_bin),'--dotnet',str(dotnet),'--no-build'],suite='portfolio')
-    for helper,suite in (('check_gas_park_loan_browser','gas'),('check_gas_balance_fee_browser','gas'),('check_gas_park_custody_browser','gas'),('check_gas_transport_financial_browser','gas'),('check_point_trader_marks_browser','gas'),('check_gas_mixed_quantity_browser','lifecycle'),('check_lifecycle_browser','lifecycle'),('check_gas_fee_browser','gas'),
-                         ('check_gas_loan_quantity_browser','gas'),('check_gas_operator_quantity_browser','gas'),('check_lifecycle_economic_browser','portfolio'),
+    for helper,suite in (('check_gas_park_loan_browser','gas-browser'),('check_gas_balance_fee_browser','gas-browser'),('check_gas_park_custody_browser','gas-browser'),('check_gas_transport_financial_browser','gas-browser'),('check_point_trader_marks_browser','gas-browser'),('check_gas_mixed_quantity_browser','lifecycle'),('check_lifecycle_browser','lifecycle'),('check_gas_fee_browser','gas-browser'),
+                         ('check_gas_loan_quantity_browser','gas-browser'),('check_gas_operator_quantity_browser','gas-browser'),('check_lifecycle_economic_browser','portfolio'),
                          ('check_agent_operating_settings','assistant')):
         check(helper,[sys.executable,f'tools/{helper}.py','--pg-bin',str(pg_bin),'--dotnet',str(dotnet),
             '--browser',str(browser),'--no-build'],suite=suite)
     check('foreign custody operations without owned-gas or bank-payment authority',
         [sys.executable,'tools/check_gas_park_custody_browser.py','--pg-bin',str(pg_bin),'--dotnet',str(dotnet),
-         '--browser',str(browser),'--no-build','--provider-only'],suite='gas')
+         '--browser',str(browser),'--no-build','--provider-only'],suite='gas-browser')
     for flag in ('--gas-park-custody','--gas-park-custody-ticket','--gas-park-custody-evidence',
         '--gas-park-custody-actions','--gas-park-custody-effects','--gas-park-custody-handler',
         '--gas-park-custody-setup','--gas-park-custody-overview','--ticket-status-routing',
@@ -194,6 +195,9 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
             'tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj','--',flag],suite='managed')
     for flag in ('--gas-transport-route-adapters','--gas-transport-route-source','--gas-transport-route-metadata'):
         check('managed chosen Transport route '+flag,[str(dotnet),'run','--no-restore','--project',
+            'tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj','--',flag],suite='managed')
+    for flag in ('--delivery-workbench','--delivery-nomination-batch'):
+        check('managed delivery workbench '+flag,[str(dotnet),'run','--no-restore','--project',
             'tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj','--',flag],suite='managed')
     for name in ('commands','source','ticket','positions','adapters','labels','setup'):
         flag='--gas-transport-financial-'+name
@@ -217,6 +221,11 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
         check(helper,[sys.executable,f'tools/{helper}.py','--pg-bin',str(pg_bin)],suite='physical')
     check('retained chosen Transport routes in the application',
         [sys.executable,'tools/check_gas_transport_route_browser.py','--pg-bin',str(pg_bin),'--dotnet',str(dotnet),
+         '--browser',str(browser),'--no-build'],suite='physical')
+    check('native delivery fulfillment relationships',
+        [sys.executable,'tools/check_delivery_workbench.py','--pg-bin',str(pg_bin)],suite='physical')
+    check('shared gas and crude delivery workbench in the application',
+        [sys.executable,'tools/check_delivery_workbench_http.py','--pg-bin',str(pg_bin),'--dotnet',str(dotnet),
          '--browser',str(browser),'--no-build'],suite='physical')
     for kind in ('physical','cash'):
         check('native '+kind+' option models in the application',[sys.executable,'tools/check_lifecycle_valuation_browser.py',

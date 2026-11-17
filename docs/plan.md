@@ -1,5 +1,13 @@
 # Delivery plan and acceptance criteria
 
+D422 implements the bounded [delivery workbench](delivery-workbench.md) over
+existing gas and crude native behavior. Its qualification gates cover common
+interval/event presentation, conserved route-to-obligation allocations, reviewed
+atomic manual nominations, source corrections, history, authority and recovery.
+LNG cargo operations, other molecules and truck delivery remain explicit future
+consumers. Extend the typed contracts only with an executable use case; the
+shared shell does not establish another product's operational or financial law.
+
 D417 aligns every non-exchange Instrument with explicit reusable Sides and makes
 their memberships visible in booking, review and saved-trade views. Futures and
 futures options remain the only exceptions. Acceptance requires independent Side
@@ -839,6 +847,8 @@ conservative path consumers for pull requests. All existing full-gate commands
 and same-commit master publication remain required. Managed runtime feature
 selection and coverage-derived dependency analysis remain future work. See
 [CI impact selection](ci-impact.md) for implemented boundaries and qualification.
+Gas native, browser and preview consumers run as three independently prepared
+jobs to keep the existing complete workload within each job's time budget.
 
 The default public page and hosted gateway route contract are available
 separately from the authenticated workspace (D163). An owned nginx check exercises
@@ -2640,4 +2650,3 @@ instrument chooser, tickets at the page's width, a booked trade followed on the
 Blotter. Presentation only. Remaining: stay on the page for the next trade once
 booking receipts carry the trade reference (backend); one order of parts for every
 ticket, with the description-driven ticket; a Storage instrument, still Coming soon.
-

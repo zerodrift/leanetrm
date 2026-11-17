@@ -5,6 +5,7 @@ using System.Text.Json.Nodes;
 using Npgsql;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Crude;
+using OpenEtrm.MarketData.Physical;
 using OpenEtrm.MarketData.Trading;
 
 namespace OpenEtrm.Api;
@@ -124,7 +125,13 @@ public sealed class CrudeLifecycleStore(PreviewDatabase database)
   return(new(sale?CrudeSaleCash.Implementation:CrudeReceiptCash.Implementation,head.Id("trade_id"),head.Id("legal_entity_id"),new(R("facility_code"),R("custody_point_code")),R("grade_code"),quantity,ExactDecimal.Parse("60"),"fahrenheit",new(Number(head,"quantity"),quantity.Key),new(Time(head,"delivery_from"),Time(head,"delivery_to")),Time(head,"payment_at"),Rate("fixed_price","consideration_direction"),head.OptionalText("handling_fee") is null?null:Rate("handling_fee","handling_fee_direction"),new(CrudeReceiptCash.RoundingImplementation,Int(head,"decimal_places"),CashTieRule.ToEven)){HandlingFeePaymentAt=head.OptionalText("handling_fee_payment_at") is null?null:Time(head,"handling_fee_payment_at")},unit);
  }
  internal static object Balances(JsonElement state,DateTimeOffset at)=>BalanceView(Reconcile(state,at).Balances);
- static (CrudeReceiptCashResult Balances,CrudeInventoryCashResult? Inventory) Reconcile(JsonElement state,DateTimeOffset at)
+ internal static DeliveryAssessment DeliveryAssessment(JsonElement state,DateTimeOffset at)
+ {
+  var value=Reconcile(state,at);
+  if(value.ReceiptInput is null)throw new MarketDataException("delivery_workbench_profile","Choose an existing purchase receipt profile for transfer delivery.");
+  return new CrudeReceiptDeliveryBehavior().Assess(value.ReceiptInput);
+ }
+ static (CrudeReceiptCashResult Balances,CrudeInventoryCashResult? Inventory,CrudeReceiptDeliveryInput? ReceiptInput) Reconcile(JsonElement state,DateTimeOffset at)
  {
   var(terms,unit)=Terms(state.GetProperty("head"));var sale=terms.Implementation==CrudeSaleCash.Implementation;
   if(state.Text("profile")!=terms.Implementation)throw Invalid("Operational profile must match retained physical and cash directions.");
@@ -133,7 +140,7 @@ public sealed class CrudeLifecycleStore(PreviewDatabase database)
   var payments=Rows(state,"payments").Select(r=>new CrudeCashPayment(r.Id("id"),r.Id("invoice_id"),new(Number(r,"amount")*Number(r,"direction"),unit.Currency),Time(r,"effective_at")){EventVersion=Int(r,"version")}).ToImmutableArray();
   var reversals=Rows(state,"paymentReversals").Select(r=>new CrudeCashRecordReversal(r.Id("id"),CrudeCashReversalKind.PaymentRecord,r.Id("payment_id"),Time(r,"effective_at"),Int(r,"version"),r.Text("reversal_policy")))
    .Concat(Rows(state,"invoiceVoids").Select(r=>new CrudeCashRecordReversal(r.Id("id"),CrudeCashReversalKind.InvoiceRecord,r.Id("invoice_id"),Time(r,"effective_at"),Int(r,"version"),r.Text("reversal_policy")))).ToImmutableArray();
-  CrudeReceiptCashResult result;CrudeInventoryCashResult? inventory=null;
+  CrudeReceiptCashResult result;CrudeInventoryCashResult? inventory=null;CrudeReceiptDeliveryInput? receiptInput=null;
   if(sale)
   {
    var deliveries=Rows(state,"dispatches").Select(r=>new CrudeSaleDelivery(r.Id("id"),Time(r,"effective_at"),Q(r),terms.Grade,terms.Location,r.GetProperty("title_transferred").GetBoolean()?CrudeReceiptTitle.Transferred:CrudeReceiptTitle.NotTransferred)).ToImmutableArray();
@@ -153,6 +160,7 @@ public sealed class CrudeLifecycleStore(PreviewDatabase database)
     Time(r,"effective_at"),r.Text("disposition")=="onward_delivery"?Sale(r):null,r.Text("disposition")=="owned_inventory"?terms.Location.CustodyPoint:null,r.Text("disposition")=="owned_inventory"?terms.OwnerLegalEntityId:null)).ToImmutableArray();
    var allocations=Rows(state,"allocations").Select(r=>new CrudeInventoryAllocation(r.Id("id"),r.Id("receipt_id"),Q(r),Time(r,"effective_at"),Sale(r))).ToImmutableArray();
    var dispatches=Rows(state,"dispatches").Select(r=>new CrudeReceiptDispatch(r.Id("id"),r.OptionalId("allocation_id")??r.Id("receipt_id"),Q(r),Time(r,"effective_at"),CrudeReceiptTitle.Transferred)).ToImmutableArray();
+   receiptInput=new(terms,accepted,dispositions,allocations,dispatches,invoices,payments,reversals,at);
    inventory=CrudeInventoryCash.Reconcile(terms,accepted,dispositions,allocations,dispatches,invoices,payments,reversals,at);result=inventory.Balances;
   }
   foreach(var invoice in result.Invoices)
@@ -162,7 +170,7 @@ public sealed class CrudeLifecycleStore(PreviewDatabase database)
    if(invoice.Amount.Amount!=Number(retained,"amount")*Number(retained,"direction")||invoice.ExactAmount!=exact||invoice.DueAt!=Time(retained,"due_at")||retained.Text("currency_code")!=unit.Currency.Code||retained.Id("reference_catalog_id")!=unit.Currency.Revision.CatalogId||retained.Id("reference_revision_id")!=unit.Currency.Revision.RevisionId)
     throw new MarketDataException("crude_invoice_retained","Retained invoice cash differs from its exact accepted-receipt allocation.");
   }
-  return(result,inventory);
+  return(result,inventory,receiptInput);
  }
  static object BalanceView(CrudeReceiptCashResult result)=>new{acceptedQuantity=result.AcceptedQuantity.Amount.ToString(),remainingQuantity=result.RemainingQuantity.Amount.ToString(),ownedInventoryQuantity=result.OwnedInventoryQuantity.Amount.ToString(),ownedQuantity=result.OwnedQuantity.Amount.ToString(),reservedQuantity=result.ReservedQuantity.Amount.ToString(),dispatchedQuantity=result.DispatchedQuantity.Amount.ToString(),
    invoices=result.Invoices.Select(i=>new{invoiceId=i.InvoiceId,state=i.State.ToString(),amount=i.Amount.Amount.ToString(),paid=i.Paid.Amount.ToString(),open=i.Open.Amount.ToString(),dueAt=i.DueAt}),

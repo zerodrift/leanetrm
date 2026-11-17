@@ -35,7 +35,7 @@ export type PageState=(
   |({page:'futures';risk:boolean;trade:TradeShown|null;entry:EntryShown|null;lens:'values'|'risk';view:BlotterSelection}&BlotterLayoutShown)
   |{page:'jobs';job:string|null}|({page:'ppa'}&PpaShown)|{page:'custom-curves';curve:string|null;unsaved:boolean}
   |{page:'physical-operations';physical?:PhysicalShown}|{page:'lifecycle'}|{page:'risk';view:RiskView}
-  |{page:'rec-inventory'|'physical-power'|'facilities'|'dashboard'|'crude-setup'|'gas-setup'|'gas'|'crude'|'delivery'|'interval-series'|'interval-curves'|'vol-surfaces'|'options'|'admin'|'ai'})&{assistant?:WorkspaceSelection;digestView?:BlotterDigestView;focus?:PageFocus;businessDate?:string;facilityLedger?:string|null;facilitySection?:'quantities'|'definitions'|'activity'|'transport'|'route'};
+  |{page:'rec-inventory'|'physical-power'|'facilities'|'dashboard'|'crude-setup'|'gas-setup'|'gas'|'crude'|'delivery'|'interval-series'|'interval-curves'|'vol-surfaces'|'options'|'admin'|'ai'})&{assistant?:WorkspaceSelection;digestView?:BlotterDigestView;focus?:PageFocus;businessDate?:string;facilityLedger?:string|null;facilitySection?:'quantities'|'definitions'|'activity'|'transport'|'route'|'gas-delivery'|'crude-delivery'};
 // The knowledge a page shows: working data, with its As of frame once one is chosen; the selected historical view; or a
 // historical selection not yet applied, which pins nothing.
 export type PageContext={mode:'current';frameId:string|null;frameLabel:string|null;businessDate?:string}
@@ -58,7 +58,7 @@ export function pageReport(state:PageState):PageReport{
   switch(state.page){
     case 'lifecycle':return {page:'lifecycle',selection:{}};
     case 'physical-operations':return {page:'physical_operations',selection:state.physical?{...state.physical}:{}};
-    case 'facilities':return state.facilitySection&&state.facilitySection!=='quantities'?{page:state.facilitySection==='route'?'transport_route_plans':state.facilitySection==='transport'?'transport_capacity':state.facilitySection==='definitions'?'facility_definitions':'facility_activity',selection:{}}:
+    case 'facilities':return state.facilitySection&&state.facilitySection!=='quantities'?{page:state.facilitySection==='gas-delivery'?'delivery_workbench_gas':state.facilitySection==='crude-delivery'?'delivery_workbench_crude':state.facilitySection==='route'?'transport_route_plans':state.facilitySection==='transport'?'transport_capacity':state.facilitySection==='definitions'?'facility_definitions':'facility_activity',selection:{}}:
       {page:'facility_quantities',selection:state.businessDate?{ledgerId:state.facilityLedger??null}:{},...(state.businessDate?{businessDate:state.businessDate}:{})};
     // Risk names the view it shows, and only Reports the retained report open there (D392).
     case 'risk':return {page:'risk_jobs',selection:{view:riskReportViews[state.view],...(state.view==='risk'&&state.assistant?state.assistant:{})}};
@@ -103,7 +103,7 @@ export function askKnowledge(context:PageContext){
   return context.mode==='current'?{mode:'current',contextId:null,frameId:context.frameId}:{mode:'retained',contextId:context.contextId,frameId:context.frameId};
 }
 
-const pageNames:Record<string,string>={lifecycle:'Lifecycle',physical_operations:'Physical operations',gas_setup:'Gas delivery setup',crude_setup:'Crude delivery setup',facility_quantities:'Facilities',facility_definitions:'Facility definitions',facility_activity:'Physical facility activity',transport_capacity:'Transport capacity',transport_route_plans:'Transport route plans',curves:'Curves & prices',contract_definitions:'Contract definitions',schedules:'Schedules',power_tous:'Power TOUs',
+const pageNames:Record<string,string>={lifecycle:'Lifecycle',physical_operations:'Physical operations',gas_setup:'Gas delivery setup',crude_setup:'Crude delivery setup',facility_quantities:'Facilities',facility_definitions:'Facility definitions',facility_activity:'Physical facility activity',transport_capacity:'Transport capacity',transport_route_plans:'Transport route plans',delivery_workbench_gas:'Gas delivery workbench',delivery_workbench_crude:'Crude delivery workbench',curves:'Curves & prices',contract_definitions:'Contract definitions',schedules:'Schedules',power_tous:'Power TOUs',
   reference_data:'Reference data',parties:'Entities & counterparties',blotter:'Blotter',blotter_operating_right:'Blotter',blotter_rec_forward:'Blotter',blotter_risk:'Blotter',blotter_risk_lens:'Blotter',blotter_new_rec:'New trade',blotter_new_trade:'New trade',blotter_new_future:'New trade',blotter_new_swap:'New trade',blotter_new_ppa:'New trade',blotter_new_gas:'New trade',blotter_new_transport:'New trade',blotter_new_park_loan:'New trade',blotter_new_option:'New trade',blotter_new_crude:'New trade',blotter_new_lng:'New trade',delivery_prices:'Delivery prices',
   custom_curves:'Curve builder',interval_series:'Interval data',interval_curves:'Curves & prices · Hourly / sub-hourly',jobs:'Jobs',users_access:'Users & access',
   rec_inventory:'REC inventory',physical_power:'Operating facilities',risk_jobs:'Risk',settings_ai:'AI',dashboard:'Dashboard',physical_gas:'Physical gas bookings',physical_crude:'Physical crude bookings',ppa:'PPA bookings',vol_surfaces:'Vol surfaces',options:'Options'};

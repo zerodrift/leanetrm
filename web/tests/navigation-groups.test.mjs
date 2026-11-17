@@ -30,9 +30,10 @@ test('PPA bookings is a Trading page the Blotter opens, not a sidebar entry',()=
  assert.equal(pageGroup('ppa'),'Trading');assert.ok(!allPages.includes('ppa'));
  assert.equal(pageAvailable('ppa',['ReadMarketData','ReadTrades']),true);assert.equal(pageAvailable('ppa',['ReadMarketData']),false);
 });
-test('facility quantities require explicit complete-pool access',()=>{
+test('native crude delivery evidence opens Facilities for ordinary trade readers',()=>{
+ assert.equal(pageAvailable('facilities',['ReadMarketData','ReadTrades']),true);
  assert.equal(pageAvailable('facilities',['ReadMarketData','ReadTrades','ReadFacilityQuantities']),true);
- for(const permissions of [[],['ReadMarketData','ReadTrades'],['ReadFacilityQuantities']])assert.equal(pageAvailable('facilities',permissions),false);
+ for(const permissions of [[],['ReadMarketData'],['ReadTrades'],['ReadFacilityQuantities']])assert.equal(pageAvailable('facilities',permissions),false);
 });
 
 test('Transport capacity can be reached without physical-facility authority',()=>{
@@ -76,8 +77,8 @@ test('market data outranks administration and the Blotter outranks plain market 
 test('the sidebar lists each page for the permissions that open it',()=>{
  const market=['dashboard','market','delivery','interval-series','interval-curves','reference'];
  assert.deepEqual(listed(['ReadMarketData','RunJobs']).sort(),[...market,'jobs'].sort());
- assert.deepEqual(listed(['ReadMarketData','ReadTrades','ReadTradeParties']).sort(),[...market,'jobs','lifecycle','physical-operations','new-trade','futures','options','vol-surfaces','rec-inventory'].sort());
- assert.deepEqual(listed(['ReadMarketData','ReadTrades']).sort(),[...market,'jobs','lifecycle','physical-operations','new-trade','futures','options','vol-surfaces','rec-inventory'].sort());
+ assert.deepEqual(listed(['ReadMarketData','ReadTrades','ReadTradeParties']).sort(),[...market,'jobs','lifecycle','physical-operations','facilities','new-trade','futures','options','vol-surfaces','rec-inventory'].sort());
+ assert.deepEqual(listed(['ReadMarketData','ReadTrades']).sort(),[...market,'jobs','lifecycle','physical-operations','facilities','new-trade','futures','options','vol-surfaces','rec-inventory'].sort());
  assert.deepEqual(listed(['ReadMarketData','ReadTradeParties']).sort(),[...market,'jobs'].sort());
  assert.deepEqual(listed(['ManageAccess','ManageIdentities']),['jobs','admin']);
  assert.deepEqual(listed(['ManageAgents']),['jobs','ai']);
@@ -142,14 +143,14 @@ test('physical work has its own sidebar workspace under Scheduling',()=>{
 test('every setup page belongs to Reference Data',()=>{
  for(const page of ['custom-curves','configuration','schedules','power','parties','gas-setup','crude-setup','curve-definitions'])assert.equal(pageGroup(page),'Reference Data');
 });
-test('moving pages changes no account’s reach',()=>{
+test('console and sidebar pages expose only their authorized native readers',()=>{
  const reach=permissions=>[...allPages,'custom-curves','configuration','schedules','power','parties','gas-setup','crude-setup','curve-definitions'].filter(page=>pageAvailable(page,permissions)).sort();
  const market=['dashboard','market','delivery','interval-series','interval-curves','reference','jobs','custom-curves','configuration','schedules','power','gas-setup','crude-setup','curve-definitions'];
  assert.deepEqual(reach(['ReadMarketData']),[...market].sort());
- assert.deepEqual(reach(['ReadMarketData','ReadTrades']),[...market,'lifecycle','physical-operations','new-trade','futures','options','vol-surfaces','rec-inventory'].sort());
+ assert.deepEqual(reach(['ReadMarketData','ReadTrades']),[...market,'lifecycle','physical-operations','facilities','new-trade','futures','options','vol-surfaces','rec-inventory'].sort());
  assert.deepEqual(reach(['ReadMarketData','ReadTradeParties']),[...market,'parties'].sort());
- assert.deepEqual(reach(['ReadMarketData','ReadTrades','RunScenario']),[...market,'lifecycle','physical-operations','new-trade','futures','options','vol-surfaces','rec-inventory','risk','risk-pnl','risk-scenarios','risk-var','risk-runs'].sort());
- assert.deepEqual(reach(['ReadMarketData','ReadTrades','ReadFacilityQuantities']),[...market,'lifecycle','physical-operations','new-trade','futures','options','vol-surfaces','rec-inventory','facilities'].sort());
+ assert.deepEqual(reach(['ReadMarketData','ReadTrades','RunScenario']),[...market,'lifecycle','physical-operations','facilities','new-trade','futures','options','vol-surfaces','rec-inventory','risk','risk-pnl','risk-scenarios','risk-var','risk-runs'].sort());
+ assert.deepEqual(reach(['ReadMarketData','ReadTrades','ReadFacilityQuantities']),[...market,'lifecycle','physical-operations','facilities','new-trade','futures','options','vol-surfaces','rec-inventory'].sort());
  assert.deepEqual(reach(['ManageAccess']),['admin','jobs'].sort());
 });
 

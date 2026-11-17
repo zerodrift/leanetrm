@@ -1283,6 +1283,9 @@ const physicalOperations=setupPhysicalOperations($('physical-operations-page'),{
  identity:()=>administrationScope+':'+exampleId+':'+currentProfile,permission:can,changed:()=>{syncUnloadQuestion();assistant.sync();},
  context:()=>{if(contextDirty)throw Error('Apply the changed header context before reading physical operations.');const retained=historicalContext();return {snapshotId:frame().id,convention:'trading_workspace_v1',knowledgeMode:retained?'retained':'current',...(retained?{contextId:retained.contextId}:{})};}});
 const facilities=setupFacilities({api,act,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+exampleId+':'+currentProfile,permission:can,
+ nominationContext:()=>!contextDirty&&!historicalContext()&&select('snapshot').value?{snapshotId:select('snapshot').value,convention:'physical_gas_fixed_quantity_v4',knowledgeMode:'current',contextId:null}:null,
+ nativeDeliveryReason:()=>contextDirty?'Apply the changed context before opening native delivery operations.':!select('snapshot').value?'Choose a financial close in the Blotter before opening native delivery operations.':null,
+ openNativeDelivery:async target=>{if(busy||!await mayLeave('page'))return;await act(async()=>{if(contextDirty||!select('snapshot').value)throw Error('Apply an explicit financial close before opening native delivery operations.');await setPage('physical-operations');await physicalOperations.open(target);});},
  context:()=>{if(contextDirty)throw Error('Apply the changed context before reading facilities.');return {effectiveOn:$<HTMLInputElement>('date-context-on').value,knowledgeMode:historicalContext()?'retained':'current',retained:historicalContext()??null,convention:'facility_business_date_end_utc_v1'};},
  changed:()=>syncUnloadQuestion(),tradeInspection:()=>select('snapshot').value?null:'Choose a market close in the Blotter before opening trades. Facility quantities do not select a price close.',openTrade:async(id,revision)=>{if(!await mayLeave())return;await act(async()=>{await setPage('futures');await futures.load();await futures.openTrade(id,'physical_gas',revision);});}});
 const pointTraderMark=setupPointTraderMark($('point-trader-mark'),{api,act,busy:()=>busy,zone:()=>prefs.timeZone,
@@ -1781,7 +1784,7 @@ async function restorePlace(origin:Place){
     await setPage('facilities');
     if(origin.report.page==='facility_quantities')await facilities.load(origin.report.selection.ledgerId as string|null??'',false);
     else{
-      const section=({facility_definitions:'definitions',facility_activity:'activity',transport_capacity:'transport',transport_route_plans:'route'} as const)[origin.report.page as 'facility_definitions'|'facility_activity'|'transport_capacity'|'transport_route_plans'];
+      const section=({facility_definitions:'definitions',facility_activity:'activity',transport_capacity:'transport',transport_route_plans:'route',delivery_workbench_gas:'gas-delivery',delivery_workbench_crude:'crude-delivery'} as const)[origin.report.page as 'facility_definitions'|'facility_activity'|'transport_capacity'|'transport_route_plans'|'delivery_workbench_gas'|'delivery_workbench_crude'];
       if(!section)throw Error('The original operations workspace is not supported.');
       await facilities.open(section);
     }
