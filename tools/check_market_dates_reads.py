@@ -138,15 +138,21 @@ def batch_authority_check(query, manifest):
     catalog, tenant, workspace = (manifest[key] for key in ('catalogId', 'tenantId', 'workspaceId'))
     principal = "(SELECT principal_id FROM security.identity_bindings WHERE issuer='https://preview.invalid' AND subject='viewer')"
     closes = query(f"SELECT string_agg(quote_literal(id)||'::uuid',',') FROM(SELECT id FROM market_data.market_closes WHERE session_code='demo_close_1600' ORDER BY business_date DESC LIMIT 2)c;")
+    selected = [frame for frame in manifest['frames'] if frame['at'] in ('2020-12-17T16:00:00Z', '2020-12-18T16:00:00Z')]
+    assert len(selected) == 2
+    pins = json.dumps([{'id': str(uuid4()), 'pins': frame['observationIds']} for frame in selected]).replace("'", "''")
+    pin_call = f"security.read_observation_pin_sets('{catalog}','{manifest['revisionId']}','{pins}'::jsonb)"
     failures = []
     for name, signature, call, fallback in [
-        ('catalogue', 'security.read_request_catalogue(uuid,date)', f"security.read_request_catalogues('{catalog}',ARRAY[DATE '2020-12-18'])", False),
-        ('matrix fast', 'security.read_market_close_parts(uuid,uuid[],uuid)', f"security.read_market_close_parts_results('{catalog}',ARRAY[{closes}],NULL)", False),
-        ('matrix fallback', 'security.read_market_close_parts(uuid,uuid[],uuid)', f"security.read_market_close_parts_results('{catalog}',ARRAY[{closes}],NULL)", True),
+        ('catalogue', 'security.read_request_catalogue(uuid,date)', f"security.read_request_catalogues('{catalog}',ARRAY[DATE '2020-12-18'])", ''),
+        ('matrix fast', 'security.read_market_close_parts(uuid,uuid[],uuid)', f"security.read_market_close_parts_results('{catalog}',ARRAY[{closes}],NULL)", ''),
+        ('matrix fallback', 'security.read_market_close_parts(uuid,uuid[],uuid)', f"security.read_market_close_parts_results('{catalog}',ARRAY[{closes}],NULL)", 'cardinality(close_ids)>1'),
+        ('pins fast', 'security.read_observation_pins(uuid,uuid,uuid[])', pin_call, ''),
+        ('pins fallback', 'security.read_observation_pins(uuid,uuid,uuid[])', pin_call, f"cardinality(requested_pins)>{max(len(frame['observationIds']) for frame in selected)}"),
     ]:
         native = query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);")
         assert native.count('\nBEGIN\n') == 1
-        delay = (" IF cardinality(close_ids)>1 THEN RAISE EXCEPTION 'Synthetic batch fallback' USING ERRCODE='42501';END IF;\n" if fallback else '') + ' PERFORM pg_sleep(2.3);\n'
+        delay = (f" IF {fallback} THEN RAISE EXCEPTION 'Synthetic batch fallback' USING ERRCODE='42501';END IF;\n" if fallback else '') + ' PERFORM pg_sleep(2.3);\n'
         patched = native.replace('\nBEGIN\n', '\nBEGIN\n'+delay, 1)
         # One owner transaction rolls back both the grants and native fault.
         # No concurrent grant write or security-generation change masks expiry.
@@ -165,7 +171,7 @@ def batch_authority_check(query, manifest):
             + "SELECT current_setting('openetrm.synthetic_calendar_denied');ROLLBACK;").splitlines()[-1]
         if actual != 'true':failures.append(name+' extended its initial authority')
     assert not failures, '; '.join(failures)
-    print('PASS catalogue and matrix batches retain their original authority despite a live later-starting grant', flush=True)
+    print('PASS catalogue, matrix and pin batches retain their original authority despite a live later-starting grant', flush=True)
 
 
 def failed_build_check(client, query, manifest, measure):

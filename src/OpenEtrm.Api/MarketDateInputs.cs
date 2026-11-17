@@ -102,9 +102,7 @@ internal sealed class MarketDateInputs(PreviewDatabase database,NpgsqlConnection
             RequireMatrix(frame);
             // Retain root-metadata error precedence over the dated catalogue.
             _=await Metadata(frame.Source!,ct);
-            if(!catalogues.ContainsKey(frame.Time.Date))
-                foreach(var(day,outcome)in await new CatalogueStore(database.Manifest.CatalogId).ReadDates(connection,dates.Where(day=>!catalogues.ContainsKey(day)),ct))
-                    catalogues.Add(day,outcome);
+            if(!catalogues.ContainsKey(frame.Time.Date))await PrefetchCatalogues(ct);
             var(catalogue,error,denied)=catalogues[frame.Time.Date];
             if(denied)throw new PreviewDeniedException();
             if(error is not null)
@@ -134,6 +132,11 @@ internal sealed class MarketDateInputs(PreviewDatabase database,NpgsqlConnection
     }
     static IEnumerable<CatalogueSource> Sources(InputFrame frame,Candidate candidate)=>
         candidate.Selected.Select(item=>item.Source).Prepend(frame.Source!).Distinct();
+    async Task PrefetchCatalogues(CancellationToken ct)
+    {
+        foreach(var(day,outcome)in await new CatalogueStore(database.Manifest.CatalogId).ReadDates(connection,dates.Where(day=>!catalogues.ContainsKey(day)),ct))
+            catalogues.Add(day,outcome);
+    }
     async Task ReadPins(ImmutableArray<InputFrame> frames,CatalogueSource source,CancellationToken ct)
     {
         var data=await Metadata(source,ct);
@@ -162,6 +165,8 @@ internal sealed class MarketDateInputs(PreviewDatabase database,NpgsqlConnection
     {
         if(!remainingPins.TryGetValue(source,out var batch))
         {
+            await PrefetchMatrices(frames,ct);
+            await PrefetchCatalogues(ct);
             var possible=frames.Where(candidate=>candidate.Id!=firstPinFrame&&!matrixErrors.ContainsKey(candidate.Id)&&
                 catalogues[candidate.Time.Date] is{Error:null,Denied:false,Publication:{} publication}&&
                 MayUse(candidate,source,requested,publication)).ToArray();
