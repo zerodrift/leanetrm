@@ -37,7 +37,7 @@ def projection(answer):
     return value
 
 
-def mixed_source_checks(client, query, manifest, source):
+def mixed_source_checks(client, query, manifest, source, publication_check=True):
     """Independent evaluate oracle for the same exact mixed close under a metadata fault."""
     session = 'synthetic_calendar_mixed'
     publish_session(query, manifest, session, 'Synthetic mixed sources', [
@@ -83,6 +83,7 @@ def mixed_source_checks(client, query, manifest, source):
         client.call('profile', {'profile': 'viewer'})
     assert not failures, '; '.join(failures)
     print('PASS mixed-source calendar metadata faults match independent exact evaluation and do not materialize unrequested rate-owner terms', flush=True)
+    if not publication_check:return
     # End authority for the unconsumed part only in the NEXT identity
     # transaction. The immutable matrix was valid throughout execution; final
     # header RLS must still refuse disclosure without another matrix payload.
@@ -131,7 +132,7 @@ def limited_matrix_check(client, query, older):
     print('PASS latest calendar and last closes do not reattest unvisited older matrices after discovery', flush=True)
 
 
-def run_checks(url, query, manifest, psql, environment, log, api_pid):
+def run_checks(url, query, manifest, psql, environment, log, api_pid, *, verify=True):
     client = PreviewClient(url); client.bootstrap(); client.call('profile', {'profile': 'viewer'})
     body = {'session': 'demo_close_1600', 'curve': 'bridge_basis', 'timeZone': 'UTC'}
     answers = {}
@@ -177,7 +178,7 @@ def run_checks(url, query, manifest, psql, environment, log, api_pid):
         client.call('market/dates', body, expected=403)
     finally:
         query(original)
-    mixed_source_checks(client, query, manifest, source)
+    mixed_source_checks(client, query, manifest, source, publication_check=verify)
     # Keep 96 candidates within the global 128-frame discovery bound. Existing facts stay immutable.
     query("INSERT INTO presentation.close_session_listings SELECT v.catalog_id,v.code,1,max(v.version),'Synthetic retired fixture session',false,pg_current_xact_id() FROM market_data.close_session_versions v GROUP BY v.catalog_id,v.code;")
 
@@ -224,8 +225,8 @@ def run_checks(url, query, manifest, psql, environment, log, api_pid):
                                           ('workspace', 'market/dates', {**request, 'curve': None}),
                                           ('last', 'market/last-closes', {'session': SESSION}),
                                           ('navigation', 'workspace/navigation', None)]:
-                answer, sample = measure(path, selected)
-                report.append({'closes': total, 'request': name, 'samples': [sample]})
+                samples = [measure(path, selected) for _ in range(3)]
+                report.append({'closes': total, 'request': name, 'samples': [sample for _, sample in samples]})
     workload = json.loads(query(f"""SELECT json_build_object('definitionRevisions',count(DISTINCT p.definition_revision_id),
       'pins',count(*),'uniquePins',count(DISTINCT p.observation_id),'minPins',min(n.pins),'maxPins',max(n.pins),
       'contracts',(SELECT count(DISTINCT m.contract_id) FROM market_data.market_close_members m JOIN market_data.market_closes c ON(c.catalog_id,c.id)=(m.catalog_id,m.close_id) WHERE c.session_code='{SESSION}'))
@@ -234,6 +235,9 @@ def run_checks(url, query, manifest, psql, environment, log, api_pid):
     memory = {line.split(':')[0]: line.split(':')[1].strip() for line in Path(f'/proc/{api_pid}/status').read_text().splitlines() if line.startswith(('VmRSS:', 'VmHWM:'))}
     print('CALENDAR_MEASUREMENTS=' + json.dumps({'runs': report, 'workload': workload, 'memory': memory,
           'environment': {'platform': platform.platform(), 'postgres': query('SHOW server_version;')}, 'scenarios': 0}), flush=True)
+    if not verify:
+        print('Calendar benchmark only: statement scaling and disclosure are not qualified by this run', flush=True)
+        return
     older_close = query(f"SELECT id FROM market_data.market_closes WHERE session_code='{SESSION}' ORDER BY business_date LIMIT 1;")
     limited_matrix_check(client, query, older_close)
     failures = []

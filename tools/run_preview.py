@@ -110,6 +110,7 @@ def main():
     parser.add_argument('--market-read-check',action='store_true',help='Qualify per-row market authority in the owned standard fixture')
     parser.add_argument('--market-dates-check',action='store_true',help='Qualify scoped market-close availability and the calendar in an owned fixture')
     parser.add_argument('--market-dates-reads-check',action='store_true',help='Measure calendar statement scaling and qualify gate release and authority expiry')
+    parser.add_argument('--market-dates-benchmark-only',action='store_true',help='Measure the identical calendar workload on a baseline reader; does not qualify scaling or disclosure')
     parser.add_argument('--context-read-check',action='store_true',help='Qualify bounded historical context, close calendar and header recovery')
     parser.add_argument('--valuation-status-check',action='store_true',help='Qualify Blotter reads and risk runs at closes that cannot value every seeded position')
     parser.add_argument('--desk-fields-check',action='store_true',help='Qualify the commodity, swap direction and mark minus price of Blotter rows, commodity pivots, and the desk\'s summary groupings and curve shapes, in the seeded standard example')
@@ -132,6 +133,7 @@ def main():
     parser.add_argument('--authoring-browser-suite',choices=['curve-objects','contract-pricing-controls','publication-controls','price-authoring-recovery'],help='Run one focused authoring control suite in the owned authoring fixture')
     parser.add_argument('--example', choices=['standard','mixed-gas'], default='standard', help='Explicit synthetic dataset')
     args = parser.parse_args()
+    if args.market_dates_benchmark_only:args.market_dates_reads_check=True
     if args.market_dates_reads_check:args.market_dates_check=True
     if args.structured_power_check:
         args.check=True
@@ -1321,7 +1323,7 @@ def main():
                     if browser_process.wait(timeout=180):raise RuntimeError('Owned factor swap browser checks failed')
             elif args.market_dates_reads_check:
                 from check_market_dates_reads import run_checks as check_market_dates_reads
-                check_market_dates_reads(url,query,manifest,psql,env,temporary/'postgres.log',child.pid)
+                check_market_dates_reads(url,query,manifest,psql,env,temporary/'postgres.log',child.pid,verify=not args.market_dates_benchmark_only)
             elif args.market_dates_check:
                 from check_market_dates import run_checks as check_market_dates
                 check_market_dates(url,query,manifest)
