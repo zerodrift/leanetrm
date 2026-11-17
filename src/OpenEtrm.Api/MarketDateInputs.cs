@@ -10,7 +10,8 @@ internal enum MarketDateRead{Calendar,LastCloses}
 
 // One operation, one knowledge view. Native matrices are reattested before this
 // scope is created. Metadata and exact pins are shared by source, never by code
-// or across requests. Limited calendars leave older candidates' pins unread.
+// or across requests. Limited calendars read the first frame exactly, then batch
+// remaining potential inputs without consuming unvisited facts or refusals.
 internal sealed class MarketDateInputs(PreviewDatabase database,NpgsqlConnection connection,MarketDateRead read)
 {
     sealed record Candidate(ImmutableArray<(string Code,CatalogueSource Source)> Selected,Exception? Error);
@@ -20,6 +21,8 @@ internal sealed class MarketDateInputs(PreviewDatabase database,NpgsqlConnection
     readonly Dictionary<Guid,Candidate> candidates=[];
     readonly Dictionary<(Guid Frame,CatalogueSource Source),PreviewData> inputs=[];
     readonly Dictionary<(Guid Frame,CatalogueSource Source),Exception> inputErrors=[];
+    readonly Dictionary<CatalogueSource,PreviewDatabase.ObservationPinSets> remainingPins=[];
+    Guid? firstPinFrame;
     readonly Dictionary<(CatalogueSource Source,string Code),RateTenorSource?> rates=[];
     readonly HashSet<Guid> attested=[];
     readonly Dictionary<Guid,Exception> matrixErrors=[];
@@ -138,6 +141,41 @@ internal sealed class MarketDateInputs(PreviewDatabase database,NpgsqlConnection
         var selected=await database.ReadObservationWindows(connection,data,[],ct,pins);
         foreach(var frame in frames)inputs.Add((frame.Id,source),selected);
     }
+    static bool MayUse(InputFrame frame,CatalogueSource source,IEnumerable<string>? requested,CataloguePublication catalogue)
+    {
+        // This is only an I/O superset. The real plan still authorizes typed
+        // rates and applies the same exact selection contract before use.
+        var rates=catalogue.Curves.Where(curve=>curve.Kind=="rate").ToImmutableArray();
+        var codes=requested??frame.SourceInputs!.Values.SelectMany(part=>part.RootCurves).Concat(rates.Select(rate=>rate.Code));
+        foreach(var code in codes)
+        {
+            try
+            {
+                var selected=MarketInputSelection.SelectedCurve(frame,code,catalogue,rates);
+                if(source==frame.Source||source==selected)return true;
+            }
+            catch(MarketDataException){}
+        }
+        return false;
+    }
+    async Task ReadRemainingPins(InputFrame frame,CatalogueSource source,IEnumerable<string>? requested,CancellationToken ct)
+    {
+        if(!remainingPins.TryGetValue(source,out var batch))
+        {
+            var possible=frames.Where(candidate=>candidate.Id!=firstPinFrame&&!matrixErrors.ContainsKey(candidate.Id)&&
+                catalogues[candidate.Time.Date] is{Error:null,Denied:false,Publication:{} publication}&&
+                MayUse(candidate,source,requested,publication)).ToArray();
+            var data=await Metadata(source,ct);
+            batch=await database.ReadObservationPinSets(connection,data,
+                [..possible.Select(candidate=>candidate.SourceInputs![source.DefinitionRevisionId].Project(candidate))],ct);
+            remainingPins.Add(source,batch);
+        }
+        if(batch.Denied.Contains(frame.Id))throw new PreviewDeniedException();
+        inputs.Add((frame.Id,source),batch.Data);
+        var own=frame.SourceInputs![source.DefinitionRevisionId].ObservationIds.ToHashSet();
+        AsyncReadVisibility.Observations(batch.Data.DefinitionRevision.CatalogId,source.DefinitionRevisionId,
+            [..batch.Data.Observations.Where(row=>own.Contains(row.Id("id")))]);
+    }
     internal async Task<ImmutableArray<string>> Qualified(InputFrame frame,IEnumerable<string>? requested,CancellationToken ct)
     {
         var candidate=await Plan(frame,requested,ct);
@@ -146,7 +184,12 @@ internal sealed class MarketDateInputs(PreviewDatabase database,NpgsqlConnection
         foreach(var source in Sources(frame,candidate))
         {
             if(inputErrors.TryGetValue((frame.Id,source),out var failure))ExceptionDispatchInfo.Capture(failure).Throw();
-            if(!inputs.ContainsKey((frame.Id,source)))await ReadPins([frame],source,ct);
+            if(!inputs.ContainsKey((frame.Id,source)))
+            {
+                firstPinFrame??=frame.Id;
+                if(firstPinFrame==frame.Id)await ReadPins([frame],source,ct);
+                else await ReadRemainingPins(frame,source,requested,ct);
+            }
         }
         var qualified=ImmutableArray.CreateBuilder<string>();
         foreach(var group in candidate.Selected.GroupBy(item=>item.Source))
