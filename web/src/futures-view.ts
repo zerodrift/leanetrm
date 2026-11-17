@@ -631,22 +631,26 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     if(options.window.kind!=='main'||next===presentation)return;
     presentation=next;const entering=next==='entry';
     get('futures-page').toggleAttribute('data-entry',entering);
+    // The form has the page's width there, and the Details pane's single column here (app.css).
+    const form=panel.element('form');form.classList.toggle('details-form',!entering);form.classList.toggle('entry-form',entering);
     // The pane settles on what this presentation rests on when it holds what only the other shows; forms it held go with that, unasked,
     // as every way here has asked already or acts on the person's word.
     if((panel.current()?.kind==='new')!==entering)deskPanel.reset();
     if(entering)dock.maximize('details');else dock.restore();
     announce();
   }
-  // The booking directory alone, for New trade opened where the Blotter holds no read: no position is valued for it. A catalog that a
-  // read of the Blotter brought meanwhile stands.
+  // The booking directory alone, for New trade opened where the Blotter holds no read it has checked: no position is valued for it. A
+  // catalog kept from before the page was left is read again, as the account's authority and its books may have changed since; one that
+  // a read of the Blotter brought meanwhile stands.
+  const unchecked=()=>get('futures-page').classList.contains('checking-cache');
   async function readDirectory(signal?:AbortSignal){
-    const source=options.source();snapshot=source.snapshotId;
+    const source=options.source(),stale=unchecked();snapshot=source.snapshotId;
     if(source.context&&!source.context.contextId)throw Error('Select a retained historical context before opening a ticket.');
     const scope=whereAmI(),request=readContext();
     const directory=await api<Catalog>('trading/directory',{...request,convention:'trading_workspace_v1'},signal);
     signal?.throwIfAborted();if(scope!==whereAmI())throw Error('The account or financial context changed.');
     if(directory.kind!=='directory'||Object.hasOwn(directory,'contracts')||!directory.context?.contextId||!Array.isArray(directory.books)||source.context&&directory.context.contextId!==source.context.contextId)throw Error('The trading directory returned an inconsistent context.');
-    if(catalog)return;
+    if(catalog&&!stale)return;
     catalog=directory;viewControls();options.onReadContext(directory.asOf,directory.context.knownAt);
   }
   /** Shows New trade's page without reading: it says why booking is unavailable until a catalog is read. */
@@ -656,7 +660,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     signal?.throwIfAborted();restore();
     if(tie?.out())throw Error('Bring the Blotter back before opening a ticket.');
     present('entry');announce();
-    if(!catalog)await readDirectory(signal);
+    if(!catalog||unchecked())await readDirectory(signal);
     sync();
   }
   // A product ticket's retained request is reconciled in its ticket, which New trade's page holds: from the Blotter that is one step.

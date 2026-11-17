@@ -1149,7 +1149,7 @@ body.assistant-open:not(.assistant-overlay) .side-panel[data-placement=overlay]{
 .advanced-settings[open]>summary{margin-bottom:.75rem}
 .advanced-settings input[type=number]{max-width:8rem}
 .instrument-editor{border-top:1px solid var(--border);margin-top:1.25rem;padding-top:.75rem}
-:is(.trade-booking-terms,.details-form) input[readonly]{background:var(--surface-3);color:var(--text-2);cursor:default}
+:is(.trade-booking-terms,.details-form,.entry-form) input[readonly]{background:var(--surface-3);color:var(--text-2);cursor:default}
 .swap-sides>#swap-fixed-editor,.swap-sides>#swap-floating-editor{display:contents}
 /* Empty lists read as an intentional empty state, not stray text. */
 #dates-saved:not(:has(*)),#curve-dates-saved:not(:has(*)){padding:18px;border:1px dashed var(--border-strong);border-radius:var(--radius-sm);background:var(--surface-2);text-align:center;font-size:13px}
@@ -1821,6 +1821,15 @@ main:has(>section:not([hidden]) .floating-context){--dock-band:140px}
 .tab-dock[data-maximized] :is(.dock-split,.dock-group):not([data-maximized-path]),
 .tab-dock[data-maximized] :is(.dock-divider,.dock-grip){display:none}
 .tab-dock[data-maximized] :is(.dock-split,.dock-group)[data-maximized-path]{flex:1 1 0!important;min-height:0!important;min-width:0}
+/* New trade's page (D421; futures-view.ts, `present`): the Blotter's section showing its entry pane alone. The dock is maximized on the
+   Details pane, and the Blotter's own controls, the dock's and the pane's are not drawn: the pane is the page, resting on the instrument
+   chooser. Its form part is `.entry-form`, which has the page's width; the one-column rules of `.details-form` are the Details pane's. */
+#futures-page[data-entry] .table-workspace>:not(.table-workspace-note,.table-workspace-stage),
+#futures-page[data-entry] :is(#desk-lens,.dock-head,.dock-bar,.details-bar,#details-stale-note){display:none}
+#futures-page[data-entry] .dock-group{border:0;border-radius:0;background:none;box-shadow:none}
+#futures-page[data-entry] .dock-panels{padding:2px 2px 0}
+#futures-page[data-entry] #position-details.stale{opacity:1}
+#futures-page[data-entry] .trade-editor-actions{top:0}
 .details-pane .side-panel-prompt{margin:0 0 10px;padding-right:16px;border:1px solid var(--warn-border);border-radius:var(--radius)}
 /* A ticket in the details pane is vertical: one field per row, as in a side panel. */
 .details-form .schedule-fields,.details-form .trade-annotation-fields,.details-form .schedule-date-fields,.details-form .swap-term-columns,.details-form .scheduled-side-columns{grid-template-columns:minmax(0,1fr);gap:14px}
@@ -2481,7 +2490,7 @@ body.assistant-open.assistant-overlay main .floating-context{display:none}
 #risk-history-panel{min-width:0;max-width:100%}#risk-history-fields{border:0;padding:0;margin:0}#risk-history-results .table-wrap{max-width:100%;overflow-x:auto}
 
 /* Retained Blotter values cannot appear before the server rechecks current access. */
-#futures-page.checking-cache>*{visibility:hidden}
+#futures-page.checking-cache:not([data-entry])>*{visibility:hidden}
 #risk-parametric-fields{border:1px solid var(--border);border-radius:8px;padding:16px;margin:20px 0 0;min-width:0}#risk-parametric-fields legend{font-weight:650;padding:0 8px}.parametric-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:12px;margin:16px 0}.parametric-stat{border:1px solid var(--border);border-radius:8px;padding:16px;display:grid;gap:8px;min-width:0}.parametric-stat span{font-size:12px;color:var(--text-3)}.parametric-stat strong{font-size:21px;overflow-wrap:anywhere}.risk-result-controls{display:flex;flex-wrap:wrap;gap:12px;align-items:end}.risk-result-controls label{display:grid;gap:6px;min-width:0;max-width:100%}.risk-result-controls select{max-width:100%}#risk-workspace-results p{overflow-wrap:anywhere}#risk-workspace-results details{min-width:0;max-width:100%}
 
 #lng-page,#lng-page .card,#lng-page label{min-width:0}
