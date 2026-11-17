@@ -51,7 +51,9 @@ import {rowMenuItems,selectionAskItem,type RowMenuAction} from './blotter-row-me
 import {openBlotterChannel,type EndReason} from './blotter-channel.js';
 import {retainedActions,tieMainWindow,type BlotterContext,type BlotterHeld,type BlotterQuestion} from './blotter-popout.js';
 import {setupMenu} from './context-menu.js';
-import {closeOutRefusal,closeOutRequest,readCloseOutDraft} from './close-out-draft.js';
+import {adjustmentRequest,closeOutRefusal,closeOutRequest,readCloseOutDraft,type Adjustment} from './close-out-draft.js';
+import {adjustLabels,positionActions,type PositionCan} from './position-actions.js';
+import {blotterRiskScope,outsideRunScope,tradeScopeNote} from './risk-scope.js';
 import {guardedCsv,downloadCsv} from './csv-export.js';
 import {friendly,publicText,displayInstant,deliveryLabel,curveName} from './market-view.js';
 import {valuationReason,valuationNote,excludedPositions,valuationMeasure} from './valuation-status.js';
@@ -276,19 +278,21 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   get('blotter-popout').onclick=()=>void perform({kind:options.window.kind==='main'?'popOut':'bringBack'});
   if(options.window.kind==='main')get('blotter-bring-back').onclick=()=>void perform({kind:'bringBack'});
   // The risk report of the panel's Risk report mode, for the books and context of the read on screen. What it holds outlives the panel's
-  // other modes, so its results stay while a position is looked at; a new read of the Blotter clears it.
-  const risk=setupRisk({api,act,busy,failed:options.failed,failureCleared:options.failureCleared,zone:options.zone,profile:options.profile,canRun:()=>options.canRunRisk()&&!!holdings,onDenied:clear,onChange:riskChanged,edited:options.unsavedChanged,scope:()=>{
+  // other modes, so its results stay while a position is looked at; a new read of the Blotter clears it. Asked for from a position's
+  // details, it is for that one trade of those books, until the toolbar's Run risk asks for the books again: the desk holds one run.
+  let riskTrade:{tradeId:string;reference:string}|null=null;
+  const risk=setupRisk({api,act,busy,failed:options.failed,failureCleared:options.failureCleared,zone:options.zone,profile:options.profile,canRun:()=>options.canRunRisk()&&!!holdings,onDenied:clear,onChange:riskChanged,edited:options.unsavedChanged,scopeNote:()=>riskTrade?tradeScopeNote({tradeIds:[riskTrade.tradeId]},()=>riskTrade?.reference):null,scope:()=>{
     if(!lastReadRequest)throw Error('Load the blotter before running risk.');
-    return {context:{...(lastReadRequest as {context:Record<string,unknown>}).context},bookIds:[...view.bookIds],portfolioIds:[...view.portfolioIds]};
+    return blotterRiskScope((lastReadRequest as {context:Record<string,unknown>}).context,view,riskTrade);
   }});
   const fullReport=setupRiskResults(get('desk-risk-full-results'),options.zone,options.riskReportUrl),fullReportPanel=get<HTMLDetailsElement>('desk-risk-full');
   let fullReportKey='',preparingFullReport='',fullReportVersion=0;
   function pauseFullReport(){fullReportVersion++;preparingFullReport='';}
   function resetFullReport(){pauseFullReport();fullReportKey='';fullReport.reset();}
   fullReportPanel.ontoggle=()=>{fullReportKey='';if(fullReportPanel.open)showRunBar();else resetFullReport();};
-  get('blotter-risk').onclick=()=>void openRiskReport();
+  get('blotter-risk').onclick=()=>void openRiskReport(null);
   // The run bar's Edit shocks opens the risk report with the run's choices, Export downloads its results and inputs, and Clear takes it off the desk.
-  get('desk-run-edit').onclick=()=>void openRiskReport();
+  get('desk-run-edit').onclick=()=>void openRiskReport(riskTrade);
   get('risk-export').onclick=()=>void act(risk.download);
   get('desk-run-clear').onclick=()=>{if(!busy())risk.clearRun();};
   // The Values | Risk lens of the trade rows (D222): Values shows the positions' values and their long and short sizes, Risk the run's results.
@@ -396,6 +400,12 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
       // A future's form is open for its binding, a swap's for its instrument.
       shown:h=>{const future=editor.shown(),swap=swapEditor.shown();return options.tickets.active()==='gas'&&options.tickets.trade()===h.tradeId||!!future&&future.tradeId===h.tradeId&&future.bindingId===h.bindingId||!!swap&&swap.tradeId===h.tradeId&&swap.contractId===h.contractId;},
       close:async()=>{await leave();},
+    },
+    actions:{
+      list:h=>positionActions(h,positionCan(h)),
+      closeOut:h=>void pinned(h,()=>perform({kind:'draftCloseOut',key:rowKey(h)})),
+      adjust:(h,direction,quantity)=>void pinned(h,()=>perform({kind:'draftAdjustment',key:rowKey(h),direction,quantity})),
+      risk:h=>void openRiskReport({tradeId:h.tradeId,reference:h.tradeReference}),
     },
     openCurve:(curve,contractId)=>asked(()=>options.openCurve(curve,contractId))});
   const panelHoldings=()=>holdings?.holdings;
@@ -530,23 +540,31 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // The position and revision a row's menu was opened on, while the Close out chosen from it runs: an operation names only its position.
   let menuRevision:{key:string;revision:string}|undefined;
   function focusRow(key:string){const index=holdings?.holdings.findIndex(h=>rowKey(h)===key)??-1;if(table&&index>=0)table.focusRow(index);}
+  // What the account may do with a position now, for its row's menu and its details' buttons alike, each refusal with its reason.
+  function positionCan(h:Holding):PositionCan{
+    const control=bookingControl(),amend=amendRefusal(h.instrumentType,!!catalog?.canAmendTrades,position.amendState(h));
+    return {book:control.enabled,amend:amend===null,risk:options.canRunRisk(),why:{book:control.reason??undefined,amend:amend??undefined,risk:riskDenied},
+      ...(holdings?{}:{stale:'Positions open once the Blotter has valued them.'})};
+  }
+  // A draft is of the revision the person saw when they asked, which a read landing since then may have replaced.
+  async function pinned(h:Holding,work:()=>Promise<unknown>){menuRevision={key:rowKey(h),revision:h.revision};try{await work();}finally{menuRevision=undefined;}}
   function openRowMenu(h:Holding,at:{x:number;y:number}){
     try{showRowMenu(h,at);}catch(error){options.failed(error);}
   }
   function showRowMenu(h:Holding,at:{x:number;y:number}){
-    const key=rowKey(h),control=bookingControl(),amend=amendRefusal(h.instrumentType,!!catalog?.canAmendTrades,position.amendState(h));
-    const stale=busy()?'The Blotter is busy; try again when it is idle.':!holdings?'Positions open once the Blotter has valued them.':undefined;
-    const can={book:control.enabled,amend:amend===null,ask:options.assistant.available(),
-      why:{book:control.reason??undefined,amend:amend??undefined,ask:'Your role does not include the page assistant.'},...(stale===undefined?{}:{stale})};
-    const items=rowMenuItems({key,instrumentType:h.instrumentType,reference:h.tradeReference},can,action=>void rowAction(h,action));
+    const key=rowKey(h),stale=busy()?'The Blotter is busy; try again when it is idle.':undefined,allowed=positionCan(h);
+    const can={...allowed,ask:options.assistant.available(),why:{...allowed.why,ask:'Your role does not include the page assistant.'},...(stale===undefined?{}:{stale})};
+    const items=rowMenuItems({key,instrumentType:h.instrumentType,reference:h.tradeReference,lots:h.lots},can,action=>void rowAction(h,action));
     if(table?.selectedKeys().includes(key)&&table.selectedKeys().length>1)items.unshift(selectionAskItem(can.ask&&!stale,()=>{options.reported();options.assistant.inPlace?.('positions');}));
     rowMenu.open(`Position ${h.tradeReference}`,items,at,()=>focusRow(key));
   }
   async function rowAction(h:Holding,action:RowMenuAction){
     const key=rowKey(h);
     switch(action.kind){
-      // Close out drafts the revision the menu was opened on, which a read landing since then may have replaced.
-      case 'draftCloseOut':menuRevision={key,revision:h.revision};try{await perform(action);}finally{menuRevision=undefined;}return;
+      case 'draftCloseOut':await pinned(h,()=>perform(action));return;
+      // An adjustment's quantity is asked in the details of its position, and risk for one trade is opened from them.
+      case 'adjust':if(await perform({kind:'selectPosition',key})===true)position.adjust(action.direction);return;
+      case 'risk':await openRiskReport({tradeId:h.tradeId,reference:h.tradeReference});return;
       case 'openWindow':popout(h);return;
       case 'copyId':
         try{await navigator.clipboard.writeText(h.tradeReference);options.notice(`Trade ID ${h.tradeReference} copied.`);}
@@ -562,10 +580,12 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // form of its product: a future's after the priced contracts are read, as New trade reads them, a swap's in its ticket. Nothing books
   // until the person presses Book. The draft is of the revision the row's menu was opened on, or the row showed when the operation was
   // dispatched without one: a row that holds another revision by then, or after the read made for the priced contracts, refuses it.
-  async function draftCloseOut(key:string){
+  // An adjustment is drafted and opened the same way: more or less of the position, by the quantity the person stated.
+  async function draftCloseOut(key:string,adjustment?:Adjustment){
     const row=()=>{const h=holdings?.holdings.find(h=>rowKey(h)===key);if(!h)throw refuse('that position is not among the rows on screen');return h;};
     const chosen=menuRevision?.key===key?menuRevision.revision:row().revision,before=panel.current();
-    const unchanged=(h:Holding)=>{if(h.revision!==chosen)throw refuse(`${h.tradeReference} is now at revision ${h.revision}, not revision ${chosen} that was chosen; choose Close out again to draft the revision shown`);};
+    const named=(h:Holding)=>adjustment?adjustLabels(h)[adjustment.direction]:undefined;
+    const unchanged=(h:Holding)=>{if(h.revision!==chosen)throw refuse(`${h.tradeReference} is now at revision ${h.revision}, not revision ${chosen} that was chosen; choose ${named(h)?.replace(/…$/,'')??'Close out'} again to draft the revision shown`);};
     unchanged(row());
     // The page's action says its own failures in the banner; the backend's refusal, said in the details, is the operation's answer.
     let refused:Error|undefined;
@@ -580,14 +600,15 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
       unchanged(h);
       const product=h.instrumentType==='future'?'futures' as const:'swaps' as const;
       let drafted;
-      try{drafted=readCloseOutDraft(await api('trading/close-out-draft',closeOutRequest({snapshotId:snapshot,contextId:holdings!.context.contextId},h)),h.instrumentType==='future'?'future':'financial_swap');}
+      const read={snapshotId:snapshot,contextId:holdings!.context.contextId},kind=h.instrumentType==='future'?'future' as const:'financial_swap' as const;
+      try{drafted=adjustment?readCloseOutDraft(await api('trading/position-adjustment-draft',adjustmentRequest(read,h,adjustment)),kind,adjustment):readCloseOutDraft(await api('trading/close-out-draft',closeOutRequest(read,h)),kind);}
       catch(error){
         // The backend's own refusal is said in the details, in place of a form, and still refuses the operation; any other failure is the page's.
         if((error as {code?:string}).code==='access_denied')clear();
-        refused=closeOutRefusal(error,h.tradeReference);if(!refused)throw error;
+        refused=closeOutRefusal(error,h.tradeReference,named(h));if(!refused)throw error;
         await showRefusal(refused);return;
       }
-      const shown={reference:h.tradeReference},next:PanelMode={kind:'new',product};
+      const shown={reference:h.tradeReference,...(adjustment?{adjustment:{direction:adjustment.direction,label:named(h)!}}:{})},next:PanelMode={kind:'new',product};
       // A draft a form cannot hold whole leaves no form, and the details as they were: never a part-filled form that could be booked.
       try{
         if(drafted.kind==='future'){await panel.show(next);booking.populate();booking.open();booking.closeOut(drafted,shown);}
@@ -910,7 +931,8 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     }
     const results=inline===undefined||inline.key!==resultsKey(run)?{state:'none' as const}:inline.state==='shown'?{state:view.mode==='pivot'?'pivot' as const:'shown' as const,excluded:inline.excluded}
       :inline.state==='failed'?{state:'failed' as const,reason:inline.reason}:(inline.state==='joint'||inline.state==='statistical')?{state:inline.state,excluded:inline.excluded}:{state:'elsewhere' as const};
-    renderRunBar(get('desk-run'),{...runBar(run,{zone:options.zone(),knowledge:knowledgeWords[options.knowledge()],results}),setup:run.setupText},busy());
+    const bar=runBar(run,{zone:options.zone(),knowledge:knowledgeWords[options.knowledge()],results}),covers=tradeScopeNote(run.scope,tradeReference);
+    renderRunBar(get('desk-run'),{...bar,notes:covers?[{kind:'note',text:covers},...bar.notes]:bar.notes,setup:run.setupText},busy());
   }
   // The results of a run are the reports its parts returned, and what became of the parts that returned none, at the read on screen. A
   // queued run has none to show while a part of it is under way: a part not yet done would read as moving nothing.
@@ -992,10 +1014,12 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
           hint:`${words.lead}: ${largest.tradeReference} · ${positionRows([h],options.zone())[0].market}, if ${largest.shock.label} moves ${largest.direction}`};
       })};
   }
+  const tradeReference=(tradeId:string)=>holdings?.holdings.find(h=>h.tradeId===tradeId)?.tradeReference;
   // What the Risk lens shows of a position: the shocks that move it; that nothing moves it, or, while a part has no results, that it is
   // not known; one the run leaves out says so with the reason its own row states, which is why the run leaves it out (D220).
   function lensRow(shown:Extract<Inline,{state:'shown'}>,h:Holding,row:DeskRow):LensRowView{
     const cell=shown.cells.get(positionKey(h));
+    if(!cell&&outsideRunScope(risk.current()?.scope,h.tradeId))return {state:'outside'};
     if(!cell)return {state:'left',reason:row.unavailable??'Not valued at this close'};
     const moves=positionMoves(cell,shown.gaps);
     return moves.state==='shocks'?{state:'shocks',shocks:moves.shocks,scale:shown.scales.get(moves.shocks[0].currencyKey)}:moves;
@@ -1009,16 +1033,19 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     const run=risk.current();
     if(inline?.state!=='shown')return risk.running()?{state:'running'}:run&&!run.parts.some(p=>p.report)?{state:'empty',reason:gapsText(runGaps(run))}:{state:'none'};
     const cell=inline.cells.get(positionKey(h));
+    if(!cell&&outsideRunScope(run?.scope,h.tradeId))return {state:'outside',covers:tradeScopeNote(run?.scope,tradeReference)!};
     if(!cell)return {state:'left',reason:row.unavailable??'Not valued at this close'};
     return {state:'shown',cell,factors:inline.summary.factors,gaps:inline.gaps};
   }
   // Risk report opens the panel in its Risk report mode, asking first about edits the panel holds, before the page is busy, and reads the
   // risk catalog of the read on screen unless the report already holds one.
   const riskMode:PanelMode={kind:'risk'};
-  async function openRiskReport(){
+  async function openRiskReport(trade:{tradeId:string;reference:string}|null){
     if(busy()||!options.canRunRisk()||!holdings)return;
     if(!await panel.show(riskMode))return;
     panel.reveal();
+    // Another scope than the report holds is another catalog and another run: what it holds is forgotten, its setup's choices carried over.
+    if(trade?.tradeId!==riskTrade?.tradeId){riskTrade=trade;risk.inputsChanged(true);}
     await act(risk.open);
   }
   // Risk report is offered to an account that can run scenarios once the Blotter is read, and says why to one that cannot.
@@ -1168,7 +1195,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     const lenses=shown?held.map((h,i)=>lensRow(shown,h,rows[i])):undefined;
     // A lens cell sorts and filters by its exact amount, which only a position one shock moves has; the others by their words.
     const single=(i:number)=>lenses?.[i].state==='shocks'&&lenses[i].shocks.length===1?lenses[i].shocks[0]:undefined;
-    const lensWords=(i:number)=>{const lens=lenses![i];return lens.state==='left'?'Left out':lens.state==='unmoved'?'Not moved':lens.state==='unknown'?'Not known'
+    const lensWords=(i:number)=>{const lens=lenses![i];return lens.state==='left'?'Left out':lens.state==='outside'?'Not in this run':lens.state==='unmoved'?'Not moved':lens.state==='unknown'?'Not known'
       :lens.shocks.length>1?`${lens.shocks.length} shocks`:`±${lens.shocks[0].bump} ${lens.shocks[0].unit}`;};
     const values=rows.map((row,i)=>[row.reference,row.market,row.quantity??'',row.price??'',row.mark??'',row.value??'','',
       ...(shown?[lensWords(i),single(i)?.up??'',single(i)?.down??'',single(i)?.delta??'']:['','','','']),...details.map(([key])=>fields[i][key]??'')]);
@@ -1749,6 +1776,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
       await guarded(()=>own.bringBack());
     },
     draftCloseOut:async({key})=>draftCloseOut(key),
+    draftAdjustment:async({key,direction,quantity})=>draftCloseOut(key,{direction,quantity}),
     // A position is amended from its details, for the revision they read: a PPA, an account that cannot amend or a revision that cannot be
     // amended is refused with why.
     amend:async({key})=>{

@@ -4,6 +4,7 @@ import {replaceChangedChildren} from './view-updates.js';
 // reads the desk already holds; amounts stay the backend's exact strings in the backend's display text.
 import {curvePoints,minus,quantityText,signOf,signedText,type CurveShape,type DeskRow,type Format,type Holding,type HoldingFormats} from './desk-model.js';
 import {publicText} from './market-view.js';
+import {adjustUnit,type AdjustDirection,type PositionAction} from './position-actions.js';
 import {gapsText,type LensCell,type RunGap} from './risk-lens.js';
 import {clearTabs,setupTabs,type SidePanel} from './side-panel.js';
 
@@ -17,7 +18,7 @@ export const riskEmpty="This position's risk comes from the risk run on the desk
  * the read; one whose results are refused, or which has none, with why; a position the run leaves out, with its row's reason; or its
  * shocks, among the run's factors with results, and the parts that have none.
  */
-export type PositionRisk={state:'none'}|{state:'running'}|{state:'elsewhere'}|{state:'failed'|'empty';reason:string}|{state:'left';reason:string}
+export type PositionRisk={state:'none'}|{state:'running'}|{state:'elsewhere'}|{state:'failed'|'empty';reason:string}|{state:'left';reason:string}|{state:'outside';covers:string}
   |{state:'shown';cell:LensCell;factors:number;gaps:readonly RunGap[]};
 /** A figure of a shock's results: its display text, exact amount and unit, and, for a change, whether it is a gain or a loss. */
 export type RiskFact={label:string;text:string;exact:string;unit:string;sign?:'positive'|'negative'|'zero'};
@@ -35,6 +36,7 @@ export function riskTabView(risk:PositionRisk,formats:Pick<HoldingFormats,'money
     case 'failed':return {note:risk.reason,shocks:[]};
     case 'empty':return {note:`The risk run on the desk has no results. ${risk.reason}.`,shocks:[]};
     case 'left':return {note:`The risk run on the desk leaves this position out, as this close cannot value it: ${risk.reason}.`,shocks:[]};
+    case 'outside':return {note:`This position is not in the risk run on the desk. ${risk.covers}`,shocks:[]};
   }
   const {cell,factors,gaps}=risk,moved=cell.shocks.length,from='From the risk run on the desk: ',gap=gapsText(gaps);
   const several='each on its own: nothing is added across them.',missing=gaps.length?` ${gap}, so no shock of ${gaps.length===1?'it':'them'} is listed.`:'';
@@ -171,6 +173,8 @@ type Detail={key:string;position:string}&({state:'loading';previous?:DetailRead}
  * first shown, in the market context of the desk; a read made in another context, or of another position, is dropped. Amend
  * opens the position's amendment, whose form Terms shows in place of its read view for as long as it is open.
  */
+type TradeActionId=Exclude<PositionAction['id'],'amend'>;
+const tradeActionIds:Record<TradeActionId,string>={closeOut:'close-out',increase:'increase',reduce:'reduce',risk:'risk',terminate:'terminate',novate:'novate'};
 export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal'|'focusForm'>,o:{
   zone:()=>string;busy:()=>boolean;canAmend:()=>boolean;leave?:()=>Promise<boolean>;
   tabs?:readonly PositionTab[];
@@ -186,8 +190,13 @@ export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal
    */
   amendment:{open:(h:Holding)=>void;shown:(h:Holding)=>boolean;close:()=>Promise<void>};
   openCurve?:(curve:string,contractId:string|null)=>void;onDenied:()=>void;
+  /**
+   * The position's trade actions beside Amend (position-actions.ts), where the page offers them: `list` says each with its state, and
+   * the rest carry one out for the position as it was when the person asked. An adjustment's quantity is the person's text, as typed.
+   */
+  actions?:{list:(h:Holding)=>PositionAction[];closeOut:(h:Holding)=>void;adjust:(h:Holding,direction:AdjustDirection,quantity:string)=>void;risk:(h:Holding)=>void};
 }){
-  let input:PositionInput|undefined,tab:PositionTab='terms',chosen:PositionTab='terms',detail:Detail|undefined,generation=0,tabs:ReturnType<typeof setupTabs>|undefined,actions:{amend:HTMLButtonElement;open:HTMLButtonElement;note:HTMLElement;openNote:HTMLElement}|undefined;
+  let input:PositionInput|undefined,tab:PositionTab='terms',chosen:PositionTab='terms',detail:Detail|undefined,generation=0,tabs:ReturnType<typeof setupTabs>|undefined,actions:{amend:HTMLButtonElement;open:HTMLButtonElement;note:HTMLElement;openNote:HTMLElement;trade:Map<TradeActionId,HTMLButtonElement>;tradeNote:HTMLElement|null}|undefined;
   // Whether the last drawing found the position's amendment open, and whether the person has just opened it, which takes focus into it.
   let amending=false,focusOnOpen=false,reading:{key:string;done:Promise<unknown>}|undefined;
   // Schedule widgets release their reads and grids when their tab or position changes.
@@ -195,6 +204,7 @@ export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal
   const takeDownSchedules=()=>{drawnSchedules?.();drawnSchedules=undefined;drawnScheduleKey=undefined;drawnTab=undefined;};
   const view=()=>shell.element('view');
   const positionKey=(at:PositionInput)=>JSON.stringify([at.holding.tradeId,at.holding.bindingId,at.holding.revision,at.holding.instrumentType]);
+  const positionOf=(h:Holding)=>`${h.tradeId}:${h.bindingId}`;
   const key=(at:PositionInput)=>JSON.stringify([positionKey(at),o.context()]);
   async function selectTab(id:string){
     tabs?.mark(tab);
@@ -221,14 +231,53 @@ export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal
       const delta=el('div','side-panel-delta'),amount=el('b',undefined,now.markMinusPrice.text);
       delta.title=publicText(`${now.markMinusPrice.exact} ${now.markMinusPrice.unit}`);delta.append(el('span','side-panel-label',now.markMinusPrice.label),amount,el('small',undefined,now.markMinusPrice.unit));value.append(delta);
     }
-    const row=el('div','side-panel-actions'),amend=el('button',undefined,'Amend'),open=el('button','secondary','Open curve'),note=el('p','field-help side-panel-note'),openNote=el('p','field-help side-panel-note');
+    const row=el('div','side-panel-actions'),amend=el('button',o.actions?'secondary':undefined,'Amend'),open=el('button','secondary','Open curve'),note=el('p','field-help side-panel-note'),openNote=el('p','field-help side-panel-note');
     amend.type=open.type='button';amend.id='side-panel-amend';open.id='side-panel-open-curve';note.id='side-panel-amend-note';openNote.id='side-panel-open-curve-note';note.hidden=openNote.hidden=true;
     amend.onclick=()=>{if(o.amendment.shown(at.holding))void o.amendment.close().then(sync);else o.amendment.open(at.holding);};
     open.onclick=()=>{const target=openCurveTarget(at.holding,at.row,o.shape?.(at.holding));o.openCurve?.(target.curve,target.contractId);};
-    row.append(amend,open);actions={amend,open,note,openNote};
-    replaceChangedChildren(shell.element('head'),[kicker,title,el('p','side-panel-sub',now.subtitle),value,row,note,openNote],true);
-    const head=shell.element('head');actions={amend:head.querySelector<HTMLButtonElement>('#side-panel-amend')!,open:head.querySelector<HTMLButtonElement>('#side-panel-open-curve')!,note:head.querySelector<HTMLElement>('#side-panel-amend-note')!,openNote:head.querySelector<HTMLElement>('#side-panel-open-curve-note')!};
+    // The trade actions the page offers sit around Amend in the order a trader reads them; the events not yet supported come last.
+    const listed=o.actions?.list(at.holding).filter(action=>action.id!=='amend')??[],tradeNote=el('p','field-help side-panel-note');
+    tradeNote.id='side-panel-actions-note';tradeNote.hidden=true;
+    const tradeButton=(action:PositionAction)=>{
+      const button=el('button',action.state.kind==='soon'?'ticket-soon':'secondary',action.label);button.type='button';button.id=`side-panel-${tradeActionIds[action.id as TradeActionId]}`;
+      if(action.state.kind==='soon'){button.disabled=true;button.setAttribute('aria-disabled','true');button.title=`${action.label} is not offered yet.`;button.append(el('span','ticket-soon-tag','Coming soon'));}
+      return button;
+    };
+    const before=listed.filter(a=>a.id==='closeOut').map(tradeButton),after=listed.filter(a=>a.id!=='closeOut'&&a.state.kind!=='soon').map(tradeButton),soon=listed.filter(a=>a.state.kind==='soon').map(tradeButton);
+    row.append(...before,amend,...after,open,...soon);
+    const parts=o.actions?[kicker,title,el('p','side-panel-sub',now.subtitle),value,row,adjustForm,tradeNote,note,openNote]:[kicker,title,el('p','side-panel-sub',now.subtitle),value,row,note,openNote];
+    replaceChangedChildren(shell.element('head'),parts,true);
+    const head=shell.element('head'),found=<T extends HTMLElement>(id:string)=>head.querySelector<T>('#'+id);
+    const trade=new Map<TradeActionId,HTMLButtonElement>();
+    for(const action of listed){const button=found<HTMLButtonElement>(`side-panel-${tradeActionIds[action.id as TradeActionId]}`);if(button)trade.set(action.id as TradeActionId,button);}
+    const run=(id:TradeActionId)=>()=>{
+      if(!input||o.busy())return;
+      if(id==='closeOut')o.actions!.closeOut(input.holding);else if(id==='risk')o.actions!.risk(input.holding);else if(id==='increase'||id==='reduce')askQuantity(id);
+    };
+    for(const [id,button] of trade)button.onclick=run(id);
+    actions={amend:found<HTMLButtonElement>('side-panel-amend')!,open:found<HTMLButtonElement>('side-panel-open-curve')!,note:found('side-panel-amend-note')!,openNote:found('side-panel-open-curve-note')!,trade,tradeNote:found('side-panel-actions-note')};
   }
+  // The one row an adjustment's quantity is asked in, under the buttons: it is the panel's own and outlives each drawing of the head, so
+  // that what the person has typed stays while the desk is read again. It is of the position as it was when the person asked.
+  const adjustForm=el('form','side-panel-adjust'),adjustLabel=el('label'),adjustQuantity=el('input'),adjustSubmit=el('button',undefined,'Draft trade'),adjustCancel=el('button','secondary','Cancel');
+  adjustForm.id='side-panel-adjust';adjustForm.hidden=true;adjustQuantity.id='side-panel-adjust-quantity';adjustLabel.htmlFor=adjustQuantity.id;adjustQuantity.required=true;adjustQuantity.inputMode='decimal';adjustQuantity.autocomplete='off';adjustQuantity.maxLength=64;
+  adjustSubmit.type='submit';adjustSubmit.id='side-panel-adjust-submit';adjustCancel.type='button';adjustCancel.id='side-panel-adjust-cancel';adjustForm.append(adjustLabel,adjustQuantity,adjustSubmit,adjustCancel);
+  let adjusting:{direction:AdjustDirection;holding:Holding}|undefined;
+  function endAdjusting(){adjusting=undefined;adjustForm.hidden=true;adjustQuantity.value='';}
+  function askQuantity(direction:AdjustDirection){
+    if(!input||!o.actions)return;
+    const action=o.actions.list(input.holding).find(a=>a.id===direction);
+    if(action?.state.kind!=='enabled')return;
+    adjusting={direction,holding:input.holding};
+    adjustLabel.textContent=publicText(`${action.label.replace(/…$/,'')}: quantity in ${adjustUnit(input.holding)}`);
+    adjustForm.hidden=false;adjustQuantity.focus();adjustQuantity.select();
+  }
+  adjustCancel.onclick=()=>{const back=adjusting&&actions?.trade.get(adjusting.direction);endAdjusting();back?.focus();};
+  adjustForm.onsubmit=event=>{
+    event.preventDefault();
+    if(!adjusting||o.busy()||!o.actions)return;
+    const asked=adjusting,quantity=adjustQuantity.value;endAdjusting();o.actions.adjust(asked.holding,asked.direction,quantity);
+  };
   function drawRisk(host:HTMLElement,at:PositionInput){
     const view=riskTabView(at.risk,at.formats);
     host.append(status(view.note));
@@ -364,7 +413,24 @@ export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal
     actions.note.hidden=control.note===null;actions.note.textContent=control.note===null?'':publicText(control.note);
     const several=at.row.severalCurves,listed=!several&&o.curveListed(at.holding.curve);
     actions.open.hidden=!o.openCurve||at.holding.priceNavigation===false;actions.open.disabled=o.busy()||!listed||at.holding.priceNavigation===false;say(actions.openNote,actions.open,o.openCurve&&at.holding.priceNavigation!==false?curveNote(listed,several):null);
+    syncTradeActions(at);
     if(!o.busy())refocus();
+  }
+  // Each trade action as the page says it is now: offered, or disabled with its reason as its tip and in the line under the buttons.
+  function syncTradeActions(at:PositionInput){
+    if(!actions||!o.actions)return;
+    const reasons:string[]=[];
+    for(const action of o.actions.list(at.holding)){
+      const button=actions.trade.get(action.id as TradeActionId);
+      if(!button||action.state.kind==='soon')continue;
+      const reason=action.state.kind==='disabled'?action.state.reason:null;
+      button.disabled=o.busy()||reason!==null;button.title=reason===null?'':publicText(reason);
+      if(reason===null)button.removeAttribute('aria-describedby');else{button.setAttribute('aria-describedby','side-panel-actions-note');if(!reasons.includes(reason))reasons.push(reason);}
+    }
+    if(actions.tradeNote){actions.tradeNote.hidden=reasons.length===0;actions.tradeNote.textContent=publicText(reasons.join(' '));}
+    // The quantity is asked only of a position that is still shown and whose adjustment is still offered.
+    if(adjusting&&(positionOf(adjusting.holding)!==positionOf(at.holding)||o.actions.list(at.holding).find(a=>a.id===adjusting!.direction)?.state.kind!=='enabled'))endAdjusting();
+    for(const control of [adjustQuantity,adjustSubmit,adjustCancel])control.disabled=o.busy();
   }
   // Shows a reason beside a button, and points the button at it for assistive technology; nothing shown and nothing pointed at for none.
   function say(note:HTMLElement,control:HTMLElement,reason:string|null){
@@ -383,6 +449,7 @@ export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal
       const available=positionTabs.filter(([id])=>(!o.tabs||o.tabs.includes(id))&&(id!=='schedules'||sides)),start=requested??(chosen==='schedules'&&!sides?'terms':chosen);
       if(!available.some(([id])=>id===start))throw Error('Choose an available position tab.');
       if(requested)chosen=requested;
+      if(input&&positionOf(input.holding)!==positionOf(next.holding))endAdjusting();
       input=next;tab=start;detail=undefined;held=undefined;generation++;
       tabs=setupTabs(shell.element('tabs'),available,{label:'Position details',panel:shell.element('body'),selected:start,select:id=>void selectTab(id)});
       paint();
@@ -401,11 +468,13 @@ export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal
     },
     /** Forgets the position: the panel is closed or left, or the reads it was drawn from no longer stand. */
     clear(){
-      input=undefined;actions=undefined;detail=undefined;held=undefined;tabs=undefined;amending=focusOnOpen=false;generation++;
+      input=undefined;actions=undefined;detail=undefined;held=undefined;tabs=undefined;amending=focusOnOpen=false;generation++;endAdjusting();
       view().inert=false;
       takeDownSchedules();view().replaceChildren();shell.element('head').replaceChildren();clearTabs(shell.element('tabs'),shell.element('body'));
     },
     sync,
+    /** Asks the quantity of an adjustment of the position shown, as its button does: for the row menu's item. */
+    adjust(direction:AdjustDirection){askQuantity(direction);},
     block(value:boolean){if(value)held=focused()??held;view().inert=value;if(!value)refocus();},
     /** Completed read-only details can remain hidden until their Blotter passes its next freshness check. */
     retainable:()=>!!input&&detail?.state==='ready'&&detail.key===key(input)&&!amending&&!detail.read.unsaved?.()&&!detail.read.updatesBlocked?.(),

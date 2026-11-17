@@ -111,7 +111,7 @@ function setupText(setup:RunSetup|undefined):string{
  * shows change, however it changed: an action, a part that finished on the report's own timer, or a reset.
  */
 export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;canRun:()=>boolean;profile:()=>string;
-  scope:()=>Scope;onDenied:()=>void;onChange:()=>void;failed?:(error:unknown)=>void;failureCleared?:()=>void;ranNow?:()=>void;edited?:()=>void;prefix?:string}){
+  scope:()=>Scope;/** What the scope asked for covers when it is narrower than the books on screen, said in place of the report's own line. */scopeNote?:()=>string|null;onDenied:()=>void;onChange:()=>void;failed?:(error:unknown)=>void;failureCleared?:()=>void;ranNow?:()=>void;edited?:()=>void;prefix?:string}){
   const prefix=options.prefix??'';
   const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(prefix+id) as T;
   const root=get('risk-report'),shelf=root.parentElement!,form=get<HTMLFormElement>('risk-form');
@@ -582,7 +582,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     get('risk-job-retry').hidden=get('risk-job-discard').hidden=!unknown.length;
     get('risk-job-return').hidden=!reviewing||unknown.length>0;
     get('risk-scope').textContent=unknown.length?'An unconfirmed risk submission uses its original captured financial context below.'
-      :reviewing?'Retained portfolio risk, separated by valuation measure and currency. This job uses its captured financial context below.':currentScopeText;
+      :reviewing?'Retained portfolio risk, separated by valuation measure and currency. This job uses its captured financial context below.':options.scopeNote?.()??currentScopeText;
   }
   get('risk-job-retry').onclick=()=>void options.act(async()=>{const current=submissions.get(options.profile());if(!current)throw Error('There is no retained submission to reconcile.');await submit(current,generation);});
   get('risk-job-discard').onclick=()=>void options.act(async()=>{submissions.delete(options.profile());forgetRun();await open();});

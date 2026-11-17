@@ -2,6 +2,7 @@
 // menus dispatch them, and the assistant will; this module only reads and routes them, so a handler is the one place an action happens.
 import {parseArrangement,type Arrangement} from './dock-model.js';
 import type {GridLayout} from './data-grid.js';
+import {adjustDirections,type AdjustDirection} from './position-actions.js';
 import {blotterColumns,blotterDockRules,blotterPanes,columnsFitMode,quoteUnitsShown,rowGroups,validColumnFilters,validIds,validSort,validPositionKey,validViewName,type BlotterView,type RowGroup} from './blotter-layout.js';
 
 export type BlotterPane=typeof blotterPanes[number];
@@ -10,7 +11,7 @@ export type BlotterOperation=
   |{kind:'sort';sort:GridLayout['sort']}|{kind:'filter';query:string;columns:Record<string,string>}|{kind:'chooseColumns';columns:string[]}
   |{kind:'selectPosition';key:string|null}|{kind:'details';open:boolean}|{kind:'arrange';panes:Arrangement}
   |{kind:'collapsePane';pane:BlotterPane;collapsed:boolean}|{kind:'resetLayout'}|{kind:'popOut'}|{kind:'bringBack'}
-  |{kind:'draftCloseOut';key:string}|{kind:'amend';key:string};
+  |{kind:'draftCloseOut';key:string}|{kind:'amend';key:string}|{kind:'draftAdjustment';key:string;direction:AdjustDirection;quantity:string};
 /** What an operation answers once done: a position selection whether the position is shown, false when the person kept edits the details
  *  hold; every other operation nothing. */
 export type BlotterAnswer<K extends BlotterOperation['kind']>=K extends 'selectPosition'?boolean:void;
@@ -68,6 +69,12 @@ export function readBlotterOperation(value:unknown):BlotterOperation{
     case 'draftCloseOut':case 'amend':exactly(v,'key');
       if(!validPositionKey(v.key))throw refuse('a position key is tradeId:bindingId');
       return {kind:v.kind,key:v.key};
+    // The quantity is the person's text, which the backend reads and judges: here it is only bounded.
+    case 'draftAdjustment':exactly(v,'key','direction','quantity');
+      if(!validPositionKey(v.key))throw refuse('a position key is tradeId:bindingId');
+      if(!adjustDirections.includes(v.direction as AdjustDirection))throw refuse('an adjustment increases or reduces its position');
+      if(typeof v.quantity!=='string'||!v.quantity.length||v.quantity.length>64)throw refuse('an adjustment states its quantity in 1 to 64 characters');
+      return {kind:v.kind,key:v.key,direction:v.direction as AdjustDirection,quantity:v.quantity};
     default:throw refuse('that operation is not one the Blotter has');
   }
 }
