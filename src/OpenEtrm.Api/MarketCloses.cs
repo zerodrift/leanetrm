@@ -18,7 +18,10 @@ public sealed record MarketCloseInfo(Guid Id,string Name,DateTimeOffset At,strin
 }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record MarketCloseHistoryRequest([property:JsonRequired] string Session,[property:JsonRequired] DateOnly BusinessDate);
-public sealed record MarketCloseFrames(ImmutableArray<InputFrame> Frames,int Limit,bool HasMore);
+public sealed record MarketCloseFrames(ImmutableArray<InputFrame> Frames,int Limit,bool HasMore)
+{
+    internal MarketCloses.RecordedInputCache? RecordedInputs{get;init;}
+}
 
 // Durable frames pin native observations and explicit membership. Registering a
 // prior frame records when it was retained; it never backdates its publication.
@@ -118,8 +121,10 @@ public static partial class MarketCloses
         await using var command=ScheduleStore.Command(connection,"SELECT security.close_history($1,$2,$3)::text",catalog,request.Session,request.BusinessDate);
         return JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
     }
-    public static async Task<MarketCloseFrames> Frames(NpgsqlConnection connection,Guid catalog,Guid? contextId,CancellationToken ct,int limit=128,
-        ImmutableArray<InputFrame> recordedInputs=default)
+    public static Task<MarketCloseFrames> Frames(NpgsqlConnection connection,Guid catalog,Guid? contextId,CancellationToken ct,int limit=128)=>
+        Frames(connection,catalog,contextId,ct,limit,null);
+    internal static async Task<MarketCloseFrames> Frames(NpgsqlConnection connection,Guid catalog,Guid? contextId,CancellationToken ct,int limit,
+        RecordedInputCache? recordedInputs)
     {
         if(limit is <0 or >128)throw new MarketDataException("preview_limit","The retained frame catalog is limited to 128 choices.");
         var rows=await PreviewDatabase.Rows(connection,"SELECT row_to_json(t)::text FROM(SELECT id,name,at,session_code,session_version,business_date,"+
@@ -130,15 +135,15 @@ public static partial class MarketCloses
         // Fresh runtime RLS headers own visibility, ordering and capacity. Reuse
         // only the immutable native payload for an exact close/context already
         // discovered by this session. Calendar execution reattests it again.
-        var parts=(recordedInputs.IsDefault?ImmutableArray<InputFrame>.Empty:recordedInputs)
-            .Where(frame=>frame.ContextId==contextId&&frame.OriginCloseId==frame.Id&&frame.Source is not null&&frame.SourceInputs is not null)
-            .ToDictionary(frame=>frame.Id,frame=>new CloseParts(frame.Source!,frame.SourceInputs!));
+        var parts=recordedInputs is not null&&recordedInputs.Catalog==catalog&&recordedInputs.Context==contextId
+            ?recordedInputs.Parts.ToDictionary():new Dictionary<Guid,CloseParts>();
         var missing=headers.Select(row=>row.Id("id")).Where(id=>!parts.ContainsKey(id)).ToArray();
         if(missing.Length!=0)
             foreach(var(id,part)in await Parts(connection,catalog,missing,contextId,ct))parts.Add(id,part);
         var frames=headers.Select(header=>CreateFrame(header.Id("id"),header.Text("name"),header.Instant("at"),parts[header.Id("id")],contextId,
             Close(header.Id("id"),header.Text("session_code"),int.Parse(header.Text("session_version"),CultureInfo.InvariantCulture),DateOnly.Parse(header.Text("business_date"),CultureInfo.InvariantCulture),header.Id("in_force")))).ToImmutableArray();
-        return new(frames,limit,rows.Length>limit);
+        return new(frames,limit,rows.Length>limit)
+        {RecordedInputs=new(catalog,contextId,headers.ToImmutableDictionary(header=>header.Id("id"),header=>parts[header.Id("id")]))};
     }
     public static async Task<InputFrame> Frame(NpgsqlConnection connection,Guid catalog,Guid close,Guid? contextId,CancellationToken ct)
     {
@@ -146,7 +151,11 @@ public static partial class MarketCloses
         var parts=(await Parts(connection,catalog,[close],contextId,ct))[close];
         return CreateFrame(close,header.Name,header.At,parts,contextId,new(header.Session,header.SessionVersion,header.BusinessDate,header.ReplacedBy));
     }
-    private sealed record CloseParts(CatalogueSource Primary,ImmutableDictionary<Guid,MarketSourceInputs> Sources);
+    internal sealed record CloseParts(CatalogueSource Primary,ImmutableDictionary<Guid,MarketSourceInputs> Sources);
+    // This carrier is minted from native parts, never reconstructed from a
+    // working frame, historical alias or source projection. Reuse is exact to
+    // the catalogue and resolved context; it never carries an authority answer.
+    internal sealed record RecordedInputCache(Guid Catalog,Guid? Context,ImmutableDictionary<Guid,CloseParts> Parts);
     // Reattest the complete recorded matrix in this read's transaction before
     // using any cached root membership, including a negative availability answer.
     internal static async Task<Dictionary<Guid,Exception?>> ReadFrameResults(NpgsqlConnection connection,Guid catalog,ImmutableArray<InputFrame> frames,Guid? contextId,CancellationToken ct)

@@ -7,7 +7,7 @@ using OpenEtrm.MarketData;
 public sealed record FrameCatalogInfo(string DurableSelection,string SelectionPolicy,int MaximumFrames,int DurableLimit,bool HasMoreDurableCloses);
 public sealed record SessionFramePlan(ImmutableArray<InputFrame> Frames,FrameCatalogInfo Catalog)
 {
-    internal ImmutableArray<InputFrame> RecordedInputs{get;init;}=[];
+    internal MarketCloses.RecordedInputCache? RecordedInputs{get;init;}
 }
 
 public sealed partial class PreviewSession
@@ -18,7 +18,7 @@ public sealed partial class PreviewSession
     public bool HasDiscoveredFrames{get;private set;}
     // Only native discovery writes this immutable input cache. It contains no
     // authority decision, alias, projection, qualification or price result.
-    internal ImmutableArray<InputFrame> RecordedInputs{get;private set;}=[];
+    internal MarketCloses.RecordedInputCache? RecordedInputs{get;private set;}
     private Guid aliasNamespace=Guid.NewGuid();
     public FrameCatalogInfo FrameCatalog{get;private set;}=new("exact_recorded_close_pins_v1","preserved_session_plus_latest_visible_closes_v1",MaximumFrames,0,false);
     public ImmutableArray<InputFrame> PersistentFrames=>[..Frames.Values.Where(frame=>!discoveredFrames.Contains(frame.Id)&&!IsLiveFrame(frame.Id))];
@@ -101,7 +101,7 @@ public sealed partial class PreviewSession
             if(context is null)return frame;
             return frame with{Id=AliasId("stored_close",origin,frame)};
         }).Concat(aliases).ToImmutableArray();
-        return new(frames,new("exact_recorded_close_pins_v1","preserved_session_plus_latest_visible_closes_v1",MaximumFrames,stored.Limit,stored.HasMore)){RecordedInputs=stored.Frames};
+        return new(frames,new("exact_recorded_close_pins_v1","preserved_session_plus_latest_visible_closes_v1",MaximumFrames,stored.Limit,stored.HasMore)){RecordedInputs=stored.RecordedInputs};
     }
     public void ApplyFrames(SessionFramePlan plan)
     {
@@ -115,7 +115,7 @@ public sealed partial class PreviewSession
     }
     public void ForgetDiscoveredFrames(bool resetAliasIdentities=false)
     {
-        HasDiscoveredFrames=false;RecordedInputs=[];
+        HasDiscoveredFrames=false;RecordedInputs=null;
         foreach(var id in discoveredFrames)Frames.Remove(id);
         discoveredFrames.Clear();
         if(resetAliasIdentities)aliasNamespace=Guid.NewGuid();

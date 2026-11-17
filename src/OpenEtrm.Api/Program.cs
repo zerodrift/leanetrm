@@ -576,7 +576,7 @@ async Task<SessionFramePlan> DiscoverFrames(NpgsqlConnection connection,PreviewS
     if(session.Live is not null)return new([],session.FrameCatalog);
     var aliases=session.ContextAliases(session.MarketContext);
     var stored=await MarketCloses.Frames(connection,database.Manifest.CatalogId,session.MarketContext?.ContextId,ct,session.DurableLimit(aliases),
-        reuseRecordedInputs?session.RecordedInputs:[]);
+        reuseRecordedInputs?session.RecordedInputs:null);
     return session.PlanFrames(stored,session.MarketContext,aliases);
 }
 async Task RefreshFrames(PreviewSession session,CancellationToken ct,bool reuseRecordedInputs=false)
