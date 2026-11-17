@@ -25,10 +25,10 @@ export type SeriesAnalytics={value:string;priceBump:string|null;delta:Measure;ga
 export type SurfaceSeries={series:{code:string;right:Right;strike:string;expiryAt:string;underlyingCode:string;settlement:string|null;outcome:string;marketVolatility:string|null};
  logMoneyness:string|null;fitted:string|null;richCheap:string|null;fitPoint:boolean;inTheMoney:boolean|null;analytics:SeriesAnalytics|null;axisValue:string|null};
 export type AxisPoint={id:string;value:string;label:string};
-export type AxisPolicy={id:string;label:string;unit:string;preset:{name:string;points:AxisPoint[]}};
+export type AxisPolicy={id:string;label:string;unit:string;preset:{name:string;points:AxisPoint[]};reversed:boolean};
 export type AxisOffer={definitionRevisionId:string;snapshotId:string;model:string;initialAxis:string;axes:AxisPolicy[];requiresRefit:boolean;canFit:boolean;sensitivities:SensitivityOffer;job:Job|null};
 export type AxisNode={pointId:string;axisValue:string;label:string;logMoneyness:string|null;strike:string|null;fitted:string|null;covered:boolean;reason:{code:string;message:string}|null};
-type PlotAxis={id:string;label:string;unit:string;ticks:AxisPoint[]};
+type PlotAxis={id:string;label:string;unit:string;ticks:AxisPoint[];reversed:boolean};
 export type SurfaceProjection={numericalPolicy:string;normalImplementation:string;tolerance:string;axes:AxisPolicy[];x:PlotAxis;depth:PlotAxis;height:PlotAxis};
 export type SurfaceExpiry={expiryAt:string;underlyingCode:string;futures:string|null;status:string;parameters:{a:string;b:string;c:string}|null;points:number;
  rmsResidual:string|null;maxAbsResidual:string|null;grid:{strike:string;logMoneyness:string;fitted:string}[];atTheMoneyStrike:string|null;daysToExpiry:string|null;yearFraction:string|null;timeLabel:string|null;nodes:AxisNode[]};

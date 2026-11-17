@@ -156,7 +156,8 @@ A missing or empty list, nondecimal or nonstring value, duplicate numeric value
 (including `0.5` and `0.50`), nonpositive strike, or delta outside (0,1) raises
 `vol_axis_points`. An unknown or missing axis raises `vol_axis_unknown` when
 points are otherwise valid. Points are ordered by strike: ascending for strike
-and k, descending for call quick delta. Their canonical value is their point id.
+and k, descending for call quick delta. The server declares quick delta
+`reversed` so strike order runs left to right. Their canonical value is their point id.
 
 For each explicit point, each fitted expiry supplies `nodes`: `pointId`,
 `axisValue`, `label`, `logMoneyness`, implied `strike`, `fitted`, `covered` and a

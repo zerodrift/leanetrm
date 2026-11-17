@@ -6,11 +6,11 @@ namespace OpenEtrm.MarketData.Options;
 public sealed record SurfaceAxisRequest(string? Axis, string[]? Points);
 public sealed record SurfaceAxisPoint(string Id, LatticeDecimal Value, string Label);
 public sealed record SurfaceAxisPreset(string Name, ImmutableArray<SurfaceAxisPoint> Points);
-public sealed record SurfaceAxisPolicy(string Id, string Label, string Unit, SurfaceAxisPreset Preset);
+public sealed record SurfaceAxisPolicy(string Id, string Label, string Unit, SurfaceAxisPreset Preset, bool Reversed);
 public sealed record SurfaceAxisReason(string Code, string Message);
 public sealed record SurfaceAxisNode(string PointId, LatticeDecimal AxisValue, string Label, LatticeDecimal? LogMoneyness,
     LatticeDecimal? Strike, LatticeDecimal? Fitted, bool Covered, SurfaceAxisReason? Reason);
-public sealed record SurfacePlotAxis(string Id, string Label, string Unit, ImmutableArray<SurfaceAxisPoint> Ticks);
+public sealed record SurfacePlotAxis(string Id, string Label, string Unit, ImmutableArray<SurfaceAxisPoint> Ticks, bool Reversed);
 public sealed record SurfaceProjection(string NumericalPolicy, string NormalImplementation, string Tolerance,
     ImmutableArray<SurfaceAxisPolicy> Axes, SurfacePlotAxis X, SurfacePlotAxis Depth, SurfacePlotAxis Height);
 
@@ -28,9 +28,9 @@ public static class SurfaceAxes
     {
         var inputs = surface.PlotInputs ?? throw Missing();
         if (surface.StrikeAxis.IsDefault || surface.Expiries.IsDefault || surface.Series.IsDefault || string.IsNullOrWhiteSpace(inputs.StrikeUnit)) throw Missing();
-        return [new(Strike, "Strike", inputs.StrikeUnit, new("Listed strikes", [..surface.StrikeAxis.Select(k => Point(Strike, LatticeDecimal.From(k)))])),
-            new(LogMoneyness, "Log-moneyness", "ln(K/F)", new("−0.10 to +0.10 by 0.01", [..Enumerable.Range(-10, 21).Select(i => Point(LogMoneyness, L(i.ToString(CultureInfo.InvariantCulture)) / L("100")))])),
-            new(QuickDelta, "Quick delta", "call delta", new("10P · 25P · ATM · 25C · 10C", [..new[] { "0.9", "0.75", "0.5", "0.25", "0.1" }.Select(p => Point(QuickDelta, L(p)))]))];
+        return [new(Strike, "Strike", inputs.StrikeUnit, new("Listed strikes", [..surface.StrikeAxis.Select(k => Point(Strike, LatticeDecimal.From(k)))]), false),
+            new(LogMoneyness, "Log-moneyness", "ln(K/F)", new("−0.10 to +0.10 by 0.01", [..Enumerable.Range(-10, 21).Select(i => Point(LogMoneyness, L(i.ToString(CultureInfo.InvariantCulture)) / L("100")))]), false),
+            new(QuickDelta, "Quick delta", "call delta", new("10P · 25P · ATM · 25C · 10C", [..new[] { "0.9", "0.75", "0.5", "0.25", "0.1" }.Select(p => Point(QuickDelta, L(p)))]), true)];
     }
 
     public static ImmutableArray<SurfaceAxisPoint> Points(SurfaceAxisRequest request)
@@ -95,10 +95,10 @@ public static class SurfaceAxes
             return new SurfaceAxisPoint(value.ToString(), value, (value * L("100")).ToExact().ToString(new AmountFormat(2, CashTieRule.ToEven, false, false)));
         })];
         return surface with { Expiries = expiries, Series = series, Projection = new(NumericalPolicy, NormalDistribution.ImplementationId, Tolerance, axes,
-            new(selected.Id, selected.Label, selected.Unit, points),
+            new(selected.Id, selected.Label, selected.Unit, points, selected.Reversed),
             new("option_year_fraction_v1", "Time to expiry", "years", [..expiries.Where(e => e.YearFraction is not null).Select(e =>
-                new SurfaceAxisPoint(e.ExpiryAt.ToString("O", CultureInfo.InvariantCulture), e.YearFraction!.Value, e.TimeLabel!))]),
-            new("annualized_volatility_v1", "Volatility", "%", height)) };
+                new SurfaceAxisPoint(e.ExpiryAt.ToString("O", CultureInfo.InvariantCulture), e.YearFraction!.Value, e.TimeLabel!))], false),
+            new("annualized_volatility_v1", "Volatility", "%", height, false)) };
     }
 
     private static SurfaceAxisNode Node(SurfaceExpiry e, string axis, SurfaceAxisPoint p, IVolModel model)

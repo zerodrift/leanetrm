@@ -56,7 +56,8 @@ export function drawSurface3d(canvas:HTMLCanvasElement,surface:VolSurfaceResult,
  const strikeSpan=span(xs),timeSpan=span(times),volTicks=supplied.height.ticks;
  const volSpan=span(volTicks.map(t=>plotNumber(t.value)));
  const unit=(value:number,{min,max}:{min:number;max:number})=>max>min?(value-min)/(max-min):.5;
- const world=(x:number,time:number,vol:number):[number,number,number]=>[unit(x,strikeSpan)*2-1,unit(time,timeSpan)*2-1,unit(vol,volSpan)*height];
+ const across=(value:number)=>(supplied.x.reversed?1-unit(value,strikeSpan):unit(value,strikeSpan))*2-1;
+ const world=(x:number,time:number,vol:number):[number,number,number]=>[across(x),unit(time,timeSpan)*2-1,unit(vol,volSpan)*height];
  const timeOf=new Map(surface.expiries.map(e=>[e.expiryAt,plotNumber(e.yearFraction!)]));
  const placedStalks:Stalk[]=stalks.map(s=>{const x=plotNumber(s.axisValue!),t=timeOf.get(s.series.expiryAt)!;
   return {code:s.series.code,richCheap:s.richCheap!,base:world(x,t,plotNumber(s.fitted!)),tip:world(x,t,plotNumber(s.series.marketVolatility!))};});
@@ -118,7 +119,7 @@ export function drawSurface3d(canvas:HTMLCanvasElement,surface:VolSurfaceResult,
     if(kept.some(k=>Math.abs(k.x-p.x)<(k.w+w)/2&&Math.abs(k.y-p.y)<14))continue;
     kept.push({x:p.x,y:p.y,w});ctx.setLineDash([2,4]);line(l.floor[0],l.floor[1],colours.border);ctx.setLineDash([]);text(l.text,p,l.fill);}
   };
-  spaced(supplied.x.ticks.map(t=>{const x=unit(plotNumber(t.value),strikeSpan)*2-1;
+  spaced(supplied.x.ticks.map(t=>{const x=across(plotNumber(t.value));
    return {text:t.label,at:[x,nearY*out,0],floor:[[x,-1,0],[x,1,0]],fill:colours.text3};}));
   spaced(surface.expiries.map((e,i)=>{const y=unit(times[i],timeSpan)*2-1;
    return {text:e.timeLabel!+(e.status==='fitted'?'':' · no fit'),at:[nearX*(out+.08),y,0],floor:[[-1,y,0],[1,y,0]],fill:e.status==='fitted'?colours.text2:colours.text3};}));
@@ -126,7 +127,8 @@ export function drawSurface3d(canvas:HTMLCanvasElement,surface:VolSurfaceResult,
   line([corner.x,corner.y,0],[corner.x,corner.y,top],colours.borderStrong);
   let lastTick=Infinity;
   for(const tick of volTicks){const p=at([corner.x,corner.y,unit(plotNumber(tick.value),volSpan)*height]);if(Math.abs(lastTick-p.y)<13)continue;lastTick=p.y;text(tick.label,{...p,x:p.x-8},colours.text3,'right');}
-  text(`${supplied.x.label} (${supplied.x.unit})`,at([0,nearY*(out+.16),0]),colours.text2,'center',true);
+  const xTitle=at([0,nearY*(out+.16),0]);
+  text(`${supplied.x.label} (${supplied.x.unit})`,{...xTitle,y:xTitle.y+18},colours.text2,'center',true);
   text(`${supplied.depth.label} (${supplied.depth.unit})`,at([nearX*(out+.62),0,0]),colours.text2,'center',true);
   text(`${supplied.height.label} (${supplied.height.unit})`,{...at([corner.x,corner.y,top]),y:at([corner.x,corner.y,top]).y-14},colours.text2,'center',true);
 

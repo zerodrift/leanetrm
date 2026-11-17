@@ -299,13 +299,17 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,fi
     return [...select.options].map(o=>o.value).join()===axes.map(a=>a.id).join()&&axes.every(a=>[...select.options].find(o=>o.value===a.id).textContent.includes(a.label))&&
       document.querySelector('#vol-axis-points').value===axes.find(a=>a.id===select.value).preset.points.map(p=>p.value).join(', ');})()`);
   await capture3d('vol-surface-log-moneyness');
+  await evaluate(`window.surfaceTickLabels=[];window.surfaceFillText=CanvasRenderingContext2D.prototype.fillText;
+   CanvasRenderingContext2D.prototype.fillText=function(text,x,y,...rest){if(this.canvas.closest('#vol-surface-3d')&&this.canvas.dataset.axis==='quick_delta_v1')window.surfaceTickLabels.push({text,x,y});return window.surfaceFillText.call(this,text,x,y,...rest);};`);
   await set('#vol-axis','quick_delta_v1');
   await settled(`${ready}==='fitted'&&${canvas3d}?.dataset.axis==='quick_delta_v1'`,30000);
   await check('quick delta sends the preset explicitly and every standard point is covered on widened chains',
    `(()=>{const read=${calls('vol-surfaces/read')}.at(-1),policy=read.answer.surface.projection.axes.find(a=>a.id==='quick_delta_v1');
     return read.body.points.join()===policy.preset.points.map(p=>p.value).join()&&document.querySelector('#vol-axis-points').value===read.body.points.join(', ')&&
       read.answer.surface.expiries.filter(e=>e.status==='fitted').every(e=>e.nodes.length===5&&e.nodes.every(n=>n.covered))&&
-      read.answer.surface.projection.depth.unit==='years';})()`);
+      read.answer.surface.projection.depth.unit==='years'&&read.answer.surface.projection.x.reversed===true&&
+      window.surfaceTickLabels.findLast(t=>t.text==='10P')?.x<window.surfaceTickLabels.findLast(t=>t.text==='10C')?.x;})()`);
+  await evaluate('CanvasRenderingContext2D.prototype.fillText=window.surfaceFillText');
   await capture3d('vol-surface-quick-delta');
   await set('#vol-axis-points','0.999999, 0.5, 0.000001');
   await settled(`${ready}==='fitted'&&Number(${canvas3d}?.dataset.gaps)>0`,30000);

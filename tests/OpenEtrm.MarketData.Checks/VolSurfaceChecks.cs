@@ -67,6 +67,7 @@ internal static class VolSurfaceChecks
         var delta = axes.Single(a => a.Id == "quick_delta_v1");
         Expect(delta.Preset.Points.Select(p => p.Label).SequenceEqual(["10P", "25P", "ATM", "25C", "10C"]), "Put/call labels.");
         var projected = SurfaceAxes.Project(surface, new("quick_delta_v1", ["0.75", "0.5", "0.25", "0.1"]));
+        Expect(projected.Projection!.X.Reversed, "Quick-delta coordinates display in ascending strike order.");
         var nodes = projected.Expiries.Single().Nodes;
         Expect(nodes.Length == 4 && nodes.Single(n => n.AxisValue == L("0.5")).LogMoneyness == L("0"), "Explicit nodes and ATM.");
         foreach (var n in nodes.Where(n => n.Covered))
