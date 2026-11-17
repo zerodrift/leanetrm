@@ -1541,9 +1541,9 @@ async function showPage(next:string){
     case 'interval-curves':await setPage('interval-curves');await intervalCurves.load();return;
     case 'crude-setup':await setPage('crude-setup');await crudeSetup.load();return;
     case 'gas-setup':await setPage('gas-setup');await gasSetup.load();return;
-    case 'crude':await setPage('futures');await futures.load();await futures.openProduct('crude');return;
-    case 'gas':await setPage('futures');await futures.load();await futures.openProduct('gas');return;
-    case 'ppa':await setPage('futures');await futures.load();await futures.openProduct('ppa');return;
+    case 'crude':await setPage('futures');await futures.enterEntry();await futures.openProduct('crude');return;
+    case 'gas':await setPage('futures');await futures.enterEntry();await futures.openProduct('gas');return;
+    case 'ppa':await setPage('futures');await futures.enterEntry();await futures.openProduct('ppa');return;
     case 'dashboard':await setPage('dashboard');await dashboard.load();return;
     case 'lifecycle':await setPage('lifecycle');await lifecycle.load();return;
     case 'physical-operations':await setPage('physical-operations');await physicalOperations.load();return;
@@ -1567,9 +1567,10 @@ async function showPage(next:string){
 }
 // Pages that read the selected historical view apply a changed one before they open.
 // New trade (D421) is the Blotter's page shown another way, so the app's page stays the Blotter's and its guards, reads and context
-// controls apply unchanged: the title follows what the Blotter view says it shows. Its sidebar entry opens it through the leave question
+// controls apply unchanged: the title and the sidebar's mark follow what the Blotter view says it shows. Its sidebar entry opens it through the leave question
 // of the page it is left from; while the Blotter is in its own window it shows where the Blotter went, as the Blotter's entry does.
-function newTradeShown(title:string|null){if(page!=='futures')return;text('page-title',title??'Blotter');$('page-title').title=title??'Blotter';}
+let newTradeTitle:string|null=null;
+function newTradeShown(title:string|null){newTradeTitle=title;if(page!=='futures')return;text('page-title',title??'Blotter');$('page-title').title=title??'Blotter';renderBlotterViews();}
 $('nav-new-trade').onclick=()=>{
   if(page==='futures'&&futures.entry())return;
   leaving(async()=>{
@@ -1589,8 +1590,9 @@ for(const name of ['lifecycle','physical-operations','facilities','physical-powe
 // The saved Blotter views the person lists in the sidebar, each under the Blotter, which is marked while none of them is the view it shows.
 let blotterViews:{listed:string[];shown:string|null}={listed:[],shown:null};
 function renderBlotterViews(){
-  const shown=page==='futures'&&blotterViews.listed.includes(blotterViews.shown??'')?blotterViews.shown:null;
-  $('nav-futures').classList.toggle('active',page==='futures'&&shown===null);
+  const entering=page==='futures'&&newTradeTitle!==null,shown=page==='futures'&&!entering&&blotterViews.listed.includes(blotterViews.shown??'')?blotterViews.shown:null;
+  $('nav-new-trade').classList.toggle('active',entering);
+  $('nav-futures').classList.toggle('active',page==='futures'&&!entering&&shown===null);
   $('nav-blotter-views').replaceChildren(...blotterViews.listed.map(name=>{
     const entry=document.createElement('button'),icon=document.createElement('span'),label=document.createElement('span');
     entry.type='button';entry.className='nav-item nav-view';entry.classList.toggle('active',name===shown);entry.title=entry.ariaLabel=`Blotter view · ${name}`;entry.disabled=busy;
@@ -1796,7 +1798,8 @@ const assistant=setupAssistant({launcherHidden:()=>prefs.assistantHidden,launche
   presentationRevision:()=>futures.presentationRevision(),
   presentationLocate:step=>{
     if(step.kind==='go'){
-      const id=step.target.page.startsWith('blotter')?(page==='futures'&&['blotter_new_trade','blotter_new_future','blotter_new_swap'].includes(step.target.page)?'futures-new':'nav-futures'):'nav-'+webPage(step.target.page);
+      // A ticket is opened from the Blotter's own button where the Blotter is shown, and from New trade's sidebar entry anywhere else.
+      const id=step.target.page.startsWith('blotter_new_')?(page==='futures'&&!futures.entry()?'futures-new':'nav-new-trade'):step.target.page.startsWith('blotter')?'nav-futures':'nav-'+webPage(step.target.page);
       const control=$(id);return control?.getClientRects().length&&!control.closest('[hidden]')?control:null;
     }
     return page==='futures'?futures.presentationLocate(step):pagePresentationTarget(main);
