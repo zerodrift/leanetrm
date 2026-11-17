@@ -177,9 +177,8 @@ internal sealed class MarketDateInputs(PreviewDatabase database,NpgsqlConnection
         }
         if(batch.Denied.Contains(frame.Id))throw new PreviewDeniedException();
         inputs.Add((frame.Id,source),batch.Data);
-        var own=frame.SourceInputs![source.DefinitionRevisionId].ObservationIds.ToHashSet();
         AsyncReadVisibility.Observations(batch.Data.DefinitionRevision.CatalogId,source.DefinitionRevisionId,
-            [..batch.Data.Observations.Where(row=>own.Contains(row.Id("id")))]);
+            [..frame.SourceInputs![source.DefinitionRevisionId].ObservationIds.Where(batch.Data.HasObservation).Select(batch.Data.Observation)]);
     }
     internal async Task<ImmutableArray<string>> Qualified(InputFrame frame,IEnumerable<string>? requested,CancellationToken ct)
     {
