@@ -6384,12 +6384,13 @@ commodity under any other code could not be told apart.
 
 A commodity now states its icon where it is configured: `ref_data.commodities`
 carries a required `icon_code` from the fixed list `flame`, `bolt`, `drop`,
-`tanker`, `leaf`, `cube`. The database rejects a missing or unlisted value. The
-navigation read sends the name with each curve's commodity and fails when a
-commodity names none; the browser draws the named icon and rejects a name it
-does not know. There is no fallback at any layer, and `cube` is a deliberate
-choice for a commodity without a picture of its own. Colour stays assigned by
-the browser, and the commodity dots of other pages are unchanged.
+`tanker`, `leaf`, `cube`. The database rejects a missing or unlisted value, so
+the navigation read always has a name to send with each curve's commodity; the
+browser draws the named icon and rejects a name it does not know. There is no
+fallback at any layer, and `cube` is a deliberate choice for a commodity
+without a picture of its own. Colour stays assigned by the browser. Position
+rows keep naming their commodity by code and name only, and the commodity dots
+of other pages are unchanged.
 
 Migration 0361 adds the column and carries each existing commodity over once to
 the picture its code had until now; that statement is the only place a code
