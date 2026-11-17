@@ -72,16 +72,19 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
         c = sign_in()
         page = c.call('workspace')
         def inputs(f):
-            return (f['at'], f['source'], sorted(f['observationIds']), sorted(f['frozenObservationIds']),
+            return (f['at'], f['businessDate'], f['ppaBundle'], sorted(f['observationIds']),
                     sorted((curve, sorted(contracts)) for curve, contracts in f['curveContracts'].items()))
         candidates = [f for f in page['frames'] if f['id'] in page['initialFrameIds'] and inputs(f) == inputs(old_frame)]
         assert len(candidates) == 1, 'A fresh scenario needs exactly the original source, valuation and input pins.'
         frame = candidates[0]
         refused = c.call('vol-surfaces/read', {'context': {'snapshotId': old_frame['id'], 'convention': OPTION, 'knowledgeMode': 'current'},
                                              'product': PRODUCT, 'model': MODEL, 'axis': 'log_moneyness_v1', 'points': ['0']}, expected=422)
-        restored = read()
+        # The backend binds the exact definition and its private source/frozen
+        # pins; those internal fields are intentionally absent from page JSON.
+        restored = read(definition=previous['definitionRevisionId'])
         check('a fresh sign-in rejects the prior session frame and reads the same retained fit through its exact new alias',
               frame['id'] != old_frame['id'] and refused['code'] == 'snapshot_missing'
+              and restored['definitionRevisionId'] == previous['definitionRevisionId']
               and restored['revision']['id'] == previous['revision']['id'] and restored['surface'] == previous['surface']
               and restored['job']['id'] == previous['job']['id'])
 
@@ -597,6 +600,10 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
                     f"WHERE(p.catalog_id,p.close_id,p.observation_id)=(o.catalog_id,'{west}',o.id)) ORDER BY o.id LIMIT 1;")
     check('a recording at a close is refused for an input the close does not pin, and admitted for one it does',
           attributed([outside]) == 'vol_surface_input' and attributed([inside]) == 'recorded', (attributed([outside]), attributed([inside])))
+    # Discover the fitted close in the new session while it is still in force.
+    # The same session then proves replacement preserves that retained history.
+    fresh_scenario()
+    at_east, at_west = close_frame(c, east), close_frame(c, west)
     replacement = record_close(query, manifest, 'synthetic_east', 1, frame)
     at_replacement = close_frame(c, replacement)
     replaced = library(c, at_replacement['id'], PRODUCT)['surfaces']
@@ -611,8 +618,6 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
 
     # The same reference product can have a second exact definition source.
     # Keep the original close inputs and publish the option role on the new part.
-    fresh_scenario()
-    at_east, at_replacement = close_frame(c, east), close_frame(c, replacement)
     second_definition = str(uuid4())
     original_definition = manifest['revisionId']
     copies = []
