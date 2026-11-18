@@ -227,7 +227,6 @@ def hidden_boundaries_check(client, query, manifest, request):
     session = 'synthetic_wide_hidden_calendar'
     publish_session(query, manifest, session, 'Synthetic wide calendar', [
         {'curves': ['ng_monthly'], 'cutoff': '16:00', 'from': '2020-01-01', 'to': '2100-01-01'}])
-    query(f"INSERT INTO presentation.close_session_listings VALUES('{catalog}','{session}',1,1,'Synthetic wide calendar',false,pg_current_xact_id());")
     source = next(frame for frame in manifest['frames'] if frame['at'].startswith('2020-12-11T16:00:00'))
     originals = []
     for index in range(129):
@@ -238,6 +237,7 @@ def hidden_boundaries_check(client, query, manifest, request):
     assert read(session) == []
     frame['at'] = '2020-01-01T16:00:00Z'
     head = record_close(query, manifest, session, 1, frame)
+    query(f"INSERT INTO presentation.close_session_listings VALUES('{catalog}','{session}',1,1,'Synthetic wide calendar',false,pg_current_xact_id());")
     scalar = query("SELECT pg_get_functiondef('security.market_close_visible(uuid,uuid)'::regprocedure);")
     try:
         query(scalar.replace('\nBEGIN\n', f"\nBEGIN\n IF close_id='{head}'::uuid THEN RETURN false;END IF;\n", 1))
