@@ -366,21 +366,13 @@ def native_admission_parity(query, manifest):
     if query(f"SELECT to_regprocedure('{signature}') IS NULL;") == 't':return
     catalog, tenant, workspace = (manifest[key] for key in ('catalogId', 'tenantId', 'workspaceId'))
     closes = query(f"SELECT string_agg(quote_literal(id)||'::uuid',',') FROM market_data.market_closes WHERE catalog_id='{catalog}';")
-    native = query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);")
-    # Failure diagnostics name only which refusal branch ran, not protected
-    # data. The diagnostic clone is disposable and uses the same owner.
-    branch = 0
-    def refusal(match):
-        nonlocal branch
-        branch += 1
-        return f"RETURN 'refusal_{branch}';"
-    diagnostic = re.sub('RETURN false;', refusal, native.replace('FUNCTION security.market_close_batch_visible(', 'FUNCTION public.synthetic_close_batch_reason(', 1).replace('RETURNS boolean', 'RETURNS text', 1))
-    query(diagnostic+";ALTER FUNCTION public.synthetic_close_batch_reason(uuid,uuid[]) OWNER TO openetrm_security_owner;REVOKE ALL ON FUNCTION public.synthetic_close_batch_reason(uuid,uuid[]) FROM PUBLIC;")
     query("""CREATE FUNCTION public.synthetic_close_batch_compare(catalog uuid,ids uuid[]) RETURNS jsonb
       LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
+       WITH eligible AS MATERIALIZED(SELECT ARRAY(SELECT id FROM unnest(ids)id WHERE security.market_close_visible(catalog,id)) ids)
        SELECT jsonb_build_object('actual',security.market_close_batch_visible(catalog,ids),
         'expected',NOT EXISTS(SELECT 1 FROM unnest(ids)i WHERE security.market_close_visible(catalog,i) IS NOT TRUE),
-        'reason',public.synthetic_close_batch_reason(catalog,ids));
+        'eligibleCount',cardinality(eligible.ids),'eligibleActual',CASE WHEN cardinality(eligible.ids)>0
+         THEN security.market_close_batch_visible(catalog,eligible.ids) ELSE false END) FROM eligible;
       $$;
       ALTER FUNCTION public.synthetic_close_batch_compare(uuid,uuid[]) OWNER TO openetrm_security_owner;
       REVOKE ALL ON FUNCTION public.synthetic_close_batch_compare(uuid,uuid[]) FROM PUBLIC;
@@ -392,8 +384,9 @@ def native_admission_parity(query, manifest):
             actual = json.loads(query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{bind}SELECT public.synthetic_close_batch_compare('{catalog}',ARRAY[{closes}]);ROLLBACK;").splitlines()[-1])
             print('CALENDAR_NATIVE_PARITY=' + json.dumps({'day': day, **actual}), flush=True)
             assert actual['actual'] == actual['expected'], actual
+            assert actual['eligibleActual'] == (actual['eligibleCount']>0), actual
     finally:
-        query('DROP FUNCTION public.synthetic_close_batch_compare(uuid,uuid[]),public.synthetic_close_batch_reason(uuid,uuid[]);')
+        query('DROP FUNCTION public.synthetic_close_batch_compare(uuid,uuid[]);')
 
 
 def run_checks(url, query, manifest, psql, environment, log, api_pid, *, verify=True, profile=False):
