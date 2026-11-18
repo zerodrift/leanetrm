@@ -430,6 +430,7 @@ public sealed partial class PreviewDatabase : IAsyncDisposable
             _ => throw new ArgumentOutOfRangeException(nameof(observationScope))
         });
         Interlocked.Add(ref observationRowsRead,observations.Length);
+        AsyncReadVisibility.Observations(selectedManifest.CatalogId,selectedManifest.RevisionId,observations);
         await RequireSharedReferenceAccess();
         return new PreviewData(selectedManifest, definitions, references, observations,Calculations){CalendarDaysRead=includeCalendarDays};
     }

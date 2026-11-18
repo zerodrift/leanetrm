@@ -1,5 +1,12 @@
 # Architecture and domain contracts
 
+D426 batches [market-date reads](decisions.md#d426--request-local-market-date-qualification)
+within one authorized operation. Exact native matrices, dated catalogue choices,
+source metadata and observation pins retain their existing selection contracts.
+Ordinary calendar and last-close qualification releases the session gate and
+reauthorizes its consumed inputs before disclosure. No availability is persisted
+or reused across requests.
+
 D423 adds [explicit server-defined surface axes](vol-surfaces.md#server-defined-surface-coordinates-d423):
 retained option year fractions, versioned k/quick-delta coordinates, visible point
 presets and no-extrapolation coverage gaps. It changes viewing coordinates and

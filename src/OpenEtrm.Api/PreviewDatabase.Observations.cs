@@ -9,6 +9,23 @@ namespace OpenEtrm.Api;
 public sealed partial class PreviewDatabase
 {
     internal const int MaximumObservationWindows=16384;
+    internal sealed record ObservationPinSets(PreviewData Data,ImmutableHashSet<Guid> Denied);
+    internal async Task<ObservationPinSets> ReadObservationPinSets(NpgsqlConnection connection,PreviewData metadata,
+        ImmutableArray<InputFrame> frames,CancellationToken ct)
+    {
+        // Empty selections retain the exact reader's no-SQL behavior.
+        var selected=frames.Where(frame=>!frame.ObservationIds.IsEmpty).ToArray();
+        if(selected.Length==0)return new(metadata.WithObservations([]),[]);
+        var requests=JsonSerializer.Serialize(selected.Select(frame=>new{id=frame.Id,pins=frame.ObservationIds}));
+        await using var command=ScheduleStore.Command(connection,"SELECT security.read_observation_pin_sets($1,$2,$3::jsonb)::text",
+            metadata.DefinitionRevision.CatalogId,metadata.DefinitionRevision.RevisionId,requests);
+        using var json=JsonDocument.Parse((string)(await command.ExecuteScalarAsync(ct))!);
+        var rows=json.RootElement.GetProperty("rows").EnumerateArray().Select(row=>ReferenceJson.PreserveNumericLexemes(row.GetRawText())).ToImmutableArray();
+        Interlocked.Add(ref observationRowsRead,rows.Length);
+        // Prefetch is not proof consumption. The calendar records only the
+        // reached frame's returned pins when it uses this shared storage.
+        return new(metadata.WithObservations(rows),[..json.RootElement.GetProperty("denied").EnumerateArray().Select(id=>id.GetGuid())]);
+    }
     internal async Task<PreviewData> ReadObservationWindows(NpgsqlConnection connection,PreviewData metadata,
         ImmutableArray<ObservationWindow> windows,CancellationToken ct,ImmutableArray<Guid> exactPins=default)
     {
@@ -19,6 +36,7 @@ public sealed partial class PreviewDatabase
         {
             var exact=await ReadObservationPins(connection,metadata.DefinitionRevision.CatalogId,metadata.DefinitionRevision.RevisionId,exactPins.IsDefault?[]:exactPins,ct);
             Interlocked.Add(ref observationRowsRead,exact.Length);
+            AsyncReadVisibility.Observations(metadata.DefinitionRevision.CatalogId,metadata.DefinitionRevision.RevisionId,exact);
             return metadata.WithObservations(exact);
         }
         var requested=JsonSerializer.Serialize(windows.Distinct().Select(window=>new{series=window.SeriesId,source=window.SourceCode,role=window.Role,from=window.From,to=window.To}));
@@ -40,6 +58,7 @@ public sealed partial class PreviewDatabase
             """,[metadata.DefinitionRevision.CatalogId,metadata.DefinitionRevision.RevisionId,requested,
                 (exactPins.IsDefault?ImmutableArray<Guid>.Empty:exactPins).ToArray()],ct);
         Interlocked.Add(ref observationRowsRead,rows.Length);
+        AsyncReadVisibility.Observations(metadata.DefinitionRevision.CatalogId,metadata.DefinitionRevision.RevisionId,rows);
         return metadata.WithObservations(rows);
     }
 
@@ -144,6 +163,7 @@ public sealed partial class PreviewDatabase
             }
             var rows=payload.EnumerateArray().Select(row=>ReferenceJson.PreserveNumericLexemes(row.GetRawText())).ToImmutableArray();
             Interlocked.Add(ref observationRowsRead,rows.Length);
+            AsyncReadVisibility.Observations(metadata.DefinitionRevision.CatalogId,metadata.DefinitionRevision.RevisionId,rows);
             yield return metadata.WithObservations(rows,complete);
         }
     }

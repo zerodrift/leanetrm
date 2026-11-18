@@ -109,6 +109,8 @@ def main():
     parser.add_argument('--price-authoring-check',action='store_true',help='Qualify publication schedules, final releases and contract price terms through authenticated HTTP')
     parser.add_argument('--market-read-check',action='store_true',help='Qualify per-row market authority in the owned standard fixture')
     parser.add_argument('--market-dates-check',action='store_true',help='Qualify scoped market-close availability and the calendar in an owned fixture')
+    parser.add_argument('--market-dates-reads-check',action='store_true',help='Measure calendar statement scaling and qualify gate release and authority expiry')
+    parser.add_argument('--market-dates-benchmark-only',action='store_true',help='Measure the identical calendar workload on a baseline reader; does not qualify scaling or disclosure')
     parser.add_argument('--context-read-check',action='store_true',help='Qualify bounded historical context, close calendar and header recovery')
     parser.add_argument('--valuation-status-check',action='store_true',help='Qualify Blotter reads and risk runs at closes that cannot value every seeded position')
     parser.add_argument('--desk-fields-check',action='store_true',help='Qualify the commodity, swap direction and mark minus price of Blotter rows, commodity pivots, and the desk\'s summary groupings and curve shapes, in the seeded standard example')
@@ -131,6 +133,8 @@ def main():
     parser.add_argument('--authoring-browser-suite',choices=['curve-objects','contract-pricing-controls','publication-controls','price-authoring-recovery'],help='Run one focused authoring control suite in the owned authoring fixture')
     parser.add_argument('--example', choices=['standard','mixed-gas'], default='standard', help='Explicit synthetic dataset')
     args = parser.parse_args()
+    if args.market_dates_benchmark_only:args.market_dates_reads_check=True
+    if args.market_dates_reads_check:args.market_dates_check=True
     if args.structured_power_check:
         args.check=True
         if args.example!='standard':parser.error('--structured-power-check requires the standard fixture')
@@ -266,7 +270,8 @@ def main():
             raise RuntimeError(initialized.stderr)
         startup_attempted=True
         safe_to_remove=False
-        started_result=run([bins['pg_ctl'],'-D',data,'-w','-t','15','-l',temporary/'postgres.log','-o',shlex.join(['-k',str(temporary),'-h','','-p','55439','-c','track_commit_timestamp=on','-c','track_activity_query_size=16384']),'start'])
+        diagnostics=['-c','log_min_duration_statement=0','-c','log_line_prefix=%u %p '] if args.market_dates_reads_check else []
+        started_result=run([bins['pg_ctl'],'-D',data,'-w','-t','15','-l',temporary/'postgres.log','-o',shlex.join(['-k',str(temporary),'-h','','-p','55439','-c','track_commit_timestamp=on','-c','track_activity_query_size=16384',*diagnostics]),'start'])
         if started_result.returncode:
             raise RuntimeError(started_result.stderr)
         started=True
@@ -299,6 +304,9 @@ def main():
                 reference,market,security,manifest=add_in_term_fixture(reference,market,security,manifest)
         query((ROOT/'db/bootstrap.sql').read_text())
         for migration in sorted((ROOT/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
+            if migration.name in ('0363_batched_close_source_visibility.sql','0364_shared_hidden_day_admission.sql'):
+                from check_market_dates_upgrade import run_checks as check_market_dates_upgrade
+                check_market_dates_upgrade(query,migration)
             if migration.name in ('0339_assistant_installation_prompts.sql','0340_assistant_requested_context.sql'):
                 from check_assistant_prompt_upgrade import run_checks as check_assistant_prompt_upgrade
                 check_assistant_prompt_upgrade(query,migration)
@@ -1316,6 +1324,9 @@ def main():
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--factor-swaps'],cwd=ROOT,env=env,start_new_session=True)
                     if browser_process.wait(timeout=180):raise RuntimeError('Owned factor swap browser checks failed')
+            elif args.market_dates_reads_check:
+                from check_market_dates_reads import run_checks as check_market_dates_reads
+                check_market_dates_reads(url,query,manifest,psql,env,temporary/'postgres.log',child.pid,verify=not args.market_dates_benchmark_only)
             elif args.market_dates_check:
                 from check_market_dates import run_checks as check_market_dates
                 check_market_dates(url,query,manifest)
