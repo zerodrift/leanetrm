@@ -14,10 +14,11 @@ BEGIN
  IF NOT EXISTS(SELECT 1 FROM pg_proc p WHERE p.oid=to_regprocedure('security.market_close_visible(uuid,uuid)')
   AND encode(sha256(convert_to(p.prosrc,'UTF8')),'hex')='9b6cc5c36494a42edef9d616fc4709544f1f427ba281eb547f854443cde1115d'
   AND pg_get_userbyid(p.proowner)='openetrm_security_owner' AND p.prosecdef AND NOT p.proisstrict AND NOT p.proleakproof
+  AND p.prolang=(SELECT oid FROM pg_language WHERE lanname='plpgsql')
   AND p.provolatile='v' AND p.proparallel='u' AND p.prokind='f' AND NOT p.proretset AND p.prorettype='boolean'::regtype
   AND p.prosupport=0 AND p.proconfig=ARRAY['search_path=pg_catalog']
   AND to_jsonb(p.proacl)='["openetrm_security_owner=X/openetrm_security_owner","openetrm_runtime=X/openetrm_security_owner"]'::jsonb)
- THEN RETURN NOT EXISTS(SELECT 1 FROM unnest(close_ids)requested(id) WHERE security.market_close_visible(catalog,requested.id) IS NOT TRUE);END IF;
+ THEN RETURN NOT EXISTS(SELECT 1 FROM unnest(close_ids)requested(id) WHERE NOT security.market_close_visible(catalog,requested.id));END IF;
  SELECT * INTO request FROM security.request_contexts q WHERE q.backend_pid=pg_backend_pid()
   AND q.transaction_id=pg_current_xact_id_if_assigned() AND q.runtime_login=session_user;
  until_at=security.authority_until('ReadMarketData');
@@ -81,6 +82,7 @@ BEGIN
  SELECT pg_get_functiondef(p.oid) INTO original FROM pg_proc p
   WHERE p.oid='security.read_market_close_parts(uuid,uuid[],uuid)'::regprocedure
    AND pg_get_userbyid(p.proowner)='openetrm_security_owner' AND p.prosecdef
+   AND p.prolang=(SELECT oid FROM pg_language WHERE lanname='plpgsql')
    AND encode(sha256(convert_to(p.prosrc,'UTF8')),'hex')='2ec4fe1e9a167de6ca1a6b6cdc90d4c6cea315cb5db7f19ca3e7b9d381e0a2dd'
    AND NOT p.proisstrict AND NOT p.proleakproof AND p.provolatile='v' AND p.proparallel='u'
    AND p.prokind='f' AND NOT p.proretset AND p.prorettype='jsonb'::regtype AND p.prosupport=0
@@ -93,7 +95,8 @@ BEGIN
  IF length(original)-length(replace(original,before_guard,''))<>length(before_guard)
   OR length(original)-length(replace(original,after_guard,''))<>length(after_guard)
  THEN RAISE EXCEPTION 'close_batch_upgrade: unsupported admission predicates';END IF;
- changed=replace(replace(original,before_guard,'OR security.market_close_batch_visible(catalog,close_ids) IS NOT TRUE'),
+ changed=replace(replace(original,before_guard,$new$OR EXISTS(SELECT 1 FROM unnest(close_ids)requested(id) LEFT JOIN market_data.market_closes s ON(s.catalog_id,s.id)=(catalog,requested.id)
+ WHERE s.id IS NULL) OR security.market_close_batch_visible(catalog,close_ids) IS NOT TRUE$new$),
   after_guard,'OR security.market_close_batch_visible(catalog,close_ids) IS NOT TRUE');
  IF changed=original OR strpos(changed,before_guard)>0 OR strpos(changed,after_guard)>0
   OR length(changed)-length(replace(changed,'security.market_close_batch_visible(catalog,close_ids)',''))<>2*length('security.market_close_batch_visible(catalog,close_ids)')
