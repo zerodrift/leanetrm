@@ -2488,6 +2488,11 @@ versions are part of schedules, valuation manifests and result identities.
 
 ## 8. Performance and result reuse
 
+D428 applies negotiated gzip to an explicit allowlist of existing JSON HTTP/SSE
+reads and reuses compact completion JSON at SSE publication. Financial projections,
+exact context, limits and fresh publication authorization retain their owners.
+See [the transport decision](decisions.md#d428--compress-named-json-reads-and-reuse-serialized-results).
+
 D404 permits named workbench reads to use HTTP admission and correlated SSE
 responses. An explicit operation allowlist shares the existing managed business
 reads, financial context and exact response projection with ordinary HTTP.

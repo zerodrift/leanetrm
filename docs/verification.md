@@ -5417,3 +5417,60 @@ Not run here: `--close-out-drafts-check --browser-check`, which holds the
 adjustment draft's database checks (long and short futures in each direction, the
 close-out's price and parties repeated, swaps kept and reversed, each refusal) and
 the live browser checks of the buttons and the New trade bar. They run in CI.
+
+
+## JSON read compression (D428)
+
+Local Release checks on 2026-11-18 pass exact response/identity/context parity,
+missing/null/empty values, success/failure/cancellation framing and the explicit
+read compression allowlist. An actual Kestrel client verifies gzip and identity
+negotiation, reads a flushed ready event while the handler is held before
+completion, and confirms bootstrap tokens stay uncompressed. The existing
+`--async-reads` CI selector includes these checks and passes its admission,
+concurrency, normalized retries, cancellation, visibility, profile/sign-in and
+publication-gate regressions. API/checks and Worker Release builds pass.
+
+A bounded comparison of matching projection prototypes measured complete
+click-to-render interactions through TLS/nginx, including decoding, adaptation,
+validation, managed amount formatting, charts/tables and two animation frames.
+Two complete runs restart the owned API/database/proxy and rotate mode order;
+there are six primary observations per mode/profile. Partial runs are excluded.
+The table reports pooled p50 / descriptive p95 and median complete-interaction
+TLS payload bytes, including associated HTTP reads and framing.
+
+| Added RTT | JSON raw result + gzip | Direct Protobuf, uncompressed | JSON / binary downstream |
+|---|---:|---:|---:|
+| 0 ms | 1,471 / 1,836 ms | 1,716 / 2,108 ms | 7.61 / 10.87 MiB |
+| 330 ms | 1,986 / 2,107 ms | 2,231 / 2,404 ms | 7.62 / 10.92 MiB |
+
+The primary curve has 72 displayed contracts and 608 observations, with source
+metadata and first-use workspace hydration. The isolated data copy contains 90
+curve rows, 11,930 contracts and 529,794 observations. Secondary workloads include
+4/72-point curve switches, four-sample history, and scenario Risk over 13 trades,
+16 positions, six instruments, three market contracts and three base/up/down
+scenarios; the equivalence probe records nine unique valuations and eleven unit
+pricer calls. Database-command counts and business requests for curve evaluation,
+history and Risk calculation match across modes within each run/profile. Optional background
+curve-board shape reads vary with scheduling; aggregate database work is not
+identical. Newly captured Risk context handles/timestamps differ, but
+resolve to the same business date and publication prefixes. Full projection
+checks preserve financial text, metadata, observations and context.
+
+Server: Linux x64, two virtual CPUs, 8.32 GB host RAM, .NET/ASP.NET Core 10.0.13,
+PostgreSQL 18.6, 3 GiB API limit. Browser: Chrome 156.0.8078.79, Node 24.22.0,
+3 GiB container limit. Builds use SDK 10.0.402. Client/server share the host;
+it is not an exclusive-host or concurrent-user capacity test. The relay adds
+165 ms per direction, calibrates health requests, and imposes no bandwidth cap
+or packet loss. Every recorded JSON event stream uses HTTP gzip; binary streams
+use neither HTTP nor message compression. Nginx buffering remains disabled.
+
+These candidates share a separate managed projection cleanup; this table isolates
+encoding choices and is not a before/after latency claim for this patch. Neither
+complete run shows the required primary improvement against its strongest JSON
+candidate. A three-run adoption gate remains unqualified. Small-sample p95s are
+order statistics. Memory snapshots are not per-mode peaks; the counting writer's
+maximum scratch is 16 KiB, and browser SDK decode is included in readiness but
+not isolated as a comparable standalone CPU stage. The large history projection
+has API parity; its unavailable-input UI states are outside the covered history
+render case. These limits support retaining JSON, not a universal claim about
+binary encoding or a production service-level guarantee.

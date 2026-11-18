@@ -166,6 +166,10 @@ uses ordinary independent fee cash. Native operations, shared entry, browser
 workflows and current-clock pricing have disposable local qualification. Transport, commercial
 Storage, wider rights, correction adapters and economic continuation remain open.
 
+D428 adds negotiated read-response gzip and direct reuse of serialized JSON in
+SSE envelopes. Local semantic, negotiation, streaming and asynchronous-read
+checks pass; integrated CI and production rollout remain separate gates.
+
 D404 is implemented for 25 selected main-workbench curve, trading and Risk reads,
 with independent view progress, bounded execution, cancellation admission fences
 and exact authorization/context checks before SSE publication. Local qualification

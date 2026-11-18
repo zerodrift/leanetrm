@@ -6609,3 +6609,25 @@ Migration 0365 supplies immutable per-question consent and the shared SQL reader
 installation guidance is pinned at admission, with no default text. It is not an
 agent-version setting. This decision authorizes local implementation and checks,
 not publication, schema activation or deployment.
+
+## D428 — Compress named JSON reads and reuse serialized results
+
+Enable ASP.NET Core gzip at `Fastest` for the existing named curve, trading and
+Risk HTTP reads, workspace metadata and asynchronous-read SSE responses.
+Compression follows the client's `Accept-Encoding`; clients can continue reading
+identity responses. The explicit route/method allowlist excludes authentication,
+bootstrap tokens, commands and assistant streams. No new package or browser
+protocol is required.
+
+SSE publication writes the completion's compact validated JSON into its envelope
+without traversing the result document again. A UTF-8 buffer also avoids building
+and re-encoding a whole-event string; obtaining the result's raw text still
+allocates a result string. Heartbeats and every event are flushed. The existing
+publication authorization, session/context fences, cancellation, write deadline,
+request/result size limits and command hashes keep their current contracts.
+
+Keep JSON for these consumers. Bounded browser comparisons found no primary
+hydration advantage for the tested Protobuf candidates over gzip JSON; see the
+[measurements and limits](verification.md#json-read-compression-d428). These
+measurements do not establish a production latency guarantee. Broader transport,
+projection-size or deployment changes require separate qualification.
