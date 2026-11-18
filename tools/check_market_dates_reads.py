@@ -343,6 +343,23 @@ def profile_native(client, query, request):
         query('DROP FUNCTION public.synthetic_calendar_work(),public.synthetic_calendar_capture_work(text,jsonb);DROP TABLE public.synthetic_calendar_function_work;')
 
 
+def native_missing_close_check(query, manifest):
+    """Scalar drift cannot remove the reader's independent missing-ID refusal."""
+    scalar = query("SELECT pg_get_functiondef('security.market_close_visible(uuid,uuid)'::regprocedure);")
+    catalog, tenant, workspace = (manifest[key] for key in ('catalogId', 'tenantId', 'workspaceId'))
+    token = query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','viewer','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
+    prefix, separator, _ = scalar.partition('AS $function$')
+    assert separator
+    try:
+        query(prefix+separator+'BEGIN RETURN true;END;$function$;')
+        query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');"
+              + f"DO $$BEGIN BEGIN PERFORM security.read_market_close_parts('{catalog}',ARRAY['{uuid4()}'::uuid],NULL);"
+              + "RAISE EXCEPTION 'synthetic_missing_close_accepted';EXCEPTION WHEN insufficient_privilege THEN NULL;END;END$$;ROLLBACK;")
+    finally:
+        query(scalar)
+    print('PASS native matrix reader refuses missing IDs even when a changed scalar accepts them', flush=True)
+
+
 def native_admission_parity(query, manifest):
     """Compare private set admission with the independently retained scalar oracle."""
     signature = 'security.market_close_batch_visible(uuid,uuid[])'
@@ -382,6 +399,7 @@ def native_admission_parity(query, manifest):
 def run_checks(url, query, manifest, psql, environment, log, api_pid, *, verify=True, profile=False):
     client = PreviewClient(url); client.bootstrap(); client.call('profile', {'profile': 'viewer'})
     if verify:native_admission_parity(query, manifest)
+    if verify:native_missing_close_check(query, manifest)
     body = {'session': 'demo_close_1600', 'curve': 'bridge_basis', 'timeZone': 'UTC'}
     answers = {}
     for name, curve in [('curve', 'bridge_basis'), ('workspace', None), ('rate', 'interest_rates')]:
