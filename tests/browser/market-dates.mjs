@@ -3,7 +3,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await command('Runtime.enable');await command('Page.enable');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
  await command('Page.addScriptToEvaluateOnNewDocument',{source:`
-  window.marketDateRequests=[];window.marketDateCalls=[];
+  window.marketDateRequests=[];window.marketDateCalls=[];window.curveCloseRequests=[];
   const original=window.fetch;window.fetch=async(...args)=>{
    const path=new URL(typeof args[0]==='string'?args[0]:args[0].url,location.href).pathname;
    // A curve's own short list of closes is a separate read from the calendars these counts follow.
@@ -28,7 +28,12 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     if(body.curve!==null){data.dates=[];data.minDate=null;data.maxDate=null;data.unavailable=[{date:'2020-12-17',reason:'source_expired'},{date:'2020-12-18',reason:'missing_observation'}];}
     response=new Response(JSON.stringify(data),{status:response.status,headers:{'Content-Type':'application/json'}});
    }
+   if(path.endsWith('/market/dates')&&window.holdNextCalendar){
+    const body=JSON.parse(args[1].body);
+    if(body.curve===null&&body.definition===null&&body.maximumDates===1){window.holdNextCalendar=false;await new Promise(resolve=>window.releaseCalendar=resolve);}
+   }
    if(!curveCloses&&(path.endsWith('/market/dates')||path.endsWith('/custom-curves/preview')))window.marketDateRequests.push({path,body:JSON.parse(args[1].body),status:response.status,payload:await response.clone().json()});
+   if(curveCloses)window.curveCloseRequests.push({body:JSON.parse(args[1].body),status:response.status,payload:await response.clone().json()});
    return response;
   };
  `});
@@ -49,8 +54,13 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   `(()=>{const read=window.marketDateRequests.at(-1);return read.body.curve===null&&read.body.definition===null&&read.payload.maxDate===window.newestDate&&document.querySelector('#market-date-dialog').open&&${badge}.textContent==='Newer close available'&&!!${badge}.querySelector('button')&&document.querySelector('#error').hidden;})()`,
   `JSON.stringify({last:window.marketDateRequests.at(-1).body,maxDate:window.marketDateRequests.at(-1).payload.maxDate,badge:${badge}.hidden?'(hidden)':${badge}.textContent})`);
  await click('#market-date-close');await evaluate('window.hideNewestDate=true');await persona('viewer');
- await evaluate(`window.hideNewestDate=false;window.readsBeforeFocus=${dateReads};window.closeBeforeFocus=document.querySelector('#snapshot').value;window.dispatchEvent(new Event('focus'))`);
- await wait(settled+`&&${dateReads}===window.readsBeforeFocus+1`);
+ await wait(settled);
+ // A focus arriving while an older calendar is held must ask again after that
+ // response finishes. Repeated focus events share one follow-up read.
+ await evaluate(`window.holdNextCalendar=true;window.readsBeforeFocus=${dateReads};window.closeBeforeFocus=document.querySelector('#snapshot').value;window.dispatchEvent(new Event('focus'))`);
+ await wait("typeof window.releaseCalendar==='function'");
+ await evaluate("window.hideNewestDate=false;window.dispatchEvent(new Event('focus'));window.dispatchEvent(new Event('focus'));window.releaseCalendar();delete window.releaseCalendar");
+ await wait(settled+`&&${dateReads}===window.readsBeforeFocus+2`);
  await check('returning to the window offers a newer close without switching to it',`(()=>{const read=window.marketDateRequests.at(-1);return read.body.curve===null&&read.payload.maxDate===window.newestDate&&document.querySelector('#snapshot').value===window.closeBeforeFocus&&${badge}.textContent==='Newer close available'&&${badge}.querySelector('button')&&document.querySelector('#error').hidden;})()`);
  // A display time zone does not move a close in time: another zone reads the calendar again in that zone and keeps the offer.
  const zoneBefore=await evaluate('window.marketDateRequests.at(-1).body.timeZone'),zoneAfter=zoneBefore==='Asia/Tokyo'?'UTC':'Asia/Tokyo';
@@ -219,7 +229,10 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  const address=await evaluate("window.windowAddress");
  await command('Page.navigate',{url:address});await wait("document.querySelectorAll('.curve-button').length>0&&document.querySelector('#close-window-note').textContent.length>0&&"+idle,30000);
  await check('a separate window opens at that close, on that curve, and says so',"document.querySelector('#snapshot').value===new URLSearchParams(location.search).get('close')||document.querySelector('#close-window-note').textContent.startsWith('Separate window')");
- await check('the separate window shows the curve at the linked close',"document.querySelector('#curve-title').textContent.length>0&&document.querySelector('#curve-closes .vol-close-chip[aria-current=true]')!==null");
+ // Global idle does not include the curve's detached availability read. Wait
+ // for that actual consumer, independently of the completed pricing read.
+ await wait("document.querySelector('#curve-title').textContent.length>0&&document.querySelector('#curve-closes .vol-close-chip[aria-current=true]')!==null&&"+idle,30000);
+ await check('the separate window shows the curve at the linked close',"document.querySelector('.curve-button[data-curve=ng_monthly][aria-pressed=true]')!==null&&document.querySelector('#curve-closes .vol-close-chip[aria-current=true]').dataset.close===new URLSearchParams(location.search).get('close')", "({title:document.querySelector('#curve-title').textContent,selected:document.querySelector('#snapshot').value,closes:window.curveCloseRequests})");
  await set('#snapshot',await evaluate("document.querySelector('#curve-closes .vol-close-chip[aria-current=false]').dataset.close"));await wait(idle,30000);
  await check('choosing another close in that window retires its separate-window note',"document.querySelector('#close-window-note').hidden");
  await command('Page.navigate',{url:url+'/?page=market&curve=ng_monthly&close=00000000-0000-4000-8000-000000000000'});await wait("document.querySelector('#close-window-note')?.textContent.length>0&&"+idle,30000);

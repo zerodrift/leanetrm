@@ -2,6 +2,8 @@ using System.Collections.Immutable;
 using Npgsql;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Trading;
+using OpenEtrm.Shared.Temporal;
+using System.Text.Json;
 
 namespace OpenEtrm.Api;
 
@@ -53,15 +55,99 @@ internal sealed class AsyncReadVisibility:IDisposable
     readonly Dictionary<Guid,HashSet<Guid>> books=[];
     readonly HashSet<AsyncReadCalendar> calendars=[];
     readonly HashSet<AsyncReadInstrument> instruments=[];
-    internal AsyncReadVisibility(){prior=current.Value;current.Value=this;}
+    readonly bool marketDates;
+    readonly ScheduleContext? rootContext;
+    ScheduleContext? marketContext;
+    readonly Dictionary<(Guid Catalog,Guid Revision,ScheduleContext? Context),HashSet<Guid>> observationPins=[];
+    readonly HashSet<(Guid Catalog,CatalogueSource Source,ScheduleContext? Context)> catalogueSources=[];
+    readonly HashSet<Guid> calendarFrames=[];
+    internal AsyncReadVisibility(bool marketDates=false,ScheduleContext? context=null)
+    {prior=current.Value;current.Value=this;this.marketDates=marketDates;rootContext=marketContext=context;}
     // The plan run while its exact coordinates are collected: its outcome's recheck then also requires them, in the
     // same fresh publication transaction, whichever transport discloses the result.
-    internal static ReadPlan Observed(ReadPlan plan)=>plan with{Execute=async ct=>
+    internal static ReadPlan Observed(ReadPlan plan,bool marketDates=false,ScheduleContext? context=null)=>plan with{Execute=async ct=>
     {
-        using var visibility=new AsyncReadVisibility();
+        using var visibility=new AsyncReadVisibility(marketDates,context);
         var outcome=await plan.Execute(ct);var evidence=visibility.Seal();var recheck=outcome.Recheck;
-        return outcome with{Recheck=async(connection,t)=>{await recheck(connection,t);await evidence.Require(connection,t);}};
+        return outcome with{Recheck=async(connection,t)=>
+        {await recheck(connection,t);await evidence.Require(connection,t);await visibility.RequireMarketInputs(connection,t);}};
     }};
+    // Calendar reads may sample several explicit date contexts. Capture actual
+    // returned facts at the read boundary, not at later in-memory projections.
+    internal static IDisposable AtMarketContext(ScheduleContext context)
+    {
+        var scope=current.Value;var previous=scope?.marketContext;
+        if(scope is not null)scope.marketContext=context;
+        return new Restore(()=>{if(scope is not null)scope.marketContext=previous;});
+    }
+    sealed class Restore(Action restore):IDisposable{public void Dispose()=>restore();}
+    internal static void Observations(Guid catalog,Guid revision,ImmutableArray<JsonElement> rows)
+    {
+        if(current.Value is not {marketDates:true} scope||rows.IsEmpty)return;
+        lock(scope.gate)
+        {
+            var key=(catalog,revision,scope.marketContext);
+            if(!scope.observationPins.TryGetValue(key,out var pins))scope.observationPins.Add(key,pins=[]);
+            pins.UnionWith(rows.Select(row=>row.Id("id")));
+        }
+    }
+    internal static void Catalogue(Guid catalog,CataloguePublication publication)
+    {
+        if(current.Value is not {marketDates:true} scope)return;
+        lock(scope.gate)
+            foreach(var source in publication.Curves.Select(c=>c.Source).Concat(publication.Roles.Values))
+                scope.catalogueSources.Add((catalog,source,scope.marketContext));
+    }
+    internal static void CalendarFrame(InputFrame frame)
+    {
+        if(current.Value is {marketDates:true} scope)lock(scope.gate)scope.calendarFrames.Add(frame.Id);
+    }
+    internal static ImmutableArray<InputFrame> CalendarFrames(ImmutableArray<InputFrame> captured)
+    {
+        if(current.Value is not {marketDates:true} scope)return captured;
+        lock(scope.gate)return [..captured.Where(frame=>scope.calendarFrames.Contains(frame.Id))];
+    }
+    async Task RequireMarketInputs(NpgsqlConnection connection,CancellationToken ct)
+    {
+        // Storage is local to this read and contains at most the facts actually
+        // materialized by it; duplicate samples and frames share their proof.
+        var contexts=observationPins.Keys.Select(k=>k.Context).Concat(catalogueSources.Select(k=>k.Context)).Distinct();
+        foreach(var context in contexts)
+        {
+            var temporary=context!=rootContext;
+            if(temporary)
+                await using(var save=ScheduleStore.Command(connection,"SAVEPOINT calendar_publication"))await save.ExecuteNonQueryAsync(ct);
+            try
+            {
+                if(temporary)
+                {
+                    if(rootContext is not null||context is null)throw new PreviewDeniedException();
+                    var catalog=observationPins.Keys.Where(k=>k.Context==context).Select(k=>k.Catalog)
+                        .Concat(catalogueSources.Where(k=>k.Context==context).Select(k=>k.Catalog)).Distinct().Single();
+                    await PinnedContext.BindExact(connection,catalog,context,ct);
+                }
+                foreach(var(catalog,source,_)in catalogueSources.Where(k=>k.Context==context))
+                {
+                    await using var check=ScheduleStore.Command(connection,"SELECT security.reference_access($1,'ReadMarketData') AND security.reference_version_visible($1,$2) AND security.market_fact_visible($3,$4,NULL)",
+                        source.ReferenceCatalogId,source.ReferenceRevisionId,catalog,source.DefinitionRevisionId);
+                    if(!Equals(await check.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
+                }
+                foreach(var(key,pins)in observationPins.Where(p=>p.Key.Context==context))
+                {
+                    var visible=await PreviewDatabase.Rows(connection,"SELECT json_build_object('id',id)::text FROM security.read_observation_pins($1,$2,$3::uuid[])",[key.Catalog,key.Revision,pins.ToArray()],ct);
+                    if(!pins.SetEquals(visible.Select(row=>row.Id("id"))))throw new PreviewDeniedException();
+                }
+            }
+            finally
+            {
+                if(temporary)
+                {
+                    await using var restore=ScheduleStore.Command(connection,"ROLLBACK TO SAVEPOINT calendar_publication;RELEASE SAVEPOINT calendar_publication");
+                    await restore.ExecuteNonQueryAsync(CancellationToken.None);
+                }
+            }
+        }
+    }
     internal static void Bundle(PreviewManifest manifest)=>current.Value?.Capture(manifest,true);
     internal static void Reference(PreviewManifest manifest)=>current.Value?.Capture(manifest,false);
     internal static void Books(Guid catalog,IEnumerable<Guid> ids)

@@ -6465,3 +6465,119 @@ display labels), and a longer list of codes in the browser (it fails for any
 code an installation chooses).
 
 See [the Markets desk](markets-desk.md).
+
+## D426 · Request-local market-date qualification
+
+Amends D419's ordinary-read coverage. `market/dates` and `market/last-closes`
+capture their session selection under the gate, qualify outside it through
+`UngatedRead`, and reacquire the gate for `ReadAuthority` before answering.
+Frame discovery and `session.ApplyFrames` remain in the capture gate hold.
+Calendar and navigation discovery always read fresh runtime-RLS headers with the
+original global ordering and capacity rules. An internal catalog/context-bound
+carrier reuses only previously discovered immutable native matrices; it cannot
+contain working frames, aliases, source projections or authority decisions.
+Newly discovered IDs load their parts together. The carrier is installed only
+after the discovery transaction commits and is cleared with discovered state.
+Calendar execution still reattests every candidate matrix it consumes.
+The existing two-read session bound applies; the response-channel allowlist does
+not expand. Delegated assistant reads retain their existing gated execution.
+
+The selection policy remains `exact_snapshot_no_close_substitution_v1`.
+Complete recorded matrices are reattested in the execution transaction before
+using root membership. A commodity absent from that matrix and from the dated
+catalogue's rate choices requires no pin read or curve build. Exact source,
+reference, calendar-day scope and knowledge view own request-local metadata.
+Generic rates reuse typed membership checks without materializing an unrequested
+owner's commodity terms. Full reads batch exact pins per source; each frame still
+builds from its own complete pin selection, including unrelated retained pins.
+Limited reads materialize the first frame requiring pins exactly, then batch the
+remaining potentially selected pin sets per source only if another frame is reached.
+The conservative prefetch filter reuses the exact selection contract; it never
+replaces native matrix attestation, typed rate admission or curve qualification.
+Selected rate tenors retain D359's loading and per-close compilation contracts.
+
+Migration 0363 shares exact-source admission inside the existing definer
+close-parts reader. A private helper checks each distinct definition/reference
+tuple before and after its historical receipt/pin proof; the parent retains its
+two admission stages, payload implementation and independent missing-ID check.
+Current mode retains its deliberate lack of historical pin tests. Historical
+mode uses the market context's explicit knowledge prefix, close and observation
+publication transactions, source periods and effective-day boundary. The scalar
+visibility function's reviewed body, owner, ACL and execution attributes are
+checked before using this logic. Unsupported scalar contracts use the original
+scalar predicate under the original reader's definer authority.
+
+Migration 0364 shares that admission for the hidden-day projection. It selects
+known heads with the existing head selector before testing visibility; unknown
+heads contribute no date and invisible heads never revive predecessors. If all
+heads are visible, the hidden result is empty. Otherwise the unchanged per-day
+query supplies the result, retaining its existing cost for hidden/unsupported
+cases. Both paths materialize their result before checking the initial authority
+deadline and exact request/context again. The reader remains `STABLE`. Its date
+array is projected directly to avoid a second native evaluation during SRF
+planning, retaining ISO ordering and the legacy null-as-empty projection.
+Hidden-day reads retain their existing scope beyond 128 days; only the private
+helper supports that consumer. The public parts reader's 128-ID limit stays.
+Both migrations refuse unreviewed predecessor definitions or privileges.
+
+An ordinary listed-curve limited read first attests the newest candidate, then
+prefetches the remaining matrices and dated catalogues in bounded batches only if
+needed. Prefetch is not
+consumption. Legacy roots outside the current catalogue prefetch their possible
+owners; custom definitions prefetch matrices before graph planning, including
+limited custom reads. Migration 0362 adds invoker functions over the existing
+native selectors: per-date catalogue outcomes, per-close matrix outcomes and exact pin
+sets carry private denial tags with no protected payload for the refused item.
+Successful matrix and pin batches retain the existing native fast paths; only a
+denied batch retries individual exact selections in subtransactions. Only
+existing named catalogue errors and SQLSTATE `42501` are handled; unknown errors,
+timeouts and cancellation escape. These native wrappers
+refuse global authority expiry before returning. All three wrappers capture the
+initial `authority_until('ReadMarketData')` and refuse expiry after materializing
+their payload, even if a later-starting grant is then active. A tagged unvisited
+refusal cannot poison an otherwise complete limited result. Missing pins remain local to
+their frame; a shared union does not turn one incomplete selection into a global
+incomplete-input flag.
+
+Failure boundaries remain explicit. Pure managed metadata refusals retain each
+calendar date's original reason. A reached native catalogue error preserves the
+ordinary calendar's existing whole-request `500`; last-closes preserves its
+structured error. The former calendar caught the translated error but could not
+recover its aborted transaction. Batching does not silently replace that failure
+with a partial calendar, and does not deliberately abort a transaction to mimic
+it. Changing this legacy error contract is separate work. Custom definitions keep
+their existing savepoint, sample-window and failure contracts.
+
+Before disclosure, a fresh identity transaction binds the captured context and
+session and checks every consulted close through native header RLS, its exact
+header and its close-in-force identity. That RLS rechecks all recorded sources,
+including unconsumed supplemental parts. The calendar's original hidden-day
+evidence is checked again. Successful consumed catalogue choices and the actual
+returned pins of each consulted selection are reauthorized at their original knowledge
+coordinates; temporary custom contexts use savepoints. Source/bundle evidence,
+current profile, sign-in and permissions retain D419's final checks. Immutable
+matrices need not be retransmitted in that gate hold.
+
+No availability table, cross-request answer cache, dependency, database fork or
+new financial convention is introduced. Proof storage is operation-local and
+deduplicates the facts consumed per source/context; it ends with the request.
+Unvisited prefetched facts do not enter this proof. Immutable matrix reuse never
+substitutes for fresh header authority, execution admission or publication proof.
+The existing 128-frame,
+custom-window and shared bundle/reference evidence bounds remain unchanged.
+No additional observation-count limit changes the accepted workload.
+
+This does not split D420's remaining knowledge captures. In particular, custom
+calendar capture retains its existing publication-gate lifetime. Page request
+sizing, evaluation payloads, hosted rollout and wider concurrency qualification
+remain separate work. [Measurements and correctness evidence](verification.md#market-date-read-batching-d426)
+record the actual scope.
+
+Newest-close checks remain detached from page/widget readiness. Focus or page
+events received during a check coalesce into one follow-up, drained after the
+active check or foreground action finishes. The follow-up uses current eligibility
+and request inputs; existing generation/owner fences discard stale answers.
+Known-ended identities cannot start it, and page disposal clears pending work.
+It offers a newer close without selecting it. Browser checks wait for their
+earlier synthetic calendar response before changing that calendar, and separately
+hold an older response to qualify overlapping focus events.
