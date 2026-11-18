@@ -378,46 +378,6 @@ def failed_build_check(client, query, manifest, measure):
     print('PASS selected roots that fail cutoff qualification keep constant limited-calendar statement counts', flush=True)
 
 
-def profile_native(client, query, request):
-    """Measure completed child-function deltas around each native invocation."""
-    signatures = ['security.read_market_close_parts(uuid,uuid[],uuid)', 'security.close_session_hidden_days(uuid,text)']
-    originals = [query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);") for signature in signatures]
-    query("""CREATE TABLE public.synthetic_calendar_function_work(ordinal bigint GENERATED ALWAYS AS IDENTITY,transaction_id xid8,label text,work jsonb);
-      CREATE FUNCTION public.synthetic_calendar_work() RETURNS jsonb LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
-       SELECT coalesce(jsonb_object_agg(funcid::regprocedure::text,jsonb_build_object('calls',calls,'selfMs',self_time,'totalMs',total_time)),'{}')
-       FROM pg_stat_xact_user_functions;
-      $$;
-      CREATE FUNCTION public.synthetic_calendar_capture_work(label text,prior jsonb) RETURNS void LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
-       INSERT INTO public.synthetic_calendar_function_work(transaction_id,label,work)
-       SELECT pg_current_xact_id(),label,jsonb_object_agg(signature,jsonb_build_object(
-        'calls',calls-coalesce((prior->signature->>'calls')::bigint,0),
-        'selfMs',self_time-coalesce((prior->signature->>'selfMs')::double precision,0),
-        'totalMs',total_time-coalesce((prior->signature->>'totalMs')::double precision,0)))
-       FROM(SELECT *,funcid::regprocedure::text signature FROM pg_stat_xact_user_functions)s;
-      $$;
-      REVOKE ALL ON FUNCTION public.synthetic_calendar_work(),public.synthetic_calendar_capture_work(text,jsonb) FROM PUBLIC;
-      GRANT EXECUTE ON FUNCTION public.synthetic_calendar_work(),public.synthetic_calendar_capture_work(text,jsonb) TO openetrm_security_owner;""")
-    try:
-        parts, hidden = originals
-        assert parts.count('RETURN payload;') == 1
-        query(parts.replace('\nDECLARE ', '\nDECLARE work_before jsonb;', 1)
-              .replace('\nBEGIN\n', '\nBEGIN\nwork_before=public.synthetic_calendar_work();\n', 1)
-              .replace('RETURN payload;', "PERFORM public.synthetic_calendar_capture_work('matrix',work_before);RETURN payload;"))
-        assert hidden.count('\nBEGIN\n') == 1 and hidden.count('RETURN coalesce(') == 1
-        query(hidden.replace(' STABLE ', ' VOLATILE ').replace('\nBEGIN\n', '\nDECLARE payload date[];work_before jsonb;\nBEGIN\nwork_before=public.synthetic_calendar_work();\n', 1)
-              .replace('RETURN coalesce(', 'payload=coalesce(', 1)
-              .replace('\nEND;', "\nPERFORM public.synthetic_calendar_capture_work('hidden',work_before);RETURN payload;\nEND;", 1))
-        for name, path, body in [('full', 'market/dates', request), ('latest', 'market/dates', {**request, 'maximumDates': 1}),
-                                  ('last', 'market/last-closes', {'session': request['session']}), ('navigation', 'workspace/navigation', None)]:
-            query('TRUNCATE public.synthetic_calendar_function_work;')
-            client.call(path, body)
-            work = json.loads(query("SELECT coalesce(json_agg(json_build_object('stage',label,'work',work) ORDER BY ordinal),'[]') FROM public.synthetic_calendar_function_work;"))
-            print('CALENDAR_NATIVE_WORK=' + json.dumps({'request': name, 'transactions': work}), flush=True)
-    finally:
-        for original in originals:query(original)
-        query('DROP FUNCTION public.synthetic_calendar_work(),public.synthetic_calendar_capture_work(text,jsonb);DROP TABLE public.synthetic_calendar_function_work;')
-
-
 def native_missing_close_check(query, manifest):
     """Scalar drift cannot remove the reader's independent missing-ID refusal."""
     scalar = query("SELECT pg_get_functiondef('security.market_close_visible(uuid,uuid)'::regprocedure);")
@@ -473,7 +433,7 @@ def native_admission_parity(query, manifest):
         query('DROP FUNCTION public.synthetic_close_batch_compare(uuid,uuid[]);')
 
 
-def run_checks(url, query, manifest, psql, environment, log, api_pid, *, verify=True, profile=False):
+def run_checks(url, query, manifest, psql, environment, log, api_pid, *, verify=True):
     client = PreviewClient(url); client.bootstrap(); client.call('profile', {'profile': 'viewer'})
     if verify:native_admission_parity(query, manifest)
     if verify:native_missing_close_check(query, manifest)
@@ -583,7 +543,6 @@ def run_checks(url, query, manifest, psql, environment, log, api_pid, *, verify=
     memory = {line.split(':')[0]: line.split(':')[1].strip() for line in Path(f'/proc/{api_pid}/status').read_text().splitlines() if line.startswith(('VmRSS:', 'VmHWM:'))}
     print('CALENDAR_MEASUREMENTS=' + json.dumps({'runs': report, 'workload': workload, 'memory': memory,
           'environment': {'platform': platform.platform(), 'postgres': query('SHOW server_version;')}, 'scenarios': 0}), flush=True)
-    if profile:profile_native(client, query, request)
     if not verify:
         print('Calendar benchmark only: statement scaling and disclosure are not qualified by this run', flush=True)
         return
