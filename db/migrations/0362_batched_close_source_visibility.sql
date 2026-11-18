@@ -35,7 +35,7 @@ BEGIN
   THEN RETURN false;END IF;
  END LOOP;
  IF request.market_context_id IS NOT NULL THEN
-  SELECT t.*,m.known_through INTO cut FROM market_data.temporal_contexts t
+  SELECT t.catalog_id,t.effective_on,t.known_at,m.known_through INTO cut FROM market_data.temporal_contexts t
    JOIN market_data.market_contexts m ON(m.catalog_id,m.context_id)=(t.catalog_id,t.id)
    WHERE(t.catalog_id,t.id)=(request.market_catalog_id,request.market_context_id);
   IF NOT FOUND OR cut.catalog_id IS DISTINCT FROM catalog THEN RETURN false;END IF;
