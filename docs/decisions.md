@@ -6432,7 +6432,7 @@ termination and novation; adjustments of scheduled swaps and of instruments the
 close-out draft does not support; a position's own retained run beside the desk's.
 See the [design](superpowers/specs/2026-11-17-trade-actions-and-instrument-bar-design.md).
 
-## D424 · Request-local market-date qualification
+## D425 · Request-local market-date qualification
 
 Amends D419's ordinary-read coverage. `market/dates` and `market/last-closes`
 capture their session selection under the gate, qualify outside it through
@@ -6536,5 +6536,5 @@ No additional observation-count limit changes the accepted workload.
 This does not split D420's remaining knowledge captures. In particular, custom
 calendar capture retains its existing publication-gate lifetime. Page request
 sizing, evaluation payloads, hosted rollout and wider concurrency qualification
-remain separate work. [Measurements and correctness evidence](verification.md#market-date-read-batching-d424)
+remain separate work. [Measurements and correctness evidence](verification.md#market-date-read-batching-d425)
 record the actual scope.

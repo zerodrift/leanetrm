@@ -115,7 +115,7 @@ valuations at once, and the readers D420 lists as unchanged still hold the gate
 for their transaction. Browser suites and the complete gate were not
 run for this change outside CI.
 
-## Market-date read batching (D424)
+## Market-date read batching (D425)
 
 Measured on 17 November 2026 with `--market-dates-reads-check` in an owned
 disposable preview. The control's application sources match `cb582382` exactly;
