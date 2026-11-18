@@ -28,7 +28,10 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     if(body.curve!==null){data.dates=[];data.minDate=null;data.maxDate=null;data.unavailable=[{date:'2020-12-17',reason:'source_expired'},{date:'2020-12-18',reason:'missing_observation'}];}
     response=new Response(JSON.stringify(data),{status:response.status,headers:{'Content-Type':'application/json'}});
    }
-   if(path.endsWith('/market/dates')&&window.holdNextCalendar){window.holdNextCalendar=false;await new Promise(resolve=>window.releaseCalendar=resolve);}
+   if(path.endsWith('/market/dates')&&window.holdNextCalendar){
+    const body=JSON.parse(args[1].body);
+    if(body.curve===null&&body.definition===null&&body.maximumDates===1){window.holdNextCalendar=false;await new Promise(resolve=>window.releaseCalendar=resolve);}
+   }
    if(!curveCloses&&(path.endsWith('/market/dates')||path.endsWith('/custom-curves/preview')))window.marketDateRequests.push({path,body:JSON.parse(args[1].body),status:response.status,payload:await response.clone().json()});
    if(curveCloses)window.curveCloseRequests.push({body:JSON.parse(args[1].body),status:response.status,payload:await response.clone().json()});
    return response;
