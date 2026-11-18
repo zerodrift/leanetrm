@@ -198,15 +198,21 @@ def native_hidden_work_check(client, query, request):
     """A fully visible session needs source admission, not one admission per day."""
     signature = 'security.market_fact_visible(uuid,uuid,uuid)'
     fact = query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);")
+    hidden = query("SELECT pg_get_functiondef('security.close_session_hidden_days(uuid,text)'::regprocedure);")
     query('CREATE SEQUENCE public.synthetic_calendar_hidden_checks;GRANT USAGE ON SEQUENCE public.synthetic_calendar_hidden_checks TO openetrm_security_owner;')
+    query('CREATE SEQUENCE public.synthetic_calendar_hidden_calls;GRANT USAGE ON SEQUENCE public.synthetic_calendar_hidden_calls TO openetrm_security_owner;')
     try:
         assert fact.count('\nBEGIN\n') == 1
         query(fact.replace('\nBEGIN\n', "\nDECLARE stack text;\nBEGIN\n GET DIAGNOSTICS stack=PG_CONTEXT;\n IF position('close_session_hidden_days(' IN stack)>0 THEN PERFORM nextval('public.synthetic_calendar_hidden_checks');END IF;\n", 1))
+        query(hidden.replace('\nBEGIN\n', "\nBEGIN\n PERFORM nextval('public.synthetic_calendar_hidden_calls');\n", 1))
         client.call('market/dates', {**request, 'maximumDates': 1})
         calls = int(query('SELECT CASE WHEN is_called THEN last_value ELSE 0 END FROM public.synthetic_calendar_hidden_checks;'))
+        invocations = int(query('SELECT CASE WHEN is_called THEN last_value ELSE 0 END FROM public.synthetic_calendar_hidden_calls;'))
     finally:
-        query(fact);query('DROP SEQUENCE public.synthetic_calendar_hidden_checks;')
+        query(fact);query(hidden);query('DROP SEQUENCE public.synthetic_calendar_hidden_checks,public.synthetic_calendar_hidden_calls;')
+    print('CALENDAR_HIDDEN_FUNCTION_CALLS=' + str(invocations), flush=True)
     print('CALENDAR_HIDDEN_SOURCE_CHECKS=' + str(calls), flush=True)
+    assert invocations == 2, f'Two hidden-day reads evaluated their native function {invocations} times'
     assert 0 < calls <= 4, f'One exact source was authorized {calls} times while proving an entirely visible session'
     print('PASS fully visible hidden-day proofs share their source admission', flush=True)
 
