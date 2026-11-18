@@ -323,8 +323,12 @@ public static class MarketDates
     }
     static async Task<string[]> HiddenDays(NpgsqlConnection connection,Guid catalog,string session,CancellationToken ct)
     {
-        await using var command=ScheduleStore.Command(connection,"SELECT array(SELECT to_char(d,'YYYY-MM-DD') FROM unnest(security.close_session_hidden_days($1,$2))d)",catalog,session);
-        return (string[])(await command.ExecuteScalarAsync(ct))!;
+        // Read the scalar array directly. Projecting an expensive STABLE
+        // function through unnest can evaluate it again while planning the SRF.
+        await using var command=ScheduleStore.Command(connection,"SELECT security.close_session_hidden_days($1,$2)",catalog,session);
+        await using var reader=await command.ExecuteReaderAsync(ct);
+        if(!await reader.ReadAsync(ct))throw new PreviewDeniedException();
+        return reader.GetFieldValue<DateOnly[]>(0).Select(day=>day.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture)).ToArray();
     }
     internal static Func<NpgsqlConnection,CancellationToken,Task> AnswerCheck(PreviewDatabase database,
         PinnedContext pin,ImmutableArray<InputFrame> frames,string session,object answer)
