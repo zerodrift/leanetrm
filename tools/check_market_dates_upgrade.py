@@ -3,7 +3,7 @@ from assistant_context import check_guard
 
 
 def run_checks(query, migration):
-    if migration.name.startswith('0362_'):
+    if migration.name.startswith('0363_'):
         guard = 'close_batch_upgrade'
         signatures = [('security.read_market_close_parts(uuid,uuid[],uuid)',
                        'catalog uuid,close_ids uuid[],expected_context uuid', 'jsonb')]

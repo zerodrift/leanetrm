@@ -9,7 +9,7 @@ def extend(reference, market, security, manifest):
 DO $fixture$DECLARE d ref_data.code;BEGIN
  SELECT code INTO STRICT d FROM ref_data.dimensions WHERE(catalog_id,revision_id)=({key})
   AND(mass_power,length_power,time_power,temperature_power,amount_power,current_power,luminous_power)=(0,0,0,0,0,0,0);
- INSERT INTO ref_data.commodities VALUES({key},'synthetic_rec','Synthetic certificate',d);
+ INSERT INTO ref_data.commodities VALUES({key},'synthetic_rec','Synthetic certificate',d,'leaf');
  INSERT INTO ref_data.units(catalog_id,revision_id,code,symbol,dimension_code) VALUES({key},'rec','REC',d);
  INSERT INTO ref_data.commodity_units VALUES({key},'synthetic_rec','rec',d);
  INSERT INTO ref_data.measurement_bases VALUES({key},'synthetic_issued_rec','synthetic_rec',d);

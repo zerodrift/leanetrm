@@ -6432,7 +6432,41 @@ termination and novation; adjustments of scheduled swaps and of instruments the
 close-out draft does not support; a position's own retained run beside the desk's.
 See the [design](superpowers/specs/2026-11-17-trade-actions-and-instrument-bar-design.md).
 
-## D425 · Request-local market-date qualification
+## D425 · A commodity names its icon in reference data
+
+Decided by the owner, 2026-11-17. The Curves page drew a flame for the codes
+`gas` and `test_gas`, a bolt for `electricity` and `test_power` and a cube for
+every other commodity, so crude, LNG and certificates shared one picture and a
+commodity under any other code could not be told apart.
+
+A commodity now states its icon where it is configured: `ref_data.commodities`
+carries a required `icon_code` from the fixed list `flame`, `bolt`, `drop`,
+`tanker`, `cylinder`, `anchor`, `leaf`, `cube`. The database rejects a missing or unlisted value, so
+the navigation read always has a name to send with each curve's commodity; the
+browser draws the named icon and rejects a name it does not know. There is no
+fallback at any layer, and `cube` is a deliberate choice for a commodity
+without a picture of its own. Colour stays assigned by the browser. Position
+rows keep naming their commodity by code and name only, and the commodity dots
+of other pages are unchanged.
+
+Migration 0361 adds the column and carries each existing commodity over once to
+the picture its code had until now; that statement is the only place a code
+still selects an icon. The reference import states `flame` for gas and `bolt`
+for electricity. A cloned reference revision keeps its source's icons.
+
+The synthetic catalogs use `flame`, `bolt`, `drop`, `tanker`, `leaf` and
+`cube`. The owner added `cylinder` for natural gas liquids and `anchor` for
+freight ahead of the first catalog that holds them. A further picture arrives
+with the commodity that needs it.
+
+Not chosen: an icon edited as a reviewed display detail (it needs a new editor
+field kind, and the curve directory deliberately reads commodities before
+display labels), and a longer list of codes in the browser (it fails for any
+code an installation chooses).
+
+See [the Markets desk](markets-desk.md).
+
+## D426 · Request-local market-date qualification
 
 Amends D419's ordinary-read coverage. `market/dates` and `market/last-closes`
 capture their session selection under the gate, qualify outside it through
@@ -6462,7 +6496,7 @@ The conservative prefetch filter reuses the exact selection contract; it never
 replaces native matrix attestation, typed rate admission or curve qualification.
 Selected rate tenors retain D359's loading and per-close compilation contracts.
 
-Migration 0362 shares exact-source admission inside the existing definer
+Migration 0363 shares exact-source admission inside the existing definer
 close-parts reader. A private helper checks each distinct definition/reference
 tuple before and after its historical receipt/pin proof; the parent retains its
 two admission stages, payload implementation and independent missing-ID check.
@@ -6473,7 +6507,7 @@ visibility function's reviewed body, owner, ACL and execution attributes are
 checked before using this logic. Unsupported scalar contracts use the original
 scalar predicate under the original reader's definer authority.
 
-Migration 0363 shares that admission for the hidden-day projection. It selects
+Migration 0364 shares that admission for the hidden-day projection. It selects
 known heads with the existing head selector before testing visibility; unknown
 heads contribute no date and invisible heads never revive predecessors. If all
 heads are visible, the hidden result is empty. Otherwise the unchanged per-day
@@ -6491,7 +6525,7 @@ prefetches the remaining matrices and dated catalogues in bounded batches only i
 needed. Prefetch is not
 consumption. Legacy roots outside the current catalogue prefetch their possible
 owners; custom definitions prefetch matrices before graph planning, including
-limited custom reads. Migration 0361 adds invoker functions over the existing
+limited custom reads. Migration 0362 adds invoker functions over the existing
 native selectors: per-date catalogue outcomes, per-close matrix outcomes and exact pin
 sets carry private denial tags with no protected payload for the refused item.
 Successful matrix and pin batches retain the existing native fast paths; only a
@@ -6536,7 +6570,7 @@ No additional observation-count limit changes the accepted workload.
 This does not split D420's remaining knowledge captures. In particular, custom
 calendar capture retains its existing publication-gate lifetime. Page request
 sizing, evaluation payloads, hosted rollout and wider concurrency qualification
-remain separate work. [Measurements and correctness evidence](verification.md#market-date-read-batching-d425)
+remain separate work. [Measurements and correctness evidence](verification.md#market-date-read-batching-d426)
 record the actual scope.
 
 Newest-close checks remain detached from page/widget readiness. Focus or page

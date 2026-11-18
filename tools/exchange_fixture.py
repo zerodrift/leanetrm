@@ -13,7 +13,7 @@ from datetime import time
 from decimal import ROUND_HALF_EVEN, localcontext
 import importlib.util
 from zoneinfo import ZoneInfo
-from preview_fixture import fixture as baseline, trading_fixture as baseline_trading, installed_tzdb, tou_products, clock_capture_request, fixture_clock_publications
+from preview_fixture import commodity, fixture as baseline, trading_fixture as baseline_trading, installed_tzdb, tou_products, clock_capture_request, fixture_clock_publications
 from rate_curve_fixture import dated_curve, discount_default
 
 NAMESPACE=UUID('5a935d8a-8e48-43d6-83fd-4b7b7d4f991d')
@@ -164,7 +164,7 @@ def crude_reference(R):
     """The crude commodity, its barrel quantity and the Cushing location used by NYMEX CL and LO."""
     return [f"INSERT INTO ref_data.dimensions VALUES({R},'certificate',0,0,0,0,0,0,0) ON CONFLICT(catalog_id,revision_id,code) DO NOTHING;",
       f"INSERT INTO ref_data.units VALUES({R},'option_contract','contract','certificate');",
-      f"INSERT INTO ref_data.commodities VALUES({R},'test_crude','Synthetic crude oil','volume');",
+      commodity(R,'test_crude','Synthetic crude oil','volume','drop'),
       f"INSERT INTO ref_data.commodity_units VALUES({R},'test_crude','petroleum_barrel','volume');",
       f"INSERT INTO ref_data.measurement_bases VALUES({R},'test_crude_volume','test_crude','volume'),({R},'test_gas_contracts','test_gas','certificate'),({R},'test_crude_contracts','test_crude','certificate');",
       f"INSERT INTO ref_data.quantity_specifications VALUES({R},'test_crude_quantity','test_crude','test_crude_volume','petroleum_barrel','volume'),"

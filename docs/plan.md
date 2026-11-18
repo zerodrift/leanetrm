@@ -1,10 +1,10 @@
 # Delivery plan and acceptance criteria
 
-D425 implements request-local calendar input batching and ordinary read gate
+D426 implements request-local calendar input batching and ordinary read gate
 release. Qualification requires unchanged answer projections, statement counts
 independent of additional unselected or selected-but-unpriceable closes, lazy
 limited-read failures, and current authority at disclosure. The
-[verification record](verification.md#market-date-read-batching-d425)
+[verification record](verification.md#market-date-read-batching-d426)
 distinguishes bounded synthetic evidence from hosted latency and capacity. Page
 request sizing and evaluation payload reduction remain separate increments.
 
@@ -2087,6 +2087,8 @@ Extend only after the baseline contracts are demonstrated:
   - Measuring publication-lock contention from definition runs before a hosted
     release (verification.md).
 - Live feed adapters and their entitlement/provenance controls.
+- Commodity icons beyond the eight of D425; each arrives with the first commodity
+  that names it.
 - Settlement workflows, richer administration and deployment hardening.
 
 An item in later scope must not be advertised as implemented because an interface

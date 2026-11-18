@@ -48,10 +48,14 @@ def run():
             "FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN('ref_data','market_data','trading','settlement_data') "
             "AND c.relkind='r' AND EXISTS(SELECT 1 FROM pg_attribute a WHERE a.attrelid=c.oid AND a.attname='catalog_id' AND NOT a.attisdropped);"))
 
+        # Migration 0361 gives every commodity an icon after this upgrade; the proof compares the columns that preceded it.
+        def row(table):
+            return "to_jsonb(t)-'icon_code'" if table == 'ref_data.commodities' else 'to_jsonb(t)'
+
         def digest():
             catalogs = ','.join("'" + catalog + "'" for catalog in [f.catalog, f.reference, manifest['referenceCatalogId']])
             return query('SELECT jsonb_object_agg(name,digest) FROM(' + ' UNION ALL '.join(
-                f"SELECT '{table}'::text name,md5(coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]')::text) digest "
+                f"SELECT '{table}'::text name,md5(coalesce(jsonb_agg({row(table)} ORDER BY {row(table)}::text),'[]')::text) digest "
                 f"FROM {table} t WHERE t.catalog_id IN({catalogs})" for table in tables) + ')s;')
 
         old = digest()

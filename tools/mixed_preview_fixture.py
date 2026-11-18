@@ -2,7 +2,7 @@
 import json
 from decimal import Decimal
 from datetime import datetime, timezone
-from preview_fixture import TENANT, WORKSPACE, security_fixture, fixture_clock_publications
+from preview_fixture import TENANT, WORKSPACE, commodity, security_fixture, fixture_clock_publications
 from rate_curve_fixture import dated_curve
 
 
@@ -32,7 +32,7 @@ def fixture(export_path):
     r('currencies',('usd','USD','US dollar',2))
     r('dimensions',('energy',1,2,-2,0,0,0,0))
     r('units',('mmbtu','MMBtu','energy'))
-    r('commodities',('gas','Synthetic natural gas','energy'))
+    ref.append(commodity(f"'{rcat}','{rrev}'",'gas','Synthetic natural gas','energy','flame'))
     r('commodity_units',('gas','mmbtu','energy'))
     r('measurement_bases',('gas_energy','gas','energy'))
     r('quantity_specifications',('gas_mmbtu','gas','gas_energy','mmbtu','energy'))

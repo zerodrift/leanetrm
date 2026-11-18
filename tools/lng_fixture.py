@@ -1,6 +1,6 @@
 """Project-authored LNG cargo qualification inputs for a newly owned preview only."""
 from datetime import datetime, timezone
-from preview_fixture import CAT, RCAT, RREV, R, CURRENCY
+from preview_fixture import CAT, RCAT, RREV, R, CURRENCY, commodity
 
 REVISION = '60000000-0000-0000-0000-000000000176'
 CONTRACT = '50000000-0000-0000-0000-000000000176'
@@ -9,7 +9,7 @@ SERIES = '90000000-0000-0000-0000-000000000176'
 
 def prepare(reference, market, manifest):
     refs = f"""
-INSERT INTO ref_data.commodities VALUES({R},'synthetic_lng','Synthetic LNG','energy');
+{commodity(R,'synthetic_lng','Synthetic LNG','energy','tanker')}
 INSERT INTO ref_data.commodity_units VALUES({R},'synthetic_lng','mmbtu_it','energy'),({R},'synthetic_lng','metric_tonne','mass');
 INSERT INTO ref_data.measurement_bases VALUES({R},'gross_energy','synthetic_lng','energy'),({R},'discharge_mass','synthetic_lng','mass');
 INSERT INTO ref_data.quantity_specifications VALUES

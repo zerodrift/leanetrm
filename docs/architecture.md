@@ -1,6 +1,6 @@
 # Architecture and domain contracts
 
-D425 batches [market-date reads](decisions.md#d425--request-local-market-date-qualification)
+D426 batches [market-date reads](decisions.md#d426--request-local-market-date-qualification)
 within one authorized operation. Exact native matrices, dated catalogue choices,
 source metadata and observation pins retain their existing selection contracts.
 Ordinary calendar and last-close qualification releases the session gate and

@@ -115,12 +115,12 @@ valuations at once, and the readers D420 lists as unchanged still hold the gate
 for their transaction. Browser suites and the complete gate were not
 run for this change outside CI.
 
-## Market-date read batching (D425)
+## Market-date read batching (D426)
 
 Measured on 17 November 2026 with `--market-dates-reads-check` in an owned
 disposable preview. The control's application sources match `cb582382` exactly;
-its native readers precede migrations 0362–0363. Both runs use the same fixture
-and table schema; unused migration-0361 batch helpers also exist in the control.
+its native readers precede migrations 0363–0364. Both runs use the same fixture
+and table schema; unused migration-0362 batch helpers also exist in the control.
 `--market-dates-benchmark-only` retains business-answer assertions but skips the
 new work/scaling and disclosure checks. Control and changed runs were sequential
 on one Linux x86_64 machine (kernel 5.15, glibc 2.39), with stock PostgreSQL 18.7,
@@ -128,6 +128,9 @@ on one Linux x86_64 machine (kernel 5.15, glibc 2.39), with stock PostgreSQL 18.
 two CPUs and 3 GiB. The launcher's Debug API, HTTP client and database run together
 over loopback. The hosted demo's 330 ms plain-request round trip is not emulated
 or added to these results.
+
+These timings precede the commodity-icon schema integration described below;
+they have not been remeasured on that combined schema.
 
 The synthetic session has 96 recorded closes: two qualify `bridge_basis` and 94
 omit it from their recorded roots. They span one definition revision, 95 unique
@@ -235,6 +238,19 @@ including all 1,277 browser assertions and its native/HTTP checks. A separate
 Linux disposable run passes the same full standard preview with the Dashboard's
 explicit calendar-completion wait. Independent review of the pending-refresh
 and scope/disposal fences found no blocking issue. No timeout was increased.
+
+Integration with `origin/master` at `e76bce75` preserves its commodity icons
+(D425, migration 0361) and assigns calendar batching D426 and migrations
+0362–0364. All three calendar SQL bodies are byte-identical to the previously
+qualified versions; the market-date implementation is unchanged. Focused local
+qualification passes the API build, 45 managed preview checks, 38 navigation,
+board and newest-close frontend checks, 45 runner and 17 CI-selection checks,
+and the 65 calendar/regional browser assertions on the combined schema.
+The owned read check also passes migration guards, answer equivalence, native
+admission and original-grant deadline cases before its measurement stage stops
+at Linux-only `/proc` instrumentation on macOS. It does not supply new timings
+or a complete scaling/gate qualification for this integration. Independent
+integration review found no blocker. The complete local matrix was not repeated.
 
 The complete CI matrix, hosted deployment and curve-click timing, broad
 concurrency/memory capacity, page request sizing and evaluation payload reduction
