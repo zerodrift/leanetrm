@@ -442,12 +442,20 @@ def native_admission_parity(query, manifest):
     catalog, tenant, workspace = (manifest[key] for key in ('catalogId', 'tenantId', 'workspaceId'))
     closes = query(f"SELECT string_agg(quote_literal(id)||'::uuid',',') FROM market_data.market_closes WHERE catalog_id='{catalog}';")
     query("""CREATE FUNCTION public.synthetic_close_batch_compare(catalog uuid,ids uuid[]) RETURNS jsonb
-      LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
+      LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
+      DECLARE before_scope jsonb;answer jsonb;
+      BEGIN
+       SELECT jsonb_build_array(q.market_catalog_id,q.market_context_id) INTO before_scope FROM security.request_contexts q
+        WHERE q.backend_pid=pg_backend_pid() AND q.transaction_id=pg_current_xact_id_if_assigned() AND q.runtime_login=session_user;
        WITH eligible AS MATERIALIZED(SELECT ARRAY(SELECT id FROM unnest($2)id WHERE security.market_close_visible($1,id)) selected_ids)
        SELECT jsonb_build_object('actual',security.market_close_batch_visible($1,$2),
         'expected',NOT EXISTS(SELECT 1 FROM unnest($2)i WHERE security.market_close_visible($1,i) IS NOT TRUE),
         'eligibleCount',cardinality(eligible.selected_ids),'eligibleActual',CASE WHEN cardinality(eligible.selected_ids)>0
-         THEN security.market_close_batch_visible($1,eligible.selected_ids) ELSE false END) FROM eligible;
+         THEN security.market_close_batch_visible($1,eligible.selected_ids) ELSE false END) INTO answer FROM eligible;
+       RETURN answer||jsonb_build_object('contextUnchanged',before_scope IS NOT DISTINCT FROM(
+        SELECT jsonb_build_array(q.market_catalog_id,q.market_context_id) FROM security.request_contexts q
+         WHERE q.backend_pid=pg_backend_pid() AND q.transaction_id=pg_current_xact_id_if_assigned() AND q.runtime_login=session_user));
+      END;
       $$;
       ALTER FUNCTION public.synthetic_close_batch_compare(uuid,uuid[]) OWNER TO openetrm_security_owner;
       REVOKE ALL ON FUNCTION public.synthetic_close_batch_compare(uuid,uuid[]) FROM PUBLIC;
@@ -460,6 +468,7 @@ def native_admission_parity(query, manifest):
             print('CALENDAR_NATIVE_PARITY=' + json.dumps({'day': day, **actual}), flush=True)
             assert actual['actual'] == actual['expected'], actual
             assert actual['eligibleActual'] == (actual['eligibleCount']>0), actual
+            assert actual['contextUnchanged'], actual
     finally:
         query('DROP FUNCTION public.synthetic_close_batch_compare(uuid,uuid[]);')
 
@@ -514,6 +523,7 @@ def run_checks(url, query, manifest, psql, environment, log, api_pid, *, verify=
     finally:
         query(original)
     mixed_source_checks(client, query, manifest, source, publication_check=verify)
+    if verify:native_admission_parity(query, manifest)
     if verify:batch_authority_check(query, manifest)
     # Keep 96 candidates within the global 128-frame discovery bound. Existing facts stay immutable.
     query("INSERT INTO presentation.close_session_listings SELECT v.catalog_id,v.code,1,max(v.version),'Synthetic retired fixture session',false,pg_current_xact_id() FROM market_data.close_session_versions v GROUP BY v.catalog_id,v.code;")
