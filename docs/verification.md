@@ -118,114 +118,113 @@ run for this change outside CI.
 ## Market-date read batching (D424)
 
 Measured on 17 November 2026 with `--market-dates-reads-check` in an owned
-disposable preview. The control uses application sources unchanged from
-`cb582382`, the same fixture/check and the same schema; the new native batch
-helpers exist but are unused by the control. Control and changed runs were
-sequential on one Linux x86_64 machine (kernel 5.15, glibc 2.39), with a stock
-PostgreSQL 18.7 server, .NET runtime 10.0.13, SDK 10.0.402 and Node 24.22.0.
-The container has two CPUs and a 3 GiB memory limit. The launcher's Debug API,
-HTTP client and database run together over loopback. The hosted demo's 330 ms
-plain-request round trip is not emulated or added to these results.
-The control uses `--market-dates-benchmark-only`, which retains the business-answer
-assertions but skips the new scaling and disclosure qualification. Its `src/`
-matches `cb582382` exactly; current tools and migrations supply the shared fixture.
+disposable preview. The control's application sources match `cb582382` exactly;
+its native readers precede migrations 0362–0363. Both runs use the same fixture
+and table schema; unused migration-0361 batch helpers also exist in the control.
+`--market-dates-benchmark-only` retains business-answer assertions but skips the
+new work/scaling and disclosure checks. Control and changed runs were sequential
+on one Linux x86_64 machine (kernel 5.15, glibc 2.39), with stock PostgreSQL 18.7,
+.NET runtime 10.0.13, SDK 10.0.402 and Node 24.22.0. The container is limited to
+two CPUs and 3 GiB. The launcher's Debug API, HTTP client and database run together
+over loopback. The hosted demo's 330 ms plain-request round trip is not emulated
+or added to these results.
 
-The synthetic session has 96 recorded closes: two that qualify `bridge_basis`
-and 94 whose recorded roots omit it. They span one definition revision, 95
-unique contracts, 6,978 recorded pins and 281 distinct observation IDs, with
-72–105 pins per close. The curve request performs two matching frame
-qualifications and rejects 94 candidates by exact root/rate choice. Workspace
-qualification visits the same 96 matrices and their selected commodity/rate
-curves. Calendar qualification performs no Risk scenarios or trade PV
-evaluations; trade count is not used as a workload proxy. Last-closes stops once
-the listed curves have their newest qualifying close; it does not exhaust the
+The synthetic session has 96 recorded closes: two qualify `bridge_basis` and 94
+omit it from their recorded roots. They span one definition revision, 95 unique
+contracts, 6,978 recorded pins and 281 distinct observation IDs, with 72–105 pins
+per close. The curve request performs two matching frame qualifications and
+rejects 94 candidates by exact root/rate choice. Workspace qualification visits
+the same 96 matrices and their selected commodity/rate curves. There are no Risk
+scenarios or trade PV evaluations in this workload. Last-closes stops when the
+listed curves have their newest qualifying close; it does not exhaust the
 calendar merely to count unavailable dates.
 
-Each timing below is the median of three requests. Each full-curve size has
-one warm-up first; the other reads follow the 96-close curve samples. PostgreSQL
-duration logging is enabled identically in both runs. Counts include every
-top-level runtime-role statement in the HTTP request, including discovery,
-identity transactions and, after the change, publication reauthorization;
-parse/bind messages and statements internal to native functions are not counted.
+Each timing is the median of three requests. Each full-curve size has one warm-up
+first; other reads follow the 96-close curve samples. PostgreSQL duration logging
+is enabled identically in both runs. Counts include every top-level runtime-role
+statement in the request: discovery, identity transactions and final publication
+reauthorization. Parse/bind messages and statements inside native functions are
+not counted. Host scheduling and JIT/GC cause run variation; this is not a tail
+latency or capacity qualification.
 
 | Request | Closes | Before ms | After ms | Before statements | After statements |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| One curve, full calendar | 24 | 316.1 | 204.6 | 388 | 102 |
-| One curve, full calendar | 48 | 511.4 | 312.1 | 628 | 102 |
-| One curve, full calendar | 96 | 953.5 | 576.6 | 1,108 | 102 |
-| One curve, `maximumDates:1` | 96 | 323.4 | 409.7 | 158 | 102 |
-| Whole workspace, full calendar | 96 | 1,114.7 | 681.2 | 1,119 | 113 |
-| Last-closes | 96 | 230.1 | 223.6 | 106 | 113 |
-| Navigation, unchanged control | 96 | 163.8 | 130.8 | 18 | 18 |
+| One curve, full calendar | 24 | 508.7 | 160.4 | 388 | 101 |
+| One curve, full calendar | 48 | 668.4 | 202.6 | 628 | 101 |
+| One curve, full calendar | 96 | 986.9 | 292.7 | 1,108 | 101 |
+| One curve, `maximumDates:1` | 96 | 316.9 | 190.9 | 158 | 101 |
+| Whole workspace, full calendar | 96 | 1,147.1 | 447.5 | 1,119 | 112 |
+| Last-closes | 96 | 227.5 | 178.6 | 106 | 112 |
+| Navigation | 96 | 153.8 | 57.6 | 18 | 17 |
 
-The full-curve and workspace reads remove 1,006 statements at 96 closes.
-The latest-only read is slower in this loopback measurement despite fewer
-statements; its fresh proof includes another native hidden-day check. Last-closes
-adds publication checks and shows no material latency improvement here.
-Navigation code is unchanged; its timing difference illustrates run variation.
-These results do not establish the hosted timings, tail latency or multiuser
-capacity.
+All five reads improve in this run. The full curve removes 1,007 statements at
+96 closes and is about 3.4 times faster; workspace is about 2.6 times faster.
+Last-closes improves more modestly and includes fresh publication authorization.
+Warm discovery reuses immutable native inputs after fresh RLS headers instead
+of rematerializing their complete payload. Execution still reattests every
+calendar candidate it consumes. Native matrix admissions now check the one exact
+source four times rather than 384 times. Two hidden-day reads previously executed
+their STABLE function four times and performed 768 source checks; scalar array
+projection and the all-visible proof reduce those counts to two and four.
+Actual hidden or unsupported cases retain the authoritative legacy query.
 
-For the full curve at 96 closes, median summed database statement duration is
-615.3 ms before and 442.7 ms after; sampled API process CPU is 330 ms before
-and 100 ms after. Workspace is 677.9/463.6 ms database duration and 500/160 ms
-API CPU. Process CPU uses Linux clock ticks with 10 ms resolution and includes
-all API threads; it is not additive with the database durations or wall time.
-After batching, full-curve native discovery/matrix statements account for about
-260 ms, dated catalogue selection 49 ms, hidden-day checks 73 ms and final
-pin reauthorization 2 ms. These labels identify top-level logged statements;
-multiline execution pin reads remain in the other-statement category. Native
-authority and matrix work still grows with the facts and dates checked:
-constant statement count is not constant native CPU.
-The API high-water resident set at the measurement point is 305.3 MiB before
-and 305.2 MiB after, including the preceding qualification requests. This small
-shared-pin fixture does not qualify memory with many distinct sources/pins;
-request-local unions and proof sets retain those actual rows until completion.
+For the full curve at 96 closes, median summed database duration is 625.0 ms
+before and 248.5 ms after; sampled API process CPU is 330/70 ms. Workspace is
+681.8/299.0 ms database duration and 490/270 ms API CPU. CPU uses Linux clock ticks
+with 10 ms resolution and includes all API threads; it is not additive with
+database duration or wall time. Native header/head lookup and dated catalogue
+work still grow with the facts and dates checked: constant statement count is
+not constant native CPU. The API high-water resident set at the measurement
+point is 304.0 MiB before and 301.4 MiB after, including preceding qualification
+requests. This shared-pin fixture does not qualify memory with many distinct
+sources/pins; request-local unions and proof sets retain their actual rows.
 
-The checks were written and observed failing before the relevant changes.
-The unchanged reader's full-curve counts are 388/628/1,108 for 24/48/96 closes.
-A stronger limited-calendar workload selects the commodity on every close but
-uses distinct, invalid future pin sets on the older candidates: the first batched
-implementation still used 127/151/199 statements. The final implementation uses
-105/105/105, with two available dates and every remaining date independently
-unavailable. Missing pins affect only their own frame. An unvisited native pin
-denial cannot poison `maximumDates:2`; reaching it refuses the read. A successful
-prefetch of an unvisited fact does not add that fact to publication proof.
+Checks were written and watched failing before the relevant changes. The
+unchanged full-curve counts are 388/628/1,108 for 24/48/96 closes. A stronger
+limited workload selects the commodity on every close but uses distinct invalid
+future pin sets on older candidates: the first batched implementation still used
+127/151/199 statements. The final implementation uses 105/105/105, with two
+available dates and every other date independently unavailable. Missing pins
+remain local; an unvisited denial or prefetched fact cannot poison a complete
+limited answer. Warm matrix call counts changed from 2/2/2/1 to 1/1/1/0 for full,
+latest, last-closes and navigation. Native work counters independently enforce
+the source-check and hidden-function bounds above.
 
-Business-answer projections were captured from the unchanged implementation
-before optimization and match for one curve, workspace, a rate curve, retained
-context, replaced close, hidden day and denied reader. Random fixture identities,
-capture instants and frame-catalog capture metadata are excluded from that
-comparison; the original calendar suite checks the response contracts separately.
-Independent evaluation supplies the mixed-source metadata refusal oracle.
-Supplemental metadata errors retain their date-local reason and unrequested
-rate-owner commodity terms are not materialized. Reached native catalogue errors
-retain the legacy calendar `500` and last-closes structured refusal.
+Business projections captured from unchanged code match for one curve,
+workspace, rate curve, retained context, replaced close, hidden day and denied
+reader. Random identities, capture instants and frame-catalog capture metadata
+are excluded; the original suite separately checks response contracts. Independent
+evaluation supplies mixed-source metadata refusal oracles. Unrequested rate-owner
+commodity terms are not materialized, and supplemental metadata errors retain
+their date-local reason. Native catalogue errors retain the calendar's legacy
+whole-read `500` and last-closes structured refusal.
 
-Held-read checks show an ordinary same-session request proceeds within its
-one-second bound. Authority ending during the held read refuses disclosure,
-and replacement during execution returns `close_replaced`. Fresh native header
-RLS also refuses loss of an unconsumed supplemental part's authority. Native
-successor-grant checks first failed for catalogue, matrix batch and matrix
-fallback: a later-starting grant extended the batch. All final catalogue, matrix
-and pin batch/fallback cases refuse the expired initial deadline while the
-prepublished successor is active. Unknown errors and cancellation are not
-translated into partial success.
+Direct scalar/set admission comparisons cover current and historical contexts,
+eligible subsets, mixed sources and unchanged bound contexts. Scalar body drift
+uses the original predicate; an always-true scalar cannot remove independent
+missing-ID refusal. Runtime cannot execute the private helper. Hidden projection
+checks cover empty sessions, 129 days, hidden heads with visible predecessors,
+the unchanged public 128-ID limit, exact date formatting and legacy NULL output.
+Initial-deadline checks cover catalogue, matrix/pin fast and fallback paths, and
+both hidden-day paths with a live prepublished successor grant. Migration guards
+refuse body, owner, configuration, ACL, strictness and parallel-safety drift and
+work under an independent caller search path.
 
-Independent adversarial review found and resolved the rate-owner metadata,
-supplemental failure, eager unvisited denial and grant-extension issues; final
-static review reports no blocking finding. The reviewer did not independently
-execute the database/browser suites. The complete CI matrix, hosted deployment,
-hosted curve-click timing and the separate evaluation-payload/page-sizing work
-remain unverified by this increment.
+Held-read checks show an ordinary same-session request proceeds within one
+second; authority ending during the read refuses disclosure and replacement
+returns `close_replaced`. Fresh native header RLS also refuses loss of authority
+to an unconsumed supplemental part. Independent adversarial review findings were
+resolved; the reviewer did not independently execute DB/browser checks. Local
+`--preview-data` passes 45 groups plus preparation checks; `--async-reads` passes
+three groups. Runner/impact tests pass 45/17 and the standalone boundary passes.
 
-The final code also passes `--regional-closes-check` (HTTP, native and managed
-exact-pin/history checks), `--context-read-check` with 14 browser checks,
-`--async-workbench-check` with 39 HTTP and 11 browser checks, and the existing
-`--market-dates-check` with its managed demand checks and 65 calendar/session
-browser assertions. Local `--async-reads` passes all three managed groups;
-the runner and impact-selection tests pass 45 and 17 checks respectively, and
-the standalone boundary check passes. Builds have no warnings or errors.
+The earlier bounded checkpoint passed regional-close HTTP/native/managed checks,
+context (14 browser assertions), async-workbench (39 HTTP and 11 browser
+assertions), and the original calendar suite (managed demand and 65 browser
+assertions). Final native-reader regression results follow that checkpoint.
+The complete CI matrix, hosted deployment and curve-click timing, broad
+concurrency/memory capacity, page request sizing and evaluation payload reduction
+are not qualified by these measurements.
 
 ## Current runner
 
