@@ -28,6 +28,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     if(body.curve!==null){data.dates=[];data.minDate=null;data.maxDate=null;data.unavailable=[{date:'2020-12-17',reason:'source_expired'},{date:'2020-12-18',reason:'missing_observation'}];}
     response=new Response(JSON.stringify(data),{status:response.status,headers:{'Content-Type':'application/json'}});
    }
+   if(path.endsWith('/market/dates')&&window.holdNextCalendar){window.holdNextCalendar=false;await new Promise(resolve=>window.releaseCalendar=resolve);}
    if(!curveCloses&&(path.endsWith('/market/dates')||path.endsWith('/custom-curves/preview')))window.marketDateRequests.push({path,body:JSON.parse(args[1].body),status:response.status,payload:await response.clone().json()});
    if(curveCloses)window.curveCloseRequests.push({body:JSON.parse(args[1].body),status:response.status,payload:await response.clone().json()});
    return response;
@@ -50,8 +51,13 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   `(()=>{const read=window.marketDateRequests.at(-1);return read.body.curve===null&&read.body.definition===null&&read.payload.maxDate===window.newestDate&&document.querySelector('#market-date-dialog').open&&${badge}.textContent==='Newer close available'&&!!${badge}.querySelector('button')&&document.querySelector('#error').hidden;})()`,
   `JSON.stringify({last:window.marketDateRequests.at(-1).body,maxDate:window.marketDateRequests.at(-1).payload.maxDate,badge:${badge}.hidden?'(hidden)':${badge}.textContent})`);
  await click('#market-date-close');await evaluate('window.hideNewestDate=true');await persona('viewer');
- await evaluate(`window.hideNewestDate=false;window.readsBeforeFocus=${dateReads};window.closeBeforeFocus=document.querySelector('#snapshot').value;window.dispatchEvent(new Event('focus'))`);
- await wait(settled+`&&${dateReads}===window.readsBeforeFocus+1`);
+ await wait(settled);
+ // A focus arriving while an older calendar is held must ask again after that
+ // response finishes. Repeated focus events share one follow-up read.
+ await evaluate(`window.holdNextCalendar=true;window.readsBeforeFocus=${dateReads};window.closeBeforeFocus=document.querySelector('#snapshot').value;window.dispatchEvent(new Event('focus'))`);
+ await wait("typeof window.releaseCalendar==='function'");
+ await evaluate("window.hideNewestDate=false;window.dispatchEvent(new Event('focus'));window.dispatchEvent(new Event('focus'));window.releaseCalendar();delete window.releaseCalendar");
+ await wait(settled+`&&${dateReads}===window.readsBeforeFocus+2`);
  await check('returning to the window offers a newer close without switching to it',`(()=>{const read=window.marketDateRequests.at(-1);return read.body.curve===null&&read.payload.maxDate===window.newestDate&&document.querySelector('#snapshot').value===window.closeBeforeFocus&&${badge}.textContent==='Newer close available'&&${badge}.querySelector('button')&&document.querySelector('#error').hidden;})()`);
  // A display time zone does not move a close in time: another zone reads the calendar again in that zone and keeps the offer.
  const zoneBefore=await evaluate('window.marketDateRequests.at(-1).body.timeZone'),zoneAfter=zoneBefore==='Asia/Tokyo'?'UTC':'Asia/Tokyo';
