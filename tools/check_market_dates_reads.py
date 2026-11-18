@@ -343,8 +343,45 @@ def profile_native(client, query, request):
         query('DROP FUNCTION public.synthetic_calendar_work(),public.synthetic_calendar_capture_work(text,jsonb);DROP TABLE public.synthetic_calendar_function_work;')
 
 
+def native_admission_parity(query, manifest):
+    """Compare private set admission with the independently retained scalar oracle."""
+    signature = 'security.market_close_batch_visible(uuid,uuid[])'
+    if query(f"SELECT to_regprocedure('{signature}') IS NULL;") == 't':return
+    catalog, tenant, workspace = (manifest[key] for key in ('catalogId', 'tenantId', 'workspaceId'))
+    closes = query(f"SELECT string_agg(quote_literal(id)||'::uuid',',') FROM market_data.market_closes WHERE catalog_id='{catalog}';")
+    native = query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);")
+    # Failure diagnostics name only which refusal branch ran, not protected
+    # data. The diagnostic clone is disposable and uses the same owner.
+    branch = 0
+    def refusal(match):
+        nonlocal branch
+        branch += 1
+        return f"RETURN 'refusal_{branch}';"
+    diagnostic = re.sub('RETURN false;', refusal, native.replace('FUNCTION security.market_close_batch_visible(', 'FUNCTION public.synthetic_close_batch_reason(', 1).replace('RETURNS boolean', 'RETURNS text', 1))
+    query(diagnostic+";ALTER FUNCTION public.synthetic_close_batch_reason(uuid,uuid[]) OWNER TO openetrm_security_owner;REVOKE ALL ON FUNCTION public.synthetic_close_batch_reason(uuid,uuid[]) FROM PUBLIC;")
+    query("""CREATE FUNCTION public.synthetic_close_batch_compare(catalog uuid,ids uuid[]) RETURNS jsonb
+      LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
+       SELECT jsonb_build_object('actual',security.market_close_batch_visible(catalog,ids),
+        'expected',NOT EXISTS(SELECT 1 FROM unnest(ids)i WHERE security.market_close_visible(catalog,i) IS NOT TRUE),
+        'reason',public.synthetic_close_batch_reason(catalog,ids));
+      $$;
+      ALTER FUNCTION public.synthetic_close_batch_compare(uuid,uuid[]) OWNER TO openetrm_security_owner;
+      REVOKE ALL ON FUNCTION public.synthetic_close_batch_compare(uuid,uuid[]) FROM PUBLIC;
+      GRANT EXECUTE ON FUNCTION public.synthetic_close_batch_compare(uuid,uuid[]) TO openetrm_runtime;""")
+    try:
+        for day in (None, '2020-12-18', '2020-12-17'):
+            token = query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','viewer','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
+            bind = '' if day is None else f"SELECT security.use_market_context('{catalog}',security.capture_date_context('{catalog}','{day}',clock_timestamp()));"
+            actual = json.loads(query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{bind}SELECT public.synthetic_close_batch_compare('{catalog}',ARRAY[{closes}]);ROLLBACK;").splitlines()[-1])
+            print('CALENDAR_NATIVE_PARITY=' + json.dumps({'day': day, **actual}), flush=True)
+            assert actual['actual'] == actual['expected'], actual
+    finally:
+        query('DROP FUNCTION public.synthetic_close_batch_compare(uuid,uuid[]),public.synthetic_close_batch_reason(uuid,uuid[]);')
+
+
 def run_checks(url, query, manifest, psql, environment, log, api_pid, *, verify=True, profile=False):
     client = PreviewClient(url); client.bootstrap(); client.call('profile', {'profile': 'viewer'})
+    if verify:native_admission_parity(query, manifest)
     body = {'session': 'demo_close_1600', 'curve': 'bridge_basis', 'timeZone': 'UTC'}
     answers = {}
     for name, curve in [('curve', 'bridge_basis'), ('workspace', None), ('rate', 'interest_rates')]:
