@@ -20,7 +20,7 @@ def run_checks(c, check, query, manifest):
         contracts = {row['id']: row for row in definitions['contracts']}
         interval_contracts = {row['contract_id'] for row in definitions['contract_intervals']}
         commodities = {row['code']: row for row in references['commodities']}
-        # D424: each commodity names its icon in reference data; the fixture's gas is a flame and its power a bolt.
+        # D425: each commodity names its icon in reference data; the fixture's gas is a flame and its power a bolt.
         if not {'test_gas': 'flame', 'test_power': 'bolt'}.items() <= {code: row['icon_code'] for code, row in commodities.items()}.items():
             raise AssertionError('Fixture commodities must name their icons')
         expected = []

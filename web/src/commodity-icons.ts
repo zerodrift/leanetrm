@@ -1,4 +1,4 @@
-// Commodity icons (D424). Reference data names each commodity's icon and the browser only draws it: one path in a 20×20 box
+// Commodity icons (D425). Reference data names each commodity's icon and the browser only draws it: one path in a 20×20 box
 // with round strokes and no fill, in the commodity's colour. An unknown name means the contract is broken: it throws, never
 // becomes a fallback drawing, and nothing here reads a commodity's code or name.
 const icons={

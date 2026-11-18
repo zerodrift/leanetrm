@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import {rowMenuItems} from '../dist/blotter-row-menu.js';
 
 const key='71000000-0000-4000-8000-000000000009:72000000-0000-4000-8000-000000000008';
-const row=(instrumentType='future')=>({key,instrumentType,reference:'TRD-7'});
-const all={book:true,amend:true,ask:true};
-const labels=['Close out…','Amend…','Open in its own window','Copy trade ID','Ask the assistant about this position'];
+const row=(instrumentType='future',lots='40')=>({key,instrumentType,reference:'TRD-7',lots:instrumentType==='future'?lots:null});
+const all={book:true,amend:true,risk:true,ask:true};
+const labels=['Close out…','Amend…','Buy more…','Sell…','Risk…','Open in its own window','Copy trade ID','Ask the assistant about this position'];
 // The menu for a row, and what choosing each item it offers asks for, in order.
 function actions(can,type='future'){
   const ran=[];const items=rowMenuItems(row(type),can,action=>ran.push(action));
@@ -18,21 +18,21 @@ test('the row menu offers the trader’s actions in order, and no hedge',()=>{
   assert.deepEqual(items.map(i=>i.label),labels);
   assert.ok(!items.some(i=>/hedge/i.test(i.label)));
   assert.ok(items.every(i=>i.disabled===undefined));
-  assert.deepEqual(ran,[{kind:'draftCloseOut',key},{kind:'amend',key},{kind:'openWindow'},{kind:'copyId'},{kind:'ask'}]);
+  assert.deepEqual(ran,[{kind:'draftCloseOut',key},{kind:'amend',key},{kind:'adjust',direction:'increase'},{kind:'adjust',direction:'reduce'},{kind:'risk'},{kind:'openWindow'},{kind:'copyId'},{kind:'ask'}]);
 });
 
 test('an account that cannot book has Close out disabled with the booking reason, and its other actions offered',()=>{
   const why='Return to working data before booking or amending.';
   const {items,ran}=actions({...all,book:false,why:{book:why}});
-  assert.deepEqual(items.map(i=>[i.label,i.disabled]),[['Close out…',why],['Amend…',undefined],['Open in its own window',undefined],['Copy trade ID',undefined],['Ask the assistant about this position',undefined]]);
-  assert.ok(!ran.some(a=>a.kind==='draftCloseOut'));
+  assert.deepEqual(items.map(i=>[i.label,i.disabled]),[['Close out…',why],['Amend…',undefined],['Buy more…',why],['Sell…',why],['Risk…',undefined],['Open in its own window',undefined],['Copy trade ID',undefined],['Ask the assistant about this position',undefined]]);
+  assert.ok(!ran.some(a=>a.kind==='draftCloseOut'||a.kind==='adjust'));
 });
 
 test('amend and ask are refused with their own reasons',()=>{
   const {items,ran}=actions({...all,amend:false,ask:false,why:{amend:'PPA amendments and terminations are made in PPA bookings.',ask:'Your role cannot use the page assistant.'}},'ppa');
   assert.equal(items[1].disabled,'PPA amendments and terminations are made in PPA bookings.');
-  assert.equal(items[4].disabled,'Your role cannot use the page assistant.');
-  assert.deepEqual(ran,[{kind:'draftCloseOut',key},{kind:'openWindow'},{kind:'copyId'}]);
+  assert.equal(items[7].disabled,'Your role cannot use the page assistant.');
+  assert.deepEqual(ran,[{kind:'draftCloseOut',key},{kind:'adjust',direction:'increase'},{kind:'adjust',direction:'reduce'},{kind:'risk'},{kind:'openWindow'},{kind:'copyId'}]);
 });
 
 test('heat rate and PPA rows keep Close out offered: what the backend refuses it says in the form',()=>{
@@ -52,6 +52,12 @@ test('a row whose values are not current offers nothing, each item saying why',(
 });
 
 test('a refused action without its reason is an error, never a silent default',()=>{
-  for(const can of [{...all,book:false},{...all,amend:false,why:{book:'x'}},{...all,ask:false,why:{}}])
+  for(const can of [{...all,book:false},{...all,amend:false,why:{book:'x'}},{...all,risk:false,why:{}},{...all,ask:false,why:{}}])
     assert.throws(()=>rowMenuItems(row(),can,()=>{}),/reason/);
+});
+
+test('the menu names a short future\'s adjustments as its details do, and offers no event that is not yet supported',()=>{
+  const items=rowMenuItems(row('future','-15'),all,()=>{});
+  assert.deepEqual(items.slice(2,4).map(i=>i.label),['Sell more…','Buy back…']);
+  assert.ok(!items.some(i=>/Terminate|Novate/.test(i.label)));
 });

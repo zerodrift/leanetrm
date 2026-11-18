@@ -82,7 +82,8 @@ function el<K extends keyof HTMLElementTagNameMap>(tag:K,className?:string,text?
 }
 
 /**
- * The panel's head and body for a new trade: the title, the chooser of its instrument, a line on the instrument and the selected form.
+ * The panel's head and body for a new trade: the title, the bar of its instruments, a line on the one chosen and the selected form. The
+ * bar is the one list of instruments, drawn the same whether or not one is chosen; each button says what its instrument is as its tip.
  * `choose` receives the selected product and `link` the page an entry is entered on instead. `groups` are the entries this window
  * offers, and `offered` whether booking is: where it is not, the chooser is not drawn, as the page says why. The form of the product is
  * the page's to put in the panel's form part.
@@ -97,10 +98,10 @@ export function setupNewTrade(shell:SidePanel,o:{choose:(product:NewProduct)=>vo
     const button=el('button','instrument');button.type='button';
     button.append(el('span','instrument-name',entry.name));
     if(entry.kind==='product'){
-      button.id=`new-trade-${entry.product}`;button.onclick=()=>o.choose(entry.product);button.append(el('span','instrument-about',productAbout(entry.product)));products.set(entry.product,button);
+      button.id=`new-trade-${entry.product}`;button.onclick=()=>o.choose(entry.product);button.title=productAbout(entry.product);products.set(entry.product,button);
     }else if(entry.kind==='link'){
       const mark=el('span','instrument-mark','↗');mark.setAttribute('aria-hidden','true');
-      button.id=`new-trade-${entry.id}`;button.onclick=()=>o.link(entry.page);button.append(mark,el('span','instrument-about',entry.about));links.push(button);
+      button.id=`new-trade-${entry.id}`;button.onclick=()=>o.link(entry.page);button.title=entry.about;button.append(mark);links.push(button);
     }else{
       // Not yet offered: disabled for good, which the page's busy sweep leaves as drawn.
       button.classList.add('ticket-soon');button.dataset.ownControls='';button.disabled=true;button.setAttribute('aria-disabled','true');button.title=entry.about;button.append(el('span','ticket-soon-tag','Coming soon'));
@@ -135,7 +136,7 @@ export function setupNewTrade(shell:SidePanel,o:{choose:(product:NewProduct)=>vo
       const label=modeLabel(mode);
       if(head.firstElementChild!==root)head.replaceChildren(root);
       title.textContent=label;chosen=mode.product;chooser.dataset.state=chosen===null?'choose':'chosen';
-      note.textContent=chosen===null?'Choose an instrument type. Each ticket keeps its own delivery, pricing and lifecycle terms.':productAbout(chosen);
+      note.hidden=chosen===null;note.textContent=chosen===null?'':productAbout(chosen);
       body.setAttribute('role','group');body.setAttribute('aria-label',label);
       const reading=state==='loading'&&chosen!==null;
       say(reading?loading[chosen!]:chooseText,!reading);

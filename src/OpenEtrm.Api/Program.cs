@@ -2285,6 +2285,9 @@ api.MapPost("/trading/position",(HttpContext c,TradePositionReadRequest body)=>T
 api.MapPost("/trading/close-out-draft",(HttpContext c,CloseOutDraftRequest body)=>TradingRead(c,
  body.Context??throw new MarketDataException("close_out","Supply the selected context."),
  (connection,view,ct)=>tradeReads.CloseOutDraft(connection,view,body,ct),expectedConvention:TradingBlotter.Convention));
+api.MapPost("/trading/position-adjustment-draft",(HttpContext c,PositionAdjustmentDraftRequest body)=>TradingRead(c,
+ body.Context??throw new MarketDataException("close_out","Supply the selected context."),
+ (connection,view,ct)=>tradeReads.PositionAdjustmentDraft(connection,view,body,ct),expectedConvention:TradingBlotter.Convention));
 // The workspace's Blotter valuation as NDJSON frames (D268):
 // refused as trading/workspace refuses before start; then start, the rows of each completed unit, and complete once the
 // result passes the final recheck under the session gate. The read runs outside the gate and authorizes every frame.

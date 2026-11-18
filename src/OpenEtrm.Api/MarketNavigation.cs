@@ -5,7 +5,7 @@ using OpenEtrm.MarketData.CustomCurves;
 
 namespace OpenEtrm.Api;
 
-// A curve's commodity in the directory: its code, its name and the icon its reference data declares (D424).
+// A curve's commodity in the directory: its code, its name and the icon its reference data declares (D425).
 public sealed record NavigationCategory(string Code,string Name,string Icon);
 // A position names its commodity by code and name only.
 public sealed record PositionCommodity(string Code,string Name);

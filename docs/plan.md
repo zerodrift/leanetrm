@@ -2079,7 +2079,7 @@ Extend only after the baseline contracts are demonstrated:
   - Measuring publication-lock contention from definition runs before a hosted
     release (verification.md).
 - Live feed adapters and their entitlement/provenance controls.
-- Commodity icons beyond the six of D424; each arrives with the first commodity
+- Commodity icons beyond the six of D425; each arrives with the first commodity
   that names it.
 - Settlement workflows, richer administration and deployment hardening.
 
@@ -2657,3 +2657,12 @@ instrument chooser, tickets at the page's width, a booked trade followed on the
 Blotter. Presentation only. Remaining: stay on the page for the next trade once
 booking receipts carry the trade reference (backend); one order of parts for every
 ticket, with the description-driven ticket; a Storage instrument, still Coming soon.
+
+### Trade actions, adjustment drafts and one-trade risk (D424)
+
+New trade's instruments are one grouped bar. A position's details offer Close out,
+Amend, an increase, a reduction and Risk as buttons; the backend drafts an
+adjustment for a stated quantity beside the close-out draft; Risk from a position
+runs for that trade. Remaining: termination and novation (drawn Coming soon);
+adjustments of scheduled swaps and of instruments the close-out draft does not
+support; a position's own retained risk run beside the desk's.

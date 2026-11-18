@@ -8,7 +8,7 @@ def run_checks(url,query=None,manifest=None):
     original=base.call('workspace');baseline_frame=original['frames'][-1]
     c=PreviewClient(url,'exchange');c.opener=base.opener
     boot=c.bootstrap();c.call('profile',{'profile':'trader'});w=c.call('workspace')
-    # D424: the curve list carries the icon each commodity names in reference data; the example's crude is a drop.
+    # D425: the curve list carries the icon each commodity names in reference data; the example's crude is a drop.
     icons={curve['category']['code']:curve['category']['icon'] for curve in c.call('workspace/navigation')['curves'] if curve['category']}
     assert icons=={'test_gas':'flame','test_power':'bolt','test_crude':'drop'},icons
     assert boot['workspaceId']!=base.call('bootstrap')['workspaceId']

@@ -153,7 +153,7 @@ export type CellFormats={money:(index:number,value:string)=>string;quantity:(ind
  * What the Risk lens shows of a row: the shocks that move its position, with the bar scale of its currency; that the run leaves it out,
  * with its row's own reason; that no shock of the run moves it; or, while a part of the run has no results, that it is not known, and why.
  */
-export type LensRowView={state:'shocks';shocks:readonly LensShock[];scale:string|undefined}|{state:'left';reason:string}|{state:'unmoved'}|{state:'unknown';reason:string};
+export type LensRowView={state:'shocks';shocks:readonly LensShock[];scale:string|undefined}|{state:'left';reason:string}|{state:'outside'}|{state:'unmoved'}|{state:'unknown';reason:string};
 // The sizes of a row's shocks, each once, as the Shock cell states them under a count.
 const sizesOf=(shocks:readonly LensShock[])=>[...new Set(shocks.map(s=>`±${s.bump} ${s.unit}`))].join('; ');
 const sparkWidth=84,sparkHeight=22;
@@ -229,6 +229,12 @@ export function deskCells(rows:readonly DeskRow[],colors:ReadonlyMap<string,stri
     // A line under a figure keeps its start in view, ending in an ellipsis where its column is too narrow, with its whole text as its title.
     cell.classList.add('desk-risk');
     const sub=(text:string)=>{const line=node('small','desk-sub',text);line.title=line.textContent!;return line;};
+    // A run made for chosen trades says nothing of the others: such a row is not in the run, which is not the same as unvalued.
+    if(risk.state==='outside'){
+      if(key!=='riskShock')return null;
+      cell.title=publicText('The risk run on the desk was made for other trades only');
+      cell.append(node('span','desk-chip','Not in this run'));return cell;
+    }
     if(risk.state==='left'){
       if(key!=='riskShock')return null;
       cell.classList.add('desk-unvalued');cell.title=publicText('This close cannot value this position, so the run leaves it out');

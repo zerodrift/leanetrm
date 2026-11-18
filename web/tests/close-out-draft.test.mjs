@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {closeOutPriceLabel,closeOutRefusal,closeOutRequest,priceSourceNote,readCloseOutDraft} from '../dist/close-out-draft.js';
+import {adjustmentRequest,closeOutPriceLabel,closeOutRefusal,closeOutRequest,draftHeading,priceSourceNote,readCloseOutDraft} from '../dist/close-out-draft.js';
 import {createBlotterOperations} from '../dist/blotter-operations.js';
 
 const price={source:'curve_price',closeAt:'2020-12-18T08:00:00Z',closeLabel:'18 Dec 2020 08:00 UTC'};
@@ -58,4 +58,24 @@ test('the price label names its close in the zone shown, again when the zone cha
   form.fire('input',other);assert.equal(note.hidden,false,'an edit elsewhere keeps the label');
   form.fire('change',price1);assert.deepEqual([note.hidden,note.textContent],[true,'']);
   source.refresh();assert.equal(note.hidden,true,'a cleared label stays cleared when the zone changes');
+});
+
+test('an adjustment is asked for as the close-out is, with its direction and the quantity as typed',()=>{
+  const read={snapshotId:'s',contextId:'c'},h={tradeId:'t',bindingId:'b',revision:'3',instrumentType:'future'};
+  assert.deepEqual(adjustmentRequest(read,h,{direction:'reduce',quantity:' 10 '}),{...closeOutRequest(read,h),direction:'reduce',quantity:' 10 '});
+});
+
+test('an adjustment draft is read only if it states the direction and quantity that were asked for',()=>{
+  const asked={direction:'increase',quantity:'10'},drafted={...future,terms:{...future.terms,lots:'10'},adjustment:asked};
+  assert.equal(readCloseOutDraft(drafted,'future',asked).terms.lots,'10');
+  for(const other of [{direction:'reduce',quantity:'10'},{direction:'increase',quantity:'10.0'},undefined,{direction:'increase'}])
+    assert.throws(()=>readCloseOutDraft({...drafted,adjustment:other},'future',asked),/adjustment that was asked for/,JSON.stringify(other));
+  assert.throws(()=>readCloseOutDraft(drafted,'future'),/adjustment/,'a close-out is not read from an adjustment\'s draft');
+});
+
+test('a drafted form is headed by what it is of, and a refusal says which action was not drafted',()=>{
+  assert.equal(draftHeading({reference:'TRD-7'}),'Close-out of TRD-7');
+  assert.equal(draftHeading({reference:'TRD-7',adjustment:{direction:'increase',label:'Buy more…'}}),'Buy more: TRD-7');
+  const refusal=Object.assign(Error('The position holds 15 lots; reducing it by 20 would reverse it.'),{code:'close_out'});
+  assert.equal(closeOutRefusal(refusal,'TRD-7','Buy back…').message,'Buy back was not drafted for TRD-7. The position holds 15 lots; reducing it by 20 would reverse it.');
 });

@@ -19,13 +19,18 @@ test('the chooser draws the instruments in their groups, selects none, and says 
   assert.deepEqual(await evaluate(`[...document.querySelectorAll('.instrument-group')].map(g=>g.dataset.group)`),['financial','power','gas-lng','oil-liquids','structured']);
   assert.equal(await evaluate(`(n=>n.getAttribute('role')+'|'+n.getAttribute('aria-label')+'|'+n.dataset.state)(document.querySelector('#new-trade-product'))`),'group|Instrument|choose');
   assert.equal(await evaluate(`document.querySelectorAll('#new-trade-product [aria-pressed=true]').length`),0);
-  assert.equal(await evaluate(`document.querySelector('#new-trade-futures .instrument-name').textContent+'|'+document.querySelector('#new-trade-futures .instrument-about').textContent`),'Future|An exchange contract with a defined expiry.');
+  assert.equal(await evaluate(`(b=>b.textContent+'|'+b.title)(document.querySelector('#new-trade-futures'))`),'Future|An exchange contract with a defined expiry.','a button is its instrument\'s name, with what it is as its tip');
+  assert.equal(await evaluate(`document.querySelector('#new-trade-note').checkVisibility()`),false,'no line describes an instrument while none is chosen');
+  const layout=`JSON.stringify([...document.querySelectorAll('#new-trade-product,#new-trade-product .instrument-group,#new-trade-product .instrument-entries,#new-trade-product .instrument')].map(n=>[n.className,getComputedStyle(n).display,n.children.length]))`;
+  const unchosen=await evaluate(layout);
   assert.deepEqual(await evaluate(`(document.querySelector('#new-trade-swaps').click(),document.querySelector('#new-trade-operating-right').click(),[chosen,linked])`),[['swaps'],['physical-power']]);
-  assert.equal(await evaluate(`document.querySelector('#new-trade-operating-right').textContent.includes('Thermal toll, battery or solar output right · entered on Operating facilities')`),true);
+  assert.equal(await evaluate(`document.querySelector('#new-trade-operating-right').title`),'Thermal toll, battery or solar output right · entered on Operating facilities');
   assert.equal(await evaluate(`(b=>b.disabled&&b.getAttribute('aria-disabled')==='true'&&b.title.startsWith('Will book a storage contract')&&b.querySelector('.ticket-soon-tag').textContent==='Coming soon'&&!!b.closest('[data-own-controls]'))(document.querySelector('#new-trade-product .ticket-soon'))`),true);
   await evaluate(`entry.show({kind:'new',product:'swaps'},'loading')`);
   assert.deepEqual(await evaluate(`[document.querySelector('#new-trade-product').dataset.state,[...document.querySelectorAll('[aria-pressed=true]')].map(b=>b.id),document.querySelector('#side-panel-title').textContent,document.querySelector('#new-trade-note').textContent,document.querySelector('[role=status]').textContent]`),
    ['chosen',['new-trade-swaps'],'New swap','Fixed or floating prices on independent sides.','Loading the swap choices…']);
+  assert.equal(await evaluate(layout),unchosen,'the instruments are one bar, drawn the same whether or not one is chosen');
+  assert.equal(await evaluate(`document.querySelector('#new-trade-note').checkVisibility()`),true);
  });
 });
 

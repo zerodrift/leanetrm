@@ -1,4 +1,4 @@
--- A commodity names its icon in reference data (D424). The icon is required and comes from a
+-- A commodity names its icon in reference data (D425). The icon is required and comes from a
 -- fixed vocabulary; nothing infers it from a commodity's code or name after this migration.
 -- Stop runtime admission and drain calls before this schema upgrade.
 BEGIN;

@@ -7,7 +7,8 @@ import {closeNewTrade} from './new-trade.mjs';
 const menu="document.querySelector('.blotter-row-menu:not([hidden])')";
 const items=`[...(${menu}?.querySelectorAll('[role=menuitem]')??[])]`;
 const labels=`${items}.map(i=>i.firstChild.textContent)`;
-const order=['Close out…','Amend…','Open in its own window','Copy trade ID','Ask the assistant about this position'];
+// The row is a long future, whose adjustments are named for its side. Risk… is offered to an account that can run scenarios.
+const order=['Close out…','Amend…','Buy more…','Sell…','Risk…','Open in its own window','Copy trade ID','Ask the assistant about this position'];
 // Selects the built-in frame at `at` under its own close session: the As of list offers only the chosen session's closes (D334).
 async function selectFrame({evaluate,set,wait,idle},at){
   const {id,session}=await evaluate(`(async()=>{const w=await(await fetch('/api/workspace')).json();const f=w.frames.find(f=>f.at.startsWith(${JSON.stringify(at)}));return {id:f.id,session:f.close?.session??null};})()`);
@@ -82,7 +83,7 @@ export async function run(page){
   const at=await rightClick(page,futureKey);
   await wait(`!!${menu}`);
   await check('a right-click on a row opens its menu at the pointer, with the trader’s actions in order and no hedge',
-    `JSON.stringify(${labels})===${JSON.stringify(JSON.stringify(order))}&&!${items}.some(i=>/hedge/i.test(i.textContent))&&${items}.every(i=>!i.hasAttribute('aria-disabled'))&&
+    `JSON.stringify(${labels})===${JSON.stringify(JSON.stringify(order))}&&!${items}.some(i=>/hedge/i.test(i.textContent))&&${items}.every(i=>i.firstChild.textContent==='Risk…'||!i.hasAttribute('aria-disabled'))&&
       document.activeElement===${items}[0]&&Math.abs(${menu}.getBoundingClientRect().left-${at.x})<=1&&${menu}.getAttribute('aria-label')===${JSON.stringify('Position '+reference)}`,
     `({labels:${labels},disabled:${items}.map(i=>i.getAttribute('aria-disabled')),box:${menu}?.getBoundingClientRect(),focus:document.activeElement?.textContent})`);
   for(const type of ['keyDown','keyUp'])await command('Input.dispatchKeyEvent',{type,key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
@@ -259,4 +260,48 @@ export async function refusals(page){
       `(()=>{const said=document.querySelector('#position-details-view #close-out-refusal');return !!said&&!document.querySelector('#position-details').hidden&&said.textContent===${JSON.stringify(`Close-out of ${reference} was not drafted. ${why}`)}&&document.querySelector('#position-details-form').hidden&&window.__closeOut.drafts.at(-1).status===422&&document.querySelector('#error').hidden;})()`,
       "({view:document.querySelector('#position-details-view')?.textContent,drafts:window.__closeOut.drafts,banner:document.querySelector('#error').hidden?'':document.querySelector('#error').textContent})");
   }
+}
+
+// A position's details offer its trade actions as buttons. An adjustment asks its quantity, and the backend drafts the trade into the
+// booking form: more of a long future is a purchase of the stated lots, less of it a sale; one that would reverse the position is refused
+// in the backend's words, in the details. Nothing books until Book is pressed.
+export async function adjustments(page){
+  const {evaluate,wait,click,set,check,idle,fixture}=page;
+  await openBlotter(page,fixture.frames.booking.at.slice(0,19));
+  const future=fixture.positions.future,futureKey=`${future.tradeId}:${future.bindingId}`;
+  const reference=await evaluate(`window.__closeOut.holdings.find(h=>h.tradeId===${JSON.stringify(future.tradeId)}).tradeReference`);
+  await onlyRow(page,reference);
+  const button=id=>`document.querySelector('#side-panel-${id}')`;
+  const showPosition=async()=>{
+    await click(`#desk-positions .tabulator-row[data-row-key="${futureKey}"]`,30000);
+    await wait(`document.querySelector('#position-details').dataset.mode==='position'&&!!${button('increase')}&&${idle}`,30000);
+  };
+  await showPosition();
+  await check('the details offer the position\'s actions as buttons in order, the events not yet supported last and disabled',
+    `JSON.stringify([...document.querySelectorAll('#position-details-head .side-panel-actions button')].filter(b=>!b.hidden).map(b=>b.id.replace('side-panel-','')))===${JSON.stringify(JSON.stringify(['close-out','amend','increase','reduce','risk','open-curve','terminate','novate']))}&&
+      ${button('increase')}.textContent==='Buy more…'&&${button('reduce')}.textContent==='Sell…'&&!${button('close-out')}.disabled&&!${button('increase')}.disabled&&
+      ['terminate','novate'].every(id=>(b=>b.disabled&&b.classList.contains('ticket-soon'))(document.querySelector('#side-panel-'+id)))`,
+    "[...document.querySelectorAll('#position-details-head .side-panel-actions button')].map(b=>[b.id,b.textContent,b.disabled,b.hidden])");
+  const sent=()=>evaluate('window.__closeOut.sent.length'),sentBefore=await sent();
+  const adjust=async(id,quantity)=>{
+    await click(`#side-panel-${id}`);await wait("document.querySelector('#side-panel-adjust').checkVisibility()&&document.activeElement.id==='side-panel-adjust-quantity'");
+    await set('#side-panel-adjust-quantity',quantity);await evaluate("document.querySelector('#side-panel-adjust').requestSubmit()");await wait(idle,60000);
+  };
+  const drafted="({mode:document.querySelector('#position-details').dataset.mode,lots:document.querySelector('#futures-lots')?.value,head:document.querySelector('#futures-close-out')?.textContent,refusal:document.querySelector('#close-out-refusal')?.textContent,error:document.querySelector('#error').textContent})";
+  const draftOf=(lots,heading)=>`${form}.contains(document.querySelector('#futures-new-trade'))&&document.querySelector('#futures-lots').value===${JSON.stringify(lots)}&&
+    document.querySelector('.close-out-draft h3').textContent===${JSON.stringify(heading)}&&!document.querySelector('#futures-price-source').hidden&&document.querySelector('#error').hidden`;
+  await adjust('increase','10');
+  await check('Buy more drafts a purchase of the stated lots of the same contract at the curve price, and sends no booking',`${draftOf('10',`Buy more: ${reference}`)}&&window.__closeOut.sent.length===${sentBefore}`,drafted);
+  await showPosition();
+  await adjust('reduce','10');
+  await check('Sell drafts a sale of the stated lots',`${draftOf('-10',`Sell: ${reference}`)}&&window.__closeOut.sent.length===${sentBefore}`,drafted);
+  await showPosition();
+  await adjust('reduce','9999');
+  const refusedBeside=(label,quantity)=>`(()=>{const said=document.querySelector('#side-panel-adjust-note');return !!said&&said.checkVisibility()&&said.textContent.startsWith(${JSON.stringify(`${label} was not drafted for ${reference}. `)})&&
+    document.querySelector('#side-panel-adjust-quantity').value===${JSON.stringify(quantity)}&&document.querySelector('#position-details').dataset.mode==='position'&&document.querySelector('#error').hidden;})()`;
+  const beside="({mode:document.querySelector('#position-details').dataset.mode,note:document.querySelector('#side-panel-adjust-note')?.textContent,quantity:document.querySelector('#side-panel-adjust-quantity')?.value,error:document.querySelector('#error').textContent})";
+  await check('a reduction that would reverse the position is refused beside its quantity, which stays for the person to correct, with no form and no banner',refusedBeside('Sell','9999'),beside);
+  await showPosition();
+  await adjust('increase','1e3');
+  await check('a quantity that is not a plain positive decimal is refused beside it',refusedBeside('Buy more','1e3'),beside);
 }

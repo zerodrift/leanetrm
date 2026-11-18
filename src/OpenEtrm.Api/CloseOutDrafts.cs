@@ -13,6 +13,53 @@ namespace OpenEtrm.Api;
 public sealed record CloseOutDraftRequest([property:JsonRequired] FuturesReadRequest Context,[property:JsonRequired] Guid TradeId,
     [property:JsonRequired] Guid BindingId,[property:JsonRequired] int Revision,[property:JsonRequired] string InstrumentType);
 
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record PositionAdjustmentDraftRequest([property:JsonRequired] FuturesReadRequest Context,[property:JsonRequired] Guid TradeId,
+    [property:JsonRequired] Guid BindingId,[property:JsonRequired] int Revision,[property:JsonRequired] string InstrumentType,
+    [property:JsonRequired] string Direction,[property:JsonRequired] string Quantity);
+
+// An adjustment draft is a new trade of the position's own instrument, book and parties for a quantity the trader states: more of
+// the position's side, or less of it. Both are stated by the request; neither is inferred, rounded or trimmed. Less than the
+// position holds leaves the rest open, all of it is the close-out, and more would reverse the position and is refused: the
+// position is closed out and its new side booked as a trade of its own. What the booking operation checks, it still checks.
+internal sealed record PositionAdjustment(bool Increase,ExactDecimal Quantity,string Direction,string Stated)
+{
+    internal static PositionAdjustment From(string? direction,string? quantity)
+    {
+        if(direction is not("increase" or "reduce"))throw CloseOutTerms.Refused("An adjustment either increases or reduces its position; state which.");
+        ExactDecimal parsed;
+        // The project's one decimal syntax: plain digits with an optional fraction, no exponent, sign, space or separator.
+        try{parsed=ExactDecimal.Parse(quantity??"");}
+        catch(MarketDataException error) when(error.Code is "numeric_format" or "numeric_range")
+        {
+            throw CloseOutTerms.Refused("State the adjustment's quantity as a plain positive decimal, in digits with an optional decimal point.");
+        }
+        if(parsed.CompareTo(default)<=0)throw CloseOutTerms.Refused("An adjustment's quantity is greater than zero.");
+        return new(direction=="increase",parsed,direction,quantity!);
+    }
+    // An adjustment is of a quantity that is held, stated here without its sign and named as `held` names it ("15 lots"): a
+    // reduction may not exceed it.
+    internal void Within(ExactDecimal open,string held)
+    {
+        if(open.CompareTo(default)<=0)throw CloseOutTerms.Refused("The position states no quantity to increase or reduce.");
+        if(!Increase&&Quantity.CompareTo(open)>0)
+            throw CloseOutTerms.Refused($"The position holds {held}; reducing it by {Stated} would reverse it. Close it out, and book the new side as a trade of its own.");
+    }
+    // What an adjustment trades against a signed holding: its quantity on the holding's own side to increase it, and on the
+    // other side to reduce it.
+    internal ExactDecimal Traded(ExactDecimal held,string unit)
+    {
+        var isLong=held.CompareTo(default)>0;var open=isLong?held:-held;
+        Within(open,$"{open} {unit}");
+        return Increase==isLong?Quantity:-Quantity;
+    }
+    internal object Echo=>new{direction=Direction,quantity=Stated};
+}
+
+// What a draft read returns: the terms a booking form opens, the price they were drafted at and, for an adjustment, what it was of.
+internal sealed record FutureDraft(string Kind,JsonObject Terms,object Price,[property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] object? Adjustment);
+internal sealed record SwapDraft(string Kind,JsonObject Terms,object Periods,int SettledPeriodsExcluded,object Price,[property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] object? Adjustment);
+
 // A close-out draft (owner, 2026-10-30) is the offsetting trade of one position revision in the pinned context: the same
 // instrument, contract or delivery, book and parties, the opposite side, the open quantity and, as the price, the position's
 // curve price at the selected close. It books nothing; the trader reviews it in the booking form, which assigns the booking's
@@ -41,20 +88,29 @@ internal static class CloseOutTerms
 
 public sealed partial class TradeReads
 {
-    public Task<object> CloseOutDraft(NpgsqlConnection connection,TradingView view,CloseOutDraftRequest request,CancellationToken ct)
+    public Task<object> CloseOutDraft(NpgsqlConnection connection,TradingView view,CloseOutDraftRequest request,CancellationToken ct)=>
+        PositionDraft(connection,view,new(request.Context,request.TradeId,request.BindingId,request.Revision,request.InstrumentType),null,ct);
+
+    public Task<object> PositionAdjustmentDraft(NpgsqlConnection connection,TradingView view,PositionAdjustmentDraftRequest request,CancellationToken ct)=>
+        PositionDraft(connection,view,new(request.Context,request.TradeId,request.BindingId,request.Revision,request.InstrumentType),(request.Direction,request.Quantity),ct);
+
+    // One read drafts both: a close-out, and with a stated direction and quantity an adjustment.
+    private Task<object> PositionDraft(NpgsqlConnection connection,TradingView view,TradePositionReadRequest position,(string Direction,string Quantity)? stated,CancellationToken ct)
     {
-        var selected=TradePositionSelection.From(new(request.Context,request.TradeId,request.BindingId,request.Revision,request.InstrumentType));
+        var selected=TradePositionSelection.From(position);
         return ReadBound(connection,view,async()=>
         {
-            // Authority first, as for the position the draft closes, then what the backend cannot draft.
+            // Authority first, as for the position the draft is of, then what the backend cannot draft.
             await RequireReadTrades(connection,ct);
-            if(request.InstrumentType is "heat_rate" or "ppa")throw CloseOutTerms.Refused($"Close-out drafts are not available for {request.InstrumentType} yet.");
+            if(selected.InstrumentType is not("future" or "financial_swap"))
+                throw CloseOutTerms.Refused($"{(stated is null?"Close-out":"Adjustment")} drafts are not available for {selected.InstrumentType} yet.");
+            var adjustment=stated is {} given?PositionAdjustment.From(given.Direction,given.Quantity):null;
             var data=await database.Read(connection,ct,observationIds:view.Frame.ObservationIds,
                 referenceScope:ReferenceReadScope.TradeValuation,observationScope:ObservationReadScope.ExactPins);
             try
             {
-                return selected.InstrumentType=="future"?await futures.DraftCloseOut(connection,data,view.CalculationFrame,selected,request.Context,ct)
-                    :await swaps.DraftCloseOut(connection,data,view.CalculationFrame,selected,request.Context,ct);
+                return selected.InstrumentType=="future"?await futures.DraftCloseOut(connection,data,view.CalculationFrame,selected,position.Context,adjustment,ct)
+                    :await swaps.DraftCloseOut(connection,data,view.CalculationFrame,selected,position.Context,adjustment,ct);
             }
             catch(MarketDataException error) when(error.Code=="position_revision")
             {
@@ -66,7 +122,7 @@ public sealed partial class TradeReads
 
 public sealed partial class FuturesStore
 {
-    internal async Task<object> DraftCloseOut(NpgsqlConnection connection,PreviewData data,InputFrame frame,TradePositionSelection selected,FuturesReadRequest context,CancellationToken ct)
+    internal async Task<object> DraftCloseOut(NpgsqlConnection connection,PreviewData data,InputFrame frame,TradePositionSelection selected,FuturesReadRequest context,PositionAdjustment? adjustment,CancellationToken ct)
     {
         var resolved=await ReadTrades(connection,data,await Books(connection,ct),[],[],ct,selected);
         var trade=resolved.Trades.Single();var row=resolved.Rows.Single(r=>r.Id("binding_id")==selected.BindingId);
@@ -83,12 +139,15 @@ public sealed partial class FuturesStore
         var holding=FuturesHoldings.Price([new Trade(trade.Id,trade.BookId,[position],trade.Booking)],snapshot,build!,manifest.FuturesConvention).Single();
         var parties=TradeParties.Read(manifest.CatalogId,row)??throw CloseOutTerms.Refused("The position's revision names no legal entity and counterparty to repeat.");
         var mark=holding.Mark.Value.ToString();
-        var lots=default(ExactDecimal)-execution.Lots(position.Quantity);
-        return new{kind="future",terms=CloseOutTerms.Draft(new FuturesBookRequest(Guid.Empty,context.SnapshotId,trade.BookId,side.Market.Curve.Code,side.Contract.Key.Id,
+        // The close-out sells what is held, or buys back what is short. An adjustment trades its stated lots on the position's
+        // own side to increase it, and on the other side to reduce it.
+        var held=execution.Lots(position.Quantity);
+        var lots=adjustment?.Traded(held,"lots")??default(ExactDecimal)-held;
+        return new FutureDraft("future",CloseOutTerms.Draft(new FuturesBookRequest(Guid.Empty,context.SnapshotId,trade.BookId,side.Market.Curve.Code,side.Contract.Key.Id,
                 lots.ToString(),mark,null,row.Text("implementation"),context.KnowledgeMode,
                 LegalEntityId:parties.LegalEntity.Key.Id,LegalEntityRevision:parties.LegalEntity.Key.Revision,
                 CounterpartyId:parties.Counterparty.Key.Id,CounterpartyRevision:parties.Counterparty.Key.Revision,DefinitionRevisionId:side.Market.Curve.Revision.RevisionId)),
-            price=new{value=mark,unit=data.PriceUnit(side.Market.Curve.Code),source=CloseOutTerms.PriceSource,closeAt=frame.At,closeLabel=CloseOutTerms.Label(frame.At)}};
+            new{value=mark,unit=data.PriceUnit(side.Market.Curve.Code),source=CloseOutTerms.PriceSource,closeAt=frame.At,closeLabel=CloseOutTerms.Label(frame.At)},adjustment?.Echo);
     }
 }
 
@@ -97,7 +156,10 @@ public sealed partial class SwapStore
     // A swap closes its periods the settlement state in the pinned context and cutoff leaves open (owner, 2026-10-30): a period
     // whose settlement is determined on both sides is left untouched; one determined on one side only, or fixed but not
     // determined, refuses the draft. Each open period is reversed, pay for receive, with its own quantity, at its curve price.
-    internal async Task<object> DraftCloseOut(NpgsqlConnection connection,PreviewData data,InputFrame frame,TradePositionSelection selected,FuturesReadRequest context,CancellationToken ct)
+    // An adjustment (PositionAdjustment) is drafted the same way for a swap of one schedule: the stated quantity on the swap's own
+    // sides to increase it, reversed to reduce it. A scheduled swap holds a quantity for each period, which one stated quantity
+    // does not allocate, so its adjustment is refused.
+    internal async Task<object> DraftCloseOut(NpgsqlConnection connection,PreviewData data,InputFrame frame,TradePositionSelection selected,FuturesReadRequest context,PositionAdjustment? adjustment,CancellationToken ct)
     {
         var heads=(await Rows(connection,selected.TradeId,ct)).GroupBy(r=>r.Id("trade_id")).Select(g=>g.MaxBy(r=>r.Number("revision"))!).ToArray();
         selected.Require(heads);
@@ -105,14 +167,16 @@ public sealed partial class SwapStore
         if(row.Text("implementation")==CrossCommodityScheduledSwap.Implementation)throw TradePositionSelection.Unavailable();
         (data,frame)=await ScheduledMarket(connection,data,frame,row.Id("definition_revision_id"),ct);
         var terms=Terms(data,row,frame.Id);var scheduled=terms.Scheduled;
+        if(adjustment is not null&&scheduled is not null)
+            throw CloseOutTerms.Refused("A scheduled swap holds a quantity for each period, so one stated quantity cannot increase or reduce it. Book the change as a swap of its own.");
         // The first side states the fixed price the draft sets, the second the floating curve price it is set to; each is
         // checked on its own, so no side's terms are read before its kind is known.
         if(scheduled is null?terms.FirstFloating is not null:scheduled.First.Periods.All(p=>p.Floating is not null)&&scheduled.Second.Periods.All(p=>p.Floating is not null))
-            throw CloseOutTerms.Refused("A swap of two floating sides has no fixed price to close at the curve price.");
+            throw CloseOutTerms.Refused("A swap of two floating sides has no fixed price to draft at the curve price.");
         if(scheduled is null?terms.Fixed is null:scheduled.First.Periods.Any(p=>p.Fixed is null))
-            throw CloseOutTerms.Refused("The swap's first side has no fixed price in every period to close at the curve price.");
+            throw CloseOutTerms.Refused("The swap's first side has no fixed price in every period to draft at the curve price.");
         if(scheduled is null?terms.Floating is null:scheduled.Second.Periods.Any(p=>p.Floating is null))
-            throw CloseOutTerms.Refused("The swap's second side has no floating curve price in every period to close at.");
+            throw CloseOutTerms.Refused("The swap's second side has no floating curve price in every period to draft at.");
         // Each side's delivery periods, in contract order.
         (DateOnly From,DateOnly To)[] Deliveries(IEnumerable<(string? From,string? To)> periods)=>[..periods.Select(p=>(Date(p.From),Date(p.To)))];
         var deliveries=Deliveries(scheduled is null?new[]{(terms.Fixed!.DeliveryFrom,terms.Fixed.DeliveryTo)}:scheduled.First.Periods.Select(p=>(p.Fixed!.DeliveryFrom,p.Fixed.DeliveryTo)));
@@ -144,10 +208,18 @@ public sealed partial class SwapStore
             else if(sides==1)throw CloseOutTerms.Refused($"{Period(deliveries[n])} is settled on one side only, so whether it is still open is ambiguous.");
             else open.Add(n);
         }
-        if(open.Count==0)throw CloseOutTerms.Refused("Every period of this swap is settled; nothing is left open to close out.");
-        var reversed=(default(ExactDecimal)-ExactDecimal.Parse(Required(scheduled is null?terms.FixedCoefficient:terms.FirstCoefficient))).ToString();
+        if(open.Count==0)throw CloseOutTerms.Refused("Every period of this swap is settled; nothing is left open to draft.");
+        var coefficient=ExactDecimal.Parse(Required(scheduled is null?terms.FixedCoefficient:terms.FirstCoefficient));
+        var reversed=(default(ExactDecimal)-coefficient).ToString();
         SwapWriteRequest draft;
-        if(scheduled is null)draft=terms with{FixedCoefficient=reversed};
+        if(adjustment is not null)
+        {
+            // A one-schedule swap states its size as a positive quantity and its direction as its coefficient's sign.
+            var quantity=Required(terms.Quantity);
+            adjustment.Within(ExactDecimal.Parse(quantity),$"a quantity of {quantity}");
+            draft=terms with{Quantity=adjustment.Stated,FixedCoefficient=adjustment.Increase?coefficient.ToString():reversed};
+        }
+        else if(scheduled is null)draft=terms with{FixedCoefficient=reversed};
         else
         {
             // A per-period quantity basis keeps each remaining period's own amount; one contract total cannot be divided among them.
@@ -184,6 +256,6 @@ public sealed partial class SwapStore
         }).ToArray();
         draft=scheduled is null?draft with{Fixed=draft.Fixed! with{Price=periods[0].price}}:
             draft with{Scheduled=draft.Scheduled! with{First=draft.Scheduled.First with{Periods=[..draft.Scheduled.First.Periods.Select((p,n)=>p with{Fixed=p.Fixed! with{Price=periods[n].price}})]}}};
-        return new{kind="financial_swap",terms=CloseOutTerms.Draft(draft),periods,settledPeriodsExcluded=settled,price=CloseOutTerms.Price(frame)};
+        return new SwapDraft("financial_swap",CloseOutTerms.Draft(draft),periods,settled,CloseOutTerms.Price(frame),adjustment?.Echo);
     }
 }

@@ -304,7 +304,7 @@ internal static class PreviewDataChecks
             PreviewData Held(ImmutableArray<JsonElement> commodities,ImmutableArray<JsonElement> curves)=>
                 Data(references:new(fixture.References){["commodities"]=commodities},definitions:new(fixture.Definitions){["curves"]=curves});
             if(Held(Commodities("gas","power"),Curve("gas")).Commodity("future") is not {Code:"gas",Name:"Synthetic gas"})throw new Exception("A curve lost the commodity its reference names.");
-            // The icon belongs to the curve directory (D424); a position row keeps its two-field commodity.
+            // The icon belongs to the curve directory (D425); a position row keeps its two-field commodity.
             if(JsonSerializer.Serialize(Held(Commodities("gas"),Curve("gas")).Commodity("future"),JsonSerializerOptions.Web)!="""{"code":"gas","name":"Synthetic gas"}""")
                 throw new Exception("A position's commodity must carry only its code and name.");
             Reject("ambiguous_reference",()=>Held(Commodities("gas"),Curve("gas")).Commodity("unlisted"));
