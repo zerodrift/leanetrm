@@ -215,13 +215,15 @@ second; authority ending during the read refuses disclosure and replacement
 returns `close_replaced`. Fresh native header RLS also refuses loss of authority
 to an unconsumed supplemental part. Independent adversarial review findings were
 resolved; the reviewer did not independently execute DB/browser checks. Local
-`--preview-data` passes 45 groups plus preparation checks; `--async-reads` passes
+`--preview-data` passes 45 checks plus preparation checks; `--async-reads` passes
 three groups. Runner/impact tests pass 45/17 and the standalone boundary passes.
 
-The earlier bounded checkpoint passed regional-close HTTP/native/managed checks,
-context (14 browser assertions), async-workbench (39 HTTP and 11 browser
-assertions), and the original calendar suite (managed demand and 65 browser
-assertions). Final native-reader regression results follow that checkpoint.
+After integration with `origin/master` at `9d6fe377`, the final native-reader
+code passes regional-close HTTP/native/managed checks, context recovery with
+14 browser assertions, async-workbench with 39 HTTP and 11 browser assertions,
+and the original calendar suite with managed demand checks and 65 browser
+assertions. The new upstream position-adjustment check passes all 40 assertions.
+The integration changes no market-date runtime code or native functions.
 The complete CI matrix, hosted deployment and curve-click timing, broad
 concurrency/memory capacity, page request sizing and evaluation payload reduction
 are not qualified by these measurements.
