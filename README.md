@@ -182,6 +182,29 @@ task; the booking-storage checkpoint alone does not complete it. See the
 [delivery plan](docs/plan.md). If you want to help with any of these, start with
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Commercial support
+
+LeanETRM is free under Apache 2.0 and will stay that way. If you want help
+putting it to work, three things are available from the author.
+
+**Pilot.** We run LeanETRM beside your current system, on your own trades, for
+a fixed scope and a fixed fee. Typical scope is one desk and one commodity
+through a month-end. You get a written comparison of valuations, positions and
+P&L against your system of record, and a list of what would have to be built
+before production.
+
+**Implementation.** Product coverage for your book, integrations with your
+market data, scheduling and accounting systems, data migration, and the controls
+and sign-on your security team requires.
+
+**Support.** Ongoing fixes, upgrades and new products under an annual agreement.
+
+LeanETRM is not production-qualified yet. A pilot is how you find out what that
+would take for your book.
+
+Contact: [Joe Isaac](https://www.linkedin.com/in/jmisaac). Trading and risk
+technology at Deutsche Bank, Merrill Lynch, Citigroup and TrailStone.
+
 ## Quickstart
 
 You need the .NET SDK pinned in `global.json`, Node with npm (version in
