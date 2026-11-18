@@ -368,11 +368,11 @@ def native_admission_parity(query, manifest):
     closes = query(f"SELECT string_agg(quote_literal(id)||'::uuid',',') FROM market_data.market_closes WHERE catalog_id='{catalog}';")
     query("""CREATE FUNCTION public.synthetic_close_batch_compare(catalog uuid,ids uuid[]) RETURNS jsonb
       LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
-       WITH eligible AS MATERIALIZED(SELECT ARRAY(SELECT id FROM unnest(ids)id WHERE security.market_close_visible(catalog,id)) ids)
-       SELECT jsonb_build_object('actual',security.market_close_batch_visible(catalog,ids),
-        'expected',NOT EXISTS(SELECT 1 FROM unnest(ids)i WHERE security.market_close_visible(catalog,i) IS NOT TRUE),
-        'eligibleCount',cardinality(eligible.ids),'eligibleActual',CASE WHEN cardinality(eligible.ids)>0
-         THEN security.market_close_batch_visible(catalog,eligible.ids) ELSE false END) FROM eligible;
+       WITH eligible AS MATERIALIZED(SELECT ARRAY(SELECT id FROM unnest($2)id WHERE security.market_close_visible($1,id)) selected_ids)
+       SELECT jsonb_build_object('actual',security.market_close_batch_visible($1,$2),
+        'expected',NOT EXISTS(SELECT 1 FROM unnest($2)i WHERE security.market_close_visible($1,i) IS NOT TRUE),
+        'eligibleCount',cardinality(eligible.selected_ids),'eligibleActual',CASE WHEN cardinality(eligible.selected_ids)>0
+         THEN security.market_close_batch_visible($1,eligible.selected_ids) ELSE false END) FROM eligible;
       $$;
       ALTER FUNCTION public.synthetic_close_batch_compare(uuid,uuid[]) OWNER TO openetrm_security_owner;
       REVOKE ALL ON FUNCTION public.synthetic_close_batch_compare(uuid,uuid[]) FROM PUBLIC;
