@@ -194,6 +194,23 @@ def native_source_work_check(client, query, request):
     print('PASS native matrix admission shares exact-source checks within its statement', flush=True)
 
 
+def native_hidden_work_check(client, query, request):
+    """A fully visible session needs source admission, not one admission per day."""
+    signature = 'security.market_fact_visible(uuid,uuid,uuid)'
+    fact = query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);")
+    query('CREATE SEQUENCE public.synthetic_calendar_hidden_checks;GRANT USAGE ON SEQUENCE public.synthetic_calendar_hidden_checks TO openetrm_security_owner;')
+    try:
+        assert fact.count('\nBEGIN\n') == 1
+        query(fact.replace('\nBEGIN\n', "\nDECLARE stack text;\nBEGIN\n GET DIAGNOSTICS stack=PG_CONTEXT;\n IF position('close_session_hidden_days(' IN stack)>0 THEN PERFORM nextval('public.synthetic_calendar_hidden_checks');END IF;\n", 1))
+        client.call('market/dates', {**request, 'maximumDates': 1})
+        calls = int(query('SELECT CASE WHEN is_called THEN last_value ELSE 0 END FROM public.synthetic_calendar_hidden_checks;'))
+    finally:
+        query(fact);query('DROP SEQUENCE public.synthetic_calendar_hidden_checks;')
+    print('CALENDAR_HIDDEN_SOURCE_CHECKS=' + str(calls), flush=True)
+    assert 0 < calls <= 4, f'One exact source was authorized {calls} times while proving an entirely visible session'
+    print('PASS fully visible hidden-day proofs share their source admission', flush=True)
+
+
 def batch_authority_check(query, manifest):
     """A prepublished successor grant cannot extend a native batch's initial authority."""
     catalog, tenant, workspace = (manifest[key] for key in ('catalogId', 'tenantId', 'workspaceId'))
@@ -504,6 +521,7 @@ def run_checks(url, query, manifest, psql, environment, log, api_pid, *, verify=
         return
     discovery_work_check(client, query, request)
     native_source_work_check(client, query, request)
+    native_hidden_work_check(client, query, request)
     older_close = query(f"SELECT id FROM market_data.market_closes WHERE session_code='{SESSION}' ORDER BY business_date LIMIT 1;")
     limited_matrix_check(client, query, older_close)
     failed_build_check(client, query, manifest, measure)
