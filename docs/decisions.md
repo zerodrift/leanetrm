@@ -6438,6 +6438,13 @@ Amends D419's ordinary-read coverage. `market/dates` and `market/last-closes`
 capture their session selection under the gate, qualify outside it through
 `UngatedRead`, and reacquire the gate for `ReadAuthority` before answering.
 Frame discovery and `session.ApplyFrames` remain in the capture gate hold.
+Calendar and navigation discovery always read fresh runtime-RLS headers with the
+original global ordering and capacity rules. An internal catalog/context-bound
+carrier reuses only previously discovered immutable native matrices; it cannot
+contain working frames, aliases, source projections or authority decisions.
+Newly discovered IDs load their parts together. The carrier is installed only
+after the discovery transaction commits and is cleared with discovered state.
+Calendar execution still reattests every candidate matrix it consumes.
 The existing two-read session bound applies; the response-channel allowlist does
 not expand. Delegated assistant reads retain their existing gated execution.
 
@@ -6454,6 +6461,30 @@ remaining potentially selected pin sets per source only if another frame is reac
 The conservative prefetch filter reuses the exact selection contract; it never
 replaces native matrix attestation, typed rate admission or curve qualification.
 Selected rate tenors retain D359's loading and per-close compilation contracts.
+
+Migration 0362 shares exact-source admission inside the existing definer
+close-parts reader. A private helper checks each distinct definition/reference
+tuple before and after its historical receipt/pin proof; the parent retains its
+two admission stages, payload implementation and independent missing-ID check.
+Current mode retains its deliberate lack of historical pin tests. Historical
+mode uses the market context's explicit knowledge prefix, close and observation
+publication transactions, source periods and effective-day boundary. The scalar
+visibility function's reviewed body, owner, ACL and execution attributes are
+checked before using this logic. Unsupported scalar contracts use the original
+scalar predicate under the original reader's definer authority.
+
+Migration 0363 shares that admission for the hidden-day projection. It selects
+known heads with the existing head selector before testing visibility; unknown
+heads contribute no date and invisible heads never revive predecessors. If all
+heads are visible, the hidden result is empty. Otherwise the unchanged per-day
+query supplies the result, retaining its existing cost for hidden/unsupported
+cases. Both paths materialize their result before checking the initial authority
+deadline and exact request/context again. The reader remains `STABLE`. Its date
+array is projected directly to avoid a second native evaluation during SRF
+planning, retaining ISO ordering and the legacy null-as-empty projection.
+Hidden-day reads retain their existing scope beyond 128 days; only the private
+helper supports that consumer. The public parts reader's 128-ID limit stays.
+Both migrations refuse unreviewed predecessor definitions or privileges.
 
 An ordinary listed-curve limited read first attests the newest candidate, then
 prefetches the remaining matrices and dated catalogues in bounded batches only if
@@ -6496,7 +6527,9 @@ matrices need not be retransmitted in that gate hold.
 No availability table, cross-request answer cache, dependency, database fork or
 new financial convention is introduced. Proof storage is operation-local and
 deduplicates the facts consumed per source/context; it ends with the request.
-Unvisited prefetched facts do not enter this proof. The existing 128-frame,
+Unvisited prefetched facts do not enter this proof. Immutable matrix reuse never
+substitutes for fresh header authority, execution admission or publication proof.
+The existing 128-frame,
 custom-window and shared bundle/reference evidence bounds remain unchanged.
 No additional observation-count limit changes the accepted workload.
 
