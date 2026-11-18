@@ -504,14 +504,16 @@ async function openNewestClose(){
 // A newer close can arrive while a session is open. Opening a page and returning to the window ask again, in the
 // background and without polling. The badge reports what the check found and only a click on it selects the newer close.
 // A check that could not be made leaves the badge as the last one left it, and the next page or focus asks again.
+// Events during an active check share one follow-up, using the then-current scope.
 async function recheckNewestClose(){
- if(checkingCloses||!navigation||contextDirty||historicalContext()||!showsDate(page)||['jobs','facilities','rec-inventory'].includes(page)||closeSession===null)return;
+ if(sessionEnded||asyncIdentityLost||!navigation||contextDirty||historicalContext()||!showsDate(page)||['jobs','facilities','rec-inventory'].includes(page)||closeSession===null)return;
+ if(checkingCloses){closeCheckDue=true;return;}
  const owner=navigation;checkingCloses=true;
  try{
   const catalog=await readAvailability(workspaceDates(closeSession));
   if(catalog&&navigation===owner){const before=workspaceCloses&&latestInstant(workspaceCloses);workspaceCloses=catalog;renderCloseBadge();if(before!==latestInstant(catalog)){curveCloses=undefined;void loadLastCloses();void renderCurveCloses();}}
  }catch{/* the badge stays as the last check left it */}
- finally{checkingCloses=false;}
+ finally{checkingCloses=false;if(closeCheckDue&&!busy){closeCheckDue=false;void recheckNewestClose();}}
 }
 // The badge compares the close shown with the workspace's newest. Its basis is the latest instant known when that close was
 // selected (taken the first time the close is rendered, and again whenever it is selected), so a later close is news
@@ -1837,7 +1839,7 @@ const assistant=setupAssistant({launcherHidden:()=>prefs.assistantHidden,launche
 // Coming back to the window asks whether a newer close arrived while it was away.
 window.addEventListener('focus',()=>void recheckNewestClose());
 // A main window that closes or goes elsewhere tells the Blotter it popped out, which then shows why it stops.
-window.addEventListener('pagehide',()=>{cancelCurveRead();pageRead?.controller.abort();readClient.close();futures.ended('main_closed');});
+window.addEventListener('pagehide',()=>{closeCheckDue=false;cancelCurveRead();pageRead?.controller.abort();readClient.close();futures.ended('main_closed');});
 // A reload, closing the tab and going back leave the page without the panel's own question, so the browser asks while the panel holds an
 // amendment with edits, or a custom curve holds unsaved ones: the listener is on while it does, and off once the edits are saved or given up. A session that has ended cannot
 // send what the form holds, and is not asked about.

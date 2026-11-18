@@ -6538,3 +6538,12 @@ calendar capture retains its existing publication-gate lifetime. Page request
 sizing, evaluation payloads, hosted rollout and wider concurrency qualification
 remain separate work. [Measurements and correctness evidence](verification.md#market-date-read-batching-d425)
 record the actual scope.
+
+Newest-close checks remain detached from page/widget readiness. Focus or page
+events received during a check coalesce into one follow-up, drained after the
+active check or foreground action finishes. The follow-up uses current eligibility
+and request inputs; existing generation/owner fences discard stale answers.
+Known-ended identities cannot start it, and page disposal clears pending work.
+It offers a newer close without selecting it. Browser checks wait for their
+earlier synthetic calendar response before changing that calendar, and separately
+hold an older response to qualify overlapping focus events.
