@@ -361,7 +361,9 @@ function table(target:string,headers:string[],rows:(string|HTMLElement)[][],nume
   renderRegularTable($(target),target,JSON.stringify(target==='reference'?referenceScope:marketScope),headers,rows,numeric,()=>busy,{displayRows,onRowActivate});
 }
 
-function clearPrices(){result=undefined;pricingContract='';closeContract();input='';draftFor='';$('revision-card').hidden=true;text('build-info','');text('price-date','Choose a market date to view prices.');if(curve)renderSummary();clearChart($('curve-chart'),'Choose a market date above.');$('curve-chart').classList.add('empty');$('contracts').replaceChildren();$('inactive-contracts').hidden=true;$('inactive-contracts').replaceChildren();$('inputs').replaceChildren();if(curve)renderDependencies();}
+// Forgets the prices in view and closes what was opened from them; the drawing stays as it is.
+function forgetPrices(){result=undefined;pricingContract='';closeContract();input='';draftFor='';$('revision-card').hidden=true;}
+function clearPrices(){forgetPrices();text('build-info','');text('price-date','Choose a market date to view prices.');if(curve)renderSummary();clearChart($('curve-chart'),'Choose a market date above.');$('curve-chart').classList.add('empty');$('contracts').replaceChildren();$('inactive-contracts').hidden=true;$('inactive-contracts').replaceChildren();$('inputs').replaceChildren();if(curve)renderDependencies();}
 const showsDate=(next:string)=>next==='jobs'?can('ReadMarketData'):!['gas-setup','admin','ai','interval-series','ppa','delivery'].includes(next);
 const usesBusinessDate=(next:string)=>['rec-inventory','facilities','reference','schedules','jobs'].includes(next);
 const showsContext=(next:string)=>showsDate(next)&&next!=='interval-curves';
@@ -545,7 +547,20 @@ async function selectCurve(code:string,signal?:AbortSignal){
   curve=code;
   const selected=curve?listedCurve().source:null;
   if(JSON.stringify(previous)!==JSON.stringify(selected))workspace=undefined;
-  invalidateMarketDates();clearPrices();void renderCurveCloses();
+  invalidateMarketDates();
+  // A priced curve stays in view, marked as pending, until its successor's prices arrive; the page then changes in one step
+  // instead of emptying first. Its prices are forgotten at once, so nothing can be opened from the drawing that is leaving.
+  if(curve&&select('snapshot').value&&!$('curve-detail').hidden&&!$('curve-chart').classList.contains('empty')){
+    forgetPrices();
+    let closes:'held'|'none'|'stale'|undefined;const reading=loadCurveCloses().then(state=>closes=state);
+    try{await build(signal);}
+    // A read given up for a newer choice leaves the page to that choice; any other failure empties it, as a first choice does.
+    catch(error){if(!signal?.aborted||!curveRead){clearPrices();void reading.then(drawCurveCloses);}throw error;}
+    // The closes arrive with the prices when they were read in time; a slower read hides the leaving curve's closes until it ends.
+    drawCurveCloses(closes??'none');if(!closes)void reading.then(drawCurveCloses);
+    return;
+  }
+  clearPrices();void renderCurveCloses();
   if(!curve){renderContext();await loadBoard();}
   else if(select('snapshot').value)await build(signal);else{await loadWorkspace(signal);signal?.throwIfAborted();renderContext();}
 }
@@ -554,6 +569,8 @@ function chooseCurve(code:string){
  if(pointTraderMark.unsaved()){void pointTraderMark.leave().then(leave=>{if(leave)chooseCurve(code);});return;}
  if(pageRead?.page==='market'){pageRead.controller.abort();pageRead=undefined;}
  cancelCurveRead();const reading=curveRead=new AbortController();$('market-page').dataset.readState='pending';$('error').hidden=true;syncControls();
+ // The chosen row is marked at once; the library is drawn again with the curve's prices.
+ for(const row of document.querySelectorAll<HTMLElement>('#curves .curve-button[data-curve]')){row.classList.toggle('selected',row.dataset.curve===code);row.setAttribute('aria-pressed',String(row.dataset.curve===code));}
  void selectCurve(code,reading.signal).catch(error=>{if(curveRead===reading&&!reading.signal.aborted){text('error',errorMessage(error));$('error').hidden=false;}})
   .finally(()=>{if(curveRead===reading){curveRead=undefined;$('market-page').dataset.readState='ready';syncControls();}});
 }
@@ -607,22 +624,29 @@ async function loadLastCloses(){
 }
 // The closes the curve in view can price, newest first. Reading them is separate from pricing, so a close the curve is missing from still lists the closes it has.
 let curveCloses:{key:string;closes:{id:string;businessDate:string}[]}|undefined;
-async function renderCurveCloses(){
- const host=$('curve-closes');
- if(!curve||closeSession===null){host.hidden=true;host.replaceChildren();return;}
+// Reads the closes of the curve in view unless they are held: 'held' when they can be drawn, 'none' when there are none to show,
+// 'stale' when another curve came into view meanwhile.
+async function loadCurveCloses():Promise<'held'|'none'|'stale'>{
+ if(!curve||closeSession===null)return 'none';
  const code=curve,key=JSON.stringify([code,closeSession,prefs.timeZone,historicalContext()?.contextId??null]);
- if(curveCloses?.key!==key){
-  let catalog:MarketDates|undefined;
-  // A read that failed or no longer applies is not remembered, so the next render asks again.
-  try{catalog=await readAvailability({curve:code,timeZone:prefs.timeZone,session:closeSession,definition:null,maximumDates:10});}catch{catalog=undefined;}
-  if(curve!==code)return;
-  if(!catalog){host.hidden=true;host.replaceChildren();return;}
-  curveCloses={key,closes:catalog.dates.flatMap(day=>day.frames.map(close=>({id:close.id,businessDate:close.businessDate}))).reverse()};
- }
+ if(curveCloses?.key===key)return 'held';
+ let catalog:MarketDates|undefined;
+ // A read that failed or no longer applies is not remembered, so the next render asks again.
+ try{catalog=await readAvailability({curve:code,timeZone:prefs.timeZone,session:closeSession,definition:null,maximumDates:10});}catch{catalog=undefined;}
+ if(curve!==code)return 'stale';
+ if(!catalog)return 'none';
+ curveCloses={key,closes:catalog.dates.flatMap(day=>day.frames.map(close=>({id:close.id,businessDate:close.businessDate}))).reverse()};
+ return 'held';
+}
+function drawCurveCloses(state:'held'|'none'|'stale'){
+ const host=$('curve-closes'),code=curve;
+ if(state==='stale')return;
+ if(state==='none'||!curveCloses){host.hidden=true;host.replaceChildren();return;}
  const list=el('ol');list.className='vol-close-list';
  for(const close of curveCloses.closes){const current=close.id===select('snapshot').value,chip=el('button');chip.type='button';chip.className='vol-close-chip';chip.dataset.close=close.id;chip.setAttribute('aria-current',String(current));chip.append(el('span',displayDate(close.businessDate)));chip.disabled=busy;if(!current)chip.onclick=()=>void offerClose(close.id,{page:'market',curve:code});const item=el('li');item.append(chip);list.append(item);}
  const label=el('span','Closes');label.className='vol-closes-label';host.replaceChildren(label,list);host.hidden=!curveCloses.closes.length;
 }
+async function renderCurveCloses(){drawCurveCloses(await loadCurveCloses());}
 // A close another page offers, other than the header's As of, is the person's to take: nothing moves until they choose (D361). Only a recorded close has an address a separate window can open.
 const frameName=(f:FrameSummary)=>f.close?`${closeSessionNames.get(f.close.session)??f.close.session} · ${displayDate(f.close.businessDate)}`:workingSnapshot(instant(f.at));
 async function offerClose(id:string,target:CloseTarget){

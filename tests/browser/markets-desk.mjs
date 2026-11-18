@@ -13,6 +13,7 @@ export async function run({command,evaluate,wait,click,set,check,shot,idle,fitsW
   window.__shapeReads=[];window.__evaluates=0;window.__contractViewReads=[];const send=window.fetch;window.fetch=async(input,init)=>{
    const path=new URL(typeof input==='string'?input:input.url,location.href).pathname;
    if(path==='/api/evaluate')window.__evaluates++;
+   if(path==='/api/evaluate'&&window.__holdEvaluate)await new Promise(resolve=>window.__releaseEvaluate=()=>{window.__holdEvaluate=false;window.__releaseEvaluate=undefined;resolve();});
    if(path==='/api/history'){let response=await send(input,init);
     // A series with different samples at one instant, as /history states it: its points kept, the conflict instead of a chart, no overlays.
     if(window.__conflictHistory&&response.ok){const data=await response.json();data.chart={conflict:{at:data.points[0].at,message:'Several closes recorded different prices at '+data.points[0].at+'.'}};delete data.overlays;response=new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}});}
@@ -125,6 +126,18 @@ export async function run({command,evaluate,wait,click,set,check,shot,idle,fitsW
    "(async()=>{const tiles=[...document.querySelectorAll('#curve-summary .desk-tile')].map(t=>[t.querySelector('.desk-tile-label').textContent,t.querySelector('.kpi-figure').textContent]);"+
    "return tiles.length===4&&tiles.map(t=>t[0]).join('|')==='Contracts|Front contract|Front price|Settlement'&&!document.querySelector('#curve-summary').hidden&&tiles[0][1]===document.querySelector('#build-info').textContent.split(' ')[0];})()",
    "[...document.querySelectorAll('#curve-summary .desk-tile')].map(t=>t.textContent)");
+  // Another curve is chosen while one is shown: the curve in view stays whole until its successor's prices arrive.
+  const leaving=await evaluate("JSON.stringify([document.querySelector('#curve-title').textContent,document.querySelector('#curve-summary').textContent,document.querySelectorAll('#contracts tr').length,document.querySelector('#curve-closes').textContent])");
+  await evaluate("window.__holdEvaluate=true;[...document.querySelectorAll('#curves .curve-button')].find(b=>b.querySelector('span').textContent==='Hub power forwards').click()");
+  await wait("typeof window.__releaseEvaluate==='function'");
+  await check('while another curve is read, the curve in view keeps its title, tiles, chart, contracts and closes; the chosen row is pressed and the page is pending',
+   `JSON.stringify([document.querySelector('#curve-title').textContent,document.querySelector('#curve-summary').textContent,document.querySelectorAll('#contracts tr').length,document.querySelector('#curve-closes').textContent])===${JSON.stringify(leaving)}&&`+
+   "!document.querySelector('#curve-summary').hidden&&!!document.querySelector('#curve-chart canvas')&&!document.querySelector('#curve-chart').classList.contains('empty')&&document.querySelector('#contracts tr')&&"+
+   "document.querySelector('.curve-button[aria-pressed=true] span')?.textContent==='Hub power forwards'&&document.querySelector('#market-page').dataset.readState==='pending'&&document.querySelector('#error').hidden");
+  await evaluate('window.__releaseEvaluate()');await wait(idle+"&&document.querySelector('#curve-title').textContent==='Hub power forwards'");
+  await check('the chosen curve then replaces it in one step: its title, tiles, chart and contracts, pressed in the library',
+   "document.querySelector('#curve-title').textContent==='Hub power forwards'&&!document.querySelector('#curve-summary').hidden&&!!document.querySelector('#curve-chart canvas')&&document.querySelector('#contracts tr')&&"+
+   "document.querySelector('.curve-button[aria-pressed=true] span')?.textContent==='Hub power forwards'&&document.querySelector('#market-page').dataset.readState==='ready'&&document.querySelector('#error').hidden");
   await click('#curve-all-markets');
   await check('All markets in the curve\'s header returns to the market board with no curve selected',
    "!document.querySelector('#market-board').hidden&&document.querySelector('#curve-detail').hidden&&!document.querySelector('.curve-button[aria-pressed=true]')&&document.querySelectorAll('.market-card[data-state=priced]').length>0&&document.querySelector('#error').hidden");
