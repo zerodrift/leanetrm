@@ -170,18 +170,27 @@ def native_source_work_check(client, query, request):
     """One-source matrix admission must not repeat source authority for every close."""
     signatures = ['security.read_market_close_parts(uuid,uuid[],uuid)', 'security.market_fact_visible(uuid,uuid,uuid)']
     parts, fact = [query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);") for signature in signatures]
+    scalar = query("SELECT pg_get_functiondef('security.market_close_visible(uuid,uuid)'::regprocedure);")
     query('CREATE SEQUENCE public.synthetic_calendar_source_checks;GRANT USAGE ON SEQUENCE public.synthetic_calendar_source_checks TO openetrm_security_owner;')
     try:
         assert parts.count('\nBEGIN\n') == 1 and parts.count('RETURN payload;') == 1 and fact.count('\nBEGIN\n') == 1
         query(parts.replace('\nBEGIN\n', "\nBEGIN\n PERFORM set_config('openetrm.synthetic_calendar_batch','on',true);\n", 1)
               .replace('RETURN payload;', "PERFORM set_config('openetrm.synthetic_calendar_batch','off',true);RETURN payload;"))
         query(fact.replace('\nBEGIN\n', "\nBEGIN\n IF current_setting('openetrm.synthetic_calendar_batch',true)='on' THEN PERFORM nextval('public.synthetic_calendar_source_checks');END IF;\n", 1))
-        client.call('market/dates', request)
+        answer = projection(client.call('market/dates', request))
         calls = int(query('SELECT CASE WHEN is_called THEN last_value ELSE 0 END FROM public.synthetic_calendar_source_checks;'))
+        # A semantically identical but independently changed scalar must remain
+        # authoritative, rather than being bypassed by copied admission logic.
+        query(scalar.replace('\nBEGIN\n', '\nBEGIN\n -- Synthetic scalar compatibility probe\n', 1))
+        query('ALTER SEQUENCE public.synthetic_calendar_source_checks RESTART;')
+        assert projection(client.call('market/dates', request)) == answer
+        fallback = int(query('SELECT CASE WHEN is_called THEN last_value ELSE 0 END FROM public.synthetic_calendar_source_checks;'))
     finally:
-        query(parts);query(fact);query('DROP SEQUENCE public.synthetic_calendar_source_checks;')
+        query(parts);query(fact);query(scalar);query('DROP SEQUENCE public.synthetic_calendar_source_checks;')
     print('CALENDAR_MATRIX_SOURCE_CHECKS=' + str(calls), flush=True)
     assert 0 < calls <= 4, f'One exact source was authorized {calls} times in one matrix batch'
+    assert fallback > calls, f'Scalar drift did not retain the authoritative original predicate: {calls}/{fallback}'
+    assert query("SELECT has_function_privilege('preview_runtime','security.market_close_batch_visible(uuid,uuid[])','EXECUTE');") == 'f'
     print('PASS native matrix admission shares exact-source checks within its statement', flush=True)
 
 
