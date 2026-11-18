@@ -10,12 +10,13 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   // in for a close that becomes available during a session, as the market-dates check does. Every other reply is the backend's own.
   await command('Page.addScriptToEvaluateOnNewDocument',{source:`
     window.__dashboardShapeRefs=[];window.__captureDashboardShapes=false;
-    window.__shapeReads=[];window.__dashboardHistories=0;const send=window.fetch;window.fetch=async(input,init)=>{
+    window.__shapeReads=[];window.__dashboardDates=[];window.__dashboardHistories=0;const send=window.fetch;window.fetch=async(input,init)=>{
     const path=String(input);
     // A layout read the check asks to fail, as a lost connection would.
     if(path==='/api/dashboard/layout'&&!init?.body&&window.__failLayoutRead)return new Response(JSON.stringify({code:'request_failed',message:'Synthetic failed layout read.'}),{status:503,headers:{'Content-Type':'application/json'}});
     if(path==='/api/history')window.__dashboardHistories++;
     const shapeRead=path==='/api/market/curve-shapes'?{curves:JSON.parse(init.body).curves,shapes:[]}:null;if(shapeRead)window.__shapeReads.push(shapeRead);
+    const datesRead=path==='/api/market/dates'?{done:false}:null;if(datesRead)window.__dashboardDates.push(datesRead);
     let response=await send(input,init);
     if(shapeRead&&response.ok)shapeRead.shapes=(await response.clone().json()).curves;
     if(path==='/api/market/curve-shapes'){const json=response.json.bind(response);response.json=async()=>{const data=await json();if(window.__captureDashboardShapes)for(const shape of data.curves??[])window.__dashboardShapeRefs.push(new WeakRef(shape));return data;};}
@@ -25,6 +26,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
       if(body.curve===null&&body.definition===null){data.dates.pop();data.maxDate=data.dates.at(-1)?.date??null;}
       response=new Response(JSON.stringify(data),{status:response.status,headers:{'Content-Type':'application/json'}});
     }
+    if(datesRead){datesRead.status=response.status;datesRead.payload=await response.clone().json();datesRead.done=true;}
     return response;};
     window.__api=async(path,body)=>{const boot=await(await send('/api/bootstrap')).json();const r=await send('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:JSON.stringify(body)});return {status:r.status,data:await r.json()};};`});
   await command('Page.navigate',{url:url+'/'});await wait(idle);
@@ -164,9 +166,14 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   // found when the window is focused again turns every close footer to Newer available without reading any widget again.
   await evaluate("sessionStorage.setItem('hideNewestDate','1')");await reload();await click('#nav-dashboard');await added(3);
   await revealAll();await wait(`document.querySelectorAll('.level-tile').length===2&&!!document.querySelector('.price-chart .contract-chart canvas')&&${read}`);
+  // Widget readiness does not include the page's detached calendar check. Finish
+  // the earlier synthetic calendar before changing it and asking on focus again.
+  const datesSettled="window.__dashboardDates.length>0&&window.__dashboardDates.every(read=>read.done)";
+  await wait(datesSettled);
   await check('at the close before the newest, which the calendar calls the latest, the close footers say Latest',
     "document.querySelector('#market-date-badge').textContent==='Latest close'&&/· Latest · Intraday not configured$/.test(document.querySelector('.level-tiles-footer').textContent)&&/· Latest$/m.test(document.querySelector('.price-chart').innerText)");
-  await evaluate('window.__readsBeforeFocus=window.__shapeReads.length;sessionStorage.removeItem("hideNewestDate");window.dispatchEvent(new Event("focus"))');
+  await evaluate('window.__readsBeforeFocus=window.__shapeReads.length;window.__datesBeforeFocus=window.__dashboardDates.length;sessionStorage.removeItem("hideNewestDate");window.dispatchEvent(new Event("focus"))');
+  await wait(datesSettled+'&&window.__dashboardDates.length===window.__datesBeforeFocus+1');
   await wait("document.querySelector('#market-date-badge').textContent==='Newer close available'");
   await check('a newer close found after the widgets were drawn turns every close footer to Newer available, with no read',
     "/· Newer available · Intraday not configured$/.test(document.querySelector('.level-tiles-footer').textContent)&&/· Newer available$/m.test(document.querySelector('.price-chart').innerText)&&window.__shapeReads.length===window.__readsBeforeFocus",
