@@ -50,6 +50,7 @@ export function setupAssistant(options:PanelOptions){
   }
   const panel=get('assistant-panel'),launcher=get<HTMLButtonElement>('assistant-launcher'),picker=get<HTMLSelectElement>('assistant-agent');
   const question=get<HTMLTextAreaElement>('assistant-question'),send=get<HTMLButtonElement>('assistant-send'),handle=get('assistant-resize');
+  const searchHistory=get<HTMLInputElement>('assistant-search-history');
   const asking=new PendingCommand(definite),granting=new PendingCommand(definite),history=new NavigationHistory();
   let agents:UsableAgent[]=[],vendors:Vendor[]=[],agentsError='';
   let conversation:{id:string;agentId:string;version:number;readThrough:number}|undefined,views:TurnView[]=[];
@@ -95,7 +96,7 @@ export function setupAssistant(options:PanelOptions){
       const read=await options.api<Read>(`assistant/conversations/${held.id}?after=${own.sequence-1}`);
       const event=readEvents(read).find(e=>e.turnId===own.turnId&&e.sequence===own.sequence);
       if(event?.hidden){const view=views.find(v=>v.id===own.turnId);if(view){view.hidden=event.hidden;view.text='';view.targets=[];view.walkthroughs=[];update(view);}}
-      return conversation?.id===held.id&&presenting===own&&event?.kind==='walkthrough'&&!event.hidden;
+      return conversation?.id===held.id&&presenting===own&&event?.kind==='walkthrough'&&!event.hidden&&event.payload.unavailable!==true;
     },
     perform:async(step,signal)=>{
       signal.throwIfAborted();const own=presenting;if(!own)throw Error('The walkthrough ended.');
@@ -190,7 +191,14 @@ export function setupAssistant(options:PanelOptions){
     else if(view.text){const answer=el('div','assistant-answer');answer.append(renderBlocks(answerBlocks(publicText(view.text)),document));parts.push(answer);}
     else if(!view.ending)parts.push(el('p','assistant-waiting','Answering…'));
     for(const target of view.targets)parts.push(targetNotice(target));
+    if(!view.hidden&&view.unavailableAction)parts.push(el('p','assistant-target-reason','A saved walkthrough or navigation action is unavailable in this version. Your chat messages are still shown.'));
     if(!view.hidden)for(const item of view.walkthroughs){const key=planKey(view.id,item.sequence),resume=progress.has(key);
+      const narration=item.value.plan.steps.filter((step):step is Extract<PresentationStep,{kind:'say'}>=>step.kind==='say');
+      if(narration.length){
+        const guidance=el('div','assistant-walkthrough-guidance'),lines=el('ol','');
+        for(const step of narration)lines.append(el('li','',step.text));
+        guidance.append(el('strong','','Walkthrough guidance'),lines);parts.push(guidance);
+      }
       if(presenting?.key===key&&walkthrough.active())continue;
       const label=resume?'Resume walkthrough':presented.has(key)?'Replay walkthrough':'Start walkthrough';
       const control=button(label,label,()=>{void present(view.id,item,resume).catch(error=>announce(message(error,'The walkthrough could not start.')));});control.dataset.assistantWalkthroughControl='true';control.disabled=walkthrough.active();parts.push(control);}
@@ -376,7 +384,7 @@ export function setupAssistant(options:PanelOptions){
       if(lookingKey(place)!==lookedAt){error='The page changed. Check Looking at, then send again.';sync();return;}
       if(!knowledge||!askable||options.pageBusy()||!question.value.trim()||asking.command)return;
       command=asking.begin('assistant/turns/ask',{conversationId:conversation?.id??null,agentId:agent.id,version:agent.version,question:question.value,
-        pageReport:place.report,knowledge});
+        pageReport:place.report,knowledge,searchHistory:searchHistory.checked});
     }
     working=true;error='';consent=undefined;sync();
     const started=identity,previouslyUncertain=asking.sending();keep();
@@ -475,7 +483,7 @@ export function setupAssistant(options:PanelOptions){
   function startOver(){
     if(running()||working)return;
     closeStream();conversationGeneration++;walkthrough.clear();presenting=undefined;conversation=undefined;views=[];notices=new Map();note=undefined;error=asking.command?unconfirmedAsk:'';
-    persist();render();sync();question.focus();
+    searchHistory.checked=false;persist();render();sync();question.focus();
   }
 
   function renderLooking(){
@@ -496,6 +504,7 @@ export function setupAssistant(options:PanelOptions){
     if(panel.hidden)return;
     renderLooking();
     const turn=running(),agent=chosen(),retained=!!asking.command;
+    searchHistory.disabled=turn||working||retained;
     picker.disabled=turn||working;question.disabled=false;
     get<HTMLButtonElement>('assistant-new').disabled=turn||working||!conversation;get<HTMLButtonElement>('assistant-history-open').disabled=false;
     get<HTMLButtonElement>('assistant-close').disabled=false;
@@ -611,11 +620,11 @@ export function setupAssistant(options:PanelOptions){
       suppressed.clear();presented.clear();progress.clear();resumeReports.clear();takenOver.clear();
       agents=[];vendors=[];agentsError='';conversation=undefined;views=[];notices=new Map();askedHere=new Set();history.clear();stepsOpen.clear();
       granting.clear();consent=undefined;note=undefined;error='';unread=false;working=false;moving=Promise.resolve();live=undefined;
-      opened=false;panel.hidden=true;document.body.classList.remove('assistant-open');hideHistory();render();renderPicker(undefined);question.value='';
+      opened=false;panel.hidden=true;document.body.classList.remove('assistant-open');hideHistory();render();renderPicker(undefined);question.value='';searchHistory.checked=false;
       asking.clear();sync();if(!options.available())return;
       let saved:{conversationId?:unknown;open?:unknown}|null=null,kept:string|null=null;
       try{saved=JSON.parse(sessionStorage.getItem(stored('panel'))??'null');kept=sessionStorage.getItem(stored('ask'));}catch{/* Invalid browser state restores nothing. */}
-      asking.command=keptAsk(kept);if(asking.command){question.value=String(asking.command.body.question);error=unconfirmedAsk;}
+      asking.command=keptAsk(kept);if(asking.command){question.value=String(asking.command.body.question);searchHistory.checked=asking.command.body.searchHistory===true;error=unconfirmedAsk;}
       const started=identity;
       void readAgents().then(async()=>{
         if(started!==identity||!agents.length)return;

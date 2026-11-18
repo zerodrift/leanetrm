@@ -6581,3 +6581,31 @@ Known-ended identities cannot start it, and page disposal clears pending work.
 It offers a newer close without selecting it. Browser checks wait for their
 earlier synthetic calendar response before changing that calendar, and separately
 hold an older response to qualify overlapping focus events.
+
+## D427 — Keep walkthrough guidance and explicitly opt into personal chat search
+
+Walkthrough narration remains in its answer from the retained, authorized plan,
+including after history reload. The live status remains progress, rather than the
+sole copy of guidance. Continue rechecks access before consuming a pause, including
+at the end; a final pause says Finish walkthrough. Stop and owner/context changes
+fence late verification. Presentation never submits another model request or
+approves a business command.
+
+A composer checkbox separately allows each question to search that person's
+prior interactions in the same tenant, workspace and API/exchange entry point.
+The request identity binds its exact choice. An unchecked or older ask has no
+search authority, and an agent prompt/version cannot widen it. Existing same-chat
+context and its configured history window remain unchanged.
+
+The bounded literal search returns dated question/answer excerpts and their
+original financial context under current user/agent authority. Source accesses
+join the ordinary step receipt and publication/replay checks; revocation also
+hides answers built from retrieved evidence. Input cannot select another owner,
+workspace or arbitrary query. Prior chat is contextual evidence, never current
+financial state, required contract terms, instructions or authorization.
+
+Migration 0365 supplies immutable per-question consent and the shared SQL reader;
+`turns_v23` and matching browser/API assets consume it. The tool's optional
+installation guidance is pinned at admission, with no default text. It is not an
+agent-version setting. This decision authorizes local implementation and checks,
+not publication, schema activation or deployment.

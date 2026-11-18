@@ -87,6 +87,22 @@ test('a stream reads its events in sequence: one already read is a repeat, and o
   assert.equal(streamOrder(5,7),'gap');assert.equal(streamOrder(0,1),'next');
 });
 
+test('an unreadable saved walkthrough preserves the surrounding chat and cannot become an executable plan',()=>{
+  const read={turns:[{id:turnId,hidden:null,incomplete:false}],events:[
+    {sequence:1,turnId,kind:'text',payload:{text:'Before the guide. '},at:'2026-11-18T00:00:00Z'},
+    {sequence:2,turnId,kind:'walkthrough',payload:{ordinal:1,agentLabel:'Synthetic guide',plan:{unsupported:true}},at:'2026-11-18T00:00:01Z'},
+    {sequence:3,turnId,kind:'text',payload:{text:'After the guide.'},at:'2026-11-18T00:00:02Z'},
+    {sequence:4,turnId,kind:'completed',payload:{},at:'2026-11-18T00:00:03Z'}]};
+  let view=newTurnView({id:turnId,ordinal:1,question:'Explain this page.'});
+  for(const event of readEvents(read))view=applyEvent(view,event);
+  assert.equal(view.text,'Before the guide. After the guide.');assert.equal(view.ending.state,'completed');
+  assert.deepEqual(view.walkthroughs,[]);assert.equal(view.unavailableAction,true);
+  assert.throws(()=>frame('walkthrough','2',read.events[1].payload),'unreadable live actions still require a fresh owner read');
+  read.turns[0].hidden='access_changed';view=newTurnView({id:turnId,ordinal:1,question:'Explain this page.'});
+  for(const event of readEvents(read))view=applyEvent(view,event);
+  assert.equal(view.text,'');assert.deepEqual(view.walkthroughs,[]);
+});
+
 test('a saved curve draft is a draft target on Curve builder naming exactly its turn and step, and Save curve draft is a step the panel reads (D260)',()=>{
   const draft={page:'custom_curves',selection:{turnId,step:2},context,kind:'draft',label:'Saved curve draft: Synthetic blend'};
   assert.deepEqual(frame('navigation','8',{ordinal:3,target:draft}).payload.target,draft);

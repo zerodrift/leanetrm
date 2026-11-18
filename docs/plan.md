@@ -1,5 +1,11 @@
 # Delivery plan and acceptance criteria
 
+D427 adds personal chat-history search through an explicit composer checkbox and
+repairs retained walkthrough narration and final-pause verification. Its bounded
+contract is in [workspace assistance](assistant-workspace.md#personal-chat-history-search-d427).
+Migration 0365 and matching `turns_v23` assets require a separately qualified
+release; local checks do not activate an installation.
+
 D426 implements request-local calendar input batching and ordinary read gate
 release. Qualification requires unchanged answer projections, statement counts
 independent of additional unselected or selected-but-unpriceable closes, lazy

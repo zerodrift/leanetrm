@@ -61,6 +61,21 @@ test('an aimed control may disappear during its native read without cancelling t
   });
 });
 
+test('finishing a paused walkthrough rechecks access and fences a late check after Stop',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+  await withBrowserPage('<main></main>',async evaluate=>{
+    await evaluate(`(async()=>{window.allowed=true;window.held=false;window.checks=0;window.runner=(await import('/assistant-walkthroughs.js')).setupWalkthrough({identity:()=> 'synthetic',context:()=> 'pin',
+      verify:async()=>{checks++;if(held)await new Promise(r=>window.release=r);return allowed;},perform:async()=>document.querySelector('main')});
+      window.plan={agentLabel:'Synthetic guide',ordinal:1,plan:{pageReport:{page:'curves',selection:{}},context:{},steps:[{kind:'pause',page:'curves'}]}};
+      window.running=runner.start(plan);for(let n=0;n<100&&!document.querySelector('.assistant-walkthrough-continue:not([hidden])');n++)await new Promise(r=>setTimeout(r,10));
+      allowed=false;document.querySelector('.assistant-walkthrough-continue').click();await running;})()`);
+    assert.equal(await evaluate('checks'),2);
+    assert.match(await evaluate("document.querySelector('.assistant-walkthrough-status').textContent"),/^Stopped.*no longer available/);
+    await evaluate(`(async()=>{allowed=true;running=runner.start(plan);for(let n=0;n<100&&!document.querySelector('.assistant-walkthrough-continue:not([hidden])');n++)await new Promise(r=>setTimeout(r,10));
+      held=true;document.querySelector('.assistant-walkthrough-continue').click();for(let n=0;n<100&&!window.release;n++)await new Promise(r=>setTimeout(r,10));runner.stop();release();await running;})()`);
+    assert.equal(await evaluate("document.querySelector('.assistant-walkthrough-status').textContent"),'Stopped');
+  });
+});
+
 test('a walkthrough fill stays unsaved and Stop cancels pending presentation steps',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
   await withBrowserPage('<form id="ticket"><input id="lots"><button>Book</button></form><div id="position"></div>',async evaluate=>{
     await evaluate(`(async()=>{const {setupWalkthrough}=await import('/assistant-walkthroughs.js');window.effects=[];window.submitted=0;

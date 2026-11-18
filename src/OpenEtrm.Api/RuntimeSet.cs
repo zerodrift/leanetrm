@@ -22,7 +22,8 @@ static class RuntimeSet
     // turns_v19 adds explicit manual gas services, acknowledgments and paired transfers (D339).
     // turns_v21 adds the lifecycle workspace over product-native actions and exact-request approval (D401).
     // turns_v22 acquires financial context only on an explicit tool request and uses installation-owned guidance.
-    public const string Turns="turns_v22";
+    // turns_v23 adds per-question opt-in personal chat-history search.
+    public const string Turns="turns_v23";
     // A question, in characters, so an ask's body stays under 32 KB at four bytes each beside its page report of 8 KiB.
     public const int QuestionLength=4000;
     // The turns a workspace runs at once.

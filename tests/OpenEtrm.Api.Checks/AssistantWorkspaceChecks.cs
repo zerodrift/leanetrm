@@ -10,6 +10,21 @@ static class AssistantWorkspaceChecks
 {
     public static void Run()
     {
+        var search=AgentTools.Parse("search_chat_history",JsonSerializer.SerializeToElement(new{query="synthetic walkthrough",before=(string?)null}));
+        if(search.Operation.Id!="assistant.history_search_v1")throw new Exception("History search must be a versioned operation.");
+        foreach(var text in new[]{"{}", "{\"query\":\"\",\"before\":null}", "{\"query\":\"term\",\"before\":\"unknown\"}",
+            "{\"query\":\"term\",\"before\":null,\"ownerId\":\"someone_else\"}"})
+        {
+            try{AgentTools.Parse("search_chat_history",JsonSerializer.Deserialize<JsonElement>(text));throw new Exception("Invalid history search was accepted.");}
+            catch(ToolRefusal e) when(e.Code=="tool_arguments_invalid"){}
+        }
+        var historyTurn=new TurnReads(TurnPin.Deferred("operational",null,null,null),new("synthetic_agent",Guid.NewGuid()),
+            JsonSerializer.SerializeToElement(new{page="settings_ai",selection=new{}}),["search_chat_history"],Guid.NewGuid(),TimeSpan.FromSeconds(1),new(500,65536));
+        var historyRequest=new ModelToolRequest("synthetic_search","search_chat_history",JsonSerializer.SerializeToElement(new{query="synthetic",before=(string?)null}));
+        try{AgentTools.Requested(historyTurn,historyRequest);throw new Exception("A configured tool cannot bypass personal history consent.");}
+        catch(ToolRefusal e) when(e.Code=="history_search_disabled"){}
+        _=AgentTools.Requested(historyTurn with{SearchHistory=true},historyRequest);
+
         DiscoveryWork();
         foreach(var page in new[]{"physical_operations","dashboard","crude_setup","vol_surfaces","options","facility_quantities"})
         {

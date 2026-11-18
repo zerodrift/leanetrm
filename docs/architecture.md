@@ -1,5 +1,10 @@
 # Architecture and domain contracts
 
+D427 adds opt-in personal [assistant history search](assistant-workspace.md#personal-chat-history-search-d427)
+and retains walkthrough guidance in conversation history. Search uses current
+user/agent authority and returns prior interactions with their original context;
+it supplies no current financial evidence or inferred terms.
+
 D426 batches [market-date reads](decisions.md#d426--request-local-market-date-qualification)
 within one authorized operation. Exact native matrices, dated catalogue choices,
 source metadata and observation pins retain their existing selection contracts.
