@@ -60,6 +60,16 @@ internal static class CloseOutDraftChecks
                     position.Id("tradeId"),position.Id("bindingId"),revision??position.GetProperty("revision").GetInt32(),type??position.Text("instrumentType"));
                 return JsonSerializer.SerializeToElement(await reads.CloseOutDraft(connection,view,request,ct),Json);
             },CancellationToken.None);
+        // One adjustment draft read under the trader's own authority at a working frame.
+        Task<JsonElement> Adjust(string frameName,JsonElement position,string direction,string quantity,string? type=null)=>
+            database.WithIdentity("trader","ReadTrades",async(connection,ct)=>
+            {
+                var frame=await ResolveFrame(connection,frameName,ct);
+                var view=await TradingView.Capture(connection,new KnowledgeStore(database.Manifest.CatalogId),frame,ct);
+                var request=new PositionAdjustmentDraftRequest(new(frame.Id,TradingBlotter.Convention,"current",null),
+                    position.Id("tradeId"),position.Id("bindingId"),position.GetProperty("revision").GetInt32(),type??position.Text("instrumentType"),direction,quantity);
+                return JsonSerializer.SerializeToElement(await reads.PositionAdjustmentDraft(connection,view,request,ct),Json);
+            },CancellationToken.None);
         // A refusal is a close_out error whose reason states every given phrase; a draft or any other failure fails the check.
         async Task Refused(string name,Func<Task<JsonElement>> read,params string[] reasons)
         {
@@ -147,6 +157,42 @@ internal static class CloseOutDraftChecks
         await Refused("under a cutoff before the settlements, the settled swap's January is fixed but not settled",
             ()=>Draft("february",settled,earlier:unsettled),"2021-01-01","fixed but not settled");
         await Refused("a contract-total swap with settled periods is refused",()=>Draft("february",Position("contractTotal")),"contract-total quantity");
+
+        // An adjustment (D424) trades a stated quantity on the position's own side to increase it and on the other to reduce it.
+        // The expected lots follow from the bookings (long 40, short 15), never from the draft read.
+        var closing=await Draft("booking",future);
+        foreach(var (name,held,direction,quantity,lots) in new[]{("long 40-lot",future,"increase","10","10"),("long 40-lot",future,"reduce","10","-10"),("long 40-lot",future,"reduce","40","-40"),
+            ("short 15-lot",Position("shortFuture"),"increase","5","-5"),("short 15-lot",Position("shortFuture"),"reduce","15","15")})
+        {
+            var adjusted=await Adjust("booking",held,direction,quantity);
+            Check($"a {name} future drafts {lots} lots to {direction} it by {quantity}",adjusted.Text("kind")=="future"&&adjusted.GetProperty("terms").Text("lots")==lots&&
+                adjusted.GetProperty("adjustment").Text("direction")==direction&&adjusted.GetProperty("adjustment").Text("quantity")==quantity,adjusted);
+        }
+        var more=await Adjust("booking",future,"increase","10");
+        Check("an adjustment repeats the close-out's contract, book, parties and price, and differs only in its lots",
+            more.GetProperty("price").GetRawText()==closing.GetProperty("price").GetRawText()&&
+            closing.GetProperty("terms").EnumerateObject().All(p=>p.Name=="lots"||more.GetProperty("terms").GetProperty(p.Name).GetRawText()==p.Value.GetRawText())&&
+            more.GetProperty("terms").EnumerateObject().Count()==closing.GetProperty("terms").EnumerateObject().Count(),more);
+        Check("a close-out states no adjustment",!closing.TryGetProperty("adjustment",out _),closing);
+        Check("the same adjustment twice returns identical JSON",(await Adjust("booking",future,"increase","10")).GetRawText()==more.GetRawText());
+        await Refused("a reduction beyond the lots held is refused, naming what is held",()=>Adjust("booking",Position("shortFuture"),"reduce","20"),"15 lots","would reverse it");
+        foreach(var quantity in new[]{"0","0.0","-5","+5","1e3","1/3"," 10","10 ","","1,000",".5","5."})
+            await Refused($"a quantity stated as '{quantity}' is refused",()=>Adjust("booking",future,"increase",quantity),"quantity");
+        foreach(var direction in new[]{"sell","buy","Increase",""})
+            await Refused($"a direction stated as '{direction}' is refused",()=>Adjust("booking",future,direction,"10"),"increases or reduces");
+        await Refused("an adjustment of a future with no mark at the pinned close is refused",()=>Adjust("unpriced",future,"increase","10"),"no curve price");
+        await Refused("an adjustment of a future whose contract has expired at the close is refused",()=>Adjust("february",future,"increase","10"),"does not trade at this close");
+        // A one-schedule swap keeps its own sides to increase and reverses them to reduce; the fixture's swap pays fixed on 100.
+        var bigger=await Adjust("booking",swap,"increase","25");var smaller=await Adjust("booking",swap,"reduce","25");
+        Check("a pay-fixed swap drafts a pay-fixed swap of the stated quantity to increase it",bigger.GetProperty("terms").Text("fixedCoefficient")=="-1"&&
+            bigger.GetProperty("terms").Text("quantity")=="25"&&bigger.GetProperty("periods")[0].Text("quantity")=="25"&&bigger.GetProperty("periods")[0].Text("price")==swap.Text("mark"),bigger);
+        Check("and a receive-fixed swap of the stated quantity to reduce it",smaller.GetProperty("terms").Text("fixedCoefficient")=="1"&&
+            smaller.GetProperty("terms").Text("quantity")=="25"&&smaller.GetProperty("terms").GetProperty("fixed").Text("price")==swap.Text("mark"),smaller);
+        await Refused("a swap's reduction beyond its quantity is refused",()=>Adjust("booking",swap,"reduce","100.5"),"quantity of 100","would reverse it");
+        await Refused("a scheduled swap's adjustment is refused",()=>Adjust("booking",Position("scheduled"),"increase","10"),"quantity for each period");
+        foreach(var type in new[]{"heat_rate","ppa","physical_gas","futures_option"})
+            await Refused($"an adjustment of a {type} position is refused by name",()=>Adjust("booking",swap,"increase","10",type:type),$"Adjustment drafts are not available for {type} yet.");
+        await Refused("a close-out of an instrument no draft supports is refused by name",()=>Draft("booking",swap,type:"physical_gas"),"Close-out drafts are not available for physical_gas yet.");
 
         // Close-out of other instrument types is not yet defined.
         foreach(var type in new[]{"heat_rate","ppa"})

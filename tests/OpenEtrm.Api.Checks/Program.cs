@@ -43,6 +43,7 @@ if(args is ["--ungated-reads"]){await UngatedReadChecks.Run();return;}
 if(args is ["--async-read-contracts"]){AsyncReadContractChecks.Run();return;}
 if(args is ["--calendar-authoring"]){CalendarAuthoringSchemaChecks.Run();return;}
 if(args is ["--published-clock"]){PublishedClockChecks.Run();return;}
+if(args is ["--position-adjustment"]){PositionAdjustmentChecks.Run();return;}
 
 if(args is ["--gas-operator-physical-value",var operatorPhysicalPath]){await GasOperatorPhysicalValueChecks.Run(operatorPhysicalPath);return;}
 if(args is ["--gas-operator-ordinary-value",var operatorOrdinaryPath]){await GasOperatorPhysicalValueChecks.Run(operatorOrdinaryPath,true);return;}

@@ -6374,3 +6374,60 @@ inventory accompany the change. This is synthetic viewing data, not a market
 feed or a production activation.
 
 See [the axis contract](vol-surfaces.md#server-defined-surface-coordinates-d423).
+
+## D424 · A position's trade actions are buttons, an adjustment is drafted, and risk runs for one trade
+
+New trade listed its instruments twice: a board of tiles, then the same list as a
+strip once one was chosen. The grouped bar is now the one list, drawn the same
+whether or not an instrument is chosen; each button says what its instrument is as
+its tip, and the line under the bar describes the one chosen. No instrument is
+chosen for the person. This supersedes D421's sentence on the chooser's two states
+and nothing else of D421.
+
+What a trader does with a booked position was behind a right-click. The head of a
+position's details now offers **Close out…**, **Amend**, an increase, a reduction
+and **Risk…** as buttons, with **Terminate** and **Novate** drawn Coming soon and
+never sent. One definition (`web/src/position-actions.ts`) names the actions for the
+row menu and the buttons; an action the account may not take is shown disabled with
+its reason. The two adjustments are named from the direction the position states: a
+long future reads Buy more and Sell, a short one Sell more and Buy back, anything
+else Increase and Reduce. The name is a label; the request says `increase` or
+`reduce`.
+
+`POST /api/trading/position-adjustment-draft` is a second draft read beside the
+close-out's, on the same code and with the same authority. The request states the
+direction and a quantity; the result is the close-out draft's shape with the
+adjustment echoed, and the booking forms open it for review. A refusal is said
+beside the quantity that was asked, which stays for the person to correct. A future trades the
+stated lots on the position's own side to increase it and on the other side to
+reduce it. A swap of one schedule takes the stated quantity, its coefficient kept
+or reversed. The price is the curve price at the close, labelled so, as for a
+close-out. It books nothing.
+
+Calls made in this decision:
+
+- The quantity is asked before the draft, not left blank in the form. The futures
+  form holds signed lots, so a blank quantity would carry no direction.
+- A reduction beyond what is held is refused: it would reverse the position. All of
+  it is allowed and is the close-out.
+- A scheduled swap's adjustment is refused: one stated quantity does not allocate
+  among its periods.
+- The quantity uses the project's one decimal syntax (`ExactDecimal.Parse`) and
+  must be greater than zero. Lot increments and limits stay with booking.
+- Both drafts now refuse an instrument other than a future or a financial swap by
+  name, in the details. The close-out draft answered such a position as unavailable.
+
+**Risk…** on a position narrows the Blotter's risk scope to that trade
+(`tradeIds`, which the risk read already accepted inside the authorized books,
+D292). The desk still holds one run: a one-trade run replaces the desk's, its run
+bar and the report's scope line say which trade it covers, and a row outside it
+reads "Not in this run", never as unvalued. The toolbar's Run risk returns to the
+books on screen. A change of scope that takes a run off the desk says so, and a
+trade the read on screen no longer holds is refused by name, never widened to its
+books. A pricing policy that needs whole books refuses a one-trade scope
+with its own reason.
+
+No table, migration, permission, stored data or valuation changes. Left for later:
+termination and novation; adjustments of scheduled swaps and of instruments the
+close-out draft does not support; a position's own retained run beside the desk's.
+See the [design](superpowers/specs/2026-11-17-trade-actions-and-instrument-bar-design.md).

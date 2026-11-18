@@ -5261,3 +5261,18 @@ Local fixtures use synthetic owned resources, stock PostgreSQL 16.14, .NET
 10.0.402, Node 24.22.0, Python 3.13 and Chrome on macOS arm64. Production activation,
 performance/capacity qualification and commercial Storage valuation remain
 separate work.
+
+## Trade actions, adjustment drafts and one-trade risk (D424)
+
+Local results on 2026-11-17, on this Mac without a database: `npm test --prefix
+web` passed 2238 tests, including the instrument bar's layout at four widths, the
+position's action buttons and quantity row in a headless browser, the action list,
+the operation reader, the draft readers and the risk scope. The API and its checks
+build with no warnings, and `--position-adjustment` passed 40 database-free checks
+of the adjustment's direction, sign, limit and quantity syntax.
+`tests/test_check_all.py` passed 45 tests.
+
+Not run here: `--close-out-drafts-check --browser-check`, which holds the
+adjustment draft's database checks (long and short futures in each direction, the
+close-out's price and parties repeated, swaps kept and reversed, each refusal) and
+the live browser checks of the buttons and the New trade bar. They run in CI.

@@ -19,7 +19,8 @@ const examples={
   popOut:{kind:'popOut'},
   bringBack:{kind:'bringBack'},
   draftCloseOut:{kind:'draftCloseOut',key:pos},
-  amend:{kind:'amend',key:pos}};
+  amend:{kind:'amend',key:pos},
+  draftAdjustment:{kind:'draftAdjustment',key:pos,direction:'reduce',quantity:'10'}};
 
 test('every operation kind reads back as given',()=>{
   for(const [kind,op] of Object.entries(examples)){assert.equal(op.kind,kind);assert.deepEqual(readBlotterOperation(structuredClone(op)),op);}
@@ -131,4 +132,11 @@ test('work run after the person agreed to leave their edits rejects the operatio
   const said=[];
   const failed=await guard({busy:()=>false,leave:async()=>true,act:saying(said)},async()=>{throw Error('Synthetic refusal of the page.');}).then(()=>null,error=>error);
   assert.equal(failed?.message,'Synthetic refusal of the page.');assert.equal(failed.shown,true);assert.deepEqual(said,['Synthetic refusal of the page.']);
+});
+
+test('an adjustment names its position, one of the two directions and the quantity as typed, which the backend judges',()=>{
+  const op={kind:'draftAdjustment',key:pos,direction:'increase',quantity:' 1e3 '};
+  assert.deepEqual(readBlotterOperation(op),op,'the quantity is carried as typed, never trimmed or parsed');
+  for(const bad of [{...op,direction:'sell'},{...op,direction:undefined},{...op,quantity:''},{...op,quantity:10},{...op,quantity:'9'.repeat(65)},{...op,key:'t1:b1'},{kind:'draftAdjustment',key:pos,direction:'increase'},{...op,extra:1}])
+    assert.throws(()=>readBlotterOperation(bad),/refused/,JSON.stringify(bad));
 });
