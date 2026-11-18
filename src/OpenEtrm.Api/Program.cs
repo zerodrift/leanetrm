@@ -49,7 +49,7 @@ builder.Services.ConfigureHttpJsonOptions(o=>{o.SerializerOptions.PropertyNaming
     o.SerializerOptions.Converters.Add(new ExactDecimalJsonConverter());});
 // In every environment, binding refuses what it cannot read with a bare status, which the API then names.
 builder.Services.Configure<RouteHandlerOptions>(o=>o.ThrowOnBadRequest=false);
-builder.Services.AddResponseCompression(o=>{o.EnableForHttps=true;o.Providers.Add<GzipCompressionProvider>();o.MimeTypes=["application/json"];});
+builder.Services.AddResponseCompression(o=>{o.EnableForHttps=true;o.Providers.Add<GzipCompressionProvider>();o.MimeTypes=["application/json","text/event-stream"];});
 builder.Services.Configure<GzipCompressionProviderOptions>(o=>o.Level=CompressionLevel.Fastest);
 var app=builder.Build();
 var httpContext=hosted is null?null:app.Services.GetRequiredService<IHttpContextAccessor>();
@@ -482,7 +482,7 @@ app.Use(async(c,next)=>
     await next(c);
 });
 
-app.UseWhen(c=>c.Request.Method=="POST"&&c.Request.Path.Equals("/api/trading/workspace",StringComparison.Ordinal),branch=>branch.UseResponseCompression());
+app.UseWhen(JsonReadTransport.Compress,branch=>branch.UseResponseCompression());
 
 await using var exchangeDatabase=hosted is null&&File.Exists(Path.Combine(root,"exchange-manifest.json"))?new PreviewDatabase(root,"exchange-manifest.json"):null;
 await using var calculationChanges=new CalculationChanges(database);
