@@ -6441,7 +6441,7 @@ commodity under any other code could not be told apart.
 
 A commodity now states its icon where it is configured: `ref_data.commodities`
 carries a required `icon_code` from the fixed list `flame`, `bolt`, `drop`,
-`tanker`, `leaf`, `cube`. The database rejects a missing or unlisted value, so
+`tanker`, `cylinder`, `anchor`, `leaf`, `cube`. The database rejects a missing or unlisted value, so
 the navigation read always has a name to send with each curve's commodity; the
 browser draws the named icon and rejects a name it does not know. There is no
 fallback at any layer, and `cube` is a deliberate choice for a commodity
@@ -6454,8 +6454,10 @@ the picture its code had until now; that statement is the only place a code
 still selects an icon. The reference import states `flame` for gas and `bolt`
 for electricity. A cloned reference revision keeps its source's icons.
 
-The list grows only with a commodity that needs a new picture; none is added
-for a commodity the catalogs do not yet hold.
+The synthetic catalogs use `flame`, `bolt`, `drop`, `tanker`, `leaf` and
+`cube`. The owner added `cylinder` for natural gas liquids and `anchor` for
+freight ahead of the first catalog that holds them. A further picture arrives
+with the commodity that needs it.
 
 Not chosen: an icon edited as a reviewed display detail (it needs a new editor
 field kind, and the curve directory deliberately reads commodities before

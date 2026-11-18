@@ -2079,7 +2079,7 @@ Extend only after the baseline contracts are demonstrated:
   - Measuring publication-lock contention from definition runs before a hosted
     release (verification.md).
 - Live feed adapters and their entitlement/provenance controls.
-- Commodity icons beyond the six of D425; each arrives with the first commodity
+- Commodity icons beyond the eight of D425; each arrives with the first commodity
   that names it.
 - Settlement workflows, richer administration and deployment hardening.
 

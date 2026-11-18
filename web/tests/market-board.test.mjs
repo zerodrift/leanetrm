@@ -132,8 +132,8 @@ test('a commodity icon is the drawing its reference data names, never one inferr
   assert.equal(commodityIcon(card(board,'usd_rates')),null);
   const named=icon=>commodityIcon({...card(board,'gas_futures'),commodity:{code:'test_gas',name:'Synthetic gas',icon}});
   assert.equal(named('drop').dataset.commodityIcon,'drop');
-  const drawings=['flame','bolt','drop','tanker','leaf','cube'].map(icon=>JSON.stringify(named(icon).children));
-  assert.equal(new Set(drawings).size,6);
+  const drawings=['flame','bolt','drop','tanker','cylinder','anchor','leaf','cube'].map(icon=>JSON.stringify(named(icon).children));
+  assert.equal(new Set(drawings).size,8);
   assert.throws(()=>named('barrel'),/Unknown commodity icon/);
  }finally{delete globalThis.document;}
 });

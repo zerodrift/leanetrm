@@ -14,7 +14,7 @@ UPDATE ref_data.commodities SET icon_code=CASE WHEN code IN('gas','test_gas') TH
  WHEN code IN('electricity','test_power') THEN 'bolt' ELSE 'cube' END;
 ALTER TABLE ref_data.commodities ENABLE TRIGGER guard_definition;
 ALTER TABLE ref_data.commodities ALTER COLUMN icon_code SET NOT NULL,
- ADD CONSTRAINT commodities_icon_code_check CHECK(icon_code IN('flame','bolt','drop','tanker','leaf','cube'));
+ ADD CONSTRAINT commodities_icon_code_check CHECK(icon_code IN('flame','bolt','drop','tanker','cylinder','anchor','leaf','cube'));
 
 -- The reference import admits only gas and electricity; it now states each one's icon.
 DO $upgrade$

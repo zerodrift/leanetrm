@@ -63,7 +63,7 @@ def run_checks(query, manifest):
     commodity=lambda columns,values:query(f"BEGIN;INSERT INTO ref_data.commodities(catalog_id,revision_id,code,name,quantity_dimension_code{columns}) VALUES('{catalog}','{operation}','synthetic_unmarked','Synthetic unmarked','energy'{values});ROLLBACK;")
     rejected(lambda:commodity('',''),'null value in column "icon_code"')
     rejected(lambda:commodity(',icon_code',",'barrel'"),'commodities_icon_code_check')
-    commodity(',icon_code',",'drop'")
+    for icon in ('flame','bolt','drop','tanker','cylinder','anchor','leaf','cube'):commodity(',icon_code',f",'{icon}'")
     assert save() == saved, 'An exact retry must retain one immutable reference version'
     rejected(lambda: save(values={'name': 'Different retry'}), 'reference_conflict')
     rejected(lambda: save('viewer', operation_id=str(uuid4())), 'reference_denied')

@@ -206,7 +206,7 @@ settlement, Trader mark, Interest rate, Basis / spread or Scaled. The kind
 comes with the navigation read; the browser never infers it.
 
 Commodity identity uses the icon the commodity names in reference data (D425):
-`flame`, `bolt`, `drop`, `tanker`, `leaf` or `cube`. The navigation read sends
+`flame`, `bolt`, `drop`, `tanker`, `cylinder`, `anchor`, `leaf` or `cube`. The navigation read sends
 the name with the curve's commodity; the browser draws it, named by the
 catalog's commodity label in a tooltip and accessible text, and rejects a name
 outside that list. These icons replace dots on library rows and market-board
