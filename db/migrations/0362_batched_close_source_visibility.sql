@@ -88,7 +88,7 @@ BEGIN
    AND p.prokind='f' AND NOT p.proretset AND p.prorettype='jsonb'::regtype AND p.prosupport=0
    AND p.proconfig=ARRAY['search_path=pg_catalog']
    AND to_jsonb(p.proacl)='["openetrm_security_owner=X/openetrm_security_owner","openetrm_runtime=X/openetrm_security_owner"]'::jsonb;
- IF original IS NULL THEN RAISE EXCEPTION 'close_batch_upgrade: unsupported close reader';END IF;
+ IF original IS NULL THEN RAISE EXCEPTION 'close_batch_upgrade: unexpected helper security.read_market_close_parts(uuid,uuid[],uuid)';END IF;
  before_guard=$old$OR EXISTS(SELECT 1 FROM unnest(close_ids)requested(id) LEFT JOIN market_data.market_closes s ON(s.catalog_id,s.id)=(catalog,requested.id)
  WHERE s.id IS NULL OR NOT security.market_close_visible(catalog,s.id))$old$;
  after_guard=$old$OR EXISTS(SELECT 1 FROM unnest(close_ids)requested(id) WHERE NOT security.market_close_visible(catalog,requested.id))$old$;

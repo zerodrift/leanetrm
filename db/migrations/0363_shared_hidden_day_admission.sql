@@ -15,7 +15,7 @@ BEGIN
   OR helper.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']
   OR(SELECT jsonb_agg(a::text ORDER BY a::text) FROM unnest(helper.proacl)a)
    IS DISTINCT FROM '["openetrm_security_owner=X/openetrm_security_owner"]'::jsonb
- THEN RAISE EXCEPTION 'hidden_day_upgrade: unsupported batch admission';END IF;
+ THEN RAISE EXCEPTION 'hidden_day_upgrade: unexpected helper security.market_close_batch_visible(uuid,uuid[])';END IF;
  -- Hidden days have always been unbounded by the 128-frame discovery limit.
  -- Only this owner-only helper grows to that existing consumer's scope. The
  -- public close-parts reader retains its original 1..128 argument guard.
@@ -31,7 +31,7 @@ BEGIN
   OR helper.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']
   OR(SELECT jsonb_agg(a::text ORDER BY a::text) FROM unnest(helper.proacl)a)
    IS DISTINCT FROM '["openetrm_runtime=X/openetrm_security_owner","openetrm_security_owner=X/openetrm_security_owner"]'::jsonb
- THEN RAISE EXCEPTION 'hidden_day_upgrade: unsupported hidden-day reader';END IF;
+ THEN RAISE EXCEPTION 'hidden_day_upgrade: unexpected helper security.close_session_hidden_days(uuid,text)';END IF;
  permission=$old$IF NOT security.market_access(catalog,'ReadMarketData') THEN RAISE EXCEPTION 'close_denied' USING ERRCODE='42501';END IF;$old$;
  finish=$check$IF clock_timestamp()>=until_at OR security.market_access(catalog,'ReadMarketData') IS NOT TRUE
   OR NOT EXISTS(SELECT 1 FROM security.request_contexts q WHERE q.id=request.id AND q.backend_pid=pg_backend_pid()

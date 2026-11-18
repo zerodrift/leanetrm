@@ -307,6 +307,9 @@ def main():
                 reference,market,security,manifest=add_in_term_fixture(reference,market,security,manifest)
         query((ROOT/'db/bootstrap.sql').read_text())
         for migration in sorted((ROOT/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
+            if migration.name in ('0362_batched_close_source_visibility.sql','0363_shared_hidden_day_admission.sql'):
+                from check_market_dates_upgrade import run_checks as check_market_dates_upgrade
+                check_market_dates_upgrade(query,migration)
             if migration.name in ('0339_assistant_installation_prompts.sql','0340_assistant_requested_context.sql'):
                 from check_assistant_prompt_upgrade import run_checks as check_assistant_prompt_upgrade
                 check_assistant_prompt_upgrade(query,migration)
