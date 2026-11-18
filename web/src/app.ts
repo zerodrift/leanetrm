@@ -568,7 +568,7 @@ function chooseCurve(code:string){
  if(pageRead?.page==='market'){pageRead.controller.abort();pageRead=undefined;}
  cancelCurveRead();const reading=curveRead=new AbortController();$('market-page').dataset.readState='pending';$('error').hidden=true;syncControls();
  // The chosen row is marked at once; the library is drawn again with the curve's prices.
- for(const row of document.querySelectorAll<HTMLElement>('#curves .curve-button[data-curve]'))row.classList.toggle('selected',row.dataset.curve===code);
+ for(const row of document.querySelectorAll<HTMLElement>('#curves .curve-button[data-curve]')){row.classList.toggle('selected',row.dataset.curve===code);row.setAttribute('aria-pressed',String(row.dataset.curve===code));}
  void selectCurve(code,reading.signal).catch(error=>{if(curveRead===reading&&!reading.signal.aborted){text('error',errorMessage(error));$('error').hidden=false;}})
   .finally(()=>{if(curveRead===reading){curveRead=undefined;$('market-page').dataset.readState='ready';syncControls();}});
 }

@@ -226,6 +226,11 @@ spans stay its text.
 - The forward curve chart and contracts table stay. Choosing a row, or pressing
   Enter on it, opens the contract in the side panel.
 - **Price sources** and **How it's priced** stay as tabs, as today.
+- Choosing another curve keeps the curve in view until the chosen curve's
+  prices arrive, then changes its title, closes, tiles, chart and tables in one
+  step. The chosen library row is pressed at once, the page is pending
+  meanwhile and dims only when the read is slow, and nothing can be opened from
+  the curve that is leaving. A read that fails empties the page and says why.
 
 **Contract panel.** Header: contract, delivery period, price and unit. Tabs:
 
