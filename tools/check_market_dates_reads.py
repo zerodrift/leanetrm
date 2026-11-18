@@ -233,14 +233,25 @@ def batch_authority_check(query, manifest):
         ('matrix fallback', 'security.read_market_close_parts(uuid,uuid[],uuid)', f"security.read_market_close_parts_results('{catalog}',ARRAY[{closes}],NULL)", 'cardinality(close_ids)>1'),
         ('pins fast', 'security.read_observation_pins(uuid,uuid,uuid[])', pin_call, ''),
         ('pins fallback', 'security.read_observation_pins(uuid,uuid,uuid[])', pin_call, f"cardinality(requested_pins)>{max(len(frame['observationIds']) for frame in selected)}"),
+        ('hidden fast', 'security.close_in_force(uuid,text,date)', f"security.close_session_hidden_days('{catalog}','demo_close_1600')", ''),
+        ('hidden fallback', 'security.close_in_force(uuid,text,date)', f"security.close_session_hidden_days('{catalog}','demo_close_1600')", ''),
     ]:
         native = query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);")
         assert native.count('\nBEGIN\n') == 1
         delay = (f" IF {fallback} THEN RAISE EXCEPTION 'Synthetic batch fallback' USING ERRCODE='42501';END IF;\n" if fallback else '') + ' PERFORM pg_sleep(2.3);\n'
+        extra = ''
+        if name.startswith('hidden'):
+            extra = 'CREATE SEQUENCE public.synthetic_calendar_grant_pause;GRANT USAGE ON SEQUENCE public.synthetic_calendar_grant_pause TO openetrm_security_owner;'
+            delay = " IF nextval('public.synthetic_calendar_grant_pause')=1 THEN PERFORM pg_sleep(2.3);END IF;\n"
+            if name.endswith('fallback'):
+                scalar = query("SELECT pg_get_functiondef('security.market_close_visible(uuid,uuid)'::regprocedure);")
+                prefix, separator, _ = scalar.partition('AS $function$')
+                assert separator
+                extra += prefix+separator+'BEGIN RETURN false;END;$function$;'
         patched = native.replace('\nBEGIN\n', '\nBEGIN\n'+delay, 1)
         # One owner transaction rolls back both the grants and native fault.
         # No concurrent grant write or security-generation change masks expiry.
-        actual = query('BEGIN;'+patched+';'
+        actual = query('BEGIN;'+extra+patched+';'
             + f"UPDATE security.role_grants SET granted_to=clock_timestamp()+interval '2 seconds' WHERE principal_id={principal} AND NOT revoked;"
             + f"INSERT INTO security.role_grants SELECT gen_random_uuid(),principal_id,role_id,tenant_id,workspace_id,granted_to-interval '1 second','9999-12-31',false FROM security.role_grants WHERE principal_id={principal} AND NOT revoked;"
             + 'CREATE TEMP TABLE synthetic_calendar_token(token uuid);GRANT SELECT,INSERT ON synthetic_calendar_token TO preview_authenticator,preview_runtime;'
