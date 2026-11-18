@@ -202,8 +202,9 @@ and sign-on your security team requires.
 LeanETRM is not production-qualified yet. A pilot is how you find out what that
 would take for your book.
 
-Contact: [Joe Isaac](https://www.linkedin.com/in/jmisaac). Trading and risk
-technology at Deutsche Bank, Merrill Lynch, Citigroup and TrailStone.
+Contact: Joe Isaac, [joe@trustygenius.com](mailto:joe@trustygenius.com) or
+[LinkedIn](https://www.linkedin.com/in/jmisaac). Trading and risk technology at
+Deutsche Bank, Merrill Lynch, Citigroup and TrailStone.
 
 ## Quickstart
 
