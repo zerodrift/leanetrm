@@ -224,6 +224,18 @@ code passes regional-close HTTP/native/managed checks, context recovery with
 and the original calendar suite with managed demand checks and 65 browser
 assertions. The new upstream position-adjustment check passes all 40 assertions.
 The integration changes no market-date runtime code or native functions.
+
+Newest-close refresh qualification separately holds an older workspace response,
+sends two focus events while it is active, then releases it. The original page
+fails because it sends no follow-up; the coalescing fix sends exactly one, offers
+the newer close and preserves the selected close. The calendar/regional browser
+suite passes all 65 assertions in a disposable macOS PostgreSQL 18.7 preview;
+the 17 newest-close unit checks also pass. The full standard preview passes,
+including all 1,277 browser assertions and its native/HTTP checks. A separate
+Linux disposable run passes the same full standard preview with the Dashboard's
+explicit calendar-completion wait. Independent review of the pending-refresh
+and scope/disposal fences found no blocking issue. No timeout was increased.
+
 The complete CI matrix, hosted deployment and curve-click timing, broad
 concurrency/memory capacity, page request sizing and evaluation payload reduction
 are not qualified by these measurements.
