@@ -217,6 +217,47 @@ def native_hidden_work_check(client, query, request):
     print('PASS fully visible hidden-day proofs share their source admission', flush=True)
 
 
+def hidden_boundaries_check(client, query, manifest, request):
+    """Hidden metadata remains exact for empty, wide, replaced and null projections."""
+    catalog, tenant, workspace = (manifest[key] for key in ('catalogId', 'tenantId', 'workspaceId'))
+    token = query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','viewer','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',120);")
+    def read(session):
+        return json.loads(query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');SELECT array_to_json(security.close_session_hidden_days('{catalog}','{session}'));ROLLBACK;").splitlines()[-1])
+    assert read('synthetic_empty_calendar') == []
+    session = 'synthetic_wide_hidden_calendar'
+    publish_session(query, manifest, session, 'Synthetic wide calendar', [
+        {'curves': ['ng_monthly'], 'cutoff': '16:00', 'from': '2020-01-01', 'to': '2100-01-01'}])
+    query(f"INSERT INTO presentation.close_session_listings VALUES('{catalog}','{session}',1,1,'Synthetic wide calendar',false,pg_current_xact_id());")
+    source = next(frame for frame in manifest['frames'] if frame['at'].startswith('2020-12-11T16:00:00'))
+    originals = []
+    for index in range(129):
+        frame = deepcopy(source)
+        frame['at'] = (date(2020, 1, 1)+timedelta(days=index)).isoformat()+'T16:00:00Z'
+        frame['curveContracts'] = {'ng_monthly': frame['curveContracts']['ng_monthly']}
+        originals.append(record_close(query, manifest, session, 1, frame))
+    assert read(session) == []
+    frame['at'] = '2020-01-01T16:00:00Z'
+    head = record_close(query, manifest, session, 1, frame)
+    scalar = query("SELECT pg_get_functiondef('security.market_close_visible(uuid,uuid)'::regprocedure);")
+    try:
+        query(scalar.replace('\nBEGIN\n', f"\nBEGIN\n IF close_id='{head}'::uuid THEN RETURN false;END IF;\n", 1))
+        assert read(session) == ['2020-01-01'], 'A visible predecessor replaced its hidden known head'
+    finally:
+        query(scalar)
+    selected = ','.join("'"+identity+"'::uuid" for identity in originals)
+    query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');DO $$BEGIN BEGIN PERFORM security.read_market_close_parts('{catalog}',ARRAY[{selected}],NULL);RAISE EXCEPTION 'synthetic_public_close_limit_removed';EXCEPTION WHEN insufficient_privilege THEN NULL;END;END$$;ROLLBACK;")
+    before = projection(client.call('market/dates', request))
+    hidden = query("SELECT pg_get_functiondef('security.close_session_hidden_days(uuid,text)'::regprocedure);")
+    prefix, separator, _ = hidden.partition('AS $function$')
+    assert separator
+    try:
+        query(prefix+separator+'BEGIN RETURN NULL;END;$function$;')
+        assert projection(client.call('market/dates', request)) == before
+    finally:
+        query(hidden)
+    print('PASS hidden-day projection preserves empty, more-than-128-day, hidden-head, public-limit and legacy-null behavior', flush=True)
+
+
 def batch_authority_check(query, manifest):
     """A prepublished successor grant cannot extend a native batch's initial authority."""
     catalog, tenant, workspace = (manifest[key] for key in ('catalogId', 'tenantId', 'workspaceId'))
@@ -539,6 +580,7 @@ def run_checks(url, query, manifest, psql, environment, log, api_pid, *, verify=
     discovery_work_check(client, query, request)
     native_source_work_check(client, query, request)
     native_hidden_work_check(client, query, request)
+    hidden_boundaries_check(client, query, manifest, request)
     older_close = query(f"SELECT id FROM market_data.market_closes WHERE session_code='{SESSION}' ORDER BY business_date LIMIT 1;")
     limited_matrix_check(client, query, older_close)
     failed_build_check(client, query, manifest, measure)
