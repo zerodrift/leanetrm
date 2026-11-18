@@ -65,9 +65,15 @@ def _checks(raw, frame, check):
     report = {'context': body['context'], 'view': view}
     report_status, _, report_plain = raw('trading/blotter', report, 'identity')
     status, headers, report_requested_gzip = raw('trading/blotter', report, 'gzip')
+    check('Blotter reads negotiate gzip without changing the authorized financial response',
+          report_status == status == 200 and headers.get('content-encoding') == 'gzip'
+          and gzip.decompress(report_requested_gzip) == report_plain)
+    display = [{'value': '1.25', 'decimalPlaces': 2, 'tick': None}]
+    display_status, _, display_plain = raw('amounts/display', display, 'identity')
+    status, headers, display_requested_gzip = raw('amounts/display', display, 'gzip')
     check('unrelated authenticated POST responses remain uncompressed and unchanged',
-          report_status == status == 200 and 'content-encoding' not in headers
-          and report_requested_gzip == report_plain)
+          display_status == status == 200 and 'content-encoding' not in headers
+          and display_requested_gzip == display_plain and json.loads(display_plain) == ['1.25'])
     for encoding in [None, 'identity', 'gzip;q=0', 'br', 'unsupported']:
         status, headers, value = raw('trading/workspace', body, encoding)
         check('uncompressed negotiation retains the legacy body: ' + str(encoding),
