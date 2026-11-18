@@ -11,6 +11,7 @@ BEGIN
  IF encode(sha256(convert_to(helper.prosrc,'UTF8')),'hex')<>'9fc522aa374d8d8db657e718d74c0569bc9de2fcbf70ba21b6e0380664a53057'
   OR pg_get_userbyid(helper.proowner)<>'openetrm_security_owner' OR NOT helper.prosecdef OR helper.proisstrict OR helper.proleakproof
   OR helper.prolang<>(SELECT oid FROM pg_language WHERE lanname='plpgsql') OR helper.provolatile<>'v' OR helper.proparallel<>'u'
+  OR helper.prokind<>'f' OR helper.proretset OR helper.prorettype<>'boolean'::regtype OR helper.prosupport<>0
   OR helper.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']
   OR(SELECT jsonb_agg(a::text ORDER BY a::text) FROM unnest(helper.proacl)a)
    IS DISTINCT FROM '["openetrm_security_owner=X/openetrm_security_owner"]'::jsonb
@@ -26,6 +27,7 @@ BEGIN
  IF encode(sha256(convert_to(helper.prosrc,'UTF8')),'hex')<>'ce49d01fa15b150ce585a337893a70f27f05c3800b11ce12487cd2710f751062'
   OR pg_get_userbyid(helper.proowner)<>'openetrm_security_owner' OR NOT helper.prosecdef OR helper.proisstrict OR helper.proleakproof
   OR helper.prolang<>(SELECT oid FROM pg_language WHERE lanname='plpgsql') OR helper.provolatile<>'s' OR helper.proparallel<>'u'
+  OR helper.prokind<>'f' OR helper.proretset OR helper.prorettype<>'date[]'::regtype OR helper.prosupport<>0
   OR helper.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']
   OR(SELECT jsonb_agg(a::text ORDER BY a::text) FROM unnest(helper.proacl)a)
    IS DISTINCT FROM '["openetrm_runtime=X/openetrm_security_owner","openetrm_security_owner=X/openetrm_security_owner"]'::jsonb
