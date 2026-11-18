@@ -27,7 +27,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await blotterAt(closes[0]);await openReport();
   await click('input[name=risk-choice][value=custom]');
   await set('#risk-factor',await evaluate("window.__riskReads.findLast(r=>r.path==='/api/portfolio/risk/catalog').data.scenarioTargets.find(t=>t.kind==='contract').id"));await set('#risk-bump','0.1');
-  await click('#risk-queue');await wait(inline+'&&'+idle,60000);
+  await click('#risk-queue',60000);await wait(inline+'&&'+idle,60000);
   const job=await evaluate("window.__riskReads.findLast(r=>r.path.startsWith('/api/portfolio/risk/jobs/')&&r.data?.state==='completed').data");
   await check('a run\'s report states the close it was run at: the frame of the read on screen',`${JSON.stringify(job.result.snapshotId)}===${JSON.stringify(closes[0])}&&document.querySelector('#snapshot').value===${JSON.stringify(closes[0])}&&${workspace}.at(-1).data.blotter.context.contextId===${JSON.stringify(job.context.contextId)}`,
     JSON.stringify([job.result.snapshotId,closes]));
@@ -51,7 +51,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await click('input[name=risk-choice][value=held]');
   for(const index of [...Array(await evaluate("document.querySelectorAll('#risk-sizes input').length")).keys()])await set(`#risk-size-${index}`,'0.05');
   const before=await evaluate('window.__riskJobs.length');
-  await click('#risk-queue');await wait(`/completed/.test(document.querySelector('#desk-run-detail').textContent)&&${inline}&&${idle}`,60000);
+  await click('#risk-queue',60000);await wait(`/completed/.test(document.querySelector('#desk-run-detail').textContent)&&${inline}&&${idle}`,60000);
   const parts=await evaluate(`(()=>{const sent=window.__riskJobs.slice(${before}),done=sent.map(s=>window.__riskReads.findLast(r=>r.path.startsWith('/api/portfolio/risk/jobs/')&&r.data?.requestId===s.requestId&&r.data.state==='completed').data);
     return done.map(j=>({id:j.id,run:j.run,shocks:j.result.factors.length,moved:[...new Set(j.result.factors.flatMap(f=>f.positions.filter(p=>[p.values.upPnl,p.values.downPnl].some(v=>!/^-?0+(?:\\.0+)?(?:\\/\\d+)?$/.test(v))).map(p=>p.tradeReference)))]}));})()`);
   // The part dropped from the history is one whose shocks alone move a position, so that the check can see a position it leaves unknown.

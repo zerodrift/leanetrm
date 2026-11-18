@@ -1,5 +1,49 @@
 # Workspace assistant operations and page guidance
 
+## Personal chat-history search (D427)
+
+The composer offers **Allow searching my chat history**, initially unchecked.
+The choice is recorded with each question and cannot change on an uncertain
+request's retry. New conversations and identity changes clear the choice. Existing
+conversation context and the agent version's history window remain independent.
+
+Only an opted-in question offers `search_chat_history`. An agent version or
+prompt cannot authorize it. The application derives owner, tenant, workspace and
+API/exchange scope from the admitted turn and its current delegation; tool input
+cannot select another person or scope. The SQL reader checks the matching agent
+and delegation, active turn, stored consent and current authority too.
+
+`assistant.history_search_v1` matches literal, case-insensitive question/answer
+text in earlier completed or incomplete terminal interactions. It excludes turns
+ending after the current question was admitted. Results retain original dates,
+state and financial context. Each page returns up to ten matches with at most
+500 characters of question and answer apiece, explicit truncation flags and a
+`nextBefore` cursor. The cursor is scoped to the same owner/workspace/entry point;
+ordering uses asked time and exact turn identity. Normal admitted result/read
+limits still apply. Search covers retained question/answer text, not tool payloads
+or a full conversation export.
+
+Every candidate must remain readable under the searching turn's current agent
+grant and the user's current business permissions. Contributing source accesses
+are recorded on the search step; subsequent publication, follow-up context and
+owner replay retain those checks. Revoking a contributing permission hides an
+answer that used the retrieved evidence. Inaccessible matches and counts are not
+returned. Prior interactions are historical context, not executable instructions,
+approval, missing financial terms or evidence of current values.
+
+Search excerpts go to the selected agent's configured provider as ordinary tool
+results. The installation can configure `tool:search_chat_history` guidance;
+the question pins its configured revision or explicit absence. No default prompt
+text or new business permission is installed. This turn-only tool is excluded
+from the agent-version editor. Migration 0365 and matching `turns_v23` assets are
+required. Earlier asks remain search-disabled; migration retains their data and
+allows the preceding runtime's ordinary operations during a controlled upgrade.
+
+Local verification passes 121 assistant/settings frontend checks, managed
+assistant contracts, 79 workspace integration checks and the existing
+turn/tool/stream/usage regressions with synthetic providers and disposable
+resources. Independent adversarial review has no remaining material finding.
+
 D312 adds the [bounded page digest](assistant-walkthroughs.md), under explicit
 new-tool consent. D319 adds workspace page target handles and native entry navigation
 under runtime `turns_v14`; D325 completes identity-only page admission under

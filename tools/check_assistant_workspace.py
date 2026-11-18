@@ -84,13 +84,15 @@ def run_checks(url, query, manifest, fake, trap, psql, environment):
     check('a text-only question neither copies market inputs nor captures a financial context',
           query(f"SELECT state='completed' AND pins IS NULL AND context_id IS NULL AND recorded_at IS NULL FROM assistant.turns WHERE id='{conceptual['id']}';") == 't')
 
-    def ask(requests, page='users_access', session=None, state=None, frame_id=None, operational=False, report=None, knowledge=None, question=None):
+    def ask(requests, page='users_access', session=None, state=None, frame_id=None, operational=False, report=None, knowledge=None, question=None, search_history=False, answer='Synthetic reviewed result.'):
         session = session or owner
         state = state or agent
         before = len(fake.received)
-        fake.respond(stream(tool_use(identifier, [(str(n), tool, data) for n, (tool, data) in enumerate(requests)])), stream(recording(identifier, text='Synthetic reviewed result.')))
+        if requests:
+            fake.respond(stream(tool_use(identifier, [(str(n), tool, data) for n, (tool, data) in enumerate(requests)])))
+        fake.respond(stream(recording(identifier, text=answer)))
         turn = session.call('assistant/turns/ask', {'operationId': str(uuid4()), 'conversationId': None, 'agentId': state['id'], 'version': 1,
-                         'question': question or 'Inspect the selected page and prepare only the explicitly requested synthetic change.',
+                         'searchHistory': search_history, 'question': question or 'Inspect the selected page and prepare only the explicitly requested synthetic change.',
                          'pageReport': report or {'page': page, 'selection': {}}, 'knowledge': knowledge or {'mode': 'current', 'contextId': None, 'frameId': None if operational else frame_id or frame['id']}})['turn']
         deadline = time.monotonic() + 20
         while True:
@@ -102,7 +104,7 @@ def run_checks(url, query, manifest, fake, trap, psql, environment):
             time.sleep(.05)
         assert current['state'] == 'completed', (current, conversation)
         calls = [json.loads(r['body']) for r in fake.received[before:]]
-        results = [json.loads(part['content']) for part in calls[-1]['messages'][-1]['content'] if part['type'] == 'tool_result']
+        results = [json.loads(part['content']) for part in calls[-1]['messages'][-1]['content'] if part['type'] == 'tool_result'] if requests else []
         return current, results, calls
 
     park_report = {'page': 'blotter', 'selection': {'view': 'trade', 'mode': None, 'bookIds': None, 'portfolioIds': None,
@@ -420,5 +422,7 @@ def run_checks(url, query, manifest, fake, trap, psql, environment):
     finally:
         owner.call('market/current', {})
 
+    from check_assistant_history import run_checks as history_checks
+    history_checks(ask, check, owner, trader, agent, query, stamp)
     check('no model request reaches configured proxy traps', trap.connections == 0)
     print(f'PASS {passed} assistant workspace integration checks', flush=True)

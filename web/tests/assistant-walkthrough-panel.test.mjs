@@ -25,7 +25,7 @@ async function fixture(work){
       window.assistant=(await import('/assistant-panel.js')).setupAssistant({root:'/api/',identity:()=>actor,zone:()=> 'UTC',available:()=>true,pageBusy:()=>false,
         api:async(path,body)=>{calls.push({path,body});
           if(path==='assistant/agents')return {agents:[agent],vendors:[{code:'openai',name:'OpenAI'}]};
-          if(path==='assistant/turns/ask')return {turn};
+          if(path==='assistant/turns/ask'){if(window.failAsk){window.failAsk=false;throw Object.assign(Error('Synthetic uncertain response'),{code:'response_unknown'});}return {turn};}
           if(path.includes('/conversations/')&&path.includes('?after=')){
             if(holdVerification)await new Promise(resolve=>window.releaseVerification=resolve);
             return {conversation:{id:conversationId,agentId,readThrough:0},turns:window.turns??[turn],events:events.filter(e=>e.sequence>Number(path.split('?after=')[1]))};
@@ -49,7 +49,7 @@ const waitFor=async(evaluate,condition)=>{
 };
 
 test('a live guide exposes Continue and distinct stop controls, then Resume and Replay',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
-  await fixture(async evaluate=>{
+  await fixture(async(evaluate,command)=>{
     await evaluate("emit('walkthrough',plan)");
     await waitFor(evaluate,"!!document.querySelector('.assistant-walkthrough-continue:not([hidden])')");
     assert.equal(await evaluate(replayControl),null,'a running guide must not also invite the person to start it');
@@ -60,7 +60,10 @@ test('a live guide exposes Continue and distinct stop controls, then Resume and 
     assert.equal(await evaluate("document.querySelector('.assistant-walkthrough button:last-child').hidden"),true);
     await evaluate(replayControl+'.click()');
     await waitFor(evaluate,"!!document.querySelector('.assistant-walkthrough-continue:not([hidden])')");
-    await evaluate("emit('completed',{});document.querySelector('.assistant-walkthrough-continue').click()");
+    await evaluate("emit('completed',{})");
+    const spot=await evaluate("(()=>{const b=document.querySelector('.assistant-walkthrough-continue');b.scrollIntoView();const r=b.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2};})()");
+    await command('Input.dispatchMouseEvent',{type:'mousePressed',...spot,button:'left',clickCount:1});
+    await command('Input.dispatchMouseEvent',{type:'mouseReleased',...spot,button:'left',clickCount:1});
     await waitFor(evaluate,"document.querySelector('.assistant-walkthrough-status').textContent.startsWith('Walkthrough complete')");
     assert.equal(await evaluate(replayControl+'.textContent'),'Replay walkthrough');
     assert.equal(await evaluate("document.querySelector('.assistant-walkthrough button:last-child').hidden"),true,'a completed guide cannot still offer Stop');
@@ -70,6 +73,53 @@ test('a live guide exposes Continue and distinct stop controls, then Resume and 
     assert.match(await evaluate("document.querySelector('.assistant-walkthrough-status').textContent"),/^Walkthrough complete/);
     assert.deepEqual(await evaluate('effects'),[]);
     assert.equal(await evaluate("calls.some(c=>c.path==='assistant/turns/stop')"),false,'stopping presentation does not cancel the answer');
+  });
+});
+
+test('walkthrough narration remains with surrounding chat after completion and history reload',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+  await fixture(async evaluate=>{
+    await evaluate("emit('text',{text:'Before the walkthrough.'});plan.plan.steps=[{kind:'say',page:'curves',text:'First saved explanation.'},{kind:'pause',page:'curves'},{kind:'say',page:'curves',text:'Second saved explanation.'}];emit('walkthrough',plan);emit('text',{text:' After the walkthrough.'});emit('completed',{})");
+    await waitFor(evaluate,"!!document.querySelector('.assistant-walkthrough-continue:not([hidden])')");
+    await evaluate("document.querySelector('.assistant-walkthrough-continue').click()");
+    await waitFor(evaluate,"document.querySelector('.assistant-walkthrough-status').textContent.startsWith('Walkthrough complete')");
+    const transcript=()=>evaluate("document.querySelector('#assistant-turns').textContent");
+    for(const text of ['Before the walkthrough.','After the walkthrough.','First saved explanation.','Second saved explanation.'])assert.ok((await transcript()).includes(text),text);
+    await evaluate("assistant.reset()");
+    await waitFor(evaluate,"document.querySelector('#assistant-turns').textContent.includes('After the walkthrough.')");
+    for(const text of ['Before the walkthrough.','After the walkthrough.','First saved explanation.','Second saved explanation.'])assert.ok((await transcript()).includes(text),text+' after reload');
+    assert.equal(await evaluate("document.querySelector('.assistant-walkthrough').hidden"),true,'history does not replay automatically');
+  });
+});
+
+test('a final pause clearly finishes the walkthrough and accepts the keyboard',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+  await fixture(async(evaluate,command)=>{
+    await evaluate("plan.plan.steps=[{kind:'say',page:'curves',text:'The final explanation.'},{kind:'pause',page:'curves'}];emit('walkthrough',plan);emit('completed',{})");
+    await waitFor(evaluate,"!!document.querySelector('.assistant-walkthrough-continue:not([hidden])')");
+    assert.equal(await evaluate("document.querySelector('.assistant-walkthrough-continue').textContent"),'Finish walkthrough');
+    await evaluate("document.querySelector('.assistant-walkthrough-continue').focus()");
+    await command('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13,text:'\r',unmodifiedText:'\r'});
+    await command('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
+    await waitFor(evaluate,"document.querySelector('.assistant-walkthrough-status').textContent.startsWith('Walkthrough complete')");
+    assert.equal(await evaluate("calls.filter(c=>c.path==='assistant/turns/ask').length"),1,'finishing presentation sends no new model request');
+  });
+});
+
+test('history search starts unchecked and an uncertain question keeps its exact consent on retry',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+  await fixture(async evaluate=>{
+    assert.equal(await evaluate("document.querySelector('#assistant-search-history')?.checked"),false);
+    assert.equal(await evaluate("calls.find(c=>c.path==='assistant/turns/ask').body.searchHistory"),false);
+    await evaluate("emit('completed',{});document.querySelector('#assistant-search-history').checked=true;document.querySelector('#assistant-question').value='Find my earlier walkthrough';window.failAsk=true;document.querySelector('#assistant-composer').requestSubmit()");
+    await waitFor(evaluate,"!document.querySelector('#assistant-retry').hidden");
+    await evaluate("assistant.reset()");
+    await waitFor(evaluate,"!document.querySelector('#assistant-panel').hidden");
+    assert.equal(await evaluate("document.querySelector('#assistant-search-history').checked"),true,'restored consent describes the request that will be retried');
+    assert.equal(await evaluate("document.querySelector('#assistant-search-history').disabled"),true);
+    await evaluate("document.querySelector('#assistant-retry').click()");
+    await waitFor(evaluate,"calls.filter(c=>c.path==='assistant/turns/ask').length===3");
+    const asks=await evaluate("calls.filter(c=>c.path==='assistant/turns/ask').map(c=>c.body)");
+    assert.deepEqual(asks[1],asks[2]);assert.equal(asks[1].searchHistory,true);
+    await evaluate("actor='another_synthetic_user';assistant.reset()");
+    assert.equal(await evaluate("document.querySelector('#assistant-search-history').checked"),false);
   });
 });
 

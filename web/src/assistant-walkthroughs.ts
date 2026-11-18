@@ -104,8 +104,13 @@ export function setupWalkthrough(options:{host?:HTMLElement;locate?:(step:Presen
         if(!await options.verify()||!current())throw Error('The walkthrough is no longer available in this context.');
         const step=value.plan.steps[index],description=narration||(step.kind==='go'?`Opening ${step.target.label}.`:'Showing the page controls.');status.textContent=`Step ${index+1} of ${value.plan.steps.length} · ${description}`;
         if(step.kind==='pause'){
-          status.textContent+=' · Continue when you are ready.';next.hidden=false;next.focus();
-          await new Promise<void>(resolve=>{continued=resolve;});if(!current())return;
+          next.textContent=index===value.plan.steps.length-1?'Finish walkthrough':'Continue';
+          status.textContent+=index===value.plan.steps.length-1?' · Finish when you are ready.':' · Continue when you are ready.';
+          const resumed=new Promise<void>(resolve=>{continued=resolve;});next.disabled=false;next.hidden=false;next.focus();
+          await resumed;if(!current())return;
+          status.textContent='Checking walkthrough access…';
+          const allowed=await options.verify();if(!current())return;
+          if(!allowed)throw Error('The walkthrough is no longer available in this context.');
         }else if(step.kind==='say'){narration=step.text;status.textContent=`Step ${index+1} of ${value.plan.steps.length} · ${narration}`;}
         else{
           clearTarget();

@@ -160,11 +160,22 @@ can commit a change.
 
 Presentation controls distinguish **Stop answering** (the model response) from
 **Stop walkthrough** (the browser presentation). An active guide offers Continue
-at its pauses and hides its own Start/Resume/Replay action. Stopping immediately
+at its pauses and **Finish walkthrough** at a final pause. Each activation checks
+current access before resuming or completing, and a late check after Stop cannot
+resume the old guide. These buttons advance presentation; they send no new model
+request. The guide hides its own Start/Resume/Replay action. Stopping immediately
 restores Resume; completion offers Replay from the beginning and removes Stop.
 Closing and reopening the same conversation preserves completion. Changing owner
 or conversation clears the prior guide display. Other retained plans become
 available again when the active guide ends.
+
+The answer also renders the retained plan's narration as **Walkthrough guidance**.
+Earlier guidance remains readable as the live status advances and after history
+or reload. The section describes the plan, rather than proving the browser ran
+its steps. It follows the answer's source-access hiding and cannot execute markup.
+An incompatible saved navigation or walkthrough action is shown as unavailable;
+its independently readable question/answer text still loads. Live actions retain
+strict validation, and an unavailable saved plan cannot pass execution checks.
 
 Page navigation highlights visible destination content. Curves & prices uses the
 curve board or selected curve details; page scrolling uses the same destination,

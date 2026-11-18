@@ -588,6 +588,8 @@
   <div class="assistant-looking"><span class="eyebrow">Looking at</span><strong id="assistant-looking-page"></strong><span id="assistant-looking-shows"></span><span id="assistant-looking-layout" hidden></span><span id="assistant-looking-context" class="assistant-looking-context"></span></div>
   <form id="assistant-composer" class="assistant-composer">
     <label for="assistant-question" class="sr-only">Your question</label><textarea id="assistant-question" rows="3" placeholder="Ask about this page" autocomplete="off"></textarea>
+    <label class="assistant-history-choice"><input id="assistant-search-history" type="checkbox" aria-describedby="assistant-search-history-help"> Allow searching my chat history</label>
+    <p id="assistant-search-history-help" class="field-help">Search your earlier chats in this workspace. Matching excerpts are sent to this agent’s model.</p>
     <p id="assistant-error" class="assistant-error" role="alert" hidden></p>
     <div class="assistant-composer-actions"><span id="assistant-composer-note" class="field-help"></span><button id="assistant-discard" type="button" class="secondary" hidden>Discard</button><button id="assistant-retry" type="button" class="secondary" hidden>Retry</button><button id="assistant-send" type="submit">Send</button></div>
   </form>

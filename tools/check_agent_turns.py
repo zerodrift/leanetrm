@@ -928,12 +928,12 @@ def run_checks(url, query, psql, manifest, environment, dotnet):
     # definition, then current admission is restored. Immutable turn history is never rewritten.
     signature = 'assistant.ask_turn(uuid,text,uuid,uuid,integer,text,jsonb,uuid,text,uuid,uuid,text,text,timestamptz,text,bigint,text,integer,integer,integer)'
     admission = query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);")
-    assert admission.count("runtime_set<>'turns_v22'") == 1
+    assert admission.count("runtime_set NOT IN('turns_v22','turns_v23')") == 1
     legacy_person = persona('legacy_plan', ['trader'])
     grant(legacy_person, guide)
     legacy_plan_turn = Turn()
     try:
-        query(admission.replace("runtime_set<>'turns_v22'", "runtime_set<>'turns_v19'"))
+        query(admission.replace("runtime_set NOT IN('turns_v22','turns_v23')", "runtime_set<>'turns_v19'"))
         legacy_admitted = ask(legacy_plan_turn, profile=login('legacy_plan'), runtime='turns_v19')
         assert legacy_admitted.get('admitted') is True, legacy_admitted
     finally:

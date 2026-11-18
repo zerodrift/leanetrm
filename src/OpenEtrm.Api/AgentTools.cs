@@ -20,7 +20,7 @@ public sealed record AgentTool(string Name,JsonElement InputSchema,ImmutableArra
 // What a read needs of the turn's pin before it runs (§7.2): its pinned context, with or without the As of frame,
 // current-only definitions, with or without the frame, or current operational records such as jobs, which have no
 // market context and which a historical view does not read (docs/devops-assistant.md §3).
-enum ToolNeeds {View,Frame,CurrentOnly,CurrentOnlyFrame,Operational}
+enum ToolNeeds {View,Frame,CurrentOnly,CurrentOnlyFrame,Operational,InteractionHistory}
 
 // A versioned read operation (architecture §10): its tool, what it needs of the pin, the accesses its read runs under, and
 // which of its read's refusals mean that a page's selection is unavailable.
@@ -48,6 +48,7 @@ sealed record JobListArguments(int Page):ToolArguments;
 sealed record JobHistoryArguments(Guid Job,long? Before):ToolArguments;
 // Navigate's request names exactly one of a page the assistant reads and a handle a read issued.
 sealed record NavigateArguments(string? Page,string? Handle):ToolArguments;
+sealed record HistoryArguments(string Query,Guid? Before):ToolArguments;
 
 // A refusal of a request before its read runs.
 sealed class ToolRefusal(string code):Exception(code)
@@ -66,6 +67,7 @@ public sealed record AgentIdentity(string Principal,Guid Delegation)
 public sealed record TurnReads(TurnPin Selection,AgentIdentity Agent,JsonElement PageReport,ImmutableHashSet<string> Tools,Guid TurnId,TimeSpan ReadLimit,ToolOutputLimits OutputLimits)
 {
     public string Question{get;init;}="";
+    public bool SearchHistory{get;init;}
     TurnPin? resolved;
     public TurnPin Pin=>resolved??Selection;
     internal Func<CancellationToken,Task<TurnPin>>? Resolve {get;set;}
@@ -182,6 +184,8 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
             """,MarketData),
         ..CurveTools,
         JobTool,
+        Tool("search_chat_history",
+            $$$"""{"type":"object","properties":{"query":{"type":"string","minLength":1,"maxLength":160},"before":{"type":["string","null"],"pattern":"{{{Uuid}}}"}},"required":["query","before"],"additionalProperties":false}""",[]),
         ..WorkspaceTools,
         Tool("navigate",
             $$$"""
@@ -204,7 +208,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         new(started.GetProperty("agentPrincipal").GetString()!,started.GetProperty("delegationId").GetGuid()),turn.GetProperty("pageReport").Clone(),
         [..started.GetProperty("tools").EnumerateArray().Select(t=>t.GetString()!)],turn.GetProperty("id").GetGuid(),
         TimeSpan.FromSeconds(started.GetProperty("limits").GetProperty("readSeconds").GetInt32()),
-        ToolOutputLimits.From(started.GetProperty("operatingLimits"))){Question=turn.GetProperty("question").GetString()!};
+        ToolOutputLimits.From(started.GetProperty("operatingLimits"))){Question=turn.GetProperty("question").GetString()!,SearchHistory=turn.TryGetProperty("searchHistory",out var allowed)&&allowed.ValueKind==JsonValueKind.True};
 
     // The definitions a version's request offers: its switched-on tools that this release implements, in the fixed order.
     public static ImmutableArray<ModelTool> Offered(IEnumerable<string> switchedOn,JsonElement guidance=default)
@@ -232,7 +236,8 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         new("custom_curves.prepare_v1","prepare_custom_curve",ToolNeeds.Frame,MarketAccess,[]),
         new("custom_curves.save_draft_v1","save_custom_curve_draft",ToolNeeds.CurrentOnlyFrame,MarketAccess,[]),
         new("jobs.list_v1","read_jobs",ToolNeeds.Operational,JobAccess,[]),
-        new("jobs.history_v1","read_jobs",ToolNeeds.Operational,JobAccess,["job_not_found"])
+        new("jobs.history_v1","read_jobs",ToolNeeds.Operational,JobAccess,["job_not_found"]),
+        new("assistant.history_search_v1","search_chat_history",ToolNeeds.InteractionHistory,_=>[],[])
     }.Concat(WorkspaceOperations).ToImmutableDictionary(o=>o.Id);
     internal static ToolOperation Operation(string id)=>Operations[id];
     // Navigate reads no page: the accesses its check runs under are those of its target's page.
@@ -265,6 +270,11 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
                 members.Exactly("code","name","engine","formula","curveId");
                 return new(Operations["custom_curves.save_draft_v1"],new SaveCurveArguments(PreparedCurve(members,input),members.Has("curveId")?members.Id("curveId"):null));
             case "read_jobs":return ParseJobs(members);
+            case "search_chat_history":
+                members.Exactly("query","before");
+                var query=members.Text("query",1,160);
+                if(string.IsNullOrWhiteSpace(query))throw ToolInput.Invalid();
+                return new(Operations["assistant.history_search_v1"],new HistoryArguments(query,members.Has("before")?members.Id("before"):null));
             case "read_market_data":
                 members.Exactly("view","curve");
                 var market=members.Choice("view","curves","curve","observations","contract_definitions");
@@ -442,7 +452,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         try
         {
             (call,dispatched)=Requested(turn,request);
-            if(turn.Pin.Operational&&call.Operation.Needs!=ToolNeeds.Operational&&call.Arguments is not WorkspaceArguments and not NavigateArguments and not DigestArguments and not WalkthroughArguments)
+            if(turn.Pin.Operational&&call.Operation.Needs is not (ToolNeeds.Operational or ToolNeeds.InteractionHistory)&&call.Arguments is not WorkspaceArguments and not NavigateArguments and not DigestArguments and not WalkthroughArguments)
                 throw new ToolRefusal("context_required");
             if(call.Arguments is SaveCurveArguments draft&&DraftRefusal(turn,draft) is {} refusal)throw new ToolRefusal(refusal);
             if(turn.Pin.BusinessDate is not null&&call.Arguments is NavigateArguments or WalkthroughArguments)throw new ToolRefusal("page_selection_unavailable");
@@ -463,6 +473,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         if(call.Arguments is SaveCurveArguments)return Before("approval_required",input);
         if(call.Arguments is WorkspaceArguments workspace)return await RunWorkspace(turn,targets,tool,input!.Value,call,workspace,ct);
         if(call.Arguments is DigestArguments digest)return await RunDigest(turn,targets,request,digest,ct);
+        if(call.Arguments is HistoryArguments history)return await RunHistory(turn,tool,input!.Value,history,ct);
         var operation=call.Operation;
         var access=operation.Access(database.Manifest);
         DateTimeOffset? readAt=null;
@@ -574,6 +585,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         // reads nothing, and the database records no step for a tool the version has not switched on (turn_input), a
         // write it does not take, which fails the turn agent_runtime_unavailable.
         if(!turn.Tools.Contains(request.Name))throw new ToolRefusal("tool_not_enabled");
+        if(request.Name=="search_chat_history"&&!turn.SearchHistory)throw new ToolRefusal("history_search_disabled");
         if(request.Name!="read_current_page")return(Parse(request.Name,request.Input),null);
         new ToolInput(request.Input).Exactly();
         return PageReports.Dispatch(turn.PageReport) switch

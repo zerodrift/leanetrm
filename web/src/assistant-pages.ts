@@ -220,7 +220,7 @@ export class NavigationHistory{
 
 const toolNames:Record<string,string>={present_walkthrough:'Present walkthrough',read_page_digest:'Read page digest',read_current_page:'Read the page',read_market_data:'Read market data',read_trades:'Read trades',futures_option_catalog:'Read the futures option catalog',
   read_trade_parties:'Read trade parties',read_schedules:'Read schedules',read_reference_data:'Read reference data',read_custom_curves:'Read curve ingredients',prepare_custom_curve:'Prepare proposed curve',save_custom_curve_draft:'Prepare curve draft',read_jobs:'Read your jobs',navigate:'Navigate',
-  read_workspace_page:'Read workspace page',discover_page_operations:'Inspect available operations',read_page_operation:'Read or preview page data',propose_page_action:'Prepare change for authorization'};
+  search_chat_history:'Search your earlier chats',read_workspace_page:'Read workspace page',discover_page_operations:'Inspect available operations',read_page_operation:'Read or preview page data',propose_page_action:'Prepare change for authorization'};
 const reasons:Record<string,string>={walkthrough_plan_invalid:'the plan names an unavailable step, page or target',walkthrough_fill_requires_explicit_terms:'state the exact unsaved ticket terms in a new ask',tool_arguments_invalid:'the request was not one this tool accepts',result_too_large:'the result was larger than one read returns',
   page_not_supported:'the assistant does not read the page you asked from',tool_not_enabled:'this agent does not read the page you asked from',
   page_selection_unavailable:'what the page showed is not available in the pinned context',snapshot_missing:'it needs an As of date, and none was chosen',
@@ -324,7 +324,8 @@ export function keptAsk(stored:string|null){
   try{
     const v=JSON.parse(stored??'null'),b=v?.body,k=b?.knowledge;
     if(!exact(v,['operationId','path','body'])||!isUuid(v.operationId)||v.path!=='assistant/turns/ask'
-      ||!exact(b,['conversationId','agentId','version','question','pageReport','knowledge'])||b.conversationId!==null&&!isUuid(b.conversationId)
+      ||!exact(b,['conversationId','agentId','version','question','pageReport','knowledge',...(Object.hasOwn(b??{},'searchHistory')?['searchHistory']:[])])
+      ||Object.hasOwn(b,'searchHistory')&&typeof b.searchHistory!=='boolean'||b.conversationId!==null&&!isUuid(b.conversationId)
       ||!isUuid(b.agentId)||!Number.isSafeInteger(b.version)||b.version<1||typeof b.question!=='string'||!b.question.trim()
       ||!exact(b.pageReport,['page','selection',...['layout','view','focus','businessDate'].filter(key=>Object.hasOwn(b.pageReport??{},key))])||!exact(k,['mode','contextId','frameId']))return undefined;
     return {operationId:v.operationId as string,path:v.path as string,body:b as Record<string,unknown>,uncertain:true};

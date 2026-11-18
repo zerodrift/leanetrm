@@ -14,7 +14,7 @@ export type StreamItem=TurnEvent|{kind:'replaced'}|{kind:'refused';code:string;m
 
 const stored:readonly string[]=['accepted','step','navigation','walkthrough','text','usage','completed','failed','cancelled','interrupted'];
 const terminal:readonly string[]=['completed','failed','cancelled','interrupted'];
-export const tools:readonly string[]=['present_walkthrough','read_page_digest','read_current_page','read_market_data','read_trades','futures_option_catalog','read_trade_parties','read_schedules','read_reference_data','read_custom_curves','prepare_custom_curve','save_custom_curve_draft','read_jobs','navigate','read_workspace_page','discover_page_operations','read_page_operation','propose_page_action'];
+export const tools:readonly string[]=['search_chat_history','present_walkthrough','read_page_digest','read_current_page','read_market_data','read_trades','futures_option_catalog','read_trade_parties','read_schedules','read_reference_data','read_custom_curves','prepare_custom_curve','save_custom_curve_draft','read_jobs','navigate','read_workspace_page','discover_page_operations','read_page_operation','propose_page_action'];
 export const readPages:readonly string[]=['lifecycle','physical_operations','gas_setup','crude_setup','facility_quantities','curves','contract_definitions','schedules','power_tous','reference_data','parties','blotter','custom_curves','jobs','risk_jobs','delivery_prices','interval_series','interval_curves','users_access','settings_ai','blotter_risk','blotter_risk_lens','blotter_new_trade','blotter_new_future','blotter_new_swap'];
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,codePattern=/^[a-z][a-z0-9_]{0,63}$/,decimal=/^-?[0-9]+(\.[0-9]+)?$/;
 
@@ -106,8 +106,16 @@ export function readEvents(read:{turns:unknown[];events:unknown[]}):TurnEvent[]{
     const e=exactly(raw,['sequence','turnId','kind','payload','at']),turn=turns.get(e.turnId as string);
     require(positive(e.sequence)&&turn!==undefined&&typeof e.kind==='string'&&stored.includes(e.kind));
     const ends=terminal.includes(e.kind as string);
+    let content:Json;
+    try{content=payload(e.kind as string,e.payload);}
+    catch(error){
+      // Refuse an incompatible saved action independently of readable chat. This internal marker carries no
+      // target or plan and can never arrive as a valid live frame; it only preserves the owner's event sequence.
+      if(e.kind!=='walkthrough'&&e.kind!=='navigation')throw error;
+      content={unavailable:true};
+    }
     return {sequence:e.sequence as number,turnId:e.turnId as string,kind:e.kind as StoredKind,hidden:turn!.hidden as string|null,
-      incomplete:ends?turn!.incomplete as boolean:null,payload:payload(e.kind as string,e.payload)};
+      incomplete:ends?turn!.incomplete as boolean:null,payload:content};
   });
 }
 
@@ -118,10 +126,10 @@ export const streamOrder=(last:number,sequence:number)=>sequence<=last?'repeat':
 export type Step={ordinal:number;tool:string;code:string|null}|{withheld:number};
 export type Ending={state:'completed'|'failed'|'cancelled'|'interrupted';code:string|null;incomplete:boolean};
 export type TurnView={id:string;ordinal:number;question:string;text:string;steps:Step[];targets:{ordinal:number;sequence:number;target:Target}[];
-  walkthroughs:{sequence:number;value:Walkthrough}[];usage:Usage|null;ending:Ending|null;hidden:string|null;lastSequence:number};
+  walkthroughs:{sequence:number;value:Walkthrough}[];usage:Usage|null;ending:Ending|null;hidden:string|null;lastSequence:number;unavailableAction:boolean};
 
 export function newTurnView(turn:{id:string;ordinal:number;question:string}):TurnView{
-  return {id:turn.id,ordinal:turn.ordinal,question:turn.question,text:'',steps:[],targets:[],walkthroughs:[],usage:null,ending:null,hidden:null,lastSequence:0};
+  return {id:turn.id,ordinal:turn.ordinal,question:turn.question,text:'',steps:[],targets:[],walkthroughs:[],usage:null,ending:null,hidden:null,lastSequence:0,unavailableAction:false};
 }
 
 // A turn's view after one more of its events: one already applied, by its sequence, changes nothing. Once an event says
@@ -131,6 +139,7 @@ export function applyEvent(view:TurnView,event:TurnEvent):TurnView{
   if(event.sequence<=view.lastSequence)return view;
   const next:TurnView={...view,lastSequence:event.sequence,hidden:view.hidden??event.hidden};
   const p=event.payload;
+  if(!next.hidden&&(event.kind==='navigation'||event.kind==='walkthrough')&&p.unavailable===true)next.unavailableAction=true;
   switch(event.kind){
     case 'text':if(!next.hidden&&typeof p.text==='string')next.text=view.text+p.text;break;
     case 'walkthrough':if(!next.hidden&&isObject(p.plan))next.walkthroughs=[...view.walkthroughs,{sequence:event.sequence,value:p as unknown as Walkthrough}];break;
