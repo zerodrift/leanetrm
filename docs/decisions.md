@@ -6431,3 +6431,37 @@ No table, migration, permission, stored data or valuation changes. Left for late
 termination and novation; adjustments of scheduled swaps and of instruments the
 close-out draft does not support; a position's own retained run beside the desk's.
 See the [design](superpowers/specs/2026-11-17-trade-actions-and-instrument-bar-design.md).
+
+## D425 · A commodity names its icon in reference data
+
+Decided by the owner, 2026-11-17. The Curves page drew a flame for the codes
+`gas` and `test_gas`, a bolt for `electricity` and `test_power` and a cube for
+every other commodity, so crude, LNG and certificates shared one picture and a
+commodity under any other code could not be told apart.
+
+A commodity now states its icon where it is configured: `ref_data.commodities`
+carries a required `icon_code` from the fixed list `flame`, `bolt`, `drop`,
+`tanker`, `cylinder`, `anchor`, `leaf`, `cube`. The database rejects a missing or unlisted value, so
+the navigation read always has a name to send with each curve's commodity; the
+browser draws the named icon and rejects a name it does not know. There is no
+fallback at any layer, and `cube` is a deliberate choice for a commodity
+without a picture of its own. Colour stays assigned by the browser. Position
+rows keep naming their commodity by code and name only, and the commodity dots
+of other pages are unchanged.
+
+Migration 0361 adds the column and carries each existing commodity over once to
+the picture its code had until now; that statement is the only place a code
+still selects an icon. The reference import states `flame` for gas and `bolt`
+for electricity. A cloned reference revision keeps its source's icons.
+
+The synthetic catalogs use `flame`, `bolt`, `drop`, `tanker`, `leaf` and
+`cube`. The owner added `cylinder` for natural gas liquids and `anchor` for
+freight ahead of the first catalog that holds them. A further picture arrives
+with the commodity that needs it.
+
+Not chosen: an icon edited as a reviewed display detail (it needs a new editor
+field kind, and the curve directory deliberately reads commodities before
+display labels), and a longer list of codes in the browser (it fails for any
+code an installation chooses).
+
+See [the Markets desk](markets-desk.md).

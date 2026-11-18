@@ -1,6 +1,6 @@
 """Project-authored synthetic fixed-standard-volume crude inputs, owned preview only."""
 from datetime import datetime, timezone
-from preview_fixture import CAT, RCAT, RREV, R, CURRENCY
+from preview_fixture import CAT, RCAT, RREV, R, CURRENCY, commodity
 
 REVISION = '60000000-0000-0000-0000-000000000051'
 CONTRACT = '50000000-0000-0000-0000-000000000051'
@@ -9,7 +9,7 @@ SERIES = '90000000-0000-0000-0000-000000000051'
 
 def prepare(reference, market, manifest):
     refs = f"""
-INSERT INTO ref_data.commodities VALUES ({R},'synthetic_crude','Synthetic crude oil','volume');
+{commodity(R,'synthetic_crude','Synthetic crude oil','volume','drop')}
 INSERT INTO ref_data.commodity_units VALUES ({R},'synthetic_crude','petroleum_barrel','volume');
 INSERT INTO ref_data.measurement_bases VALUES ({R},'synthetic_crude_standard_60f','synthetic_crude','volume');
 INSERT INTO ref_data.quantity_specifications VALUES ({R},'synthetic_crude_quantity','synthetic_crude','synthetic_crude_standard_60f','petroleum_barrel','volume');

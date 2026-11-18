@@ -24,9 +24,11 @@ INSERT INTO ref_data.unit_conversions
  ('metric_tonne','kilogram','mass',1000,1),('pound','kilogram','mass',45359237,100000000),
  ('short_ton','pound','mass',2000,1),('troy_ounce','kilogram','mass',311034768,10000000000)
  )v(a,b,dimension,n,d);
-INSERT INTO ref_data.commodities VALUES
- ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','test_liquid','Synthetic liquid','volume'),
- ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','test_bulk','Synthetic bulk material','mass');
+-- Built from named fields: this file also loads on schemas that precede the icon column, which ignore it.
+INSERT INTO ref_data.commodities SELECT (jsonb_populate_record(NULL::ref_data.commodities,jsonb_build_object(
+ 'catalog_id','10000000-0000-0000-0000-000000000001','revision_id','20000000-0000-0000-0000-000000000001',
+ 'code',v.code,'name',v.name,'quantity_dimension_code',v.dimension,'icon_code','cube'))).*
+ FROM (VALUES ('test_liquid','Synthetic liquid','volume'),('test_bulk','Synthetic bulk material','mass'))v(code,name,dimension);
 INSERT INTO ref_data.measurement_bases VALUES
  ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','test_liquid_volume','test_liquid','volume'),
  ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','test_bulk_mass','test_bulk','mass'),

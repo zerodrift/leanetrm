@@ -29,10 +29,13 @@ INSERT INTO ref_data.units (catalog_id,revision_id,code,symbol,dimension_code)
   SELECT catalog_id,revision_id,'volume_a','VA','volume' FROM fixture_context;
 INSERT INTO ref_data.unit_conversions (catalog_id,revision_id,from_unit_code,to_unit_code,dimension_code,factor_numerator,factor_denominator)
   SELECT catalog_id,revision_id,'energy_a','energy_b','energy',4,1 FROM fixture_context;
-INSERT INTO ref_data.commodities (catalog_id,revision_id,code,name,quantity_dimension_code)
-  SELECT catalog_id,revision_id,'test_gas','Synthetic gas','energy' FROM fixture_context;
-INSERT INTO ref_data.commodities (catalog_id,revision_id,code,name,quantity_dimension_code)
-  SELECT catalog_id,revision_id,'test_power','Synthetic power','energy' FROM fixture_context;
+-- Commodity rows are built from named fields: this file also loads on schemas that precede the icon column, which ignore it.
+INSERT INTO ref_data.commodities SELECT (jsonb_populate_record(NULL::ref_data.commodities,jsonb_build_object(
+  'catalog_id',catalog_id,'revision_id',revision_id,'code','test_gas','name','Synthetic gas','quantity_dimension_code','energy','icon_code','flame'))).*
+  FROM fixture_context;
+INSERT INTO ref_data.commodities SELECT (jsonb_populate_record(NULL::ref_data.commodities,jsonb_build_object(
+  'catalog_id',catalog_id,'revision_id',revision_id,'code','test_power','name','Synthetic power','quantity_dimension_code','energy','icon_code','bolt'))).*
+  FROM fixture_context;
 INSERT INTO ref_data.commodity_units (catalog_id,revision_id,commodity_code,unit_code,dimension_code)
   SELECT catalog_id,revision_id,'test_gas','energy_a','energy' FROM fixture_context;
 INSERT INTO ref_data.commodity_units (catalog_id,revision_id,commodity_code,unit_code,dimension_code)

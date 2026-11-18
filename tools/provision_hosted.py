@@ -87,7 +87,7 @@ INSERT INTO ref_data.currencies VALUES({ref},'usd','USD','US Dollar',2);
 INSERT INTO ref_data.dimensions VALUES({ref},'energy',1,2,-2,0,0,0,0),({ref},'power',1,2,-3,0,0,0,0);
 INSERT INTO ref_data.units VALUES({ref},'megawatt_hour','MWh','energy'),({ref},'kilowatt_hour','kWh','energy'),({ref},'megawatt','MW','power'),({ref},'kilowatt','kW','power');
 INSERT INTO ref_data.unit_conversions VALUES({ref},'megawatt_hour','kilowatt_hour','energy',1000,1),({ref},'megawatt','kilowatt','power',1000,1);
-INSERT INTO ref_data.commodities VALUES({ref},'electricity','Electricity','energy');
+INSERT INTO ref_data.commodities VALUES({ref},'electricity','Electricity','energy','bolt');
 INSERT INTO ref_data.measurement_bases VALUES({ref},'electrical_energy','electricity','energy'),({ref},'electrical_power','electricity','power');
 INSERT INTO ref_data.commodity_units VALUES({ref},'electricity','megawatt_hour','energy'),({ref},'electricity','kilowatt_hour','energy'),({ref},'electricity','megawatt','power'),({ref},'electricity','kilowatt','power');
 INSERT INTO ref_data.quantity_specifications VALUES({ref},'power_mwh','electricity','electrical_energy','megawatt_hour','energy'),({ref},'power_kwh','electricity','electrical_energy','kilowatt_hour','energy'),({ref},'power_mw','electricity','electrical_power','megawatt','power');

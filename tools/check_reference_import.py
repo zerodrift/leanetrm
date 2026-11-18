@@ -23,7 +23,7 @@ INSERT INTO security.role_grants VALUES('{grant}','{actor}','{role}','{tenant}',
 INSERT INTO ref_data.revisions(catalog_id,id,revision_key) VALUES('{catalog}','20000000-0000-0000-0000-000000000099','synthetic_import_units');
 INSERT INTO ref_data.dimensions VALUES('{catalog}','20000000-0000-0000-0000-000000000099','energy',1,2,-2,0,0,0,0);
 INSERT INTO ref_data.units VALUES('{catalog}','20000000-0000-0000-0000-000000000099','mwh','MWh','energy');
-INSERT INTO ref_data.commodities VALUES('{catalog}','20000000-0000-0000-0000-000000000099','electricity','Synthetic power','energy');
+INSERT INTO ref_data.commodities VALUES('{catalog}','20000000-0000-0000-0000-000000000099','electricity','Synthetic power','energy','bolt');
 INSERT INTO ref_data.commodity_units VALUES('{catalog}','20000000-0000-0000-0000-000000000099','electricity','mwh','energy');
 INSERT INTO ref_data.measurement_bases VALUES('{catalog}','20000000-0000-0000-0000-000000000099','energy','electricity','energy');
 INSERT INTO ref_data.quantity_specifications VALUES('{catalog}','20000000-0000-0000-0000-000000000099','synthetic_power_mwh','electricity','energy','mwh','energy');
@@ -73,6 +73,8 @@ UPDATE ref_data.revisions SET state='sealed' WHERE catalog_id='{catalog}' AND id
     assert receipt['products']==1 and receipt['series']==1 and receipt['state']=='inactive' and receipt['revisionId']==operation
     assert json.loads(query(runtime(call())))==receipt
     assert query(f"SELECT state FROM ref_data.revisions WHERE catalog_id='{catalog}' AND id='{operation}';")=='sealed'
+    imported=query(f"SELECT string_agg(code||'='||icon_code,',' ORDER BY code) FROM ref_data.commodities WHERE catalog_id='{catalog}' AND revision_id='{operation}';")
+    assert imported and set(imported.split(','))<={'electricity=bolt','gas=flame'},'An imported commodity must name its icon'
     assert query(f"SELECT count(*) FROM ref_data.futures_products WHERE catalog_id='{catalog}' AND revision_id='{operation}' AND definition_state='placeholder';")=='1'
     assert query(f"SELECT count(*) FROM ref_data.futures_series WHERE catalog_id='{catalog}' AND revision_id='{operation}' AND definition_state='placeholder' AND delivery_from IS NULL;")=='1'
     source=payload['series'][0]
