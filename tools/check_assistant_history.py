@@ -6,8 +6,11 @@ from uuid import uuid4
 def run_checks(ask, check, owner, trader, agent, query, stamp):
     phrase = 'synthetic_history_' + stamp
     source, _, _ = ask([], question=phrase + ' walkthrough', answer='Synthetic saved answer: ' + phrase)
-    trader.call('assistant/grants/grant', {'operationId': str(uuid4()), 'agentId': agent['id'], 'version': 1})
-    foreign, _, _ = ask([], session=trader, page='settings_ai', question=phrase + ' other person')
+    grant = trader.call('assistant/grants/grant', {'operationId': str(uuid4()), 'agentId': agent['id'], 'version': 1})
+    try:
+        foreign, _, _ = ask([], session=trader, page='settings_ai', question=phrase + ' other person')
+    finally:
+        trader.call('assistant/grants/revoke', {'operationId': str(uuid4()), 'grantId': grant['id']})
     request = [('search_chat_history', {'query': phrase, 'before': None})]
     searched, results, calls = ask(request, search_history=True)
     matches = results[0]['matches']
