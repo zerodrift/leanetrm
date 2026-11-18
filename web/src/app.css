@@ -289,6 +289,9 @@ td.numeric{text-align:right;font-family:var(--mono);font-variant-numeric:tabular
 .market-content{min-width:0}
 /* Commodity dots remain on trading views; curve lists and the market board use named icons. */
 .commodity-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--commodity);flex:none}
+/* A curve that is leaving stays in view while its successor is read; it dims only when that read is not immediate. */
+#curve-detail{transition:opacity .12s ease}
+#market-page[data-read-state=pending] #curve-detail{opacity:.55;transition-delay:.15s}
 .commodity-icon{display:inline-grid;place-items:center;width:20px;height:20px;flex:none;color:var(--commodity,var(--text-2))}
 .commodity-icon svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 /* The market board: every listed curve at the selected close, while no curve is shown. */
