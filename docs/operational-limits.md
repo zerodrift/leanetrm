@@ -132,7 +132,7 @@ memory or work on untrusted input), *storage* (a stored field's length) or
 | Limit | Where | Value | Decision |
 | --- | --- | --- | --- |
 | Pins on one turn | `assistant.pin_turn` (`0122_pin_turn_bound.sql:37`) | 262,144 bytes | **Move:** installation, assistant (ceiling 1 MiB, proposed) |
-| Retained contexts per catalog | `assistant.pin_turn` (`0122_pin_turn_bound.sql:56`); also `security.capture_schedule_context`, `security.save_trade_party` | 4,096 | Fixed: guard, the retained-context store's ceiling. One constant in three functions, to share in one helper |
+| Retained contexts per catalog | Page, worker and assistant capture | Installation policy, initially 4,096 | The database operator configures [capacity](#retained-context-capacity) for new captures. |
 | Retained contexts reserved for pages | `src/OpenEtrm.Api/RuntimeSet.cs:25` | 64 | **Move:** installation, assistant |
 | Turns a workspace runs at once | `RuntimeSet.cs:21` | 4 | **Move:** installation, assistant |
 | Longest agent grant | `RuntimeSet.cs:15` | 90 days | **Move:** installation, assistant |
@@ -256,6 +256,40 @@ selects current policy under the applicable authorization fence. General
 historical business reads do not substitute these current administration policies
 for their pinned financial contracts or historical authority.
 
+## Retained context capacity
+
+Migration 0367 carries the previous limit of 4,096 into revision 1. A full catalog
+remains full until the database operator selects a higher value. Each catalog counts
+its own receipts against the installation value. Both assistant capture paths also
+honor the page reserve pinned on their turn.
+
+The migration owner can inspect the active revision and usage with these queries.
+
+```sql
+SELECT revision, maximum_per_catalog, recorded_at, recorded_by
+FROM security.current_retained_context_capacity();
+SELECT catalog_id, count(*) AS used
+FROM market_data.temporal_contexts GROUP BY catalog_id;
+```
+
+Choose the positive capacity using observed growth, available storage and backup
+headroom. Pass the selected value and the revision just read as psql variables.
+The operator change uses a short READ COMMITTED transaction and the same lock
+as capture. Application roles cannot set the value.
+
+```sql
+SELECT security.configure_retained_context_capacity(
+  :'expected_revision'::bigint, :'maximum_per_catalog'::bigint);
+SELECT revision, maximum_per_catalog FROM security.current_retained_context_capacity();
+```
+
+Retrying the same revision and value returns the original receipt. A different
+successor conflicts. The second query shows the effective policy even if another
+operator has since changed it. A reduction to or below current usage stops new
+captures for that catalog. Exact retained replay continues under current
+authorization. New receipts record their capacity revision. Monitor remaining
+slots and disk growth as the receipts accumulate.
+
 ## Migrations and remaining work
 
 0181 installs the reviewed carried-forward policy baseline and current consumers;
@@ -267,7 +301,7 @@ expiry, and refuse altered bodies or extra execution privileges. See
 
 The remaining P42 targets include collection/reference-command transport settings,
 poll/heartbeat operating settings, more operation-specific presentation metadata,
-consolidating the retained-context ceiling and richer operational result evidence.
+and richer operational result evidence.
 They require named consumers and behavior checks. No larger financial, parser or
 resource ceiling is qualified by introducing configuration.
 

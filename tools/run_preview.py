@@ -306,6 +306,11 @@ def main():
                 reference,market,security,manifest=add_in_term_fixture(reference,market,security,manifest)
         query((ROOT/'db/bootstrap.sql').read_text())
         for migration in sorted((ROOT/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
+            if (args.assistant_check or args.assistant_runtime_check) and migration.name=='0367_retained_context_capacity.sql':
+                from check_fact_anchor_upgrade import run_checks as check_capacity_upgrade
+                check_capacity_upgrade(query,migration,number='0367',guard='context_capacity_upgrade',signatures=(
+                    'security.capture_schedule_context(uuid,date,timestamptz)', 'assistant.pin_market_turn(uuid,bytea,date,jsonb,integer)',
+                    'assistant.resolve_turn_context(uuid,bytea,date,jsonb)'))
             if args.jobs_check and migration.name=='0366_managed_risk_pool.sql':
                 from check_fact_anchor_upgrade import run_checks as check_pool_upgrade
                 check_pool_upgrade(query,migration,number='0366',guard='managed_pool_upgrade',signatures=(
@@ -1718,6 +1723,8 @@ def main():
                 check_schedule_storage(query,psql,env,manifest)
                 from check_temporal_storage import run_checks as check_temporal_storage
                 check_temporal_storage(query,psql,env,manifest,url)
+                from check_retained_context_capacity import run_checks as check_context_capacity
+                check_context_capacity(query,manifest)
                 from check_reference_policy_storage import run_checks as check_reference_policy_storage
                 check_reference_policy_storage(query,manifest)
                 from check_market_read_authority import run_checks as check_market_authority

@@ -900,10 +900,14 @@ def run_checks(url, query, psql, manifest, environment, dotnet):
         contexts.runtime(profile, refused(f'PERFORM {pin_sql(first, token=token)};', 'agent_runtime_unavailable'))
     check('only the asking person presenting its token may record the selected context', query(RECORDS) == records)
     before = contexts_count()
-    contexts.runtime('trader', refused(f'PERFORM {pin_sql(first, reserve=4096 - before)};', 'knowledge_budget_reserved'))
+    revision, capacity = map(int, query('SELECT revision,maximum_per_catalog FROM security.current_retained_context_capacity();').split('|'))
+    room = 128
+    reduced = int(query(f'SELECT security.configure_retained_context_capacity({revision},{before + room});'))
+    contexts.runtime('trader', refused(f'PERFORM {pin_sql(first, reserve=room)};', 'knowledge_budget_reserved'))
     check("an ask over working data is refused while fewer than the reserve of the catalog's retained contexts would remain",
           query(RECORDS) == records and contexts_count() == before)
-    pinned = pin(first, reserve=4095 - before)['turn']
+    pinned = pin(first, reserve=room - 1)['turn']
+    query(f'SELECT security.configure_retained_context_capacity({reduced},{capacity});')
     record = query(f"SELECT t.context_id||' '||(t.cutoff=c.known_at)||' '||(t.pins IS NULL) FROM assistant.turns t "
                    f"JOIN market_data.temporal_contexts c ON(c.catalog_id,c.id)=(t.catalog_id,t.context_id) WHERE t.id='{first.id}';")
     check('working data is captured once into the pinned record with its cutoff, leaving the reserve',
@@ -2165,7 +2169,7 @@ def run_checks(url, query, psql, manifest, environment, dotnet):
     occupied = contexts_count()
     thread, answers = holding(psql, environment, f"SET SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{issued('risk')}');"
                               f"SELECT security.capture_date_context('{catalog}','{EFFECTIVE}',NULL)",
-                              lambda: waits(lambda: contexts.runtime('trader', refused(f'PERFORM {pin_sql(reserving, reserve=4095 - occupied)};',
+                              lambda: waits(lambda: contexts.runtime('trader', refused(f'PERFORM {pin_sql(reserving, reserve=capacity - 1 - occupied)};',
                                                                                         'knowledge_budget_reserved')), 'pin_turn'), ending='COMMIT')
     thread.join(timeout=15)
     check('a record write waiting for a capture in progress counts it once committed, so the reserve holds',
@@ -2212,6 +2216,29 @@ def run_checks(url, query, psql, manifest, environment, dotnet):
     check('requested context resolution returns the exact first outcome and refuses different pins or dates',
           retry == resolved and contexts_count() == unresolved_count + 1 and query(RECORDS) == resolved_records)
     end(requested, 'failed', 'request_cancelled')
+
+    # A frame referencing a recorded close has its own running-turn admission path.
+    from close_session_fixture import record as record_close
+    source = initial_frame(trader.call('workspace'), EFFECTIVE)
+    people.call('profile', {'profile': 'approver'})
+    close = record_close(people, source, 'Synthetic context capacity close')
+    close_turn = Turn()
+    ask(close_turn, frame=close['id'])
+    start(close_turn)
+    close_pins = literal(json.dumps({'frameId': close['id'], 'closeId': close['id']})) + '::jsonb'
+    read_close = resolve_sql(close_turn, pins=close_pins)
+    used = contexts_count()
+    reserve = int(query(f"SELECT assistant.turn_operating_limits('{close_turn.id}')->>'retainedContextReserve';"))
+    revision = int(query('SELECT revision FROM security.current_retained_context_capacity();'))
+    full = query(f'SELECT security.configure_retained_context_capacity({revision},{used + reserve});')
+    contexts.runtime('trader', refused(f'PERFORM {read_close};', 'knowledge_budget_reserved'))
+    assert contexts_count() == used
+    raised = query(f'SELECT security.configure_retained_context_capacity({full},{used + reserve + 1});')
+    as_person('trader', f'SELECT {read_close};')
+    check('a recorded-close read resumes with one free assistant slot and leaves the pinned page reserve',
+          contexts_count() == used + 1 and query(f"SELECT close_id FROM assistant.turn_close_pins WHERE turn_id='{close_turn.id}';") == close['id'])
+    query(f'SELECT security.configure_retained_context_capacity({raised},{capacity});')
+    end(close_turn, 'failed', 'request_cancelled')
 
     expiring_read = Turn()
     ask(expiring_read)

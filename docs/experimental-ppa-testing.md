@@ -120,7 +120,7 @@ complete within the interactive 20-second target.
   3,100 native contributions/12,400 meter cells, 15 seconds and 16 MiB. Missing or
   incompatible evidence refuses the whole result. PPA valuation previews retain
   their separate 20-second/8 MiB limits.
-- A catalog retains at most **4,096 contexts**. Per-cell finality publication
+- The test installation uses **4,096 retained contexts per catalog**. Per-cell finality publication
   consumes this budget; four-asset quarter-hour monthly publication cannot fit
   through that sequence. Fresh separate fixtures are required for the examples.
 - Settlement approvals, accepted-cash accounting, obligations, payments,

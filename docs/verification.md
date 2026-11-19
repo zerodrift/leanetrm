@@ -5685,3 +5685,20 @@ expired. Separate checks passed an exact non-primary recorded source and an
 expired curve with no eligible output. The 13 owned browser checks passed,
 including selection supersession and late catalog delivery. All 2,244
 frontend tests passed.
+
+## Retained context capacity
+
+On stock PostgreSQL 18.6, an owned synthetic catalog on schema 0366 had 4,096
+receipts and refused its next current capture with `knowledge_limit`. Schema
+0367 preserved the digest over every original receipt field, ordered by catalog
+and identity. The first policy revision still refused the capture. Raising the
+capacity to 4,097 admitted the next authorized read under revision 2.
+
+The standard preview checks exact historical replay at capacity, concurrent reads
+competing for one slot, reduction below usage, operating-policy retries and
+conflicts, clock regression, and denial of configuration writes by a page user.
+The assistant runtime preview checks both working-frame and recorded-close reads
+at their reserved boundary. Its upgrade checks refuse unexpected definitions or
+privileges on each of the three capture helpers. The operator procedure is in
+[operating limits](operational-limits.md#retained-context-capacity). Storage
+growth and capture latency at larger capacities still need workload measurements.

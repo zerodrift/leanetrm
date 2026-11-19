@@ -204,9 +204,9 @@ Facts the body relies on and does not restate:
 - **Context.** The As of selection is an input frame in the session (at most 128).
   `POST /market/context` selects a historical context; `/market/current` or a profile
   switch clears it. Every date-context capture certifies collection batches under
-  global advisory lock 730849102 (D134), held to commit; a catalog retains at most
-  4096 contexts, never reclaimed (`knowledge_limit`), and each current-mode capture
-  adds one.
+  global advisory lock 730849102 (D134), held to commit. Each current-mode capture
+  consumes one slot in the [configured catalog capacity](operational-limits.md#retained-context-capacity).
+  Existing contexts are retained indefinitely.
 - **Authorization.** Market and reference page reads, the schedule library, TOU
   product and power hour catalog reads, the trade party read and the trading
   workspace, Blotter and trade detail reads call `MarketReads` or `ScheduleReads` with a
@@ -647,8 +647,8 @@ qualification remains open.
   frame ID, including historical aliases. Their source matrices are not copied into
   each turn. Working frames retain bounded exact pins only when requested. Retained
   programs and reviewed proposals continue to resolve their original inputs.
-- **Reserve.** Each first financial read over working data permanently uses one of the catalog's
-  4096 retained contexts. The assistant captures through a wrapper that, under lock
+- **Reserve.** Each first financial read over working data permanently uses one slot in the catalog's
+  configured capacity. The assistant captures through a wrapper that, under lock
   730849102, refuses with `knowledge_budget_reserved` when fewer than the runtime
   set's reserve would remain, keeping it for page captures. Reclaiming stays open
   (O07).

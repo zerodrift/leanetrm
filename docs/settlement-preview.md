@@ -120,7 +120,7 @@ it does not omit evidence, paginate a cash total or increase the deadline.
 These simultaneous limits are admission ceilings, not completion guarantees for
 every Cartesian combination or retained-history size.
 
-The unchanged knowledge system allows 4,096 retained contexts per catalog, and
+The test installation allows 4,096 retained contexts per catalog, and
 current finality publication captures a distinct context per new cell publication.
 Combining the 721-hour initial/correction fixtures with a 2,884-cell quarter-hour
 month exceeded that cap before preview. Qualification therefore uses separate

@@ -2605,9 +2605,9 @@ quarter-hour previews take 9.435/19.186 seconds, both below 20 seconds, with
   declares another release, and only its revision is refused. Fixed-offset clocks are
   unaffected.
 - Each values or change-log read at a new cutoff stores one retained temporal
-  context, and a catalog holds at most 4,096 of them, never reclaimed
-  (`knowledge_limit`). This existing platform limit is open decision O07; every
-  such interval series read counts against it, and the benchmark stores five.
+  context. Each catalog has an [operator-configured capacity](operational-limits.md#retained-context-capacity),
+  initially 4,096. Every such interval series read counts against it, and the benchmark
+  stores five. Reclamation remains open under O07.
 - Reads are bounded and not paged: windows over 35,136 intervals or change logs over
   100,000 rows are refused, not truncated. A values read's cost grows with the
   revisions stored per interval, which nothing bounds.

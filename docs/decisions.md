@@ -6715,3 +6715,13 @@ the warm price path on two owned synthetic workloads.
 An installation binds one reviewed Swarm service and a dedicated risk-worker login to its workspace. Jobs can request zero, one or two replicas. Scaling requires both workspace permission and current installation operator registration. A separate permission grants access to bounded worker and node diagnostics. Installations choose the roles that receive these permissions.
 
 A scale command records its request identity and expected generation before the controller dispatches a version-checked service update. Workers claim existing risk jobs individually under their own leases. Downscaling closes admission while active work drains. See the [worker pool contract and qualification](managed-risk-pool.md).
+
+## Retained context capacity (O07)
+
+Migration 0367 makes per-catalog capacity an installation policy owned by the
+database operator. Its first revision records the former 4,096 bound. Revisions
+apply only to admission of new contexts. The effective date, exact cutoff,
+publication evidence and identity of every retained context continue to govern
+historical replay. Both assistant capture paths use the same capacity and their
+existing page reserve. Reclamation and storage sizing remain open under O07.
+See the [operator procedure](operational-limits.md#retained-context-capacity).
