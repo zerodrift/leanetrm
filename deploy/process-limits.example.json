@@ -1,5 +1,6 @@
 {
-  "implementation": "bounded_process_limits_v1",
+  "implementation": "bounded_process_limits_v2",
+  "previewRecipeSampleReferences": 50000,
   "requestSeconds": 15,
   "extendedRequestSeconds": 20,
   "responseGraceSeconds": 5,

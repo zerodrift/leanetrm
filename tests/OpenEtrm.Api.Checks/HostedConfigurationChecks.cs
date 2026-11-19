@@ -25,6 +25,18 @@ static class HostedConfigurationChecks
                 return HostedConfiguration.Read(file);
             }
             var read=Read(complete);
+            var smaller=read.Limits with{PreviewRecipeSampleReferences=17};
+            smaller.Validate();
+            Require(smaller.RecipePreviewBudget==17&&smaller.Digest!=read.Limits.Digest,"selected preview budget is explicit in process identity");
+            var legacy=read.Limits with{Implementation="bounded_process_limits_v1",PreviewRecipeSampleReferences=null};
+            legacy.Validate();
+            Require(legacy.RecipePreviewBudget==read.Limits.RecipePreviewBudget,"legacy limits retain their versioned recipe admission");
+            foreach(var bad in new[]{read.Limits with{PreviewRecipeSampleReferences=null},read.Limits with{PreviewRecipeSampleReferences=0},
+                read.Limits with{PreviewRecipeSampleReferences=read.Limits.RecipePreviewBudget+1},legacy with{PreviewRecipeSampleReferences=17}})
+            {
+                try{bad.Validate();throw new Exception("Invalid recipe preparation budget was accepted.");}
+                catch(InvalidOperationException){}
+            }
             var selected=read.Limits with {RequestSeconds=6,ExtendedRequestSeconds=11,ResponseGraceSeconds=3,PageSessions=8};
             selected.Validate();
             Require(JsonSerializer.SerializeToElement(selected.RequestDeadlines).GetProperty("normalMilliseconds").GetInt32()==9000

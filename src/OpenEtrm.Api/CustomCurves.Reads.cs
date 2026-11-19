@@ -109,9 +109,9 @@ public static partial class CustomCurves
         Validate(body.Definition);
         var references=await store.References(connection,body.Definition,data,ct);
         if((body.Id is null)!=(body.Version is null))throw Invalid("Supply both the saved curve identity and exact version.");
-        if(body.Id is {} id)
+        if(body.Id.HasValue)
         {
-            var saved=(await store.Read(connection,ct)).SingleOrDefault(v=>v.Id==id&&v.Version==body.Version)??throw Invalid("This exact curve version is unavailable in the selected knowledge context.");
+            var saved=retained??throw Invalid("This exact curve version is unavailable in the selected knowledge context.");
             if(saved.EngineVersion!=RecipeEngine.Version)throw Invalid("The selected retained curve engine is unavailable.");
             if(!Equivalent(saved.Definition,body.Definition)||saved.Sources.Any(p=>!references.Sources.TryGetValue(p.Key,out var value)||value!=p.Value)||saved.Calendars.Any(p=>!references.Calendars.TryGetValue(p.Key,out var value)||value!=p.Value)||saved.Schedules.Any(p=>!references.Schedules.TryGetValue(p.Key,out var value)||value!=p.Value))throw Invalid("The selected graph or exact references differ from its retained version.");
         }
@@ -128,7 +128,7 @@ public static partial class CustomCurves
             references=await store.References(connection,inspected,data,ct);
         }
         var prepared=await PrepareDefinition(connection,database,inspected,data,frame,references.Sources,references.Calendars,references.Schedules,
-            pin.Context??throw Invalid("Recipe pricing requires its resolved financial context."),ct);
+            context,ct,versions:versions);
         var graph=prepared.Graph;
         var value=Result(EvaluateGraph(graph,prepared.Context,database,ct),data,pin,inspected,body.Id,body.Version,history is not null);
         if(history is not null)value=new{node=history.Node,policy=history.Policy,preview=value};
