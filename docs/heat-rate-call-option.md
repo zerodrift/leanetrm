@@ -1,9 +1,11 @@
 # Heat-rate call option (D430)
 
-Status: managed valuation and risk are implemented and locally checked. There is
-no persistence, booking operation, ticket, exercise determination or settlement
-yet; those are listed under [Remaining work](#remaining-work). Nothing here is
-qualified for release.
+Status: managed valuation and risk are implemented and locally checked. Native
+persistence and the booking operation are implemented and checked against a
+disposable database. No managed operation calls that booking yet, and there are
+no published marks, ticket, exercise determination or settlement; those are
+listed under [Remaining work](#remaining-work). Nothing here is qualified for
+release.
 
 ## Contract
 
@@ -63,6 +65,41 @@ configuration supplied to the operation; none is built in.
 The strike is nonnegative so that the fuel cost plus strike stays positive under
 every price shock. Negative power prices are outside the lognormal model and
 refuse.
+
+## Booking
+
+Migration `0367_heat_rate_call_bookings.sql` retains a booked option in
+`trading.heat_rate_call_instruments` (terms, with exact-version references to
+the market definition, both curves and quotes, the clock, the hours block, both
+calendars and the payment rule), `trading.heat_rate_call_exercises` (one row per
+operating day, each bound to the curve member it is valued from) and
+`trading.heat_rate_call_trade_revisions` (book, parties and the signed capacity).
+Rows are immutable and closed to the runtime role.
+
+`security.book_heat_rate_call(catalog, body, prepared, valuation)` takes the
+closed `heat_rate_call_trade_v1` command and the expanded exercises. It requires
+booking authority and:
+
+- selected `exerciseStyle`, `model`, `dayCount` and exercise rule versions; no
+  alternative is substituted;
+- two outright curves of different commodities in one currency with a
+  multiplier of one, and a capacity quantity of the power commodity;
+- exercises in strictly increasing delivery order inside the period, each
+  exercised after the booking instant and no later than its delivery day, with
+  one payment instant per delivery month and positive energy;
+- for each day, the contract that is the only member of its curve delivering
+  that day.
+
+A retried command returns its first outcome; the same command identity with
+different content refuses. The same terms, book and parties under a new command
+identity are the same fact and return the existing trade unchanged, so a second
+identical option is not created. A different quantity is a different trade.
+The database does not recompute the hours block: energy per day is the managed
+schedule's output and is retained as booked.
+
+`security.read_heat_rate_call_positions` returns the retained terms and
+exercises for trades visible under the selected knowledge context, to the
+runtime and the read-only risk worker.
 
 ## Marks
 
@@ -129,17 +166,28 @@ runs 21 checks:
 
 The default managed suite passes unchanged at 785 checks.
 
+`python3 tools/check_heat_rate_call_storage.py --pg-bin <PostgreSQL 18 bin>`
+applies the whole migration chain to an owned database and runs seven checks on
+the booking: authority and closed tables, malformed commands, unselected
+policies and unknown references, exercise ordering and contract coverage,
+request replay, the same-fact no-op, immutability, and position reads at and
+before the booking instant.
+
 ## Remaining work
 
-1. Native persistence and an idempotent booking operation that retains the
-   expanded exercises.
+1. The managed booking operation: resolve the ticket's reference terms, expand
+   the exercises and call the native booking under the shared authority.
 2. Published volatility and correlation marks with knowledge time, and their
    selection for a valuation.
-3. Ticket, blotter, position and risk-workspace presentation.
-4. Recorded daily exercise determinations from published index prices, and the
+3. Booked trades in portfolio valuation, the blotter, position facts and the
+   risk trade directory. Until then a book holding one refuses position facts
+   rather than omitting the trade.
+4. Premium and capacity-payment cash bindings at booking.
+5. Ticket and risk-workspace presentation.
+6. Recorded daily exercise determinations from published index prices, and the
    resulting settlement cash.
-5. A correlation sensitivity, once its shock contract is selected.
-6. Intraday or hourly exercise, physical delivery, start costs, minimum run
+7. A correlation sensitivity, once its shock contract is selected.
+8. Intraday or hourly exercise, physical delivery, start costs, minimum run
    times and other unit constraints. The
    [supplied-plan thermal toll](structured-power-products.md) remains the
    contract for those.
