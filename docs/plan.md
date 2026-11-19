@@ -3,8 +3,9 @@
 D430 adds managed valuation and risk for a [heat-rate call option](heat-rate-call-option.md):
 a daily strip of spread calls with explicit volatility and correlation marks.
 Twenty-one managed checks pass locally, including the booking-time exercise schedule, and
-migration 0367 retains a booked option with an idempotent native booking operation.
-The managed booking adapter, marks publication, valuation of booked trades,
+migrations 0367 and 0368 retain a booked option and its revisable volatility and
+correlation marks, each with an idempotent native operation.
+The managed booking and marks operations, valuation of booked trades,
 presentation, exercise determination and settlement remain open, as does the
 commercial Storage contract.
 

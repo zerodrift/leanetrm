@@ -111,6 +111,21 @@ without marks is unpriced; a missing, extra or duplicated bucket refuses. No
 volatility or correlation is inferred from a price history, a listed option
 surface or another product.
 
+Migration `0368_spread_option_marks.sql` stores the marks as market data shared
+by every option on a curve pair: `trading.spread_marks` holds one revision chain
+per market definition, long curve, short curve and delivery month.
+`security.record_spread_marks` requires the observation-import authority that
+trader price marks use, the selected convention, two outright curves of
+different commodities in one currency, a volatility from 0 to 10 and a
+correlation from -1 to 1. A new value is a new revision of the expected head
+with its own effective instant, never an overwrite; a stale expected revision
+or an effective instant before the head's refuses. The same value at the same
+instant is the fact already recorded and writes nothing, and a retried request
+returns its first outcome. `security.read_spread_marks` returns, for the months
+asked, the latest revision known and effective under the selected knowledge
+context, and omits a month that has none. Managed valuation does not read these
+rows yet.
+
 The two volatilities are declared as ordinary `VolatilityInput`s, so existing
 volatility shifts and sensitivity axes reach them by input identity. Correlation
 is read from the binding and is held through every scenario. There is no
@@ -173,12 +188,18 @@ policies and unknown references, exercise ordering and contract coverage,
 request replay, the same-fact no-op, immutability, and position reads at and
 before the booking instant.
 
+`python3 tools/check_spread_mark_storage.py --pg-bin <PostgreSQL 18 bin>` runs
+four checks on the marks: authority and bounded explicit values, request replay
+and the same-value no-op, revision order and immutability, and reads by
+knowledge and effective time.
+
 ## Remaining work
 
 1. The managed booking operation: resolve the ticket's reference terms, expand
    the exercises and call the native booking under the shared authority.
-2. Published volatility and correlation marks with knowledge time, and their
-   selection for a valuation.
+2. The managed marks operation and the selection of stored marks for a
+   valuation, with volatility input identities shared across options on the
+   same curve pair and month.
 3. Booked trades in portfolio valuation, the blotter, position facts and the
    risk trade directory. Until then a book holding one refuses position facts
    rather than omitting the trade.
