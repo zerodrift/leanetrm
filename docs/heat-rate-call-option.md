@@ -1,11 +1,11 @@
 # Heat-rate call option (D430)
 
-Status: managed valuation and risk are implemented and locally checked. Native
-persistence and the booking operation are implemented and checked against a
-disposable database. No managed operation calls that booking yet, and there are
-no published marks, ticket, exercise determination or settlement; those are
-listed under [Remaining work](#remaining-work). Nothing here is qualified for
-release.
+Status: a heat-rate call option can be booked, marked, valued and listed through
+the API, and appears on the blotter with a read-only detail view. Managed
+valuation is checked locally; persistence and the HTTP operations are checked
+against a disposable database and preview. There is no entry ticket, premium or
+capacity-payment cash, exercise determination or settlement yet; see
+[Remaining work](#remaining-work). Nothing here is qualified for release.
 
 ## Contract
 
@@ -101,6 +101,27 @@ schedule's output and is retained as booked.
 exercises for trades visible under the selected knowledge context, to the
 runtime and the read-only risk worker.
 
+## Managed operations
+
+| Route | Authority | Behavior |
+| --- | --- | --- |
+| `POST /heat-rate-calls/book` | `BookTrade` | Resolves the clock, hours block, calendars, payment rule and both curves under the selected working snapshot, expands the exercises and calls the native booking. A replayed command returns its first outcome. |
+| `POST /heat-rate-calls/status` | `ReadTrades` | The outcome of a booking command. |
+| `POST /heat-rate-calls/get` | `ReadTrades` | One booked option as the blotter lists it, with its exercises; valued, or with the reason it is not. |
+| `POST /spread-marks/record` | `ImportObservations` | Records marks effective at the selected working snapshot's instant. |
+| `POST /spread-marks/read` | `ReadMarketData` | The marks in force under the selected context. |
+
+Booking and marking refuse a historical view. A booked option is an ordinary
+position: it is in position facts, the single-position read, the risk trade
+directory, portfolio valuation and the blotter, under instrument type
+`heat_rate_call` and measure `heat_rate_call_present_value`. On the blotter each
+option is valued on its own; one without marks for every delivery month, or
+with an elapsed exercise day, is listed with that reason and no value. A
+portfolio valuation or risk run that includes such an option refuses instead.
+
+Booked options are valued undiscounted: no discount binding is retained with
+the option yet, and the valuation setup states that explicitly.
+
 ## Marks
 
 `HeatRateCallMarks` supply, for exactly each bucket the strip uses, an annualized
@@ -123,8 +144,9 @@ or an effective instant before the head's refuses. The same value at the same
 instant is the fact already recorded and writes nothing, and a retried request
 returns its first outcome. `security.read_spread_marks` returns, for the months
 asked, the latest revision known and effective under the selected knowledge
-context, and omits a month that has none. Managed valuation does not read these
-rows yet.
+context, and omits a month that has none. Valuation reads them this way; both
+volatility inputs take their identity from the stored mark revision, so every
+option on the pair and month shares them.
 
 The two volatilities are declared as ordinary `VolatilityInput`s, so existing
 volatility shifts and sensitivity axes reach them by input identity. Correlation
@@ -193,22 +215,29 @@ four checks on the marks: authority and bounded explicit values, request replay
 and the same-value no-op, revision order and immutability, and reads by
 knowledge and effective time.
 
+`python3 tools/run_preview.py --check --structured-power-check` includes two
+HTTP checks: booking through the managed schedule with replay, the same-fact
+no-op and refusals; an unmarked option listed as unpriced; marking authority,
+replay and a stale refusal; a marked option valued; a higher power volatility
+worth more; a written option valued at the exact negative; and both options as
+ordinary positions. These checks assert the direction and symmetry of values.
+The model's numbers are checked against the oracle in the managed suite, not
+recomputed over HTTP. A risk run over a booked option and the blotter page in a
+browser have not been exercised.
+
 ## Remaining work
 
-1. The managed booking operation: resolve the ticket's reference terms, expand
-   the exercises and call the native booking under the shared authority.
-2. The managed marks operation and the selection of stored marks for a
-   valuation, with volatility input identities shared across options on the
-   same curve pair and month.
-3. Booked trades in portfolio valuation, the blotter, position facts and the
-   risk trade directory. Until then a book holding one refuses position facts
-   rather than omitting the trade.
-4. Premium and capacity-payment cash bindings at booking.
-5. Ticket and risk-workspace presentation.
-6. Recorded daily exercise determinations from published index prices, and the
-   resulting settlement cash.
-7. A correlation sensitivity, once its shock contract is selected.
-8. Intraday or hourly exercise, physical delivery, start costs, minimum run
+1. An entry ticket in New trade, and a marks editor. Both operations exist only
+   as API routes today.
+2. Premium and capacity-payment cash bindings at booking.
+3. A retained discount binding, so payments are discounted.
+4. Recorded daily exercise determinations from published index prices, and the
+   resulting settlement cash. Until then an option stops being valued when its
+   first exercise instant passes.
+5. A risk run and browser verification over booked options; a correlation
+   sensitivity, once its shock contract is selected.
+6. Amendment and close-out.
+7. Intraday or hourly exercise, physical delivery, start costs, minimum run
    times and other unit constraints. The
    [supplied-plan thermal toll](structured-power-products.md) remains the
    contract for those.
