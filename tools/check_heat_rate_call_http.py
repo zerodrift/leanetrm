@@ -82,5 +82,12 @@ def run_checks(client, query, manifest):
     assert written['changed'] and written['tradeId'] != saved['tradeId']
     short = client.call('heat-rate-calls/get', dict(context=context, tradeId=written['tradeId']), timeout=60)['position']
     assert short['direction'] == 'sell' and Fraction(short['presentValue']) == -Fraction(revalued['presentValue']), short
-    print('PASS heat-rate call HTTP: marks need marking authority, a marked option is valued, a higher power volatility is worth more and a written option mirrors it', flush=True)
+    workspace = dict(snapshotId=frame, convention='trading_workspace_v1', knowledgeMode='current')
+    facts = client.call('trading/positions', dict(context=workspace, bookIds=[command['bookId']], portfolioIds=[], offset=0, limit=64), timeout=60)['positions']
+    listed = {p['tradeId']: (p['instrumentType'], p['bookedQuantity']) for p in facts}
+    assert listed[saved['tradeId']] == ('heat_rate_call', '50') and listed[written['tradeId']] == ('heat_rate_call', '-50'), listed
+    holding = client.call('trading/position', dict(context=workspace, tradeId=saved['tradeId'], bindingId=saved['instrumentId'], revision=1,
+        instrumentType='heat_rate_call'), timeout=60)['holding']
+    assert holding['presentValue'] == revalued['presentValue'] and holding['fixedPrice'] == '3' and holding['unavailableReason'] is None, holding
+    print('PASS heat-rate call HTTP: marks need marking authority, a marked option is valued, a higher power volatility is worth more, a written option mirrors it and both are ordinary positions', flush=True)
     return dict(bought=saved['tradeId'], written=written['tradeId'])
