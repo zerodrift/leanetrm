@@ -1,3 +1,4 @@
+import {reloadPage} from './reload-page.mjs';
 import {openPhysical} from './physical-workspace.mjs';
 import {openBookedSchedules} from './gas-ticket.mjs';
 import {inspectPositionSide} from './position-schedules.mjs';
@@ -72,7 +73,8 @@ export async function run(actions){
  await check('a request without a receipt visibly offers retry with its original identity',"!document.querySelector('#facility-pending').hidden&&document.querySelector('#facility-pending-description').textContent.includes('No completed receipt')");
  await click('#facility-retry');
  await check('retrying an undelivered request records its original limit once',"document.querySelector('#facility-pending').hidden&&document.querySelector('#facility-limit-quantity').value==='105'&&document.querySelector('#error').hidden");
- await command('Page.reload');await wait("!document.querySelector('#facilities-page').hidden&&!document.querySelector('#facility-editor').hidden&&"+idle);
+ await reloadPage(actions);
+ await wait("document.querySelector('#facilities-page')?.hidden===false&&document.querySelector('#facility-editor')?.hidden===false&&"+idle);
  await check('reload restores the Facilities page and selected ledger',`document.querySelector('#facility-ledger').value===${q(fixture.ledgerId)}`);
  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
  await shot('facility-quantity-ledger-mobile');

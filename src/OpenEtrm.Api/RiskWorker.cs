@@ -31,7 +31,21 @@ public static class RiskWorker
         var settings=JsonSerializer.Deserialize<RiskWorkerConfiguration>(File.ReadAllText(path),RiskJobs.Json)
             ??throw new InvalidOperationException("Missing risk-worker configuration.");
         settings.Validate();
-        await using var source=NpgsqlDataSource.Create(HostedConfiguration.Connection(settings.ConnectionFile).ConnectionString);
+        var taskId=Environment.GetEnvironmentVariable("OPENETRM_TASK_ID");
+        var nodeId=Environment.GetEnvironmentVariable("OPENETRM_NODE_ID");
+        var slotText=Environment.GetEnvironmentVariable("OPENETRM_TASK_SLOT");
+        var managed=taskId!=null || nodeId!=null || slotText!=null;
+        int slot=0;
+        if(managed && (string.IsNullOrWhiteSpace(taskId)||string.IsNullOrWhiteSpace(nodeId)||!int.TryParse(slotText,out slot)||slot is <1 or >2))
+            throw new InvalidOperationException("Managed workers require the Swarm task, node and slot identity.");
+        var connection=HostedConfiguration.Connection(settings.ConnectionFile);
+        if(managed)
+        {
+            RiskWorkerConnection.Validate(connection);
+            connection.MaxPoolSize=1;
+        }
+        await using var source=NpgsqlDataSource.Create(connection.ConnectionString);
+        await using var control=managed?NpgsqlDataSource.Create(connection.ConnectionString):null;
         using var stop=new CancellationTokenSource();
         ConsoleCancelEventHandler interrupt=(_,e)=>{e.Cancel=true;stop.Cancel();};
         Console.CancelKeyPress+=interrupt;
@@ -41,12 +55,27 @@ public static class RiskWorker
         {
             do
             {
-                await using var claim=source.CreateCommand("SELECT risk.claim($1,$2)::text");
+                await using var claim=source.CreateCommand(managed?"SELECT risk.pool_claim($1,$2,$3,$4,$5,$6)::text":"SELECT risk.claim($1,$2)::text");
                 claim.Parameters.AddWithValue(settings.LeaseSeconds);
                 claim.Parameters.AddWithValue(RiskJobs.EngineVersion);
+                if(managed)
+                {
+                    claim.Parameters.AddWithValue(taskId!);claim.Parameters.AddWithValue(nodeId!);
+                    claim.Parameters.AddWithValue(slot);claim.Parameters.AddWithValue(settings.PollSeconds);
+                }
                 var raw=await claim.ExecuteScalarAsync(stop.Token);
                 if(raw is string text && text!="null")
-                    await Execute(source,JsonNode.Parse(text)!.AsObject(),settings,stop.Token);
+                {
+                    var job=JsonNode.Parse(text)!.AsObject();
+                    await Execute(source,control??source,job,settings,stop.Token);
+                    if(managed)
+                    {
+                        await using var log=source.CreateCommand("SELECT risk.pool_app_result($1,$2,$3)");
+                        log.Parameters.AddWithValue(taskId!);log.Parameters.AddWithValue(job["jobId"]!.GetValue<Guid>());
+                        log.Parameters.AddWithValue(job["attempt"]!.GetValue<int>());
+                        if(await log.ExecuteScalarAsync(stop.Token) is string message)Console.WriteLine(message);
+                    }
+                }
                 else if(args[0]=="serve")await Task.Delay(TimeSpan.FromSeconds(settings.PollSeconds),stop.Token);
             }while(args[0]=="serve"&&!stop.IsCancellationRequested);
         }
@@ -55,7 +84,7 @@ public static class RiskWorker
         return 0;
     }
 
-    private static async Task Execute(NpgsqlDataSource source,JsonObject job,RiskWorkerConfiguration settings,CancellationToken stopping)
+    private static async Task Execute(NpgsqlDataSource source,NpgsqlDataSource control,JsonObject job,RiskWorkerConfiguration settings,CancellationToken stopping)
     {
         var id=(job["id"]??job["jobId"])!.GetValue<Guid>();var lease=job["leaseToken"]!.GetValue<Guid>();
         using var calculation=CancellationTokenSource.CreateLinkedTokenSource(stopping);
@@ -69,7 +98,7 @@ public static class RiskWorker
                 while(true)
                 {
                     await Task.Delay(TimeSpan.FromSeconds(settings.LeaseSeconds/3),heartbeatStop.Token);
-                    await using var command=source.CreateCommand("SELECT risk.heartbeat($1,$2,$3)");
+                    await using var command=control.CreateCommand("SELECT risk.heartbeat($1,$2,$3)");
                     command.Parameters.AddWithValue(id);command.Parameters.AddWithValue(lease);command.Parameters.AddWithValue(settings.LeaseSeconds);
                     var state=(string)(await command.ExecuteScalarAsync(heartbeatStop.Token))!;
                     if(state=="cancellation_requested"){cancellationRequested=true;calculation.Cancel();return;}
@@ -150,7 +179,7 @@ public static class RiskWorker
                 else Console.WriteLine($"RISK_JOB {id} {state}");
             }
             catch(PostgresException denied) when(denied.SqlState is "42501" or "P0001")
-            {Console.WriteLine($"RISK_JOB_FENCED {id}");}
+            {await AcknowledgeStopped(source,id,lease);}
         }
         catch(PostgresException p) when(p.SqlState=="P0001"&&p.MessageText=="risk_job_cancelled")
         {
@@ -164,7 +193,7 @@ public static class RiskWorker
             {Console.WriteLine($"RISK_JOB_FENCED {id}");}
         }
         catch(PostgresException p) when(p.SqlState is "42501" or "P0001")
-        {Console.WriteLine($"RISK_JOB_FENCED {id}");}
+        {await AcknowledgeStopped(source,id,lease);}
     }
 
     private static async Task AcknowledgeStopped(NpgsqlDataSource source,Guid id,Guid lease)

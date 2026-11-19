@@ -30,6 +30,7 @@ public sealed record NodeResolution(Guid RequestId, Guid Id, [property: JsonRequ
 public sealed class InfrastructureWorkerStore(NpgsqlDataSource source, string clusterId)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    public Task ReconcilePool(SwarmGateway gateway,CancellationToken ct)=>gateway.ReconcilePool(source,ct);
     public async Task Observe(IReadOnlyList<SwarmNode> nodes, CancellationToken ct)
     {
         await using var command = source.CreateCommand("SELECT automation.observe_nodes($1,$2::jsonb)");
@@ -64,7 +65,7 @@ public sealed class InfrastructureController(SwarmGateway gateway, Infrastructur
     {
         await store.Observe(await gateway.Nodes(ct), ct);
         var claim = await store.Claim(worker, leaseSeconds, ct);
-        if (claim is null) { if (workloads is not null) await workloads.Tick(ct); return; }
+        if (claim is null) { if (workloads is not null) await workloads.Tick(ct); await store.ReconcilePool(gateway,ct); return; }
         string outcome; string? error;
         try
         {

@@ -94,6 +94,7 @@ def main():
     parser.add_argument('--retained-schedule-check',action='store_true',help='Qualify staged graphs and shared Side reuse across reverse effective boundaries')
     parser.add_argument('--draft-check',action='store_true',help='Qualify temporary deal pricing and exposure')
     parser.add_argument('--hosted-check',action='store_true',help='Qualify local credential persistence in an owned database')
+    parser.add_argument('--historical-pool-check',action='store_true',help='Farm out synthetic historical settlement scenarios across two actual managed workers')
     parser.add_argument('--jobs-check',action='store_true',help='Qualify owned jobs and the shared infrastructure screen')
     parser.add_argument('--reference-import-check',action='store_true',help='Qualify private inactive reference intake in an owned database')
     parser.add_argument('--reference-demo-check',action='store_true',help='Qualify additive demo references and cross-version discounted swaps')
@@ -133,6 +134,7 @@ def main():
     parser.add_argument('--authoring-browser-suite',choices=['curve-objects','contract-pricing-controls','publication-controls','price-authoring-recovery'],help='Run one focused authoring control suite in the owned authoring fixture')
     parser.add_argument('--example', choices=['standard','mixed-gas'], default='standard', help='Explicit synthetic dataset')
     args = parser.parse_args()
+    if args.historical_pool_check: args.jobs_check=True
     if args.market_dates_benchmark_only:args.market_dates_reads_check=True
     if args.market_dates_reads_check:args.market_dates_check=True
     if args.structured_power_check:
@@ -304,6 +306,10 @@ def main():
                 reference,market,security,manifest=add_in_term_fixture(reference,market,security,manifest)
         query((ROOT/'db/bootstrap.sql').read_text())
         for migration in sorted((ROOT/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
+            if args.jobs_check and migration.name=='0366_managed_risk_pool.sql':
+                from check_fact_anchor_upgrade import run_checks as check_pool_upgrade
+                check_pool_upgrade(query,migration,number='0366',guard='managed_pool_upgrade',signatures=(
+                    'risk.claim(integer,text)','risk.heartbeat(uuid,uuid,integer)','automation.observe_nodes(text,jsonb)'))
             if migration.name in ('0363_batched_close_source_visibility.sql','0364_shared_hidden_day_admission.sql'):
                 from check_market_dates_upgrade import run_checks as check_market_dates_upgrade
                 check_market_dates_upgrade(query,migration)
@@ -837,7 +843,7 @@ def main():
                 if process.returncode:raise subprocess.CalledProcessError(process.returncode,command)
                 return peak
             return run
-        if (not gas_demo and not args.check or args.live_calculation_check or args.unit_check or args.risk_jobs_check or args.async_workbench_check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check or args.valuation_status_check or args.desk_fields_check) and args.example=='standard':
+        if (not gas_demo and not args.check or args.jobs_check or args.live_calculation_check or args.unit_check or args.risk_jobs_check or args.async_workbench_check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check or args.valuation_status_check or args.desk_fields_check) and args.example=='standard':
             if not args.check and date_plan is not None:
                 from demo_date_plan import verify_instrument_dates
                 count=verify_instrument_dates(query,date_plan,manifest['catalogId'],manifest['revisionId'],manifest['contractsOutsideDatePlan'] if args.with_custom_curves else ())
@@ -1410,14 +1416,39 @@ def main():
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--reference-editor'],cwd=ROOT,env=env,start_new_session=True)
                     if browser_process.wait(timeout=180):raise RuntimeError('Owned reference-editor browser checks failed')
             elif args.jobs_check:
-                from check_jobs_http import run_checks as check_jobs
+                from check_jobs_http import observe_nodes, run_checks as check_jobs
                 check_jobs(url,query)
+                from check_managed_pool import check as check_pool, TASK, NODE
+                pool_env={**prepare_risk_worker(),'OPENETRM_TASK_ID':TASK,'OPENETRM_NODE_ID':NODE,'OPENETRM_TASK_SLOT':'1'}
+                def pool_worker():
+                    subprocess.run([str(dotnet),str(frozen_dll),'--risk-worker','once'],cwd=ROOT,env=pool_env,check=True,timeout=90)
+                controller_connection=temporary/'synthetic-controller.connection'
+                controller_connection.write_text(f'Host={temporary};Port=55439;Database=postgres;Username=jobs_fixture_worker;SSL Mode=Disable')
+                controller_connection.chmod(0o600)
+                def pool_controller():
+                    subprocess.run([str(dotnet),'run','--no-restore','--project','tests/OpenEtrm.Api.Checks','--','--managed-pool-controller',str(controller_connection)],
+                                   cwd=ROOT,env=env,check=True,timeout=90)
+                from check_managed_pool import ReadBarrier
+                admin,risk=check_pool(url,query,pool_worker,pool_controller,lambda:ReadBarrier(psql,env))
+                if args.historical_pool_check:
+                    from check_historical_pool import run as historical_check
+                    def historical_worker(task):
+                        identity={'OPENETRM_TASK_ID':task['id'],'OPENETRM_NODE_ID':task['node'],'OPENETRM_TASK_SLOT':str(task['slot'])}
+                        subprocess.run([str(dotnet),str(frozen_dll),'--risk-worker','once'],cwd=ROOT,env={**pool_env,**identity},check=True,timeout=90)
+                    historical_check(manifest,query,admin,risk,historical_worker,lambda:ReadBarrier(psql,env))
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                    # Keep the disposable controller's inventory current while the browser exercises node commands.
+                    observe_nodes(query)
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--jobs'],cwd=ROOT,env=env,start_new_session=True)
-                    if browser_process.wait(timeout=120):
-                        raise RuntimeError('Owned jobs browser checks failed')
+                    deadline=time.monotonic()+120
+                    while browser_process.poll() is None:
+                        remaining=deadline-time.monotonic()
+                        if remaining<=0:raise subprocess.TimeoutExpired(browser_process.args,120)
+                        try:browser_process.wait(timeout=min(5,remaining))
+                        except subprocess.TimeoutExpired:observe_nodes(query)
+                    if browser_process.returncode:raise RuntimeError('Owned jobs browser checks failed')
             elif args.hosted_check:
                 from check_hosted_http import run_checks as check_hosted_http
                 check_hosted_http(temporary,manifest,query,dotnet,frozen_dll,app_env,args.browser if args.browser_check else None,url,run_id,psql=psql,psql_environment=env)
