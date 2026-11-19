@@ -1,3 +1,4 @@
+import {onWorkspaceLeave,releaseView,workspaceDocument} from './workspace-view.js';
 import {readRetainedSideTrade} from './retained-side-trade-view.js';
 import {withSideSchedules,genericPositionView} from './position-schedules.js';
 import {readLngView} from './lng-trade-view.js';
@@ -24,6 +25,7 @@ const error=get('position-window-error'),detail=get('position-window-detail'),re
 type Api=<T>(path:string,body?:unknown,signal?:AbortSignal)=>Promise<T>;
 // The window reads its trade and can reconcile an earlier option request; new lifecycle actions belong to the main workspace.
 const operations=new Set(['bootstrap?includeFrames=false&includeAccess=true','options/holding','options/status','tickets/description','tickets/trade','tickets/choices','trading/crude','trading/lng','trading/gas','physical/power-trades/get','rec/trades/get','trading/position','trading/side-schedules','futures/editor','swaps/editor','swaps/quantity-schedule','trade-formats/read','ppa/editor','ppa/preview','ppa/inspect','amounts/display']);
+let detach:(()=>void)|undefined;
 let controller:AbortController|undefined,generation=0,loading=false,selection:PositionWindowSelection|undefined,reader:Api,readerActor='';
 const panel=setupPositionPanel({element:name=>get('position-window-'+name),form:on=>{if(on)throw Error('This trade window is read only.');},reveal(){},focusForm(){}},
  {zone:()=>selection!.zone,busy:()=>loading,canAmend:()=>false,tabs:['terms','schedules','history'],curveListed:()=>false,context:()=>JSON.stringify(selection),
@@ -54,7 +56,7 @@ async function load(){
  try{
   selection=readPositionWindowUrl(location.href);const picked=selection,root=picked.example==='exchange'?'/examples/exchange/api/':'/api/';let csrf='';const deadlines=requestDeadlines();
   async function request<T>(path:string,body?:unknown,signal?:AbortSignal):Promise<T>{
-   const response=await fetch(root+path,{method:body===undefined?'GET':'POST',credentials:'same-origin',headers:body===undefined?{}:{'Content-Type':'application/json','X-Preview-CSRF':csrf},
+   const response=await fetch(root+path,{method:body===undefined?'GET':'POST',credentials:'same-origin',headers:{...(picked.viewId?{'X-OpenETRM-View':picked.viewId,'X-OpenETRM-Document':workspaceDocument,...(path.startsWith('bootstrap?')?{'X-OpenETRM-Reattach':'attach'}:{})}:{}),...(body===undefined?{}:{'Content-Type':'application/json','X-Preview-CSRF':csrf})},
     body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.any([current.signal,AbortSignal.timeout(deadlines.milliseconds(path)),...signal?[signal]:[]])});
    if(!response.ok){const refusal=await response.json().catch(()=>({}));const message=response.status===401?'Sign in to the workspace, then read this trade again.':refusal.message??'The retained trade could not be read.';
     if(started===generation&&(response.status===401||response.status===403))fail(message);
@@ -70,6 +72,7 @@ async function load(){
   const boot=await request<{requestDeadlines:unknown;csrfToken:string;profile:string|null}>('bootstrap?includeFrames=false&includeAccess=true');
   deadlines.read(boot.requestDeadlines);
   if(!boot.profile||!boot.csrfToken)throw Error('Open this trade from an authorized Blotter session.');csrf=boot.csrfToken;
+  if(picked.viewId){const view=picked.viewId;detach=()=>releaseView(root,csrf,view);}
   const response=await api<{curveNames:unknown}>('trading/position',positionWindowRequest(picked));
   const read=readSelectedPosition(response,picked.context,picked.asOf,picked),h:Holding=read.holding;
   if(started!==generation||current.signal.aborted)return;
@@ -84,5 +87,5 @@ async function load(){
 }
 retry.onclick=()=>void load();get('position-window-close').onclick=()=>window.close();
 window.addEventListener('hashchange',()=>void load());
-window.addEventListener('pagehide',()=>{generation++;controller?.abort();panel.clear();},{once:true});
+onWorkspaceLeave(()=>{detach?.();generation++;controller?.abort();panel.clear();});
 void load();

@@ -110,7 +110,7 @@ async function run(a){
  const adoptedRecord=await record(R,{lost:true});assert.deepEqual(adoptedRecord.body.command,adoptedPreview.result.command);
  await check('accepted route retains four exclusive streams and exactly seven native claim references',"routeSource.facts.memberships.length===4&&routeSource.facts.plans.length===1&&routeSource.facts.plans[0].flows.length===7&&routeSource.tables.some(table=>table.label.endsWith('Segment quantities'))");await shot('transport-route-current');
  async function post(consumer,kind,body){
-  return evaluate(`(async()=>{const boot=await(await fetch('/api/bootstrap?includeFrames=false')).json(),response=await fetch(${q('/api/'+path(consumer)+'/'+kind)},{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:JSON.stringify(${q(body)})});return {status:response.status,value:await response.json()};})()`);
+  return evaluate(`(async()=>{const boot=await(await window.workspaceFetch('/api/bootstrap?includeFrames=false')).json(),response=await window.workspaceFetch(${q('/api/'+path(consumer)+'/'+kind)},{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:JSON.stringify(${q(body)})});return {status:response.status,value:await response.json()};})()`);
  }
  async function acknowledge(previewCall,recordCall,{fresh=false}={}){
   const before=(await source(R)).facts,request=structuredClone(previewCall.body);if(fresh)request.operationId=await evaluate('crypto.randomUUID()');

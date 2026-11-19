@@ -1,3 +1,4 @@
+import {viewEvents} from './workspace-view.js';
 // The assistant panel (docs/ai-assistant.md §8, §10.1, D191): the agent picker, the conversation with its steps, answers,
 // targets and usage, the composer, consent and History. A tab keeps one stream while its conversation has an unfinished
 // turn, open or closed; an idle panel holds none. Only a target arriving live for a question this tab asked moves the
@@ -319,7 +320,7 @@ export function setupAssistant(options:PanelOptions){
   // once, replay_unavailable re-reads and opens one new stream, and session_ended offers a reload instead of retrying.
   function openStream(after:number,asked=false){
     closeStream();if(!conversation)return;
-    const stream=new EventSource(`${options.root}assistant/conversations/${conversation.id}/events?after=${after}`);
+    const stream=viewEvents(`${options.root}assistant/conversations/${conversation.id}/events?after=${after}`);
     source=stream;streamLast=after;if(asked)live=stream;
     for(const name of streamed)stream.addEventListener(name,event=>receive(stream,name,event as MessageEvent<string>));
     stream.onmessage=()=>broken(stream);

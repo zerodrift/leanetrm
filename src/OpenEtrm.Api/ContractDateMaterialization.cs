@@ -98,6 +98,7 @@ public sealed class ContractDateMaterialization(Guid catalog,ContractDateStore m
                 admission=await existing.ExecuteScalarAsync(ct) is Guid id?id:Guid.Empty;
             if(admission==Guid.Empty)
             {
+                if(mapping.Context.ReadCut is {} source)await source.RetainWriteSource(connection,mapping.Context,ct);
                 admission=Guid.NewGuid();
                 await using var insert=ScheduleStore.Command(connection,"INSERT INTO market_data.contract_date_admissions(catalog_id,id,revision_id,contract_id,mapping_id,mapping_version,ordinal,context_id,actor_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,security.custom_curve_actor($1,'WriteMarketDefinitions'))",
                     catalog,admission,body.RevisionId,row.ContractId,body.MappingId,body.MappingVersion,row.Ordinal,mapping.Context.ContextId!.Value);

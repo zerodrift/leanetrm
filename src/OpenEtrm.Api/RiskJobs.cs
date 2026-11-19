@@ -75,7 +75,7 @@ public static class RiskJobs
         pinnedFrame["connectedMarkets"]=JsonSerializer.SerializeToNode(prepared.Portfolio.ConnectedMarkets,Json);
         pinnedFrame["scenarioAxes"]=JsonSerializer.SerializeToNode(CurveRiskAxes.Retained(prepared),Json);
         if(prepared.History is {} history)pinnedFrame["factorHistory"]=JsonSerializer.SerializeToNode(
-            RetainedFactorHistory.Capture(history,await calculator.CaptureHistoryClock(history,ct)),Json);
+            RetainedFactorHistory.Capture(history,await calculator.CaptureHistoryClock(connection,prepared.Portfolio.Context,history,ct)),Json);
         // The worker leaves out exactly the positions this submission left out (D220).
         pinnedFrame["excludedPositions"]=JsonSerializer.SerializeToNode(prepared.Portfolio.Excluded,Json);
         // Option calibrations are recomputed from the pinned inputs on replay, which must reproduce these receipts exactly.

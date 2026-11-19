@@ -30,7 +30,7 @@ public sealed record RetainedFactorHistory(Guid ClockCaptureId,string ExpectedMa
 
 public sealed partial class PortfolioRiskPreview
 {
-    internal Task<Guid> CaptureHistoryClock(AlignedFactorHistory history,CancellationToken ct)=>database.CaptureHistoryClock(history,ct);
+    internal Task<Guid> CaptureHistoryClock(NpgsqlConnection connection,ScheduleContext source,AlignedFactorHistory history,CancellationToken ct)=>database.CaptureHistoryClock(connection,source,history,ct);
     private static object ParametricCapabilities()=>new{
         profile=new{convention=ParametricRiskPolicy.Version1,numericalPolicy=ParametricRiskPolicy.Numerics,estimator=ParametricRiskPolicy.Sample,
             centering=ParametricRiskPolicy.Centered,horizon=ParametricRiskPolicy.Session,tail=ParametricRiskPolicy.Signed},

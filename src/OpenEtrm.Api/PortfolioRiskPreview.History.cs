@@ -101,7 +101,7 @@ public sealed partial class PortfolioRiskPreview
         var clock=FactorHistory.CaptureClock(calendar,new(reference.Revision,clockCode),PpaQuantitiesStore.Clock(calendarData,clockCode),body.CloseTime,body.AmbiguousTime,body.InvalidTime);
         var context=portfolio.Context;var contextId=context.ContextId!.Value;
         int marketPrefix;
-        await using(var prefix=ScheduleStore.Command(connection,"SELECT known_through FROM market_data.market_contexts WHERE catalog_id=$1 AND context_id=$2",database.Manifest.CatalogId,contextId))
+        await using(var prefix=ScheduleStore.Command(connection,"SELECT known_through FROM market_data.market_contexts WHERE catalog_id=$1 AND context_id=$2 UNION ALL SELECT known_through FROM security.active_workspace_market($1,$2)",database.Manifest.CatalogId,contextId))
             marketPrefix=(int)(await prefix.ExecuteScalarAsync(ct)??throw new PreviewDeniedException());
         var markets=portfolio.Markets;
         if(markets.IsEmpty||markets.Any(m=>m.Snapshot.ValuationAt!=frame.At||m.Snapshot.MarketCutoff!=markets[0].Snapshot.MarketCutoff))

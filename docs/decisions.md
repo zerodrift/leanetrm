@@ -6745,3 +6745,37 @@ A scale command records its request identity and expected generation before the 
 **Decision.** `GasStoragePlanProposals.Propose` (`gas_storage_inventory_lattice_search_v1`) is the repository's first plan search. It takes explicit per-day injection cost and withdrawal value and an explicit inventory step, and maximizes the plan's value over inventory levels a whole number of steps from the opening inventory by exact backward induction, under D432's ratchet, direction, fuel and terminal rules. Equal plans resolve to the smaller flow, then the lower inventory. The proposal is admitted through `GasStoragePlans.Evaluate` before it is returned and carries its step and exact objective.
 
 **Boundaries.** The result is the optimum of the stated lattice, not of every real plan, and of one set of prices: no rolling re-optimization, price model or option value. The search resolves no market data and prices nothing itself; a proposal changes no valuation until it is supplied as a plan. Work is bounded and refuses beyond its bound. This authorizes no search for other resources: battery and thermal plans remain supplied. See the [contract and verification](gas-storage-contract.md#proposed-plan-d433).
+
+## D434 — An ordinary read context belongs to its operation
+
+Working data uses current knowledge and the latest recorded close of the selected
+convention on opening or refreshing the view. A new close can be offered while a
+view is open. Acceptance starts a new selection. A historical child inherits its
+parent's knowledge ceiling. A hypothetical valuation layer inherits those facts
+and changes only its declared calculation inputs. Completion, cancellation and
+session loss release transient work. Explicit saved results and jobs retain
+their own exact evidence under the existing identity and authorization contracts.
+
+This revises D67's storage rule for ordinary browsing. The working custom-curve close calendar uses an operation-owned selection. It certifies one cutoff
+in a short identity transaction and reuses it at each candidate business date.
+The calculation and the later disclosure check each bind the exact selection
+under their own current authority. Both release it on exiting the scoped read.
+The shared browser header holds a prepared and an applied cutoff per tab.
+Fresh reads, queued work and publication verify the selected source under current
+authority. Back restores the original certified history and chosen close. The
+browser stores its navigation stack in memory. Browser reload and Back reattach
+under current authority using opaque routing IDs from that history entry. If
+the selection has expired, the page asks the user to open a fresh workspace.
+Leaving the document releases its active reads and its slot can be reused.
+Sign-out releases the server-side
+selection. A saved artifact can retain the exact selection under the identity
+already used in its calculations. Existing receipts keep their original IDs.
+Clients using the older cookie-only API keep their explicit receipt contract.
+
+Migration 0374 derives each new workspace ID from the binary catalog ID,
+business date and PostgreSQL microsecond cutoff. Durable admission reuses the
+same ID. Existing physical receipts take precedence. Financial manifests,
+pricing policies and worker input formats continue to use their existing
+contracts. A statistical job receives its independent clock attestation for
+the exact saving database transaction. The transaction records the job, clock
+evidence and workspace receipt together.

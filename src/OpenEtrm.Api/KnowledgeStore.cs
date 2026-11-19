@@ -4,7 +4,11 @@ using OpenEtrm.Shared.Temporal;
 namespace OpenEtrm.Api;
 
 public sealed record ContextCaptureRequest(string? EffectiveOn,string? KnownAt,string? Mode,string? TimeZone=null);
-public sealed record KnowledgeSnapshot(ScheduleContext Context,DateTimeOffset CoverageFrom,DateTimeOffset CertifiedThrough);
+public sealed record KnowledgeSnapshot(ScheduleContext Context,DateTimeOffset CoverageFrom,DateTimeOffset CertifiedThrough)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? RestoreKey {get;init;}
+}
 
 public sealed class KnowledgeStore(Guid catalog)
 {
@@ -30,6 +34,13 @@ public sealed class KnowledgeStore(Guid catalog)
     }
     public async Task<KnowledgeSnapshot> Read(NpgsqlConnection connection,Guid id,CancellationToken ct)
     {
+        var captured=WorkspaceReadContext.Executing.Value;
+        var selection=captured is null?WorkspaceReadContext.Page.Value?.Knowledge.Find(id):captured.Context.ContextId==id?captured:null;
+        if(selection is {Context.ReadCut:{} cut} view)
+        {
+            await cut.Verify(connection,catalog,view.Context,ct);
+            return view;
+        }
         await using var command=ScheduleStore.Command(connection,"SELECT effective_on,known_at,known_through,coverage_from,certified_through FROM market_data.temporal_contexts WHERE catalog_id=$1 AND id=$2",catalog,id);
         await using var reader=await command.ExecuteReaderAsync(ct);
         if(!await reader.ReadAsync(ct))throw Error("temporal_context","This context is absent or outside current access.");
@@ -45,7 +56,9 @@ public sealed class KnowledgeStore(Guid catalog)
     // The stored context a request names, refused unless it has exactly the request's coordinates. Never captures.
     public async Task<ScheduleContext> Retained(NpgsqlConnection connection,ScheduleContext request,CancellationToken ct)
     {
-        var stored=(await Read(connection,request.ContextId??throw Error("temporal_context","Name an exact retained context."),ct)).Context;
+        if(request.ContextId is not {} id)throw Error("temporal_context","Name an exact retained context.");
+        if(request.ReadCut is {} cut){await cut.Verify(connection,catalog,request,ct);return request;}
+        var stored=(await Read(connection,id,ct)).Context;
         if(stored.EffectiveOn!=request.EffectiveOn || request.KnownAt is null ||
             SchedulePreview.ParseAt(stored.KnownAt)!=SchedulePreview.ParseAt(request.KnownAt))
             throw Error("temporal_context","A retained context cannot be reinterpreted with different coordinates.");

@@ -9,7 +9,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await command('Runtime.enable');await command('Page.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
   await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);
   await evaluate(`window.__requests=[];window.__originalFetch=window.fetch;window.fetch=async(...args)=>{window.__requests.push({path:String(args[0]),body:args[1]?.body?JSON.parse(args[1].body):null});return window.__originalFetch(...args);};`
-    +"window.__api=async(path,body)=>{const boot=await(await window.__originalFetch('/api/bootstrap')).json();const r=await window.__originalFetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:JSON.stringify(body)});return {status:r.status,data:await r.json()};};");
+    +"window.__api=async(path,body)=>{const boot=await(await window.workspaceFetch('/api/bootstrap',undefined,window.__originalFetch)).json();const r=await window.workspaceFetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:JSON.stringify(body)},window.__originalFetch);return {status:r.status,data:await r.json()};};");
   const stamp=Date.now(),manager='browser_agents_admin_'+stamp,pricer='browser_agents_pricing_'+stamp,agentsOnly='browser_agents_only_'+stamp,modelsOnly='browser_models_only_'+stamp;
   const identifier='browser-agent-model-'+stamp,name='Browser page guide '+stamp,other='Browser second guide '+stamp;
   // A session can sign in only as the accounts it created: the page creates its administrators, the side session its pricer.
@@ -70,7 +70,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('the create sent only its request identity and the name, and opened the new agent',
     `${sent('create')}.at(-1).body&&Object.keys(${sent('create')}.at(-1).body).sort().join()==='name,operationId'&&document.querySelector('#ai-agent-title').textContent===${JSON.stringify(name)}`);
   await check("the agent's card offers exactly the directory's models, each at its current capability version, and the roles that use agents",
-    `(async()=>{const d=await(await window.__originalFetch('/api/settings/ai/agents')).json(),o=[...document.querySelector('#ai-agent-model').options];`
+    `(async()=>{const d=await(await window.workspaceFetch('/api/settings/ai/agents',undefined,window.__originalFetch)).json(),o=[...document.querySelector('#ai-agent-model').options];`
     +"return o[0].value===''&&o.length===d.models.length+1&&d.models.every((m,i)=>o[i+1].value===m.id&&o[i+1].textContent.endsWith('capability version '+m.version))"
     +`&&o.some(x=>x.value===${JSON.stringify(added.id)}&&x.textContent==='Browser agent model · ${identifier} (Anthropic) · capability version 1')`
     +"&&JSON.stringify([...document.querySelectorAll('#ai-agent-roles input')].map(b=>b.value))==='[\"access_administrator\",\"market_data_editor\",\"risk_analyst\",\"trader\"]'"
@@ -101,7 +101,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   // released, and the page states the ranges the entries keep.
   const refused=await evaluate(`${sent('save')}.length`);
   const unsaved=`document.querySelector('#ai-agents-pending').hidden&&!${retained}`
-    +`&&(await(await window.__originalFetch('/api/settings/ai/agents')).json()).agents.find(a=>a.name===${JSON.stringify(name)}).newest===null`;
+    +`&&(await(await window.workspaceFetch('/api/settings/ai/agents',undefined,window.__originalFetch)).json()).agents.find(a=>a.name===${JSON.stringify(name)}).newest===null`;
   await fill({toolSteps:'99999999999'});await submit('#ai-agent-form');
   await check('tool steps beyond what the server can read are refused with the ranges the entries keep, and nothing is kept',
     `(async()=>${shown}.includes('1 to 100 tool steps')&&${sent('save')}.at(-1).body.limits.toolSteps===99999999999&&${sent('save')}.length===${refused+1}&&${unsaved})()`);

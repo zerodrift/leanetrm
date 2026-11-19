@@ -10,11 +10,11 @@ export async function run({command,evaluate,wait,persona,check,idle,url,click,se
  const original=await evaluate("document.querySelector('#close-session').value");
  let other=await evaluate("[...document.querySelector('#close-session').options].find(o=>o.value&&o.value!==document.querySelector('#close-session').value)?.value");
  if(!other){
-  const saved=await evaluate("(async()=>{const boot=await(await fetch('/api/bootstrap')).json();window.__conventionCsrf=boot.csrfToken;return (await(await fetch('/api/close-sessions/catalog')).json()).sessions.find(s=>s.state==='published');})()");
+  const saved=await evaluate("(async()=>{const boot=await(await window.workspaceFetch('/api/bootstrap')).json();window.__conventionCsrf=boot.csrfToken;return (await(await window.workspaceFetch('/api/close-sessions/catalog')).json()).sessions.find(s=>s.state==='published');})()");
   await persona('editor');
-  const draft=await evaluate(`(async()=>{const boot=await(await fetch('/api/bootstrap')).json(),original=${JSON.stringify(saved)};const response=await fetch('/api/close-sessions/save',{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:JSON.stringify({requestId:crypto.randomUUID(),draft:{code:'synthetic_profile_'+crypto.randomUUID().slice(0,8),name:'Synthetic profile convention 17:00 UTC',calendarCode:original.calendarCode,cutoff:'17:00',curves:original.curves,effectiveFrom:original.effectiveFrom,effectiveTo:original.effectiveTo}})});if(!response.ok)throw Error(await response.text());return response.json();})()`);
+  const draft=await evaluate(`(async()=>{const boot=await(await window.workspaceFetch('/api/bootstrap')).json(),original=${JSON.stringify(saved)};const response=await window.workspaceFetch('/api/close-sessions/save',{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:JSON.stringify({requestId:crypto.randomUUID(),draft:{code:'synthetic_profile_'+crypto.randomUUID().slice(0,8),name:'Synthetic profile convention 17:00 UTC',calendarCode:original.calendarCode,cutoff:'17:00',curves:original.curves,effectiveFrom:original.effectiveFrom,effectiveTo:original.effectiveTo}})});if(!response.ok)throw Error(await response.text());return response.json();})()`);
   await persona('approver');
-  await evaluate(`(async()=>{const boot=await(await fetch('/api/bootstrap')).json(),draft=${JSON.stringify(draft)};const response=await fetch('/api/close-sessions/publish',{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:JSON.stringify({requestId:crypto.randomUUID(),code:draft.code,version:draft.version,generation:draft.generation})});if(!response.ok)throw Error(await response.text());})()`);
+  await evaluate(`(async()=>{const boot=await(await window.workspaceFetch('/api/bootstrap')).json(),draft=${JSON.stringify(draft)};const response=await window.workspaceFetch('/api/close-sessions/publish',{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:JSON.stringify({requestId:crypto.randomUUID(),code:draft.code,version:draft.version,generation:draft.generation})});if(!response.ok)throw Error(await response.text());})()`);
   await persona('viewer');other=draft.code;
  }
  const selected=await evaluate("document.querySelector('#snapshot').value");
@@ -26,10 +26,10 @@ export async function run({command,evaluate,wait,persona,check,idle,url,click,se
   `document.querySelector('#close-session').value===${JSON.stringify(other)}&&!document.querySelector('#as-of-context').open`);
  await click('#as-of-context>summary');await set('#close-session',original);await wait(idle);
  await check('a view override keeps the profile default unchanged',
-  `(async()=>{const choice=await(await fetch('/api/close-sessions/choice')).json();return document.querySelector('#close-session').value===${JSON.stringify(original)}&&choice.session===${JSON.stringify(other)};})()`);
+  `(async()=>{const choice=await(await window.workspaceFetch('/api/close-sessions/choice')).json();return document.querySelector('#close-session').value===${JSON.stringify(original)}&&choice.session===${JSON.stringify(other)};})()`);
  await click('#profile-open');await set('#default-close-session',original);await click('#profile-save');await wait(idle);
  await command('Page.navigate',{url:url+'/'});await wait(idle,30000);
- const offered=await evaluate(`(async()=>{const w=await(await fetch('/api/workspace')).json();return {closes:w.frames.filter(f=>f.close?.session==='demo_close_1600').map(f=>f.id),working:w.frames.filter(f=>!f.close).map(f=>f.id)};})()`);
+ const offered=await evaluate(`(async()=>{const w=await(await window.workspaceFetch('/api/workspace')).json();return {closes:w.frames.filter(f=>f.close?.session==='demo_close_1600').map(f=>f.id),working:w.frames.filter(f=>!f.close).map(f=>f.id)};})()`);
  await check('the As-of choice offers the session closes, and working snapshots only as working data',
   `(()=>{const options=[...document.querySelectorAll('#snapshot option')].filter(o=>o.value);const closes=${JSON.stringify(offered.closes)};
    return options.length>0&&options.every(o=>closes.includes(o.value)||o.textContent.startsWith('Working snapshot · '));})()`);

@@ -35,7 +35,7 @@ $function$;
         assert query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);")==original
 
 
-def run_checks(url,query=None,manifest=None):
+def run_checks(url,query=None,manifest=None,log=None):
     client=PreviewClient(url);boot=client.bootstrap()
     client.call('market/dates',{'session':SESSION,'curve':'ng_monthly','timeZone':'UTC'},expected=403)
     client.call('profile',{'profile':'viewer'})
@@ -91,7 +91,11 @@ def run_checks(url,query=None,manifest=None):
         # Count native visibility visits for one retained fact under a bound
         # context. This detects repeated history visibility work; physical row
         # work is measured separately by the regional-close checks.
+        def count_receipts():
+            return int(query(f"SELECT count(*) FROM market_data.temporal_contexts WHERE catalog_id='{manifest['catalogId']}';"))
+        before=count_receipts()
         baseline_average=client.call('market/dates',average_request)
+        assert count_receipts()==before, 'Browsing custom-curve dates must not retain a financial context'
         anchor=query(f"SELECT id FROM market_data.observations WHERE catalog_id='{manifest['catalogId']}' AND definition_revision_id='{manifest['revisionId']}' AND role='daily_settlement' ORDER BY observed_at,id LIMIT 1;")
         query(f"""CREATE SEQUENCE public.synthetic_calendar_history_reads;
           CREATE FUNCTION public.synthetic_calendar_history_read(observation uuid) RETURNS boolean
@@ -104,17 +108,31 @@ def run_checks(url,query=None,manifest=None):
           RETURN true;END$$;
           REVOKE ALL ON FUNCTION public.synthetic_calendar_history_read(uuid) FROM PUBLIC;
           GRANT EXECUTE ON FUNCTION public.synthetic_calendar_history_read(uuid) TO openetrm_security_owner;""")
+        query("""CREATE FUNCTION public.synthetic_observe_cut() RETURNS trigger LANGUAGE plpgsql AS $$
+            DECLARE cut record;
+            BEGIN
+             SELECT * INTO STRICT cut FROM security.request_market_cut();
+             RAISE LOG 'synthetic_calendar_cut %|%', cut.effective_on, cut.known_at;
+             RETURN NEW;
+            END$$;
+            CREATE TRIGGER synthetic_observe_cut AFTER UPDATE OF market_context_id ON security.request_contexts
+            FOR EACH ROW WHEN (NEW.market_context_id IS NOT NULL) EXECUTE FUNCTION public.synthetic_observe_cut();""")
         try:
-            before_cutoff=query(f"SELECT coalesce(max(known_at),'-infinity'::timestamptz)::text FROM market_data.temporal_contexts WHERE catalog_id='{manifest['catalogId']}';")
+            offset=log.stat().st_size
             with visibility_probe(query,'public.synthetic_calendar_history_read(v.observation)'):
                 average=client.call('market/dates',average_request)
             assert average['dates']==baseline_average['dates'], 'Visibility instrumentation changed native calendar availability'
             reads=query('SELECT CASE WHEN is_called THEN last_value ELSE 0 END FROM public.synthetic_calendar_history_reads;')
             assert reads in ('1','2'), f'Custom date availability repeated history visibility beyond shared samples and one exact frame: {reads}'
-            coordinates=query(f"SELECT count(DISTINCT known_at),count(DISTINCT effective_on) FROM market_data.temporal_contexts WHERE catalog_id='{manifest['catalogId']}' AND known_at>'{before_cutoff}'::timestamptz;").split('|')
-            assert coordinates[0]=='1' and int(coordinates[1])>1, 'Working date availability must resolve each effective date at one certified knowledge cutoff'
+            with log.open('rb') as stream:
+                stream.seek(offset)
+                cuts=[line.split('synthetic_calendar_cut ',1)[1].split('|') for line in stream.read().decode().splitlines()
+                      if 'LOG:  synthetic_calendar_cut ' in line]
+            assert len({cut[0] for cut in cuts})>1 and len({cut[1] for cut in cuts})==1, cuts
+            assert count_receipts()==before, 'Rechecking a calendar must not retain temporary selections'
             assert client.call('custom-curves')['context'] is None, 'Availability changed the working header context'
         finally:
+            query('DROP TRIGGER synthetic_observe_cut ON security.request_contexts;DROP FUNCTION public.synthetic_observe_cut();')
             query('DROP FUNCTION public.synthetic_calendar_history_read(uuid);DROP SEQUENCE public.synthetic_calendar_history_reads;')
     else:
         average=client.call('market/dates',average_request)

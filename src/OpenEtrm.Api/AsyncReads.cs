@@ -12,7 +12,8 @@ internal sealed class AsyncReads(PreviewDatabase database,CancellationToken stop
     readonly Dictionary<Guid,Owner> channels=[];
     sealed record Owner(AsyncReadChannel Channel,PreviewSession Session,Guid ClientId,string Profile,ScheduleContext? Context,LiveSelection? Live,string? HostedDigest)
     {
-        internal bool Current=>Session.Ends>DateTimeOffset.UtcNow&&Session.Profile==Profile&&Session.MarketContext==Context&&Session.Live==Live;
+        readonly long generation=Session.ViewGeneration;
+        internal bool Current=>Session.ViewGeneration==generation&&Session.Ends>DateTimeOffset.UtcNow&&Session.Profile==Profile&&Session.MarketContext==Context&&Session.Live==Live;
         internal void RequireCurrent()
         {
             if(!Current)
@@ -45,7 +46,7 @@ internal sealed class AsyncReads(PreviewDatabase database,CancellationToken stop
                 lock(registryGate)
                 {
                     foreach(var owner in ended)channels.Remove(owner.Channel.Id);
-                    if(channels.Values.Count(o=>ReferenceEquals(o.Session,current))>=4)
+                    if(channels.Values.Count(o=>ReferenceEquals(o.Session.Account,current.Account))>=4)
                         throw AsyncReadChannel.Refusal(429,"async_session_capacity","This session already has four page response channels. Close an unused page before opening another.");
                     if(channels.Count>=64)throw AsyncReadChannel.Refusal(429,"async_channel_capacity","The response channels are at capacity.");
                     var channel=new AsyncReadChannel(Guid.NewGuid(),stopping,failure=>logger.LogError(

@@ -54,11 +54,16 @@ public sealed record PinnedContext
     // A stored context names its id and every coordinate; none is ever filled in later.
     internal static ScheduleContext Exact(ScheduleContext context)=>context is {ContextId:null} or {EffectiveOn:null} or {KnownAt:null} or {KnownThrough:null}
         ?throw new TemporalException("temporal_context","Pin an exact retained context."):context;
-    // Binds a stored context only when its coordinates are exactly those named, so a read never mixes two views.
+    // Bind the exact coordinates across calculation and disclosure.
     internal static async Task BindExact(NpgsqlConnection connection,Guid catalog,ScheduleContext context,CancellationToken ct)
     {
-        await new KnowledgeStore(catalog).Retained(connection,context,ct);
-        await MarketContextStore.Bind(connection,catalog,context,ct);
+        if(context.ReadCut is {} cut)
+        {
+            await cut.Bind(connection,catalog,context,ct);
+            return;
+        }
+        var exact=await new KnowledgeStore(catalog).Retained(connection,context,ct);
+        await MarketContextStore.Bind(connection,catalog,exact,ct);
     }
     internal static MarketDataException Missing()=>new("snapshot_missing","Select a saved input snapshot from this preview session.");
 }

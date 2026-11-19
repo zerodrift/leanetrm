@@ -6,6 +6,7 @@ from uuid import uuid4
 import json
 import time
 from check_reference_editing import main
+from check_workspace_as_of import read_trading_workspace
 from preview_fixture import fixture,trading_fixture
 
 EARLY,LATE='2020-12-15T16:00:00Z','2020-12-16T16:00:00Z'
@@ -93,6 +94,12 @@ def run_checks(query,manifest):
     assert values(read(known_before_revision,'2020-12-16T23:59:59.999999Z'))==[('2021-02',1,'0.6','0.45','0.8'),('2021-03',1,'0.55','0.4','0.75')]
     day_before=runtime(f"SELECT security.capture_date_context('{catalog}','2020-12-14',NULL);")
     assert read(day_before,'2020-12-14T23:59:59.999999Z')==[]
+    selected_marks=f"SELECT security.read_spread_marks('{catalog}','{definition}','local_power','local_gas',{months});"
+    for as_of in ('2020-12-16T12:00:00Z','2020-12-16T23:59:59.999999Z'):
+        assert read_trading_workspace(query,runtime,catalog,as_of,selected_marks)==read(current,as_of)
+    before_correction=query(f"SELECT known_at FROM market_data.temporal_contexts WHERE catalog_id='{catalog}' AND id='{known_before_revision}';")
+    earlier_marks=read_trading_workspace(query,runtime,catalog,'2020-12-17T23:59:59.999999Z',selected_marks,known_at=before_correction)
+    assert values(earlier_marks)==[('2021-02',1,'0.6','0.45','0.8'),('2021-03',1,'0.55','0.4','0.75')]
     reject(f"SELECT security.read_spread_marks('{catalog}','{definition}','local_power','local_gas',{months});",'knowledge_coverage','trader')
     reject(f"SELECT security.use_market_context('{catalog}','{current}');SELECT security.use_trading_context('{catalog}','2020-12-16T23:59:59.999999Z');"
         f"SELECT security.read_spread_marks('{catalog}','{definition}','local_power','local_gas',ARRAY['2021-02-15']::date[]);",'spread_mark_input','trader')

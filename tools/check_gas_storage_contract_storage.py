@@ -4,6 +4,7 @@ from copy import deepcopy
 from uuid import uuid4
 import json
 from check_reference_editing import main
+from check_workspace_as_of import read_trading_workspace
 from preview_fixture import fixture,identity,trading_fixture,trade_booking
 
 BOOKED_AT,LATER='2020-12-15T16:00:00Z','2020-12-16T16:00:00Z'
@@ -194,6 +195,10 @@ def run_checks(query,manifest):
     except RuntimeError as error:assert 'knowledge_coverage' in str(error),str(error)
     else:raise AssertionError('Read gas storage positions without a selected knowledge context')
     assert read('2020-12-14')==[]
+    selected_trade=f"SELECT security.read_gas_storage_positions('{catalog}',ARRAY[]::uuid[],ARRAY[]::uuid[],ARRAY['{first['tradeId']}']::uuid[]);"
+    for day in ('2020-12-14','2020-12-15','2020-12-16'):
+        expected=read(day,f"ARRAY['{first['tradeId']}']::uuid[]")
+        assert read_trading_workspace(query,runtime,catalog,day+'T23:59:59.999999Z',selected_trade)==expected
     print('PASS gas storage storage: positions return the contract, ratchets, gas days and the plan in force under the selected context, and nothing before the booking instant',flush=True)
 
     correction=dict(deepcopy(plan),operationId=str(uuid4()),expectedRevision=2)

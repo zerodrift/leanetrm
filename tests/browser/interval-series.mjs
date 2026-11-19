@@ -7,7 +7,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  const values=table('interval-series-values');
  const pause=milliseconds=>evaluate(`new Promise(accept=>setTimeout(accept,${milliseconds}))`);
  const choose=async code=>{await evaluate(`(()=>{const s=document.querySelector('#interval-series-select');s.value=[...s.options].find(o=>o.textContent.includes(${JSON.stringify(code)})).value;s.dispatchEvent(new Event('change',{bubbles:true}));})()`);await wait(idle);};
- const headIs=(code,head)=>`(async()=>(await(await fetch('/api/interval-series')).json()).series.find(s=>s.code===${JSON.stringify(code)}).head===${head})()`;
+ const headIs=(code,head)=>`(async()=>(await(await window.workspaceFetch('/api/interval-series')).json()).series.find(s=>s.code===${JSON.stringify(code)}).head===${head})()`;
  const importCsv=async(reason,csv)=>{await set('#interval-series-reason',reason);await set('#interval-series-csv',csv);await submit('#interval-series-import-form');};
  const selected=text=>`document.querySelector('#interval-series-selected').textContent===${JSON.stringify(text)}`;
  const press=async key=>{for(const type of ['keyDown','keyUp'])await command('Input.dispatchKeyEvent',{type,key,code:key,windowsVirtualKeyCode:{ArrowDown:40,ArrowUp:38,Enter:13}[key]});};

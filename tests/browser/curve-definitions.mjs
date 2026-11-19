@@ -3,7 +3,7 @@
 export async function run({command,evaluate,wait,click,set,submit,persona,check,idle,url}){
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);
  await persona('viewer');
- const close=at=>evaluate(`(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith(${JSON.stringify(at)})).id;})()`);
+ const close=at=>evaluate(`(async()=>{const w=await(await window.workspaceFetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith(${JSON.stringify(at)})).id;})()`);
  await set('#snapshot',await close('2021-01-15T16:00:00'));await wait(idle,30000);
  await click('#nav-curve-definitions');await wait("document.querySelectorAll('#curve-definition-mapping option').length>1&&"+idle);
  await check('the editor is its own Reference Data page, and Schedules keeps only schedules and date mappings',
@@ -90,9 +90,9 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await evaluate(`(()=>{const r=document.querySelectorAll('#curve-definition-rows tr')[4];for(const [f,v] of [['label','10M'],['date','oe.rate_days[300]']]){const n=r.querySelector('[data-field="'+f+'"]');n.value=v;n.dispatchEvent(new Event('input',{bubbles:true}));}})()`);
  await click('#curve-definition-save');await wait(idle);
  await check('a curve draft pins its edited tenors',"document.querySelector('#error').hidden&&document.querySelector('#curve-definition-status').textContent.includes('Saved draft')");
- await evaluate(`(async()=>{const token=(await(await fetch('/api/bootstrap')).json()).csrfToken;
-  const m=(await(await fetch('/api/date-schedules')).json()).contractDefinitions.filter(v=>v.definition.code==='rate_tenors').sort((a,b)=>b.version-a.version)[0];
-  const r=await fetch('/api/date-schedules/contracts/save',{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':token},body:JSON.stringify({requestId:crypto.randomUUID(),
+ await evaluate(`(async()=>{const token=(await(await window.workspaceFetch('/api/bootstrap')).json()).csrfToken;
+  const m=(await(await window.workspaceFetch('/api/date-schedules')).json()).contractDefinitions.filter(v=>v.definition.code==='rate_tenors').sort((a,b)=>b.version-a.version)[0];
+  const r=await window.workspaceFetch('/api/date-schedules/contracts/save',{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':token},body:JSON.stringify({requestId:crypto.randomUUID(),
    code:'rate_tenors',name:'Synthetic rate tenors changed in Settings',context:m.definition.context,contracts:null,dates:m.definition.dates,id:m.id,version:m.version,generation:m.generation,expectedState:m.state})});
   if(!r.ok)throw Error(await r.text());})()`);
  await click('#nav-market');await wait(idle);await click('#nav-curve-definitions');await wait("document.querySelectorAll('#curve-definition-list .shortcut-saved-row').length>1&&"+idle);

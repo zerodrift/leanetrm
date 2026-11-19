@@ -135,8 +135,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('the answer is drawn from text nodes: emphasis, lists and code, with a link and markup left as literal text',
     `(()=>{const a=${latest}.querySelector('.assistant-answer');return a.querySelector('strong')?.textContent==='curves'&&a.querySelectorAll('ul > li').length===2&&a.querySelector('code')?.textContent==='curve'`
     +`&&!a.querySelector('a,b,img,table,script')&&a.textContent.includes('[the blotter](https://example.invalid/x) <b>here</b>.');})()`,`${latest}.querySelector('.assistant-answer').innerHTML`);
-  const conversation=await evaluate(`(async()=>(await (await window.__fetch('/api/assistant/conversations')).json()).conversations[0].id)()`);
-  const stored=async()=>evaluate(`(async()=>(await (await window.__fetch('/api/assistant/conversations/${conversation}?after=0')).json()))()`);
+  const conversation=await evaluate(`(async()=>(await (await window.workspaceFetch('/api/assistant/conversations',undefined,window.__fetch)).json()).conversations[0].id)()`);
+  const stored=async()=>evaluate(`(async()=>(await (await window.workspaceFetch('/api/assistant/conversations/${conversation}?after=0',undefined,window.__fetch)).json()))()`);
   const cost=(await stored()).events.findLast(e=>e.kind==='usage').payload.cost[0];
   await check('the usage line gives tokens by dimension and the exact cost as the turn records it',
     `/^Tokens: [0-9,]+ input · [0-9,]+ cache read · [0-9,]+ cache write · [0-9,]+ output \\([0-9,]+ reasoning\\) · Cost: usd /.test(${latest}.querySelector('.assistant-usage').textContent)`
@@ -455,14 +455,14 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     +`&&${JSON.stringify(pinned.mode)}==='retained'`,`${notice}?.textContent`);
   await press('Go');await wait(`${q('#page-title')}.textContent==='Date schedules'&&${idle}`);
   await check('Go selects that historical view again by its id, at its As of date, and opens the page there',
-    `${q('#workspace-mode-label')}.textContent==='Historical view · read only'&&${q('#snapshot')}.value===${JSON.stringify(dated)}`
-    +`&&window.__requests.some(r=>r.path==='/api/market/context/retained'&&r.body.contextId===${JSON.stringify(pinned.contextId)}&&r.body.selection==='latest_correction')`
-    +`&&${q('#assistant-looking-context')}.textContent.startsWith('Historical view · 2020-12-18, as known at ')&&${buttons}==='Back'`,looking);
+    `(async()=>${q('#workspace-mode-label')}.textContent==='Historical view · read only'&&${q('#snapshot')}.value===${JSON.stringify(dated)}`
+    +`&&await window.workspaceFetch('/api/workspace/navigation').then(r=>r.json()).then(n=>n.context?.contextId===${JSON.stringify(pinned.contextId)})`
+    +`&&${q('#assistant-looking-context')}.textContent.startsWith('Historical view · 2020-12-18, as known at ')&&${buttons}==='Back')()`,looking);
   await press('Back');await wait(`${q('#page-title')}.textContent==='Curves & prices'&&${idle}`);
   await check('Back returns to working data and the page it left',
     `${q('#workspace-mode-label')}.textContent.startsWith('Working data')&&${q('#assistant-looking-shows')}.textContent==='Curve directory'`);
   await check('and the time controls of working data show the close\'s effective date at current knowledge, as returning to working data leaves them',
-    `(async()=>{const frames=(await(await fetch('/api/workspace')).json()).frames,shown=frames.find(f=>f.id===${q('#snapshot')}.value);return !!shown&&${q('#date-context-on')}.value===shown.at.slice(0,10)&&${q('#date-context-view')}.value!=='';})()`,
+    `(async()=>{const frames=(await(await window.workspaceFetch('/api/workspace')).json()).frames,shown=frames.find(f=>f.id===${q('#snapshot')}.value);return !!shown&&${q('#date-context-on')}.value===shown.at.slice(0,10)&&${q('#date-context-view')}.value!=='';})()`,
     `[${q('#snapshot')}.value,${q('#date-context-on')}.value,${q('#date-context-view')}.value]`);
 
   // A move that fails once it has changed the page keeps Back (§10.1).
@@ -549,15 +549,15 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('a proposed save reports the current selection and offers a separate review',
     `(()=>{const r=${asks}.at(-1).body.pageReport;return r.page==='custom_curves'&&Object.keys(r.selection).join()==='curve,unsaved'&&typeof r.selection.curve==='string'&&r.selection.unsaved===false;})()`
     +`&&${q('#custom-curves-code')}.value==='browser_agent_proposal'&&[...${latest}.querySelectorAll('.assistant-steps li')].map(l=>l.textContent).join('|')==='Prepare proposed curve|Prepare change for authorization'`);
-  if((await evaluate("fetch('/api/custom-curves').then(r=>r.json())")).recipes.some(r=>r.definition.code===drafted.code))throw Error('A proposal saved before authorization.');
+  if((await evaluate("window.workspaceFetch('/api/custom-curves').then(r=>r.json())")).recipes.some(r=>r.definition.code===drafted.code))throw Error('A proposal saved before authorization.');
   await evaluate(`[...${latest}.querySelectorAll('button')].find(b=>b.textContent==='Review proposed change').click()`);
   await wait('!!document.querySelector("dialog.assistant-action-review[open]")');
   await check('review shows the exact proposed definition with authorization disabled',
     `document.querySelector('dialog.assistant-action-review pre').textContent.includes('browser_approved_draft')&&document.querySelector('dialog.assistant-action-review button').disabled`);
-  if((await evaluate("fetch('/api/custom-curves').then(r=>r.json())")).recipes.some(r=>r.definition.code===drafted.code))throw Error('Review saved before authorization.');
+  if((await evaluate("window.workspaceFetch('/api/custom-curves').then(r=>r.json())")).recipes.some(r=>r.definition.code===drafted.code))throw Error('Review saved before authorization.');
   await evaluate(`(()=>{const d=document.querySelector('dialog.assistant-action-review'),c=d.querySelector('input');c.checked=true;c.dispatchEvent(new Event('change'));d.querySelector('button').click();})()`);
   await wait("document.querySelector('dialog.assistant-action-review [role=status]').textContent.startsWith('The backend confirmed')");
-  const authorized=(await evaluate("fetch('/api/custom-curves').then(r=>r.json())")).recipes.filter(r=>r.definition.code===drafted.code);
+  const authorized=(await evaluate("window.workspaceFetch('/api/custom-curves').then(r=>r.json())")).recipes.filter(r=>r.definition.code===drafted.code);
   await check('only the explicit authorization saves one ordinary human-owned draft',JSON.stringify(authorized.length===1&&authorized[0].state==='draft'&&authorized[0].saver?.savedBy==='person'),JSON.stringify(authorized));
   await evaluate("[...document.querySelector('dialog.assistant-action-review').querySelectorAll('button')].find(b=>b.textContent==='Close').click()");
 

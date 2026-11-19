@@ -19,7 +19,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   const press=async key=>{const codes={ArrowDown:40,ArrowUp:38,Enter:13,Escape:27};for(const type of ['keyDown','keyUp'])await command('Input.dispatchKeyEvent',{type,key,code:key,windowsVirtualKeyCode:codes[key]});};
   // The trader can amend; the standard fixture holds the swaps the earlier suites booked beside its futures.
   await persona('trader');
-  const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')&&w.initialFrameIds.includes(f.id)).id;})()");
+  const frame=await evaluate("(async()=>{const w=await(await window.workspaceFetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')&&w.initialFrameIds.includes(f.id)).id;})()");
   await set('#snapshot',frame);await wait(idle);
   await click('#nav-futures');
   await wait(`!!document.querySelector('#desk-positions .tabulator-row[data-row-key]')&&document.querySelector('#futures-page').dataset.pricingState==='complete'&&${idle}`);
@@ -56,7 +56,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   const found=await evaluate(`(async()=>{const h=${holder};
     for(let top=0;;top+=Math.floor(h.clientHeight/2)){h.scrollTop=top;await ${frames};const list=${rows},at=list.findIndex((r,i)=>i>0&&r.querySelector('.desk-pill')?.textContent==='SWAP');
       if(at>0)return {swap:list[at].dataset.rowKey,above:list[at-1].dataset.rowKey};if(h.scrollTop+h.clientHeight>=h.scrollHeight-1)return null;}})()`);
-  if(!found)throw Error('No swap row with a row above it: the suites before this one book the swaps it opens. Rows: '+JSON.stringify(await evaluate(`(async()=>({rows:${rows}.map(r=>r.querySelector('.desk-pill')?.textContent+' '+r.querySelector('.desk-reference')?.textContent),views:await(await fetch('/api/table-views/blotter')).text(),books:document.querySelector('#blotter-books').selectedOptions.length,portfolios:document.querySelector('#blotter-portfolios').selectedOptions.length,snapshot:document.querySelector('#snapshot').value,summary:document.querySelector('#futures-summary').textContent}))()`)));
+  if(!found)throw Error('No swap row with a row above it: the suites before this one book the swaps it opens. Rows: '+JSON.stringify(await evaluate(`(async()=>({rows:${rows}.map(r=>r.querySelector('.desk-pill')?.textContent+' '+r.querySelector('.desk-reference')?.textContent),views:await(await window.workspaceFetch('/api/table-views/blotter')).text(),books:document.querySelector('#blotter-books').selectedOptions.length,portfolios:document.querySelector('#blotter-portfolios').selectedOptions.length,snapshot:document.querySelector('#snapshot').value,summary:document.querySelector('#futures-summary').textContent}))()`)));
   const swapKey=found.swap;
   await evaluate(`(async()=>{const h=${holder};for(let i=0;i<4;i++){const r=${row(JSON.stringify(found.above))};if(r){const d=r.getBoundingClientRect().top-h.getBoundingClientRect().top;if(Math.abs(d)<1)break;h.scrollTop+=d;}await ${frames};}})()`);
   await evaluate(`${grid}.dataset.probe='kept'`);const kept=`${grid}?.dataset.probe==='kept'`;

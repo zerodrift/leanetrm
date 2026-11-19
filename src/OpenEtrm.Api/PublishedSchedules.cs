@@ -5,7 +5,12 @@ namespace OpenEtrm.Api;
 
 public sealed record ScheduleContext(string? EffectiveOn,int? KnownThrough,
     [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] string? KnownAt=null,
-    [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] Guid? ContextId=null);
+    [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] Guid? ContextId=null)
+{
+    // Only the server can construct a transient calendar binding.
+    internal CalendarReadCut? ReadCut {get;init;}
+    internal bool WorkspaceCut {get;init;}
+}
 public sealed record ScheduleVersion(Guid Id,int Version,int Generation,string State,MonthlyDraft Definition,
     string Selection,DateOnly EffectiveFrom,DateOnly EffectiveTo,int? PublicationOrder,DateTimeOffset? PublishedAt,string EngineVersion="date_schedule_v1",BitemporalRange? Temporal=null,
     CalendarReference? Calendar=null,[property:System.Text.Json.Serialization.JsonIgnore] ReferenceCalendar? ResolvedCalendar=null);

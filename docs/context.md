@@ -256,7 +256,15 @@ clock regressions, recovery/source lineage and retention boundaries. It returns
 an immutable prefix/manifest only after its cutoff is certified complete. If it
 cannot prove the requested cutoff, it reports pending/unavailable/ambiguous as
 appropriate rather than including later facts or silently selecting current data.
-Persist the successful resolution so a captured context never changes later.
+During an ordinary read the resolved cutoff and source selections belong to that
+operation. Pass them to child work and release them when it ends. A later read
+can resolve the same cutoff from committed publication history. A durable job or
+saved result owns the evidence needed for its replay. D434 applies this lifetime to the working custom-curve close calendar and
+the browser's shared As of selector. A tab owns its applied selection for the
+signed-in session. Closing the session releases it. Refresh can reattach the
+page using an opaque view identifier. The browser keeps Back history in
+document memory. A restore verifies the original certified history and close
+under the user's current access.
 
 A retained journal of commit metadata from standard logical replication is one
 candidate if commit-time semantics are selected. It introduces capture privileges,

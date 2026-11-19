@@ -114,37 +114,25 @@ internal sealed class AsyncReadVisibility:IDisposable
         var contexts=observationPins.Keys.Select(k=>k.Context).Concat(catalogueSources.Select(k=>k.Context)).Distinct();
         foreach(var context in contexts)
         {
-            var temporary=context!=rootContext;
-            if(temporary)
-                await using(var save=ScheduleStore.Command(connection,"SAVEPOINT calendar_publication"))await save.ExecuteNonQueryAsync(ct);
-            try
+            async Task<MarketReadBinding?> Bind()
             {
-                if(temporary)
-                {
-                    if(rootContext is not null||context is null)throw new PreviewDeniedException();
-                    var catalog=observationPins.Keys.Where(k=>k.Context==context).Select(k=>k.Catalog)
-                        .Concat(catalogueSources.Where(k=>k.Context==context).Select(k=>k.Catalog)).Distinct().Single();
-                    await PinnedContext.BindExact(connection,catalog,context,ct);
-                }
-                foreach(var(catalog,source,_)in catalogueSources.Where(k=>k.Context==context))
-                {
-                    await using var check=ScheduleStore.Command(connection,"SELECT security.reference_access($1,'ReadMarketData') AND security.reference_version_visible($1,$2) AND security.market_fact_visible($3,$4,NULL)",
-                        source.ReferenceCatalogId,source.ReferenceRevisionId,catalog,source.DefinitionRevisionId);
-                    if(!Equals(await check.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
-                }
-                foreach(var(key,pins)in observationPins.Where(p=>p.Key.Context==context))
-                {
-                    var visible=await PreviewDatabase.Rows(connection,"SELECT json_build_object('id',id)::text FROM security.read_observation_pins($1,$2,$3::uuid[])",[key.Catalog,key.Revision,pins.ToArray()],ct);
-                    if(!pins.SetEquals(visible.Select(row=>row.Id("id"))))throw new PreviewDeniedException();
-                }
+                if(context==rootContext)return null;
+                if(rootContext is not null||context is null)throw new PreviewDeniedException();
+                var catalog=observationPins.Keys.Where(k=>k.Context==context).Select(k=>k.Catalog)
+                    .Concat(catalogueSources.Where(k=>k.Context==context).Select(k=>k.Catalog)).Distinct().Single();
+                return await MarketReadBinding.Enter(connection,catalog,rootContext,context,ct);
             }
-            finally
+            await using var binding=await Bind();
+            foreach(var(catalog,source,_)in catalogueSources.Where(k=>k.Context==context))
             {
-                if(temporary)
-                {
-                    await using var restore=ScheduleStore.Command(connection,"ROLLBACK TO SAVEPOINT calendar_publication;RELEASE SAVEPOINT calendar_publication");
-                    await restore.ExecuteNonQueryAsync(CancellationToken.None);
-                }
+                await using var check=ScheduleStore.Command(connection,"SELECT security.reference_access($1,'ReadMarketData') AND security.reference_version_visible($1,$2) AND security.market_fact_visible($3,$4,NULL)",
+                    source.ReferenceCatalogId,source.ReferenceRevisionId,catalog,source.DefinitionRevisionId);
+                if(!Equals(await check.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
+            }
+            foreach(var(key,pins)in observationPins.Where(p=>p.Key.Context==context))
+            {
+                var visible=await PreviewDatabase.Rows(connection,"SELECT json_build_object('id',id)::text FROM security.read_observation_pins($1,$2,$3::uuid[])",[key.Catalog,key.Revision,pins.ToArray()],ct);
+                if(!pins.SetEquals(visible.Select(row=>row.Id("id"))))throw new PreviewDeniedException();
             }
         }
     }

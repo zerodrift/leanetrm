@@ -40,7 +40,7 @@ export async function run({command,evaluate,wait,click,set,check,shot,idle,fitsW
   await wait(idle+"&&document.querySelectorAll('.curve-button').length>0&&performance.getEntriesByName('leanetrm:workspace-ready').length===1");
   await click('#nav-market');await wait(idle);
   await check('Curves & prices opens on the market board at the newest close, with no curve chosen',
-   "(async()=>{const frames=(await(await fetch('/api/workspace/navigation')).json()).frames,newest=Math.max(...frames.map(f=>Date.parse(f.at))),latest=frames.filter(f=>Date.parse(f.at)===newest);"+
+   "(async()=>{const frames=(await(await window.workspaceFetch('/api/workspace/navigation')).json()).frames,newest=Math.max(...frames.map(f=>Date.parse(f.at))),latest=frames.filter(f=>Date.parse(f.at)===newest);"+
    "return latest.length===1&&document.querySelector('#snapshot').value===latest[0].id&&!document.querySelector('#market-board').hidden&&document.querySelector('#market-board-empty').hidden&&document.querySelector('#curve-detail').hidden&&document.querySelector('#market-board-status').textContent.startsWith('Prices at the close of ')&&document.querySelector('#error').hidden;})()");
   await check('the board has a card for each listed curve, in the library\'s groups and order',
    "(()=>{const library=[...document.querySelectorAll('#curves .curve-group')].map(g=>[g.querySelector('summary').textContent,...[...g.querySelectorAll('.curve-button')].map(b=>b.querySelector('span').textContent)]);"+
@@ -72,7 +72,7 @@ export async function run({command,evaluate,wait,click,set,check,shot,idle,fitsW
    "[...document.querySelectorAll('.market-card')].every(card=>{const row=[...document.querySelectorAll('.curve-button')].find(b=>b.querySelector('span').textContent===card.querySelector('.market-card-open').textContent);const a=row.querySelector('.commodity-icon'),b=card.querySelector('.commodity-icon');return a?.getAttribute('aria-label')===b?.getAttribute('aria-label')&&a?.dataset.commodityIcon===b?.dataset.commodityIcon&&!row.querySelector('.commodity-dot')&&!card.querySelector('.commodity-dot');})");
   // The backend names each curve's kind (curve_kinds_v1); the badge carries its label as the accessible name and tooltip.
   await check('each card and library row shows the backend\'s curve kind as a badge named by its label, a settlement curve as Market settlement',
-   "(async()=>{const kinds=new Map((await(await fetch('/api/workspace/navigation')).json()).curves.map(c=>[c.code,c.kind])),cards=[...document.querySelectorAll('.market-card')];"+
+   "(async()=>{const kinds=new Map((await(await window.workspaceFetch('/api/workspace/navigation')).json()).curves.map(c=>[c.code,c.kind])),cards=[...document.querySelectorAll('.market-card')];"+
    "const badges=cards.map(card=>[card,card.querySelector('.market-card-head .curve-kind[role=img]')]),row=card=>[...document.querySelectorAll('.curve-button')].find(b=>b.querySelector('span').textContent===card.querySelector('.market-card-open').textContent);"+
    "return cards.length>0&&badges.every(([card,badge])=>badge&&badge.dataset.kind===kinds.get(card.dataset.curve)&&badge.getAttribute('aria-label').length>0&&badge.title===badge.getAttribute('aria-label')&&badge.querySelector('svg[aria-hidden=true]')&&row(card).querySelector('.curve-kind').getAttribute('aria-label')===badge.getAttribute('aria-label'))&&"+
    "badges.some(([,badge])=>badge.dataset.kind==='market_settlement'&&badge.getAttribute('aria-label')==='Market settlement');})()",
@@ -120,7 +120,7 @@ export async function run({command,evaluate,wait,click,set,check,shot,idle,fitsW
    "window.__evaluates===1&&document.querySelector('#market-board').hidden&&!document.querySelector('#curve-detail').hidden&&document.querySelector('#curve-title').textContent==='Local power forwards'&&"+
    "document.querySelector('.curve-button[aria-pressed=true] span')?.textContent==='Local power forwards'&&document.querySelector('#curve-chart canvas')&&document.querySelector('#error').hidden");
   await check('the curve\'s header shows the same kind badge as its card',
-   "(async()=>{const curve=(await(await fetch('/api/workspace/navigation')).json()).curves.find(c=>c.name==='Local power forwards'),badge=document.querySelector('#curve-kind-badge .curve-kind-md[role=img]'),row=document.querySelector('.curve-button[aria-pressed=true] .curve-kind');"+
+   "(async()=>{const curve=(await(await window.workspaceFetch('/api/workspace/navigation')).json()).curves.find(c=>c.name==='Local power forwards'),badge=document.querySelector('#curve-kind-badge .curve-kind-md[role=img]'),row=document.querySelector('.curve-button[aria-pressed=true] .curve-kind');"+
    "return badge&&badge.dataset.kind===curve.kind&&badge.getAttribute('aria-label').length>0&&badge.getAttribute('aria-label')===row.getAttribute('aria-label');})()");
   await check('the selected curve\'s tiles state the evaluate summary: its contract count, front contract and exact front price',
    "(async()=>{const tiles=[...document.querySelectorAll('#curve-summary .desk-tile')].map(t=>[t.querySelector('.desk-tile-label').textContent,t.querySelector('.kpi-figure').textContent]);"+

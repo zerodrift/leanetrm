@@ -88,7 +88,7 @@ export async function run({command,evaluate,wait,click,persona,check,idle,fitsWi
       [person,'Revoked',person],[person,'Granted',person],[person,'Revoked',person],[person,'Granted',person]]))}`
     +`&&${rows('admin-grant-history')}.every(r=>r[3]===${JSON.stringify(label)}&&r[4]==='trades and market data')`);
   await check('the kept request was recorded once, and the grant in force is the one this run made',
-    `(async()=>{const w=await(await window.__originalFetch('/api/assistant/grants/workspace')).json();`
+    `(async()=>{const w=await(await window.workspaceFetch('/api/assistant/grants/workspace',undefined,window.__originalFetch)).json();`
     +`return w.history.filter(r=>r.operationId===${JSON.stringify(retained?.operationId)}).length===1&&w.current.filter(g=>g.agentName===${JSON.stringify(guide)}).length===1`
     +`&&w.history.some(r=>r.operationId===w.current.find(g=>g.agentName===${JSON.stringify(guide)}).operationId&&r.outcome==='granted');})()`);
   await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await evaluate('window.scrollTo(0,0)');

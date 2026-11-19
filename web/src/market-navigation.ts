@@ -19,7 +19,7 @@ export function isCatalogueSource(value:unknown):value is CatalogueSource{
 export type NavigationCurve={source:CatalogueSource;code:string;name:string;marketType:MarketType;category:NavigationCategory|null;kind:CurveKind};
 export type CurveConfiguration={curve:string;id:string|null;version:number|null;kind:'native'|'definition';canEdit:boolean;reason:string|null};
 export const curveConfigurationAction=(value:CurveConfiguration)=>value.kind==='native'?'Inspect configuration':value.canEdit?'Edit definition':'Inspect definition';
-export type MarketNavigation={kind:'market_navigation';kindsVersion:typeof kindsVersion;profile:string;context:Context|null;live?:LiveSelection|null;
+export type MarketNavigation={kind:'market_navigation';kindsVersion:typeof kindsVersion;profile:string;context:Context|null;restoreKey?:string;live?:LiveSelection|null;
  definitionRevision:{catalogId:string;revisionId:string};referenceRevision:{catalogId:string;revisionId:string};
  futuresConvention:string;example:{at:string;curve:string}|null;initialFrameIds:string[];
  frames:FrameSummary[];curveNames:{code:string;name:string}[];curves:NavigationCurve[];curveConfigurations:CurveConfiguration[];frameCatalog?:FrameCatalog};

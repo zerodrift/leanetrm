@@ -9,12 +9,19 @@ from preview_client import PreviewClient, initial_frame
 
 
 def run_checks(url, manifest, query, run_worker):
-    c = PreviewClient(url); c.bootstrap(); c.call('profile', {'profile': 'risk'})
+    c = PreviewClient(url)
+    c.opener.addheaders = [('X-OpenETRM-View', str(uuid4()))]
+    c.bootstrap(); c.call('profile', {'profile': 'risk'})
     frame = initial_frame(c.call('workspace'), '2020-12-18')
     current = {'snapshotId': frame['id'], 'convention': 'trading_workspace_v1', 'knowledgeMode': 'current'}
     holdings = c.call('trading/blotter', {'context': current, 'view': {'mode': 'trades', 'bookIds': [], 'portfolioIds': [], 'groupBy': [], 'measures': [], 'pivotConvention': None}})
     held = next(h for h in holdings['holdings'] if h['instrumentType'] == 'future')
-    scope = {'context': {**current, 'knowledgeMode': 'retained', 'contextId': holdings['context']['contextId']},
+    selected = c.call('market/context', {'effectiveOn': '2020-12-18', 'mode': 'current', 'selection': 'latest_correction',
+        'snapshotId': frame['id'], 'frameSelectionPolicy': 'preserve_origin_or_unique_asof_frame_v1'})
+    identifier = selected['context']['contextId']
+    source_count = f"SELECT count(*) FROM market_data.temporal_contexts WHERE catalog_id='{manifest['catalogId']}' AND id='{identifier}'"
+    assert query(source_count) == '0'
+    scope = {'context': {**current, 'snapshotId': selected['snapshotId'], 'knowledgeMode': 'retained', 'contextId': identifier},
              'bookIds': [held['bookId']], 'portfolioIds': [], 'tradeIds': [held['tradeId']]}
     catalog = c.call('portfolio/risk/catalog', scope)
     history = c.call('portfolio/risk/history', {'scope': scope, 'pricingPolicy': catalog['pricingPolicy'],
@@ -73,6 +80,7 @@ def run_checks(url, manifest, query, run_worker):
         delta=[sum(Fraction(e['nominal']) for e in estimates if e['columnId']==column['id']) for column in mixed_history['manifest']['columns']]
         assert Fraction(partition['variance'])==sum(delta[i]*covariance[i][j]*delta[j] for i in range(d) for j in range(d))
     check_compact_reads(c, {**scope, 'bookIds': [], 'tradeIds': None}, mixed_request, mixed, mixed_history)
+    assert query(source_count) == '0', 'Pricing and statistical history must leave the inspected cutoff in memory'
     mixed_job=c.call('portfolio/risk/parametric/jobs',{'requestId':str(uuid4()),'request':mixed_request});run_worker()
     assert c.call('portfolio/risk/jobs/'+mixed_job['id'])['result']['parametric']['result']==mixed['result']
     print('PASS parametric mixed scope: complete shared factor union, independent multi-factor native variance oracles and exact worker partition replay',flush=True)
@@ -82,6 +90,7 @@ def run_checks(url, manifest, query, run_worker):
     run_worker()
     completed = c.call('portfolio/risk/jobs/' + job['id'])
     assert completed['state'] == 'completed', completed
+    assert query(source_count) == '1', 'The explicitly submitted job must own its exact historical source'
     retained = completed['result']['parametric']
     assert {key for key in direct['parametric'] if retained.get(key) != direct['parametric'][key]} <= {'passes'}, 'Financial inputs/results must replay exactly; preparation cache work can differ'
     for report in (direct, completed['result']):
@@ -105,7 +114,9 @@ def run_checks(url, manifest, query, run_worker):
     c.call('portfolio/risk/parametric/archive?limit=0',expected=422)
     print('PASS parametric archive: authorized completed reports are discoverable beyond the bounded recent directory', flush=True)
     from check_day_end_risk import run_checks as check_day_end
-    check_day_end(c,query,scope,catalog,history,request,run_worker)
+    c.call('market/current', {})
+    day_scope={**scope,'context':{**scope['context'],'snapshotId':frame['id']}}
+    check_day_end(c,query,day_scope,catalog,history,request,run_worker)
     from check_parametric_risk_db import run_checks as check_db
     check_db(query, manifest, job['id'],run_worker)
     c.call('profile', {'profile': 'viewer'})

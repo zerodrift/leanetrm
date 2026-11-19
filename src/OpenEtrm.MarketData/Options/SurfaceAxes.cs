@@ -24,13 +24,33 @@ public static class SurfaceAxes
     private static readonly LatticeDecimal Zero = L("0"), One = L("1"), Two = L("2");
     private static LatticeDecimal L(string text) => LatticeDecimal.Parse(text);
 
-    public static ImmutableArray<SurfaceAxisPolicy> Declare(VolSurfaceResult surface)
+    public static ImmutableArray<SurfaceAxisPolicy> Declare(VolSurfaceResult surface) =>
+        TryDeclare(surface, out var axes) ? axes : throw Missing();
+
+    public static bool TryDeclare(VolSurfaceResult? surface, out ImmutableArray<SurfaceAxisPolicy> axes)
     {
-        var inputs = surface.PlotInputs ?? throw Missing();
-        if (surface.StrikeAxis.IsDefault || surface.Expiries.IsDefault || surface.Series.IsDefault || string.IsNullOrWhiteSpace(inputs.StrikeUnit)) throw Missing();
-        return [new(Strike, "Strike", inputs.StrikeUnit, new("Listed strikes", [..surface.StrikeAxis.Select(k => Point(Strike, LatticeDecimal.From(k)))]), false),
+        axes = [];
+        if (surface?.ModelId != VolModels.QuadraticLogMoneyness ||
+            surface.PlotInputs is not { OptionPolicy: OptionNumericalPolicies.CoxRossRubinstein, AxisNumericalPolicy: NumericalPolicy,
+                NormalImplementation: NormalDistribution.ImplementationId } inputs || string.IsNullOrWhiteSpace(inputs.StrikeUnit) ||
+            surface.StrikeAxis.IsDefault || surface.Expiries.IsDefault || surface.Series.IsDefault)
+            return false;
+
+        var expiries = new HashSet<DateTimeOffset>();
+        foreach (var expiry in surface.Expiries)
+        {
+            if (expiry is null || string.IsNullOrWhiteSpace(expiry.Status) || !expiries.Add(expiry.ExpiryAt)) return false;
+            if (expiry.Status == "option_expired") continue;
+            if (expiry.YearFraction is not { } time || time.CompareTo(Zero) <= 0) return false;
+            if (expiry.Status == "fitted" && (expiry.Parameters is null || expiry.Futures is not { } forward || forward.CompareTo(Zero) <= 0 ||
+                expiry.Grid.IsDefaultOrEmpty || expiry.Grid.Any(p => p is null))) return false;
+        }
+        if (surface.Series.Any(s => s?.Series is not { } series || !expiries.Contains(series.ExpiryAt))) return false;
+
+        axes = [new(Strike, "Strike", inputs.StrikeUnit, new("Listed strikes", [..surface.StrikeAxis.Select(k => Point(Strike, LatticeDecimal.From(k)))]), false),
             new(LogMoneyness, "Log-moneyness", "ln(K/F)", new("−0.10 to +0.10 by 0.01", [..Enumerable.Range(-10, 21).Select(i => Point(LogMoneyness, L(i.ToString(CultureInfo.InvariantCulture)) / L("100")))]), false),
             new(QuickDelta, "Quick delta", "call delta", new("10P · 25P · ATM · 25C · 10C", [..new[] { "0.9", "0.75", "0.5", "0.25", "0.1" }.Select(p => Point(QuickDelta, L(p)))]), true)];
+        return true;
     }
 
     public static ImmutableArray<SurfaceAxisPoint> Points(SurfaceAxisRequest request)
@@ -57,18 +77,12 @@ public static class SurfaceAxes
     {
         var points = Points(request);
         var axes = Declare(surface);
-        if (surface.ModelId != VolModels.QuadraticLogMoneyness ||
-            surface.PlotInputs!.OptionPolicy != OptionNumericalPolicies.CoxRossRubinstein ||
-            surface.PlotInputs.AxisNumericalPolicy != NumericalPolicy || surface.PlotInputs.NormalImplementation != NormalDistribution.ImplementationId)
-            throw new MarketDataException("vol_axis_inputs_missing", "The stored fit does not declare the supported smile and option time policy.");
         var model = VolModels.Require(surface.ModelId);
         var expiries = surface.Expiries.Select(expiry =>
         {
             if (expiry.Status == "option_expired") return expiry with { Nodes = [] };
-            var t = expiry.YearFraction ?? throw Missing();
-            if (t.CompareTo(Zero) <= 0) throw Missing();
+            var t = expiry.YearFraction!.Value;
             if (expiry.Status != "fitted") return expiry with { Nodes = [], TimeLabel = TimeLabel(t) };
-            if (expiry.Parameters is null || expiry.Futures is null || expiry.Futures.Value.CompareTo(Zero) <= 0 || expiry.Grid.IsDefaultOrEmpty) throw Missing();
             return expiry with { TimeLabel = TimeLabel(t), Nodes = [..points.Select(p => Node(expiry, request.Axis!, p, model))] };
         }).ToImmutableArray();
         var byExpiry = expiries.ToDictionary(e => e.ExpiryAt);

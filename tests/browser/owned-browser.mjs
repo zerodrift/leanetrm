@@ -7,6 +7,21 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {promisify} from 'node:util';
 import {asyncReadProbeScript} from './async-read-probe.mjs';
 
+// Fixture requests that inspect or mutate the open page must use its workspace.
+// Application fetches, independent HTTP clients and intercepted responses keep
+// their own transports. A probe never registers a second view as a side effect.
+function installWorkspaceFetch(){
+ window.workspaceFetch=(path,init={},send=window.fetch)=>{
+  const target=new URL(path,location.href);
+  if(target.origin!==location.origin||!/^\/(?:examples\/exchange\/)?api\//.test(target.pathname)||!window.openEtrmWorkspaceView)
+   throw Error('A workspace probe requires an open page and its own API.');
+  const headers=new Headers(init.headers);
+  headers.set('X-OpenETRM-View',window.openEtrmWorkspaceView);
+  return send(path,{...init,headers});
+ };
+}
+const workspaceFetchScript='('+installWorkspaceFetch.toString()+')();';
+const probeScripts=asyncReadProbeScript+';'+workspaceFetchScript;
 const execute=promisify(execFile);
 
 export const idle="document.body?.getAttribute('aria-busy')==='false'&&!document.querySelector('#risk-history-panel[aria-busy=true],#risk-report[aria-busy=true],#workspace-risk-report[aria-busy=true],#risk-jobs-list[aria-busy=true],#risk-jobs-report[aria-busy=true]')&&(!document.querySelector('#futures-page:not([hidden])')||document.querySelector('#futures-page').dataset.pricingState!=='pending')";
@@ -216,7 +231,7 @@ export async function withOwnedBrowser(targetFile,browserPath,run){
   try{
     socket=new WebSocket(await waitForBrowserPage(directory,chrome));
     const {command,evaluate,wait,click,set,submit,abandon}=await connect(socket,errors);
-    await command('Page.enable');await command('Page.addScriptToEvaluateOnNewDocument',{source:asyncReadProbeScript});
+    await command('Page.enable');await command('Page.addScriptToEvaluateOnNewDocument',{source:probeScripts});
     // Another tab of this browser, sharing its cookies and storage origin, over a debugger connection of its own.
     async function tab(targetId){
       const port=await waitForBrowserPort(directory,chrome),response=await fetch(`http://127.0.0.1:${port}`+(targetId===undefined?'/json/new?about:blank':'/json/list'),{method:targetId===undefined?'PUT':'GET'});
@@ -228,7 +243,9 @@ export async function withOwnedBrowser(targetFile,browserPath,run){
         throw Error('Browser debugger tab URL does not match the exact owned loopback port.');
       const other=new WebSocket(address.href),driver=await connect(other,errors);tabs.push({other,driver});
       await driver.command('Runtime.enable');await driver.command('Page.enable');await driver.command('Emulation.setTimezoneOverride',{timezoneId:'UTC'});
-      await driver.command('Page.addScriptToEvaluateOnNewDocument',{source:asyncReadProbeScript});
+      await driver.command('Page.addScriptToEvaluateOnNewDocument',{source:probeScripts});
+      // Attaching to a pop-out can follow its first navigation.
+      if(targetId!==undefined)await driver.evaluate(workspaceFetchScript);
       return {...driver,async close(){driver.abandon();other.close();await fetch(`http://127.0.0.1:${port}/json/close/${created.id}`);}};
     }
     // Switching accounts reads the identity and the account's first page again, so it waits longer than a single action.

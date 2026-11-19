@@ -40,18 +40,25 @@ def run_checks(url, query, manifest, psql, environment):
              'lastTrading': 'oe.seed_expiries[1]', 'cutoffUtc': '15:30'}]})
     approver.call('date-schedules/contracts/publish', {
         'requestId': str(uuid4()), **{k: mapping[k] for k in ('id', 'version', 'generation')}})
-    before_adoption = context()
+    from check_workspace_as_of import open_tab, prepare, history_counts
+    author = open_tab(editor)
+    before_adoption = prepare(author,'2020-12-18')
+    initial_counts = history_counts(query,cat)
     original = json.loads(query(f"SELECT row_to_json(c) FROM market_data.contracts c WHERE catalog_id='{cat}' AND revision_id='{revision}' AND kind='future' AND delivery_from='2021-01-01';"))
     assert (original['delivery_to'], original['expiry_at']) == ('2021-02-01', '2020-12-28T15:30:00+00:00')
     body = {'requestId': str(uuid4()), 'revisionId': revision, 'mappingId': mapping['id'],
             'mappingVersion': 1, 'context': before_adoption, 'contracts': [
                 {'contractId': original['id'], 'ordinal': 0, 'label': 'January',
                  'kind': 'future', 'futuresSeriesCode': original['futures_series_code']}]}
-    receipt = editor.call('date-schedules/contracts/materialize', body)
+    receipt = author.call('date-schedules/contracts/materialize', body)
+    assert history_counts(query,cat) == tuple(n+1 for n in initial_counts)
     assert receipt == editor.call('date-schedules/contracts/materialize', body)
     assert receipt['contracts'][0]['created'] is False
     admission = receipt['contracts'][0]['admissionId']
-    another = editor.call('date-schedules/contracts/materialize', {**body, 'requestId': str(uuid4())})
+    same_contract_source = prepare(author,'2020-12-18')
+    stored = history_counts(query,cat)
+    another = author.call('date-schedules/contracts/materialize', {**body, 'context':same_contract_source, 'requestId': str(uuid4())})
+    assert history_counts(query,cat) == stored, 'Reusing a contract admission must not persist the newly inspected cutoff'
     assert another['contracts'][0]['admissionId'] == admission
     assert json.loads(query(f"SELECT row_to_json(c) FROM market_data.contracts c WHERE catalog_id='{cat}' AND revision_id='{revision}' AND id='{original['id']}';")) == original
     viewer.call('date-schedules/contracts/materialize', body, expected=403)

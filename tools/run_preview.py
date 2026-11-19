@@ -306,6 +306,10 @@ def main():
                 reference,market,security,manifest=add_in_term_fixture(reference,market,security,manifest)
         query((ROOT/'db/bootstrap.sql').read_text())
         for migration in sorted((ROOT/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
+            if args.market_dates_check and migration.name=='0373_ephemeral_calendar_context.sql':
+                from check_fact_anchor_upgrade import run_checks as check_calendar_scope_upgrade
+                check_calendar_scope_upgrade(query,migration,number=migration.name[:4],guard='ephemeral_context_upgrade',signatures=(
+                    'security.capture_date_context(uuid,date,timestamp with time zone)','security.market_fact_visible(uuid,uuid,uuid)'))
             if args.jobs_check and migration.name=='0366_managed_risk_pool.sql':
                 from check_fact_anchor_upgrade import run_checks as check_pool_upgrade
                 check_pool_upgrade(query,migration,number='0366',guard='managed_pool_upgrade',signatures=(
@@ -1167,6 +1171,8 @@ def main():
                 def run_statistical_worker():
                     subprocess.run([str(dotnet),str(frozen_dll),'--risk-worker','once'],cwd=ROOT,env=worker_env,check=True,timeout=90)
                 check_parametric(url,manifest,query,run_statistical_worker)
+                from check_workspace_clock import run_checks as check_workspace_clock
+                check_workspace_clock(query,manifest,psql,env)
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
@@ -1340,13 +1346,17 @@ def main():
                 check_market_dates_reads(url,query,manifest,psql,env,temporary/'postgres.log',child.pid,verify=not args.market_dates_benchmark_only)
             elif args.market_dates_check:
                 from check_market_dates import run_checks as check_market_dates
-                check_market_dates(url,query,manifest)
+                check_market_dates(url,query,manifest,temporary/'postgres.log')
                 subprocess.run([str(dotnet),'run','--project','tests/OpenEtrm.Api.Checks','--','--market-calendar-demand'],cwd=ROOT,env=app_env,check=True,timeout=120)
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--market-dates'],cwd=ROOT,env=env,start_new_session=True)
                     if browser_process.wait(timeout=240):raise RuntimeError('Owned market date browser checks failed')
+                from check_workspace_as_of import run_checks as check_workspace_as_of
+                check_workspace_as_of(url,query,manifest)
+                from check_ephemeral_calendar import run_checks as check_ephemeral_calendar
+                check_ephemeral_calendar(url,query,manifest,psql,env)
             elif args.contract_dates_check:
                 from check_contract_dates import run_checks as check_contract_dates
                 check_contract_dates(url,query,manifest,psql,env)

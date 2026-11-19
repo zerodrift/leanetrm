@@ -42,6 +42,8 @@ internal static class VolSurfaceStore
     // The stored content and its digest are these exact bytes.
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web)
         {Converters={new ExactDecimalJsonConverter(),new LatticeDecimalJsonConverter(),new JsonStringEnumConverter(JsonNamingPolicy.CamelCase)}};
+    // Stored projections require the fields the fit recorded, including explicitly zero coefficients and grid coordinates.
+    private static readonly JsonSerializerOptions ProjectionJson=new(Json){RespectRequiredConstructorParameters=true};
     private static string SolverPolicy=>FuturesOptionValuationPolicy.Release1.NumericalPolicy;
 
     // Admits a fit job at the view's context, captured from current knowledge over the working frame.
@@ -86,7 +88,7 @@ internal static class VolSurfaceStore
         var canFit=await PreviewDatabase.HasPermission(connection,"PublishMarketData",ct)&&await PreviewDatabase.HasPermission(connection,"ReadTrades",ct);
         return new JsonObject{["snapshotId"]=view.Frame.Id,["definitionRevisionId"]=manifest.RevisionId,["model"]=body.Model,
             ["solverPolicy"]=stored?["solverPolicy"]?.DeepClone()??SolverPolicy,["state"]=stored is null?"notFitted":"fitted",
-            ["revision"]=revision,["job"]=job,["canFit"]=canFit,["surface"]=stored is null?null:ProjectContent(stored["content"]!,selection),
+            ["revision"]=revision,["job"]=job,["canFit"]=canFit,["surface"]=stored is null?null:ProjectContent(stored["content"],selection),
             // What a fit may select: offered for the page to send back, with the clocks a working snapshot may name.
             ["sensitivities"]=new JsonObject{["offered"]=JsonSerializer.SerializeToNode(OptionSurfaceAnalytics.Offered,RiskJobs.Json),
                 ["clocks"]=JsonSerializer.SerializeToNode(TradingPnlReport.Clocks(),RiskJobs.Json),["clockRequired"]=view.Frame.Close is null}};
@@ -100,27 +102,34 @@ internal static class VolSurfaceStore
     }
 
     internal static string Encode(VolSurfaceResult surface)=>JsonSerializer.Serialize(surface,Json);
-    internal static JsonNode ProjectContent(JsonNode content,SurfaceAxisRequest selection)=>
-        JsonSerializer.SerializeToNode(SurfaceAxes.Project(content.Deserialize<VolSurfaceResult>(Json)??
-            throw new MarketDataException("vol_axis_inputs_missing","The revision contains no fitted inputs."),selection),Json)!;
+    private static VolSurfaceResult? DecodeProjectionInputs(JsonNode? content)
+    {
+        try{return content?.Deserialize<VolSurfaceResult>(ProjectionJson);}
+        catch(JsonException){return null;}
+        catch(MarketDataException error)when(error.Code is "numeric_format" or "numeric_range"){return null;}
+    }
+    internal static JsonNode ProjectContent(JsonNode? content,SurfaceAxisRequest selection)=>
+        JsonSerializer.SerializeToNode(SurfaceAxes.Project(DecodeProjectionInputs(content)??
+            throw new MarketDataException("vol_axis_inputs_missing","The stored fit lacks its recorded projection inputs. Refit explicitly."),selection),Json)!;
 
     internal static async Task<object> Axes(NpgsqlConnection connection,PreviewDatabase database,TradingView view,VolSurfaceAxesRequest body,CancellationToken ct)
     {
         var (manifest,key)=await Locate(connection,database,view,body.Product,body.Model,body.DefinitionRevisionId,ct);
         var stored=await Value(connection,StoredSurface,key,ct);
-        var surface=stored?["content"].Deserialize<VolSurfaceResult>(Json);
-        var requiresRefit=surface is not null && (surface.PlotInputs is null || surface.Expiries.Any(e=>e.Status=="fitted"&&e.YearFraction is null));
-        if(surface is null || requiresRefit)
+        var surface=DecodeProjectionInputs(stored?["content"]);
+        var declared=SurfaceAxes.TryDeclare(surface,out var axes);
+        var requiresRefit=stored is not null && !declared;
+        if(!declared)
         {
             var source=await ProductSource(connection,database,view.CalculationFrame,ct,body.DefinitionRevisionId);
             var data=await database.Read(connection,ct,ppaBundle:source,observationIds:[],includeCalendarDays:false);
             if(!data.ReferenceRows("futures_option_products","code",body.Product).Any())
                 throw new MarketDataException("vol_surface_product","Select a listed option product.");
-            surface=new(body.Model,[],[],[]){PlotInputs=new(VolSurfaceFit.StrikeUnit(data,data.ReferenceRows("futures_option_products","code",body.Product).Single()),SolverPolicy,SurfaceAxes.NumericalPolicy,NormalDistribution.ImplementationId)};
+            axes=SurfaceAxes.Declare(new(body.Model,[],[],[]){PlotInputs=new(VolSurfaceFit.StrikeUnit(data,data.ReferenceRows("futures_option_products","code",body.Product).Single()),SolverPolicy,SurfaceAxes.NumericalPolicy,NormalDistribution.ImplementationId)});
         }
         var job=await Value(connection,"SELECT risk.vol_surface_fit_job($1,$2,$3::jsonb,$4,$5,$6::uuid,$7,$8)::text",key,ct);
         return new{snapshotId=view.Frame.Id,definitionRevisionId=manifest.RevisionId,model=body.Model,
-            initialAxis=SurfaceAxes.LogMoneyness,axes=JsonSerializer.SerializeToNode(SurfaceAxes.Declare(surface!),Json),requiresRefit,job,
+            initialAxis=SurfaceAxes.LogMoneyness,axes=JsonSerializer.SerializeToNode(axes,Json),requiresRefit,job,
             canFit=await PreviewDatabase.HasPermission(connection,"PublishMarketData",ct)&&await PreviewDatabase.HasPermission(connection,"ReadTrades",ct),
             sensitivities=new{offered=OptionSurfaceAnalytics.Offered,clocks=TradingPnlReport.Clocks(),clockRequired=view.Frame.Close is null}};
     }
