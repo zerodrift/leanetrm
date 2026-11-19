@@ -8,7 +8,7 @@ const setup=`(async()=>{
  const parts=Object.fromEntries(['head','body','view'].map(name=>{const node=document.createElement('div');document.getElementById('host').append(node);return [name,node];}));
  window.chosen=[];window.linked=[];window.state={busy:false,offered:true,main:true};
  window.entry=setupNewTrade({element:name=>parts[name]},{choose:product=>chosen.push(product),link:page=>linked.push(page),busy:()=>state.busy,offered:()=>state.offered,
-  groups:()=>chooserGroups(state.main?{opens:()=>true,links:()=>true,soon:true}:{opens:product=>product==='futures'||product==='swaps',links:()=>false,soon:false})});
+  groups:()=>chooserGroups(state.main?{opens:()=>true,links:()=>true}:{opens:product=>product==='futures'||product==='swaps',links:()=>false})});
  entry.show({kind:'new',product:null},'choose');
 })()`;
 
@@ -25,7 +25,6 @@ test('the chooser draws the instruments in their groups, selects none, and says 
   const unchosen=await evaluate(layout);
   assert.deepEqual(await evaluate(`(document.querySelector('#new-trade-swaps').click(),document.querySelector('#new-trade-operating-right').click(),[chosen,linked])`),[['swaps'],['physical-power']]);
   assert.equal(await evaluate(`document.querySelector('#new-trade-operating-right').title`),'Thermal toll, battery or solar output right · entered on Operating facilities');
-  assert.equal(await evaluate(`(b=>b.disabled&&b.getAttribute('aria-disabled')==='true'&&b.title.startsWith('Will book a storage contract')&&b.querySelector('.ticket-soon-tag').textContent==='Coming soon'&&!!b.closest('[data-own-controls]'))(document.querySelector('#new-trade-product .ticket-soon'))`),true);
   await evaluate(`entry.show({kind:'new',product:'swaps'},'loading')`);
   assert.deepEqual(await evaluate(`[document.querySelector('#new-trade-product').dataset.state,[...document.querySelectorAll('[aria-pressed=true]')].map(b=>b.id),document.querySelector('#side-panel-title').textContent,document.querySelector('#new-trade-note').textContent,document.querySelector('[role=status]').textContent]`),
    ['chosen',['new-trade-swaps'],'New swap','Fixed or floating prices on independent sides.','Loading the swap choices…']);
@@ -46,8 +45,8 @@ test('the chooser names what is being read, and its next drawing replaces that',
 test('the chooser is disabled while the page is busy, withheld where booking is not offered, and drawn again for another window',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await withBrowserPage('<link rel="stylesheet" href="/app.css"><div id="host" style="width:1280px"></div>',async evaluate=>{
   await evaluate(setup);
-  assert.deepEqual(await evaluate(`(state.busy=true,entry.sync(),[document.querySelector('#new-trade-ppa').disabled,document.querySelector('#new-trade-operating-right').disabled,document.querySelector('.ticket-soon').disabled])`),[true,true,true]);
-  assert.deepEqual(await evaluate(`(state.busy=false,entry.sync(),[document.querySelector('#new-trade-ppa').disabled,document.querySelector('.ticket-soon').disabled])`),[false,true]);
+  assert.deepEqual(await evaluate(`(state.busy=true,entry.sync(),[document.querySelector('#new-trade-ppa').disabled,document.querySelector('#new-trade-operating-right').disabled,document.querySelector('#new-trade-storage').disabled])`),[true,true,true]);
+  assert.deepEqual(await evaluate(`(state.busy=false,entry.sync(),[document.querySelector('#new-trade-ppa').disabled,document.querySelector('#new-trade-storage').disabled])`),[false,false]);
   assert.equal(await evaluate(`(state.offered=false,entry.sync(),document.querySelector('#new-trade-product').hidden)`),true);
   assert.equal(await evaluate(`document.querySelector('[role=status]').checkVisibility()`),false,'nothing invites a choice where no chooser is drawn');
   assert.equal(await evaluate(`(entry.loading('futures'),document.querySelector('[role=status]').checkVisibility())`),true,'what is being read is still said');

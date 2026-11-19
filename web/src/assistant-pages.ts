@@ -49,7 +49,7 @@ const unopened:readonly string[]=['ppa'];
 const noBlotter={mode:null,portfolioIds:null,groupBy:null,measures:null};
 
 // The page a trade being entered is reported as: one id per product, and one while none is chosen. The assistant reads none of them.
-const entryPages={rec:'blotter_new_rec',none:'blotter_new_trade',futures:'blotter_new_future',swaps:'blotter_new_swap',ppa:'blotter_new_ppa',gas:'blotter_new_gas',transport:'blotter_new_transport','park-loan':'blotter_new_park_loan',crude:'blotter_new_crude',lng:'blotter_new_lng',options:'blotter_new_option'} as const;
+const entryPages={rec:'blotter_new_rec',none:'blotter_new_trade',futures:'blotter_new_future',swaps:'blotter_new_swap',ppa:'blotter_new_ppa',gas:'blotter_new_gas',transport:'blotter_new_transport','park-loan':'blotter_new_park_loan',crude:'blotter_new_crude',lng:'blotter_new_lng',options:'blotter_new_option',toll:'blotter_new_heat_rate_call',storage:'blotter_new_gas_storage'} as const;
 // The report an ask sends: a read page's selection is its read tool's input for the view the page shows; any other
 // page's is empty. Blotter trade rows name no grouping, which the Blotter keeps for when its totals are shown again. What the
 // Blotter's panel holds comes first, its risk report, a new trade or a position; then its trade rows under the Risk lens, whose
@@ -104,7 +104,7 @@ export function askKnowledge(context:PageContext){
 }
 
 const pageNames:Record<string,string>={lifecycle:'Lifecycle',physical_operations:'Physical operations',gas_setup:'Gas delivery setup',crude_setup:'Crude delivery setup',facility_quantities:'Facilities',facility_definitions:'Facility definitions',facility_activity:'Physical facility activity',transport_capacity:'Transport capacity',transport_route_plans:'Transport route plans',delivery_workbench_gas:'Gas delivery workbench',delivery_workbench_crude:'Crude delivery workbench',curves:'Curves & prices',contract_definitions:'Contract definitions',schedules:'Schedules',power_tous:'Power TOUs',
-  reference_data:'Reference data',parties:'Entities & counterparties',blotter:'Blotter',blotter_operating_right:'Blotter',blotter_rec_forward:'Blotter',blotter_risk:'Blotter',blotter_risk_lens:'Blotter',blotter_new_rec:'New trade',blotter_new_trade:'New trade',blotter_new_future:'New trade',blotter_new_swap:'New trade',blotter_new_ppa:'New trade',blotter_new_gas:'New trade',blotter_new_transport:'New trade',blotter_new_park_loan:'New trade',blotter_new_option:'New trade',blotter_new_crude:'New trade',blotter_new_lng:'New trade',delivery_prices:'Delivery prices',
+  reference_data:'Reference data',parties:'Entities & counterparties',blotter:'Blotter',blotter_operating_right:'Blotter',blotter_rec_forward:'Blotter',blotter_risk:'Blotter',blotter_risk_lens:'Blotter',blotter_new_rec:'New trade',blotter_new_trade:'New trade',blotter_new_future:'New trade',blotter_new_swap:'New trade',blotter_new_ppa:'New trade',blotter_new_gas:'New trade',blotter_new_transport:'New trade',blotter_new_park_loan:'New trade',blotter_new_option:'New trade',blotter_new_crude:'New trade',blotter_new_lng:'New trade',blotter_new_heat_rate_call:'New trade',blotter_new_gas_storage:'New trade',delivery_prices:'Delivery prices',
   custom_curves:'Curve builder',interval_series:'Interval data',interval_curves:'Curves & prices · Hourly / sub-hourly',jobs:'Jobs',users_access:'Users & access',
   rec_inventory:'REC inventory',physical_power:'Operating facilities',risk_jobs:'Risk',settings_ai:'AI',dashboard:'Dashboard',physical_gas:'Physical gas bookings',physical_crude:'Physical crude bookings',ppa:'PPA bookings',vol_surfaces:'Vol surfaces',options:'Options'};
 // The label catalog is checked against server admission by the owned browser fixture.
@@ -147,6 +147,8 @@ function shows(report:PageReport,names:Names,trade?:string){
     case 'physical_power':return 'Operating facilities and supplied plans. The assistant does not read this page.';
     case 'blotter_new_rec':return 'A qualified REC forward is being entered. The assistant does not read a trade being entered.';
     case 'blotter_new_lng':return 'A new physical LNG cargo is being entered. The assistant does not read a trade being entered.';
+    case 'blotter_new_heat_rate_call':return 'A new heat-rate call option is being entered. The assistant does not read a trade being entered.';
+    case 'blotter_new_gas_storage':return 'A new gas storage contract is being entered. The assistant does not read a trade being entered.';
     case 'blotter_new_crude':return 'A new physical crude trade is being entered. The assistant does not read a trade being entered.';
     case 'blotter_new_option':return 'A new futures option is being entered. The assistant does not read a trade being entered.';
     case 'blotter_new_gas':return 'A new physical gas trade is being entered. The assistant does not read a trade being entered.';

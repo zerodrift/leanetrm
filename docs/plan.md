@@ -1,5 +1,24 @@
 # Delivery plan and acceptance criteria
 
+D432 adds the commercial [gas storage contract](gas-storage-contract.md) at the
+managed level: its own entitlement with daily ratchets, exact feasibility of a
+supplied injection and withdrawal plan, and that plan's flows valued through the
+existing resource right. D433 adds a plan proposed from stated daily prices by
+exact search over an inventory lattice. Fourteen managed checks pass locally.
+Migrations 0370 and 0371 retain a booked contract and its revisable plan; managed
+routes book, plan, propose and value it, and New trade has a graphical ticket.
+A facility link, discounting, measured flows and an automated browser check remain open.
+
+D431 adds managed valuation and risk for a [heat-rate call option](heat-rate-call-option.md):
+a daily strip of spread calls with explicit volatility and correlation marks.
+Twenty-one managed checks pass locally, including the booking-time exercise schedule, and
+migrations 0367 and 0368 retain a booked option and its revisable volatility and
+correlation marks, each with an idempotent native operation.
+Managed booking and marks routes, valuation of booked trades and blotter
+presentation are checked over HTTP, and New trade has an entry ticket for the
+option. A marks editor, premium cash, discounting, exercise determination and
+settlement remain open.
+
 D429 qualifies separate catalog hydration, bounded asynchronous JSON serialization
 and streamed calendar batch decoding in owned synthetic workloads. Larger
 concurrent workloads, first-use request-count costs and production latency remain
@@ -12,7 +31,6 @@ covers exact response parity and warm click-to-chart time with unrelated
 contracts at two market sizes. Cold hydration, production-like latency and
 concurrent capacity remain open. A curve-scoped display projection and managed
 display formatting in the price response remain proposed changes.
-
 
 D427 adds personal chat-history search through an explicit composer checkbox and
 repairs retained walkthrough narration and final-pause verification. Its bounded
@@ -2070,8 +2088,8 @@ Extend only after the baseline contracts are demonstrated:
   expiry on one underlying future). Strategies across expiries need a declared
   relationship between futures months first; futures legs, saved strategies and
   booking a strategy in one action follow it.
-- Spread-option valuation for storage, tolling and transport, once one of those
-  product lines names it as a consumer.
+- Spread-option valuation for storage and transport. Tolling is its first
+  consumer (D431); each further product line names its own.
 - Option-side sibling dependencies, shared exercise groups and an explicit
   contribution/allocation convention that does not double-count the underlying.
 - Physical/financial composite sides with typed gas/power delivery metadata and

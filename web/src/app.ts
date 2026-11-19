@@ -29,6 +29,8 @@ import {setupGasTicket} from './gas-trade-view.js';
 import {setupParkLoanTicket} from './park-loan-trade-view.js';
 import {setupTransportTicket} from './transport-trade-view.js';
 import {optionConvention,setupOptionTicket} from './futures-option-view.js';
+import {setupHeatRateCallTicket} from './heat-rate-call-ticket.js';
+import {setupGasStorageTicket} from './gas-storage-ticket.js';
 import {setupVolSurfaces} from './vol-surface-view.js';
 import {setupOptions} from './options-view.js';
 import {refreshContextPanels} from './context-view.js';
@@ -1456,6 +1458,8 @@ const optionChains=setupOptions({api,zone:()=>prefs.timeZone,context:optionConte
  },contextDirty?'discards':'page')});
 // A series on its surface links to its row in the chain of its expiry.
 const openOptionChain=(product:string,expiryAt:string,series:string)=>leaving(async()=>{if(contextDirty)await applyContext();await setPage('options');await optionChains.open(product,expiryAt,series);},contextDirty?'discards':'page');
+const storageTicket=setupGasStorageTicket({api,source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,onBooked:ticketBooked});
+const tollTicket=setupHeatRateCallTicket({api,source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,onBooked:ticketBooked});
 const optionTicket=setupOptionTicket({api,source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,instant,zone:()=>prefs.timeZone,onBooked:ticketBooked,surface:openVolSurface});
 const ppa=setupPpa({api,act,busy:()=>busy,zone:()=>prefs.timeZone,actor:()=>administrationScope+':'+currentProfile,can,historical:()=>contextDirty||!!historicalContext(),onBooked:ticketBooked});
 const intervalCurves=setupIntervalCurves({api,act,busy:()=>busy,zone:()=>prefs.timeZone,frame:()=>frame().id,unit:async quote=>{await loadWorkspace();return unit(quote);}});
@@ -1499,6 +1503,8 @@ const tickets=productTickets({
  'park-loan':parkLoan,
  transport:transportTicket,
  options:optionTicket,
+ toll:tollTicket,
+ storage:storageTicket,
 });
 async function ticketBooked(tradeId:string):Promise<void>{if(tickets.active())await futures.bookedExternal(tradeId);}
 const futures=setupFutures({lifecycle:()=>leaving(async()=>{if(contextDirty)await applyContext();await setPage('lifecycle');await lifecycle.load();},contextDirty?'discards':'page'),volSurface:openVolSurface,riskReportUrl:id=>riskReportAddress(id,{hosted:hostedPilot,example:exampleId}),narrow:()=>main.clientWidth<dockedGroupsFrom,assistant:{available:()=>can('UseAgents'),inPlace:kind=>assistant.draft(kind==='pivot'?askPivotText:askSelectionText),about:({reference})=>assistant.draft(askAboutText(reference))},window:{kind:'main',entry:{shown:newTradeShown,links:page=>pageAvailable(page,permissions),link:page=>navigate(page)()},example:exampleId as 'baseline'|'exchange',open:(url,target,features)=>window.open(url,target,features)},failed:showFailure,failureCleared:clearFailure,onViews:(listed,shown)=>{blotterViews={listed,shown};renderBlotterViews();},tickets,api,stream:(body,handlers,signal)=>streamBlotter((path,payload,abort)=>responseFor(path,payload,apiRoot,abort),body,handlers,signal),act,busy:()=>busy,updatesBlocked:()=>assistant.working(),canRunRisk:()=>permissions.includes('RunScenario'),bookingUnavailableReason:()=>bookingFallback({contextDirty,view:knowledgeView(),canBook:permissions.includes('BookTrade')}),knowledge:knowledgeView,contextDirty:()=>contextDirty,zone:()=>prefs.timeZone,profile:()=>administrationScope+':'+currentProfile,onReadContext:(at,known)=>text('header-calculation-time',`As of ${instant(at)} · knowledge cutoff ${instant(known)}`),notice,curveListed:code=>!!navigation?.curves.some(c=>c.code===code),openCurve:(code,contractId)=>openCurve(code,contractId),reported:()=>assistant.sync(),unsavedChanged:()=>syncUnloadQuestion(),source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,convention:directory().futuresConvention,context:historicalContext()};}});

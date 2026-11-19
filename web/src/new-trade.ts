@@ -39,15 +39,14 @@ export function bookingFallback(state:{contextDirty:boolean;view:ReadView;canBoo
   return state.canBook?'Choose an As of date to book a trade.':'Your current role does not have Book Trade permission.';
 }
 
-const about:Readonly<Record<NewProduct,string>>={rec:'qualified certificates with exact generation vintage, independent physical market value and consideration',futures:'an exchange contract with a defined expiry',options:'a listed option on an exchange futures contract, with its premium paid up front',swaps:'fixed or floating prices on independent sides',ppa:'power delivery and cash components on independent schedules',gas:'physical delivery, cash and fees on independent sides',transport:'one whole Transport rights package with an independently selected fixed fee. The agreement initially has no adopted rights value; after booking, select a published value for the whole package in Lifecycle','park-loan':'a gas Park or Loan service with explicitly selected title and fee terms',crude:'fixed standard-volume crude delivery with independent cash and handling fees',lng:'a future LNG cargo with separate loading and discharge terms, Incoterms and fixed consideration'};
-const loading:Readonly<Record<NewProduct,string>>={rec:'Loading qualified REC choices…',futures:'Loading the futures contracts…',options:'Loading the listed options…',swaps:'Loading the swap choices…',ppa:'Loading PPA choices…',gas:'Loading physical gas choices…',transport:'Loading Transport choices…','park-loan':'Loading Park and loan choices…',crude:'Loading physical crude choices…',lng:'Loading physical LNG choices…'};
+const about:Readonly<Record<NewProduct,string>>={rec:'qualified certificates with exact generation vintage, independent physical market value and consideration',futures:'an exchange contract with a defined expiry',options:'a listed option on an exchange futures contract, with its premium paid up front',swaps:'fixed or floating prices on independent sides',ppa:'power delivery and cash components on independent schedules',gas:'physical delivery, cash and fees on independent sides',transport:'one whole Transport rights package with an independently selected fixed fee. The agreement initially has no adopted rights value; after booking, select a published value for the whole package in Lifecycle','park-loan':'a gas Park or Loan service with explicitly selected title and fee terms',crude:'fixed standard-volume crude delivery with independent cash and handling fees',lng:'a future LNG cargo with separate loading and discharge terms, Incoterms and fixed consideration',toll:'a generation toll as a daily call on power against fuel at a contractual heat rate, cash settled',storage:'contracted gas storage capacity with daily injection and withdrawal ratchets, fuel and charges, valued on its plan'};
+const loading:Readonly<Record<NewProduct,string>>={rec:'Loading qualified REC choices…',futures:'Loading the futures contracts…',options:'Loading the listed options…',swaps:'Loading the swap choices…',ppa:'Loading PPA choices…',gas:'Loading physical gas choices…',transport:'Loading Transport choices…','park-loan':'Loading Park and loan choices…',crude:'Loading physical crude choices…',lng:'Loading physical LNG choices…',toll:'Loading the option choices…',storage:'Loading the storage choices…'};
 const chooseText='Choose an instrument type to enter a new trade.';
 
-/** One entry of the chooser: an instrument a ticket opens for, a page another instrument is entered on, or one not yet offered. */
+/** One entry of the chooser: an instrument a ticket opens for, or a page another instrument is entered on. */
 export type InstrumentEntry=
   |{kind:'product';product:NewProduct;name:string}
-  |{kind:'link';id:'operating-right';name:string;about:string;page:'physical-power'}
-  |{kind:'soon';id:'storage';name:string;about:string};
+  |{kind:'link';id:'operating-right';name:string;about:string;page:'physical-power'};
 export type InstrumentGroupId='financial'|'power'|'gas-lng'|'oil-liquids'|'structured';
 export type InstrumentGroup={id:InstrumentGroupId;name:string;entries:readonly InstrumentEntry[]};
 const product=(key:NewProduct,name:string):InstrumentEntry=>({kind:'product',product:key,name});
@@ -59,8 +58,9 @@ export const instrumentGroups:readonly InstrumentGroup[]=[
   {id:'oil-liquids',name:'Oil & liquids',entries:[product('crude','Physical crude')]},
   {id:'structured',name:'Structured',entries:[
     {kind:'link',id:'operating-right',name:'Operating right',about:'Thermal toll, battery or solar output right · entered on Operating facilities',page:'physical-power'},
+    product('toll','Heat-rate call option'),
     product('transport','Transport'),
-    {kind:'soon',id:'storage',name:'Storage',about:'Will book a storage contract: injections and withdrawals against its capacity and inventory.'}]},
+    product('storage','Gas storage')]},
 ];
 const names=new Map(instrumentGroups.flatMap(group=>group.entries.flatMap(entry=>entry.kind==='product'?[[entry.product,entry.name] as const]:[])));
 /** Every product once, in the chooser's order. */
@@ -69,11 +69,11 @@ export const productName=(key:NewProduct):string=>names.get(key)!;
 /** The product's one-line description as a sentence. */
 export const productAbout=(key:NewProduct):string=>`${about[key][0].toUpperCase()}${about[key].slice(1)}.`;
 /**
- * The groups a window draws: a product it cannot open, a link to a page the account's sidebar does not list and, where the window shows
- * none, the entries not yet offered are left out, and a group left with nothing is not returned.
+ * The groups a window draws: a product it cannot open and a link to a page the account's sidebar does not list are left out, and a
+ * group left with nothing is not returned.
  */
-export function chooserGroups(o:{opens:(product:NewProduct)=>boolean;links:(page:string)=>boolean;soon:boolean}):readonly InstrumentGroup[]{
-  const shown=(entry:InstrumentEntry)=>entry.kind==='product'?o.opens(entry.product):entry.kind==='link'?o.links(entry.page):o.soon;
+export function chooserGroups(o:{opens:(product:NewProduct)=>boolean;links:(page:string)=>boolean}):readonly InstrumentGroup[]{
+  const shown=(entry:InstrumentEntry)=>entry.kind==='product'?o.opens(entry.product):o.links(entry.page);
   return instrumentGroups.map(group=>({...group,entries:group.entries.filter(shown)})).filter(group=>group.entries.length>0);
 }
 
@@ -99,12 +99,9 @@ export function setupNewTrade(shell:SidePanel,o:{choose:(product:NewProduct)=>vo
     button.append(el('span','instrument-name',entry.name));
     if(entry.kind==='product'){
       button.id=`new-trade-${entry.product}`;button.onclick=()=>o.choose(entry.product);button.title=productAbout(entry.product);products.set(entry.product,button);
-    }else if(entry.kind==='link'){
+    }else{
       const mark=el('span','instrument-mark','↗');mark.setAttribute('aria-hidden','true');
       button.id=`new-trade-${entry.id}`;button.onclick=()=>o.link(entry.page);button.title=entry.about;button.append(mark);links.push(button);
-    }else{
-      // Not yet offered: disabled for good, which the page's busy sweep leaves as drawn.
-      button.classList.add('ticket-soon');button.dataset.ownControls='';button.disabled=true;button.setAttribute('aria-disabled','true');button.title=entry.about;button.append(el('span','ticket-soon-tag','Coming soon'));
     }
     return button;
   }

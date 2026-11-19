@@ -10,7 +10,7 @@
  */
 export type PanelMode=
   |{kind:'position';tradeId:string;bindingId:string;revision:number}
-  |{kind:'new';product:'futures'|'options'|'swaps'|'ppa'|'gas'|'transport'|'park-loan'|'crude'|'lng'|'rec'|null}
+  |{kind:'new';product:'futures'|'options'|'swaps'|'ppa'|'gas'|'transport'|'park-loan'|'crude'|'lng'|'rec'|'toll'|'storage'|null}
   |{kind:'risk'}
   |{kind:'contract';factorId:string}
   |{kind:'curve-contract';curve:string;contract:string}
@@ -36,7 +36,7 @@ export function sameMode(a:PanelMode,b:PanelMode):boolean{
 export function modeLabel(mode:NonNullable<PanelMode>):string{
   switch(mode.kind){
     case 'position':return 'Position';
-    case 'new':return mode.product===null?'New trade':({rec:'New REC forward',futures:'New future',options:'New futures option',swaps:'New swap',ppa:'New PPA',gas:'New physical gas trade',transport:'New Transport agreement','park-loan':'New Park and loan',crude:'New physical crude trade',lng:'New physical LNG cargo'} as const)[mode.product];
+    case 'new':return mode.product===null?'New trade':({rec:'New REC forward',futures:'New future',options:'New futures option',swaps:'New swap',ppa:'New PPA',gas:'New physical gas trade',transport:'New Transport agreement','park-loan':'New Park and loan',crude:'New physical crude trade',lng:'New physical LNG cargo',toll:'New heat-rate call option',storage:'New gas storage contract'} as const)[mode.product];
     case 'risk':return 'Risk report';
     case 'contract':return 'Contract';
     case 'curve-contract':return 'Contract';

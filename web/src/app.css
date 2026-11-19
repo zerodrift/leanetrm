@@ -1060,7 +1060,6 @@ body.assistant-open:not(.assistant-overlay) .side-panel[data-placement=overlay]{
 .instrument-mark{color:var(--text-3)}
 .new-trade-head button.instrument:hover:not(:disabled){background:var(--surface-3);color:var(--text)}
 .new-trade-head button.instrument[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--on-accent);box-shadow:var(--shadow)}
-.new-trade-head button.instrument.ticket-soon{border-color:var(--border)}
 .new-trade-head .side-panel-note{margin:8px 0 0}
 /* Price before booking: a title over the draft's price, its exposure and the curve of each of its markets with its delivery period marked. */
 .draft-valuation{margin:20px 0 12px;padding-top:14px;border-top:1px solid var(--border)}
@@ -2971,3 +2970,16 @@ header>div:first-child{flex:1 1 160px}
 
 .assistant-history-choice{display:flex;align-items:center;gap:8px;font-size:.8rem}
 .assistant-history-choice input{width:auto;margin:0}
+/* Gas storage: the ratchet bands as rows of three amounts, and the contract's drawings with their hover notes. */
+.storage-ratchets{display:flex;flex-direction:column;gap:8px}
+.storage-ratchet-row{display:grid;grid-template-columns:64px repeat(3,minmax(0,1fr)) auto;gap:8px;align-items:center}
+.storage-ratchet-name{color:var(--text-3);font-size:12px}
+.storage-ratchet-row input{width:100%;min-width:0}
+@media(max-width:560px){.storage-ratchet-row{grid-template-columns:1fr 1fr}.storage-ratchet-name{grid-column:1/-1}}
+.storage-chart-host{position:relative;min-width:0}
+.storage-chart{display:block;width:100%;height:auto;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm)}
+.storage-chart text{font-family:inherit;font-variant-numeric:tabular-nums}
+.storage-chart-tip{position:absolute;z-index:2;pointer-events:none;width:178px;padding:8px 10px;background:var(--surface-3);border:1px solid var(--border-strong);border-radius:var(--radius-sm);color:var(--text-2);font-size:12px;line-height:1.45}
+.storage-chart-tip div:first-child{color:var(--text);font-weight:600}
+.storage-panel{display:flex;flex-direction:column;gap:12px;margin-top:14px}.storage-panel p{margin:0}
+.storage-adoption{display:flex;flex-direction:column;gap:12px}

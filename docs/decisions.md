@@ -6715,3 +6715,33 @@ the warm price path on two owned synthetic workloads.
 An installation binds one reviewed Swarm service and a dedicated risk-worker login to its workspace. Jobs can request zero, one or two replicas. Scaling requires both workspace permission and current installation operator registration. A separate permission grants access to bounded worker and node diagnostics. Installations choose the roles that receive these permissions.
 
 A scale command records its request identity and expected generation before the controller dispatches a version-checked service update. Workers claim existing risk jobs individually under their own leases. Downscaling closes admission while active work drains. See the [worker pool contract and qualification](managed-risk-pool.md).
+
+## D431 — Heat-rate call option as a daily spread-call strip
+
+**Status:** managed valuation and risk implemented and locally checked; native persistence and the booking operation (migration 0367) implemented and checked against a disposable database. Revisable mark storage (migration 0368) likewise. Managed booking and marks operations, valuation of booked trades and blotter presentation are implemented and checked over HTTP. New trade has an entry ticket fed by a catalog read (migration 0369 registers its page identity). A marks editor, premium cash, discounting, exercise determination and settlement are not implemented.
+
+**Requirement.** Book a generation toll as a heat-rate call option with daily exercise, valued and risked the way a power desk marks one.
+
+**Decision.** `HeatRateCallInstrument` composes one `HeatRateCallSide`. The Side retains explicit delivery days, each with its exercise and payment instants, energy per unit of capacity, exact power and fuel curve requests and a mark bucket. Each day ahead of the clock is a European call on power minus heat rate times fuel minus a nonnegative strike, valued with Kirk's approximation (`spread_call_kirk_lognormal_v1`) at act/365 fixed. Power volatility, fuel volatility and correlation are explicit per-bucket trader marks held through price scenarios; they are a pricing binding, not economic identity. Stored marks are market data keyed by curve pair and delivery month, shared by every option on that pair, rather than per-trade values. The volatilities are declared volatility inputs. Premiums and capacity payments remain separate cash bindings. This names tolling as the first consumer of spread-option valuation. A booked option retains its terms and dated exercises in its own tables with exact-version references; one booking operation is idempotent by request and by business fact (D238).
+
+**Boundaries.** No volatility or correlation is inferred. Correlation has no shock. An elapsed exercise day refuses until a recorded determination exists. Negative power prices, intraday exercise, physical delivery and unit constraints are outside this profile. See the [contract and verification](heat-rate-call-option.md).
+
+## D432 — Commercial gas storage as a supplied-plan resource right
+
+**Status:** the contract entitlement, supplied-plan feasibility and valuation through existing operating Sides are implemented and locally checked. Booking, revisable plans, managed routes, blotter presentation and an entry ticket are implemented (migrations 0370 and 0371) and checked against a disposable database and preview; the pages were looked at once by hand in a browser.
+
+**Requirement.** Hold a commercial natural gas storage contract: contracted capacity, daily injection and withdrawal rights that tighten with inventory, fuel and charges, valued against the gas forward curve.
+
+**Decision.** The contract's entitlement is its own (`GasStorageEntitlement`), separate from the physical facility of D414. Its daily ratchets apply by the band a gas day's opening inventory is in (`gas_day_opening_inventory_band_v1`), with one flow direction per gas day and fuel retained in kind at the storage point. `GasStoragePlans.Evaluate` (`gas_storage_supplied_plan_v1`) checks a supplied daily plan exactly and returns typed injection and withdrawal quantities. Those feed the existing `OperatingRightInstrument` through two added output kinds; floating and fixed operating Sides buy injections, sell withdrawals and carry the commodity and capacity charges. A booked contract is a `GasStorageInstrument`: the same Sides with the admitted plan's quantities as literal terms, so the standard engine values it. Value is the stated plan's intrinsic value net of charges, and risk is the ordinary shared-scenario repricing.
+
+**Boundaries.** This decision chooses no plan; D433 adds a proposal. Inventory at the end of the plan carries no value. The facility's physical law and capacity are untouched and no contract is linked to a facility yet. See the [contract and verification](gas-storage-contract.md).
+
+## D433 — Proposed storage plan by exact lattice search
+
+**Status:** implemented and locally checked at the managed level. `POST /gas-storage/propose` prices the search from the selected snapshot's forwards net of commodity charges, undiscounted, and a proposal is adopted by recording it as a plan.
+
+**Requirement.** Propose the injection and withdrawal plan worth most against the forward curve, as a desk states a storage contract's intrinsic value. Requested by the user after D432 valued only supplied plans.
+
+**Decision.** `GasStoragePlanProposals.Propose` (`gas_storage_inventory_lattice_search_v1`) is the repository's first plan search. It takes explicit per-day injection cost and withdrawal value and an explicit inventory step, and maximizes the plan's value over inventory levels a whole number of steps from the opening inventory by exact backward induction, under D432's ratchet, direction, fuel and terminal rules. Equal plans resolve to the smaller flow, then the lower inventory. The proposal is admitted through `GasStoragePlans.Evaluate` before it is returned and carries its step and exact objective.
+
+**Boundaries.** The result is the optimum of the stated lattice, not of every real plan, and of one set of prices: no rolling re-optimization, price model or option value. The search resolves no market data and prices nothing itself; a proposal changes no valuation until it is supplied as a plan. Work is bounded and refuses beyond its bound. This authorizes no search for other resources: battery and thermal plans remain supplied. See the [contract and verification](gas-storage-contract.md#proposed-plan-d433).
