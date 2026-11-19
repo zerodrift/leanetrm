@@ -6656,4 +6656,14 @@ A scale command records its request identity and expected generation before the 
 
 **Decision.** The contract's entitlement is its own (`GasStorageEntitlement`), separate from the physical facility of D414. Its daily ratchets apply by the band a gas day's opening inventory is in (`gas_day_opening_inventory_band_v1`), with one flow direction per gas day and fuel retained in kind at the storage point. `GasStoragePlans.Evaluate` (`gas_storage_supplied_plan_v1`) checks a supplied daily plan exactly and returns typed injection and withdrawal quantities. Those feed the existing `OperatingRightInstrument` through two added output kinds; floating and fixed operating Sides buy injections, sell withdrawals and carry the commodity and demand charges. Value is the stated plan's intrinsic value net of charges, and risk is the ordinary shared-scenario repricing.
 
-**Boundaries.** Nothing chooses the plan: there is no optimizer, rolling re-optimization or option value above intrinsic, and each needs its own decision. Inventory at the end of the plan carries no value. The facility's physical law and capacity are untouched and no contract is linked to a facility yet. See the [contract and verification](gas-storage-contract.md).
+**Boundaries.** This decision chooses no plan; D432 adds a proposal. Inventory at the end of the plan carries no value. The facility's physical law and capacity are untouched and no contract is linked to a facility yet. See the [contract and verification](gas-storage-contract.md).
+
+## D432 — Proposed storage plan by exact lattice search
+
+**Status:** implemented and locally checked at the managed level. No operation resolves its prices from a scenario or offers a proposal for adoption yet.
+
+**Requirement.** Propose the injection and withdrawal plan worth most against the forward curve, as a desk states a storage contract's intrinsic value. Requested by the user after D431 valued only supplied plans.
+
+**Decision.** `GasStoragePlanProposals.Propose` (`gas_storage_inventory_lattice_search_v1`) is the repository's first plan search. It takes explicit per-day injection cost and withdrawal value and an explicit inventory step, and maximizes the plan's value over inventory levels a whole number of steps from the opening inventory by exact backward induction, under D431's ratchet, direction, fuel and terminal rules. Equal plans resolve to the smaller flow, then the lower inventory. The proposal is admitted through `GasStoragePlans.Evaluate` before it is returned and carries its step and exact objective.
+
+**Boundaries.** The result is the optimum of the stated lattice, not of every real plan, and of one set of prices: no rolling re-optimization, price model or option value. The search resolves no market data and prices nothing itself; a proposal changes no valuation until it is supplied as a plan. Work is bounded and refuses beyond its bound. This authorizes no search for other resources: battery and thermal plans remain supplied. See the [contract and verification](gas-storage-contract.md#proposed-plan-d432).

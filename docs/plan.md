@@ -3,8 +3,10 @@
 D431 adds the commercial [gas storage contract](gas-storage-contract.md) at the
 managed level: its own entitlement with daily ratchets, exact feasibility of a
 supplied injection and withdrawal plan, and that plan's flows valued through the
-existing resource right. Seven managed checks pass locally. Persistence, booking,
-presentation, a facility link and any plan proposed from the curve remain open.
+existing resource right. D432 adds a plan proposed from stated daily prices by
+exact search over an inventory lattice. Thirteen managed checks pass locally.
+Persistence, booking, presentation, a facility link and an operation that prices
+and adopts a proposal remain open.
 
 D430 adds managed valuation and risk for a [heat-rate call option](heat-rate-call-option.md):
 a daily strip of spread calls with explicit volatility and correlation marks.

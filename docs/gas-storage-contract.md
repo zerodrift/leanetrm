@@ -1,8 +1,9 @@
-# Commercial gas storage contract (D431)
+# Commercial gas storage contract (D431, D432)
 
-Status: the contract's entitlement and the feasibility of a supplied injection
-and withdrawal plan are implemented and checked locally, with the plan's flows
-valued as an existing resource right. Nothing is stored, booked or shown in the
+Status: the contract's entitlement, the feasibility of a supplied injection and
+withdrawal plan and a plan proposed from stated daily prices are implemented and
+checked locally, with a plan's flows valued as an existing resource right.
+Nothing is stored, booked or shown in the
 application yet; see [Remaining work](#remaining-work). Nothing here is
 qualified for release.
 
@@ -55,8 +56,46 @@ exactly, day by day, and refuses a plan that:
 
 It returns each day's band, opening and closing inventory and fuel, and the
 totals. It performs no pricing, optimization or data selection and assigns no
-title or cash. The plan is the desk's own schedule: nothing here chooses when to
-inject or withdraw.
+title or cash.
+
+## Proposed plan (D432)
+
+`GasStoragePlanProposals.Propose` (`gas_storage_inventory_lattice_search_v1`)
+finds the plan worth most under stated prices. Its inputs are the entitlement,
+opening inventory and terminal range of a supplied plan, plus:
+
+- for each gas day, what one unit delivered into the contract costs and what
+  one unit delivered out of it earns. The caller states both, with whatever
+  forward, charge and discounting it selected. The search resolves no price;
+- an inventory step.
+
+The search considers plans that move inventory in whole steps from the opening
+inventory, inside the contracted range, and maximizes
+
+```text
+Σ Withdrawal × WithdrawalValue − Injection × InjectionCost
+```
+
+by exact backward induction over those inventory levels, under the same daily
+ratchet, direction, fuel and terminal rules as a supplied plan. Arithmetic is
+exact integers; nothing is rounded or iterated to a tolerance. Among plans of
+equal value each day takes the smaller flow, then the lower inventory, so the
+same inputs always give the same plan.
+
+The result is the optimum of that lattice, not of every real plan: a finer step
+can find more value, and a plan that would stop between two levels is not
+considered. The step is an explicit input and is returned with the proposal.
+With fuel in kind, the step must make the delivered quantities exact decimals
+(a step of 990 with 1% injection fuel is 1,000 delivered in); otherwise the
+search refuses with `gas_storage_step`. It refuses a problem beyond 4,001
+levels or 20 million day-level-move combinations (`gas_storage_work`), and one
+with no lattice plan that meets the terminal range (`gas_storage_infeasible`).
+
+The proposed plan is passed through `GasStoragePlans.Evaluate` before it is
+returned, so a proposal is always a plan the contract admits. It is a
+proposal: valuing or booking it is the same step as for a plan the desk wrote.
+This is intrinsic value against one set of prices. There is no rolling
+re-optimization, price model or option value above intrinsic.
 
 ## Valuation
 
@@ -79,12 +118,17 @@ plan carries no value here.
 ## Verification
 
 `dotnet run --project tests/OpenEtrm.MarketData.Checks -- --gas-storage` runs
-seven checks against figures worked by hand: inventory and in-kind fuel over a
+thirteen checks. Seven on supplied plans, against figures worked by hand: inventory and in-kind fuel over a
 three-day plan; limits taken from the opening band; capacity and terminal
 bounds; withdrawal fuel; one direction per day, grid, opening and
 implementation refusals; entitlement policies and band coverage; and the plan
 valued as a resource right at −8,150, moving to −8,400 and −7,900 under a ±0.1
-gas shock.
+gas shock. Six on proposals: a hand-worked four-day plan worth 1,100 inside the
+ratchets; no flow when the spread does not cover its costs; a terminal
+inventory met at least cost and the tie-break; fuel in kind and the step it
+needs; agreement of the objective with an exhaustive search of every lattice
+plan on three cases of four or five days, each replayed as an admitted plan
+worth its stated objective; and the refusals.
 
 ## Remaining work
 
@@ -95,8 +139,10 @@ gas shock.
    contract's flows to facility activity.
 3. Value or return terms for inventory held at the end of the plan, and for
    opening inventory.
-4. A plan proposed from the forward curve (the intrinsic optimum), rolling
-   re-optimization and any option value above intrinsic. Each needs its own
-   decision: the repository values supplied plans and contains no optimizer.
-5. Interpolated or percentage ratchets, cash fuel, simultaneous nominations and
+4. A managed operation that resolves the proposal's daily prices from the
+   selected scenario's forwards and the contract's charges, and offers the
+   proposal for adoption as the plan.
+5. Rolling re-optimization and any option value above intrinsic. Each needs
+   its own decision.
+6. Interpolated or percentage ratchets, cash fuel, simultaneous nominations and
    overrun charges.

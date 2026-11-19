@@ -131,6 +131,100 @@ internal static class GasStoragePlanChecks
             Equal(instrument.PV(Scenario(scenarios.Base)).PresentValue,"-8150");
             Equal(instrument.PV(Scenario(scenarios.Factors[0].Up)).PresentValue,"-8400");Equal(instrument.PV(Scenario(scenarios.Factors[0].Down)).PresentValue,"-7900");
         });
+
+        // Proposals: the same contract without fuel unless stated, on a lattice of 500 from the opening inventory.
+        var plain=entitlement with{InjectionFuel=D("0")};
+        ImmutableArray<GasStorageDayPrice> Prices(params (string Cost,string Value)[] days)=>
+            [..days.Select((day,i)=>new GasStorageDayPrice(GasDay(i+1),D(day.Cost),D(day.Value)))];
+        GasStorageProposal Propose(ImmutableArray<GasStorageDayPrice> prices,string opening="29000",string terminalMinimum="29000",string terminalMaximum="29000",
+            string step="500",GasStorageEntitlement? contract=null,string implementation=GasStoragePlanProposals.Implementation)=>
+            GasStoragePlanProposals.Propose(contract??plain,new(prices.IsDefaultOrEmpty?GasDay(1).Start:prices[0].GasDay.Start,ExactQuantity.FromQuantity(Q(opening))),
+                new(Q(terminalMinimum),Q(terminalMaximum)),prices,Q(step),implementation);
+        decimal Objective(GasStorageProposal proposal)=>(decimal)proposal.Objective.Numerator/(decimal)proposal.Objective.Denominator;
+        void Flows(GasStorageProposal proposal,params (string Injection,string Withdrawal)[] expected)
+        {
+            var actual=proposal.Plan.Days.Select(d=>(d.Day.Injection.Amount.ToString(),d.Day.Withdrawal.Amount.ToString())).ToArray();
+            if(!actual.SequenceEqual(expected))throw new Exception("Proposed "+string.Join(" ",actual)+", expected "+string.Join(" ",expected));
+        }
+        // Every plan on the lattice, tried one by one: the same contract law written again with plain decimals.
+        decimal? Search((decimal Cost,decimal Value)[] prices,int day,decimal inventory,decimal step,decimal terminalMinimum,decimal terminalMaximum,decimal injectionFuel)
+        {
+            if(day==prices.Length)return inventory>=terminalMinimum&&inventory<=terminalMaximum?0m:null;
+            var (injectionLimit,withdrawalLimit)=inventory<30000m?(2000m,500m):inventory<70000m?(1500m,1000m):(1000m,1500m);
+            decimal? best=null;
+            for(var k=-200;k<=200;k++)
+            {
+                var point=k>0?k*step/(1m-injectionFuel):-k*step;var next=inventory+k*step;
+                if(k>0&&point>injectionLimit||k<0&&point>withdrawalLimit||next<0m||next>100000m)continue;
+                if(Search(prices,day+1,next,step,terminalMinimum,terminalMaximum,injectionFuel) is not {} rest)continue;
+                var value=rest+(k>0?-point*prices[day].Cost:point*prices[day].Value);
+                if(best is null||value>best)best=value;
+            }
+            return best;
+        }
+
+        Check("a proposal buys the cheapest days and sells the dearest inside the ratchets, returning to its terminal inventory",()=>
+        {
+            var proposal=Propose(Prices(("3","3"),("3.1","3.1"),("3.5","3.5"),("3.6","3.6")));
+            // Only 2,000 can come back out over the last two days, so 2,000 goes in on the cheapest day:
+            // -2,000 x 3 + 1,000 x 3.5 + 1,000 x 3.6 = 1,100.
+            Flows(proposal,("2000","0"),("0","0"),("0","1000"),("0","1000"));
+            if(Objective(proposal)!=1100m||proposal.Implementation!=GasStoragePlanProposals.Implementation||proposal.InventoryStep!=Q("500"))throw new Exception("Expected 1,100.");
+            Same(proposal.Plan.Closing.Inventory,"29000");
+        });
+        Check("a spread that does not cover its costs proposes no flow",()=>
+        {
+            var proposal=Propose(Prices(("3.3","3.2"),("3.3","3.2"),("3.3","3.2")));
+            Flows(proposal,("0","0"),("0","0"),("0","0"));
+            if(Objective(proposal)!=0m)throw new Exception("An idle plan has no value.");
+        });
+        Check("a terminal inventory above the opening is met at the least cost, and equal plans resolve to the later, smaller flow",()=>
+        {
+            Flows(Propose(Prices(("3.2","1"),("3","1")),terminalMinimum:"30000",terminalMaximum:"100000"),("0","0"),("1000","0"));
+            if(Objective(Propose(Prices(("3.2","1"),("3","1")),terminalMinimum:"30000",terminalMaximum:"100000"))!=-3000m)throw new Exception("Expected -3,000.");
+            Flows(Propose(Prices(("3","1"),("3","1")),terminalMinimum:"30000",terminalMaximum:"30000"),("0","0"),("1000","0"));
+        });
+        Check("in-kind fuel is paid for in the proposal and needs a step that keeps point quantities exact",()=>
+        {
+            // 990 of inventory is 1,000 delivered in, and lifts 29,500 into the band that lets 990 back out:
+            // -1,000 x 3 + 990 x 3.5 = 465.
+            var proposal=Propose(Prices(("3","3"),("3.5","3.5")),"29500","29500","29500",step:"990",contract:entitlement);
+            Flows(proposal,("1000","0"),("0","990"));
+            if(Objective(proposal)!=465m)throw new Exception("Expected 465.");
+            Reject("gas_storage_step",()=>Propose(Prices(("3","3"),("3.5","3.5")),step:"1000",contract:entitlement));
+        });
+        Check("the proposal equals an exhaustive search of every lattice plan",()=>
+        {
+            var cases=new[]{
+                (Prices:new[]{("3.4","3.3"),("2.9","2.8"),("3.1","3"),("3.8","3.7"),("3.2","3.1")},Opening:"29000",Low:"28000",High:"31000",Step:"500",Contract:plain),
+                (Prices:new[]{("2","1.9"),("2.1","2"),("2.6","2.5"),("2.7","2.6"),("2.2","2.1")},Opening:"69000",Low:"68000",High:"72000",Step:"500",Contract:plain),
+                (Prices:new[]{("3","2.9"),("3.4","3.3"),("2.8","2.7"),("3.6","3.5")},Opening:"29010",Low:"28020",High:"31980",Step:"990",Contract:entitlement)};
+            foreach(var c in cases)
+            {
+                var proposal=Propose(Prices(c.Prices),c.Opening,c.Low,c.High,c.Step,c.Contract);
+                var searched=Search([..c.Prices.Select(p=>(decimal.Parse(p.Item1),decimal.Parse(p.Item2)))],0,decimal.Parse(c.Opening),decimal.Parse(c.Step),
+                    decimal.Parse(c.Low),decimal.Parse(c.High),c.Contract==plain?0m:0.01m)??throw new Exception("The search found no plan.");
+                if(Objective(proposal)!=searched||searched<=0m)throw new Exception($"Proposed {Objective(proposal)}, searched {searched}.");
+                // The proposal is itself a plan the contract admits, worth what it says.
+                var replay=GasStoragePlans.Evaluate(c.Contract,proposal.Plan.Opening,proposal.Plan.Terminal,[..proposal.Plan.Days.Select(d=>d.Day)],GasStoragePlans.Implementation);
+                var worth=replay.Days.Select((d,i)=>decimal.Parse(d.Day.Withdrawal.Amount.ToString())*decimal.Parse(c.Prices[i].Item2)-decimal.Parse(d.Day.Injection.Amount.ToString())*decimal.Parse(c.Prices[i].Item1)).Sum();
+                if(worth!=searched)throw new Exception("The proposed plan is not worth its stated objective.");
+            }
+        });
+        Check("a proposal refuses what it cannot meet, bound or represent",()=>
+        {
+            var two=Prices(("3","3"),("3.5","3.5"));
+            Reject("gas_storage_infeasible",()=>Propose(two,terminalMinimum:"60000",terminalMaximum:"100000"));
+            Reject("gas_storage_implementation",()=>Propose(two,implementation:"another_search_v1"));
+            Reject("gas_storage_work",()=>Propose(two,step:"0.001"));
+            Reject("gas_storage_step",()=>Propose(two,step:"0"));
+            Reject("gas_storage_step",()=>GasStoragePlanProposals.Propose(plain,new(GasDay(1).Start,ExactQuantity.FromQuantity(Q("29000"))),new(Q("29000"),Q("29000")),two,
+                new(D("500"),f.R("power_quantity")),GasStoragePlanProposals.Implementation));
+            Reject("gas_storage_terminal",()=>Propose(two,terminalMinimum:"30000",terminalMaximum:"29000"));
+            Reject("gas_storage_grid",()=>Propose([two[1],two[0]]));
+            Reject("gas_storage_grid",()=>Propose([]));
+            Reject("gas_storage_opening",()=>GasStoragePlanProposals.Propose(plain,new(GasDay(2).Start,ExactQuantity.FromQuantity(Q("29000"))),new(Q("29000"),Q("29000")),two,Q("500"),GasStoragePlanProposals.Implementation));
+        });
         return passed;
     }
 }

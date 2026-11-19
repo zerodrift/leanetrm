@@ -43,11 +43,7 @@ public static class GasStoragePlans
         var unit = entitlement.Quantity;
         if (opening is null || opening.Inventory is null || opening.Inventory.Specification != unit || opening.At != days[0].GasDay.Start)
             throw Error("gas_storage_opening", "Supply the opening inventory at the first gas day's start in the contract's quantity.");
-        if (terminal is null || !Same(terminal.MinimumInventory, unit) || !Same(terminal.MaximumInventory, unit) ||
-            terminal.MinimumInventory.Amount.CompareTo(entitlement.MinimumInventory.Amount) < 0 ||
-            terminal.MaximumInventory.Amount.CompareTo(entitlement.MaximumInventory.Amount) > 0 ||
-            terminal.MinimumInventory.Amount.CompareTo(terminal.MaximumInventory.Amount) > 0)
-            throw Error("gas_storage_terminal", "Supply an ordered terminal inventory range inside the contracted capacity; an exact target uses equal bounds.");
+        ValidateTerminal(entitlement, terminal);
 
         var inventory = opening.Inventory;
         RequireCapacity(entitlement, inventory);
@@ -113,7 +109,17 @@ public static class GasStoragePlans
         if (preceding != entitlement.MaximumInventory.Amount) throw Invalid();
     }
 
-    private static void ValidateGrid(ImmutableArray<GasStorageDay> days)
+    internal static void ValidateTerminal(GasStorageEntitlement entitlement, GasStorageTerminal? terminal)
+    {
+        var unit = entitlement.Quantity;
+        if (terminal is null || !Same(terminal.MinimumInventory, unit) || !Same(terminal.MaximumInventory, unit) ||
+            terminal.MinimumInventory.Amount.CompareTo(entitlement.MinimumInventory.Amount) < 0 ||
+            terminal.MaximumInventory.Amount.CompareTo(entitlement.MaximumInventory.Amount) > 0 ||
+            terminal.MinimumInventory.Amount.CompareTo(terminal.MaximumInventory.Amount) > 0)
+            throw Error("gas_storage_terminal", "Supply an ordered terminal inventory range inside the contracted capacity; an exact target uses equal bounds.");
+    }
+
+    internal static void ValidateGrid(ImmutableArray<GasStorageDay> days)
     {
         if (days.IsDefaultOrEmpty || days.Length > MaximumDays)
             throw Error("gas_storage_grid", "Supply a nonempty plan of gas days within the declared bound.");
@@ -131,14 +137,14 @@ public static class GasStoragePlans
     }
 
     // Bands are half-open from below; a full contract is in its last band.
-    private static int Band(GasStorageEntitlement entitlement, ExactQuantity inventory)
+    internal static int Band(GasStorageEntitlement entitlement, ExactQuantity inventory)
     {
         for (var i = 0; i < entitlement.Ratchets.Length - 1; i++)
             if (Compare(inventory, ExactQuantity.FromQuantity(entitlement.Ratchets[i].Upper)) < 0) return i;
         return entitlement.Ratchets.Length - 1;
     }
 
-    private static void RequireCapacity(GasStorageEntitlement entitlement, ExactQuantity inventory)
+    internal static void RequireCapacity(GasStorageEntitlement entitlement, ExactQuantity inventory)
     {
         if (Compare(inventory, ExactQuantity.FromQuantity(entitlement.MinimumInventory)) < 0 ||
             Compare(inventory, ExactQuantity.FromQuantity(entitlement.MaximumInventory)) > 0)
@@ -146,10 +152,10 @@ public static class GasStoragePlans
     }
 
     private static bool Same(Quantity? quantity, ReferenceKey unit) => quantity is not null && quantity.Specification == unit;
-    private static int Compare(ExactQuantity left, ExactQuantity right) =>
+    internal static int Compare(ExactQuantity left, ExactQuantity right) =>
         (left.NumeratorValue * right.DenominatorValue).CompareTo(right.NumeratorValue * left.DenominatorValue);
     private static ExactQuantity Zero(ReferenceKey specification) => new(0, 1, specification);
     private static MarketDataException Invalid() => new("gas_storage_entitlement",
         "Supply an exact contract, one quantity, the selected ratchet, flow and fuel policies, fuel fractions in [0,1) and daily ratchet bands that cover the contracted inventory range.");
-    private static MarketDataException Error(string code, string message) => new(code, message);
+    internal static MarketDataException Error(string code, string message) => new(code, message);
 }
