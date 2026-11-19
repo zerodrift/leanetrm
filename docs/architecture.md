@@ -1,5 +1,18 @@
 # Architecture and domain contracts
 
+D432 adds a commercial [gas storage contract](gas-storage-contract.md) at the
+managed level. The contract owns its entitlement and daily ratchets, separately
+from the physical facility. A supplied daily plan is checked exactly and yields
+typed quantities for the existing resource right. D433 can propose a plan from
+stated daily prices by exact, bounded lattice search; a proposal changes no
+valuation until it is supplied as a plan.
+
+D431 adds a managed [heat-rate call option](heat-rate-call-option.md): one option
+Side holding explicit daily exercises, valued as spread calls from the scenario's
+power and fuel forwards with explicit volatility and correlation marks as its
+pricing binding. Risk remains base/up/down repricing. Booking, shared marks and
+an entry ticket exist; exercise determination and settlement do not.
+
 D430 lets the curve page load only the exact definition dependencies of the
 selected curve. Pricing, frame validation and publication authorization use
 the original inputs and policies. See [the decision](decisions.md#d430--read-exact-curve-definition-dependencies).
@@ -2462,7 +2475,7 @@ the selection after delivery. A saved job owns the evidence needed to replay
 its calculations. The browser keeps the selected As of cutoff in the signed-in
 workspace's memory. Its Back control restores a previous certified selection
 and its chosen close.
-See [the context lifetime decision](decisions.md#d431--an-ordinary-read-context-belongs-to-its-operation).
+See [the context lifetime decision](decisions.md#d434--an-ordinary-read-context-belongs-to-its-operation).
 
 Use `effective_from` / `effective_to` and `known_from` / `known_to` for retained
 half-open intervals. Context point selectors are `effective_at` and `known_at`.

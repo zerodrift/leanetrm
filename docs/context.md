@@ -259,7 +259,7 @@ appropriate rather than including later facts or silently selecting current data
 During an ordinary read the resolved cutoff and source selections belong to that
 operation. Pass them to child work and release them when it ends. A later read
 can resolve the same cutoff from committed publication history. A durable job or
-saved result owns the evidence needed for its replay. D431 applies this lifetime to the working custom-curve close calendar and
+saved result owns the evidence needed for its replay. D434 applies this lifetime to the working custom-curve close calendar and
 the browser's shared As of selector. A tab owns its applied selection for the
 signed-in session. Closing the session releases it. Refresh can reattach the
 page using an opaque view identifier. The browser keeps Back history in

@@ -125,7 +125,7 @@ internal sealed class TradePositionFacts(PreviewDatabase database)
             facts.Add((transport.Agreement.GetProperty("tradeReference").GetInt32(),transport.Fact()));
         foreach(var option in await FuturesOptionPositions.Read(connection,manifest,bookIds,portfolioIds,ct))
             facts.AddRange(option.Facts().Select(fact=>(Integer(option.Head,"trade_reference"),fact)));
-        await RequireHeads(connection,scopeBooks,[..facts.Where(f=>f.Position.InstrumentType is OperatingPositions.Type or RecPositions.Type).Select(f=>f.Position.TradeId).Distinct()],ct);
+        await RequireHeads(connection,scopeBooks,[..facts.Where(f=>f.Position.InstrumentType is OperatingPositions.Type or RecPositions.Type or HeatRateCallPositions.Type or GasStoragePositions.Type).Select(f=>f.Position.TradeId).Distinct()],ct);
         if(facts.GroupBy(p=>(p.Position.TradeId,p.Position.BindingId)).Any(g=>g.Count()!=1)||
             facts.GroupBy(p=>p.Position.TradeId).Any(g=>g.Select(p=>p.Position.InstrumentType).Distinct().Count()!=1))throw Missing();
         return Page(facts.ToImmutable(),offset,limit);
@@ -148,6 +148,10 @@ internal sealed class TradePositionFacts(PreviewDatabase database)
             facts.Add((Integer(operating.Head,"trade_reference"),operating.Fact()));
         foreach(var rec in await RecPositions.Read(connection,manifest,bookIds,portfolioIds,ct))
             facts.Add((Integer(rec.Head,"trade_reference"),rec.Fact()));
+        foreach(var option in await HeatRateCallPositions.Read(connection,manifest,bookIds,portfolioIds,ct))
+            facts.Add((Integer(option.Head,"trade_reference"),option.Fact()));
+        foreach(var storage in await GasStoragePositions.Read(connection,manifest,bookIds,portfolioIds,ct))
+            facts.Add((Integer(storage.Head,"trade_reference"),storage.Fact()));
         return facts.ToImmutable();
     }
     private async Task RequireHeads(NpgsqlConnection connection,Guid[] books,Guid[] nativeTrades,CancellationToken ct)

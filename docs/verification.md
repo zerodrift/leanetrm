@@ -1,14 +1,20 @@
 # Local verification and continuous integration
 
-## Calendar and browser As of context lifetimes (D431)
+## Calendar and browser As of context lifetimes (D434)
 
 Six consecutive requests for the ten most recent qualifying dates of the
 synthetic rolling-average curve created 60 financial contexts at schema 0366.
-The same requests created zero after migration 0367. The standard fixture for
+The same requests created zero after migration 0372. The standard fixture for
 this comparison had 175 distinct contracts and 44 offered frames. A built-in
 curve price and its date strip each created zero contexts in both versions.
 These counts measure database growth. Browser speed and production capacity
 need separate measurements.
+
+On the schema that includes heat-rate call options and gas storage, historical
+workspace reads returned the booked positions, exercises, plan revisions and
+spread marks visible at each tested cutoff. These reads added zero rows to the
+four financial context tables. The isolated native tests also covered the
+cutoff before booking and the mark before correction.
 
 The calendar suite runs with `tools/run_preview.py --market-dates-check`.
 It checks a real correction against independently resolved earlier and later

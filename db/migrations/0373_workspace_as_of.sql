@@ -190,7 +190,9 @@ DECLARE installed text; signature text; source text;
  'security.gas_physical_journal_source(uuid,uuid,timestamp with time zone,uuid[],uuid[])',
  'security.gas_position_scope(uuid,uuid[],uuid[],uuid[])',
  'security.gas_setup_visible(uuid,uuid)',
+ 'security.gas_storage_position_scope(uuid,uuid[],uuid[],uuid[])',
  'security.gas_transport_financial_capacity_facts(uuid,uuid,timestamp with time zone,uuid)',
+ 'security.heat_rate_call_position_scope(uuid,uuid[],uuid[],uuid[])',
  'security.lifecycle_projection_sessions(uuid,uuid,timestamp with time zone,date)',
  'security.lng_position_scope(uuid,uuid[],uuid[],uuid[])',
  'security.operating_position_scope(uuid,uuid[],uuid[],uuid[])',
@@ -221,6 +223,7 @@ DECLARE installed text; signature text; source text;
  'security.read_lifecycle_projection_horizon_pre_risk(uuid,text,integer,uuid,timestamp with time zone,date)',
  'security.read_lifecycle_projection_profiles(uuid,text,uuid,integer,uuid,timestamp with time zone,date,timestamp with time zone)',
  'security.read_rec_inventory(uuid,uuid,uuid,timestamp with time zone)',
+ 'security.read_spread_marks(uuid,uuid,text,text,date[])',
  'security.read_storage_facility(uuid,uuid)',
  'security.read_vol_surface(uuid,uuid,jsonb,date,text,uuid,timestamp with time zone,uuid[])',
  'security.rec_forward_position_scope(uuid,uuid[],uuid[],uuid[])',
@@ -298,7 +301,7 @@ DECLARE installed text; signature text; source text;
 BEGIN
  SELECT encode(sha256(convert_to(string_agg(t||'|'||pg_get_functiondef(f.oid)||'|'||f.proowner::regrole::text||'|'||coalesce(f.proacl::text,''),E'\n' ORDER BY t COLLATE "C"),'UTF8')),'hex') INTO installed
  FROM unnest(targets) t JOIN pg_proc f ON f.oid=t::regprocedure;
- IF installed<>'5f2c58ff02af00a55cce4e06fedd843a1acd4673be2734061e38846d80fb3406' THEN RAISE EXCEPTION 'workspace_context_upgrade: unexpected financial reader';END IF;
+ IF installed<>'1c8c9ebd935d801cbdba2e392d4b429f8884c03bde41333e20e87f8c01c6ab5e' THEN RAISE EXCEPTION 'workspace_context_upgrade: unexpected financial reader';END IF;
  FOREACH signature IN ARRAY targets LOOP
   source=pg_get_functiondef(signature::regprocedure);
   source=regexp_replace(source,'\m(FROM|JOIN)([[:space:]]+)market_data\.(temporal_contexts|market_contexts|catalogue_contexts)\M','\1\2security.read_\3','gi');

@@ -65,6 +65,7 @@ if(args is ["--delivery-index"]){DeliveryIndexChecks.Run();return;}
 if(args is ["--power-product-averages"]){PowerProductChecks.Run();return;}
 if(args is ["--generic-schedules"]){GenericScheduleChecks.Run();return;}
 if(args is ["--storage-facility"]){StorageFacilityChecks.Run();return;}
+if(args is ["--gas-storage"]){GasStoragePlanChecks.Run();return;}
 if(args is ["--facility-quantities"]){FacilityQuantityChecks.Run();return;}
 
 if(args is ["--crude-inventory-sales"]){CrudeInventorySalesChecks.Run();return;}
@@ -97,6 +98,7 @@ if(args is ["--schedule-view"]){ScheduleViewChecks.Run();return;}
 
 if(args is ["--side-block-checks"]){SideBlockExperiment.Check();return;}
 if(args is ["--futures-options"]){FuturesOptionChecks.Run();return;}
+if(args is ["--spread-options"]){SpreadOptionChecks.Run();HeatRateCallChecks.Run();HeatRateCallScheduleChecks.Run();return;}
 if(args is ["--option-calibration-workload"]){FuturesOptionChecks.CalibrationWorkload();return;}
 if(args is ["--vol-surface"]){VolSurfaceChecks.Run();return;}
 if(args is ["--compact-retained"]){CompactRetainedChecks.Run();return;}
@@ -227,7 +229,7 @@ CustomCurveChecks.Run();
 CurveKindChecks.Run();
 ExactCurvePriceChecks.Run();
 ExactArithmeticChecks.Run();
-var passed = RecForwardChecks.Run()+OperatingBookChecks.Run()+OperatingSideChecks.Run()+BatteryOperatingPlanChecks.Run()+PpaConnectedChecks.Run()+CrossCommoditySwapChecks.Run()+PpaBenchmark.CheckWorkloads()+ScheduledSwapChecks.Run()+SwapSettlementChecks.Run()+SettlementDeterminationChecks.Run()+SwapLifecycleChecks.Run()+SwapNetSettlementChecks.Run()+SwapContractBridgeChecks.Run();
+var passed = RecForwardChecks.Run()+OperatingBookChecks.Run()+OperatingSideChecks.Run()+BatteryOperatingPlanChecks.Run()+GasStoragePlanChecks.Run()+PpaConnectedChecks.Run()+CrossCommoditySwapChecks.Run()+PpaBenchmark.CheckWorkloads()+ScheduledSwapChecks.Run()+SwapSettlementChecks.Run()+SettlementDeterminationChecks.Run()+SwapLifecycleChecks.Run()+SwapNetSettlementChecks.Run()+SwapContractBridgeChecks.Run();
 void Check(string label, Action run) { run(); passed++; Console.WriteLine($"PASS {label}"); }
 void Equal<T>(T actual, T expected) where T : notnull
 {

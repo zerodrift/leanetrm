@@ -1,5 +1,6 @@
 """Workspace selection stays tab-local. Only an expressly saved mapping retains its inputs."""
 from datetime import datetime
+import json
 from urllib.request import HTTPCookieProcessor, build_opener
 from uuid import uuid4
 
@@ -106,6 +107,23 @@ def history_counts(query, catalog):
     tables = ('market_data.temporal_contexts', 'market_data.market_contexts', 'market_data.catalogue_contexts', 'trading.contexts')
     columns = [f"(SELECT count(*) FROM {table} WHERE catalog_id='{catalog}')" for table in tables]
     return tuple(map(int, query('SELECT ' + ','.join(columns)).split('|')))
+
+
+def read_trading_workspace(query, runtime, catalog, as_of, statement, known_at=None):
+    """Read populated trade facts in a fresh transaction at an unretained workspace cutoff."""
+    before = history_counts(query, catalog)
+    day = as_of[:10]
+    knowledge = 'NULL' if known_at is None else f"'{known_at}'"
+    cut = runtime(f"""SELECT id,known_at,known_through,system_id,timeline,stored
+        FROM security.workspace_read_cut('{catalog}','{day}',{knowledge},false);""", 'trader')
+    identifier, cutoff, prefix, system, timeline, stored = cut.split('|')
+    assert stored == 'f', 'This fixture must exercise a workspace cutoff without a stored receipt'
+    answer = runtime(f"""SELECT security.bind_workspace_read('{catalog}','{identifier}','{day}','{cutoff}',{prefix},'{system}',{timeline});
+        SELECT security.use_trading_context('{catalog}','{as_of}');
+        {statement}
+        SELECT security.finish_workspace_read();""", 'trader')
+    assert history_counts(query, catalog) == before, 'Reading a trading workspace stored its cutoff'
+    return json.loads(answer)
 
 
 def saved_mapping(first, second, late_day, query, catalog):

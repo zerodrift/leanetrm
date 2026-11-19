@@ -40,7 +40,7 @@ AGENT_SETTINGS_BROWSER={'tools/check_agent_operating_settings.py'}
 STORAGE_FACILITY={f'tools/{name}.py' for name in ('check_storage_facility','check_storage_facility_upgrade','check_storage_facility_browser')}
 TRANSPORT_CAPACITY={f'tools/{name}.py' for name in ('check_gas_transport_capacity','check_gas_transport_capacity_upgrade','check_gas_transport_capacity_browser')}
 TRANSPORT_ROUTE={f'tools/{name}.py' for name in ('check_gas_transport_route','check_gas_transport_route_upgrade','check_gas_transport_route_browser')}
-OPERATING_FACILITIES={'tools/check_operating_facilities.py','tools/check_operating_schedule_storage.py','tools/check_operating_trades.py','tools/check_rec_inventory.py','tools/check_rec_forward_storage.py'}
+OPERATING_FACILITIES={'tools/check_operating_facilities.py','tools/check_operating_schedule_storage.py','tools/check_operating_trades.py','tools/check_rec_inventory.py','tools/check_rec_forward_storage.py','tools/check_heat_rate_call_storage.py','tools/check_spread_mark_storage.py','tools/check_gas_storage_contract_storage.py'}
 POINT_TRADER_MARKS={f'tools/check_point_trader_marks{suffix}.py' for suffix in ('', '_upgrade', '_browser')}
 
 
@@ -289,7 +289,7 @@ class CheckAllTests(unittest.TestCase):
             commands=[]
             run_checks(Path('/pg'),Path('/dotnet'),Path('/browser'),group=group,run=lambda command,**options:commands.append(command))
             selected=[command for command in commands if OPERATING_FACILITIES.intersection(command) or '--structured-power-check' in command]
-            self.assertEqual(len(selected),6 if group=='physical' else 0)
+            self.assertEqual(len(selected),9 if group=='physical' else 0)
             browser=[command for command in selected if '--structured-power-check' in command]
             if browser:
                 self.assertIn('--browser-check',browser[0])
@@ -540,7 +540,7 @@ class CheckAllTests(unittest.TestCase):
                    run=lambda command, **options: commands.append(command))
         market = 'tests/OpenEtrm.MarketData.Checks/OpenEtrm.MarketData.Checks.csproj'
         runs = [c for c in commands if '--project' in c and c[c.index('--project') + 1] == market]
-        self.assertEqual([c[c.index('--project') + 2:] for c in runs], [[], ['--', '--futures-options'], ['--', '--vol-surface'], ['--','--calendar-policy'], ['--','--payment-date-policy'], ['--', '--hybrid-monte-carlo-risk'], *[['--',flag] for flag in ('--power-flat','--power-atc','--power-product-averages','--power-interval-quantities','--ppa-sides')]])
+        self.assertEqual([c[c.index('--project') + 2:] for c in runs], [[], ['--', '--futures-options'], ['--', '--spread-options'], ['--', '--vol-surface'], ['--','--calendar-policy'], ['--','--payment-date-policy'], ['--', '--hybrid-monte-carlo-risk'], *[['--',flag] for flag in ('--power-flat','--power-atc','--power-product-averages','--power-interval-quantities','--ppa-sides')]])
         restores = [c for c in commands if 'restore' in c and c[c.index('restore') + 1] == market]
         self.assertEqual(len(restores), 1)
 

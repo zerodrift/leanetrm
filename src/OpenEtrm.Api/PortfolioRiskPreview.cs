@@ -305,7 +305,7 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
         FuturesMarginPortfolio.Measure=>"Futures remaining value",
         CrudePositions.Measure=>"Crude contractual PV",LngPositions.Measure=>"LNG contractual PV",FuturesOptionPositions.Measure=>FuturesOptionPositions.MeasureLabel,
         OperatingPositions.Measure=>"Supplied operating-right PV",
-        RecPositions.Measure=>"Certificate contractual PV",
+        RecPositions.Measure=>"Certificate contractual PV",HeatRateCallPositions.Measure=>HeatRateCallPositions.MeasureLabel,GasStoragePositions.Measure=>GasStoragePositions.MeasureLabel,
         GasPositions.Measure=>"Gas contractual PV",GasPositions.LifecycleMeasure=>"Gas "+GasPositions.LifecycleLabel.ToLowerInvariant(),
         GasParkLoanTicket.Measure=>"Remaining scheduled plan PV",GasOwnedPortfolio.Measure=>"Independent gas holdings and cash PV",
         GasParkCustodyTicket.Measure=>GasParkCustodyTicketStore.MeasureLabel,

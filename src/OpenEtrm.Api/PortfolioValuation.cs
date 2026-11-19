@@ -412,6 +412,22 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             materialized.Add(new(market.Data,market.Frame,market.Snapshot,market.Portfolio,RecPositions.Measure));
             evidence.AddRange(market.Evidence);
         }
+        var heatRateCalls=await HeatRateCallPortfolio.Prepare(connection,database,frame,
+            await HeatRateCallPositions.Read(connection,database.Manifest,bookIds,[],ct,trades:selection?.Ids),
+            MarketInputSelection.WithRoot(data,frame,supplemental),retainedGraphs is not null,ct);
+        foreach(var market in heatRateCalls)
+        {
+            materialized.Add(new(market.Data,market.Frame,market.Snapshot,market.Portfolio,HeatRateCallPositions.Measure));
+            evidence.AddRange(market.Evidence);
+        }
+        var gasStorage=await GasStoragePortfolio.Prepare(connection,database,frame,
+            await GasStoragePositions.Read(connection,database.Manifest,bookIds,[],ct,trades:selection?.Ids),
+            MarketInputSelection.WithRoot(data,frame,supplemental),retainedGraphs is not null,ct);
+        foreach(var market in gasStorage)
+        {
+            materialized.Add(new(market.Data,market.Frame,market.Snapshot,market.Portfolio,GasStoragePositions.Measure));
+            evidence.AddRange(market.Evidence);
+        }
         var crude=await CrudePortfolio.Prepare(connection,database,frame,
             await CrudePositions.Read(connection,database.Manifest,bookIds,[],ct,trades:selection?.Ids),
             MarketInputSelection.WithRoot(data,frame,supplemental),retainedGraphs is not null,ct);

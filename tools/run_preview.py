@@ -306,9 +306,9 @@ def main():
                 reference,market,security,manifest=add_in_term_fixture(reference,market,security,manifest)
         query((ROOT/'db/bootstrap.sql').read_text())
         for migration in sorted((ROOT/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
-            if args.market_dates_check and migration.name=='0367_ephemeral_calendar_context.sql':
+            if args.market_dates_check and migration.name=='0372_ephemeral_calendar_context.sql':
                 from check_fact_anchor_upgrade import run_checks as check_calendar_scope_upgrade
-                check_calendar_scope_upgrade(query,migration,number='0367',guard='ephemeral_context_upgrade',signatures=(
+                check_calendar_scope_upgrade(query,migration,number='0372',guard='ephemeral_context_upgrade',signatures=(
                     'security.capture_date_context(uuid,date,timestamp with time zone)','security.market_fact_visible(uuid,uuid,uuid)'))
             if args.jobs_check and migration.name=='0366_managed_risk_pool.sql':
                 from check_fact_anchor_upgrade import run_checks as check_pool_upgrade
