@@ -15,4 +15,5 @@
     <ProjectReference Include="../../src/OpenEtrm.Security/OpenEtrm.Security.csproj" />
     <None Include="../fixtures/risk-history-exact-close-v1.json" Link="fixtures/risk-history-exact-close-v1.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+  <ItemGroup><Compile Include="../fixtures/BasisRiskFixture.cs" Link="BasisRiskFixture.cs" /></ItemGroup>
 </Project>

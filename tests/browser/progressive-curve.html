@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Synthetic curve delivery trial</title>
+<style>
+body { font: 16px system-ui; background: #0d1220; color: #f3f5fa; }
+.standard-chart-plot { height: 310px; width: 100%; }
+td, th { text-align: left; padding: 0.15em 1em; font-variant-numeric: tabular-nums; }
+</style>
+<h1>Synthetic power curve</h1>
+<label>Deliveries <select id="deliveries"><option>76</option><option>384</option></select></label>
+<button id="whole">Price all deliveries together</button>
+<button id="progressive">Show the first eight as soon as priced</button>
+<button id="release" hidden>Release remaining calculations</button>
+<p id="status" role="status"></p>
+<p id="timing"></p>
+<div id="chart"></div>
+<table><thead><tr><th>Delivery</th><th>USD/MWh</th></tr></thead><tbody></tbody></table>
+<script type="module">
+import {clearChart,updateChart} from '/assets/chart-view.js';
+
+const chart=document.querySelector('#chart'),body=document.querySelector('tbody');
+const status=document.querySelector('#status'),release=document.querySelector('#release');
+let active;
+window.selectCurve=function(mode,count){
+  const start=performance.now();
+  active?.cancel();
+  const id=crypto.randomUUID(),source=new EventSource('/curve/'+mode+'/'+count+'/'+id);
+  const result=Promise.withResolvers();
+  let snapshot,axis,unit,curve,terminal,frame,firstMs,firstCount,drawn=0;
+  const rows=[];
+  function clear(){clearChart(chart);body.replaceChildren();}
+  function stop(state){
+    if(active!==selection)return;
+    source.close();cancelAnimationFrame(frame);active=undefined;release.hidden=true;
+    clear();status.textContent=state==='failed'?'Incomplete curve':'Selection cancelled';
+    result.resolve({state});
+  }
+  const selection={cancel:()=>stop('cancelled')};
+  active=selection;clear();status.textContent='Pricing';document.querySelector('#timing').textContent='';
+  release.disabled=false;release.hidden=mode!=='hold';
+  release.onclick=()=>{
+    release.disabled=true;
+    fetch('/release/'+id,{method:'POST'}).then(r=>{if(!r.ok)stop('failed');},()=>stop('failed'));
+  };
+  function listen(kind,receive){
+    source.addEventListener(kind,event=>{
+      if(active!==selection)return;
+      try {
+        const message=JSON.parse(event.data);
+        if(message.id!==id||typeof message.snapshot!=='string'||(snapshot&&message.snapshot!==snapshot))throw Error('Wrong context');
+        snapshot=message.snapshot;receive(message.data);
+      } catch {stop('failed');}
+    });
+  }
+  function schedule(){
+    if(frame)return;
+    frame=requestAnimationFrame(()=>{
+      frame=undefined;
+      if(active!==selection)return;
+      const visible=rows.length,complete=Boolean(terminal);
+      try {
+        if(visible!==drawn){
+          const points=axis.map(({id,date},i)=>({x:id,label:date,y:rows[i]?.price??null}));
+          updateChart(chart,{title:curve,axis:'delivery',unit,series:[{name:curve,points}]});
+          const additions=document.createDocumentFragment();
+          for(let i=drawn;i<visible;i++){
+            const row=document.createElement('tr');
+            row.insertCell().textContent=axis[i].date;row.insertCell().textContent=rows[i].price;
+            additions.append(row);
+          }
+          body.append(additions);drawn=visible;
+        }
+        status.textContent=complete?'Complete':visible+' of '+count+' prices';
+        // Sample just after this rendering opportunity. Multiple arrivals before it share a paint.
+        setTimeout(()=>{
+          if(active!==selection)return;
+          const elapsed=performance.now()-start;
+          if(firstMs===undefined){firstMs=elapsed;firstCount=visible;}
+          if(complete){
+            active=undefined;release.hidden=true;
+            document.querySelector('#timing').textContent=firstCount+' prices visible in '+Math.round(firstMs)+' ms. Complete in '+Math.round(elapsed)+' ms.';
+            result.resolve({state:'complete',snapshot,curve,unit,rows,firstMs,firstCount,completeMs:elapsed,calculateMs:terminal.calculateMs,allocated:terminal.allocated});
+          }
+        },0);
+      } catch {stop('failed');}
+    });
+  }
+  listen('axis',data=>{
+    if(axis||data.axis?.length!==count||new Set(data.axis.map(p=>p.id)).size!==count||
+       !data.axis.every(p=>typeof p.id==='string'&&typeof p.date==='string')||!data.curve||!data.unit)throw Error('Invalid axis');
+    ({axis,curve,unit}=data);
+  });
+  listen('points',data=>{
+    if(!axis||data.offset!==rows.length||!Array.isArray(data.rows)||!data.rows.length||data.offset+data.rows.length>count)throw Error('Invalid range');
+    for(const row of data.rows){
+      if(row.id!==axis[rows.length].id||typeof row.price!=='string')throw Error('Unexpected price');
+      rows.push({id:row.id,price:row.price,date:axis[rows.length].date});
+    }
+    schedule();
+  });
+  listen('complete',data=>{
+    if(!axis||data.count!==count||rows.length!==count||!Number.isFinite(data.calculateMs))throw Error('Incomplete curve');
+    terminal=data;source.close();schedule();
+  });
+  source.onerror=()=>stop('failed');
+  return result.promise;
+};
+for(const mode of ['whole','progressive']) document.getElementById(mode).onclick=()=>window.selectCurve(mode,Number(document.querySelector('#deliveries').value));
+</script>
+</html>

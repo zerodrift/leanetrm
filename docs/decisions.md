@@ -6691,3 +6691,9 @@ callers that omit the selector and for legacy supplementary sources without a
 recorded exact source matrix. Retain gzip JSON and the separate catalog read.
 [Verification](verification.md#curve-definition-dependency-reads-d430) qualifies
 the warm price path on two owned synthetic workloads.
+
+The [progressive curve delivery trial](verification.md#progressive-power-curve-delivery-trial)
+retains the D430 application read. Independently building an initial eight
+points advanced partial display on a synthetic power curve, but repeated
+snapshot and plan work increased completion time. The trial remains an
+opt-in test host pending evidence of a material gain on the authorized page.

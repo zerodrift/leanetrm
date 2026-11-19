@@ -8,4 +8,5 @@
   <!-- The amount display corpus the web checks also assert. -->
   <ItemGroup><None Include="../fixtures/amount-display-cases.json" Link="fixtures/amount-display-cases.json" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
   <ItemGroup><Compile Include="../OpenEtrm.MarketData.Checks/PpaAcceptanceFixture.cs" Link="PpaAcceptanceFixture.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../fixtures/BasisRiskFixture.cs" Link="BasisRiskFixture.cs" /></ItemGroup>
 </Project>

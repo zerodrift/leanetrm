@@ -5609,3 +5609,71 @@ expired. Separate checks passed an exact non-primary recorded source and an
 expired curve with no eligible output. The 13 owned browser checks passed,
 including selection supersession and late catalog delivery. All 2,244
 frontend tests passed.
+
+## Progressive power curve delivery trial
+
+The opt-in test host builds eight delivery prices, flushes them in a complete
+gzip-compressed SSE event, then builds the remaining prices against the same
+pinned snapshot. The control builds the same deliveries together. Both send one
+request, the same ordered delivery axis, exact price strings and a completion
+event. The browser uses the workbench chart renderer and an exact-text table.
+Dates without a price remain gaps. A closed stream with missing results clears
+the chart and table. Switching curves retires the old selection.
+
+The synthetic monthly power curve sums three declared marks across two basis
+levels. The shared fixture contains 3,456 contracts and pinned observations.
+The selected 76 and 384 deliveries consume 228 and 1,152 marks respectively in
+one base scenario. The builds operate on an already loaded in-memory model.
+The trial omits catalog hydration, database reads, authorization, audit trace
+and application number formatting. Its host listens on an ephemeral loopback
+port and requires no database or credentials.
+
+Three independent runs restarted the Release host and browser on macOS 26.6.2
+arm64, Apple M4 Pro with 48 GiB RAM, .NET SDK 10.0.402, Node 24.7.0, Chrome
+157.0.8103.79 and ECharts 6.1.0. Each run warmed both modes before alternating
+eight samples per mode and workload. A TCP relay delayed each direction by
+165 ms on the long-link profile. The median of five plain requests in each run
+was 335–337 ms on that profile and below 1 ms on loopback. Browser timestamps
+span selection to the callback after a chart/table rendering opportunity.
+The table shows pooled p50 / descriptive p95 in milliseconds, 24 samples per cell.
+
+| Added RTT | Deliveries | Whole curve, first and complete | First eight, progressive | Complete, progressive |
+|---|---:|---:|---:|---:|
+| 0 ms | 76 | 35 / 64 | 33 / 36 | 62 / 71 |
+| 0 ms | 384 | 85 / 119 | 31 / 32 | 98 / 148 |
+| 330 ms | 76 | 380 / 405 | 366 / 370 | 383 / 396 |
+| 330 ms | 384 | 414 / 421 | 364 / 366 | 420 / 432 |
+
+All 96 unheld progressive samples drew eight rows at their first measured
+render. On the long-link profile, the three per-run median first-render gains
+were 12–15 ms for 76 deliveries and 40–53 ms for 384. The progressive build
+calls the pricing engine twice, repeating snapshot validation and plan setup.
+On that profile its median synchronous build allocations increased from
+15.1 to 22.9 MiB for 76 deliveries and from 45.1 to 52.9 MiB for 384. In a
+separate browser fetch after timing, the compressed event bodies measured
+1,612 / 1,621 bytes for 76 deliveries and 7,042 / 7,071 for 384 (whole /
+progressive). Compression includes small run-dependent diagnostic fields.
+
+A control pauses the server before it can build the remaining deliveries and
+checks a real chart canvas and the first eight table rows. Additional checks
+compare all dates, contract IDs and prices, reject a replayed range, clear an
+incomplete stream, confirm cancellation releases the server gate, and deliver a
+late event from the previous selection. Each workload uses its own declared
+marks and a closed-form expected price for every month.
+
+Keep the compact whole-curve read for the application. The observed first-render
+gains fall below the 100 ms minimum, and the progressive build increases work.
+An application candidate would need one prepared calculation context, an
+authorized publication check for each batch, and an end-to-end comparison
+including first-use data access, the reverse proxy and concurrent readers.
+
+From the repository root with the pinned frontend dependencies, .NET SDK and
+a Chromium executable installed, run the following once per independent sample
+set. The harness creates its own host, relay and browser profile.
+
+```sh
+npm ci --prefix web
+npm run build --prefix web
+dotnet build tests/OpenEtrm.Api.Checks -c Release
+node tests/browser/progressive-curve-check.mjs "$(command -v dotnet)" "$CHROMIUM"
+```

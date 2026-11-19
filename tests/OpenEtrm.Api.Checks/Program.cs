@@ -38,6 +38,7 @@ if(args is ["--storage-facility-setup"]){StorageFacilityMetadataChecks.Run();ret
 if(args is ["--structured-power"]){StructuredPowerChecks.Run();return;}
 if(args is ["--power-hedge"]){StructuredPowerHedgeChecks.Run();return;}
 if(args is ["--assistant-prompts"]){TurnWorkerChecks.Run();AgentToolChecks.Run();await ModelProviderChecks.Run();return;}
+if(args is ["--progressive-curve-preview"]){await ProgressiveCurvePreview.Run();return;}
 if(args is ["--json-read-transport"]){await JsonReadTransportChecks.Run();return;}
 if(args is ["--large-catalog-http"]){await LargeCatalogReadChecks.Run();return;}
 if(args is ["--observation-pin-payload",var payloadPath,var payloadRows]){await ObservationPinPayloadChecks.Run(payloadPath,int.Parse(payloadRows,CultureInfo.InvariantCulture));return;}
