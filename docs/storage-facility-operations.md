@@ -14,9 +14,9 @@ request for an identical definition and effective instant acknowledges the
 existing fact rather than creating another asset or rule version.
 Exact relationships identify its existing location, pipeline ports, quantity basis
 and operating clock. Physical inventory bounds and injection/withdrawal ratchets
-belong to that version. Commercial contracts separately own capacity entitlements,
-rights, title and charges. Physical capacity is not multiplied by the number of
-contracts linked to the asset.
+belong to that version. The [commercial gas storage contract](gas-storage-contract.md)
+separately owns its entitlement, ratchets, plan and charges. Allocating its flows
+to a facility is still open. Adding a contract cannot increase physical capacity.
 
 The first consumer is storage physical operation under an explicitly complete
 facility scope. It does not install the full commercial Storage instrument or a

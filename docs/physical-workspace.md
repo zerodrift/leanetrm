@@ -112,8 +112,10 @@ Backend and assistant page identities remain `gas_setup`, `crude_setup` and
 
 Delivery setup is reached from the Reference Data console (D365), with its Natural
 gas / Crude oil switch above the page. Pipelines and crude delivery sites are the
-supported setup views. The other facility and transport workflows are planned and
-are listed in [plan.md](plan.md#later-scope); the interface does not list them.
+supported views in that setup selector. Other pages cover [physical storage
+facilities](storage-facility-operations.md), [chosen Transport routes](gas-transport-routes.md)
+and [power operating facilities](operating-facilities.md). Further facility types
+are listed in the [delivery plan](plan.md#later-scope).
 
 Existing fixed-location identities and their type relationships remain in
 `ref_data.locations` and `ref_data.location_types`, inspectable through Reference

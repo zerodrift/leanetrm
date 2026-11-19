@@ -4,9 +4,10 @@ Status: the description-driven ticket is implemented for physical gas. The local
 manual-entry update (D285) gives PPAs, native swaps, heat-rate swaps and physical
 crude the shared side-card presentation and removes PPA wizard navigation. These
 products still use their native booking contracts; moving them to the gas ticket's
-versioned description and joint schedule remains work. Transport, park and loan
-and storage are not implemented by this update. Decisions are recorded as
-D278–D281 and D285 in [decisions.md](decisions.md).
+versioned description and joint schedule remains work. The later gas service
+workflows are documented under [Transport](gas-transport-financial.md),
+[Park and Loan](gas-park-loan.md) and [gas storage](gas-storage-contract.md).
+The original ticket decisions are D278–D281 and D285 in [decisions.md](decisions.md).
 
 ## Why
 
@@ -434,13 +435,11 @@ profile's lifecycle and explicit no-discounting policy are unchanged.
   Physical gas declares the owner's set: on the physical side, swing (daily minimum
   and maximum, swing range as a percentage of the base quantity, swing notice
   deadline), nomination (cycle, nominating party), heat content in Btu per cubic
-  foot and quality specification; in the strip, the master agreement's force
-  majeure and credit terms, read-only, which no agreement table stores yet; the
-  a soon Volume column beside the physical quantity; and a soon
-  Imbalance tab (nominated against actual, the imbalance, its cash-out price and
-  amount). New trade lists Storage as a coming-soon instrument, which cannot be
-  opened. It is presentation copy in New trade, since no instrument description
-  exists for it.
+  foot and quality specification. The strip shows the planned master agreement
+  force majeure and credit terms. The schedule lists a planned Volume column and
+  an Imbalance tab for nominated and actual quantities, cash-out price and amount.
+  **New trade → Structured** opens dedicated tickets for
+  [Gas storage](gas-storage-contract.md) and [Heat-rate call option](heat-rate-call-option.md).
 
 - The schedule grid (`web/src/schedule-grid.ts`) turns a schedule view into the
   Instrument and side tabs: side-coloured header groups and a Trade group, the

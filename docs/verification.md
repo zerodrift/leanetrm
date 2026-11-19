@@ -89,6 +89,25 @@ the count at two. Choosing **Use current knowledge** increased it to three
 before Apply. Applying that exact cutoff through `market/context` reused the
 existing row. Closing the browser left the count at three.
 
+## Heat-rate calls and commercial gas storage
+
+The [heat-rate call checks](heat-rate-call-option.md#verification) cover daily
+exercise schedules, valuation from power and fuel forwards, booking, spread marks
+and marked or unpriced positions. The [gas storage checks](gas-storage-contract.md#verification)
+cover ratchet and inventory feasibility, proposal optimality on the stated
+lattice, booking, plan adoption and valuation. Both product guides identify
+the ticket interactions checked by hand and the remaining browser and risk work.
+
+Migration 0372 has native and HTTP regression checks for re-recording a fact
+after a correction. A fresh request for the original fact must return the
+original revision, leave the correcting revision in force and add no duplicate
+fact. The spread-mark suite also submits a mixed-month batch and checks that
+a stale distinct value rolls back the whole batch. See the native checks for
+[spread marks](../tools/check_spread_mark_storage.py) and
+[storage plans](../tools/check_gas_storage_contract_storage.py) and their HTTP
+counterparts for [marks](../tools/check_heat_rate_call_http.py) and
+[plans](../tools/check_gas_storage_http.py).
+
 ## Asynchronous read qualification (D404)
 
 Owned disposable previews passed 32 asynchronous HTTP checks and 11 workbench

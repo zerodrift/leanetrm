@@ -24,9 +24,10 @@ recorded in [the plan](docs/plan.md).
 ## What works today
 
 - **Trade capture:** futures, listed American options on futures, financial gas and
-  power swaps, factor swaps and PPAs,
-  with exact party references and retained history. New trade opens each product's
-  booking workflow; supported amendments retain immutable revisions
+  power swaps, factor swaps and PPAs with exact party references and retained
+  history. **New trade** groups instruments by product family. From a supported
+  position in the Blotter, review an amendment, close-out or quantity-adjustment
+  draft, or run risk for that trade. See the [Blotter workbench](docs/blotter-workbench.md).
 - **Physical gas:** fixed-quantity delivery with independent fixed or daily indexed
   consideration and fixed fee sides in the [deal ticket](docs/deal-ticket.md), explicit
   fuel links, multi-month booking and versioned delivery setup. Future compositions
@@ -41,10 +42,20 @@ recorded in [the plan](docs/plan.md).
   issuance and broader physical settlement remain work. See
   [delivery operations](docs/gas-delivery-operations.md),
   [billing](docs/gas-cash-billing.md) and [owned holdings](docs/gas-owned-holdings.md)
-- **Park and Loan:** a bounded title-transfer profile with explicit customer/provider
-  terms, principal advances and partial returns, independent fixed fees, and
-  interactive/queued price risk. See [the supported profile](docs/gas-park-loan.md)
-  for its timing, same-mark and reconciliation limits
+- **Gas services.** Park and Loan supports title transfer with a fixed fee or a fee
+  on the outstanding balance. Retained-title parking tracks custody and returns.
+  A Transport agreement can value a whole package of rights from a published
+  mark and track its fixed fee separately. See [Park and Loan](docs/gas-park-loan.md),
+  [balance fees](docs/gas-park-loan-balance-fee.md), [custody](docs/gas-park-custody.md)
+  and [Transport rights](docs/gas-transport-financial.md).
+- **Gas storage.** Book capacity with inventory limits, daily injection and
+  withdrawal ratchets, fuel and charges. Value a recorded plan before the term
+  starts, or compare it with a plan proposed from daily forward prices. Recording
+  the proposal makes it available for valuation. See the [gas storage contract](docs/gas-storage-contract.md).
+- **Heat-rate call options.** Book a daily strip of calls on power against fuel
+  at a contractual heat rate. Booked valuation uses both forwards and recorded
+  volatility and correlation marks. Exercise determination and settlement remain
+  open. See the [heat-rate call contract](docs/heat-rate-call-option.md).
 - **Physical crude:** fixed standard-volume booking, contractual pre-delivery PV
   and interactive/queued risk, plus bounded receipts, title transfer, inventory-lot
   allocation, dispatch, invoices, payments and cash-record corrections. See
@@ -57,12 +68,12 @@ recorded in [the plan](docs/plan.md).
 - **Physical operations:** gas and crude workflows have a dedicated Operations
   workspace. Gas, crude and LNG share a read-only delivery grid with native
   intervals, quantities and source status; LNG operational actions remain TBD.
-  See [the workspace](docs/physical-workspace.md) and
-  [delivery view](docs/physical-delivery-view.md)
-- **Curves:** one **Curves & prices** workspace groups **Contract prices**,
-  **Curve builder** and **Hourly / sub-hourly prices** under the shared context
-  and edit guards. Futures, gas and power forwards, basis and interest rates are
-  built from explicitly selected prices, with a diagram showing which inputs built each
+  The delivery workbench links chosen gas routes to booked delivery quantities and
+  can prepare reviewed batches of manual nominations. See [physical operations](docs/physical-workspace.md),
+  the [delivery grid](docs/physical-delivery-view.md) and the [workbench](docs/delivery-workbench.md).
+- **Curves.** Use **Curves & prices** for contract prices and hourly or sub-hourly
+  prices. Open **Curve builder** from Reference Data to author a curve. Futures,
+  gas and power forwards, basis and interest rates are built from explicitly selected prices, with a diagram showing which inputs built each
   contract's price. The custom-curve workbench supports visual/formula recipes and
   explicit weighted contract baskets, reusable published curve outputs and guided
   combinations of computed curves with matching periods and units; all keep their
@@ -70,7 +81,9 @@ recorded in [the plan](docs/plan.md).
   outputs for monthly or exact daily projections. Effective-version timelines
   resolve under the selected business date and knowledge cutoff. Explicit delivery
   splices and whole-interval lookups retain selected source evidence; see
-  [curve evaluation](docs/curve-evaluation.md)
+  [curve evaluation](docs/curve-evaluation.md). Selecting a curve loads its
+  declared dependencies. The price result and first-use catalog are read separately.
+  See [curve read coverage](docs/async-reads.md).
 - **P&L and risk:** futures execution P&L and swap/PPA PV using pinned actuals
   and projections. [Trading P&L](docs/trading-pnl.md) compares two retained close
   contexts with attribution and an explicit Run then Save workflow; unsupported
@@ -86,7 +99,7 @@ recorded in [the plan](docs/plan.md).
 - **Agent curve drafts:** authorized agents can read curve ingredients, prepare a
   pinned preview and propose a bounded custom-curve draft. Saving uses the ordinary
   authorized operation after explicit human approval; publishing remains a person’s action
-- **Asynchronous reads:** selected curve, trading and Risk reads complete
+- **Asynchronous reads:** selected curve, trading, Risk and option-strategy reads complete
   independently through correlated SSE responses, with per-view progress and
   cancellation. Commands and durable jobs retain their existing contracts;
   see [coverage and limits](docs/async-reads.md)
@@ -97,9 +110,10 @@ recorded in [the plan](docs/plan.md).
 - **Facility quantities:** shared reported quantities, explicit trade/Side allocation plans,
   versioned operating maxima and historical views for retained gas days; see
   [the implemented scope](docs/facility-quantity-ledger.md)
-- **Risk jobs:** temporary nested stresses, risk around the stressed market,
-  and queued mixed-book runs pinned to the header's financial context, with retained
-  results and cancellation; see [the risk engine](docs/risk-engine.md)
+- **Risk jobs.** Queue mixed-book runs at the selected financial context, apply
+  nested stresses, inspect retained results or cancel an active run. Jobs & Infrastructure can
+  run one or two workers in a registered pool or drain their active jobs before
+  stopping. See the [risk engine](docs/risk-engine.md) and [worker pool](docs/managed-risk-pool.md).
 - **VaR / expected shortfall:** guided portfolio/book/trade setup,
   visible editable defaults, automatic end-of-day history alignment, official-close
   priority with explicit approved price-type alternatives, aligned-factor coverage
@@ -139,27 +153,34 @@ recorded in [the plan](docs/plan.md).
 - **Physical power:** published daily/monthly product curves, curve-owned hourly
   LMP resolution, explicit DA availability replay, booked fixed physical Sides
   and shaped ATC quantities/prices. Close comparisons reconcile fixing, marks
-  and captured corrections; see [support and limits](docs/power-curve-composition.md).
+  and captured corrections. See [support and limits](docs/power-curve-composition.md).
+  Structured power also supports booked thermal tolls, battery and solar rights
+  valued on a supplied plan, plus REC forwards and inventory. See
+  [operating rights and certificates](docs/structured-power-trading.md).
 - **Interval curves:** hourly and sub-hourly prices marked directly or shaped exactly
   from monthly peak and off-peak marks, delivered hours resolved to collected actuals
   under an explicit due rule, with lineage for every price, see
   [the implementation record](docs/implementation.md#interval-prices-curves-and-block-shaping)
-- **Volatility surfaces:** fitted expiry smiles, rich/cheap heat maps and a linked
-  3D view for listed futures options. These are analytical views; option valuation
-  and risk retain each series' own settlement calibration. See
-  [the surface contract](docs/vol-surfaces.md)
+- **Listed option analytics.** Explore fitted expiry smiles, term structure,
+  rich/cheap heat maps and a linked 3D view using server-defined coordinates. The Options
+  strategy view plots combinations of legs on one expiry and one underlying future.
+  Valuation and risk keep each series’ own settlement calibration. See
+  [volatility surfaces](docs/vol-surfaces.md) and [listed options](docs/futures-options.md).
 - **History:** browse supported market and trade history at explicit business and
   knowledge times; trading-history cutover boundaries refuse earlier trade contexts.
   Close-based views use the latest close in force for the selected session and
-  business day, including in historical views; saved calculation results retain
-  their original pins. See [regional closes](docs/regional-closes.md)
+  business day, including in historical views. Each signed-in tab keeps its
+  **As of** selection. **Back** restores the previous cutoff and chosen close.
+  Saved calculations retain their original inputs. See [historical context](docs/context.md)
+  and [regional closes](docs/regional-closes.md).
 - **Access control:** roles enforced by PostgreSQL row-level security, with people
   and AI agents as separate principals; agent actions require an explicit delegation
 - **Private pilot mode:** invited user accounts and scheduled PJM and ERCOT day-ahead
   and real-time price collection; see [private pilot operations](docs/hosted-pilot.md)
 - **Page assistant:** bounded delegated reads, human-approved business proposals,
   page guidance, selection questions and presentation walkthroughs, plus recorded
-  conversations, provider configuration and usage accounting. Walkthroughs use
+  conversations, provider configuration and usage accounting. You can enable
+  search of your own chat history for an individual question. Walkthroughs use
   supported native controls and stop at unsaved edits; see
   [workspace operations](docs/assistant-workspace.md) and
   [walkthrough limits](docs/assistant-walkthroughs.md)
@@ -171,14 +192,13 @@ recorded in [the plan](docs/plan.md).
 
 ## What's not built yet
 
-Futures settlement outside the documented native-margin profile, option products
-beyond the supported listed American futures options, EVT and operating backtests,
-broader physical settlement, power products outside the documented fixed hourly
-profile, inventory costing,
-post-delivery crude valuation, PPA accepted-cash accounting/payments, broader agent
-credential lifecycle and production qualification remain work. General swap/PPA
-portfolio execution directly from compact retained programs is still an integration
-task; the booking-storage checkpoint alone does not complete it. See the
+Open product work includes heat-rate call exercise and settlement, gas storage
+facility allocation and measured flows, and dispatch and metered performance for
+structured power rights. Broader futures settlement, inventory costing,
+post-delivery crude valuation and PPA cash acceptance and payment also remain open.
+Other gaps include EVT and operating backtests, broader agent credential
+management, production qualification and general swap/PPA portfolio execution
+from compact retained programs. See the
 [delivery plan](docs/plan.md). If you want to help with any of these, start with
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -249,7 +269,9 @@ existing database.
 - [Scheduled financial swaps](docs/financial-swap-quantities.md)
 - [Financial swap settlement and P&L](docs/swap-settlement.md)
 - [PPA and heat-rate portfolio consumers](docs/demo-instruments.md)
-- [Physical gas booking and quantities](docs/physical-gas-side.md)
+- [Heat-rate call options](docs/heat-rate-call-option.md) and [commercial gas storage](docs/gas-storage-contract.md)
+- [Structured power operating rights, hedges and REC inventory](docs/structured-power-trading.md)
+- [Physical gas booking and quantities](docs/physical-gas-side.md) and [Transport rights](docs/gas-transport-financial.md)
 - [Physical crude booking](docs/physical-crude.md) and [delivery-to-cash operations](docs/physical-crude-operations.md)
 - [Physical LNG cargo booking and valuation](docs/physical-lng.md)
 - [Curve-definition preview and remaining publication work](docs/curve-definitions.md)
@@ -287,7 +309,7 @@ existing database.
 - [Workspace assistant operations and human approval](docs/assistant-workspace.md)
 - [Assistant digests and presentation walkthroughs](docs/assistant-walkthroughs.md)
 - [Connected-curve cutover prerequisites](docs/connected-calculation.md#adopting-the-schema-cutover)
-- [Jobs, workers and infrastructure](docs/automation.md)
+- [Jobs, workers and infrastructure](docs/automation.md) and [managed risk worker pools](docs/managed-risk-pool.md)
 - [Private pilot operations](docs/hosted-pilot.md)
 - [Operating policies, user preferences and process configuration](docs/operational-limits.md)
 - [Local verification and CI](docs/verification.md)

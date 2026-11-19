@@ -1,12 +1,11 @@
 # Heat-rate call option (D431)
 
-Status: a heat-rate call option can be entered from New trade, and booked,
-marked, valued and listed through the API; it appears on the blotter with a
-read-only detail view. Managed valuation is checked locally; persistence and the
-HTTP operations are checked against a disposable database and preview. There is
-no marks editor, premium or capacity-payment cash, exercise determination or
-settlement yet; see
-[Remaining work](#remaining-work). Nothing here is qualified for release.
+Open **New trade → Structured → Heat-rate call option** to book the daily strip.
+Record spread marks through the API, then open the booked trade in the Blotter
+to inspect its exercises and valuation. Managed, database and HTTP checks cover
+the model and booking path. A marks editor, premium and capacity-payment cash,
+exercise determination and settlement remain open. See [verification](#verification)
+and [remaining work](#remaining-work).
 
 ## Contract
 

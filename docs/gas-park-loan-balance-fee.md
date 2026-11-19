@@ -131,6 +131,7 @@ Seven expired unaccepted rows retained null values and explicit unavailable
 reasons while a ninth prospective agreement booked and reopened normally.
 The fixed-fee actual browser regression passed 72 checks. The integrated runner
 and aggregate CI still gate publication qualification for the exact commit.
-Broader service laws, custody, transport, commercial storage, correction
-continuity and economic-horizon risk require their own executable qualification.
+[Retained-title custody](gas-park-custody.md), [Transport](gas-transport-financial.md)
+and [commercial storage](gas-storage-contract.md) have separate product contracts.
+Broader fee laws, correction continuity and economic-horizon risk remain open.
 No production schema activation is implied.

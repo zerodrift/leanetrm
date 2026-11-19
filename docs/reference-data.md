@@ -284,7 +284,7 @@ compounding and implementation identifiers now live directly on the used
 interest-rate specification, with no default and no imported convention catalog.
 
 The rate module implements Actual/365 Fixed and simple compounding directly,
-with exact integer-ratio intermediates. The [implementation notes](implementation.md#interest-rate-example-and-numerical-policy)
+with exact integer-ratio intermediates. The [implementation notes](implementation.md#interest-rate-curves-and-numerical-policy)
 record the explicit division/rounding policy and supported bounds. Units, Money
 and Quantity also remain project-owned, with a deliberately small supported
 catalog. A new convention needs an actual consumer and independent tests; no

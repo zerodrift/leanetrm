@@ -1,11 +1,12 @@
 # Gas transport
 
-Status: the commercial capacity operating consumer has local managed, native,
-populated-upgrade and actual browser qualification. Integrated CI and activation
-remain separate.
-Financial Transport booking, route conservation, performance tracks, service
-value and retained financial workers remain open. The financial Transport
-product stays disabled.
+**New trade → Structured → Transport** books a whole package of rights with an
+independent fixed fee. Its financial profile values the rights from an explicitly
+adopted mark and supports retained price-risk runs. The capacity workflow below
+assesses entitlement use. Chosen routes check conservation, and the delivery
+workbench can link route quantities to booked obligations. See [financial
+Transport](gas-transport-financial.md), [chosen routes](gas-transport-routes.md)
+and the [delivery workbench](delivery-workbench.md).
 
 The [operating contract](gas-transport-capacity-operations.md) and
 [wire boundary](gas-transport-capacity-api.md) define manual entitlement setup,
@@ -51,11 +52,9 @@ before a public preview, reservation or write can consume this component.
 
 ## Remaining product delivery
 
-Transport requires shared instrument entry, explicit commercial perspectives,
-firmness and interruption treatment, route/point versions, nominations and
-confirmations, separate scheduled/measured/allocation tracks, and current and
-historical authorized operations. Shared capacity, alternate paths, pooling,
-release/resale/recall and operator balances require conserved exact relationships.
+Physical performance still needs separate scheduled, measured and allocated
+quantities. Interruption, pooling, release, resale, recall and operator balances
+each require their own rights and conservation rules.
 Physical activity, title, custody, service entitlement and fee cash remain
 independent. A schedule or measurement cannot silently create ownership or cash.
 

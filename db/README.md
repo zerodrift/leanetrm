@@ -8,8 +8,9 @@ of this bootstrap. Additional maintenance privileges require an explicit operato
 grant. Bootstrap refuses an existing application schema; upgrading an installed
 database preserves its migration ledger and existing ACL provenance.
 
-The current ordered schema runs from `0001_reference_data.sql` through
-`0254_market_close_capture_receipts.sql`. It includes reference/market data, certified
+The [migrations directory](migrations/) lists the complete schema in application
+order, starting with [0001_reference_data.sql](migrations/0001_reference_data.sql).
+It includes reference/market data, certified
 knowledge, access control, trading and settlement, agents, jobs and risk, retained
 Side programs, dashboard layouts, regional closes, bounded physical gas/crude operations and
 pre-loading LNG cargo booking/valuation with saved Incoterms.
@@ -19,6 +20,28 @@ application. See [current implementation](../docs/implementation.md) and
 [verification](../docs/verification.md) for consumers and qualification.
 
 Recent schema groups and their contracts:
+
+- [0373](migrations/0373_ephemeral_calendar_context.sql) makes a working
+  custom-curve calendar use one certified knowledge cutoff across the dates it
+  reads. [0374](migrations/0374_workspace_as_of.sql) lets a workspace browse an
+  As of selection without saving a permanent context for each visit. Saves and
+  jobs retain the inputs they need to replay. See [historical context](../docs/context.md).
+- [0372](migrations/0372_historical_mark_and_plan_replay.sql) changes the two writers
+  for spread-option marks and gas storage plans.
+  Re-recording an identical fact at the original effective time returns the earliest
+  matching revision, even after a correction. Existing rows and request receipts
+  keep their identities. See [spread marks](../docs/heat-rate-call-option.md) and
+  [plan revisions](../docs/gas-storage-contract.md).
+- **0367–0371** add heat-rate call bookings and spread marks, commercial gas
+  storage bookings and plan revisions, and assistant page identities for both tickets.
+- **0362–0366** cover batched calendar and close-visibility reads, opt-in
+  [assistant history search](../docs/assistant-workspace.md#personal-chat-history-search-d427)
+  and the registered [risk worker pool](../docs/managed-risk-pool.md).
+- **0358–0361** add [delivery allocations and nomination batches](../docs/delivery-workbench.md),
+  [option surface axis inputs](../docs/vol-surfaces.md) and commodity icons.
+- **0342–0357** cover [operating rights and RECs](../docs/structured-power-trading.md),
+  physical storage facilities, gas parking and Transport, direct point marks and
+  explicit operating Side composition.
 
 - 0253–0254: the saved Curves & prices contract-display preference
   (`curve_display_v1`), which changes display selection only, and the
@@ -345,7 +368,7 @@ The schema runner's `--market --security` path checks rate sealing, type and FK
 constraints, immutable retained definitions, current permissions and cross-scope
 isolation. The preview adds the executable project-owned discount-factor example.
 See [the current reference-table inventory](../docs/reference-data.md#current-table-consumers-and-implementation-policy)
-and [rate numerical policy](../docs/implementation.md#interest-rate-example-and-numerical-policy).
+and [rate numerical policy](../docs/implementation.md#interest-rate-curves-and-numerical-policy).
 
 ## Independent date schedules
 

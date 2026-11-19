@@ -5,8 +5,9 @@ managed level: its own entitlement with daily ratchets, exact feasibility of a
 supplied injection and withdrawal plan, and that plan's flows valued through the
 existing resource right. D433 adds a plan proposed from stated daily prices by
 exact search over an inventory lattice. Fourteen managed checks pass locally.
-Migrations 0370 and 0371 retain a booked contract and its revisable plan; managed
-routes book, plan, propose and value it, and New trade has a graphical ticket.
+Migration 0370 retains a booked contract and its revisable plan. Migration 0371
+registers the entry page for the assistant. Managed routes book and value
+contracts, record plans and propose them. New trade has a graphical ticket.
 A facility link, discounting, measured flows and an automated browser check remain open.
 
 D431 adds managed valuation and risk for a [heat-rate call option](heat-rate-call-option.md):
@@ -18,6 +19,11 @@ Managed booking and marks routes, valuation of booked trades and blotter
 presentation are checked over HTTP, and New trade has an entry ticket for the
 option. A marks editor, premium cash, discounting, exercise determination and
 settlement remain open.
+
+Migration 0372 applies the existing D238 replay rule to both products. Recording
+the same spread mark or storage plan again at its original effective time returns
+the original matching revision, including after a correction. A distinct fact
+still requires the expected current revision.
 
 D429 qualifies separate catalog hydration, bounded asynchronous JSON serialization
 and streamed calendar batch decoding in owned synthetic workloads. Larger
@@ -83,7 +89,8 @@ contract](gas-transport-financial.md). Native and managed value/upgrade controls
 and actual shared browser checks provide local evidence. D418 supplies first-value
 market publication and combined Side qualification is complete locally. Release
 and production activation remain separate gates.
-Physical performance and commercial Storage retain separate planned contracts.
+Physical Transport performance remains open. The separate
+[commercial gas storage contract](gas-storage-contract.md) supports booking and plan valuation.
 
 D413 locally qualifies [retained chosen routes](gas-transport-routes.md) with
 explicit graph/law definitions, complete exact source claims and exclusive
@@ -180,8 +187,9 @@ D414 adds a [storage physical operations consumer](storage-facility-operations.m
 versioned asset rules, pipeline ports, dated opening evidence and independent
 planned/measured activity. Native persistence, explicit coverage, concurrent plan
 admission, existing allocation links and shared UI have local qualification.
-Complete commercial Storage/Transport, further operating laws and integrated
-release checks remain open.
+Commercial [Storage](gas-storage-contract.md) and [Transport](gas-transport-financial.md)
+have separate booking and valuation contracts. Linking storage contract flows
+to facility activity remains open.
 
 D410 implements [outstanding-balance elapsed-hour fees](gas-park-loan-balance-fee.md)
 with explicit timing, remaining-return plans and cumulative cash rounding. Native
@@ -195,14 +203,14 @@ D411 implements [retained-title parking](gas-park-custody.md) as a distinct
 Park and Loan profile. It preserves customer title through identified-lot
 reservations, accepts provider foreign custody without a stock account, and
 uses ordinary independent fee cash. Native operations, shared entry, browser
-workflows and current-clock pricing have disposable local qualification. Transport, commercial
-Storage, wider rights, correction adapters and economic continuation remain open.
+workflows and current-clock pricing have disposable local qualification. Wider
+custody rights, correction adapters and economic continuation remain open.
 
 D428 adds negotiated read-response gzip and direct reuse of serialized JSON in
 SSE envelopes. Local semantic, negotiation, streaming and asynchronous-read
 checks pass; integrated CI and production rollout remain separate gates.
 
-D404 is implemented for 25 selected main-workbench curve, trading and Risk reads,
+The response channel now admits 18 named curve, trading, Risk and Options reads,
 with independent view progress, bounded execution, cancellation admission fences
 and exact authorization/context checks before SSE publication. Local qualification
 covers transport parity, concurrent database work, late responses, hosted identity
@@ -1030,10 +1038,11 @@ participate in keys, and floating sides separate contractual curve/observation
 configuration from resolved pricing bindings. Swap discounting remains marked.
 Lookup and uniqueness use typed primary/candidate keys; managed digests remain
 calculation aids rather than database authority. Observable/factor identity is
-separate from full contract equivalence. Options other than the listed American
-futures options added on 1 November 2026 (D288), general standalone physical power
-booking, VaR/covariance and cross-revision forward-observable normalization remain
-explicit later work.
+separate from full contract equivalence. Later implementations cover
+[listed futures options](futures-options.md), [heat-rate calls](heat-rate-call-option.md),
+[bounded physical power booking](power-curve-composition.md) and
+[parametric VaR and covariance](parametric-risk.md). Cross-revision
+forward-observable normalization remains open.
 
 New swap entry no longer accepts a manual first-fixing boundary (D165). An exact
 sealed index schedule supplies dated publication instants and actual-series/source
@@ -2067,13 +2076,16 @@ implementation evidence.
 
 ## Later scope
 
-Planned facility and transport delivery workflows, each needing its own supported
-consumer: gas storage, power plants, rail, barges, tankers, trucks, LNG terminals,
-processing plants, terminals and ports, and bulk storage or tank farms.
+Gas storage has a [physical facility workflow](storage-facility-operations.md)
+and a separate [commercial contract](gas-storage-contract.md). Power facilities
+support [supplied operating plans](operating-facilities.md). Broader dispatch,
+rail, barge, tanker and truck operations, LNG terminals, processing plants,
+ports and bulk tank farms still need their own operating contracts.
 
 The [financial swap settlement sequence](swap-settlement.md) is now authorized
 through S1–S6 (D215), with bounded local implementation and executable gates
-recorded there. Futures margining and physical settlement remain later scope.
+recorded there. Futures have a bounded [native margin and delivery lifecycle](lifecycle-delivery.md).
+Broader physical settlement remains open.
 D216 adds bounded closing-context new-trade/future-amendment reconciliation and
 explicit same-trade gross/net allocations. Broader transformations and cross-trade
 netting remain unsupported; capability and verification records are in the
@@ -2082,8 +2094,8 @@ settlement document.
 Extend only after the baseline contracts are demonstrated:
 
 - Broader calendars, delivery shapes and schedule authoring.
-- Options beyond listed American futures options (D288): other exercise and
-  settlement styles, volatility inputs and shocks, and nonlinear model diagnostics.
+- Additional option exercise and settlement styles, volatility shocks and
+  nonlinear model diagnostics beyond the listed futures and heat-rate call profiles.
 - Option strategies beyond one expiry (D409 analyses and draws legs of one
   expiry on one underlying future). Strategies across expiries need a declared
   relationship between futures months first; futures legs, saved strategies and
@@ -2094,7 +2106,8 @@ Extend only after the baseline contracts are demonstrated:
   contribution/allocation convention that does not double-count the underlying.
 - Physical/financial composite sides with typed gas/power delivery metadata and
   explicit activity-to-payment quantity links.
-- Storage/dispatch optimization and capacity-dependent quantity behavior.
+- Rolling storage re-optimization, storage option value beyond the bounded
+  inventory-lattice proposal, and power dispatch optimization.
 - Advanced fees, quantity tiers and any justified scripting sandbox.
 - Multi-factor P&L explain, cross sensitivities and residual attribution.
 - Delta ladder extensions (D230): one curve level per run, server totals across
@@ -2706,7 +2719,8 @@ New trade is a sidebar entry and a presentation of the Blotter's page: grouped
 instrument chooser, tickets at the page's width, a booked trade followed on the
 Blotter. Presentation only. Remaining: stay on the page for the next trade once
 booking receipts carry the trade reference (backend); one order of parts for every
-ticket, with the description-driven ticket; a Storage instrument, still Coming soon.
+ticket using the description-driven layout. **Gas storage** and **Heat-rate call
+option** now open their own tickets in the Structured group.
 
 ### Trade actions, adjustment drafts and one-trade risk (D424)
 
