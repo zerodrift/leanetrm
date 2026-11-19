@@ -97,6 +97,9 @@ def run_checks(client, query, manifest):
         source=dict(kind=proposal['implementation'], inventoryStep=proposal['inventoryStep']),
         days=[dict(gasDay=d['gasDay'], injection=d['injection'], withdrawal=d['withdrawal']) for d in proposal['path']])
     assert client.call('gas-storage/plan', adopted, timeout=60)['revision'] == 2
+    repeated_plan = dict(plan, operationId=str(uuid4()), expectedRevision=2)
+    receipt = client.call('gas-storage/plan', repeated_plan, timeout=60)
+    assert receipt == {**recorded, 'operationId': repeated_plan['operationId'], 'changed': False}, receipt
     revalued = client.call('gas-storage/get', selected, timeout=60)
     assert Fraction(revalued['position']['presentValue']) == 1485 * (value + Fraction('0.03')) - 1485 * Fraction('0.03') - 100000 * Fraction('0.005') and revalued['plan']['source'] == proposal['implementation'], revalued['position']
     assert Fraction(revalued['position']['presentValue']) > expected

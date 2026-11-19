@@ -98,6 +98,30 @@ def run_checks(query,manifest):
         f"SELECT security.read_spread_marks('{catalog}','{definition}','local_power','local_gas',ARRAY['2021-02-15']::date[]);",'spread_mark_input','trader')
     print('PASS spread mark storage: a read returns each month\'s latest revision known and effective under its context, and omits an unmarked month',flush=True)
 
+    # Revisiting a superseded fact at the same instant must leave its correction in force.
+    correction=dict(body,operationId=str(uuid4()),marks=[mark('2021-03',1,'0.72','0.4','0.75')])
+    assert json.loads(runtime(record(correction)))['marks'][0]['revision']==2
+    repeated=dict(body,operationId=str(uuid4()),marks=[mark('2021-03',2,'0.550','0.4','0.75')])
+    receipt=json.loads(runtime(record(repeated)))
+    original=first['marks'][1]
+    assert receipt['marks']==[{**original,'changed':False}],receipt
+    assert json.loads(runtime(record(repeated)))==receipt
+    assert query("SELECT count(*) FROM trading.spread_marks WHERE bucket_month=DATE '2021-03-01';")=='2'
+    publications=lambda:int(query(f"SELECT count(*) FROM trading.publications WHERE catalog_id='{catalog}';"))
+    before_rows,before_publications=stored(),publications()
+    stale_batch=dict(body,operationId=str(uuid4()),marks=[mark('2021-04',0),mark('2021-03',0,'0.9')])
+    reject(record(stale_batch),'spread_mark_stale')
+    assert stored()==before_rows and publications()==before_publications
+
+    mixed=dict(body,operationId=str(uuid4()),marks=[mark('2021-04',0),*repeated['marks']])
+    added,existing=json.loads(runtime(record(mixed)))['marks']
+    assert (added['month'],added['revision'],added['changed'])==('2021-04',1,True)
+    assert existing=={**original,'changed':False} and publications()==before_publications+1
+    latest=runtime(f"SELECT security.capture_date_context('{catalog}','2020-12-16',NULL);")
+    march=next(row for row in read(latest,'2020-12-16T23:59:59.999999Z') if row['month']=='2021-03')
+    assert (march['revision'],march['longVolatility'])==(2,'0.72')
+    print('PASS spread mark storage: historical repeats preserve the correcting head and mixed batches are atomic',flush=True)
+
 
 if __name__=='__main__':
     main(checks=run_checks,fixture_factory=lambda root:fixture(root))

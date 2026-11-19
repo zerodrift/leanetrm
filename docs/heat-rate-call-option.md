@@ -160,10 +160,11 @@ per market definition, long curve, short curve and delivery month.
 `security.record_spread_marks` requires the observation-import authority that
 trader price marks use, the selected convention, two outright curves of
 different commodities in one currency, a volatility from 0 to 10 and a
-correlation from -1 to 1. A new value is a new revision of the expected head
-with its own effective instant, never an overwrite; a stale expected revision
-or an effective instant before the head's refuses. The same value at the same
-instant is the fact already recorded and writes nothing, and a retried request
+correlation from -1 to 1. A new value requires the expected head revision and
+an effective instant at or after the head's. From migration 0372, submitting
+the same values at the same effective instant under a new request returns the
+original mark revision, even after a correction.
+Each month in the request follows this rule independently. A retried request
 returns its first outcome. `security.read_spread_marks` returns, for the months
 asked, the latest revision known and effective under the selected knowledge
 context, and omits a month that has none. Valuation reads them this way; both
@@ -233,9 +234,9 @@ request replay, the same-fact no-op, immutability, and position reads at and
 before the booking instant.
 
 `python3 tools/check_spread_mark_storage.py --pg-bin <PostgreSQL 18 bin>` runs
-four checks on the marks: authority and bounded explicit values, request replay
-and the same-value no-op, revision order and immutability, and reads by
-knowledge and effective time.
+five checks covering publication authority, bounded values, request replay,
+revision order, immutability, historical reads and mixed batches containing a
+superseded mark.
 
 `web/tests/heat-rate-call-ticket.test.mjs` runs nine checks on the ticket's
 state: nothing offered ahead of its parent choice, the narrowing of fuel curves,
