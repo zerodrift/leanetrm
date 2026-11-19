@@ -6631,3 +6631,9 @@ hydration advantage for the tested Protobuf candidates over gzip JSON; see the
 [measurements and limits](verification.md#json-read-compression-d428). These
 measurements do not establish a production latency guarantee. Broader transport,
 projection-size or deployment changes require separate qualification.
+
+## D429 — Manage a registered risk worker service from Jobs
+
+An installation binds one reviewed Swarm service and a dedicated risk-worker login to its workspace. Jobs can request zero, one or two replicas. Scaling requires both workspace permission and current installation operator registration. A separate permission grants access to bounded worker and node diagnostics. Installations choose the roles that receive these permissions.
+
+A scale command records its request identity and expected generation before the controller dispatches a version-checked service update. Workers claim existing risk jobs individually under their own leases. Downscaling closes admission while active work drains. See the [worker pool contract and qualification](managed-risk-pool.md).

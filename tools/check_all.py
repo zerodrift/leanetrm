@@ -306,7 +306,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     preview_check('Blotter commodity, swap direction, mark minus price, summaries and curve shapes', [*preview, '--desk-fields-check'], suite='portfolio')
     preview_check('isolated exchange futures, option reference storage, option booking and browser', [*preview, '--exchange-check', '--browser-check', '--browser', str(browser)], suite='exchange')
     preview_check('isolated hosted authentication and browser', [*preview, '--hosted-check', '--browser-check', '--browser', str(browser)])
-    preview_check('isolated jobs and infrastructure browser', [*preview, '--jobs-check', '--browser-check', '--browser', str(browser)])
+    preview_check('isolated jobs and infrastructure browser', [*preview, '--jobs-check', '--historical-pool-check', '--browser-check', '--browser', str(browser)])
     preview_check('additive reference demo and exact-version discounting',[*preview,'--reference-demo-check'], suite='reference')
     preview_check('isolated reference metadata editor',[*preview,'--reference-check','--browser-check','--browser',str(browser)], suite='reference')
     preview_check('isolated nested risk and durable workers', [*preview, '--risk-jobs-check', '--browser-check', '--browser', str(browser)], suite='risk')
