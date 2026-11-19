@@ -1378,8 +1378,7 @@ api.MapPost("/market/live/pause",(HttpContext c,LivePauseRequest body)=>Locked(c
     },c.RequestAborted);
     session.PauseLive(pin);return Results.Ok(new{context=pin.Context,frame=new NavigationFrame(pin.RequireFrame().Id,pin.RequireFrame().Name,pin.RequireFrame().At,pin.RequireFrame().BusinessDate)});
 }));
-object WorkspaceProjection(PreviewSession session,WorkspaceRead read,bool catalogOnly,PinnedContext? exact=null)=>CaptureWorkspaceProjection(session,exact)(read,catalogOnly);
-Func<WorkspaceRead,bool,object> CaptureWorkspaceProjection(PreviewSession session,PinnedContext? exact=null)
+Func<WorkspaceRead,bool,object> CaptureWorkspaceProjection(PreviewSession session,PinnedContext? exact=null,bool frameSummaries=false)
 {
 
     var context=exact is null?session.MarketContext:exact.Context;
@@ -1391,18 +1390,23 @@ Func<WorkspaceRead,bool,object> CaptureWorkspaceProjection(PreviewSession sessio
         var data=read.Data;var referenceSources=read.ReferenceSources;var references=read.References(catalogOnly);
     return new {referenceSources,unitCatalog=read.Units,unitCatalogError=read.Units is null?"unit_catalog":null,referenceDisplay=read.ReferenceDisplay,unitReferenceDisplay=read.UnitReferenceDisplay,context,profile,example=database.Manifest.Example,futuresConvention=database.Manifest.FuturesConvention,curveNames=read.CurveNames,powerCurveCodes=PowerPreview.CurveCodes(data),definitions=data.Definitions,references,referenceScope=catalogOnly?"definition_closure":"all_visible",observations=catalogOnly?ImmutableArray<JsonElement>.Empty:data.Observations,observationScope=catalogOnly?"on_demand":"all_visible",
         // Each offered frame names its recorded close; one without a close is a working snapshot (D334).
-        frames,frameCatalog,initialFrameIds};
+        frames=frameSummaries?(object)frames.Select(f=>new NavigationFrame(f.Id,f.Name,f.At,f.BusinessDate,f.OriginCloseId,f.Close)).ToArray():frames,
+        frameCatalog,initialFrameIds};
     };
 }
 Task<IResult> Workspace(HttpContext c,bool catalogOnly)=>Locked(c,async session=>
 {
+    var detail=c.Request.Query["frameDetail"];
+    var frameSummaries=catalogOnly&&detail.Count==1&&detail[0]=="summary";
+    if(detail.Count!=0&&!frameSummaries)throw new AsyncReadException(422,"workspace_frame_detail","Choose the supported catalog frame detail.");
+
     var read=await database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
     {
         var workspace=await marketReads.Workspace(connection,Pin(session,ContextVersions.SnapshotId(c.Request.Query)),catalogOnly,ct,c.Request.Query["curve"].FirstOrDefault());
         return(workspace,plan:await DiscoverFrames(connection,session,ct));
     },c.RequestAborted);
     session.ApplyFrames(read.plan);
-    return Results.Ok(WorkspaceProjection(session,read.workspace,catalogOnly));
+    return Results.Ok(CaptureWorkspaceProjection(session,frameSummaries:frameSummaries)(read.workspace,catalogOnly));
 });
 api.MapGet("/workspace",(Func<HttpContext,Task<IResult>>)(c=>Workspace(c,false)));
 api.MapGet("/workspace/catalog",(Func<HttpContext,Task<IResult>>)(c=>Workspace(c,true)));
@@ -2870,7 +2874,8 @@ ReadPlan PrepareRead(PreviewSession session,ReadInput input)
         var pin=Pin(session,curve.SnapshotId);var workspace=CaptureWorkspaceProjection(session,pin);
         return new(input,ct=>AsReader("ReadMarketData",async(connection,t)=>
         {
-            var read=await marketReads.Evaluate(connection,pin,curve.Curve,t,curve.IncludeWorkspace,curve.ContractDisplay);
+            var read=await marketReads.Evaluate(connection,pin,curve.Curve,t,curve.IncludeWorkspace,curve.ContractDisplay,curve.SourceScope==AsyncReadProjections.CurveLineage,
+                curve.DefinitionScope==AsyncReadContract.CurveDependencies);
             var result=AsyncReadProjections.Curve(read,pin,curve,curve.IncludeWorkspace?workspace(read.Workspace??throw new InvalidOperationException("The requested workspace projection is missing."),true):null);
             var source=read.InputSelection.Source;var observations=read.InputSelection.ObservationIds;
             return new ReadOutcome(result,async(publication,cancellation)=>
@@ -3074,7 +3079,13 @@ public sealed record ProfileRequest(string Profile);
 // A request whose session is missing, unknown or past its end.
 public sealed class PreviewSessionEnded : Exception;
 public sealed record LocalTimeRequest(string? LocalTime,string? TimeZone);
-public sealed record BuildRequest(Guid SnapshotId,string Curve,bool IncludeSources=false,bool IncludeWorkspace=false,CurveDisplaySelection? ContractDisplay=null);
+public sealed record BuildRequest(Guid SnapshotId,string Curve,bool IncludeSources=false,bool IncludeWorkspace=false,CurveDisplaySelection? ContractDisplay=null)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? SourceScope{get;init;}
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? DefinitionScope{get;init;}
+}
 public sealed record HistoryRequest(Guid SnapshotId,string Curve,Guid? ContractId=null,Guid? SeriesId=null,string? RevisionPolicy=null,ImmutableArray<OpenEtrm.Shared.Analytics.OverlayRequest>? Overlays=null);
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record CurveShapesRequest(Guid SnapshotId,ImmutableArray<string> Curves,CurveDisplaySelection? ContractDisplay=null);

@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Npgsql;
 using OpenEtrm.MarketData;
 
@@ -16,7 +17,10 @@ public sealed record WorkspaceRead(PreviewData Data,UnitCatalogData? Units,Immut
         catalogOnly?Data.References.SetItem("calendar_days",[]):Data.References;
 }
 public sealed record PriceInputSelection(Guid SnapshotId,CatalogueSource Source,ImmutableArray<Guid> ObservationIds,bool CorrectionsSupported);
-public sealed record PriceRead(object Result,ImmutableArray<JsonElement> Observations,PriceInputSelection InputSelection,WorkspaceRead? Workspace=null);
+public sealed record PriceRead(object Result,ImmutableArray<JsonElement> Observations,PriceInputSelection InputSelection,WorkspaceRead? Workspace=null)
+{
+    internal ImmutableArray<Guid>? UsedObservationIds{get;init;}
+}
 // KnownAt is the latest certified publication instant among the sample's observations; null while any is not yet certified.
 public sealed record HistorySample(DateTimeOffset At,string? Value,Guid SnapshotId,Guid[] ObservationIds,string? UnavailableReason,DateTimeOffset? KnownAt=null);
 // How a history read chooses the revision each sample shows (D237); the caller must name one.
@@ -179,27 +183,39 @@ public sealed class MarketReads(PreviewDatabase database)
     }
 
     // The pinned frame and the data its own observations select, for the date of the pin's context.
-    async Task<(InputFrame Frame,PreviewData Data)> Pinned(NpgsqlConnection connection,PinnedContext pin,string curve,CancellationToken ct)
+    async Task<(InputFrame Frame,PreviewData Data,CatalogueSource Root)> Pinned(NpgsqlConnection connection,PinnedContext pin,string curve,bool scoped,CancellationToken ct)
     {
         var frame=pin.RequireFrame();
         if(pin.Context is {} selected && PreviewSession.BusinessDay(frame)!=DateWorkspace.Date(selected.EffectiveOn))
             throw new MarketDataException("market_date","Choose inputs for the selected context date. No earlier market date is substituted.");
         await pin.Bind(connection,database.Manifest.CatalogId,ct);
-        var inputs=await MarketInputSelection.ForCurve(database,connection,frame,curve,ct);
-        return (inputs.Frame,inputs.Data);
+        var inputs=await MarketInputSelection.ForCurve(database,connection,frame,curve,ct,scoped);
+        return (inputs.Frame,inputs.Data,inputs.Root);
     }
 
-    public async Task<PriceRead> Evaluate(NpgsqlConnection connection,PinnedContext pin,string curve,CancellationToken ct,bool includeWorkspace=false,CurveDisplaySelection? display=null)
+    public async Task<PriceRead> Evaluate(NpgsqlConnection connection,PinnedContext pin,string curve,CancellationToken ct,bool includeWorkspace=false,CurveDisplaySelection? display=null,bool curveLineage=false,bool scoped=false)
     {
-        var (frame,data)=await Pinned(connection,pin,curve,ct);
+        var (frame,data,primarySource)=await Pinned(connection,pin,curve,scoped,ct);
         if(display is not null)CurveDisplay.Require(display);
         var result=data.IsRateCurve(curve)?data.Result(frame,curve,await RateCurveResolver.Resolve(connection,data,frame,curve,ct)):
             CurveDisplay.Result(data,frame,curve,display??new(CurveDisplay.Version,CurveDisplay.Live));
+        ImmutableArray<Guid>? used=null;
+        if(curveLineage)
+        {
+            var projection=result as JsonObject??JsonSerializer.SerializeToNode(result,AsyncReadContract.Json)!.AsObject();
+            var lineage=projection["points"]!.AsArray().SelectMany(point=>point!["lineage"]!.AsArray())
+                .Select(id=>id!.GetValue<Guid>()).ToHashSet();
+            var selected=frame.ObservationIds.Where(lineage.Contains).ToImmutableArray();
+            if(selected.Length!=lineage.Count)throw new InvalidOperationException("Curve evidence differs from the selected observation pins.");
+            if(projection.ContainsKey("observationIds"))projection["observationIds"]=JsonSerializer.SerializeToNode(selected,AsyncReadContract.Json);
+            used=selected;
+            result=projection;
+        }
         var observations=await PreviewDatabase.ReadObservationFacts(connection,data.DefinitionRevision.CatalogId,
-            data.DefinitionRevision.RevisionId,frame.ObservationIds,ct);
+            data.DefinitionRevision.RevisionId,used??frame.ObservationIds,ct);
         var source=new CatalogueSource(data.DefinitionRevision.RevisionId,data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId);
         var root=pin.RequireFrame();
-        var primarySource=await MarketInputSelection.RootSource(database,connection,root,ct);
+        if(!scoped)primarySource=await MarketInputSelection.RootSource(database,connection,root,ct);
         var primary=root.ObservationIds.ToHashSet();
         var legacy=(database.Manifest.InputMarkets??[]).Select(m=>(m.RevisionId,Pins:(database.InputMarketPins(root,m)??[]).ToHashSet())).ToArray();
         var correctionsSupported=frame.ObservationIds.All(id=>
@@ -208,7 +224,7 @@ public sealed class MarketReads(PreviewDatabase database)
             var owners=legacy.Where(m=>m.Pins.Contains(id)).ToArray();
             return owners.Length==1&&owners[0].RevisionId==source.DefinitionRevisionId;
         });
-        return new(result,observations,new(frame.Id,source,frame.ObservationIds,correctionsSupported),includeWorkspace?await WorkspaceMetadata(connection,data,true,ct):null);
+        return new(result,observations,new(frame.Id,source,frame.ObservationIds,correctionsSupported),includeWorkspace?await WorkspaceMetadata(connection,data,true,ct):null){UsedObservationIds=used};
     }
 
     public const int MaximumShapedCurves=64;

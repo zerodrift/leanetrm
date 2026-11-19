@@ -6651,6 +6651,65 @@ hydration advantage for the tested Protobuf candidates over gzip JSON; see the
 measurements do not establish a production latency guarantee. Broader transport,
 projection-size or deployment changes require separate qualification.
 
+
+## D429 — Separate curve catalog hydration and bound read serialization
+
+The curve page reads its catalog through the existing `workspace/catalog` HTTP
+operation, then requests prices without embedding that catalog in the SSE result.
+Both reads retain the captured profile, generation, selected frame and source
+revision checks; the page installs their data only while that selection remains
+current. A hydrated catalog is reused within its existing scope. First hydration
+adds one ordinary HTTP read and its database work. Explicit API callers may still
+request the existing combined projection.
+
+The page requests frame summaries and sends an explicit curve-lineage source
+projection. The evaluation still binds the same full input frame, checks its
+original pins and reauthorizes before publication. The price payload includes
+the anchors used by its points and visible versions of those same facts.
+Correction eligibility remains tied to the full selected frame. Browser indexes
+preserve exact-lookup failures. The close strip starts after the chart can paint
+and a superseded strip read is cancelled. This scheduling applies to the
+advisory strip when selecting a curve, while choosing a close still uses its
+authorized availability read.
+
+Keep the channel's 16 MiB serialized-result limit. Enforce actual committed JSON
+bytes at the UTF-8 writer boundary, including synchronous JSON DOM converters,
+and retain the successful buffer for publication. The same authorized
+publication callback writes its correlated envelope and result in bounded chunks
+under one write deadline. It preserves exact values, structured refusals and
+cancellation; a truncated event cannot be completed as a successful response.
+The existing 64-level result nesting bound is preserved inside its additional
+envelope level.
+
+Calendar pin batches read the same native function once, stream its UTF-8 payload
+through a sequential database reader, and retain individual rows and denied-frame
+identities. Numeric lexeme conversion, complete pin selection, reached-frame
+visibility evidence and denial/error precedence keep their existing contracts.
+The aggregate UTF-16 string and aggregate JSON document are unnecessary copies.
+No schema, stored format, financial input or command-identity change is involved.
+
+The logical byte limit is not a heap ceiling. Encoding reservations, evaluation,
+metadata and the complete calendar observation union still consume memory.
+[Qualification](verification.md#curve-hydration-and-read-memory-d429) records
+separate browser, serializer, catalog and batch workloads; it does not qualify
+arbitrary batch sizes, simultaneous large reads or production latency.
+
+## D430 — Read exact curve definition dependencies
+
+The curve page requests the versioned definition scope
+`curve_dependencies_v1` with the compact curve-lineage result. The ordinary
+HTTP and asynchronous operations admit the same scope. The native read follows
+declared dependencies inside the bound exact definition and retains all
+selected curve members, mappings, schedules and rate tenors needed by the
+existing evaluator. Series and contract metadata for every original selected
+pin remain available for full snapshot validation. Row security and publication
+checks use the original caller, frame and input identities.
+
+There is no cross-request definition cache. Keep the full definition read for
+callers that omit the selector and for legacy supplementary sources without a
+recorded exact source matrix. Retain gzip JSON and the separate catalog read.
+[Verification](verification.md#curve-definition-dependency-reads-d430) qualifies
+the warm price path on two owned synthetic workloads.
 ## D429 — Manage a registered risk worker service from Jobs
 
 An installation binds one reviewed Swarm service and a dedicated risk-worker login to its workspace. Jobs can request zero, one or two replicas. Scaling requires both workspace permission and current installation operator registration. A separate permission grants access to bounded worker and node diagnostics. Installations choose the roles that receive these permissions.

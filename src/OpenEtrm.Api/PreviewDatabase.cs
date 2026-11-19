@@ -383,7 +383,7 @@ public sealed partial class PreviewDatabase : IAsyncDisposable
 
     public async Task<PreviewData> Read(NpgsqlConnection connection, CancellationToken ct,Guid? selectedRevision=null,PreviewData? sharedReferences=null,ImmutableArray<Guid>? observationIds=null,
         ReferenceReadScope referenceScope=ReferenceReadScope.DefinitionClosure,bool includeCalendarDays=true,
-        ObservationReadScope observationScope=ObservationReadScope.FactHistory,CatalogueSource? ppaBundle=null)
+        ObservationReadScope observationScope=ObservationReadScope.FactHistory,CatalogueSource? ppaBundle=null,string? dependencyCurve=null)
     {
         // Logical-head resolution and exact retained reads are distinct. Native
         // visibility and exact FK coordinates authorize either; deployment-local
@@ -393,12 +393,17 @@ public sealed partial class PreviewDatabase : IAsyncDisposable
             ppaBundle=(await new CatalogueStore(Manifest.CatalogId).ReadBound(connection,ct)).RequireRole("primary");
         if(ppaBundle is {} p && (p.DefinitionRevisionId==Guid.Empty || p.ReferenceCatalogId==Guid.Empty || p.ReferenceRevisionId==Guid.Empty))throw new PreviewDeniedException();
         var selectedManifest=ppaBundle is {} bundle?Manifest with {RevisionId=bundle.DefinitionRevisionId,ReferenceCatalogId=bundle.ReferenceCatalogId,ReferenceRevisionId=bundle.ReferenceRevisionId}:selectedRevision is {} id?Manifest with {RevisionId=id}:Manifest;
-        var definitions = new Dictionary<string, ImmutableArray<JsonElement>>();
-        foreach (var (table,key) in DefinitionTables)
+        ImmutableArray<JsonElement>? exactScopedPins=null;
+        if(dependencyCurve is not null)
         {
-            var revisionColumn = table == "revisions" ? "id" : "revision_id";
-            definitions[table] = await Rows(connection, $"SELECT row_to_json(t)::text FROM (SELECT * FROM market_data.{table} WHERE catalog_id=$1 AND {revisionColumn}=$2 ORDER BY {key}) t", [selectedManifest.CatalogId, selectedManifest.RevisionId], ct);
+            if(observationScope!=ObservationReadScope.ExactPins||observationIds is null||referenceScope!=ReferenceReadScope.DefinitionClosure)
+                throw new InvalidOperationException("A dependency read requires exact observation pins and reference closure.");
+            exactScopedPins=await ReadObservationPins(connection,selectedManifest,observationIds.Value,ct);
         }
+        var definitions=dependencyCurve is null
+            ? await ReadDefinitions(connection,selectedManifest,ct)
+            : await ReadCurveDefinitions(connection,selectedManifest,dependencyCurve,
+                [..exactScopedPins!.Value.Select(row=>row.Id("series_id")).Distinct()],ct);
         if (definitions["revisions"].Length != 1 || definitions["revisions"][0].Text("state") != "sealed") throw new PreviewDeniedException();
         if(ppaBundle is null&&selectedRevision is not null)
             selectedManifest=PreviewData.ResolveBundleManifest(selectedManifest,definitions["revisions"][0]);
@@ -422,8 +427,8 @@ public sealed partial class PreviewDatabase : IAsyncDisposable
         }
         await MarketBundle.RequireReferenceVisibility(connection,selectedManifest,ct);
         await RequireSharedReferenceAccess();
-        references=await ReadReferences(connection,selectedManifest,definitions,referenceScope,includeCalendarDays,sharedReferences,ct);
-        var observations = await (observationScope switch
+        references=await ReadReferences(connection,selectedManifest,definitions,referenceScope,includeCalendarDays,sharedReferences,ct,groupCompleteTables:dependencyCurve is not null);
+        var observations = exactScopedPins??await (observationScope switch
         {
             ObservationReadScope.ExactPins => ReadObservationPins(connection,selectedManifest,
                 observationIds??throw new ArgumentException("Exact observation reads require explicit pins.",nameof(observationIds)),ct),
@@ -439,7 +444,7 @@ public sealed partial class PreviewDatabase : IAsyncDisposable
 
     private static async Task<IReadOnlyDictionary<string,ImmutableArray<JsonElement>>> ReadReferences(NpgsqlConnection connection,
         PreviewManifest manifest,IReadOnlyDictionary<string,ImmutableArray<JsonElement>> definitions,
-        ReferenceReadScope scope,bool includeCalendarDays,PreviewData? sharedReferences,CancellationToken ct)
+        ReferenceReadScope scope,bool includeCalendarDays,PreviewData? sharedReferences,CancellationToken ct,bool groupCompleteTables=false)
     {
         var loaded=new Dictionary<string,ImmutableArray<JsonElement>>();
         var bounded=new HashSet<string>(["futures_series","futures_products","futures_milestones","futures_lot_resolutions",
@@ -469,7 +474,14 @@ public sealed partial class PreviewDatabase : IAsyncDisposable
             foreach(var table in ReferenceTables)loaded[table]=await ReadTable(table);
             return loaded;
         }
-        foreach(var table in ReferenceTables.Where(t=>!bounded.Contains(t)))loaded[table]=await ReadTable(table);
+        var completeTables=ReferenceTables.Where(t=>!bounded.Contains(t));
+        if(groupCompleteTables&&sharedReferences is null)
+        {
+            var statements=completeTables.Select(table=>(table,ReferenceKey(table),
+                $"SELECT * FROM ref_data.{table} WHERE catalog_id=$1 AND revision_id=$2"));
+            loaded=await ReadDefinitionGroups(connection,"",statements,[manifest.ReferenceCatalogId,manifest.ReferenceRevisionId],ct);
+        }
+        else foreach(var table in completeTables)loaded[table]=await ReadTable(table);
 
         // Follow only exact-version declared settlement links. These metadata
         // references do not introduce market dependencies or pricing inputs.

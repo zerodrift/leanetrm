@@ -5550,3 +5550,138 @@ not isolated as a comparable standalone CPU stage. The large history projection
 has API parity; its unavailable-input UI states are outside the covered history
 render case. These limits support retaining JSON, not a universal claim about
 binary encoding or a production service-level guarantee.
+
+## Curve hydration and read memory (D429)
+
+Release checks on 2026-11-18 reproduce the old behavior before each memory fix:
+serializing an oversized lazy result walks all 8,192 rows before rejecting it;
+an oversized JSON object allocates 268,397,056 bytes before the stream limit
+runs; materializing a 71,095,510-byte synthetic pin batch exhausts a 256 MiB
+managed heap. The corrected writer stops the lazy result at row 2,049. Oversized
+JSON object/element checks allocate 41,975,840 / 67,100,520 bytes respectively;
+a definitely oversized string refuses before its encoded copy is allocated.
+These are serialization allocation checks, excluding construction of their inputs.
+
+The complete async-read checks pass exact logical UTF-8 limits at 16 MiB minus
+one byte, exactly 16 MiB and one byte over, including escaped non-ASCII text.
+They cover exact financial text, null/empty fields, the existing 64-level result
+plus its envelope, serialization cancellation, correlated failures, partial-write cancellation,
+one total event deadline, gzip/identity negotiation and ready-event flushing.
+Writing a precomputed 4 MiB result adds 896 allocated bytes in its measured check;
+the counting sink is preallocated and excluded. This is a publication-stage
+allocation result, not the memory cost of evaluating that result.
+
+An opt-in backend HTTP case uses actual managed native-curve metadata, 20,000
+contracts, 20,000 observations, one selected contract and three sequential base
+price reads. It serves a complete 17,026,511-byte catalog separately; its gzip
+body is 3,928,369 bytes. Each price result preserves its complete precomputed
+business projection and carries no catalog. This Release process includes both
+the Kestrel server and its HTTP validation client. Its managed heap limit is
+768 MiB and measured peak resident size is 759,054,336 bytes (724 MiB).
+
+A separate input-decoding case reads 525,123 original synthetic observations
+from a 252,887,126-byte UTF-8 batch and builds the native observation indexes.
+It preserves every row, exact decimal text and denied identity. Under the same
+768 MiB managed heap limit, measured peak resident size is 798,736,384 bytes
+(762 MiB). This case includes batch decoding/indexing, not an API server,
+database process or simultaneous curve evaluation. The complete batch remains
+resident; larger or concurrent batches are outside this measured envelope.
+
+Both cases run on macOS 26.6.2 arm64, 14 logical CPUs, 48 GiB host RAM,
+.NET/ASP.NET Core 10.0.13 and SDK 10.0.402, using Release builds. The RSS source
+is the operating system's `time -l`, rather than the runtime's unavailable
+peak-working-set counter on this platform. The managed heap constraint is not
+a Linux container/cgroup qualification. HTTP bytes above are compressed body
+bytes over loopback, excluding headers, TLS and proxy framing. These cases do
+not measure production latency, bandwidth, browser rendering or concurrent-user
+capacity.
+
+The owned actual-browser regression passes 13 checks, including a real power
+curve, first hydration with over 16 MiB of injected unselected catalog metadata,
+rapid curve switches, a catalog response delivered after supersession, pending
+Risk reads and exact startup readiness. The metadata injection occurs after the
+small fixture's HTTP response; it qualifies browser behavior rather than server
+memory. The separate backend-scale case above covers server serialization.
+
+The page projection comparison in the owned asynchronous HTTP fixture covers
+four frames, 30 catalog contracts and six points of a nested power curve at one
+exact close. The compact price result retains the same points, trace, selected
+source and correction eligibility. It carries 31 observation rows versus 40
+in the full-frame response and 51,718 versus 57,747 bytes as compact JSON
+re-encoded by the test client. Frame summaries reduce the separate catalog
+from 201,998 to 185,542 bytes by the same measure. Ordinary HTTP and SSE return
+identical compact projections. Further owned checks cover exact rate tenors,
+empty eligible delivery, a non-primary source revision and unknown projection
+refusal. The payload counts exclude the response envelope and compression, and
+both variants used the full market calculation input load. The owned calendar
+run passed 67 browser checks. It confirms that the close strip starts after its
+selected prices draw and that editing the context cancels a pending strip
+response in the tested flow.
+
+Native PostgreSQL calendar checks preserve the unchanged answer hashes, source
+matrices, reached/unvisited denial precedence, original authority, current
+publication permission, close replacement and profile authorization. The async
+suite separately verifies profile/sign-in fences. Statement counts remain 101
+for 24, 48 and 96 candidates. The macOS run adapts `ps` sampling only for the
+check harness's Linux `/proc` counters; business assertions are unchanged. CPU
+samples have 0.01-second resolution and calendar peak RSS is unavailable in that
+sampler; these samples establish no performance claim. API/checks and Worker
+Release builds pass.
+
+The optional managed HTTP case is reproducible with:
+
+```sh
+dotnet build tests/OpenEtrm.Api.Checks -c Release
+DOTNET_GCHeapHardLimit=30000000 dotnet \
+  tests/OpenEtrm.Api.Checks/bin/Release/net10.0/OpenEtrm.Api.Checks.dll \
+  --large-catalog-http
+```
+
+`DOTNET_GCHeapHardLimit` is hexadecimal here: `30000000` selects 768 MiB.
+The file-input check accepts `--observation-pin-payload FILE EXPECTED_ROWS` for
+an explicitly generated complete synthetic batch; generated payloads and local
+operational evidence stay outside the repository. No schema migration or new
+dependency is required. The first curve interaction adds an ordinary catalog
+HTTP/database read; its added round-trip cost and production interaction latency
+remain to be measured after an approved release.
+
+## Curve definition dependency reads (D430)
+
+The owned synthetic native preview compared full and dependency-scoped reads
+with the same compact JSON projection, gzip configuration and browser page.
+The only request difference was `definitionScope`. The target nested base
+plus basis curve had 76 output points, 152 participating contracts, 152
+consumed observations per close and 228 trace nodes. Four synthetic closes
+were present. Scaling unrelated contracts and series raised the total native
+definition from 3,031 to 12,031 contracts. Every measured HTTP result matched
+its full-definition counterpart exactly.
+
+| Contracts in definition | HTTP p50, full → scoped | HTTP sample max | SQL statements per read, median | Warm chart p50, full → scoped | Warm chart sample max |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 3,031 | 102.7 → 70.3 ms | 117.9 → 82.6 ms | 98 → 47 | 131.5 → 101.2 ms | 143.9 → 111.8 ms |
+| 12,031 | 191.7 → 170.8 ms | 222.9 → 188.3 ms | 98 → 47 | 233.2 → 103.4 ms | 253.8 → 107.8 ms |
+
+Runs used macOS 26.6.2 arm64, 14 logical CPUs, 48 GiB RAM, PostgreSQL
+18.7, .NET/ASP.NET Core 10.0.13, SDK 10.0.402 Release builds and headless
+Chrome 157.0.0.0. Each scale used nine alternating paired HTTP reads and
+eight alternating paired browser clicks on loopback. Chrome consumed the real
+SSE stream and changed only the outgoing definition selector. Browser timing starts
+with the click from an already hydrated six-point curve and ends after
+the selected 76-point table is ready and two animation frames have elapsed.
+The HTTP statement count comes from native preview runtime logs. Median
+summed statement duration was 66.0 → 50.9 ms and 109.2 → 153.5 ms at the
+two scales. A separate 12,031-contract HTTP run also had exact parity and
+98 → 47 statements, with round-trip medians of 186.5 → 71.2 ms and summed
+statement medians of 107.2 → 55.4 ms. The difference between the large-scale
+HTTP runs remains unexplained. These sample maxima describe run variation
+within each run. Process peak memory, cold hydration, calibrated proxy latency,
+concurrent users and a 96-close dataset remain open. The dependency-scoped
+reader applies to price evaluation.
+
+The native check passed 50 HTTP/SSE assertions, including identical compact
+power and rate responses under working and certified contexts. A scoped
+curve blocked on the publication gate refused disclosure after its authority
+expired. Separate checks passed an exact non-primary recorded source and an
+expired curve with no eligible output. The 13 owned browser checks passed,
+including selection supersession and late catalog delivery. All 2,244
+frontend tests passed.

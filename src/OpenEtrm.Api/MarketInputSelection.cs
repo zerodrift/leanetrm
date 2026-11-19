@@ -95,15 +95,33 @@ internal static class MarketInputSelection
         return exact;
     }
 
-    internal static async Task<(PreviewData Data,InputFrame Frame)> ForCurve(PreviewDatabase database,NpgsqlConnection connection,
-        InputFrame frame,string curve,CancellationToken ct)
+    internal static async Task<(PreviewData Data,InputFrame Frame,CatalogueSource Root)> ForCurve(
+        PreviewDatabase database,NpgsqlConnection connection,InputFrame frame,string curve,CancellationToken ct,bool scoped=false)
     {
-        var root=await Root(database,connection,frame,ct);
+        CatalogueSource own;
+        PreviewData? root=null;
+        if(scoped)
+        {
+            own=await RootSource(database,connection,frame,ct);
+            var manifest=own.Apply(database.Manifest);
+            await MarketBundle.Require(connection,manifest,ct);
+            // Admit the original root pins before resolving the selected curve.
+            _=await PreviewDatabase.ReadObservationPins(connection,manifest,frame.ObservationIds,ct);
+        }
+        else
+        {
+            root=await Root(database,connection,frame,ct);
+            own=CatalogueSource.From(root);
+        }
         var catalogue=await new CatalogueStore(database.Manifest.CatalogId).ReadBound(connection,ct,frame.Time.Date);
         var rates=await SelectedRates(database,connection,frame,catalogue,ct);
         var source=SelectedCurve(frame,curve,catalogue,rates);
-        var own=new CatalogueSource(root.DefinitionRevision.RevisionId,root.ReferenceRevision.CatalogId,root.ReferenceRevision.RevisionId);
-        return await Resolve(database,connection,frame,source,[(root,frame with{Source=own})],false,ct);
+        if(scoped&&source==own)
+            root=await database.Read(connection,ct,ppaBundle:own,observationIds:frame.ObservationIds,
+                observationScope:ObservationReadScope.ExactPins,dependencyCurve:curve);
+        ImmutableArray<(PreviewData Data,InputFrame Frame)> supplied=root is null?[]:[(root,frame with{Source=own})];
+        var selected=await Resolve(database,connection,frame,source,supplied,false,ct,dependencyCurve:scoped?curve:null);
+        return (selected.Data,selected.Frame,own);
     }
 
     // The dated catalogue owns generic rate choices; retained execution sources do
@@ -222,7 +240,7 @@ internal static class MarketInputSelection
 
     internal static async Task<(PreviewData Data,InputFrame Frame)> Resolve(PreviewDatabase database,NpgsqlConnection connection,
         InputFrame frame,CatalogueSource exact,ImmutableArray<(PreviewData Data,InputFrame Frame)> supplied,bool requirePinned,CancellationToken ct,MarketInputReadScope? reads=null,
-        ReferenceReadScope referenceScope=ReferenceReadScope.DefinitionClosure)
+        ReferenceReadScope referenceScope=ReferenceReadScope.DefinitionClosure,string? dependencyCurve=null)
     {
         if(supplied.IsDefault)throw Invalid("Supply explicit input sources.");
         MarketSourceInputs? recorded=null;
@@ -240,7 +258,7 @@ internal static class MarketInputSelection
         {
             if(retained.Source!=exact)throw Invalid("The recorded input source has different exact references.");
             var projection=retained.Project(frame);
-            var data=reads is null?await database.Read(connection,ct,ppaBundle:exact,observationIds:projection.ObservationIds,referenceScope:referenceScope,observationScope:ObservationReadScope.ExactPins):
+            var data=reads is null?await database.Read(connection,ct,ppaBundle:exact,observationIds:projection.ObservationIds,referenceScope:referenceScope,observationScope:ObservationReadScope.ExactPins,dependencyCurve:dependencyCurve):
                 await reads.Read(projection,exact,projection.ObservationIds,referenceScope,ObservationReadScope.ExactPins,true,ct);
             found=[(data,projection)];
         }

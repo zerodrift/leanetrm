@@ -19,7 +19,7 @@ export async function run({command,evaluate,wait,click,submit,persona,check,idle
         window.__startupNavigationKind=data.kind;window.__startupNavigationHasDetail=['definitions','references','observations'].some(key=>Object.hasOwn(data,key));
       }else if(path==='/api/workspace/catalog'){
         window.__startupObservationCount=data.observations.length;window.__startupScope=data.observationScope;
-      }else if(path==='/api/workspace'||path==='/api/evaluate'&&data.observationScope==='selected_frame'){
+      }else if(path==='/api/workspace'||path==='/api/evaluate'&&['selected_frame','curve_lineage_v1'].includes(data.observationScope)){
         // Unrendered history must not add formatting round trips. Preserve the
         // real selected sources so normal exact source tables remain exercised.
         for(let i=0;i<2049;i++){

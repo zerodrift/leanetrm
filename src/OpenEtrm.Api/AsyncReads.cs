@@ -177,10 +177,10 @@ internal sealed class AsyncReads(PreviewDatabase database,CancellationToken stop
         }
         return Results.Empty;
     }
-    static async Task Write(HttpContext c,string? name,object? body,CancellationToken ct)
+    internal static async Task Write(HttpContext c,string? name,object? body,CancellationToken ct)
     {
         using var write=CancellationTokenSource.CreateLinkedTokenSource(ct);write.CancelAfter(TimeSpan.FromSeconds(5));
-        await c.Response.Body.WriteAsync(JsonReadTransport.EncodeEvent(name,body),write.Token);
+        await JsonReadTransport.WriteEvent(c.Response.Body,name,body,write.Token);
         await c.Response.Body.FlushAsync(write.Token);
     }
     internal static bool Matches(string method,PathString path)=>HttpMethods.IsGet(method)&&path.Equals("/api/async-reads/events",StringComparison.OrdinalIgnoreCase);

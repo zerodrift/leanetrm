@@ -73,7 +73,7 @@ import {renderRegularTable,clearTableFilters} from './regular-table.js';
 import {curveWorkbook,rateWorkbook,renderWorkbook} from './curve-workbook.js';
 import {type PricingGraph,pricingGraph,pricingEquation} from './pricing-view.js';
 import {renderPricingGraph} from './pricing-graph-view.js';
-import {type Row,type Frame,type Workspace,type CurveResult,type Point,type ReferenceDisplay,type ReferenceRevision,displayReferenceRows,referenceLabel,presentedReferences,val,publicText,friendly,curveName,setCurveNames,exactRow,commodityName,displayInstant,deliveryMonth,frameOptions,quoteUnit,publicColumns,timeLabels,allCurves,displayDate,pointDate,pointIdentity,deliveryLabel,historyPriceLabel,summaryTiles,contractCountText,priceSourceInputIds} from './market-view.js';
+import {type Row,type Frame,type Workspace,type CurveResult,type Point,type ReferenceDisplay,type ReferenceRevision,displayReferenceRows,referenceLabel,presentedReferences,val,publicText,friendly,curveName,setCurveNames,exactRow,indexedRow,commodityName,displayInstant,deliveryMonth,frameOptions,quoteUnit,publicColumns,timeLabels,allCurves,displayDate,pointDate,pointIdentity,deliveryLabel,historyPriceLabel,summaryTiles,contractCountText,priceSourceInputIds} from './market-view.js';
 import {dataSections,keylessCategories,referenceGroups} from './data-sections.js';
 import {renderReferenceItem,renderIndexPublications,type IndexPublication} from './reference-detail.js';
 import {publicationsOfIndex} from './price-authoring-model.js';
@@ -179,8 +179,8 @@ function pointValueSelection(){
   stamp:JSON.stringify([administrationScope,exampleId,currentProfile,snapshot,historicalContext()??null,contextDirty,closeSession])};
 }
 const isRates=()=>!!curve&&listedCurve().marketType==='rates';
-const row=(table:string,key:string,value:string,reference=false)=>exactRow((reference?data().references:data().definitions)[table],key,value);
-const observation=(id:string)=>exactRow(data().observations,'id',id);
+const row=(table:string,key:string,value:string,reference=false)=>indexedRow((reference?data().references:data().definitions)[table],key,value);
+const observation=(id:string)=>indexedRow(data().observations,'id',id);
 const instant=(value:string)=>displayInstant(value,prefs.timeZone);
 const unit=(quote:string)=>quoteUnit(quote,data());
 function notice(message:string){const shown=$('notice');text('notice',withNotice(shown.hidden?'':shown.textContent??'',publicText(message)));shown.hidden=false;}
@@ -423,16 +423,17 @@ function renderLayout(){
 function renderTimeZones(){document.querySelectorAll<HTMLElement>('[data-user-time-zone]').forEach(n=>{n.textContent=prefs.timeZone;});}
 function invalidateMarketDates(){
  marketDateGeneration++;marketDatesLoaded=false;
+ curveClosesRead?.abort();
  marketCalendar.invalidate(contextDirty?'Apply the changed history and knowledge context first.':'Open the calendar to check available closes.');
 }
 type MarketDatesRequest={curve:string|null;timeZone:string;session:string;definition:unknown;maximumDates?:number};
 const datesMismatch=()=>Error('The available market dates do not match this workspace. Reload the calendar.');
 // What the calendar offers for one scope, checked as describing this workspace. It resolves to nothing when the
 // workspace or the scope changed while it loaded, since that answer no longer applies.
-async function readAvailability(request:MarketDatesRequest):Promise<MarketDates|undefined>{
+async function readAvailability(request:MarketDatesRequest,signal?:AbortSignal):Promise<MarketDates|undefined>{
  const owner=directory(),generation=marketDateGeneration,stale=()=>navigation!==owner||generation!==marketDateGeneration;
  let catalog:MarketDates;
- try{catalog=await api<MarketDates>('market/dates',request);}catch(error){if(stale())return undefined;throw error;}
+ try{catalog=await api<MarketDates>('market/dates',request,signal);}catch(error){if(stale())return undefined;throw error;}
  if(stale())return undefined;
  const frames=catalog.dates.flatMap(group=>group.frames);
  // Every close's time must be readable, as the newest close and the badge compare them, before anything keeps the answer.
@@ -548,21 +549,27 @@ async function selectCurve(code:string,signal?:AbortSignal){
   const selected=curve?listedCurve().source:null;
   if(JSON.stringify(previous)!==JSON.stringify(selected))workspace=undefined;
   invalidateMarketDates();
-  // A priced curve stays in view, marked as pending, until its successor's prices arrive; the page then changes in one step
-  // instead of emptying first. Its prices are forgotten at once, so nothing can be opened from the drawing that is leaving.
-  if(curve&&select('snapshot').value&&!$('curve-detail').hidden&&!$('curve-chart').classList.contains('empty')){
-    forgetPrices();
-    let closes:'held'|'none'|'stale'|undefined;const reading=loadCurveCloses().then(state=>closes=state);
-    try{await build(signal);}
-    // A read given up for a newer choice leaves the page to that choice; any other failure empties it, as a first choice does.
-    catch(error){if(!signal?.aborted||!curveRead){clearPrices();void reading.then(drawCurveCloses);}throw error;}
-    // The closes arrive with the prices when they were read in time; a slower read hides the leaving curve's closes until it ends.
-    drawCurveCloses(closes??'none');if(!closes)void reading.then(drawCurveCloses);
-    return;
+  const priced=curve&&select('snapshot').value&&!$('curve-detail').hidden&&!$('curve-chart').classList.contains('empty');
+  if(priced)forgetPrices();
+  else clearPrices();
+  drawCurveCloses('none');
+  if(!curve){renderContext();await loadBoard();return;}
+  const owner=navigation,generation=marketDateGeneration;
+  try{
+    if(select('snapshot').value)await build(signal);
+    else{await loadWorkspace(signal);signal?.throwIfAborted();renderContext();}
   }
-  clearPrices();void renderCurveCloses();
-  if(!curve){renderContext();await loadBoard();}
-  else if(select('snapshot').value)await build(signal);else{await loadWorkspace(signal);signal?.throwIfAborted();renderContext();}
+  catch(error){
+    if(!signal?.aborted&&navigation===owner&&marketDateGeneration===generation)clearPrices();
+    throw error;
+  }
+  finally{
+    // Let the browser paint the selected prices before starting the advisory read.
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{
+      if(!signal?.aborted&&navigation===owner&&marketDateGeneration===generation)
+        void renderCurveCloses();
+    }));
+  }
 }
 function chooseCurve(code:string){
  if(busy)return;
@@ -624,16 +631,20 @@ async function loadLastCloses(){
 }
 // The closes the curve in view can price, newest first. Reading them is separate from pricing, so a close the curve is missing from still lists the closes it has.
 let curveCloses:{key:string;closes:{id:string;businessDate:string}[]}|undefined;
+let curveClosesRead:AbortController|undefined;
 // Reads the closes of the curve in view unless they are held: 'held' when they can be drawn, 'none' when there are none to show,
 // 'stale' when another curve came into view meanwhile.
 async function loadCurveCloses():Promise<'held'|'none'|'stale'>{
  if(!curve||closeSession===null)return 'none';
  const code=curve,key=JSON.stringify([code,closeSession,prefs.timeZone,historicalContext()?.contextId??null]);
  if(curveCloses?.key===key)return 'held';
+ curveClosesRead?.abort();
+ const reading=curveClosesRead=new AbortController();
  let catalog:MarketDates|undefined;
  // A read that failed or no longer applies is not remembered, so the next render asks again.
- try{catalog=await readAvailability({curve:code,timeZone:prefs.timeZone,session:closeSession,definition:null,maximumDates:10});}catch{catalog=undefined;}
- if(curve!==code)return 'stale';
+ try{catalog=await readAvailability({curve:code,timeZone:prefs.timeZone,session:closeSession,definition:null,maximumDates:10},reading.signal);}catch{catalog=undefined;}
+ finally{if(curveClosesRead===reading)curveClosesRead=undefined;}
+ if(reading.signal.aborted||curve!==code)return 'stale';
  if(!catalog)return 'none';
  curveCloses={key,closes:catalog.dates.flatMap(day=>day.frames.map(close=>({id:close.id,businessDate:close.businessDate}))).reverse()};
  return 'held';
@@ -759,16 +770,19 @@ function renderPrices(){
 }
 async function build(signal?:AbortSignal){
   if(contextDirty)throw Error('Apply the changed context before viewing prices.');
-  const owner=directory(),previousWorkspace=workspace,includeWorkspace=!workspace,started=marketGeneration,scope=marketSelection();
+  const owner=directory(),previousWorkspace=workspace,started=marketGeneration,scope=marketSelection();
   const f=frame();if(!curve)throw Error('Choose a curve first.');
-  const {workspace:includedWorkspace,...next}=await api<CurveResult & {workspace?:Workspace}>('evaluate',{snapshotId:f.id,curve,contractDisplay:prefs.contractDisplay,includeSources:true,...(includeWorkspace?{includeWorkspace:true}:{})},signal);
-  signal?.throwIfAborted();
-  if(navigation!==owner||workspace!==previousWorkspace||started!==marketGeneration||scope!==marketSelection())throw Error('The account or market selection changed. Reload before continuing.');
-  if(next.snapshotId!==f.id||next.curve!==curve||next.observationScope!=='selected_frame'||!Array.isArray(next.observations))throw Error('The selected price sources are missing or inconsistent. Refresh and try again.');
-  if(includeWorkspace!==!!includedWorkspace)throw Error('The requested market catalog is missing or inconsistent. Refresh and try again.');
-  const hydrated=includeWorkspace?validateWorkspace(includedWorkspace!,owner,started,scope):previousWorkspace!;
+  const current=()=>{signal?.throwIfAborted();if(navigation!==owner||workspace!==previousWorkspace||started!==marketGeneration||scope!==marketSelection())throw staleSelection();};
+  // Catalogue detail has its own HTTP read. Keep it out of the bounded price
+  // result, and install neither response until both match this exact selection.
+  const catalog=previousWorkspace??await readWorkspaceCatalog(signal);current();
+  const hydrated=previousWorkspace??validateWorkspace(catalog,owner,started,scope);
+  const {workspace:unexpectedWorkspace,...next}=await api<CurveResult & {workspace?:Workspace}>('evaluate',{snapshotId:f.id,curve,contractDisplay:prefs.contractDisplay,includeSources:true,sourceScope:"curve_lineage_v1",definitionScope:"curve_dependencies_v1"},signal);
+  current();
+  if(next.snapshotId!==f.id||next.curve!==curve||next.observationScope!=='curve_lineage_v1'||!Array.isArray(next.observations))throw Error('The selected price sources are missing or inconsistent. Refresh and try again.');
+  if(unexpectedWorkspace!==undefined)throw Error('The price response contains an unexpected market catalog. Refresh and try again.');
   try{workspace=hydrated;data().observations=next.observations;result=next;renderContext();renderPrices();}
-  catch(error){clearPrices();if(includeWorkspace)workspace=undefined;throw error;}
+  catch(error){clearPrices();if(!previousWorkspace)workspace=undefined;throw error;}
 }
 const contractLabel=(p:Point)=>result?.kind==='rates'?(p.label&&p.label!==p.maturity?`${p.label} · ${displayDate(pointDate(p))}`:displayDate(pointDate(p))):deliveryLabel(p.deliveryFrom!,p.deliveryTo!);
 const staleSelection=()=>Error('The account or market selection changed. Reload before continuing.');
@@ -1060,8 +1074,11 @@ function validateWorkspace(next:Workspace,owner:MarketNavigation,started:number,
 async function loadWorkspace(signal?:AbortSignal){
   if(workspace)return;
   const owner=directory(),started=marketGeneration,scope=marketSelection();
-  const parameters=new URLSearchParams();if(curve)parameters.set('curve',curve);if(select('snapshot').value)parameters.set('snapshotId',select('snapshot').value);
-  const next=await api<Workspace>(`workspace/catalog${parameters.size?'?'+parameters.toString():''}`,undefined,signal);signal?.throwIfAborted();workspace=validateWorkspace(next,owner,started,scope);
+  const next=await readWorkspaceCatalog(signal);signal?.throwIfAborted();workspace=validateWorkspace(next,owner,started,scope);
+}
+function readWorkspaceCatalog(signal?:AbortSignal){
+  const parameters=new URLSearchParams({frameDetail:'summary'});if(curve)parameters.set('curve',curve);if(select('snapshot').value)parameters.set('snapshotId',select('snapshot').value);
+  return api<Workspace>(`workspace/catalog?${parameters}`,undefined,signal);
 }
 // Only an explicitly saved, still-published default initializes a new view.
 async function loadCloseSessions(){
