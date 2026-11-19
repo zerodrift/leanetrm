@@ -285,7 +285,7 @@ CREATE FUNCTION security.read_heat_rate_call_positions(catalog uuid,books uuid[]
 DECLARE inventory jsonb;result jsonb;BEGIN
  inventory=security.heat_rate_call_position_scope(catalog,books,portfolios,trades);
  SELECT coalesce(jsonb_agg(jsonb_build_object(
-  'head',jsonb_build_object('trade_id',r.trade_id,'revision',r.revision,'instrument_id',r.instrument_id,'binding_id',r.instrument_id,'book_id',r.book_id,
+  'head',jsonb_build_object('trade_id',r.trade_id,'revision',r.revision,'instrument_id',r.instrument_id,'binding_id',r.instrument_id,'book_id',r.book_id,'definition_revision_id',h.definition_revision_id,
    'operation_id',r.operation_id,'quantity',trim_scale(r.quantity)::text,'publication_order',r.publication_order,'effective_at',r.effective_at,
    'legal_entity_id',r.legal_entity_id,'legal_entity_revision',r.legal_entity_revision,'legal_entity',le.name,
    'counterparty_id',r.counterparty_id,'counterparty_revision',r.counterparty_revision,'counterparty',cp.name,

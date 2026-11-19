@@ -86,7 +86,11 @@ internal static class RiskTradeScope
             SELECT (value||jsonb_build_object('product','rec_forward'))::text FROM jsonb_array_elements(
              security.rec_forward_position_scope($1,$2::uuid[],ARRAY[]::uuid[],$3::uuid[]))
             """,[catalog,books.ToArray(),(object?)ids?.ToArray()??DBNull.Value],ct);
-        rows=rows.AddRange(operating).AddRange(recs).AddRange(ppas.Where(r=>r.TryGetProperty("trade_id",out _))).OrderBy(r=>r.GetProperty("trade_reference").ValueKind==JsonValueKind.Null?int.MaxValue:int.Parse(r.Text("trade_reference"),CultureInfo.InvariantCulture))
+        var heatRateCalls=await PreviewDatabase.Rows(connection,"""
+            SELECT (value||jsonb_build_object('product','heat_rate_call'))::text FROM jsonb_array_elements(
+             security.heat_rate_call_position_scope($1,$2::uuid[],ARRAY[]::uuid[],$3::uuid[]))
+            """,[catalog,books.ToArray(),(object?)ids?.ToArray()??DBNull.Value],ct);
+        rows=rows.AddRange(operating).AddRange(recs).AddRange(heatRateCalls).AddRange(ppas.Where(r=>r.TryGetProperty("trade_id",out _))).OrderBy(r=>r.GetProperty("trade_reference").ValueKind==JsonValueKind.Null?int.MaxValue:int.Parse(r.Text("trade_reference"),CultureInfo.InvariantCulture))
             .ThenBy(r=>r.Id("trade_id")).ToImmutableArray();
         if(rows.Select(r=>r.Id("trade_id")).Distinct().Count()!=rows.Length)
             throw new MarketDataException("risk_trade_scope","Every available trade requires one exact visible booking identity.");

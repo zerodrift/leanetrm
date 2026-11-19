@@ -74,6 +74,7 @@ public sealed partial class TradingBlotter(PreviewDatabase database,FuturesStore
        OR EXISTS(SELECT 1 FROM trading.futures_option_trade_revisions WHERE catalog_id=$1)
        OR EXISTS(SELECT 1 FROM jsonb_array_elements(security.operating_position_scope($1,ARRAY[]::uuid[],ARRAY[]::uuid[],NULL)))
        OR EXISTS(SELECT 1 FROM jsonb_array_elements(security.rec_forward_position_scope($1,ARRAY[]::uuid[],ARRAY[]::uuid[],NULL)))
+       OR EXISTS(SELECT 1 FROM jsonb_array_elements(security.heat_rate_call_position_scope($1,ARRAY[]::uuid[],ARRAY[]::uuid[],NULL)))
    """,manifest.CatalogId);
   var hasRevisions=(bool)(await command.ExecuteScalarAsync(ct)??throw new PreviewDeniedException());
   if(hasRevisions)return null;
@@ -102,8 +103,9 @@ public sealed partial class TradingBlotter(PreviewDatabase database,FuturesStore
   var optionRun=await FuturesOptionBlotter.Run(connection,database,data,frame,view.BookIds,view.PortfolioIds,ct);
   var operatingRun=await OperatingBlotter.Run(connection,database,frame,view.BookIds,view.PortfolioIds,ct);
   var recRun=await RecBlotter.Run(connection,database,frame,view.BookIds,view.PortfolioIds,ct);
+  var heatRateCallRun=await HeatRateCallBlotter.Run(connection,database,frame,view.BookIds,view.PortfolioIds,ct);
   var formats=await DealAmountFormats.All(connection,manifest.CatalogId,ct);
-  return new(view,summaries,futuresRun,swapRun,ppaRun,formats,sideSchedules,gasRun,crudeRun,optionRun,lngRun,parkLoanRun,custodyRun,transportRun,[operatingRun,recRun]);
+  return new(view,summaries,futuresRun,swapRun,ppaRun,formats,sideSchedules,gasRun,crudeRun,optionRun,lngRun,parkLoanRun,custodyRun,transportRun,[operatingRun,recRun,heatRateCallRun]);
  }
  // The report of a view and, grouped from the same valuation, each requested summary in request order.
  public sealed record BlotterRead(object Blotter,ImmutableArray<Summary> Summaries);

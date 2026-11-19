@@ -90,6 +90,9 @@ const string malformed="The request is incomplete or malformed.";
         => (409,p.MessageText,"Recover the original certificate command or reload its exact retained revision before recording another fact."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("rec_",StringComparison.Ordinal)
         => (422,p.MessageText,"Supply exact certificate references, native serial ranges, eligible evidence and explicit future delivery terms."),
+    PostgresException p when p.MessageText.StartsWith("heat_rate_call_",StringComparison.Ordinal)||p.MessageText.StartsWith("spread_mark_",StringComparison.Ordinal)
+        =>(p.SqlState=="42501"?403:p.MessageText.Contains("conflict",StringComparison.Ordinal)||p.MessageText.Contains("stale",StringComparison.Ordinal)?409:422,
+            p.MessageText,HeatRateCallStore.Refusal(p.MessageText)),
     PostgresException p when p.SqlState=="P0001" && p.MessageText is "power_facility_request_conflict" or "power_facility_revision_conflict"
         => (409,p.MessageText,"This facility or request changed. Reload its exact version or recover the original save outcome."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("power_facility_",StringComparison.Ordinal)
@@ -1775,7 +1778,7 @@ void RequireConvention(FuturesReadRequest body,string? expected)
 {
     if(expected==PhysicalLngStore.Convention){if(body.Convention!=expected)throw new MarketDataException("lng_context","Select the explicit supported LNG cargo valuation convention.");}
     else if(expected==PhysicalCrudeStore.Convention){if(body.Convention!=expected)throw new MarketDataException("crude_context","Select the explicit supported physical crude valuation convention.");}
-    else if(expected is SwapStore.Convention or PhysicalGasStore.Convention or TradingBlotter.Convention or RecForwardStore.Convention){if(body.Convention!=expected)throw new MarketDataException("valuation_convention","Select the read's explicit supported valuation convention.");}
+    else if(expected is SwapStore.Convention or PhysicalGasStore.Convention or TradingBlotter.Convention or RecForwardStore.Convention or HeatRateCallStore.Convention){if(body.Convention!=expected)throw new MarketDataException("valuation_convention","Select the read's explicit supported valuation convention.");}
     else if(expected==FuturesOptionStore.Convention)FuturesOptionStore.RequireConvention(body.Convention);
     else FuturesStore.Convention(body.Convention);
 }
@@ -1906,6 +1909,59 @@ api.MapPost("/rec/trades/book",(HttpContext c,RecForwardBookRequest body)=>Locke
         return Results.Ok(receipt);
     },c.RequestAborted);
 }));
+
+var heatRateCalls=new HeatRateCallStore(database,touStore);
+// Booking and marking both act on the working snapshot the caller selected; a historical view is read-only.
+// Terms are resolved under that snapshot's bound context; the write then runs in its own unbound transaction.
+async Task<T> HeatRateCallWrite<TPrepared,T>(HttpContext c,PreviewSession session,FuturesReadRequest context,string permission,
+    Func<NpgsqlConnection,PreviewData,InputFrame,CancellationToken,Task<TPrepared>> prepare,Func<NpgsqlConnection,InputFrame,TPrepared,CancellationToken,Task<T>> write)
+{
+    if(Pin(session).Context is not null||context is null||context.KnowledgeMode!="current")
+        throw new MarketDataException("historical_read_only","Return to working data before booking or marking a heat-rate call option.");
+    var profile=Profile(session);
+    var selected=await database.WithIdentity(profile,permission,async(connection,ct)=>
+    {
+        var pin=Pin(session,context.SnapshotId);
+        if(pin.Context is not null)throw new MarketDataException("historical_read_only","Use the selected working financial snapshot.");
+        var view=await TradingView.Capture(connection,new KnowledgeStore(database.Manifest.CatalogId),pin.RequireFrame(),ct);
+        await view.Bind(connection,database.Manifest.CatalogId,ct);
+        var frame=view.CalculationFrame;await TradingContext.Bind(connection,database.Manifest.CatalogId,frame,view.Context,ct);
+        using var visibility=new AsyncReadVisibility();
+        var data=await MarketInputSelection.Root(database,connection,frame,ct,referenceScope:ReferenceReadScope.AllVisible,includeCalendarDays:true);
+        var prepared=await prepare(connection,data,frame,ct);
+        await visibility.Seal().Require(connection,ct);return (Prepared:prepared,Frame:frame);
+    },c.RequestAborted);
+    return await database.WithIdentity(profile,permission,(connection,ct)=>write(connection,selected.Frame,selected.Prepared,ct),c.RequestAborted);
+}
+api.MapPost("/heat-rate-calls/book",(HttpContext c,HeatRateCallBookRequest body)=>Locked(c,async session=>Results.Ok(
+    await HeatRateCallWrite(c,session,body.Context,"BookTrade",
+        async(connection,data,frame,ct)=>await heatRateCalls.Replay(connection,body,ct) is {} receipt?(Receipt:receipt,Prepared:(HeatRateCallPrepared?)null):
+            (Receipt:(HeatRateCallReceipt?)null,Prepared:await heatRateCalls.Prepare(connection,data,frame,body,ct)),
+        async(connection,frame,prepared,ct)=>prepared.Receipt??await heatRateCalls.Save(connection,frame,body,prepared.Prepared!,ct)))));
+api.MapPost("/heat-rate-calls/status",(HttpContext c,HeatRateCallStatusRequest body)=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>
+    {
+        if(Pin(session).Context is not null)throw new MarketDataException("historical_read_only","Recover booking outcomes from current working data.");
+        return Results.Ok(await heatRateCalls.Status(connection,body,ct));
+    },c.RequestAborted)));
+// A mark takes effect at the selected working snapshot's instant. Marking needs no trade access, so it captures no trading view.
+api.MapPost("/spread-marks/record",(HttpContext c,SpreadMarksRecordRequest body)=>Locked(c,async session=>
+{
+    if(Pin(session).Context is not null||body.Context is null)throw new MarketDataException("historical_read_only","Return to working data before marking.");
+    var frame=Pin(session,body.Context.SnapshotId).RequireFrame();
+    return Results.Ok(await database.WithIdentity(Profile(session),null,(connection,ct)=>heatRateCalls.RecordMarks(connection,frame,body,ct),c.RequestAborted));
+}));
+Task<IResult> HeatRateCallRead(HttpContext c,FuturesReadRequest context,Func<NpgsqlConnection,TradingView,CancellationToken,Task<object>> work)=>TradingRead(c,
+    context??throw new MarketDataException("heat_rate_call_terms","Select the shared financial context."),async(connection,view,ct)=>
+    {
+        using var visibility=new AsyncReadVisibility();
+        var result=await tradeReads.ReadBound(connection,view,()=>work(connection,view,ct),ct);
+        await visibility.Seal().Require(connection,ct);return result;
+    },expectedConvention:HeatRateCallStore.Convention);
+api.MapPost("/spread-marks/read",(HttpContext c,SpreadMarksReadRequest body)=>HeatRateCallRead(c,body.Context,
+    async(connection,_,ct)=>await heatRateCalls.ReadMarks(connection,body,ct)));
+api.MapPost("/heat-rate-calls/get",(HttpContext c,HeatRateCallReadRequest body)=>HeatRateCallRead(c,body.Context,
+    async(connection,view,ct)=>await heatRateCalls.Read(connection,view.CalculationFrame,body.TradeId,ct)));
 
 api.MapPost("/futures/catalog",(HttpContext c,FuturesReadRequest body)=>FuturesRead(c,body,futuresStore.Catalog));
 api.MapPost("/futures/amend-preview",(HttpContext c,FuturesAmendRequest body)=>FuturesRead(c,new(body.SnapshotId,body.Convention,body.KnowledgeMode),

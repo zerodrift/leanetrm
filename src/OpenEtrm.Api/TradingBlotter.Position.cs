@@ -69,6 +69,11 @@ public sealed partial class TradingBlotter
     var recRows=new List<JsonObject>();await foreach(var unit in rec.Units(ct))recRows.AddRange(unit);
     rows=[..recRows];
     break;
+   case HeatRateCallPositions.Type:
+    var heatRateCall=await HeatRateCallBlotter.Run(connection,database,frame,[],[],ct,selected);
+    var heatRateCallRows=new List<JsonObject>();await foreach(var unit in heatRateCall.Units(ct))heatRateCallRows.AddRange(unit);
+    rows=[..heatRateCallRows];
+    break;
    default:throw TradePositionSelection.Unavailable();
   }
   var matching=rows.Where(r=>Guid.Parse(r["tradeId"]!.GetValue<string>())==selected.TradeId&&

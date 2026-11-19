@@ -160,6 +160,8 @@ def run_checks(url, query, manifest):
         ('solar',booked_solar,500,{'payment_energy':500})])
     from check_rec_http import run_checks as check_recs
     rec=check_recs(client,query,manifest)
+    from check_heat_rate_call_http import run_checks as check_heat_rate_calls
+    check_heat_rate_calls(client,query,manifest)
     anonymous = PreviewClient(url)
     anonymous.bootstrap()
     anonymous.call(route + 'catalog', {'snapshotId': frame}, expected=403)
