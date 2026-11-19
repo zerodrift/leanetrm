@@ -29,13 +29,24 @@ listed limit is configurable or that a release has been qualified.
   reload. Financial context, permissions and values cannot be preference fields.
   An unsupported browser time zone is explained and requires explicit selection
   before saving a replacement. Old local-storage preferences are not imported.
-- Required `limits` in `host.json` uses `bounded_process_limits_v1`.
+- The example host selects `bounded_process_limits_v2` in `host.json` under `limits`.
   [The example](../deploy/process-limits.example.json) states the synthetic
   baseline explicitly. API request/body/session/sign-in/hash/agent/provider
   consumers use it. Bootstrap supplies client request deadlines and the semantic
   SHA-256 configuration identity. A fixed startup guard precedes bootstrap only.
   Page admission is atomic; logout releases capacity and a full hosted registry
   reclaims only sign-ins verified ended by the database.
+- Version 2 requires an integer `previewRecipeSampleReferences` for custom-curve
+  preparation. An operator can lower it in the host limits or in the standalone
+  preview's process-limits file. Startup checks it against the positive range in
+  the [versioned engine policy](../src/OpenEtrm.MarketData/CustomCurves/recipe-preparation-v1.json).
+  Existing version 1 settings keep their original configuration digest and
+  preparation allowance. Retained valuation and risk replay use the versioned
+  engine allowance independently of the current host setting.
+- This budget counts references while preparing a recipe's panels. Two branches
+  that consume the same samples still count both uses. The check can follow
+  database reads for selecting the inputs. It applies to draft, saved and
+  effective custom previews and custom-curve priceability on the dates strip.
 - Protected connection files require explicit `Timeout`, `Command Timeout` and
   `Maximum Pool Size`. API/worker preserve selected values within their qualified
   ceilings using `OpenEtrm.Shared.Configuration.ConnectionBudget`. UTC remains a
@@ -205,7 +216,7 @@ memory or work on untrusted input), *storage* (a stored field's length) or
 | Calendars and dates | `RateCurveMath.cs`; `PaymentRules.cs:13-58`; `MonthlySwaps.cs:13`; `FinancialSwaps.cs:84-108`; `DiscountInterpolation.cs:10`; `MonthlyDates.cs:17`; `DateRolling.cs:30`; `DateWorkspace.cs:52-65`; `PowerHours.cs:70-74`; `ContractSequence.cs:28`; `security.swap_*` functions | years 1901–2199; 36,600 calendar days; 1,200 or 120 months; 366 days; 3,660 calendar days; ±10,000 business days | Fixed: domain and contract |
 | Interval data | `IntervalPrices.cs:15`; `IntervalSeries.cs:14`; `IntervalCurvesStore.cs:35`; `IntervalData.cs:12`; `PowerSettlement.cs:33`; `AssetVolumes.cs:59-71`; `market_data.open_interval_series_read`, `append_interval_series_revision` | 35,136 intervals; 200,000 per revision; 31-day reads; 110,000 periods | Fixed: contract |
 | Exact numbers | `ExactDecimal.cs:18-71`; `ExactQuantity.cs:23`; `ExactRatio.cs:16`; `AmountFormat.cs:19-53`; `SignedRatio.cs:61`; `RecipeModel.cs:66`; numerator and denominator checks | 18 places, 4,096 bits, 10⁴², 1,234 digits | Fixed: domain (P15) |
-| Curve recipes | `RecipeEngine.cs:31-264`; `RecipeFormula.cs:12-57`; `RecipePanels.cs:27`; `ConnectedRecipe.cs:65-296`; `CustomCurves.cs:113-334`; `CustomCurves.Connected.cs:104`; `CustomCurves.Published.cs:31`, `:58`; `CurveLookup.cs:12-29`; `security.publish_custom_curve_activation`; `custom_curve_*` checks | 50,000 work units, 64 nodes, 16,384-character formulas, depth 32, 120 positions, 366 dates, 16,384 contracts | Fixed: contract |
+| Curve recipes | `RecipeEngine.cs:31-264`; `RecipeFormula.cs:12-57`; `RecipePanels.cs:27`; `ConnectedRecipe.cs:65-296`; `CustomCurves.cs:113-334`; `CustomCurves.Connected.cs:104`; `CustomCurves.Published.cs:31`, `:58`; `CurveLookup.cs:12-29`; `security.publish_custom_curve_activation`; `custom_curve_*` checks | up to 50,000 cumulative sample references, 64 nodes, 16,384-character formulas, depth 32, 120 positions, 366 dates, 16,384 contracts | Configurable preview reference budget within the versioned engine envelope. Other entries are contract bounds. |
 | Risk scenarios | `CurveScenarios.cs:26-56`; `DealRisk.cs:37`; `RiskEngine.cs:132`; `PortfolioRiskPreview.cs:89-91`; `GraphSession.cs:30`; `SwapDraft.cs:82`; `FuturesDraft.cs:39` | 16 bumps, 4,096 shifts, depth 64, 128 factors, 16 portfolios | Fixed: contract |
 | Futures and books | `Futures.cs:191-249`; `BookValuation.cs:219`; `FuturesBlotter.cs:44`; `ClosePortfolioValuation.cs:60`; `PortfolioValuation.cs:160`; `security.prepare_futures_binding` | 100,000 lots, trades and positions; 128 books; 256 rows | Fixed: contract |
 | Units and formats | `UnitConversion.cs:27`; `UnitOperations.cs:45-50`; `security.save_trade_amount_format`; `presentation.trade_amount_formats` check | 256 definitions, 1,024 conversions, 18 places | Fixed: contract |

@@ -88,7 +88,7 @@ public sealed partial class CurveModel
                 if(use!=InputUse.Variable)throw new MarketDataException("unsupported_expiry","Composite final settlements are not implemented.");
                 CurvePointReference Dependency(InputSlot slot)
                 {
-                    var input=curve.Inputs.Single(i=>i.Slot==slot);var sourceKey=mappingSources[(request.Curve,slot,request.Contract)];
+                    var input=curve.Inputs.Single(i=>i.Slot==slot);var sourceKey=MappedSource(request,slot);
                     var source=contracts[sourceKey];
                     var sourceUse=snapshot.ValuationAt<source.Expiry?InputUse.Variable:
                         input.ExpiryRule==SourceExpiryRule.FreezeFinalFuture?InputUse.FrozenFact:

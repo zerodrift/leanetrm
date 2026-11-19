@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using OpenEtrm.MarketData.CustomCurves;
 
 namespace OpenEtrm.Api;
 
@@ -9,6 +10,11 @@ public sealed record ProcessLimits(string Implementation,int RequestSeconds,int 
     int RequestBytes,int IntervalRevisionBytes,int PageSessions,int SignInAttemptsPerMinute,int PasswordHashers,int AgentConnections,
     int ProviderConnectSeconds,int ProviderIdleSeconds,int ProviderResponseBytes)
 {
+    [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]
+    public int? PreviewRecipeSampleReferences{get;init;}
+    [JsonIgnore] public int RecipePreviewBudget=>Implementation=="bounded_process_limits_v1"
+        ?RecipeEngine.MaximumSampleReferences:PreviewRecipeSampleReferences??throw new InvalidOperationException("Supply limits.previewRecipeSampleReferences.");
+
     public static ProcessLimits Read(string path)
     {
         var value=JsonSerializer.Deserialize<ProcessLimits>(File.ReadAllText(path),new JsonSerializerOptions{PropertyNameCaseInsensitive=true})
@@ -17,7 +23,11 @@ public sealed record ProcessLimits(string Implementation,int RequestSeconds,int 
     }
     public void Validate()
     {
-        if(Implementation!="bounded_process_limits_v1")throw new InvalidOperationException("Select limits implementation bounded_process_limits_v1.");
+        if(Implementation is not ("bounded_process_limits_v1" or "bounded_process_limits_v2"))
+            throw new InvalidOperationException("Select a supported process limits implementation.");
+        if(Implementation=="bounded_process_limits_v1"&&PreviewRecipeSampleReferences is not null||
+            RecipePreviewBudget<=0||RecipePreviewBudget>RecipeEngine.MaximumSampleReferences)
+            throw new InvalidOperationException($"Select bounded_process_limits_v2 and supply limits.previewRecipeSampleReferences between 1 and {RecipeEngine.MaximumSampleReferences}.");
         foreach(var (name,value,min,max) in new[]{
             ("requestSeconds",RequestSeconds,1,15),("extendedRequestSeconds",ExtendedRequestSeconds,1,20),
             ("responseGraceSeconds",ResponseGraceSeconds,1,5),("requestBytes",RequestBytes,1024,32768),

@@ -89,6 +89,28 @@ internal static class ConnectedRecipeChecks
         Equal("Explicit multi-source contract weights normalize once",weightedPrice.Numerator,"57");
         Equal("Weighted source prices retain exact denominator",weightedPrice.Denominator,"2");
         var connected=RecipeEngine.Connect(definition,inputs,identity,bindings,context);
+        var exactBudget=RecipeEngine.Connect(definition,inputs with{SampleReferenceLimit=bindings.Length},identity,bindings,context);
+        Equal("An exact preparation budget preserves the declaration",exactBudget.Declaration.ManifestId,connected.Declaration.ManifestId);
+        try
+        {
+            RecipeEngine.Connect(definition,inputs with{SampleReferenceLimit=bindings.Length-1},identity,bindings,context);
+            throw new Exception("A smaller selected sample budget admitted all three dates.");
+        }
+        catch(MarketDataException error)when(error.Code=="recipe_input"&&error.Message.Contains("limit")){}
+        var receipt=connected.Declaration;
+        var expectedManifest=receipt.ManifestId;
+        var allocated=GC.GetAllocatedBytesForCurrentThread();
+        for(var read=0;read<32;read++)
+            if(receipt.ManifestId!=expectedManifest)throw new Exception("Reading an immutable recipe changed its identity.");
+        Equal("Reading a derived identity again allocates no memory",GC.GetAllocatedBytesForCurrentThread()-allocated,0L);
+        var renamed=receipt with{Definition=receipt.Definition with{Name="Changed declaration é <&>"}};
+        foreach(var declaration in new[]{receipt,renamed})
+        {
+            var expected=System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new{Declaration=declaration.Canonical});
+            var actual=System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new{Declaration=declaration.PlanEvidence});
+            Equal("Cached declaration evidence preserves every serialized byte",actual.AsSpan().SequenceEqual(expected),true);
+        }
+        Equal("A record copy recomputes its own manifest",renamed.ManifestId!=expectedManifest,true);
         WeightedPanelChecks.Run(connected,definition,inputs,bindings,context,f.S(1),f);
         PublishedRecipeChecks.Run(connected,context,f.S(1));
         var plan=ConnectedCurves.Compile(connected.Definitions,connected.Outputs.Select(o=>o.Point).ToImmutableArray(),context,new Visible());

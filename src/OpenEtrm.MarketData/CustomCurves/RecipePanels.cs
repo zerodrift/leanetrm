@@ -38,7 +38,7 @@ public static partial class RecipeEngine
     }
     // Pair complete symbolic outputs by explicit delivery boundaries. Price
     // evaluation stays in the connected plan; no value buffer is constructed.
-    private static Panel CombinePanels(RecipeNode node,IReadOnlyDictionary<string,Panel> panels,DateOnly contextDate,CancellationToken cancellation,ref int work)
+    private static Panel CombinePanels(RecipeNode node,IReadOnlyDictionary<string,Panel> panels,DateOnly contextDate,CancellationToken cancellation,PreparationBudget budget)
     {
         var inputs=node.PanelWeights.OrderBy(w=>w.SourcePort,StringComparer.Ordinal).Select(w=>
         {
@@ -56,8 +56,7 @@ public static partial class RecipeEngine
             cancellation.ThrowIfCancellationRequested();var cells=inputs.Select(p=>p.Cells[period]).ToArray();
             if(cells.Select(c=>c.Unit).Distinct().Count()!=1)throw Missing("Combined curves require identical currency, quantity and quote multiplier.");
             var references=cells.Sum(c=>(long)c.Inputs.Length);
-            if(references>50000-work)throw Missing("The recipe exceeds its 50,000 cumulative sample-reference preparation limit.");
-            work+=(int)references;
+            budget.Consume(references);
             result.Add(new Cell(result.Count+1,cells.SelectMany(c=>c.Dates).Distinct().Order().ToImmutableArray(),contextDate,cells[0].Unit,
                 cells.SelectMany(c=>c.Inputs).ToImmutableArray(),new(node.Id,result.Count,null,cells.Select(c=>c.Formula).ToImmutableArray(),
                     inputs.Select(p=>p.Weight).ToImmutableArray(),node.Parameters["aggregation"]),period.From,period.To));

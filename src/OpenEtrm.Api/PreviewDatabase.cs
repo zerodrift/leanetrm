@@ -129,6 +129,7 @@ public sealed partial class PreviewDatabase : IAsyncDisposable
     private readonly bool ownsSources=true;
     private readonly string runtimeLogin;
     private readonly Func<string>? hostedSession;
+    internal int RecipePreviewBudget{get;}=OpenEtrm.MarketData.CustomCurves.RecipeEngine.MaximumSampleReferences;
     public PreviewManifest Manifest { get; }
     internal Func<AssistantInvocation?>? AssistantRequest {get;set;}
     public OpenEtrm.MarketData.Calculation.ConnectedCalculationCache Calculations {get;}=new(16,250_000);
@@ -187,6 +188,7 @@ public sealed partial class PreviewDatabase : IAsyncDisposable
     public PreviewDatabase(string root,string manifestName="manifest.json", HostedConfiguration? hosted=null,Func<string>? hostedSession=null)
     {
         var processLimits=hosted?.Limits??ProcessLimits.Read(Path.Combine(root,"process-limits.json"));
+        RecipePreviewBudget=processLimits.RecipePreviewBudget;
         if(manifestName is not ("manifest.json" or "exchange-manifest.json"))throw new InvalidOperationException("Choose a configured preview manifest.");
         Manifest = JsonSerializer.Deserialize<PreviewManifest>(File.ReadAllText(Path.Combine(root, manifestName)),
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? throw new InvalidOperationException("Missing preview manifest.");

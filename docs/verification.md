@@ -256,6 +256,82 @@ The complete CI matrix, hosted deployment and curve-click timing, broad
 concurrency/memory capacity, page request sizing and evaluation payload reduction
 are not qualified by these measurements.
 
+## Nested custom-curve previews
+
+Local comparison on 2026-11-18 against master at `6fbda875`. Each build served
+its own disposable, equally seeded database on loopback. The synthetic market
+contained 3,031 contracts, including four added products with 750 contracts each,
+32 daily closes and 20,576 added observations. Each custom curve returned 76
+delivery periods. Both processes used Release builds on the same Apple M4 Pro
+with 48 GiB RAM, macOS 26.6.2, .NET SDK 10.0.402 and PostgreSQL 18.7.
+
+The table measures the authenticated preview HTTP request through receipt and
+JSON decoding. Each workload had one warm-up and three timed requests per build
+with alternating execution order. Times are medians, with the observed range in
+parentheses, in milliseconds. Both builds returned the same displayed rows and the
+same dated contract IDs and exact input prices for all six workloads.
+
+| Workload | Input rows | Master ms | Changed ms |
+| --- | ---: | ---: | ---: |
+| Direct source, context date | 76 | 230 (227–230) | 174 (172–175) |
+| Native base plus basis, context date | 76 | 433 (428–441) | 175 (172–176) |
+| Direct source, 30-date mean | 2,280 | 1,332 (1,298–1,366) | 333 (324–340) |
+| Native base plus basis, 30-date mean | 2,280 | 7,560 (7,550–7,601) | 459 (457–470) |
+| Four levels of published recipes | 304 | 1,405 (1,404–1,444) | 299 (298–314) |
+| Two published 30-date means combined | 4,560 | 2,512 (2,470–2,550) | 523 (511–524) |
+
+The repository's smaller 12-contract, 20-date rolling average issued 20
+historical observation statements per request on master and one on the changed
+build in all three repetitions. Its median fell from 223 to 84 ms. The owned
+`--custom-curves-check` enables statement logging and checks that count. It also
+selects a 240-reference preview budget, admits the original recipe, and refuses
+a weighted panel that consumes the samples twice.
+
+An independent in-process comparison evaluated 76 outputs in a base scenario
+and a single primitive shock. Timings below cover preparation, compilation,
+base valuation and extraction of its inputs. Two process launches per build
+supplied four warmed measurements per workload with .NET tiered compilation
+disabled and the application numeric memo enabled. Memory is managed allocation
+per operation. The four custom workloads used 380, 684, 1,292 and 304 distinct
+primitive contracts respectively. The native control builds the native curve and its lineage.
+The runs compared full plan and scenario IDs, exact base and shocked prices and
+fingerprints of dated input prices, observation IDs and factors for custom graphs.
+
+| Workload | Evaluated graph nodes | Master ms | Changed ms | Master → changed allocation |
+| --- | ---: | ---: | ---: | ---: |
+| Four-level chain | 1,368 | 182 | 34 | 128 → 30 MiB |
+| Eight-level chain, 3,650 calendar dates | 2,584 | 2,482 | 156 | 925 → 97 MiB |
+| Sixteen-level chain | 5,016 | 1,528 | 159 | 1,054 → 142 MiB |
+| Four-wide shared graph, seven levels | 5,016 | 3,424 | 157 | 2,349 → 140 MiB |
+| Native four-level control | 684 evaluations | 17.6 | 17.6 | 15 → 15 MiB |
+
+All measured fingerprints matched. A separate deterministic run of the same
+recipe, contract-observation and date-lookup fixtures on both builds produced
+39 identical full plan hashes, including date-point plans. The managed suite and
+owned HTTP suites also exercised exact final pins, missing and corrected inputs,
+effective and known times, publication authority and retained worker replay.
+The managed core (785 checks), custom preview, contract-observation and connected
+portfolio/worker suites passed again after bringing the change onto master
+`7f202f1e`. An empty historical demand also has a regression check that
+requires the original no-SQL path.
+
+With the repository SDK and PostgreSQL 18 utilities on the path, run the
+repository checks with these commands.
+
+```sh
+dotnet run -c Release --project tests/OpenEtrm.MarketData.Checks -- --connected-recipes
+dotnet run -c Release --project tests/OpenEtrm.Api.Checks -- --contract-observation-reads
+pg_bin="$(pg_config --bindir)"
+dotnet_bin="$(command -v dotnet)"
+python3 tools/run_preview.py --dotnet "$dotnet_bin" --pg-bin "$pg_bin" --custom-curves-check
+python3 tools/run_preview.py --dotnet "$dotnet_bin" --pg-bin "$pg_bin" --contract-observation-curve-check
+python3 tools/run_preview.py --dotnet "$dotnet_bin" --pg-bin "$pg_bin" --connected-portfolio-check
+```
+
+These timings describe warmed synthetic server previews on a shared machine.
+Browser rendering, cold load, concurrent-user p95, peak process memory,
+hourly interval curves and production latency were outside this measurement.
+
 ## Current runner
 
 For the current complete command and prerequisites, start with
