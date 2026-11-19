@@ -1,5 +1,25 @@
 # Current implementation record
 
+## Structured trades and historical replay
+
+To book a thermal toll, choose the contract that matches its terms under
+**New trade → Structured**. **Operating right** opens the facility workflow for
+a supplied-plan toll, battery or solar right. **Heat-rate call option** books daily exercises and
+values the remaining strip before the first exercise using power and fuel forwards
+and explicit spread-option marks. See [operating rights](structured-power-trading.md)
+and [heat-rate calls](heat-rate-call-option.md).
+
+**Gas storage** books a commercial entitlement with daily ratchets, fuel and
+charges. A desk can record a feasible plan or request a proposal at selected
+forward prices. Booking alone supplies no injection or withdrawal schedule.
+The booked contract supports valuation before its first gas day. Facility
+allocation, actual flows and settlement remain open. See [gas storage](gas-storage-contract.md).
+
+Migration `0372` preserves the correction history for both spread-option marks
+and gas storage plans. A fresh request recording a superseded fact at its original
+effective time returns its earliest matching revision and leaves the correction
+in force. Retrying the original request returns its recorded outcome.
+
 ## Park and Loan commercial profile (D406)
 
 The [first Park and Loan profile](gas-park-loan.md) books explicit title-transfer
@@ -17,8 +37,9 @@ scenarios. Nine actual queued jobs, including selected-trade scope, match comple
 ordinary and retained reports. Worker readers preserve exact source and scope,
 original actor authority and current worker permissions. Economic continuation
 of an unadvanced or source-known future agreement refuses until separately
-qualified. Principal and fee-determination reconciliation, upfront fees, custody
-profiles, broader return terms and other gas services remain work.
+qualified. The later [balance-fee](gas-park-loan-balance-fee.md) and
+[retained-title custody](gas-park-custody.md) profiles document their own cash
+and principal terms. Upfront fees and broader return terms remain open.
 
 Local checks include 68 real application browser assertions, 20 independent native
 whole-book PV/scenario checkpoints and a populated schema upgrade with nine
@@ -29,7 +50,7 @@ used for this qualification.
 
 ## Asynchronous workbench reads (D404)
 
-The main application delivers 25 selected curve, trading and Risk reads through
+The main application delivers 18 named curve, trading, Risk and Options reads through
 HTTP admission and correlated SSE completion when bootstrap advertises
 `async_reads_v1`. Views track their own progress and discard superseded results;
 commands, retained job admission and progressive trade rows keep their existing
@@ -39,9 +60,9 @@ admission fence for requests not yet admitted.
 
 Local qualification covers ordinary-HTTP/SSE financial parity, separate database
 sessions, navigation during held replies, hosted sign-in expiry, duplicate Live
-generations and obsolete Risk display outcomes. Current frontend and Python suites
-passed 1,866 and 122 checks respectively. This establishes correctness for the
-named consumers, not production throughput or universal page coverage. See
+generations and obsolete Risk display outcomes. At the D404 checkpoint, the
+frontend and Python suites passed 1,866 and 122 checks respectively. Those
+checks exercise the named consumers. Production throughput remains unmeasured. See
 [the transport contract](async-reads.md) and [verification](verification.md).
 
 ## Explicit Side calendars and payment days (D403)
@@ -243,9 +264,10 @@ rights. Node availability requires both explicit identity permission and an
 installation operator registration. The worker stack is separately configurable.
 
 Synthetic Docker responses exercise approved digest/platform launch, strict
-service/task identity, unknown outcomes and individual cleanup. Real Engine
-execution and recovery remain unqualified. Retained financial risk-job contexts
-and workers are implemented as described in [risk](risk-engine.md). Broader
+service/task identity, unknown outcomes and individual cleanup. A separate
+[managed risk pool exercise](managed-risk-pool.md#disposable-multi-node-qualification)
+verified placement, draining and lease recovery on a disposable Swarm. The
+[risk engine](risk-engine.md) describes the financial context retained for each job. Broader
 scheduled financial operations and host management remain work. No runtime
 credentials or installation-specific configuration are seeded or included in
 this repository.
@@ -1725,10 +1747,11 @@ constraints, correction writes and both write/seal orderings at all three suppor
 isolation levels. No native database build is performed. Passing checks establish
 these bounded contracts, not a production application or performance benchmark.
 
-The current local verification result is 90 managed core checks, 29 rate checks and 173 combined
-database checks. Independent adversarial reviews covered the series/unit/history
+At this market-data checkpoint, 90 managed core checks, 29 rate checks and 173
+combined database checks passed. Independent adversarial reviews covered the series/unit/history
 boundary and SQL authorization/RLS. These numbers describe synthetic regression
-checks only. No deployment, commit or push has been performed.
+checks at that checkpoint. The [verification guide](verification.md#current-runner)
+describes the current suites.
 
 ## Disposable local market workbench
 

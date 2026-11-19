@@ -503,9 +503,10 @@ cancellation and security-generation rules; its actor needs `PublishMarketData`,
 /api/portfolio/risk/jobs` and the Risk page list portfolio risk jobs by convention,
 so fit jobs do not appear there. The Swarm
 stack in `deploy/risk-workers.swarm.yaml` places replicas on nodes explicitly
-labeled for risk and uses the exact API image. The shared infrastructure view is
-an approved node projection, not a risk-worker replica or queue-health monitor.
-Real Swarm deployment and recovery remain unqualified here.
+labeled for risk and uses the exact API image. Jobs & Infrastructure shows
+requested replicas, observed service replicas and worker heartbeats for a registered pool. A disposable three-VM Swarm exercised
+worker placement, drain and replacement, including completion of a reclaimed job
+with the same financial result. See [managed risk workers](managed-risk-pool.md).
 
 The page assistant has no general Python interpreter tool. A future code sandbox
 needs a separately agreed execution and isolation contract; the existing managed

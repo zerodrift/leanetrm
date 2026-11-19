@@ -1,11 +1,12 @@
 # Commercial gas storage contract (D432, D433)
 
-Status: a storage contract can be entered from New trade, booked, given a plan,
-valued and listed. Managed valuation and the plan search are checked locally;
-persistence and the HTTP operations are checked against a disposable database
-and preview. The ticket, both drawings and the propose and record flow were
-looked at once by hand in a browser against the synthetic preview. There is no facility link, discounting, measured flow or settlement yet; see
-[Remaining work](#remaining-work). Nothing here is qualified for release.
+Open **New trade → Structured → Gas storage** to book a contract. In its
+Blotter detail, **Propose plan** searches at the selected forward prices.
+Review the inventory path and choose **Record as plan** to use it for valuation.
+The API also accepts a supplied plan. Managed, database and HTTP checks cover
+these operations. The ticket, charts and proposal workflow have had a manual
+browser check. Facility allocation, discounting, measured flows and settlement
+remain open. See [verification](#verification) and [remaining work](#remaining-work).
 
 ## Contract and facility
 

@@ -168,8 +168,9 @@ lifecycle browser regressions pass 72 and 185 checks respectively.
 
 Complete economic horizon risk, generated closes, cross-clock P&L, quantity
 scaling, loss application and correction adapters remain explicitly unqualified.
-Transport, commercial Storage and broader quantity rights have their own delivery
-work; these checks do not establish production activation.
+[Transport](gas-transport-financial.md) and [commercial storage](gas-storage-contract.md)
+have separate booking and valuation contracts. Broader custody quantity rights
+remain open.
 
 Saved custody tickets admit identity-only assistant questions. A financial
 assistant trade read remains unqualified and refuses explicitly.

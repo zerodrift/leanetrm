@@ -1,11 +1,11 @@
 # Architecture and domain contracts
 
-D432 adds a commercial [gas storage contract](gas-storage-contract.md) at the
-managed level. The contract owns its entitlement and daily ratchets, separately
-from the physical facility. A supplied daily plan is checked exactly and yields
-typed quantities for the existing resource right. D433 can propose a plan from
-stated daily prices by exact, bounded lattice search; a proposal changes no
-valuation until it is supplied as a plan.
+The commercial [gas storage contract](gas-storage-contract.md) owns its entitlement
+and daily ratchets independently of the physical facility (D432). Booking retains
+the contract and its gas days. A supplied plan must satisfy the ratchets and
+inventory limits before its flows can be valued. D433 can propose a plan from
+stated daily prices by bounded lattice search. Recording the plan makes it
+available to the booked position.
 
 D431 adds a managed [heat-rate call option](heat-rate-call-option.md): one option
 Side holding explicit daily exercises, valued as spread calls from the scenario's
@@ -2947,7 +2947,9 @@ They do not supply the application's business authority or exactly-once effects.
 
 Required end-state behavior. Shared approved node status and typed availability
 commands are implemented under the [bounded automation contract](automation.md).
-Real Swarm enforcement/recovery, host operations and deployment remain unqualified.
+A disposable three-VM Swarm verified placement, resource limits, drain and worker
+replacement for the [registered risk pool](managed-risk-pool.md). General node
+maintenance, host recovery and deployment qualification remain open.
 A shared Jobs & Infrastructure view is available to all authenticated application
 members in ordinary navigation. Shared status exposes approved node labels,
 readiness, availability, resource capacity and aggregate workload/maintenance

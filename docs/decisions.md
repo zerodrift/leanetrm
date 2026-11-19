@@ -8,7 +8,9 @@ Numbering note: two retained records use D271: the Blotter page-report layout in
 the requirements table (see [Blotter workbench](blotter-workbench.md)) and the
 later [fixed-volume physical crude decision](#d271--fixed-volume-physical-crude).
 References must include the subject to distinguish them; the two contracts are
-independent.
+independent. Two later records also share D429. Use the subject when citing
+[curve catalog hydration and read serialization](#d429--separate-curve-catalog-hydration-and-bound-read-serialization)
+or the [registered risk worker service](#d429--manage-a-registered-risk-worker-service-from-jobs).
 
 ## D369 — One catalogue, independent regional close sessions
 

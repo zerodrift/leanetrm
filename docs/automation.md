@@ -1,8 +1,10 @@
 # Jobs, workers and infrastructure
 
-Status: bounded local implementation. Real Docker Swarm execution, recovery and
-production deployment have not been qualified. This document describes the
-implemented slice of the broader [execution contract](architecture.md#11-durable-execution-and-failure-semantics).
+Jobs & Infrastructure manages scheduled jobs and, when registered, a risk
+worker pool. The pool has been exercised on a disposable three-VM Swarm,
+including drain and worker replacement. Target-host capacity and production
+deployment still require qualification. See the [risk pool results](managed-risk-pool.md#disposable-multi-node-qualification)
+and the [execution contract](architecture.md#11-durable-execution-and-failure-semantics).
 
 ## Implemented operations
 
@@ -310,7 +312,7 @@ controls. Stack rendering checks use no daemon and establish configuration only.
 Run these through `tools/check_all.py`; `tools/check_deployment.py` also validates
 the Swarm template. No existing application/database/Swarm is used for testing.
 
-Remaining work includes real disposable Swarm failure/recovery qualification,
+Remaining work for general automation jobs includes Swarm failure and recovery,
 host reboot and Docker Engine restart through an explicitly selected management
 provider, full agent/provider execution and scoped tool-credential exchange,
 child-agent ancestry/budget enforcement, broader recurrence/calendar authoring,

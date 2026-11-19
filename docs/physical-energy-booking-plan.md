@@ -19,8 +19,10 @@ operational settlement. Bounded [physical gas booking](physical-gas-side.md),
 [daily quantity revisions](physical-gas-daily-quantities.md),
 [manual gas operations](gas-delivery-operations.md) and bounded
 [final daily cash determinations](gas-cash-billing.md) are implemented. Gas
-invoicing/payment execution, broader physical completion and standalone physical
-power booking remain work. [PPA booking](demo-instruments.md), bounded
+invoicing/payment execution and broader physical completion remain work.
+[Booked physical power](power-curve-composition.md) supports fixed and shaped
+hourly quantities. [Operating rights](structured-power-trading.md) have a
+separate supplied-plan booking contract. [PPA booking](demo-instruments.md), bounded
 [physical crude booking/operations](physical-crude.md) and
 [LNG cargo booking/pre-delivery valuation](physical-lng.md) have separate contracts.
 These physical workflows are not prerequisites for financial gas swaps or
@@ -48,7 +50,9 @@ nomination/confirmation, measurement basis and any consumed quality/conversion
 inputs. Energy and standard-volume quantities need an explicit versioned
 conversion relationship with units and effective/knowledge coordinates. Neither a
 unit label nor a price curve supplies calorific value, shrinkage, balancing or
-transport terms. Storage/transport optimization is a later consumer.
+transport terms. The [commercial storage proposal](gas-storage-contract.md#proposed-plan-d433)
+uses a bounded inventory lattice. Rolling re-optimization and Transport
+optimization remain open.
 
 Both products need an explicit lifecycle for obligation acceptance, measurement
 finality, cash determination, invoice/settlement acceptance and outstanding versus
