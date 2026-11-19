@@ -49,12 +49,13 @@ internal sealed partial class PointTraderMarkStore(PreviewDatabase database)
         if(string.IsNullOrWhiteSpace(owner)||owner!=await Owner(c,ct))
             throw new MarketDataException("point_trader_mark_owner_changed","Return to the original account to reconcile its retained market publication.");
     }
-    private async Task RequireContext(NpgsqlConnection c,PointTraderMarkContext context,CancellationToken ct)
+    private async Task<ScheduleContext> RequireContext(NpgsqlConnection c,PointTraderMarkContext context,CancellationToken ct)
     {
         if(context is null||context.ContextId==Guid.Empty||context.SnapshotId==Guid.Empty||context.BusinessDate==default||
             !TradingInstant.IsSupported(context.AsOf))throw Source();
         var known=(await new KnowledgeStore(Catalog).Read(c,context.ContextId,ct)).Context;
         if(PublishedSchedules.ContextDate(known)!=context.BusinessDate)throw Source();
+        return known;
     }
     private static JsonElement Body(PointTraderMarkWriteRequest request)=>JsonSerializer.SerializeToElement(new{
         request.Policy,request.Target,request.Value,request.Evidence,request.OriginalInputs},PointTraderMarkCommands.Json);
@@ -68,7 +69,8 @@ internal sealed partial class PointTraderMarkStore(PreviewDatabase database)
     {
         if(request is null||request.Source is not {} source)throw Source();
         await Capture(c,false,ct);
-        await RequireContext(c,request.Context,ct);
+        var known=await RequireContext(c,request.Context,ct);
+        if(known.ReadCut is {} cut)await cut.Bind(c,Catalog,known,ct);
         var filters=JsonSerializer.Serialize(new{request.CurveCode,request.ContractId,request.Search,request.Offset,request.Limit,
             request.QuoteFilter,request.Eligibility},PointTraderMarkCommands.Json);
         var setup=await Native(c,"SELECT security.point_trader_mark_setup($1,$2,$3,$4,$5,$6,$7::jsonb)::text",ct,
@@ -102,9 +104,19 @@ internal sealed partial class PointTraderMarkStore(PreviewDatabase database)
         var result=await Reply(c,request.OperationId,request.OwnerId,context,command,command,true,status.GetProperty("outcome"),ct);
         result["found"]=true;return result;
     }
-    private Task<JsonElement> RecordNative(NpgsqlConnection c,PointTraderMarkWriteRequest request,JsonElement command,CancellationToken ct)=>
-        Native(c,"SELECT security.record_point_trader_mark($1,$2,$3::jsonb,$4,$5)::text",ct,
+    private async Task<JsonElement> RecordNative(NpgsqlConnection c,PointTraderMarkWriteRequest request,JsonElement command,
+        ScheduleContext source,bool retry,CancellationToken ct)
+    {
+        // Publication needs current import authority and a durable FK to the displayed cut.
+        // Capture those exact coordinates in the producer's transaction or its preview savepoint.
+        if(!retry&&source.ReadCut is {} cut)
+        {
+            await using var capture=ScheduleStore.Command(c,"SELECT security.capture_date_context($1,$2,$3)",Catalog,request.Context.BusinessDate,cut.KnownAt);
+            if(await capture.ExecuteScalarAsync(ct) is not Guid retained||retained!=request.Context.ContextId)throw Source();
+        }
+        return await Native(c,"SELECT security.record_point_trader_mark($1,$2,$3::jsonb,$4,$5)::text",ct,
             Catalog,request.OperationId,command.GetRawText(),request.Context.ContextId,request.Context.AsOf);
+    }
     internal async Task<JsonObject> Execute(NpgsqlConnection c,PointTraderMarkWriteRequest request,bool preview,CancellationToken ct)
     {
         if(request is null||request.OperationId==Guid.Empty||request.Context is null)throw Source();
@@ -121,22 +133,24 @@ internal sealed partial class PointTraderMarkStore(PreviewDatabase database)
         database.RegisterCommitAdmission(c,new PointTraderMarkAdmission(Catalog,
             new(target.Id("definitionRevisionId"),target.Id("referenceCatalogId"),target.Id("referenceRevisionId")),true,bound.Until));
         await RequireOwner(c,request.OwnerId,ct);
-        await RequireContext(c,request.Context,ct);
+        var source=await RequireContext(c,request.Context,ct);
         if(command.GetProperty("target").Instant("observedAt")!=request.Context.AsOf)throw Source();
-        var prior=await NativeStatus(c,request.OperationId,ct);JsonElement outcome;
+        var prior=await NativeStatus(c,request.OperationId,ct);
+        var retry=prior.GetProperty("found").GetBoolean();
+        JsonElement outcome;
         if(preview)
         {
             await using(var save=ScheduleStore.Command(c,"SAVEPOINT point_trader_mark_preview"))await save.ExecuteNonQueryAsync(ct);
-            try{outcome=await RecordNative(c,request,command,ct);}
+            try{outcome=await RecordNative(c,request,command,source,retry,ct);}
             finally
             {
                 await using var restore=ScheduleStore.Command(c,"ROLLBACK TO SAVEPOINT point_trader_mark_preview;RELEASE SAVEPOINT point_trader_mark_preview");
                 await restore.ExecuteNonQueryAsync(CancellationToken.None);
             }
         }
-        else outcome=await RecordNative(c,request,command,ct);
+        else outcome=await RecordNative(c,request,command,source,retry,ct);
         return await Reply(c,request.OperationId,request.OwnerId,request.Context,raw,command,
-            prior.GetProperty("found").GetBoolean()||!outcome.GetProperty("changed").GetBoolean(),outcome,ct);
+            retry||!outcome.GetProperty("changed").GetBoolean(),outcome,ct);
     }
     private async Task<JsonObject> Reply(NpgsqlConnection c,Guid operation,string owner,PointTraderMarkContext context,
         JsonElement requested,JsonElement command,bool acknowledgement,JsonElement outcome,CancellationToken ct)

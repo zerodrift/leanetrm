@@ -19,6 +19,10 @@ Historical lifecycle discovery returned the requested close and cutoff with
 zero new context rows. Customer and provider gas-custody histories remained
 readable with the action forms disabled. The provider-only fixture also
 exercised this read without owned-inventory or bank-payment authority.
+Preparing and previewing an ordinary trader mark left all four financial
+context tables unchanged. Publication retained the displayed cutoff and
+domain prefixes. A fresh sign-in could recover the published observation
+after a later correction.
 
 The calendar suite runs with `tools/run_preview.py --market-dates-check`.
 It checks a real correction against independently resolved earlier and later
