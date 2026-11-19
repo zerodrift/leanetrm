@@ -1960,6 +1960,11 @@ Task<IResult> HeatRateCallRead(HttpContext c,FuturesReadRequest context,Func<Npg
     },expectedConvention:HeatRateCallStore.Convention);
 api.MapPost("/spread-marks/read",(HttpContext c,SpreadMarksReadRequest body)=>HeatRateCallRead(c,body.Context,
     async(connection,_,ct)=>await heatRateCalls.ReadMarks(connection,body,ct)));
+api.MapPost("/heat-rate-calls/catalog",(HttpContext c,FuturesReadRequest body)=>HeatRateCallRead(c,body,async(connection,view,ct)=>
+{
+    var frame=view.CalculationFrame;
+    return await heatRateCalls.Choices(connection,await MarketInputSelection.Root(database,connection,frame,ct,referenceScope:ReferenceReadScope.AllVisible),frame,ct);
+}));
 api.MapPost("/heat-rate-calls/get",(HttpContext c,HeatRateCallReadRequest body)=>HeatRateCallRead(c,body.Context,
     async(connection,view,ct)=>await heatRateCalls.Read(connection,view.CalculationFrame,body.TradeId,ct)));
 

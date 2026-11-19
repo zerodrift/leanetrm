@@ -22,6 +22,23 @@ def run_checks(client, query, manifest):
             shortMonth=None, adjustment='unadjusted', calendar=None, implementation='monthly_payment_date_rules_v1'))
     command = dict(context=context, operationId=str(uuid4()), bookId='d1000000-0000-0000-0000-000000000001', **trade_booking(),
         reason='Synthetic toll option', terms=terms)
+    # The ticket's choices offer every term the booking below states, and nothing is offered to an account that may not book.
+    choices = client.call('heat-rate-calls/catalog', context, timeout=60)
+    curves = {curve['code']: curve for curve in choices['curves']}
+    power, fuel = curves[terms['powerCurve']], curves[terms['fuelCurve']]
+    assert power['commodity'] != fuel['commodity'] and power['currency'] == fuel['currency'] and (power['quantityUnit'], power['priceUnit']) == ('MWh', 'USD/MWh'), (power, fuel)
+    assert dict(code=terms['capacityQuantity'], commodity=power['commodity'], unit='MW') in choices['capacityQuantities'], choices['capacityQuantities']
+    assert (choices['definitionRevisionId'], choices['referenceCatalogId'], choices['referenceRevisionId']) == \
+        (terms['definitionRevisionId'], terms['referenceCatalogId'], terms['referenceRevisionId']), choices
+    assert terms['clock'] in choices['clocks'] and terms['hours']['calendar'] in choices['calendars'] and terms['intervalMinutes'] in choices['intervalMinutes'], choices
+    assert choices['policies'] == dict(exerciseStyles=[terms['exerciseStyle']], models=[terms['model']], dayCounts=[terms['dayCount']],
+        exerciseRules=[terms['exerciseRule']['implementation']]), choices['policies']
+    assert choices['paymentOptions']['implementation'] == terms['paymentRule']['implementation'] and choices['memberships'] == ['all', 'peak', 'off'], choices
+    assert choices['canBook'] is True and command['bookId'] in [book['id'] for book in choices['books']] and choices['legalEntities'] and choices['counterparties'], choices
+    client.call('profile', {'profile': 'viewer'})
+    client.call('heat-rate-calls/catalog', context, expected=403, timeout=60)
+    client.call('profile', {'profile': 'trader'})
+    print('PASS heat-rate call HTTP: the ticket is offered exactly the terms a booking states, and booking only to an account that may book', flush=True)
     before = int(query('SELECT count(*) FROM trading.trades;'))
     for change, status in [(lambda t: t.update(model='another_model_v1'), 422), (lambda t: t.update(heatRate='0'), 422),
                            (lambda t: t.update(fuelCurve='local_power'), 422), (lambda t: t.update(deliveryTo='2021-02-01'), 422),

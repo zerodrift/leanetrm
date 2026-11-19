@@ -63,11 +63,11 @@ test('the instruments are grouped in the chooser\'s order',()=>{
   ['power','Power',['ppa','rec']],
   ['gas-lng','Gas & LNG',['gas','park-loan','lng']],
   ['oil-liquids','Oil & liquids',['crude']],
-  ['structured','Structured',['operating-right','transport','storage']]]);
+  ['structured','Structured',['operating-right','toll','transport','storage']]]);
 });
 
 test('every product is listed once and has a name',()=>{
- assert.equal(new Set(newProducts).size,newProducts.length);assert.equal(newProducts.length,10);
+ assert.equal(new Set(newProducts).size,newProducts.length);assert.equal(newProducts.length,11);
  assert.equal(productName('park-loan'),'Park and loan');assert.equal(productName('gas'),'Physical gas');
  assert.equal(productAbout('futures'),'An exchange contract with a defined expiry.');
 });
@@ -84,7 +84,7 @@ test('a window that opens only futures and swaps draws one group and no link or 
 
 test('an account that cannot open Operating facilities is not offered the operating right',()=>{
  const asked=[],structured=chooserGroups({...main,links:page=>{asked.push(page);return false;}}).find(g=>g.id==='structured');
- assert.deepEqual(structured.entries.map(e=>e.kind),['product','soon']);
+ assert.deepEqual(structured.entries.map(e=>e.kind),['product','product','soon']);
  assert.deepEqual(asked,['physical-power']);
 });
 

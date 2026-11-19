@@ -35,6 +35,7 @@ def run_checks(query,manifest):
 
     reject(f"SELECT security.heat_rate_call_booking_status('{catalog}','{uuid4()}');",'42501','viewer')
     query(trading_fixture(catalog))
+    assert query("SELECT assistant.is_prompt_page('blotter_new_heat_rate_call') AND NOT assistant.is_prompt_page('synthetic_unlisted_page');")=='t'
     assert runtime(f"SELECT security.heat_rate_call_booking_status('{catalog}','{uuid4()}');") in ('','null')
     reject('SELECT count(*) FROM trading.heat_rate_call_instruments;','permission denied')
     reject('SELECT count(*) FROM trading.heat_rate_call_exercises;','permission denied')

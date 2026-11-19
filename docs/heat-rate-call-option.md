@@ -1,10 +1,11 @@
 # Heat-rate call option (D430)
 
-Status: a heat-rate call option can be booked, marked, valued and listed through
-the API, and appears on the blotter with a read-only detail view. Managed
-valuation is checked locally; persistence and the HTTP operations are checked
-against a disposable database and preview. There is no entry ticket, premium or
-capacity-payment cash, exercise determination or settlement yet; see
+Status: a heat-rate call option can be entered from New trade, and booked,
+marked, valued and listed through the API; it appears on the blotter with a
+read-only detail view. Managed valuation is checked locally; persistence and the
+HTTP operations are checked against a disposable database and preview. There is
+no marks editor, premium or capacity-payment cash, exercise determination or
+settlement yet; see
 [Remaining work](#remaining-work). Nothing here is qualified for release.
 
 ## Contract
@@ -105,6 +106,7 @@ runtime and the read-only risk worker.
 
 | Route | Authority | Behavior |
 | --- | --- | --- |
+| `POST /heat-rate-calls/catalog` | `ReadTrades` | What the entry ticket chooses from under the selected working snapshot: outright curves with their commodity, currency and units, capacity quantities, clocks, calendars, published block products, payment conventions, the supported exercise, model, day-count and exercise-rule versions, and the booking directory. It states whether this account may book. |
 | `POST /heat-rate-calls/book` | `BookTrade` | Resolves the clock, hours block, calendars, payment rule and both curves under the selected working snapshot, expands the exercises and calls the native booking. A replayed command returns its first outcome. |
 | `POST /heat-rate-calls/status` | `ReadTrades` | The outcome of a booking command. |
 | `POST /heat-rate-calls/get` | `ReadTrades` | One booked option as the blotter lists it, with its exercises; valued, or with the reason it is not. |
@@ -118,6 +120,25 @@ directory, portfolio valuation and the blotter, under instrument type
 option is valued on its own; one without marks for every delivery month, or
 with an elapsed exercise day, is listed with that reason and no value. A
 portfolio valuation or risk run that includes such an option refuses instead.
+
+### Entry ticket
+
+New trade lists the option under Structured. The ticket has one field per row
+in stacked sections (contract, delivery, exercise, valuation, payment, trade)
+and offers only what the catalog returned. Nothing is preselected, including
+the single supported exercise style, model, day count and exercise rule: each
+is chosen and sent as stated. The page narrows lists from the catalog's own
+facts: a fuel curve is of another commodity in the power curve's currency, a
+capacity unit is of the power curve's commodity, and a block product is on the
+chosen clock. Buy or sell gives the sign of the capacity. Every other number is
+sent as entered for the booking to judge, and a refusal is shown in the
+backend's words. A request whose outcome is unknown is retained per person and
+can be checked or retried as sent, never edited. Premium, capacity payment and
+discounting are drawn as Coming soon and send nothing. The ticket does not
+preview the expanded exercise days before booking; the booked option's detail
+view lists them. While the ticket is open the assistant is told a heat-rate
+call option is being entered (page identity `blotter_new_heat_rate_call`,
+migration `0369_heat_rate_call_entry_page.sql`) and reads none of it.
 
 Booked options are valued undiscounted: no discount binding is retained with
 the option yet, and the valuation setup states that explicitly.
@@ -215,8 +236,16 @@ four checks on the marks: authority and bounded explicit values, request replay
 and the same-value no-op, revision order and immutability, and reads by
 knowledge and effective time.
 
-`python3 tools/run_preview.py --check --structured-power-check` includes two
-HTTP checks: booking through the managed schedule with replay, the same-fact
+`web/tests/heat-rate-call-ticket.test.mjs` runs nine checks on the ticket's
+state: nothing offered ahead of its parent choice, the narrowing of fuel curves,
+capacity units and block products, a choice cleared rather than replaced when
+it is no longer offered, the exact booking terms a complete entry becomes for
+both payment rules and both directions, and each missing value asked for by
+name.
+
+`python3 tools/run_preview.py --check --structured-power-check` includes three
+HTTP checks: the catalog offering exactly the terms the booking then states and
+refusing an account without trade access; booking through the managed schedule with replay, the same-fact
 no-op and refusals; an unmarked option listed as unpriced; marking authority,
 replay and a stale refusal; a marked option valued; a higher power volatility
 worth more; a written option valued at the exact negative; and both options as
@@ -227,8 +256,8 @@ browser have not been exercised.
 
 ## Remaining work
 
-1. An entry ticket in New trade, and a marks editor. Both operations exist only
-   as API routes today.
+1. A marks editor: marking exists only as an API route today. A preview of
+   the expanded exercise days on the ticket before booking.
 2. Premium and capacity-payment cash bindings at booking.
 3. A retained discount binding, so payments are discounted.
 4. Recorded daily exercise determinations from published index prices, and the

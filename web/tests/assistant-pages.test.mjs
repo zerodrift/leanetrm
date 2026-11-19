@@ -302,11 +302,11 @@ test('PPA bookings reports the inspected PPA or the listed book, which the assis
 });
 
 test('a new trade in the Blotter\'s panel is reported by its product, and no unsent entry is read',()=>{
-  for(const [product,id] of [[null,'blotter_new_trade'],['futures','blotter_new_future'],['swaps','blotter_new_swap'],['ppa','blotter_new_ppa'],['gas','blotter_new_gas'],['transport','blotter_new_transport'],['park-loan','blotter_new_park_loan'],['crude','blotter_new_crude'],['lng','blotter_new_lng'],['options','blotter_new_option']])
+  for(const [product,id] of [[null,'blotter_new_trade'],['futures','blotter_new_future'],['swaps','blotter_new_swap'],['ppa','blotter_new_ppa'],['gas','blotter_new_gas'],['transport','blotter_new_transport'],['park-loan','blotter_new_park_loan'],['crude','blotter_new_crude'],['lng','blotter_new_lng'],['options','blotter_new_option'],['toll','blotter_new_heat_rate_call']])
     assert.deepEqual(pageReport({page:'futures',...open,risk:false,trade:null,entry:{product},view:blotter}),{page:id,selection:{},layout});
   const names={curve:String,table:String},current={mode:'current',frameId:frame,frameLabel:'18 Dec 2020'};
   for(const [id,shown] of [['blotter_new_trade','A new trade is being started: no product is chosen yet. The assistant does not read a trade being entered.'],
-    ['blotter_new_future','A new future is being entered. The assistant does not read a trade being entered.'],['blotter_new_swap','A new swap is being entered. The assistant does not read a trade being entered.'],['blotter_new_ppa','A new PPA is being entered. The assistant does not read a trade being entered.'],['blotter_new_gas','A new physical gas trade is being entered. The assistant does not read a trade being entered.'],['blotter_new_transport','A new Transport agreement is being entered. The assistant does not read a trade being entered.'],['blotter_new_crude','A new physical crude trade is being entered. The assistant does not read a trade being entered.'],['blotter_new_lng','A new physical LNG cargo is being entered. The assistant does not read a trade being entered.'],['blotter_new_option','A new futures option is being entered. The assistant does not read a trade being entered.']]){
+    ['blotter_new_future','A new future is being entered. The assistant does not read a trade being entered.'],['blotter_new_swap','A new swap is being entered. The assistant does not read a trade being entered.'],['blotter_new_ppa','A new PPA is being entered. The assistant does not read a trade being entered.'],['blotter_new_gas','A new physical gas trade is being entered. The assistant does not read a trade being entered.'],['blotter_new_transport','A new Transport agreement is being entered. The assistant does not read a trade being entered.'],['blotter_new_crude','A new physical crude trade is being entered. The assistant does not read a trade being entered.'],['blotter_new_lng','A new physical LNG cargo is being entered. The assistant does not read a trade being entered.'],['blotter_new_option','A new futures option is being entered. The assistant does not read a trade being entered.'],['blotter_new_heat_rate_call','A new heat-rate call option is being entered. The assistant does not read a trade being entered.']]){
     const expected=shown.replace('The assistant does not read a trade being entered.', ['blotter_new_trade','blotter_new_future','blotter_new_swap'].includes(id)?'The assistant can inspect available terms, preview explicit drafts and prepare changes for your authorization.':'The assistant does not read a trade being entered.');
     const view=lookingAt({page:id,selection:{}},current,names);
     assert.deepEqual([view.page,view.shows,view.supported],['New trade',expected,['blotter_new_trade','blotter_new_future','blotter_new_swap'].includes(id)],id);
@@ -449,6 +449,6 @@ test('a selected unqualified gas service permits questions and identifies its un
 test('a trade being entered is named New trade, whichever instrument it is',()=>{
  const nameOf=page=>lookingAt({page,selection:{}},{mode:'current',frameId:null,frameLabel:null},{curve:code=>code,table:code=>code}).page;
  const entered=reportedPages.filter(page=>page.startsWith('blotter_new_'));
- assert.equal(entered.length,11);
+ assert.equal(entered.length,12);
  for(const page of entered)assert.equal(nameOf(page),'New trade',page);
 });

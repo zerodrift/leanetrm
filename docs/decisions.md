@@ -6640,7 +6640,7 @@ A scale command records its request identity and expected generation before the 
 
 ## D430 — Heat-rate call option as a daily spread-call strip
 
-**Status:** managed valuation and risk implemented and locally checked; native persistence and the booking operation (migration 0367) implemented and checked against a disposable database. Revisable mark storage (migration 0368) likewise. Managed booking and marks operations, valuation of booked trades and blotter presentation are implemented and checked over HTTP. The entry ticket, premium cash, discounting, exercise determination and settlement are not implemented.
+**Status:** managed valuation and risk implemented and locally checked; native persistence and the booking operation (migration 0367) implemented and checked against a disposable database. Revisable mark storage (migration 0368) likewise. Managed booking and marks operations, valuation of booked trades and blotter presentation are implemented and checked over HTTP. New trade has an entry ticket fed by a catalog read (migration 0369 registers its page identity). A marks editor, premium cash, discounting, exercise determination and settlement are not implemented.
 
 **Requirement.** Book a generation toll as a heat-rate call option with daily exercise, valued and risked the way a power desk marks one.
 

@@ -6,9 +6,9 @@ Twenty-one managed checks pass locally, including the booking-time exercise sche
 migrations 0367 and 0368 retain a booked option and its revisable volatility and
 correlation marks, each with an idempotent native operation.
 Managed booking and marks routes, valuation of booked trades and blotter
-presentation are checked over HTTP. The entry ticket, premium cash, discounting,
-exercise determination and settlement remain open, as does the commercial
-Storage contract.
+presentation are checked over HTTP, and New trade has an entry ticket for the
+option. A marks editor, premium cash, discounting, exercise determination and
+settlement remain open, as does the commercial Storage contract.
 
 D427 adds personal chat-history search through an explicit composer checkbox and
 repairs retained walkthrough narration and final-pause verification. Its bounded

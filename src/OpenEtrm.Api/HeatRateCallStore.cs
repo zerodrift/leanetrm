@@ -129,6 +129,27 @@ public sealed class HeatRateCallStore(PreviewDatabase database,TouProductStore p
         return new(OperationIdentity.For("heat_rate_call_instrument_v1",request.OperationId),[..exercises.Select(e=>new HeatRateCallPreparedExercise(
             e.DeliveryDay.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),Instant(e.ExerciseAt),Instant(e.PaymentAt),e.EnergyPerUnit.ToString(),e.Power.Contract.Id,e.Fuel.Contract.Id))]);
     }
+    // What the entry ticket chooses from: every listed value is one the booking accepts as stated, and none is chosen for the person.
+    public async Task<object> Choices(NpgsqlConnection c,PreviewData data,InputFrame frame,CancellationToken ct)
+    {
+        var directory=await FuturesStore.ReadBookingDirectory(c,Catalog,ct);var one=ExactDecimal.Parse("1");
+        var curves=data.Definitions["curves"].Where(curve=>frame.CurveContracts.ContainsKey(curve.Text("code"))).SelectMany(curve=>
+            data.QuoteRows(curve.Text("quote_code")).ToArray() is [{Kind:QuoteKind.Outright} quote]&&quote.Multiplier==one
+                ?new[]{new{code=curve.Text("code"),name=curve.Text("name"),commodity=data.References["quote_specifications"].Single(q=>q.Text("code")==quote.Key.Code).Text("commodity_code"),
+                    currency=quote.Currency.Code,priceUnit=data.PriceUnit(curve.Text("code")),quantityUnit=data.QuantityUnit(quote.Quantity.Code)}}:[]).OrderBy(curve=>curve.name,StringComparer.Ordinal).ToArray();
+        var capacities=data.References["quantity_specifications"].Where(q=>q.Text("dimension_code")=="power")
+            .Select(q=>new{code=q.Text("code"),commodity=q.Text("commodity_code"),unit=data.QuantityUnit(q.Text("code"))}).OrderBy(q=>q.code,StringComparer.Ordinal).ToArray();
+        var blocks=(await products.Read(c,ct)).Where(v=>v.State=="published"&&new ReferenceRevision(v.Clock.CatalogId,v.Clock.RevisionId)==data.ReferenceRevision)
+            .Select(v=>new{id=v.Id,version=v.Version,name=v.Name,clock=v.Clock.Code}).OrderBy(v=>v.name,StringComparer.Ordinal).ThenBy(v=>v.version).ToArray();
+        return new{kind="heat_rate_calls",convention=Convention,directory.Books,directory.BookingActor,directory.LegalEntities,directory.Counterparties,
+            definitionRevisionId=data.DefinitionRevision.RevisionId,referenceCatalogId=data.ReferenceRevision.CatalogId,referenceRevisionId=data.ReferenceRevision.RevisionId,
+            curves,capacityQuantities=capacities,blocks,
+            clocks=data.References["clock_rules"].Select(r=>r.Text("code")).Order(StringComparer.Ordinal).ToArray(),
+            calendars=data.References["calendars"].Select(r=>r.Text("code")).Order(StringComparer.Ordinal).ToArray(),
+            intervalMinutes=new[]{15,60},memberships=new[]{"all","peak","off"},paymentOptions=SwapPaymentOptions.Catalog,
+            policies=new{exerciseStyles=new[]{HeatRateCallTerms.DailyAutomaticCash},models=new[]{OpenEtrm.MarketData.Options.KirkSpreadCall.Implementation},dayCounts=new[]{HeatRateCallTerms.ActualOver365},
+                exerciseRules=new[]{HeatRateCallExerciseRule.BusinessDayLead}}};
+    }
     public Task<HeatRateCallReceipt?> Replay(NpgsqlConnection c,HeatRateCallBookRequest request,CancellationToken ct)=>
         Receipt(c,"SELECT security.heat_rate_call_booking_replay($1,$2::jsonb)::text",ct,Catalog,Command(request));
     public Task<HeatRateCallReceipt?> Status(NpgsqlConnection c,HeatRateCallStatusRequest request,CancellationToken ct)=>
