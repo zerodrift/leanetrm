@@ -90,6 +90,9 @@ const string malformed="The request is incomplete or malformed.";
         => (409,p.MessageText,"Recover the original certificate command or reload its exact retained revision before recording another fact."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("rec_",StringComparison.Ordinal)
         => (422,p.MessageText,"Supply exact certificate references, native serial ranges, eligible evidence and explicit future delivery terms."),
+    PostgresException p when p.MessageText.StartsWith("gas_storage_",StringComparison.Ordinal)
+        =>(p.SqlState=="42501"?403:p.MessageText.Contains("conflict",StringComparison.Ordinal)||p.MessageText.Contains("stale",StringComparison.Ordinal)?409:422,
+            p.MessageText,GasStorageStore.Refusal(p.MessageText)),
     PostgresException p when p.MessageText.StartsWith("heat_rate_call_",StringComparison.Ordinal)||p.MessageText.StartsWith("spread_mark_",StringComparison.Ordinal)
         =>(p.SqlState=="42501"?403:p.MessageText.Contains("conflict",StringComparison.Ordinal)||p.MessageText.Contains("stale",StringComparison.Ordinal)?409:422,
             p.MessageText,HeatRateCallStore.Refusal(p.MessageText)),
@@ -1778,7 +1781,7 @@ void RequireConvention(FuturesReadRequest body,string? expected)
 {
     if(expected==PhysicalLngStore.Convention){if(body.Convention!=expected)throw new MarketDataException("lng_context","Select the explicit supported LNG cargo valuation convention.");}
     else if(expected==PhysicalCrudeStore.Convention){if(body.Convention!=expected)throw new MarketDataException("crude_context","Select the explicit supported physical crude valuation convention.");}
-    else if(expected is SwapStore.Convention or PhysicalGasStore.Convention or TradingBlotter.Convention or RecForwardStore.Convention or HeatRateCallStore.Convention){if(body.Convention!=expected)throw new MarketDataException("valuation_convention","Select the read's explicit supported valuation convention.");}
+    else if(expected is SwapStore.Convention or PhysicalGasStore.Convention or TradingBlotter.Convention or RecForwardStore.Convention or HeatRateCallStore.Convention or GasStorageStore.Convention){if(body.Convention!=expected)throw new MarketDataException("valuation_convention","Select the read's explicit supported valuation convention.");}
     else if(expected==FuturesOptionStore.Convention)FuturesOptionStore.RequireConvention(body.Convention);
     else FuturesStore.Convention(body.Convention);
 }
@@ -1967,6 +1970,37 @@ api.MapPost("/heat-rate-calls/catalog",(HttpContext c,FuturesReadRequest body)=>
 }));
 api.MapPost("/heat-rate-calls/get",(HttpContext c,HeatRateCallReadRequest body)=>HeatRateCallRead(c,body.Context,
     async(connection,view,ct)=>await heatRateCalls.Read(connection,view.CalculationFrame,body.TradeId,ct)));
+
+// Gas storage contracts (D431, D432): booking, the plan in force, a proposed plan and the valued position.
+var gasStorage=new GasStorageStore(database);
+Task<IResult> GasStorageRead(HttpContext c,FuturesReadRequest context,Func<NpgsqlConnection,PreviewData,InputFrame,CancellationToken,Task<object>> work)=>TradingRead(c,
+    context??throw new MarketDataException("gas_storage_terms","Select the shared financial context."),async(connection,view,ct)=>
+    {
+        using var visibility=new AsyncReadVisibility();var frame=view.CalculationFrame;
+        var result=await tradeReads.ReadBound(connection,view,async()=>
+            await work(connection,await MarketInputSelection.Root(database,connection,frame,ct,referenceScope:ReferenceReadScope.AllVisible),frame,ct),ct);
+        await visibility.Seal().Require(connection,ct);return result;
+    },expectedConvention:GasStorageStore.Convention);
+api.MapPost("/gas-storage/catalog",(HttpContext c,FuturesReadRequest body)=>GasStorageRead(c,body,gasStorage.Choices));
+api.MapPost("/gas-storage/get",(HttpContext c,GasStorageReadRequest body)=>GasStorageRead(c,body.Context,
+    (connection,data,frame,ct)=>gasStorage.Read(connection,data,frame,body.TradeId,ct)));
+api.MapPost("/gas-storage/propose",(HttpContext c,GasStorageProposeRequest body)=>GasStorageRead(c,body.Context,
+    (connection,data,frame,ct)=>gasStorage.Propose(connection,data,frame,body,ct)));
+api.MapPost("/gas-storage/book",(HttpContext c,GasStorageBookRequest body)=>Locked(c,async session=>Results.Ok(
+    await HeatRateCallWrite(c,session,body.Context,"BookTrade",
+        async(connection,data,frame,ct)=>await gasStorage.Replay(connection,body,ct) is {} receipt?(Receipt:receipt,Prepared:(GasStoragePrepared?)null):
+            (Receipt:(GasStorageReceipt?)null,Prepared:gasStorage.Prepare(data,frame,body)),
+        async(connection,frame,prepared,ct)=>prepared.Receipt??await gasStorage.Save(connection,frame,body,prepared.Prepared!,ct)))));
+api.MapPost("/gas-storage/plan",(HttpContext c,GasStoragePlanRequest body)=>Locked(c,async session=>Results.Ok(
+    await HeatRateCallWrite(c,session,body.Context,"BookTrade",
+        (connection,data,frame,ct)=>gasStorage.PreparePlan(connection,data,body,ct),
+        async(connection,frame,replayed,ct)=>replayed??await gasStorage.SavePlan(connection,frame,body,ct)))));
+api.MapPost("/gas-storage/status",(HttpContext c,GasStorageStatusRequest body)=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>
+    {
+        if(Pin(session).Context is not null)throw new MarketDataException("historical_read_only","Recover request outcomes from current working data.");
+        return Results.Ok(await gasStorage.Status(connection,body,ct));
+    },c.RequestAborted)));
 
 api.MapPost("/futures/catalog",(HttpContext c,FuturesReadRequest body)=>FuturesRead(c,body,futuresStore.Catalog));
 api.MapPost("/futures/amend-preview",(HttpContext c,FuturesAmendRequest body)=>FuturesRead(c,new(body.SnapshotId,body.Convention,body.KnowledgeMode),

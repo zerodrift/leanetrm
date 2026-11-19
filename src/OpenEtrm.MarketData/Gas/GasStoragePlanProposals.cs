@@ -7,7 +7,10 @@ namespace OpenEtrm.MarketData.Gas;
 // What one unit delivered into the contract costs and one unit delivered out of it earns on a gas day.
 // The caller states both, with whatever forward, charge and discounting it selected; none is resolved here.
 public sealed record GasStorageDayPrice(DeliveryInterval GasDay, ExactDecimal InjectionCost, ExactDecimal WithdrawalValue);
-public sealed record GasStorageProposal(string Implementation, Quantity InventoryStep, GasStoragePlanResult Plan, SignedRatio Objective);
+public sealed record GasStorageProposal(string Implementation, Quantity InventoryStep, GasStoragePlanResult Plan, SignedRatio Objective)
+{
+    public string ObjectiveText => ExactNumberText.Format(Objective);
+}
 
 // The best plan among those that move inventory in whole steps from the opening inventory, found by
 // exact backward induction over that lattice. It is the optimum of the lattice, not of every real plan,

@@ -48,7 +48,7 @@ def run_checks(query,manifest):
         ratchets=[band('0','30000','2000','500'),band('30000','70000','1500','1000'),band('70000','100000','1000','1500')],
         injectionFuel='0.01',withdrawalFuel='0',ratchetBasis='gas_day_opening_inventory_band_v1',flowPolicy='single_direction_per_gas_day_v1',
         fuelBasis='in_kind_fuel_at_storage_point_v1',openingInventory='29000',terminalMinimum='0',terminalMaximum='100000',
-        injectionCharge='0.02',withdrawalCharge='0.03',monthlyDemandCharge='500',termFrom='2021-02-01',termTo='2021-02-04',clock='test_utc',dayStartMinute=540,
+        injectionCharge='0.02',withdrawalCharge='0.03',monthlyCapacityCharge='0.005',termFrom='2021-02-01',termTo='2021-02-04',clock='test_utc',dayStartMinute=540,
         paymentRule=dict(frequency='monthly',rule='days_after_period_end',days=20,dayOfMonth=None,dayBasis='calendar_days',shortMonth=None,
             adjustment='unadjusted',calendar=None,implementation='monthly_payment_date_rules_v1'))
     body=dict(operationId=str(uuid4()),convention='gas_storage_trade_v1',bookId='d1000000-0000-0000-0000-000000000001',**trade_booking(),
@@ -166,9 +166,9 @@ def run_checks(query,manifest):
         ('1',body['bookId'],'Synthetic storage contract',prepared['instrumentId'],'Synthetic entity 1','Synthetic party 1'),head
     assert(retained['quantity_code'],retained['quote_code'],retained['currency_code'],retained['minimum_inventory'],retained['maximum_inventory'],retained['injection_fuel'],
         retained['withdrawal_fuel'],retained['opening_inventory'],retained['terminal_minimum'],retained['terminal_maximum'],retained['injection_charge'],
-        retained['withdrawal_charge'],retained['monthly_demand_charge'],retained['term_from'],retained['term_to'],retained['clock_code'],retained['day_start_minute'],
+        retained['withdrawal_charge'],retained['monthly_capacity_charge'],retained['term_from'],retained['term_to'],retained['clock_code'],retained['day_start_minute'],
         retained['payment_rule']['days'],retained['projection_curves'])==\
-        ('test_gas_quantity','test_gas_outright','usd','0','100000','0.01','0','29000','0','100000','0.02','0.03','500','2021-02-01','2021-02-04','test_utc',540,20,['local_gas']),retained
+        ('test_gas_quantity','test_gas_outright','usd','0','100000','0.01','0','29000','0','100000','0.02','0.03','0.005','2021-02-01','2021-02-04','test_utc',540,20,['local_gas']),retained
     assert bands==[dict(lower=lower,upper=upper,maximum_daily_injection=injection,maximum_daily_withdrawal=withdrawal) for lower,upper,injection,withdrawal in
         (('0','30000','2000','500'),('30000','70000','1500','1000'),('70000','100000','1000','1500'))],bands
     assert[(row['ordinal'],row['gas_day'],row['injection_contract_id'],row['withdrawal_contract_id']) for row in days]==[(n,f'2021-02-0{n+1}',GAS,GAS) for n in range(3)],days

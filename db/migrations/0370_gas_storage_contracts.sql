@@ -24,7 +24,7 @@ CREATE TABLE trading.gas_storage_contracts(
  terminal_maximum ref_data.exact_number NOT NULL CHECK(scale(terminal_maximum)<=18),
  injection_charge ref_data.exact_number NOT NULL CHECK(injection_charge>=0 AND injection_charge<1e12 AND scale(injection_charge)<=18),
  withdrawal_charge ref_data.exact_number NOT NULL CHECK(withdrawal_charge>=0 AND withdrawal_charge<1e12 AND scale(withdrawal_charge)<=18),
- monthly_demand_charge ref_data.exact_number NOT NULL CHECK(monthly_demand_charge>=0 AND monthly_demand_charge<1e15 AND scale(monthly_demand_charge)<=18),
+ monthly_capacity_charge ref_data.exact_number NOT NULL CHECK(monthly_capacity_charge>=0 AND monthly_capacity_charge<1e12 AND scale(monthly_capacity_charge)<=18),
  term_from date NOT NULL,term_to date NOT NULL,clock_code ref_data.code NOT NULL,
  day_start_minute integer NOT NULL CHECK(day_start_minute BETWEEN 0 AND 1439),payment_rule_id uuid NOT NULL,
  terms jsonb NOT NULL CHECK(jsonb_typeof(terms)='object'),
@@ -184,7 +184,7 @@ BEGIN
  t=body->'terms';payment=t->'paymentRule';
  IF trading.rec_keys(t,ARRAY['definitionRevisionId','referenceCatalogId','referenceRevisionId','quantity','injectionCurve','withdrawalCurve',
    'minimumInventory','maximumInventory','ratchets','injectionFuel','withdrawalFuel','ratchetBasis','flowPolicy','fuelBasis',
-   'openingInventory','terminalMinimum','terminalMaximum','injectionCharge','withdrawalCharge','monthlyDemandCharge',
+   'openingInventory','terminalMinimum','terminalMaximum','injectionCharge','withdrawalCharge','monthlyCapacityCharge',
    'termFrom','termTo','clock','dayStartMinute','paymentRule']) IS NOT TRUE
   OR EXISTS(SELECT 1 FROM jsonb_each(t)e WHERE jsonb_typeof(e.value) IS DISTINCT FROM CASE
    WHEN e.key='paymentRule' THEN 'object' WHEN e.key='ratchets' THEN 'array' WHEN e.key='dayStartMinute' THEN 'number' ELSE 'string' END)
@@ -198,10 +198,10 @@ BEGIN
  low=trading.gas_storage_number(t->>'minimumInventory');high=trading.gas_storage_number(t->>'maximumInventory');
  opening=trading.gas_storage_number(t->>'openingInventory');terminal_low=trading.gas_storage_number(t->>'terminalMinimum');terminal_high=trading.gas_storage_number(t->>'terminalMaximum');
  injection_fuel=trading.gas_storage_number(t->>'injectionFuel');withdrawal_fuel=trading.gas_storage_number(t->>'withdrawalFuel');
- injection_fee=trading.gas_storage_number(t->>'injectionCharge');withdrawal_fee=trading.gas_storage_number(t->>'withdrawalCharge');demand=trading.gas_storage_number(t->>'monthlyDemandCharge');
+ injection_fee=trading.gas_storage_number(t->>'injectionCharge');withdrawal_fee=trading.gas_storage_number(t->>'withdrawalCharge');demand=trading.gas_storage_number(t->>'monthlyCapacityCharge');
  IF low<0 OR high<=low OR high>=1e15 OR opening<low OR opening>high OR terminal_low<low OR terminal_high>high OR terminal_low>terminal_high
   OR injection_fuel<0 OR injection_fuel>=1 OR withdrawal_fuel<0 OR withdrawal_fuel>=1
-  OR injection_fee<0 OR injection_fee>=1e12 OR withdrawal_fee<0 OR withdrawal_fee>=1e12 OR demand<0 OR demand>=1e15
+  OR injection_fee<0 OR injection_fee>=1e12 OR withdrawal_fee<0 OR withdrawal_fee>=1e12 OR demand<0 OR demand>=1e12
  THEN RAISE EXCEPTION 'gas_storage_terms';END IF;
  -- The ratchet bands cover the contracted range exactly, in order, with no gap or overlap.
  preceding=low;
@@ -407,7 +407,7 @@ DECLARE inventory jsonb;result jsonb;BEGIN
    'injection_fuel',trim_scale(h.injection_fuel)::text,'withdrawal_fuel',trim_scale(h.withdrawal_fuel)::text,
    'ratchet_basis',h.ratchet_basis,'flow_policy',h.flow_policy,'fuel_basis',h.fuel_basis,
    'opening_inventory',trim_scale(h.opening_inventory)::text,'terminal_minimum',trim_scale(h.terminal_minimum)::text,'terminal_maximum',trim_scale(h.terminal_maximum)::text,
-   'injection_charge',trim_scale(h.injection_charge)::text,'withdrawal_charge',trim_scale(h.withdrawal_charge)::text,'monthly_demand_charge',trim_scale(h.monthly_demand_charge)::text,
+   'injection_charge',trim_scale(h.injection_charge)::text,'withdrawal_charge',trim_scale(h.withdrawal_charge)::text,'monthly_capacity_charge',trim_scale(h.monthly_capacity_charge)::text,
    'term_from',h.term_from,'term_to',h.term_to,'clock_code',h.clock_code,'day_start_minute',h.day_start_minute,
    'payment_rule',to_jsonb(pay)-'catalog_id'-'publication_order'-'effective_at',
    'projection_curves',(SELECT jsonb_agg(DISTINCT x) FROM unnest(ARRAY[h.injection_curve_code::text,h.withdrawal_curve_code::text])x)),

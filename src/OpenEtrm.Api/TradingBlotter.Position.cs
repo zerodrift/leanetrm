@@ -74,6 +74,11 @@ public sealed partial class TradingBlotter
     var heatRateCallRows=new List<JsonObject>();await foreach(var unit in heatRateCall.Units(ct))heatRateCallRows.AddRange(unit);
     rows=[..heatRateCallRows];
     break;
+   case GasStoragePositions.Type:
+    var gasStorage=await GasStorageBlotter.Run(connection,database,frame,[],[],ct,selected);
+    var gasStorageRows=new List<JsonObject>();await foreach(var unit in gasStorage.Units(ct))gasStorageRows.AddRange(unit);
+    rows=[..gasStorageRows];
+    break;
    default:throw TradePositionSelection.Unavailable();
   }
   var matching=rows.Where(r=>Guid.Parse(r["tradeId"]!.GetValue<string>())==selected.TradeId&&
