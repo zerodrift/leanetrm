@@ -9,6 +9,8 @@ namespace OpenEtrm.Api;
 public sealed partial class PreviewDatabase
 {
     internal const int MaximumObservationWindows=16384;
+    internal static bool ValidObservationWindows(ImmutableArray<ObservationWindow> windows)=>
+        windows.Length<=MaximumObservationWindows&&windows.All(window=>window.From<=window.To);
     internal sealed record ObservationPinSets(PreviewData Data,ImmutableHashSet<Guid> Denied);
     internal async Task<ObservationPinSets> ReadObservationPinSets(NpgsqlConnection connection,PreviewData metadata,
         ImmutableArray<InputFrame> frames,CancellationToken ct)
@@ -29,7 +31,7 @@ public sealed partial class PreviewDatabase
     internal async Task<PreviewData> ReadObservationWindows(NpgsqlConnection connection,PreviewData metadata,
         ImmutableArray<ObservationWindow> windows,CancellationToken ct,ImmutableArray<Guid> exactPins=default)
     {
-        if(windows.Length>MaximumObservationWindows||windows.Any(window=>window.From>window.To))throw new ArgumentException("Observation windows require ordered bounds and at most 16,384 declared samples.");
+        if(!ValidObservationWindows(windows))throw new ArgumentException("Observation windows require ordered bounds and at most 16,384 declared samples.");
         // Exact pins alone go through the point reader, which authorizes only them: reading the table would make its row security
         // build the whole catalog's visibility first, seconds at hosted scale.
         if(windows.IsEmpty)

@@ -172,11 +172,11 @@ public static partial class RecipeEngine
             inputs.Windows is null||!definition.Nodes.Where(n=>n.Kind==ContractObservations).Select(n=>n.Id).ToHashSet().SetEquals(inputs.Windows.Keys))
             throw Missing("Supply exact source/date/observation-window bindings and a coherent UTC valuation context.");
         var nodes=definition.Nodes.ToDictionary(n=>n.Id);var cache=new Dictionary<string,object>();
-        var available=samples.ToDictionary(s=>new SampleKey(s.Source,s.Date,s.Contract,s.FreezeObservation));var work=0;
+        var available=samples.ToDictionary(s=>new SampleKey(s.Source,s.Date,s.Contract,s.FreezeObservation));var budget=new PreparationBudget(inputs.SampleReferenceLimit);
         foreach(var node in definition.Nodes.Where(n=>n.Kind=="source"))ValidateSource(node,inputs.Sources[node.Id]);
         Cell Leaf(string node,int index,string sourceNode,DateOnly date,RecipeContract contract,int position,DateOnly displayDate,DateTimeOffset at,bool freezeObservation=false)
         {
-            cancellation.ThrowIfCancellationRequested();if(++work>50000)throw Missing("The recipe exceeds its 50,000-sample preparation limit.");
+            cancellation.ThrowIfCancellationRequested();budget.Consume(1);
             var source=inputs.Sources[sourceNode];var key=new SampleKey(source.Key,date,contract.Contract.Key,freezeObservation);
             if(demand is null&&(!available.TryGetValue(key,out var sample)||sample.Snapshot.ValuationAt!=at||contract.EligibleFrom>at||contract.Contract.Expiry<=at&&sample.PriceTerms is null))
                 throw Missing("A required exact live contract sample is absent or ineligible at its sampling instant.");
@@ -256,15 +256,14 @@ public static partial class RecipeEngine
                         var weights=grid.Select(target,settings.Method==CurveLookupMethod.ContainingDelivery);
                         var selected=weights.Select(w=>lookupPanel.Cells[w.Id]).ToArray();
                         var references=selected.Sum(c=>(long)c.Inputs.Length);
-                        if(references>50000-work)throw Missing("The recipe exceeds its 50,000-sample preparation limit.");
-                        work+=(int)references;
+                        budget.Consume(references);
                         lookedUp.Add(new(lookedUp.Count+1,[target],selected[0].ObservationDate,selected[0].Unit,
                             [..selected.SelectMany(c=>c.Inputs)],new(id,lookedUp.Count,null,[..selected.Select(c=>c.Formula)],
                                 [..weights.Select(w=>w.Weight)],WeightedMean),target,target.AddDays(1)));
                     }
                     result=new Panel(lookedUp.ToImmutable());break;
                 case "weighted_panels":
-                    result=CombinePanels(node,node.Inputs.ToDictionary(p=>p.Key,p=>(Panel)Node(p.Value)),inputs.ContextDate,cancellation,ref work);break;
+                    result=CombinePanels(node,node.Inputs.ToDictionary(p=>p.Key,p=>(Panel)Node(p.Value)),inputs.ContextDate,cancellation,budget);break;
                 case "splice":
                     result=SplicePanels(node,(Panel)Node(node.Inputs["before"]),(Panel)Node(node.Inputs["after"]),cancellation);break;
                 case ContractObservations:result=ObservationPanel(node,inputs,Leaf,At);break;

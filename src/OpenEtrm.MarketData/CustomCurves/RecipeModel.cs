@@ -54,6 +54,7 @@ public sealed record RecipeSource(CurveKey Key,PriceUnit Unit,ImmutableArray<Rec
 public sealed record RecipeInputs(DateOnly ContextDate,DateTimeOffset ValuationAt,
     ImmutableDictionary<string,RecipeSource> Sources,ImmutableDictionary<string,ImmutableArray<DateOnly>> Dates)
 {
+    [JsonIgnore] public int SampleReferenceLimit{get;init;}=RecipeEngine.MaximumSampleReferences;
     public ImmutableDictionary<string,ImmutableArray<RecipeObservationWindow>> Windows{get;init;}=ImmutableDictionary<string,ImmutableArray<RecipeObservationWindow>>.Empty;
 }
 // Explicit output intervals from a consumer or a downstream recipe. Sampling instants are supplied even

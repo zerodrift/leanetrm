@@ -55,6 +55,10 @@ public sealed partial class CurveModel
     }
 
     private readonly System.Collections.Concurrent.ConcurrentDictionary<ReferenceKey,FuturesContract> contractInstruments = new();
+    public ContractKey MappedSource(CurveRequest target,InputSlot slot)=>
+        mappingSources.TryGetValue((target.Curve,slot,target.Contract),out var source)?source:
+            throw new MarketDataException("curve_mapping","The exact contract has no mapping for the requested input slot.");
+
     public FuturesContract FuturesContract(ContractKey member)
     {
         if (!contracts.TryGetValue(member, out var projection) || projection.Kind != ContractKind.Future ||
@@ -392,10 +396,18 @@ public sealed partial class CurveModel
         return spec;
     }
 
+    // A snapshot is immutable, so this model validates one instance once. Only a snapshot that passed is retained; a `with`
+    // copy is another instance and is validated itself.
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<MarketSnapshot,ImmutableDictionary<InputKey,SelectedObservation>> validatedSnapshots=new();
     private ImmutableDictionary<InputKey,SelectedObservation> ValidateSnapshot(MarketSnapshot snapshot,CancellationToken cancellation)
     {
         cancellation.ThrowIfCancellationRequested();
         if(snapshot is null)Fail("snapshot_pin","Supply an exact selected snapshot.");
+        if(validatedSnapshots.TryGetValue(snapshot,out var validated))return validated;
+        return validatedSnapshots.GetValue(snapshot,input=>ValidateSnapshotInputs(input,cancellation));
+    }
+    private ImmutableDictionary<InputKey,SelectedObservation> ValidateSnapshotInputs(MarketSnapshot snapshot,CancellationToken cancellation)
+    {
         EnumValue(snapshot.SelectionPolicy);
         if (snapshot.Id == Guid.Empty || snapshot.Definitions != revision)
             Fail("snapshot_pin", "Snapshot must name this exact definition revision.");

@@ -6,6 +6,7 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
   <ItemGroup>
+    <EmbeddedResource Include="CustomCurves/recipe-preparation-v1.json" LogicalName="OpenEtrm.RecipePreparation.v1" />
     <ProjectReference Include="../OpenEtrm.Shared/OpenEtrm.Shared.csproj" />
   </ItemGroup>
 </Project>

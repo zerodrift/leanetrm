@@ -15,7 +15,7 @@ public static partial class CustomCurves
     private sealed class RecipePreparation(NpgsqlConnection connection,PreviewDatabase database,
         PreviewData data,InputFrame frame,ScheduleContext context,ResolvedCalculationContext resolved,
         ImmutableArray<CustomCurveVersion> versions,IReadOnlyDictionary<(Guid,int),ImmutableHashSet<RecipeDelivery>?>? demands=null,bool retainedObservations=false,InputFrame? sourceFrame=null,
-        Dictionary<CalendarReference,ReferenceCalendar>? calendarReads=null)
+        Dictionary<CalendarReference,ReferenceCalendar>? calendarReads=null,int? previewBudget=null)
     {
         readonly Dictionary<(Guid,int),ConnectedRecipeGraph> completed=[];
         readonly HashSet<(Guid,int)> active=[];
@@ -25,6 +25,23 @@ public static partial class CustomCurves
         public ImmutableArray<ConnectedRecipeSample> Samples=>RetainSamples(samples);
         public int SourceCompilations{get;private set;}
         public int DeclaredSourceNodes{get;private set;}
+        private PreviewHistory? history;
+        private RecipeInputs InputsForPreparation(RecipeInputs inputs)=>previewBudget is {} limit?inputs with{SampleReferenceLimit=limit}:inputs;
+
+        public void UsePreviewHistory(RecipeDefinition root,ImmutableDictionary<string,CurveSourceReference> sources,
+            ImmutableDictionary<string,CalendarReference> calendars,ImmutableDictionary<string,CurveScheduleReference> schedules)
+        {
+            history=new PreviewHistory(Plan,(windows,ct)=>database.ReadObservationWindows(connection,data,windows,ct));
+
+            Task Plan(Action<ObservationWindow> add,CancellationToken ct)=>CollectObservations(root,sources,calendars,schedules,
+                (sample,requests,exact,terms)=>
+                {
+                    if(exact)return;
+                    var leaves=SourceLeaves(data,sample,requests,ct,terms);
+                    if(leaves.Any(leaf=>leaf.ExactObservation.HasValue))return;
+                    foreach(var window in HistoryWindows(sample,leaves))add(window);
+                },ct);
+        }
 
         public async Task CollectObservations(RecipeDefinition definition,
             ImmutableDictionary<string,CurveSourceReference> sources,ImmutableDictionary<string,CalendarReference> calendars,
@@ -65,7 +82,7 @@ public static partial class CustomCurves
                 var instants=metadata.Values.Dates.Values.SelectMany(d=>d).Concat(metadata.Values.Windows.Values.SelectMany(w=>w).SelectMany(w=>w.Days))
                     .Append(metadata.Values.ContextDate).Distinct()
                     .ToImmutableDictionary(d=>d,d=>new DateTimeOffset(d.ToDateTime(TimeOnly.FromDateTime(frame.At.UtcDateTime),DateTimeKind.Utc)));
-                var result=RecipeEngine.Topology(version.Definition,metadata.Values,parents,instants,ct);topologies.Add(key,result);return result;
+                var result=RecipeEngine.Topology(version.Definition,InputsForPreparation(metadata.Values),parents,instants,ct);topologies.Add(key,result);return result;
             }
             finally{planning.Remove(key);}
         }
@@ -105,8 +122,8 @@ public static partial class CustomCurves
             foreach(var node in definition.Nodes.Where(n=>n.Kind=="published_source"))
                 published.Add(node.Id,await Published(node.PublishedSource!,ct));
             var topology=deliveries is null?null:await Topology(new(identity.CatalogId,identity.CurveId,identity.Version,definition.Output),ct);
-            var materialized=await Inputs(connection,database,definition,data,frame,sources,calendars,schedules,context,ct,deliveries,topology,retainedObservations:retainedObservations,sourceFrame:sourceFrame,calendarReads:calendarReads);
-            var graph=RecipeEngine.Connect(definition,materialized.Values,identity,materialized.Samples,resolved,ct,materialized.References,published,materialized.Demand);
+            var materialized=await Inputs(connection,database,definition,data,frame,sources,calendars,schedules,context,ct,deliveries,topology,retainedObservations:retainedObservations,sourceFrame:sourceFrame,calendarReads:calendarReads,history:history);
+            var graph=RecipeEngine.Connect(definition,InputsForPreparation(materialized.Values),identity,materialized.Samples,resolved,ct,materialized.References,published,materialized.Demand);
             samples.AddRange(materialized.Samples);
             SourceCompilations+=graph.SourceCompilations;DeclaredSourceNodes+=graph.DeclaredSourceNodes;
             return graph;

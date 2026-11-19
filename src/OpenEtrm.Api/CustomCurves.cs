@@ -47,7 +47,8 @@ public static partial class CustomCurves
             var frame=pin.RequireFrame();var context=pin.Context!;
             var plan=await activations.Read(connection,body.CurveId,ct);
             var segment=CurveActivations.Resolve(plan,DateWorkspace.Date(context.EffectiveOn),body.Policy);
-            var saved=(await store.Read(connection,ct)).SingleOrDefault(v=>v.Id==body.CurveId&&v.Version==segment.Version&&v.Definition.Output==segment.OutputNode)
+            var versions=await store.Read(connection,ct);
+            var saved=versions.SingleOrDefault(v=>v.Id==body.CurveId&&v.Version==segment.Version&&v.Definition.Output==segment.OutputNode)
                 ??throw Invalid("The activated exact published output is unavailable in this context.");
             var revision=await CurveVersionInputs.Resolve(database,connection,saved.MarketRevisionId,ct);
 
@@ -56,7 +57,7 @@ public static partial class CustomCurves
             if(RecipeEngine.PowerIntervalOutput(saved.Definition) is not null)
                 return Results.Ok(new{activation=plan,interval=segment,recipe=saved,
                     preview=(await PreviewRead(connection,database,pin,new(saved.Definition,frame.Id,saved.Id,saved.Version),ct)).Value});
-            var calculated=await EvaluateDefinition(connection,database,saved.Definition,data,frame,saved.Sources,saved.Calendars,saved.Schedules,context,ct);
+            var calculated=await EvaluateDefinition(connection,database,saved.Definition,data,frame,saved.Sources,saved.Calendars,saved.Schedules,context,ct,versions:versions);
             return Results.Ok(new{activation=plan,interval=segment,recipe=saved,preview=Result(calculated,data,pin,saved.Definition,saved.Id,saved.Version)});
         }));
         api.MapGet("/custom-curves",(Func<HttpContext,Task<IResult>>)((HttpContext c)=>operation(c,"ReadMarketData",ContextVersions.CatalogueSnapshot(c.Request.Query),async(connection,pin,ct)=>
@@ -223,16 +224,16 @@ public static partial class CustomCurves
         PreviewData data,InputFrame frame,ImmutableDictionary<string,CurveSourceReference> sources,
         ImmutableDictionary<string,CalendarReference> calendars,ImmutableDictionary<string,CurveScheduleReference> schedules,
         ScheduleContext context,CancellationToken ct,bool retainedObservations=false,InputFrame? sourceFrame=null,
-        Dictionary<CalendarReference,ReferenceCalendar>? calendarReads=null)
+        Dictionary<CalendarReference,ReferenceCalendar>? calendarReads=null,ImmutableArray<CustomCurveVersion> versions=default)
     {
-        var prepared=await PrepareDefinition(connection,database,definition,data,frame,sources,calendars,schedules,context,ct,retainedObservations,sourceFrame,calendarReads);
+        var prepared=await PrepareDefinition(connection,database,definition,data,frame,sources,calendars,schedules,context,ct,retainedObservations,sourceFrame,calendarReads,versions);
         return EvaluateGraph(prepared.Graph,prepared.Context,database,ct);
     }
     static async Task<(ConnectedRecipeGraph Graph,ResolvedCalculationContext Context)> PrepareDefinition(NpgsqlConnection connection,PreviewDatabase database,RecipeDefinition definition,
         PreviewData data,InputFrame frame,ImmutableDictionary<string,CurveSourceReference> sources,
         ImmutableDictionary<string,CalendarReference> calendars,ImmutableDictionary<string,CurveScheduleReference> schedules,
         ScheduleContext context,CancellationToken ct,bool retainedObservations=false,InputFrame? sourceFrame=null,
-        Dictionary<CalendarReference,ReferenceCalendar>? calendarReads=null)
+        Dictionary<CalendarReference,ReferenceCalendar>? calendarReads=null,ImmutableArray<CustomCurveVersion> versions=default)
     {
         var exact=PinnedContext.Exact(context);
         frame=await MarketInputSelection.FrameFor(database,connection,data,frame,ct);
@@ -242,7 +243,10 @@ public static partial class CustomCurves
         var identity=new ConnectedRecipeIdentity(data.DefinitionRevision.CatalogId,
             StablePreviewId(definition),1,RecipeEngine.Version);
         var resolved=CalculationContext(frame,data.DefinitionRevision,exact);
-        var preparation=new RecipePreparation(connection,database,data,frame,exact,resolved,await new CustomCurvesStore(database).Read(connection,ct),retainedObservations:retainedObservations,sourceFrame:sourceFrame,calendarReads:calendarReads);
+        if(versions.IsDefault)versions=await new CustomCurvesStore(database).Read(connection,ct);
+        var preparation=new RecipePreparation(connection,database,data,frame,exact,resolved,versions,retainedObservations:retainedObservations,sourceFrame:sourceFrame,calendarReads:calendarReads??[],previewBudget:database.RecipePreviewBudget);
+        if(!retainedObservations)
+            preparation.UsePreviewHistory(definition,sources,calendars,schedules);
         var graph=await preparation.Definition(definition,identity,sources,calendars,schedules,ct);
         return (graph,resolved);
     }
@@ -279,7 +283,7 @@ public static partial class CustomCurves
         ImmutableDictionary<string,CalendarReference> calendarReferences,ImmutableDictionary<string,CurveScheduleReference> scheduleReferences,
         ScheduleContext? context,CancellationToken ct,ImmutableHashSet<RecipeDelivery>? deliveries=null,RecipeTopology? topology=null,bool topologyOnly=false,bool retainedObservations=false,
         Action<InputFrame,ImmutableArray<CurveRequest>,bool,IReadOnlyDictionary<CurveRequest,ContractPriceTermsBinding>>? collectObservations=null,InputFrame? sourceFrame=null,
-        Dictionary<CalendarReference,ReferenceCalendar>? calendarReads=null)
+        Dictionary<CalendarReference,ReferenceCalendar>? calendarReads=null,PreviewHistory? history=null)
     {
         if(sourceReferences.Values.Any(source=>source.CatalogId!=data.DefinitionRevision.CatalogId||source.RevisionId!=data.DefinitionRevision.RevisionId))
             throw Invalid("Every native source must use the selected exact market revision.");
@@ -422,7 +426,7 @@ public static partial class CustomCurves
                     terms=await new ContractPriceTermsStore(database).PublicationPrices(connection,data,terms,sampleFrame.At,
                         SchedulePreview.ParseAt((context??throw Invalid("Publication settlement requires an exact knowledge context.")).KnownAt),ct);
                 if(collectObservations is not null){collectObservations(sampleFrame,requests,sampleDay==day,terms);continue;}
-                var snapshot=await ObservedHistory(observed,sourceNode.Id,sampleDay,day,()=>ReadSourceSnapshot(connection,database,data,sampleFrame,requests,sampleDay==day,retainedObservations,ct,sourceFrame,terms));
+                var snapshot=await ObservedHistory(observed,sourceNode.Id,sampleDay,day,()=>ReadSourceSnapshot(connection,database,data,sampleFrame,requests,sampleDay==day,retainedObservations,ct,sourceFrame,terms,history));
                 if(sampleDay!=day)snapshot=snapshot with {Id=StableSampleId(snapshot)};
                 foreach(var pair in selected)
                 {
@@ -492,8 +496,8 @@ public static partial class CustomCurves
                 if(input.OptionalId("source_series_id") is {} series)
                     Add(new(new(data.DefinitionRevision,series),Reference(input.Text("numeric_source_code")),PreviewData.ParseRole(input.Text("numeric_role")),InputUse.Variable,null));
                 if(input.OptionalText("source_curve_code") is not {} source)continue;
-                var map=data.Definitions["constituent_mappings"].Single(row=>row.Text("curve_code")==request.Curve.Code&&row.Text("slot")==input.Text("slot")&&row.Id("target_contract_id")==request.Contract.Id);
-                var member=data.ContractRows(map.Id("source_contract_id")).Single();
+                var slot=input.Text("slot") switch {"base"=>InputSlot.Base,"spread"=>InputSlot.Spread,_=>throw Invalid("Unsupported native curve mapping slot.")};
+                var member=data.ContractRows(data.Model.MappedSource(request,slot).Id).Single();
                 var sourceUse=frame.At<member.Expiry?InputUse.Variable:input.Text("expiry_rule")=="freeze_final_future"?InputUse.FrozenFact:
                     throw new MarketDataException("source_expired","Source expired and its policy requires a live value.");
                 Visit(new(new(data.DefinitionRevision,source),member.Key),sourceUse);
@@ -504,7 +508,7 @@ public static partial class CustomCurves
     }
     static async Task<MarketSnapshot> ReadSourceSnapshot(NpgsqlConnection connection,PreviewDatabase database,PreviewData metadata,
         InputFrame frame,ImmutableArray<CurveRequest> requests,bool exactFrame,bool retainedObservations,CancellationToken ct,InputFrame? sourceFrame=null,
-        IReadOnlyDictionary<CurveRequest,ContractPriceTermsBinding>? priceTerms=null)
+        IReadOnlyDictionary<CurveRequest,ContractPriceTermsBinding>? priceTerms=null,PreviewHistory? history=null)
     {
         var leaves=SourceLeaves(metadata,frame,requests,ct,priceTerms);
         var publicationPins=leaves.Where(leaf=>leaf.ExactObservation is not null).Select(leaf=>leaf.ExactObservation!.Value.Id).Distinct().ToImmutableArray();
@@ -519,18 +523,16 @@ public static partial class CustomCurves
             // A bounded planner may retain only publication facts when this
             // sample has no ordinary close-price dependencies.
             if(exactFrame)sampleFrame=metadata.HistoryFrame(sampleFrame);
-            return SourceSnapshot(metadata,sampleFrame,requests,exactFrame,ct,priceTerms);
+            return SourceSnapshot(metadata,sampleFrame,leaves,exactFrame,ct);
         }
-        var windows=exactFrame?ImmutableArray<ObservationWindow>.Empty:leaves.Where(leaf=>leaf.ExactObservation is null).Select(leaf=>new ObservationWindow(leaf.Series.Id,
-            leaf.Source.Code,PreviewData.RoleCode(leaf.Role),leaf.FinalFrom??frame.At,frame.At)).ToImmutableArray();
+        var windows=exactFrame?ImmutableArray<ObservationWindow>.Empty:HistoryWindows(frame,leaves).ToImmutableArray();
         var pins=exactFrame?sampleFrame.ObservationIds.Concat(sampleFrame.FrozenObservationIds.IsDefault?[]:sampleFrame.FrozenObservationIds).Distinct().ToImmutableArray():publicationPins;
-        var selected=await database.ReadObservationWindows(connection,metadata,windows,ct,pins);
-        return SourceSnapshot(selected,sampleFrame,requests,exactFrame,ct,priceTerms);
+        var prefetched=history is not null&&!exactFrame&&pins.IsEmpty?await history.Find(windows,ct):null;
+        var selected=prefetched??await database.ReadObservationWindows(connection,metadata,windows,ct,pins);
+        return SourceSnapshot(selected,sampleFrame,leaves,exactFrame,ct);
     }
-    static MarketSnapshot SourceSnapshot(PreviewData data,InputFrame frame,ImmutableArray<CurveRequest> requests,bool exactFrame,CancellationToken ct,
-        IReadOnlyDictionary<CurveRequest,ContractPriceTermsBinding>? priceTerms=null)
+    static MarketSnapshot SourceSnapshot(PreviewData data,InputFrame frame,ImmutableArray<SourceLeaf> leaves,bool exactFrame,CancellationToken ct)
     {
-        var leaves=SourceLeaves(data,frame,requests,ct,priceTerms);
         var available=exactFrame?frame.ObservationIds.Concat(frame.FrozenObservationIds.IsDefault?[]:frame.FrozenObservationIds).Distinct().Select(data.Observation).ToLookup(row=>row.Id("series_id")):null;
         var selections=ImmutableArray.CreateBuilder<SelectedObservation>();
         foreach(var leaf in leaves)
