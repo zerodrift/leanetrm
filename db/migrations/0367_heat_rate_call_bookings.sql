@@ -163,9 +163,9 @@ BEGIN
   OR hours->>'membership' NOT IN('all','peak','off') OR(hours->>'membership'='all')<>(hours->'touProduct'='null'::jsonb)
   OR(hours->'touProduct'='null'::jsonb)<>(hours->'touVersion'='null'::jsonb)
  THEN RAISE EXCEPTION 'heat_rate_call_policy';END IF;
- quantity=(trading.operating_decimal(t->>'quantity'))[1]/(trading.operating_decimal(t->>'quantity'))[2];
- heat=(trading.operating_decimal(t->>'heatRate'))[1]/(trading.operating_decimal(t->>'heatRate'))[2];
- strike_price=(trading.operating_decimal(t->>'strike'))[1]/(trading.operating_decimal(t->>'strike'))[2];
+ quantity=trim_scale((trading.operating_decimal(t->>'quantity'))[1]/(trading.operating_decimal(t->>'quantity'))[2]);
+ heat=trim_scale((trading.operating_decimal(t->>'heatRate'))[1]/(trading.operating_decimal(t->>'heatRate'))[2]);
+ strike_price=trim_scale((trading.operating_decimal(t->>'strike'))[1]/(trading.operating_decimal(t->>'strike'))[2]);
  IF quantity=0 OR abs(quantity)>=1e12 OR heat<=0 OR heat>=1e12 OR strike_price<0 OR strike_price>=1e12 THEN RAISE EXCEPTION 'heat_rate_call_terms';END IF;
  first_day=(t->>'deliveryFrom')::date;end_day=(t->>'deliveryTo')::date;
  IF first_day>=end_day OR end_day-first_day>3660 OR first_day<DATE '1901-01-01' OR end_day>=DATE '2200-01-01' THEN RAISE EXCEPTION 'heat_rate_call_terms';END IF;
@@ -197,7 +197,7 @@ BEGIN
    OR EXISTS(SELECT 1 FROM jsonb_each(item)e WHERE jsonb_typeof(e.value) IS DISTINCT FROM 'string')
    OR item->>'deliveryDay' !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN RAISE EXCEPTION 'heat_rate_call_input';END IF;
   day=(item->>'deliveryDay')::date;exercise=trading.operating_instant(item->>'exerciseAt');paid=trading.operating_instant(item->>'paymentAt');
-  energy=(trading.operating_decimal(item->>'energyPerUnit'))[1]/(trading.operating_decimal(item->>'energyPerUnit'))[2];
+  energy=trim_scale((trading.operating_decimal(item->>'energyPerUnit'))[1]/(trading.operating_decimal(item->>'energyPerUnit'))[2]);
   power_contract=(item->>'powerContractId')::uuid;fuel_contract=(item->>'fuelContractId')::uuid;
   IF day<first_day OR day>=end_day OR day<=previous_day OR exercise<=valuation OR exercise<previous_exercise OR paid<exercise
    OR exercise>=((day+1)::timestamp AT TIME ZONE 'UTC') OR energy<=0 OR energy>=1e6

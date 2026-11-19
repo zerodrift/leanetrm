@@ -113,7 +113,8 @@ def run_checks(query,manifest):
     second=json.loads(runtime(book(again,other)))
     assert second=={**first,'operationId':again['operationId'],'changed':False},second
     assert query('SELECT count(*) FROM trading.heat_rate_call_trade_revisions;')=='1' and query('SELECT count(*) FROM trading.heat_rate_call_booking_requests;')=='2'
-    sold=deepcopy(body);sold.update(operationId=str(uuid4()));sold['terms'].update(quantity='-50')
+    # A small exact term keeps its digits: 0.01 is not stored through an inexact quotient.
+    sold=deepcopy(body);sold.update(operationId=str(uuid4()));sold['terms'].update(quantity='-50',strike='0.01')
     third=json.loads(runtime(book(sold,other)))
     assert third['changed'] is True and third['tradeId']!=first['tradeId'] and third['instrumentId']==other['instrumentId'],third
     print('PASS heat-rate call storage: the same fact under a new request is a no-op and a different quantity is a second trade',flush=True)
