@@ -91,6 +91,9 @@ def run_checks(client, query, manifest):
     client.call('profile', {'profile': 'editor'})
     raised = dict(marks, operationId=str(uuid4()), marks=[mark(1, '0.9', '0.45', '0.8')])
     assert client.call('spread-marks/record', raised, timeout=60)['marks'][0]['revision'] == 2
+    repeated_mark = dict(marks, operationId=str(uuid4()), marks=[mark(2, '0.6', '0.45', '0.8')])
+    receipt = client.call('spread-marks/record', repeated_mark, timeout=60)
+    assert receipt['marks'] == [{**recorded['marks'][0], 'changed': False}], receipt
     client.call('profile', {'profile': 'trader'})
     revalued = client.call('heat-rate-calls/get', selected, timeout=60)['position']
     assert Fraction(revalued['presentValue']) > Fraction(valued['presentValue']), (valued['presentValue'], revalued['presentValue'])
