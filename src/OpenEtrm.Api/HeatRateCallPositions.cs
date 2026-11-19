@@ -40,7 +40,7 @@ internal sealed record HeatRateCallPosition(JsonElement Head,JsonElement Book,Js
         deliveryFrom=From,deliveryTo=To,lots=(string?)null,quantity=SignedQuantity.ToString(),unit=Terms.Text("capacity_unit"),quantitySpecification=Capacity,
         currency=Terms.Text("currency"),currencyReference=Currency,quoteMultiplier="1",direction=SignedQuantity.CompareTo(default)>0?"buy":"sell",
         executedAt=Head.Text("executed_at"),bookingFacts=new{implementation=Head.Text("booking_implementation"),labelCapturedAt=Head.Text("label_captured_at")},
-        executionPrice=(string?)null,fixedPrice=(string?)null,mark=(string?)null,markMinusPrice=(string?)null,executionPnl=(string?)null,
+        executionPrice=(string?)null,fixedPrice=Terms.Text("strike"),mark=(string?)null,markMinusPrice=(string?)null,executionPnl=(string?)null,
         settlement="unprocessed",measure=HeatRateCallPositions.Measure,measureLabel=HeatRateCallPositions.MeasureLabel,quantityPolicy="linear_capacity_v1",
         presentValue=(string?)null,unavailableReason=(string?)null
     },TradingBlotter.Json)!.AsObject();

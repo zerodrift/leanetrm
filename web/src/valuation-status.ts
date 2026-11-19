@@ -1,7 +1,7 @@
 // Plain words for the positions a close cannot value (D220). The backend decides which positions
 // those are and why; a status it has not defined is refused rather than shown as a value.
 export type ValuationReason='discount_coverage'|'discount_curve'|'option_settlement_missing'|'option_expired'|'option_underlying_missing'|'option_calibration_nonconvergent'|'option_settlement_below_intrinsic'|'option_settlement_above_bound'|'option_calibration_fallback_undeclared'|'source_expired'|'missing_observation'|'index_fixing_missing'|'delivery_mark_final_settlement'|'other_definition_versions'|'unpriced_delivery'|'needs_rebooking'|'gas_delivery_lifecycle'|'gas_market_context'|'physical_gas_risk_unavailable'|'gas_custody_acceptance_window'|'gas_custody_reconciliation'|'gas_park_loan_reconciliation'|'gas_balance_fee_advance_window'|'crude_delivery_lifecycle'|'crude_lifecycle'|'crude_market_context'|'lng_delivery_lifecycle'|'lng_market_context'|
- 'financial_state_unavailable'|'financial_state_future'|'rights_mark_required'|'rights_mark_future'|'rights_mark_corrected'|'expiry_transition_required'|'gas_transport_financial_unpriced';
+ 'financial_state_unavailable'|'financial_state_future'|'rights_mark_required'|'rights_mark_future'|'rights_mark_corrected'|'expiry_transition_required'|'gas_transport_financial_unpriced'|'heat_rate_call_marks'|'heat_rate_call_exercise';
 // An expired source is a future's own contract, awaiting settlement, but for a swap an input of the
 // composite or custom curve it is projected from. A PPA booked under other reference or definition
 // versions than the close is not valued at it (D246), nor is one whose delivery the close has no price for (D252).
@@ -19,6 +19,7 @@ const reasons:Readonly<Record<string,Readonly<Partial<Record<ValuationReason,str
    source_expired:'Underlying contract expired',option_underlying_missing:'Missing underlying price at this close',option_calibration_nonconvergent:'Settlement could not be calibrated',
    option_settlement_below_intrinsic:'Settlement below intrinsic value',option_settlement_above_bound:'Settlement above its no-arbitrage bound',option_calibration_fallback_undeclared:'Settlement at intrinsic without a declared fallback',
    discount_coverage:'Payment date outside the discount curve'},
+  heat_rate_call:{heat_rate_call_marks:'No volatility and correlation marks for every delivery month',heat_rate_call_exercise:'An exercise day has passed; exercise results are Coming soon'},
   ppa:{other_definition_versions:'Booked market inputs are unavailable at this close',unpriced_delivery:'No price for part of its delivery at this close',needs_rebooking:'Needs rebooking'},
 };
 

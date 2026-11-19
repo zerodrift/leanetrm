@@ -23,9 +23,9 @@ export type Holding={booking:Booking;commodity:{code:string;name:string};priceTi
   traderId:string|null;trader:string|null;traderCode:string|null;memo:string|null;tradeReference:string;instrumentReference:string;tradeId:string;bindingId:string;
   bookId:string;book:string;portfolioId:string;portfolio:string;contractId:string;revision:string;curve:string;definitionRevisionId:string;deliveryFrom:string;deliveryTo:string;
   lots:string|null;quantity:string|null;unit:string;quantitySpecification:Reference;executedAt:string;executionPrice:string|null;fixedPrice:string|null;mark:string|null;markMinusPrice:string|null;
-  executionPnl:string|null;presentValue:string|null;currency:string;currencyReference:Reference;settlement:string;direction:'pay_fixed'|'receive_fixed'|'multi_side'|'receive'|'deliver'|null;unavailableReason:ValuationReason|null;
+  executionPnl:string|null;presentValue:string|null;currency:string;currencyReference:Reference;settlement:string;direction:'pay_fixed'|'receive_fixed'|'multi_side'|'receive'|'deliver'|'buy'|'sell'|null;unavailableReason:ValuationReason|null;
   /** A swap's instrument kind: a scheduled one (D214) holds its quantities and prices by period. Futures state none. */
-  contractIdentityKind?:'swap_instrument'|'scheduled_swap_instrument'|'ppa_instrument'|'gas_instrument'|'gas_transport_agreement'|'gas_park_loan_agreement'|'gas_park_custody_agreement'|'crude_instrument'|'lng_instrument'|'futures_option'|'cash_payment';
+  contractIdentityKind?:'swap_instrument'|'scheduled_swap_instrument'|'ppa_instrument'|'gas_instrument'|'gas_transport_agreement'|'gas_park_loan_agreement'|'gas_park_custody_agreement'|'crude_instrument'|'lng_instrument'|'futures_option'|'cash_payment'|'heat_rate_call';
   measure?:string;measureLabel?:string;discounting?:string;completePv?:string|null;overdueKnown?:string|null;overdueEstimated?:string|null;pendingActuals?:string;coverage?:{from:string;to:string};
   /** For a scheduled swap whose periods project from several curves: the markets together, as the backend keys and names them. */
   marketKey?:string|null;marketLabel?:string|null;projectionCurves?:string[]|null}&Partial<OptionFacts>;
@@ -85,6 +85,7 @@ const byText=(a:string,b:string)=>a<b?-1:a>b?1:0;
 const instruments:Readonly<Record<string,{measure:'presentValue'|'executionPnl';label:DeskRow['measure'];pill:DeskRow['pill'];plural:string;price:'executionPrice'|'fixedPrice'|'premium';priceLabel:DeskRow['priceLabel']}>>={
   operating_right:{measure:'presentValue',label:'PV',pill:'RIGHT',plural:'Operating rights',price:'fixedPrice',priceLabel:'Side'},
   rec_forward:{measure:'presentValue',label:'PV',pill:'REC',plural:'REC forwards',price:'fixedPrice',priceLabel:'Side'},
+  heat_rate_call:{measure:'presentValue',label:'PV',pill:'TOLL',plural:'Heat-rate call options',price:'fixedPrice',priceLabel:'Strike'},
   future:{measure:'executionPnl',label:'P&L',pill:'FUT',plural:'Futures',price:'executionPrice',priceLabel:'Executed'},
   heat_rate:{measure:'presentValue',label:'PV',pill:'HEAT',plural:'Heat-rate swaps',price:'fixedPrice',priceLabel:'Fixed'},
   physical_lng:{measure:'presentValue',label:'Contractual PV',pill:'LNG',plural:'Physical LNG',price:'fixedPrice',priceLabel:'Fixed'},
@@ -160,14 +161,14 @@ function statedTotal(group:PivotGroup,measure:string){
 
 export type TileRow={currencyKey:string;currency:string;total:string|null;trades:number;excluded:number;note:string|null;byBook:{bookId:string;book:string;value:string|null;excluded:number}[]};
 /** A money tile: one row per exact currency, never added across currencies. `note` is the tile's own when it has one row. */
-export type Tile={key:'swapPv'|'futuresPnl'|'heatRatePv'|'ppaValue'|'gasPv'|'gasLifecycleValue'|'transportPv'|'parkLoanPv'|'custodyPv'|'crudePv'|'lngPv'|'optionPv'|'operatingPv'|'recPv';rows:TileRow[];note:string|null};
+export type Tile={key:'swapPv'|'futuresPnl'|'heatRatePv'|'ppaValue'|'gasPv'|'gasLifecycleValue'|'transportPv'|'parkLoanPv'|'custodyPv'|'crudePv'|'lngPv'|'optionPv'|'operatingPv'|'recPv'|'heatRateCallPv';rows:TileRow[];note:string|null};
 /** Swap PV and futures execution P&L, each per currency and split by book, from the money totals (D223). */
 export function summaryTiles(summaries:readonly Summary[]):Tile[]{
   const types=groupsOf(summaries,byType),books=groupsOf(summaries,byBook);
   const labels=currencyLabels([...types,...books]);
-  const extra:Exclude<Tile['key'],'swapPv'|'futuresPnl'>[]=[];if(types.some(g=>g.instrumentType==='operating_right'))extra.push('operatingPv');if(types.some(g=>g.instrumentType==='rec_forward'))extra.push('recPv');if(types.some(g=>g.instrumentType==='heat_rate'))extra.push('heatRatePv');if(types.some(g=>g.instrumentType==='ppa'))extra.push('ppaValue');if(types.some(g=>g.instrumentType==='physical_gas'&&!lifecycleOf(g)))extra.push('gasPv');if(types.some(lifecycleOf))extra.push('gasLifecycleValue');if(types.some(g=>g.instrumentType==='physical_gas_transport'))extra.push('transportPv');if(types.some(g=>g.instrumentType==='physical_gas_park_loan'))extra.push('parkLoanPv');if(types.some(g=>g.instrumentType==='physical_gas_park_custody'))extra.push('custodyPv');if(types.some(g=>g.instrumentType==='physical_crude'))extra.push('crudePv');if(types.some(g=>g.instrumentType==='physical_lng'))extra.push('lngPv');if(types.some(g=>g.instrumentType==='futures_option'))extra.push('optionPv');
+  const extra:Exclude<Tile['key'],'swapPv'|'futuresPnl'>[]=[];if(types.some(g=>g.instrumentType==='operating_right'))extra.push('operatingPv');if(types.some(g=>g.instrumentType==='rec_forward'))extra.push('recPv');if(types.some(g=>g.instrumentType==='heat_rate_call'))extra.push('heatRateCallPv');if(types.some(g=>g.instrumentType==='heat_rate'))extra.push('heatRatePv');if(types.some(g=>g.instrumentType==='ppa'))extra.push('ppaValue');if(types.some(g=>g.instrumentType==='physical_gas'&&!lifecycleOf(g)))extra.push('gasPv');if(types.some(lifecycleOf))extra.push('gasLifecycleValue');if(types.some(g=>g.instrumentType==='physical_gas_transport'))extra.push('transportPv');if(types.some(g=>g.instrumentType==='physical_gas_park_loan'))extra.push('parkLoanPv');if(types.some(g=>g.instrumentType==='physical_gas_park_custody'))extra.push('custodyPv');if(types.some(g=>g.instrumentType==='physical_crude'))extra.push('crudePv');if(types.some(g=>g.instrumentType==='physical_lng'))extra.push('lngPv');if(types.some(g=>g.instrumentType==='futures_option'))extra.push('optionPv');
   return (['swapPv','futuresPnl',...extra] as const).map(key=>{
-    const type=({swapPv:'financial_swap',futuresPnl:'future',heatRatePv:'heat_rate',ppaValue:'ppa',gasPv:'physical_gas',gasLifecycleValue:'physical_gas',transportPv:'physical_gas_transport',parkLoanPv:'physical_gas_park_loan',custodyPv:'physical_gas_park_custody',crudePv:'physical_crude',lngPv:'physical_lng',optionPv:'futures_option',operatingPv:'operating_right',recPv:'rec_forward'} as const)[key],{measure,plural}=instrument(type);
+    const type=({swapPv:'financial_swap',futuresPnl:'future',heatRatePv:'heat_rate',ppaValue:'ppa',gasPv:'physical_gas',gasLifecycleValue:'physical_gas',transportPv:'physical_gas_transport',parkLoanPv:'physical_gas_park_loan',custodyPv:'physical_gas_park_custody',crudePv:'physical_crude',lngPv:'physical_lng',optionPv:'futures_option',operatingPv:'operating_right',recPv:'rec_forward',heatRateCallPv:'heat_rate_call'} as const)[key],{measure,plural}=instrument(type);
     const ofTile=(g:PivotGroup)=>instrument(g.instrumentType)===instrument(type)&&lifecycleOf(g)===(key==='gasLifecycleValue');
     const own=types.filter(ofTile);
     const rows=own.map(group=>{
@@ -197,7 +198,7 @@ export type StripPositions={count:number;unvalued:number|null};
 export type StripRisk={state:'none';reason:string}|{state:'pending'|'unavailable';value:string;reason:string}
   |{state:'results';label:string;moves:readonly {currency:string;text:string;exact:string;sign:'positive'|'negative'|'zero';hint:string}[];empty:string|null;note:string|null};
 /** What each money total is called, on the strip and over its split by book. */
-export const tileLabels:Readonly<Record<Tile['key'],string>>={swapPv:'Swap PV',futuresPnl:'Futures execution P&L',heatRatePv:'Heat-rate PV',ppaValue:'PPA value excluding overdue cash',gasPv:'Gas contractual PV',gasLifecycleValue:'Gas unrealized + realized unsettled',transportPv:'Remaining Transport rights and fee PV',parkLoanPv:'Park and loan remaining scheduled plan PV',custodyPv:'Remaining custody service PV',crudePv:'Crude contractual PV',lngPv:'LNG contractual PV',optionPv:'Option value excluding settled premium',operatingPv:'Operating-right PV',recPv:'REC forward PV'};
+export const tileLabels:Readonly<Record<Tile['key'],string>>={swapPv:'Swap PV',futuresPnl:'Futures execution P&L',heatRatePv:'Heat-rate PV',ppaValue:'PPA value excluding overdue cash',gasPv:'Gas contractual PV',gasLifecycleValue:'Gas unrealized + realized unsettled',transportPv:'Remaining Transport rights and fee PV',parkLoanPv:'Park and loan remaining scheduled plan PV',custodyPv:'Remaining custody service PV',crudePv:'Crude contractual PV',lngPv:'LNG contractual PV',optionPv:'Option value excluding settled premium',operatingPv:'Operating-right PV',recPv:'REC forward PV',heatRateCallPv:'Heat-rate call option PV'};
 const stripSign={positive:'pos',negative:'neg',zero:'zero'} as const;
 const reasons=(...parts:(string|null|undefined)[])=>{const text=parts.filter(Boolean).join(' · ');return text?{reason:text}:{};};
 /**
@@ -315,7 +316,7 @@ export const minus=(text:string)=>text.replace(/^-/,'−');
  * marked with its commodity's color. The panel is captioned by its currency and says what it leaves out with that currency's
  * own backend count. Distinct native-quantity partitions remain separate bars, named by their units when they share a market.
  */
-export function pvChartPanels(summaries:readonly Summary[],colors:ReadonlyMap<string,string>,format:(value:string)=>string):ChartSpec[]{return ['financial_swap','heat_rate','ppa','physical_crude','physical_lng','operating_right','rec_forward'].flatMap(type=>pvPanelsFor(summaries,colors,format,type));}
+export function pvChartPanels(summaries:readonly Summary[],colors:ReadonlyMap<string,string>,format:(value:string)=>string):ChartSpec[]{return ['financial_swap','heat_rate','ppa','physical_crude','physical_lng','operating_right','rec_forward','heat_rate_call'].flatMap(type=>pvPanelsFor(summaries,colors,format,type));}
 function pvPanelsFor(summaries:readonly Summary[],colors:ReadonlyMap<string,string>,format:(value:string)=>string,type:string):ChartSpec[]{
   const markets=groupsOf(summaries,byMarket),totals=groupsOf(summaries,byType),labels=marketLabels(markets);
   const swaps=markets.filter(g=>instrument(g.instrumentType)===instruments[type]);
@@ -400,10 +401,10 @@ export function commodityColors(codes:Iterable<string>):Map<string,string>{
 
 /** A position the close values states its value; one it cannot value states why, and has no value. */
 type Valuation={value:string;unavailable:null}|{value:null;unavailable:string};
-export type DeskRow={tradeId:string;revision:string;instrumentType:string;pill:'FUT'|'SWAP'|'HEAT'|'PPA'|'GAS'|'CRUDE'|'LNG'|'OPT'|'RIGHT'|'REC';reference:string;
+export type DeskRow={tradeId:string;revision:string;instrumentType:string;pill:'FUT'|'SWAP'|'HEAT'|'PPA'|'GAS'|'CRUDE'|'LNG'|'OPT'|'RIGHT'|'REC'|'TOLL';reference:string;
   market:string;commodity:string;commodityName:string;curve:string;delivery:string;deliveryFrom:string;deliveryTo:string;
   quantity:string|null;unit:string;quantityKey:string;side:string;exposure:'long'|'short'|'flat'|null;
-  price:string|null;priceLabel:'Executed'|'Fixed'|'Side'|'Fee'|'Premium';priceUnit:string|null;mark:string|null;measure:'P&L'|'PV'|'Value excl. overdue'|'Contractual PV'|'Unrealized + realized unsettled'|'Remaining scheduled plan PV'|'Remaining custody service PV'|'Remaining Transport rights and fee PV';currency:string;
+  price:string|null;priceLabel:'Executed'|'Fixed'|'Side'|'Fee'|'Premium'|'Strike';priceUnit:string|null;mark:string|null;measure:'P&L'|'PV'|'Value excl. overdue'|'Contractual PV'|'Unrealized + realized unsettled'|'Remaining scheduled plan PV'|'Remaining custody service PV'|'Remaining Transport rights and fee PV';currency:string;
   /**
    * Why the position has no single quantity, fixed price or mark the backend states, where it has none for a reason of its own: a
    * scheduled swap holds them by period, and a swap valued by its settlement lifecycle states no curve mark.
@@ -502,6 +503,9 @@ export function positionRows(holdings:readonly Holding[],zone='UTC'):DeskRow[]{
       // Started-delivery trades report their own versioned measure (D360); older programs keep contractual PV.
       if(h.measure!=='gas_contractual_present_value'&&h.measure!=='gas_lifecycle_value_v1')throw Error('The gas position must name its value measure.');
       side='By physical side';exposure=null;
+    }else if(type===instruments.heat_rate_call){
+      if(h.contractIdentityKind!=='heat_rate_call'||h.measure!=='heat_rate_call_present_value'||h.quantity===null||!['buy','sell'].includes(h.direction??''))throw Error('The heat-rate call option must retain its capacity, side and value measure.');
+      side=h.direction==='buy'?'Bought call':'Written call';exposure=h.direction==='buy'?'long':'short';
     }else if(type===instruments.operating_right||type===instruments.rec_forward){
       if(!h.sideSchedules)throw Error('The booked product requires its registered independent Side schedules.');
       side='Independent sides';exposure=null;
@@ -527,10 +531,10 @@ export function positionRows(holdings:readonly Holding[],zone='UTC'):DeskRow[]{
     }
     // An option's premium and settlement are quoted per the underlying's unit, which its rows do not state: neither names a price unit.
     const sidedRight=type===instruments.operating_right||type===instruments.rec_forward;
-    const price=h[type.price]??null,unitOfPrice=(h.priceNavigation===false||sidedRight||type===instruments.ppa||type===instruments.physical_gas||type===instruments.physical_gas_park_loan||type===instruments.futures_option)?null:priceUnit(h),delivery=deliveryLabel(h.deliveryFrom,h.deliveryTo,zone);
+    const price=h[type.price]??null,unitOfPrice=(h.priceNavigation===false||sidedRight||type===instruments.heat_rate_call||type===instruments.ppa||type===instruments.physical_gas||type===instruments.physical_gas_park_loan||type===instruments.futures_option)?null:priceUnit(h),delivery=deliveryLabel(h.deliveryFrom,h.deliveryTo,zone);
     // A scheduled swap states a fixed price only where every fixed period shares it; two floating sides have none at all.
     const quantityNote=h.quantity===null?(type===instruments.physical_gas?'By physical side':sidedRight?'By side':byPeriod):null,priceNote=(type===instruments.physical_gas_park_loan||type===instruments.physical_gas_park_custody)?'By contract':(sidedRight||type===instruments.ppa||type===instruments.physical_gas)?'By side':scheduledSwap&&price===null&&h.direction!=='multi_side'?byPeriod:null;
-    const markNote=valuation.unavailable!==null||mark!==null?null:type===instruments.physical_gas_transport?'Rights and fee terms':type===instruments.physical_gas_park_custody?'Fee terms':type===instruments.physical_gas_park_loan?'Saved account mark':type===instruments.futures_option?(h.component==='premium'?'Premium cash':'No open lots'):(sidedRight||type===instruments.ppa||type===instruments.physical_gas||type===instruments.physical_crude||type===instruments.physical_lng)?'Independent side schedules':h.settlement==='Active'?'Settlement lifecycle':scheduledSwap?byPeriod:'Several marks';
+    const markNote=valuation.unavailable!==null||mark!==null?null:type===instruments.heat_rate_call?'Model value':type===instruments.physical_gas_transport?'Rights and fee terms':type===instruments.physical_gas_park_custody?'Fee terms':type===instruments.physical_gas_park_loan?'Saved account mark':type===instruments.futures_option?(h.component==='premium'?'Premium cash':'No open lots'):(sidedRight||type===instruments.ppa||type===instruments.physical_gas||type===instruments.physical_crude||type===instruments.physical_lng)?'Independent side schedules':h.settlement==='Active'?'Settlement lifecycle':scheduledSwap?byPeriod:'Several marks';
     return {tradeId:h.tradeId,revision:h.revision,instrumentType:h.instrumentType,pill:type.pill,reference:h.tradeReference,
       market:h.marketLabel??curveName(h.curve),commodity:h.commodity.code,commodityName:h.commodity.name,curve:h.curve,delivery,deliveryFrom:h.deliveryFrom,deliveryTo:h.deliveryTo,
       quantity:h.quantity,unit:h.unit,quantityKey:referenceKey(h.quantitySpecification),side,exposure,price,priceLabel:type.priceLabel,priceUnit:unitOfPrice,mark,measure:valueLabel(h),currency:h.currency,...valuation,
