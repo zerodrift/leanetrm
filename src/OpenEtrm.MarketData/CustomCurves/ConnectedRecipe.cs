@@ -43,8 +43,20 @@ public sealed record ConnectedRecipeDeclaration(ConnectedRecipeIdentity Identity
     // The resolved observation windows of each contract observation node, retained like resolved dates.
     [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)]
     public ImmutableArray<ConnectedRecipeWindowBinding> Windows{get;init;}
-    public CurveKey Curve=>new(new(Identity.CatalogId,ConnectedIdentity.Id(new{Version="saved_recipe_graph_v1",Identity})),Definition.Code);
-    public string ManifestId=>ConnectedIdentity.Digest(Canonical);
+    // A record copy may change any identity input. Only the same instance owns these receipts.
+    private sealed class Receipts(ConnectedRecipeDeclaration owner)
+    {
+        internal readonly Lazy<CurveKey> Curve=new(()=>new(new(owner.Identity.CatalogId,
+            ConnectedIdentity.Id(new{Version="saved_recipe_graph_v1",owner.Identity})),owner.Definition.Code));
+        internal readonly Lazy<string> Manifest=new(()=>ConnectedIdentity.Digest(owner.Canonical));
+        // The plan serializer and declaration digest use different converter sets.
+        internal readonly Lazy<JsonElement> Plan=new(()=>JsonSerializer.SerializeToElement(owner.Canonical));
+    }
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectedRecipeDeclaration,Receipts> receipts=new();
+    private Receipts Derived=>receipts.GetValue(this,static declaration=>new(declaration));
+    public CurveKey Curve=>Derived.Curve.Value;
+    public string ManifestId=>Derived.Manifest.Value;
+    internal JsonElement PlanEvidence=>Derived.Plan.Value;
     internal object Canonical=>new{Adapter="saved_recipe_graph_v1",Identity,Definition.Code,Definition.Name,Definition.Output,
         Nodes=Definition.Nodes.OrderBy(n=>n.Id,StringComparer.Ordinal).Select(DeclaredNode).ToArray(),
         Sources=Sources.OrderBy(s=>s.Node,StringComparer.Ordinal).ToArray(),Dates=Dates.OrderBy(d=>d.Node,StringComparer.Ordinal).ToArray(),
@@ -80,14 +92,16 @@ public sealed record ConnectedRecipeDeclaration(ConnectedRecipeIdentity Identity
     {schedule.CatalogId,schedule.ScheduleId,schedule.Version,schedule.EngineVersion,schedule.KnownFrom,schedule.PublicationOrder,
         schedule.Selection,schedule.Occurrences,Calendar=schedule.Calendar is {} calendar?new{calendar.Reference,
             calendar.BusinessDates.From,calendar.BusinessDates.To,Dates=calendar.BusinessDates.Dates.ToArray()}:null});
-    internal void Validate(ResolvedCalculationContext context)
+    // `validated` holds the declaration instances already validated under this same context, so one calculation validates
+    // each instance once however many output points and descendants carry it.
+    internal void Validate(ResolvedCalculationContext context,HashSet<ConnectedRecipeDeclaration>? validated=null)
     {
-        ValidateOwn(context);
+        if(validated is null||validated.Add(this))ValidateOwn(context);
         if(MetadataSources.IsDefaultOrEmpty)return;
         if(MetadataSources.Length>256||MetadataSources.Any(d=>d is null||!d.MetadataSources.IsDefaultOrEmpty)||
             MetadataSources.Select(d=>d.Identity).Distinct().Count()!=MetadataSources.Length)
             throw new MarketDataException("recipe_reference","Metadata-only source receipts require a flat, unique closure of at most 256 versions.");
-        foreach(var source in MetadataSources)source.ValidateOwn(context);
+        foreach(var source in MetadataSources)if(validated is null||validated.Add(source))source.ValidateOwn(context);
     }
     private void ValidateOwn(ResolvedCalculationContext context)
     {

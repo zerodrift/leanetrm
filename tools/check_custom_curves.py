@@ -1,6 +1,8 @@
 """Behavior checks for the authenticated custom-curve operations in an owned preview."""
 from copy import deepcopy
 from decimal import Decimal
+from statistics import median
+from time import perf_counter
 from uuid import uuid4
 from preview_client import PreviewClient, initial_frame
 
@@ -56,7 +58,7 @@ def check_generation_savers(query,catalog,curve,generation,token):
           'immutable, exact foreign keys, and only an author recording their own save',flush=True)
 
 
-def run_checks(url, query=None, manifest=None):
+def run_checks(url, query=None, manifest=None, pg_log=None, *, check_budget=False):
     client=PreviewClient(url)
     boot=client.bootstrap()
     client.call('profile',{'profile':'viewer'})
@@ -86,6 +88,28 @@ def run_checks(url, query=None, manifest=None):
     assert len(balmo['rows'])==1 and balmo['rows'][0][1]=='3.6175',balmo['rows']
     assert len(balmo['dependencies'])==14
     average=client.call('custom-curves/preview',{'definition':templates['ng_average']['definition'],'snapshotId':frame['id']})
+    if pg_log is not None:
+        timings=[]
+        counts=[]
+        with pg_log.open('rb') as log:
+            for _ in range(3):
+                log.seek(0,2)
+                started=perf_counter()
+                again=client.call('custom-curves/preview',{'definition':templates['ng_average']['definition'],'snapshotId':frame['id']})
+                timings.append(round((perf_counter()-started)*1000,1))
+                counts.append(sum(b'execute ' in line and b'WITH requested AS MATERIALIZED(SELECT * FROM jsonb_to_recordset($3::jsonb)' in line
+                                  for line in log.read().splitlines()))
+                assert again['rows']==average['rows'] and again['inputs']==average['inputs']
+        print(f'Rolling average preview: 12 contracts, 20 historical dates, median {median(timings)} ms, history queries {counts}',flush=True)
+        assert counts==[1]*len(counts), 'The rolling average must read its sample windows together.'
+    if check_budget:
+        heavier=deepcopy(templates['ng_average']['definition'])
+        mean=next(n['id'] for n in heavier['nodes'] if n['kind']=='mean')
+        heavier['nodes'].append({'id':'blend','kind':'weighted_panels','parameters':{'aggregation':'signed_sum_v1','alignment':'exact_delivery_intervals_v1'},
+            'inputs':{'source_a':mean,'source_b':mean},'panelWeights':[{'sourcePort':'source_a','weight':'0.5'},{'sourcePort':'source_b','weight':'0.5'}]})
+        next(n for n in heavier['nodes'] if n['kind']=='output')['inputs']['values']='blend'
+        rejection=client.call('custom-curves/preview',{'definition':heavier,'snapshotId':frame['id']},expected=422)
+        assert rejection['code']=='recipe_input' and '240' in rejection['message'],rejection
     assert len(average['rows'])==12 and len(average['inputs'])==240 and average['dependencies']==[]
     assert average['summary']['points']==12 and average['summary']['firstPeriod']['from']<average['summary']['lastPeriod']['from'], average['summary']
     panel=deepcopy(templates['ng_average']['definition'])

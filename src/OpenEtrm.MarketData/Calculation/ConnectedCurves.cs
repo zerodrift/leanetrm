@@ -98,6 +98,8 @@ public static class ConnectedCurves
         }
 
         var operations=new Dictionary<CurvePointKey,Operation>();var pending=new Queue<CurvePointKey>(roots);
+        var validatedDeclarations=new HashSet<ConnectedRecipeDeclaration>(ReferenceEqualityComparer.Instance);
+        var checkedDeclarations=new HashSet<ConnectedRecipeDeclaration>(ReferenceEqualityComparer.Instance);
         var contractEvidence=new Dictionary<ContractKey,MarketContract>();
         var scheduleEvidence=new Dictionary<(Guid Catalog,Guid Schedule,int Version),List<ResolvedCurveSchedule>>();
         var admittedSchedules=new HashSet<ResolvedCurveSchedule>();
@@ -149,7 +151,7 @@ public static class ConnectedCurves
                     operation=new(null,[ResolvePoint(built.Base),ResolvePoint(built.Spread)],[one,one],one,built);break;
                 case ConnectedRecipeProjection projection:
                     if(projection.Declaration is null||projection.Position<0)throw Invalid("A saved-recipe output requires its retained declaration and nonnegative output position.");
-                    projection.Declaration.Validate(context);
+                    if(checkedDeclarations.Add(projection.Declaration))projection.Declaration.Validate(context,validatedDeclarations);
                     if(point.Key.Curve!=projection.Declaration.Curve)
                         throw Invalid("A saved-recipe output must retain its exact adapter identity.");
                     operation=new(null,[ResolvePoint(projection.Value)],[one],one);break;
@@ -285,6 +287,9 @@ public static class ConnectedCurves
         var recipeDeclarations=new Dictionary<ConnectedRecipeIdentity,ConnectedRecipeDeclaration>();
         var recipeCalendars=new Dictionary<ReferenceKey,DateSet>();
         var recipeSchedules=new Dictionary<(Guid,Guid,int),string>();
+        // The same declaration instance reaches this pass once per output point and once per descendant; its evidence is the same each time.
+        var evidencedProjections=new HashSet<ConnectedRecipeDeclaration>(ReferenceEqualityComparer.Instance);
+        var evidencedDeclarations=new HashSet<ConnectedRecipeDeclaration>(ReferenceEqualityComparer.Instance);
         foreach(var point in points)
         {
             if(point.Expression is ConnectedBuiltCurve built)
@@ -312,9 +317,10 @@ public static class ConnectedCurves
                     }
                 }
             }
-            if(point.Expression is ConnectedRecipeProjection projection)
+            if(point.Expression is ConnectedRecipeProjection projection&&evidencedProjections.Add(projection.Declaration))
             foreach(var declaration in new[]{projection.Declaration}.Concat(projection.Declaration.MetadataSources.IsDefault?[]:projection.Declaration.MetadataSources))
             {
+                if(!evidencedDeclarations.Add(declaration))continue;
                 if(recipeDeclarations.TryGetValue(declaration.Identity,out var prior)&&prior.ManifestId!=declaration.ManifestId)
                     throw Invalid("One exact saved recipe version cannot carry conflicting declarations.");
                 recipeDeclarations[declaration.Identity]=declaration;
@@ -420,7 +426,7 @@ public static class ConnectedCurves
             {
                 if(point is null||point.Key.Curve!=definition.Key||point.Key.PointId==Guid.Empty)
                     throw Invalid("Merged points must belong to their exact curve definition.");
-                if(points.TryGetValue(point.Key,out var prior)&&ConnectedIdentity.Digest(prior)!=ConnectedIdentity.Digest(point))
+                if(points.TryGetValue(point.Key,out var prior)&&!ReferenceEquals(prior,point)&&ConnectedIdentity.Digest(prior)!=ConnectedIdentity.Digest(point))
                     throw Invalid("A shared exact connected point has conflicting declarations.");
                 points[point.Key]=point;
             }
@@ -471,7 +477,7 @@ public sealed partial class ConnectedCurvePlan
             ConnectedSource source=>Source(source),
             ConnectedBuiltCurve built=>ConnectedIdentity.Evidence(built),
             ConnectedRecipeProjection projection=>new{Value=PointReference(projection.Value),projection.Position,projection.Declaration.ManifestId,projection.Declaration.Identity,
-                Declaration=projection.Declaration.Canonical},
+                Declaration=projection.Declaration.PlanEvidence},
             ConnectedWeightedSum sum=>new{Terms=Terms(sum.Terms)},
             ConnectedWeightedMean mean=>new{Terms=Terms(mean.Terms)},
             ConnectedMean mean=>new{Points=mean.Points.Select(PointReference).ToArray(),mean.Convention},

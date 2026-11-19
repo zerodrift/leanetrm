@@ -361,6 +361,25 @@ remaining bounds are recorded with the executable consumers in the linked contra
 
 | D418 | Publish ordinary final point TraderMarks independently of trade adoption | Exact source/point, business and knowledge coordinates, explicit signed values and predecessor controls. Genuine observations and native receipts implement D238; optional input reconstruction cannot prevent or undo publication. [Contract](point-trader-marks.md). The combined facility, certificate and financial Transport baseline passes native, managed, populated-upgrade and actual browser checks. Subsequent Side alignment and release remain open. |
 
+### Nested custom-curve previews (D193 and D302)
+
+During a preview, collect the exact historical windows required by the recipe
+and its reachable published sources on the current authorized database connection.
+Each sample still resolves its own correction, expiry and missing-input policy.
+Exact close and publication pins use their existing point readers. A graph too
+large for one window read uses its individual sample reads. Reuse the selected
+saved versions within that request and use the market model's validated mapping
+index for native inputs.
+
+An immutable declaration can reuse its canonical identity and plan evidence.
+Validate its contents in each compilation context and compare distinct declarations
+that claim the same version. A market model can reuse a successful validation of
+the same immutable snapshot. Keep the existing manifest serialization, scenario
+identity, numeric memo and shared-path reference counting. Operators select the
+interactive sample-reference budget in the versioned process limits. Retained
+calculations keep their historical engine envelope. [Operational limits](operational-limits.md).
+[Verification](verification.md#nested-custom-curve-previews).
+
 ## Proposed implementation choices
 
 These are working proposals, not additional user requirements. Resolve them
