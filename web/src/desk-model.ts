@@ -436,6 +436,8 @@ const notes:Readonly<Record<string,string>>={
   'Several marks':'No single curve price for this position at this close.',
   'Settlement lifecycle':'Valued by its settlement lifecycle, which states no single curve price.',
   'Premium cash':'The premium paid up front is cash in its currency, with no market price of its own.',
+  'Model value':'Valued by its option model from both forward curves and its volatility and correlation marks: no one market price is its mark.',
+  'Plan value':'Valued on its injection and withdrawal plan at each gas day\'s forward price, net of charges: no one market price is its mark.',
   'No open lots':'Every lot of this option was exercised, assigned or expired, so it holds no lots to mark.',
 };
 /** Whether a position projects from several curves together, as a scheduled swap can (D214): it then has no one curve of its own. */

@@ -569,6 +569,19 @@ test('custody service rows show backend service value without a commodity price 
  assert.throws(()=>positionRows([{...custody,priceNavigation:true}]),/price navigation/);
 });
 
+test('a valued heat-rate call option and a valued storage contract are rows whose every note has a meaning',()=>{
+ const base={...fixture.holdings[0],lots:null,executionPrice:null,mark:null,markMinusPrice:null,executionPnl:null,unavailableReason:null};
+ const toll={...base,instrumentType:'heat_rate_call',contractIdentityKind:'heat_rate_call',direction:'sell',quantity:'-50',fixedPrice:'3',curve:'local_power',projectionCurves:['local_power','local_gas'],
+  marketLabel:'Synthetic power vs gas',presentValue:'-12.5',measure:'heat_rate_call_present_value'};
+ const storage={...base,instrumentType:'gas_storage',contractIdentityKind:'gas_storage',direction:'buy',quantity:'100000',fixedPrice:null,curve:'local_gas',projectionCurves:['local_gas'],
+  marketLabel:'Synthetic gas storage',presentValue:'7.5',measure:'gas_storage_plan_present_value'};
+ const [option,contract]=positionRows([toll,storage]);
+ assert.deepEqual([option.pill,option.side,option.exposure,option.price,option.priceLabel,option.value,option.markNote],['TOLL','Written call','short','3','Strike','-12.5','Model value']);
+ assert.deepEqual([contract.pill,contract.side,contract.exposure,contract.price,contract.value,contract.markNote],['STOR','Held capacity',null,null,'7.5','Plan value']);
+ for(const row of [option,contract])for(const note of [row.quantityNote,row.priceNote,row.markNote])if(note!==null)assert.ok(noteMeaning(note),note);
+ assert.throws(()=>positionRows([{...storage,measure:'another_measure'}]),/capacity and value measure/);
+});
+
 test('Transport shows one backend-priced rights package without gas quantity exposure or inferred perspective sign',()=>{
  const transport={...fixture.holdings[0],instrumentType:'physical_gas_transport',contractIdentityKind:'gas_transport_agreement',direction:'multi_side',
   quantity:'1',lots:null,priceNavigation:false,curve:'',projectionCurves:[],marketLabel:'Synthetic Transport entitlement',executionPrice:null,fixedPrice:null,mark:null,
@@ -637,6 +650,8 @@ test('the premium row is cash with no mark of its own, and an option with no ope
  const closed=positionRows([optionRow({openLots:'0',quantity:'0',settlement:null,presentValue:'0',lifecycleState:'closed'})])[0];
  assert.deepEqual([closed.side,closed.exposure,closed.mark,closed.markNote],['Call 3.05 · 0 lots','flat',null,'No open lots']);
  assert.ok(noteMeaning('Premium cash')&&noteMeaning('No open lots'));
+ // A valued heat-rate call option and a valued storage contract each say why they have no mark.
+ assert.match(noteMeaning('Model value'),/option model/);assert.match(noteMeaning('Plan value'),/plan/);
 });
 
 test('a pending premium dated outside the discount curve says so in place of its value',()=>{
