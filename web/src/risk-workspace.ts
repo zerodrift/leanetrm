@@ -75,7 +75,7 @@ export function setupRiskWorkspace(o:Options){
   }
   const idsOfJobs=run?.retained?run.parts.flatMap(p=>p.job?.id?[p.job.id]:[]):[];
   const next=selectedJob&&idsOfJobs.includes(selectedJob)?selectedJob:idsOfJobs[0];
-  if(next!==selectedJob){const before=selectedJob;selectedJob=next;if(!host.hidden&&(next||location.hash==='#risk/job/'+before))window.history.replaceState(null,'',location.pathname+location.search+(next?'#risk/job/'+encodeURIComponent(next):''));}
+  if(next!==selectedJob){const before=selectedJob;selectedJob=next;if(!host.hidden&&(next||location.hash==='#risk/job/'+before))window.history.replaceState(window.history.state,'',location.pathname+location.search+(next?'#risk/job/'+encodeURIComponent(next):''));}
   const different=run?.key!==shown?.key||run?.running!==shown?.running||run?.parts.some((p,i)=>{
    const before=shown?.parts[i];return p.report!==before?.report||p.job?.state!==before?.job?.state||p.failure!==before?.failure||p.unknown!==before?.unknown||p.unlisted!==before?.unlisted;
   });
@@ -102,7 +102,7 @@ export function setupRiskWorkspace(o:Options){
    // in Run history. Unknown submissions stay in the engine's actor custody.
    engine?.reset();
    results.reset();get('risk-workspace-results').hidden=true;shown=undefined;selectedJob=id;
-   window.history.replaceState(null,'',location.pathname+location.search+(id?'#risk/job/'+encodeURIComponent(id):''));
+   window.history.replaceState(window.history.state,'',location.pathname+location.search+(id?'#risk/job/'+encodeURIComponent(id):''));
    get('risk-workspace-note').textContent='';
    get('risk-workspace-context-note').textContent='Event-aware report: its captured opening source, knowledge cutoff and common horizon are shown below.';
    o.view('risk');get<HTMLButtonElement>('risk-workspace-export').disabled=o.busy()||!economic?.canDownload();
@@ -140,7 +140,7 @@ export function setupRiskWorkspace(o:Options){
   // A setup with choices holds the run being prepared: show it, rather than ask to discard them.
   editor.open=true;
   if(!engine!.edited()){
-   if(!engine!.unconfirmed()){engine!.reset();selectedJob=undefined;window.history.replaceState(null,'',location.pathname+location.search);}
+   if(!engine!.unconfirmed()){engine!.reset();selectedJob=undefined;window.history.replaceState(window.history.state,'',location.pathname+location.search);}
    engine!.mountInto(get('risk-workspace-editor-body'));await engine!.open();
   }
   // The run setup sits below the report; bring it to the person who asked for it.
@@ -157,7 +157,7 @@ export function setupRiskWorkspace(o:Options){
    }
    await engine!.reviewJob(id,receipt);if(version!==epoch)return;
    selectedJob=id;editor.open=true;engine!.mountInto(get('risk-workspace-editor-body'));
-   window.history.replaceState(null,'',location.pathname+location.search+'#risk/job/'+encodeURIComponent(id));changed();if(chosen)o.view('risk');
+   window.history.replaceState(window.history.state,'',location.pathname+location.search+'#risk/job/'+encodeURIComponent(id));changed();if(chosen)o.view('risk');
   }catch(error){if(version===epoch){results.reset();get('risk-workspace-note').textContent='The retained report could not be read under current authority. Refresh to try again.';}throw error;}
  }
  function drawSummary(){
@@ -250,7 +250,7 @@ export function setupRiskWorkspace(o:Options){
  }
  async function changeScope(next:Scope){
   if(!await leave()){drawScope();drawTrades();return;}scopeController?.abort();scopeController=new AbortController();const version=++epoch;scope=next;pricingReady=false;pricingChoices=[];drawPricing();pnl.reset();history?.reset();economic?.reset();engine!.inputsChanged(false);results.show(undefined);shown=undefined;selectedJob=undefined;
-  window.history.replaceState(null,'',location.pathname+location.search);get('risk-workspace-note').textContent='Scope changed. Run risk for this selection or open a retained report.';
+  window.history.replaceState(window.history.state,'',location.pathname+location.search);get('risk-workspace-note').textContent='Scope changed. Run risk for this selection or open a retained report.';
   drawScope();await readTrades(true);if(version!==epoch)return;await readPricing();if(version!==epoch)return;if(editor.open&&scopeValid())await engine!.open();o.changed();
  }
  get('risk-workspace-pricing-policy').onchange=()=>void o.act(async()=>{
@@ -259,7 +259,7 @@ export function setupRiskWorkspace(o:Options){
   if(engine!.unconfirmed()||economic?.unconfirmed()||unreadRecovery){drawPricing();throw Error('Reconcile the retained Risk submission before choosing another pricing policy.');}
   pricing=pricingChoices.find(choice=>choice.id===id);pricingInitialized=true;
   history?.reset();economic?.reset();engine!.inputsChanged(false);results.reset();shown=undefined;selectedJob=undefined;
-  window.history.replaceState(null,'',location.pathname+location.search);drawPricing();
+  window.history.replaceState(window.history.state,'',location.pathname+location.search);drawPricing();
   if(pricingValid()){if(view==='risk-var')history?.prepare();else if(editor.open)await engine!.open();}o.changed();
  });
  for(const id of ['risk-workspace-books','risk-workspace-portfolios'])get(id).onchange=()=>void o.act(()=>changeScope({

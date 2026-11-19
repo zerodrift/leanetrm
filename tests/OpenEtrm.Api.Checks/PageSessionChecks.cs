@@ -19,6 +19,21 @@ static class PageSessionChecks
         var owned=new PageSessionRegistry(1);var first=owned.GetOrCreate(null,_=>true,()=>new PreviewSession(manifest));
         if(owned.GetOrCreate(first.Id,_=>true,()=>throw new Exception("Existing session recreated")).Created)
             throw new Exception("An existing page consumes another capacity slot.");
+        var oldTab=Guid.NewGuid();var oldDocument=Guid.NewGuid();
+        var previous=owned.View(first.Id,first.Session,oldTab,()=>new PreviewSession(manifest,account:first.Session),oldDocument);
+        owned.Detach(first.Id,oldTab,oldDocument,TimeSpan.FromMinutes(1));
+        var activeTab=Guid.NewGuid();var activeDocument=Guid.NewGuid();
+        var selected=owned.View(first.Id,first.Session,activeTab,()=>new PreviewSession(manifest,account:first.Session),activeDocument);
+        if(selected==previous)throw new Exception("A new navigation must get its own selection while reusing the released slot.");
+        var replacement=Guid.NewGuid();
+        if(owned.View(first.Id,first.Session,activeTab,document:replacement,previousDocument:activeDocument)!=selected)
+            throw new Exception("Reload must retain the selection even when the old document's close arrives later.");
+        var reloadedGeneration=selected.ViewGeneration;
+        owned.Detach(first.Id,activeTab,activeDocument,TimeSpan.Zero);
+        if(owned.View(first.Id,first.Session,activeTab,document:replacement)!=selected||selected.ViewGeneration!=reloadedGeneration)
+            throw new Exception("A delayed close invalidated the replacement document.");
+        try{owned.View(first.Id,first.Session,activeTab,document:Guid.NewGuid());throw new Exception("An independent document exceeded capacity.");}
+        catch(PreviewDeniedException){}
         owned.Retire(first.Session.Digest);
         if(!owned.GetOrCreate(null,_=>true,()=>new PreviewSession(manifest)).Created)
             throw new Exception("Signing out must release its page capacity before signing in again.");

@@ -27,6 +27,11 @@ returned `close_replaced`. The next read succeeded. All 67 calendar and close
 session browser checks passed, including offering a newer close while the
 current selection stays visible until the user accepts it.
 
+Browser reload and browser Back both reopened the historical cutoff and
+returned the same contract IDs and exact prices after the close was selected.
+Restoring an expired view returned `409 workspace_view_expired`. The other
+tab continued to price its own selection.
+
 The related `--async-workbench-check` suite passed 50 HTTP/SSE checks including
 cancellation before admission, independent browser tabs, profile changes and
 authority expiring before disclosure. The `--risk-jobs-check` suite replayed

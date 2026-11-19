@@ -10,7 +10,7 @@ export async function run(actions){
  const open=()=>openPhysical({click,evaluate,wait},'facilities');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);await persona('trader');
- const {frame,session}=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();const f=w.frames.find(f=>f.at.startsWith('2021-01-15T08:')&&w.initialFrameIds.includes(f.id));return {frame:f.id,session:f.close?.session??null};})()");
+ const {frame,session}=await evaluate("(async()=>{const w=await(await window.workspaceFetch('/api/workspace')).json();const f=w.frames.find(f=>f.at.startsWith('2021-01-15T08:')&&w.initialFrameIds.includes(f.id));return {frame:f.id,session:f.close?.session??null};})()");
  // Reload reopens the profile default (D370), so save this fixture's convention explicitly before its view override.
  if(session){
   await click('#profile-open');await set('#default-close-session',session);await click('#profile-save');await wait(idle,30000);
@@ -89,8 +89,10 @@ export async function run(actions){
  // opening a trade: about 4 s on a workstation, so these steps take the 30 s wait the first close change above uses.
  const blotter={wait:(expression,milliseconds=30000)=>wait(expression,milliseconds),click:(selector,milliseconds=30000)=>click(selector,milliseconds)};
  await blotter.click('#nav-futures');
- const inspectionFrame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2021-01-31T08:')&&w.initialFrameIds.includes(f.id)).id;})()");
- await set('#snapshot',inspectionFrame);await blotter.wait(idle);await open();
+ const inspectionFrame=await evaluate("(async()=>{const w=await(await window.workspaceFetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2021-01-31T08:')&&w.initialFrameIds.includes(f.id)).id;})()");
+ await set('#snapshot',inspectionFrame);
+ await blotter.wait("document.querySelector('#snapshot').value==="+q(inspectionFrame)+"&&"+idle);
+ await open();
  await evaluate(`window.facilityTicketPayload=null;window.facilityTradeFetch=window.fetch;window.fetch=async(...args)=>{const response=await facilityTradeFetch(...args);if(String(args[0]).endsWith('/trading/gas')&&response.ok)window.facilityTicketPayload=await response.clone().json();if(String(args[0]).endsWith('/trading/side-schedules')&&response.ok){const read=await response.clone().json();if(read.page){window.facilityScheduleRead=read;window.facilityScheduleReads=(window.facilityScheduleReads??0)+1;}}return response;};
   const row=[...document.querySelectorAll('#facility-allocation-table tbody tr')].find(r=>r.querySelector('input')?.value==='60');row.querySelector('[data-facility-trade]').click();`);
  await openBookedSchedules(blotter);

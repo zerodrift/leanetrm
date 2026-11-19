@@ -18,7 +18,7 @@ public sealed class PageSessionRegistry(int capacity)
     // the compatibility client, draw from the same configured process budget.
     int Slots=>sessions.Count+views.GroupBy(v=>v.Key.Cookie).Sum(g=>g.Sum(v=>Math.Max(1,v.Value.Documents.Count))-1);
 
-    public PreviewSession View(string cookie,PreviewSession account,Guid? tab,Func<PreviewSession>? create=null,Guid? document=null)
+    public PreviewSession View(string cookie,PreviewSession account,Guid? tab,Func<PreviewSession>? create=null,Guid? document=null,Guid? previousDocument=null)
     {
         lock(admission)
         {
@@ -27,25 +27,32 @@ public sealed class PageSessionRegistry(int capacity)
             if(!views.TryGetValue(key,out var entry))
             {
                 if(tab is not null&&create is null)throw new PreviewSessionEnded();
-                if(views.Keys.Any(k=>k.Cookie==cookie))MakeRoom();
+                if(views.Keys.Any(k=>k.Cookie==cookie))MakeRoom(cookie);
                 entry=new(tab is null?account:create!());
                 views.Add(key,entry);
             }
             if(document is {} id&&!entry.Documents.Contains(id))
             {
-                if(entry.Documents.Count!=0)MakeRoom();
+                if(previousDocument is {} previous && entry.Documents.Remove(previous))
+                {
+                    if(entry.Documents.Count==0)entry.Session.InvalidateReads();
+                }
+                else if(entry.Documents.Count!=0)MakeRoom();
                 entry.Documents.Add(id);entry.Detached=null;
             }
             return entry.Session;
         }
     }
-    void MakeRoom()
+    void MakeRoom(string? incomingViewOwner=null)
     {
         if(Slots<capacity)return;
-        // Under pressure a closed document yields its slot immediately.
-        var parked=views.Where(v=>v.Value.Detached.HasValue&&views.Keys.Any(k=>k.Cookie==v.Key.Cookie&&k!=v.Key)).OrderBy(v=>v.Value.Detached).FirstOrDefault();
-        if(parked.Value is not null)views.Remove(parked.Key);
-        if(Slots>=capacity)throw new PreviewDeniedException();
+        // A sign-in can reuse its reserved first slot. Only surplus views
+        // can yield capacity to a different sign-in or an additional document.
+        var parked=views.Where(v=>v.Value.Detached.HasValue &&
+            (v.Key.Cookie==incomingViewOwner || views.Keys.Any(k=>k.Cookie==v.Key.Cookie && k!=v.Key)))
+            .OrderBy(v=>v.Value.Detached).FirstOrDefault();
+        if(parked.Value is null)throw new PreviewDeniedException();
+        views.Remove(parked.Key);
     }
     internal void Detach(string cookie,Guid tab,Guid document,TimeSpan grace)
     {

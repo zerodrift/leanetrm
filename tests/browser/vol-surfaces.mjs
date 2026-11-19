@@ -443,8 +443,8 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,fi
   await evaluate('window.unlistedProduct=null');
 
   // A historical view reads the stored surface known at its cutoff and offers no fit, which is admitted only in the current workspace.
-  const send=(path,body)=>evaluate(`(async()=>{const boot=await(await fetch('/examples/exchange/api/bootstrap?includeFrames=false')).json();
-   const r=await fetch('/examples/exchange/api/'+${q(path)},{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:${q(JSON.stringify(body))}});return r.status;})()`);
+  const send=(path,body)=>evaluate(`(async()=>{const boot=await(await window.workspaceFetch('/examples/exchange/api/bootstrap?includeFrames=false')).json();
+   const r=await window.workspaceFetch('/examples/exchange/api/'+${q(path)},{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:${q(JSON.stringify(body))}});return r.status;})()`);
   const historical=await send('market/context',{effectiveOn:'2026-10-16',knownAt:new Date().toISOString(),mode:'at',selection:'latest_correction'});
   if(historical!==200)throw Error('The historical context was refused: '+historical);
   try{

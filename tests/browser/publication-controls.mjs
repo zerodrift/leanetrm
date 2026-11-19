@@ -5,7 +5,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await command('Emulation.setDeviceMetricsOverride',{width:1500,height:1100,deviceScaleFactor:1,mobile:false});
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelector('#nav-configuration')&&"+idle,30000);await persona('editor');
  const choosePublicationClose=async()=>{
-  const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>w.initialFrameIds.includes(f.id)&&f.at.startsWith('2021-01-15T08:00:00'));})()");
+  const frame=await evaluate("(async()=>{const w=await(await window.workspaceFetch('/api/workspace')).json();return w.frames.find(f=>w.initialFrameIds.includes(f.id)&&f.at.startsWith('2021-01-15T08:00:00'));})()");
   if(!await evaluate("document.querySelector('#as-of-context').open"))await click('#as-of-context>summary');
   await set('#close-session',frame.close.session);await wait(idle);
   await wait(`[...document.querySelector('#snapshot').options].some(o=>o.value===${JSON.stringify(frame.id)})`);
@@ -15,7 +15,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  };
  await choosePublicationClose();
  await click('#nav-configuration');await click('#nav-publications');
- await evaluate(`window.publicationCalls=[];window.publicationSend=window.fetch;window.fetch=async(input,init)=>{const response=await window.publicationSend(input,init);if(String(input).includes('/price-publications'))window.publicationCalls.push({path:String(input),body:init?.body?JSON.parse(init.body):null,status:response.status,data:await response.clone().json()});return response;};window.publicationApi=async(path,body)=>{const boot=await(await window.publicationSend('/api/bootstrap')).json(),r=await window.publicationSend('/api/'+path,{method:body===undefined?'GET':'POST',headers:body===undefined?{}:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:body===undefined?undefined:JSON.stringify(body)});return {status:r.status,data:await r.json()};};`);
+ await evaluate(`window.publicationCalls=[];window.publicationSend=window.fetch;window.fetch=async(input,init)=>{const response=await window.publicationSend(input,init);if(String(input).includes('/price-publications'))window.publicationCalls.push({path:String(input),body:init?.body?JSON.parse(init.body):null,status:response.status,data:await response.clone().json()});return response;};window.publicationApi=async(path,body)=>{const boot=await(await window.workspaceFetch('/api/bootstrap',undefined,window.publicationSend)).json(),r=await window.workspaceFetch('/api/'+path,{method:body===undefined?'GET':'POST',headers:body===undefined?{}:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:body===undefined?undefined:JSON.stringify(body)},window.publicationSend);return {status:r.status,data:await r.json()};};`);
  const get=()=>`publicationApi('price-publications?snapshotId='+document.querySelector('#snapshot').value)`;
  const loaded=await evaluate(`(async()=>{const r=await ${get()};if(r.status!==200)throw Error(JSON.stringify(r));return r.data;})()`);
  const exact=loaded.indices.find(i=>i.key.code==='test_price'&&i.quote.code==='test_gas_outright');if(!exact)throw Error('Missing exact synthetic monthly gas index/quote');

@@ -142,7 +142,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
 
   // The product page: its name and every contract label from one Edit, committed in order, stopping at the first refusal.
   // A product with at least two monthly contracts.
-  const product=await evaluate("(async()=>{for(const row of (await(await fetch('/api/reference/catalog?table=futures_products')).json()).rows){const read=await(await fetch('/api/reference/futures-product?code='+encodeURIComponent(row.code))).json();if(read.series?.length>=2)return row.code;}})()");
+  const product=await evaluate("(async()=>{for(const row of (await(await window.workspaceFetch('/api/reference/catalog?table=futures_products')).json()).rows){const read=await(await window.workspaceFetch('/api/reference/futures-product?code='+encodeURIComponent(row.code))).json();if(read.series?.length>=2)return row.code;}})()");
   await open('futures_products/'+encodeURIComponent(product));
   const labels=await evaluate("[...document.querySelectorAll('#reference-item [data-edit-table=futures_series]')].map(c=>({code:c.dataset.editCode,label:c.textContent}))");
   const productName=await evaluate(`${editorRead()}.item.name`);

@@ -524,11 +524,32 @@ api.MapGet("/bootstrap",async (HttpContext context,IAntiforgery antiforgery,bool
     if(hostedAuthentication is not null)
         foreach(var digest in await hostedAuthentication.EndedSessions(sessions.ReclaimCandidates(),context.RequestAborted))sessions.Retire(digest);
     context.Request.Cookies.TryGetValue(cookieName,out var cookie);
-    var admitted=sessions.GetOrCreate(cookie,existing=>hosted is null||existing.Digest==HostedAuthentication.SessionDigest(context),
-        ()=>new PreviewSession(database.Manifest,hosted is null?null:HostedAuthentication.SignIn(context)));
-    var account=admitted.Session;
-    var session=sessions.View(admitted.Id,account,WorkspaceTab(context),()=>new PreviewSession(database.Manifest,account:account),WorkspaceDocument(context));
-    if(admitted.Created)context.Response.Cookies.Append(cookieName,admitted.Id,new CookieOptions {HttpOnly=true,SameSite=SameSiteMode.Strict,Secure=hosted is not null,MaxAge=session.Ends-DateTimeOffset.UtcNow,Path="/"});
+    var tab=WorkspaceTab(context);
+    var document=WorkspaceDocument(context);
+    PreviewSession session;
+    if(context.Request.Headers.TryGetValue("X-OpenETRM-Reattach",out var restore))
+    {
+        if(restore.Count!=1||tab is null||document is null)throw new PreviewDeniedException();
+        Guid? previous=restore[0]=="attach"?null:
+            Guid.TryParseExact(restore[0],"D",out var id)&&id!=Guid.Empty?id:throw new PreviewDeniedException();
+        try
+        {
+            var existing=Session(context);
+            session=sessions.View(cookie!,existing.Account,tab,document:document,previousDocument:previous);
+        }
+        catch(PreviewSessionEnded)
+        {
+            return Results.Conflict(new {code="workspace_view_expired",message="This workspace selection expired. Open a new tab to start with working data."});
+        }
+    }
+    else
+    {
+        var admitted=sessions.GetOrCreate(cookie,existing=>hosted is null||existing.Digest==HostedAuthentication.SessionDigest(context),
+            ()=>new PreviewSession(database.Manifest,hosted is null?null:HostedAuthentication.SignIn(context)));
+        var account=admitted.Session;
+        session=sessions.View(admitted.Id,account,tab,()=>new PreviewSession(database.Manifest,account:account),document);
+        if(admitted.Created)context.Response.Cookies.Append(cookieName,admitted.Id,new CookieOptions {HttpOnly=true,SameSite=SameSiteMode.Strict,Secure=hosted is not null,MaxAge=session.Ends-DateTimeOffset.UtcNow,Path="/"});
+    }
     await session.Gate.WaitAsync(context.RequestAborted);
     try {
         var identity=hosted is null?null:HostedAuthentication.Current(context);

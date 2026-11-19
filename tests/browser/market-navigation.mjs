@@ -35,7 +35,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await evaluate("[...document.querySelectorAll('.curve-button')].find(b=>b.textContent.startsWith('Local power forwards')).click()");await wait(idle);
   await check('repeated pricing uses the ordinary evaluation response without reloading catalog metadata',"window.__pricingReads.length===2&&window.__pricingReads[1].includeWorkspace!==true&&window.__navigationReads.filter(p=>p==='/api/workspace/catalog').length===1&&document.querySelector('#error').hidden");
   await persona('viewer');
-  await check('changing profiles selects the uniquely latest offered market date',"(async()=>{const frames=(await(await fetch('/api/workspace/navigation')).json()).frames,newest=Math.max(...frames.map(f=>Date.parse(f.at))),latest=frames.filter(f=>Date.parse(f.at)===newest);return document.querySelector('#snapshot').value===(latest.length===1?latest[0].id:'');})()");
+  await check('changing profiles selects the uniquely latest offered market date',"(async()=>{const frames=(await(await window.workspaceFetch('/api/workspace/navigation')).json()).frames,newest=Math.max(...frames.map(f=>Date.parse(f.at))),latest=frames.filter(f=>Date.parse(f.at)===newest);return document.querySelector('#snapshot').value===(latest.length===1?latest[0].id:'');})()");
   // This check is about a curve chosen with no date selected, so the date the person arrived on is cleared first.
   await set('#snapshot','');await wait(idle);
   await evaluate("[...document.querySelectorAll('.curve-button')].find(b=>b.textContent.startsWith('Local power forwards')).click()");await wait(idle);

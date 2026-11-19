@@ -6,9 +6,9 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelector('#nav-configuration')&&"+idle,30000);await persona('viewer');
  await click('#nav-configuration');await click('#nav-publications');
  const fixture=await evaluate(`(async()=>{
-  const prices=await(await fetch('/api/power-imports')).json();
+  const prices=await(await window.workspaceFetch('/api/power-imports')).json();
   const source=prices.sources.find(s=>s.provider==='PJM'&&s.market==='DA'&&s.availableDates.includes('2021-03-14'));
-  const catalog=await(await fetch('/api/price-publications?snapshotId='+document.querySelector('#snapshot').value)).json();
+  const catalog=await(await window.workspaceFetch('/api/price-publications?snapshotId='+document.querySelector('#snapshot').value)).json();
   const publication=catalog.publications.find(p=>p.name==='Captured hourly compatibility check'&&p.clock.code===source.clock_code&&p.indices[0]?.unit.multiplier==='1');
   return {source:source.id,publication:publication.key,index:publication.indices[0].key.code,knownAt:prices.knownAt};
  })()`);
@@ -27,11 +27,11 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await check('missing hourly capture stays missing instead of inventing settlement prices',"document.querySelector('#power-publication-result').textContent.includes('24 expected intervals · 24 missing')&&document.querySelectorAll('#power-publication-result tbody tr').length===0&&document.querySelector('#error').hidden");
  const productFixture=await evaluate(`(async()=>{
   const snapshot=document.querySelector('#snapshot').value;
-  const catalog=await(await fetch('/api/price-publications?snapshotId='+snapshot)).json();
+  const catalog=await(await window.workspaceFetch('/api/price-publications?snapshotId='+snapshot)).json();
   const publication=catalog.publications.find(p=>p.name==='PJM 2020 captured product check');
-  const choices=await(await fetch('/api/price-publications/power/products?snapshotId='+snapshot)).json();
+  const choices=await(await window.workspaceFetch('/api/price-publications/power/products?snapshotId='+snapshot)).json();
   const product=choices.products.find(p=>p.code==='pjm');
-  const prices=await(await fetch('/api/power-imports')).json();
+  const prices=await(await window.workspaceFetch('/api/power-imports')).json();
   return {publication:publication.key,index:publication.indices[0].key.code,product:product.code+':'+product.version,knownAt:prices.knownAt};
  })()`);
  await selectPublication({evaluate,wait,click,idle},`${productFixture.publication.id}:${productFixture.publication.version}`);

@@ -6733,7 +6733,11 @@ under their own current authority. Both release it on exiting the scoped read.
 The shared browser header holds a prepared and an applied cutoff per tab.
 Fresh reads, queued work and publication verify the selected source under current
 authority. Back restores the original certified history and chosen close. The
-browser stores its navigation stack in memory. Sign-out releases the server-side
+browser stores its navigation stack in memory. Browser reload and Back reattach
+under current authority using opaque routing IDs from that history entry. If
+the selection has expired, the page asks the user to open a fresh workspace.
+Leaving the document releases its active reads and its slot can be reused.
+Sign-out releases the server-side
 selection. A saved artifact can retain the exact selection under the identity
 already used in its calculations. Existing receipts keep their original IDs.
 Clients using the older cookie-only API keep their explicit receipt contract.

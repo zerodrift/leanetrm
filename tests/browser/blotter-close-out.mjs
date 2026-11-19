@@ -11,7 +11,7 @@ const labels=`${items}.map(i=>i.firstChild.textContent)`;
 const order=['Close out…','Amend…','Buy more…','Sell…','Risk…','Open in its own window','Copy trade ID','Ask the assistant about this position'];
 // Selects the built-in frame at `at` under its own close session: the As of list offers only the chosen session's closes (D334).
 async function selectFrame({evaluate,set,wait,idle},at){
-  const {id,session}=await evaluate(`(async()=>{const w=await(await fetch('/api/workspace')).json();const f=w.frames.find(f=>f.at.startsWith(${JSON.stringify(at)}));return {id:f.id,session:f.close?.session??null};})()`);
+  const {id,session}=await evaluate(`(async()=>{const w=await(await window.workspaceFetch('/api/workspace')).json();const f=w.frames.find(f=>f.at.startsWith(${JSON.stringify(at)}));return {id:f.id,session:f.close?.session??null};})()`);
   if(session){await set('#close-session',session);await wait(idle,30000);}
   await set('#snapshot',id);
 }

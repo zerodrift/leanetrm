@@ -9,7 +9,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await command('Runtime.enable');await command('Page.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
   await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);
   await evaluate(`window.__requests=[];window.__originalFetch=window.fetch;window.fetch=async(...args)=>{window.__requests.push({path:String(args[0]),body:args[1]?.body?JSON.parse(args[1].body):null});return window.__originalFetch(...args);};`
-    +"window.__api=async(path,body)=>{const boot=await(await window.__originalFetch('/api/bootstrap')).json();const r=await window.__originalFetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:JSON.stringify(body)});return {status:r.status,data:await r.json()};};"
+    +"window.__api=async(path,body)=>{const boot=await(await window.workspaceFetch('/api/bootstrap',undefined,window.__originalFetch)).json();const r=await window.workspaceFetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:JSON.stringify(body)},window.__originalFetch);return {status:r.status,data:await r.json()};};"
     // Each CSV the page saves is kept for inspection instead of downloaded.
     +"window.__csv=[];const create=URL.createObjectURL;URL.createObjectURL=b=>{window.__csv.push(b);return create(b);};"
     +"const save=HTMLAnchorElement.prototype.click;HTMLAnchorElement.prototype.click=function(){if(this.download==='leanetrm-usage.csv')return;return save.call(this);};");
@@ -35,7 +35,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const sent=path=>`window.__requests.filter(r=>r.path==='/api/settings/ai/usage${path}')`;
   const tabs="['usage','models','providers','agents','prompts'].filter(t=>!document.querySelector('#ai-tab-'+t).hidden).join()";
   const retained="Object.keys(sessionStorage).find(k=>k.startsWith('openetrm.ai.usage.request.'))";
-  const audit="(await(await window.__originalFetch('/api/settings/ai/usage')).json()).audit";
+  const audit="(await(await window.workspaceFetch('/api/settings/ai/usage',undefined,window.__originalFetch)).json()).audit";
   const auditRows="[...document.querySelectorAll('#ai-usage-audit tbody tr')].map(r=>[...r.cells].map(c=>c.textContent))";
   const sections="[...document.querySelectorAll('#ai-usage-sections .ai-usage-currency')]";
   const csv="(await window.__csv.at(-1).text())";

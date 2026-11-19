@@ -187,8 +187,8 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
  await picture(popup,'option-window');await command('Target.closeTarget',{targetId:target.targetId});await popup.close();
  // Reuse one explicitly saved native v2 policy for this exact future, book and
  // legal owner. Configuration is separate from the observed exercise below.
- await evaluate(`(async()=>{const token=(await(await fetch('/examples/exchange/api/bootstrap')).json()).csrfToken;
-  const post=async(path,body)=>{const response=await fetch('/examples/exchange/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':token},body:JSON.stringify(body)});if(!response.ok)throw Error(path+': '+await response.text());return response.json();};
+ await evaluate(`(async()=>{const token=(await(await window.workspaceFetch('/examples/exchange/api/bootstrap')).json()).csrfToken;
+  const post=async(path,body)=>{const response=await window.workspaceFetch('/examples/exchange/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':token},body:JSON.stringify(body)});if(!response.ok)throw Error(path+': '+await response.text());return response.json();};
   const selected={snapshotId:document.querySelector('#snapshot').value,knowledgeMode:'current',convention:'trading_workspace_v1'},d=await post('lifecycle/view',selected);
   const source=d.optionSources.find(s=>s.trade_id===${q(receipt.tradeId)}&&s.curve_code==='nymex_ng'&&s.future_mark_eligible);if(!source)throw Error('Missing exact option-generated future mark.');
   const compatible=d.marginPolicies.filter(m=>m.implementation==='dated_futures_margin_policy_v2'&&m.definition_revision_id===source.definition_revision_id&&m.contract_id===source.underlying_contract_id&&

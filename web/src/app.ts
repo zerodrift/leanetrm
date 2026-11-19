@@ -1,4 +1,4 @@
-import {workspaceView,workspaceDocument,releaseView,viewEvents} from './workspace-view.js';
+import {workspaceView,workspaceDocument,releaseView,viewEvents,rememberWorkspaceView,onWorkspaceLeave,reattachHeaders,workspaceRegistered} from './workspace-view.js';
 import {setupRecInventory} from './rec-inventory-view.js';
 import {recContext} from './rec-inventory-model.js';
 import {setupStructuredPower} from './structured-power-view.js';
@@ -243,7 +243,7 @@ function renderAsOfClose(){
 }
 async function responseFor(path:string,body?:unknown,root=apiRoot,signal?:AbortSignal):Promise<Response>{
   let response:Response;
-  try{response=await fetch(root+path,{method:body===undefined?'GET':'POST',credentials:'same-origin',headers:{'X-OpenETRM-View':workspaceView(),'X-OpenETRM-Document':workspaceDocument,...(body===undefined?{}:{'Content-Type':'application/json','X-Preview-CSRF':csrf})},body:body===undefined?undefined:JSON.stringify(body),signal:signal?AbortSignal.any([signal,AbortSignal.timeout(deadlines.milliseconds(path))]):AbortSignal.timeout(deadlines.milliseconds(path))});}
+  try{response=await fetch(root+path,{method:body===undefined?'GET':'POST',credentials:'same-origin',headers:{'X-OpenETRM-View':workspaceView(),'X-OpenETRM-Document':workspaceDocument,...(path.startsWith('bootstrap?')?reattachHeaders():{}),...(body===undefined?{}:{'Content-Type':'application/json','X-Preview-CSRF':csrf})},body:body===undefined?undefined:JSON.stringify(body),signal:signal?AbortSignal.any([signal,AbortSignal.timeout(deadlines.milliseconds(path))]):AbortSignal.timeout(deadlines.milliseconds(path))});}
   catch{throw Object.assign(Error(body!==undefined?'We could not confirm the result. Refresh and check the saved changes before saving again.':'The app could not connect. Please refresh the page.'),{code:'response_unknown'});}
   signal?.throwIfAborted();
   if(response.status===401){sessionEnded=true;futures.ended('signed_out');workspace=undefined;result=undefined;historyData=undefined;curve='';document.body.hidden=true;location.replace('/auth');throw Object.assign(Error('Sign in to continue.'),{code:'sign_in_required'});}
@@ -401,8 +401,8 @@ async function setPage(next:string){
   if(page==='vol-surfaces'&&next!=='vol-surfaces')volSurfaces.leave();
   if(page==='options'&&next!=='options')optionChains.leave();
   // Only the reference page has an address; another page leaves none behind.
-  if(next!=='reference'&&location.hash.startsWith('#reference'))window.history.replaceState(null,'',location.pathname+location.search);
-  if(next!=='risk'&&location.hash.startsWith('#risk'))window.history.replaceState(null,'',location.pathname+location.search);
+  if(next!=='reference'&&location.hash.startsWith('#reference'))window.history.replaceState(window.history.state,'',location.pathname+location.search);
+  if(next!=='risk'&&location.hash.startsWith('#risk'))window.history.replaceState(window.history.state,'',location.pathname+location.search);
   if(page==='lifecycle'&&next!==page)lifecycle.reset();
   if(page==='physical-operations'&&next!==page)physicalOperations.reset();
   page=next;$('rec-inventory-page').hidden=next!=='rec-inventory';$('physical-power-page').hidden=next!=='physical-power';$('lifecycle-page').hidden=next!=='lifecycle';$('physical-operations-page').hidden=next!=='physical-operations';rememberPage(()=>sessionStorage,administrationScope+':'+exampleId+':'+currentProfile,next);$('risk-page').hidden=next!=='risk';$('gas-setup-page').hidden=next!=='gas-setup';$('crude-setup-page').hidden=next!=='crude-setup';$('gas-page').hidden=next!=='gas';$('crude-page').hidden=next!=='crude';$('ppa-page').hidden=next!=='ppa';$('custom-curves-page').hidden=next!=='custom-curves';$('curve-definitions-page').hidden=next!=='curve-definitions';$('vol-surfaces-page').hidden=next!=='vol-surfaces';$('options-page').hidden=next!=='options';$('jobs-page').hidden=next!=='jobs';$('facilities-page').hidden=next!=='facilities';$('dashboard-page').hidden=next!=='dashboard';$('delivery-page').hidden=next!=='delivery';$('interval-series-page').hidden=next!=='interval-series';$('interval-curves-page').hidden=next!=='interval-curves';$('parties-page').hidden=next!=='parties';$('futures-page').hidden=next!=='futures'||futures.poppedOut();$('blotter-away').hidden=next!=='futures'||!futures.poppedOut();$('power-page').hidden=next!=='power';select('snapshot').closest<HTMLElement>('.date-control')!.hidden=!showsDate(next)||usesBusinessDate(next);$('context-toolbar').hidden=!showsDate(next);$('business-date-field').hidden=!usesBusinessDate(next);$<HTMLInputElement>('date-context-on').type=usesBusinessDate(next)?'date':'hidden';$('market-page').hidden=next!=='market';$('reference-page').hidden=next!=='reference';$('schedules-page').hidden=next!=='schedules';$('price-setup-page').hidden=next!=='configuration';$('date-context').hidden=!showsContext(next);$('admin-page').hidden=next!=='admin'||!can('ManageIdentities');$('ai-page').hidden=next!=='ai';$('access-policy-page').hidden=next!=='admin'||!can('ManageAccess');$('assistant-policy-page').hidden=next!=='ai'||!can('ManageAgents');$('no-access-page').hidden=true;
@@ -954,7 +954,7 @@ const itemFieldNames:Record<string,string>={name:'Name',display_code:'Display co
 function addressReference(address:ReferenceAddress){
   const hash=formatReferenceAddress(address),current=parseReferenceAddress(location.hash);shownReference=hash;
   if(location.hash===hash)return;
-  if(current&&current.code===undefined)window.history.pushState(null,'',hash);else window.history.replaceState(null,'',hash);
+  if(current&&current.code===undefined)window.history.pushState(window.history.state,'',hash);else window.history.replaceState(window.history.state,'',hash);
 }
 // Opens a category's tab, with its rows matching `search` when one is given, at the page an item of it was opened from.
 async function showReference(table:string,search:string){
@@ -1578,7 +1578,7 @@ const referenceConsole=setupReferenceConsole({host:$('reference-console'),areas:
 window.addEventListener('hashchange',()=>{
   const hash=location.hash;
   if(!hash.startsWith('#reference')||page==='reference'&&hash===shownReference)return;
-  const restore=()=>{if(location.hash===hash)window.history.replaceState(null,'',page==='reference'?shownReference||hash:location.pathname+location.search);};
+  const restore=()=>{if(location.hash===hash)window.history.replaceState(window.history.state,'',page==='reference'?shownReference||hash:location.pathname+location.search);};
   if(busy){restore();return;}
   if(holdsEdits())restore();
   void (async()=>{if(await mayLeave())await act(async()=>{if(contextDirty)await applyContext();await openReferenceAddress(hash);});else restore();})();
@@ -1586,7 +1586,7 @@ window.addEventListener('hashchange',()=>{
 window.addEventListener('hashchange',()=>{
  const id=riskAddress(location.hash);if(!id)return;
  const displayed=page==='risk'?riskJobs.address():'';
- window.history.replaceState(null,'',location.pathname+location.search+displayed);
+ window.history.replaceState(window.history.state,'',location.pathname+location.search+displayed);
  if(busy)return;
  void (async()=>{if(!await mayLeave())return;await act(async()=>{if(page!=='risk'){await setPage('risk');await riskJobs.load(id);}else await riskJobs.openJob(id);});})();
 });
@@ -1911,8 +1911,9 @@ const assistant=setupAssistant({launcherHidden:()=>prefs.assistantHidden,launche
 // Coming back to the window asks whether a newer close arrived while it was away.
 window.addEventListener('focus',()=>void recheckNewestClose());
 // A main window that closes or goes elsewhere tells the Blotter it popped out, which then shows why it stops.
-window.addEventListener('pagehide',event=>{
- if(!event.persisted)releaseView(apiRoot,csrf,workspaceView());
+window.addEventListener('hashchange',rememberWorkspaceView);
+onWorkspaceLeave(()=>{
+ releaseView(apiRoot,csrf,workspaceView());
  closeCheckDue=false;cancelCurveRead();pageRead?.controller.abort();readClient.close();futures.ended('main_closed');});
 // A reload, closing the tab and going back leave the page without the panel's own question, so the browser asks while the panel holds an
 // amendment with edits, or a custom curve holds unsaved ones: the listener is on while it does, and off once the edits are saved or given up. A session that has ended cannot
@@ -1938,7 +1939,7 @@ const chooser=select('example-dataset');chooser.replaceChildren(...examples.map(
   if(holdsEdits()&&(busy||!await mayLeave())){chooser.value=exampleId;return;}
   location.assign(selected.url);
 })();
-csrf=boot.csrfToken;asyncReadsEnabled=boot.asyncReadProtocol==='async_reads_v1';administrationScope=[boot.runId,boot.tenantId,boot.workspaceId].join(':');setHostMode(boot.mode);
+workspaceRegistered();csrf=boot.csrfToken;asyncReadsEnabled=boot.asyncReadProtocol==='async_reads_v1';administrationScope=[boot.runId,boot.tenantId,boot.workspaceId].join(':');setHostMode(boot.mode);
   // Synthetic sign-in is an explicit loopback preview facility only.
   $('example').hidden=hostedPilot;if(hostedPilot&&!boot.profile)throw Error('The signed-in account could not be verified.');
   if(boot.profile===null?boot.access!==null:typeof boot.profile!=='string'||!boot.profile||boot.access===undefined||boot.access===null)throw Error('The workspace access metadata is missing or inconsistent. Refresh and try again.');

@@ -5,7 +5,7 @@ export async function run(a){
  await captureSideTerms(a);
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
  await command('Page.navigate',{url});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);await persona('trader');
- async function chooseFrame(){const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>w.initialFrameIds.includes(f.id)&&f.at.startsWith('2020-12-18')).id;})()");await set('#snapshot',frame);await wait(idle);}
+ async function chooseFrame(){const frame=await evaluate("(async()=>{const w=await(await window.workspaceFetch('/api/workspace')).json();return w.frames.find(f=>w.initialFrameIds.includes(f.id)&&f.at.startsWith('2020-12-18')).id;})()");await set('#snapshot',frame);await wait(idle);}
  await chooseFrame();await click('#nav-futures');await wait(idle);await newTrade(a,'lng');
  const physical=['commodity','product','loadFacility','loadCustody','dischargeFacility','dischargeCustody','energyQuantityCode','clock'];
  await check('LNG shares the common panel, with separate blank physical masters and no curve picker',`document.querySelector('#position-details-form').contains(document.querySelector('#lng-page'))&&${JSON.stringify(physical)}.every(k=>document.querySelector('#lng-'+k).value==='')&&!document.querySelector('#lng-curve')&&!document.querySelector('#lng-assignment')`);
