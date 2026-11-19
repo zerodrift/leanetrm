@@ -9,6 +9,8 @@ namespace OpenEtrm.Api;
 public sealed partial class PreviewDatabase
 {
     internal const int MaximumObservationWindows=16384;
+    internal static bool ValidObservationWindows(ImmutableArray<ObservationWindow> windows)=>
+        windows.Length<=MaximumObservationWindows&&windows.All(window=>window.From<=window.To);
     internal sealed record ObservationPinSets(PreviewData Data,ImmutableHashSet<Guid> Denied);
     internal async Task<ObservationPinSets> ReadObservationPinSets(NpgsqlConnection connection,PreviewData metadata,
         ImmutableArray<InputFrame> frames,CancellationToken ct)
@@ -17,19 +19,21 @@ public sealed partial class PreviewDatabase
         var selected=frames.Where(frame=>!frame.ObservationIds.IsEmpty).ToArray();
         if(selected.Length==0)return new(metadata.WithObservations([]),[]);
         var requests=JsonSerializer.Serialize(selected.Select(frame=>new{id=frame.Id,pins=frame.ObservationIds}));
-        await using var command=ScheduleStore.Command(connection,"SELECT security.read_observation_pin_sets($1,$2,$3::jsonb)::text",
+        await using var command=ScheduleStore.Command(connection,"SELECT pg_catalog.convert_to(security.read_observation_pin_sets($1,$2,$3::jsonb)::text,'UTF8')",
             metadata.DefinitionRevision.CatalogId,metadata.DefinitionRevision.RevisionId,requests);
-        using var json=JsonDocument.Parse((string)(await command.ExecuteScalarAsync(ct))!);
-        var rows=json.RootElement.GetProperty("rows").EnumerateArray().Select(row=>ReferenceJson.PreserveNumericLexemes(row.GetRawText())).ToImmutableArray();
-        Interlocked.Add(ref observationRowsRead,rows.Length);
+        await using var reader=await command.ExecuteReaderAsync(System.Data.CommandBehavior.SequentialAccess,ct);
+        if(!await reader.ReadAsync(ct))throw new JsonException("The observation pin batch is missing.");
+        await using var body=reader.GetStream(0);
+        var payload=await ObservationPinPayload.Read(body,ct);
+        Interlocked.Add(ref observationRowsRead,payload.Rows.Length);
         // Prefetch is not proof consumption. The calendar records only the
         // reached frame's returned pins when it uses this shared storage.
-        return new(metadata.WithObservations(rows),[..json.RootElement.GetProperty("denied").EnumerateArray().Select(id=>id.GetGuid())]);
+        return new(metadata.WithObservations(payload.Rows),payload.Denied);
     }
     internal async Task<PreviewData> ReadObservationWindows(NpgsqlConnection connection,PreviewData metadata,
         ImmutableArray<ObservationWindow> windows,CancellationToken ct,ImmutableArray<Guid> exactPins=default)
     {
-        if(windows.Length>MaximumObservationWindows||windows.Any(window=>window.From>window.To))throw new ArgumentException("Observation windows require ordered bounds and at most 16,384 declared samples.");
+        if(!ValidObservationWindows(windows))throw new ArgumentException("Observation windows require ordered bounds and at most 16,384 declared samples.");
         // Exact pins alone go through the point reader, which authorizes only them: reading the table would make its row security
         // build the whole catalog's visibility first, seconds at hosted scale.
         if(windows.IsEmpty)

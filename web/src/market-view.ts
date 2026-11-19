@@ -4,7 +4,7 @@ export type ReferenceRevision={catalogId:string;revisionId:string};
 export type ReferenceSource={referenceRevision:ReferenceRevision;definitionRevisionId:string};
 export type ReferenceDisplay={sourceRevision:ReferenceRevision;displayRevision:ReferenceRevision;version:number;references:Record<string,Row[]>};
 export type Frame = {id:string; name:string; at:string; businessDate:string; originCloseId?:string|null;observationIds:string[];curveContracts:Record<string,string[]>};
-export type Workspace = {referenceSources?:Record<string,ReferenceSource>;futuresConvention:string;curveNames?:{code:string;name:string}[]|null;powerCurveCodes:string[];unitCatalogError?:string|null;unitCatalog?:{revision:unknown;references:Record<string,Row[]>};referenceDisplay?:ReferenceDisplay|null;unitReferenceDisplay?:ReferenceDisplay|null;profile:string;example:{at:string;curve:string}|null; definitions:Record<string,Row[]>; references:Record<string,Row[]>;referenceScope?:'definition_closure'|'all_visible';observationScope?:'on_demand';observations:Row[]; frames:Frame[]; initialFrameIds:string[]};
+export type Workspace = {referenceSources?:Record<string,ReferenceSource>;futuresConvention:string;curveNames?:{code:string;name:string}[]|null;powerCurveCodes:string[];unitCatalogError?:string|null;unitCatalog?:{revision:unknown;references:Record<string,Row[]>};referenceDisplay?:ReferenceDisplay|null;unitReferenceDisplay?:ReferenceDisplay|null;profile:string;example:{at:string;curve:string}|null; definitions:Record<string,Row[]>; references:Record<string,Row[]>;referenceScope?:'definition_closure'|'all_visible';observationScope?:'on_demand';observations:Row[]; frames:FrameSummary[]; initialFrameIds:string[]};
 import type {PricingNode} from './pricing-view.js';
 import type {FrameSummary} from './market-navigation.js';
 
@@ -14,13 +14,13 @@ export type CurveFront={contractId:string;deliveryFrom:string;deliveryTo:string;
 export type CurveSummary={kind:'contracts';contractCount:number;front:CurveFront|null;availability:'no_remaining_contracts'|'no_priced_contract'|null}|{kind:'rates';maturityCount:number;firstMaturity:string|null;firstMark:string|null;markUnitLabel:string;dayCount:string};
 export type PriceInputSelection={snapshotId:string;source:{definitionRevisionId:string;referenceCatalogId:string;referenceRevisionId:string};observationIds:string[];correctionsSupported:boolean};
 export type CurveResult = {contractDisplay?:ContractDisplay;summary?:CurveSummary;kind?:'rates';convention?:{dayCount:string;compounding:string;interpolation:string;extrapolation:string};
-  markUnitLabel?:string;currency?:string;definition?:{id:string;version:number}|null;availability?:'no_remaining_contracts';trace?:PricingNode[];observationScope?:'selected_frame';observations?:Row[];inputSelection?:PriceInputSelection;snapshotId:string; curve:string; at:string; points:Point[]; evaluated:number; numericalPolicy:string};
+  markUnitLabel?:string;currency?:string;definition?:{id:string;version:number}|null;availability?:'no_remaining_contracts';trace?:PricingNode[];observationScope?:'selected_frame'|'curve_lineage_v1';observations?:Row[];inputSelection?:PriceInputSelection;snapshotId:string; curve:string; at:string; points:Point[]; evaluated:number; numericalPolicy:string};
 // The evaluated source owns these pins; a directory frame names only the
 // primary source and cannot validate another source's prices.
 export function priceSourceInputIds(result:CurveResult,workspace:Workspace):ReadonlySet<string>{
   const selection=result.inputSelection,source=selection?.source,revision=workspace.definitions.revisions?.[0];
   const validId=(id:unknown):id is string=>typeof id==='string'&&id.length>0;
-  if(result.observationScope!=='selected_frame'||!selection||selection.snapshotId!==result.snapshotId||!source||
+  if(!['selected_frame','curve_lineage_v1'].includes(result.observationScope??'')||!selection||selection.snapshotId!==result.snapshotId||!source||
       workspace.definitions.revisions?.length!==1||!revision||
       !validId(source.definitionRevisionId)||source.definitionRevisionId!==revision.id||
       !validId(source.referenceCatalogId)||source.referenceCatalogId!==revision.reference_catalog_id||
@@ -53,6 +53,25 @@ export function exactRow(rows:Row[],key:string,value:string):Row {
   const matches=rows.filter(r=>r[key]===value);
   if(matches.length!==1)throw Error('Some market details are missing or inconsistent. Refresh and try again.');
   return matches[0];
+}
+// A page read installs new arrays when its selection changes. Index only
+// those snapshots, with the same missing/duplicate checks as exactRow.
+const rowIndexes=new WeakMap<readonly Row[],Map<string,Map<string,Row|null>>>();
+export function indexedRow(rows:readonly Row[],key:string,value:string):Row {
+  let columns=rowIndexes.get(rows);
+  if(!columns){columns=new Map();rowIndexes.set(rows,columns);}
+  let index=columns.get(key);
+  if(!index){
+    index=new Map();
+    for(const row of rows){
+      const field=row[key];
+      if(typeof field==='string')index.set(field,index.has(field)?null:row);
+    }
+    columns.set(key,index);
+  }
+  const found=index.get(value);
+  if(!found)throw Error('Some market details are missing or inconsistent. Refresh and try again.');
+  return found;
 }
 // The name a reference row is shown by: its name, else its symbol or display code, else its code made readable.
 export function referenceLabel(row:Row){if(typeof row.name==='string')return row.name.replace(/^Synthetic /,'');if(typeof row.symbol==='string')return row.symbol;if(typeof row.display_code==='string')return row.display_code;return friendly(row.code);}

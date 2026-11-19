@@ -92,7 +92,56 @@ def run_checks(url, query, psql, environment, manifest):
     history = c.call('portfolio/risk/history', history_body)
     curve = {'snapshotId':frame['id'], 'curve':'local_power', 'includeSources':True, 'includeWorkspace':True,
              'contractDisplay':{'version':'curve_display_v1','contracts':'eligible_contracts_v1'}}
-    curve_points=c.call('evaluate',curve)['points']
+    full_curve=c.call('evaluate',curve)
+    curve_points=full_curve['points']
+    compact_body={**curve,'includeWorkspace':False,'sourceScope':'curve_lineage_v1'}
+    compact=c.call('evaluate',compact_body)
+    check('curve source scope refuses unknown choices and use without source detail',
+          c.call('evaluate',{**compact_body,'sourceScope':'synthetic_unknown'},expected=422)['code']=='async_request'
+          and c.call('evaluate',{**compact_body,'includeSources':False},expected=422)['code']=='async_request')
+
+    pins={key for point in curve_points for key in point['lineage']}
+    fact_keys=('series_id','source_code','source_event_id','observed_at','role')
+    def fact(row):
+        return tuple(row[k] for k in fact_keys)
+    facts={fact(row) for row in full_curve['observations'] if row['id'] in pins}
+    check('compact curve returns exactly used pins and their visible corrections',
+          compact['observationScope']=='curve_lineage_v1' and 'workspace' not in compact
+          and set(compact['inputSelection']['observationIds'])==pins
+          and set(compact['observationIds'])==pins
+          and compact['observations']==[row for row in full_curve['observations'] if fact(row) in facts]
+          and {k:v for k,v in compact.items() if k not in ('observations','observationIds','observationScope','inputSelection')}
+              == {k:v for k,v in full_curve.items() if k not in ('workspace','observations','observationIds','observationScope','inputSelection')}
+          and compact['inputSelection']['correctionsSupported']==full_curve['inputSelection']['correctionsSupported']
+          and len(compact['observations'])<len(full_curve['observations']))
+    scoped_power={**compact_body,'definitionScope':'curve_dependencies_v1'}
+    scoped_rate={**compact_body,'curve':'interest_rates','definitionScope':'curve_dependencies_v1'}
+    check('native dependency selection preserves the entire compact power response',c.call('evaluate',scoped_power)==compact)
+    check('native dependency selection refuses incompatible or unknown scope',
+          c.call('evaluate',{**scoped_power,'includeWorkspace':True},expected=422)['code']=='async_request'
+          and c.call('evaluate',{**scoped_power,'definitionScope':'synthetic_unknown'},expected=422)['code']=='async_request')
+    rate_body={**compact_body,'curve':'interest_rates'}
+    rate=c.call('evaluate',rate_body)
+    rate_legacy=c.call('evaluate',{key:value for key,value in rate_body.items() if key!='sourceScope'})
+    check('compact rate curve preserves exact tenor results and visible selected evidence',
+          rate['kind']=='rates' and rate['points']==rate_legacy['points']
+          and rate['summary']==rate_legacy['summary']
+          and set(rate['inputSelection']['observationIds'])=={i for point in rate['points'] for i in point['lineage']}
+          and {row['id'] for row in rate['observations']} <= {row['id'] for row in rate_legacy['observations']})
+    check('native dependency selection preserves the entire compact rate response',c.call('evaluate',scoped_rate)==rate)
+    compact_catalog=c.call('workspace/catalog?frameDetail=summary')
+    check('compact workspace keeps exact frame summaries without per-frame input ids',
+          compact_catalog=={**working,'frames':[{key:f.get(key) for key in
+              ('id','name','at','businessDate','originCloseId','close')} for f in working['frames']]})
+    def json_bytes(value):
+        return len(json.dumps(value,separators=(',',':'),ensure_ascii=False).encode('utf-8'))
+    full_price={key:value for key,value in full_curve.items() if key!='workspace'}
+    print('CURVE_PAGE_PROJECTION='+json.dumps({
+        'curve':'local_power','points':len(curve_points),'frames':len(working['frames']),
+        'catalogContracts':len(working['definitions']['contracts']),
+        'fullFrameObservationRows':len(full_curve['observations']),'lineageObservationRows':len(compact['observations']),
+        'fullPriceJsonBytes':json_bytes(full_price),'lineagePriceJsonBytes':json_bytes(compact),
+        'fullCatalogJsonBytes':json_bytes(working),'summaryCatalogJsonBytes':json_bytes(compact_catalog)}),flush=True)
     cases = [
         ('curve.evaluate.v1','evaluate',curve),
         ('curve.history.v1','history',{'snapshotId':frame['id'],'curve':'local_power','contractId':curve_points[0]['contractId'],'revisionPolicy':'exact_snapshot_pins_v1'}),
@@ -129,6 +178,14 @@ def run_checks(url, query, psql, environment, manifest):
         independent=submit('curve.evaluate.v1',curve);completed=stream.event('response')
         check('delayed cancelled submissions cannot execute or interrupt independent reads',refused['code']=='async_request_cancelled' and
               completed['requestId']==independent['requestId'] and completed['state']=='completed' and completed['result']==expected['curve.evaluate.v1'])
+        request=submit('curve.evaluate.v1',scoped_power)
+        reply=stream.event('response')
+        check('compact nested power curve has ordinary and SSE parity',
+              reply['requestId']==request['requestId'] and reply['state']=='completed' and reply['result']==compact)
+        request=submit('curve.evaluate.v1',scoped_rate)
+        reply=stream.event('response')
+        check('compact rate curve has ordinary and SSE parity',
+              reply['requestId']==request['requestId'] and reply['state']=='completed' and reply['result']==rate)
         failures=[]
         for operation,path,body in cases:
             if operation=='portfolio.risk.archive.v1':body={'method':'statistical','limit':10,'before':None,'id':None}
@@ -351,7 +408,7 @@ def run_checks(url, query, psql, environment, manifest):
         def answering():
             def reading():
                 query(f"UPDATE security.role_grants SET granted_to=clock_timestamp()+interval '3 seconds' WHERE principal_id={principal};")
-                thread,held=background('evaluate',curve,expected=403);waiting(1)
+                thread,held=background('evaluate',scoped_power,expected=403);waiting(1)
                 gated,_=background('dashboard/layout',None)
                 until(gate_waiters,'1','The gated request did not hold the session gate')
                 return thread,held,gated
@@ -364,8 +421,20 @@ def run_checks(url, query, psql, environment, manifest):
             return thread,held,gated
         thread,held,gated=holding(psql,environment,GATE,answering);thread.join(timeout=20);gated.join(timeout=20)
         assert (held.get('value') or {}).get('code')=='access_denied',f'the waiting read answered {held}'
-        check('authority that ends while an ordinary read waits to answer refuses it')
+        check('authority that ends while a scoped curve waits to answer refuses it')
     finally:
         for grant in saved:
             query(f"UPDATE security.role_grants SET granted_to='{grant['until']}'::timestamptz WHERE id='{grant['id']}';")
+    retained=PreviewClient(url);retained.bootstrap();retained.call('profile',{'profile':'editor'})
+    seed=initial_frame(retained.call('workspace/catalog'),'2020-12-17')
+    certified=retained.call('market/context',{'effectiveOn':'2020-12-17','mode':'current','selection':'latest_correction'})['context']
+    certified_catalog=retained.call('workspace/catalog')
+    certified_frame=next(f for f in certified_catalog['frames']
+                         if f.get('contextId')==certified['contextId'] and f['at']==seed['at'])
+    for body in (scoped_power,scoped_rate):
+        scoped={**body,'snapshotId':certified_frame['id']}
+        unscoped={key:value for key,value in scoped.items() if key!='definitionScope'}
+        replay=retained.call('evaluate',scoped)
+        check(f"native dependency selection preserves certified {body['curve']} at its exact cutoff",
+              replay['context']==certified and replay==retained.call('evaluate',unscoped))
     print(f'{passed} asynchronous workbench HTTP checks passed.',flush=True)

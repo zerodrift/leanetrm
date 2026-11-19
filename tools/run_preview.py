@@ -272,7 +272,7 @@ def main():
             raise RuntimeError(initialized.stderr)
         startup_attempted=True
         safe_to_remove=False
-        diagnostics=['-c','log_min_duration_statement=0','-c','log_line_prefix=%u %p '] if args.market_dates_reads_check else []
+        diagnostics=['-c','log_min_duration_statement=0','-c','log_line_prefix=%u %p '] if args.market_dates_reads_check or args.custom_curves_check else []
         started_result=run([bins['pg_ctl'],'-D',data,'-w','-t','15','-l',temporary/'postgres.log','-o',shlex.join(['-k',str(temporary),'-h','','-p','55439','-c','track_commit_timestamp=on','-c','track_activity_query_size=16384',*diagnostics]),'start'])
         if started_result.returncode:
             raise RuntimeError(started_result.stderr)
@@ -775,7 +775,12 @@ def main():
         # Freeze assets for this owned instance; a later web build must not change
         # another running preview's presentation while it is being used.
         shutil.copytree(ROOT/'web/dist',temporary/'web')
-        shutil.copyfile(ROOT/'deploy/process-limits.example.json',temporary/'process-limits.json')
+        limits_file=temporary/'process-limits.json'
+        shutil.copyfile(ROOT/'deploy/process-limits.example.json',limits_file)
+        if args.custom_curves_check and not args.price_authoring_check:
+            # The fixture's rolling average consumes 12 contracts on 20 sample dates.
+            limits=json.loads(limits_file.read_text());limits['previewRecipeSampleReferences']=12*20
+            limits_file.write_text(json.dumps(limits))
         port=args.port
         if port==0:
             with socket.socket() as reservation:
@@ -1372,7 +1377,7 @@ def main():
                     if browser_process.wait(timeout=180):raise RuntimeError('Owned contract observation curve browser checks failed')
             elif args.custom_curves_check:
                 from check_custom_curves import run_checks as check_custom_curves
-                check_custom_curves(url,query,manifest)
+                check_custom_curves(url,query,manifest,temporary/'postgres.log',check_budget=not args.price_authoring_check)
                 from check_curve_activation import run_checks as check_curve_activation
                 check_curve_activation(url,manifest,query)
                 if args.price_authoring_check:

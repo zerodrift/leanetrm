@@ -40,7 +40,10 @@ if(args is ["--structured-power"]){StructuredPowerChecks.Run();return;}
 if(args is ["--power-hedge"]){StructuredPowerHedgeChecks.Run();return;}
 if(args is ["--assistant-prompts"]){TurnWorkerChecks.Run();AgentToolChecks.Run();await ModelProviderChecks.Run();return;}
 if(args is ["--json-read-transport"]){await JsonReadTransportChecks.Run();return;}
-if(args is ["--async-reads"]){await JsonReadTransportChecks.Run();AsyncReadContractChecks.Run();await AsyncReadChecks.Run();await UngatedReadChecks.Run();return;}
+if(args is ["--large-catalog-http"]){await LargeCatalogReadChecks.Run();return;}
+if(args is ["--observation-pin-payload",var payloadPath,var payloadRows]){await ObservationPinPayloadChecks.Run(payloadPath,int.Parse(payloadRows,CultureInfo.InvariantCulture));return;}
+if(args is ["--async-read-budget"]){await AsyncReadBudgetChecks.Run();return;}
+if(args is ["--async-reads"]){await JsonReadTransportChecks.Run();await ObservationPinPayloadChecks.Run();await AsyncReadStreamChecks.Run();AsyncReadContractChecks.Run();await AsyncReadChecks.Run();await UngatedReadChecks.Run();return;}
 if(args is ["--ungated-reads"]){await UngatedReadChecks.Run();return;}
 if(args is ["--async-read-contracts"]){AsyncReadContractChecks.Run();return;}
 if(args is ["--calendar-authoring"]){CalendarAuthoringSchemaChecks.Run();return;}
@@ -202,7 +205,7 @@ if(args is ["--retained-schedule-limits"]){RetainedScheduleLimitChecks.Run();ret
 if(args is ["--trading-read-selection"]){TradingReadSelectionChecks.Run();return;}
 if(args is ["--booked-schedule-lookups"]){BookedScheduleLookupChecks.Run();return;}
 if(args is ["--contract-observation-authoring"]){ContractObservationAuthoringChecks.Run();return;}
-if(args is ["--contract-observation-reads"]){ContractObservationReadBoundChecks.Run();return;}
+if(args is ["--contract-observation-reads"]){ContractObservationReadBoundChecks.Run();await PreviewHistoryChecks.Run();return;}
 if(args is ["--contract-observation-projections",var observationProjections]){await ContractObservationProjectionChecks.Run(observationProjections);return;}
 if(args is ["--side-observation-compatibility"]){SideObservationCompatibilityChecks.Run();return;}
 if(args is ["--curve-activation-inputs"]){CurveActivationInputChecks.Run();return;}
@@ -380,7 +383,7 @@ await PositionQualificationChecks.Run();
 OpenEtrm.Api.Checks.PreviewFailureDiagnosticChecks.Run();
 SideObservationCompatibilityChecks.Run();
 ContractObservationAuthoringChecks.Run();
-ContractObservationReadBoundChecks.Run();
+ContractObservationReadBoundChecks.Run();await PreviewHistoryChecks.Run();
 TradePartyChecks.Run();
 AmountJsonChecks.Run();
 PilotReportChecks.Run();

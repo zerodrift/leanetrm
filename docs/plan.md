@@ -7,7 +7,7 @@ existing resource right. D433 adds a plan proposed from stated daily prices by
 exact search over an inventory lattice. Fourteen managed checks pass locally.
 Migrations 0370 and 0371 retain a booked contract and its revisable plan; managed
 routes book, plan, propose and value it, and New trade has a graphical ticket.
-A facility link, discounting, measured flows and browser verification remain open.
+A facility link, discounting, measured flows and an automated browser check remain open.
 
 D431 adds managed valuation and risk for a [heat-rate call option](heat-rate-call-option.md):
 a daily strip of spread calls with explicit volatility and correlation marks.
@@ -18,6 +18,19 @@ Managed booking and marks routes, valuation of booked trades and blotter
 presentation are checked over HTTP, and New trade has an entry ticket for the
 option. A marks editor, premium cash, discounting, exercise determination and
 settlement remain open.
+
+D429 qualifies separate catalog hydration, bounded asynchronous JSON serialization
+and streamed calendar batch decoding in owned synthetic workloads. Larger
+concurrent workloads, first-use request-count costs and production latency remain
+capacity/interaction measurements; the logical response cap is unchanged. See
+[verification](verification.md#curve-hydration-and-read-memory-d429).
+
+D430 adds an explicit dependency-scoped definition read to curve evaluation.
+[Local qualification](verification.md#curve-definition-dependency-reads-d430)
+covers exact response parity and warm click-to-chart time with unrelated
+contracts at two market sizes. Cold hydration, production-like latency and
+concurrent capacity remain open. A curve-scoped display projection and managed
+display formatting in the price response remain proposed changes.
 
 D427 adds personal chat-history search through an explicit composer checkbox and
 repairs retained walkthrough narration and final-pause verification. Its bounded
@@ -2706,4 +2719,4 @@ support; a position's own retained risk run beside the desk's.
 
 ### Managed risk workers (D429)
 
-Jobs supports an installation-managed risk pool of up to two replicas. Disposable checks exercise two concurrent worker processes, direct repricing parity for three historical quote scenarios and browser controls. Multi-node placement, restart, private networking and limits remain deployment gates. See [managed risk workers](managed-risk-pool.md).
+Jobs supports an installation-managed risk pool of up to two replicas. Disposable checks exercise two concurrent worker processes, direct repricing parity for three historical quote scenarios and browser controls. A disposable three-VM Swarm also qualified placement across two nodes, authenticated image pulls, private database connectivity, enforced limits, busy drain and worker replacement with financial replay. Target-host capacity and workload performance remain deployment gates. See [managed risk workers](managed-risk-pool.md).

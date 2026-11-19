@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -10,7 +11,7 @@ namespace OpenEtrm.Api;
 
 internal sealed record AsyncReadError(string Code,string Message);
 internal sealed record AsyncReadFailure(string Operation,Guid RequestId,string ExceptionType,string? Method,string? SqlState);
-internal sealed record AsyncReadCompletion(AsyncReadRequest Request,ReadPlan Plan,string State,JsonElement? Result,AsyncReadError? Error,
+internal sealed record AsyncReadCompletion(AsyncReadRequest Request,ReadPlan Plan,string State,ReadOnlyMemory<byte>? Result,AsyncReadError? Error,
     Func<NpgsqlConnection,CancellationToken,Task>? Recheck=null);
 
 // Ephemeral reads for the workbench. This channel retains request hashes,
@@ -20,6 +21,7 @@ internal sealed class AsyncReadChannel:IAsyncDisposable
     internal const string Protocol="async_reads_v1";
     internal const int MaximumActive=2,MaximumRequests=128,MaximumRequestBytes=32*1024,MaximumResultBytes=16*1024*1024;
     internal static readonly TimeSpan Lifetime=TimeSpan.FromMinutes(5),ReadLimit=TimeSpan.FromSeconds(60);
+    static readonly JsonSerializerOptions ResultJson=new(AsyncReadContract.Json){MaxDepth=64,Converters={new ResultStringConverter()}};
     readonly object gate=new();
     readonly CancellationTokenSource lifetime;
     readonly CancellationToken stopping;
@@ -91,10 +93,16 @@ internal sealed class AsyncReadChannel:IAsyncDisposable
         try
         {
             var outcome=await AsyncReadVisibility.Observed(plan).Execute(pending.Cancellation.Token);pending.Cancellation.Token.ThrowIfCancellationRequested();
-            var bytes=JsonSerializer.SerializeToUtf8Bytes(outcome.Value,AsyncReadContract.Json);
-            if(bytes.Length>MaximumResultBytes)throw Refusal(422,"async_result_size","The read result exceeds the response limit.");
-            using var json=JsonDocument.Parse(bytes);
-            completion=new(request,plan,"completed",json.RootElement.Clone(),null,outcome.Recheck);
+            var output=new ResultBuffer(pending.Cancellation.Token);
+            using(var writer=new Utf8JsonWriter(output,new JsonWriterOptions{MaxDepth=ResultJson.MaxDepth}))
+            {
+                // Use the budgeted writer directly: DOM converters may otherwise
+                // buffer the entire value before a Stream sees its first write.
+                JsonSerializer.Serialize(writer,outcome.Value,ResultJson);writer.Flush();
+            }
+            pending.Cancellation.Token.ThrowIfCancellationRequested();
+            // The completion owns this buffer until publication or channel disposal.
+            completion=new(request,plan,"completed",output.Written,null,outcome.Recheck);
         }
         catch(OperationCanceledException){completion=new(request,plan,"cancelled",null,new("request_cancelled","The read was cancelled or exceeded its time limit."));}
         catch(Exception e)
@@ -106,6 +114,41 @@ internal sealed class AsyncReadChannel:IAsyncDisposable
         {
             active--;
             if(!Closed&&!responses.Writer.TryWrite(completion))Close();
+        }
+    }
+    static AsyncReadException ResultLimit()=>Refusal(422,"async_result_size","The read result exceeds the response limit.");
+    sealed class ResultBuffer(CancellationToken ct):IBufferWriter<byte>
+    {
+        readonly ArrayBufferWriter<byte> buffer=new(16*1024);
+        internal ReadOnlyMemory<byte> Written=>buffer.WrittenMemory;
+        public void Advance(int count)
+        {
+            ct.ThrowIfCancellationRequested();
+            if(count>MaximumResultBytes-buffer.WrittenCount)throw ResultLimit();
+            buffer.Advance(count);
+        }
+        public Memory<byte> GetMemory(int sizeHint=0)
+        {
+            ct.ThrowIfCancellationRequested();
+            // The JSON writer reserves for worst-case escaping. Honor valid
+            // hints without treating reserved capacity as serialized bytes.
+            if(sizeHint>6*MaximumResultBytes+256)throw ResultLimit();
+            var size=Math.Max(sizeHint,16*1024);
+            // Short spans force even a synchronous DOM converter to commit its
+            // bytes regularly, where Advance enforces the logical result cap.
+            return buffer.GetMemory(size)[..size];
+        }
+        public Span<byte> GetSpan(int sizeHint=0)=>GetMemory(sizeHint).Span;
+    }
+    sealed class ResultStringConverter:JsonConverter<string>
+    {
+        public override string? Read(ref Utf8JsonReader reader,Type type,JsonSerializerOptions options)=>reader.GetString();
+        public override void Write(Utf8JsonWriter writer,string value,JsonSerializerOptions options)
+        {
+            // Every UTF-16 code unit needs at least one JSON byte. Refuse a
+            // definitely oversized token before the JSON writer rents its buffer.
+            if(value.Length>MaximumResultBytes)throw ResultLimit();
+            writer.WriteStringValue(value);
         }
     }
     void ReportFailure(AsyncReadRequest request,Exception error)

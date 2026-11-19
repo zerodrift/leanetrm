@@ -46,6 +46,12 @@ def run_checks(url,query,manifest):
     frames=approver.call('workspace')['frames']
     at=lambda hour:next(f for f in frames if f['at'].startswith(f'2020-12-18T{hour}:00:00'))
     source,missing,empty=(at(h) for h in ('16','17','18'))
+    compact=approver.call('evaluate',{'snapshotId':empty['id'],'curve':'future',
+        'includeSources':True,'sourceScope':'curve_lineage_v1','definitionScope':'curve_dependencies_v1'})
+    assert compact['availability']=='no_remaining_contracts' and compact['points']==[] and compact['observations']==[]
+    assert compact['inputSelection']['observationIds']==[] and compact['observationIds']==[]
+    print('PASS an empty eligible curve returns no price observations or lineage IDs',flush=True)
+
     dates=approver.call('market/dates',{'curve':'future','timeZone':'America/Chicago','session':source['close']['session']})
     assert source['id'] in {f['id'] for day in dates['dates'] for f in day['frames']}
     trade_frame=next(f for f in trader.call('workspace')['frames'] if f['at'].startswith('2020-12-18T16:00:00'))

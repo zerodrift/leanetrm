@@ -94,10 +94,15 @@ before admission; the client renews a drained channel before
 submitting further requests. Request and serialized-result caps are 32 KiB and
 16 MiB. A channel lasts five minutes and uses periodic authorization checks and
 heartbeat writes. Work cancellation is cooperative: synchronous graph evaluation
-cannot be forcibly preempted by a cancellation token. A serialized-result cap is
-not a peak-memory guarantee. Publication evidence is bounded to 512 source or
-reference/calendar coordinates, 4,096 original book identities and 4,096 retained
-instrument authority proofs.
+cannot be forcibly preempted by a cancellation token. The result is serialized
+once into an owned UTF-8 buffer, with its byte budget checked at writer commits
+before publication, including DOM values. Publication writes that buffer in 16
+KiB chunks inside the existing authorization callback; one write deadline covers
+the complete event and its final flush. The existing 64-level result nesting
+limit is preserved inside the additional envelope level. A serialized-result cap
+is not a peak-memory guarantee. Publication evidence is bounded to 512 source or
+reference/calendar coordinates, 4,096 original book identities and 4,096
+retained instrument authority proofs.
 
 Changing a selection rejects the old consumer immediately. A submitted
 cancellation keeps its execution slot until a terminal server response or an
@@ -109,6 +114,25 @@ a burst of replacement reads from exceeding the execution bound while allowing
 an aborted HTTP submission that never reached admission to release its slot.
 Disconnect rejects pending reads. A subsequent explicit request establishes a new channel;
 there is no silent replay or durable delivery guarantee.
+
+The curve page hydrates its catalog through the existing ordinary
+`workspace/catalog` read before its first price read. It validates both results
+against the same captured selection and installs them together. Later price
+reads reuse the scoped catalog. This keeps a large catalog outside the price
+result's byte budget; it adds a first-use HTTP/database read. The explicit
+`includeWorkspace` API option retains its combined-result contract and byte cap.
+
+The page uses `workspace/catalog?frameDetail=summary` to omit per-frame input
+IDs and requests `sourceScope: "curve_lineage_v1"` with `includeSources: true`
+to receive only the point lineage anchors and their visible fact versions.
+The full frame remains the authority and correction-admission witness.
+The page schedules the curve's advisory close strip after the prices paint.
+
+For both ordinary HTTP and `curve.evaluate.v1`, the page also sends
+`definitionScope: "curve_dependencies_v1"`. This selector requires the
+curve-lineage projection and a separate catalog read. The server reads
+the selected curve's declared dependency closure under the existing caller
+and exact frame authority. Omitting the selector uses the full definition read.
 
 Financial commands retain their existing request identities, transaction ordering
 and uncertain-outcome recovery. Retained Risk jobs keep their existing durable

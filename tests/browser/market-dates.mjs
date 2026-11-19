@@ -3,11 +3,12 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await command('Runtime.enable');await command('Page.enable');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
  await command('Page.addScriptToEvaluateOnNewDocument',{source:`
-  window.marketDateRequests=[];window.marketDateCalls=[];window.curveCloseRequests=[];
+  window.marketDateRequests=[];window.marketDateCalls=[];window.curveCloseRequests=[];window.curveCloseStarts=[];
   const original=window.fetch;window.fetch=async(...args)=>{
    const path=new URL(typeof args[0]==='string'?args[0]:args[0].url,location.href).pathname;
    // A curve's own short list of closes is a separate read from the calendars these counts follow.
    const curveCloses=path.endsWith('/market/dates')&&(b=>b.curve&&b.maximumDates)(JSON.parse(args[1].body));
+   if(curveCloses)window.curveCloseStarts.push({curve:JSON.parse(args[1].body).curve,drawn:!!document.querySelector('#contracts tbody tr')});
    if(!curveCloses)window.marketDateCalls.push(path);
    let response;if(path.endsWith('/market/dates')&&window.denyCalendar){window.denyCalendar=false;response=new Response(JSON.stringify({code:'access_denied'}),{status:403,headers:{'Content-Type':'application/json'}});}else response=await original(...args);
    // Before its newest date arrives, the workspace calendar ends one date earlier. Showing that to the app stands in for a
@@ -33,7 +34,13 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     if(body.curve===null&&body.definition===null&&body.maximumDates===1){window.holdNextCalendar=false;await new Promise(resolve=>window.releaseCalendar=resolve);}
    }
    if(!curveCloses&&(path.endsWith('/market/dates')||path.endsWith('/custom-curves/preview')))window.marketDateRequests.push({path,body:JSON.parse(args[1].body),status:response.status,payload:await response.clone().json()});
-   if(curveCloses)window.curveCloseRequests.push({body:JSON.parse(args[1].body),status:response.status,payload:await response.clone().json()});
+   if(curveCloses){
+    window.curveCloseRequests.push({body:JSON.parse(args[1].body),status:response.status,payload:await response.clone().json()});
+    if(window.holdNextCurveCloses){
+     window.holdNextCurveCloses=false;window.heldCurveCloseSignal=args[1].signal;
+     await new Promise(resolve=>window.releaseCurveCloses=resolve);
+    }
+   }
    return response;
   };
  `});
@@ -214,7 +221,10 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await click('#current-view-context');await wait("document.querySelector('#date-context').dataset.contextMode==='current'&&document.querySelectorAll('.curve-button').length>0&&document.querySelector('#snapshot').value!==''&&"+idle,30000);
  await wait("document.querySelector('.curve-button[data-curve=\"ng_monthly\"] small')?.textContent.includes('last close')",30000);
  await check('a listed curve states its last close, as the backend names it',`(async()=>{const session=document.querySelector('#close-session').value;const read=await(await fetch('/api/market/last-closes',{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':(await(await fetch('/api/bootstrap')).json()).csrfToken},body:JSON.stringify({session})})).json();const last=read.curves.find(c=>c.curve==='ng_monthly');const label=new Intl.DateTimeFormat('en',{year:'numeric',month:'short',day:'numeric',timeZone:'UTC'}).format(new Date(last.businessDate+'T00:00:00Z'));return document.querySelector('.curve-button[data-curve="ng_monthly"] small').textContent.includes('last close '+label)&&document.querySelector('.market-card[data-curve="ng_monthly"] .market-card-last-close').textContent.includes(label);})()`);
+ await evaluate('window.curveCloseStarts=[]');
  await click('.curve-button[data-curve="ng_monthly"]');await wait("document.querySelectorAll('#curve-closes .vol-close-chip').length>1&&"+idle,30000);
+ await check('the advisory close strip starts after the selected prices are drawn',
+   "window.curveCloseStarts.some(item=>item.curve==='ng_monthly')&&window.curveCloseStarts.filter(item=>item.curve==='ng_monthly').every(item=>item.drawn)");
  await check('a curve lists the closes it can be priced at, the one in view marked',"document.querySelectorAll('#curve-closes .vol-close-chip[aria-current=true]').length===1&&!document.querySelector('#curve-closes').hidden");
  const older="[...document.querySelectorAll('#curve-closes .vol-close-chip[aria-current=false]')].at(-1)";
  await evaluate("window.asOfBefore=document.querySelector('#snapshot').value;window.olderClose="+older+".dataset.close");
@@ -237,4 +247,19 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('choosing another close in that window retires its separate-window note',"document.querySelector('#close-window-note').hidden");
  await command('Page.navigate',{url:url+'/?page=market&curve=ng_monthly&close=00000000-0000-4000-8000-000000000000'});await wait("document.querySelector('#close-window-note')?.textContent.length>0&&"+idle,30000);
  await check('a close this view does not offer is named as unavailable and nothing is chosen for it',"document.querySelector('#close-window-note').textContent.includes('not available')&&document.querySelector('#snapshot').value===''");
+ await command('Page.navigate',{url:address});
+ await wait("document.querySelector('#curve-closes .vol-close-chip[aria-current=true]')!==null&&"+idle,30000);
+ await evaluate('window.holdNextCurveCloses=true');
+ await click('.curve-button[data-curve="interest_rates"]',30000);
+ await wait("typeof window.releaseCurveCloses==='function'&&!window.heldCurveCloseSignal.aborted",30000);
+ await evaluate(`(()=>{
+  const field=document.querySelector('#date-context-on');
+  if(window.heldCurveCloseSignal.aborted)throw Error('The fixture requires a live advisory close read.');
+  field.value='2020-12-19';field.dispatchEvent(new Event('input',{bubbles:true}));
+  window.abortedByContextEdit=window.heldCurveCloseSignal.aborted;
+ })()`);
+ await wait("document.querySelector('#environment-context-note').textContent.includes('Context changed')");
+ await evaluate('window.releaseCurveCloses();new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+ await check('editing the context cancels the pending advisory close strip and keeps it hidden',
+   "window.abortedByContextEdit&&document.querySelector('#curve-closes').hidden&&document.querySelector('#curve-closes').children.length===0");
 }
