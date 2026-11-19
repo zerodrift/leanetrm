@@ -2674,6 +2674,12 @@ api.MapGet("/jobs",(HttpContext c,int? page,int? collectionPage)=>Locked(c,sessi
     async(connection,ct)=>Results.Ok(await CollectionJobs.Directory(connection,ct,page??0,collectionPage??0)),c.RequestAborted)));
 api.MapPost("/jobs/collection/update",(HttpContext c,CollectionJobUpdate body)=>Locked(c,session=>database.WithIdentity(Profile(session),null,
     async(connection,ct)=>{c.Items["automation_attempted"]=true;return Results.Ok(await CollectionJobs.Update(connection,body,ct));},c.RequestAborted)));
+api.MapPost("/infrastructure/pool/scale",(HttpContext c,PoolScaleRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),null,
+    async(connection,ct)=>{c.Items["automation_attempted"]=true;return Results.Ok(await JobOperations.ScalePool(connection,body,ct));},c.RequestAborted)));
+api.MapGet("/infrastructure/pool",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),null,
+    async(connection,ct)=>Results.Ok(await JobOperations.PoolStatus(connection,ct)),c.RequestAborted))));
+api.MapGet("/infrastructure/logs/{kind}",(HttpContext c,string kind)=>Locked(c,session=>database.WithIdentity(Profile(session),"ViewWorkerDiagnostics",
+    async(connection,ct)=>Results.Ok(await JobOperations.PoolLogs(connection,kind,ct)),c.RequestAborted)));
 api.MapPost("/infrastructure/availability",(HttpContext c,NodeCommand body)=>Locked(c,session=>database.WithIdentity(Profile(session),null,
     async(connection,ct)=>{c.Items["automation_attempted"]=true;return Results.Ok(await JobOperations.NodeAction(connection,body,ct));},c.RequestAborted)));
 api.MapPost("/infrastructure/resolve",(HttpContext c,NodeResolution body)=>Locked(c,session=>database.WithIdentity(Profile(session),null,

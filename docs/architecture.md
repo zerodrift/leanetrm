@@ -3193,3 +3193,5 @@ an installation. Admission retains selection identity and immutable configuratio
 explicit financial tools acquire one certified context. Exact recorded closes use
 foreign-key references instead of repeated source matrices. See
 [assistant context and prompts](ai-assistant.md#72-pinned-context).
+
+The [managed risk worker pool](managed-risk-pool.md) uses a registered Docker Swarm service for placement. Each replica runs the existing risk worker and obtains its own PostgreSQL job lease. Jobs exposes workspace-scoped pool status, capacity requests and bounded diagnostics under D429.

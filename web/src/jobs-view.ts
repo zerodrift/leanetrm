@@ -1,3 +1,4 @@
+import {setupWorkerPool,type WorkerPool} from './worker-pool-view.js';
 import {renderRegularTable} from './regular-table.js';
 import {zonedInput} from './user-time.js';
 import {JobRequest} from './job-requests.js';
@@ -14,7 +15,7 @@ type Job={id:string;name:string;operation:string;operationName?:string;pilotRepo
 type Node={clusterId:string;id:string;version:number;name:string;role:string;state:string;availability:string;cpuNano:number;memoryBytes:number;observedAt:string;stale:boolean;actions:string[]};
 type CollectionJob={id:string;generation:string;name:string;provider:string;operation:string;serviceName:string;state:string;enabled:boolean;scheduleEnabled:boolean;cron:string;scheduleZone:string;cadence:string;fromDay:number;throughDay:number;sourceCount:number;canEdit:boolean;editReason:string|null;lastAttempt:{state:string;startedAt:string;finishedAt:string|null;errorCode:string|null}|null};
 type CollectionDirectory={page:number;total:number;jobs:CollectionJob[];settings:{minimumDayOffset:number;maximumDayOffset:number;maximumNameLength:number}};
-type Directory={page:number;total:number;jobs:Job[];collectionJobs:CollectionDirectory;profiles:{id:string;version:number;name:string}[];canCreate:boolean;manageAll:boolean;observedAt:string;infrastructure:{state:string;observedAt:string|null;nodes:Node[];commands:{id:string;nodeId:string;availability:string;state:string;errorCode:string|null;createdAt:string;canResolve:boolean}[]}};
+type Directory={workerPool:WorkerPool|null;canReadWorkerLogs:boolean;page:number;total:number;jobs:Job[];collectionJobs:CollectionDirectory;profiles:{id:string;version:number;name:string}[];canCreate:boolean;manageAll:boolean;observedAt:string;infrastructure:{state:string;observedAt:string|null;nodes:Node[];commands:{id:string;nodeId:string;availability:string;state:string;errorCode:string|null;createdAt:string;canResolve:boolean}[]}};
 export function setupJobs(options:{api:<T>(path:string,body?:unknown)=>Promise<T>;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;identity:()=>string;instant:(at:string)=>string;zone:()=>string;contextReady:()=>boolean;openLifecycle?:()=>void}){
   const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
   const field=(id:string)=>get<HTMLInputElement|HTMLSelectElement>(id);
@@ -27,11 +28,13 @@ export function setupJobs(options:{api:<T>(path:string,body?:unknown)=>Promise<T
   const lifecycleHost=document.createElement('section');lifecycleHost.className='card';lifecycleHost.hidden=true;get('job-runs').after(lifecycleHost);
   const lifecycleReport=setupLifecycleJobReport(lifecycleHost,options);
   const editorStatus=document.createElement('p');editorStatus.id='job-edit-status';editorStatus.className='field-help';editorStatus.setAttribute('role','status');get('job-editor-title').after(editorStatus);
+  const poolView=setupWorkerPool({...options,scale:(pool,replicas)=>mutate('infrastructure/pool/scale',
+    {clusterId:pool.clusterId,expectedVersion:pool.generation,replicas})});
   const key=()=>`openetrm.jobs.request.${options.identity()}`;
   function save(){try{if(pending.command)sessionStorage.setItem(key(),JSON.stringify(pending.command));else sessionStorage.removeItem(key());}catch{/* The in-memory request is retained. */}get('job-pending').hidden=!pending.command;}
   function closeEditor(){selected=undefined;get<HTMLFormElement>('job-create').reset();for(const option of get('job-operation').querySelectorAll('[data-retained]'))option.remove();dueInput.clear();expiryInput.clear();editorStatus.textContent='';get('job-editor-title').textContent='New job';get('job-submit').textContent='Create job';get('job-submit').hidden=false;get('job-cancel-edit').hidden=true;get('job-create').hidden=!directory?.canCreate;get<HTMLDetailsElement>('job-editor').open=false;get('job-editor').hidden=!directory?.canCreate;fields();sync();}
   function closeCollectionEditor(){selectedCollection=undefined;get<HTMLFormElement>('collection-job-form').reset();get<HTMLDetailsElement>('collection-job-editor').open=false;get('collection-job-editor').hidden=true;get('collection-job-status').textContent='';get('collection-job-cadence').textContent='';sync();}
-  function clear(){directory=undefined;closeEditor();closeCollectionEditor();pilotReport.reset();lifecycleReport.reset();for(const id of ['jobs-table','job-runs','jobs-nodes','jobs-node-commands','collection-jobs-table'])get(id).replaceChildren();for(const id of ['jobs-page-count','collection-jobs-page-count'])get(id).textContent='';get<HTMLButtonElement>('jobs-previous').disabled=true;get<HTMLButtonElement>('jobs-next').disabled=true;get('jobs-infrastructure').textContent='Status unavailable.';}
+  function clear(){poolView.clear();directory=undefined;closeEditor();closeCollectionEditor();pilotReport.reset();lifecycleReport.reset();for(const id of ['jobs-table','job-runs','jobs-nodes','jobs-node-commands','collection-jobs-table'])get(id).replaceChildren();for(const id of ['jobs-page-count','collection-jobs-page-count'])get(id).textContent='';get<HTMLButtonElement>('jobs-previous').disabled=true;get<HTMLButtonElement>('jobs-next').disabled=true;get('jobs-infrastructure').textContent='Status unavailable.';}
   // A click opens a listed job's details while nothing else runs.
   function openEditor(job:Job){if(!options.busy())showJob(job);}
   function showJob(job:Job){
@@ -66,6 +69,9 @@ export function setupJobs(options:{api:<T>(path:string,body?:unknown)=>Promise<T
       const body=command.path==='jobs/pilot-close/create'?{...command.body,schedule:{...(command.body.schedule as Record<string,unknown>),requestId:command.operationId}}:{...command.body,requestId:command.operationId};
       const result=await options.api<Record<string,unknown>>(command.path,body);
       if(identity!==options.identity()||pending.command!==command)return;
+      if(command.path==='infrastructure/pool/scale'&&(!result||result.requestId!==command.operationId||
+        result.desired!==command.body.replicas||result.generation!==Number(command.body.expectedVersion)+1))
+        throw Object.assign(Error('The pool change has an unconfirmed response. Retry the retained request.'),{code:'response_unknown'});
       if(command.path==='jobs/collection/update'&&(!result||result.requestId!==command.operationId||result.id!==command.body.id||typeof result.generation!=='string'||result.generation===command.body.expectedGeneration||!['name','scheduleEnabled','fromDay','throughDay'].every(key=>result[key]===command.body[key])))
         throw Object.assign(Error('The collection update has an unconfirmed response. Retry the retained request.'),{code:'response_unknown'});
       if(['jobs/pilot-close/create',...closeCapturePaths].includes(command.path)&&(!result||result.requestId!==command.operationId||typeof result.id!=='string'||!result.id))
@@ -78,6 +84,7 @@ export function setupJobs(options:{api:<T>(path:string,body?:unknown)=>Promise<T
   function button(label:string,job:Job,action:string){const b=document.createElement('button');b.type='button';b.className='secondary';b.textContent=label;b.onclick=()=>void options.act(()=>mutate('jobs/control',{id:job.id,action,expectedVersion:job.version}));return b;}
   function render(){
     if(!directory)return;
+    poolView.show(directory.workerPool,directory.canReadWorkerLogs);
     get('job-create').hidden=!selected&&!directory.canCreate;
     get('job-editor').hidden=!selected&&!directory.canCreate;
     get('jobs-page-count').textContent=`Showing ${directory.jobs.length} of ${directory.total} jobs — page ${directory.page+1}.`;
@@ -160,5 +167,5 @@ export function setupJobs(options:{api:<T>(path:string,body?:unknown)=>Promise<T
   async function locateJob(id:string){
     return (await findJob(id,async page=>{await load(page);if(!directory)throw Error('The job selection changed. Refresh before continuing.');return directory;})).job;
   }
-  return{load,locateJob,showJob,shown:()=>selected?.id??null,sync,unconfirmed:()=>!!pending.command,contextChanged(){pilotClose.reset();pilotReport.reset();},refresh(){dueInput.refresh();expiryInput.refresh();pilotClose.refresh();pilotReport.refresh();lifecycleReport.refresh();render();sync();},reset(){generation++;clear();pending.clear();pilotClose.reset();pilotReport.reset();try{const stored=sessionStorage.getItem(key());if(stored){const value=JSON.parse(stored);if(['jobs/create','jobs/update','jobs/control','jobs/collection/update','jobs/pilot-close/create',...closeCapturePaths,'infrastructure/availability','infrastructure/resolve'].includes(value.path)&&typeof value.operationId==='string'&&value.body&&typeof value.body==='object')pending.command={...value,uncertain:true};}}catch{/* Invalid browser state cannot grant authority. */}fields();get('job-pending').hidden=!pending.command;sync();}};
+  return{load,locateJob,showJob,shown:()=>selected?.id??null,sync,unconfirmed:()=>!!pending.command,contextChanged(){pilotClose.reset();pilotReport.reset();},refresh(){dueInput.refresh();expiryInput.refresh();pilotClose.refresh();pilotReport.refresh();lifecycleReport.refresh();render();sync();},reset(){generation++;clear();pending.clear();pilotClose.reset();pilotReport.reset();try{const stored=sessionStorage.getItem(key());if(stored){const value=JSON.parse(stored);if(['jobs/create','jobs/update','jobs/control','jobs/collection/update','jobs/pilot-close/create',...closeCapturePaths,'infrastructure/availability','infrastructure/resolve','infrastructure/pool/scale'].includes(value.path)&&typeof value.operationId==='string'&&value.body&&typeof value.body==='object')pending.command={...value,uncertain:true};}}catch{/* Invalid browser state cannot grant authority. */}fields();get('job-pending').hidden=!pending.command;sync();}};
 }

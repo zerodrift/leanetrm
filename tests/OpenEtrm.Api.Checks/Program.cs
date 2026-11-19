@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
+if(args is ["--managed-pool-controller",var poolConnection]){RiskWorkerConnectionChecks.Run();await ManagedPoolGatewayChecks.Run(poolConnection);return;}
 if(args is ["--gas-source-instrument-evidence"]){GasSourceInstrumentEvidenceChecks.Run();return;}
 if(args is ["--point-trader-mark-identity"]){PointTraderMarkIdentityChecks.Run();return;}
 if(args is ["--point-trader-mark-inputs"]){PointTraderMarkInputSelectionChecks.Run();return;}

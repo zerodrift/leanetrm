@@ -9,7 +9,7 @@ from check_risk_jobs_db import provision_worker
 from close_session_fixture import sql_session
 from preview_fixture import catalogue_fixture, trading_fixture
 
-HELPERS = ('risk.worker()','risk.claim(integer,text)','risk.owned_attempt(uuid,uuid,boolean,boolean)','risk.authorized(risk.jobs)', 'risk.worker_read()', 'risk.bind(uuid,uuid)',
+HELPERS = ('risk.worker()','risk.claim(integer,text)','risk.heartbeat(uuid,uuid,integer)','risk.owned_attempt(uuid,uuid,boolean,boolean)','risk.authorized(risk.jobs)', 'risk.worker_read()', 'risk.bind(uuid,uuid)',
            'risk.bind_pre_ppa_context(uuid,uuid)', 'risk.axis_commands(jsonb)', 'risk.retain_axes(risk.jobs,jsonb)',
            'risk.retain_parametric(risk.jobs)', 'risk.submit(uuid,uuid,uuid,uuid,timestamptz,jsonb,jsonb)',
            'risk.guard_run()', 'risk.summary(risk.jobs)', 'security.authority_until(text)', 'risk.require_worker_attempt()',
@@ -57,7 +57,8 @@ def before_migration(query, migration):
 
 def checks(query, manifest, read_policy_checks=None):
     after=helper_metadata(query)
-    assert all(after[s]['oid']==p['oid'] for s,p in _before.items()), 'An existing public helper OID changed'
+    for signature, previous in _before.items():
+        assert after[signature]['oid'] == previous['oid'], f'Public helper OID changed for {signature}'
 
     catalog, tenant, workspace = (manifest[k] for k in ('catalogId', 'tenantId', 'workspaceId'))
     query(trading_fixture(catalog))

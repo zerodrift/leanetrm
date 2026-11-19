@@ -2698,3 +2698,7 @@ adjustment for a stated quantity beside the close-out draft; Risk from a positio
 runs for that trade. Remaining: termination and novation (drawn Coming soon);
 adjustments of scheduled swaps and of instruments the close-out draft does not
 support; a position's own retained risk run beside the desk's.
+
+### Managed risk workers (D429)
+
+Jobs supports an installation-managed risk pool of up to two replicas. Disposable checks exercise two concurrent worker processes, direct repricing parity for three historical quote scenarios and browser controls. Multi-node placement, restart, private networking and limits remain deployment gates. See [managed risk workers](managed-risk-pool.md).

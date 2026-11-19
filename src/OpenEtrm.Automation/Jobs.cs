@@ -75,6 +75,10 @@ public static class ScheduleTiming
     }
 }
 
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record PoolScaleRequest([property: JsonRequired] string ClusterId, [property: JsonRequired] Guid RequestId,
+    [property: JsonRequired] long ExpectedVersion, [property: JsonRequired] int Replicas);
+
 public static class JobOperations
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
@@ -85,8 +89,29 @@ public static class JobOperations
         var infrastructure = await Read(connection, "SELECT automation.infrastructure_directory()::text", null, ct);
         var result = System.Text.Json.Nodes.JsonNode.Parse(jobs.GetRawText())!.AsObject();
         result["infrastructure"] = System.Text.Json.Nodes.JsonNode.Parse(infrastructure.GetRawText());
+        var pool = await PoolStatus(connection, ct);
+        result["workerPool"] = System.Text.Json.Nodes.JsonNode.Parse(pool.GetProperty("pool").GetRawText());
+        result["canReadWorkerLogs"] = pool.GetProperty("canReadLogs").GetBoolean();
         return JsonSerializer.SerializeToElement(result);
     }
+    public static Task<JsonElement> PoolStatus(NpgsqlConnection connection, CancellationToken ct) =>
+        Read(connection, "SELECT jsonb_build_object('pool', automation.pool_directory(), 'canReadLogs', security.has_permission('ViewWorkerDiagnostics'))::text", null, ct);
+
+    public static Task<JsonElement> PoolLogs(NpgsqlConnection connection, string stream, CancellationToken ct) =>
+        Read(connection, "SELECT automation.pool_logs_read($1)::text", stream, ct);
+
+    public static async Task<JsonElement> ScalePool(NpgsqlConnection connection, PoolScaleRequest request, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(request.ClusterId) || request.RequestId == Guid.Empty || request.ExpectedVersion < 0)
+            throw new AutomationException("infrastructure_input", "Select a registered pool and its current generation.");
+        await using var command = new NpgsqlCommand("SELECT automation.scale_pool($1,$2,$3,$4)::text", connection);
+        command.Parameters.AddWithValue(request.ClusterId);
+        command.Parameters.AddWithValue(request.RequestId);
+        command.Parameters.AddWithValue(request.ExpectedVersion);
+        command.Parameters.AddWithValue(request.Replicas);
+        return await ReadResult(command, ct);
+    }
+
     public static Task<JsonElement> NodeAction(NpgsqlConnection connection, NodeCommand request, CancellationToken ct)
     {
         request.Validate();
@@ -120,6 +145,11 @@ public static class JobOperations
     {
         await using var command = new NpgsqlCommand(sql, connection);
         if (request is not null) command.Parameters.AddWithValue(request);
+        return await ReadResult(command, ct);
+    }
+
+    private static async Task<JsonElement> ReadResult(NpgsqlCommand command, CancellationToken ct)
+    {
         var result = (string?)await command.ExecuteScalarAsync(ct) ?? throw new AutomationException("job_outcome", "The job outcome was not returned.");
         using var document = JsonDocument.Parse(result);
         return document.RootElement.Clone();
