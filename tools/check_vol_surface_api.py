@@ -42,6 +42,18 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
         assert condition, f'{name}: {actual}'
         print('PASS ' + name, flush=True)
 
+    # The storage qualifier retained this revision with plot metadata and no fitted arrays.
+    first_at = datetime.fromisoformat(manifest['frames'][0]['at'])
+    navigation = c.call('workspace/navigation')
+    legacy, = [f for f in navigation['frames'] if f['id'] in navigation['initialFrameIds']
+               and not f.get('close') and datetime.fromisoformat(f['at']) == first_at]
+    legacy_request = {'context': {'snapshotId': legacy['id'], 'convention': OPTION, 'knowledgeMode': 'current'},
+                      'product': PRODUCT, 'model': MODEL}
+    offer = c.call('vol-surfaces/axes', legacy_request)
+    refused = c.call('vol-surfaces/read', {**legacy_request, 'axis': 'log_moneyness_v1', 'points': ['0']}, expected=422)
+    check('a retained revision without fitted arrays requires an explicit refit and supplies no projected value',
+          offer['snapshotId'] == legacy['id'] and offer['requiresRefit'] and refused['code'] == 'vol_axis_inputs_missing')
+
     def read(product=PRODUCT, snapshot=None, definition=None, **context):
         return c.call('vol-surfaces/read', {'context': {'snapshotId': snapshot or frame['id'], 'convention': OPTION, 'knowledgeMode': 'current', **context},
                                             'product': product, 'model': MODEL, 'axis': 'log_moneyness_v1', 'points': ['-0.1','0','0.1'], **({'definitionRevisionId': definition} if definition else {})}, timeout=TIMEOUT)

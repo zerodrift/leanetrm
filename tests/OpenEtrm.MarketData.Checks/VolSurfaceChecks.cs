@@ -104,10 +104,7 @@ internal static class VolSurfaceChecks
         foreach (var points in new string[]?[] { null, [], ["0"], ["1"], ["NaN"], ["0.5", "0.50"] })
             Refuses("vol_axis_points", () => SurfaceAxes.Project(surface, new("quick_delta_v1", points)));
         Refuses("vol_axis_unknown", () => SurfaceAxes.Project(surface, new("unknown", ["0.5"])));
-        Refuses("vol_axis_inputs_missing", () => SurfaceAxes.Project(surface with
-            { Expiries = [surface.Expiries.Single() with { YearFraction = null }] }, new("quick_delta_v1", ["0.5"])));
-        Refuses("vol_axis_inputs_missing", () => SurfaceAxes.Project(surface with
-            { Expiries = [surface.Expiries.Single() with { Grid = default }] }, new("quick_delta_v1", ["0.5"])));
+        StoredProjectionInputs(surface);
         var unbounded = surface with { Expiries = [surface.Expiries.Single() with
             { Parameters = new(L("0.45"), L("-2.965204437011203721094152958718"), L("0")) }] };
         Expect(SurfaceAxes.Project(unbounded, new("quick_delta_v1", ["0.75"])).Expiries.Single().Nodes.Single().Reason?.Code == "vol_axis_root_range",
@@ -135,6 +132,38 @@ internal static class VolSurfaceChecks
         Expect(SurfaceAxes.Project(tiny, new("quick_delta_v1", ["0.5"])).Series.Single().AxisValue == L("0"), "Far standardized tail saturates before division.");
         var noRoot = surface with { Expiries = [surface.Expiries.Single() with { Parameters = new(L("0.6"), L("0"), L("10")) }] };
         Expect(SurfaceAxes.Project(noRoot, new("quick_delta_v1", ["0.9"])).Expiries.Single().Nodes.Single().Reason?.Code == "vol_axis_no_real_root", "No real root.");
+    }
+
+    private static void StoredProjectionInputs(VolSurfaceResult surface)
+    {
+        var expiry = surface.Expiries.Single();
+        var policies = surface.PlotInputs!;
+        var request = new SurfaceAxisRequest(SurfaceAxes.LogMoneyness, ["0"]);
+        foreach (var partial in new[] {
+            surface with { Expiries = [null!] }, surface with { StrikeAxis = default }, surface with { Expiries = default },
+            surface with { Series = default }, surface with { PlotInputs = null }, surface with { ModelId = "unsupported" },
+            surface with { PlotInputs = policies with { StrikeUnit = "" } }, surface with { PlotInputs = policies with { OptionPolicy = "unsupported" } },
+            surface with { PlotInputs = policies with { AxisNumericalPolicy = "unsupported" } },
+            surface with { PlotInputs = policies with { NormalImplementation = "unsupported" } },
+            surface with { Expiries = [expiry with { YearFraction = null }] }, surface with { Expiries = [expiry with { YearFraction = L("0") }] },
+            surface with { Expiries = [expiry with { Futures = null }] }, surface with { Expiries = [expiry with { Futures = L("-1") }] },
+            surface with { Expiries = [expiry with { Parameters = null }] }, surface with { Expiries = [expiry with { Grid = default }] },
+            surface with { Expiries = [expiry with { Grid = [null!] }] }, surface with { Expiries = [expiry, expiry] },
+            surface with { Series = [null!] }, surface with { Series = [surface.Series[0] with { Series = null! }] },
+            surface with { Expiries = [] }
+        })
+        {
+            Expect(!SurfaceAxes.TryDeclare(partial, out _), "A partial stored revision requires an explicit refit.");
+            Refuses("vol_axis_inputs_missing", () => SurfaceAxes.Project(partial, request));
+        }
+        var expired = expiry with { Status = "option_expired", YearFraction = null, Futures = null, Parameters = null, Grid = default };
+        var result = SurfaceAxes.Project(surface with { StrikeAxis = [], Expiries = [expired] }, request);
+        Expect(result.Expiries.Single().Nodes.IsEmpty && result.Series.All(s => s.AxisValue is null), "An expired row needs no live fit inputs.");
+        var gap = expiry with { Status = "vol_fit_insufficient_strikes", Futures = null, Parameters = null, Grid = default };
+        var gapped = SurfaceAxes.Project(surface with { Expiries = [gap] }, request);
+        Expect(gapped.Expiries.Single().TimeLabel is not null && gapped.Expiries.Single().Nodes.IsEmpty, "A live gap retains its time without fit coefficients.");
+        var declarationsOnly = surface with { StrikeAxis = [], Expiries = [], Series = [] };
+        Expect(SurfaceAxes.Declare(declarationsOnly).Length == 3, "A product with no fit still offers its declared display axes.");
     }
 
     private static void StalkHeightDomain()

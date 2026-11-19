@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Options;
@@ -11,6 +12,32 @@ using OpenEtrm.Rates;
 // calibrated alone, and the observations it reports against every observation those lone calibrations touched.
 internal static class VolSurfaceFitChecks
 {
+    private static void CheckStoredProjectionInputs(VolSurfaceResult fit)
+    {
+        var fitted = fit.Expiries.IndexOf(fit.Expiries.First(e => e.Status == "fitted"));
+        var point = new SurfaceAxisRequest(SurfaceAxes.LogMoneyness, [fit.Expiries[fitted].Grid[0].LogMoneyness.ToString()]);
+        var saved = JsonNode.Parse(VolSurfaceStore.Encode(fit))!;
+        void Refuses(Action<JsonNode> change)
+        {
+            var partial = saved.DeepClone();
+            change(partial);
+            try { VolSurfaceStore.ProjectContent(partial, point); throw new Exception("A partial stored fit produced a value."); }
+            catch (MarketDataException e) when (e.Code == "vol_axis_inputs_missing") { }
+        }
+        foreach (var field in new[] { "strikeAxis", "expiries", "series" })
+            Refuses(s => s[field] = null);
+        foreach (var coefficient in new[] { "a", "b", "c" })
+            Refuses(s => s["expiries"]![fitted]!["parameters"]!.AsObject().Remove(coefficient));
+        foreach (var coordinate in new[] { "strike", "logMoneyness" })
+            Refuses(s => s["expiries"]![fitted]!["grid"]![0]!.AsObject().Remove(coordinate));
+        Refuses(s => s["expiries"]![fitted]!["parameters"]!["a"] = "invalid");
+        saved["expiries"]![fitted]!["parameters"]!["b"] = "0";
+        saved["expiries"]![fitted]!["parameters"]!["c"] = "0";
+        var projected = VolSurfaceStore.ProjectContent(saved, point)["expiries"]![fitted]!["nodes"]![0]!["fitted"]?.GetValue<string>();
+        Check("an explicitly flat stored smile projects its own volatility", projected == saved["expiries"]![fitted]!["parameters"]!["a"]!.GetValue<string>(), projected ?? "uncovered");
+        Console.WriteLine("PASS partial stored JSON returns the missing-input refusal");
+    }
+
     internal static async Task Run(string path)
     {
         var root=Environment.GetEnvironmentVariable("OPENETRM_PREVIEW_ROOT")??throw new InvalidOperationException("Use the owned preview runner.");
@@ -51,6 +78,8 @@ internal static class VolSurfaceFitChecks
             Console.WriteLine($"INFO surface fit runtime {product}: {fit.Result.Series.Length} series, {solved} solved, {clock.ElapsedMilliseconds} ms");
         }
 
+        CheckStoredProjectionInputs(fits.Values.First().Result);
+
         foreach (var fit in fits.Values)
         {
             foreach (var expiry in fit.Result.Expiries.Where(e => e.Status == "fitted"))
@@ -66,8 +95,8 @@ internal static class VolSurfaceFitChecks
             {
                 var selection = new SurfaceAxisRequest(axis.Id, axis.Preset.Points.Select(p => p.Value.ToString()).ToArray());
                 var computed = SurfaceAxes.Project(fit.Result, selection);
-                var stored = VolSurfaceStore.ProjectContent(System.Text.Json.Nodes.JsonNode.Parse(VolSurfaceStore.Encode(fit.Result))!, selection);
-                Check("stored surface axes equal projections of the fit's own inputs", System.Text.Json.Nodes.JsonNode.DeepEquals(System.Text.Json.Nodes.JsonNode.Parse(VolSurfaceStore.Encode(computed)), stored), axis.Id);
+                var stored = VolSurfaceStore.ProjectContent(JsonNode.Parse(VolSurfaceStore.Encode(fit.Result))!, selection);
+                Check("stored surface axes equal projections of the fit's own inputs", JsonNode.DeepEquals(JsonNode.Parse(VolSurfaceStore.Encode(computed)), stored), axis.Id);
                 Check("read declares axes, presets, exact T and one node per explicit point", computed.Projection is { Axes.Length: 3 } &&
                     computed.Expiries.Where(e => e.Status == "fitted").All(e => e.YearFraction is not null && e.Nodes.Length == selection.Points!.Length), axis.Id);
             }

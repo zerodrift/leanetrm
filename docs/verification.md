@@ -24,6 +24,11 @@ context tables unchanged. Publication retained the displayed cutoff and
 domain prefixes. A fresh sign-in could recover the published observation
 after a later correction.
 
+The volatility surface browser check applied a historical cutoff in the same
+tab and returned the original fit revision at its selected close. A stored
+fit missing required projection inputs reported that an explicit refit was
+needed. Recorded zero coefficients and expired terms remained readable.
+
 The calendar suite runs with `tools/run_preview.py --market-dates-check`.
 It checks a real correction against independently resolved earlier and later
 knowledge cutoffs, rejects inconsistent publication coordinates and verifies
