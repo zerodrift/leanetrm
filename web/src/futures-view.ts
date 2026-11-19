@@ -532,7 +532,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     const selection:PositionWindowSelection={snapshotId:snapshot,context:holdings.context,asOf:holdings.asOf,
       tradeId:selected.tradeId,bindingId:selected.bindingId,revision:Number(selected.revision),instrumentType:selected.instrumentType as PositionWindowSelection['instrumentType'],zone:options.zone(),
       example,lifecycle:optionWrites().enabled?'working':'read_only'};
-    openPositionWindow(location.href,selection,(url,target,features)=>window.open(url,target,features));
+    openPositionWindow(location.href,{...selection,viewId:window.openEtrmWorkspaceView},(url,target,features)=>window.open(url,target,features));
   }
   // A swap position's settlement and P&L view (D215) opens from its Terms in the panel's form part, as the form of its amendment does.
   function settle(h:Holding){asked(()=>swapEditor.openSettlement(h));}

@@ -22,6 +22,20 @@ static class PageSessionChecks
         owned.Retire(first.Session.Digest);
         if(!owned.GetOrCreate(null,_=>true,()=>new PreviewSession(manifest)).Created)
             throw new Exception("Signing out must release its page capacity before signing in again.");
+        var pages=new PageSessionRegistry(3);
+        var a=pages.GetOrCreate(null,_=>true,()=>new PreviewSession(manifest));
+        var b=pages.GetOrCreate(null,_=>true,()=>new PreviewSession(manifest));
+        var tab=Guid.NewGuid();var document=Guid.NewGuid();var popup=Guid.NewGuid();
+        var selection=pages.View(a.Id,a.Session,tab,()=>new PreviewSession(manifest,account:a.Session),document);
+        var independent=pages.View(b.Id,b.Session,Guid.NewGuid(),()=>new PreviewSession(manifest,account:b.Session));
+        if(independent==selection||selection==a.Session)throw new Exception("Independent pages must own different selections.");
+        pages.View(a.Id,a.Session,tab,document:popup);
+        var before=selection.ViewGeneration;
+        pages.Detach(a.Id,tab,document,TimeSpan.FromMinutes(1));
+        if(selection.ViewGeneration!=before)throw new Exception("A detached trade window still owns the view.");
+        pages.Detach(a.Id,tab,popup,TimeSpan.FromMinutes(1));
+        if(selection.ViewGeneration==before)throw new Exception("The final document must invalidate outstanding results.");
+        if(pages.View(a.Id,a.Session,tab,document:Guid.NewGuid())!=selection)throw new Exception("Refresh lost the live workspace.");
         Console.WriteLine("PASS concurrent page opens respect the explicit capacity and reuse existing sessions at capacity");
     }
 }

@@ -2456,6 +2456,14 @@ policy and the remaining worker limitations.
 The server resolves the requested coordinates into an immutable context used by
 UI, API, agents, schedules, PV/risk, background jobs and exports.
 
+An ordinary read owns its resolved context until its work ends. The working
+custom-curve calendar binds all its dates at one knowledge cutoff and releases
+the selection after delivery. A saved job owns the evidence needed to replay
+its calculations. The browser keeps the selected As of cutoff in the signed-in
+workspace's memory. Its Back control restores a previous certified selection
+and its chosen close.
+See [the context lifetime decision](decisions.md#d431--an-ordinary-read-context-belongs-to-its-operation).
+
 Use `effective_from` / `effective_to` and `known_from` / `known_to` for retained
 half-open intervals. Context point selectors are `effective_at` and `known_at`.
 Knowledge endpoints have UTC timestamp precision; reserved finite open ends and

@@ -1,3 +1,4 @@
+import {workspaceView,workspaceDocument,releaseView,viewEvents} from './workspace-view.js';
 import {setupRecInventory} from './rec-inventory-view.js';
 import {recContext} from './rec-inventory-model.js';
 import {setupStructuredPower} from './structured-power-view.js';
@@ -124,6 +125,11 @@ let closeSession:string|null=null,closeSessionNames:ReadonlyMap<string,string>=n
 // The name of the close convention in use, or null while none is chosen.
 const closeSessionName=()=>closeSession===null?null:closeSessionNames.get(closeSession)??closeSession;
 let navigation:MarketNavigation|undefined,marketGeneration=0;
+type WorkspacePlace={context:Context|null;restoreKey?:string;frame:string;session:string|null};
+const viewHistory:WorkspacePlace[]=[];
+const inspectedContexts=new Map<string,{context:Context;restoreKey?:string}>();
+function currentPlace():WorkspacePlace{return {context:historicalContext()??null,restoreKey:navigation?.restoreKey,frame:select('snapshot').value,session:closeSession};}
+
 // The curve shapes the market board and the library draw, read at one close for one directory and account (markets-desk.md).
 let boardShapes:{owner:MarketNavigation;scope:string;shapes:ReadonlyMap<string,CurveShape|string>}|undefined;
 let liveSucceeded:Date|undefined;
@@ -141,7 +147,7 @@ type ProfileChoices={requestDeadlines:unknown;asyncReadProtocol?:string;mode:str
 let asyncReadsEnabled=false,asyncIdentityLost=false,curveRead:AbortController|undefined;
 let pageRead:{page:string;controller:AbortController;pending:boolean}|undefined;
 const readClient=createAsyncReadClient({root:apiRoot,getIdentity:()=>({profile:currentProfile,context:navigation?.context??null}),
- post:(path,body,signal)=>transport(path.slice(apiRoot.length),body,apiRoot,signal),createEventSource:url=>new EventSource(url)});
+ post:(path,body,signal)=>transport(path.slice(apiRoot.length),body,apiRoot,signal),createEventSource:viewEvents});
 function cancelCurveRead(){curveRead?.abort();curveRead=undefined;$('market-page').dataset.readState='idle';}
 function invalidateReadIdentity(){
  if(asyncIdentityLost)return;asyncIdentityLost=true;readClient.close();cancelCurveRead();pageRead?.controller.abort();pageRead=undefined;
@@ -216,7 +222,8 @@ function renderWorkspaceMode(){
   renderAsOfClose();
   const expanded=$<HTMLDetailsElement>('as-of-context').open;
   $('as-of-context').dataset.contextMode=$('date-context').dataset.contextMode;
-  $('context-actions').hidden=!showsContext(page)||!contextDirty&&!historical&&!expanded;
+  $('context-actions').hidden=!showsContext(page)||!contextDirty&&!historical&&!expanded&&!viewHistory.length;
+  $('back-view-context').hidden=!viewHistory.length;
   $('apply-view-context').hidden=!contextDirty&&!expanded;
   $('use-business-date-current').hidden=page!=='facilities';
   $('current-view-context').hidden=!contextDirty&&!historical&&!expanded;
@@ -236,7 +243,7 @@ function renderAsOfClose(){
 }
 async function responseFor(path:string,body?:unknown,root=apiRoot,signal?:AbortSignal):Promise<Response>{
   let response:Response;
-  try{response=await fetch(root+path,{method:body===undefined?'GET':'POST',credentials:'same-origin',headers:body===undefined?{}:{'Content-Type':'application/json','X-Preview-CSRF':csrf},body:body===undefined?undefined:JSON.stringify(body),signal:signal?AbortSignal.any([signal,AbortSignal.timeout(deadlines.milliseconds(path))]):AbortSignal.timeout(deadlines.milliseconds(path))});}
+  try{response=await fetch(root+path,{method:body===undefined?'GET':'POST',credentials:'same-origin',headers:{'X-OpenETRM-View':workspaceView(),'X-OpenETRM-Document':workspaceDocument,...(body===undefined?{}:{'Content-Type':'application/json','X-Preview-CSRF':csrf})},body:body===undefined?undefined:JSON.stringify(body),signal:signal?AbortSignal.any([signal,AbortSignal.timeout(deadlines.milliseconds(path))]):AbortSignal.timeout(deadlines.milliseconds(path))});}
   catch{throw Object.assign(Error(body!==undefined?'We could not confirm the result. Refresh and check the saved changes before saving again.':'The app could not connect. Please refresh the page.'),{code:'response_unknown'});}
   signal?.throwIfAborted();
   if(response.status===401){sessionEnded=true;futures.ended('signed_out');workspace=undefined;result=undefined;historyData=undefined;curve='';document.body.hidden=true;location.replace('/auth');throw Object.assign(Error('Sign in to continue.'),{code:'sign_in_required'});}
@@ -1151,7 +1158,7 @@ function connectLive(selection:LiveSelection){
  let cooldown=250;
  liveUpdates=new LiveUpdates({busy:()=>busy||document.hidden,schedule:work=>{const timer=setTimeout(work,cooldown);return()=>clearTimeout(timer);},status:showLiveStatus,
   apply:async update=>{if(liveId!==update.live.id)throw Error('The live selection changed.');busy=true;const started=performance.now();try{syncControls();permissions=(await api<{permissions:string[]}>('access')).permissions;await refreshLiveScreen(update);}finally{cooldown=Math.max(250,Math.min(10000,(performance.now()-started)*2));busy=false;syncControls();}}});
- const stream=liveStream=new EventSource(apiRoot+'market/live/events?selection='+encodeURIComponent(selection.id));
+ const stream=liveStream=viewEvents(apiRoot+'market/live/events?selection='+encodeURIComponent(selection.id));
  stream.addEventListener('context',event=>{
   if(liveStream!==stream)return;
   try{const update=liveContextUpdate(JSON.parse((event as MessageEvent<string>).data),selection.id);lastLiveUpdate=update;liveUpdates?.reconnected();liveUpdates?.offer({...update,generation:update.live.generation});}
@@ -1211,6 +1218,7 @@ $('sign-out').onclick=()=>void (async()=>{if(!await mayLeaveForDialog('You were 
 // A sign-out or account change that failed after it ended the popped-out Blotter shows the Blotter here again, read afresh, rather than an empty page.
 async function blotterBack(){if(page==='futures'&&select('snapshot').value){futures.reset('read');await futures.load();}}
 async function loadIdentity(initialAccess?:unknown){
+  viewHistory.length=0;inspectedContexts.clear();
   cancelCurveRead();pageRead?.controller.abort();pageRead=undefined;readClient.reset();
   closeConventionDefaults.invalidate();
   parkLoan.reset();$('park-loan-page').hidden=true;
@@ -1362,15 +1370,36 @@ document.addEventListener('input',refreshContextPanels);
 document.addEventListener('change',refreshContextPanels);
 async function applyContext(){
   jobs.contextChanged();
+  const previous=currentPlace();
   const context=await dateEditor.context();
   await viewContext(await api<{context:Context;snapshotId:string|null;frameSelectionPolicy:string}>('market/context',{effectiveOn:context.effectiveOn,knownAt:context.knownAt,mode:'at',selection:'latest_correction',snapshotId:select('snapshot').value||null,frameSelectionPolicy:'preserve_origin_or_unique_asof_frame_v1'}));
+  viewHistory.push(previous);renderWorkspaceMode();
 }
-async function viewContext(snapshot:{context:Context;snapshotId?:string|null;frameSelectionPolicy?:string|null}){
+async function viewContext(snapshot:{context:Context;restoreKey?:string;snapshotId?:string|null;frameSelectionPolicy?:string|null}){
+  if(snapshot.context.contextId)inspectedContexts.set(snapshot.context.contextId,{context:snapshot.context,restoreKey:snapshot.restoreKey});
   if(snapshot.snapshotId&&snapshot.frameSelectionPolicy!=='preserve_origin_or_unique_asof_frame_v1')throw Error('The context returned an unsupported frame-selection policy.');
   recInventory.reset();structuredPower.contextChanged();lifecycle.reset();physicalOperations.reset();facilities.reset();futures.reset('inputs');dateEditor.setContext(snapshot.context);contextDirty=false;clearPrices();await reload(snapshot.snapshotId??'');$<HTMLDetailsElement>('as-of-context').open=false;
   text('environment-context-note','Historical view · working snapshots use the latest known corrections; stored closes retain their original inputs. Changes are disabled.');
 }
-$('apply-view-context').onclick=()=>leaving(async()=>{await applyContext();if(page==='rec-inventory')await recInventory.load();else if(page==='facilities')await facilities.load();else if(page==='dashboard')await dashboard.load();else if(page==='reference')await loadReference();else if(page==='power')await loadPowerPage({refreshProducts:false});else if(page==='custom-curves')await customCurves.load();else if(page==='interval-series')await intervalSeries.load();else if(page==='interval-curves')await intervalCurves.load();else if(page==='vol-surfaces')await volSurfaces.refresh();else if(page==='options')await optionChains.refresh();else await loadSelectedClose();});
+async function loadContextPage(){if(page==='rec-inventory')await recInventory.load();else if(page==='facilities')await facilities.load();else if(page==='dashboard')await dashboard.load();else if(page==='reference')await loadReference();else if(page==='power')await loadPowerPage({refreshProducts:false});else if(page==='custom-curves')await customCurves.load();else if(page==='interval-series')await intervalSeries.load();else if(page==='interval-curves')await intervalCurves.load();else if(page==='vol-surfaces')await volSurfaces.refresh();else if(page==='options')await optionChains.refresh();else await loadSelectedClose();}
+$('apply-view-context').onclick=()=>leaving(async()=>{await applyContext();await loadContextPage();});
+$('back-view-context').onclick=()=>leaving(async()=>{
+ const previous=viewHistory.at(-1);if(!previous)return;
+ if(previous.session!==null&&!closeSessionNames.has(previous.session))throw Error('The previous close convention is unavailable.');
+ closeSession=previous.session;select('close-session').value=closeSession??'';
+ if(previous.context)await restoreCutoff(previous.context,previous.restoreKey);else await currentInputs();
+ if(previous.frame){
+  if(!offeredFrames().some(f=>f.id===previous.frame))throw Error('The previously selected close is unavailable.');
+  renderFrames(previous.frame);closeChanged();if(!previous.context)await initializeContext();
+ }
+ viewHistory.pop();renderWorkspaceMode();await loadContextPage();
+},'closes');
+async function restoreCutoff(context:Context,restoreKey?:string){
+ const snapshot=restoreKey?await api<{context:Context;restoreKey:string}>('market/context',{effectiveOn:context.effectiveOn,knownAt:context.knownAt,mode:'at',selection:'latest_correction',restoreKey}):
+  await api<{context:Context}>('market/context/retained',{contextId:context.contextId,selection:'latest_correction'});
+ if(snapshot.context.contextId!==context.contextId)throw Error('The saved selection could not be restored exactly.');
+ await viewContext(snapshot);
+}
 async function currentInputs(){recInventory.reset();structuredPower.contextChanged();priceSetup.reset();lifecycle.reset();physicalOperations.reset();facilities.reset();curveDefinitions.contextChanged();scheduleWorkspace?.calendar.reset();dateEditor.invalidatePreview();jobs.contextChanged();customCurves.contextChanged();intervalSeries.reset();intervalCurves.reset();ppa.reset();gas.reset();crude.reset();parties.reset();unitConverter.reset();futures.reset('inputs');power.reset();await api('market/current',{});contextDirty=false;dateEditor.clearContext();clearPrices();await reload('');$<HTMLDetailsElement>('as-of-context').open=false;text('environment-context-note','Working data uses current knowledge. These controls select a historical context when applied.');}
 async function useBusinessDateCurrent(){
   if(page!=='facilities')throw Error('Use an operating business date in Facilities.');
@@ -1384,8 +1413,9 @@ $('use-business-date-current').onclick=()=>leaving(useBusinessDateCurrent);
 // Returning to working data opens it on its newest close, as opening the workspace does (D217, D219), and the page that is
 // showing reads it. A latest instant with several closes opens the calendar on its date and selects nothing.
 async function returnToWorking(){
-  const wasHistorical=!!historicalContext();
+  const previous=currentPlace(),wasHistorical=!!previous.context;
   await currentInputs();
+  if(wasHistorical){viewHistory.push(previous);renderWorkspaceMode();}
   const choice=await selectNewestClose();await initializeContext();
   if(page==='rec-inventory')await recInventory.load();else if(page==='facilities')await facilities.load();else if(page==='power')await loadPowerPage({refreshProducts:wasHistorical});else if(page==='reference')await loadReference();else if(page==='interval-series')await intervalSeries.load();
   else if(choice.kind==='single')await loadSelectedClose();
@@ -1814,6 +1844,7 @@ async function selectContext(knowledge:TargetContext&{businessDate?:string}){
 }
 // A historical view selected again by its id, exactly as it was captured.
 async function selectRetained(contextId:string){
+  const inspected=inspectedContexts.get(contextId);if(inspected){await restoreCutoff(inspected.context,inspected.restoreKey);return;}
   jobs.contextChanged();customCurves.contextChanged();intervalSeries.reset();intervalCurves.reset();parties.reset();unitConverter.reset();futures.reset('inputs');power.reset();
   const snapshot=await api<{context:Context}>('market/context/retained',{contextId,selection:'latest_correction'});
   if(snapshot.context.contextId!==contextId)throw Error('The historical view could not be selected exactly. Reload the page.');
@@ -1880,7 +1911,9 @@ const assistant=setupAssistant({launcherHidden:()=>prefs.assistantHidden,launche
 // Coming back to the window asks whether a newer close arrived while it was away.
 window.addEventListener('focus',()=>void recheckNewestClose());
 // A main window that closes or goes elsewhere tells the Blotter it popped out, which then shows why it stops.
-window.addEventListener('pagehide',()=>{closeCheckDue=false;cancelCurveRead();pageRead?.controller.abort();readClient.close();futures.ended('main_closed');});
+window.addEventListener('pagehide',event=>{
+ if(!event.persisted)releaseView(apiRoot,csrf,workspaceView());
+ closeCheckDue=false;cancelCurveRead();pageRead?.controller.abort();readClient.close();futures.ended('main_closed');});
 // A reload, closing the tab and going back leave the page without the panel's own question, so the browser asks while the panel holds an
 // amendment with edits, or a custom curve holds unsaved ones: the listener is on while it does, and off once the edits are saved or given up. A session that has ended cannot
 // send what the form holds, and is not asked about.

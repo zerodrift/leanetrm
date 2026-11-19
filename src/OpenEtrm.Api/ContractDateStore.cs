@@ -171,6 +171,7 @@ SELECT h.definition_id,h.version,h.generation,h.state,h.code,h.name,h.effective_
         await Lock(connection,ct);var payload=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(body,Json))));
         if(await Replay(connection,body.RequestId,"save",payload,"WriteMarketDefinitions",ct) is {} replay)return replay;
         var context=await new KnowledgeStore(catalog).Retained(connection,body.Context??throw Invalid("Choose an exact retained date context."),ct);
+        if(context.ReadCut is {} validationCut)await validationCut.RetainWriteSource(connection,context,ct);
         var request=new PublishedContractRequest(body.Code,body.Name,context,body.Contracts,body.Dates);var versions=await schedules.ReadAt(connection,context,ct);
         var engine=body.Dates is null?Engine:DateListEngine;
         // Each saved row: its label, its UTC cutoff (contracts only) and its date fields by role.

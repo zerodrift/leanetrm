@@ -27,6 +27,8 @@ public sealed record MarketNavigation(string Profile,ScheduleContext? Context,De
     ReferenceRevision ReferenceRevision,string FuturesConvention,PreviewExample? Example,ImmutableArray<Guid> InitialFrameIds,
     ImmutableArray<NavigationFrame> Frames,ImmutableArray<CurveName> CurveNames,ImmutableArray<NavigationCurve> Curves,ReferenceDisplayData? ReferenceDisplay=null)
 {
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? RestoreKey {get;init;}
     public string Kind=>"market_navigation";
     public string KindsVersion=>CurveKinds.Version;
     public FrameCatalogInfo? FrameCatalog{get;init;}

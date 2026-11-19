@@ -70,13 +70,18 @@ public sealed class AgentTurns(PreviewDatabase database,string scope,AgentWorker
     {
         PageReports.Require(body.PageReport);
         var token=RandomNumberGenerator.GetBytes(32);
-        var asked=await database.WithIdentity(profile,"UseAgents",async(connection,ct)=>await ModelProviders.Read(connection,
+        var asked=await database.WithIdentity(profile,"UseAgents",async(connection,ct)=>
+        {
+            if(retained is {} id&&session.Knowledge.Find(id)?.Context is {ReadCut:not null} selected)
+                await MarketContextStore.Bind(connection,database.Manifest.CatalogId,selected,ct);
+            return await ModelProviders.Read(connection,
             "SELECT assistant.ask_turn($1,$2,$3::uuid,$4,$5,$6::text,$7::jsonb,$8,$9,$10::uuid,$11::uuid,$12,$13,$14,$15,$16::bigint,$17,$18,$19::integer,$20,$21)::text",
             [body.OperationId,scope,(object?)body.ConversationId??DBNull.Value,body.AgentId,body.Version,(object?)body.Question??DBNull.Value,
                 body.PageReport.GetRawText(),database.Manifest.CatalogId,mode,
                 (object?)retained??DBNull.Value,(object?)frame?.Id??DBNull.Value,session.Digest,profile,session.Ends,
                 Convert.ToHexStringLower(SHA256.HashData(token)),(object?)await worker.Generation(ct)??DBNull.Value,RuntimeSet.Turns,RuntimeSet.QuestionLength,
-                DBNull.Value,RuntimeSet.AdmissionSeconds,body.SearchHistory],ct),aborted);
+                DBNull.Value,RuntimeSet.AdmissionSeconds,body.SearchHistory],ct);
+        },aborted);
         if(asked.TryGetProperty("refused",out var refused))
         {
             var code=refused.GetString()!;

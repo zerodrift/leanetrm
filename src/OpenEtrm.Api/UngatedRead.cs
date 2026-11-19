@@ -11,11 +11,11 @@ internal static class UngatedRead
         await session.Reads.WaitAsync(ct);
         try
         {
-            string profile;ReadPlan plan;
+            string profile;long generation;ReadPlan plan;
             await session.Gate.WaitAsync(ct);
             try
             {
-                profile=session.Profile??throw new PreviewDeniedException();
+                generation=session.ViewGeneration;profile=session.Profile??throw new PreviewDeniedException();
                 plan=await capture(session);
             }
             finally{session.Gate.Release();}
@@ -24,7 +24,7 @@ internal static class UngatedRead
             try
             {
                 // The capture is immutable; only the person the answer goes to can have changed since.
-                if(DateTimeOffset.UtcNow>=session.Ends||session.Profile!=profile)throw new PreviewDeniedException();
+                if(DateTimeOffset.UtcNow>=session.Ends||session.Profile!=profile||session.ViewGeneration!=generation)throw new PreviewDeniedException();
                 await authorize(profile,plan,outcome,ct);
                 return outcome.Value;
             }

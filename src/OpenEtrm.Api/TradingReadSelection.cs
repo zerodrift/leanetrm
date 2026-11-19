@@ -6,17 +6,17 @@ namespace OpenEtrm.Api;
 // Only immutable request selection is retained after the UI session gate is
 // released. Database reads and result publication still authorize the actor.
 internal sealed record TradingReadSelection(string Profile,InputFrame Frame,bool Working,
-    ScheduleContext? SelectedContext,bool Live,DateTimeOffset Ends)
+    ScheduleContext? SelectedContext,bool Live,DateTimeOffset Ends,long Generation)
 {
     internal string ReadOnlyLabel=>Live?"Live view":"Historical view";
     internal static bool IsWorking(PreviewSession session,FuturesReadRequest request)=>
         session.MarketContext is null&&request is {KnowledgeMode:"current",ContextId:null};
     internal static TradingReadSelection Capture(PreviewSession session,FuturesReadRequest request,InputFrame frame)=>
         new(session.Profile??throw new PreviewDeniedException(),frame,IsWorking(session,request),session.MarketContext,
-            session.Live is not null,session.Ends);
+            session.Live is not null,session.Ends,session.ViewGeneration);
     internal void RequireSession(PreviewSession session)
     {
-        if(DateTimeOffset.UtcNow>=Ends||session.Profile!=Profile)throw new PreviewDeniedException();
+        if(DateTimeOffset.UtcNow>=Ends||session.Profile!=Profile||session.ViewGeneration!=Generation)throw new PreviewDeniedException();
     }
     // Current knowledge for a working read, captured in a transaction that does nothing else: the capture certifies
     // under the catalog's publication gate, which that transaction's end releases before the read values.
@@ -35,7 +35,7 @@ internal sealed record TradingReadSelection(string Profile,InputFrame Frame,bool
         if(Working)return await TradingView.Capture(connection,store,Frame,ct);
         if(request is not {KnowledgeMode:"retained",ContextId:{} id})
             throw new MarketDataException("futures_context","Choose current knowledge explicitly or supply the exact retained context.");
-        var context=(await store.Read(connection,id,ct)).Context;
+        var context=SelectedContext?.ContextId==id?await store.Retained(connection,SelectedContext,ct):(await store.Read(connection,id,ct)).Context;
         if(SelectedContext is null)return TradingView.Reread(Frame,context);
         if(Live&&Frame.ContextId==context.ContextId||SelectedContext.ContextId==context.ContextId)
             return TradingView.Retained(Frame,context);

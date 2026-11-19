@@ -6715,3 +6715,33 @@ the warm price path on two owned synthetic workloads.
 An installation binds one reviewed Swarm service and a dedicated risk-worker login to its workspace. Jobs can request zero, one or two replicas. Scaling requires both workspace permission and current installation operator registration. A separate permission grants access to bounded worker and node diagnostics. Installations choose the roles that receive these permissions.
 
 A scale command records its request identity and expected generation before the controller dispatches a version-checked service update. Workers claim existing risk jobs individually under their own leases. Downscaling closes admission while active work drains. See the [worker pool contract and qualification](managed-risk-pool.md).
+
+## D431 — An ordinary read context belongs to its operation
+
+Working data uses current knowledge and the latest recorded close of the selected
+convention on opening or refreshing the view. A new close can be offered while a
+view is open. Acceptance starts a new selection. A historical child inherits its
+parent's knowledge ceiling. A hypothetical valuation layer inherits those facts
+and changes only its declared calculation inputs. Completion, cancellation and
+session loss release transient work. Explicit saved results and jobs retain
+their own exact evidence under the existing identity and authorization contracts.
+
+This revises D67's storage rule for ordinary browsing. The working custom-curve close calendar uses an operation-owned selection. It certifies one cutoff
+in a short identity transaction and reuses it at each candidate business date.
+The calculation and the later disclosure check each bind the exact selection
+under their own current authority. Both release it on exiting the scoped read.
+The shared browser header holds a prepared and an applied cutoff per tab.
+Fresh reads, queued work and publication verify the selected source under current
+authority. Back restores the original certified history and chosen close. The
+browser stores its navigation stack in memory. Sign-out releases the server-side
+selection. A saved artifact can retain the exact selection under the identity
+already used in its calculations. Existing receipts keep their original IDs.
+Clients using the older cookie-only API keep their explicit receipt contract.
+
+Migration 0368 derives each new workspace ID from the binary catalog ID,
+business date and PostgreSQL microsecond cutoff. Durable admission reuses the
+same ID. Existing physical receipts take precedence. Financial manifests,
+pricing policies and worker input formats continue to use their existing
+contracts. A statistical job receives its independent clock attestation for
+the exact saving database transaction. The transaction records the job, clock
+evidence and workspace receipt together.

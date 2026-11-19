@@ -28,10 +28,12 @@ internal static class FuturesMarginSources
               SELECT e.observation_id AS id,k.known_from FROM market_data.knowledge_events e
               JOIN market_data.market_knowledge_receipts k
                 ON(k.catalog_id,k.event_order,k.publication_xid)=(e.catalog_id,e.event_order,e.publication_xid)
-              JOIN market_data.market_contexts m ON m.catalog_id=e.catalog_id AND m.context_id=$3
-              JOIN market_data.temporal_contexts t ON(t.catalog_id,t.id)=(m.catalog_id,m.context_id)
+              CROSS JOIN (
+                SELECT m.known_through,t.known_at FROM market_data.market_contexts m JOIN market_data.temporal_contexts t ON(t.catalog_id,t.id)=(m.catalog_id,m.context_id)
+                WHERE m.catalog_id=$1 AND m.context_id=$3 UNION ALL SELECT known_through,known_at FROM security.active_workspace_market($1,$3)
+              ) m
               WHERE e.catalog_id=$1 AND e.observation_id=ANY($2::uuid[]) AND e.revision_id=$4
-                AND e.event_order<=m.known_through AND k.known_from<=t.known_at AND t.known_at=$5
+                AND e.event_order<=m.known_through AND k.known_from<=m.known_at AND m.known_at=$5
             )q
             """,[data.DefinitionRevision.CatalogId,ids,exact.ContextId!.Value,data.DefinitionRevision.RevisionId,
                 SchedulePreview.ParseAt(exact.KnownAt)],ct);

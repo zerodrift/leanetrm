@@ -372,12 +372,23 @@ public sealed partial class PreviewDatabase : IAsyncDisposable
 
     // The isolated trusted issuer attests server-built clock evidence. Runtime
     // SQL callers cannot mint a substitute calculation capture or read the store.
-    internal async Task<Guid> CaptureHistoryClock(OpenEtrm.MarketData.Risk.AlignedFactorHistory history,CancellationToken ct)
+    internal async Task<Guid> CaptureHistoryClock(NpgsqlConnection runtime,ScheduleContext source,OpenEtrm.MarketData.Risk.AlignedFactorHistory history,CancellationToken ct)
     {
         if(authenticator is null)throw new InvalidOperationException("This reader cannot attest calculation inputs.");
         await using var connection=await authenticator.OpenConnectionAsync(ct);
-        await using var command=ScheduleStore.Command(connection,"SELECT risk.capture_history_clock($1,$2,$3::jsonb,$4::jsonb)",Manifest.CatalogId,history.Forecast.ContextId,
-            JsonSerializer.Serialize(history.Calendar,RiskJobs.Json),JsonSerializer.Serialize(history.Clock,RiskJobs.Json));
+        object[] inputs=[Manifest.CatalogId,history.Forecast.ContextId,JsonSerializer.Serialize(history.Calendar,RiskJobs.Json),JsonSerializer.Serialize(history.Clock,RiskJobs.Json)];
+        var inWorkspace=source.ReadCut is not null;
+        if(inWorkspace)
+        {
+            if(source.ContextId!=history.Forecast.ContextId)throw new PreviewDeniedException();
+            await using var xid=ScheduleStore.Command(runtime,"SELECT pg_current_xact_id()::text");
+            var transaction=(string)(await xid.ExecuteScalarAsync(ct))!;
+            await using var attest=ScheduleStore.Command(connection,"SELECT risk.attest_workspace_clock($1,$2::text::xid8,$3,$4,$5::jsonb,$6::jsonb)",
+                [runtime.ProcessID,transaction,..inputs]);
+            await attest.ExecuteNonQueryAsync(ct);
+        }
+        await using var command=ScheduleStore.Command(inWorkspace?runtime:connection,inWorkspace?
+            "SELECT risk.capture_workspace_clock($1,$2,$3::jsonb,$4::jsonb)":"SELECT risk.capture_history_clock($1,$2,$3::jsonb,$4::jsonb)",inputs);
         return(Guid)(await command.ExecuteScalarAsync(ct)??throw new PreviewDeniedException());
     }
 
