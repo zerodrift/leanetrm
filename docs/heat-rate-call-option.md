@@ -251,8 +251,10 @@ replay and a stale refusal; a marked option valued; a higher power volatility
 worth more; a written option valued at the exact negative; and both options as
 ordinary positions. These checks assert the direction and symmetry of values.
 The model's numbers are checked against the oracle in the managed suite, not
-recomputed over HTTP. A risk run over a booked option and the blotter page in a
-browser have not been exercised.
+recomputed over HTTP. The ticket and the booked option's blotter detail were
+looked at once by hand in a browser against the synthetic preview; no automated
+browser check covers them. A risk run over a booked option has not been
+exercised.
 
 ## Remaining work
 
