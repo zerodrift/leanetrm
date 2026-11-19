@@ -28,7 +28,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     }
     if(datesRead){datesRead.status=response.status;datesRead.payload=await response.clone().json();datesRead.done=true;}
     return response;};
-    window.__api=async(path,body)=>{const boot=await(await send('/api/bootstrap')).json();const r=await send('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:JSON.stringify(body)});return {status:r.status,data:await r.json()};};`});
+    window.__api=async(path,body)=>{const boot=await(await window.workspaceFetch('/api/bootstrap',undefined,send)).json();const r=await window.workspaceFetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:JSON.stringify(body)},send);return {status:r.status,data:await r.json()};};`});
   await command('Page.navigate',{url:url+'/'});await wait(idle);
   await persona('risk');
   await click('#nav-dashboard');
@@ -81,12 +81,12 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     `document.querySelector('#dashboard-board').getAttribute('aria-pressed')==='true'&&!!document.querySelector('#dashboard-widgets .dashboard-board')&&${widgets}===${JSON.stringify(kinds)}`);
   await check('switching the arrangement keeps the drawn widgets and reads no curve again',
     "window.__shapeReads.length===window.__readsBeforeArranging&&document.querySelectorAll('.level-tile').length===2&&!!document.querySelector('.price-chart .contract-chart canvas')");
-  const saved=await evaluate("(async()=>(await(await fetch('/api/dashboard/layout')).json()))()");
+  const saved=await evaluate("(async()=>(await(await window.workspaceFetch('/api/dashboard/layout')).json()))()");
   await reload();await reveal('Latest levels');await wait("document.querySelectorAll('.level-tile').length===2");
   await click('#nav-jobs');await evaluate('window.__readsBeforeOpening=window.__shapeReads.length');await click('#nav-dashboard');await added(3);
   await reveal('Latest levels');await wait("document.querySelectorAll('.level-tile').length===2");
   await check('after a reload the saved layout is shown: the same widgets, arrangement and version',
-    `(async()=>{const now=await(await fetch('/api/dashboard/layout')).json();return now.version===${JSON.stringify(saved.version)}&&now.layout.arrangement==='board'&&JSON.stringify(now.layout.widgets)===${JSON.stringify(JSON.stringify(saved.layout.widgets))}&&${widgets}===${JSON.stringify(kinds)};})()`);
+    `(async()=>{const now=await(await window.workspaceFetch('/api/dashboard/layout')).json();return now.version===${JSON.stringify(saved.version)}&&now.layout.arrangement==='board'&&JSON.stringify(now.layout.widgets)===${JSON.stringify(JSON.stringify(saved.layout.widgets))}&&${widgets}===${JSON.stringify(kinds)};})()`);
   await check('opening the Dashboard reads the curves of every Latest levels and Price chart widget in one curve-shapes read',
     // Finish the restored widget response before counting reads from a new opening.
     // SSE response inspection can otherwise record that older read after the baseline.
@@ -105,7 +105,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   // The Board's Arrange controls move and size a widget from the keyboard; the save keeps the focus and redraws no widget.
   const levelsCard="[...document.querySelectorAll('#dashboard-widgets .dashboard-widget')].find(c=>c.querySelector('h3').textContent==='Latest levels')";
   const nudge=name=>`${levelsCard}.querySelector('button[data-nudge=${name}]')`;
-  const box="(async()=>(await(await fetch('/api/dashboard/layout')).json()).layout.widgets.find(w=>w.kind==='latest_levels').board)()";
+  const box="(async()=>(await(await window.workspaceFetch('/api/dashboard/layout')).json()).layout.widgets.find(w=>w.kind==='latest_levels').board)()";
   const before=await evaluate(box);
   await evaluate(`${levelsCard}.querySelector('.dashboard-arrange').open=true;window.__readsBeforeArranging=window.__shapeReads.length`);
   await check('at the grid\'s top left a widget offers no move left or up',`${nudge('left')}.disabled&&${nudge('up')}.disabled&&!${nudge('down')}.disabled&&!${nudge('wider')}.disabled`);
@@ -123,7 +123,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     `${levelsCard}.style.gridRow.startsWith('${before.y+2} ')&&${levelsCard}.style.gridColumn.endsWith('span ${before.w-1}')`,`[${levelsCard}.style.gridRow,${levelsCard}.style.gridColumn]`);
 
   // A curve the catalog does not have, saved in the layout: the backend refuses it in the curve read, and only its own tile and chart refuse.
-  const layout=await evaluate("(async()=>await(await fetch('/api/dashboard/layout')).json())()");
+  const layout=await evaluate("(async()=>await(await window.workspaceFetch('/api/dashboard/layout')).json())()");
   const absent=[{id:'00000000-0000-4000-8000-00000000a001',kind:'latest_levels',config:{curves:['no_such_curve','local_power']},board:{x:0,y:40,w:6,h:4},morning:{section:'missed',order:0}},
     {id:'00000000-0000-4000-8000-00000000a002',kind:'price_chart',config:{curve:'no_such_curve',contractId:'00000000-0000-4000-8000-00000000a0c1'},board:{x:6,y:40,w:6,h:4},morning:{section:'missed',order:1}}];
   const saveLayout=async(widgets,expected)=>(await evaluate(`window.__api('dashboard/layout',${JSON.stringify({requestId:crypto.randomUUID(),expectedVersion:expected,layout:{...layout.layout,widgets}})})`)).data.version;
@@ -146,7 +146,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('leaving a dashboard during its shape read starts no stale chart history',"window.__dashboardHistories===window.__historiesBeforeLeaving");
   await click('#nav-dashboard');await added(3);await positionsReady();
 
-  const beforeReaderDisposal=await evaluate("(async()=>(await(await fetch('/api/dashboard/layout')).json()))()");
+  const beforeReaderDisposal=await evaluate("(async()=>(await(await window.workspaceFetch('/api/dashboard/layout')).json()))()");
   const removeAll=async()=>{
     while(await evaluate("document.querySelectorAll('#dashboard-widgets .dashboard-widget').length>0"))
       await click('#dashboard-widgets .dashboard-widget-actions button[aria-label^="Remove"]');
@@ -159,7 +159,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   }
   await evaluate('window.__captureDashboardShapes=false');await command('HeapProfiler.collectGarbage');
   await check('repeated widget add/remove releases completed shape data',"window.__dashboardShapeRefs.length>=6&&window.__dashboardShapeRefs.every(reference=>reference.deref()===undefined)",'window.__dashboardShapeRefs.map(reference=>reference.deref()!==undefined)');
-  const emptyLayout=await evaluate("(async()=>(await(await fetch('/api/dashboard/layout')).json()))()");
+  const emptyLayout=await evaluate("(async()=>(await(await window.workspaceFetch('/api/dashboard/layout')).json()))()");
   await saveLayout(beforeReaderDisposal.layout.widgets,emptyLayout.version);await click('#dashboard-reload');await added(3);await positionsReady();
 
   // The calendar first ends a date early, so the page opens on the close before the newest, which it calls the latest. A newer close

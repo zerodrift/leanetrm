@@ -14,7 +14,7 @@ async function run(a){
     if(response.headers.get('content-type')?.includes('json'))call.result=await response.clone().json();deliveryCalls.push(call);
     if(response.ok&&path==='/api/${gas}/read')window.deliveryGas=call.result;if(response.ok&&path==='/api/${crude}/read')window.deliveryCrude=call.result;
    }if(response.ok&&path==='/api/${gas}/record'&&window.deliveryLoseReply){deliveryLoseReply=false;throw new TypeError('Synthetic committed delivery reply lost');}if(response.ok&&path==='/api/${batch}/record'&&window.deliveryLoseBatch){deliveryLoseBatch=false;throw new TypeError('Synthetic committed batch reply lost');}return response;};
-  window.deliveryApi=async(path,body)=>{const bootstrap=await (await send('/api/bootstrap')).json();const response=await fetch('/api/'+path,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':bootstrap.csrfToken},body:JSON.stringify(body)});return {status:response.status,value:await response.json()};};
+  window.deliveryApi=async(path,body)=>{const bootstrap=await (await window.workspaceFetch('/api/bootstrap',undefined,send)).json();const response=await window.workspaceFetch('/api/'+path,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':bootstrap.csrfToken},body:JSON.stringify(body)});return {status:response.status,value:await response.json()};};
  }`);
  async function api(path,body,expected=200){
   const result=await evaluate(`deliveryApi(${q(path)},${body===undefined?'undefined':q(body)})`);

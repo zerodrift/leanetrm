@@ -169,8 +169,10 @@ recorded in [the plan](docs/plan.md).
 - **History:** browse supported market and trade history at explicit business and
   knowledge times; trading-history cutover boundaries refuse earlier trade contexts.
   Close-based views use the latest close in force for the selected session and
-  business day, including in historical views; saved calculation results retain
-  their original pins. See [regional closes](docs/regional-closes.md)
+  business day, including in historical views. Each signed-in tab keeps its
+  **As of** selection. **Back** restores the previous cutoff and chosen close.
+  Saved calculations retain their original inputs. See [historical context](docs/context.md)
+  and [regional closes](docs/regional-closes.md).
 - **Access control:** roles enforced by PostgreSQL row-level security, with people
   and AI agents as separate principals; agent actions require an explicit delegation
 - **Private pilot mode:** invited user accounts and scheduled PJM and ERCOT day-ahead

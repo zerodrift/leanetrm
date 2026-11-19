@@ -98,7 +98,7 @@ public sealed class LifecycleOperations
         if(admission.CustodyUntil is {} custodyUntil)await new CustodyDiscoveryAdmission(database.Manifest.CatalogId,custodyUntil).RequireCommit(connection,ct);
         // The source admission must survive the temporary read bindings below.
         // Its native tuple and managed commit callback have the same lifetime.
-        var context=await LifecycleNative.Source(connection,database,request.Context,ct);
+        var context=await LifecycleNative.Source(connection,database,request.Context,ct,bindWorkspaceForRead:true);
         await using(var save=ScheduleStore.Command(connection,"SAVEPOINT lifecycle_discovery"))await save.ExecuteNonQueryAsync(ct);
         ImmutableArray<LifecycleActionOffer> actions;ImmutableArray<JsonElement> policies,optionProfiles,swapProfiles,swapNetProfiles,marginPolicies,optionSources,swapOccurrences,futuresSetup,deliveryProfiles,deliveryAccounts;LifecycleSettingsChoices choices;
         try

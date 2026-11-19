@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {browserPageActions} from './owned-browser.mjs';
-import {gasTicket} from './gas-ticket.mjs';
+import {blotterAt,gasTicket} from './gas-ticket.mjs';
 
 function fixture(readyAt,{selectionError}={}){
  let elapsed=0;const edits=[];
@@ -38,3 +38,61 @@ for(const method of ['first','choose']){
   assert.equal(f.edits.length,1);
  });
 }
+
+// The convention opens its newest close first. Its prices can still be loading
+// when the requested close is offered, and the final close has its own prices.
+function blotterFixture({offered=true,finalState='complete',resetOnOpen=false}={}){
+ let now=0,selected='intermediate',pricesAt=Infinity,choosing=false;
+ const edits=[],frame={session:'test-session',id:'requested-close'};
+ const controlsReady=()=>choosing&&now>=500;
+ const snapshot=()=>({value:selected,options:controlsReady()&&offered?[{value:frame.id}]:[]});
+ const document={
+  body:{getAttribute:()=>now<750?'true':'false'},
+  querySelector(selector){
+   if(selector==='#snapshot')return snapshot();
+   if(selector==='#close-session')return {value:controlsReady()?frame.session:''};
+   if(selector==='#page-title')return {textContent:'Blotter'};
+   if(selector==='#futures-page:not([hidden])'||selector==='#futures-page')return {dataset:{pricingState:now>=pricesAt?finalState:'pending'}};
+   return null;
+  },
+ };
+ const evaluate=async expression=>Function('document',`return ${expression}`)(document);
+ const {wait}=browserPageActions(evaluate,{now:()=>now,pause:async ms=>{now+=ms;}});
+ const set=async(selector,value)=>{
+  edits.push([selector,value,now]);
+  if(selector==='#close-session')choosing=true;
+  if(selector==='#snapshot'){
+   assert.ok(now>=750&&snapshot().options.some(option=>option.value===value));
+   selected=value;pricesAt=now+12500;
+  }
+ };
+ const click=async selector=>{assert.equal(selector,'#nav-futures');if(resetOnOpen)selected='intermediate';};
+ const actions={wait,set,click};
+ return {open:()=>blotterAt(actions,frame),edits,elapsed:()=>now};
+}
+
+test('the gas Blotter can leave pending intermediate prices and waits for the requested close to finish pricing',async()=>{
+ const f=blotterFixture();
+ await f.open();
+ assert.deepEqual(f.edits.map(([selector,value])=>[selector,value]),[['#close-session','test-session'],['#snapshot','requested-close']]);
+ assert.ok(f.elapsed()>=f.edits[1][2]+12500);
+});
+
+test('the gas Blotter refuses an unavailable close or a final price that never settles',async()=>{
+ const missing=blotterFixture({offered:false});
+ await assert.rejects(missing.open(),/Timed out/);
+ assert.equal(missing.edits.length,1);
+ const pending=blotterFixture({finalState:'pending'});
+ await assert.rejects(pending.open(),/Timed out/);
+ assert.equal(pending.edits.length,2);
+});
+
+test('the gas Blotter refuses a different close selected during navigation',async()=>{
+ const f=blotterFixture({resetOnOpen:true});
+ await assert.rejects(f.open(),/Timed out/);
+});
+
+test('the gas Blotter refuses a failed final price read',async()=>{
+ const f=blotterFixture({finalState:'failed'});
+ await assert.rejects(f.open(),/Timed out/);
+});

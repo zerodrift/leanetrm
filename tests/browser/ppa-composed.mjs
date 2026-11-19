@@ -1,8 +1,11 @@
 import {newTrade} from './new-trade.mjs';
 export async function run(a){
- const {command,evaluate,wait,click,set,check,idle,url}=a;
+ const {command,evaluate,wait,click,set,check,idle,url,fixture}=a;
  await command('Page.navigate',{url:url+'/'});await wait(idle);await a.persona('trader');await click('#nav-futures');await newTrade(a,'ppa');
- if(await evaluate("!document.querySelector('#ppa-frame').value")){const frame=await evaluate(`(async()=>{const frames=await(await fetch('/api/ppa/frames')).json();const matches=frames.filter(f=>!f.ppaBundle&&new Date(f.at).getTime()===new Date(${JSON.stringify(a.fixture?.baseFrameAt)}).getTime());if(matches.length!==1)throw Error('Select one exact synthetic PPA frame.');return matches[0].id;})()`);await set('#ppa-frame',frame);await wait(idle);}
+ // The retained revision bundle shares this close's instant. Choose the close the fixture booked against.
+ await wait(`[...document.querySelector('#ppa-frame').options].some(option=>option.value===${JSON.stringify(fixture.baseFrameId)})`);
+ if(await evaluate("document.querySelector('#ppa-frame').value")!==fixture.baseFrameId)await set('#ppa-frame',fixture.baseFrameId);
+ await wait("!document.querySelector('#ppa-ticket').hidden&&"+idle);
  await check('new PPA starts with explicit independent composition and an empty side list',"document.querySelector('#ppa-composition').value==='composed_sides_v1'&&document.querySelectorAll('.ppa-component').length===0");
  await click('[data-add-role=energy_delivery]');
  await check('the plus control adds the first independently editable physical side',"document.querySelectorAll('.ppa-component').length===1&&!!document.querySelector('#ppa-component-0-quantity-kind')&&document.querySelector('.ppa-component .ticket-side-name').textContent==='Power'&&document.querySelector('#ppa-component-0-coefficient').value===''");

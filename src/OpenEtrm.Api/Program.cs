@@ -501,6 +501,15 @@ void MapPreview(RouteGroupBuilder api,PreviewDatabase database,string cookieName
 {
 var sessions=new PageSessionRegistry(processLimits.PageSessions);
 pageRegistries.Add(sessions);
+api.AddEndpointFilter(async(invocation,next)=>
+{
+    var http=invocation.HttpContext;
+    if(WorkspaceTab(http) is null||http.Request.Path.Value!.EndsWith("/bootstrap",StringComparison.Ordinal)||http.Features.Get<AssistantInvocation>() is not null)
+        return await next(invocation);
+    var prior=WorkspaceReadContext.Page.Value;
+    try{WorkspaceReadContext.Page.Value=Session(http);return await next(invocation);}
+    finally{WorkspaceReadContext.Page.Value=prior;}
+});
 var marketReads=new MarketReads(database);
 var scheduleReads=new ScheduleReads(database);
 var partyReads=new PartyReads(database);
@@ -521,10 +530,32 @@ api.MapGet("/bootstrap",async (HttpContext context,IAntiforgery antiforgery,bool
     if(hostedAuthentication is not null)
         foreach(var digest in await hostedAuthentication.EndedSessions(sessions.ReclaimCandidates(),context.RequestAborted))sessions.Retire(digest);
     context.Request.Cookies.TryGetValue(cookieName,out var cookie);
-    var admitted=sessions.GetOrCreate(cookie,existing=>hosted is null||existing.Digest==HostedAuthentication.SessionDigest(context),
-        ()=>new PreviewSession(database.Manifest,hosted is null?null:HostedAuthentication.SignIn(context)));
-    var session=admitted.Session;
-    if(admitted.Created)context.Response.Cookies.Append(cookieName,admitted.Id,new CookieOptions {HttpOnly=true,SameSite=SameSiteMode.Strict,Secure=hosted is not null,MaxAge=session.Ends-DateTimeOffset.UtcNow,Path="/"});
+    var tab=WorkspaceTab(context);
+    var document=WorkspaceDocument(context);
+    PreviewSession session;
+    if(context.Request.Headers.TryGetValue("X-OpenETRM-Reattach",out var restore))
+    {
+        if(restore.Count!=1||tab is null||document is null)throw new PreviewDeniedException();
+        Guid? previous=restore[0]=="attach"?null:
+            Guid.TryParseExact(restore[0],"D",out var id)&&id!=Guid.Empty?id:throw new PreviewDeniedException();
+        try
+        {
+            var existing=Session(context);
+            session=sessions.View(cookie!,existing.Account,tab,document:document,previousDocument:previous);
+        }
+        catch(PreviewSessionEnded)
+        {
+            return Results.Conflict(new {code="workspace_view_expired",message="This workspace selection expired. Open a new tab to start with working data."});
+        }
+    }
+    else
+    {
+        var admitted=sessions.GetOrCreate(cookie,existing=>hosted is null||existing.Digest==HostedAuthentication.SessionDigest(context),
+            ()=>new PreviewSession(database.Manifest,hosted is null?null:HostedAuthentication.SignIn(context)));
+        var account=admitted.Session;
+        session=sessions.View(admitted.Id,account,tab,()=>new PreviewSession(database.Manifest,account:account),document);
+        if(admitted.Created)context.Response.Cookies.Append(cookieName,admitted.Id,new CookieOptions {HttpOnly=true,SameSite=SameSiteMode.Strict,Secure=hosted is not null,MaxAge=session.Ends-DateTimeOffset.UtcNow,Path="/"});
+    }
     await session.Gate.WaitAsync(context.RequestAborted);
     try {
         var identity=hosted is null?null:HostedAuthentication.Current(context);
@@ -543,6 +574,25 @@ api.MapGet("/bootstrap",async (HttpContext context,IAntiforgery antiforgery,bool
         return Results.Ok(response); }
     finally { session.Gate.Release(); }
 });
+Guid? WorkspaceDocument(HttpContext context)
+{
+    var supplied=context.Request.Headers["X-OpenETRM-Document"];
+    if(supplied.Count==0)return null;
+    return supplied.Count==1&&Guid.TryParseExact(supplied[0],"D",out var id)&&id!=Guid.Empty?id:throw new PreviewDeniedException();
+}
+api.MapPost("/workspace/view/close",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
+{
+    if(WorkspaceTab(c) is not {} tab||WorkspaceDocument(c) is not {} document)throw new PreviewDeniedException();
+    sessions.Detach(c.Request.Cookies[cookieName]!,tab,document,TimeSpan.FromSeconds(processLimits.RequestSeconds));
+    return Task.FromResult(Results.Ok() as IResult);
+})));
+Guid? WorkspaceTab(HttpContext context)
+{
+    var supplied=context.Request.Headers["X-OpenETRM-View"];
+    if(supplied.Count==0)supplied=context.Request.Query["workspaceView"];
+    if(supplied.Count==0)return null;
+    return supplied.Count==1&&Guid.TryParseExact(supplied[0],"D",out var id)&&id!=Guid.Empty?id:throw new PreviewDeniedException();
+}
 PreviewSession Session(HttpContext context)
 {
     if(context.Features.Get<AssistantInvocation>() is {} invocation)
@@ -550,7 +600,7 @@ PreviewSession Session(HttpContext context)
     if (!context.Request.Cookies.TryGetValue(cookieName,out var id)||!sessions.TryGetValue(id,out var session)||DateTimeOffset.UtcNow>session.Ends) throw new PreviewSessionEnded();
     if(hosted is not null&&session.Profile!=HostedAuthentication.Current(context).Subject)throw new PreviewDeniedException();
     if(hosted is not null&&session.Digest!=HostedAuthentication.SessionDigest(context))throw new PreviewSessionEnded();
-    return session;
+    return sessions.View(id,session,WorkspaceTab(context));
 }
 async Task<IResult> Locked(HttpContext context,Func<PreviewSession,Task<IResult>> work)
 {
@@ -594,7 +644,7 @@ async Task RefreshFrames(PreviewSession session,CancellationToken ct,bool reuseR
     },ct);
     session.ApplyFrames(plan);
 }
-api.MapMarketDates(database,async(c,closeSession,work)=>
+api.MapMarketDates(database,async(c,closeSession,customCalendar,work)=>
 {
     async Task<ReadPlan> Capture(PreviewSession session)
     {
@@ -603,12 +653,19 @@ api.MapMarketDates(database,async(c,closeSession,work)=>
         await RefreshFrames(session,c.RequestAborted,reuseRecordedInputs:true);
         var pin=Pin(session);var frames=session.VisibleFrames;var catalog=session.FrameCatalog;
         var profile=Profile(session);var digest=hosted is null?null:session.Digest;
-        return new(new("market.calendar.v1",new AsyncReadEmpty(),null,["ReadMarketData"]),ct=>
-            database.WithIdentity(profile,"ReadMarketData",async(connection,t)=>
+        return new(new("market.calendar.v1",new AsyncReadEmpty(),null,["ReadMarketData"]),async ct=>
+        {
+            // Certify in a short transaction. A custom calendar can then inspect
+            // every candidate without holding the publication gate during pricing.
+            var cut=customCalendar is not null&&pin.Context is null&&!frames.IsEmpty
+                ?await database.WithIdentity(profile,"ReadMarketData",(connection,t)=>
+                    MarketDates.PrepareCut(database,connection,pin,frames,customCalendar,t),ct,hostedDigest:digest):null;
+            return await database.WithIdentity(profile,"ReadMarketData",async(connection,t)=>
             {
-                var value=await work(connection,pin,frames,catalog,t);
+                var value=await work(connection,pin,frames,catalog,cut,t);
                 return new ReadOutcome(value,MarketDates.AnswerCheck(database,pin,AsyncReadVisibility.CalendarFrames(frames),closeSession,value));
-            },ct,hostedDigest:digest));
+            },ct,hostedDigest:digest);
+        });
     }
     if(c.Features.Get<AssistantInvocation>() is not null)
     {
@@ -695,7 +752,7 @@ api.MapPost("/profile",(HttpContext c,ProfileRequest body)=>Locked(c,async sessi
     if(hosted is not null)throw new PreviewDeniedException();
     if (!profiles.Any(p=>p.id==body.Profile) && !session.CustomProfiles.ContainsKey(body.Profile)) throw new PreviewDeniedException();
     var left=session.Profile;
-    session.StopLive();session.ForgetDiscoveredFrames(resetAliasIdentities:true);session.Profile=body.Profile; session.MarketContext=null;
+    sessions.ResetViews(session.Account);session.Profile=body.Profile;
     // Then the switch ends the streams the session opened under the profile it left, before it cancels the turns the session
     // asked, so no stream carries that cancel instead; a stream still being admitted finds the new profile
     // (docs/ai-assistant.md §7.2, §8).
@@ -1164,8 +1221,18 @@ api.MapPost("/date-schedules/save",(HttpContext c,ScheduleSaveRequest body)=>Dat
     Results.Ok(await scheduleStore.Save(connection,body,ct))));
 api.MapPost("/date-schedules/publish",(HttpContext c,SchedulePublishRequest body)=>DateOperation(c,"SealMarketDefinitions",async(session,connection,ct)=>
     Results.Ok(await scheduleStore.Publish(connection,body,ct))));
-api.MapPost("/date-schedules/context",(HttpContext c,ContextCaptureRequest body)=>DateOperation(c,"ReadMarketData",async(session,connection,ct)=>
-    Results.Ok(await knowledgeStore.Capture(connection,body,ct))));
+api.MapPost("/date-schedules/context",(HttpContext c,ContextCaptureRequest body)=>Locked(c,async session=>
+{
+    if(WorkspaceReadContext.Page.Value!=session)
+        return await database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
+        {
+            if(session.MarketContext is {} prior)await MarketContextStore.Bind(connection,database.Manifest.CatalogId,prior,ct);
+            return Results.Ok(await knowledgeStore.Capture(connection,body,ct));
+        },c.RequestAborted);
+    var selected=await database.WithIdentity(Profile(session),"ReadMarketData",(connection,ct)=>WorkspaceReadContext.Resolve(connection,database.Manifest.CatalogId,body,ct),c.RequestAborted);
+    session.Knowledge.Prepared=selected;
+    return Results.Ok(selected);
+}));
 var recInventory=new RecInventoryStore(database);
 Task<IResult> RecInventoryOperation(HttpContext c,string permission,
     Func<NpgsqlConnection,ScheduleContext?,CancellationToken,Task<object>> work)=>Locked(c,session=>
@@ -1343,7 +1410,8 @@ async Task<IResult> SelectContext(HttpContext c,PreviewSession session,string? s
     },c.RequestAborted);
     session.StopLive();session.ApplyFrames(snapshot.plan);
     session.MarketContext=snapshot.captured.Context;
-    return Results.Ok(new{snapshot.captured.Context,snapshot.captured.CoverageFrom,snapshot.captured.CertifiedThrough,frameSelectionPolicy=framePolicy,snapshotId=framePolicy is null?null:session.ContextFrame(previous,snapshot.plan,snapshot.captured.Context)});
+    session.Knowledge.Applied=snapshot.captured;
+    return Results.Ok(new{snapshot.captured.Context,snapshot.captured.CoverageFrom,snapshot.captured.CertifiedThrough,snapshot.captured.RestoreKey,frameSelectionPolicy=framePolicy,snapshotId=framePolicy is null?null:session.ContextFrame(previous,snapshot.plan,snapshot.captured.Context)});
 }
 var catalogueStore=new CatalogueStore(database.Manifest.CatalogId);
 api.MapGet("/catalogue",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
@@ -1357,11 +1425,13 @@ api.MapPost("/catalogue/publish",(HttpContext c,CataloguePublishRequest body)=>L
     return Results.Ok(await catalogueStore.Publish(connection,body,ct));
 },c.RequestAborted)));
 api.MapPost("/market/context",(HttpContext c,MarketContextRequest body)=>Locked(c,session=>
-    SelectContext(c,session,body.Selection,(connection,ct)=>knowledgeStore.Capture(connection,new(body.EffectiveOn,body.KnownAt,body.Mode),ct),body.SnapshotId,body.FrameSelectionPolicy)));
+    SelectContext(c,session,body.Selection,(connection,ct)=>WorkspaceReadContext.Page.Value==session
+        ?session.Knowledge.Select(connection,database.Manifest.CatalogId,body,ct)
+        :knowledgeStore.Capture(connection,new(body.EffectiveOn,body.KnownAt,body.Mode),ct),body.SnapshotId,body.FrameSelectionPolicy)));
 api.MapPost("/market/current",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,async session=>
 {
     await database.WithIdentity(Profile(session),"ReadMarketData",(_,_)=>Task.FromResult(true),c.RequestAborted);
-    session.StopLive();session.ForgetDiscoveredFrames();session.MarketContext=null;
+    session.StopLive();session.ForgetDiscoveredFrames();session.MarketContext=null;session.Knowledge.Applied=null;
     await RefreshFrames(session,c.RequestAborted);
     return Results.Ok(new {mode="explicit_input_pins"});
 })));
@@ -1429,7 +1499,7 @@ api.MapGet("/workspace/navigation",(Func<HttpContext,Task<IResult>>)(c=>Locked(c
     return Results.Ok(new MarketNavigation(Profile(session),session.MarketContext,read.navigation.DefinitionRevision,read.navigation.ReferenceRevision,
         database.Manifest.FuturesConvention,database.Manifest.Example,
         [..session.InitialFrameIds],
-        [..frames.Select(f=>new NavigationFrame(f.Id,f.Name,f.At,f.BusinessDate,f.OriginCloseId,f.Close))],read.navigation.CurveNames,read.navigation.Curves,read.navigation.ReferenceDisplay){FrameCatalog=session.FrameCatalog,Live=session.Live?.Summary(),CurveConfigurations=read.configurations});
+        [..frames.Select(f=>new NavigationFrame(f.Id,f.Name,f.At,f.BusinessDate,f.OriginCloseId,f.Close))],read.navigation.CurveNames,read.navigation.Curves,read.navigation.ReferenceDisplay){FrameCatalog=session.FrameCatalog,Live=session.Live?.Summary(),CurveConfigurations=read.configurations,RestoreKey=session.Knowledge.Applied?.Context==session.MarketContext?session.Knowledge.Applied?.RestoreKey:null});
 })));
 api.MapGet("/reference/catalog",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
 {
@@ -2959,7 +3029,8 @@ api.MapPost("/settings/ai/providers/test",(HttpContext c,TestRequest body)=>Lock
 }));
 // The one definition of each registered read: it captures an immutable selection under the gate, and the plan it
 // returns reads in its own identity transaction with no gate held, on a channel worker or in an ordinary request.
-ReadPlan PrepareRead(PreviewSession session,ReadInput input)
+ReadPlan PrepareRead(PreviewSession session,ReadInput input)=>WorkspaceReadContext.Capture(Plan(session,input),session.Knowledge.Applied);
+ReadPlan Plan(PreviewSession session,ReadInput input)
 {
     var profile=Profile(session);var digest=hosted is null?null:session.Digest;
     Task<T> AsReader<T>(string permission,Func<NpgsqlConnection,CancellationToken,Task<T>> read,CancellationToken ct)=>
@@ -3198,14 +3269,27 @@ public sealed partial class PreviewSession
     // Names the session to the database, which binds its turns to it (docs/ai-assistant.md §7.2, §11): its sign-in
     // session's digest in hosted mode, otherwise random, so it reveals nothing of the session's cookie.
     public string Digest {get;}
-    public SemaphoreSlim Gate {get;}=new(1,1);
+    public SemaphoreSlim Gate {get;}
     // Ordinary reads that execute outside the gate share these slots; a further read waits for one.
     public const int MaximumReads=2;
-    internal SemaphoreSlim Reads {get;}=new(MaximumReads,MaximumReads);
-    internal SemaphoreSlim BlotterWait {get;}=new(1,1);
-    public string? Profile {get;set;}
-    public ScheduleContext? MarketContext {get;set;}
-    public Dictionary<string,string> CustomProfiles {get;}=[];
+    internal SemaphoreSlim Reads {get;}
+    internal SemaphoreSlim BlotterWait {get;}
+    private string? profile;
+    internal PreviewSession Account {get;}
+    internal WorkspaceReadContext Knowledge {get;}=new();
+    public string? Profile {get=>Account.profile;set=>Account.profile=value;}
+    private ScheduleContext? marketContext;
+    private long viewGeneration;
+    internal long ViewGeneration=>Interlocked.Read(ref viewGeneration);
+    internal void InvalidateReads()=>Interlocked.Increment(ref viewGeneration);
+    public ScheduleContext? MarketContext {get=>marketContext;set{marketContext=value;InvalidateReads();}}
+    internal void ResetView()
+    {
+        StopLive();
+        ForgetDiscoveredFrames(resetAliasIdentities:true);
+        MarketContext=null;Knowledge.Prepared=null;Knowledge.Applied=null;
+    }
+    public Dictionary<string,string> CustomProfiles {get;}
     public Dictionary<Guid,InputFrame> Frames {get;}=[];
     public PreviewShortcutLibrary Shortcuts {get;}=new();
     public DateWorkspace Dates {get;}=new();
@@ -3215,10 +3299,15 @@ public sealed partial class PreviewSession
     // The page's built-in inputs: its remaining built-in working frames (or their aliases under a context) and its built-in closes.
     public Guid[] InitialFrameIds=>[..(MarketContext is null?InitialFrames:ContextAliases(MarketContext).Select(f=>f.Id))
         .Concat(VisibleFrames.Where(f=>f.OriginCloseId is {} close&&InitialCloses.Contains(close)).Select(f=>f.Id))];
-    public PreviewSession(PreviewManifest manifest,HostedSignIn? signIn=null)
+    public PreviewSession(PreviewManifest manifest,HostedSignIn? signIn=null,PreviewSession? account=null)
     {
-        Ends=signIn?.Ends??Created+Lifetime;
-        Digest=signIn?.Digest??Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
+        Account=account??this;
+        Gate=account?.Gate??new(1,1);
+        Reads=account?.Reads??new(MaximumReads,MaximumReads);
+        BlotterWait=account?.BlotterWait??new(1,1);
+        CustomProfiles=account?.CustomProfiles??[];
+        Ends=account?.Ends??signIn?.Ends??Created+Lifetime;
+        Digest=account?.Digest??signIn?.Digest??Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
         InitialCloses=[..manifest.Frames.Select(f=>f.CloseId).OfType<Guid>()];
         foreach(var f in manifest.Frames.Where(f=>f.CloseId is null)) {
             if(f.CurveContracts is null)throw new MarketDataException("missing_curve_view","Every seed frame requires explicit curve contract selections.");

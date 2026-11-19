@@ -103,7 +103,7 @@ export async function run({command,evaluate,wait,click,persona,set,submit,check,
  }
  await click('#details-collapse');await set('#blotter-filters .table-search','');
  // A position in a market Curves & prices lists, so that its Open curve is available to hold focus below.
- const reference=await evaluate("(async()=>{const listed=new Set((await(await fetch('/api/workspace/navigation')).json()).curves.map(c=>c.code));return window.liveResponses.filter(r=>r.path==='/api/trading/workspace').at(-1).data.blotter.holdings.find(h=>listed.has(h.curve)).tradeReference;})()");
+ const reference=await evaluate("(async()=>{const listed=new Set((await(await window.workspaceFetch('/api/workspace/navigation')).json()).curves.map(c=>c.code));return window.liveResponses.filter(r=>r.path==='/api/trading/workspace').at(-1).data.blotter.holdings.find(h=>listed.has(h.curve)).tradeReference;})()");
  await set('#blotter-filters .table-search',reference);await click('#desk-positions .tabulator-row:not(.tabulator-group)');
  // A risk analyst cannot amend: the panel offers no Amend and says why, in words, where Amend would be.
  await check('an account that cannot amend is not offered Amend, and the panel says in words why',

@@ -3,7 +3,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await command('Runtime.enable');await command('Page.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
   await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);
   await persona('editor');
-  const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>w.initialFrameIds.includes(f.id)&&f.at.startsWith('2020-12-15')).id;})()");
+  const frame=await evaluate("(async()=>{const w=await(await window.workspaceFetch('/api/workspace')).json();return w.frames.find(f=>w.initialFrameIds.includes(f.id)&&f.at.startsWith('2020-12-15')).id;})()");
   await set('#snapshot',frame);await wait(idle);
   await evaluate("[...document.querySelectorAll('.curve-button')].find(b=>b.textContent.startsWith('Gas futures')).click()");await wait(idle);
   await click('[data-view=inputs]');await click('#source-all');await click('#inputs tbody tr:last-child button');

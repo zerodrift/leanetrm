@@ -2734,3 +2734,12 @@ support; a position's own retained risk run beside the desk's.
 ### Managed risk workers (D429)
 
 Jobs supports an installation-managed risk pool of up to two replicas. Disposable checks exercise two concurrent worker processes, direct repricing parity for three historical quote scenarios and browser controls. A disposable three-VM Swarm also qualified placement across two nodes, authenticated image pulls, private database connectivity, enforced limits, busy drain and worker replacement with financial replay. Target-host capacity and workload performance remain deployment gates. See [managed risk workers](managed-risk-pool.md).
+
+### Ordinary read contexts
+
+D434 covers the working custom-curve close calendar and the shared browser
+As of selector. Preparing, applying and restoring a historical cutoff use the
+tab's in-memory selection. Explicitly saved results own their exact inputs.
+Remaining work includes the standalone hourly interval reads, working trading
+reads that return replayable context IDs and callers of the cookie-only
+retained-context API. Migrate each with its existing save and replay consumers.

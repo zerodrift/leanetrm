@@ -37,7 +37,7 @@ internal static class EconomicRiskNativeChecks
             prepared.History.Samples[1].Changes.Single().CompareTo(default)>=0||partition.Text("valueAtRisk")!=expectedTail||partition.Text("expectedShortfall")!=expectedTail||
             !report.GetProperty("holdings").EnumerateArray().Select(h=>h.GetProperty("owner").Deserialize<AccountingPositionKey>(RiskJobs.Json)).ToHashSet().SetEquals(owners))
             throw new Exception($"Native gas historical economic oracle expected 2 samples and VaR/ES {expectedTail}; received {result.GetProperty("samples").GetInt32()} samples, VaR {partition.Text("valueAtRisk")}, ES {partition.Text("expectedShortfall")}; moves {string.Join(';',prepared.History!.Samples.Select(s=>string.Join(',',s.Changes)))}.");
-        var retained=RetainedFactorHistory.Capture(prepared.History!,await calculator.CaptureHistoryClock(prepared.History!,ct));
+        var retained=RetainedFactorHistory.Capture(prepared.History!,await calculator.CaptureHistoryClock(connection,prepared.Portfolio.Context,prepared.History!,ct));
         var replay=await calculator.Prepare(connection,data,frame,prepared.Request,ct,retained:new(prepared.Portfolio.ConnectedMarkets,[]),
             historyPlan:retained,historyEvidence:prepared.History!.Evidence);
         if(!JsonElement.DeepEquals(report,JsonSerializer.SerializeToElement(PortfolioRiskPreview.Calculate(replay,ct),RiskJobs.Json)))

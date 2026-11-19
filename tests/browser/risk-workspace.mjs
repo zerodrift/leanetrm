@@ -12,14 +12,14 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
   }
   if(path.includes('/portfolio/risk')&&response.ok){let data=await response.clone().json();
    if(post&&data.run?.part===1&&window.__completeWorkspaceFirst){
-    for(let n=0;n<100;n++){const r=await send('/api/portfolio/risk/jobs/'+data.id);const j=await r.json();if(j.state==='completed'){data=j;response=new Response(JSON.stringify(j),{status:200,headers:{'Content-Type':'application/json'}});window.__workspaceFirstCompleted=true;break;}await new Promise(r=>setTimeout(r,100));}
+    for(let n=0;n<100;n++){const r=await window.workspaceFetch('/api/portfolio/risk/jobs/'+data.id,undefined,send);const j=await r.json();if(j.state==='completed'){data=j;response=new Response(JSON.stringify(j),{status:200,headers:{'Content-Type':'application/json'}});window.__workspaceFirstCompleted=true;break;}await new Promise(r=>setTimeout(r,100));}
    }
    window.__workspaceRiskReads.push({path,data});if(post&&window.__holdWorkspaceReply&&(!window.__holdWorkspacePart||data.run?.part===window.__holdWorkspacePart)){window.__heldWorkspaceJob=data;await new Promise(()=>{});}}
   return response;
  };})();`;
  await command('Page.addScriptToEvaluateOnNewDocument',{source:hook});
  await command('Page.navigate',{url});await wait(idle);await persona('risk');
- const frame=await evaluate("(async()=>{const b=await(await fetch('/api/workspace')).json();return b.frames.find(f=>f.at.startsWith('2020-12-18')&&b.initialFrameIds.includes(f.id)).id;})()");
+ const frame=await evaluate("(async()=>{const b=await(await window.workspaceFetch('/api/workspace')).json();return b.frames.find(f=>f.at.startsWith('2020-12-18')&&b.initialFrameIds.includes(f.id)).id;})()");
  await set('#snapshot',frame);await wait(idle);
  await evaluate('window.__hideWorkspaceHistory=true');
  await click('#nav-risk');await wait("!document.querySelector('#risk-page').hidden&&"+idle);
@@ -154,7 +154,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await wait(`performance.timeOrigin!==${prior}&&${idle}`,60000);await click('#nav-risk');await wait(idle);
  if(await evaluate("!document.querySelector('#workspace-risk-job-retry').hidden"))await click('#workspace-risk-job-retry');
  await wait("document.querySelector('#risk-workspace-results canvas')&&document.querySelector('#workspace-risk-job-parts').textContent.includes('Completed')&&"+idle,60000);
- const parts=await evaluate(`(async()=>{const jobs=await(await fetch('/api/portfolio/risk/jobs')).json();return jobs.filter(j=>j.run?.id===${JSON.stringify(intended.id)}).sort((a,b)=>a.run.part-b.run.part);})()`);
+ const parts=await evaluate(`(async()=>{const jobs=await(await window.workspaceFetch('/api/portfolio/risk/jobs')).json();return jobs.filter(j=>j.run?.id===${JSON.stringify(intended.id)}).sort((a,b)=>a.run.part-b.run.part);})()`);
  await check('reload hydrates earlier completed reports and resumes each remaining original ordinal once',
   `(()=>{const intended=${JSON.stringify(intended)},jobs=${JSON.stringify(parts)};return jobs.length===intended.parts.length&&jobs.every(j=>j.state==='completed'&&j.requestId===intended.parts.find(p=>p.part===j.run.part).requestId)&&window.__workspaceRiskPosts.length===intended.parts.length-2&&window.__workspaceRiskPosts.every(p=>p.run.part>2&&p.requestId===intended.parts.find(i=>i.part===p.run.part).requestId)&&!document.querySelector('#risk-workspace-results').textContent.includes('not yet queued')&&!document.querySelector('#risk-workspace-export').disabled;})()`);
  const single=new URL(link).hash.split('/').at(-1);

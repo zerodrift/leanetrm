@@ -443,23 +443,24 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,fi
   await evaluate('window.unlistedProduct=null');
 
   // A historical view reads the stored surface known at its cutoff and offers no fit, which is admitted only in the current workspace.
-  const send=(path,body)=>evaluate(`(async()=>{const boot=await(await fetch('/examples/exchange/api/bootstrap?includeFrames=false')).json();
-   const r=await fetch('/examples/exchange/api/'+${q(path)},{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:${q(JSON.stringify(body))}});return r.status;})()`);
-  const historical=await send('market/context',{effectiveOn:'2026-10-16',knownAt:new Date().toISOString(),mode:'at',selection:'latest_correction'});
-  if(historical!==200)throw Error('The historical context was refused: '+historical);
+  await choose('nymex_on');
+  const working=await lastRead();
+  await check('the chosen working snapshot has a fitted surface to compare at the historical cutoff',
+   q(working.body.context.knowledgeMode==='current'&&working.answer.state==='fitted'&&!!working.answer.revision?.id&&working.answer.snapshotId===gapped.snapshotId));
+  if(!await evaluate("document.querySelector('#as-of-context').open"))await click('#as-of-context>summary');
+  await click('#date-context-latest',30000);
+  await click('#apply-view-context',30000);
   try{
-   await command('Page.navigate',{url:url+'/?example=exchange'});await wait("(document.querySelector('#snapshot')?.options.length??0)>1&&"+idle,60000);
-   // A historical view the session kept chooses no close; the person chooses one of its date's closes.
-   if(!await evaluate("!!document.querySelector('#snapshot').value"))await set('#snapshot',await evaluate("[...document.querySelector('#snapshot').options].find(o=>o.value).value"));
-   await wait(idle,30000);
-   await click('#nav-vol-surfaces');
+   await settled("document.querySelector('#knowledge-summary').textContent==='Historical · read only'&&"+idle,30000);
    await choose('nymex_on');
+   await settled(`${calls('vol-surfaces/read')}.at(-1)?.body.context.knowledgeMode==='retained'&&${ready}==='fitted'&&${idle}`,30000);
    const retained=await lastRead();
-   await check('a historical view reads at its retained context and says to calibrate in the current workspace, with no calibrate button',
-    `${q(retained.body.context.knowledgeMode==='retained'&&!!retained.body.context.contextId&&retained.answer.canFit===true&&retained.answer.state==='fitted')}&&
+   await check('a historical view reads the same stored revision at its cutoff and offers no calibration',
+    `${q(!!retained.body.context.contextId&&retained.answer.canFit===true&&retained.answer.revision?.id===working.answer.revision.id)}&&
+     document.querySelector('#snapshot').value===${q(retained.answer.snapshotId)}&&
      document.querySelector('.vol-product-head .vol-fit-note').textContent==='Calibrate in the current workspace'&&!document.querySelector('#vol-fit').offsetParent`,
     "[document.querySelector('.vol-product-head .vol-fit-note')?.textContent,document.querySelector('#vol-fit')?.hidden]");
-  }finally{await send('market/current',{});}
+  }finally{await click('#current-view-context',30000);}
  }finally{
   await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
   await command('Page.removeScriptToEvaluateOnNewDocument',{identifier});

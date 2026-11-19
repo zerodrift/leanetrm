@@ -5,8 +5,8 @@ export async function run(actions){
  const visible="document.querySelector('#crude-operations').getClientRects().length>0&&document.querySelector('#crude-operation-kind').getClientRects().length>0";
  // Independent bookings supply explicit purchase/sale terms; all operational actions below use the UI.
  const trades=await evaluate(`(async()=>{
-  const token=(await(await fetch('/api/bootstrap')).json()).csrfToken;
-  const post=async(path,body)=>{const r=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':token},body:JSON.stringify(body)});if(!r.ok)throw Error(await r.text());return r.json();};
+  const token=(await(await window.workspaceFetch('/api/bootstrap')).json()).csrfToken;
+  const post=async(path,body)=>{const r=await window.workspaceFetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':token},body:JSON.stringify(body)});if(!r.ok)throw Error(await r.text());return r.json();};
   const original=JSON.parse(sessionStorage.getItem('crude-browser-original'));
   const purchase=await post('crude/book',{...original,operationId:crypto.randomUUID(),quantity:'1000',handlingFee:null,handlingFeeDirection:null,handlingFeePaymentAt:null,feeCalendarPolicy:null});
   const sale=await post('crude/book',{...original,operationId:crypto.randomUUID(),direction:'deliver',considerationDirection:'receive',quantity:'600',fixedPrice:'80',handlingFee:null,handlingFeeDirection:null,handlingFeePaymentAt:null,feeCalendarPolicy:null});

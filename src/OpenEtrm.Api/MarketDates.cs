@@ -27,32 +27,55 @@ public sealed record LastClosesRequest([property:JsonRequired] string Session);
 // The newest close in force of the session that can price a listed curve. A curve with none is left out.
 public sealed record CurveLastClose(string Curve,Guid Id,string BusinessDate,DateTimeOffset At);
 public sealed record LastClosesResponse(ScheduleContext? Context,string Session,ImmutableArray<CurveLastClose> Curves);
-public delegate Task<IResult> MarketDatesOperation(HttpContext context,string session,
-    Func<NpgsqlConnection,PinnedContext,ImmutableArray<InputFrame>,FrameCatalogInfo,CancellationToken,Task<object>> work);
+internal delegate Task<IResult> MarketDatesOperation(HttpContext context,string session,MarketDatesRequest? customCalendar,
+    Func<NpgsqlConnection,PinnedContext,ImmutableArray<InputFrame>,FrameCatalogInfo,CalendarReadCut?,CancellationToken,Task<object>> work);
 
 // Calendar availability is a business read. It qualifies exact retained snapshot
 // choices without filling prices, selecting a close, or widening knowledge.
 public static class MarketDates
 {
     public const string SelectionPolicy="exact_snapshot_no_close_substitution_v1";
-    public static void MapMarketDates(this RouteGroupBuilder api,PreviewDatabase database,MarketDatesOperation operation)
+    internal static void MapMarketDates(this RouteGroupBuilder api,PreviewDatabase database,MarketDatesOperation operation)
     {
-        api.MapPost("/market/dates",(HttpContext context,MarketDatesRequest body)=>operation(context,body.Session,async(connection,pin,frames,catalog,ct)=>
-            (await Read(database,connection,pin,frames,body,ct)) with{FrameCatalog=catalog}));
-        api.MapPost("/market/last-closes",(HttpContext context,LastClosesRequest body)=>operation(context,body.Session,async(connection,pin,frames,_,ct)=>
+        api.MapPost("/market/dates",(HttpContext context,MarketDatesRequest body)=>operation(context,body.Session,body.Definition is not null?body:null,async(connection,pin,frames,catalog,cut,ct)=>
+            (await Read(database,connection,pin,frames,body,cut,ct)) with{FrameCatalog=catalog}));
+        api.MapPost("/market/last-closes",(HttpContext context,LastClosesRequest body)=>operation(context,body.Session,null,async(connection,pin,frames,_,cut,ct)=>
             await LastCloses(database,connection,pin,frames,body,ct)));
     }
     public static async Task<MarketDatesResponse> Read(PreviewDatabase database,NpgsqlConnection connection,PinnedContext pin,
         ImmutableArray<InputFrame> frames,MarketDatesRequest request,CancellationToken ct)
     {
+        var cut=await PrepareCut(database,connection,pin,frames,request,ct);
+        return await Read(database,connection,pin,frames,request,cut,ct);
+    }
+
+    internal static async Task<CalendarReadCut?> PrepareCut(PreviewDatabase database,NpgsqlConnection connection,
+        PinnedContext pin,ImmutableArray<InputFrame> frames,MarketDatesRequest request,CancellationToken ct)
+    {
+        if(request.Definition is null||pin.Context is not null)return null;
+        _=ValidateRequest(request);
+        if(string.IsNullOrWhiteSpace(request.Session))
+            throw new MarketDataException("market_dates_input","Choose a close session explicitly.");
+        await SelectedClose.BindSession(connection,database.Manifest.CatalogId,request.Session,ct);
+        CustomCurves.Validate(request.Definition);
+        return !frames.Any(f=>f.Close?.Session==request.Session&&f.Close.ReplacedBy is null)?null:await CalendarReadCut.Resolve(connection,database.Manifest.CatalogId,ct);
+    }
+
+    static TimeZoneInfo ValidateRequest(MarketDatesRequest request)
+    {
         if(request.Curve is not null&&(string.IsNullOrWhiteSpace(request.Curve)||request.Definition is not null))
             throw new MarketDataException("market_dates_input","Choose one exact curve or one custom definition, or explicitly request workspace dates.");
-        TimeZoneInfo zone;
-        try{zone=TimeZoneInfo.FindSystemTimeZoneById(request.TimeZone??"");}
+        if(request.MaximumDates is <1 or >128)throw new MarketDataException("market_dates_input","Request from one to 128 dates explicitly.");
+        try{return TimeZoneInfo.FindSystemTimeZoneById(request.TimeZone??"");}
         catch(Exception error) when(error is TimeZoneNotFoundException or InvalidTimeZoneException or ArgumentException)
         {throw new TemporalException("time_zone","Choose an available display time zone explicitly.");}
+    }
+
+    internal static async Task<MarketDatesResponse> Read(PreviewDatabase database,NpgsqlConnection connection,PinnedContext pin,
+        ImmutableArray<InputFrame> frames,MarketDatesRequest request,CalendarReadCut? cut,CancellationToken ct)
+    {
+        var zone=ValidateRequest(request);
         frames=await BindSessionCloses(database,connection,pin,frames,request.Session,ct);
-        if(request.MaximumDates is <1 or >128)throw new MarketDataException("market_dates_input","Request from one to 128 dates explicitly.");
         CataloguePublication? catalogue=null;
         PreviewData data;
         if(pin.Frame is {} anchorFrame)
@@ -78,16 +101,15 @@ public static class MarketDates
         if(request.Definition is {} definition)
         {
             await inputs.PrefetchMatrices(frames,ct);
-            CustomCurves.Validate(definition);
+            if(cut is null)CustomCurves.Validate(definition);
             var contexts=new Dictionary<DateOnly,ScheduleContext>();
             ScheduleContext? knowledge=pin.Context;
-            if(knowledge is null&&(pin.Frame??frames.OrderByDescending(frame=>frame.At).FirstOrDefault()) is {} anchor)
+            if(knowledge is null&&!frames.IsEmpty&&(pin.Frame??frames.OrderByDescending(frame=>frame.At).FirstOrDefault()) is {} anchor)
             {
                 // Resolve new graph membership and all samples under one
                 // certified cutoff, before reading the graph's source metadata.
                 var day=anchor.Time.Date;
-                knowledge=(await new KnowledgeStore(database.Manifest.CatalogId).Capture(connection,
-                    new(day.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),null,"current"),ct)).Context;
+                knowledge=(cut??throw new InvalidOperationException("A working custom calendar requires a resolved cutoff.")).On(day);
                 contexts.Add(day,knowledge);
             }
             async Task<(PreviewData Data,(ImmutableDictionary<string,CurveSourceReference> Sources,
@@ -110,11 +132,10 @@ public static class MarketDates
             // operation; each candidate still binds and checks its own context.
             var calendarReads=new Dictionary<CalendarReference,ReferenceCalendar>();
             var sampledHistory=data;
-            async Task<ScheduleContext> Context(DateOnly day)
+            ScheduleContext Context(DateOnly day)
             {
                 if(contexts.TryGetValue(day,out var selected))return selected;
-                selected=pin.Context??(await new KnowledgeStore(database.Manifest.CatalogId).Capture(connection,
-                    new(day.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),knowledge!.KnownAt,"at"),ct)).Context;
+                selected=pin.Context??cut!.On(day);
                 contexts.Add(day,selected);return selected;
             }
             if(knowledge is not null&&request.MaximumDates is null)
@@ -126,7 +147,7 @@ public static class MarketDates
                 {
                     var day=Day(frame);
                     if(day<from||day>=to||pin.Context is {} retained&&day!=DateWorkspace.Date(retained.EffectiveOn))continue;
-                    var selected=await Context(day);
+                    var selected=Context(day);
                     try
                     {
                         inputs.RequireMatrix(frame);
@@ -149,7 +170,7 @@ public static class MarketDates
                 }
                 if(bounded)
                 {
-                    var batchContext=plannedFrames.Count==0?knowledge:await Context(plannedFrames.Max(p=>p.Frame.Time.Date));
+                    var batchContext=plannedFrames.Count==0?knowledge:Context(plannedFrames.Max(p=>p.Frame.Time.Date));
                     sampledHistory=windows.Count==0&&publicationObservations.Count==0?data:await AtContext(batchContext,()=>database.ReadObservationWindows(connection,data,[..windows],ct,[..publicationObservations]));
                     if(exactSeries.Count>0)await AtContext(batchContext,async()=>
                     {
@@ -171,7 +192,7 @@ public static class MarketDates
                 var day=Day(frame);
                 if(knowledge is null||day<from||day>=to)
                     throw new MarketDataException("custom_curve_definition","The snapshot must lie within its exact source definition's effective period.");
-                var selected=await Context(day);
+                var selected=Context(day);
                 _=await AtContext(selected,()=>Evaluate(frame with{ContextId=selected.ContextId},selected,cancellation));
             };
             async Task<RecipeResult> Evaluate(InputFrame frame,ScheduleContext selected,CancellationToken cancellation)
@@ -243,21 +264,9 @@ public static class MarketDates
         async Task<T> AtContext<T>(ScheduleContext context,Func<Task<T>> read)
         {
             using var evidence=AsyncReadVisibility.AtMarketContext(context);
-            await using(var save=ScheduleStore.Command(connection,"SAVEPOINT market_dates_read"))await save.ExecuteNonQueryAsync(ct);
-            try
-            {
-                // A retained request was bound once by BindSessionCloses. Only
-                // working calendar candidates create temporary date contexts.
-                if(pin.Context is null)await PinnedContext.BindExact(connection,database.Manifest.CatalogId,context,ct);
-                else if(pin.Context!=context)throw new TemporalException("temporal_context","A retained calendar cannot change its selected knowledge view.");
-                await RequireAccess(database,connection,ct,metadata);
-                return await read();
-            }
-            finally
-            {
-                await using var restore=ScheduleStore.Command(connection,"ROLLBACK TO SAVEPOINT market_dates_read;RELEASE SAVEPOINT market_dates_read");
-                await restore.ExecuteNonQueryAsync(CancellationToken.None);
-            }
+            await using var binding=await MarketReadBinding.Enter(connection,database.Manifest.CatalogId,pin.Context,context,ct);
+            await RequireAccess(database,connection,ct,metadata);
+            return await read();
         }
     }
     // Walks the session's closes newest first and stops once every listed curve has one, so a read of current curves touches one close.

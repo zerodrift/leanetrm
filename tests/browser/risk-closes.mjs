@@ -12,7 +12,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
     let response=await send(input,init);if(path==='/api/portfolio/risk/jobs'&&(init?.method??'GET')==='GET'&&window.__dropFromHistory&&response.ok){const jobs=await response.json();response=new Response(JSON.stringify(jobs.filter(j=>j.id!==window.__dropFromHistory)),{status:200,headers:{'Content-Type':'application/json'}});}
     try{window.__riskReads.push({path,data:await response.clone().json()});}catch{}return response;});})()`);
   // One session offers one close per business day (D334): the run's close and another close are two days of the session.
-  const closes=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return ['2020-12-18','2020-12-17'].map(day=>w.frames.find(f=>f.at.startsWith(day)&&w.initialFrameIds.includes(f.id)).id);})()");
+  const closes=await evaluate("(async()=>{const w=await(await window.workspaceFetch('/api/workspace')).json();return ['2020-12-18','2020-12-17'].map(day=>w.frames.find(f=>f.at.startsWith(day)&&w.initialFrameIds.includes(f.id)).id);})()");
   await check('the session offers one close for each of the two business days',`${JSON.stringify(closes)}.every(id=>[...document.querySelectorAll('#snapshot option')].some(o=>o.value===id))`,JSON.stringify(closes));
 
   const panelRisk="(()=>{const panel=document.querySelector('#position-details');return !panel.hidden&&panel.dataset.mode==='risk'&&!document.querySelector('#risk-report').hidden;})()";

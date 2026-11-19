@@ -1,13 +1,40 @@
 import {withOwnedBrowser} from './owned-browser.mjs';
+import {writeFile} from 'node:fs/promises';
+import {dirname,join} from 'node:path';
 const q=JSON.stringify,root='#point-trader-mark',entry=root+' [data-point-value=entry]';
 const stable=value=>JSON.stringify(value,(_key,item)=>item&&typeof item==='object'&&!Array.isArray(item)?Object.fromEntries(Object.entries(item).sort(([a],[b])=>a<b?-1:a>b?1:0)):item);
 const quoted=reply=>Object.entries({Currency:'USD','Quote quantity':'package','Quote multiplier':'1'}).every(([label,value])=>reply.overviewSections?.flatMap(section=>section.values).some(fact=>fact.label===label&&fact.value===value));
 await withOwnedBrowser(process.argv[2],process.argv[3],async d=>{
- const {command,evaluate,wait,click,set,submit,persona,check,shot,idle,fitsWidth,url,fixture:f}=d;
+ const {command,evaluate,wait,click,set,submit,persona,check,shot,idle,fitsWidth,url,tab,fixture:f}=d;
  await command('Page.enable');await command('Runtime.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
  await command('Page.navigate',{url});await wait(idle,60000);await persona('editor');
- await evaluate(`(async()=>{window.pointCalls=[];const send=window.fetch;window.fetch=async(input,init)=>{const response=await send(input,init);if(String(input).startsWith('/api/')&&init?.body&&response.headers.get('content-type')?.includes('application/json'))pointCalls.push({path:String(input),body:JSON.parse(init.body),status:response.status,result:await response.clone().json()});if(window.losePoint&&String(input)==='/api/market-values/record'&&response.ok){window.losePoint=false;throw new TypeError('Synthetic lost accepted point response');}return response;};const token=(await(await fetch('/api/bootstrap?includeFrames=false')).json()).csrfToken;window.pointPost=async(path,body)=>{const response=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':token},body:JSON.stringify(body)});return {status:response.status,body:await response.json()};};})()`);
+ await evaluate(`(async()=>{window.pointCalls=[];const send=window.fetch;window.fetch=async(input,init)=>{const response=await send(input,init);if(String(input).startsWith('/api/')&&init?.body&&response.headers.get('content-type')?.includes('application/json'))pointCalls.push({path:String(input),body:JSON.parse(init.body),status:response.status,result:await response.clone().json()});if(window.losePoint&&String(input)==='/api/market-values/record'&&response.ok){window.losePoint=false;throw new TypeError('Synthetic lost accepted point response');}return response;};const token=(await(await window.workspaceFetch('/api/bootstrap?includeFrames=false')).json()).csrfToken;window.pointPost=async(path,body)=>{const response=await window.workspaceFetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':token},body:JSON.stringify(body)});return {status:response.status,body:await response.json()};};})()`);
  const latest=path=>evaluate(`pointCalls.findLast(call=>call.path===${q('/api/'+path)})`);
+ const post=(path,body)=>evaluate(`pointPost(${q(path)},${q(body)})`);
+ const review=await post('date-schedules/context',{effectiveOn:f.businessDate,mode:'current',knownAt:null});
+ if(review.status!==200)throw Error('Could not prepare a workspace cutoff for the ordinary point.');
+ const sourceContext={contextId:review.body.context.contextId,businessDate:f.businessDate,asOf:f.at,snapshotId:null};
+ const query={context:sourceContext,source:f.source,curveCode:'transport_rights',contractId:f.contractId,search:'',offset:0,limit:10,quoteFilter:null,eligibility:null};
+ const setup=await post('market-values/setup',query);
+ if(setup.status!==200||!setup.body.canPublish||setup.body.choices.length!==1||setup.body.choices[0].previous!==null)
+  throw Error('Unpublished workspace point setup failed: '+JSON.stringify(setup));
+ const proposed={operationId:await evaluate('crypto.randomUUID()'),ownerId:setup.body.ownerId,context:sourceContext,policy:f.policy,
+  target:setup.body.choices[0].target,value:'-12.500',evidence:'Synthetic negative preview only',originalInputs:null};
+ const previewOnly=await post('market-values/preview',proposed);
+ if(previewOnly.status!==200||previewOnly.body.outcome.value!=='-12.5')throw Error('Exact signed preview failed: '+JSON.stringify(previewOnly));
+ const missing=await post('market-values/record',{...proposed,value:null});
+ if(missing.status!==422||missing.body.code!=='point_trader_mark_input')throw Error('Missing value did not refuse publication: '+JSON.stringify(missing));
+ const mismatch=await post('market-values/record',{...proposed,target:{...proposed.target,contractId:await evaluate('crypto.randomUUID()')}});
+ if(mismatch.status!==422||mismatch.body.code!=='point_trader_mark_source')throw Error('Unknown member did not refuse the command: '+JSON.stringify(mismatch));
+ const absent=await post('market-values/status',{operationId:proposed.operationId,ownerId:proposed.ownerId});
+ if(absent.status!==200||absent.body.found!==false)throw Error('A preview or failed write persisted a point receipt.');
+ const historical=await post('market/context',{effectiveOn:f.businessDate,mode:'at',knownAt:review.body.context.knownAt,selection:'latest_correction'});
+ if(historical.status!==200)throw Error('Could not select the historical point view: '+JSON.stringify(historical));
+ for(const action of ['preview','record']){
+  const denied=await post('market-values/'+action,proposed);
+  if(denied.status!==422||denied.body.code!=='historical_read_only')throw Error('Historical point write acquired current authority: '+JSON.stringify(denied));
+ }
+ if((await post('market/current',{})).status!==200)throw Error('Could not leave historical point view.');
  // A snapshot is an optional view hint. The exact market certificate survives
  // even when this session has never held that navigation frame.
  const noFrame=await evaluate(`(async()=>{const setup=await pointPost('market-values/setup',{context:${q(f.noFrameContext)},source:${q(f.source)},curveCode:'transport_rights',contractId:${q(f.contractId)},search:'',offset:0,limit:10,quoteFilter:null,eligibility:null});if(setup.status!==200||setup.body.originalInputs!==null||!setup.body.canPublish||setup.body.choices.length!==1)throw Error('Missing-frame setup: '+JSON.stringify(setup));const request={operationId:crypto.randomUUID(),ownerId:setup.body.ownerId,context:setup.body.context,policy:setup.body.policy.code,target:setup.body.choices[0].target,value:'18',evidence:'Synthetic unavailable optional session frame',originalInputs:null};const preview=await pointPost('market-values/preview',request);const facts=preview.body.overviewSections?.flatMap(section=>section.values)??[];if(!Object.entries({Currency:'USD','Quote quantity':'package','Quote multiplier':'1'}).every(([label,value])=>facts.some(fact=>fact.label===label&&fact.value===value)))throw Error('The publication review must disclose the exact currency, quantity unit and quote multiplier: '+JSON.stringify(preview));const absent=await pointPost('market-values/status',{operationId:request.operationId,ownerId:request.ownerId}),record=await pointPost('market-values/record',request),status=await pointPost('market-values/status',{operationId:request.operationId,ownerId:request.ownerId});return{setup,request,preview,absent,record,status};})()`);
@@ -40,6 +67,8 @@ await withOwnedBrowser(process.argv[2],process.argv[3],async d=>{
   return recorded;
  }
  const first=await publish('20',{lost:true,phone:true});await shot('point-trader-mark-recorded');
+ const originalCut=(await latest('date-schedules/context')).result.context;
+ if(originalCut.contextId!==first.body.context.contextId)throw Error('Publication changed the displayed source identity.');
  const second=await publish('21',{apply:true});if(second.result.outcome.previousObservationId!==first.result.outcome.observationId)throw Error('Correction did not retain its exact predecessor.');
  const third=await publish('20');if(third.result.outcome.previousObservationId!==second.result.outcome.observationId||third.result.outcome.observationId===first.result.outcome.observationId)throw Error('A genuine new20 was deduplicated against historical20.');
  const equal=await publish('20');if(equal.result.outcome.changed!==false||equal.result.outcome.observationId!==third.result.outcome.observationId||!equal.result.acknowledgement)throw Error('Equal predecessor value materialized a new observation.');
@@ -47,5 +76,24 @@ await withOwnedBrowser(process.argv[2],process.argv[3],async d=>{
  await persona('viewer');
  const readonly=await evaluate(`(async()=>{const setup=await pointPost('market-values/setup',{context:${q(f.noFrameContext)},source:${q(f.source)},curveCode:'transport_rights',contractId:${q(f.contractId)},search:'',offset:0,limit:10,quoteFilter:null,eligibility:null});const status=await pointPost('market-values/status',{operationId:${q(first.body.operationId)},ownerId:${q(first.body.ownerId)}});return{setup,status};})()`);
  if(readonly.setup.status!==200||readonly.setup.body.canPublish!==false||readonly.status.status===200)throw Error('Readonly actor acquired publication or another actor receipt: '+JSON.stringify(readonly));
+ const writeDenied=await post('market-values/record',first.body);
+ if(writeDenied.status!==403||writeDenied.body.code!=='point_trader_mark_denied')throw Error('A retry bypassed current import authority: '+JSON.stringify(writeDenied));
  await check('a market reader inspects eligible points without publishing or reading another actor receipt','true');
+ // A new cookie and page have no copy of the cut or the optional input frame.
+ await command('Network.clearBrowserCookies');
+ const fresh=await tab();
+ try{
+  await fresh.command('Page.navigate',{url});await fresh.wait(idle,60000);
+  await fresh.click('#profile-open');await fresh.set('#profile','editor');await fresh.click('#open',60000);
+  const recovered=await fresh.evaluate(`(async()=>{
+   const token=(await(await workspaceFetch('/api/bootstrap?includeFrames=false')).json()).csrfToken;
+   async function call(path,body){const r=await workspaceFetch('/api/market-values/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':token},body:JSON.stringify(body)});return{status:r.status,body:await r.json()};}
+   return {status:await call('status',${q({operationId:first.body.operationId,ownerId:first.body.ownerId})}),retry:await call('record',${q(first.body)}),unpublished:await call('setup',${q(query)})};
+  })()`);
+  for(const reply of [recovered.status,recovered.retry])if(reply.status!==200||stable(reply.body.context)!==stable(first.result.context)||
+   stable(reply.body.outcome)!==stable(first.result.outcome))throw Error('Fresh-session status or retry changed the accepted evidence: '+JSON.stringify(reply));
+  if(recovered.unpublished.status!==422||recovered.unpublished.body.code!=='temporal_context')throw Error('Another session recovered an uncommitted preview source: '+JSON.stringify(recovered.unpublished));
+ }finally{await fresh.close();}
+ await writeFile(join(dirname(process.argv[2]),'point-source-cuts.json'),JSON.stringify({previewOnly:review.body.context,accepted:originalCut,operation:first.body.operationId}),{mode:0o600});
+ await check('fresh-session retry and status preserve exact published evidence while a preview remains private','true');
 });

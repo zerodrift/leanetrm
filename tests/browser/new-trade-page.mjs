@@ -8,7 +8,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await command('Page.enable');await command('Runtime.enable');await command('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});
   await command('Page.navigate',{url});await wait(idle);await persona('trader');
   // The close the standard fixture's trades are booked at, as the Blotter's own checks choose it.
-  const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')&&w.initialFrameIds.includes(f.id)).id;})()");
+  const frame=await evaluate("(async()=>{const w=await(await window.workspaceFetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')&&w.initialFrameIds.includes(f.id)).id;})()");
   await set('#snapshot',frame);await wait(idle);await click('#nav-futures');
   await wait("document.querySelector('#page-title').textContent==='Blotter'&&document.querySelector('#futures-page').dataset.pricingState==='complete'&&"+idle);
   const shown="(selector=>{const node=document.querySelector(selector);return !!node&&node.checkVisibility();})";

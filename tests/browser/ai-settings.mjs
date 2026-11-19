@@ -5,7 +5,7 @@ import {sideSession} from './side-session.mjs';
 export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,fitsWidth,errors,url}){
   await command('Runtime.enable');await command('Page.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
   await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);
-  await evaluate(`window.__requests=[];window.__originalFetch=window.fetch;window.fetch=async(...args)=>{window.__requests.push({path:String(args[0]),body:args[1]?.body?JSON.parse(args[1].body):null});return window.__originalFetch(...args);};window.__api=async(path,body)=>{const boot=await(await window.__originalFetch('/api/bootstrap')).json();const r=await window.__originalFetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:JSON.stringify(body)});return {status:r.status,data:await r.json()};};`);
+  await evaluate(`window.__requests=[];window.__originalFetch=window.fetch;window.fetch=async(...args)=>{window.__requests.push({path:String(args[0]),body:args[1]?.body?JSON.parse(args[1].body):null});return window.__originalFetch(...args);};window.__api=async(path,body)=>{const boot=await(await window.workspaceFetch('/api/bootstrap',undefined,window.__originalFetch)).json();const r=await window.workspaceFetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:JSON.stringify(body)},window.__originalFetch);return {status:r.status,data:await r.json()};};`);
   await check('a viewer is offered no AI settings',"document.querySelector('#nav-ai').hidden&&document.querySelector('#ai-page').hidden");
   const stamp=Date.now(),manager='browser_ai_admin_'+stamp,pricer='browser_ai_pricing_'+stamp,anthropic='browser-model-'+stamp,openai='browser-openai-'+stamp;
   await persona('admin');
@@ -29,7 +29,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('AI settings open on Models & prices with the date controls hidden',"!document.querySelector('#ai-page').hidden&&!document.querySelector('#ai-models').hidden&&document.querySelector('#ai-providers').hidden&&document.querySelector('#page-title').textContent==='AI'&&document.querySelector('#snapshot').closest('.date-control').hidden&&document.querySelector('#error').hidden");
   await click('#ai-tab-providers');
   // The HTTP checks before this scenario may have qualified a provider, so the tab must show what the directory reports.
-  await check('Providers lists every supported vendor with its protocol, the state and the usage mapping its directory reports',`(async()=>{const d=await(await window.__originalFetch('/api/settings/ai/providers')).json(),r=${rows('ai-provider-table')};const state=p=>p.enabled?(p.qualified?'Enabled':'Enabled · no longer qualified'):(p.qualified?'Disabled · qualified':'Disabled · not qualified');return r.length===5&&['Anthropic','OpenAI','Google','xAI','Meta'].every(n=>d.providers.some(p=>p.name===n))&&d.providers.every(p=>r.some(c=>c[0]===p.name&&c[1]===p.protocol&&c[2]===state(p)&&c[3]===(p.mapping?p.mapping.mapping+' · confirmed '+p.mapping.confirmedOn:'None confirmed')))&&r.some(c=>c[0]==='Google'&&c[1]==='generateContent'&&c[3].startsWith('generate_content_v1 · confirmed '))&&document.querySelector('#ai-providers').textContent.includes('only cumulative cap');})()`);
+  await check('Providers lists every supported vendor with its protocol, the state and the usage mapping its directory reports',`(async()=>{const d=await(await window.workspaceFetch('/api/settings/ai/providers',undefined,window.__originalFetch)).json(),r=${rows('ai-provider-table')};const state=p=>p.enabled?(p.qualified?'Enabled':'Enabled · no longer qualified'):(p.qualified?'Disabled · qualified':'Disabled · not qualified');return r.length===5&&['Anthropic','OpenAI','Google','xAI','Meta'].every(n=>d.providers.some(p=>p.name===n))&&d.providers.every(p=>r.some(c=>c[0]===p.name&&c[1]===p.protocol&&c[2]===state(p)&&c[3]===(p.mapping?p.mapping.mapping+' · confirmed '+p.mapping.confirmedOn:'None confirmed')))&&r.some(c=>c[0]==='Google'&&c[1]==='generateContent'&&c[3].startsWith('generate_content_v1 · confirmed '))&&document.querySelector('#ai-providers').textContent.includes('only cumulative cap');})()`);
   await click('#ai-tab-models');
   await set('#ai-model-vendor','anthropic');await set('#ai-model-identifier',anthropic);await set('#ai-model-name','Browser model');await submit('#ai-model-form');
   await check('Add model lists the model without a price, and the audit records it',`(()=>{const r=${row('ai-model-table',anthropic)};return r&&r[0]==='Anthropic'&&r[1]==='Browser model'&&r[3]==='Disabled · not qualified'&&r[4]==='No price';})()&&${row('ai-model-audit',anthropic)}?.[3]==='Model added'&&document.querySelector('#error').hidden`);
@@ -69,7 +69,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   // released, and the page states the ranges the entries keep.
   const renames=await evaluate(sent('models/rename')+'.length');
   const unchanged=`document.querySelector('#ai-models-pending').hidden&&!Object.keys(sessionStorage).some(k=>k.startsWith('openetrm.ai.models.request.'))`
-    +`&&(await(await window.__originalFetch('/api/settings/ai/models')).json()).models.find(m=>m.identifier===${JSON.stringify(anthropic)}).displayName==='Browser model renamed'`;
+    +`&&(await(await window.workspaceFetch('/api/settings/ai/models',undefined,window.__originalFetch)).json()).models.find(m=>m.identifier===${JSON.stringify(anthropic)}).displayName==='Browser model renamed'`;
   await set('#ai-rename-name','Browser model '+'x'.repeat(32*1024));await submit('#ai-rename-form');
   await check("a display name past the request size limit is refused with the entries' ranges, and nothing is kept",
     `(async()=>${shown}.includes('a display name has 1 to 80 characters')&&${sent('models/rename')}.length===${renames+1}&&${unchanged})()`);
@@ -145,7 +145,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   // A confirmation belongs to the key and terms it was given for: replacing the key clears it.
   await evaluate("document.querySelector('#ai-attest-confirm').checked=true");
   await click('#ai-provider-key');await set('#ai-key-value','sk-browser-synthetic-key-0003');await submit('#ai-key-form');
-  const statement=`(async()=>{const a=(await(await window.__originalFetch('/api/settings/ai/providers')).json()).providers.find(p=>p.vendor==='anthropic'),s=document.querySelector('#ai-attest-statement').textContent;return s.includes('key, version '+a.credential.version+', ends in 0003')&&s.includes('terms version '+a.terms.version+' ')&&s.includes('“Synthetic browser organization”');})()`;
+  const statement=`(async()=>{const a=(await(await window.workspaceFetch('/api/settings/ai/providers',undefined,window.__originalFetch)).json()).providers.find(p=>p.vendor==='anthropic'),s=document.querySelector('#ai-attest-statement').textContent;return s.includes('key, version '+a.credential.version+', ends in 0003')&&s.includes('terms version '+a.terms.version+' ')&&s.includes('“Synthetic browser organization”');})()`;
   await check('a new key clears the confirmation, and the statement names the new key and the terms version it binds',
     `(async()=>!document.querySelector('#ai-attest-confirm').checked&&document.querySelector('#ai-attest-confirm').getAttribute('aria-describedby')==='ai-attest-statement'&&await ${statement}&&document.querySelector('#error').hidden)()`);
   await evaluate("document.querySelector('#ai-attest-confirm').checked=true");await submit('#ai-attest-form');
@@ -170,7 +170,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await click('#ai-tab-models');await click('#ai-models-refresh');await manage(anthropic);
   await check("the model card offers the efforts its directory states",`${offered}===JSON.stringify(['max','low'])`);
   await evaluate('window.__stubEfforts=false');await click('#ai-models-refresh');await manage(anthropic);
-  await check("the model card offers exactly the efforts its provider's applied mapping states and records nothing yet",`(async()=>{const d=await(await window.__originalFetch('/api/settings/ai/providers')).json();return ${offered}===JSON.stringify(d.providers.find(p=>p.vendor==='anthropic').mapping.efforts)&&document.querySelector('#ai-capability-summary').textContent.includes('No capabilities')&&document.querySelectorAll('#ai-capability-table tbody tr').length===0&&!document.querySelector('#ai-model-enable').hidden;})()`);
+  await check("the model card offers exactly the efforts its provider's applied mapping states and records nothing yet",`(async()=>{const d=await(await window.workspaceFetch('/api/settings/ai/providers',undefined,window.__originalFetch)).json();return ${offered}===JSON.stringify(d.providers.find(p=>p.vendor==='anthropic').mapping.efforts)&&document.querySelector('#ai-capability-summary').textContent.includes('No capabilities')&&document.querySelectorAll('#ai-capability-table tbody tr').length===0&&!document.querySelector('#ai-model-enable').hidden;})()`);
   await click('#ai-model-enable');
   await check('Enable refuses a model without capabilities, retains nothing and keeps focus on Enable',`${shown}.includes('capabilities are recorded')&&document.querySelector('#ai-models-pending').hidden&&!Object.keys(sessionStorage).some(k=>k.startsWith('openetrm.ai.models.request.'))&&document.activeElement===document.querySelector('#ai-model-enable')`);
   await set('#ai-capability-limit','64000');
@@ -193,12 +193,12 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   // Test, from the provider's card, whether or not the provider and model are enabled. The fake provider answers
   // each test as the model it names, and the launcher counts what reaches it.
   const fact=name=>`${rows('ai-test-table')}.find(r=>r[0]===${JSON.stringify(name)})?.[1]`;
-  const anthropicDirectory="(async()=>(await(await window.__originalFetch('/api/settings/ai/providers')).json()).providers.find(p=>p.vendor==='anthropic'))()";
+  const anthropicDirectory="(async()=>(await(await window.workspaceFetch('/api/settings/ai/providers',undefined,window.__originalFetch)).json()).providers.find(p=>p.vendor==='anthropic'))()";
   const retainedTest="JSON.parse(sessionStorage.getItem(Object.keys(sessionStorage).find(k=>k.startsWith('openetrm.ai.test.request.'))))";
   const testOffered="document.querySelector('#ai-test-pending').checkVisibility()";
   await check('the provider card and table name the check endpoint its requests reach, and the other vendors have their own endpoints',
     `document.querySelector('#ai-provider-facts').textContent.includes('/v1/messages (check endpoint)')&&${row('ai-provider-table','Anthropic')}[9].endsWith('/v1/messages (check endpoint)')&&${row('ai-provider-table','Meta')}[9].endsWith('/v1/responses (check endpoint)')`);
-  const testChoices=await evaluate(`(async()=>{const d=await(await window.__originalFetch('/api/settings/ai/models')).json();return {model:d.models.find(m=>m.identifier===${JSON.stringify(anthropic)}).id,
+  const testChoices=await evaluate(`(async()=>{const d=await(await window.workspaceFetch('/api/settings/ai/models',undefined,window.__originalFetch)).json();return {model:d.models.find(m=>m.identifier===${JSON.stringify(anthropic)}).id,
     excluded:d.models.filter(m=>m.vendor!=='anthropic'||!m.capability).map(m=>m.id),unrecorded:d.models.some(m=>m.vendor==='anthropic'&&!m.capability)};})()`);
   const modelId=testChoices.model;
   await set('#ai-test-model',modelId);
@@ -255,7 +255,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('a refusal the server can send after a test ran keeps its request',`${testOffered}&&${retainedTest}?.body.reasoning==='low'`);
   await click('#ai-test-discard');await click('#ai-providers-refresh');await openProvider('OpenAI');
   await check('OpenAI offers exactly its models with recorded capabilities for testing through its adapter',
-    `(async()=>{const d=await(await window.__originalFetch('/api/settings/ai/models')).json(),expected=d.models.filter(m=>m.vendor==='openai'&&m.capability).map(m=>m.id).sort(),actual=[...document.querySelector('#ai-test-model').options].map(o=>o.value).filter(Boolean).sort();return expected.length>0&&JSON.stringify(actual)===JSON.stringify(expected)&&document.querySelector('#ai-test-note').hidden&&!document.querySelector('#ai-provider-facts').textContent.includes('no adapter');})()`);
+    `(async()=>{const d=await(await window.workspaceFetch('/api/settings/ai/models',undefined,window.__originalFetch)).json(),expected=d.models.filter(m=>m.vendor==='openai'&&m.capability).map(m=>m.id).sort(),actual=[...document.querySelector('#ai-test-model').options].map(o=>o.value).filter(Boolean).sort();return expected.length>0&&JSON.stringify(actual)===JSON.stringify(expected)&&document.querySelector('#ai-test-note').hidden&&!document.querySelector('#ai-provider-facts').textContent.includes('no adapter');})()`);
   await openProvider('Anthropic');
   // A new key ends the attestation the last test ran under, and the page says so.
   await click('#ai-provider-key');await set('#ai-key-value','sk-browser-synthetic-key-0004');await submit('#ai-key-form');

@@ -35,6 +35,10 @@ test('separate-window references round-trip in the fragment without credentials,
  const url=positionWindowUrl('https://example.invalid/app?example=exchange',selection),parsed=new URL(url);
  assert.equal(parsed.pathname,'/position.html');assert.equal(parsed.search,'');assert.equal(parsed.username,'');assert.equal(parsed.password,'');
  assert.deepEqual(readPositionWindowUrl(url),selection);assert.equal(new URLSearchParams(parsed.hash.slice(1)).has('csrf'),false);
+ const tagged={...selection,viewId:'55e91fd1-726f-42f1-8328-112a74c6574b'};
+ assert.deepEqual(readPositionWindowUrl(positionWindowUrl(url,tagged)),tagged);
+ assert.throws(()=>readPositionWindowUrl(url+'&view=invalid'));
+ assert.throws(()=>readPositionWindowUrl(positionWindowUrl(url,tagged)+'&view='+tagged.viewId));
 });
 test('malformed, duplicate or missing window context refuses explicitly',()=>{
  const base=positionWindowUrl('https://example.invalid/',selection);

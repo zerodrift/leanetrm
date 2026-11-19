@@ -10,7 +10,7 @@ export async function run(actions){
  await evaluate("document.querySelector('#snapshot').value=''");
  await open();await wait(idle);
  await check('setup inspection waits for the header context',"document.querySelector('#page-title').textContent==='Delivery setup'&&document.querySelector('#nav-crude-setup').getAttribute('aria-current')==='page'&&document.querySelector('#cs-status').textContent.includes('header')&&document.querySelector('#cs-new').disabled&&document.querySelector('#cs-grade').options.length===0");
- const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>w.initialFrameIds.includes(f.id)&&f.at.startsWith('2020-12-18')).id;})()");
+ const frame=await evaluate("(async()=>{const w=await(await window.workspaceFetch('/api/workspace')).json();return w.frames.find(f=>w.initialFrameIds.includes(f.id)&&f.at.startsWith('2020-12-18')).id;})()");
  await evaluate(`(()=>{const original=window.fetch;window.fetch=async function(input,init){const response=await original.call(this,input,init);if(String(input).includes('/api/crude-setup/catalog?')&&response.ok){window.crudeSetupCatalog=await response.clone().json();window.fetch=original;}return response;};})()`);
  await set('#snapshot',frame);await wait("document.querySelector('#cs-grade').options.length>1&&!!window.crudeSetupCatalog&&"+idle);
  await check('binding identities have contextual publications without a version picker',"document.querySelector('#cs-version').tagName!=='SELECT'&&[...document.querySelector('#cs-binding').options].filter(o=>o.value).length===window.crudeSetupCatalog.contextSetups.length");

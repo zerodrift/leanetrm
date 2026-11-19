@@ -10,7 +10,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await command('Page.enable');await command('Runtime.enable');
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);await persona('trader');
  await evaluate(`window.__physicalAsks=[];{const send=window.fetch;window.fetch=async(path,options)=>{if(String(path).endsWith('/assistant/turns/ask'))window.__physicalAsks.push(JSON.parse(options.body));return send(path,options);};}`);
- const frames=await evaluate("(async()=>{const w=await(await fetch('/api/workspace/navigation')).json();return w.frames;})()");
+ const frames=await evaluate("(async()=>{const w=await(await window.workspaceFetch('/api/workspace/navigation')).json();return w.frames;})()");
  const before=frames.find(f=>f.at.startsWith('2020-12-18')),after=frames.find(f=>f.at.startsWith('2021-01-15T08:'));
  await open('gas-setup');
  if(before.close){await set('#close-session',before.close.session);await wait(idle);}

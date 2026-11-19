@@ -3,6 +3,7 @@
 import {idle} from './owned-browser.mjs';
 import {chooseCalendars} from './side-calendars.mjs';
 
+const ticketWaitMs=30000;
 export const q=JSON.stringify;
 export const newTicket='#gas-ticket .deal-ticket',bookedTicket='#position-details .deal-ticket[data-mode=booked]';
 
@@ -25,7 +26,7 @@ export function gasTicket({evaluate,wait,set},ticket=newTicket){
  const month=(root=ticket)=>row('2021-01',root);
  const observed=`({status:${status()}?.textContent,kind:${status()}?.dataset.kind,errors:[...document.querySelectorAll(${q(ticket+' .ticket-error')})].map(e=>e.closest('[data-field]').dataset.field+': '+e.textContent),month:${month()}})`;
  // A wait that says, when it times out, what the ticket showed.
- const until=(expression,detail=observed)=>wait(expression,30000).catch(async error=>{throw Error(error.message+' · observed '+JSON.stringify(await evaluate(detail)));});
+ const until=(expression,detail=observed)=>wait(expression,ticketWaitMs).catch(async error=>{throw Error(error.message+' · observed '+JSON.stringify(await evaluate(detail)));});
  const tradeTerms=async()=>{
   for(const id of ['book','legal_entity','counterparty'])await first(null,id);
   // A context that resolves a published gas setup lists it, and the person chooses it before the sides list their choices; none is chosen
@@ -65,11 +66,20 @@ export function gasTicket({evaluate,wait,set},ticket=newTicket){
 }
 
 /** The 18 December 2020 close of the seeded workspace, which every gas scenario prices at. */
-export const closeOn=(evaluate,day)=>evaluate(`(async()=>{const w=await(await fetch('/api/workspace')).json();const f=w.frames.find(f=>w.initialFrameIds.includes(f.id)&&f.at.startsWith(${q(day)}));return {id:f.id,session:f.close?.session??null};})()`);
+export const closeOn=(evaluate,day)=>evaluate(`(async()=>{const w=await(await window.workspaceFetch('/api/workspace')).json();const f=w.frames.find(f=>w.initialFrameIds.includes(f.id)&&f.at.startsWith(${q(day)}));return {id:f.id,session:f.close?.session??null};})()`);
 export const decemberClose=evaluate=>closeOn(evaluate,'2020-12-18');
 
 /** Opens the Blotter at the December close, under its own close session: the As of list offers only the chosen session's closes (D334). */
 export async function blotterAt({set,wait,click},{id,session}){
- if(session){await set('#close-session',session);await wait(idle);}
- await set('#snapshot',id);await wait(idle);await click('#nav-futures');await wait("document.querySelector('#page-title').textContent==='Blotter'&&"+idle);
+ const controlsReady="document.body?.getAttribute('aria-busy')==='false'",snapshot="document.querySelector('#snapshot')";
+ const selected=`${snapshot}.value===${q(id)}`;
+ if(session){
+  await set('#close-session',session);
+  // The convention opens its newest close first. As soon as the controls accept the requested close, its prices can replace that intermediate read.
+  await wait(`${controlsReady}&&document.querySelector('#close-session').value===${q(session)}&&[...${snapshot}.options].some(option=>option.value===${q(id)})`,ticketWaitMs);
+ }
+ await set('#snapshot',id);await wait(`${controlsReady}&&${selected}`,ticketWaitMs);
+ await click('#nav-futures',ticketWaitMs);
+ const priced="document.querySelector('#futures-page').dataset.pricingState==='complete'";
+ await wait(`document.querySelector('#page-title').textContent==='Blotter'&&${selected}&&${priced}&&${idle}`,ticketWaitMs);
 }

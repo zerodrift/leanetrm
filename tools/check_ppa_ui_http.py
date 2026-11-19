@@ -10,7 +10,9 @@ from exact_values import fraction
 
 def run_checks(url, query, manifest, **_):
     client=PreviewClient(url);client.bootstrap();client.call('profile',{'profile':'trader'});client.bootstrap()
-    frames=client.call('ppa/frames');frame=next(f for f in frames if not f.get('ppaBundle'))['id']
+    frames=client.call('ppa/frames')
+    base_close=manifest['frames'][0]['closeId']
+    frame,=(f['id'] for f in frames if f.get('originCloseId')==base_close and not f.get('ppaBundle'))
     catalog=client.call('ppa/catalog',{'snapshotId':frame})
     def reference_locations(c):
         reference=c['reference']

@@ -1,5 +1,94 @@
 # Local verification and continuous integration
 
+## Calendar and browser As of context lifetimes (D434)
+
+Six consecutive requests for the ten most recent qualifying dates of the
+synthetic rolling-average curve created 60 financial contexts at schema 0366.
+The same requests created zero after migration 0373. The standard fixture for
+this comparison had 175 distinct contracts and 44 offered frames. A built-in
+curve price and its date strip each created zero contexts in both versions.
+These counts measure database growth. Browser speed and production capacity
+need separate measurements.
+
+On the schema that includes heat-rate call options and gas storage, historical
+workspace reads returned the booked positions, exercises, plan revisions and
+spread marks visible at each tested cutoff. These reads added zero rows to the
+four financial context tables. The isolated native tests also covered the
+cutoff before booking and the mark before correction.
+Historical lifecycle discovery returned the requested close and cutoff with
+zero new context rows. Customer and provider gas-custody histories remained
+readable with the action forms disabled. The provider-only fixture also
+exercised this read without owned-inventory or bank-payment authority.
+Preparing and previewing an ordinary trader mark left all four financial
+context tables unchanged. Publication retained the displayed cutoff and
+domain prefixes. A fresh sign-in could recover the published observation
+after a later correction.
+
+The volatility surface browser check applied a historical cutoff in the same
+tab and returned the original fit revision at its selected close. A stored
+fit missing required projection inputs reported that an explicit refit was
+needed. Recorded zero coefficients and expired terms remained readable.
+
+The calendar suite runs with `tools/run_preview.py --market-dates-check`.
+It checks a real correction against independently resolved earlier and later
+knowledge cutoffs, rejects inconsistent publication coordinates and verifies
+that releasing a child restores the parent. An attempted commit of a transient
+binding fails at the database boundary. Invalid calendar requests leave the
+certified watermark alone. A successful working request still certifies the
+shared publication watermark once.
+
+With 4,096 stored contexts, two independent viewer sessions returned the same
+ten-date strip as the sparse fixture. A repeat request returned it again.
+The market, catalogue and trading context tables also had no new rows. Closing
+the HTTP connection while PostgreSQL waited inside the temporary binding
+released the waiter. Replacing a selected close during a second blocked read
+returned `close_replaced`. The next read succeeded. All 67 calendar and close
+session browser checks passed, including offering a newer close while the
+current selection stays visible until the user accepts it.
+
+Browser reload and browser Back both reopened the historical cutoff and
+returned the same contract IDs and exact prices after the close was selected.
+Restoring an expired view returned `409 workspace_view_expired`. The other
+tab continued to price its own selection.
+
+The related `--async-workbench-check` suite passed 50 HTTP/SSE checks including
+cancellation before admission, independent browser tabs, profile changes and
+authority expiring before disclosure. The `--risk-jobs-check` suite replayed
+existing job inputs with identical financial values and recovered expired
+worker ownership. The connected and joint scenario checks exercised parent
+isolation and exact values under sibling shocks.
+
+These suites ran in owned synthetic previews on macOS arm64 with stock
+PostgreSQL 18.7, .NET 10.0.402, Node 24.22.0 and Chrome 157. The standalone
+hourly interval reads retain their existing context contract.
+
+The browser As of check opens two tabs sharing one sign-in and prices different
+synthetic closes. It applies different cutoffs, restores the first close with
+Back and releases a delayed date-strip response. The restored contracts and
+prices match, and the other tab keeps its selection. The PostgreSQL integration
+check counts all four financial context tables across initialization, Apply,
+Back and return to Working data. The count increase is zero. A refused date
+mapping save also adds zero. A successful save adds one related row in each
+table, and retrying from another tab returns the original receipt. The two-tab
+checks also restore a historical close after returning to Working data. The
+combined calendar, close-session and As of suite passed 71 browser checks.
+
+In the parametric Risk qualifier the selected source had zero stored receipts
+before the job. The worker reproduced its history, deltas and financial
+report after submission. A failed save rolled back both the source and the
+clock receipt. A changed clock, foreign transaction or expired authority could
+not consume the issuer's attestation. The historical assistant turn also
+completed from its saved source. These are functional checks on synthetic
+data. No browser latency comparison was made in this change.
+
+On the earlier schema, a browser check traced the shared header with one existing context
+in the synthetic catalog. Bootstrap and viewer profile selection left the count
+at one. Opening the workspace increased it to two as the browser requested
+current knowledge from `date-schedules/context`. Expanding As of details kept
+the count at two. Choosing **Use current knowledge** increased it to three
+before Apply. Applying that exact cutoff through `market/context` reused the
+existing row. Closing the browser left the count at three.
+
 ## Heat-rate calls and commercial gas storage
 
 The [heat-rate call checks](heat-rate-call-option.md#verification) cover daily

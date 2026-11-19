@@ -217,17 +217,19 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap):
         assert refused['code'] == code, (knowledge, refused)
     check('working data is asked at a frame of the session, and a retained context only while the session has it selected')
     viewing = client('trader')
+    viewing.opener.addheaders=[('X-OpenETRM-View',str(uuid4()))]
+    viewing.bootstrap()
     selected = viewing.call('market/context', {'effectiveOn': '2020-12-18', 'mode': 'current', 'selection': 'latest_correction'})['context']
     past = frame_of(viewing)
     captures = "SELECT count(*) FROM market_data.temporal_contexts;"
     before = query(captures)
     refused = ask(viewing, at=past, expected=422)
+    assert query(captures)==before
     fake.respond(stream(recording(model_name, text='It was so then.')))
     retained = settled(ask(viewing, knowledge={'mode': 'retained', 'contextId': selected['contextId'], 'frameId': past['id']})['turn'], viewing)[0]
-    check('while a historical view is selected, its retained context is asked with a frame of it, retained as selected without copying pins, capturing '
-          'nothing, and working data is not asked',
+    check('an admitted historical turn owns the exact selected coordinates and a refused working-data ask retains nothing',
           refused['code'] == 'context_required' and (retained['state'], retained['context']['mode'], retained['context']['contextId'])
-          == ('completed', 'retained', selected['contextId']) and query(f"SELECT pins IS NULL FROM assistant.turns WHERE id='{retained['id']}';") == 't' and query(captures) == before,
+          == ('completed', 'retained', selected['contextId']) and query(f"SELECT pins IS NULL FROM assistant.turns WHERE id='{retained['id']}';") == 't' and int(query(captures)) == int(before)+1,
           (refused, retained))
     risk = client('risk')
     check('an ask without a covering grant is refused', ask(risk, at=frame_of(risk), expected=403)['code'] == 'grant_required')

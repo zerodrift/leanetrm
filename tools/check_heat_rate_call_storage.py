@@ -4,6 +4,7 @@ from copy import deepcopy
 from uuid import uuid4
 import json
 from check_reference_editing import main
+from check_workspace_as_of import read_trading_workspace
 from preview_fixture import fixture,identity,trading_fixture,trade_booking
 
 BOOKED_AT='2020-12-15T16:00:00Z'
@@ -149,6 +150,9 @@ def run_checks(query,manifest):
     earlier=runtime("SELECT security.capture_date_context('"+catalog+"','2020-12-14',NULL);")
     before_booking=f"SELECT security.use_market_context('{catalog}','{earlier}');SELECT security.use_trading_context('{catalog}','2020-12-14T23:59:59.999999Z');"
     assert json.loads(runtime(before_booking+f"SELECT security.read_heat_rate_call_positions('{catalog}',ARRAY[]::uuid[],ARRAY[]::uuid[],NULL);"))==[]
+    selected_trade=f"SELECT security.read_heat_rate_call_positions('{catalog}',ARRAY[]::uuid[],ARRAY[]::uuid[],ARRAY['{first['tradeId']}']::uuid[]);"
+    assert read_trading_workspace(query,runtime,catalog,'2020-12-15T23:59:59.999999Z',selected_trade)==one
+    assert read_trading_workspace(query,runtime,catalog,'2020-12-14T23:59:59.999999Z',selected_trade)==[]
     print('PASS heat-rate call storage: positions return the retained terms and exercises under a selected context, and nothing before the booking instant',flush=True)
 
 

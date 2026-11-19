@@ -108,7 +108,7 @@ internal sealed class SettlementPreview(PreviewDatabase database,PpaStore trades
         var required=plan.Contributions.SelectMany(r=>MonthlyGrossPreview.Volume(r.Binding).Sources.Select(s=>new{source=s.Code,start=r.Interval.Start,end=r.Interval.End,
             stage=PpaQuantitiesStore.Source(data,s.Code).MeteredStage==QuantityStage.Generated?"generated":"delivered"})).Distinct().OrderBy(r=>r.start).ThenBy(r=>r.source,StringComparer.Ordinal).ToArray();
         if(required.Length>MonthlyGrossPreview.MaximumMeterCells)throw Error("limit","The full asset-cell manifest exceeds the request bound.");
-        await using(var bind=ScheduleStore.Command(connection,"SELECT security.use_market_context($1,$2)",Catalog,context))await bind.ExecuteNonQueryAsync(ct);
+        await MarketContextStore.Bind(connection,Catalog,(await new KnowledgeStore(Catalog).Read(connection,context,ct)).Context,ct);
         // A bounded batch of exact native cells. The existing selector admits every
         // cell independently and retains its no-fallback finality semantics.
         var evidence=await PreviewDatabase.Rows(connection,"SELECT settlement_data.read_meter_finality($1,$2,r.source,r.stage,r.start,r.\"end\",$3,$4)::text FROM jsonb_to_recordset($5::jsonb) r(source text,stage text,start timestamptz,\"end\" timestamptz)",

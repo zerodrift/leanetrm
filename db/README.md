@@ -8,8 +8,8 @@ of this bootstrap. Additional maintenance privileges require an explicit operato
 grant. Bootstrap refuses an existing application schema; upgrading an installed
 database preserves its migration ledger and existing ACL provenance.
 
-The ordered schema starts at [0001_reference_data.sql](migrations/0001_reference_data.sql)
-and currently ends at [0372_historical_mark_and_plan_replay.sql](migrations/0372_historical_mark_and_plan_replay.sql).
+The [migrations directory](migrations/) lists the complete schema in application
+order, starting with [0001_reference_data.sql](migrations/0001_reference_data.sql).
 It includes reference/market data, certified
 knowledge, access control, trading and settlement, agents, jobs and risk, retained
 Side programs, dashboard layouts, regional closes, bounded physical gas/crude operations and
@@ -21,7 +21,13 @@ application. See [current implementation](../docs/implementation.md) and
 
 Recent schema groups and their contracts:
 
-- **0372** changes the two writers for spread-option marks and gas storage plans.
+- [0373](migrations/0373_ephemeral_calendar_context.sql) makes a working
+  custom-curve calendar use one certified knowledge cutoff across the dates it
+  reads. [0374](migrations/0374_workspace_as_of.sql) lets a workspace browse an
+  As of selection without saving a permanent context for each visit. Saves and
+  jobs retain the inputs they need to replay. See [historical context](../docs/context.md).
+- [0372](migrations/0372_historical_mark_and_plan_replay.sql) changes the two writers
+  for spread-option marks and gas storage plans.
   Re-recording an identical fact at the original effective time returns the earliest
   matching revision, even after a correction. Existing rows and request receipts
   keep their identities. See [spread marks](../docs/heat-rate-call-option.md) and

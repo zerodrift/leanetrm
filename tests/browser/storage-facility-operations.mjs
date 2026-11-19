@@ -73,8 +73,8 @@ async function run(a){
  await evaluate(`(async()=>{
   const first=facilityCalls.find(call=>call.path==='/api/facilities/operations/preview'&&call.body.command.kind==='define');
   const versionId=facilitySource.facts.version.id,request=structuredClone(first.body);request.operationId=crypto.randomUUID();
-  const boot=await(await fetch('/api/bootstrap?includeFrames=false')).json();
-  const post=async(path,body)=>{const response=await fetch('/api/facilities/operations/'+path,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:JSON.stringify(body)});return{status:response.status,value:await response.json()};};
+  const boot=await(await window.workspaceFetch('/api/bootstrap?includeFrames=false')).json();
+  const post=async(path,body)=>{const response=await window.workspaceFetch('/api/facilities/operations/'+path,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:JSON.stringify(body)});return{status:response.status,value:await response.json()};};
   const result=window.duplicateDefinition={operationId:request.operationId,originalOperationId:first.body.operationId,versionId,
    rawFields:request.command.facilityId===null&&request.command.ports.every(port=>!Object.hasOwn(port,'portId'))&&request.effectiveAt===first.body.effectiveAt};
   result.preview=await post('preview',request);if(result.preview.status!==200)return;

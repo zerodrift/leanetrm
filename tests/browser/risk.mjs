@@ -40,7 +40,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const openReport=async()=>{await click('#blotter-risk');await wait(panelRisk+"&&!document.querySelector('#risk-fields').disabled");};
   await persona('risk');
   // The date's own close, never a close another check registered from it at the same instant.
-  const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')&&w.initialFrameIds.includes(f.id)).id;})()");
+  const frame=await evaluate("(async()=>{const w=await(await window.workspaceFetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')&&w.initialFrameIds.includes(f.id)).id;})()");
   await set('#snapshot',frame);await wait(idle);await click('#nav-futures');await wait("document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')&&!document.querySelector('#blotter-risk').disabled");
   await check('portfolio risk includes a mixed book selection without hiding swap holdings',"(()=>{const holdings=window.__tradingReports(window.__riskReads).at(-1).data.holdings;return !document.querySelector('#blotter-risk').hidden&&document.querySelector('#blotter-risk').textContent==='Run risk'&&holdings.some(row=>row.instrumentType==='future')&&holdings.some(row=>row.instrumentType==='financial_swap');})()");
   await check('Risk Analyst can inspect holdings and run scenarios without booking authority, and is told so rather than offered New trade',"document.querySelector('#profile-label').textContent==='Risk Analyst'&&document.querySelector('#futures-new').disabled&&document.querySelector('#new-trade-availability').textContent.includes('Book Trade permission')&&document.querySelector('#futures-book-submit').disabled&&!document.querySelector('#blotter-risk').disabled");
@@ -247,7 +247,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     "[[...document.querySelectorAll('#risk-job-parts li')].map(li=>li.textContent),[...document.querySelectorAll('#desk-run-notes li')].map(li=>li.textContent)]");
   // The lost reply's job was made all the same. Once it has completed, the same request returns it, result and all.
   const lost=await evaluate(`window.__riskJobs[${jobsBeforeLoss}].requestId`);
-  await wait(`(async()=>(await(await fetch('/api/portfolio/risk/jobs')).json()).some(j=>j.requestId===${JSON.stringify(lost)}&&j.state==='completed'))()`,60000);
+  await wait(`(async()=>(await(await window.workspaceFetch('/api/portfolio/risk/jobs')).json()).some(j=>j.requestId===${JSON.stringify(lost)}&&j.state==='completed'))()`,60000);
   await click('#risk-job-retry',60000);await wait("!document.querySelector('#risk-form').hidden&&"+idle,60000);
   await check('Reconcile sends the same request again, which returns its completed job, and the run shows every part',
     `(()=>{const jobs=window.__riskJobs.slice(${jobsBeforeLoss});return jobs.length===${parts}+1&&jobs.at(-1).requestId===${JSON.stringify(lost)}&&JSON.stringify(jobs.at(-1))===JSON.stringify(jobs[0])&&[...document.querySelectorAll('#risk-job-parts li')].every(li=>li.textContent.endsWith('Completed'))&&${shocksShown}===${heldTargets}.length&&!document.querySelector('#desk-run-notes .risk-part-missing')&&!document.querySelector('#risk-export').disabled;})()`,
@@ -445,7 +445,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await click('#risk-export');
   await check('completed job download reads its retained result with current authorization',"(async()=>{const {parts}=JSON.parse(await window.__riskBlob.text()),last=window.__riskReads.at(-1);return parts.length===1&&last.path.startsWith('/api/portfolio/risk/jobs/')&&last.data.state==='completed'&&parts[0].context.contextId===window.__riskJobs.at(-1).request.context.contextId;})()");
   const retainedJob=await evaluate("window.__riskReads.findLast(r=>r.path.startsWith('/api/portfolio/risk/jobs')&&r.data.state==='completed').data.id");
-  const earlier=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-17')&&w.initialFrameIds.includes(f.id)).id;})()");
+  const earlier=await evaluate("(async()=>{const w=await(await window.workspaceFetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-17')&&w.initialFrameIds.includes(f.id)).id;})()");
   await set('#snapshot',earlier);await wait(idle);
   await check('changing the close clears the run and its choices, and the page says so',`document.querySelector('#position-details').hidden&&document.querySelector('#risk-factor').value===''&&${noRun}&&[...document.querySelectorAll('input[name=risk-choice]')].every(c=>!c.checked)&&document.querySelector('#notice').textContent.includes(${JSON.stringify(cleared)})`,
     "document.querySelector('#notice').textContent");
@@ -474,7 +474,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     };
     // The independently imported module has its own metadata map beside the
     // bundled application; initialize it from the actual authorized directory.
-    (await import('/market-view.js')).setCurveNames(await(await fetch('/api/curve-names')).json());
+    (await import('/market-view.js')).setCurveNames(await(await window.workspaceFetch('/api/curve-names')).json());
     const refused=error=>{if(window.__riskScopeChanged){window.__riskScopeRefused=error.message;return;}throw error;};
     window.__riskHarness=(await import('/risk-view.js')).setupRisk({api,act:work=>work().catch(refused),failed:refused,busy:()=>false,zone:()=> 'America/Chicago',canRun:()=>true,profile:()=> 'synthetic-risk-races',scope:()=>{if(window.__riskScopeChanged)throw Error('Synthetic selected financial context changed.');return window.__riskJobs.at(-1).request;},onDenied:()=>{},onChange:()=>{}});
     await window.__riskHarness.open();
@@ -505,7 +505,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await set('#snapshot',frame);await wait(idle);await click('#nav-futures');await wait("document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')&&!document.querySelector('#blotter-risk').disabled");
   await click('#blotter-risk');await wait(panelRisk+'&&'+idle);
   await check('after a reload the job history lists the split run as one run, not each of its parts',
-    `(async()=>{const jobs=(await(await fetch('/api/portfolio/risk/jobs')).json()).filter(j=>j.run?.id===${JSON.stringify(splitRun)}).map(j=>j.id),values=[...document.querySelectorAll('#risk-job-history option')].map(o=>o.value);return jobs.length===${parts}&&values.filter(v=>v==='run:'+${JSON.stringify(splitRun)}).length===1&&!jobs.some(id=>values.includes(id));})()`,
+    `(async()=>{const jobs=(await(await window.workspaceFetch('/api/portfolio/risk/jobs')).json()).filter(j=>j.run?.id===${JSON.stringify(splitRun)}).map(j=>j.id),values=[...document.querySelectorAll('#risk-job-history option')].map(o=>o.value);return jobs.length===${parts}&&values.filter(v=>v==='run:'+${JSON.stringify(splitRun)}).length===1&&!jobs.some(id=>values.includes(id));})()`,
     "[...document.querySelectorAll('#risk-job-history option')].map(o=>[o.value,o.textContent])");
   await set('#risk-job-history','run:'+splitRun);await wait("!document.querySelector('#desk-run').hidden&&"+idle);
   await check('and the run bar shows its parts as one run, made at the context it was captured at, which is not the one on screen',
@@ -559,7 +559,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await click('#current-view-context');await wait(idle);
   // An account that may amend trades and run risk, so that the change waits for the amendment its panel holds.
   await persona('admin');
-  await evaluate(`(async()=>{const b=await(await fetch('/api/bootstrap')).json();const r=await fetch('/api/admin/create',{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':b.csrfToken},body:JSON.stringify({operationId:crypto.randomUUID(),login:'context_risk_browser',name:'Synthetic context and risk account',kind:'human',roles:['trader','risk_analyst']})});if(!r.ok)throw Error(await r.text());})()`);
+  await evaluate(`(async()=>{const b=await(await window.workspaceFetch('/api/bootstrap')).json();const r=await window.workspaceFetch('/api/admin/create',{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':b.csrfToken},body:JSON.stringify({operationId:crypto.randomUUID(),login:'context_risk_browser',name:'Synthetic context and risk account',kind:'human',roles:['trader','risk_analyst']})});if(!r.ok)throw Error(await r.text());})()`);
   await persona('context_risk_browser');
   // A new account chooses its close session before it reads prices (D334).
   await set('#close-session','demo_close_1600');await wait(idle);

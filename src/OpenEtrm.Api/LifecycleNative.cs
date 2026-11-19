@@ -58,10 +58,14 @@ internal static class LifecycleNative
         await using var command=ScheduleStore.Command(connection,sql,values);
         return JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
     }
-    internal static async Task<ScheduleContext> Source(NpgsqlConnection connection,PreviewDatabase database,LifecycleReadContext request,CancellationToken ct)
+    internal static async Task<ScheduleContext> Source(NpgsqlConnection connection,PreviewDatabase database,LifecycleReadContext request,CancellationToken ct,bool bindWorkspaceForRead=false)
     {
         var source=(await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,request.ContextId,ct)).Context;
         if(PublishedSchedules.ContextDate(source)!=request.BusinessDate)throw new MarketDataException("lifecycle_context","Retain the exact source business date.");
+        // Admission and its commit check must see the same operation-owned cut,
+        // including after discovery rolls back its temporary trading bindings.
+        if(bindWorkspaceForRead && source is {WorkspaceCut:true,ReadCut:{} cut})
+            await cut.Bind(connection,database.Manifest.CatalogId,source,ct);
         await TradingContext.AdmitSource(database,connection,source,request.AsOf,ct);return source;
     }
     internal static void Require(LifecycleActionRequest request,string handler)
