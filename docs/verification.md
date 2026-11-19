@@ -15,6 +15,10 @@ workspace reads returned the booked positions, exercises, plan revisions and
 spread marks visible at each tested cutoff. These reads added zero rows to the
 four financial context tables. The isolated native tests also covered the
 cutoff before booking and the mark before correction.
+Historical lifecycle discovery returned the requested close and cutoff with
+zero new context rows. Customer and provider gas-custody histories remained
+readable with the action forms disabled. The provider-only fixture also
+exercised this read without owned-inventory or bank-payment authority.
 
 The calendar suite runs with `tools/run_preview.py --market-dates-check`.
 It checks a real correction against independently resolved earlier and later

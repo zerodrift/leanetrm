@@ -17,7 +17,7 @@ internal static class GasTransportFinancialSetup
         var value=await optional.ExecuteScalarAsync(ct);
         DateTimeOffset? operatingUntil=value switch{null or DBNull=>null,DateTime at=>new DateTimeOffset(at),DateTimeOffset at=>at,_=>throw GasTransportFinancialStore.Source()};
         var admission=await new GasTransportFinancialStore(database).Capture(c,target.ScopeId,null,ct);
-        var context=await LifecycleNative.Source(c,database,request.Context,ct);
+        var context=await LifecycleNative.Source(c,database,request.Context,ct,bindWorkspaceForRead:true);
         await using(var save=ScheduleStore.Command(c,"SAVEPOINT transport_financial_setup"))await save.ExecuteNonQueryAsync(ct);
         try
         {

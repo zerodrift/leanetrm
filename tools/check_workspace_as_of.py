@@ -100,6 +100,25 @@ def run_checks(url, query, manifest):
     outsider.call('workspace/navigation', expected=403)
     print('PASS tab and headerless views stay independent and Back, initialization and exact legacy replay add zero retained rows', flush=True)
 
+    # Lifecycle discovery checks the business source again when its transaction commits.
+    trader = PreviewClient(url)
+    trader.bootstrap()
+    trader.call('profile', {'profile': 'trader'})
+    tab = open_tab(trader)
+    before = counts()
+    cut = prepare(tab, late_day)
+    select(tab, cut)
+    frames = tab.call('workspace/navigation')['frames']
+    close, = [row for row in frames if row.get('close') and row['businessDate'] == late_day
+              and row['close']['session'] == 'demo_close_1600']
+    discovery = tab.call('lifecycle/view', {'snapshotId': close['id'], 'convention': 'trading_workspace_v1',
+                                            'knowledgeMode': 'retained', 'contextId': cut['contextId']})
+    assert discovery['context']['contextId'] == cut['contextId'] and discovery['context']['snapshotId'] == close['id']
+    assert discovery['context']['businessDate'] == late_day
+    assert datetime.fromisoformat(discovery['context']['asOf']) == datetime.fromisoformat(close['at'])
+    assert counts() == before, 'Lifecycle discovery stored an ordinary workspace cutoff'
+    print('PASS historical lifecycle discovery uses the selected close and cutoff without retaining them', flush=True)
+
     saved_mapping(first, second, late_day, query, catalog)
 
 

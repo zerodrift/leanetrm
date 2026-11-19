@@ -22,7 +22,7 @@ internal static class GasParkCustodySetup
         var admission=new GasParkCustodyReadAdmission(database.Manifest.CatalogId,request.Context.ContextId,request.Context.AsOf,authority.Instant("authorityUntil"),false);
         DateTimeOffset? inventoryUntil=authority.GetProperty("inventoryUntil").ValueKind==JsonValueKind.Null?null:authority.Instant("inventoryUntil");
         database.RegisterCommitAdmission(connection,admission);
-        var source=await LifecycleNative.Source(connection,database,request.Context,ct);
+        var source=await LifecycleNative.Source(connection,database,request.Context,ct,bindWorkspaceForRead:true);
         await using(var save=ScheduleStore.Command(connection,"SAVEPOINT gas_custody_setup_source"))await save.ExecuteNonQueryAsync(ct);
         try
         {
