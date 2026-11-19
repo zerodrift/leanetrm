@@ -6650,7 +6650,7 @@ A scale command records its request identity and expected generation before the 
 
 ## D431 — Commercial gas storage as a supplied-plan resource right
 
-**Status:** the contract entitlement, supplied-plan feasibility and valuation through existing operating Sides are implemented and locally checked. Booking, revisable plans, managed routes, blotter presentation and an entry ticket are implemented (migrations 0370 and 0371) and checked against a disposable database and preview; the pages have not been checked in a browser.
+**Status:** the contract entitlement, supplied-plan feasibility and valuation through existing operating Sides are implemented and locally checked. Booking, revisable plans, managed routes, blotter presentation and an entry ticket are implemented (migrations 0370 and 0371) and checked against a disposable database and preview; the pages were looked at once by hand in a browser.
 
 **Requirement.** Hold a commercial natural gas storage contract: contracted capacity, daily injection and withdrawal rights that tighten with inventory, fuel and charges, valued against the gas forward curve.
 

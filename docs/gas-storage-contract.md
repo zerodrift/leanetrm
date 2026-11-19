@@ -3,8 +3,8 @@
 Status: a storage contract can be entered from New trade, booked, given a plan,
 valued and listed. Managed valuation and the plan search are checked locally;
 persistence and the HTTP operations are checked against a disposable database
-and preview. The ticket and Details view have not been looked at in a browser.
-There is no facility link, discounting, measured flow or settlement yet; see
+and preview. The ticket, both drawings and the propose and record flow were
+looked at once by hand in a browser against the synthetic preview. There is no facility link, discounting, measured flow or settlement yet; see
 [Remaining work](#remaining-work). Nothing here is qualified for release.
 
 ## Contract and facility
@@ -233,8 +233,8 @@ No automated check draws the charts.
 
 ## Remaining work
 
-1. A look at the ticket, the Details drawings and the propose and record flow
-   in a browser; a plan editor for a desk-written plan.
+1. A plan editor for a desk-written plan, and an automated browser check of
+   the ticket and drawings.
 2. A link from a contract to the facility it is held in, with allocation of the
    contract's flows to facility activity.
 3. Value or return terms for inventory held at the end of the plan, and a cost

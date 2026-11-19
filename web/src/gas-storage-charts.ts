@@ -37,9 +37,9 @@ export function drawRatchets(host:HTMLElement,drawing:RatchetDrawing){
   const H=230,top=34,bottom=H-40,low=bands[0].lower,high=bands[bands.length-1].upper,peak=Math.max(...bands.flatMap(b=>[b.inject,b.withdraw]),1);
   const x=(value:number)=>left+(value-low)/(high-low)*(W-left-right),y=(value:number)=>bottom-value/peak*(bottom-top);
   const {svg,show,hide}=frame(host,H,`Daily injection and withdrawal limits by inventory, in ${drawing.unit}`);
-  legend(svg,16);
+  legend(svg,14);
   for(const tick of [0,peak/2,peak])svg.append(node('line',{x1:left,x2:W-right,y1:y(tick),y2:y(tick),stroke:'var(--border)','stroke-width':1}),label(left-8,y(tick)+4,short(tick),'end'));
-  svg.append(label(left,H-6,`Inventory · ${drawing.unit}`),label(left-8,top-10,`${drawing.unit}/day`,'end'));
+  svg.append(label(left,H-6,`Inventory · ${drawing.unit}`),label(4,top-6,`${drawing.unit}/day`));
   for(const edge of [low,...bands.map(b=>b.upper)])svg.append(node('line',{x1:x(edge),x2:x(edge),y1:bottom,y2:bottom+5,stroke:'var(--border-strong)'}),label(x(edge),bottom+18,short(edge),'middle'));
   const steps=(pick:(b:typeof bands[number])=>number)=>bands.map((b,i)=>`${i?'L':'M'}${x(b.lower)},${y(pick(b))} L${x(b.upper)},${y(pick(b))}`).join(' ');
   svg.append(node('path',{d:steps(b=>b.inject),fill:'none',stroke:injection,'stroke-width':2,'stroke-linejoin':'round'}),
