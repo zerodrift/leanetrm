@@ -12,7 +12,8 @@ ENGINE_API = '1.47'
 
 def specification(profile):
     fields = {'protocol', 'id', 'image', 'architecture', 'replicas', 'databaseNetworkId',
-              'configSecretId', 'connectionSecretId', 'databaseRootSecretId'}
+              'configSecretId', 'connectionSecretId', 'databaseRootSecretId',
+              'configSecretName', 'connectionSecretName', 'databaseRootSecretName'}
     if not isinstance(profile, dict) or set(profile) != fields or profile['protocol'] != PROTOCOL:
         raise ValueError('Supply the complete versioned trusted worker-pool profile without arbitrary Docker options.')
     try: identity = UUID(profile['id'])
@@ -22,16 +23,23 @@ def specification(profile):
             or not isinstance(profile['image'], str)
             or not re.fullmatch(r'[a-z0-9][a-z0-9._:/-]*@sha256:[0-9a-f]{64}', profile['image'])):
         raise ValueError('Select an immutable compatible image/platform and one or two workers.')
-    for key in ('databaseNetworkId', 'configSecretId', 'connectionSecretId', 'databaseRootSecretId'):
+    bindings = [('configSecret', 'risk-worker.json'), ('connectionSecret', 'risk-worker.connection'),
+                ('databaseRootSecret', 'database-root.pem')]
+    for key in ['databaseNetworkId', *(key + 'Id' for key, _ in bindings)]:
         if not isinstance(profile[key], str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}', profile[key]):
             raise ValueError('Network and secret bindings must be exact registered references.')
-    if len({profile[k] for k in ('configSecretId', 'connectionSecretId', 'databaseRootSecretId')}) != 3:
+    for key, _ in bindings:
+        name = profile[key + 'Name']
+        if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,62}[A-Za-z0-9])?', name):
+            raise ValueError('Supply the registered Swarm name of each worker secret.')
+    if any(len({profile[key + suffix] for key, _ in bindings}) != len(bindings) for suffix in ('Id', 'Name')):
         raise ValueError('Worker configuration, scoped connection and trust root require separate secret bindings.')
     profile = {**profile, 'id': str(identity)}
     contract = hashlib.sha256(json.dumps(profile, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
     labels = {'openetrm.compute.profile': PROTOCOL, 'openetrm.pool': str(identity), 'openetrm.contract': contract}
-    secrets = [{'SecretID': profile[key], 'File': {'Name': name, 'UID': '1654', 'GID': '1654', 'Mode': 256}}
-               for key, name in (('configSecretId', 'risk-worker.json'), ('connectionSecretId', 'risk-worker.connection'), ('databaseRootSecretId', 'database-root.pem'))]
+    secrets = [{'SecretID': profile[key + 'Id'], 'SecretName': profile[key + 'Name'],
+                'File': {'Name': name, 'UID': '1654', 'GID': '1654', 'Mode': 256}}
+               for key, name in bindings]
     return {'Name': 'openetrm-risk-' + identity.hex, 'Labels': labels,
             'TaskTemplate': {'ContainerSpec': {'Image': profile['image'], 'Command': ['dotnet'],
                 'Args': ['/opt/openetrm/api/OpenEtrm.Api.dll', '--risk-worker', 'serve'], 'User': '1654:1654',
