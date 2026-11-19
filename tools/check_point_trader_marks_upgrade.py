@@ -48,17 +48,22 @@ def run():
             "FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN('ref_data','market_data','trading','settlement_data') "
             "AND c.relkind='r' AND EXISTS(SELECT 1 FROM pg_attribute a WHERE a.attrelid=c.oid AND a.attname='catalog_id' AND NOT a.attisdropped);"))
 
-        # Migration 0361 gives every commodity an icon after this upgrade; the proof compares the columns that preceded it.
-        def row(table):
-            return "to_jsonb(t)-'icon_code'" if table == 'ref_data.commodities' else 'to_jsonb(t)'
+        def digest(*, before_upgrade):
+            def row(table):
+                if table == 'ref_data.commodities':
+                    # The publisher predates the display icons introduced in 0361.
+                    return "to_jsonb(t)-'icon_code'"
+                if before_upgrade and table == 'market_data.temporal_contexts':
+                    # 0367 assigns revision 1 to existing receipts. Compare the entire upgraded row.
+                    return "(to_jsonb(t) || jsonb_build_object('capacity_revision',1))"
+                return 'to_jsonb(t)'
 
-        def digest():
             catalogs = ','.join("'" + catalog + "'" for catalog in [f.catalog, f.reference, manifest['referenceCatalogId']])
-            return query('SELECT jsonb_object_agg(name,digest) FROM(' + ' UNION ALL '.join(
+            return json.loads(query('SELECT jsonb_object_agg(name,digest) FROM(' + ' UNION ALL '.join(
                 f"SELECT '{table}'::text name,md5(coalesce(jsonb_agg({row(table)} ORDER BY {row(table)}::text),'[]')::text) digest "
-                f"FROM {table} t WHERE t.catalog_id IN({catalogs})" for table in tables) + ')s;')
+                f"FROM {table} t WHERE t.catalog_id IN({catalogs})" for table in tables) + ')s;'))
 
-        old = digest()
+        old = digest(before_upgrade=True)
         try:
             query("BEGIN;INSERT INTO market_data.observations SELECT(jsonb_populate_record(NULL::market_data.observations,to_jsonb(o)||"
                 f"jsonb_build_object('id','{uuid4()}','source_event_id','synthetic_reserved_collision','source_revision_id','manual_point_revision_v1:unexplained',"
@@ -68,7 +73,7 @@ def run():
             assert 'point_trader_mark_upgrade: unexplained reserved revision namespace' in str(error), str(error)
         else:
             raise AssertionError('An unexplained pre-existing manual namespace collision was accepted.')
-        assert digest() == old
+        assert digest(before_upgrade=True) == old
         prepared.update(f=f, manifest=manifest, digest=digest, old=old, context=context, retained=retained, booked=booked, adopted=adopted,
             decoy=decoy, decoy_before=decoy_before)
 
@@ -78,7 +83,10 @@ def run():
     def verify(query, _):
         f = prepared['f']
         assert prepared['decoy']() == prepared['decoy_before'], 'Publisher installation changed an unrelated helper with a similar name.'
-        assert prepared['digest']() == prepared['old'], 'Publisher installation changed existing reference, market, financial, title or operating rows.'
+        expected = prepared['old']
+        actual = prepared['digest'](before_upgrade=False)
+        changed = [table for table in expected if expected[table] != actual[table]]
+        assert not changed, f"Publisher upgrade changed retained rows in {', '.join(changed)}."
         retained = f.read_financial(prepared['booked']['tradeId'], context=prepared['context'])
         retained.pop('authorityUntil')
         assert retained == prepared['retained']
