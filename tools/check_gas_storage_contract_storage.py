@@ -154,7 +154,11 @@ def run_checks(query,manifest):
     reject(record(revised,'2020-12-14T16:00:00Z'),'42501')
     second_plan=json.loads(runtime(record(revised,LATER)))
     assert second_plan['changed'] is True and second_plan['revision']==2,second_plan
-    reject(record(dict(deepcopy(plan),operationId=str(uuid4()),expectedRevision=2)),'gas_storage_plan_time')
+    old_fact=dict(deepcopy(plan),operationId=str(uuid4()),expectedRevision=2)
+    assert json.loads(runtime(record(old_fact)))=={**recorded,'operationId':old_fact['operationId'],'changed':False}
+    distinct=deepcopy(old_fact);distinct.update(operationId=str(uuid4()))
+    distinct['days'][0]['injection']='1999'
+    reject(record(distinct),'gas_storage_plan_time')
     # Once the first gas day has begun, its flows are measured: no plan is recorded over them.
     reject(record(dict(deepcopy(plan),operationId=str(uuid4()),expectedRevision=2),'2021-02-01T09:00:00Z'),'gas_storage_started')
     assert query('SELECT count(*) FROM trading.gas_storage_plans;')=='2' and query('SELECT count(*) FROM trading.gas_storage_plan_days;')=='6'
@@ -191,6 +195,18 @@ def run_checks(query,manifest):
     else:raise AssertionError('Read gas storage positions without a selected knowledge context')
     assert read('2020-12-14')==[]
     print('PASS gas storage storage: positions return the contract, ratchets, gas days and the plan in force under the selected context, and nothing before the booking instant',flush=True)
+
+    correction=dict(deepcopy(plan),operationId=str(uuid4()),expectedRevision=2)
+    correction['days'][0]['injection']='1900'
+    assert json.loads(runtime(record(correction,LATER)))['revision']==3
+    repeated=dict(deepcopy(revised),operationId=str(uuid4()),expectedRevision=3)
+    receipt=json.loads(runtime(record(repeated,LATER)))
+    assert receipt=={**second_plan,'operationId':repeated['operationId'],'changed':False},receipt
+    assert json.loads(runtime(record(repeated,LATER)))==receipt
+    assert query('SELECT count(*) FROM trading.gas_storage_plans;')=='3'
+    active=read('2020-12-16')[0]['plan']
+    assert active['revision']==3 and active['flows'][0]==['1900','0']
+    print('PASS gas storage storage: re-recording a superseded plan returns its original revision and preserves the active plan',flush=True)
 
 
 if __name__=='__main__':

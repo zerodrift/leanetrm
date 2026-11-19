@@ -151,10 +151,13 @@ The plan is revisable and separate from the contract. `trading.gas_storage_plans
 holds one revision chain per contract. `security.record_gas_storage_plan` takes
 the closed `gas_storage_plan_v1` command: one row per gas day in order, one
 direction a day, the expected head revision, and its source (entered by the
-desk, or the lattice search with its step). The same flows at the same instant
-are the fact already recorded; a stale expected revision, an earlier
-effective instant, or a term whose first gas day has begun refuses. Reads return the latest plan revision known and
-effective under the selected knowledge context, or none. The database retains
+desk, or the lattice search with its step). From migration 0372, a new command
+with the same flows, source, inventory step and effective instant returns the
+original plan revision, even after a correction. A distinct plan requires the
+current expected revision. Its effective instant must be at least as recent as
+the current plan’s. The recording window closes when the first gas day begins.
+Reads return the latest plan revision known and effective under the selected
+knowledge context, or none. The database retains
 exact, complete, one-way flows; admission under the ratchets is the managed
 operation's, applied before a plan is recorded and again whenever it is valued.
 
@@ -214,8 +217,8 @@ plan on three cases of four or five days, each replayed as an admitted plan
 worth its stated objective; and the refusals.
 
 `python3 tools/check_gas_storage_contract_storage.py --pg-bin <PostgreSQL 18 bin>`
-runs seven checks on the booking and plan storage: authority and closed tables,
-malformed commands, policies, capacity, ratchet coverage and reference terms,
+runs eight checks on booking and plan storage. They cover authority, closed
+tables, malformed commands, policies, capacity, ratchet coverage and reference terms,
 gas-day order and contract coverage, replay and the same-fact no-op, plan
 coverage, revision order and replay, immutability, and reads of the contract
 and the plan in force by knowledge time.
