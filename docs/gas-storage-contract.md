@@ -152,8 +152,8 @@ holds one revision chain per contract. `security.record_gas_storage_plan` takes
 the closed `gas_storage_plan_v1` command: one row per gas day in order, one
 direction a day, the expected head revision, and its source (entered by the
 desk, or the lattice search with its step). The same flows at the same instant
-are the fact already recorded; a stale expected revision or an earlier
-effective instant refuses. Reads return the latest plan revision known and
+are the fact already recorded; a stale expected revision, an earlier
+effective instant, or a term whose first gas day has begun refuses. Reads return the latest plan revision known and
 effective under the selected knowledge context, or none. The database retains
 exact, complete, one-way flows; admission under the ratchets is the managed
 operation's, applied before a plan is recorded and again whenever it is valued.

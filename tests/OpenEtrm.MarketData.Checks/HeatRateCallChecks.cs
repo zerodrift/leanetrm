@@ -78,7 +78,7 @@ internal static class HeatRateCallChecks
 
         // Independent of the Side: each day's call at act/365 fixed, rounded once to the working scale, times its energy.
         public ExactMoney Expected(string megawatts, string power = "50", string fuel = "3.1", string powerVolatility = "0.6",
-            DateTimeOffset? at = null)
+            DateTimeOffset? at = null, string fuelVolatility = "0.45")
         {
             var total = default(ExactDecimal);
             foreach (var day in new[] { 2, 3 })
@@ -86,7 +86,7 @@ internal static class HeatRateCallChecks
                 var seconds = (long)(ExerciseAt(day) - (at ?? Snapshot.ValuationAt)).TotalSeconds;
                 var years = LatticeDecimal.Parse(seconds.ToString()) / LatticeDecimal.Parse("31536000");
                 var unit = KirkSpreadCall.UnitPrice(new(LatticeDecimal.Parse(power), LatticeDecimal.Parse(fuel) * LatticeDecimal.Parse("7"),
-                    LatticeDecimal.Parse("25"), LatticeDecimal.Parse(powerVolatility), LatticeDecimal.Parse("0.45"),
+                    LatticeDecimal.Parse("25"), LatticeDecimal.Parse(powerVolatility), LatticeDecimal.Parse(fuelVolatility),
                     LatticeDecimal.Parse("0.8"), years, LatticeDecimal.Parse("1"))).ToExact();
                 total += unit * ExactDecimal.Parse("16");
             }
@@ -129,6 +129,9 @@ internal static class HeatRateCallChecks
             [new(input, ExactDecimal.Parse("0.1"), VolatilityShift.ParentAdditive)]), [], RiskEngine.ExactNumericalPolicy)
             .Groups.Single().BaseValues.Single().Value;
         Same(Shifted(s.PowerVolatility.Id), s.Expected("25", powerVolatility: "0.7"));
+        // The fuel leg's shift reaches the fuel volatility alone, and the two legs do not move the value alike.
+        Same(Shifted(s.FuelVolatility.Id), s.Expected("25", fuelVolatility: "0.55"));
+        if (Shifted(s.FuelVolatility.Id) == Shifted(s.PowerVolatility.Id)) throw new Exception("Each leg's volatility must move the value its own way.");
         Reject("risk_dependency", () => Shifted(Guid.NewGuid()));
     }
 

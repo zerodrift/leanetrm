@@ -25,6 +25,9 @@ internal static class GasStoragePortfolio
         or "gas_storage_inventory" or "gas_storage_terminal" or "gas_storage_direction";
     internal static GasStorageContract Contract(PreviewData data,GasStoragePosition position)
     {
+        // The contract's curves, contracts and quote are those of the revision it was booked on: another revision's data cannot stand in for it.
+        if(data.DefinitionRevision.RevisionId!=position.Definition||data.ReferenceRevision!=position.Reference)
+            throw Invalid("Read the storage contract with its own market definition and reference revision.");
         var terms=position.Terms;var revision=data.DefinitionRevision;var unit=position.Quantity;
         Quantity Amount(JsonElement row,string field)=>new(ExactDecimal.Parse(row.Text(field)),unit);
         var quote=data.QuoteRows(terms.Text("quote_code")).SingleOrDefault()??throw Invalid("A held contract needs its exact quote.");

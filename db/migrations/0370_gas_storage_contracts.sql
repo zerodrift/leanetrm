@@ -149,9 +149,11 @@ CREATE FUNCTION trading.gas_storage_readable(h trading.gas_storage_contracts) RE
   AND security.reference_access(h.reference_catalog_id,'ReadMarketData') IS TRUE
   AND security.reference_version_visible(h.reference_catalog_id,h.reference_revision_id) IS TRUE
 $$;
-CREATE FUNCTION trading.gas_storage_number(value text) RETURNS numeric LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
- SELECT trim_scale((trading.operating_decimal(value))[1]/(trading.operating_decimal(value))[2])
-$$;
+-- An exact decimal as entered: the text is the number, never a quotient rebuilt from it.
+CREATE FUNCTION trading.gas_storage_number(value text) RETURNS numeric LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$BEGIN
+ IF value IS NULL OR length(value)>80 OR value !~ '^-?[0-9]+(\.[0-9]{1,18})?$' OR abs(value::numeric)>=1e24 THEN RAISE EXCEPTION 'gas_storage_input';END IF;
+ RETURN trim_scale(value::numeric);
+END$$;
 
 CREATE FUNCTION security.book_gas_storage(catalog uuid,body jsonb,prepared jsonb,valuation timestamptz) RETURNS jsonb
  LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
@@ -297,7 +299,8 @@ EXCEPTION WHEN invalid_text_representation OR invalid_datetime_format OR datetim
   OR check_violation OR foreign_key_violation THEN RAISE EXCEPTION 'gas_storage_input';
 END$$;
 
--- Records the desk's plan for the whole term. The same flows as the plan in force are the fact already recorded.
+-- Records the desk's plan for the whole term, before its first gas day begins. The same flows from the same source at the
+-- same instant as the plan in force are the fact already recorded.
 -- Feasibility under the ratchets is the managed plan operation's; this operation retains exact, complete, one-way daily flows.
 CREATE FUNCTION security.record_gas_storage_plan(catalog uuid,body jsonb,effective timestamptz) RETURNS jsonb
  LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
@@ -328,6 +331,9 @@ BEGIN
  IF contract.instrument_id IS NULL OR trading.gas_storage_readable(contract) IS NOT TRUE THEN RAISE EXCEPTION 'gas_storage_unavailable' USING ERRCODE='42501';END IF;
  instrument=contract.instrument_id;
  SELECT count(*) INTO days FROM trading.gas_storage_days d WHERE(d.catalog_id,d.instrument_id)=(catalog,instrument);
+ -- A plan is a schedule of flows still to come: once the term has started its days are measured, not planned.
+ IF EXISTS(SELECT 1 FROM trading.gas_storage_days d WHERE(d.catalog_id,d.instrument_id,d.ordinal)=(catalog,instrument,0) AND d.starts_at<=effective)
+ THEN RAISE EXCEPTION 'gas_storage_started';END IF;
  IF jsonb_array_length(body->'days')<>days THEN RAISE EXCEPTION 'gas_storage_plan';END IF;
  FOR item IN SELECT value FROM jsonb_array_elements(body->'days') LOOP
   IF trading.rec_keys(item,ARRAY['gasDay','injection','withdrawal']) IS NOT TRUE

@@ -66,6 +66,7 @@ def run_checks(query,manifest):
     refuse('heat_rate_call_input',lambda b:b['terms']['exerciseRule'].update(leadBusinessDays=0))
     refuse('heat_rate_call_input',lambda b:b['terms']['exerciseRule'].update(localCutoff='3pm'))
     refuse('heat_rate_call_input',lambda b:b.update(reason=' '))
+    refuse('heat_rate_call_input',lambda b:b['terms'].update(strike='3e0'))
     print('PASS heat-rate call storage: an open, mistyped or incomplete command creates nothing',flush=True)
     refuse('heat_rate_call_policy',lambda b:b['terms'].update(model='another_model_v1'))
     refuse('heat_rate_call_policy',lambda b:b['terms'].update(exerciseStyle='hourly_exercise_v1'))

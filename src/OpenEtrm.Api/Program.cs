@@ -1920,7 +1920,7 @@ async Task<T> HeatRateCallWrite<TPrepared,T>(HttpContext c,PreviewSession sessio
     Func<NpgsqlConnection,PreviewData,InputFrame,CancellationToken,Task<TPrepared>> prepare,Func<NpgsqlConnection,InputFrame,TPrepared,CancellationToken,Task<T>> write)
 {
     if(Pin(session).Context is not null||context is null||context.KnowledgeMode!="current")
-        throw new MarketDataException("historical_read_only","Return to working data before booking or marking a heat-rate call option.");
+        throw new MarketDataException("historical_read_only","Return to working data before booking or recording.");
     var profile=Profile(session);
     var selected=await database.WithIdentity(profile,permission,async(connection,ct)=>
     {

@@ -68,6 +68,7 @@ public sealed class GasStorageStore(PreviewDatabase database)
         "gas_storage_plan"=>"A plan states every gas day of the term once, in order, flowing one way each day.",
         "gas_storage_plan_stale"=>"The plan changed since it was read. Reload it and record again.",
         "gas_storage_plan_time"=>"A plan cannot take effect before the one it replaces.",
+        "gas_storage_started"=>"The term has started: its flows are measured, not planned, and this profile does not own them.",
         _=>"Supply the complete, exact gas storage command."};
     private static void Context(FuturesReadRequest context)
     {
@@ -85,7 +86,7 @@ public sealed class GasStorageStore(PreviewDatabase database)
     public GasStoragePrepared Prepare(PreviewData data,InputFrame frame,GasStorageBookRequest request)
     {
         Context(request.Context);var t=request.Terms;
-        if(request.OperationId==Guid.Empty||request.BookId==Guid.Empty||t?.PaymentRule is null||t.Ratchets.IsDefaultOrEmpty)throw Invalid("Supply the complete storage contract command.");
+        if(request.OperationId==Guid.Empty||request.BookId==Guid.Empty||t?.PaymentRule is null||t.Ratchets.IsDefaultOrEmpty||t.Ratchets.Any(b=>b is null))throw Invalid("Supply the complete storage contract command.");
         if(t.DefinitionRevisionId!=data.DefinitionRevision.RevisionId||new ReferenceRevision(t.ReferenceCatalogId,t.ReferenceRevisionId)!=data.ReferenceRevision)
             throw Invalid("Book against the selected snapshot's exact market definition and reference revision.");
         var from=DateWorkspace.Date(t.TermFrom);var to=DateWorkspace.Date(t.TermTo);
@@ -133,13 +134,17 @@ public sealed class GasStorageStore(PreviewDatabase database)
     private async Task<GasStoragePosition> Position(NpgsqlConnection c,Guid trade,CancellationToken ct)=>
         await GasStoragePositions.Read(c,database.Manifest,[],[],ct,trades:[trade]) is [var position]?position:
             throw new MarketDataException("gas_storage_unavailable","The storage contract is not available under the selected context.");
+    private static readonly AmountFormat SixPlaces=new(6,CashTieRule.ToEven,false,true);
+    private static string Shown(ExactQuantity value)=>value.ToQuantity(SixPlaces).Amount.ToString();
     // What a plan does to the contract day by day: the band each day opens in, its limits, and inventory before and after.
     private static object Path(GasStorageContract contract,GasStoragePlanResult plan)=>plan.Days.Select(d=>
     {
         var band=contract.Entitlement.Ratchets[d.Band];
+        // Inventory with fuel in kind can be a fraction no decimal ends: the exact value is returned beside a decimal to read and draw.
         return new{gasDay=Day(d.Day.GasDay.OperatingDate),injection=d.Day.Injection.Amount.ToString(),withdrawal=d.Day.Withdrawal.Amount.ToString(),band=d.Band,
             maximumDailyInjection=band.MaximumDailyInjection.Amount.ToString(),maximumDailyWithdrawal=band.MaximumDailyWithdrawal.Amount.ToString(),
-            opening=d.Opening.ToExactString(),closing=d.Closing.ToExactString(),injectionFuel=d.InjectionFuel.ToExactString(),withdrawalFuel=d.WithdrawalFuel.ToExactString()};
+            opening=Shown(d.Opening),closing=Shown(d.Closing),injectionFuel=Shown(d.InjectionFuel),withdrawalFuel=Shown(d.WithdrawalFuel),
+            openingExact=d.Opening.ToExactString(),closingExact=d.Closing.ToExactString()};
     }).ToArray();
 
     // The booked contract as the blotter lists it, with its ratchets and gas days and, when a plan is in force,
@@ -157,7 +162,7 @@ public sealed class GasStorageStore(PreviewDatabase database)
                     var contract=GasStoragePortfolio.Contract(data,position);
                     path=Path(contract,GasStoragePortfolio.Instrument(data,position).Plan);
                 }
-                catch(MarketDataException error)when(GasStoragePortfolio.Unpriced(error)){planRefusal=error.Code;}
+                catch(MarketDataException error)when(GasStoragePortfolio.Unpriced(error)||error.Code=="gas_storage_market_context"){planRefusal=error.Code;}
             return new{position=unit[0],terms=position.Terms,ratchets=position.Ratchets,days=position.Days,
                 plan=position.Planned?position.Plan:(JsonElement?)null,path,planRefusal};
         }
@@ -170,7 +175,7 @@ public sealed class GasStorageStore(PreviewDatabase database)
         if(request.OperationId==Guid.Empty||request.TradeId==Guid.Empty||request.Source is null||request.Days.IsDefaultOrEmpty)throw Invalid("Supply the complete plan command.");
         if(await Receipt<GasStoragePlanReceipt>(c,"SELECT security.gas_storage_request_replay($1,$2::jsonb)::text",ct,Catalog,Command(request)) is {} replayed)return replayed;
         var contract=GasStoragePortfolio.Contract(data,await Position(c,request.TradeId,ct));
-        if(request.Days.Length!=contract.Days.Length||request.Days.Where((d,i)=>d is null||d.GasDay!=Day(contract.Days[i].GasDay.OperatingDate)).Any())
+        if(request.Days.Length!=contract.Days.Length||request.Days.Where((d,i)=>d?.Injection is null||d.Withdrawal is null||d.GasDay!=Day(contract.Days[i].GasDay.OperatingDate)).Any())
             throw new MarketDataException("gas_storage_plan","A plan states every gas day of the term once, in order.");
         var plan=GasStoragePortfolio.Plan(contract,request.Days.Select(d=>(d.Injection,d.Withdrawal)));
         GasStoragePlans.Evaluate(contract.Entitlement,contract.Opening,contract.Terminal,plan,GasStoragePlans.Implementation);

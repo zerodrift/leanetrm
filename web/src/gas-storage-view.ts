@@ -17,8 +17,9 @@ type Read={position:{tradeId:string;bindingId:string;instrumentType:string;measu
  days:{gas_day:string}[];plan:{revision:number|string;source:string;inventory_step:string|null;effective_at:string}|null;path:Path|null;planRefusal:ValuationReason|null};
 type Proposal={implementation:string;inventoryStep:string;objective:string;currency:string;path:Path};
 /** What the view needs of its host: something to hear that a plan was recorded, so the position is read and valued again, and the
- *  working context a plan is recorded under, which a view reading at retained knowledge does not itself hold. */
-export type StorageHost={recorded:()=>void;working:Record<string,unknown>};
+ *  working context a plan is recorded under, which a view reading at retained knowledge does not itself hold: null where the window
+ *  has none, which then proposes and records nothing. */
+export type StorageHost={recorded:()=>void;working:Record<string,unknown>|null};
 // A version this page has no words for is shown by its identifier, never hidden.
 const names:Readonly<Record<string,string>>={gas_day_opening_inventory_band_v1:'By the band a gas day opens in',single_direction_per_gas_day_v1:'One direction per gas day',
  in_kind_fuel_at_storage_point_v1:'In kind, at the storage point',supplied:'Entered by the desk',gas_storage_inventory_lattice_search_v1:'Proposed from the forward curve'};
@@ -64,6 +65,8 @@ export async function readGasStorageView(api:Api,context:Record<string,unknown>,
     drawRatchets(ratchets,{bands:bands(read.ratchets),unit:t.unit,opening:t.opening_inventory,terminal:[t.terminal_minimum,t.terminal_maximum]});
     if(read.path){state.textContent=publicText(named(read.plan!.source));drawPath(path,{...drawing,days:read.path});}
     else state.textContent=read.planRefusal?valuationReason(read.planRefusal,product):'No plan in force. Propose one from the forward curve, then record it.';
+    const working=host.working;
+    if(working===null){root.append(el('p','field-help','Propose and record a plan from the Blotter in the main window.'));box.append(root);return()=>{root.remove();};}
     // Propose a plan at this close's forwards, review its path, and record it as the plan in force.
     const step=el('input'),propose=el('button','secondary','Propose plan'),proposed=el('div'),summary=el('p','field-help'),why=el('input'),adopt=el('button',undefined,'Record as plan'),said=el('p','field-help');
     step.id='storage-plan-step';step.inputMode='decimal';why.id='storage-plan-reason';propose.type=adopt.type='button';propose.id='storage-propose';adopt.id='storage-adopt';said.setAttribute('role','status');
@@ -90,7 +93,7 @@ export async function readGasStorageView(api:Api,context:Record<string,unknown>,
      // One request identity per proposal: a retry after an unanswered request sends the same command.
      operation??=crypto.randomUUID();busy=true;said.textContent='Recording…';sync();
      try{
-      await api('gas-storage/plan',{context:{...host.working,convention},tradeId:h.tradeId,operationId:operation,expectedRevision:read.plan?Number(read.plan.revision):0,reason:why.value.trim(),
+      await api('gas-storage/plan',{context:{...working,convention},tradeId:h.tradeId,operationId:operation,expectedRevision:read.plan?Number(read.plan.revision):0,reason:why.value.trim(),
        source:{kind:proposal.implementation,inventoryStep:proposal.inventoryStep},days:proposal.path.map(d=>({gasDay:d.gasDay,injection:d.injection,withdrawal:d.withdrawal}))});
       if(!alive)return;said.textContent='Plan recorded.';busy=false;host.recorded();
      }catch(error){if(alive)said.textContent=`The plan was not recorded: ${reason(error)}`;}

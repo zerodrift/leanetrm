@@ -12,7 +12,7 @@ const setup=`(async()=>{
  window.dock=setupDock(document.getElementById('blotter-dock'),{tabs,initial,rules:{maxDepth:4,fixed:['grid'],ratioRange:[.05,.95]},narrow:()=>false,maximizable:true,ownCollapse:['details'],changed:()=>{}});
  const chooser={kind:'new',product:null};
  window.pane=setupDetailsPane(document.getElementById('blotter-pane-details'),{unsaved:()=>false,busy:()=>false,step(){},collapsed(){},expand:()=>dock.reveal('details'),changed(){},rest:()=>chooser});
- window.entry=setupNewTrade(pane.shell,{choose(){},link(){},busy:()=>false,offered:()=>true,groups:()=>chooserGroups({opens:()=>true,links:()=>true,soon:true})});
+ window.entry=setupNewTrade(pane.shell,{choose(){},link(){},busy:()=>false,offered:()=>true,groups:()=>chooserGroups({opens:()=>true,links:()=>true})});
  await pane.show(chooser);entry.show(chooser,'choose');dock.maximize('details');
  await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
 })()`;

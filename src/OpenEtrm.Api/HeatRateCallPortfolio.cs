@@ -18,7 +18,7 @@ internal sealed record HeatRateCallPortfolioInput(PreviewData Data,InputFrame Fr
 // the selected context. A strip whose months are not all marked stays unbound, so its valuation refuses.
 internal static class HeatRateCallPortfolio
 {
-    internal static bool Unpriced(MarketDataException error)=>error.Code is "heat_rate_call_marks" or "heat_rate_call_exercise";
+    internal static bool Unpriced(MarketDataException error)=>error.Code is "heat_rate_call_marks" or "heat_rate_call_exercise" or "spread_option_inputs";
     internal static async Task<ImmutableArray<HeatRateCallPortfolioInput>> Prepare(NpgsqlConnection connection,
         PreviewDatabase database,InputFrame frame,ImmutableArray<HeatRateCallPosition> positions,
         ImmutableArray<(PreviewData Data,InputFrame Frame)> supplied,bool requirePinnedSources,CancellationToken ct)

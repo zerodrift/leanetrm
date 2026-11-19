@@ -116,6 +116,12 @@ CREATE FUNCTION trading.heat_rate_call_readable(h trading.heat_rate_call_instrum
   AND security.reference_version_visible(h.reference_catalog_id,h.reference_revision_id) IS TRUE
 $$;
 
+-- An exact decimal as entered: the text is the number, never a quotient rebuilt from it.
+CREATE FUNCTION trading.heat_rate_call_number(value text) RETURNS numeric LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$BEGIN
+ IF value IS NULL OR length(value)>80 OR value !~ '^-?[0-9]+(\.[0-9]{1,18})?$' OR abs(value::numeric)>=1e24 THEN RAISE EXCEPTION 'heat_rate_call_input';END IF;
+ RETURN trim_scale(value::numeric);
+END$$;
+
 CREATE FUNCTION security.book_heat_rate_call(catalog uuid,body jsonb,prepared jsonb,valuation timestamptz) RETURNS jsonb
  LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE actor uuid;operation uuid;book uuid;definition uuid;rc uuid;rr uuid;t jsonb;hours jsonb;rule jsonb;payment jsonb;item jsonb;facts jsonb;outcome jsonb;
@@ -163,9 +169,9 @@ BEGIN
   OR hours->>'membership' NOT IN('all','peak','off') OR(hours->>'membership'='all')<>(hours->'touProduct'='null'::jsonb)
   OR(hours->'touProduct'='null'::jsonb)<>(hours->'touVersion'='null'::jsonb)
  THEN RAISE EXCEPTION 'heat_rate_call_policy';END IF;
- quantity=trim_scale((trading.operating_decimal(t->>'quantity'))[1]/(trading.operating_decimal(t->>'quantity'))[2]);
- heat=trim_scale((trading.operating_decimal(t->>'heatRate'))[1]/(trading.operating_decimal(t->>'heatRate'))[2]);
- strike_price=trim_scale((trading.operating_decimal(t->>'strike'))[1]/(trading.operating_decimal(t->>'strike'))[2]);
+ quantity=trading.heat_rate_call_number(t->>'quantity');
+ heat=trading.heat_rate_call_number(t->>'heatRate');
+ strike_price=trading.heat_rate_call_number(t->>'strike');
  IF quantity=0 OR abs(quantity)>=1e12 OR heat<=0 OR heat>=1e12 OR strike_price<0 OR strike_price>=1e12 THEN RAISE EXCEPTION 'heat_rate_call_terms';END IF;
  first_day=(t->>'deliveryFrom')::date;end_day=(t->>'deliveryTo')::date;
  IF first_day>=end_day OR end_day-first_day>3660 OR first_day<DATE '1901-01-01' OR end_day>=DATE '2200-01-01' THEN RAISE EXCEPTION 'heat_rate_call_terms';END IF;
@@ -197,7 +203,7 @@ BEGIN
    OR EXISTS(SELECT 1 FROM jsonb_each(item)e WHERE jsonb_typeof(e.value) IS DISTINCT FROM 'string')
    OR item->>'deliveryDay' !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN RAISE EXCEPTION 'heat_rate_call_input';END IF;
   day=(item->>'deliveryDay')::date;exercise=trading.operating_instant(item->>'exerciseAt');paid=trading.operating_instant(item->>'paymentAt');
-  energy=trim_scale((trading.operating_decimal(item->>'energyPerUnit'))[1]/(trading.operating_decimal(item->>'energyPerUnit'))[2]);
+  energy=trading.heat_rate_call_number(item->>'energyPerUnit');
   power_contract=(item->>'powerContractId')::uuid;fuel_contract=(item->>'fuelContractId')::uuid;
   IF day<first_day OR day>=end_day OR day<=previous_day OR exercise<=valuation OR exercise<previous_exercise OR paid<exercise
    OR exercise>=((day+1)::timestamp AT TIME ZONE 'UTC') OR energy<=0 OR energy>=1e6

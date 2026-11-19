@@ -153,6 +153,17 @@ internal static class GasStoragePlanChecks
             Reject("gas_storage_ratchet",()=>Contract(Days(("2000","0"),("2000","0"),("0","1000"))));
             Reject("gas_storage_terms",()=>Contract([basePlan[0],basePlan[1]]));
             if(DefinitionIdentity.For(instrument)==DefinitionIdentity.For(Contract(Days(("2000","0"),("0","0"),("0","1000")))))throw new Exception("A different plan is a different valued schedule.");
+            // Once the first gas day has begun the planned flows are no longer this profile's to value.
+            var started=f.Snapshot() with{ValuationAt=GasDay(1).Start.AddHours(1)};
+            Reject("gas_storage_started",()=>instrument.PV(new SideValuationContext(started,new ExplicitDiscounting(D("1"),DiscountFactorSource.Undiscounted))));
+            // A term across two payment months pays the capacity charge once in each: an idle plan is worth -2 x 100,000 x 0.005.
+            DeliveryInterval Day(DateOnly day)=>new(new(day.ToDateTime(new(9,0),DateTimeKind.Utc)),new(day.AddDays(1).ToDateTime(new(9,0),DateTimeKind.Utc)),day,9,0,1);
+            var span=new[]{new DateOnly(2041,1,31),new DateOnly(2041,2,1)}.Select(day=>(Day:Day(day),Month:new DateOnly(day.Year,day.Month,1))).ToArray();
+            var idle=GasStorageInstrument.Compose(Guid.NewGuid(),entitlement,new(span[0].Day.Start,ExactQuantity.FromQuantity(Q("29000"))),new(Q("0"),Q("100000")),quote,rule,charges,
+                [..span.Select(d=>new GasStorageContractDay(d.Day,d.Month,d.Month.AddMonths(1),new(f.C("base_forward"),f.K(2)),new(f.C("local_gas"),f.K(3))))],
+                [..span.Select(d=>new GasStorageDay(d.Day,Q("0"),Q("0")))]);
+            Equal(RiskEngine.CalculateExact(RiskEngine.Prepare(f.Model(),f.Snapshot(),[ValuationPortfolio.FromTrades([new(Guid.NewGuid(),Guid.NewGuid(),[new(Guid.NewGuid(),idle,idle.UnitQuantity)])],setup)]),
+                [],RiskEngine.ExactNumericalPolicy,detail:RiskDetail.Holdings).Groups.Single().BaseValues.Single().Value,"-1000");
         });
 
         // Proposals: the same contract without fuel unless stated, on a lattice of 500 from the opening inventory.

@@ -68,6 +68,8 @@ def run_checks(query,manifest):
     refuse('gas_storage_input',lambda b:b['terms'].update(ratchets=[]))
     refuse('gas_storage_input',lambda b:b['terms']['ratchets'][0].update(interpolation='linear'))
     refuse('gas_storage_input',lambda b:b['terms'].update(dayStartMinute=1440))
+    refuse('gas_storage_input',lambda b:b['terms'].update(injectionCharge='1e3'))
+    refuse('gas_storage_input',lambda b:b['terms'].update(openingInventory='29000.1234567890123456789'))
     refuse('gas_storage_input',lambda b:b.update(reason=' '))
     print('PASS gas storage storage: an open, mistyped or incomplete command creates nothing',flush=True)
     refuse('gas_storage_policy',lambda b:b['terms'].update(ratchetBasis='interpolated_v1'))
@@ -114,6 +116,11 @@ def run_checks(query,manifest):
     second=json.loads(runtime(book(again,dict(prepared,instrumentId=str(uuid4())))))
     assert second=={**first,'operationId':again['operationId'],'changed':False},second
     assert query('SELECT count(*) FROM trading.gas_storage_trade_revisions;')=='1'
+    # A long exact amount is retained digit for digit, in the typed column as in the canonical terms.
+    exact=deepcopy(body);exact.update(operationId=str(uuid4()));exact['terms'].update(maximumInventory='1234567890.123456789',terminalMaximum='1234567890.123456789')
+    exact['terms']['ratchets'][2].update(upper='1234567890.123456789')
+    precise=json.loads(runtime(book(exact,dict(prepared,instrumentId=str(uuid4())))))
+    assert precise['changed'] is True and query(f"SELECT maximum_inventory::text FROM trading.gas_storage_contracts WHERE instrument_id='{precise['instrumentId']}';")=='1234567890.123456789'
     print('PASS gas storage storage: one booking retains the contract, a retried command returns its first outcome and the same fact is not booked twice',flush=True)
 
     flow=lambda day,injection,withdrawal:dict(gasDay=f'2021-02-0{day}',injection=injection,withdrawal=withdrawal)
@@ -148,6 +155,8 @@ def run_checks(query,manifest):
     second_plan=json.loads(runtime(record(revised,LATER)))
     assert second_plan['changed'] is True and second_plan['revision']==2,second_plan
     reject(record(dict(deepcopy(plan),operationId=str(uuid4()),expectedRevision=2)),'gas_storage_plan_time')
+    # Once the first gas day has begun, its flows are measured: no plan is recorded over them.
+    reject(record(dict(deepcopy(plan),operationId=str(uuid4()),expectedRevision=2),'2021-02-01T09:00:00Z'),'gas_storage_started')
     assert query('SELECT count(*) FROM trading.gas_storage_plans;')=='2' and query('SELECT count(*) FROM trading.gas_storage_plan_days;')=='6'
     print('PASS gas storage storage: a plan covers every gas day one way, replays its outcome, is not recorded twice and revises only from its expected head, never before it',flush=True)
 

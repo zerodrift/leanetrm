@@ -111,14 +111,15 @@ runtime and the read-only risk worker.
 | `POST /heat-rate-calls/status` | `ReadTrades` | The outcome of a booking command. |
 | `POST /heat-rate-calls/get` | `ReadTrades` | One booked option as the blotter lists it, with its exercises; valued, or with the reason it is not. |
 | `POST /spread-marks/record` | `ImportObservations` | Records marks effective at the selected working snapshot's instant. |
-| `POST /spread-marks/read` | `ReadMarketData` | The marks in force under the selected context. |
+| `POST /spread-marks/read` | `ReadTrades` | The marks in force under the selected trading context. An account that may record marks but not read trades cannot read them back; see Remaining work. |
 
 Booking and marking refuse a historical view. A booked option is an ordinary
 position: it is in position facts, the single-position read, the risk trade
 directory, portfolio valuation and the blotter, under instrument type
 `heat_rate_call` and measure `heat_rate_call_present_value`. On the blotter each
 option is valued on its own; one without marks for every delivery month, or
-with an elapsed exercise day, is listed with that reason and no value. A
+with an elapsed exercise day or a forward at or below zero, is listed with
+that reason and no value. A
 portfolio valuation or risk run that includes such an option refuses instead.
 
 ### Entry ticket
@@ -258,8 +259,9 @@ exercised.
 
 ## Remaining work
 
-1. A marks editor: marking exists only as an API route today. A preview of
-   the expanded exercise days on the ticket before booking.
+1. A marks editor: marking exists only as an API route today. A read of marks
+   and of a mark request's outcome for an account without trade access. A
+   preview of the expanded exercise days on the ticket before booking.
 2. Premium and capacity-payment cash bindings at booking.
 3. A retained discount binding, so payments are discounted.
 4. Recorded daily exercise determinations from published index prices, and the

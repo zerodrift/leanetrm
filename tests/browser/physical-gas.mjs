@@ -25,12 +25,12 @@ export async function run(actions){
  await blotterAt(actions,await decemberClose(evaluate));
  await newTrade(actions,'gas');
  await wait(`document.querySelectorAll(${q(ticket+' .ticket-card')}).length===2`);
- await check('New trade lists physical gas, Park and loan and Transport once, with Storage as coming soon',
+ await check('New trade lists physical gas, Park and loan, Transport and Gas storage once, each offered',
   `[...document.querySelectorAll('#new-trade-product button .instrument-name')].filter(n=>n.textContent==='Physical gas').length===1&&
    document.querySelector('#new-trade-park-loan .instrument-name')?.textContent==='Park and loan'&&!document.querySelector('#new-trade-park-loan').disabled&&
    document.querySelectorAll('#new-trade-transport').length===1&&document.querySelector('#new-trade-transport .instrument-name').textContent==='Transport'&&!document.querySelector('#new-trade-transport').disabled&&
-   [...document.querySelectorAll('#new-trade-product .ticket-soon')].map(b=>b.disabled+':'+b.textContent).join()==='true:StorageComing soon'&&
-   /storage contract/.test(document.querySelector('#new-trade-product .ticket-soon').title)&&!document.querySelector('#gas-page form')`);
+   document.querySelectorAll('#new-trade-storage').length===1&&document.querySelector('#new-trade-storage .instrument-name').textContent==='Gas storage'&&!document.querySelector('#new-trade-storage').disabled&&
+   !document.querySelector('#new-trade-product .ticket-soon')&&!document.querySelector('#gas-page form')`);
  await check('gas entry exposes its market date without asking for a curve selection',"!document.querySelector('#snapshot').closest('.date-control').hidden&&!document.querySelector('#status').textContent.includes('Choose a curve')");
  await tradeTerms();
  await wait(`${listed('physical-1','direction')}.length===2`);

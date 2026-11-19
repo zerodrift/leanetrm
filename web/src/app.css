@@ -1060,7 +1060,6 @@ body.assistant-open:not(.assistant-overlay) .side-panel[data-placement=overlay]{
 .instrument-mark{color:var(--text-3)}
 .new-trade-head button.instrument:hover:not(:disabled){background:var(--surface-3);color:var(--text)}
 .new-trade-head button.instrument[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--on-accent);box-shadow:var(--shadow)}
-.new-trade-head button.instrument.ticket-soon{border-color:var(--border)}
 .new-trade-head .side-panel-note{margin:8px 0 0}
 /* Price before booking: a title over the draft's price, its exposure and the curve of each of its markets with its delivery period marked. */
 .draft-valuation{margin:20px 0 12px;padding-top:14px;border-top:1px solid var(--border)}
