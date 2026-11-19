@@ -6772,7 +6772,7 @@ selection. A saved artifact can retain the exact selection under the identity
 already used in its calculations. Existing receipts keep their original IDs.
 Clients using the older cookie-only API keep their explicit receipt contract.
 
-Migration 0373 derives each new workspace ID from the binary catalog ID,
+Migration 0374 derives each new workspace ID from the binary catalog ID,
 business date and PostgreSQL microsecond cutoff. Durable admission reuses the
 same ID. Existing physical receipts take precedence. Financial manifests,
 pricing policies and worker input formats continue to use their existing

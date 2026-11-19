@@ -4,7 +4,7 @@
 
 Six consecutive requests for the ten most recent qualifying dates of the
 synthetic rolling-average curve created 60 financial contexts at schema 0366.
-The same requests created zero after migration 0372. The standard fixture for
+The same requests created zero after migration 0373. The standard fixture for
 this comparison had 175 distinct contracts and 44 offered frames. A built-in
 curve price and its date strip each created zero contexts in both versions.
 These counts measure database growth. Browser speed and production capacity
