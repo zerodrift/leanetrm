@@ -1,4 +1,4 @@
-# Commercial gas storage contract (D431, D432)
+# Commercial gas storage contract (D432, D433)
 
 Status: a storage contract can be entered from New trade, booked, given a plan,
 valued and listed. Managed valuation and the plan search are checked locally;
@@ -58,7 +58,7 @@ It returns each day's band, opening and closing inventory and fuel, and the
 totals. It performs no pricing, optimization or data selection and assigns no
 title or cash.
 
-## Proposed plan (D432)
+## Proposed plan (D433)
 
 `GasStoragePlanProposals.Propose` (`gas_storage_inventory_lattice_search_v1`)
 finds the plan worth most under stated prices. Its inputs are the entitlement,

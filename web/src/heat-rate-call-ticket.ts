@@ -5,7 +5,7 @@ import {bookingAllowed} from './new-trade.js';
 import {actorTransport,PendingCommand,restoreTradeRequest,type RequestCommand} from './pending-command.js';
 import type {PartyCatalog,Trader} from './trade-annotations.js';
 
-// New trade's heat-rate call option ticket (D430): one field per row, sections stacked. Every choice, unit and refusal is the backend's;
+// New trade's heat-rate call option ticket (D431): one field per row, sections stacked. Every choice, unit and refusal is the backend's;
 // the page lays them out and sends what the person entered to the authorized booking.
 type Api=<T>(path:string,body?:unknown,signal?:AbortSignal)=>Promise<T>;
 export const tollConvention='heat_rate_call_trade_v1';

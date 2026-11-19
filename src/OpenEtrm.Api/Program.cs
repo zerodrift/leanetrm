@@ -1971,7 +1971,7 @@ api.MapPost("/heat-rate-calls/catalog",(HttpContext c,FuturesReadRequest body)=>
 api.MapPost("/heat-rate-calls/get",(HttpContext c,HeatRateCallReadRequest body)=>HeatRateCallRead(c,body.Context,
     async(connection,view,ct)=>await heatRateCalls.Read(connection,view.CalculationFrame,body.TradeId,ct)));
 
-// Gas storage contracts (D431, D432): booking, the plan in force, a proposed plan and the valued position.
+// Gas storage contracts (D432, D433): booking, the plan in force, a proposed plan and the valued position.
 var gasStorage=new GasStorageStore(database);
 Task<IResult> GasStorageRead(HttpContext c,FuturesReadRequest context,Func<NpgsqlConnection,PreviewData,InputFrame,CancellationToken,Task<object>> work)=>TradingRead(c,
     context??throw new MarketDataException("gas_storage_terms","Select the shared financial context."),async(connection,view,ct)=>

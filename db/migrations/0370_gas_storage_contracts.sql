@@ -1,5 +1,5 @@
--- Commercial gas storage contract (D431): retained entitlement, dated gas days, one idempotent booking
--- and a revisable injection and withdrawal plan (D432 proposals are recorded as plans).
+-- Commercial gas storage contract (D432): retained entitlement, dated gas days, one idempotent booking
+-- and a revisable injection and withdrawal plan (D433 proposals are recorded as plans).
 -- A link to a physical facility, measured flows and settlement cash are separate operations.
 BEGIN;
 SET LOCAL search_path=pg_catalog;

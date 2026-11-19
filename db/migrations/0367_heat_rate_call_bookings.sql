@@ -1,4 +1,4 @@
--- Heat-rate call option (D430): retained terms, dated exercises and one idempotent booking.
+-- Heat-rate call option (D431): retained terms, dated exercises and one idempotent booking.
 -- Marks, exercise determination and settlement cash are separate operations.
 BEGIN;
 SET LOCAL search_path=pg_catalog;

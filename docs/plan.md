@@ -1,15 +1,15 @@
 # Delivery plan and acceptance criteria
 
-D431 adds the commercial [gas storage contract](gas-storage-contract.md) at the
+D432 adds the commercial [gas storage contract](gas-storage-contract.md) at the
 managed level: its own entitlement with daily ratchets, exact feasibility of a
 supplied injection and withdrawal plan, and that plan's flows valued through the
-existing resource right. D432 adds a plan proposed from stated daily prices by
+existing resource right. D433 adds a plan proposed from stated daily prices by
 exact search over an inventory lattice. Fourteen managed checks pass locally.
 Migrations 0370 and 0371 retain a booked contract and its revisable plan; managed
 routes book, plan, propose and value it, and New trade has a graphical ticket.
 A facility link, discounting, measured flows and browser verification remain open.
 
-D430 adds managed valuation and risk for a [heat-rate call option](heat-rate-call-option.md):
+D431 adds managed valuation and risk for a [heat-rate call option](heat-rate-call-option.md):
 a daily strip of spread calls with explicit volatility and correlation marks.
 Twenty-one managed checks pass locally, including the booking-time exercise schedule, and
 migrations 0367 and 0368 retain a booked option and its revisable volatility and
@@ -2076,7 +2076,7 @@ Extend only after the baseline contracts are demonstrated:
   relationship between futures months first; futures legs, saved strategies and
   booking a strategy in one action follow it.
 - Spread-option valuation for storage and transport. Tolling is its first
-  consumer (D430); each further product line names its own.
+  consumer (D431); each further product line names its own.
 - Option-side sibling dependencies, shared exercise groups and an explicit
   contribution/allocation convention that does not double-count the underlying.
 - Physical/financial composite sides with typed gas/power delivery metadata and

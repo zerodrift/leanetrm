@@ -6,7 +6,7 @@ import {bookingAllowed} from './new-trade.js';
 import {actorTransport,PendingCommand,restoreTradeRequest,type RequestCommand} from './pending-command.js';
 import type {PartyCatalog,Trader} from './trade-annotations.js';
 
-// New trade's gas storage contract ticket (D431): one field per row in stacked sections, the ratchet bands as a small table, and
+// New trade's gas storage contract ticket (D432): one field per row in stacked sections, the ratchet bands as a small table, and
 // the limits they describe drawn as they are typed. Every choice, unit and refusal is the backend's; the drawing decides nothing.
 type Api=<T>(path:string,body?:unknown,signal?:AbortSignal)=>Promise<T>;
 export const storageConvention='gas_storage_trade_v1';

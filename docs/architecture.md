@@ -1,13 +1,13 @@
 # Architecture and domain contracts
 
-D431 adds a commercial [gas storage contract](gas-storage-contract.md) at the
+D432 adds a commercial [gas storage contract](gas-storage-contract.md) at the
 managed level. The contract owns its entitlement and daily ratchets, separately
 from the physical facility. A supplied daily plan is checked exactly and yields
-typed quantities for the existing resource right. D432 can propose a plan from
+typed quantities for the existing resource right. D433 can propose a plan from
 stated daily prices by exact, bounded lattice search; a proposal changes no
 valuation until it is supplied as a plan.
 
-D430 adds a managed [heat-rate call option](heat-rate-call-option.md): one option
+D431 adds a managed [heat-rate call option](heat-rate-call-option.md): one option
 Side holding explicit daily exercises, valued as spread calls from the scenario's
 power and fuel forwards with explicit volatility and correlation marks as its
 pricing binding. Risk remains base/up/down repricing. Booking, shared marks and

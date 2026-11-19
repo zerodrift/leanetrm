@@ -1,4 +1,4 @@
--- Trader marks for a two-curve spread option (D430): each curve's volatility and their correlation per delivery month.
+-- Trader marks for a two-curve spread option (D431): each curve's volatility and their correlation per delivery month.
 -- A mark is market data shared by every option on the curve pair; it is revised, never overwritten.
 BEGIN;
 SET LOCAL search_path=pg_catalog;
