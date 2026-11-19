@@ -5,7 +5,7 @@ SELECT pg_advisory_xact_lock(730849102);
 SELECT 1 FROM security.epoch FOR UPDATE;
 
 -- Preserve the approved worker admission, heartbeat and inventory contracts,
--- including the direct execution privileges carried over by ALTER FUNCTION.
+-- including the direct execution privileges of each public entry point.
 DO $guard$
 DECLARE predecessor record; p pg_proc;
 BEGIN
@@ -111,9 +111,26 @@ DECLARE c security.request_contexts;p automation.risk_pools;old automation.pool_
  RETURN jsonb_build_object('requestId',request,'generation',expected+1,'desired',replicas);
 END$$;
 -- The restricted login selects its pool only through its installation registration.
-ALTER FUNCTION risk.claim(integer,text) RENAME TO claim_unmanaged;
-REVOKE ALL ON FUNCTION risk.claim_unmanaged(integer,text) FROM openetrm_risk_worker;
-CREATE FUNCTION risk.claim(lease_seconds integer,engine_version text) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+-- Keep dependent objects bound to the public entry points. Copy the verified
+-- implementations to owner-only helpers, then replace each public body in place.
+DO $copy$
+BEGIN
+ EXECUTE replace(pg_get_functiondef('risk.claim(integer,text)'::regprocedure),
+  'CREATE OR REPLACE FUNCTION risk.claim(', 'CREATE FUNCTION risk.claim_unmanaged(');
+ EXECUTE replace(pg_get_functiondef('risk.heartbeat(uuid,uuid,integer)'::regprocedure),
+  'CREATE OR REPLACE FUNCTION risk.heartbeat(', 'CREATE FUNCTION risk.heartbeat_before_pool(');
+END$copy$;
+ALTER FUNCTION risk.claim_unmanaged(integer,text) OWNER TO openetrm_security_owner;
+ALTER FUNCTION risk.heartbeat_before_pool(uuid,uuid,integer) OWNER TO openetrm_security_owner;
+REVOKE ALL ON FUNCTION risk.claim_unmanaged(integer,text),risk.heartbeat_before_pool(uuid,uuid,integer) FROM PUBLIC,openetrm_risk_worker;
+DO $access$
+BEGIN
+ IF EXISTS(SELECT FROM pg_proc p CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
+  WHERE p.oid IN('risk.claim_unmanaged(integer,text)'::regprocedure,'risk.heartbeat_before_pool(uuid,uuid,integer)'::regprocedure)
+   AND a.grantee<>p.proowner)
+ THEN RAISE EXCEPTION 'managed_pool_upgrade: unexpected helper grant'; END IF;
+END$access$;
+CREATE OR REPLACE FUNCTION risk.claim(lease_seconds integer,engine_version text) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 BEGIN
  IF EXISTS(SELECT FROM automation.risk_pools WHERE worker_login=session_user) THEN RAISE EXCEPTION 'risk_job_denied' USING ERRCODE='42501';END IF;
  RETURN risk.claim_unmanaged(lease_seconds,engine_version);
@@ -147,9 +164,7 @@ DECLARE p automation.risk_pools;j risk.jobs;t automation.pool_tasks;msg text;BEG
  UPDATE automation.pool_tasks SET job_id=NULL,attempt_number=NULL WHERE cluster_id=p.cluster_id AND task_id=task;
  RETURN msg;
 END$$;
-ALTER FUNCTION risk.heartbeat(uuid,uuid,integer) RENAME TO heartbeat_before_pool;
-REVOKE ALL ON FUNCTION risk.heartbeat_before_pool(uuid,uuid,integer) FROM openetrm_risk_worker;
-CREATE FUNCTION risk.heartbeat(job_id uuid,token uuid,lease_seconds integer) RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+CREATE OR REPLACE FUNCTION risk.heartbeat(job_id uuid,token uuid,lease_seconds integer) RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE state text;BEGIN
  state=risk.heartbeat_before_pool(job_id,token,lease_seconds);
  UPDATE automation.pool_tasks t SET seen=clock_timestamp(),fresh_until=clock_timestamp()+make_interval(secs=>lease_seconds)

@@ -77,6 +77,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await wait("!document.querySelector('#job-pending').hidden&&!document.querySelector('#error').hidden&&"+idle);
   await click('#job-retry-request');await wait("document.querySelector('#jobs-worker-pool').textContent.includes('Requested: 1')");
   await evaluate("[...document.querySelectorAll('#jobs-worker-pool button')].find(b=>b.textContent==='Stop after current jobs').click()");await wait("document.querySelector('#jobs-worker-pool').textContent.includes('Requested: 0')");
+  await check('a fresh worker observation offers the operator a scheduling action',"[...document.querySelectorAll('#jobs-nodes button')].some(b=>b.textContent==='Pause scheduling')&&"+idle);
   await evaluate("[...document.querySelectorAll('#jobs-nodes button')].find(b=>b.textContent==='Pause scheduling').click()");await wait(idle);
   await check('explicit infrastructure operator queues a durable node command',"document.querySelector('#jobs-node-commands').textContent.includes('queued')&&document.querySelector('#error').hidden");
   await persona('viewer');await click('#nav-jobs');

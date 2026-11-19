@@ -1416,7 +1416,7 @@ def main():
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--reference-editor'],cwd=ROOT,env=env,start_new_session=True)
                     if browser_process.wait(timeout=180):raise RuntimeError('Owned reference-editor browser checks failed')
             elif args.jobs_check:
-                from check_jobs_http import run_checks as check_jobs
+                from check_jobs_http import observe_nodes, run_checks as check_jobs
                 check_jobs(url,query)
                 from check_managed_pool import check as check_pool, TASK, NODE
                 pool_env={**prepare_risk_worker(),'OPENETRM_TASK_ID':TASK,'OPENETRM_NODE_ID':NODE,'OPENETRM_TASK_SLOT':'1'}
@@ -1439,9 +1439,16 @@ def main():
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                    # Keep the disposable controller's inventory current while the browser exercises node commands.
+                    observe_nodes(query)
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--jobs'],cwd=ROOT,env=env,start_new_session=True)
-                    if browser_process.wait(timeout=120):
-                        raise RuntimeError('Owned jobs browser checks failed')
+                    deadline=time.monotonic()+120
+                    while browser_process.poll() is None:
+                        remaining=deadline-time.monotonic()
+                        if remaining<=0:raise subprocess.TimeoutExpired(browser_process.args,120)
+                        try:browser_process.wait(timeout=min(5,remaining))
+                        except subprocess.TimeoutExpired:observe_nodes(query)
+                    if browser_process.returncode:raise RuntimeError('Owned jobs browser checks failed')
             elif args.hosted_check:
                 from check_hosted_http import run_checks as check_hosted_http
                 check_hosted_http(temporary,manifest,query,dotnet,frozen_dll,app_env,args.browser if args.browser_check else None,url,run_id,psql=psql,psql_environment=env)

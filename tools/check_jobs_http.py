@@ -4,6 +4,11 @@ from uuid import uuid4
 from preview_client import PreviewClient
 
 
+def observe_nodes(query):
+    query("""SET SESSION AUTHORIZATION jobs_fixture_worker;
+    SELECT automation.observe_nodes('syntheticcluster00000000001','[{"id":"syntheticnode0000000000001","version":7,"name":"Synthetic shared worker","role":"worker","state":"ready","availability":"active","cpuNano":1000000000,"memoryBytes":1073741824,"workloadNode":true}]'::jsonb);""")
+
+
 def prepare(query,manifest):
     # This projection is synthetic. No Docker or host connection is configured.
     tenant,workspace=manifest['tenantId'],manifest['workspaceId']
@@ -16,8 +21,8 @@ def prepare(query,manifest):
     INSERT INTO automation.clusters VALUES('syntheticcluster00000000001','Synthetic cluster','jobs_fixture_worker','{tenant}','{workspace}',true);
     INSERT INTO security.role_permissions SELECT id,'ManageInfrastructure' FROM security.roles WHERE code='access_administrator';
     INSERT INTO automation.installation_operators SELECT principal_id,'ManageInfrastructure',clock_timestamp()+interval '1 hour' FROM security.workspace_memberships WHERE(tenant_id,workspace_id,login_handle)=('{tenant}','{workspace}','admin');
-    SET SESSION AUTHORIZATION jobs_fixture_worker;
-    SELECT automation.observe_nodes('syntheticcluster00000000001','[{{"id":"syntheticnode0000000000001","version":7,"name":"Synthetic shared worker","role":"worker","state":"ready","availability":"active","cpuNano":1000000000,"memoryBytes":1073741824,"workloadNode":true}}]'::jsonb);""")
+    """)
+    observe_nodes(query)
     collector=str(uuid4());catalog=manifest['catalogId'];reference=manifest['referenceCatalogId'];revision=manifest['referenceRevisionId']
     query(f"""CREATE ROLE jobs_fixture_collector LOGIN IN ROLE openetrm_collector;
     INSERT INTO security.principals VALUES('{collector}','service',true);
