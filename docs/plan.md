@@ -1,5 +1,11 @@
 # Delivery plan and acceptance criteria
 
+D431 adds the commercial [gas storage contract](gas-storage-contract.md) at the
+managed level: its own entitlement with daily ratchets, exact feasibility of a
+supplied injection and withdrawal plan, and that plan's flows valued through the
+existing resource right. Seven managed checks pass locally. Persistence, booking,
+presentation, a facility link and any plan proposed from the curve remain open.
+
 D430 adds managed valuation and risk for a [heat-rate call option](heat-rate-call-option.md):
 a daily strip of spread calls with explicit volatility and correlation marks.
 Twenty-one managed checks pass locally, including the booking-time exercise schedule, and
@@ -8,7 +14,7 @@ correlation marks, each with an idempotent native operation.
 Managed booking and marks routes, valuation of booked trades and blotter
 presentation are checked over HTTP, and New trade has an entry ticket for the
 option. A marks editor, premium cash, discounting, exercise determination and
-settlement remain open, as does the commercial Storage contract.
+settlement remain open.
 
 D427 adds personal chat-history search through an explicit composer checkbox and
 repairs retained walkthrough narration and final-pause verification. Its bounded

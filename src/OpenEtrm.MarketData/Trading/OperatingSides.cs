@@ -3,7 +3,7 @@ using OpenEtrm.MarketData.Power;
 
 namespace OpenEtrm.MarketData.Trading;
 
-public enum OperatingOutputKind { EnergyOutput=1,FuelInput,ChargingEnergy,DischargingEnergy,PaymentEnergy,CertificateEnergy,Starts,GuaranteedFuelInput,ConsumptionFuelInput }
+public enum OperatingOutputKind { EnergyOutput=1,FuelInput,ChargingEnergy,DischargingEnergy,PaymentEnergy,CertificateEnergy,Starts,GuaranteedFuelInput,ConsumptionFuelInput,StorageInjection,StorageWithdrawal }
 [EconomicDefinition("operating_plan_reference_v1")]
 public sealed record OperatingPlanReference([property:IdentityField]DefinitionRevision Definitions,
     [property:IdentityField]Guid Id,[property:IdentityField]int Version);
