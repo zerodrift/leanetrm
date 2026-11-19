@@ -2687,4 +2687,4 @@ support; a position's own retained risk run beside the desk's.
 
 ### Managed risk workers (D429)
 
-Jobs supports an installation-managed risk pool of up to two replicas. Disposable checks exercise two concurrent worker processes, direct repricing parity for three historical quote scenarios and browser controls. Multi-node placement, restart, private networking and limits remain deployment gates. See [managed risk workers](managed-risk-pool.md).
+Jobs supports an installation-managed risk pool of up to two replicas. Disposable checks exercise two concurrent worker processes, direct repricing parity for three historical quote scenarios and browser controls. A disposable three-VM Swarm also qualified placement across two nodes, authenticated image pulls, private database connectivity, enforced limits, busy drain and worker replacement with financial replay. Target-host capacity and workload performance remain deployment gates. See [managed risk workers](managed-risk-pool.md).
