@@ -54,7 +54,7 @@ test('a retained request holds New trade back, ahead of every other reason, beca
  assert.deepEqual(newTradeControl({catalog:{canBook:false,bookingUnavailableReason:'Historical view is read-only.'},retained:true,fallback}),{enabled:false,reason:retainedBlock});
 });
 
-const main={opens:()=>true,links:()=>true,soon:true};
+const main={opens:()=>true,links:()=>true};
 const shape=groups=>groups.map(g=>[g.id,g.name,g.entries.map(e=>e.kind==='product'?e.product:e.id)]);
 
 test('the instruments are grouped in the chooser\'s order',()=>{
@@ -67,7 +67,7 @@ test('the instruments are grouped in the chooser\'s order',()=>{
 });
 
 test('every product is listed once and has a name',()=>{
- assert.equal(new Set(newProducts).size,newProducts.length);assert.equal(newProducts.length,11);
+ assert.equal(new Set(newProducts).size,newProducts.length);assert.equal(newProducts.length,12);
  assert.equal(productName('park-loan'),'Park and loan');assert.equal(productName('gas'),'Physical gas');
  assert.equal(productAbout('futures'),'An exchange contract with a defined expiry.');
 });
@@ -78,13 +78,13 @@ test('New trade keeps one public Park and loan family beside physical gas',()=>{
  assert.equal(newProducts.includes('park-custody'),false);
 });
 
-test('a window that opens only futures and swaps draws one group and no link or coming-soon entry',()=>{
- assert.deepEqual(shape(chooserGroups({opens:p=>p==='futures'||p==='swaps',links:()=>false,soon:false})),[['financial','Financial',['futures','swaps']]]);
+test('a window that opens only futures and swaps draws one group and no link',()=>{
+ assert.deepEqual(shape(chooserGroups({opens:p=>p==='futures'||p==='swaps',links:()=>false})),[['financial','Financial',['futures','swaps']]]);
 });
 
 test('an account that cannot open Operating facilities is not offered the operating right',()=>{
  const asked=[],structured=chooserGroups({...main,links:page=>{asked.push(page);return false;}}).find(g=>g.id==='structured');
- assert.deepEqual(structured.entries.map(e=>e.kind),['product','product','soon']);
+ assert.deepEqual(structured.entries.map(e=>e.kind),['product','product','product']);
  assert.deepEqual(asked,['physical-power']);
 });
 
@@ -99,7 +99,7 @@ test('the Park and loan introduction keeps title and fee terms explicitly select
  assert.match(productAbout('transport'),/no adopted rights value.*after booking.*Lifecycle/i);
 });
 
-test('unsupported Storage remains coming soon, with what it will hold',()=>{
+test('gas storage is a product of its own, entered on its ticket',()=>{
  const storage=instrumentGroups.at(-1).entries.at(-1);
- assert.equal(storage.kind,'soon');assert.equal(storage.name,'Storage');assert.match(storage.about,/storage contract/i);
+ assert.deepEqual(storage,{kind:'product',product:'storage',name:'Gas storage'});assert.match(productAbout('storage'),/ratchets/);
 });

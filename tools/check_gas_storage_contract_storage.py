@@ -37,6 +37,7 @@ def run_checks(query,manifest):
 
     reject(f"SELECT security.gas_storage_request_status('{catalog}','{uuid4()}');",'42501','viewer')
     query(trading_fixture(catalog))
+    assert query("SELECT assistant.is_prompt_page('blotter_new_gas_storage') AND assistant.is_prompt_page('blotter_new_heat_rate_call');")=='t'
     assert runtime(f"SELECT security.gas_storage_request_status('{catalog}','{uuid4()}');") in ('','null')
     for table in ('gas_storage_contracts','gas_storage_ratchets','gas_storage_days','gas_storage_plans'):
         reject(f'SELECT count(*) FROM trading.{table};','permission denied')

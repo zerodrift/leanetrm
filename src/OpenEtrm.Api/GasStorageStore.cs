@@ -184,7 +184,6 @@ public sealed class GasStorageStore(PreviewDatabase database)
     // charges. It is returned for the desk to review and record; it changes no valuation by itself.
     public async Task<object> Propose(NpgsqlConnection c,PreviewData data,InputFrame frame,GasStorageProposeRequest request,CancellationToken ct)
     {
-        Context(request.Context);
         var position=await Position(c,request.TradeId,ct);var contract=GasStoragePortfolio.Contract(data,position);
         if(contract.Opening.At<=frame.At)throw new MarketDataException("gas_storage_started","A started storage term needs recorded flows and inventory, which this profile does not own.");
         var build=data.Build(frame,[..new[]{position.InjectionCurve,position.WithdrawalCurve}.Distinct()]);

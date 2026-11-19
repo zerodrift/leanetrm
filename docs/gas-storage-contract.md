@@ -1,11 +1,11 @@
 # Commercial gas storage contract (D431, D432)
 
-Status: the contract's entitlement, the feasibility of a supplied injection and
-withdrawal plan and a plan proposed from stated daily prices are implemented and
-checked locally, with a plan's flows valued as an existing resource right.
-Nothing is stored, booked or shown in the
-application yet; see [Remaining work](#remaining-work). Nothing here is
-qualified for release.
+Status: a storage contract can be entered from New trade, booked, given a plan,
+valued and listed. Managed valuation and the plan search are checked locally;
+persistence and the HTTP operations are checked against a disposable database
+and preview. The ticket and Details view have not been looked at in a browser.
+There is no facility link, discounting, measured flow or settlement yet; see
+[Remaining work](#remaining-work). Nothing here is qualified for release.
 
 ## Contract and facility
 
@@ -99,50 +99,152 @@ re-optimization, price model or option value above intrinsic.
 
 ## Valuation
 
-The plan's flows are typed quantities for the existing
-`OperatingRightInstrument`, through two added output kinds, `StorageInjection`
-and `StorageWithdrawal`. The contract's economics are ordinary operating Sides
-that each own their schedule and price:
+`GasStorageInstrument` is a `SidedInstrument`. `Compose` first admits the plan
+through `GasStoragePlans.Evaluate`, so a plan the ratchets, capacity, fuel or
+terminal range refuse never becomes an instrument. The plan's daily quantities
+are then literal terms of five ordinary operating Sides, which own every
+schedule, price and payment:
 
-- a floating Side that buys each day's injection at its stated curve contract;
-- a floating Side that sells each day's withdrawal at its stated curve contract;
-- fixed-price Sides for the injection and withdrawal commodity charges;
-- a fixed-price literal Side for the demand charge.
+| Side | Sign | Quantity | Price |
+| --- | --- | --- | --- |
+| Floating | +1 | each gas day's withdrawal | that day's withdrawal curve contract |
+| Floating | -1 | each gas day's injection | that day's injection curve contract |
+| Fixed | -1 | each gas day's injection | injection charge |
+| Fixed | -1 | each gas day's withdrawal | withdrawal charge |
+| Fixed | -1 | contracted capacity, once per payment month | monthly capacity charge |
 
-The value is therefore the intrinsic value of the stated plan against the
-forward curve, net of charges. Risk is the ordinary base/up/down repricing of
-those Sides under shared scenarios; a gas price shock moves value by the plan's
-net sold quantity at the shocked contracts. Inventory left at the end of the
-plan carries no value here.
+The instrument adds no pricing of its own. The value is the intrinsic value of
+the plan in force against the forward curve, net of charges, and risk is the
+ordinary base/up/down repricing of those Sides under shared scenarios. A
+different plan is a different valued schedule and identity; the contract's
+retained terms do not change. Inventory left at the end of the plan carries no
+value, and opening inventory has no cost. Once the first gas day begins the
+instrument refuses with `gas_storage_started`: planned flows have become
+measured ones this profile does not own.
+
+`OperatingRightInstrument` with the two storage output kinds remains available
+for a plan supplied as typed quantities; the booked path uses the literal
+composition so the standard engine values it with no separate quantity input.
+
+## Booking and plans
+
+Migration `0370_gas_storage_contracts.sql` retains a booked contract in
+`trading.gas_storage_contracts` (inventory range, fuel, policies, opening and
+terminal inventory, charges, term, gas-day clock and start minute, with
+exact-version references to the definition, both curves, the quote, the clock
+and the payment rule), `gas_storage_ratchets` (the bands in order),
+`gas_storage_days` (one row per gas day with its exact bounds, payment instant
+and the curve member each flow is priced at) and `gas_storage_trade_revisions`.
+A held contract is one exclusive right: it has no quantity to scale it.
+
+`security.book_gas_storage` takes the closed `gas_storage_trade_v1` command and
+the expanded gas days. It requires booking authority, the selected policy
+versions, a coherent range with opening and terminal inventory inside it, bands
+that cover the range exactly, fuel fractions below one, nonnegative charges, two
+outright curves under one quote in the contract's quantity, and gas days that
+are the whole term in order, contiguous, ahead of the booking instant, paid
+once per month and each on the one contract delivering it. A retried command
+returns its first outcome; the same contract, book and parties under a new
+command are the same fact.
+
+The plan is revisable and separate from the contract. `trading.gas_storage_plans`
+holds one revision chain per contract. `security.record_gas_storage_plan` takes
+the closed `gas_storage_plan_v1` command: one row per gas day in order, one
+direction a day, the expected head revision, and its source (entered by the
+desk, or the lattice search with its step). The same flows at the same instant
+are the fact already recorded; a stale expected revision or an earlier
+effective instant refuses. Reads return the latest plan revision known and
+effective under the selected knowledge context, or none. The database retains
+exact, complete, one-way flows; admission under the ratchets is the managed
+operation's, applied before a plan is recorded and again whenever it is valued.
+
+## Managed operations
+
+| Route | Authority | Behavior |
+| --- | --- | --- |
+| `POST /gas-storage/catalog` | `ReadTrades` | What the ticket chooses from: outright curves with quote, quantity and units, fixed-offset gas-day clocks, the supported payment rule and policy versions, and the booking directory. |
+| `POST /gas-storage/book` | `BookTrade` | Validates the entitlement, quote, charges and payment rule, expands the gas days on the gas-day clock with their payment instants and delivering contracts, and calls the native booking. |
+| `POST /gas-storage/plan` | `BookTrade` | Admits the plan through the contract's entitlement, then records it. A plan the ratchets refuse records nothing. |
+| `POST /gas-storage/propose` | `ReadTrades` | Runs the lattice search at the selected snapshot's forwards: injection cost is the forward plus the injection charge, withdrawal value the forward less the withdrawal charge, undiscounted. Returns the plan's path and objective. It records nothing. |
+| `POST /gas-storage/get` | `ReadTrades` | The contract as the blotter lists it, with its ratchets, gas days and, when a plan is in force, that plan's day-by-day inventory path; valued, or with the reason it is not. |
+| `POST /gas-storage/status` | `ReadTrades` | The outcome of a booking or plan command. |
+
+A booked contract is an ordinary position under instrument type `gas_storage`
+and measure `gas_storage_plan_present_value`: it is in position facts, the
+single-position read, the risk trade directory, portfolio valuation and the
+blotter. On the blotter each contract is valued on its own; one with no plan in
+force, a plan its entitlement no longer admits, or a started term is listed
+with that reason and no value. A portfolio valuation or risk run that includes
+such a contract refuses instead. The payment rule is the monthly calendar-day
+unadjusted rule the operating Sides support. Cash is valued undiscounted, stated
+in the valuation setup.
+
+### Ticket and Details
+
+New trade lists Gas storage under Structured. The ticket has one field per row
+in stacked sections, and the ratchet bands as a small table: each row states
+where its band ends and its two daily limits, so the bands cover the range with
+no gap by construction and the last ends at capacity. The limits are drawn
+against inventory as they are typed, with the opening and terminal inventory
+marked. Nothing is preselected; zero fuel and zero charges are entered, not
+assumed. The drawing decides nothing: the backend judges every amount.
+
+A booked contract's Details draw the ratchets and, when a plan is in force, its
+inventory through the term against capacity and the band edges with each day's
+flow beneath. Propose plan runs the search for a stated inventory step and draws
+the proposed path with its objective; Record as plan records it as the next
+plan revision with a reason. A plan written by the desk is recorded through the
+API. The ticket and both drawings report their own assistant page identity
+(`blotter_new_gas_storage`, migration `0371_gas_storage_entry_page.sql`).
 
 ## Verification
 
 `dotnet run --project tests/OpenEtrm.MarketData.Checks -- --gas-storage` runs
-thirteen checks. Seven on supplied plans, against figures worked by hand: inventory and in-kind fuel over a
+fourteen checks. Eight on supplied plans, against figures worked by hand: inventory and in-kind fuel over a
 three-day plan; limits taken from the opening band; capacity and terminal
 bounds; withdrawal fuel; one direction per day, grid, opening and
 implementation refusals; entitlement policies and band coverage; and the plan
 valued as a resource right at −8,150, moving to −8,400 and −7,900 under a ±0.1
-gas shock. Six on proposals: a hand-worked four-day plan worth 1,100 inside the
+gas shock; and the booked composition valued through the risk engine at the
+same figures, refusing a plan its ratchets do not admit. Six on proposals: a hand-worked four-day plan worth 1,100 inside the
 ratchets; no flow when the spread does not cover its costs; a terminal
 inventory met at least cost and the tie-break; fuel in kind and the step it
 needs; agreement of the objective with an exhaustive search of every lattice
 plan on three cases of four or five days, each replayed as an admitted plan
 worth its stated objective; and the refusals.
 
+`python3 tools/check_gas_storage_contract_storage.py --pg-bin <PostgreSQL 18 bin>`
+runs seven checks on the booking and plan storage: authority and closed tables,
+malformed commands, policies, capacity, ratchet coverage and reference terms,
+gas-day order and contract coverage, replay and the same-fact no-op, plan
+coverage, revision order and replay, immutability, and reads of the contract
+and the plan in force by knowledge time.
+
+`python3 tools/run_preview.py --check --structured-power-check` includes three
+HTTP checks: the catalog, booking through the managed gas days with replay and
+refusals, and an unplanned contract listed as unpriced; a plan the ratchets
+refuse recording nothing, and an admitted plan valued exactly at its flows and
+charges from the snapshot forward with its inventory path returned; and the
+proposed plan as the lattice optimum, refused for a step its fuel does not suit,
+adopted as the plan in force and revaluing the ordinary position.
+
+`web/tests/gas-storage-ticket.test.mjs` runs five checks on the ticket's state.
+No automated check draws the charts.
+
 ## Remaining work
 
-1. Retained contract, plan and booking; the plan-to-quantity mapping in the
-   managed API; blotter and detail presentation; an entry ticket. New trade
-   still lists Storage as Coming soon.
+1. A look at the ticket, the Details drawings and the propose and record flow
+   in a browser; a plan editor for a desk-written plan.
 2. A link from a contract to the facility it is held in, with allocation of the
    contract's flows to facility activity.
-3. Value or return terms for inventory held at the end of the plan, and for
-   opening inventory.
-4. A managed operation that resolves the proposal's daily prices from the
-   selected scenario's forwards and the contract's charges, and offers the
-   proposal for adoption as the plan.
-5. Rolling re-optimization and any option value above intrinsic. Each needs
-   its own decision.
-6. Interpolated or percentage ratchets, cash fuel, simultaneous nominations and
-   overrun charges.
+3. Value or return terms for inventory held at the end of the plan, and a cost
+   for opening inventory.
+4. A retained discount binding, so payments are discounted, and the same
+   discounting in the proposal's objective.
+5. Measured flows, inventory actuals and settlement cash, so a started term is
+   valued. Until then a contract stops being valued when its first gas day
+   begins.
+6. A risk run over a booked contract; rolling re-optimization and any option
+   value above intrinsic, each with its own decision.
+7. Interpolated or percentage ratchets, cash fuel, simultaneous nominations,
+   overrun charges, written (sold) capacity and amendment.

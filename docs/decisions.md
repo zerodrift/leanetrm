@@ -6650,17 +6650,17 @@ A scale command records its request identity and expected generation before the 
 
 ## D431 — Commercial gas storage as a supplied-plan resource right
 
-**Status:** the contract entitlement, supplied-plan feasibility and valuation through existing operating Sides are implemented and locally checked. No persistence, booking, API or page exists yet.
+**Status:** the contract entitlement, supplied-plan feasibility and valuation through existing operating Sides are implemented and locally checked. Booking, revisable plans, managed routes, blotter presentation and an entry ticket are implemented (migrations 0370 and 0371) and checked against a disposable database and preview; the pages have not been checked in a browser.
 
 **Requirement.** Hold a commercial natural gas storage contract: contracted capacity, daily injection and withdrawal rights that tighten with inventory, fuel and charges, valued against the gas forward curve.
 
-**Decision.** The contract's entitlement is its own (`GasStorageEntitlement`), separate from the physical facility of D414. Its daily ratchets apply by the band a gas day's opening inventory is in (`gas_day_opening_inventory_band_v1`), with one flow direction per gas day and fuel retained in kind at the storage point. `GasStoragePlans.Evaluate` (`gas_storage_supplied_plan_v1`) checks a supplied daily plan exactly and returns typed injection and withdrawal quantities. Those feed the existing `OperatingRightInstrument` through two added output kinds; floating and fixed operating Sides buy injections, sell withdrawals and carry the commodity and demand charges. Value is the stated plan's intrinsic value net of charges, and risk is the ordinary shared-scenario repricing.
+**Decision.** The contract's entitlement is its own (`GasStorageEntitlement`), separate from the physical facility of D414. Its daily ratchets apply by the band a gas day's opening inventory is in (`gas_day_opening_inventory_band_v1`), with one flow direction per gas day and fuel retained in kind at the storage point. `GasStoragePlans.Evaluate` (`gas_storage_supplied_plan_v1`) checks a supplied daily plan exactly and returns typed injection and withdrawal quantities. Those feed the existing `OperatingRightInstrument` through two added output kinds; floating and fixed operating Sides buy injections, sell withdrawals and carry the commodity and capacity charges. A booked contract is a `GasStorageInstrument`: the same Sides with the admitted plan's quantities as literal terms, so the standard engine values it. Value is the stated plan's intrinsic value net of charges, and risk is the ordinary shared-scenario repricing.
 
 **Boundaries.** This decision chooses no plan; D432 adds a proposal. Inventory at the end of the plan carries no value. The facility's physical law and capacity are untouched and no contract is linked to a facility yet. See the [contract and verification](gas-storage-contract.md).
 
 ## D432 — Proposed storage plan by exact lattice search
 
-**Status:** implemented and locally checked at the managed level. No operation resolves its prices from a scenario or offers a proposal for adoption yet.
+**Status:** implemented and locally checked at the managed level. `POST /gas-storage/propose` prices the search from the selected snapshot's forwards net of commodity charges, undiscounted, and a proposal is adopted by recording it as a plan.
 
 **Requirement.** Propose the injection and withdrawal plan worth most against the forward curve, as a desk states a storage contract's intrinsic value. Requested by the user after D431 valued only supplied plans.
 
