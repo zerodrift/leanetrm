@@ -27,14 +27,16 @@ internal static class JsonReadTransportChecks
         foreach(var state in new[]{"completed","failed","cancelled"})
         {
             var frame=new AsyncReadFrame(AsyncReadChannel.Protocol,channel,request,"curve.evaluate.v1",state,state=="completed"?channel:null,
-                state=="completed"?result.RootElement:null,state=="completed"?null:new("synthetic_refusal","Synthetic input refused."));
-            var encoded=Encoding.UTF8.GetString(JsonReadTransport.EncodeEvent("response",frame).Span);
+                state=="completed"?(ReadOnlyMemory<byte>?)JsonSerializer.SerializeToUtf8Bytes(result.RootElement):null,state=="completed"?null:new("synthetic_refusal","Synthetic input refused."));
+            using var output=new MemoryStream();await JsonReadTransport.WriteEvent(output,"response",frame,CancellationToken.None);
+            var encoded=Encoding.UTF8.GetString(output.ToArray());
             if(!encoded.StartsWith("event: response\ndata: ",StringComparison.Ordinal)||!encoded.EndsWith("\n\n",StringComparison.Ordinal))throw new Exception("SSE framing changed.");
             using var actual=JsonDocument.Parse(encoded["event: response\ndata: ".Length..^2]);
-            var expected=JsonSerializer.SerializeToElement(new{protocol=frame.Protocol,channelId=channel,requestId=request,operation=frame.Operation,state,snapshotId=frame.SnapshotId,result=frame.Result,error=frame.Error},JsonSerializerOptions.Web);
+            var expected=JsonSerializer.SerializeToElement(new{protocol=frame.Protocol,channelId=channel,requestId=request,operation=frame.Operation,state,snapshotId=frame.SnapshotId,result=state=="completed"?(JsonElement?)result.RootElement:null,error=frame.Error},JsonSerializerOptions.Web);
             if(!JsonElement.DeepEquals(expected,actual.RootElement))throw new Exception("Raw JSON changed a response value, identity or null/missing distinction.");
         }
-        if(Encoding.UTF8.GetString(JsonReadTransport.EncodeEvent(null,null).Span)!=": ping\n\n")throw new Exception("Heartbeat framing changed.");
+        using var heartbeat=new MemoryStream();await JsonReadTransport.WriteEvent(heartbeat,null,null,CancellationToken.None);
+        if(Encoding.UTF8.GetString(heartbeat.ToArray())!=": ping\n\n")throw new Exception("Heartbeat framing changed.");
         await Streaming();
         Console.WriteLine("PASS JSON read transport: scoped compression, exact response parity, missing/null/empty, SSE framing and negotiated gzip flushing");
     }
@@ -49,10 +51,10 @@ internal static class JsonReadTransportChecks
         {
             var gate=release;context.Response.ContentType="text/event-stream";
             context.Features.Get<IHttpResponseBodyFeature>()?.DisableBuffering();await context.Response.StartAsync(context.RequestAborted);
-            await context.Response.Body.WriteAsync(JsonReadTransport.EncodeEvent("ready",new{protocol=AsyncReadChannel.Protocol}),context.RequestAborted);
+            await JsonReadTransport.WriteEvent(context.Response.Body,"ready",new{protocol=AsyncReadChannel.Protocol},context.RequestAborted);
             await context.Response.Body.FlushAsync(context.RequestAborted);
             await gate.Task.WaitAsync(context.RequestAborted);
-            await context.Response.Body.WriteAsync(JsonReadTransport.EncodeEvent(null,null),context.RequestAborted);
+            await JsonReadTransport.WriteEvent(context.Response.Body,null,null,context.RequestAborted);
             await context.Response.Body.FlushAsync(context.RequestAborted);
         });
         app.MapGet("/api/bootstrap",()=>Results.Json(new{csrfToken="synthetic-token"}));

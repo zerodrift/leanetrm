@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {summaryTiles,contractCountText,displayDate,frameOptions,deliveryMonth,deliveryLabel,historyPriceLabel,displayInstant,timeLabels,publicText,publicColumns,quoteUnit,curveName,setCurveNames,clockLabel,displayExactInstant} from '../dist/market-view.js';
+import {summaryTiles,contractCountText,displayDate,frameOptions,deliveryMonth,deliveryLabel,historyPriceLabel,displayInstant,timeLabels,publicText,publicColumns,quoteUnit,curveName,setCurveNames,clockLabel,displayExactInstant,indexedRow} from '../dist/market-view.js';
 import {dataSections,referenceGroups} from '../dist/data-sections.js';
 import {newPreferences,parsePreferences} from '../dist/preferences.js';
 const id='12345678-1234-1234-1234-123456789012';
@@ -99,4 +99,14 @@ test('curve display choices persist explicitly and reject unknown policies',()=>
  assert.deepEqual(parsePreferences(JSON.stringify(live)).contractDisplay,live.contractDisplay);
  for(const contractDisplay of [null,{}, {version:'unknown',contracts:'eligible_contracts_v1'},{version:'curve_display_v1',contracts:'guess'}])
   assert.throws(()=>parsePreferences(JSON.stringify({...preference,contractDisplay})));
+});
+
+test('indexed page rows refuse missing and duplicate values and follow array replacement',()=>{
+ const first={id:'first',value:'1'},duplicate={id:'ambiguous',value:'1'};
+ const rows=[first,duplicate,{...duplicate,value:'2'}];
+ assert.equal(indexedRow(rows,'id','first'),first);
+ assert.throws(()=>indexedRow(rows,'id','ambiguous'),/missing or inconsistent/);
+ assert.throws(()=>indexedRow(rows,'id','unknown'),/missing or inconsistent/);
+ const replacement=[{id:'first',value:'3'}];
+ assert.equal(indexedRow(replacement,'id','first').value,'3');
 });

@@ -31,6 +31,7 @@ internal sealed class AsyncReadException(int status,string code,string message):
 // URLs, commands, retained-job submission and cancellation are not operations.
 internal static class AsyncReadContract
 {
+    internal const string CurveDependencies="curve_dependencies_v1";
     internal static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web)
     {AllowDuplicateProperties=false,Converters={new ExactDecimalJsonConverter()}};
     internal static ReadInput Decode(AsyncReadRequest request)
@@ -70,7 +71,13 @@ internal static class AsyncReadContract
         ReadInput Status()=>new(operation,body,null,["RunScenario"]);
         switch(body)
         {
-            case BuildRequest evaluate:return Market(evaluate.SnapshotId);
+            case BuildRequest evaluate:
+                if(evaluate.SourceScope is not null&&(evaluate.SourceScope!=AsyncReadProjections.CurveLineage||!evaluate.IncludeSources))
+                    throw Invalid();
+                if(evaluate.DefinitionScope is not null&&(evaluate.DefinitionScope!=CurveDependencies||
+                    evaluate.SourceScope!=AsyncReadProjections.CurveLineage||evaluate.IncludeWorkspace))
+                    throw Invalid();
+                return Market(evaluate.SnapshotId);
             case HistoryRequest history:return Market(history.SnapshotId);
             case CurveShapesRequest shapes:return Market(shapes.SnapshotId);
             case FuturesReadRequest directory:return Trading(directory);

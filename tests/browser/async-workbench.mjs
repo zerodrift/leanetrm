@@ -3,13 +3,21 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
  await command('Page.enable');await command('Runtime.enable');
  const fixture=await command('Page.addScriptToEvaluateOnNewDocument',{source:`(()=>{
   const send=window.fetch.bind(window),NativeSource=window.EventSource;
-  window.__reads={posts:[],acks:[],held:[],hold:sessionStorage.getItem('synthetic-held-startup-read')?[sessionStorage.getItem('synthetic-held-startup-read')]:[],responses:[],sources:0,release(){for(const item of this.held.splice(0))item.source.dispatchEvent(new MessageEvent('response',{data:item.data}));}};
+  window.__reads={posts:[],acks:[],held:[],hold:sessionStorage.getItem('synthetic-held-startup-read')?[sessionStorage.getItem('synthetic-held-startup-read')]:[],responses:[],sources:0,catalogBytes:0,holdNextCatalog:false,catalogsHeld:[],releaseCatalogs(){for(const resolve of this.catalogsHeld.splice(0))resolve();},release(){for(const item of this.held.splice(0))item.source.dispatchEvent(new MessageEvent('response',{data:item.data}));}};
   sessionStorage.removeItem('synthetic-held-startup-read');
   window.fetch=async(input,init)=>{
    const path=new URL(String(input),location.href).pathname;
    if(path==='/api/async-reads'&&init?.method==='POST')__reads.posts.push(JSON.parse(init.body));
    const response=await send(input,init);
    if(path==='/api/async-reads'&&init?.method==='POST')__reads.acks.push({status:response.status,body:await response.clone().json()});
+   if(path==='/api/workspace/catalog'&&response.ok){
+    const catalog=await response.json();
+    // Scale unselected metadata without changing the selected financial inputs.
+    catalog.definitions.synthetic_notes=Array.from({length:4096},(_,i)=>({id:'synthetic-note-'+i,label:'x'.repeat(4096)}));
+    const text=JSON.stringify(catalog);__reads.catalogBytes=new TextEncoder().encode(text).length;
+    if(__reads.holdNextCatalog){__reads.holdNextCatalog=false;__reads.heldCatalogCurve=new URL(String(input),location.href).searchParams.get('curve');await new Promise(resolve=>__reads.catalogsHeld.push(resolve));}
+    return new Response(text,{status:response.status,headers:response.headers});
+   }
    return response;
   };
   window.EventSource=class extends EventTarget{
@@ -27,10 +35,12 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await click('#nav-market');
   const selected=await evaluate("[...document.querySelector('#snapshot').options].find(o=>o.textContent.includes('Dec 18')).value");
   await set('#snapshot',selected);await wait(idle,30000);
-  const curves=await evaluate("[...document.querySelectorAll('.curve-button')].slice(0,2).map(button=>button.dataset.curve)");
+  const curves=await evaluate("['local_power',...[...document.querySelectorAll('.curve-button')].map(button=>button.dataset.curve).filter(code=>code!=='local_power')].slice(0,2)");
   if(curves.length!==2)throw Error('The synthetic workbench needs two explicit curve choices.');
   await evaluate("__reads.hold.push('curve.evaluate.v1')");await choose(curves[0]);
   await wait("__reads.held.length===1",30000);
+  await check('a power curve can hydrate a catalog larger than the read-result budget without embedding it in its price response',
+   "__reads.catalogBytes>16*1024*1024&&__reads.posts.some(p=>p.operation==='curve.evaluate.v1'&&p.body.curve==='local_power')&&__reads.posts.filter(p=>p.operation==='curve.evaluate.v1').every(p=>p.body.includeWorkspace!==true)");
   await check('a real pending SSE curve leaves navigation and other curves usable',
    "!document.querySelector('#nav-futures').disabled&&[...document.querySelectorAll('.curve-button')].every(button=>!button.disabled)&&document.querySelector('#market-page').dataset.readState==='pending'");
   await choose(curves[1]);await wait("document.querySelector('#market-page').dataset.readState!=='pending'&&document.querySelector('#contracts tbody tr')",30000);
@@ -80,5 +90,12 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
   await check('native startup readiness waits for the actual initial Risk scope result',"document.querySelector('#risk-page').dataset.readState==='pending'&&performance.getEntriesByName('leanetrm:workspace-ready','mark').length===0");
   await evaluate('__reads.release()');await wait("performance.getEntriesByName('leanetrm:workspace-ready','mark').length===1&&"+idle,30000);
- }finally{await evaluate('__reads?.release()').catch(()=>{});await command('Page.removeScriptToEvaluateOnNewDocument',{identifier:fixture.identifier});}
+  await evaluate('__reads.holdNextCatalog=true');await persona('viewer');await click('#nav-market');
+  await choose(curves[0]);await wait('__reads.catalogsHeld.length===1',30000);
+  const heldCurve=await evaluate('__reads.heldCatalogCurve');const currentCurve=curves.find(code=>code!==heldCurve);
+  await choose(currentCurve);await wait("document.querySelector('#market-page').dataset.readState!=='pending'&&document.querySelector('#contracts tbody tr')",30000);
+  const currentPrices=await evaluate("document.querySelector('#contracts').textContent");
+  await evaluate('__reads.releaseCatalogs();new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+  await check('late catalog hydration cannot replace a newer curve or publish a stale error',`document.querySelector('#contracts').textContent===${JSON.stringify(currentPrices)}&&document.querySelector('#error').hidden`);
+ }finally{await evaluate('__reads?.releaseCatalogs();__reads?.release()').catch(()=>{});await command('Page.removeScriptToEvaluateOnNewDocument',{identifier:fixture.identifier});}
 }

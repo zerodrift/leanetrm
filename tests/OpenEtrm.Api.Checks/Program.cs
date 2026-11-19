@@ -39,7 +39,10 @@ if(args is ["--structured-power"]){StructuredPowerChecks.Run();return;}
 if(args is ["--power-hedge"]){StructuredPowerHedgeChecks.Run();return;}
 if(args is ["--assistant-prompts"]){TurnWorkerChecks.Run();AgentToolChecks.Run();await ModelProviderChecks.Run();return;}
 if(args is ["--json-read-transport"]){await JsonReadTransportChecks.Run();return;}
-if(args is ["--async-reads"]){await JsonReadTransportChecks.Run();AsyncReadContractChecks.Run();await AsyncReadChecks.Run();await UngatedReadChecks.Run();return;}
+if(args is ["--large-catalog-http"]){await LargeCatalogReadChecks.Run();return;}
+if(args is ["--observation-pin-payload",var payloadPath,var payloadRows]){await ObservationPinPayloadChecks.Run(payloadPath,int.Parse(payloadRows,CultureInfo.InvariantCulture));return;}
+if(args is ["--async-read-budget"]){await AsyncReadBudgetChecks.Run();return;}
+if(args is ["--async-reads"]){await JsonReadTransportChecks.Run();await ObservationPinPayloadChecks.Run();await AsyncReadStreamChecks.Run();AsyncReadContractChecks.Run();await AsyncReadChecks.Run();await UngatedReadChecks.Run();return;}
 if(args is ["--ungated-reads"]){await UngatedReadChecks.Run();return;}
 if(args is ["--async-read-contracts"]){AsyncReadContractChecks.Run();return;}
 if(args is ["--calendar-authoring"]){CalendarAuthoringSchemaChecks.Run();return;}

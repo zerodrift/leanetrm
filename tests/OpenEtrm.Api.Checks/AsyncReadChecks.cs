@@ -33,6 +33,7 @@ internal static class AsyncReadChecks
         drain.SetResult();await Task.WhenAll(firstDisposal,secondDisposal);
         if(!channel.Stopping.IsCancellationRequested)throw new Exception("Retired channels retain a safe cancelled lifetime token.");
         Refused("async_channel_unavailable",()=>channel.Submit(request,Plan(request,Work)));
+        await AsyncReadBudgetChecks.Run();
         await CancellationAdmission();
         await DetachedRequestContext();
         DelegatedTransport();
@@ -92,12 +93,14 @@ internal static class AsyncReadChecks
             if(!ReferenceEquals(accessor.HttpContext,submitting)||ambient.Value!="synthetic submission")
                 throw new Exception("Scheduling a detached read must preserve the submitting request's own context.");
             using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(3));var completed=await channel.Read(timeout.Token);
-            if(completed.State!="completed"||completed.Result is not {} result||result.GetProperty("requestContext").GetBoolean()||result.GetProperty("ambient").ValueKind!=JsonValueKind.Null)
+            using var result=JsonDocument.Parse(completed.Result??throw new Exception("The completed result is missing."));
+            if(completed.State!="completed"||result.RootElement.GetProperty("requestContext").GetBoolean()||result.RootElement.GetProperty("ambient").ValueKind!=JsonValueKind.Null)
                 throw new Exception("A detached read must not inherit the submitting HTTP context or its ambient execution state.");
             var alreadyDetached=request with{RequestId=Guid.NewGuid()};
             using(ExecutionContext.SuppressFlow())channel.Submit(alreadyDetached,plan);
             var repeated=await channel.Read(timeout.Token);
-            if(repeated.State!="completed"||repeated.Result!.Value.GetProperty("requestContext").GetBoolean())
+            using var repeatedResult=JsonDocument.Parse(repeated.Result??throw new Exception("The completed retry is missing."));
+            if(repeated.State!="completed"||repeatedResult.RootElement.GetProperty("requestContext").GetBoolean())
                 throw new Exception("An already detached caller must still admit and complete its explicit read.");
         }
         finally{accessor.HttpContext=null;}

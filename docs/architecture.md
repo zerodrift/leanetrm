@@ -1,5 +1,14 @@
 # Architecture and domain contracts
 
+D430 lets the curve page load only the exact definition dependencies of the
+selected curve. Pricing, frame validation and publication authorization use
+the original inputs and policies. See [the decision](decisions.md#d430--read-exact-curve-definition-dependencies).
+
+D429 separates first-use curve catalog hydration from its bounded price result
+and streams owned read bytes and calendar batch input. Existing projections and
+authorization remain authoritative; see [the decision](decisions.md#d429--separate-curve-catalog-hydration-and-bound-read-serialization)
+and [qualified workloads](verification.md#curve-hydration-and-read-memory-d429).
+
 D427 adds opt-in personal [assistant history search](assistant-workspace.md#personal-chat-history-search-d427)
 and retains walkthrough guidance in conversation history. Search uses current
 user/agent authority and returns prior interactions with their original context;

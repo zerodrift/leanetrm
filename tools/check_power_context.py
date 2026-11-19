@@ -44,7 +44,16 @@ def run_checks(url,query,manifest,dotnet,temporary,environment):
     for code in codes:members.extend(dict(definitionRevisionId=other,curve=code,contractId=c,ordinal=i,scope='root') for i,c in enumerate(frame['curveContracts'][code]))
     def record(code,rows):return runtime(f"SELECT security.register_market_close('{catalog}','{base}','{uuid4()}','Synthetic power source check','{code}','2020-12-18','{frame['at']}',{literal(pins)},{literal(rows)});")
     first=record(session,members)
-    client.call('workspace');known=client.call('interval-series')['knownAt']
+    client.call('workspace')
+    read={'snapshotId':first,'curve':codes[0],'includeSources':True}
+    full=client.call('evaluate',read)
+    compact=client.call('evaluate',{**read,'sourceScope':'curve_lineage_v1','definitionScope':'curve_dependencies_v1'})
+    selection=compact['inputSelection']
+    assert selection['source']['definitionRevisionId']==other and compact['points']==full['points']
+    assert set(selection['observationIds'])=={key for point in full['points'] for key in point['lineage']}
+    assert selection['correctionsSupported']==full['inputSelection']['correctionsSupported']
+    print('PASS compact curve follows the exact non-primary recorded source and lineage',flush=True)
+    known=client.call('interval-series')['knownAt']
     product=next(p for p in client.call('custom-curves')['powerProducts'] if p['code']=='pjm')
     node=lambda id,kind,parameters=None,inputs=None:dict(id=id,kind=kind,parameters=parameters or {},inputs=inputs or {})
     recipe=dict(code='synthetic_source_power',name='Synthetic exact source power',output='result',nodes=[node('peak','source',dict(curve=codes[0])),node('off','source',dict(curve=codes[1])),node('hours','power_intervals',dict(implementation='flat_forward_only_v1',product=product['id'],productVersion=str(product['version']),profile='test_hourly_eastern',profileMapping='exact_native_grid_terms_v1',market='DA',**{'from':'2031-11-01','to':'2031-12-01'}),dict(peak='peak',offPeak='off')),node('result','output',inputs=dict(values='hours'))])
