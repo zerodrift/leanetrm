@@ -540,7 +540,7 @@ class CheckAllTests(unittest.TestCase):
                    run=lambda command, **options: commands.append(command))
         market = 'tests/OpenEtrm.MarketData.Checks/OpenEtrm.MarketData.Checks.csproj'
         runs = [c for c in commands if '--project' in c and c[c.index('--project') + 1] == market]
-        self.assertEqual([c[c.index('--project') + 2:] for c in runs], [[], ['--', '--futures-options'], ['--', '--vol-surface'], ['--','--calendar-policy'], ['--','--payment-date-policy'], ['--', '--hybrid-monte-carlo-risk'], *[['--',flag] for flag in ('--power-flat','--power-atc','--power-product-averages','--power-interval-quantities','--ppa-sides')]])
+        self.assertEqual([c[c.index('--project') + 2:] for c in runs], [[], ['--', '--futures-options'], ['--', '--spread-options'], ['--', '--vol-surface'], ['--','--calendar-policy'], ['--','--payment-date-policy'], ['--', '--hybrid-monte-carlo-risk'], *[['--',flag] for flag in ('--power-flat','--power-atc','--power-product-averages','--power-interval-quantities','--ppa-sides')]])
         restores = [c for c in commands if 'restore' in c and c[c.index('restore') + 1] == market]
         self.assertEqual(len(restores), 1)
 

@@ -1,5 +1,11 @@
 # Architecture and domain contracts
 
+D430 adds a managed [heat-rate call option](heat-rate-call-option.md): one option
+Side holding explicit daily exercises, valued as spread calls from the scenario's
+power and fuel forwards with explicit volatility and correlation marks as its
+pricing binding. Risk remains base/up/down repricing. Persistence, booking and
+exercise determination are not implemented.
+
 D427 adds opt-in personal [assistant history search](assistant-workspace.md#personal-chat-history-search-d427)
 and retains walkthrough guidance in conversation history. Search uses current
 user/agent authority and returns prior interactions with their original context;

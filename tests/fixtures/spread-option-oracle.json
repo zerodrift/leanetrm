@@ -1,0 +1,125 @@
+{
+ "calls": [
+  {
+   "long": "45",
+   "short": "28",
+   "strike": "3",
+   "long_volatility": "0.6",
+   "short_volatility": "0.45",
+   "correlation": "0.8",
+   "years": "0.25",
+   "discount": "0.99",
+   "kirk": "13.913240585002263905941973007778",
+   "integral": "13.913639480175"
+  },
+  {
+   "long": "45",
+   "short": "28",
+   "strike": "0",
+   "long_volatility": "0.6",
+   "short_volatility": "0.45",
+   "correlation": "0.8",
+   "years": "0.25",
+   "discount": "0.99",
+   "kirk": "16.838500693311251155686760992371",
+   "integral": "16.838500693311"
+  },
+  {
+   "long": "32",
+   "short": "35",
+   "strike": "2.5",
+   "long_volatility": "0.9",
+   "short_volatility": "0.5",
+   "correlation": "0.7",
+   "years": "0.5",
+   "discount": "0.975",
+   "kirk": "3.947916989942734857916923374154",
+   "integral": "3.946540489040"
+  },
+  {
+   "long": "120",
+   "short": "31.5",
+   "strike": "4",
+   "long_volatility": "1.5",
+   "short_volatility": "0.6",
+   "correlation": "0.5",
+   "years": "0.08",
+   "discount": "0.997",
+   "kirk": "84.249912792689363186951429171625",
+   "integral": "84.249928994716"
+  },
+  {
+   "long": "38",
+   "short": "36",
+   "strike": "1",
+   "long_volatility": "0.55",
+   "short_volatility": "0.5",
+   "correlation": "0.95",
+   "years": "1",
+   "discount": "0.95",
+   "kirk": "2.994313904337031008899958859312",
+   "integral": "2.995211216801"
+  },
+  {
+   "long": "60",
+   "short": "24.5",
+   "strike": "5",
+   "long_volatility": "0.4",
+   "short_volatility": "0.35",
+   "correlation": "0",
+   "years": "2",
+   "discount": "0.9",
+   "kirk": "29.510844783097147579903566785883",
+   "integral": "29.547944986797"
+  },
+  {
+   "long": "25",
+   "short": "40",
+   "strike": "3",
+   "long_volatility": "0.7",
+   "short_volatility": "0.4",
+   "correlation": "0.6",
+   "years": "0.75",
+   "discount": "0.96",
+   "kirk": "1.002453223912571966059274367872",
+   "integral": "1.002397400109"
+  },
+  {
+   "long": "52.25",
+   "short": "49",
+   "strike": "2.75",
+   "long_volatility": "1.2",
+   "short_volatility": "0.9",
+   "correlation": "0.85",
+   "years": "0.002739726027397260273972602740",
+   "discount": "1",
+   "kirk": "0.987974121276869392231137487012",
+   "integral": "0.987994820779"
+  },
+  {
+   "long": "41",
+   "short": "30",
+   "strike": "3",
+   "long_volatility": "0.5",
+   "short_volatility": "0",
+   "correlation": "0",
+   "years": "0.5",
+   "discount": "0.98",
+   "kirk": "9.923619048171381678013998019718",
+   "integral": "9.923619048171",
+   "black76": "9.923619048171381678013998019718"
+  },
+  {
+   "long": "41",
+   "short": "30",
+   "strike": "3",
+   "long_volatility": "0.2",
+   "short_volatility": "0.2",
+   "correlation": "0.9",
+   "years": "0.01",
+   "discount": "0.9995",
+   "kirk": "7.996000000000000000000000000000",
+   "integral": "7.996000000000"
+  }
+ ]
+}

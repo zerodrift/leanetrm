@@ -6637,3 +6637,13 @@ projection-size or deployment changes require separate qualification.
 An installation binds one reviewed Swarm service and a dedicated risk-worker login to its workspace. Jobs can request zero, one or two replicas. Scaling requires both workspace permission and current installation operator registration. A separate permission grants access to bounded worker and node diagnostics. Installations choose the roles that receive these permissions.
 
 A scale command records its request identity and expected generation before the controller dispatches a version-checked service update. Workers claim existing risk jobs individually under their own leases. Downscaling closes admission while active work drains. See the [worker pool contract and qualification](managed-risk-pool.md).
+
+## D430 — Heat-rate call option as a daily spread-call strip
+
+**Status:** managed valuation and risk implemented and locally checked. Persistence, booking, marks publication, presentation, exercise determination and settlement are not implemented.
+
+**Requirement.** Book a generation toll as a heat-rate call option with daily exercise, valued and risked the way a power desk marks one.
+
+**Decision.** `HeatRateCallInstrument` composes one `HeatRateCallSide`. The Side retains explicit delivery days, each with its exercise and payment instants, energy per unit of capacity, exact power and fuel curve requests and a mark bucket. Each day ahead of the clock is a European call on power minus heat rate times fuel minus a nonnegative strike, valued with Kirk's approximation (`spread_call_kirk_lognormal_v1`) at act/365 fixed. Power volatility, fuel volatility and correlation are explicit per-bucket trader marks held through price scenarios; they are a pricing binding, not economic identity. The volatilities are declared volatility inputs. Premiums and capacity payments remain separate cash bindings. This names tolling as the first consumer of spread-option valuation.
+
+**Boundaries.** No volatility or correlation is inferred. Correlation has no shock. An elapsed exercise day refuses until a recorded determination exists. Negative power prices, intraday exercise, physical delivery and unit constraints are outside this profile. See the [contract and verification](heat-rate-call-option.md).

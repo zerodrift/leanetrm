@@ -1,5 +1,11 @@
 # Delivery plan and acceptance criteria
 
+D430 adds managed valuation and risk for a [heat-rate call option](heat-rate-call-option.md):
+a daily strip of spread calls with explicit volatility and correlation marks.
+Twenty-one managed checks pass locally, including the booking-time exercise schedule. Persistence, booking, marks publication,
+presentation, exercise determination and settlement remain open, as does the
+commercial Storage contract.
+
 D427 adds personal chat-history search through an explicit composer checkbox and
 repairs retained walkthrough narration and final-pause verification. Its bounded
 contract is in [workspace assistance](assistant-workspace.md#personal-chat-history-search-d427).
@@ -2056,8 +2062,8 @@ Extend only after the baseline contracts are demonstrated:
   expiry on one underlying future). Strategies across expiries need a declared
   relationship between futures months first; futures legs, saved strategies and
   booking a strategy in one action follow it.
-- Spread-option valuation for storage, tolling and transport, once one of those
-  product lines names it as a consumer.
+- Spread-option valuation for storage and transport. Tolling is its first
+  consumer (D430); each further product line names its own.
 - Option-side sibling dependencies, shared exercise groups and an explicit
   contribution/allocation convention that does not double-count the underlying.
 - Physical/financial composite sides with typed gas/power delivery metadata and
