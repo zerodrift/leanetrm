@@ -2,11 +2,7 @@
 
 ## Personal chat-history search (D427)
 
-The composer offers **Allow searching my chat history**, initially unchecked.
-The choice is recorded with each question and cannot change on an uncertain
-request's retry. New conversations and identity changes clear the choice. Existing
-conversation context and the agent version's history window remain independent.
-
+Personal Settings (user preferences) offers **Allow searching my chat history**, defaulting to unchecked and persisting per user/workspace preference. The choice is read server-side from user preferences when each turn is admitted and still pinned per turn in `assistant.turn_history_options` so retries remain immutable. Existing conversation context and the agent version's history window remain independent.
 Only an opted-in question offers `search_chat_history`. An agent version or
 prompt cannot authorize it. The application derives owner, tenant, workspace and
 API/exchange scope from the admitted turn and its current delegation; tool input
