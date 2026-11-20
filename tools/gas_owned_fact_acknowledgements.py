@@ -3,16 +3,6 @@ import json
 from decimal import Decimal
 from uuid import uuid4
 
-legacy_record=None
-SIGNATURE='security.record_gas_owned(uuid,uuid,text,uuid,jsonb,timestamptz,uuid,uuid,integer,boolean)'
-
-
-def before_migration(query,migration):
-    global legacy_record
-    if migration.name=='0314_gas_owned_financial_fact_acknowledgements.sql':
-        legacy_record=query(f"SELECT pg_get_functiondef('{SIGNATURE}'::regprocedure);")
-
-
 def checks(query,manifest,state):
     catalog,tenant,workspace=(manifest[key] for key in ('catalogId','tenantId','workspaceId'))
     issuer=manifest['identityIssuer'];account=state['account'];at=state['at'];loan=state['loan'];failures=[]
@@ -32,18 +22,22 @@ def checks(query,manifest,state):
     def evidence(key,kind,quantity,when,revision):
         return record('evidence',dict(sourceKey=key,kind=kind,quantity=quantity,occurredAt=when,
             evidence='Synthetic accepted quantity source snapshot',expectedRevision=revision))['id']
-    def revise(identity,quantity,selected_evidence):
-        current=source();use=next(row for row in current['consumptions'] if row['id']==identity)
+    def revise_uses(changes):
+        current=source();uses={row['id']:row for row in current['consumptions']}
         body=dict(loanId=loan['id'],expectedRevision=current['loan']['expectedRevision'],stockExpectedRevision=current['stock']['financialRevision'],
             returnExpectedRevision=current['return']['financialRevision'],quantity=current['loan']['quantity'],
             titleEvidenceId=current['loan']['title_evidence_id'],agreementEvidenceId=current['loan']['agreement_evidence_id'],
             sourceAllocation='preserve_unallocated_source_quantity_v1',feeDisposition='retain_fixed_fee_memberships_v1',
-            consumptions=[dict(consumptionId=identity,expectedRevision=use['financialRevision'],lotId=use['lot_id'],quantity=quantity,
-                evidenceId=selected_evidence,reservationId=use['reservation_id'],retracted=False,sourceAllocation='preserve_unallocated_source_quantity_v1')],
+            consumptions=[dict(consumptionId=identity,expectedRevision=uses[identity]['financialRevision'],lotId=uses[identity]['lot_id'],quantity=quantity,
+                evidenceId=selected_evidence,reservationId=uses[identity]['reservation_id'],retracted=False,sourceAllocation='preserve_unallocated_source_quantity_v1')
+                for identity,quantity,selected_evidence in changes],
             evidence='Synthetic complete current financial use correction')
         result=json.loads(call(f"SELECT security.reconcile_gas_loan_quantities('{catalog}','{uuid4()}','{account}',{literal(body)},'{at}','{capture()}','{state['policy']}',1,false)::text;"))
-        assert result['changed'] and Decimal(result['consumptions'][0]['currentQuantity'])==Decimal(quantity)
-        return next(row for row in source()['consumptions'] if row['id']==identity)
+        quantities={row['consumptionId']:Decimal(row['currentQuantity']) for row in result['consumptions']}
+        assert result['changed'] and quantities=={identity:Decimal(quantity) for identity,quantity,_ in changes}
+        return {row['id']:row for row in source()['consumptions'] if row['id'] in quantities}
+    def revise(identity,quantity,selected_evidence):
+        return revise_uses([(identity,quantity,selected_evidence)])[identity]
     def original(action,use,loan_id=None):
         value=dict(lotId=use['lot_id'],evidenceId=use['evidence_id'],quantity=use['quantity'],reservationId=use['reservation_id'],effectiveAt=use['effective_at'].replace('+00:00','Z'))
         if loan_id is not None:value['loanId']=loan_id
@@ -95,23 +89,22 @@ def checks(query,manifest,state):
     repaid=revise(repaid['id'],'0.125',returned)
     repay_policy=query(f"SELECT policy_id FROM trading.gas_owned_action_bindings WHERE(catalog_id,account_id,action)=('{catalog}','{account}','gas.loan.repay') ORDER BY revision DESC LIMIT 1;")
     acknowledged('repay',original('repay',repaid,loan['id']),repay_policy,state['repayment'],2,2,'0.125','current_linked_repayment')
-    # Two distinct original uses can become equal financial snapshots in a
-    # retained pre-upgrade history. Construct them through the exact preserved
-    # old public producer, retaining every capacity/source check.
+    # Distinct accepted partial uses can converge to equal financial snapshots
+    # through explicit corrections, while retaining every capacity/source check.
     common_at='2020-12-20T14:00:00Z'
     common_a=evidence('synthetic_ambiguous_origin','physical_delivery','0.25',common_at,0)
     common_body=dict(lotId=loan['stockId'],evidenceId=common_a,quantity='0.125',reservationId=None,effectiveAt=common_at)
     common_first=record('dispatch',common_body,state['dispatchPolicy'])['id']
     common_b=record('evidence',dict(sourceKey='synthetic_ambiguous_origin',kind='physical_delivery',quantity='0.25',occurredAt=common_at,
         evidence='Synthetic successor evidence for exact retained partial allocations',expectedRevision=1))['id']
-    common_use=revise(common_first,'0.125',common_b);ambiguous_body=original('dispatch',common_use)
-    current_definition=query(f"SELECT pg_get_functiondef('{SIGNATURE}'::regprocedure);")
-    retained_definition=legacy_record or current_definition
-    try:
-        query(retained_definition)
-        second=record('dispatch',ambiguous_body,state['dispatchPolicy'])
-        assert second['changed'] and second['id']!=common_first,'The preserved pre-upgrade producer did not create the second legal partial allocation.'
-    finally:query(current_definition)
+    revise(common_first,'0.125',common_b)
+    second=record('dispatch',common_body|dict(quantity='0.0625',evidenceId=common_b),state['dispatchPolicy'])['id']
+    assert second!=common_first,'Distinct partial allocations must retain independent native identities.'
+    # Keep the original .0625 unallocated while both accepted uses become .125.
+    common_c=evidence('synthetic_ambiguous_origin','physical_delivery','0.3125',common_at,2)
+    assert len({common_a,common_b,common_c})==3,'The fixture requires three distinct accepted source revisions.'
+    common_uses=revise_uses([(common_first,'0.125',common_c),(second,'0.125',common_c)])
+    ambiguous_body=original('dispatch',common_uses[common_first])
     before=counts()
     try:record('dispatch',ambiguous_body,state['dispatchPolicy'])
     except RuntimeError as error:assert 'gas_owned_fact_ambiguous' in str(error),str(error)

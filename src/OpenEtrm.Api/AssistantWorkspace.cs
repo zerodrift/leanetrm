@@ -297,7 +297,11 @@ internal sealed class AssistantWorkspace(PreviewDatabase database,string scope,s
         if(turn.Pin.Frame is {} frame)session.Frames.Add(frame.Id,operation.CurrentOnly?frame:frame with{ContextId=turn.Pin.ContextId});
         if(!operation.CurrentOnly)
             session.MarketContext=certificate;
-        var invocation=new AssistantInvocation(session){ReadLimit=turn.ReadLimit,CapturedWorkingRead=turn.Pin.Working};
+        // Certificate selection and endpoint work use separate transactions.
+        // Reconstruct the fenced turn's inputs in the actual business operation.
+        var invocation=new AssistantInvocation(session,operation.NeedsFinancialContext?
+            (connection,t)=>turn.Context(connection,database.Manifest.CatalogId,t):null)
+            {ReadLimit=turn.ReadLimit,CapturedWorkingRead=turn.Pin.Working};
         var value=await Invoke(owner,invocation,operation,request,ct);
         return(new(){["operation"]=id,["data"]=value,["knowledge"]=operation.CurrentOnly?"current_operations_or_definitions":"pinned",
             ["cutoff"]=turn.Pin.Resolved?turn.Pin.Cutoff.ToString("O",CultureInfo.InvariantCulture):null,["selectedObservationCutoff"]=selectedCutoff?.ToString("O",CultureInfo.InvariantCulture)},[..invocation.Access]);
@@ -370,7 +374,8 @@ internal sealed class AssistantWorkspace(PreviewDatabase database,string scope,s
         var held=await Permissions(owner,turn.ReadLimit,ct);
         if(!operation.Permissions.All(held.Contains))throw new PreviewDeniedException();
         if(operation.NeedsFinancialContext)await turn.EnsureContext(ct);
-        var invocation=new AssistantInvocation(owner.Session){ReadLimit=turn.ReadLimit};
+        var invocation=new AssistantInvocation(owner.Session,operation.NeedsFinancialContext?
+            (connection,t)=>turn.Context(connection,database.Manifest.CatalogId,t):null){ReadLimit=turn.ReadLimit};
         var value=await AsOwner(owner,()=>database.WithIdentity(owner.Profile,AssistantOperations.Permission,read,ct),invocation);
         return(value,[..invocation.Access]);
     }

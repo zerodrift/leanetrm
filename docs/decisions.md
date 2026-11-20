@@ -6806,6 +6806,8 @@ Assistant input registration verifies the current turn token, worker generation
 and authority without holding the turn or generation's writer row locks during
 source reads. A blocked read remains cancellable and a lost worker replaceable.
 Native publication retains its locked writer fence and current-authority checks.
+Page operation reads and projections register those same turn-owned inputs in
+the transaction that executes the business operation.
 
 Gas correction commands classify an exact retry under their producer's operation
 lock. A new semantic acknowledgement admits explicit input coordinates before

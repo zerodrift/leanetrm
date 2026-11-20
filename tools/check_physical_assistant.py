@@ -75,6 +75,7 @@ def run_checks(url, query, manifest, fake, demo, dotnet, environment, owned_root
     correction=[]
     turn,results,original=ask([('read_workspace_page',{'page':'facility_quantities'}),('navigate',{'page':'gas_setup','target':None})],
                              before_read=lambda:correction.append(facility_source('90',demo['sourceId'])))
+    assert 'directory' in results[0],results
     view=results[0]['directory']['data']
     check('a requested facility read captures the correction available at that first read',view['facts']['source']['quantity']=='90')
     check('facility questions use the explicit operating date without a pricing snapshot',
