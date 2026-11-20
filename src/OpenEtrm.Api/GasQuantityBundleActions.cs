@@ -104,6 +104,7 @@ internal sealed class GasQuantityBundleActions(PreviewDatabase database):ILifecy
     {
         var(selected,body)=Inputs(request);
         var admission=await GasOwnedOperations.Admission(connection,database,"quantity_reconciliation_bundle",body,false,ct);
+        await GasOwnedOperations.AdmitNewCommandInputs(connection,database,request,admission,ct);
         if(await Record(connection,request,selected,body,null,true,ct) is {} receipt)return new(receipt.GetProperty("outcome"),admission);
         var context=await LifecycleNative.Source(connection,database,request.Context,ct);
         var(_,physical)=await Sources(connection,request,selected,body,context,ct);

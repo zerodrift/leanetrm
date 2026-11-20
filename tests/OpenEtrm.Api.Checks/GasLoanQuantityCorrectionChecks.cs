@@ -3,6 +3,7 @@ using System.Text.Json;
 using Npgsql;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
+using OpenEtrm.Shared.Temporal;
 
 internal static class GasLoanQuantityCorrectionChecks
 {
@@ -35,7 +36,28 @@ internal static class GasLoanQuantityCorrectionChecks
         catch(MarketDataException error)when(error.Code=="gas_quantity_stale_review"){}
         var first=await database.WithIdentity("trader",null,(connection,ct)=>operations.Execute(connection,accepted,ct),default);
         var evicted=new LifecycleOperations(database,_=>throw new Exception("A loan correction retry reloaded its evicted source frame."));
-        var retry=await database.WithIdentity("trader",null,(connection,ct)=>evicted.Execute(connection,accepted,ct),default);
+        var originalInputs=ReadReferences.Operation.Value;
+        LifecycleActionWrite retry;
+        ReadReferences.Operation.Value=new();
+        try
+        {
+            retry=await database.WithIdentity("trader",null,(connection,ct)=>evicted.Execute(connection,accepted,ct),default);
+            var changed=accepted.Selection.Deserialize<GasLoanQuantityReconciliationSelection>(GasOwnedOperations.Json)! with{Quantity="0.376"};
+            try
+            {
+                await database.WithIdentity("trader",null,(connection,ct)=>evicted.Execute(connection,
+                    accepted with{Selection=JsonSerializer.SerializeToElement(changed,GasOwnedOperations.Json)},ct),default);
+                throw new Exception("An existing loan correction operation accepted different financial inputs.");
+            }
+            catch(PostgresException error)when(error.MessageText=="gas_owned_conflict"){}
+            try
+            {
+                await database.WithIdentity("trader",null,(connection,ct)=>evicted.Execute(connection,accepted with{OperationId=Guid.NewGuid()},ct),default);
+                throw new Exception("A new loan acknowledgement accepted a correlation without its explicit input coordinates.");
+            }
+            catch(TemporalException error)when(error.Code=="temporal_context"){}
+        }
+        finally{ReadReferences.Operation.Value=originalInputs;}
         if(first.Outcome.GetRawText()!=retry.Outcome.GetRawText()||!first.Outcome.GetProperty("changed").GetBoolean())
             throw new Exception("Loan correction did not retain its exact atomic first outcome.");
         var acknowledged=await database.WithIdentity("trader",null,(connection,ct)=>evicted.Execute(connection,accepted with{OperationId=Guid.NewGuid()},ct),default);

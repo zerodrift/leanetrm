@@ -128,6 +128,7 @@ internal sealed class GasFuturesQuantityBatchActions(PreviewDatabase database):I
     public async Task<LifecycleActionWrite> Execute(NpgsqlConnection connection,LifecycleActionRequest request,CancellationToken ct)
     {
         var body=Inputs(request);var admission=await GasOwnedOperations.Admission(connection,database,"futures_quantity_reconciliation_batch",body,false,ct);
+        await GasOwnedOperations.AdmitNewCommandInputs(connection,database,request,admission,ct);
         if(await Record(connection,request,body,null,true,ct) is {} receipt)return new(receipt.GetProperty("outcome"),admission);
         var context=await LifecycleNative.Source(connection,database,request.Context,ct);
         var principal=await Plan(connection,request,body,context,ct);

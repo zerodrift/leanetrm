@@ -94,6 +94,7 @@ internal sealed class GasOwnedQuantityReconciliationActions(PreviewDatabase data
     public async Task<LifecycleActionWrite> Execute(NpgsqlConnection connection,LifecycleActionRequest request,CancellationToken ct)
     {
         var body=Inputs(request);var admission=await GasOwnedOperations.Admission(connection,database,"owned_quantity_reconciliation",body,false,ct);
+        await GasOwnedOperations.AdmitNewCommandInputs(connection,database,request,admission,ct);
         if(await Record(connection,request,body,true,ct) is {} receipt)return new(receipt.GetProperty("outcome"),admission);
         var context=await LifecycleNative.Source(connection,database,request.Context,ct);
         _=await Source(connection,request,body,context,ct);

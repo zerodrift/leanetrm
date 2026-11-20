@@ -11,11 +11,10 @@ from check_reference_editing import main
 from check_gas_owned_holdings import checks as owned_checks
 
 
-def checks(query,manifest,after_writer=None,*,after_counterparts=None,baseline_already_run=False):
+def checks(query,manifest,after_writer=None,*,after_counterparts=None):
     # Preserve the original title, loan, cashout and ordinary valuation oracles
     # before introducing any correction to their source-known counterparts.
-    if not baseline_already_run:
-        owned_checks(query,manifest,form_source_counterexamples=False)
+    owned_checks(query,manifest,form_source_counterexamples=False)
     catalog,tenant,workspace=(manifest[key] for key in ('catalogId','tenantId','workspaceId'))
     accounts=json.loads(query("SELECT jsonb_agg(to_jsonb(a))::text FROM trading.gas_owned_accounts a "
         f"WHERE(a.catalog_id,a.code)=('{catalog}','synthetic_operator_balance_2');"))

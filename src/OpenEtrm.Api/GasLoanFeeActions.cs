@@ -91,6 +91,7 @@ internal sealed class GasLoanFeeActions(PreviewDatabase database):ILifecycleActi
     public async Task<LifecycleActionWrite> Execute(NpgsqlConnection connection,LifecycleActionRequest request,CancellationToken ct)
     {
         var body=Inputs(request);var admission=await GasOwnedOperations.Admission(connection,database,"loan_fee_amendment",body,false,ct);
+        await GasOwnedOperations.AdmitNewCommandInputs(connection,database,request,admission,ct);
         if(await Record(connection,request,body,true,ct) is {} receipt)return new(receipt.GetProperty("outcome"),admission);
         _=await Source(connection,request,ct);
         if(Hash(request,body)!=request.PreviewHash)throw new MarketDataException("gas_fee_stale_review","The reviewed loan, fee terms, source or policy changed. Review the amendment again.");

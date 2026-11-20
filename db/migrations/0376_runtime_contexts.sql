@@ -1616,4 +1616,25 @@ BEGIN
  END LOOP;
 END$$;
 
+-- Correction receipt probes can themselves record a new acknowledgement.
+-- Classify exact retries under the producer's lock before admitting new inputs;
+-- the producer still validates the complete original request and outcome.
+CREATE FUNCTION security.gas_owned_command_recorded(catalog uuid,operation uuid,authority_until timestamptz) RETURNS boolean
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE actor uuid;recorded_actor uuid;
+BEGIN
+ PERFORM security.require_gas_owned_commit(catalog,authority_until,false,false);
+ IF operation IS NULL OR operation='00000000-0000-0000-0000-000000000000'::uuid THEN RAISE EXCEPTION 'gas_owned_input';END IF;
+ SELECT q.actor_id INTO STRICT actor FROM security.request_contexts q WHERE q.backend_pid=pg_backend_pid()
+ AND q.transaction_id=pg_current_xact_id_if_assigned() AND q.runtime_login=session_user;
+ PERFORM pg_advisory_xact_lock(hashtextextended('gas_owned:'||catalog::text||':'||operation::text,0));
+ SELECT c.actor_id INTO recorded_actor FROM trading.gas_owned_commands c WHERE(c.catalog_id,c.request_id)=(catalog,operation);
+ PERFORM security.require_gas_owned_commit(catalog,authority_until,false,false);
+ IF recorded_actor IS NOT NULL AND recorded_actor IS DISTINCT FROM actor THEN RAISE EXCEPTION 'gas_owned_conflict';END IF;
+ RETURN recorded_actor IS NOT NULL;
+END$$;
+ALTER FUNCTION security.gas_owned_command_recorded(uuid,uuid,timestamptz) OWNER TO openetrm_security_owner;
+REVOKE ALL ON FUNCTION security.gas_owned_command_recorded(uuid,uuid,timestamptz) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION security.gas_owned_command_recorded(uuid,uuid,timestamptz) TO openetrm_runtime;
+
 COMMIT;

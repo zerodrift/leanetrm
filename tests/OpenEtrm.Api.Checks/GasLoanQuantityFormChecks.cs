@@ -17,11 +17,9 @@ internal static class GasLoanQuantityFormChecks
         await using var database=new PreviewDatabase(manifest,new NpgsqlConnectionStringBuilder(login.ConnectionString){Username="preview_authenticator"},login);
         // Capture a new source after the qualified producer; guessing the new
         // financial heads under its older review source would be invalid.
-        var context=await database.WithIdentity("trader",null,async(connection,ct)=>
-        {
-            await using var capture=ScheduleStore.Command(connection,"SELECT security.resolve_operation_context($1,$2,NULL)",manifest.CatalogId,new DateOnly(2020,12,20));
-            return(Guid)(await capture.ExecuteScalarAsync(ct))!;
-        },default);
+        var source=await database.WithIdentity("trader",null,(connection,ct)=>
+            new KnowledgeResolver(manifest.CatalogId).Source(connection,new("2020-12-20",null,"current"),ct),default);
+        var context=source.Context.ContextId!.Value;
         var selected=new LifecycleReadContext(context,fixture.Instant("at"),new(2020,12,20),Guid.NewGuid());
         var frame=new InputFrame(selected.SnapshotId!.Value,"Synthetic loan form source",selected.AsOf,selected.BusinessDate,[],
             ImmutableDictionary<string,ImmutableArray<Guid>>.Empty,context);
