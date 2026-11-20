@@ -607,10 +607,13 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
     again = trader.call(view, {'selection': 'latest_correction'})
     fake.respond(stream(recording(model_name, text='Pinned again.')))
     pinned, _ = settled(ask(report={'page': 'users_access', 'selection': {}}, knowledge={'mode': 'retained', 'contextId': selected['contextId'], 'frameId': None})['turn'])
-    check('reopening a recorded question selects its original coordinates, which a new ask owns unchanged',
+    check('reopening a recorded question selects its original coordinates; a text-only ask owns those inputs without reading financial data',
           again['context'] == selected and trader.call('workspace/navigation')['context'] == selected
           and (pinned['state'], pinned['context']['contextId']) == ('completed', selected['contextId'])
-          and int(query(INPUTS)) == int(contexts)+1, (again, pinned))
+          and int(query(INPUTS)) == int(contexts)
+          and query(f"SELECT input_known_at IS NULL AND pins IS NULL AND requested_context='{selected['contextId']}'::uuid "
+              f"AND requested_business_on='{selected['effectiveOn']}'::date AND requested_known_at='{selected['knownAt']}'::timestamptz "
+              f"FROM assistant.turns WHERE id='{pinned['id']}';") == 't', (again, pinned))
     trader.call('market/current', {})
     refused = [trader.call(view, {'selection': None}, expected=422)['code'],
                trader.call(f'assistant/turns/{uuid4()}/view', {'selection': 'latest_correction'}, expected=404)['code'],

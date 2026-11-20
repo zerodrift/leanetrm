@@ -82,6 +82,10 @@ def main():
             source=dict(definitionRevisionId=f.definition_revision, referenceCatalogId=f.reference, referenceRevisionId=f.valuation_reference),
             contractId=f.contract, policy='manual_final_direct_point_trader_mark_v1',
             noFrameContext=dict(contextId=f.market_context(), asOf='2020-12-19T16:00:00.000020Z', businessDate='2020-12-19', snapshotId=str(uuid4())))
+        from native_read_transport import captured_input
+        missing_frame_inputs=captured_input(query,packet['noFrameContext']['contextId'])
+        packet['noFrameInputs']=dict(contextId=missing_frame_inputs['id'],effectiveOn=missing_frame_inputs['effective_on'],
+            knownAt=missing_frame_inputs['known_at'],knownThrough=missing_frame_inputs['schedule_prefix'])
         print('Point TraderMark browser fixture migrations loaded.', flush=True)
         artifacts = Path(tempfile.mkdtemp(prefix='openetrm-point-publication-artifacts-'))
         artifacts.chmod(0o700)

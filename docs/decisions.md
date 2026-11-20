@@ -6801,3 +6801,8 @@ declared policy anew; a retry reconstructs its original admission. No saved
 context compatibility reader remains. Use an explicit fresh installation and
 reseed rather than infer missing inputs from old rows. See the
 [cutover contract and qualification gates](ephemeral-context-cutover.md).
+
+Assistant input registration verifies the current turn token, worker generation
+and authority without holding the turn or generation's writer row locks during
+source reads. A blocked read remains cancellable and a lost worker replaceable.
+Native publication retains its locked writer fence and current-authority checks.

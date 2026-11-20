@@ -196,6 +196,7 @@ def run_checks(client, query, manifest, plan, *, other_plans=()):
     assert client.call(route+'hedges',empty,expected=422)['code']=='power_hedge_contract'
     from check_power_market_http import run_checks as check_market_price
     check_market_price(client,request,hedge['tradeId'],context)
+    client.select_inputs(client.observed_inputs[retained_selection['contextId']])
     assert client.call(route+'get',retained_get)==exact_retained, \
         'Later facility and operating publications must not change the exact retained operating source or Side membership receipt.'
     assert client.call(route+'get',selected)['sides']==reopened['sides'], \

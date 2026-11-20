@@ -880,6 +880,19 @@ BEGIN
  END LOOP;
 END$consumers$;
 
+-- The reviewed scalar predicate now reads operation inputs. Keep batching that
+-- exact predicate; any later body or privilege drift still takes its fallback.
+DO $calendar_scalar_guard$
+DECLARE definition text;source text;previous text='6fbdedd7d9613d695872ddd7c19eaecc704c331a0eecf5c33b0640c133b4b382';
+BEGIN
+ definition=pg_get_functiondef('security.market_close_batch_visible(uuid,uuid[])'::regprocedure);
+ IF (length(definition)-length(replace(definition,previous,'')))/length(previous)<>1
+ THEN RAISE EXCEPTION 'runtime_context_scalar_guard_changed' USING ERRCODE='55000';END IF;
+ SELECT prosrc INTO STRICT source FROM pg_proc WHERE oid='security.market_close_visible(uuid,uuid)'::regprocedure;
+ EXECUTE replace(definition,previous,encode(sha256(convert_to(source,'UTF8')),'hex'));
+END$calendar_scalar_guard$;
+
+
 -- Source-owning readers and pre-bind permission qualification derive their
 -- values from those owners, not from whether a request projection exists.
 DO $owner_consumers$
@@ -1066,7 +1079,14 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE t assistant.turns;q security.request_contexts;agent uuid;
 BEGIN
  PERFORM 1 FROM security.epoch WHERE id=true FOR SHARE;
- t=assistant.fenced_turn(turn,token);
+ -- Input registration is a read fence. A blocked source read must not hold the
+ -- turn or worker-generation row locks needed to stop or replace its worker.
+ -- Native publication retains the locked writer fence.
+ SELECT x.* INTO t FROM assistant.turns x CROSS JOIN assistant.worker_generation w
+ WHERE x.id=register_turn_inputs.turn AND token IS NOT NULL
+ AND encode(sha256(token),'hex')=x.token_digest AND x.generation=w.generation
+ AND assistant.holds_worker_lock(w.worker_pid);
+ IF t.id IS NULL THEN RAISE EXCEPTION 'agent_runtime_unavailable' USING ERRCODE='42501';END IF;
  SELECT * INTO STRICT q FROM security.request_contexts c WHERE c.backend_pid=pg_backend_pid()
  AND c.transaction_id=pg_current_xact_id_if_assigned() AND c.runtime_login=session_user AND c.expires_at>clock_timestamp();
  SELECT a.principal_id INTO STRICT agent FROM assistant.agents a WHERE a.id=t.agent_id;

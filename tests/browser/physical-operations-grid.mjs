@@ -22,5 +22,5 @@ export async function openGasDelivery(actions,day,side){
 // explicit original fixture frame and its session before interacting with a row.
 export async function selectDeliveryFrame({evaluate,set,wait,idle},atPrefix){
  const frame=await evaluate(`(async()=>{const w=await(await window.workspaceFetch('/api/workspace')).json();const rows=w.frames.filter(f=>w.initialFrameIds.includes(f.id)&&f.at.startsWith(${JSON.stringify(atPrefix)}));if(rows.length!==1)throw Error('Select one exact original delivery frame.');return {id:rows[0].id,session:rows[0].close?.session??null};})()`);
- if(frame.session){await set('#close-session',frame.session);await wait(idle);}await set('#snapshot',frame.id);await wait(idle);
+ if(frame.session){await set('#close-session',frame.session);await wait(idle,60000);}await set('#snapshot',frame.id);await wait(idle,60000);
 }
