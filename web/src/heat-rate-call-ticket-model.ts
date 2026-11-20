@@ -1,14 +1,15 @@
+import type {FacilityProfile} from './facility-profile.js';
 // The heat-rate call option ticket's state: what it offers from the backend's choices for what is entered so far, and the exact booking
 // terms a complete entry becomes. Every listed value is the backend's; nothing is chosen for the person, and every number but a count is
 // sent as entered for the booking to judge.
 export type Choice={value:string;label:string};
 export type TollCurve={code:string;name:string;commodity:string;currency:string;priceUnit:string;quantityUnit:string};
-export type TollCatalog={definitionRevisionId:string;referenceCatalogId:string;referenceRevisionId:string;curves:TollCurve[];
+export type TollCatalog={facilityProfiles?:FacilityProfile[];definitionRevisionId:string;referenceCatalogId:string;referenceRevisionId:string;curves:TollCurve[];
  capacityQuantities:{code:string;commodity:string;unit:string}[];blocks:{id:string;version:number;name:string;clock:string}[];clocks:string[];calendars:string[];
  intervalMinutes:number[];memberships:string[];
  paymentOptions:{frequencies:Choice[];rules:Choice[];dayBases:Choice[];shortMonths:Choice[];adjustments:Choice[];implementation:string};
  policies:{exerciseStyles:string[];models:string[];dayCounts:string[];exerciseRules:string[]}};
-export const tollFields=['book','legalEntity','counterparty','reason','direction','capacity','capacityQuantity','powerCurve','fuelCurve','heatRate','strike','deliveryFrom','deliveryTo',
+export const tollFields=['facilityProfileId','book','legalEntity','counterparty','reason','direction','capacity','capacityQuantity','powerCurve','fuelCurve','heatRate','strike','deliveryFrom','deliveryTo',
  'clock','intervalMinutes','membership','block','holidayCalendar','exerciseStyle','model','dayCount','exerciseRule','leadBusinessDays','localCutoff','exerciseCalendar',
  'paymentFrequency','paymentRule','paymentNumber','paymentDayBasis','paymentShortMonth','paymentAdjustment','paymentCalendar'] as const;
 export type TollField=typeof tollFields[number];
@@ -73,7 +74,7 @@ export function tollCommand(catalog:TollCatalog,entry:TollEntry):{ok:true;body:B
  const [legalEntityId,legalEntityRevision]=JSON.parse(e.legalEntity) as [string,number],[counterpartyId,counterpartyRevision]=JSON.parse(e.counterparty) as [string,number];
  const [touProduct,touVersion]=block?JSON.parse(e.block) as [string,number]:[null,null];
  return {ok:true,body:{bookId:e.book,legalEntityId,legalEntityRevision,counterpartyId,counterpartyRevision,reason:e.reason,terms:{
-  definitionRevisionId:catalog.definitionRevisionId,referenceCatalogId:catalog.referenceCatalogId,referenceRevisionId:catalog.referenceRevisionId,
+  ...(e.facilityProfileId?{facilityProfileId:e.facilityProfileId}:{}),definitionRevisionId:catalog.definitionRevisionId,referenceCatalogId:catalog.referenceCatalogId,referenceRevisionId:catalog.referenceRevisionId,
   quantity:e.direction==='sell'?`-${e.capacity}`:e.capacity,capacityQuantity:e.capacityQuantity,powerCurve:e.powerCurve,fuelCurve:e.fuelCurve,heatRate:e.heatRate,strike:e.strike,
   exerciseStyle:e.exerciseStyle,model:e.model,dayCount:e.dayCount,deliveryFrom:e.deliveryFrom,deliveryTo:e.deliveryTo,clock:e.clock,intervalMinutes:interval,
   hours:{membership:e.membership,touProduct,touVersion,calendar:e.holidayCalendar},

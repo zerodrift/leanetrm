@@ -7,7 +7,7 @@ namespace OpenEtrm.MarketData.Gas;
 
 // One gas day of a booked contract: its bounds, the month it is paid with and the curve contracts its flows are priced at.
 public sealed record GasStorageContractDay(DeliveryInterval GasDay, DateOnly PaymentFrom, DateOnly PaymentTo,
-    CurveRequest Injection, CurveRequest Withdrawal);
+    CurveRequest Injection, CurveRequest Withdrawal, ExactDecimal InjectionAdjustment=default, ExactDecimal WithdrawalAdjustment=default);
 // Commodity charges are per unit delivered in or out; the capacity charge is per unit of contracted capacity per month.
 public sealed record GasStorageCharges(UnitPrice Injection, UnitPrice Withdrawal, UnitPrice MonthlyCapacity);
 
@@ -40,16 +40,21 @@ public sealed record GasStorageInstrument : SidedInstrument
         var calendars = new SideCalendarPolicy(CalendarBinding.NotApplicable(), CalendarBinding.NotApplicable(), CalendarBinding.NotApplicable(), SideCalendarPolicy.Implementation);
         OperatingSideTerms Terms(IEnumerable<OperatingSidePeriod> periods) =>
             new(unit, quote, payment, ComponentKind.Payment, [.. periods], OperatingSideTerms.SupportedImplementation, calendars);
-        IEnumerable<OperatingSidePeriod> Flows(Func<GasStorageDay, Quantity> quantity, Func<GasStorageContractDay, CurveRequest>? projection) =>
-            days.Select((day, i) => new OperatingSidePeriod(day.GasDay, day.PaymentFrom, day.PaymentTo, new(null, quantity(plan[i])), projection?.Invoke(day)));
+        IEnumerable<OperatingSidePeriod> Flows(Func<GasStorageDay, Quantity> quantity, Func<GasStorageContractDay, CurveRequest>? projection,
+            Func<GasStorageContractDay,ExactDecimal>? adjustment=null) => days.Select((day,i)=>{
+                var amount=new OperatingQuantityTerm(null,quantity(plan[i]));
+                if(adjustment is not null && adjustment(day)!=default && projection is not null)
+                    return new LocationalOperatingSidePeriod(day.GasDay,day.PaymentFrom,day.PaymentTo,amount,projection(day),adjustment(day));
+                return new OperatingSidePeriod(day.GasDay,day.PaymentFrom,day.PaymentTo,amount,projection?.Invoke(day));
+            });
         // Capacity is charged once for each payment month the term touches, on that month's first gas day.
         var months = days.GroupBy(day => day.PaymentFrom).Select(month => month.First())
             .Select(day => new OperatingSidePeriod(day.GasDay, day.PaymentFrom, day.PaymentTo, new(null, entitlement.MaximumInventory), null));
         Guid Side(int n) => OperationIdentity.For("gas_storage_side_v1", id, n);
         var one = ExactDecimal.Parse("1"); var minus = ExactDecimal.Parse("-1");
         return new(id, admitted, quote, [
-            new(new FloatingSide(Side(0), Terms(Flows(day => day.Withdrawal, day => day.Withdrawal))), one),
-            new(new FloatingSide(Side(1), Terms(Flows(day => day.Injection, day => day.Injection))), minus),
+            new(new FloatingSide(Side(0), Terms(Flows(day => day.Withdrawal, day => day.Withdrawal, day => day.WithdrawalAdjustment))), one),
+            new(new FloatingSide(Side(1), Terms(Flows(day => day.Injection, day => day.Injection, day => day.InjectionAdjustment))), minus),
             new(new FixedSide(Side(2), Terms(Flows(day => day.Injection, null)), new FlatPrice(charges.Injection)), minus),
             new(new FixedSide(Side(3), Terms(Flows(day => day.Withdrawal, null)), new FlatPrice(charges.Withdrawal)), minus),
             new(new FixedSide(Side(4), Terms(months), new FlatPrice(charges.MonthlyCapacity)), minus)]);

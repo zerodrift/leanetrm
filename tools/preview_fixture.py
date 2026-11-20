@@ -409,18 +409,61 @@ def security_fixture(catalog,reference_catalog):
     return '\n'.join(security)
 
 
-def trading_fixture(catalog, swap_defaults=False, annotations=True):
+def blank_agreement_pdf():
+    """One blank page for the document digest and admission checks."""
+    objects = (b'<< /Type /Catalog /Pages 2 0 R >>',
+               b'<< /Type /Pages /Count 1 /Kids [3 0 R] >>',
+               b'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 72 72] /Resources <<>> >>')
+    pdf = bytearray(b'%PDF-1.4\n')
+    offsets = []
+    for number, body in enumerate(objects, 1):
+        offsets.append(len(pdf))
+        pdf.extend(f'{number} 0 obj\n'.encode() + body + b'\nendobj\n')
+    start = len(pdf)
+    pdf.extend(b'xref\n0 4\n0000000000 65535 f \n')
+    for offset in offsets:
+        pdf.extend(f'{offset:010} 00000 n \n'.encode())
+    pdf.extend(f'trailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n{start}\n%%EOF\n'.encode())
+    return bytes(pdf)
+
+
+def trading_fixture(catalog, swap_defaults=False, annotations=True, bilateral_products=None):
     """Immutable synthetic books used by the local futures booking operation."""
     from rate_curve_fixture import discount_default
     defaults = '\n'.join(discount_default(catalog,f'd2000000-0000-0000-0000-00000000000{n}',revision,f"'{RCAT}','{RREV}'",CURRENCY,'interest_rates',1,'2020-01-01 00:00:00+00')
                          for n,revision in [(1,REV),(2,'60000000-0000-0000-0000-000000000002')]) if swap_defaults else ''
     parties = '\n'.join(f"INSERT INTO trading.{table} VALUES ('{catalog}','{prefix}000000-0000-0000-0000-00000000000{n}',1,'{code}_{n}','Synthetic {label} {n}',1,'2020-01-01T00:00:00Z');" for table,prefix,code,label in [('legal_entities','d4','entity','entity'),('counterparties','d5','party','party')] for n in (1,2)) if annotations else ''
+    # Product regressions measure publications from this opening state. The legal-admission
+    # checks also use the same party directory with no coverage, and file their own decisions.
+    products = 'desk.products()' if bilateral_products is None else "ARRAY[" + ','.join(
+        "'" + product.replace("'", "''") + "'" for product in bilateral_products) + "]::text[]"
+    coverage = f"""DO $coverage$
+    DECLARE doc bytea := decode('{blank_agreement_pdf().hex()}', 'hex');
+    BEGIN
+      IF to_regclass('desk.agreements') IS NULL THEN RETURN; END IF;
+      INSERT INTO desk.documents VALUES ('{catalog}',sha256(doc),doc);
+      WITH agreements AS (
+        INSERT INTO desk.agreements
+        SELECT e.catalog_id,gen_random_uuid(),e.code||'_'||p.code,1,e.id,e.revision,p.id,p.revision,
+          'Test framework','framework',{products},'2020-01-01'::timestamptz,NULL,'executed','written',
+          '','blank.pdf',sha256(doc),'c0000000-0000-0000-0000-000000000002',1,sha256(convert_to(e.code||p.code,'UTF8'))
+        FROM trading.legal_entities e JOIN trading.counterparties p USING(catalog_id)
+        WHERE e.catalog_id='{catalog}' AND e.publication_order=1 AND p.publication_order=1
+        RETURNING catalog_id,legal_entity_id,legal_entity_revision,counterparty_id,counterparty_revision,products,effective_at
+      )
+      INSERT INTO desk.clearances
+      SELECT a.catalog_id,gen_random_uuid(),1,a.legal_entity_id,a.legal_entity_revision,a.counterparty_id,a.counterparty_revision,
+        product,a.effective_at,NULL,'approved','Product regression coverage','c0000000-0000-0000-0000-000000000003',1,
+        sha256(convert_to(product,'UTF8'))
+      FROM agreements a CROSS JOIN LATERAL unnest(a.products) product;
+    END $coverage$;""" if annotations and (bilateral_products is None or bilateral_products) else ''
     return f"""BEGIN;
 INSERT INTO trading.publications VALUES ('{catalog}',1,pg_current_xact_id());
 INSERT INTO trading.portfolios VALUES ('{catalog}','d0000000-0000-0000-0000-000000000001','Synthetic portfolio',1,'2020-01-01 00:00:00+00');
 INSERT INTO trading.books VALUES ('{catalog}','d1000000-0000-0000-0000-000000000001','d0000000-0000-0000-0000-000000000001','Book A',1,'2020-01-01 00:00:00+00');
 INSERT INTO trading.books VALUES ('{catalog}','d1000000-0000-0000-0000-000000000002','d0000000-0000-0000-0000-000000000001','Book B',1,'2020-01-01 00:00:00+00');
 {parties}
+{coverage}
 {defaults}
 COMMIT;"""
 

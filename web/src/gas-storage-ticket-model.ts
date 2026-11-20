@@ -1,13 +1,14 @@
+import type {FacilityProfile} from './facility-profile.js';
 // The gas storage ticket's state: what it offers from the backend's choices for what is entered so far, the ratchet bands its
 // rows describe, and the exact booking terms a complete entry becomes. Every listed value is the backend's; nothing is chosen for
 // the person, and every amount is sent as entered for the booking to judge.
 import type {RatchetBand} from './gas-storage-charts.js';
 export type Choice={value:string;label:string};
 export type StorageCurve={code:string;name:string;quote:string;quantity:string;commodity:string;currency:string;priceUnit:string;quantityUnit:string;contracts:{from:string;to:string}[]};
-export type StorageCatalog={definitionRevisionId:string;referenceCatalogId:string;referenceRevisionId:string;curves:StorageCurve[];clocks:string[];maximumRatchets:number;maximumDays:number;
+export type StorageCatalog={facilityProfiles?:FacilityProfile[];definitionRevisionId:string;referenceCatalogId:string;referenceRevisionId:string;curves:StorageCurve[];clocks:string[];maximumRatchets:number;maximumDays:number;
  payment:{frequency:string;rule:string;dayBasis:string;adjustment:string;implementation:string;maximumDays:number};
  policies:{ratchetBases:string[];flowPolicies:string[];fuelBases:string[];planSearches:string[]}};
-export const storageFields=['book','legalEntity','counterparty','reason','injectionCurve','withdrawalCurve','minimumInventory','maximumInventory','openingInventory',
+export const storageFields=['facilityProfileId','book','legalEntity','counterparty','reason','injectionCurve','withdrawalCurve','minimumInventory','maximumInventory','openingInventory',
  'terminalMinimum','terminalMaximum','injectionFuel','withdrawalFuel','ratchetBasis','flowPolicy','fuelBasis','injectionCharge','withdrawalCharge','monthlyCapacityCharge',
  'termFrom','termTo','clock','gasDayStart','paymentDays'] as const;
 export type StorageField=typeof storageFields[number];
@@ -40,6 +41,7 @@ export function storageCommand(catalog:StorageCatalog,entry:StorageEntry):{ok:tr
  const e=Object.fromEntries(storageFields.map(f=>[f,(entry.fields[f]??'').trim()])) as Record<StorageField,string>;
  const no=(reason:string)=>({ok:false as const,reason});
  const required:[boolean,string][]=[
+  [catalog.facilityProfiles===undefined||!!catalog.facilityProfiles.find(p=>p.kind==='storage'&&p.id===e.facilityProfileId),'Choose a storage facility profile.'],
   [!!e.injectionCurve,'Choose the injection curve.'],[!!e.withdrawalCurve,'Choose the withdrawal curve.'],
   [!!e.maximumInventory,'Enter the contracted capacity.'],[!!e.minimumInventory,'Enter the minimum inventory.'],
   [!!e.openingInventory,'Enter the opening inventory.'],[!!e.terminalMinimum,'Enter the lowest terminal inventory.'],[!!e.terminalMaximum,'Enter the highest terminal inventory.'],
@@ -60,7 +62,7 @@ export function storageCommand(catalog:StorageCatalog,entry:StorageEntry):{ok:tr
  const [legalEntityId,legalEntityRevision]=JSON.parse(e.legalEntity) as [string,number],[counterpartyId,counterpartyRevision]=JSON.parse(e.counterparty) as [string,number];
  const pay=catalog.payment;
  return {ok:true,body:{bookId:e.book,legalEntityId,legalEntityRevision,counterpartyId,counterpartyRevision,reason:e.reason,terms:{
-  definitionRevisionId:catalog.definitionRevisionId,referenceCatalogId:catalog.referenceCatalogId,referenceRevisionId:catalog.referenceRevisionId,
+  ...(e.facilityProfileId?{facilityProfileId:e.facilityProfileId}:{}),definitionRevisionId:catalog.definitionRevisionId,referenceCatalogId:catalog.referenceCatalogId,referenceRevisionId:catalog.referenceRevisionId,
   quantity:curve.quantity,injectionCurve:e.injectionCurve,withdrawalCurve:e.withdrawalCurve,minimumInventory:e.minimumInventory,maximumInventory:e.maximumInventory,
   ratchets:ratchetBands(entry),injectionFuel:e.injectionFuel,withdrawalFuel:e.withdrawalFuel,ratchetBasis:e.ratchetBasis,flowPolicy:e.flowPolicy,fuelBasis:e.fuelBasis,
   openingInventory:e.openingInventory,terminalMinimum:e.terminalMinimum,terminalMaximum:e.terminalMaximum,

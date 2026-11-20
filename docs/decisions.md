@@ -6812,3 +6812,11 @@ the transaction that executes the business operation.
 Gas correction commands classify an exact retry under their producer's operation
 lock. A new semantic acknowledgement admits explicit input coordinates before
 its receipt probe can write; the original producer validates every exact retry.
+
+## D436 — Admit bilateral trades under an agreement and report them by facility
+
+A bilateral booking or economic amendment retains the exact executed agreement and scoped credit clearance admitted at execution. An original command recovers its original receipt. Signed document revisions, credit decisions and commercial confirmations have separate permissions. A nomination response belongs to the physical operating workflow.
+
+Commercial storage pins a versioned facility and two gas ports. Each port supplies a published valuation assignment. Working-inventory entitlements use daily contract ratchets. Physical storage limits retain their hourly basis. A physical toll identifies its operating plant. An attributed financial hedge retains its native settlement terms.
+
+Facility reports join whole trades and the operating facts visible at the selected knowledge cutoff. Gas, power, installed capacity and financial exposure retain their respective units. The shared meter ledger owns physical measurements and explicit allocations through source corrections. [Gas facility trading desk](gas-facility-desk.md)

@@ -73,3 +73,13 @@ test('facility request recovery uses the shared validated transport contract',as
  assert.equal(restoreTradeRequest({...saved,path:'admin/update'}),undefined);
  assert.equal(restoreTradeRequest({...saved,body:null}),undefined);
 });
+test('bilateral admission releases a refused first booking and preserves an earlier uncertain submission',()=>{
+  const pending=new PendingCommand();
+  pending.begin('tickets/book',{},()=> 'first');
+  pending.failed('desk_credit_hold',pending.sending());
+  assert.equal(pending.command,undefined);
+  pending.begin('tickets/book',{},()=> 'second');
+  pending.failed(undefined,pending.sending());
+  pending.failed('desk_credit_hold',pending.sending());
+  assert.equal(pending.command.operationId,'second');
+});

@@ -15,7 +15,7 @@ public sealed record OperatingOutputPort([property:IdentityField]OperatingPlanRe
 public sealed record OperatingQuantityTerm([property:IdentityField]OperatingOutputPort? Port,
     [property:IdentityField]Quantity? Literal);
 [EconomicDefinition("operating_side_period_v1")]
-public sealed record OperatingSidePeriod
+public record OperatingSidePeriod
 {
     public DeliveryInterval Interval { get; }
     [IdentityField]public DateTimeOffset From=>Interval.Start;
@@ -31,6 +31,14 @@ public sealed record OperatingSidePeriod
     public OperatingSidePeriod(DeliveryInterval interval,DateOnly paymentFrom,DateOnly paymentTo,
         OperatingQuantityTerm quantity,CurveRequest? projection)
     {Interval=interval;PaymentFrom=paymentFrom;PaymentTo=paymentTo;Quantity=quantity;Projection=projection;}
+}
+[EconomicDefinition("locational_operating_side_period_v1")]
+public sealed record LocationalOperatingSidePeriod : OperatingSidePeriod
+{
+    [IdentityField] public ExactDecimal PriceAdjustment { get; }
+    public LocationalOperatingSidePeriod(DeliveryInterval interval,DateOnly paymentFrom,DateOnly paymentTo,
+        OperatingQuantityTerm quantity,CurveRequest projection,ExactDecimal priceAdjustment)
+        :base(interval,paymentFrom,paymentTo,quantity,projection) => PriceAdjustment=priceAdjustment;
 }
 [EconomicDefinition("operating_side_terms_v1")]
 public sealed record OperatingSideTerms([property:IdentityField]Quantity UnitQuantity,
@@ -251,6 +259,7 @@ public sealed record OperatingSideSchedule:SideSchedule
             var quantity=selectedQuantity?.Quantity??ExactQuantity.FromQuantity(operation.Period.Quantity.Literal!);
             var price=operation.FixedPrice is {} fixedPrice?fixedPrice.At(operation.Period.Interval.OperatingDate):context.ExactPrice(operation.Period.Projection!.Value);
             if(price.Unit!=PriceUnit.FromQuote(operation.Quote))throw OperatingSchedules.Invalid("operating_price","Resolved operating prices require the exact selected quote unit.");
+            if(operation.Period is LocationalOperatingSidePeriod location)price=price.Add(ExactUnitPrice.FromPrice(new UnitPrice(location.PriceAdjustment,price.Unit)));
             var amount=quantity.Times(price);var factor=selected[row.Key];
             return new ScheduleRowValue(row.SideId,null,operation.Kind,operation.Period.Interval,quantity,selectedQuantity?.State??VolumeState.Contractual,null,[],[],
                 [new PriceComponent(quantity,price,operation.FixedPrice is null?RowPriceState.Projected:RowPriceState.Fixed,operation.Period.Projection?.Curve,null,ExactDecimal.Parse("1"),null)],

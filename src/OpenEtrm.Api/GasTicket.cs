@@ -34,9 +34,8 @@ public static class GasTicket
    Trade("counterparty","Counterparty","The other party to the trade.","choice",choices:"counterparties",required:false),
    Trade("gas_setup","Gas setup","Published gas conventions and market assignments that price the trade; empty where the context resolves none and the reference conventions apply.","choice",choices:"gas_setups",required:false),
    new("trade_date","Trade date","Date the trade is booked.","date",null,"info",false,null,null,[],null,null,"Assigned when booked: the UTC date of execution."),
-   // The master agreement's terms are not stored yet, so the strip shows where they will be read.
-   Soon("force_majeure","Force majeure","Force majeure terms of the master agreement the trade is under.","text","Will show the master agreement's force majeure terms, read-only. Agreement terms are not stored yet."),
-   Soon("credit_terms","Credit terms","Credit terms of the master agreement the trade is under.","text","Will show the master agreement's credit terms, read-only. Agreement terms are not stored yet.")],
+   Soon("force_majeure","Force majeure","Force majeure terms of the master agreement the trade is under.","text","The executed document and special provisions are available under Legal entities & counterparties."),
+   Soon("credit_terms","Credit terms","Credit terms of the master agreement the trade is under.","text","The credit desk records clearance for this entity, counterparty and product under Legal entities & counterparties.")],
   [new(Physical,"Physical","gas",GasCompositionInstrument.MinPhysicalSides,1,GasCompositionInstrument.MaxPhysicalSides,
     [Field("direction","Direction","Whether gas is delivered or received.","choice","direction",choices:"physical_direction"),
      Field("delivery_from","From","First gas day of delivery.","date","start") with{Lookup="entry_from"},

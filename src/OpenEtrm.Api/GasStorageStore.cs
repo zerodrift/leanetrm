@@ -21,7 +21,8 @@ public sealed record GasStorageTermsInput([property:JsonRequired]Guid Definition
     [property:JsonRequired]string FuelBasis,[property:JsonRequired]string OpeningInventory,[property:JsonRequired]string TerminalMinimum,[property:JsonRequired]string TerminalMaximum,
     [property:JsonRequired]string InjectionCharge,[property:JsonRequired]string WithdrawalCharge,[property:JsonRequired]string MonthlyCapacityCharge,
     [property:JsonRequired]string TermFrom,[property:JsonRequired]string TermTo,[property:JsonRequired]string Clock,[property:JsonRequired]int DayStartMinute,
-    [property:JsonRequired]PpaPaymentInput PaymentRule);
+    [property:JsonRequired]PpaPaymentInput PaymentRule,
+    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]Guid? FacilityProfileId=null);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record GasStorageBookRequest([property:JsonRequired]FuturesReadRequest Context,[property:JsonRequired]Guid OperationId,[property:JsonRequired]Guid BookId,
     [property:JsonRequired]Guid LegalEntityId,[property:JsonRequired]int LegalEntityRevision,[property:JsonRequired]Guid CounterpartyId,[property:JsonRequired]int CounterpartyRevision,
@@ -195,8 +196,8 @@ public sealed class GasStorageStore(PreviewDatabase database)
         var forwards=build.Values.ToDictionary(v=>v.Request,v=>v.Price);
         UnitPrice Forward(CurveRequest request)=>forwards.TryGetValue(request,out var price)&&price.Unit==PriceUnit.FromQuote(contract.Quote)?price:
             throw new MarketDataException("gas_storage_price","Every gas day needs its forward price in the contract's quote at this snapshot.");
-        var prices=contract.Days.Select(day=>new GasStorageDayPrice(day.GasDay,Forward(day.Injection).Value+contract.Charges.Injection.Value,
-            Forward(day.Withdrawal).Value-contract.Charges.Withdrawal.Value)).ToImmutableArray();
+        var prices=contract.Days.Select(day=>new GasStorageDayPrice(day.GasDay,Forward(day.Injection).Value+day.InjectionAdjustment+contract.Charges.Injection.Value,
+            Forward(day.Withdrawal).Value+day.WithdrawalAdjustment-contract.Charges.Withdrawal.Value)).ToImmutableArray();
         var step=new Quantity(Number(request.InventoryStep),contract.Entitlement.Quantity);
         var proposal=GasStoragePlanProposals.Propose(contract.Entitlement,contract.Opening,contract.Terminal,prices,step,GasStoragePlanProposals.Implementation);
         return new{tradeId=request.TradeId,implementation=proposal.Implementation,inventoryStep=step.Amount.ToString(),
@@ -216,7 +217,8 @@ public sealed class GasStorageStore(PreviewDatabase database)
                     currency=quote.Currency.Code,priceUnit=data.PriceUnit(curve.Text("code")),quantityUnit=data.QuantityUnit(quote.Quantity.Code),
                     contracts=data.Requests(frame,curve.Text("code")).SelectMany(r=>data.ContractRows(r.Contract.Id)).Select(k=>new{from=Day(k.DeliveryFrom),to=Day(k.DeliveryTo)}).ToArray()}}:[])
             .OrderBy(curve=>curve.name,StringComparer.Ordinal).ToArray();
-        return new{kind="gas_storage",convention=Convention,planConvention=PlanConvention,directory.Books,directory.BookingActor,directory.LegalEntities,directory.Counterparties,
+        var facilityProfiles=await LifecycleNative.Read(c,"SELECT desk.profiles($1,$2)::text",ct,Catalog,data.DefinitionRevision.RevisionId);
+        return new{kind="gas_storage",facilityProfiles,convention=Convention,planConvention=PlanConvention,directory.Books,directory.BookingActor,directory.LegalEntities,directory.Counterparties,
             definitionRevisionId=data.DefinitionRevision.RevisionId,referenceCatalogId=data.ReferenceRevision.CatalogId,referenceRevisionId=data.ReferenceRevision.RevisionId,curves,
             clocks=data.References["clock_rules"].Where(r=>r.Text("kind")=="fixed_offset").Select(r=>r.Text("code")).Order(StringComparer.Ordinal).ToArray(),
             maximumRatchets=GasStoragePlans.MaximumRatchets,maximumDays=GasStoragePlans.MaximumDays,

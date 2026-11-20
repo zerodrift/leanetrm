@@ -15,7 +15,8 @@ public sealed record StructuredPowerBookRequest(
     [property:JsonRequired]int CounterpartyRevision,
     [property:JsonRequired]string Reason,
     [property:JsonRequired]string Convention,
-    [property:JsonRequired]StructuredPowerPreviewRequest Plan);
+    [property:JsonRequired]StructuredPowerPreviewRequest Plan,
+    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]Guid? FacilityProfileId=null);
 
 public sealed record StructuredPowerBookingReceipt(Guid OperationId,Guid TradeId,int Revision,Guid InstrumentId,Guid BindingId,bool Changed);
 public sealed record StructuredPowerBookedSide(int Slot,Guid SideId,Guid ScheduleId,string Name,string Coefficient,string Manifest);

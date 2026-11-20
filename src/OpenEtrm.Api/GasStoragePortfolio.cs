@@ -42,7 +42,8 @@ internal static class GasStoragePortfolio
         {
             var day=DateWorkspace.Date(row.Text("gas_day"));var month=new DateOnly(day.Year,day.Month,1);
             return new GasStorageContractDay(new(row.Instant("starts_at"),row.Instant("ends_at"),day,minute/60,minute%60,1),month,month.AddMonths(1),
-                new(new(revision,position.InjectionCurve),new(revision,row.Id("injection_contract_id"))),new(new(revision,position.WithdrawalCurve),new(revision,row.Id("withdrawal_contract_id"))));
+                new(new(revision,position.InjectionCurve),new(revision,row.Id("injection_contract_id"))),new(new(revision,position.WithdrawalCurve),new(revision,row.Id("withdrawal_contract_id"))),
+                ExactDecimal.Parse(terms.OptionalText("injection_adjustment")??"0"),ExactDecimal.Parse(terms.OptionalText("withdrawal_adjustment")??"0"));
         }).ToImmutableArray();
         UnitPrice Price(string field)=>new(ExactDecimal.Parse(terms.Text(field)),quote);
         return new(entitlement,new(days[0].GasDay.Start,ExactQuantity.FromQuantity(Amount(terms,"opening_inventory"))),new(Amount(terms,"terminal_minimum"),Amount(terms,"terminal_maximum")),

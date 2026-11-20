@@ -48,6 +48,7 @@ recorded in [the plan](docs/plan.md).
   mark and track its fixed fee separately. See [Park and Loan](docs/gas-park-loan.md),
   [balance fees](docs/gas-park-loan-balance-fee.md), [custody](docs/gas-park-custody.md)
   and [Transport rights](docs/gas-transport-financial.md).
+- **Facility trading desk.** Book against a storage site or thermal plant, check agreement and credit coverage, and inspect linked trades and volumes from schedule to meter allocation. [Manual setup and booking workflow](docs/gas-facility-desk.md)
 - **Gas storage.** Book capacity with inventory limits, daily injection and
   withdrawal ratchets, fuel and charges. Value a recorded plan before the term
   starts, or compare it with a plan proposed from daily forward prices. Recording
@@ -192,8 +193,8 @@ recorded in [the plan](docs/plan.md).
 
 ## What's not built yet
 
-Open product work includes heat-rate call exercise and settlement, gas storage
-facility allocation and measured flows, and dispatch and metered performance for
+Open product work includes heat-rate call exercise and settlement, valuation of
+started storage rights from measured inventory, and dispatch and metered performance for
 structured power rights. Broader futures settlement, inventory costing,
 post-delivery crude valuation and PPA cash acceptance and payment also remain open.
 Other gaps include EVT and operating backtests, broader agent credential

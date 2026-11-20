@@ -1,3 +1,4 @@
+import {pricingLabel} from './facility-profile.js';
 import {trackEdits} from './edit-tracking.js';
 import {drawRatchets} from './gas-storage-charts.js';
 import {keepOfferedStorage,ratchetBands,storageChoices,storageCommand,storageFields,type Choice,type RatchetRow,type StorageCatalog,type StorageEntry,type StorageField} from './gas-storage-ticket-model.js';
@@ -34,7 +35,7 @@ function fact(label:string,value:string){const line=el('div','option-row option-
 type Kind='select'|'text'|'decimal'|'whole'|'date'|'time';
 type Unit='quantity'|'price'|null;
 const layout:readonly {title:string;fields:readonly [StorageField,string,Kind,Unit][]}[]=[
- {title:'Contract',fields:[['injectionCurve','Injection priced at','select',null],['withdrawalCurve','Withdrawal priced at','select',null],
+ {title:'Contract',fields:[['facilityProfileId','Storage facility','select',null],['injectionCurve','Injection priced at','select',null],['withdrawalCurve','Withdrawal priced at','select',null],
   ['maximumInventory','Contracted capacity','decimal','quantity'],['minimumInventory','Minimum inventory','decimal','quantity']]},
  {title:'Ratchets',fields:[['ratchetBasis','Ratchets apply','select',null],['flowPolicy','Daily flow','select',null]]},
  {title:'Fuel',fields:[['injectionFuel','Injection fuel (fraction of what is delivered in)','decimal',null],['withdrawalFuel','Withdrawal fuel (fraction of what leaves inventory)','decimal',null],['fuelBasis','Fuel retained','select',null]]},
@@ -64,7 +65,6 @@ export function setupGasStorageTicket(o:{api:Api;source:()=>{snapshotId:string};
   }
   if(group.title==='Ratchets')box.append(el('p','field-help','Each band states the most that may be injected and withdrawn on a gas day that opens inside it. Bands run from the minimum inventory to capacity with no gaps: enter where each one ends.'),table,add,chart);
   if(group.title==='Charges and payment')box.append(fact('Payment rule','Monthly, unadjusted'),soon('Discounting','Payments are valued undiscounted until a discount curve can be chosen here.'));
-  if(group.title==='Contract')box.append(soon('Storage facility','Linking the contract to a physical facility is coming soon.'));
   if(group.title==='Trade')box.append(trader);
   fields.append(box);
  }
@@ -97,7 +97,11 @@ export function setupGasStorageTicket(o:{api:Api;source:()=>{snapshotId:string};
   if(!catalog)return;
   if(keepOfferedStorage(catalog,entry()).fields.withdrawalCurve==='')controls.withdrawalCurve.value='';
   const current=entry(),shown=storageChoices(catalog,current);
-  fill('injectionCurve',shown.injectionCurves);fill('withdrawalCurve',shown.withdrawalCurves);
+  const selected=catalog.facilityProfiles?.find(p=>p.id===controls.facilityProfileId.value);
+  fill('injectionCurve',selected?[{value:selected.inputCurve,label:pricingLabel(selected.inputLocation,selected.inputCurve,selected.inputAdjustment)}]:shown.injectionCurves);
+  fill('withdrawalCurve',selected?[{value:selected.outputCurve,label:pricingLabel(selected.outputLocation,selected.outputCurve,selected.outputAdjustment)}]:shown.withdrawalCurves);
+  controls.injectionCurve.value=selected?.inputCurve??'';controls.withdrawalCurve.value=selected?.outputCurve??'';
+  controls.injectionCurve.disabled=controls.withdrawalCurve.disabled=true;
   for(const field of storageFields){const c=captions[field],unit=c.unit==='quantity'?shown.unit:c.unit==='price'?shown.priceUnit:null;c.node.textContent=unit?publicText(`${c.text} · ${unit}`):c.text;}
   rows.forEach((r,i)=>{
    const last=i===rows.length-1;r.line.firstElementChild!.textContent=`Band ${i+1}`;
@@ -116,6 +120,14 @@ export function setupGasStorageTicket(o:{api:Api;source:()=>{snapshotId:string};
   submit.disabled=!catalog||!bookingAllowed(catalog).enabled||held||sending;
   check.hidden=retry.hidden=!held;check.disabled=retry.disabled=sending;
  }
+ controls.facilityProfileId.onchange=()=>{
+  const p=catalog?.facilityProfiles?.find(x=>x.id===controls.facilityProfileId.value);
+  rows=[];table.replaceChildren();
+  controls.minimumInventory.value=p?.minimum??'';controls.maximumInventory.value=p?.maximum??'';controls.clock.value=p?.clock??'';
+  controls.gasDayStart.value=p?String(Math.floor(p.dayStartMinute/60)).padStart(2,'0')+':'+String(p.dayStartMinute%60).padStart(2,'0'):'';
+  for(const band of p?.ratchets??[]){addRow();const r=rows[rows.length-1];r.upTo.value=band.upper;r.injection.value=band.maximumDailyInjection;r.withdrawal.value=band.maximumDailyWithdrawal;}
+  if(!rows.length)addRow();draw();
+ };
  form.addEventListener('change',draw);form.addEventListener('input',event=>{if((event.target as HTMLElement).tagName==='INPUT')draw();});
  function retain(){requests.write(pending.command);}
  async function send(){
@@ -165,6 +177,8 @@ export function setupGasStorageTicket(o:{api:Api;source:()=>{snapshotId:string};
    status.textContent=read.curves.length?'':'This close lists no outright curves a storage contract can be priced at.';
    // A ticket opens with one empty band, which reaches capacity: more are added as the contract states them.
    addRow();
+   fill('facilityProfileId',(read.facilityProfiles??[]).filter(p=>p.kind==='storage').map(p=>({value:p.id,label:p.name+' · revision '+p.revision})));
+   if(!(read.facilityProfiles??[]).some(p=>p.kind==='storage'))status.textContent='Configure a storage facility and commercial profile in Facilities before booking.';
    const saved=restoreTradeRequest(requests.read());
    if(saved?.path===bookPath){pending.command={...saved,uncertain:true};said.textContent='A storage contract booking awaits its outcome. Check its status or retry it as it was sent.';}
    draw();

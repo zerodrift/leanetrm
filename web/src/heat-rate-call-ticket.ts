@@ -33,7 +33,7 @@ function soon(label:string,later:string){
 
 type Kind='select'|'text'|'decimal'|'whole'|'date'|'time';
 const layout:readonly {title:string;fields:readonly [TollField,string,Kind][]}[]=[
- {title:'Contract',fields:[['direction','Buy / sell','select'],['capacity','Capacity','decimal'],['powerCurve','Power curve','select'],['capacityQuantity','Capacity unit','select'],
+ {title:'Contract',fields:[['facilityProfileId','Thermal facility (optional)','select'],['direction','Buy / sell','select'],['capacity','Capacity','decimal'],['powerCurve','Power curve','select'],['capacityQuantity','Capacity unit','select'],
   ['fuelCurve','Fuel curve','select'],['heatRate','Heat rate','decimal'],['strike','Strike','decimal']]},
  {title:'Delivery',fields:[['deliveryFrom','First delivery day','date'],['deliveryTo','Delivery ends (day after the last)','date'],['clock','Delivery clock','select'],
   ['intervalMinutes','Delivery interval (minutes)','select'],['membership','Delivery hours','select'],['block','Block product','select'],['holidayCalendar','Delivery holiday calendar','select']]},
@@ -87,6 +87,12 @@ export function setupHeatRateCallTicket(o:{api:Api;source:()=>{snapshotId:string
   const kept=keepOfferedEntry(catalog,entry());for(const field of ['fuelCurve','capacityQuantity','block'] as const)if(kept[field]==='')controls[field].value='';
   const shown=tollChoices(catalog,kept);
   fill('powerCurve',shown.powerCurves);fill('fuelCurve',shown.fuelCurves);fill('capacityQuantity',shown.capacityQuantities);fill('block',shown.blocks);
+  const p=catalog.facilityProfiles?.find(x=>x.id===controls.facilityProfileId.value);
+  if(p){
+   fill('powerCurve',[{value:p.outputCurve,label:p.outputLocation+' · '+p.outputCurve}]);controls.powerCurve.value=p.outputCurve;
+   fill('fuelCurve',[{value:p.inputCurve,label:p.inputLocation+' · '+p.inputCurve}]);controls.fuelCurve.value=p.inputCurve;
+  }
+  controls.powerCurve.disabled=controls.fuelCurve.disabled=!!p;
   withUnit('heatRate','Heat rate',shown.heatRateUnit);withUnit('strike','Strike',shown.strikeUnit);withUnit('capacity','Capacity',shown.capacityUnit);
   const rule=controls.paymentRule.value,lag=rule==='days_after_period_end';
   lines.block.hidden=kept.membership===''||kept.membership==='all'||kept.membership===undefined;
@@ -143,6 +149,7 @@ export function setupHeatRateCallTicket(o:{api:Api;source:()=>{snapshotId:string
    const read=await o.api<Catalog>('heat-rate-calls/catalog',{snapshotId:o.source().snapshotId,convention:tollConvention,knowledgeMode:'current'});
    catalog=read;
    const pay=read.paymentOptions,partyChoices=(rows:Trader[])=>rows.map(p=>({value:JSON.stringify([p.id,p.revision]),label:`${p.name} · ${p.code}`}));
+   fill('facilityProfileId',(read.facilityProfiles??[]).filter(p=>p.kind==='thermal').map(p=>({value:p.id,label:p.name+' · revision '+p.revision})),'Unlinked financial call');
    fill('direction',[{value:'buy',label:'Buy'},{value:'sell',label:'Sell'}]);
    fill('clock',named(read.clocks));fill('intervalMinutes',named(read.intervalMinutes));fill('membership',named(read.memberships));
    fill('holidayCalendar',named(read.calendars));fill('exerciseCalendar',named(read.calendars));fill('paymentCalendar',named(read.calendars),'None');

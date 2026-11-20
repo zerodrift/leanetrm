@@ -1,3 +1,4 @@
+import {setupBilateralDesk} from './bilateral-desk.js';
 import {renderRegularTable} from './regular-table.js';
 import {displayInstant} from './market-view.js';
 import {zonedInput} from './user-time.js';
@@ -11,6 +12,7 @@ export function knownPartyRejection(code:string|undefined):boolean{
  return !!code&&['party_conflict','party_input','party_limit','trade_party','access_denied','request_format','request_too_large','request_token','historical_read_only','definition_rejected'].includes(code);
 }
 export function setupPartyEditors(o:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;profile:()=>string;source:()=>string}){
+ const desk=setupBilateralDesk(o);
  const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
  const field=(id:string)=>get<HTMLInputElement|HTMLSelectElement>(id);
  const effective=zonedInput(get<HTMLInputElement>('party-effective'),o.zone,o.api);
@@ -45,7 +47,7 @@ export function setupPartyEditors(o:{api:Api;act:(work:()=>Promise<void>)=>Promi
   directory=undefined;get('party-list').replaceChildren();get('party-history').replaceChildren();get<HTMLFormElement>('party-form').hidden=true;
   get('party-saved').textContent='';get('party-edit-title').textContent='New party';field('party-code').value='';field('party-name').value='';effective.clear();get('party-pending').hidden=true;
   const snapshotId=o.source();
-  const response=await o.api<Directory>('parties/catalog',{snapshotId,kind});
+  const [response]=await Promise.all([o.api<Directory>('parties/catalog',{snapshotId,kind}),desk.load()]);
   if(started!==generation||snapshotId!==o.source()||kind!==field('party-kind').value)return false;
   directory=response;selected=directory.versions.find(p=>p.id===selectedId);
   try{const stored=sessionStorage.getItem(storageKey());pending.command=stored?{...JSON.parse(stored),uncertain:true}:undefined;}catch{pending.clear();}
@@ -76,6 +78,6 @@ export function setupPartyEditors(o:{api:Api;act:(work:()=>Promise<void>)=>Promi
  get('party-discard').onclick=()=>{if(!o.busy()){pending.clear();store();sync();}};
  return{load,sync,
   // Party edits not yet saved, or a save whose outcome is unconfirmed.
-  unsaved:()=>!!pending.command||edits.edited()&&!get('party-form').hidden,
-  reset(){generation++;directory=undefined;selected=undefined;pending.clear();edits.clear();effective.clear();field('party-code').value='';field('party-name').value='';get('party-edit-title').textContent='New party';get('party-list').replaceChildren();get('party-history').replaceChildren();get('party-saved').textContent='';get<HTMLFormElement>('party-form').hidden=true;get('party-pending').hidden=true;},refresh(){effective.refresh();if(directory)render();}};
+  unsaved:()=>desk.edited()||!!pending.command||edits.edited()&&!get('party-form').hidden,
+  reset(){desk.reset();generation++;directory=undefined;selected=undefined;pending.clear();edits.clear();effective.clear();field('party-code').value='';field('party-name').value='';get('party-edit-title').textContent='New party';get('party-list').replaceChildren();get('party-history').replaceChildren();get('party-saved').textContent='';get<HTMLFormElement>('party-form').hidden=true;get('party-pending').hidden=true;},refresh(){effective.refresh();if(directory)render();}};
 }
