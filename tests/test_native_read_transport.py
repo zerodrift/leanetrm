@@ -29,3 +29,28 @@ class NativeReadTransportChecks(unittest.TestCase):
         source=self.source('2026-11-20T09:00:00+09:00')
         transport.sources[source['id']]=source
         transport.receive(transport.marker+json.dumps([self.source('2026-11-20T00:00:00+00:00')]))
+
+    def test_each_transaction_receives_original_inputs_after_its_own_identity(self):
+        transport=NativeReadTransport()
+        source=self.source('2026-11-20T00:00:00+00:00')
+        transport.receive(transport.marker+json.dumps([source]))
+        script=(f"PREPARE work AS SELECT '{source['id']}'::uuid;"
+            "BEGIN;SELECT security.use_context('warm');EXECUTE work;ROLLBACK;"
+            "BEGIN;SELECT security.use_context('current');EXECUTE work;COMMIT;")
+        prepared=transport.prepare(script)
+        for transaction in prepared.split('BEGIN;')[1:]:
+            identity=transaction.index('security.use_context(')
+            inputs=transaction.index('security.register_read_source(')
+            operation=transaction.index('EXECUTE work;')
+            self.assertLess(identity,inputs)
+            self.assertLess(inputs,operation)
+        self.assertEqual(prepared.count('security.register_read_source('),2)
+
+    def test_outer_binding_does_not_rewrite_a_later_function_body(self):
+        transport=NativeReadTransport()
+        source=self.source('2026-11-20T00:00:00+00:00')
+        transport.receive(transport.marker+json.dumps([source]))
+        body="CREATE FUNCTION public.probe() RETURNS void LANGUAGE plpgsql AS $$BEGIN PERFORM security.use_context('inner');END$$;"
+        prepared=transport.prepare("BEGIN;SELECT security.use_context('outer');"+body+f"SELECT '{source['id']}';ROLLBACK;")
+        self.assertIn(body,prepared)
+        self.assertEqual(prepared.count('security.register_read_source('),1)

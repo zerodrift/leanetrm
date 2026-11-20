@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from check_fact_anchor_upgrade import run_checks as guard_checks
 from check_reference_editing import main
+from seed_fixture_market import load_fixture
 from gas_park_custody_fixture import CustodyFixture, fixture
 from gas_balance_fee_fixture import BalanceFeeService
 from gas_park_loan_fixture import literal
@@ -18,7 +19,7 @@ def run():
             return
         guard_checks(query,migration,number='0352',guard='gas_transport_capacity_upgrade',signatures=('assistant.is_prompt_page(text)',))
         reference, market, access, manifest = fixture(root)
-        for sql in [reference,market,access]: query(sql)
+        load_fixture(query,reference,market,access,manifest)
         f = CustodyFixture(query,manifest)
         owned, book = f.account('synthetic_retained_transport_customer')
         policy = f.bind(owned,'gas.owned.receive_title')
@@ -102,7 +103,7 @@ def run():
         assert prepared['storage_read']()['planAssessment']==prepared['storage_witness']
         assert prepared['storage_record'](prepared['storage_plan'],prepared['storage_witness'],operation=prepared['storage_operation'])==prepared['stored_plan']
         print('PASS populated capacity upgrade preserves retained title1000, custody720→450/reservation lineage, timed fee/cash, physical opening400/idle plan, old cuts and exact first-outcome recovery.',flush=True)
-    main(checks=verify,before_migration=before,fixture_factory=loaded)
+    main(checks=verify,before_migration=before,fixture_factory=loaded,through_migration='0352')
 
 
 if __name__=='__main__':run()

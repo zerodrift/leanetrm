@@ -6,6 +6,7 @@ from check_reference_editing import main
 from close_session_fixture import draft, sql_session
 from preview_fixture import trading_fixture, catalogue_fixture, fixture
 from check_futures_margin_adoption import successor_grants
+from seed_fixture_market import load_fixture
 
 _upgrade = {}
 
@@ -20,14 +21,13 @@ def before_migration(query, migration):
     if migration.name != '0271_lifecycle_projection_horizon.sql':
         return
     reference, market, security, manifest = fixture(Path(__file__).resolve().parents[1])
-    for sql in (reference, market, security):
-        query(sql)
+    load_fixture(query,reference,market,security,manifest)
     bootstrap(query, manifest)
     sql_session(query, manifest, 'synthetic_existing_close', 'test_business', '16:00', ['future'], [])
     token = query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
                   f"'https://preview.invalid','risk','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',60);")
     old = query("SET SESSION AUTHORIZATION preview_runtime;BEGIN;"
-                f"SELECT security.use_context('{token}');SELECT security.resolve_operation_context('{manifest['catalogId']}','2020-12-18',NULL);COMMIT;")
+                f"SELECT security.use_context('{token}');SELECT security.capture_date_context('{manifest['catalogId']}','2020-12-18',NULL);COMMIT;")
     _upgrade.update(manifest=manifest, context=old)
 
 
@@ -47,7 +47,8 @@ def checks(query, manifest):
                      f"SELECT security.use_context('{token}');{sql}COMMIT;")
 
     def capture(day='2020-12-18'):
-        return call(f"SELECT security.resolve_operation_context('{catalog}','{day}',NULL);")
+        operation='security.capture_date_context' if _upgrade else 'security.resolve_operation_context'
+        return call(f"SELECT {operation}('{catalog}','{day}',NULL);")
 
     def publish(code, cutoff='16:00', effective=('2020-12-01', '2021-12-01')):
         body = json.dumps(draft(code, 'test_business', cutoff, ['future'], effective)).replace("'", "''")
@@ -187,4 +188,4 @@ def checks(query, manifest):
 
 
 if __name__ == '__main__':
-    main(checks=checks, before_migration=before_migration, fixture_factory=loaded_fixture)
+    main(checks=checks)

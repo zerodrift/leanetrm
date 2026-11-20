@@ -99,6 +99,14 @@ after worker replacement; original inputs on retry; and new input selection for 
 later occurrence. Pre-bind worker permission qualification must use job-owned
 inputs and cannot treat an absent operation binding as an empty portfolio.
 
+This release qualifies a fresh application schema and atomic refusal of
+populated predecessor contexts. It does not qualify the current application
+against historical application schemas. Native additive migration qualifiers
+stop at their explicit target migration; current managed consumers run on the
+complete fresh chain. Storage qualification requires ordinary managed gas
+booking, source100/allocation60, corrections and independent seals on that
+current chain, together with the storage browser checks.
+
 ## Local qualification
 
 The disposable checks use stock PostgreSQL 18.6 with commit tracking enabled,
@@ -126,5 +134,5 @@ the pinned .NET 10 SDK and synthetic inputs. They cover:
   transaction with distinct one-use tokens and one business receipt.
 
 The frontend suite passes 2,264 checks and the verification-runner suite passes
-176 checks. This evidence qualifies the exercised synthetic paths; it does not
+178 checks. This evidence qualifies the exercised synthetic paths; it does not
 activate a hosted installation or replace the full CI matrix.

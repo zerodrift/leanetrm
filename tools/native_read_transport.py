@@ -18,7 +18,8 @@ class NativeReadTransport:
     def __init__(self,inputs_file=None):self.sources={};self.lock=RLock();self.inputs_file=Path(inputs_file) if inputs_file else None
 
     def prepare(self,sql):
-        binding=re.search(r'(SELECT|PERFORM)\s+security\.use_context\([^;]+\);',sql,re.I)
+        bindings=re.compile(r'(SELECT|PERFORM)\s+security\.use_context\([^;]+\);',re.I)
+        binding=bindings.search(sql)
         creation=re.search(r'\bCREATE\s+(OR\s+REPLACE\s+)?FUNCTION\b',sql,re.I)
         # Never rewrite a function body. A request may create its own temporary
         # probe after binding; its earlier outer binding still carries inputs.
@@ -30,10 +31,13 @@ class NativeReadTransport:
         boundary=max(commit,rollback)
         if boundary<0:return sql
         if binding:
-            invoke='PERFORM' if binding[1].upper()=='PERFORM' else 'SELECT'
             with self.lock:sources=[s for identifier,s in self.sources.items() if identifier in sql]
-            registrations=''.join(f"{invoke} security.register_read_source('{s['catalog_id']}','{s['id']}','{s['effective_on']}','{s['known_at']}',{s['schedule_prefix']},'{s['system_id']}',{s['timeline']});" for s in sources)
-            sql=sql[:binding.end()]+registrations+sql[binding.end():]
+            def supply(match):
+                invoke=match[1].upper()
+                registrations=''.join(f"{invoke} security.register_read_source('{s['catalog_id']}','{s['id']}','{s['effective_on']}','{s['known_at']}',{s['schedule_prefix']},'{s['system_id']}',{s['timeline']});" for s in sources)
+                return match[0]+registrations
+            end=creation.start() if creation else len(sql)
+            sql=bindings.sub(supply,sql[:end])+sql[end:]
             commit=sql.rfind('COMMIT;')
             rollback=sql.rfind('ROLLBACK;')
             boundary=max(commit,rollback)

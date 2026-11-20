@@ -43,9 +43,10 @@ internal static class SelectedPhysicalAuthorityChecks
                 else if(mode is "policy_save" or "adopt")
                 {
                     var body=fixture.GetProperty("request");
+                    _=await new KnowledgeResolver(manifest.CatalogId).Read(connection,body.Id("contextId"),ct);
                     result=mode=="policy_save"?await FuturesMarginCommands.SavePolicy(connection,manifest.CatalogId,body,ct):
                         await FuturesMarginCommands.Adopt(connection,manifest.CatalogId,body,ct);
-                    await using var flush=ScheduleStore.Command(connection,"SET CONSTRAINTS ALL IMMEDIATE");await flush.ExecuteNonQueryAsync(ct);
+                    await using var flush=ScheduleStore.Command(connection,"SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE");await flush.ExecuteNonQueryAsync(ct);
                 }
                 else if(mode=="option_preview")
                 {

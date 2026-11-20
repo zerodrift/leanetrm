@@ -248,6 +248,7 @@ def run_checks(c, context, view, workspace_rows, original_context, query, psql, 
     finally:
         c.call('profile', {'profile': 'trader'})
         c.bootstrap()
+        c.select_inputs(start['context'])
     after = frames[trigger+1:]
     assert [f['type'] for _, f in after] == ['error'], [f['type'] for _, f in after]
     at, error = after[0]

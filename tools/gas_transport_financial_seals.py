@@ -54,9 +54,9 @@ def source_and_seals(f, booking, outcome, rejected):
  GRANT EXECUTE ON FUNCTION trading.synthetic_financial_false_ack(uuid,uuid) TO openetrm_runtime;""")
     context = f.capture()
     rejected(lambda: f.call(f"SELECT trading.synthetic_financial_orphan('{f.catalog}','{trade}','{context}','{f.valuation_at}');"
-        'SET CONSTRAINTS ALL IMMEDIATE;', commit=False), 'gas_transport_financial_receipt')
+        'SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;', commit=False), 'gas_transport_financial_receipt')
     rejected(lambda: f.call(f"SELECT trading.synthetic_financial_false_ack('{f.catalog}','{accepted['markId']}');"
-        'SET CONSTRAINTS ALL IMMEDIATE;', commit=False), 'gas_transport_financial_receipt')
+        'SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;', commit=False), 'gas_transport_financial_receipt')
     print('PASS independent deferred seals reject a typed financial state without a receipt and a forged changed=false observation acknowledgement.', flush=True)
 
     f.query("""CREATE FUNCTION trading.synthetic_financial_late_quote(catalog uuid,operation uuid,body jsonb,context uuid,at timestamptz,corrected uuid,created uuid) RETURNS void

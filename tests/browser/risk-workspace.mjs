@@ -143,6 +143,10 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await check('a Risk-owned book selection reaches the backend and shows only the selected holdings',`(()=>{const report=window.__workspaceRiskReads.findLast(r=>r.path==='/api/portfolio/risk').data;return report.factors.some(f=>f.positions.length>0)&&report.factors.every(f=>f.positions.every(p=>p.bookId===${JSON.stringify(book)}));})()`);
  await set('#risk-workspace-books','');await wait(idle);
 
+ const single=new URL(link).hash.split('/').at(-1);
+ await set('#workspace-risk-job-history',single);await wait(idle);
+ await check('the embedded retained history updates the report URL to the actual run shown',`location.hash===${JSON.stringify('#risk/job/'+single)}&&document.querySelector('#risk-workspace-results .risk-report-link').hash===location.hash`);
+
  // Recover from a known sibling, and from first-command replay when history
  // cannot find that admitted sibling. Neither case may select newer inputs.
  let parts;
@@ -162,9 +166,6 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await check(lostFirst?'an original replay absent from history renews only the remaining original ordinals':'reload hydrates earlier completed reports and resumes each remaining original ordinal once',
   `(()=>{const intended=${JSON.stringify(intended)},jobs=${JSON.stringify(parts)};return jobs.length===intended.parts.length&&jobs.every(j=>j.state==='completed'&&j.requestId===intended.parts.find(p=>p.part===j.run.part).requestId&&j.run.parts===intended.parts.length&&['contextId','effectiveOn','knownAt','knownThrough'].every(k=>j.context[k]===intended.context[k]))&&window.__workspaceRiskPosts.length===intended.parts.length-${lostFirst?0:2}&&window.__workspaceRiskPosts.every(p=>p.run.part>${lostFirst?0:2}&&p.requestId===intended.parts.find(i=>i.part===p.run.part).requestId)&&!document.querySelector('#risk-workspace-results').textContent.includes('not yet queued')&&!document.querySelector('#risk-workspace-export').disabled;})()`);
  }
- const single=new URL(link).hash.split('/').at(-1);
- await set('#workspace-risk-job-history',single);await wait(idle);
- await check('the embedded retained history updates the report URL to the actual run shown',`location.hash===${JSON.stringify('#risk/job/'+single)}&&document.querySelector('#risk-workspace-results .risk-report-link').hash===location.hash`);
  await evaluate(`location.hash=${JSON.stringify('#risk/job/'+parts[0].id)}`);await wait(idle);
  await evaluate(`window.__omitWorkspaceJob=${JSON.stringify(parts[1].id)};document.querySelector('.risk-report-library').open=true`);
  await click('#risk-jobs-refresh');await wait(idle);

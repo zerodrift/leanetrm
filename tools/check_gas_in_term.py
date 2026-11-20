@@ -171,7 +171,7 @@ def run_checks(url, query, manifest, run_worker, admin_load, browse=None):
                                       f" WHERE(s.catalog_id,s.instrument_id,s.slot,r.local_key)=('{catalog}','{other['instrumentId']}',1,'payment/0/value');").split('|')
     copy = f"INSERT INTO trading.gas_cash_payments SELECT catalog_id,'{uuid4()}',trade_id,trade_revision,{{instrument}},slot,'synthetic-foreign',1,NULL,paid_at,reference_catalog_id,reference_revision_id,currency_code,-290,'{uuid4()}',actor_id,publication_order FROM trading.gas_cash_payments WHERE id='{revision['paymentId']}' RETURNING id"
     for statement, code in [(copy.format(instrument=f"'{other['instrumentId']}'") + ';', 'gas_cash_payments_catalog_id_trade_id_trade_revision_instr_fkey'),
-                            (f"WITH p AS({copy.format(instrument='instrument_id')}) INSERT INTO trading.gas_cash_payment_allocations SELECT '{catalog}',id,0,'{other_schedule}',{other_row},-290 FROM p;SET CONSTRAINTS ALL IMMEDIATE;", 'gas_payment_allocation')]:
+                            (f"WITH p AS({copy.format(instrument='instrument_id')}) INSERT INTO trading.gas_cash_payment_allocations SELECT '{catalog}',id,0,'{other_schedule}',{other_row},-290 FROM p;SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;", 'gas_payment_allocation')]:
         try: query('BEGIN;' + statement + 'ROLLBACK;')
         except RuntimeError as error: assert code in str(error), error
         else: raise AssertionError(f'A foreign occurrence was accepted instead of {code}')

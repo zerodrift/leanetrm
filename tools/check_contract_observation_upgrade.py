@@ -1,9 +1,7 @@
 """Migration 0252 against its reviewed predecessors and a populated database, inside the owned preview only.
 
 The drift checks run in every owned preview. The populated-database qualification runs once, under the contract
-observation curve check, on the base preview fixture loaded in one transaction on the prior schema (the crude fixture is
-applied after the migration loop). The contract dates mode's window_frames fixture cannot load in one transaction: it seals
-a pinned contract curve whose date admissions that mode inserts only by rewriting the load."""
+observation curve check, on a minimal synthetic catalogue and real published combination on the prior schema."""
 from uuid import uuid4
 from assistant_context import check_guard, migration_body
 
@@ -27,12 +25,12 @@ def run_checks(query, migration):
     print('PASS migration 0252 refuses panel guard body, owner, configuration, ACL and node-constraint drift', flush=True)
 
 
-def populated_checks(query, migration, retained, manifest):
+def populated_checks(query, migration, manifest):
     text = migration.read_text()
     # A populated database from the prior schema: the fixtures and one published computed-curve combination, then a
     # draft successor on which each panel guard is probed before and after the migration. Everything is rolled back.
     catalog, curve = manifest['catalogId'], str(uuid4())
-    loaded = '\n'.join(migration_body(sql) for sql in retained)
+    loaded = f"INSERT INTO market_data.catalogs VALUES('{catalog}','synthetic_panel_upgrade');"
     def graph(version, panel_kind, panel_parameters, weighted):
         return f"""
         INSERT INTO market_data.custom_curve_versions(catalog_id,curve_id,version,generation,state,name,output_node,engine_version,layout)

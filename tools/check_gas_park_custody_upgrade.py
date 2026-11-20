@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from assistant_context import migration_body
 from check_reference_editing import main
+from seed_fixture_market import load_fixture
 from gas_park_loan_fixture import ParkLoanFixture, literal, rejected
 from gas_park_custody_fixture import fixture
 from gas_balance_fee_fixture import BalanceFeeService, booking as balance_booking
@@ -45,8 +46,7 @@ def run():
         query('BEGIN;SET LOCAL search_path=security,risk,public;' + migration_body(migration.read_text()) + 'ROLLBACK;')
         print('PASS custody upgrade refuses cash/worker source, owner, authority, settings and ACL drift under any caller search path.', flush=True)
         reference, market, security, manifest = fixture(root)
-        for sql in [reference, market, security]:
-            query(sql)
+        load_fixture(query,reference,market,security,manifest)
         f = ParkLoanFixture(query, manifest)
         owned, book = f.account('retained_fixed_custody_predecessor')
         for action in ['gas.loan.borrow', 'gas.loan.repay', 'gas.cash.record_payment']:
@@ -93,8 +93,8 @@ def run():
         from exchange_fixture import fixture as exchange_fixture
         from preview_fixture import catalogue_fixture, trade_booking
         refs, marks, access, trading, other = exchange_fixture(root)
-        for sql in [refs, marks, access, trading]:
-            query(sql)
+        load_fixture(query,refs,marks,access,other)
+        query(trading)
         query(f"SELECT security.initialize_operating_policies('{other['tenantId']}','{other['workspaceId']}');")
         query(catalogue_fixture(other, other['identityIssuer']))
 
@@ -151,7 +151,7 @@ def run():
         assert timed.read()['balances']['outstandingPrincipal'] == '0'
         print('PASS populated custody upgrade preserves fixed/time-fee title, bank allocations, aliases, receipts and historical cuts; ordinary cash replay/status/correction and both final returns remain executable.', flush=True)
 
-    main(checks=verify, before_migration=before, fixture_factory=loaded)
+    main(checks=verify, before_migration=before, fixture_factory=loaded,through_migration='0351')
 
 
 if __name__ == '__main__':

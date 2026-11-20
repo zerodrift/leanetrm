@@ -40,7 +40,7 @@ def same_value_changed(f, sample, target, rejected):
     body = f.command('20', target=target)
     before = f.publication_heads()
     rejected(lambda: f.call(f"SELECT market_data.synthetic_equal_point_change('{f.catalog}','{uuid4()}',{literal(body)},"
-        f"'{f.market_context()}','{f.valuation_at}','{sample['operationId']}');SET CONSTRAINTS ALL IMMEDIATE;", profile='editor'),
+        f"'{f.market_context()}','{f.valuation_at}','{sample['operationId']}');SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;", profile='editor'),
         'point_trader_mark_receipt')
     assert f.publication_heads() == before
     print('PASS an independently linked observation/event/changed receipt cannot materialize an equal predecessor value.', flush=True)

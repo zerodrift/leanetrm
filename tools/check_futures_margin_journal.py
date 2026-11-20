@@ -375,10 +375,11 @@ def checks(query, manifest):
         f"to_jsonb(d)||jsonb_build_object('id','{uuid4()}'))).* FROM settlement_data.futures_margin_determinations d "
         f"WHERE(d.catalog_id,d.trade_id)=('{catalog}','{booked['tradeId']}') LIMIT 1;COMMIT;",'futures_margin_run_sealed'),(
         f"BEGIN;INSERT INTO trading.publications SELECT '{catalog}',max(publication_order)+1,pg_current_xact_id() FROM trading.publications WHERE catalog_id='{catalog}';"
+        "ALTER TABLE settlement_data.futures_margin_runs DISABLE TRIGGER aaa_source_read_inputs;"
         "INSERT INTO settlement_data.futures_margin_runs SELECT(jsonb_populate_record(NULL::settlement_data.futures_margin_runs,"
         f"to_jsonb(r)||jsonb_build_object('revision',100,'determination_count',1,'publication_order',(SELECT max(publication_order) FROM trading.publications WHERE catalog_id='{catalog}')))).* "
         f"FROM settlement_data.futures_margin_runs r WHERE(r.catalog_id,r.trade_id)=('{catalog}','{booked['tradeId']}') LIMIT 1;"
-        "SET CONSTRAINTS ALL IMMEDIATE;COMMIT;",'futures_margin_run_incomplete')]:
+        "SET CONSTRAINTS ALL IMMEDIATE;ALTER TABLE settlement_data.futures_margin_runs ENABLE TRIGGER aaa_source_read_inputs;COMMIT;",'futures_margin_run_incomplete')]:
         try:
             query(sql)
         except RuntimeError as error:

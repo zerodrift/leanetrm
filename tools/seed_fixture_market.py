@@ -11,6 +11,13 @@ BLOCK=re.compile(r'DO \$(rate_curve|contract_curve)\$ BEGIN IF .*? THEN\n(.*?)\n
 MARKER=re.compile(r'-- fixture-validation: ([0-9a-f-]+) ([0-9-]+) ([0-9a-f-]+)\n')
 
 
+def load_fixture(query,reference,market,security,manifest):
+    """Load source and identity facts before authenticating library publication."""
+    query(reference)
+    remaining=load_market(query,market,security,manifest)
+    if remaining:query(remaining)
+
+
 def load_market(query,market,security,manifest,*,before_seal=None):
     # Some interval fixtures place their author identities beside series rows.
     # Move those exact setup facts before the first authenticated publication.

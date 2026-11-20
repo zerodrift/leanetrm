@@ -373,9 +373,7 @@ def main():
             if migration.name=='0252_contract_observation_nodes.sql':
                 from check_contract_observation_upgrade import run_checks as check_contract_observation_upgrade,populated_checks
                 check_contract_observation_upgrade(query,migration)
-                # The populated qualification runs once, on the base fixture in one transaction; the contract dates mode's window_frames
-                # fixture cannot load that way, because its pinned curve's date admissions arrive only through a rewritten load.
-                if args.contract_observation_curve_check:populated_checks(query,migration,[reference,market,security],manifest)
+                if args.contract_observation_curve_check:populated_checks(query,migration,manifest)
             if migration.name=='0332_calendar_publication_certification.sql':
                 from check_fact_anchor_upgrade import run_checks as check_calendar_certification_upgrade
                 check_calendar_certification_upgrade(query,migration,number='0270',guard='calendar_certification_upgrade',signatures=('security.capture_market_and_schedule_context(uuid,date,timestamptz)','security.resolve_side_calendar(uuid,uuid,text,jsonb)','security.list_side_calendars()'))

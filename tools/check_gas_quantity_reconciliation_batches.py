@@ -105,7 +105,7 @@ def checks(query,manifest):
         try:
             try:query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');"
                 f"SELECT security.reconcile_gas_futures_delivery_batch('{catalog}','{operation}','{account}',{literal(body)},'{at}','{context}','{policy}',1,false,{literal(continuation)});"
-                "SET CONSTRAINTS ALL IMMEDIATE;ROLLBACK;")
+                "SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;ROLLBACK;")
             except RuntimeError as error:assert 'gas_quantity_batch_seal' in str(error),str(error)
             else:missing.append(label)
         finally:query('DROP TRIGGER synthetic_batch_command_fault ON trading.gas_owned_commands;DROP FUNCTION trading.synthetic_batch_command_fault();')

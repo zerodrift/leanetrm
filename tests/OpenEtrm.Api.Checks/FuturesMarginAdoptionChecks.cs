@@ -108,13 +108,14 @@ internal static class FuturesMarginAdoptionChecks
         {
             var result=await database.WithIdentity(check.Text("profile"),null,async(connection,ct)=>
             {
+                _=await new KnowledgeResolver(manifest.CatalogId).Read(connection,check.GetProperty("request").Id("contextId"),ct);
                 var pending=check.Text("kind") switch{
                     "policy_save"=>await FuturesMarginCommands.SavePolicy(connection,manifest.CatalogId,check.GetProperty("request"),ct),
                     "adopt"=>await FuturesMarginCommands.Adopt(connection,manifest.CatalogId,check.GetProperty("request"),ct),
                     _=>throw new Exception("Select the native command being checked.")};
                 if(expire)
                 {
-                    await using var idle=ScheduleStore.Command(connection,"SET CONSTRAINTS ALL IMMEDIATE;SELECT pg_sleep(6)");
+                    await using var idle=ScheduleStore.Command(connection,"SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;SELECT pg_sleep(6)");
                     await idle.ExecuteNonQueryAsync(ct);
                 }
                 return pending;

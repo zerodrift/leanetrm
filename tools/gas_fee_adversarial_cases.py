@@ -33,7 +33,7 @@ def _state(query,catalog):
 
 def _refused(call,statement,expected,*,immediate=False):
     try:
-        call(statement+('SET CONSTRAINTS ALL IMMEDIATE;' if immediate else ''),rollback=immediate)
+        call(statement+('SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;' if immediate else ''),rollback=immediate)
     except RuntimeError as error:
         assert re.search(r'ERROR:\s+(?:[A-Z0-9]{5}:\s+)?'+re.escape(expected)+r'(?:\n|$)',str(error)),str(error)
     else:

@@ -25,7 +25,7 @@ def source_check(query,call,capture,catalog,account,ordinary,correction,at,ordin
     before=query(f"SELECT max(publication_order) FROM trading.publications WHERE catalog_id='{catalog}';")
     body=dict(ordinary=ordinary,physical=dict(corrections=[correction,selected]),physicalAccountId=account)
     statement=f"SELECT security.reconcile_gas_quantity_bundle('{catalog}','{uuid4()}','{account}',{literal(body)},'{at}','{stale}',"
-    statement+=f"'{ordinary_policy}',1,'{physical_policy}',1,false,{literal(continuation)});SET CONSTRAINTS ALL IMMEDIATE;"
+    statement+=f"'{ordinary_policy}',1,'{physical_policy}',1,false,{literal(continuation)});SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;"
     try:call(statement,rollback=True)
     except RuntimeError as error:assert 'futures_delivery_source' in str(error),str(error)
     else:raise AssertionError('An unchanged counterpart with a bank fact outside captured source K bypassed its original native source fence')
@@ -51,7 +51,7 @@ def checks(query,call,command,catalog):
             query("CREATE TRIGGER fixture_gas_bundle_fault BEFORE INSERT ON trading.gas_owned_commands FOR EACH ROW EXECUTE FUNCTION trading.fixture_gas_bundle_fault();")
             try:
                 for immediate in (True,False):
-                    try:call(command+("SET CONSTRAINTS ALL IMMEDIATE;" if immediate else ''),rollback=immediate)
+                    try:call(command+("SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;" if immediate else ''),rollback=immediate)
                     except RuntimeError as error:
                         expected='gas_owned_input' if name=='missing_ordinary' else 'gas_quantity_bundle_seal'
                         assert expected in str(error),str(error)
@@ -78,7 +78,7 @@ def acknowledgement_checks(query,call,command,catalog):
       CREATE TRIGGER fixture_gas_bundle_ack_fault BEFORE INSERT ON trading.gas_owned_commands FOR EACH ROW EXECUTE FUNCTION trading.fixture_gas_bundle_ack_fault();""")
     try:
         for immediate in (True,False):
-            try:call(command+("SET CONSTRAINTS ALL IMMEDIATE;" if immediate else ''),rollback=immediate)
+            try:call(command+("SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;" if immediate else ''),rollback=immediate)
             except RuntimeError as error:assert 'gas_quantity_bundle_seal' in str(error),str(error)
             else:raise AssertionError('Correlated malformed all-acknowledgement bodies and outcomes bypassed the independent mixed native seal')
     finally:

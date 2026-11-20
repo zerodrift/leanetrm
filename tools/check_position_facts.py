@@ -121,7 +121,7 @@ def _directory_authority(client,context,query,root):
         try:
             query(f"DELETE FROM security.role_permissions WHERE role_id='{role}' AND permission='{permission}';")
             # Market authority is also needed to resolve the retained context.
-            expected,code=(403,'access_denied') if permission=='ReadTrades' else (422,'temporal_context')
+            expected,code=(403,'access_denied') if permission=='ReadTrades' else (422,'knowledge_coverage')
             refused=client.call('trading/directory',context,expected=expected)
             assert refused['code']==code and set(refused)=={'code','message'},refused
         finally:

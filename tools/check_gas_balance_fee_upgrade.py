@@ -4,6 +4,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from check_reference_editing import main
+from seed_fixture_market import load_fixture
 from gas_park_loan_fixture import ParkLoanFixture, fixture, literal, rejected
 
 
@@ -41,8 +42,7 @@ def run():
         query('BEGIN;SET LOCAL search_path=security,trading,public;' + migration_body(migration.read_text()) + 'ROLLBACK;')
         print('PASS balance-fee upgrade refuses changed producer/probe source, actor boundary, settings, owner or ACL.', flush=True)
         reference, market, security, manifest = fixture(root)
-        for sql in [reference, market, security]:
-            query(sql)
+        load_fixture(query,reference,market,security,manifest)
         f = ParkLoanFixture(query, manifest)
         owned, book = f.account('retained_fixed_fee')
         for action in ['gas.loan.borrow', 'gas.loan.repay', 'gas.cash.record_payment']:
@@ -108,7 +108,7 @@ def run():
         assert read()['balances']['outstandingPrincipal'] == '0' and read()['fee']['unpaid'] == '-7.5'
         print('PASS populated time-fee upgrade preserves every fixed-fee fact, alias, first outcome and historical cut; fixed-fee final return remains executable.', flush=True)
 
-    main(checks=verify, before_migration=before, fixture_factory=loaded)
+    main(checks=verify, before_migration=before, fixture_factory=loaded,through_migration='0350')
 
 
 if __name__ == '__main__':

@@ -185,6 +185,7 @@ def run_lifecycle(c, workspace, context, trade, currency):
     changed=inspect(correction_context)
     assert changed['valuation']['remainingValue']=='20' and changed['valuation']['realized']=='70'
     assert changed['valuation']['netCash']=='50' and changed['valuation']['corrections']=='20'
+    c.select_inputs(paid['context'])
     old={**due_context,'knowledgeMode':'retained','contextId':paid['context']['contextId']}
     replay=inspect(old)
     assert replay['valuation']==paid['valuation'] and replay['settlement']==paid['settlement']

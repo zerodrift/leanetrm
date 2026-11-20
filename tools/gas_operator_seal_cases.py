@@ -13,7 +13,7 @@ def _literal(value):return "'"+json.dumps(value).replace("'","''")+"'::jsonb"
 
 
 def _refused(call,sql,expected,label,immediate):
-    try:call(sql+('SET CONSTRAINTS ALL IMMEDIATE;' if immediate else ''))
+    try:call(sql+('SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;' if immediate else ''))
     except RuntimeError as error:
         assert re.search(r'ERROR:\s+(?:[A-Z0-9]{5}:\s+)?'+re.escape(expected)+r'(?:\n|$)',str(error)),label+': '+str(error)
     else:raise AssertionError('Operator producer mutation '+label+' accepted at '+('IMMEDIATE validation' if immediate else 'actual COMMIT')+'.')

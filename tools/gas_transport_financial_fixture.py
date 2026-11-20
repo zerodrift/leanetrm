@@ -145,8 +145,10 @@ COMMIT;"""
         observations.append(f"INSERT INTO trading.publications SELECT '{self.catalog}',coalesce(max(publication_order),0)+1,pg_current_xact_id() FROM trading.publications WHERE catalog_id='{self.catalog}';")
         observations.append(discount_default(self.catalog, str(uuid4()), self.definition_revision, r, 'usd', 'transport_package_discount', publication, '2020-01-01T00:00:00Z'))
         sql = sql.replace('COMMIT;', '\n'.join(observations) + '\nCOMMIT;')
-        self.query(sql)
-        self.query(f"INSERT INTO security.reference_catalog_scopes VALUES('{self.reference}','{self.manifest['tenantId']}','{self.manifest['workspaceId']}','owner');")
+        from seed_fixture_market import load_market
+        access=f"INSERT INTO security.reference_catalog_scopes VALUES('{self.reference}','{self.manifest['tenantId']}','{self.manifest['workspaceId']}','owner');"
+        remaining=load_market(self.query,sql,access,self.manifest)
+        assert not remaining
         self.manifest.setdefault('inputMarkets', []).append(dict(revisionId=self.definition_revision, frames=self.frames))
 
     def booking(self, *, key='synthetic_financial_transport', perspective='customer', fee='12.5', direction='pay'):

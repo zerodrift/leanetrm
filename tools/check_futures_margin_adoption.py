@@ -432,7 +432,7 @@ def checks(query, manifest):
                     f"DO $check$ DECLARE admitted_until timestamptz;BEGIN "
                     f"admitted_until=settlement_data.futures_margin_command_authority('{catalog}','adopt');"
                     f"PERFORM settlement_data.adopt_futures_margin('{catalog}',{literal(hosted_body)});"
-                    "SET CONSTRAINTS ALL IMMEDIATE;PERFORM pg_sleep(6);"
+                    "PERFORM security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;PERFORM pg_sleep(6);"
                     f"PERFORM settlement_data.finish_futures_margin_command('{catalog}','{hosted_body['operationId']}','adopt',"
                     f"{literal(hosted_body)},admitted_until);END $check$;COMMIT;", 'futures_margin_denied')
     assert financial_counts() == before, 'Hosted expiry retained a command receipt'

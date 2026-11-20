@@ -96,7 +96,7 @@ def run_checks(url, query=None, manifest=None):
     if query:
         from check_gas_billing_authority import check as authority_check
         pending={**adjust,'operationId':str(uuid4()),'previewHash':p['previewHash'],'sourceId':p['sourceId'],'expectedPreviousId':updated['determinationId'],'evidence':'Synthetic pending zero correction'}
-        authority_check(query,manifest,adjust,pending,dict(sourceId=p['sourceId'],amount='0',numerator='0',denominator='1'),p['context']['contextId'])
+        authority_check(query,manifest,adjust,pending,dict(sourceId=p['sourceId'],amount='0',numerator='0',denominator='1'),p['context'])
         from check_booked_side_programs import runtime_query
         malformed=[]
         for due in ['2021-03-02 00:00:00','2021-03-02T00:00:00.0000001Z','2021-03-02T24:00:00Z']:

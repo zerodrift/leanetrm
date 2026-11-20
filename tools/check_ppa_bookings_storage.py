@@ -91,7 +91,7 @@ def run_checks(query, manifest):
           {(x['role'], x['ordinal']) for x in retained['sideIds']} == {('energy_delivery', 0), ('strike_payment', 0)})
     from check_ppa_side_schedule_schema import run_storage_checks as check_schedule_retention
     check_schedule_retention(query, request, save, catalog, instrument)
-    before_amendment = query('BEGIN;' + runtime(f"SELECT security.resolve_operation_context('{catalog}','2020-12-15',NULL);") + 'COMMIT;')
+    before_amendment = query('BEGIN;' + runtime(f"SELECT security.capture_date_context('{catalog}','2020-12-15',NULL);") + 'COMMIT;')
 
     def historical(context, sql):
         return runtime(f"SELECT security.use_market_context('{catalog}','{context}');"
@@ -280,7 +280,7 @@ def run_checks(query, manifest):
               'boundaryAt': request['coverageFrom']}
     cancelled = save(cancel)
     check('termination exactly at delivery start retains an explicit empty binding set', cancelled['bindings'] == [])
-    after_termination = query('BEGIN;' + runtime(f"SELECT security.resolve_operation_context('{catalog}','2020-12-15',NULL);") + 'COMMIT;')
+    after_termination = query('BEGIN;' + runtime(f"SELECT security.capture_date_context('{catalog}','2020-12-15',NULL);") + 'COMMIT;')
     complete_scope = f"SELECT count(*) FROM security.ppa_scope_heads('{catalog}','books',ARRAY['{book}'::uuid]);"
     check('complete scope admission retains terminated and empty-binding trade heads',
           query('BEGIN;' + historical(after_termination, complete_scope) + 'ROLLBACK;') == '2')

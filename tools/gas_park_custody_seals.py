@@ -63,7 +63,7 @@ def reservation_owner(f, accept_policy, return_policy):
     for reuse, wrong_receipt in [(True,False),(False,False),(True,True)]:
         try:
             f.call(f"SELECT trading.synthetic_custody_reservation_alias('{f.catalog}','{first['tradeId']}','{second['tradeId']}',{literal(body_a)},'{context}',"
-                f"{b['stateVersion']},'{agreement_b['id']}','{receipt_b['id']}','{accept_policy}','{return_policy}',{str(reuse).lower()},{str(wrong_receipt).lower()});SET CONSTRAINTS ALL IMMEDIATE;", rollback=True)
+                f"{b['stateVersion']},'{agreement_b['id']}','{receipt_b['id']}','{accept_policy}','{return_policy}',{str(reuse).lower()},{str(wrong_receipt).lower()});SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;", rollback=True)
         except RuntimeError as error:
             expected = 'gas_custody_receipt' if wrong_receipt else 'gas_custody_allocation' if reuse else 'gas_owned_context'
             assert expected in str(error), str(error)

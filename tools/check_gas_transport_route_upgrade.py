@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from check_fact_anchor_upgrade import run_checks as guard_checks
 from check_reference_editing import main
+from seed_fixture_market import load_fixture
 from gas_transport_route_fixture import RouteFixture,fixture
 
 
@@ -20,7 +21,7 @@ def run():
         guard_checks(query,migration,number='0353',guard='gas_transport_route_upgrade',signatures=(
             'assistant.is_prompt_page(text)','trading.verify_gas_transport_capacity_plan(uuid,uuid)'))
         reference,market,access,manifest=fixture(root)
-        for sql in [reference,market,access]:query(sql)
+        load_fixture(query,reference,market,access,manifest)
         f=RouteFixture(query,manifest);sources=f.source_plans()
         context=f.capture()
         sources=[f.read(source['entitlement']['id'],context=context) for source in sources]
@@ -48,7 +49,7 @@ def run():
         assert accepted['definitionId']==defined['definitionId'] and len(f.route_read(definition['routeId'])['memberships'])==4
         assert f.call(f"SELECT has_function_privilege(current_user,'trading.verify_gas_transport_capacity_snapshot(uuid,uuid,uuid,integer,text,jsonb)','EXECUTE');")=='f'
         print('PASS populated route upgrade preserves all four capacity source streams/seven claims, historical exact reads and original receipts; extracted verifier remains private and new route adoption is executable.',flush=True)
-    main(verify,before_migration=before,fixture_factory=loaded)
+    main(verify,before_migration=before,fixture_factory=loaded,through_migration='0353')
 
 
 if __name__=='__main__':run()

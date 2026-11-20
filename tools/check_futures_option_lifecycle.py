@@ -386,16 +386,18 @@ def run_lifecycle_checks(url, query, manifest):
     # event identities make these competing exercises, rather than a retry or
     # acknowledgement of one fact. The native publication fence must admit one.
     raced=booked(call,'1')
+    race_context=c.capture()
     requests=[]
     for _ in range(2):
         command=dict(operationId=str(uuid4()),**context,tradeId=raced,lots='1')
         request=c.request('exercise',command)
-        request['previewHash']=c.client.call('lifecycle/preview',request)['hash']
+        request['context']=dict(contextId=race_context,asOf=c.as_of,businessDate=c.business_date)
+        request['previewHash']=json.loads(c.native(f"SELECT lifecycle.option_proposal('{catalog_id}',{c.lit(request)})::text;"))['hash']
         requests.append(request)
     start=threading.Barrier(2)
     def compete(request):
         start.wait(timeout=10)
-        native={**request,'context':dict(contextId=request['context']['contextId'],asOf=c.as_of,businessDate=c.business_date)}
+        native=request
         try:return ('accepted',json.loads(c.native(f"SELECT lifecycle.execute_option_action('{catalog_id}',{c.lit(native)})::text;")))
         except RuntimeError as error:
             if 'lifecycle_event_revision' not in str(error):raise

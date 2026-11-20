@@ -32,12 +32,12 @@ GAS_AMENDMENTS={f'tools/{name}.py' for name in (
     'check_gas_operator_existing_origins','check_gas_operator_upgrade','check_gas_operator_native_upgrade')}
 LIFECYCLE_PORTFOLIO={f'tools/{name}.py' for name in (
     'check_lifecycle_risk_jobs','check_lifecycle_risk_scope','check_lifecycle_final_scope',
-    'check_lifecycle_projection_horizon','check_lifecycle_swap_worker','check_lifecycle_future_worker',
+    'check_lifecycle_projection_horizon','check_lifecycle_projection_horizon_upgrade','check_lifecycle_swap_worker','check_lifecycle_future_worker',
     'check_lifecycle_economic_browser','check_physical_futures_value','check_gas_projection_scope',
     'check_gas_operator_physical_value','check_gas_operator_ordinary_value','check_gas_known_cashout')}
 OPTION_VALUE_APPS={'tools/check_lifecycle_valuation_browser.py'}
 AGENT_SETTINGS_BROWSER={'tools/check_agent_operating_settings.py'}
-STORAGE_FACILITY={f'tools/{name}.py' for name in ('check_storage_facility','check_storage_facility_upgrade','check_storage_facility_browser')}
+STORAGE_FACILITY={f'tools/{name}.py' for name in ('check_storage_facility','check_storage_facility_browser')}
 TRANSPORT_CAPACITY={f'tools/{name}.py' for name in ('check_gas_transport_capacity','check_gas_transport_capacity_upgrade','check_gas_transport_capacity_browser')}
 TRANSPORT_ROUTE={f'tools/{name}.py' for name in ('check_gas_transport_route','check_gas_transport_route_upgrade','check_gas_transport_route_browser')}
 OPERATING_FACILITIES={'tools/check_operating_facilities.py','tools/check_operating_schedule_storage.py','tools/check_operating_trades.py','tools/check_rec_inventory.py','tools/check_rec_forward_storage.py','tools/check_heat_rate_call_storage.py','tools/check_spread_mark_storage.py','tools/check_gas_storage_contract_storage.py'}
@@ -367,11 +367,12 @@ class CheckAllTests(unittest.TestCase):
             self.assertEqual(set(observed), gas_helpers(group, expected))
             self.assertEqual(len(observed), len(gas_helpers(group, expected)))
 
-    def test_storage_facility_native_upgrade_and_browser_run_once_in_physical(self):
+    def test_current_storage_native_managed_and_browser_run_once_in_physical(self):
         expected=STORAGE_FACILITY
         for group in GROUPS:
             selected=[]
             def run(command,**options):
+                self.assertNotIn('tools/check_storage_facility_upgrade.py',command)
                 helpers=expected.intersection(command)
                 if not helpers:return
                 helper=helpers.pop();selected.append(helper)

@@ -17,7 +17,7 @@ def checks(query,call,record,evidence,capture,state,manifest):
     def command(selection,op=operation):
         return f"SELECT security.reconcile_gas_loan_quantities('{catalog}','{op}','{account}',{literal(selection)},'{at}','{context}','{policy}',1,false)::text;"
     def refused(statement,codes):
-        try:call(statement+'SET CONSTRAINTS ALL IMMEDIATE;',rollback=True)
+        try:call(statement+'SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;',rollback=True)
         except RuntimeError as error:assert any(code in str(error) for code in codes),str(error)
         else:raise AssertionError('Loan correction accepted a malformed or stale financial proposal')
     refused(command(body),['gas_stock_capacity','gas_loan_return'])
@@ -26,7 +26,7 @@ def checks(query,call,record,evidence,capture,state,manifest):
     agreement=evidence('synthetic_loan_agreement','loan_agreement','0.5',when,3)
     context=capture();body=body|dict(quantity='0.5',titleEvidenceId=title,agreementEvidenceId=agreement)
     # Establish that every negative uses an otherwise executable same producer.
-    assert json.loads(call(command(body)+'SET CONSTRAINTS ALL IMMEDIATE;',rollback=True))['changed']
+    assert json.loads(call(command(body)+'SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;',rollback=True))['changed']
     before=query(f"SELECT max(publication_order) FROM trading.publications WHERE catalog_id='{catalog}';")
     faults={
         'missing_resource_array':"NEW.request=NEW.request#-ARRAY['body','consumptions'];",
@@ -42,7 +42,7 @@ def checks(query,call,record,evidence,capture,state,manifest):
                 "IF NEW.request->>'action'='loan_quantity_reconciliation' THEN "+change+"END IF;RETURN NEW;END$$;")
             query('CREATE TRIGGER fixture_loan_correction_fault BEFORE INSERT ON trading.gas_owned_commands FOR EACH ROW EXECUTE FUNCTION trading.fixture_loan_correction_fault();')
             try:
-                refused(command(body)+'SET CONSTRAINTS ALL IMMEDIATE;',['gas_loan_quantity_seal','gas_owned_input'])
+                refused(command(body)+'SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;',['gas_loan_quantity_seal','gas_owned_input'])
                 # This must cross the actual deferred COMMIT boundary too.
                 try:call(command(body))
                 except RuntimeError as error:assert 'gas_loan_quantity_seal' in str(error) or 'gas_owned_input' in str(error),str(error)

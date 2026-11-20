@@ -70,7 +70,9 @@ def main():
         reference, market, security, manifest = fixture(ROOT)
         if not args.upgrade_existing_close:
             from native_read_transport import NativeReadTransport
-            transport=NativeReadTransport();query.read_sources=transport.sources
+            native_inputs=directory/'native-read-inputs.json'
+            transport=NativeReadTransport(native_inputs);query.read_sources=transport.sources
+            env['OPENETRM_NATIVE_CHECK_INPUTS']=str(native_inputs)
         query(reference)
         from seed_fixture_market import load_market
         security=load_market(query,market,security,manifest)
@@ -220,7 +222,7 @@ def main():
         earlier_pins=json.loads(query(f"SELECT json_agg(json_build_object('definitionRevisionId',definition_revision_id,'seriesId',series_id,'observationId',id,'inputUse','variable')) FROM market_data.observations WHERE catalog_id='{catalog}' AND id IN({','.join(chr(39)+i+chr(39) for i in earlier_frame['observationIds'])});"))
         earlier_members=[m for m in members if m['definitionRevisionId']==revision]
         earlier_close=runtime(f"SELECT security.register_market_close('{catalog}','{revision}','{uuid4()}','Synthetic earlier source','test_source_inputs','2020-12-17','{earlier_frame['at']}',{literal(earlier_pins)},{literal(earlier_members)});")
-        if args.dotnet:
+        if args.dotnet and not args.upgrade_existing_close:
             frame=next(f for f in manifest['frames'] if f['at'].startswith('2020-12-18'))
             contract=frame['curveContracts']['future'][0]
             parts=json.loads(query(f"SELECT json_build_object('at','{frame['at']}','frozenObservationIds','[]'::json,'observationIds',(SELECT json_agg(id ORDER BY id) FROM market_data.observations WHERE catalog_id='{catalog}' AND definition_revision_id='{additional}' AND observed_at='{frame['at']}'),'curveContracts',json_build_object('additional_future',json_build_array('{contract}')))::text;"))
@@ -277,7 +279,7 @@ def main():
             print('PASS claimed worker reproduces interactive scenario results and held version evidence from the retained multi-source inputs')
         from close_listing_checks import check_listings
         active_close=check_listings(query,runtime,reject,literal,manifest,close,first_close_request,pins,members)
-        if args.dotnet:
+        if args.dotnet and not args.upgrade_existing_close:
             token=query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
                         f"'https://preview.invalid','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',120);")
             listing_check=directory/'listings.json'

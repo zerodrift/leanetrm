@@ -53,6 +53,7 @@ internal static class GasOwnedChecks
         // The old source certificate excludes the reservation just accepted.
         // A new body cannot use its mathematically valid hash to bypass that head.
         await database.WithIdentity("trader",null,async(connection,ct)=>{
+            await LifecycleNative.Source(connection,database,context,ct);
             var body=GasOwnedOperations.Selection("reserve",stale.Selection);
             await using var hash=ScheduleStore.Command(connection,"SELECT security.gas_owned_review_hash($1,$2,'reserve',$3::jsonb,$4,$5,$6,1,false)",
                 manifest.CatalogId,stale.Target.ScopeId,body.GetRawText(),context.AsOf,context.ContextId,stale.PolicyId);
@@ -67,8 +68,9 @@ internal static class GasOwnedChecks
         Console.WriteLine("PASS owned gas coordinator: same native preview/execute, stale review and native-head refusal, first outcome and semantic no-op");
 
         var finalContext=await database.WithIdentity("trader",null,async(connection,ct)=>{
-            await using var capture=ScheduleStore.Command(connection,"SELECT security.resolve_operation_context($1,$2,NULL)",manifest.CatalogId,context.BusinessDate);
-            return(Guid)(await capture.ExecuteScalarAsync(ct))!;
+            var captured=await new KnowledgeResolver(manifest.CatalogId).Capture(connection,
+                new(context.BusinessDate.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),null,"current"),ct);
+            return captured.Context.ContextId!.Value;
         },default);
         await database.WithIdentity("trader",null,async(connection,ct)=>{
             var source=(await new KnowledgeResolver(manifest.CatalogId).Read(connection,finalContext,ct)).Context;

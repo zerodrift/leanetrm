@@ -146,6 +146,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
         ('check_lifecycle_risk_scope','consumer-specific gas authority in risk jobs'),
         ('check_lifecycle_final_scope','native lifecycle final-result scope'),
         ('check_lifecycle_projection_horizon','economic horizon and retained projection profiles'),
+        ('check_lifecycle_projection_horizon_upgrade','historical populated horizon migration'),
         ('check_lifecycle_swap_worker','economic swap replay in separate workers'),
         ('check_lifecycle_future_worker','economic futures replay in separate workers'),
         ('check_gas_projection_scope','original gas projection scope authority, fixed source tuples and actual economic workers'),
@@ -214,8 +215,8 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
         flag='--point-trader-mark-'+name
         check('managed ordinary point publication '+flag,[str(dotnet),'run','--no-restore','--project',
             'tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj','--',flag],suite='managed')
-    for helper in ('check_storage_facility','check_storage_facility_upgrade'):
-        check(helper,[sys.executable,f'tools/{helper}.py','--pg-bin',str(pg_bin)],suite='physical')
+    check('fresh storage native and managed source allocation',
+        [sys.executable,'tools/check_storage_facility.py','--pg-bin',str(pg_bin)],suite='physical')
     check('physical facility authoring and measured activity in the application',
         [sys.executable,'tools/check_storage_facility_browser.py','--pg-bin',str(pg_bin),'--dotnet',str(dotnet),
          '--browser',str(browser),'--no-build'],suite='physical')
@@ -241,7 +242,9 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
         '--shared-native-markets','--derivative-methods','--gas-accepted-order','--lifecycle-residual-currencies','--gas-operator-contract'):
         check('managed lifecycle '+flag,[str(dotnet),'run','--no-restore','--project',
             'tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj','--',flag], suite='managed')
-    check('exact temporal sources, retained close upgrade and claimed worker replay',
+    check('exact runtime temporal sources and claimed worker replay',
+          [sys.executable,'tools/check_context_resolution.py','--pg-bin',str(pg_bin),'--dotnet',str(dotnet)], suite='database')
+    check('historical populated recorded-close migration',
           [sys.executable,'tools/check_context_resolution.py','--upgrade-existing-close','--pg-bin',str(pg_bin),'--dotnet',str(dotnet)], suite='database')
     check('owned recorded-close observation batches',[sys.executable,'tools/check_observation_batch_reads.py','--pg-bin',str(pg_bin)], suite='database')
     check('owned publication definitions and final releases',[sys.executable,'tools/check_price_publications.py','--pg-bin',str(pg_bin)], suite='database')

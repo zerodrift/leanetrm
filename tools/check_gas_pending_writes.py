@@ -42,7 +42,7 @@ def checks(query,manifest):
         token=query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
             f"'https://preview.invalid','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}"
-            +('SET CONSTRAINTS ALL IMMEDIATE;ROLLBACK;' if rollback else 'COMMIT;'))
+            +('SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;ROLLBACK;' if rollback else 'COMMIT;'))
     def capture():return call(f"SELECT security.resolve_operation_context('{catalog}','2020-12-20',NULL);")
     account=query(f"SELECT id FROM trading.gas_owned_accounts WHERE catalog_id='{catalog}' AND kind='owned_inventory' ORDER BY publication_order LIMIT 1;")
     def policy(action):

@@ -205,15 +205,15 @@ def checks(query, manifest):
         clock_timestamp()+interval '30 seconds',c.policy_id,c.policy_revision);
     END$$;ALTER FUNCTION trading.synthetic_custody_bad_context(uuid) OWNER TO openetrm_security_owner;
     GRANT EXECUTE ON FUNCTION trading.synthetic_custody_bad_context(uuid) TO openetrm_runtime;""")
-    rejected(lambda: f.call(f"SELECT trading.synthetic_custody_bad_context('{f.catalog}');SET CONSTRAINTS ALL IMMEDIATE;", rollback=True), 'gas_custody_context')
+    rejected(lambda: f.call(f"SELECT trading.synthetic_custody_bad_context('{f.catalog}');SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;", rollback=True), 'gas_custody_context')
     print('PASS a fresh semantic acknowledgement cannot assert a nonexistent source context.', flush=True)
     payment['operationId'], payment['allocationId'], payment['amount'] = str(uuid4()), str(uuid4()), '13'
-    rejected(lambda: f.call(f"SELECT security.record_cash_payment('{f.catalog}',{literal(payment)},'{f.at}');SET CONSTRAINTS ALL IMMEDIATE;", rollback=True), 'gas_custody_cash_payment')
+    rejected(lambda: f.call(f"SELECT security.record_cash_payment('{f.catalog}',{literal(payment)},'{f.at}');SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;", rollback=True), 'gas_custody_cash_payment')
     print('PASS ordinary custody fee payment independently enforces signed accepted cash capacity.', flush=True)
 
     first = {**payment, 'operationId': str(uuid4()), 'allocationId': str(uuid4()), 'amount': '13', 'expectedRevision': 0}
     second = {**first, 'operationId': str(uuid4()), 'amount': '5', 'expectedRevision': 1}
-    rejected(lambda: f.call(f"SELECT security.record_cash_payment('{f.catalog}',{literal(first)},'{f.at}');SELECT security.record_cash_payment('{f.catalog}',{literal(second)},'{f.at}');SET CONSTRAINTS ALL IMMEDIATE;", rollback=True), 'gas_custody_cash_payment')
+    rejected(lambda: f.call(f"SELECT security.record_cash_payment('{f.catalog}',{literal(first)},'{f.at}');SELECT security.record_cash_payment('{f.catalog}',{literal(second)},'{f.at}');SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;", rollback=True), 'gas_custody_cash_payment')
     print('PASS an oversized payment revision cannot be hidden by a same-transaction smaller correction.', flush=True)
 
     query("""CREATE FUNCTION trading.synthetic_custody_bad_receipt(catalog uuid) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
@@ -224,7 +224,7 @@ def checks(query, manifest):
         clock_timestamp()+interval '30 seconds',c.policy_id,c.policy_revision);
     END$$;ALTER FUNCTION trading.synthetic_custody_bad_receipt(uuid) OWNER TO openetrm_security_owner;
     GRANT EXECUTE ON FUNCTION trading.synthetic_custody_bad_receipt(uuid) TO openetrm_runtime;""")
-    rejected(lambda: f.call(f"SELECT trading.synthetic_custody_bad_receipt('{f.catalog}');SET CONSTRAINTS ALL IMMEDIATE;", rollback=True), 'gas_custody_receipt')
+    rejected(lambda: f.call(f"SELECT trading.synthetic_custody_bad_receipt('{f.catalog}');SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;", rollback=True), 'gas_custody_receipt')
     print('PASS a future definer cannot attach a forged quantity receipt to a real accepted return.', flush=True)
 
     f.at, f.day = '2020-12-18T16:00:00Z', '2020-12-18'
@@ -267,7 +267,7 @@ def checks(query, manifest):
       to_jsonb(t)||jsonb_build_object('trade_id',new_trade,'instrument_id',new_instrument,'operation_id',op,'publication_order',pub,'quantity',999))).*;
     END$$;ALTER FUNCTION trading.synthetic_custody_bad_booking(uuid) OWNER TO openetrm_security_owner;
     GRANT EXECUTE ON FUNCTION trading.synthetic_custody_bad_booking(uuid) TO openetrm_runtime;""")
-    rejected(lambda: f.call(f"SELECT trading.synthetic_custody_bad_booking('{f.catalog}');SET CONSTRAINTS ALL IMMEDIATE;", rollback=True), 'gas_custody_booking_seal')
+    rejected(lambda: f.call(f"SELECT trading.synthetic_custody_bad_booking('{f.catalog}');SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;", rollback=True), 'gas_custody_booking_seal')
     print('PASS typed custody booking quantity cannot diverge from the retained authorized request.', flush=True)
 
     other, other_book = f.account('future_funded')
@@ -314,7 +314,7 @@ def checks(query, manifest):
       INSERT INTO trading.gas_park_custody_commands VALUES(catalog,op,trade,actor,'return',request,outcome,clock_timestamp()+interval '30 seconds',policy,1);
     END$$;ALTER FUNCTION trading.synthetic_custody_corrected_return(uuid,uuid,uuid,integer,uuid,uuid) OWNER TO openetrm_security_owner;
     GRANT EXECUTE ON FUNCTION trading.synthetic_custody_corrected_return(uuid,uuid,uuid,integer,uuid,uuid) TO openetrm_runtime;""")
-    rejected(lambda: f.call(f"SELECT trading.synthetic_custody_corrected_return('{f.catalog}','{provider['tradeId']}','{context}',{state['stateVersion']},'{observed['id']}','{return_policy}');SET CONSTRAINTS ALL IMMEDIATE;", rollback=True), 'gas_custody_correction_required')
+    rejected(lambda: f.call(f"SELECT trading.synthetic_custody_corrected_return('{f.catalog}','{provider['tradeId']}','{context}',{state['stateVersion']},'{observed['id']}','{return_policy}');SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;", rollback=True), 'gas_custody_correction_required')
     print('PASS corrected pinned observations retain history and independently block public and deferred-definer application.', flush=True)
 
     context = f.capture()
