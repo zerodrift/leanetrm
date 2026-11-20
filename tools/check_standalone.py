@@ -8,7 +8,7 @@ ROOT=Path(__file__).resolve().parents[1]
 
 
 def main():
-    projects=list((ROOT/'src').glob('**/*.csproj'))+list((ROOT/'tests').glob('**/*.csproj'))
+    projects=[project for directory in ('src','tests','tools') for project in (ROOT/directory).glob('**/*.csproj')]
     for project in projects:
         tree=ET.parse(project)
         for reference in tree.iter('ProjectReference'):

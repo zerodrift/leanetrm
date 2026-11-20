@@ -1,5 +1,11 @@
 # Delivery plan and acceptance criteria
 
+D437 adds the [regional currency examples preset](regional-seed.md). Qualification
+requires winter/summer close clocks, independent currency discounting, retained
+USD parity, interrupted/concurrent replay and current owner authority at source
+admission and commit. It introduces no new schema and qualifies no live data feed,
+FX conversion or regional gas product. Full CI and activation remain release gates.
+
 D435 requires the [runtime context cutover](ephemeral-context-cutover.md), including
 removal of all four generic stores and their saved-context APIs, owner-specific
 input evidence, fresh construction by every job attempt and an explicit clean

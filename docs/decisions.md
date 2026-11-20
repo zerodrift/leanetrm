@@ -6820,3 +6820,25 @@ A bilateral booking or economic amendment retains the exact executed agreement a
 Commercial storage pins a versioned facility and two gas ports. Each port supplies a published valuation assignment. Working-inventory entitlements use daily contract ratchets. Physical storage limits retain their hourly basis. A physical toll identifies its operating plant. An attributed financial hedge retains its native settlement terms.
 
 Facility reports join whole trades and the operating facts visible at the selected knowledge cutoff. Gas, power, installed capacity and financial exposure retain their respective units. The shared meter ledger owns physical measurements and explicit allocations through source corrections. [Gas facility trading desk](gas-facility-desk.md)
+
+## D437 — Explicit regional currency examples and repeatable source seeding
+
+The selected synthetic preset records NYC Close at 16:00 New York and UK Close at
+16:30 London, using separate published clocks and Monday–Friday calendars without
+holiday exclusions. GBP, EUR and CAD each have a working discounted swap over an
+independent forward/index, currency discount default and simple Actual/365 Fixed
+interest rate curve. Marks are decimal annual rates, interpolation is log-linear
+in discount factors and extrapolation is refused. No FX conversion or regional
+gas market product is inferred from a currency.
+
+Append new exact-version source facts and publish through the existing native
+operations. Existing USD facts and trades retain their exact references. Stable
+identities, exact replay assertions and the publication gate support interrupted
+and concurrent reseeding; conflicting same-version terms refuse. Privileged
+hosted source phases require the authenticated owner's market permissions and
+ownership of the exact reference catalogue through commit. All helpers are
+session-local. Booking shares the HTTP operation, including independently retained
+Side schedules. Retire the synthetic UTC bootstrap listing without deleting its
+financial facts. Preserve subsequent personal choices and all hosted selections.
+This adds no saved-context storage or schema migration. See the
+[preset and qualification contract](regional-seed.md).

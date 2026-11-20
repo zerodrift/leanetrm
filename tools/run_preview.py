@@ -99,6 +99,9 @@ def main():
     parser.add_argument('--jobs-check',action='store_true',help='Qualify owned jobs and the shared infrastructure screen')
     parser.add_argument('--reference-import-check',action='store_true',help='Qualify private inactive reference intake in an owned database')
     parser.add_argument('--reference-demo-check',action='store_true',help='Qualify additive demo references and cross-version discounted swaps')
+    parser.add_argument('--with-regional-seed',action='store_true',help='Add the explicit 2020 regional currency examples preset (NYC/UK closes and GBP/EUR/CAD swaps)')
+    parser.add_argument('--regional-seed-check',action='store_true',help='Qualify regional closes and independent synthetic GBP, EUR and CAD pricing')
+    parser.add_argument('--regional-seed-startup-check',action='store_true',help='Qualify the complete interactive regional/date seed and exit')
     parser.add_argument('--reference-check',action='store_true',help='Qualify reference metadata authoring and reviewed display activation')
     parser.add_argument('--booking-check',action='store_true',help='Qualify backend-owned immutable trade booking facts')
     parser.add_argument('--unit-check', action='store_true', help='Run amount/unit integration checks in the owned standard fixture')
@@ -135,6 +138,14 @@ def main():
     parser.add_argument('--authoring-browser-suite',choices=['curve-objects','contract-pricing-controls','publication-controls','price-authoring-recovery'],help='Run one focused authoring control suite in the owned authoring fixture')
     parser.add_argument('--example', choices=['standard','mixed-gas'], default='standard', help='Explicit synthetic dataset')
     args = parser.parse_args()
+    if args.regional_seed_check:
+        args.reference_demo_check=True
+        args.with_regional_seed=True
+    if args.regional_seed_startup_check:
+        if args.check or args.regional_seed_check:parser.error('The regional startup gate runs the interactive seed; use its flag alone')
+        args.with_regional_seed=True
+    if args.with_regional_seed and (args.example!='standard' or args.check and not args.regional_seed_check):
+        parser.error('Use --with-regional-seed for the interactive standard preset or --regional-seed-check --check for qualification')
     if args.ephemeral_context_check: args.check=True
     if args.historical_pool_check: args.jobs_check=True
     if args.market_dates_benchmark_only:args.market_dates_reads_check=True
@@ -239,9 +250,15 @@ def main():
         subprocess.run(['npm','run','build','--prefix','web'],cwd=ROOT,env=env,check=True,timeout=60)
         subprocess.run([str(dotnet),'restore','src/OpenEtrm.Api','--locked-mode'],cwd=ROOT,env=env,check=True,timeout=120)
         subprocess.run([str(dotnet),'build','src/OpenEtrm.Api','--no-restore'],cwd=ROOT,env=env,check=True,timeout=120)
+        if args.with_regional_seed:
+            subprocess.run([str(dotnet),'restore','tools/OpenEtrm.Seed','--locked-mode'],cwd=ROOT,env=env,check=True,timeout=120)
+            subprocess.run([str(dotnet),'build','tools/OpenEtrm.Seed','--no-restore'],cwd=ROOT,env=env,check=True,timeout=120)
     dll=ROOT/'src/OpenEtrm.Api/bin/Debug/net10.0/OpenEtrm.Api.dll'
     if not dll.is_file() or not (ROOT/'web/dist/index.html').is_file():
         parser.error('Build the API and web assets before using --no-build')
+    seed_dll=ROOT/'tools/OpenEtrm.Seed/bin/Debug/net10.0/OpenEtrm.Seed.dll'
+    if args.with_regional_seed and not seed_dll.is_file():
+        parser.error('Build tools/OpenEtrm.Seed before using --no-build with the regional preset')
     # Use a short socket path on systems with a small Unix-socket path limit.
     temporary=Path(tempfile.mkdtemp(prefix='openetrm-preview-',dir='/tmp')).resolve()
     os.chmod(temporary,0o700)
@@ -778,7 +795,14 @@ def main():
         if args.jobs_check:
             from check_jobs_http import prepare as prepare_jobs
             prepare_jobs(query,manifest)
-        if args.reference_demo_check:
+        if args.with_regional_seed:
+            from regional_seed import install as install_regional
+            if args.regional_seed_check:
+                from check_regional_seed import prepare as prepare_regional
+                reference_demo=prepare_regional(query,manifest)
+            else:
+                reference_demo=install_regional(query,manifest)
+        elif args.reference_demo_check:
             from reference_demo_fixture import install as install_reference_demo
             reference_demo=install_reference_demo(query,manifest)
             # One owned test date deliberately has no admitted demo input frame.
@@ -833,6 +857,7 @@ def main():
         if args.check:
             app_env['PGTZ']='America/Chicago'
         shutil.copytree(dll.parent,temporary/'api')
+        if args.with_regional_seed:shutil.copytree(seed_dll.parent,temporary/'seed')
         frozen_dll=temporary/'api'/dll.name
         log=(temporary/'app.log').open('w')
         api_env=app_env
@@ -885,7 +910,7 @@ def main():
                 if process.returncode:raise subprocess.CalledProcessError(process.returncode,command)
                 return peak
             return run
-        if (not gas_demo and not args.check or args.jobs_check or args.live_calculation_check or args.unit_check or args.risk_jobs_check or args.async_workbench_check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check or args.valuation_status_check or args.desk_fields_check or args.ephemeral_context_check) and args.example=='standard':
+        if (args.regional_seed_check or not gas_demo and not args.check or args.jobs_check or args.live_calculation_check or args.unit_check or args.risk_jobs_check or args.async_workbench_check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check or args.valuation_status_check or args.desk_fields_check or args.ephemeral_context_check) and args.example=='standard':
             if not args.check and date_plan is not None:
                 from demo_date_plan import verify_instrument_dates
                 count=verify_instrument_dates(query,date_plan,manifest['catalogId'],manifest['revisionId'],manifest['contractsOutsideDatePlan'] if args.with_custom_curves else ())
@@ -907,6 +932,26 @@ def main():
                 from delivery_price_seed import seed as seed_delivery_prices
                 seed_delivery_prices(query,manifest)
                 print('Collected seven synthetic days of hourly and quarter-hour delivery prices, including the 2026-11-01 fall-back day.',flush=True)
+        if args.with_regional_seed:
+            from regional_seed import plan as regional_plan
+            from preview_fixture import trade_booking
+            if args.regional_seed_check:
+                from check_regional_seed import usd_baseline
+                reference_demo['usdBaseline']=usd_baseline(url)
+            seed_options=dict(actors=dict(author='editor',publisher='approver',administrator='admin',trader='trader'),
+                principals=[query(f"SELECT principal_id FROM security.workspace_memberships WHERE(tenant_id,workspace_id,login_handle)=('{manifest['tenantId']}','{manifest['workspaceId']}','approver');")],
+                portfolio_id='d0000000-0000-0000-0000-000000000001',parties=trade_booking(),select_for=['viewer','editor','approver','trader','risk'])
+            seed_plan=regional_plan(query,manifest,reference_demo,**seed_options)
+            seed_file=temporary/'regional-seed.json';seed_file.write_text(json.dumps(seed_plan));seed_file.chmod(0o600)
+            subprocess.run([str(dotnet),str(temporary/'seed/OpenEtrm.Seed.dll'),'--apply',str(temporary),str(seed_file)],
+                cwd=ROOT,env=app_env,check=True,timeout=300)
+            reference_demo['plan']=seed_plan
+            def replay_regional():
+                repeated=install_regional(query,manifest)
+                assert regional_plan(query,manifest,repeated,**seed_options)==seed_plan,'Rebuilding the seed changed its native command plan'
+                subprocess.run([str(dotnet),str(temporary/'seed/OpenEtrm.Seed.dll'),'--apply',str(temporary),str(seed_file)],
+                    cwd=ROOT,env=app_env,check=True,timeout=300)
+            reference_demo['replay']=replay_regional
         if gas_demo:
             query("INSERT INTO security.role_permissions SELECT id,p FROM security.roles CROSS JOIN unnest(ARRAY['ReadFacilityQuantities','RecordFacilityQuantities','ConfigureFacilityLimits'])p WHERE code='trader' ON CONFLICT DO NOTHING;")
             from seed_gas_basis_demo import seed as seed_gas_demo
@@ -929,6 +974,10 @@ def main():
             print('Loaded five synthetic physical, virtual and generation-linked PPA trades in the mixed book.',flush=True)
         print(f'PREVIEW_URL={url}',flush=True)
         print('Private synthetic database. Ctrl+C stops the app and removes its owned database.',flush=True)
+        if args.regional_seed_startup_check:
+            from check_regional_seed import startup_checks
+            startup_checks(url)
+            return
         if args.check:
             if args.structured_power_check:
                 from check_structured_power import run_checks as check_structured_power
@@ -1454,14 +1503,18 @@ def main():
                 from check_reference_import import run_checks as check_reference_import
                 check_reference_import(query,manifest,temporary,dotnet,env)
             elif args.reference_demo_check:
-                from check_reference_demo import run_checks as check_reference_demo
+                if args.regional_seed_check:
+                    from check_regional_seed import run_checks as check_reference_demo
+                else:
+                    from check_reference_demo import run_checks as check_reference_demo
                 worker_env=prepare_risk_worker()
                 def run_worker():
                     subprocess.run([str(dotnet),str(frozen_dll),'--risk-worker','once'],cwd=ROOT,env=worker_env,check=True,timeout=90)
                 check_reference_demo(url,manifest,reference_demo,query,run_worker)
-                reference_reuse=temporary/'reference-reuse.json';reference_reuse.write_text(json.dumps(reference_demo))
-                subprocess.run([str(dotnet),'run','--project','tests/OpenEtrm.Api.Checks','--','--reference-reuse',str(reference_reuse)],
-                    cwd=ROOT,env=app_env,check=True,timeout=120)
+                if not args.regional_seed_check:
+                    reference_reuse=temporary/'reference-reuse.json';reference_reuse.write_text(json.dumps(reference_demo))
+                    subprocess.run([str(dotnet),'run','--project','tests/OpenEtrm.Api.Checks','--','--reference-reuse',str(reference_reuse)],
+                        cwd=ROOT,env=app_env,check=True,timeout=120)
             elif args.reference_check:
                 from check_reference_display_http import run_checks as check_reference_display
                 check_reference_display(url,query)

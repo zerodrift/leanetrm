@@ -247,6 +247,11 @@ The preview builds the app, creates its own throwaway PostgreSQL cluster seeded 
 synthetic data, and deletes it when you stop it with Ctrl+C. It never connects to an
 existing database.
 
+Add `--with-regional-seed` for [regional currency examples](docs/regional-seed.md):
+NYC and UK closes plus working GBP, EUR and CAD swaps with independent discount
+curves. The preset uses explicitly synthetic 2020 history and preserves the
+original USD examples.
+
 ## Docs
 
 - [Default public page and checks](site/README.md)

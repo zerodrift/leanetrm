@@ -5,7 +5,6 @@ publish schedules, mappings and definitions, so each validation sees committed
 sources at a certified cutoff. No synthetic context records are manufactured.
 """
 import re
-from uuid import uuid4
 
 BLOCK=re.compile(r'DO \$(rate_curve|contract_curve)\$ BEGIN IF .*? THEN\n(.*?)\nEND IF; END \$\1\$;',re.S)
 MARKER=re.compile(r'-- fixture-validation: ([0-9a-f-]+) ([0-9-]+) ([0-9a-f-]+)\n')
@@ -18,7 +17,7 @@ def load_fixture(query,reference,market,security,manifest):
     if remaining:query(remaining)
 
 
-def load_market(query,market,security,manifest,*,before_seal=None):
+def load_market(query,market,security,manifest,*,before_seal=None,resume_phase=None,identity=None):
     # Some interval fixtures place their author identities beside series rows.
     # Move those exact setup facts before the first authenticated publication.
     identity_prefixes=tuple('INSERT INTO security.'+name+' ' for name in
@@ -66,18 +65,36 @@ def load_market(query,market,security,manifest,*,before_seal=None):
         mapping=body[mapping_at:curve_at]
         curve=body[curve_at:]
         phases=[(schedules,False),(mapping,True),(curve,True)]
-        for phase,requires_inputs in phases:
+        for phase_index,(phase,requires_inputs) in enumerate(phases):
             if not phase.strip():continue
             if guard:
                 phase=guard+'\n'+phase
                 if phase.count('IF NOT EXISTS(')>phase.count('END IF;'):phase+='\nEND IF;'
-            name='synthetic_library_'+uuid4().hex
+            if resume_phase is not None:phase=resume_phase(phase_index,phase)
             initialize=(f"fixture_validation_id={capture}('{catalog}','{day}',NULL);" if requires_inputs else '')
-            query(f"CREATE FUNCTION public.{name}() RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $fixture$ DECLARE fixture_validation_id uuid;BEGIN {initialize}\n{phase}\nEND$fixture$;")
-            try:
-                token=query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('{issuer}','editor','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',120);")
-                query(f"BEGIN;SET LOCAL SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{token}');SELECT public.{name}();{finish}COMMIT;")
-            finally:query(f'DROP FUNCTION public.{name}();')
+            authority=''
+            auth,runtime='preview_authenticator','preview_runtime'
+            issue=f"security.issue_context('{issuer}','editor','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',120)"
+            if identity is not None:
+                auth,runtime,digest=(identity[key] for key in ('authenticator','runtime','sessionDigest'))
+                if not all(re.fullmatch('[a-z][a-z0-9_]*',role) for role in (auth,runtime)) or not re.fullmatch('[0-9a-f]{64}',digest):
+                    raise ValueError('Supply the exact hosted seed identity')
+                issue=f"security.issue_hosted_context('{digest}','{runtime}')"
+                authority=(f"PERFORM security.require_hosted_session();IF security.custom_curve_actor('{catalog}','WriteMarketDefinitions') IS NULL "
+                    f"OR security.custom_curve_actor('{catalog}','SealMarketDefinitions') IS NULL THEN RAISE EXCEPTION 'regional_seed_denied' USING ERRCODE='42501';END IF;")
+            # A session-local function disappears even if the loader is killed.
+            # Its declaration is invisible to other sessions before this commit.
+            query(f"""BEGIN;
+CREATE TEMP TABLE seed_phase_scope(marker boolean) ON COMMIT DROP;
+CREATE FUNCTION pg_temp.seed_library_phase() RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $fixture$
+DECLARE fixture_validation_id uuid;BEGIN {authority}{initialize}\n{phase}\n{authority}END$fixture$;
+REVOKE ALL ON FUNCTION pg_temp.seed_library_phase() FROM PUBLIC;
+DO $temp_grant$ BEGIN EXECUTE format('GRANT USAGE ON SCHEMA %I TO %I',pg_my_temp_schema()::regnamespace::text,'{runtime}');END $temp_grant$;
+GRANT EXECUTE ON FUNCTION pg_temp.seed_library_phase() TO {runtime};
+SET LOCAL SESSION AUTHORIZATION {auth};SELECT {issue} AS token \\gset
+SET LOCAL SESSION AUTHORIZATION {runtime};SELECT security.use_context(:'token');
+SELECT pg_temp.seed_library_phase();{finish}
+{('DO $seed_commit$ BEGIN '+authority+' END $seed_commit$;') if authority else ''}COMMIT;""")
         offset=match.end()
     suffix=market[offset:]
     if before_seal is not None:
