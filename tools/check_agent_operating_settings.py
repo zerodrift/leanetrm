@@ -71,6 +71,7 @@ def checks(query,manifest,dotnet,browser,children):
         delegation=configured['delegation'],readonlyDelegation=readonly,revokedDelegation=revoked,foreignDelegation=foreign)));packet.chmod(0o600)
     root=Path(__file__).resolve().parents[1]
     environment={key:value for key,value in os.environ.items() if not key.startswith(('PG','OPENETRM_'))}
+    environment['OPENETRM_NATIVE_CHECK_INPUTS']=os.environ['OPENETRM_NATIVE_CHECK_INPUTS']
     for name,login in (('OPENETRM_PREVIEW_RUNTIME','preview_runtime'),('OPENETRM_PREVIEW_AUTHENTICATOR','preview_authenticator')):
         environment[name]=f'Host={host};Port=55439;Database=postgres;Username={login};SSL Mode=Disable;Timeout=5;Command Timeout=5;Maximum Pool Size=2'
     command=[str(dotnet),str(root/'tests/OpenEtrm.Api.Checks/bin/Debug/net10.0/OpenEtrm.Api.Checks.dll'),'--configured-gas-lifecycle-agent',str(packet)]

@@ -75,13 +75,24 @@ public sealed partial class GasTransportFinancialStore(PreviewDatabase database)
             throw new MarketDataException("gas_transport_financial_owner_changed","The account changed. Return to the original account to reconcile this request.");
     }
 
-    internal static async Task RequireCoordinates(NpgsqlConnection c,Guid catalog,LifecycleReadContext context,CancellationToken ct)
+    internal static async Task<KnowledgeSnapshot?> RequireCoordinates(NpgsqlConnection c,Guid catalog,LifecycleReadContext context,CancellationToken ct,JsonElement? receipt=null)
     {
-        // Read only the named immutable certificate, including on recovery.
-        // Never recapture a cutoff or resolve current business/market heads.
-        var stored=(await new KnowledgeResolver(catalog).Read(c,context.ContextId,ct)).Context;
-        if(PublishedSchedules.ContextDate(stored)!=context.BusinessDate)
-            throw new MarketDataException("gas_transport_financial_context","Retain the exact business date of the named financial source certificate.");
+        // Exact retries recover only their authorized command's owned inputs.
+        // New operations, including acknowledgements, require explicit proof.
+        var recovered=receipt is {} accepted&&accepted.GetProperty("found").GetBoolean()
+            ?await RestoreInputs(c,catalog,accepted,ct):null;
+        var source=recovered?.Context??(await new KnowledgeResolver(catalog).Read(c,context.ContextId,ct)).Context;
+        if(source.ContextId!=context.ContextId||PublishedSchedules.ContextDate(source)!=context.BusinessDate)
+            throw new MarketDataException("gas_transport_financial_context","Retain the exact business date and coordinates of the financial source.");
+        return recovered;
+    }
+
+    private static async Task<KnowledgeSnapshot> RestoreInputs(NpgsqlConnection c,Guid catalog,JsonElement receipt,CancellationToken ct)
+    {
+        var inputs=receipt.GetProperty("sourceInputs").Deserialize<ReadInputCoordinates>(GasOwnedOperations.Json)??throw Source();
+        var snapshot=await inputs.ResolveSnapshot(c,catalog,ct);
+        if(snapshot.Context.ContextId!=receipt.GetProperty("request").Id("sourceContextId"))throw Source();
+        return snapshot;
     }
 
     public static string Refusal(string code)=>code switch{
@@ -103,6 +114,7 @@ public sealed partial class GasTransportFinancialStore(PreviewDatabase database)
         var admission=StatusAdmission(Catalog,result);database.RegisterCommitAdmission(c,admission);
         await RequireOwner(c,request.OwnerId,ct);await admission.RequireCommit(c,ct);
         if(!result.GetProperty("found").GetBoolean())return result;
+        ReadReferences.Expose(Catalog,await RestoreInputs(c,Catalog,result,ct));
         var saved=result.GetProperty("request");
         return Receipt(request.OperationId,request.OwnerId,GasTransportFinancialCommands.Normalize(saved.GetProperty("body")),
             TradingInstant.Parse(saved.Text("effectiveAt"),"gas_transport_financial_source"),result.GetProperty("outcome"));

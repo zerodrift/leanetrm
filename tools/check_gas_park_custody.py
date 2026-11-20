@@ -42,7 +42,10 @@ def checks(query, manifest):
     f.call(f"SELECT security.record_gas_park_custody_evidence('{f.catalog}','{uuid4()}','{booked['tradeId']}',{literal(raw)},'{f.at}','{f.capture()}');")
     assert any(row['sourceKey'] == raw['sourceKey'] and row['evidence'] == raw['evidence'] for row in f.read(booked['tradeId'])['evidence'])
     invalid = dict(id=str(uuid4()), operation_id=str(uuid4()), source_key='synthetic\nraw_table_key', revision=1, previous_id=None)
-    rejected(lambda: query("BEGIN;INSERT INTO trading.gas_park_custody_evidence SELECT(jsonb_populate_record(NULL::trading.gas_park_custody_evidence,"
+    # The copied row already carries its complete original source. Probe the
+    # independent raw-key constraint without requiring a new caller admission.
+    rejected(lambda: query("BEGIN;ALTER TABLE trading.gas_park_custody_evidence DISABLE TRIGGER aaa_source_read_inputs;"
+        "INSERT INTO trading.gas_park_custody_evidence SELECT(jsonb_populate_record(NULL::trading.gas_park_custody_evidence,"
         f"to_jsonb(e)||{literal(invalid)})).* FROM trading.gas_park_custody_evidence e WHERE catalog_id='{f.catalog}' LIMIT 1;ROLLBACK;"), 'source_key_check')
     print('PASS native evidence canonicalizes ASCII key padding, refuses C0/C1 key controls, and preserves opaque NBSP keys and multiline free evidence.', flush=True)
     checkpoint(f, booked, book, '-12.5', '2987.5', [lot['id']], 'customer_booked')
@@ -127,7 +130,8 @@ def checks(query, manifest):
     for business_key in ['synthetic\nreturn', 'synthetic\u0085return']:
         rejected(lambda: f.record(booked['tradeId'], 'return', {**return_body, 'businessKey': business_key}, return_policy), 'gas_custody_input')
     invalid = dict(id=str(uuid4()), operation_id=str(uuid4()), business_key='synthetic\u0085raw_table_return')
-    rejected(lambda: query("BEGIN;INSERT INTO trading.gas_park_custody_returns SELECT(jsonb_populate_record(NULL::trading.gas_park_custody_returns,"
+    rejected(lambda: query("BEGIN;ALTER TABLE trading.gas_park_custody_returns DISABLE TRIGGER aaa_source_read_inputs;"
+        "INSERT INTO trading.gas_park_custody_returns SELECT(jsonb_populate_record(NULL::trading.gas_park_custody_returns,"
         f"to_jsonb(r)||{literal(invalid)})).* FROM trading.gas_park_custody_returns r WHERE catalog_id='{f.catalog}' LIMIT 1;ROLLBACK;"), 'business_key_check')
     assert f.publication() == publication
     assert state['balances']['inCustody'] == '450' and state['reservations'][0]['quantity'] == '450'

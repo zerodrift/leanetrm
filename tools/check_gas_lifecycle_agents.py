@@ -82,6 +82,7 @@ def checks(query,manifest):
     (host/'manifest.json').write_text(json.dumps(manifest));(host/'manifest.json').chmod(0o600)
     shutil.copyfile(root/'deploy/process-limits.example.json',host/'process-limits.json')
     environment={key:value for key,value in os.environ.items() if not key.startswith(('PG','OPENETRM_'))}
+    environment['OPENETRM_NATIVE_CHECK_INPUTS']=os.environ['OPENETRM_NATIVE_CHECK_INPUTS']
     for name,login in (('OPENETRM_PREVIEW_RUNTIME','preview_runtime'),('OPENETRM_PREVIEW_AUTHENTICATOR','preview_authenticator')):
         environment[name]=f'Host={host};Port=55439;Database=postgres;Username={login};SSL Mode=Disable;Timeout=5;Command Timeout=5;Maximum Pool Size=2'
     command=[os.environ.get('DOTNET','dotnet'),str(root/'tests/OpenEtrm.Api.Checks/bin/Debug/net10.0/OpenEtrm.Api.Checks.dll'),'--gas-lifecycle-agent',str(packet)]

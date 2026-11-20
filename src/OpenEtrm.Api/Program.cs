@@ -512,7 +512,8 @@ pageRegistries.Add(sessions);
 api.AddEndpointFilter(async(invocation,next)=>
 {
     var http=invocation.HttpContext;
-    if(http.Request.Path.Value!.EndsWith("/bootstrap",StringComparison.Ordinal)||http.Request.Path.Value.EndsWith("/health",StringComparison.Ordinal)||http.Features.Get<AssistantInvocation>() is not null)
+    var untaggedHealth=http.Request.Path.Value!.EndsWith("/health",StringComparison.Ordinal)&&WorkspaceTab(http) is null;
+    if(http.Request.Path.Value.EndsWith("/bootstrap",StringComparison.Ordinal)||untaggedHealth||http.Features.Get<AssistantInvocation>() is not null)
         return await next(invocation);
     var prior=WorkspaceReadContext.Page.Value;
     var priorReads=ReadReferences.Operation.Value;

@@ -335,6 +335,7 @@ def composed_checks(fixture,query,manifest):
     retained={**context,'knowledgeMode':'retained','contextId':workspace['catalog']['context']['contextId']}
     assert fixture.client.call('trading/workspace',dict(context=retained,view=view,bookingCatalog='directory',summaries=[]))['blotter']['holdings'][0]['presentValue']==rows[0]['presentValue']
     fixture.client.call('profile',{'profile':'risk'})
+    fixture.client.select_inputs(workspace['catalog']['context'])
     try:
         catalog=fixture.client.call('portfolio/risk/catalog',dict(context=retained,bookIds=[book],portfolioIds=[]))
         factor=next(f for f in catalog['factors'] if manifest['ppaBookings']['capacity'] in f['curves'])

@@ -7,6 +7,7 @@ from uuid import uuid4
 from check_reference_editing import main
 from check_futures_physical_delivery import fixture,checks as physical_checks
 from preview_fixture import catalogue_fixture
+from seed_fixture_market import load_fixture
 
 
 def helpers(query,manifest):
@@ -47,13 +48,13 @@ def upgrade_checks(query,migration):
     try:
         root=Path(__file__).resolve().parents[1]
         reference,market,security,manifest=fixture(root)
-        for sql in (reference,market,security):child(sql)
+        load_fixture(child,reference,market,security,manifest)
         catalog,tenant,workspace=(manifest[k] for k in ('catalogId','tenantId','workspaceId'))
         child(f"SELECT security.initialize_operating_policies('{tenant}','{workspace}');")
         child(catalogue_fixture(manifest,manifest['identityIssuer']))
         child("INSERT INTO security.role_permissions SELECT role_id,'ReadTrades' FROM security.role_permissions WHERE permission='WriteMarketDefinitions' ON CONFLICT DO NOTHING;")
         lit,call,refused=helpers(child,manifest)
-        capture=lambda:call(f"SELECT security.resolve_operation_context('{catalog}','2026-10-16',NULL);")
+        capture=lambda:call(f"SELECT security.capture_date_context('{catalog}','2026-10-16',NULL);")
         book=child(f"SELECT id FROM trading.books WHERE catalog_id='{catalog}' ORDER BY id LIMIT 1;")
         parties={}
         for role,table in [('legalEntity','legal_entities'),('counterparty','counterparties')]:

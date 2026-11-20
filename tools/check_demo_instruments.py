@@ -37,12 +37,15 @@ def run_checks(url, manifest, query, *, run_worker, owned_root, run_id, psql, en
     from check_position_facts import run_checks as check_facts
     check_facts(c,context,view,rows,query,psql,environment,owned_root)
     from check_position_details import run_checks as check_details
+    c.select_inputs(only['catalog']['context'])
     check_details(c,context,view,rows,query,original_context,owned_root)
     assert all((r['executionPnl'] if r['instrumentType'] == 'future' else r['presentValue']) is not None for r in rows)
     ppa_rows = [r for r in rows if r['instrumentType'] == 'ppa']
     assert all(r['measure'] == 'ppa_value_excluding_overdue' and r['pendingActuals'] == 'estimate_until_actual_v1' and r['overdueKnown'] == '0' for r in ppa_rows)
     context.update(knowledgeMode='retained', contextId=workspace['catalog']['context']['contextId'])
     c.call('profile', {'profile': 'risk'})
+    c.select_inputs(only['catalog']['context'])
+    c.select_inputs(workspace['catalog']['context'])
     earlier = c.call('portfolio/risk/catalog', dict(context=original_context, bookIds=[BOOKS[1]], portfolioIds=[]))
     assert {m['measure'] for m in earlier['measures']} == {'ppa_value_excluding_overdue'}
     print('PASS retained PPA-only context excludes later futures, swaps and heat-rate bookings', flush=True)

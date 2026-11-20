@@ -24,8 +24,8 @@ public sealed partial class GasTransportFinancialStore
         var(command,effective)=RequireRequest(request);
         await Capture(c,command.Id("tradeId"),command.Text("kind"),ct);
         await RequireOwner(c,request.OwnerId,ct);
-        await RequireCoordinates(c,Catalog,request.Context,ct);
         var prior=await Native(c,"SELECT security.gas_transport_financial_status($1,$2)::text",ct,Catalog,request.OperationId);
+        var recovered=await RequireCoordinates(c,Catalog,request.Context,ct,prior);
         JsonElement outcome;
         await using(var save=ScheduleStore.Command(c,"SAVEPOINT transport_financial_preview"))await save.ExecuteNonQueryAsync(ct);
         try{outcome=await RecordNative(c,request,command,effective,ct);}
@@ -41,6 +41,7 @@ public sealed partial class GasTransportFinancialStore
             "adopt_rights_mark"=>"Adopt the selected signed market value for the current whole rights package",
             "expire"=>"Close the rights at the contractual capacity window end",_=>throw Source()};
         var sections=await ReviewSections(c,request,command,effective,outcome,acknowledgement,action,ct);
+        if(recovered is not null)ReadReferences.Expose(Catalog,recovered);
         return JsonSerializer.SerializeToElement(new{request.OperationId,request.OwnerId,tradeId=command.Id("tradeId"),kind=command.Text("kind"),
             request.Context,requestedCommand=request.Command,requestedEffectiveAt=request.EffectiveAt,command,effectiveAt=effective,acknowledgement,outcome,
             overviewSections=sections},GasOwnedOperations.Json);
@@ -112,11 +113,13 @@ public sealed partial class GasTransportFinancialStore
         var(command,effective)=RequireRequest(request);
         await Capture(c,command.Id("tradeId"),command.Text("kind"),ct);
         await RequireOwner(c,request.OwnerId,ct);
-        await RequireCoordinates(c,Catalog,request.Context,ct);
+        var prior=await Native(c,"SELECT security.gas_transport_financial_status($1,$2)::text",ct,Catalog,request.OperationId);
+        var recovered=await RequireCoordinates(c,Catalog,request.Context,ct,prior);
         // The native operation proves exact/semantic recovery before consulting
         // fresh heads. Managed recovery adds no source refresh or renewed clock.
         var outcome=await RecordNative(c,request,command,effective,ct);
         if(outcome.Id("tradeId")!=command.Id("tradeId"))throw Source();
+        if(recovered is not null)ReadReferences.Expose(Catalog,recovered);
         return outcome;
     }
 }

@@ -1236,6 +1236,7 @@ BEGIN
  FOR change IN SELECT * FROM(VALUES
 ('risk.summary_pre_economic_lifecycle(risk.jobs)','''contextId'',job.context_id,','''contextId'',job.context_id,''sourceInputs'',jsonb_build_object(''businessOn'',job.input_business_on,''knownAt'',job.input_known_at,''systemId'',job.input_system_id,''timeline'',job.input_timeline),'),
 ('security.point_trader_mark_status(uuid,uuid)','''request'',prior.request,','''sourceInputs'',jsonb_build_object(''businessOn'',prior.source_business_on,''knownAt'',prior.source_known_at,''systemId'',prior.source_system_id,''timeline'',prior.source_timeline),''request'',prior.request,'),
+('security.gas_transport_financial_status(uuid,uuid)','''request'',prior.request,','''sourceInputs'',jsonb_build_object(''businessOn'',prior.source_business_on,''knownAt'',prior.source_known_at,''systemId'',prior.source_system_id,''timeline'',prior.source_timeline),''request'',prior.request,'),
 ('security.operating_policy_fields(text)',' {"key":"retainedContextReserve","label":"Contexts reserved for pages","min":1,"max":64,"initial":64},
 ','')
  )v(signature,original,replacement) LOOP

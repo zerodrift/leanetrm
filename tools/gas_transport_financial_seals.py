@@ -36,7 +36,7 @@ def source_and_seals(f, booking, outcome, rejected):
   SELECT max(publication_order)+1 INTO publication FROM trading.publications WHERE catalog_id=catalog;
   INSERT INTO trading.publications VALUES(catalog,publication,pg_current_xact_id());
   INSERT INTO trading.gas_transport_financial_states SELECT(jsonb_populate_record(NULL::trading.gas_transport_financial_states,
-   to_jsonb(h)||jsonb_build_object('id',gen_random_uuid(),'revision',h.revision+1,'previous_id',h.id,'source_context_id',context,
+   (to_jsonb(h)-ARRAY['source_business_on','source_known_at','source_system_id','source_timeline'])||jsonb_build_object('id',gen_random_uuid(),'revision',h.revision+1,'previous_id',h.id,'source_context_id',context,
     'publication_order',publication,'source_as_of',at,'effective_at',at))).*;
  END$$;
  ALTER FUNCTION trading.synthetic_financial_orphan(uuid,uuid,uuid,timestamptz) OWNER TO openetrm_security_owner;
@@ -48,6 +48,7 @@ def source_and_seals(f, booking, outcome, rejected):
   c.operation_id=gen_random_uuid();c.outcome=c.outcome||jsonb_build_object('changed',false);
   c.request=jsonb_set(c.request,'{body,observationId}',to_jsonb(gen_random_uuid()));
   c.fact=trading.gas_transport_financial_fact(c.request->'body',(c.request->>'effectiveAt')::timestamptz);
+  PERFORM security.register_owner_coordinates(c.catalog_id,c.source_context_id,c.source_business_on,c.source_known_at,c.source_system_id,c.source_timeline);
   INSERT INTO trading.gas_transport_financial_commands SELECT c.*;
  END$$;
  ALTER FUNCTION trading.synthetic_financial_false_ack(uuid,uuid) OWNER TO openetrm_security_owner;

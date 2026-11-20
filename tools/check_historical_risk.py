@@ -124,6 +124,7 @@ def run_checks(url,manifest,query,run_worker):
         c.call(path,expected=403)
     c.call('portfolio/risk/historical',request,expected=403)
     c.call('profile',{'profile':'risk'})
+    c.select_inputs(c.observed_inputs[scope['context']['contextId']])
     print('PASS historical authority: retained capture does not grant viewer calculation, report, export or archive access',flush=True)
     # New corrections are separate source facts. An independently captured new
     # forecast prefix sees a constant column; the old job retains its original pins.
@@ -220,4 +221,5 @@ def check_assistant_reads(c,scope,request,direct,compared,paired,history,insuffi
     for path,body in (('portfolio/risk/statistical/setup',scope),('portfolio/risk/historical/summary',request),('portfolio/risk/historical/sample',{'request':request,'sample':worst})):
         c.call(path,body,expected=403)
     c.call('profile',{'profile':'risk'})
+    c.select_inputs(c.observed_inputs[scope['context']['contextId']])
     print('PASS historical assistant reads: bounded summary, tail scenarios and one-scenario drill-down repeat the exact full-PV report',flush=True)

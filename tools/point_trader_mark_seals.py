@@ -31,7 +31,7 @@ def same_value_changed(f, sample, target, rejected):
    'knowledgeEventOrder',event.event_order,'publicationXid',event.publication_xid::text);
   request=jsonb_build_object('body',body,'sourceContextId',source,'asOf',market_data.point_trader_mark_instant(at));
   INSERT INTO market_data.point_trader_mark_commands SELECT(jsonb_populate_record(NULL::market_data.point_trader_mark_commands,
-   to_jsonb(prior)||jsonb_build_object('operation_id',operation,'actor_id',actor,'observation_id',observation,'request',request,
+   (to_jsonb(prior)-ARRAY['source_business_on','source_known_at','source_system_id','source_timeline'])||jsonb_build_object('operation_id',operation,'actor_id',actor,'observation_id',observation,'request',request,
     'fact',market_data.point_trader_mark_fact(body),'outcome',outcome,'source_context_id',source,'source_as_of',at,'authority_until',deadline))).*;
  END$$;
  ALTER FUNCTION market_data.synthetic_equal_point_change(uuid,uuid,jsonb,uuid,timestamptz,uuid) OWNER TO openetrm_security_owner;

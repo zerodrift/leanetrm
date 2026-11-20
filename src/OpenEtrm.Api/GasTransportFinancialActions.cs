@@ -100,7 +100,8 @@ internal sealed class GasTransportFinancialActions(PreviewDatabase database):ILi
     public async Task<LifecycleActionReview> Preview(NpgsqlConnection c,LifecycleActionRequest request,CancellationToken ct)
     {
         var command=Command(request);var admission=await new GasTransportFinancialStore(database).Capture(c,request.Target.ScopeId,"expire",ct);
-        await GasTransportFinancialStore.RequireCoordinates(c,database.Manifest.CatalogId,request.Context,ct);
+        var prior=await LifecycleNative.Read(c,"SELECT security.gas_transport_financial_status($1,$2)::text",ct,database.Manifest.CatalogId,request.OperationId);
+        var recovered=await GasTransportFinancialStore.RequireCoordinates(c,database.Manifest.CatalogId,request.Context,ct,prior);
         var accepted=await AcceptedExpiry(c,request,command,ct);
         var acknowledgement=accepted.GetProperty("found").GetBoolean();
         var source=acknowledgement?accepted:await ReadSource(c,database,request.Context,request.Target.ScopeId,ct);
@@ -114,6 +115,7 @@ internal sealed class GasTransportFinancialActions(PreviewDatabase database):ILi
         }
         var offer=acknowledgement?new LifecycleActionOffer(request.Target,Expire,"Acknowledge accepted Transport expiry",
             command.Id("expectedFinancialStateId"),at,null,true,null,1,accepted.GetProperty("outcome").GetProperty("revision").GetInt32()):Offer(source,request.Context);
+        if(recovered is not null)ReadReferences.Expose(database.Manifest.CatalogId,recovered);
         return new(offer with{PolicyId=request.PolicyId,PolicyRevision=request.PolicyRevision,Selection=request.Selection},Hash(request,source),
             JsonSerializer.SerializeToElement(new{acknowledgement,overviewSections=new[]{new{label="Transport expiry review",values=new object[]{
                 new{label="Rights close at",value=LifecycleNative.Instant(at),kind="instant"},
@@ -125,8 +127,8 @@ internal sealed class GasTransportFinancialActions(PreviewDatabase database):ILi
     public async Task<LifecycleActionWrite> Execute(NpgsqlConnection c,LifecycleActionRequest request,CancellationToken ct)
     {
         var command=Command(request);var admission=await new GasTransportFinancialStore(database).Capture(c,request.Target.ScopeId,"expire",ct);
-        await GasTransportFinancialStore.RequireCoordinates(c,database.Manifest.CatalogId,request.Context,ct);
         var prior=await LifecycleNative.Read(c,"SELECT security.gas_transport_financial_status($1,$2)::text",ct,database.Manifest.CatalogId,request.OperationId);
+        var recovered=await GasTransportFinancialStore.RequireCoordinates(c,database.Manifest.CatalogId,request.Context,ct,prior);
         DateTimeOffset at;
         if(prior.GetProperty("found").GetBoolean())
             at=TradingInstant.Parse(prior.GetProperty("request").Text("effectiveAt"),"gas_transport_financial_source");
@@ -138,7 +140,9 @@ internal sealed class GasTransportFinancialActions(PreviewDatabase database):ILi
             at=acknowledgement?TradingInstant.Parse(accepted.Text("effectiveAt"),"gas_transport_financial_source"):RequireEvent(database,request,command,source);
             if(Hash(request,source)!=request.PreviewHash)throw new MarketDataException("lifecycle_preview_stale","The exact financial state or reviewed Transport expiry changed. Review it again.");
         }
-        return new(await RecordNative(c,request,command,at,ct),admission);
+        var outcome=await RecordNative(c,request,command,at,ct);
+        if(recovered is not null)ReadReferences.Expose(database.Manifest.CatalogId,recovered);
+        return new(outcome,admission);
     }
 
     public async Task<ImmutableArray<LifecycleActionOffer>> Discover(NpgsqlConnection c,LifecycleReadContext context,LifecycleTarget? target,LifecycleDiscoveryAccess access,CancellationToken ct)
