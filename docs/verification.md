@@ -39,6 +39,13 @@ stale-response disposal, managed amount display and exact series selection.
 Export checks retained filtered/regrouped factor and currency/price identities.
 Independent domain, storage and UI adversarial review found no remaining blocker.
 
+Requalification with facility migrations 0377–0379 present passed the API/seed/web
+builds, 799 managed core checks, API `--schedules`, 178 Python checks plus the
+combined-preset product regression, 133 focused web checks and the fresh native
+regional gate. Currency migrations are numbered 0380–0381. Interactive combined
+gas/regional presets retain agreement coverage for both products; integration
+review found no remaining blocker.
+
 These results qualify local behavior. Full CI, coordinated migration/API/UI
 release and hosted activation remain separate gates; no hosted database was
 changed by these checks. See the [contract](currency-and-price-units.md).

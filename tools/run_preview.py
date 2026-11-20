@@ -727,16 +727,12 @@ def main():
                 # Commits surface revisions, publications and contexts into the exchange catalog: later checks that count publications depend on running after it.
                 from check_vol_surface_storage import run_checks as check_vol_surface_storage
                 check_vol_surface_storage(query,exchange_manifest)
-        from preview_fixture import trading_fixture
+        from preview_fixture import trading_fixture, example_products
         # The interactive example covers only the products it already books. New facility
         # business needs the user's own agreement and credit decisions.
-        example_products = []
-        if args.example == 'standard':
-            example_products = ['physical_gas'] if gas_demo else ['financial_swap']
-            if args.with_ppa:
-                example_products.append('ppa')
+        products=example_products(args.example,gas=gas_demo,regional=args.with_regional_seed,ppa=args.with_ppa)
         query(trading_fixture(manifest['catalogId'], swap_defaults=args.example=='standard',
-                              bilateral_products=None if args.check else example_products))
+                              bilateral_products=None if args.check else products))
         curve_sources = [m['revisionId'] for m in manifest['inputMarkets']] if args.swap_risk_holdings_check else []
         query(catalogue_fixture(manifest,'https://preview.invalid',curve_sources=curve_sources,role_revisions=catalogue_roles))
         if args.side_calendar_check or args.ppa_bookings_check or args.blotter_stream_benchmark:
