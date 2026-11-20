@@ -96,6 +96,7 @@ def checks(query,manifest):
             f"'{issuer}','{profile}','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}COMMIT;")
     class Settings:
+        def __init__(self):self.observed_inputs={}
         def call(self,path,body):
             name={'lifecycle/policies/save':'save_policy','lifecycle/options/configure':'save_option_profile'}[path]
             return json.loads(call(f"SELECT lifecycle.{name}('{catalog}',{lit(body)})::text;"))

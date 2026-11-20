@@ -63,7 +63,7 @@ def main():
         if args.upgrade_existing_close:
             # This qualifier describes the historical in-place close upgrade.
             # D435 separately refuses that populated state and requires reset.
-            migrations=[m for m in migrations if int(m.name[:4])<375]
+            migrations=[m for m in migrations if int(m.name[:4])<376]
         upgrade=[migration for migration in migrations if args.upgrade_existing_close and int(migration.name[:4])>=230]
         for migration in migrations:
             if migration not in upgrade:query(migration.read_text())

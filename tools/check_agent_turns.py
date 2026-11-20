@@ -625,7 +625,11 @@ def literal(value):
 
 def lapsed_in(failure, function):
     """Whether a verbose error output is a lapsed authority that `function`'s own recheck refused."""
-    entry = '(?:pin_turn|pin_market_turn)' if function == 'pin_turn' else re.escape(function)
+    entry = re.escape(function)
+    if function == 'pin_turn':
+        entry = '(?:pin_turn|pin_market_turn)'
+    elif function == 'ask_turn':
+        entry = 'ask_turn_core'
     return bool(failure and '42501' in failure and re.search(
         rf'function assistant\.grant_actor\(boolean\) line \d+ at RAISE\n(?:(?!PL/pgSQL function).*\n)*PL/pgSQL function assistant\.{entry}\(', failure))
 
@@ -920,9 +924,11 @@ def run_checks(url, query, psql, manifest, environment, dotnet):
         worker_refuses(operation_name, first, *arguments, token=secrets.token_bytes(32))
     check("every worker write presents the turn's token", state(first) == 'running:-')
     write_refused('turn_state_conflict', 'end_turn', first, "'completed'", 'NULL')
-    # A real predecessor-runtime turn is created through the predecessor admission
-    # definition, then current admission is restored. Immutable turn history is never rewritten.
-    signature = 'assistant.ask_turn(uuid,text,uuid,uuid,integer,text,jsonb,uuid,text,uuid,uuid,text,text,timestamptz,text,bigint,text,integer,integer,integer)'
+    # A real predecessor-runtime turn is created through the public entry point with
+    # the predecessor core, then the current core is restored. Immutable history is never rewritten.
+    signature = 'assistant.ask_turn_core(uuid,text,uuid,uuid,integer,text,jsonb,uuid,text,uuid,uuid,text,text,timestamptz,text,bigint,text,integer,integer,integer)'
+    check('the admission core cannot bypass the preference entry point',
+          query(f"SELECT has_function_privilege('preview_runtime','{signature}','EXECUTE');") == 'f')
     admission = query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);")
     assert admission.count("runtime_set NOT IN('turns_v22','turns_v23')") == 1
     legacy_person = persona('legacy_plan', ['trader'])
@@ -1517,10 +1523,13 @@ def run_checks(url, query, psql, manifest, environment, dotnet):
     contexts.runtime('trader', refused(f'PERFORM {pin_sql(plain, pins=pins)};', 'turn_input'))
     pinned = pin(plain)['turn']
     end(plain, 'failed', 'request_cancelled')
-    missing = Turn()
-    ask(missing, mode='retained', context=str(uuid4()))
-    contexts.runtime('trader', refused(f'PERFORM {pin_sql(missing)};', 'temporal_context'))
-    end(missing, 'failed', 'request_cancelled')
+    missing_operation = str(uuid4())
+    admission_counts = "SELECT jsonb_build_array((SELECT count(*) FROM assistant.turns),(SELECT count(*) FROM assistant.conversations))::text;"
+    before_missing = query(admission_counts)
+    refusal('trader', 'read_inputs_required', operation=missing_operation, mode='retained', context=str(uuid4()))
+    check('an unknown retained source is refused before admitting a turn or conversation',
+          query(admission_counts) == before_missing
+          and query(f"SELECT count(*) FROM assistant.turns WHERE operation_id='{missing_operation}';") == '0')
     guarded = Turn()
     ask(guarded, mode='retained', context=retained)
     contexts.rolled_back(f"DELETE FROM security.role_permissions WHERE role_id='{trader_role}' AND permission='ReadMarketData';", 'trader',

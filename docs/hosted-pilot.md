@@ -51,7 +51,7 @@ certificate plus a renewal reload hook. Do not expose the synthetic persona mode
 
 ### Regional closes (D334, migration 0202)
 
-Migration 0375 instead requires the complete
+Migration 0376 instead requires the complete
 [runtime-context reset and reseed](ephemeral-context-cutover.md#operator-reset-and-reseed).
 The older regional-close cleanup below is not a substitute for that cutover.
 

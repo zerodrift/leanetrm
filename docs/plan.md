@@ -45,11 +45,12 @@ contracts at two market sizes. Cold hydration, production-like latency and
 concurrent capacity remain open. A curve-scoped display projection and managed
 display formatting in the price response remain proposed changes.
 
-D427 adds personal chat-history search through an explicit composer checkbox and
-repairs retained walkthrough narration and final-pause verification. Its bounded
+D427 adds personal chat-history search through an explicit Personal Settings
+opt-in, read server-side at admission and retained per turn, and repairs retained
+walkthrough narration and final-pause verification. Its bounded
 contract is in [workspace assistance](assistant-workspace.md#personal-chat-history-search-d427).
-Migration 0365 and matching `turns_v23` assets require a separately qualified
-release; local checks do not activate an installation.
+Migrations 0365/0375 and matching `turns_v23` browser/API assets require a separately
+qualified release; local checks do not activate an installation.
 
 D426 implements request-local calendar input batching and ordinary read gate
 release. Qualification requires unchanged answer projections, statement counts

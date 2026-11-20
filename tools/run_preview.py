@@ -312,7 +312,7 @@ def main():
                 reference,market,security,manifest=add_in_term_fixture(reference,market,security,manifest)
         query((ROOT/'db/bootstrap.sql').read_text())
         for migration in sorted((ROOT/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
-            if migration.name=='0375_runtime_contexts.sql':
+            if migration.name=='0376_runtime_contexts.sql':
                 from check_runtime_context_reset import run_checks as check_context_reset
                 check_context_reset(query,migration)
             if args.ephemeral_context_check:

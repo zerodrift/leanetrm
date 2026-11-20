@@ -21,3 +21,12 @@ test('minimizing the assistant keeps it available and remembers its compact layo
   assert.equal(minimized.assistantHidden,false);
   assert.throws(()=>parsePreferences(JSON.stringify({...initial,assistantMinimized:'yes'})));
 });
+
+test('history search requires a saved boolean opt-in and older profiles start unchecked',()=>{
+  const initial=newPreferences('UTC');
+  assert.equal(initial.assistantSearchHistory,false);
+  const {assistantSearchHistory,...older}=initial;
+  assert.equal(parsePreferences(JSON.stringify(older)).assistantSearchHistory,false);
+  assert.equal(parsePreferences(JSON.stringify({...initial,assistantSearchHistory:true})).assistantSearchHistory,true);
+  for(const value of [null,'true',1,{},[]])assert.throws(()=>parsePreferences(JSON.stringify({...initial,assistantSearchHistory:value})));
+});
