@@ -68,7 +68,7 @@ def run_checks(url, query, psql, manifest, temporary, environment, dotnet, admin
         'record_terms,record_tool_step,rename_model,replace_credential,retire_agent,revoke_grant,save_agent_version,start_turn,start_worker,'
         'stop_turn,turn_stream,unfinished_turn,usable_agents,usage_directory,usage_report,use_agent_admission,use_grant_admission,withdraw_price,'
         'workspace_grants,action_proposal,authorize_action,action_outcome,record_action_outcome,page_prompt_directory,save_page_prompt,workspace_sources,resolve_turn_context,search_history').split(','))
-    private_definers = {'pin_page_prompt','pin_market_turn','start_turn_without_page_prompt','start_turn_with_page_prompt',
+    private_definers = {'ask_turn_core','pin_page_prompt','pin_market_turn','start_turn_without_page_prompt','start_turn_with_page_prompt',
         'open_test_without_prompt','pin_installation_instructions','pin_operating_limits','turn_operating_limits','pin_agent_operating_policy','pin_grant_operating_policy'}
     check('runtime execution is limited to the named application operations and excludes private pin/trigger helpers',
           set(query(f"{functions} AND prosecdef;").split(',')) == public_operations | private_definers
