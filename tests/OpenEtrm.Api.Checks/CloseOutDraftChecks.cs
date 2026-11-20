@@ -55,6 +55,12 @@ internal static class CloseOutDraftChecks
             database.WithIdentity("trader","ReadTrades",async(connection,ct)=>
             {
                 var frame=await ResolveFrame(connection,frameName,ct);
+                if(earlier is not null)
+                {
+                    var captured=(await new KnowledgeResolver(database.Manifest.CatalogId).Capture(connection,new(earlier.EffectiveOn,earlier.KnownAt,"at"),ct)).Context;
+                    if(!captured.HasSameCoordinates(earlier))throw new Exception("The close-out comparison changed its original input coordinates.");
+                    earlier=captured;
+                }
                 var view=earlier is null?await TradingView.Capture(connection,new KnowledgeResolver(database.Manifest.CatalogId),frame,ct):TradingView.Reread(frame,earlier);
                 var request=new CloseOutDraftRequest(new(frame.Id,TradingBlotter.Convention,earlier is null?"current":"retained",earlier?.ContextId),
                     position.Id("tradeId"),position.Id("bindingId"),revision??position.GetProperty("revision").GetInt32(),type??position.Text("instrumentType"));

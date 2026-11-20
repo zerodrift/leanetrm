@@ -401,6 +401,7 @@ def check_held_run(c, check, catalog, desk_context, rows):
                 'convention': catalog['convention'], 'numericalPolicy': catalog['numericalPolicy'], 'pricingPolicy': catalog['pricingPolicy']}
     c.call('profile', {'profile': 'risk'})
     try:
+        c.select_inputs(catalog['context'])
         check('one holdings request takes at most sixteen shocks', len(bumps) > 16
               and c.call('portfolio/risk', request(bumps[:17]), expected=422)['code'] == 'risk_convention')
         reports = [c.call('portfolio/risk', request(bumps[i:i+16])) for i in range(0, len(bumps), 16)]

@@ -321,6 +321,7 @@ def run_correction_checks(query, manifest, c, frames):
         assert F(next(h for h in scoped['blotter']['holdings'] if h['tradeId']==booked['daily']['tradeId'])['presentValue'])==pv
     print('PASS the stored daily swap values 31, 32 and 33 USD at the original, corrected and selected snapshots, identically through scoped and full trading reads',flush=True)
     for name in terms:
+        c.select_inputs(first[name+' context'])
         retained=priced(seed,knowledgeMode='retained',contextId=first[name+' context']['contextId'])
         assert retained[name]==original[name]
         assert c.call('swaps/book',commands[name])==booked[name]

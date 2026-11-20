@@ -6,6 +6,7 @@ using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Trading;
 using OpenEtrm.MarketData.Risk;
 using OpenEtrm.Rates;
+using OpenEtrm.Shared.Temporal;
 
 internal static class SwapRiskHoldingChecks
 {
@@ -179,10 +180,23 @@ internal static class SwapRiskHoldingChecks
         }
         if(denied)
         {
-            try{await Read(async(connection,data,ct)=>{await store.ReadRiskHoldings(connection,data,frame,[request.Id("bookId")],excluded:[],ct);});}
-            catch(PreviewDeniedException){Console.WriteLine("PASS stored swap risk: revoked exact market scope refuses the read before materialization");return;}
-            catch(PostgresException error)when(error.SqlState=="42501"){Console.WriteLine("PASS stored swap risk: revoked exact market scope refuses the context before materialization");return;}
-            throw new Exception("A revoked market scope produced a successful stored risk read.");
+            await database.WithIdentity("trader","ReadTrades",async(connection,ct)=>
+            {
+                await using var access=ScheduleStore.Command(connection,"SELECT security.market_access($1,'ReadMarketData')",database.Manifest.CatalogId);
+                Check("the exact market scope is currently revoked",await access.ExecuteScalarAsync(ct) is false);
+                return true;
+            },CancellationToken.None);
+            var materializationEntered=false;var refused=false;
+            try{await Read(async(connection,data,ct)=>
+            {
+                materializationEntered=true;
+                await store.ReadRiskHoldings(connection,data,frame,[request.Id("bookId")],excluded:[],ct);
+            });}
+            catch(PreviewDeniedException){refused=true;}
+            catch(PostgresException error)when(error.SqlState=="42501"){refused=true;}
+            catch(TemporalException error)when(error.Code=="knowledge_coverage"){refused=true;}
+            Check("revoked exact market scope refuses the read before materialization",refused&&!materializationEntered);
+            return;
         }
         await Read(async(connection,data,ct)=>
         {
