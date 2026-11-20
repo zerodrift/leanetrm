@@ -131,7 +131,7 @@ def checks(query, manifest, *, run_correction=None):
         subprocess.run([os.environ.get('DOTNET','dotnet'),'run','--project','tests/OpenEtrm.Api.Checks','--no-build','--no-restore','--',
                         '--gas-mixed-correction',str(path)],check=True,cwd=Path(__file__).resolve().parents[1])
     else:
-        operation,selected_context,before=run_correction(query,manifest,packet)
+        operation,selected_context,before=run_correction(query,manifest,packet,call=call)
         request=request.replace(packet['operationId'],operation).replace(context,selected_context)
     # The managed producer owns its exact persisted continuation representation.
     # Receipt recovery deliberately excludes a recomputed continuation while the

@@ -25,7 +25,7 @@ def main():
     parser.add_argument('--no-build',action='store_true',help='Use the already built assets from the verification runner')
     args=parser.parse_args();os.environ['DOTNET']=str(args.dotnet.resolve());children=[]
     if not args.no_build:build_assets(args.dotnet.resolve())
-    def correct(query,manifest,packet):
+    def correct(query,manifest,packet,*,call):
         catalog,tenant,workspace=(manifest[k] for k in ['catalogId','tenantId','workspaceId'])
         before=int(query(f"SELECT max(publication_order) FROM trading.publications WHERE catalog_id='{catalog}';"))
         sql_session(query,manifest,'synthetic_mixed_quantity_close','synthetic_mixed_quantity_days','16:00:00',['nymex_ng'],['trader'],effective=('2026-01-01','2027-01-01'))
@@ -46,8 +46,11 @@ def main():
         assert prepared==before+1 and query(f"SELECT publication_order FROM market_data.lifecycle_close_session_publications WHERE(catalog_id,session_code,session_version)=('{catalog}','synthetic_mixed_quantity_close',1);")==str(prepared)
         run_browser(query,manifest,args.dotnet.resolve(),args.browser.resolve(),children,{**packet,'closeId':close},
             'tests/browser/gas-quantity-bundle.mjs',worker_enabled=False,artifacts=['lifecycle-gas-bundle-review.png'])
-        saved=json.loads(query(f"SELECT jsonb_build_object('operation',operation_id,'context',source_context_id) FROM trading.gas_quantity_bundles "
+        saved=json.loads(query(f"SELECT jsonb_build_object('operation',operation_id,'context',source_context_id,'inputs',jsonb_build_object("
+            f"'id',source_context_id,'effective_on',source_business_on,'known_at',source_known_at,'system_id',source_system_id,'timeline',source_timeline)) FROM trading.gas_quantity_bundles "
             f"WHERE(catalog_id,account_id)=('{catalog}','{packet['accountId']}') AND ordinary_changed;"))
+        from native_read_transport import select_owned_inputs
+        call(select_owned_inputs(catalog,saved['inputs']))
         return saved['operation'],saved['context'],prepared
     native_main(checks=lambda q,m:checks(q,m,run_correction=correct),fixture_factory=fixture,
         arguments=['--pg-bin',str(args.pg_bin.resolve())],cleanup_ready=lambda:not children)
