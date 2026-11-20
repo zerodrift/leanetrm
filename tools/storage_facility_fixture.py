@@ -73,3 +73,24 @@ class StorageFacilityFixture:
         print(result.stdout.strip(), flush=True)
         self._source = json.loads(Path(str(packet) + '.source.json').read_text())
         return self._source
+
+
+def commercial_storage_profile(query,manifest):
+    """A physical version and an expressly negotiated rate sheet for commercial booking checks."""
+    cat,definition=manifest['catalogId'],manifest['revisionId']
+    query(f"SELECT security.initialize_operating_policies('{manifest['tenantId']}','{manifest['workspaceId']}');")
+    query("INSERT INTO security.role_permissions SELECT id,p FROM security.roles CROSS JOIN unnest(ARRAY['ReadFacilityQuantities','ConfigureFacilityLimits'])p WHERE code='trader' ON CONFLICT DO NOTHING;")
+    point=json.loads(query("SELECT to_jsonb(p) FROM ref_data.gas_delivery_conventions p WHERE point_code='synthetic_gas_point_d' LIMIT 1;"))
+    facility,ip,op=[str(uuid4()) for _ in range(3)]
+    context=runtime_query(query,manifest,f"SELECT security.resolve_operation_context('{cat}','2020-12-01',NULL);")
+    physical=dict(kind='define',facilityId=facility,expectedStateVersion=0,expectedPreviousId=None,referenceCatalogId=point['catalog_id'],
+        referenceRevisionId=point['revision_id'],facilityCode=point['point_code'],commodity=point['product_code'],quantity='test_gas_quantity',clock='test_utc',minimum='0',maximum='2000000000',
+        implementation='storage_total_physical_step_ratchets_v1',inventoryBasis='total_physical_inventory_v1',rateBasis='native_quantity_per_elapsed_hour_v1',
+        simultaneousFlow='separate_injection_withdrawal_v1',lossTreatment='no_loss_v1',
+        ports=[dict(portId=i,pipeline=point['pipeline_code'],zone=point['zone_code'],point=point['point_code'],product=point['product_code'],direction=d,contractDirection=s)
+               for i,d,s in [(ip,'inject',1),(op,'withdraw',-1)]],
+        ratchets=[dict(lower='0',upper='2000000000',injectionPerHour='100',withdrawalPerHour='100')],evidence='Synthetic hourly operating limits')
+    version=json.loads(runtime_query(query,manifest,f"SELECT security.record_storage_facility('{cat}','{uuid4()}',{literal(physical)},'2020-12-01',NULL,'{context}');"))['versionId']
+    profile=dict(kind='storage',name='Contract regression facility',code='contract_regression',expectedRevision=0,definitionRevisionId=definition,storageVersionId=version,
+        injectionPortId=ip,withdrawalPortId=op,effectiveAt='2020-12-01T00:00:00Z',ratchets=[dict(lower='0',upper='2000000000',maximumDailyInjection='2000',maximumDailyWithdrawal='1500')])
+    return json.loads(runtime_query(query,manifest,f"SELECT desk.save_profile('{cat}','{uuid4()}',{literal(profile)});"))['id']

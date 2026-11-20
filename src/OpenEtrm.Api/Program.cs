@@ -83,6 +83,10 @@ const string malformed="The request is incomplete or malformed.";
 // The HTTP status, code and message an API failure is reported with: as an error body, or as the error frame of a started Blotter stream.
 (int Status,string Code,string Message) Failure(Exception e,PathString apiPath,HttpContext context)=>e switch
 {
+    PostgresException p when p.MessageText.StartsWith("desk_",StringComparison.Ordinal)
+        =>(p.SqlState=="42501"?403:p.MessageText is "desk_stale" or "desk_request_conflict"?409:422,p.MessageText,BilateralDesk.Error(p.MessageText)),
+    PostgresException p when apiPath.StartsWithSegments("/api/desk") && (p.SqlState.StartsWith("22",StringComparison.Ordinal)||p.SqlState.StartsWith("23",StringComparison.Ordinal))
+        =>(422,"desk_terms",BilateralDesk.Error("desk_terms")),
     AsyncReadException refusal=>(refusal.Status,refusal.Code,refusal.Message),
     MarketDataException m when m.Code is "rec_request_conflict" or "rec_generation_conflict" or "rec_trade_conflict" or "rec_forward_request_conflict" or "rec_forward_revision_conflict"
         => (409,m.Code,m.Message),
@@ -443,6 +447,8 @@ app.Use(async (context,next)=>
         object body=e is PostgresException{SqlState:"P0001",MessageText:"agent_role_lacks_permission"} lacking&&AgentAdministration.Lacking(lacking.Hint) is {} lack
             ?new {code,message,role=lack.Role,permission=lack.Permission}:new {code,message};
         if(e is CloseRiskInputsException closeRisk)body=new{code,message,affectedBindings=closeRisk.AffectedBindings};
+        if(e is PostgresException {MessageText:"desk_agreement_ambiguous",Hint:{} selection})
+            body=new{code,message,agreementSelection=JsonSerializer.Deserialize<JsonElement>(selection)};
         if(e is TicketFieldException ticket)body=new{code,message,side=ticket.Side,field=ticket.Field};
         if(e is RiskRunTieException tie)body=new{code,message,definition=tie.Definition,runs=tie.Runs};
         await context.Response.WriteAsJsonAsync(body,CancellationToken.None);
@@ -465,6 +471,7 @@ app.Use((context,next)=>
 {
     var size=context.Features.Get<IHttpMaxRequestBodySizeFeature>();
     if(size is {IsReadOnly:false}&&context.Request.Path.Equals("/api/interval-series/revise",StringComparison.Ordinal))size.MaxRequestBodySize=processLimits.IntervalRevisionBytes;
+    if(size is {IsReadOnly:false}&&context.Request.Path.Equals("/api/desk/agreement",StringComparison.Ordinal))size.MaxRequestBodySize=12*1024*1024;
     return next(context);
 });
 
@@ -1679,6 +1686,56 @@ async Task<TradingView> PartyView(NpgsqlConnection connection,PreviewSession ses
     var pin=Pin(session,frame);
     return pin.Context is {} retained?TradingView.Retained(pin.Frame,retained):await TradingView.Capture(connection,knowledgeStore,pin.Frame,ct);
 }
+async Task BindDeskRead(NpgsqlConnection connection,PreviewSession session,Guid snapshot,CancellationToken ct)
+{
+    var frame=Frame(session,snapshot);
+    if(session.MarketContext is not null){
+        var view=await PartyView(connection,session,frame.Id,ct);
+        await view.Bind(connection,database.Manifest.CatalogId,ct);
+        await TradingContext.Bind(connection,database.Manifest.CatalogId,frame,view.Context,ct);
+    }
+}
+api.MapPost("/desk/directory",(HttpContext c,DeskReadRequest body)=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"ReadTradeParties",async(connection,ct)=>{
+        await DeskAdmission.Capture(database,connection,"ReadTradeParties",ct);
+        await BindDeskRead(connection,session,body.SnapshotId,ct);
+        return Results.Ok(await LifecycleNative.Read(connection,"SELECT desk.directory($1)::text",ct,database.Manifest.CatalogId));
+    },c.RequestAborted)));
+api.MapPost("/desk/document",(HttpContext c,DeskReadRequest body)=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"ReadAgreementDocuments",async(connection,ct)=>{
+        await DeskAdmission.Capture(database,connection,"ReadAgreementDocuments",ct);
+        await BindDeskRead(connection,session,body.SnapshotId,ct);
+        await using var q=ScheduleStore.Command(connection,"SELECT filename,content FROM desk.document($1,$2)",database.Manifest.CatalogId,body.Id??Guid.Empty);
+        await using var row=await q.ExecuteReaderAsync(ct);
+        c.Response.Headers.CacheControl="no-store";
+        return await row.ReadAsync(ct)?Results.Ok(new {filename=row.GetString(0),pdf=row.GetFieldValue<byte[]>(1)}):Results.NotFound();
+    },c.RequestAborted)));
+foreach(var kind in new[]{"agreement","credit","confirmation"}){
+    var permission=BilateralDesk.Permission(kind);
+    api.MapPost("/desk/"+kind,(HttpContext c,DeskCommand body)=>Locked(c,session=>{
+        if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data before recording a desk decision.");
+        if(body.Record.ValueKind!=JsonValueKind.Object||!body.Record.TryGetProperty("kind",out var type)||type.ValueKind!=JsonValueKind.String||type.GetString()!=kind)
+            throw new MarketDataException("desk_terms","The record must identify the selected operation.");
+        return database.WithIdentity(Profile(session),permission,async(connection,ct)=>{
+            await DeskAdmission.Capture(database,connection,permission,ct);
+            return Results.Ok(await LifecycleNative.Read(connection,"SELECT desk.record($1,$2,$3::jsonb)::text",ct,database.Manifest.CatalogId,body.OperationId,body.Record.GetRawText()));
+        },c.RequestAborted);
+    }));
+}
+api.MapPost("/desk/eligibility",(HttpContext c,DeskEligibility body)=>Locked(c,session=>{
+    if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Select working data to check a proposed booking.");
+    return database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>Results.Ok(await LifecycleNative.Read(connection,
+        "SELECT desk.eligibility($1,$2,$3,$4,statement_timestamp())::text",ct,database.Manifest.CatalogId,body.LegalEntityId,body.CounterpartyId,body.Product)),c.RequestAborted);
+}));
+api.MapPost("/desk/choose",(HttpContext c,DeskChoice body)=>Locked(c,session=>{
+    if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Select working data to choose a booking agreement.");
+    return database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>{
+        var permission=await PreviewDatabase.HasPermission(connection,"BookTrade",ct)?"BookTrade":"AmendTrade";
+        if(!await PreviewDatabase.HasPermission(connection,permission,ct))throw new PreviewDeniedException();
+        await DeskAdmission.Capture(database,connection,permission,ct);
+        return Results.Ok(await LifecycleNative.Read(connection,"SELECT desk.choose($1,$2,$3)::text",ct,database.Manifest.CatalogId,body.OperationId,body.AgreementId));
+    },c.RequestAborted);
+}));
 api.MapPost("/parties/catalog",(HttpContext c,PartyReadRequest body)=>Locked(c,session=>
     database.WithIdentity(Profile(session),"ReadTradeParties",async(connection,ct)=>
         Results.Ok(await partyReads.Catalog(connection,await PartyView(connection,session,body.SnapshotId,ct),body.Kind,ct)),c.RequestAborted)));
@@ -2247,6 +2304,38 @@ api.MapPost("/delivery/workbench/gas-transport/nominations/record",(HttpContext 
 api.MapPost("/delivery/workbench/gas-transport/nominations/status",(HttpContext c,FacilityStatusRequest body)=>Locked(c,session=>
  database.WithIdentity(Profile(session),"ReadGasOperations",async(connection,ct)=>Results.Ok(await deliveryNominations.Status(connection,body,ct)),c.RequestAborted)));
 var facilityQuantities=new FacilityQuantityStore(database);
+api.MapPost("/desk/facilities",(HttpContext c,FacilityDirectoryRequest body)=>Locked(c,session=>
+ database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>{
+    var business=new OperationalBusinessContext(database);
+    var scope=await business.Resolve(connection,body.Context,session.MarketContext,"desk_facility",ct);
+    if(!scope.Working)await business.BindResolved(connection,scope,ct);
+    var definition=database.Manifest.RevisionId;
+    var profiles=await LifecycleNative.Read(connection,"SELECT desk.profiles($1,$2)::text",ct,database.Manifest.CatalogId,definition);
+    var setup=scope.Working&&await PreviewDatabase.HasPermission(connection,"ConfigureFacilityLimits",ct)?
+        await LifecycleNative.Read(connection,"SELECT desk.profile_setup($1,$2)::text",ct,database.Manifest.CatalogId,definition):(JsonElement?)null;
+    return Results.Ok(new{definitionRevisionId=definition,profiles,setup,scope.Working,scope.At});
+ },c.RequestAborted)));
+api.MapPost("/desk/facility-activity",(HttpContext c,FacilityTradeWindow body)=>Locked(c,session=>
+ database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>{
+    var business=new OperationalBusinessContext(database);
+    var scope=await business.Resolve(connection,body.Context,session.MarketContext,"desk_facility",ct);
+    if(!scope.Working)await business.BindResolved(connection,scope,ct);
+    return Results.Ok(await LifecycleNative.Read(connection,"SELECT desk.facility_activity($1,$2,$3,$4,$5)::text",ct,database.Manifest.CatalogId,body.ProfileId,body.From,body.To,scope.At));
+ },c.RequestAborted)));
+api.MapPost("/desk/facility-profile",(HttpContext c,DeskCommand body)=>Locked(c,session=>{
+ if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data before configuring a facility.");
+ return database.WithIdentity(Profile(session),"ConfigureFacilityLimits",async(connection,ct)=>{
+    await DeskAdmission.Capture(database,connection,"ConfigureFacilityLimits",ct);
+    return Results.Ok(await LifecycleNative.Read(connection,"SELECT desk.save_profile($1,$2,$3::jsonb)::text",ct,database.Manifest.CatalogId,body.OperationId,body.Record.GetRawText()));
+ },c.RequestAborted);
+}));
+api.MapPost("/desk/attribute",(HttpContext c,FacilityAttribution body)=>Locked(c,session=>{
+ if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data before associating a trade with a facility.");
+ return database.WithIdentity(Profile(session),"BookTrade",async(connection,ct)=>{
+    await DeskAdmission.Capture(database,connection,"BookTrade",ct);
+    return Results.Ok(await LifecycleNative.Read(connection,"SELECT desk.attribute($1,$2,$3)::text",ct,database.Manifest.CatalogId,body.TradeId,body.ProfileId));
+ },c.RequestAborted);
+}));
 var storageFacilities=new StorageFacilityStore(database);
 var transportRoutes=new GasTransportRouteStore(database);
 api.MapPost("/gas/transport/routes/directory",(HttpContext c,FacilityDirectoryRequest body)=>Locked(c,session=>

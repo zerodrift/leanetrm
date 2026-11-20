@@ -139,8 +139,8 @@ internal static class GasStoragePlanChecks
             var rule=new PaymentRule(PaymentFrequency.Monthly,PaymentDateRule.DaysAfterPeriodEnd,20,null,PaymentDayBasis.CalendarDays,null,DateRoll.Unadjusted,null,PaymentRule.Implementation);
             var contractDays=basePlan.Select(d=>new GasStorageContractDay(d.GasDay,january.From,january.To,new(f.C("base_forward"),f.K(2)),new(f.C("local_gas"),f.K(3)))).ToImmutableArray();
             var charges=new GasStorageCharges(new(D("0.02"),quote),new(D("0.03"),quote),new(D("0.005"),quote));
-            GasStorageInstrument Contract(ImmutableArray<GasStorageDay> plan)=>GasStorageInstrument.Compose(Guid.NewGuid(),entitlement,
-                new(GasDay(1).Start,ExactQuantity.FromQuantity(Q("29000"))),new(Q("0"),Q("100000")),quote,rule,charges,contractDays,plan);
+            GasStorageInstrument Contract(ImmutableArray<GasStorageDay> plan, ImmutableArray<GasStorageContractDay>? prices=null)=>GasStorageInstrument.Compose(Guid.NewGuid(),entitlement,
+                new(GasDay(1).Start,ExactQuantity.FromQuantity(Q("29000"))),new(Q("0"),Q("100000")),quote,rule,charges,prices??contractDays,plan);
             var instrument=Contract(basePlan);
             var setup=new ValuationSetup(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,new ExplicitDiscounting(D("1"),DiscountFactorSource.Undiscounted));
             var portfolio=ValuationPortfolio.FromTrades([new(Guid.NewGuid(),Guid.NewGuid(),[new(Guid.NewGuid(),instrument,instrument.UnitQuantity)])],setup);
@@ -149,6 +149,11 @@ internal static class GasStoragePlanChecks
             // 1,000 x 3.3 - 3,500 x 3.1 - 3,500 x 0.02 - 1,000 x 0.03 - 100,000 x 0.005 = -8,150; a 0.1 higher market moves it by -250.
             Equal(run.BaseValues.Single().Value,"-8150");
             var shocked=run.Factors.Single().Positions.Single().Values;Equal(shocked.Up,"-8400");Equal(shocked.Down,"-7900");
+            var local=Contract(basePlan,[..contractDays.Select(day=>day with{InjectionAdjustment=D("-0.1"),WithdrawalAdjustment=D("0.2")})]);
+            var localPortfolio=ValuationPortfolio.FromTrades([new(Guid.NewGuid(),Guid.NewGuid(),[new(Guid.NewGuid(),local,local.UnitQuantity)])],setup);
+            var localRun=RiskEngine.CalculateExact(RiskEngine.Prepare(f.Model(),f.Snapshot(),[localPortfolio]),[],RiskEngine.ExactNumericalPolicy,detail:RiskDetail.Holdings);
+            // Buying 3,500 units ten cents lower and selling 1,000 units twenty cents higher adds 550.
+            Equal(localRun.Groups.Single().BaseValues.Single().Value,"-7600");
             Same(instrument.Plan.Closing.Inventory,"31465");
             Reject("gas_storage_ratchet",()=>Contract(Days(("2000","0"),("2000","0"),("0","1000"))));
             Reject("gas_storage_terms",()=>Contract([basePlan[0],basePlan[1]]));

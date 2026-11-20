@@ -42,7 +42,8 @@ internal static class StructuredPowerTradeCatalog
         if(!trades)throw new PreviewDeniedException();
         var parties=await PreviewDatabase.HasPermission(connection,"ReadTradeParties",ct);
         var author=await PreviewDatabase.HasPermission(connection,"BookTrade",ct);
-        var result=new{snapshotId=frame.Id,contextId=frame.ContextId,knownAt,
+        var facilityProfiles=await LifecycleNative.Read(connection,"SELECT desk.profiles($1,$2)::text",ct,data.DefinitionRevision.CatalogId,data.DefinitionRevision.RevisionId);
+        var result=new{facilityProfiles,snapshotId=frame.Id,contextId=frame.ContextId,knownAt,
             operating=StructuredPowerPreview.Catalog(data,current&&await PreviewDatabase.HasPermission(connection,"ManagePhysicalSetup",ct),
                 await PreviewDatabase.HasPermission(connection,"RunScenario",ct)) with{PriceContracts=Prices(data,frame)},
             books=trades?await BookScope.Read(connection,data.DefinitionRevision.CatalogId,ct):[],

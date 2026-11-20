@@ -1,6 +1,7 @@
 """Gas storage contract over HTTP: managed booking, the plan in force, a proposed plan and the valued position."""
 from copy import deepcopy
 from uuid import uuid4
+from storage_facility_fixture import commercial_storage_profile
 from fractions import Fraction
 from preview_client import initial_frame
 from preview_fixture import trade_booking
@@ -12,12 +13,12 @@ def run_checks(client, query, manifest):
     frame = initial_frame(client.call('workspace'), '2020-12-15')['id']
     context = dict(snapshotId=frame, convention='gas_storage_trade_v1', knowledgeMode='current', contextId=None)
     band = lambda lower, upper, injection, withdrawal: dict(lower=lower, upper=upper, maximumDailyInjection=injection, maximumDailyWithdrawal=withdrawal)
-    terms = dict(definitionRevisionId=manifest['revisionId'], referenceCatalogId=manifest['referenceCatalogId'], referenceRevisionId=manifest['referenceRevisionId'],
+    terms = dict(facilityProfileId=commercial_storage_profile(query,manifest),definitionRevisionId=manifest['revisionId'], referenceCatalogId=manifest['referenceCatalogId'], referenceRevisionId=manifest['referenceRevisionId'],
         quantity='test_gas_quantity', injectionCurve='local_gas', withdrawalCurve='local_gas', minimumInventory='0', maximumInventory='100000',
         ratchets=[band('0', '30000', '2000', '500'), band('30000', '70000', '1500', '1000'), band('70000', '100000', '1000', '1500')],
         injectionFuel='0.01', withdrawalFuel='0', ratchetBasis='gas_day_opening_inventory_band_v1', flowPolicy='single_direction_per_gas_day_v1',
         fuelBasis='in_kind_fuel_at_storage_point_v1', openingInventory='29000', terminalMinimum='0', terminalMaximum='100000',
-        injectionCharge='0.02', withdrawalCharge='0.03', monthlyCapacityCharge='0.005', termFrom='2021-02-01', termTo='2021-02-04', clock='test_utc', dayStartMinute=540,
+        injectionCharge='0.02', withdrawalCharge='0.03', monthlyCapacityCharge='0.005', termFrom='2021-02-01', termTo='2021-02-04', clock='test_utc', dayStartMinute=0,
         paymentRule=dict(frequency='monthly', rule='days_after_period_end', days=20, dayOfMonth=None, dayBasis='calendar_days', shortMonth=None,
             adjustment='unadjusted', calendar=None, implementation='monthly_payment_date_rules_v1'))
     command = dict(context=context, operationId=str(uuid4()), bookId='d1000000-0000-0000-0000-000000000001', **trade_booking(),
@@ -55,7 +56,7 @@ def run_checks(client, query, manifest):
     assert (position['instrumentType'], position['quantity'], position['unit'], position['presentValue'], position['unavailableReason']) == \
         ('gas_storage', '100000', 'MMBtu (IT)', None, 'gas_storage_plan'), position
     assert [(row['gas_day'], row['starts_at'][:19], row['payment_at'][:10]) for row in held['days']] == \
-        [(f'2021-02-0{day}', f'2021-02-0{day}T09:00:00', '2021-03-20') for day in (1, 2, 3)], held['days']
+        [(f'2021-02-0{day}', f'2021-02-0{day}T00:00:00', '2021-03-20') for day in (1, 2, 3)], held['days']
     assert len(held['ratchets']) == 3 and held['plan'] is None and held['path'] is None and held['terms']['monthly_capacity_charge'] == '0.005', held
     print('PASS gas storage HTTP: the managed gas days book once, replay their outcome, and a contract without a plan is listed as unpriced', flush=True)
 
@@ -74,6 +75,18 @@ def run_checks(client, query, manifest):
     assert (recorded['revision'], recorded['changed'], recorded['tradeId']) == (1, True, saved['tradeId']), recorded
     assert client.call('gas-storage/plan', plan, timeout=60) == recorded
     client.call('gas-storage/plan', dict(deepcopy(plan), operationId=str(uuid4()), days=[flow(1, '0', '0'), flow(2, '0', '0'), flow(3, '0', '0')]), expected=409, timeout=60)
+
+    facility_context = dict(effectiveOn='2021-02-02', knowledgeMode='current', retained=None,
+                            convention='facility_business_date_end_utc_v1')
+    report = client.call('desk/facility-activity', {
+        'profileId': terms['facilityProfileId'], 'context': facility_context,
+        'from': '2021-02-02', 'to': '2021-02-04'})
+    trade, = report['trades']
+    assert (trade['tradeId'], trade['product'], trade['confirmation']) == (saved['tradeId'], 'gas_storage', 'awaiting')
+    assert trade['agreement']
+    totals = {row['stage']: Fraction(int(row['numerator']), int(row['denominator'])) for row in report['totals']
+              if row['unit'] == terms['quantity']}
+    assert totals == {'Storage capacity in force': 100000, 'Planned injections': 1500, 'Planned withdrawals': 1000}, report
 
     client.call('gas-storage/propose', dict(context=context, tradeId=saved['tradeId'], inventoryStep='500'), expected=422, timeout=60)
     proposal = client.call('gas-storage/propose', dict(context=context, tradeId=saved['tradeId'], inventoryStep='495'), timeout=60)

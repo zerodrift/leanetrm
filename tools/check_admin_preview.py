@@ -12,12 +12,18 @@ def run_checks(Client, check):
           [(k['code'], k['creatable']) for k in directory['kinds']] == [('human', True), ('service', True), ('agent', False)] and all(k['name'] for k in directory['kinds']))
     admin.call('workspace', expected=403)
     check('access administration does not imply market-data access')
-    check('the eleven human roles are assignable, and all three agent-only roles are listed only to name what agents hold',
-          sorted(r['code'] for r in directory['roles'] if r['assignable']) == ['access_administrator', 'assistant_prompt_editor', 'facility_limits_admin', 'facility_operator', 'gas_operator', 'gas_service_admin', 'market_data_approver', 'market_data_editor', 'risk_analyst', 'trader', 'viewer']
+    bilateral_roles = {'contracts_officer', 'credit_officer', 'trade_confirmations'}
+    human_roles = {'access_administrator', 'assistant_prompt_editor', 'facility_limits_admin', 'facility_operator',
+                   'gas_operator', 'gas_service_admin', 'market_data_approver', 'market_data_editor', 'risk_analyst',
+                   'trader', 'viewer'} | bilateral_roles
+    check('all human roles can be assigned, and agent-only roles are listed separately',
+          {r['code'] for r in directory['roles'] if r['assignable']} == human_roles
           and sorted(r['code'] for r in directory['roles'] if not r['assignable']) == ['agent_reader', 'gas_lifecycle_operator', 'swap_settlement_operator'])
-    check('role choices carry stored display names', all(isinstance(r.get('name'), str) and r['name'].strip() for r in directory['roles']) and len({r['name'] for r in directory['roles']}) == len(directory['roles']) == 14)
-    check('facility and gas operations roles start unassigned to existing members',
-          all(not {'facility_operator', 'facility_limits_admin', 'gas_operator', 'gas_service_admin'}.intersection(m['roles']) for m in directory['members']))
+    check('role choices carry unique stored display names', all(isinstance(r.get('name'), str) and r['name'].strip() for r in directory['roles'])
+          and len({r['name'] for r in directory['roles']}) == len(directory['roles']))
+    operational_roles = {'facility_operator', 'facility_limits_admin', 'gas_operator', 'gas_service_admin'} | bilateral_roles
+    check('operating and bilateral roles start unassigned to existing members',
+          all(operational_roles.isdisjoint(m['roles']) for m in directory['members']))
     context = dict(effectiveOn='2020-12-18', knowledgeMode='current', retained=None,
                    convention='facility_business_date_end_utc_v1')
     for role, login, records, configures in [('facility_operator', 'synthetic_facility_operator', True, False),

@@ -23,7 +23,8 @@ export class PendingCommand {
   failed(code:string|undefined,previouslyUncertain=this.command?.uncertain===true){
     if(!this.command)return;
     // A denied retry says nothing about the preceding uncertain transaction.
-    if(this.knownRejection(code)&&!previouslyUncertain)this.clear();
+    const deskRefusal=code?.startsWith('desk_')&&!code.endsWith('_outcome_unknown')&&/\/(book|amend)$/.test(this.command.path);
+    if((deskRefusal||this.knownRejection(code))&&!previouslyUncertain)this.clear();
     else this.command.uncertain=true;
   }
 }

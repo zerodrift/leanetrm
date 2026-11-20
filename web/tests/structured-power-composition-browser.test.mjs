@@ -103,3 +103,18 @@ test('changing to a payment-only source clears a prior delivery kind without cho
  })()`);
  assert.deepEqual(result,{value:'',options:['','payment']});
 }));
+test('thermal Side contract choices follow the selected facility inlet and outlet', {skip:!browserAvailable, timeout:browserTestTimeout},()=>withBrowserPage('<main id="host"></main>',async evaluate=>{
+ const values=await evaluate(`(async()=>{
+  const {setupOperatingSideCards}=await import('/structured-power-sides-view.js');
+  const host=document.querySelector('main');
+  const markets=['north','south'].map(curve=>({curveCode:curve,contractId:curve,quantityCode:'gas',currencyCode:'usd',label:curve}));
+  const side=setupOperatingSideCards(host,{catalog:()=>({maximumSides:3,quotes:[],priceContracts:markets,
+   sideChoices:[{kind:'thermal',code:'guaranteed_fuel',label:'Fuel',quantityKind:'fuel',allowedKinds:['payment']}] }),
+   context:()=>({kind:'thermal',fuel:'gas',currency:'usd'}),profile:()=>({inputCurve:'south',outputCurve:'power'}),changed:()=>{}});
+  side.setEnabled(true);[...host.querySelectorAll('button')].find(x=>x.textContent==='Add Side').click();
+  const field=name=>[...host.querySelectorAll('label')].find(x=>x.firstChild.textContent===name).querySelector('select');
+  const source=field('Quantity source');source.value='guaranteed_fuel';source.dispatchEvent(new Event('change',{bubbles:true}));
+  return [...field('Market contract').options].map(x=>x.text);
+ })()`);
+ assert.deepEqual(values,['Choose…','south']);
+}));

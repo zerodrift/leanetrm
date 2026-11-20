@@ -81,6 +81,15 @@ server {
         error_page 413 = @request_too_large;
         proxy_pass http://$openetrm_backend;
     }
+    location = /api/desk/agreement {
+        client_max_body_size 12m;
+        error_page 413 = @agreement_too_large;
+        proxy_pass http://$openetrm_backend;
+    }
+    location @agreement_too_large {
+        default_type "application/json; charset=utf-8";
+        return 413 '{"code":"request_too_large","message":"The agreement upload exceeds 12 MiB."}';
+    }
     location = /api/interval-series/revise {
         client_max_body_size ${REVISION_BYTES};
         error_page 413 = @revision_too_large;

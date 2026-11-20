@@ -3,7 +3,7 @@ import {operatingPrice,type OperatingPriceContract,type StructuredPowerKind} fro
 export type OperatingSideChoice={kind:StructuredPowerKind;code:string;label:string;quantityKind:'energy'|'fuel'|'right';allowedKinds:readonly ('payment'|'delivery')[]};
 export type OperatingCompositionCatalog={sideChoices?:OperatingSideChoice[];maximumSides?:number;compositionImplementation?:string;paymentImplementation:string;quotes:{code:string;label:string;quantityCode:string;currencyCode:string}[];priceContracts?:OperatingPriceContract[]};
 type Context={kind:StructuredPowerKind|undefined;energy:string;fuel:string;right:string;currency:string};
-type Options={catalog:()=>OperatingCompositionCatalog|undefined;context:()=>Context;changed:()=>void};
+type Options={profile?:()=>{inputCurve:string;outputCurve:string}|undefined;catalog:()=>OperatingCompositionCatalog|undefined;context:()=>Context;changed:()=>void};
 
 // Cards edit ordered transport terms. Source eligibility, quantities, dates,
 // prices and valuation remain managed business operations.
@@ -50,7 +50,9 @@ export function setupOperatingSideCards(host:HTMLElement,o:Options){
    const selected=sources.find(s=>s.code===source.value);choices(kind,(selected?.allowedKinds??[]).map(value=>({value,label:value==='payment'?'Payment Side':'Delivery Side'})));
    const quantityKind=selected?.quantityKind,quantity=quantityKind?context[quantityKind]:undefined;
    const matches=(row:{quantityCode:string;currencyCode:string})=>row.quantityCode===quantity&&(!context.currency||row.currencyCode===context.currency);
-   const contracts=(catalog?.priceContracts??[]).filter(matches);
+   const profile=context.kind==='thermal'?o.profile?.():undefined;
+   const curve=quantityKind==='fuel'?profile?.inputCurve:quantityKind==='energy'?profile?.outputCurve:undefined;
+   const contracts=(catalog?.priceContracts??[]).filter(row=>matches(row)&&(!curve||row.curveCode===curve));
    choices(quote,(catalog?.quotes??[]).filter(matches).map(q=>({value:q.code,label:q.label})));
    choices(contract,contracts.map(c=>({value:key(c),label:c.label})));
    choices(mode,[{value:'fixed',label:'Fixed agreed value'},...(contracts.length?[{value:'selected_contract_flat_v1',label:'Selected market contract applied flat across supplied intervals'}]:[])]);

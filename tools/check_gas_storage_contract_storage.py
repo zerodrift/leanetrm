@@ -2,6 +2,7 @@
 """Independent native gas storage contract booking, plan revision and position-read checks."""
 from copy import deepcopy
 from uuid import uuid4
+from storage_facility_fixture import commercial_storage_profile
 import json
 from check_reference_editing import main
 from check_workspace_as_of import read_trading_workspace
@@ -13,7 +14,7 @@ GAS=identity('5',8)
 
 
 def gas_day(day):
-    return dict(gasDay=f'2021-02-0{day}',startsAt=f'2021-02-0{day}T09:00:00.000000Z',endsAt=f'2021-02-0{day+1}T09:00:00.000000Z',
+    return dict(gasDay=f'2021-02-0{day}',startsAt=f'2021-02-0{day}T00:00:00.000000Z',endsAt=f'2021-02-0{day+1}T00:00:00.000000Z',
         paymentAt='2021-03-20T00:00:00.000000Z',injectionContractId=GAS,withdrawalContractId=GAS)
 
 
@@ -45,12 +46,12 @@ def run_checks(query,manifest):
     print('PASS gas storage storage: receipts need trade authority and the retained tables are closed to the runtime role',flush=True)
 
     band=lambda lower,upper,injection,withdrawal:dict(lower=lower,upper=upper,maximumDailyInjection=injection,maximumDailyWithdrawal=withdrawal)
-    terms=dict(definitionRevisionId=manifest['revisionId'],referenceCatalogId=manifest['referenceCatalogId'],referenceRevisionId=manifest['referenceRevisionId'],
+    terms=dict(facilityProfileId=commercial_storage_profile(query,manifest),definitionRevisionId=manifest['revisionId'],referenceCatalogId=manifest['referenceCatalogId'],referenceRevisionId=manifest['referenceRevisionId'],
         quantity='test_gas_quantity',injectionCurve='local_gas',withdrawalCurve='local_gas',minimumInventory='0',maximumInventory='100000',
         ratchets=[band('0','30000','2000','500'),band('30000','70000','1500','1000'),band('70000','100000','1000','1500')],
         injectionFuel='0.01',withdrawalFuel='0',ratchetBasis='gas_day_opening_inventory_band_v1',flowPolicy='single_direction_per_gas_day_v1',
         fuelBasis='in_kind_fuel_at_storage_point_v1',openingInventory='29000',terminalMinimum='0',terminalMaximum='100000',
-        injectionCharge='0.02',withdrawalCharge='0.03',monthlyCapacityCharge='0.005',termFrom='2021-02-01',termTo='2021-02-04',clock='test_utc',dayStartMinute=540,
+        injectionCharge='0.02',withdrawalCharge='0.03',monthlyCapacityCharge='0.005',termFrom='2021-02-01',termTo='2021-02-04',clock='test_utc',dayStartMinute=0,
         paymentRule=dict(frequency='monthly',rule='days_after_period_end',days=20,dayOfMonth=None,dayBasis='calendar_days',shortMonth=None,
             adjustment='unadjusted',calendar=None,implementation='monthly_payment_date_rules_v1'))
     body=dict(operationId=str(uuid4()),convention='gas_storage_trade_v1',bookId='d1000000-0000-0000-0000-000000000001',**trade_booking(),
@@ -100,7 +101,7 @@ def run_checks(query,manifest):
     refuse('gas_storage_contract',lambda p:p['days'][0].update(injectionContractId=identity('5',13)),'prepared')
     refuse('gas_storage_contract',lambda p:p['days'][2].update(withdrawalContractId=identity('5',10)),'prepared')
     started=deepcopy(body);started['terms'].update(termFrom='2020-12-15',termTo='2020-12-16')
-    reject(book(started,dict(prepared,days=[dict(gas_day(1),gasDay='2020-12-15',startsAt='2020-12-15T09:00:00.000000Z',endsAt='2020-12-16T09:00:00.000000Z')])),'gas_storage_day')
+    reject(book(started,dict(prepared,days=[dict(gas_day(1),gasDay='2020-12-15',startsAt='2020-12-15T00:00:00.000000Z',endsAt='2020-12-16T00:00:00.000000Z')])),'gas_storage_day')
     print('PASS gas storage storage: gas days must be the whole term in order, contiguous, ahead of booking, paid once per month and on the delivering contracts',flush=True)
 
     reject(book(body,prepared),'42501','viewer')
@@ -161,7 +162,7 @@ def run_checks(query,manifest):
     distinct['days'][0]['injection']='1999'
     reject(record(distinct),'gas_storage_plan_time')
     # Once the first gas day has begun, its flows are measured: no plan is recorded over them.
-    reject(record(dict(deepcopy(plan),operationId=str(uuid4()),expectedRevision=2),'2021-02-01T09:00:00Z'),'gas_storage_started')
+    reject(record(dict(deepcopy(plan),operationId=str(uuid4()),expectedRevision=2),'2021-02-01T00:00:00Z'),'gas_storage_started')
     assert query('SELECT count(*) FROM trading.gas_storage_plans;')=='2' and query('SELECT count(*) FROM trading.gas_storage_plan_days;')=='6'
     print('PASS gas storage storage: a plan covers every gas day one way, replays its outcome, is not recorded twice and revises only from its expected head, never before it',flush=True)
 
@@ -183,11 +184,11 @@ def run_checks(query,manifest):
         retained['withdrawal_fuel'],retained['opening_inventory'],retained['terminal_minimum'],retained['terminal_maximum'],retained['injection_charge'],
         retained['withdrawal_charge'],retained['monthly_capacity_charge'],retained['term_from'],retained['term_to'],retained['clock_code'],retained['day_start_minute'],
         retained['payment_rule']['days'],retained['projection_curves'])==\
-        ('test_gas_quantity','test_gas_outright','usd','0','100000','0.01','0','29000','0','100000','0.02','0.03','0.005','2021-02-01','2021-02-04','test_utc',540,20,['local_gas']),retained
+        ('test_gas_quantity','test_gas_outright','usd','0','100000','0.01','0','29000','0','100000','0.02','0.03','0.005','2021-02-01','2021-02-04','test_utc',0,20,['local_gas']),retained
     assert bands==[dict(lower=lower,upper=upper,maximum_daily_injection=injection,maximum_daily_withdrawal=withdrawal) for lower,upper,injection,withdrawal in
         (('0','30000','2000','500'),('30000','70000','1500','1000'),('70000','100000','1000','1500'))],bands
     assert[(row['ordinal'],row['gas_day'],row['injection_contract_id'],row['withdrawal_contract_id']) for row in days]==[(n,f'2021-02-0{n+1}',GAS,GAS) for n in range(3)],days
-    assert days[0]['starts_at'].startswith('2021-02-01T09:00:00') and days[2]['ends_at'].startswith('2021-02-04T09:00:00') and days[1]['payment_at'].startswith('2021-03-20T00:00:00'),days
+    assert days[0]['starts_at'].startswith('2021-02-01T00:00:00') and days[2]['ends_at'].startswith('2021-02-04T00:00:00') and days[1]['payment_at'].startswith('2021-03-20T00:00:00'),days
     assert(in_force['revision'],in_force['source'],in_force['inventory_step'],in_force['flows'])==(1,'supplied',None,[['2000','0'],['1500','0'],['0','1000']]),in_force
     later=read('2020-12-16')[0]['plan']
     assert(later['revision'],later['source'],later['inventory_step'],later['flows'])==(2,'gas_storage_inventory_lattice_search_v1','990',[['1000','0'],['0','0'],['0','990']]),later

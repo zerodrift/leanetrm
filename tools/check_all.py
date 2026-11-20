@@ -102,6 +102,8 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
         ('check_rec_forward_storage','native certificate forward admission'),
         ('check_heat_rate_call_storage','native heat-rate call option admission'),
         ('check_spread_mark_storage','native spread-option mark publication'),
+        ('check_bilateral_desk','bilateral agreement and credit admission'),
+        ('check_facility_desk','commercial facility pricing and operating limits'),
         ('check_gas_storage_contract_storage','native gas storage contract booking and plans')):
         check(label,[sys.executable,f'tools/{helper}.py','--pg-bin',str(pg_bin)],suite='physical')
     check('native volatility-fit admission expiry',[sys.executable,'tools/check_vol_surface_admission_expiry.py','--pg-bin',str(pg_bin)], suite='database')

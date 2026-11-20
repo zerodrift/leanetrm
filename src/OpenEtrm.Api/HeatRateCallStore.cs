@@ -20,7 +20,8 @@ public sealed record HeatRateCallTermsInput([property:JsonRequired]Guid Definiti
     [property:JsonRequired]string PowerCurve,[property:JsonRequired]string FuelCurve,[property:JsonRequired]string HeatRate,[property:JsonRequired]string Strike,
     [property:JsonRequired]string ExerciseStyle,[property:JsonRequired]string Model,[property:JsonRequired]string DayCount,
     [property:JsonRequired]string DeliveryFrom,[property:JsonRequired]string DeliveryTo,[property:JsonRequired]string Clock,[property:JsonRequired]int IntervalMinutes,
-    [property:JsonRequired]PpaHoursInput Hours,[property:JsonRequired]HeatRateCallExerciseRuleInput ExerciseRule,[property:JsonRequired]PpaPaymentInput PaymentRule);
+    [property:JsonRequired]PpaHoursInput Hours,[property:JsonRequired]HeatRateCallExerciseRuleInput ExerciseRule,[property:JsonRequired]PpaPaymentInput PaymentRule,
+    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]Guid? FacilityProfileId=null);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record HeatRateCallBookRequest([property:JsonRequired]FuturesReadRequest Context,[property:JsonRequired]Guid OperationId,[property:JsonRequired]Guid BookId,
     [property:JsonRequired]Guid LegalEntityId,[property:JsonRequired]int LegalEntityRevision,[property:JsonRequired]Guid CounterpartyId,[property:JsonRequired]int CounterpartyRevision,
@@ -141,7 +142,8 @@ public sealed class HeatRateCallStore(PreviewDatabase database,TouProductStore p
             .Select(q=>new{code=q.Text("code"),commodity=q.Text("commodity_code"),unit=data.QuantityUnit(q.Text("code"))}).OrderBy(q=>q.code,StringComparer.Ordinal).ToArray();
         var blocks=(await products.Read(c,ct)).Where(v=>v.State=="published"&&new ReferenceRevision(v.Clock.CatalogId,v.Clock.RevisionId)==data.ReferenceRevision)
             .Select(v=>new{id=v.Id,version=v.Version,name=v.Name,clock=v.Clock.Code}).OrderBy(v=>v.name,StringComparer.Ordinal).ThenBy(v=>v.version).ToArray();
-        return new{kind="heat_rate_calls",convention=Convention,directory.Books,directory.BookingActor,directory.LegalEntities,directory.Counterparties,
+        var facilityProfiles=await LifecycleNative.Read(c,"SELECT desk.profiles($1,$2)::text",ct,Catalog,data.DefinitionRevision.RevisionId);
+        return new{kind="heat_rate_calls",facilityProfiles,convention=Convention,directory.Books,directory.BookingActor,directory.LegalEntities,directory.Counterparties,
             definitionRevisionId=data.DefinitionRevision.RevisionId,referenceCatalogId=data.ReferenceRevision.CatalogId,referenceRevisionId=data.ReferenceRevision.RevisionId,
             curves,capacityQuantities=capacities,blocks,
             clocks=data.References["clock_rules"].Select(r=>r.Text("code")).Order(StringComparer.Ordinal).ToArray(),
