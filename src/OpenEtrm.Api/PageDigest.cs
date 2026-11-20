@@ -206,7 +206,7 @@ public sealed partial class AgentTools
             {
                 var projected=await workspace.Project(turn,"trading.workspace_v1",async(connection,t)=>
                 {
-                    var context=(await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,turn.Pin.ContextId,t)).Context;
+                    var context=await turn.Context(connection,database.Manifest.CatalogId,t);
                     var value=await trades.Workspace(connection,turn.Pin.Trading(context),view.Trades,[],true,t);
                     var data=JsonSerializer.SerializeToNode(value,TradingBlotter.Json)!.AsObject();
                     var selected=PageReports.Dispatch(turn.PageReport)?.Call?.Arguments as TradeArguments;
@@ -225,7 +225,7 @@ public sealed partial class AgentTools
                 var call=PageReports.Dispatch(turn.PageReport)?.Call??throw new ToolRefusal("page_selection_unavailable");
                 Require(turn.Pin,call.Operation.Needs);
                 var classification=page switch{"curves"=>"workspace.navigation_v1","custom_curves"=>"custom-curves_v1",_=>"jobs_v1"};
-                var projected=await workspace.Project(turn,classification,(connection,t)=>Read(connection,turn.Pin,call,t),ct);
+                var projected=await workspace.Project(turn,classification,(connection,t)=>Read(connection,turn,call,t),ct);
                 access=[..access.Concat(projected.Access).Distinct()];
                 foreach(var source in projected.Value.Access.IsDefault?ImmutableArray<ReadAccess>.Empty:projected.Value.Access)
                     access=[..access,new(source.Access=="reference_access"?"workspace_reference_access":"workspace_market_access",source.CatalogId,source.Permission)];

@@ -196,6 +196,7 @@ def run_checks(client, query, manifest, plan, *, other_plans=()):
     assert client.call(route+'hedges',empty,expected=422)['code']=='power_hedge_contract'
     from check_power_market_http import run_checks as check_market_price
     check_market_price(client,request,hedge['tradeId'],context)
+    client.select_inputs(client.observed_inputs[retained_selection['contextId']])
     assert client.call(route+'get',retained_get)==exact_retained, \
         'Later facility and operating publications must not change the exact retained operating source or Side membership receipt.'
     assert client.call(route+'get',selected)['sides']==reopened['sides'], \
@@ -207,7 +208,7 @@ def run_checks(client, query, manifest, plan, *, other_plans=()):
     check_composition(client,query,manifest,request,route,frame,context)
     # Exact retained reopening cannot substitute a new facility revision or a new
     # plan, and a historical view cannot admit another contractual right.
-    client.call('market/context/retained',dict(contextId=value['contextId'],selection='latest_correction'))
+    client.call('market/context',dict(effectiveOn='2020-12-15',knownAt=value['knownAt'],mode='at',selection='latest_correction'))
     historical=initial_frame(client.call('workspace'),'2020-12-15')['id']
     retained=dict(snapshotId=historical,tradeId=saved['tradeId'])
     a=client.call(route+'valuation',retained)

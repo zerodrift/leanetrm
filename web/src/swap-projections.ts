@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 /** Published projection choices come from the authorized backend catalog. */
 export type CustomProjection=Readonly<{catalogId:string;curveId:string;version:number;outputNode:string;position:number|null;selection:string;implementation:string}>;
 export type ProjectionChoice={selectedInContext?:boolean;label:string;reference:CustomProjection;samplings:{resetFrequency:string;averagingMethod:string}[]};
@@ -6,7 +7,7 @@ export function projectionReference(selected:string,choices:readonly ProjectionC
  if(selected==='ordinary')return null;
  const choice=choices.find(choice=>JSON.stringify(choice.reference)===selected);
  if(!choice)throw Error('The selected published projection is unavailable in this context.');
- return structuredClone(choice.reference);
+ return cloneRead(choice.reference);
 }
 /** The name of the curve a projection key (`[definitionRevisionId, curve, index]`) selects, for a choice kept from earlier terms. */
 export function projectionKeyLabel(key:string,curveName:(curve:string)=>string):string{

@@ -48,7 +48,7 @@ def checks(query,manifest,*,terminal_boundary=False):
         token=query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
             f"'{manifest['identityIssuer']}','{profile}','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}COMMIT;")
-    capture=lambda:call(f"SELECT security.capture_date_context('{catalog}','2026-10-16',NULL);")
+    capture=lambda:call(f"SELECT security.resolve_operation_context('{catalog}','2026-10-16',NULL);")
     book=query(f"SELECT id FROM trading.books WHERE catalog_id='{catalog}' ORDER BY id LIMIT 1;")
     parties={}
     for role,table in [('legalEntity','legal_entities'),('counterparty','counterparties')]:

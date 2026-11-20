@@ -32,12 +32,12 @@ GAS_AMENDMENTS={f'tools/{name}.py' for name in (
     'check_gas_operator_existing_origins','check_gas_operator_upgrade','check_gas_operator_native_upgrade')}
 LIFECYCLE_PORTFOLIO={f'tools/{name}.py' for name in (
     'check_lifecycle_risk_jobs','check_lifecycle_risk_scope','check_lifecycle_final_scope',
-    'check_lifecycle_projection_horizon','check_lifecycle_swap_worker','check_lifecycle_future_worker',
+    'check_lifecycle_projection_horizon','check_lifecycle_projection_horizon_upgrade','check_lifecycle_swap_worker','check_lifecycle_future_worker',
     'check_lifecycle_economic_browser','check_physical_futures_value','check_gas_projection_scope',
     'check_gas_operator_physical_value','check_gas_operator_ordinary_value','check_gas_known_cashout')}
 OPTION_VALUE_APPS={'tools/check_lifecycle_valuation_browser.py'}
 AGENT_SETTINGS_BROWSER={'tools/check_agent_operating_settings.py'}
-STORAGE_FACILITY={f'tools/{name}.py' for name in ('check_storage_facility','check_storage_facility_upgrade','check_storage_facility_browser')}
+STORAGE_FACILITY={f'tools/{name}.py' for name in ('check_storage_facility','check_storage_facility_browser')}
 TRANSPORT_CAPACITY={f'tools/{name}.py' for name in ('check_gas_transport_capacity','check_gas_transport_capacity_upgrade','check_gas_transport_capacity_browser')}
 TRANSPORT_ROUTE={f'tools/{name}.py' for name in ('check_gas_transport_route','check_gas_transport_route_upgrade','check_gas_transport_route_browser')}
 OPERATING_FACILITIES={'tools/check_operating_facilities.py','tools/check_operating_schedule_storage.py','tools/check_operating_trades.py','tools/check_rec_inventory.py','tools/check_rec_forward_storage.py','tools/check_heat_rate_call_storage.py','tools/check_spread_mark_storage.py','tools/check_gas_storage_contract_storage.py'}
@@ -367,11 +367,12 @@ class CheckAllTests(unittest.TestCase):
             self.assertEqual(set(observed), gas_helpers(group, expected))
             self.assertEqual(len(observed), len(gas_helpers(group, expected)))
 
-    def test_storage_facility_native_upgrade_and_browser_run_once_in_physical(self):
+    def test_current_storage_native_managed_and_browser_run_once_in_physical(self):
         expected=STORAGE_FACILITY
         for group in GROUPS:
             selected=[]
             def run(command,**options):
+                self.assertNotIn('tools/check_storage_facility_upgrade.py',command)
                 helpers=expected.intersection(command)
                 if not helpers:return
                 helper=helpers.pop();selected.append(helper)
@@ -643,7 +644,7 @@ class CheckAllTests(unittest.TestCase):
         self.assertEqual(executed, expected)
         schedule_commands = [c for c in commands if '--project' in c and 'Api.Checks' in c[c.index('--project') + 1]]
         self.assertEqual([c[-2:] for c in schedule_commands],
-                         [['--', flag] for flag in ('--context-resolution', '--schedules', '--power-hedge', '--async-reads', '--assistant-prompts', '--published-clock', '--calendar-authoring', '--gas-ticket', '--historical-risk', '--monte-carlo-risk', '--position-adjustment', '--close-risk', '--automation',
+                         [['--', flag] for flag in ('--context-resolution', '--read-references', '--schedules', '--power-hedge', '--async-reads', '--assistant-prompts', '--published-clock', '--calendar-authoring', '--gas-ticket', '--historical-risk', '--monte-carlo-risk', '--position-adjustment', '--close-risk', '--automation',
                            '--live-calculation', '--reference-intake', '--preview-data', '--side-observation-compatibility',
                        '--gas-park-custody','--gas-park-custody-ticket','--gas-park-custody-evidence',
                        '--gas-park-custody-actions','--gas-park-custody-effects','--gas-park-custody-handler',
@@ -777,7 +778,7 @@ class CheckAllTests(unittest.TestCase):
                            ('exchange', '--exchange-check')):
             self.assertEqual(len(previews[name]), 1, name)
             self.assertIn(flag, previews[name][0])
-        self.assertEqual(len(previews['standard']), 1)
+        self.assertEqual(len(previews['standard']), 2)
         self.assertEqual(previews['standard'][0][-3:], ('--browser-check', '--browser', '/browser'))
         self.assertFalse(any(flag.endswith('-check') and flag not in ('--check', '--browser-check')
                              for flag in previews['standard'][0]))

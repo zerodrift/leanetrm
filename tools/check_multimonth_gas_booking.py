@@ -57,7 +57,7 @@ def run_checks(url, query, manifest, run_worker):
     shared={**context,'convention':'trading_workspace_v1'}
     scope=dict(context=shared,bookIds=[],portfolioIds=[],tradeIds=[booked['tradeId']])
     facts=c.call('trading/positions',dict(context=shared,bookIds=[],portfolioIds=[],offset=0,limit=64))
-    check_native_sources(query,manifest,booked,facts['context']['contextId'])
+    check_native_sources(query,manifest,booked,facts['context'])
     blotter=c.call('trading/blotter',dict(context=shared,view=dict(mode='trades',bookIds=[],portfolioIds=[],groupBy=[],measures=[],pivotConvention=None)))
     assert Fraction(next(p['presentValue'] for p in blotter['holdings'] if p['tradeId']==booked['tradeId']))==expected
     c.call('profile',{'profile':'risk'})
@@ -80,9 +80,10 @@ def run_checks(url, query, manifest, run_worker):
         print('PASS whole-term gas: all59days in native ticket/operational reads, Blotter1362, six independent monthly factors and retained worker parity',flush=True)
 
 
-def check_native_sources(query,manifest,booked,context_id):
+def check_native_sources(query,manifest,booked,context):
     """Corrupt one exact native source at a time, then roll back every mutation/grant."""
     from check_booked_side_programs import runtime_query
+    from native_read_transport import select_context_inputs
     signature='trading.require_gas_program_shape(uuid,uuid,integer,date,date,timestamp with time zone,numeric,numeric,market_data.gas_valuation_assignments,ref_data.gas_delivery_conventions,timestamp with time zone,jsonb)'
     legacy=signature.removesuffix(',jsonb)')+')'
     schedule=query(f"SELECT h.id FROM trading.gas_memberships m JOIN trading.side_schedules h ON(h.catalog_id,h.side_id)=(m.catalog_id,m.side_id) WHERE m.instrument_id='{booked['instrumentId']}' AND m.slot=0;")
@@ -90,7 +91,7 @@ def check_native_sources(query,manifest,booked,context_id):
     january=f"(SELECT ordinal FROM trading.side_schedule_rows WHERE {rows} AND local_key='gas/0/market')"
     february=f"(SELECT ordinal FROM trading.side_schedule_rows WHERE {rows} AND local_key='gas/31/market')"
     assignment=f"SELECT x.* INTO STRICT a FROM market_data.gas_valuation_assignments x JOIN trading.gas_component_terms m ON(m.catalog_id,m.definition_revision_id,m.assignment_code)=(x.catalog_id,x.revision_id,x.code) WHERE m.instrument_id='{booked['instrumentId']}' AND m.slot=0;"
-    setup=f"SELECT security.use_market_context('{manifest['catalogId']}','{context_id}');SELECT security.use_trading_context('{manifest['catalogId']}','2020-12-18T16:00:00Z');"
+    setup=select_context_inputs(manifest['catalogId'],context)+f"SELECT security.use_market_context('{manifest['catalogId']}','{context['contextId']}');SELECT security.use_trading_context('{manifest['catalogId']}','2020-12-18T16:00:00Z');"
     validator=f"PERFORM trading.require_gas_program_shape('{manifest['catalogId']}','{schedule}',0,'2021-01-01','2021-03-01','2021-03-01',59,NULL,a,d,start_at,NULL);"
     declarations="DECLARE a market_data.gas_valuation_assignments;d ref_data.gas_delivery_conventions;start_at timestamptz;"
     initialize=assignment+f"SELECT * INTO STRICT d FROM ref_data.gas_delivery_conventions WHERE(catalog_id,revision_id,pipeline_code,zone_code,point_code,product_code)=(a.reference_catalog_id,a.reference_revision_id,a.pipeline_code,a.zone_code,a.point_code,a.product_code);SELECT min(origin) INTO start_at FROM trading.side_schedule_grids WHERE {rows};"

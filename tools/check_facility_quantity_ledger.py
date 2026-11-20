@@ -87,7 +87,7 @@ def run_checks(url, query, manifest):
     rejected(command({**create, 'facility': point['pipeline']}), 'facility_quantity_scope')
 
     def capture():
-        return call(f"SELECT security.capture_date_context('{catalog_id}','2021-01-15',NULL);")
+        return call(f"SELECT security.resolve_operation_context('{catalog_id}','2021-01-15',NULL);")
 
     def read(context=None):
         return json.loads(call(f"SELECT security.read_facility_quantity_ledger('{catalog_id}','{ledger}')::text;",
@@ -118,7 +118,9 @@ def run_checks(url, query, manifest):
 
     def choices(ledger_id=None, as_of=None, prefix=''):
         scope = 'NULL' if ledger_id is None else f"'{ledger_id}'"
-        bind = (f"SELECT security.use_market_context('{catalog_id}','{capture()}');"
+        from native_read_transport import register_captured_input
+        selected=capture()
+        bind = (register_captured_input(query,selected)+f"SELECT security.use_market_context('{catalog_id}','{selected}');"
                 f"SELECT security.use_trading_context('{catalog_id}','{at}');")
         return json.loads(runtime_query(query, manifest, bind + (
             f"SELECT security.facility_quantity_choices('{catalog_id}',{scope},'{as_of or at}')::text;"),

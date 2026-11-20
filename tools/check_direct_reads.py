@@ -72,6 +72,20 @@ def trade_view(c):
 
 
 def run_checks(views, trades, dotnet, environment, directory, query):
+    from assistant_context import Contexts
+    from native_read_transport import select_context_inputs
+    manifest=json.loads((Path(directory)/'manifest.json').read_text())
+    contexts={}
+    def inputs(value):
+        if isinstance(value,dict):
+            if all(value.get(k) is not None for k in ('contextId','effectiveOn','knownAt','knownThrough')):
+                contexts[value['contextId']]=value
+            for child in value.values():inputs(child)
+        elif isinstance(value,list):
+            for child in value:inputs(child)
+    inputs(views);inputs(trades)
+    for context in contexts.values():
+        Contexts(query,manifest).runtime('trader',select_context_inputs(manifest['catalogId'],context))
     fixture = Path(directory) / 'direct-reads.json'
     fixture.write_text(json.dumps({'profile': PROFILE, 'views': views, 'trades': trades}))
     command=[str(dotnet),'run','--project','tests/OpenEtrm.Api.Checks','--']

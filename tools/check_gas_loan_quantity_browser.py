@@ -38,7 +38,7 @@ def main():
             token=query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
                 f"'{manifest['identityIssuer']}','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
             return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}COMMIT;")
-        def capture():return call(f"SELECT security.capture_date_context('{catalog}','{at[:10]}',NULL);")
+        def capture():return call(f"SELECT security.resolve_operation_context('{catalog}','{at[:10]}',NULL);")
         evidence={row['id']:row for row in source['evidence']}
         def correct_document(evidence_id,quantity):
             head=evidence[evidence_id]

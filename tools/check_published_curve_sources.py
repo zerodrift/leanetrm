@@ -160,6 +160,7 @@ def run_checks(url, manifest, query, run_worker):
     unchanged = client.call('custom-curves/preview', {'snapshotId': frame['id'], 'definition': grandchild})
     assert exact(unchanged['points'][0]) == expected + Fraction(1, 6)
     client.call('profile', {'profile': 'risk'})
+    client.select_inputs(risk_catalog['context'])
     assert client.call('portfolio/risk', request)['factors'] == risk['factors']
     client.call('market/context', {'effectiveOn': '2020-12-18', 'knownAt': risk_catalog['context']['knownAt'],
         'mode': 'at', 'selection': 'latest_correction'})

@@ -218,7 +218,7 @@ def run_checks(url, query, manifest, dotnet, temporary, environment, *, quarter_
     racebook=save('book',payload);racebinding=racebook['bindings'][0];raceorigin=mapping_for(racebinding,1);barrier=Barrier(2)
     def race(_):
         barrier.wait(timeout=10)
-        return json.loads(runtime(f"SELECT settlement_data.plan_payment_lineage('{catalog}','{racebook['tradeId']}',1,security.capture_date_context('{catalog}','2020-12-15',NULL),'2020-12-15T16:00:00Z',{encoded(raceorigin)},{encoded([raceorigin])},{encoded(POLICIES)});"))
+        return json.loads(runtime(f"SELECT settlement_data.plan_payment_lineage('{catalog}','{racebook['tradeId']}',1,security.resolve_operation_context('{catalog}','2020-12-15',NULL),'2020-12-15T16:00:00Z',{encoded(raceorigin)},{encoded([raceorigin])},{encoded(POLICIES)});"))
     with ThreadPoolExecutor(max_workers=2) as pool: raced=list(pool.map(race,range(2)))
     check('independent database sessions assign one canonical lineage',raced[0]['lineage']['id']==raced[1]['lineage']['id'] and query(f"SELECT count(*) FROM settlement_data.payment_lineages WHERE catalog_id='{catalog}' AND trade_id='{racebook['tradeId']}';")=='1')
     bad=dict(snapshotId=later_frame,tradeId=hbook['tradeId'],expectedRevision=2,original=horigin,mappings=[horigin,horigin],policies=POLICIES)

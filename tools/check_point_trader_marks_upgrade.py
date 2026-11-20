@@ -1,14 +1,25 @@
 """Preserve genuine imported markets and valued agreements during publisher installation."""
 import json
-import os
+from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
 
 from assistant_context import migration_body
 from check_fact_anchor_upgrade import run_checks as guard_checks
 from check_reference_editing import main
-from gas_transport_financial_managed import value
+from seed_fixture_market import load_fixture
 from point_trader_mark_fixture import PointTraderMarkFixture, fixture
+
+
+def assert_native_value(f,source):
+    # The historical migration qualifier reads its actual native contract.
+    # Current managed valuation is exercised by check_point_trader_marks.
+    assert source['unpricedReason'] is None
+    terms,cash,mark=source['terms'],source['cash'],source['mark']
+    assert terms['perspective']=='customer' and terms['fixedFeeAmount']=='12.5' and terms['feeDirection']=='pay'
+    assert cash['referenceCatalogId']==f.reference and cash['referenceRevisionId']==f.valuation_reference and cash['currency']=='usd'
+    price=Decimal(f.query(f"SELECT value FROM market_data.observations WHERE(catalog_id,id)=('{f.catalog}','{mark['observationId']}');"))
+    assert price==20 and Decimal(cash['amount'])==Decimal('-12.5') and price+Decimal(cash['amount'])==Decimal('7.5')
 
 
 def run():
@@ -21,8 +32,7 @@ def run():
         guard_checks(query, migration, number='0355', guard='point_trader_mark_upgrade',
             signatures=('market_data.guard_observation()', 'security.record_market_event()'))
         reference, market, access, manifest = fixture(root)
-        for sql in [reference, market, access]:
-            query(sql)
+        load_fixture(query,reference,market,access,manifest)
         f = PointTraderMarkFixture(query, manifest)
         query("CREATE FUNCTION security.synthetic_point_trader_mark_neighbor() RETURNS integer LANGUAGE sql STABLE "
             "SET search_path=pg_catalog AS 'SELECT 7';REVOKE ALL ON FUNCTION security.synthetic_point_trader_mark_neighbor() FROM PUBLIC;"
@@ -42,8 +52,7 @@ def run():
         context = f.market_context()
         retained = f.read_financial(booked['tradeId'], context=context)
         retained.pop('authorityUntil')
-        value(f, booked['tradeId'], context=context, rate_ids=f.imported_rate_observations[f.valuation_at],
-            mark=retained['mark'], expected='7.5')
+        assert_native_value(f,retained)
         tables = json.loads(query("SELECT jsonb_agg(n.nspname||'.'||c.relname ORDER BY n.nspname,c.relname) "
             "FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN('ref_data','market_data','trading','settlement_data') "
             "AND c.relkind='r' AND EXISTS(SELECT 1 FROM pg_attribute a WHERE a.attrelid=c.oid AND a.attname='catalog_id' AND NOT a.attisdropped);"))
@@ -83,8 +92,7 @@ def run():
         retained.pop('authorityUntil')
         assert retained == prepared['retained']
         assert query('SELECT count(*) FROM market_data.point_trader_mark_commands;') == '0'
-        value(f, prepared['booked']['tradeId'], context=prepared['context'], rate_ids=f.imported_rate_observations[f.valuation_at],
-            mark=retained['mark'], expected='7.5')
+        assert_native_value(f,retained)
         first = f.publish(f.command('20'))
         assert first['changed'] is True
         f.observation = first['observationId']
@@ -93,14 +101,12 @@ def run():
         assert f.read_financial(booked['tradeId'])['mark'] is None
         f.record_financial(f.mark(booked['tradeId'], booking['operationId']))
         source = f.read_financial(booked['tradeId'])
-        value(f, booked['tradeId'], rate_ids=f.rate_observations[f.valuation_at], mark=source['mark'], expected='7.5')
+        assert_native_value(f,source)
         assert f.read_financial(prepared['booked']['tradeId'])['mark']['id'] == prepared['adopted']['markId']
-        print('PASS populated publisher upgrade preserves all imported/reference/financial raw facts and original valued source; first publication and separate new agreement adoption execute afterward.', flush=True)
+        print('PASS historical native publisher upgrade preserves imported/reference/financial facts, exact mark20/fee12.5 source and currency; first publication and separate agreement adoption execute afterward.', flush=True)
 
-    main(verify, before_migration=before, fixture_factory=loaded)
+    main(verify, before_migration=before, fixture_factory=loaded,through_migration='0355')
 
 
 if __name__ == '__main__':
-    if not os.environ.get('DOTNET'):
-        raise SystemExit('DOTNET is required for the real managed financial consumer checks.')
     run()

@@ -22,7 +22,7 @@ def run(query,manifest,dotnet,browser,children):
         booked=json.loads(call(f"SELECT security.book_futures_with_parties('{catalog}','{uuid4()}','{setup['bookId']}','{manifest['revisionId']}',"
             f"'nymex_ng','{setup['contractId']}','2026-10-16T14:00:00Z',NULL,2,3,'contract_lot_execution_pnl_v2',NULL,NULL,NULL,{literal(setup['booking'])})::text;"))
         adoption={**setup['adoption'],'operationId':str(uuid4()),'tradeId':booked['tradeId'],'bindingId':booked['bindingId'],
-            'contextId':call(f"SELECT security.capture_date_context('{catalog}','2026-10-16',NULL);")}
+            'contextId':call(f"SELECT security.resolve_operation_context('{catalog}','2026-10-16',NULL);")}
         call(f"SELECT settlement_data.adopt_futures_margin('{catalog}',{literal(adoption)});")
         close_at=query(f"SELECT to_char(at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') FROM market_data.market_closes WHERE(catalog_id,id)=('{catalog}','{saved['closeId']}');")
         account=setup['profile']['accountId'];title_key='synthetic_browser_opening_title';title_policy=str(uuid4())
@@ -32,7 +32,7 @@ def run(query,manifest,dotnet,browser,children):
         for command,body in [('bind_policy',dict(action='gas.owned.receive_title',policyId=title_policy,policyRevision=1,effectiveAt='2026-10-01T00:00:00Z')),
             ('bind_policy',dict(action='gas.owned.reconcile_quantity',policyId=correction_policy,policyRevision=1,effectiveAt='2026-10-01T00:00:00Z')),
             ('evidence',dict(sourceKey=title_key,kind='title_receipt',quantity='0.125',occurredAt=close_at,evidence='Synthetic independently observed opening title',expectedRevision=0))]:
-            context=call(f"SELECT security.capture_date_context('{catalog}','{close_at[:10]}',NULL);")
+            context=call(f"SELECT security.resolve_operation_context('{catalog}','{close_at[:10]}',NULL);")
             call(f"SELECT security.record_gas_owned('{catalog}','{uuid4()}','{command}','{account}',{literal(body)},'{close_at}','{context}',NULL,NULL,false);")
         fixture=dict(closeId=saved['closeId'],tradeId=booked['tradeId'],reference=query(f"SELECT 'TR-'||lpad(reference_number::text,6,'0') FROM trading.trade_references WHERE(catalog_id,trade_id)=('{catalog}','{booked['tradeId']}');"),reviewJobId=saved['reviewJobId'],
             gasAccountId=account,gasAccountCode='synthetic_physical_delivery',titleSourceKey=title_key,titleAt=close_at)

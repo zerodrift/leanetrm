@@ -42,7 +42,7 @@ def booking_context(f, sample_trade, rejected):
         body = {**f.booking(key='synthetic_original_source_receipt', perspective='provider', fee='0', direction='receive'),
             'entitlementId': definition['entitlementId'], 'capacityVersionId': version}
         rejected(lambda: f.call(f"SELECT trading.synthetic_financial_bad_book_context('{f.catalog}',{literal(body)},"
-            f"'{body['contextId']}','{f.valuation_at}','{sample_trade}');SET CONSTRAINTS ALL IMMEDIATE;", commit=False), 'gas_transport_financial_receipt')
+            f"'{body['contextId']}','{f.valuation_at}','{sample_trade}');SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;", commit=False), 'gas_transport_financial_receipt')
     finally:
         f.book = old_book
     print('PASS independent fresh-booking seal rejects inconsistent original body context and actual certified financial source, without changing semantic retry coordinates.', flush=True)

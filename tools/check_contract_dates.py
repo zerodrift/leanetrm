@@ -19,7 +19,12 @@ def run_checks(url, query, manifest, psql, environment):
                                                  'effectiveFrom':'2021-01-01','effectiveTo':'2021-05-01'})
     schedule = approver.call('date-schedules/publish', {k:schedule[k] for k in ('id','version','generation')})
     def context(day='2021-01-15'):
-        return viewer.call('date-schedules/context', {'effectiveOn':day,'knownAt':None,'mode':'current'})['context']
+        selected=viewer.call('date-schedules/context', {'effectiveOn':day,'knownAt':None,'mode':'current'})['context']
+        for who in (editor,approver):who.select_inputs(selected)
+        from assistant_context import Contexts
+        from native_read_transport import select_context_inputs
+        Contexts(query,manifest).runtime('viewer',select_context_inputs(manifest['catalogId'],selected))
+        return selected
     uploaded={'name':'Imported explicit dates','symbol':'oe.imported_days','dates':['2021-02-03','2021-01-19','2021-01-19'],
         'calendar':calendar,'selection':'on_or_after','effectiveFrom':'2021-01-01','effectiveTo':'2022-01-01'}
     viewer.call('date-schedules/import',uploaded,expected=403)
@@ -239,17 +244,20 @@ def run_checks(url, query, manifest, psql, environment):
     assert agreed(None)==set(),'A login with no bound request saw contract dates'
     unpublished=raw(f"UPDATE market_data.contract_date_fields SET schedule_id='{extended['id']}',schedule_version={extended['version']} WHERE catalog_id='{catalog}' AND definition_id='{definition_id}' AND version=2 AND schedule_id IS NOT NULL;")
     assert draft_key not in agreed('editor',setup=unpublished),'A definition over an unpublished schedule was admitted'
+    # Admit the exact source before the controlled journal mutation. Incoming
+    # coordinates are correctly refused if a receipt has already been changed;
+    # these cases compare the two visibility rules within an admitted operation.
     late_schedules=raw(f"UPDATE market_data.knowledge_publications SET known_from=known_from+interval '100 years' WHERE catalog_id='{catalog}';")
-    known_later=agreed('viewer',market(context()),late_schedules)
+    known_later=agreed('viewer',market(context()),later=late_schedules)
     assert published_key not in known_later and literal_key in known_later,'A schedule known after the cut did not hide only its definitions'
     late_calendars=raw(f"UPDATE market_data.market_knowledge_receipts SET known_from=known_from+interval '100 years' WHERE catalog_id='{catalog}';")
-    assert published_key not in agreed('viewer',market(context()),late_calendars),'A calendar hidden at the cut left its definition visible'
+    assert published_key not in agreed('viewer',market(context()),later=late_calendars),'A calendar hidden at the cut left its definition visible'
     viewer_grants="(SELECT principal_id FROM security.identity_bindings WHERE subject='viewer')"
     assert agreed('viewer',later=f"UPDATE security.role_grants SET revoked=true WHERE principal_id={viewer_grants};")==set(),'A request with no read authority saw contract dates'
     # The same definition in a second readable catalog: visible now, never through a context bound to the first.
     sibling=str(uuid4())
     copies=raw(f"""INSERT INTO security.market_catalog_scopes SELECT(jsonb_populate_record(NULL::security.market_catalog_scopes,to_jsonb(s)||jsonb_build_object('catalog_id','{sibling}'))).* FROM security.market_catalog_scopes s WHERE s.catalog_id='{catalog}';
-      INSERT INTO market_data.contract_date_versions SELECT(jsonb_populate_record(NULL::market_data.contract_date_versions,to_jsonb(v)||jsonb_build_object('catalog_id','{sibling}'))).* FROM market_data.contract_date_versions v WHERE(v.catalog_id,v.definition_id,v.version)=('{catalog}','{definition_id}',1);
+      INSERT INTO market_data.contract_date_versions SELECT(jsonb_populate_record(NULL::market_data.contract_date_versions,to_jsonb(v)||jsonb_build_object('catalog_id','{sibling}','validation_context_id',security.workspace_context_id('{sibling}',v.validation_business_on,v.validation_known_at)))).* FROM market_data.contract_date_versions v WHERE(v.catalog_id,v.definition_id,v.version)=('{catalog}','{definition_id}',1);
       INSERT INTO market_data.contract_date_knowledge_receipts SELECT(jsonb_populate_record(NULL::market_data.contract_date_knowledge_receipts,to_jsonb(k)||jsonb_build_object('catalog_id','{sibling}'))).* FROM market_data.contract_date_knowledge_receipts k JOIN market_data.contract_date_versions v USING(catalog_id,publication_order) WHERE(v.catalog_id,v.definition_id,v.version)=('{catalog}','{definition_id}',1);""")
     extra=f",('{sibling}'::uuid,'{definition_id}'::uuid,1)";sibling_key=f'{sibling},{definition_id},1'
     assert sibling_key in agreed('viewer',setup=copies,extra=extra),'The second catalog was not readable'
@@ -300,10 +308,11 @@ def run_checks(url, query, manifest, psql, environment):
     token=query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','approver','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',60);")
     hidden=query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');SELECT security.use_market_context('{catalog}','{before['contextId']}');SELECT (SELECT count(*) FROM market_data.contract_date_versions WHERE definition_id='{definition_id}')||','||(SELECT count(*) FROM market_data.contract_date_requests WHERE definition_id='{definition_id}');ROLLBACK;")
     assert hidden.splitlines()[-1]=='0,0',hidden
-    def reject(statement, state):
-        query(f"BEGIN;DO $$BEGIN {statement};RAISE EXCEPTION 'Expected rejection';EXCEPTION WHEN SQLSTATE '{state}' THEN NULL;END$$;ROLLBACK;")
+    def reject(statement, state, code=None):
+        verify=f"IF SQLERRM<>'{code}' THEN RAISE;END IF;" if code else ''
+        query(f"BEGIN;DO $$BEGIN {statement};RAISE EXCEPTION 'Expected rejection';EXCEPTION WHEN SQLSTATE '{state}' THEN {verify}NULL;END$$;ROLLBACK;")
     reject(f"UPDATE market_data.contract_date_fields SET schedule_version=63 WHERE catalog_id='{catalog}' AND definition_id='{definition_id}' AND version=2", '23503')
-    reject(f"UPDATE market_data.contract_date_versions SET generation=generation+1,validation_context_id='{uuid4()}' WHERE catalog_id='{catalog}' AND definition_id='{definition_id}' AND version=2", '23503')
+    reject(f"UPDATE market_data.contract_date_versions SET generation=generation+1,validation_context_id='{uuid4()}' WHERE catalog_id='{catalog}' AND definition_id='{definition_id}' AND version=2", 'P0001','read_inputs_required')
     reject(f"UPDATE market_data.contract_date_fields SET version=2 WHERE catalog_id='{catalog}' AND definition_id='{definition_id}' AND version=1", '55000')
     reject(f"DELETE FROM market_data.contract_date_versions WHERE catalog_id='{catalog}' AND definition_id='{definition_id}' AND version=1", '55000')
     reject(f"UPDATE market_data.contract_date_fields SET schedule_catalog_id=NULL WHERE catalog_id='{catalog}' AND definition_id='{definition_id}' AND version=2", '23514')

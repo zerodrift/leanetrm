@@ -74,7 +74,7 @@ internal static class GasParkCustodyPositions
             if(position is not null)throw TradePositionSelection.Unavailable();
             return [];
         }
-        var known=(await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,frame.ContextId!.Value,ct)).Context;
+        var known=(await new KnowledgeResolver(database.Manifest.CatalogId).Read(connection,frame.ContextId!.Value,ct)).Context;
         var directory=await LifecycleNative.Read(connection,"SELECT security.gas_park_custody_directory($1,$2,$3,$4::uuid[],$5::uuid[],$6::uuid[])::text",ct,
             database.Manifest.CatalogId,frame.ContextId.Value,frame.At,books.Keys.ToArray(),Array.Empty<Guid>(),selected?.ToArray()??Array.Empty<Guid>());
         if(directory.ValueKind!=JsonValueKind.Array)throw Missing();

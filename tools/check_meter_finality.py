@@ -55,7 +55,7 @@ def run_checks(query, manifest, psql, environment, dotnet, temporary):
                 "'Synthetic verification');")
 
     def capture():
-        return query(runtime(f"SELECT security.capture_date_context('{catalog}','2020-11-01',NULL);", 'viewer'))
+        return query(runtime(f"SELECT security.resolve_operation_context('{catalog}','2020-11-01',NULL);", 'viewer'))
 
     def read(context, at='2020-11-01T07:00:00Z'):
         return (f"SELECT security.use_market_context('{catalog}','{context}');"
@@ -176,7 +176,9 @@ def run_checks(query, manifest, psql, environment, dotnet, temporary):
 
     # Observe all independent runtime backends blocked at the same fence before release.
     def race(commands):
-        scripts = [runtime(sql) for sql in commands]
+        from native_read_transport import NativeReadTransport
+        transport=NativeReadTransport();transport.sources.update(query.read_sources)
+        scripts = [transport.prepare(runtime(sql)) for sql in commands]
         holder = hold_gate()
         with ThreadPoolExecutor(max_workers=len(scripts)) as pool:
             tasks = [pool.submit(subprocess.run, psql, input=script, text=True, capture_output=True,
@@ -185,7 +187,9 @@ def run_checks(query, manifest, psql, environment, dotnet, temporary):
                 waiting(len(tasks))
             finally:
                 release(holder)
-            return [t.result() for t in tasks]
+            outcomes=[t.result() for t in tasks]
+            for outcome in outcomes:outcome.stdout=transport.receive(outcome.stdout)
+            return outcomes
 
     concurrent = publish(str(uuid4()), zero['headId'], 3, 'suspended')
     outcomes = race([concurrent, concurrent])
@@ -287,7 +291,7 @@ def run_checks(query, manifest, psql, environment, dotnet, temporary):
     reject(publish(predecessor=replacement['headId'], revision=3).replace(definition, outside), 'meter_finality_definition')
     check('source version must cover the original native operating date')
     late = call(publish(predecessor=replacement['headId'], revision=3, at='2023-01-01T00:00:00Z').replace(definition, clone))
-    late_cut = query(runtime(f"SELECT security.capture_date_context('{catalog}','2023-01-01',NULL);", 'viewer'))
+    late_cut = query(runtime(f"SELECT security.resolve_operation_context('{catalog}','2023-01-01',NULL);", 'viewer'))
     check('later verification preserves an original source after its effective period ends',
           call(read(late_cut, '2023-01-01T00:00:00Z').replace(definition, clone), 'viewer')['headId'] == late['headId'])
     reject(publish(predecessor=late['headId'], revision=3).replace(definition, clone), 'meter_finality_effective_order')
@@ -295,11 +299,10 @@ def run_checks(query, manifest, psql, environment, dotnet, temporary):
     check('receipt knowledge is actual PostgreSQL commit time', query(
         f"SELECT bool_and(k.known_from=pg_xact_commit_timestamp(((k.publication_xid::text::numeric % 4294967296)::bigint::text)::xid)) "
         f"FROM settlement_data.meter_finality_receipts k WHERE catalog_id='{catalog}';") == 't')
-    for fn in ('settlement_data.meter_source(uuid,uuid,text,text,timestamptz,timestamptz,timestamptz)',
-               'security.capture_pre_close_risk_context(uuid,date,timestamptz)',
-               'security.capture_pre_meter_finality_context(uuid,date,timestamptz)'):
+    for fn in ('settlement_data.meter_source(uuid,uuid,text,text,timestamptz,timestamptz,timestamptz)',):
         check('internal function is not runtime callable: '+fn.split('(')[0],
               query(f"SELECT has_function_privilege('openetrm_runtime','{fn}','EXECUTE');") == 'f')
+    check('retired capture wrappers are absent',query("SELECT to_regprocedure('security.capture_pre_close_risk_context(uuid,date,timestamptz)') IS NULL AND to_regprocedure('security.capture_pre_meter_finality_context(uuid,date,timestamptz)') IS NULL;")=='t')
 
     query("DELETE FROM security.role_permissions WHERE permission='VerifySettlementMeters';")
     reject(command, 'meter_finality_denied')

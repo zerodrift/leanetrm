@@ -73,7 +73,7 @@ internal sealed class GasFuturesDeliveryActions(PreviewDatabase database):ILifec
                 }
                 outcome=(await Record(connection,request,action,body,principal.Continuation,false,ct))!.Value;
             }
-            await using var complete=ScheduleStore.Command(connection,"SET CONSTRAINTS ALL IMMEDIATE");await complete.ExecuteNonQueryAsync(ct);
+            await using var complete=ScheduleStore.Command(connection,"SELECT security.check_operation_seals()");await complete.ExecuteNonQueryAsync(ct);
         }
         finally
         {
@@ -89,6 +89,7 @@ internal sealed class GasFuturesDeliveryActions(PreviewDatabase database):ILifec
     public async Task<LifecycleActionWrite> Execute(NpgsqlConnection connection,LifecycleActionRequest request,CancellationToken ct)
     {
         var(action,body)=Inputs(request);var admission=await GasOwnedOperations.Admission(connection,database,"futures_delivery_"+action,body,false,ct);
+        await GasOwnedOperations.AdmitNewCommandInputs(connection,database,request,admission,ct);
         if(await Record(connection,request,action,body,null,true,ct) is {} receipt)return new(receipt.GetProperty("outcome"),admission);
         var context=await LifecycleNative.Source(connection,database,request.Context,ct);
         GasFuturesDeliveryReview principal=new(null,null);

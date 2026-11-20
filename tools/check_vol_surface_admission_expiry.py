@@ -20,6 +20,8 @@ PG = parser.parse_args().pg_bin.resolve()
 sys.path.insert(0, str(SOURCE / 'tools'))
 from preview_fixture import fixture as baseline
 from exchange_fixture import fixture as exchange
+from native_read_transport import NativeReadTransport
+from seed_fixture_market import load_market
 
 env = {k: v for k, v in os.environ.items() if not k.startswith('PG')}
 env['PGTZ'] = 'UTC'
@@ -29,12 +31,14 @@ marker = str(uuid4())
 (owned / '.check-owned').write_text(marker)
 port = '55449'
 psql = [str(PG / 'psql'), '-X', '-h', str(owned), '-p', port, '-U', 'preview_owner', '-d', 'postgres', '-qAt', '-v', 'ON_ERROR_STOP=1']
+transport=None
 
 
 def query(sql, checked=True):
-    r = subprocess.run(psql, input=sql, text=True, capture_output=True, env=env, timeout=60, cwd=SOURCE)
+    r = subprocess.run(psql, input=transport.prepare(sql) if transport else sql, text=True, capture_output=True, env=env, timeout=60, cwd=SOURCE)
     if checked and r.returncode:
         raise RuntimeError(r.stderr)
+    if transport and r.returncode==0:r.stdout=transport.receive(r.stdout)
     return r.stdout.strip() if checked else r
 
 
@@ -54,12 +58,16 @@ try:
     query((SOURCE / 'db/bootstrap.sql').read_text())
     for path in sorted((SOURCE / 'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
         query(path.read_text())
-    reference, market, security, _ = baseline(SOURCE)
-    for sql in (reference, market, security):
-        query(sql)
+    transport=NativeReadTransport()
+    reference, market, security, baseline_manifest = baseline(SOURCE)
+    query(reference)
+    security=load_market(query,market,security,baseline_manifest)
+    if security.strip():query(security)
     reference, market, security, trading, manifest = exchange(SOURCE)
-    for sql in (reference, market, security, trading):
-        query(sql)
+    query(reference)
+    security=load_market(query,market,security,manifest)
+    if security.strip():query(security)
+    query(trading)
     catalog, tenant, workspace = (manifest[k] for k in ('catalogId', 'tenantId', 'workspaceId'))
     actor = query(f"SELECT principal_id FROM security.workspace_memberships WHERE(tenant_id,workspace_id,login_handle)=('{tenant}','{workspace}','trader');")
     role, grant = str(uuid4()), str(uuid4())
@@ -75,7 +83,7 @@ try:
                      f"'{manifest['identityIssuer']}','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',{ttl});")
 
     context = query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token()}');"
-                    f"SELECT security.capture_date_context('{catalog}','{day}',NULL);COMMIT;").splitlines()[-1]
+                    f"SELECT security.resolve_operation_context('{catalog}','{day}',NULL);COMMIT;").splitlines()[-1]
     product = {'referenceCatalogId': manifest['referenceCatalogId'], 'referenceRevisionId': manifest['referenceRevisionId'], 'code': 'nymex_on'}
     request = {'businessDate': day, 'convention': 'vol_surface_fit_v1', 'engineVersion': 'synthetic_expiry_engine_v1',
                'futuresConvention': manifest['futuresConvention'], 'model': 'smile_quadratic_log_moneyness_v1',

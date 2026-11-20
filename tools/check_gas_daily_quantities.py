@@ -4,11 +4,12 @@ from uuid import uuid4
 from preview_client import PreviewClient,initial_frame
 from preview_fixture import trade_booking
 from synthetic_side_calendars import side_calendar_policy
+from native_read_transport import select_context_inputs
 
 
 def assert_batch_equivalence(query,manifest,trade,context,at,include_history=True):
     from check_booked_side_programs import runtime_query
-    bind=f"SELECT security.use_market_context('{manifest['catalogId']}','{context}');SELECT security.use_trading_context('{manifest['catalogId']}','{at}');"
+    bind=select_context_inputs(manifest['catalogId'],context)+f"SELECT security.use_market_context('{manifest['catalogId']}','{context['contextId']}');SELECT security.use_trading_context('{manifest['catalogId']}','{at}');"
     equivalence=f"""DO $test$ DECLARE expected jsonb;actual jsonb;BEGIN
       SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY x.obligation_id,x.kind,x.day),'[]'::jsonb) INTO expected FROM(
        SELECT DISTINCT ON(s.obligation_id,s.kind,r.day) r.*,s.obligation_id,s.kind,s.stage,s.source
@@ -38,7 +39,7 @@ def run_checks(url,query=None,manifest=None):
     terms={**before,**trade_booking(),'operationId':str(uuid4()),'bookId':cat['books'][0]['id'],'definitionRevisionId':point['definitionRevisionId'],'gasSetupId':cat['gasSetupId'],'discounting':False,'profile':'fixed_gas_composition_v1',
       'physicalSides':[{'code':'receipt','pipeline':point['pipeline'],'zone':point['zone'],'deliveryPoint':point['deliveryPoint'],'product':point['product'],'direction':'receive','deliveryFrom':'2021-01-01','deliveryTo':'2021-01-02','quantityBasis':'period_total_equal_days','quantity':'1000','link':None,'calendarPolicy':side_calendar_policy(reference,delivery=True,observation=False,payment=False)}],
       'cashSides':[{'code':'payment','role':'consideration','direction':'pay','source':'receipt','stage':'delivery','price':'3','tariffCode':None,'paymentAt':'2021-02-02T00:00:00Z','calendarPolicy':side_calendar_policy(reference,delivery=True,observation=False,payment=True)}]}
-    prebooking=c.call('gas/catalog',after)['context']['contextId']
+    prebooking=c.call('gas/catalog',after)['context']
     booked=c.call('gas/composition/book',terms)
     def read(context=after,policy='operational_projection_v1'):
         return c.call('gas/quantities/read',{'context':context,'tradeId':booked['tradeId'],'selectionPolicy':policy})
@@ -56,7 +57,7 @@ def run_checks(url,query=None,manifest=None):
     assert read()['rows'][0]['selected']=={'numerator':'985','denominator':'1'}
     c.call('gas/quantities/read',{'context':after,'tradeId':booked['tradeId'],'selectionPolicy':'final_allocated_billing_v1'},expected=422)
     allocation=command('allocated','980','final');a=c.call('gas/quantities/record',allocation)
-    allocation_context=read()['context']['contextId']
+    allocation_context=read()['context']
     selected=read(policy='final_allocated_billing_v1')['rows'][0]
     assert selected['selected']=={'numerator':'980','denominator':'1'} and selected['normalizedInput']=={'numerator':'49','denominator':'50'}
     assert selected['revisionId']==a['revisionId']
@@ -122,25 +123,25 @@ def run_checks(url,query=None,manifest=None):
     c.call('gas/quantities/record',clone_command)
     assert read()['rows'][0]['selected']['numerator'] in ('981','982')
     assert c.call('gas/quantities/read',{'context':after,'tradeId':clone_trade['tradeId'],'selectionPolicy':'operational_projection_v1'})['rows'][0]['selected']=={'numerator':'777','denominator':'1'}
-    earlier_effective_context=read(before)['context']['contextId']
+    earlier_effective_context=read(before)['context']
     assert read(before)['rows'][0]['selected']=={'numerator':'1000','denominator':'1'}
-    latest_context=read()['context']['contextId']
+    latest_context=read()['context']
     c.call('profile',{'profile':'risk'});c.call('gas/quantities/record',command('scheduled','980'),expected=403)
     c.call('profile',{'profile':'viewer'});c.call('gas/quantities/history',{'context':after,'tradeId':booked['tradeId']},expected=403);c.call('gas/quantities/read',{'context':after,'tradeId':booked['tradeId'],'selectionPolicy':'operational_projection_v1'},expected=403)
     if query:
         from check_booked_side_programs import runtime_query
         import json
         invalid=command('confirmed','980');encoded=json.dumps(invalid).replace("'","''")
-        runtime_query(query,manifest,f"DO $$BEGIN BEGIN PERFORM security.record_gas_daily_quantity('{manifest['catalogId']}','{encoded}'::jsonb,'2021-01-15T08:00:00Z','{prebooking}');RAISE EXCEPTION 'prebooking_context_accepted';EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'gas_quantity_context' THEN RAISE;END IF;END;END$$;")
+        runtime_query(query,manifest,select_context_inputs(manifest['catalogId'],prebooking)+f"DO $$BEGIN BEGIN PERFORM security.record_gas_daily_quantity('{manifest['catalogId']}','{encoded}'::jsonb,'2021-01-15T08:00:00Z','{prebooking['contextId']}');RAISE EXCEPTION 'prebooking_context_accepted';EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'gas_quantity_context' THEN RAISE;END IF;END;END$$;")
         tables=['gas_delivery_obligations','gas_quantity_series','gas_quantity_revisions']
         policies=''.join(f'CREATE POLICY daily_test_wide ON trading.{t} FOR SELECT TO openetrm_runtime USING(true);' for t in tables)
         empty=' OR '.join(f'EXISTS(SELECT 1 FROM trading.{t})' for t in tables)
         runtime_query(query,manifest,f"DO $$BEGIN IF {empty} THEN RAISE EXCEPTION 'daily_unbound_scope_bypassed';END IF;END$$;",profile='viewer',prefix=policies,commit=False)
-        bind=f"SELECT security.use_market_context('{manifest['catalogId']}','{original['context']['contextId']}');SELECT security.use_trading_context('{manifest['catalogId']}','2021-01-15T08:00:00Z');"
+        bind=select_context_inputs(manifest['catalogId'],original['context'])+f"SELECT security.use_market_context('{manifest['catalogId']}','{original['context']['contextId']}');SELECT security.use_trading_context('{manifest['catalogId']}','2021-01-15T08:00:00Z');"
         runtime_query(query,manifest,bind+"DO $$BEGIN IF EXISTS(SELECT 1 FROM trading.gas_quantity_revisions) OR EXISTS(SELECT 1 FROM trading.gas_quantity_series) THEN RAISE EXCEPTION 'daily_cutoff_bypassed';END IF;END$$;",prefix=policies,commit=False)
         runtime_query(query,manifest,f"DO $$BEGIN BEGIN PERFORM security.read_gas_quantity_rows('{manifest['catalogId']}','{booked['tradeId']}','heads');RAISE EXCEPTION 'unbound_batch_read_accepted';EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'gas_quantity_context' THEN RAISE;END IF;END;END$$;")
         runtime_query(query,manifest,bind+f"DO $$BEGIN IF security.read_gas_quantity_rows('{manifest['catalogId']}','{booked['tradeId']}','heads')<>'[]'::jsonb OR security.read_gas_quantity_rows('{manifest['catalogId']}','{booked['tradeId']}','history')<>'[]'::jsonb THEN RAISE EXCEPTION 'batch_cutoff_bypassed';END IF;END$$;",prefix=policies,commit=False)
-        current_bind=f"SELECT security.use_market_context('{manifest['catalogId']}','{latest_context}');SELECT security.use_trading_context('{manifest['catalogId']}','2021-01-15T08:00:00Z');"
+        current_bind=select_context_inputs(manifest['catalogId'],latest_context)+f"SELECT security.use_market_context('{manifest['catalogId']}','{latest_context['contextId']}');SELECT security.use_trading_context('{manifest['catalogId']}','2021-01-15T08:00:00Z');"
         for context,at in [(latest_context,'2021-01-15T08:00:00Z'),(allocation_context,'2021-01-15T08:00:00Z'),(earlier_effective_context,'2020-12-18T16:00:00Z')]:
             assert_batch_equivalence(query,manifest,booked['tradeId'],context,at)
         runtime_query(query,manifest,f"DO $$BEGIN BEGIN PERFORM security.read_gas_quantity_rows('{manifest['catalogId']}','{booked['tradeId']}','heads');RAISE EXCEPTION 'unauthorized_batch_read_accepted';EXCEPTION WHEN insufficient_privilege THEN NULL;END;END$$;",profile='viewer')

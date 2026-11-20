@@ -79,7 +79,7 @@ public sealed class LifecycleOperations
     {
         if(request.Convention!=TradingBlotter.Convention)throw new MarketDataException("lifecycle_context","Select the shared trading workspace source convention.");
         var admission=await CaptureDiscovery(connection,false,false,ct);
-        var view=await selection.Resolve(connection,new KnowledgeStore(database.Manifest.CatalogId),request,ct);
+        var view=await selection.Resolve(connection,new KnowledgeResolver(database.Manifest.CatalogId),request,ct);
         return await DiscoverCore(connection,new(new(view.Context.ContextId!.Value,view.Frame.At,view.Frame.BusinessDate,view.Frame.Id),null),admission,ct);
     }
     internal async Task<LifecycleDiscovery> Discover(NpgsqlConnection connection,LifecycleDiscoveryRequest request,CancellationToken ct)
@@ -98,7 +98,7 @@ public sealed class LifecycleOperations
         if(admission.CustodyUntil is {} custodyUntil)await new CustodyDiscoveryAdmission(database.Manifest.CatalogId,custodyUntil).RequireCommit(connection,ct);
         // The source admission must survive the temporary read bindings below.
         // Its native tuple and managed commit callback have the same lifetime.
-        var context=await LifecycleNative.Source(connection,database,request.Context,ct,bindWorkspaceForRead:true);
+        var context=await LifecycleNative.Source(connection,database,request.Context,ct);
         await using(var save=ScheduleStore.Command(connection,"SAVEPOINT lifecycle_discovery"))await save.ExecuteNonQueryAsync(ct);
         ImmutableArray<LifecycleActionOffer> actions;ImmutableArray<JsonElement> policies,optionProfiles,swapProfiles,swapNetProfiles,marginPolicies,optionSources,swapOccurrences,futuresSetup,deliveryProfiles,deliveryAccounts;LifecycleSettingsChoices choices;
         try

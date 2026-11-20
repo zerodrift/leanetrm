@@ -5,6 +5,7 @@ import json
 from uuid import uuid4
 
 from preview_client import PreviewClient, initial_frame
+from native_read_transport import select_context_inputs
 
 
 POLICY = 'complete_effective_timeline_v1'
@@ -119,6 +120,7 @@ def run_checks(url, manifest, query):
        '{{"policy":"complete_effective_timeline_v1","reason":"Synthetic foreign empty timeline","segments":[]}}'::jsonb,1,pg_current_xact_id()
        FROM security.identity_bindings WHERE issuer='https://preview.invalid' AND subject='approver';
       SET LOCAL SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{authentication}');
+      {select_context_inputs(catalog,before['preview']['context'])}
       SELECT security.use_market_context('{catalog}','{before['preview']['context']['contextId']}');
       DO $$BEGIN IF NOT security.market_access('{foreign_catalog}','ReadMarketData') THEN RAISE EXCEPTION 'probe_not_authorized';END IF;
        PERFORM security.read_custom_curve_activation('{foreign_catalog}','{foreign_curve}');END$$;ROLLBACK;""",'curve_activation_denied')

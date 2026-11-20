@@ -29,7 +29,6 @@ export function scheduleErrorMessage(code:string):string|undefined{
     knowledge_tracking:'Commit tracking must be enabled to certify this knowledge time.',
     knowledge_clock:'Clock ordering cannot be verified. Capture is blocked until the temporal history is reviewed.',
     knowledge_timeline:'This database timeline is not the one that certified the retained history.',
-    knowledge_limit:'This preview has reached its retained-context limit.',
     temporal_precision:'Knowledge timestamps support microseconds. Finer precision must be supplied explicitly at a representable value.',
     temporal_context:'Choose consistent context coordinates; retained contexts cannot be changed.',
     schedule_context:'Choose an exact context date and a captured publication view.',

@@ -7,6 +7,7 @@ from uuid import uuid4
 from check_reference_editing import main
 from check_futures_physical_delivery import fixture,checks as physical_checks
 from preview_fixture import catalogue_fixture
+from seed_fixture_market import load_fixture
 
 
 def helpers(query,manifest):
@@ -47,7 +48,7 @@ def upgrade_checks(query,migration):
     try:
         root=Path(__file__).resolve().parents[1]
         reference,market,security,manifest=fixture(root)
-        for sql in (reference,market,security):child(sql)
+        load_fixture(child,reference,market,security,manifest)
         catalog,tenant,workspace=(manifest[k] for k in ('catalogId','tenantId','workspaceId'))
         child(f"SELECT security.initialize_operating_policies('{tenant}','{workspace}');")
         child(catalogue_fixture(manifest,manifest['identityIssuer']))

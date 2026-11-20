@@ -31,7 +31,7 @@ public sealed class SwapSettlementOperations(PreviewDatabase database)
     {
         if(request is null||frame is null||request.SnapshotId!=frame.Id||request.Convention!=SwapStore.Convention)
             throw new MarketDataException("settlement_context","Tool arguments must retain the host's exact authorized financial frame and convention.");
-        var knowledge=new KnowledgeStore(database.Manifest.CatalogId);
+        var knowledge=new KnowledgeResolver(database.Manifest.CatalogId);
         if(request is {KnowledgeMode:"current",ContextId:null}&&frame.ContextId is null)
             return await TradingView.Capture(connection,knowledge,frame,ct);
         if(request is not {KnowledgeMode:"retained",ContextId:{} id})

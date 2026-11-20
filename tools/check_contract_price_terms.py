@@ -54,7 +54,13 @@ def main():
         for migration in sorted((ROOT / 'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
             query(migration.read_text())
         reference, market, security, manifest = fixture(ROOT)
-        for sql in (reference, market, security, trading_fixture(manifest['catalogId'])): query(sql)
+        from native_read_transport import native_query
+        query=native_query(query)
+        query(reference)
+        from seed_fixture_market import load_market
+        security=load_market(query,market,security,manifest)
+        if security.strip():query(security)
+        query(trading_fixture(manifest['catalogId']))
         catalog, rcat, rrev, tenant, workspace = [manifest[k] for k in
             ('catalogId', 'referenceCatalogId', 'referenceRevisionId', 'tenantId', 'workspaceId')]
         query("INSERT INTO security.role_permissions SELECT id,p FROM security.roles CROSS JOIN (VALUES('WriteMarketDefinitions'),('ImportObservations')) x(p) WHERE code='trader' ON CONFLICT DO NOTHING;")

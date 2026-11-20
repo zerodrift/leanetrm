@@ -24,6 +24,7 @@ def run_checks(url, receipt, *, run_worker, query, manifest):
     assert Fraction(row['quantity'])==49000 and row['quantityPolicy']=='gross_discharge_energy_total'
     retained={**context,'knowledgeMode':'retained','contextId':blotter['context']['contextId']}
     c.call('profile',{'profile':'risk'})
+    c.select_inputs(blotter['context'])
     catalog=c.call('portfolio/risk/catalog',dict(context=retained,bookIds=[book],portfolioIds=[]))
     assert not any(p['tradeId']==receipt['tradeId'] for p in catalog['excludedPositions'])
     factor=next(f for f in catalog['factors'] if 'synthetic_lng_forward' in f['curves'])

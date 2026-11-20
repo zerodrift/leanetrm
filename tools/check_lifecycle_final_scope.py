@@ -55,7 +55,7 @@ def final_scope(query, manifest):
         "AND o.role='daily_settlement' ORDER BY o.observed_at DESC LIMIT 1;"))
     final_at = query(f"SELECT expiry_at FROM market_data.contracts WHERE(catalog_id,revision_id,id)=('{catalog}','{revision}','{contract}');")
     def capture():
-        return user(f"SELECT security.capture_date_context('{catalog}','2020-12-28',NULL);")
+        return user(f"SELECT security.resolve_operation_context('{catalog}','2020-12-28',NULL);")
     def bind(context, clock=frame['at'], day='2020-12-28'):
         return f"SELECT security.use_market_context('{catalog}','{context}');SELECT security.use_trading_context('{catalog}','{clock}','{day}'::date);"
     def source(context):

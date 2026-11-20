@@ -95,7 +95,7 @@ def checks(query,manifest,economic_worker=None,*,schedule_only=False):
     acknowledged=json.loads(call(f"SELECT lifecycle.save_swap_profile('{catalog}',{lit({**profile,'operationId':str(uuid4()),'expectedRevision':2})})::text;"))
     assert acknowledged['acknowledgedRevision']==1 and acknowledged['currentRevision']==2 and acknowledged['semanticAcknowledgement'] and not acknowledged['changed']
     call(f"SELECT lifecycle.finish_command('{catalog}','{profile['operationId']}','swap_profile',{lit(profile)},'AmendTrade',clock_timestamp()+interval '20 seconds');")
-    source=call(f"SELECT security.capture_date_context('{catalog}','2021-01-15',NULL);")
+    source=call(f"SELECT security.resolve_operation_context('{catalog}','2021-01-15',NULL);")
     binding=query(f"SELECT binding_id FROM trading.swap_trade_revisions WHERE(catalog_id,trade_id,revision)=('{catalog}','{booked['tradeId']}',1);")
     packet=dict(snapshotId=snapshot,frameAt='2021-01-15T08:00:00Z',
                     context=dict(contextId=source,asOf='2021-01-15T08:00:00Z',businessDate='2021-01-15',snapshotId=snapshot),
@@ -137,7 +137,7 @@ def checks(query,manifest,economic_worker=None,*,schedule_only=False):
         correction=str(uuid4())
         query(f"INSERT INTO market_data.observations SELECT catalog_id,'{correction}',definition_revision_id,series_id,reference_catalog_id,reference_revision_id,source_code,source_event_id,'{n}',role,publication_state,observed_at,clock_timestamp(),{value},id FROM market_data.observations WHERE(catalog_id,id)=('{catalog}','{old}');")
         pins=[correction if p==old else p for p in pins];old=correction
-        latest=call(f"SELECT security.capture_date_context('{catalog}','2021-01-15',NULL);")
+        latest=call(f"SELECT security.resolve_operation_context('{catalog}','2021-01-15',NULL);")
         current={**packet,'snapshotId':str(uuid4()),'selectedObservations':pins,'correctionDueAt':f'2021-01-{14+n:02}T08:00:00Z',
                  'context':{**packet['context'],'contextId':latest},'expectedVersion':n,'expectedCurrentVersion':n}
         current['context']['snapshotId']=current['snapshotId']
@@ -152,7 +152,7 @@ def checks(query,manifest,economic_worker=None,*,schedule_only=False):
     payment_policy={**policy,'operationId':str(uuid4()),'policyId':str(uuid4()),'action':'swap.payment'}
     call(f"SELECT lifecycle.save_policy('{catalog}',{lit(payment_policy)});")
     call(f"SELECT lifecycle.save_swap_profile('{catalog}',{lit({**profile,'operationId':str(uuid4()),'profileId':str(uuid4()),'action':'swap.payment','policyId':payment_policy['policyId']})});")
-    old_payment_context=call(f"SELECT security.capture_date_context('{catalog}','2021-01-20',NULL);")
+    old_payment_context=call(f"SELECT security.resolve_operation_context('{catalog}','2021-01-20',NULL);")
     payment=dict(expectedRevision=1,expectedVersion=3,determinationId=latest,amount='100',currency=original['selection']['determination']['preview']['currency'],
                  effectiveAt='2021-01-20T08:00:00Z',reference='Synthetic observed cash 1',reversesId=None)
     paid_packet={**current,'action':'swap.payment','payment':payment,'context':{**current['context'],'contextId':old_payment_context,'asOf':'2021-01-20T08:00:00Z','businessDate':'2021-01-20'},
@@ -164,7 +164,7 @@ def checks(query,manifest,economic_worker=None,*,schedule_only=False):
         *[(label,f"SELECT security.admit_trading_business_source('{catalog}','{old_payment_context}','2021-01-20T08:00:00Z','2021-01-20');SELECT lifecycle.record_swap_payment_action('{catalog}',{lit(body)},clock_timestamp()+interval '30 seconds')") for label,body in (
             ('committed payment retry',paid_request),('new payment',{**paid_request,'operationId':str(uuid4())}))]])
     assert managed(paid_packet)['LIFECYCLE_SWAP_OUTCOME']['paymentId']==paid_result['LIFECYCLE_SWAP_OUTCOME']['paymentId']
-    after_payment=call(f"SELECT security.capture_date_context('{catalog}','2021-01-21',NULL);")
+    after_payment=call(f"SELECT security.resolve_operation_context('{catalog}','2021-01-21',NULL);")
     later_payment={**paid_packet,'payment':{**payment,'expectedVersion':4},'context':{**paid_packet['context'],'contextId':after_payment,'asOf':'2021-01-21T08:00:00Z','businessDate':'2021-01-21'}}
     publications=query(f"SELECT count(*) FROM trading.publications WHERE catalog_id='{catalog}';")
     managed(later_payment);assert counts()=='3:1:1:4'
@@ -172,7 +172,7 @@ def checks(query,manifest,economic_worker=None,*,schedule_only=False):
     managed({**later_payment,'payment':{**later_payment['payment'],'amount':'101'},'expectedError':'settlement_payment_evidence_conflict'})
     assert counts()=='3:1:1:4'
     managed({**packet,'history':True,'paymentCount':0,'determinationCount':0,'bookId':booking['bookId']})
-    future_known=call(f"SELECT security.capture_date_context('{catalog}','2021-01-14',NULL);")
+    future_known=call(f"SELECT security.resolve_operation_context('{catalog}','2021-01-14',NULL);")
     history={**current,'history':True,'paymentCount':1,'determinationCount':3,'future':True,'futureDeterminations':True,'bookId':booking['bookId'],
              'context':{**current['context'],'contextId':future_known,'asOf':'2021-01-14T08:00:00Z','businessDate':'2021-01-14'}}
     managed(history)
@@ -181,7 +181,7 @@ def checks(query,manifest,economic_worker=None,*,schedule_only=False):
     fixed_profile={**profile,'operationId':str(uuid4()),'profileId':str(uuid4()),'membershipOrdinal':0}
     call(f"SELECT lifecycle.save_swap_profile('{catalog}',{lit(fixed_profile)});")
     sql_session(query,manifest,'synthetic_economic_close','test_business','16:00',['base_forward'],[])
-    economic_source=call(f"SELECT security.capture_date_context('{catalog}','2021-01-15',NULL);")
+    economic_source=call(f"SELECT security.resolve_operation_context('{catalog}','2021-01-15',NULL);")
     economic_packet={**current,'economicProjection':True,'session':'synthetic_economic_close','bookId':booking['bookId'],
              'context':{**current['context'],'contextId':economic_source}}
     if economic_worker is None:managed(economic_packet)
@@ -205,14 +205,14 @@ def checks(query,manifest,economic_worker=None,*,schedule_only=False):
                     'deliveryFrom':start,'deliveryTo':end}
         call(f"SELECT lifecycle.save_swap_profile('{catalog}',{lit(occurrence)});")
         profiles.append(occurrence['profileId'])
-    multi_source=call(f"SELECT security.capture_date_context('{catalog}','2021-01-15',NULL);")
+    multi_source=call(f"SELECT security.resolve_operation_context('{catalog}','2021-01-15',NULL);")
     multi_binding=query(f"SELECT binding_id FROM trading.swap_trade_revisions WHERE(catalog_id,trade_id,revision)=('{catalog}','{multi['tradeId']}',1);")
     managed({**packet,'context':{**packet['context'],'contextId':multi_source},'target':dict(handler='financial_swap',scopeId=multi['tradeId'],bindingId=multi_binding),'profileIds':profiles})
     assert query("SELECT bool_and(NOT has_function_privilege('preview_runtime',p.oid,'EXECUTE')) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE(n.nspname,p.proname) IN(('settlement_data','determine_swap'),('security','record_swap_cash'),('security','record_swap_net'));")=='t'
     print('PASS accepted swap snapshots: old source after later corrections, same-price changed lineage, no publication or financial sequence on acknowledgement',flush=True)
     print('PASS native swap lifecycle settings: exact period ordinal/quote currency, idempotent financial configuration, stable publication and final source admission',flush=True)
     original_payment=query(f"SELECT id FROM settlement_data.swap_cash_payments WHERE trade_id='{booked['tradeId']}' ORDER BY cash_at LIMIT 1;")
-    reversal_source=call(f"SELECT security.capture_date_context('{catalog}','2021-01-21',NULL);")
+    reversal_source=call(f"SELECT security.resolve_operation_context('{catalog}','2021-01-21',NULL);")
     reversal={**later_payment,'context':{**later_payment['context'],'contextId':reversal_source},
         'payment':{**payment,'expectedVersion':4,'amount':'-100','effectiveAt':'2021-01-21T08:00:00Z','reference':'Synthetic original cash reversal','reversesId':original_payment},
         'expectedVersion':5,'expectedCurrentVersion':5,'checkReversalChoice':original_payment}
@@ -240,7 +240,7 @@ def scheduled_checks(query,manifest,call,managed,booking,profile,policy,snapshot
     call(f"SELECT lifecycle.save_policy('{catalog}',{lit(automatic)});")
     saved={**profile,'operationId':str(uuid4()),'profileId':str(uuid4()),'tradeId':booked['tradeId'],'expectedRevision':0,'policyId':automatic['policyId']}
     call(f"SELECT lifecycle.save_swap_profile('{catalog}',{lit(saved)});")
-    source=call(f"SELECT security.capture_date_context('{catalog}','2021-01-15',NULL);")
+    source=call(f"SELECT security.resolve_operation_context('{catalog}','2021-01-15',NULL);")
     occurrence=call(f"SELECT security.use_market_context('{catalog}','{source}');SELECT security.use_trading_context('{catalog}','2021-01-15T08:00:00Z','2021-01-15'::date);SELECT lifecycle.swap_profile_occurrence('{catalog}','{saved['profileId']}',1);")
     from lifecycle_schedule_fixture import execute
     claim=execute(query,manifest,call,close_id=close,target=dict(handler='financial_swap',scopeId=booked['tradeId'],bindingId=binding),
@@ -286,7 +286,7 @@ def scheduled_checks(query,manifest,call,managed,booking,profile,policy,snapshot
     def configure(trade,membership=1):
         saved_period={**saved,'operationId':str(uuid4()),'profileId':str(uuid4()),'tradeId':trade['tradeId'],'membershipOrdinal':membership}
         call(f"SELECT lifecycle.save_swap_profile('{catalog}',{lit(saved_period)});")
-        selected=call(f"SELECT security.capture_date_context('{catalog}','2021-01-15',NULL);")
+        selected=call(f"SELECT security.resolve_operation_context('{catalog}','2021-01-15',NULL);")
         occurrence=call(f"SELECT security.use_market_context('{catalog}','{selected}');SELECT security.use_trading_context('{catalog}','2021-01-15T08:00:00Z','2021-01-15'::date);SELECT lifecycle.swap_profile_occurrence('{catalog}','{saved_period['profileId']}',1);")
         return dict(query=query,manifest=manifest,call=call,target=dict(handler='financial_swap',scopeId=trade['tradeId'],bindingId=query(f"SELECT binding_id FROM trading.swap_trade_revisions WHERE(catalog_id,trade_id,revision)=('{catalog}','{trade['tradeId']}',1);")),
             action='swap.determine',occurrence_id=occurrence,policy_id=automatic['policyId'],policy_revision=1,execution_permission='AmendTrade',extra_permissions=[],
@@ -298,7 +298,7 @@ def scheduled_checks(query,manifest,call,managed,booking,profile,policy,snapshot
     assert Fraction(query(f"SELECT rounded_total FROM settlement_data.swap_determinations WHERE trade_id='{second['tradeId']}';"))==350
     print('PASS swap task source closure: omitted independent price definition refused without enrolment; exact two-definition close executes the retained native period',flush=True)
 
-    reader_context=call(f"SELECT security.capture_date_context('{catalog}','2021-01-15',NULL);")
+    reader_context=call(f"SELECT security.resolve_operation_context('{catalog}','2021-01-15',NULL);")
     managed(dict(snapshotId=snapshot,sourceViews=complete,bookId=booking['bookId'],context=dict(contextId=reader_context,asOf='2021-01-15T08:00:00Z',businessDate='2021-01-15',snapshotId=snapshot),target=arguments['target']))
 
     quantity=dict(revision=dict(catalogId=manifest['referenceCatalogId'],revisionId=manifest['referenceRevisionId']),code='test_gas_quantity')

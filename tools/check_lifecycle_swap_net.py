@@ -12,13 +12,13 @@ def checks(query, manifest, call, managed, booking, occurrence, determine_policy
     for ordinal in (0,1):
         profile={**occurrence,'operationId':str(uuid4()),'profileId':str(uuid4()),'tradeId':trade,'membershipOrdinal':ordinal}
         call(f"SELECT lifecycle.save_swap_profile('{catalog}',{lit(profile)});")
-    source=call(f"SELECT security.capture_date_context('{catalog}','2021-01-15',NULL);")
+    source=call(f"SELECT security.resolve_operation_context('{catalog}','2021-01-15',NULL);")
     packet=dict(snapshotId=snapshot,frameAt='2021-01-15T08:00:00Z',
         context=dict(contextId=source,asOf='2021-01-15T08:00:00Z',businessDate='2021-01-15',snapshotId=snapshot),
         target=dict(handler='financial_swap',scopeId=trade,bindingId=binding))
     for ordinal in (0,1):
         managed({**packet,'membershipOrdinal':ordinal})
-        packet['context']={**packet['context'],'contextId':call(f"SELECT security.capture_date_context('{catalog}','2021-01-15',NULL);")}
+        packet['context']={**packet['context'],'contextId':call(f"SELECT security.resolve_operation_context('{catalog}','2021-01-15',NULL);")}
     policy={**determine_policy,'operationId':str(uuid4()),'policyId':str(uuid4()),'action':'swap.net'}
     call(f"SELECT lifecycle.save_policy('{catalog}',{lit(policy)});")
     profile=dict(operationId=str(uuid4()),profileId=str(uuid4()),tradeId=trade,expectedRevision=0,originRevision=1,action='swap.net',
@@ -42,7 +42,7 @@ def checks(query, manifest, call, managed, booking, occurrence, determine_policy
     reviewed_requests=[]
     def record(version,amount,values,reference,reverses=None,expected_error=None):
         selected={**packet,'action':'swap.net','target':{**packet['target'],'handler':'financial_swap_net'},
-            'context':{**packet['context'],'contextId':call(f"SELECT security.capture_date_context('{catalog}','2021-01-15',NULL);")}}
+            'context':{**packet['context'],'contextId':call(f"SELECT security.resolve_operation_context('{catalog}','2021-01-15',NULL);")}}
         request=dict(context=dict(snapshotId=snapshot,convention='independent_side_financial_swap_v2',knowledgeMode='current',contextId=None),
             tradeId=trade,expectedRevision=1,expectedVersion=version,currency=currency,amount=amount,
             allocations=[dict(determinationId=i,amount=value) for i,value in zip(ids,values)],policy='explicit_same_due_swap_net_v1',reversesId=reverses)

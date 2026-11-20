@@ -93,7 +93,7 @@ public sealed class ContractDateStore(Guid catalog,ScheduleStore schedules)
         await using(var command=ScheduleStore.Command(connection,$"""
 WITH h AS MATERIALIZED(SELECT v.catalog_id,v.definition_id,v.version,v.generation,v.state,d.code,v.name,t.effective_on,t.known_through,t.known_at,t.id context_id,v.publication_order,v.published_at,v.engine_version
  FROM market_data.contract_date_versions v JOIN market_data.contract_date_definitions d ON(d.catalog_id,d.id)=(v.catalog_id,v.definition_id)
- JOIN market_data.temporal_contexts t ON(t.catalog_id,t.id)=(v.catalog_id,v.validation_context_id)
+ CROSS JOIN LATERAL security.read_owner_coordinates(v.catalog_id,v.validation_business_on,v.validation_known_at,v.validation_system_id,v.validation_timeline) t
  WHERE v.catalog_id=$1{scope})
 SELECT h.definition_id,h.version,h.generation,h.state,h.code,h.name,h.effective_on,h.known_through,h.known_at,h.context_id,h.publication_order,h.published_at,h.engine_version,
  c.ordinal,c.label,c.cutoff_utc,f.role,f.literal_date,f.schedule_catalog_id,f.schedule_id,f.schedule_version,f.occurrence,f.business_days,s.symbol
@@ -141,7 +141,7 @@ SELECT h.definition_id,h.version,h.generation,h.state,h.code,h.name,h.effective_
     }
     async Task<long> DefinitionCount(NpgsqlConnection connection,CancellationToken ct)
     {
-        await using var command=ScheduleStore.Command(connection,"SELECT count(DISTINCT v.definition_id) FROM market_data.contract_date_versions v JOIN market_data.temporal_contexts t ON(t.catalog_id,t.id)=(v.catalog_id,v.validation_context_id) WHERE v.catalog_id=$1",catalog);
+        await using var command=ScheduleStore.Command(connection,"SELECT count(DISTINCT v.definition_id) FROM market_data.contract_date_versions v CROSS JOIN LATERAL security.read_owner_coordinates(v.catalog_id,v.validation_business_on,v.validation_known_at,v.validation_system_id,v.validation_timeline) t WHERE v.catalog_id=$1",catalog);
         return (long)(await command.ExecuteScalarAsync(ct))!;
     }
     async Task Lock(NpgsqlConnection connection,CancellationToken ct)
@@ -170,8 +170,8 @@ SELECT h.definition_id,h.version,h.generation,h.state,h.code,h.name,h.effective_
     {
         await Lock(connection,ct);var payload=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(body,Json))));
         if(await Replay(connection,body.RequestId,"save",payload,"WriteMarketDefinitions",ct) is {} replay)return replay;
-        var context=await new KnowledgeStore(catalog).Retained(connection,body.Context??throw Invalid("Choose an exact retained date context."),ct);
-        if(context.ReadCut is {} validationCut)await validationCut.RetainWriteSource(connection,context,ct);
+        var context=await new KnowledgeResolver(catalog).Retained(connection,body.Context??throw Invalid("Choose an exact retained date context."),ct);
+        if(context.ReadCut is {} validationCut)await validationCut.RegisterWriteSource(connection,context,ct);
         var request=new PublishedContractRequest(body.Code,body.Name,context,body.Contracts,body.Dates);var versions=await schedules.ReadAt(connection,context,ct);
         var engine=body.Dates is null?Engine:DateListEngine;
         // Each saved row: its label, its UTC cutoff (contracts only) and its date fields by role.
@@ -285,7 +285,7 @@ SELECT h.definition_id,h.version,h.generation,h.state,h.code,h.name,h.effective_
     }
     async Task<(ContractDateVersion Value,ScheduleContext Context)> Retained(NpgsqlConnection connection,ContractDateResolveRequest body,ScheduleContext? selectedContext,bool includeDrafts,CancellationToken ct)
     {
-        var context=await new KnowledgeStore(catalog).Retained(connection,body.Context??throw Invalid("Choose an exact retained date context."),ct);
+        var context=await new KnowledgeResolver(catalog).Retained(connection,body.Context??throw Invalid("Choose an exact retained date context."),ct);
         if(selectedContext is null)await MarketContextStore.Bind(connection,catalog,context,ct);
         else if(selectedContext.ContextId!=context.ContextId)throw Invalid("Resolve in the selected exact market context, or explicitly change that selection first.");
         var value=(await ReadVersion(connection,body.Id,body.Version,ct)).SingleOrDefault(v=>includeDrafts||v.State=="published")

@@ -13,7 +13,7 @@ def checks(query,manifest,state):
         token=query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
             f"'{issuer}','{profile}','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}COMMIT;")
-    def capture():return call(f"SELECT security.capture_date_context('{catalog}','{at[:10]}',NULL);")
+    def capture():return call(f"SELECT security.resolve_operation_context('{catalog}','{at[:10]}',NULL);")
     def record(action,body,policy=None,operation=None,context=None,profile='trader'):
         return json.loads(call(f"SELECT security.record_gas_owned('{catalog}','{operation or uuid4()}','{action}','{account}',{literal(body)},'{at}','{context or capture()}',"
             +(f"'{policy}',1" if policy else 'NULL,NULL')+",false)::text;",profile))
@@ -178,7 +178,7 @@ def checks(query,manifest,state):
     # its original branch, but a new acknowledgement cannot invent that source
     # or attach an accepted fact to another certified business day.
     at=state['at']
-    foreign_day=call(f"SELECT security.capture_date_context('{catalog}','2020-12-21',NULL);")
+    foreign_day=call(f"SELECT security.resolve_operation_context('{catalog}','2020-12-21',NULL);")
     for action,selected,policy in [('receive_title',title_body,title_policy),('borrow',original,borrow_policy)]:
         for label,context in [('unknown_context',str(uuid4())),('foreign_business_day',foreign_day)]:
             before=financial();command_count=commands()

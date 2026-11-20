@@ -23,7 +23,7 @@ internal static class PhysicalOptionValueChecks
         var finiteGasRole=Guid.NewGuid();
         await database.WithIdentity("trader",null,async(connection,ct)=>
         {
-            var context=(await new KnowledgeStore(manifest.CatalogId).Read(connection,fixture.Id("contextId"),ct)).Context;
+            var context=(await new KnowledgeResolver(manifest.CatalogId).Read(connection,fixture.Id("contextId"),ct)).Context;
             var pins=fixture.GetProperty("pins");var primary=manifest.RevisionId;var secondary=fixture.Id("secondaryRevision");
             ImmutableArray<Guid> Selected(Guid revision)=>[..pins.GetProperty(revision.ToString()).EnumerateArray().Select(p=>p.GetGuid())];
             var contracts=ImmutableDictionary<string,ImmutableArray<Guid>>.Empty.Add("nymex_ng",[fixture.Id("contractId")]).Add("nymex_on",[fixture.Id("optionContractId")]);

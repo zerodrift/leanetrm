@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import {emptyGridLayout,type GridHandle} from './data-grid.js';
 import {gasDeliveryKey,gasStages} from './physical-operations-grid.js';
 import {readPhysicalDelivery} from './physical-delivery.js';
@@ -124,7 +125,7 @@ export function setupGasOperations(host:HTMLElement,o:{api:Api;context:()=>Recor
    if(kind==='statement'){d.includedMovementId=d.includedMovementId==='none'?null:d.includedMovementId;if(d.status==='withdrawn')d.balance=null;}
    if(kind==='response'){const parent=String(d.parent);delete d.parent;d.nominationId=parent.startsWith('n:')?parent.slice(2):null;d.imbalanceId=parent.startsWith('t:')?parent.slice(2):null;d.expectedPreviousId=latest(view.state.responses.filter(r=>r.nomination_id===d.nominationId&&r.imbalance_id===d.imbalanceId&&r.side===d.side))?.id??null;if(d.decision!=='approved')d.quantity=null;}
    if(kind==='imbalance'){d.buyerVersionId=view.state.accounts.find(a=>a.id===d.buyerAccountId)?.version_id;d.sellerVersionId=view.state.accounts.find(a=>a.id===d.sellerAccountId)?.version_id;d.decimalPlaces=Number(d.decimalPlaces);}
-   const request={context:structuredClone(o.context()),tradeId:o.tradeId,expectedRevision:daily.expectedRevision,day:day(),kind,details:d};const result=await o.api<{previewHash:string;review:Review}>('gas/operations/preview',request);if(disposed||epoch!==generation||o.actor()!==owner)return;
+   const request={context:cloneRead(o.context()),tradeId:o.tradeId,expectedRevision:daily.expectedRevision,day:day(),kind,details:d};const result=await o.api<{previewHash:string;review:Review}>('gas/operations/preview',request);if(disposed||epoch!==generation||o.actor()!==owner)return;
    reviewed={path:kind==='service'?'gas/operations/configure':'gas/operations/record',body:{preview:request,previewHash:result.previewHash}};get('review').textContent=reviewText(result.review);
   }
   if(kind==='daily_quantity')get('review').textContent=reviewText({action:'Record allocated delivery quantity',unit:daily.rows.find(r=>r.obligationId===d.obligationId)?.quantitySpecification.code});get('review').hidden=false;message.textContent='Review the native result and evidence before accepting. Operational cash is nonportfolio and unposted.';
@@ -134,7 +135,7 @@ export function setupGasOperations(host:HTMLElement,o:{api:Api;context:()=>Recor
   if(r.cash!==undefined)lines.push(`Signed cash: ${r.cash} ${r.currency??''}`);if(r.priceMultiplier)lines.push(`Retained quote multiplier: ${r.priceMultiplier}`);
   for(const f of fields){const input=form.elements.namedItem(f.name) as HTMLInputElement|HTMLSelectElement;const shown=input instanceof HTMLSelectElement?input.selectedOptions[0]?.textContent:input.value;lines.push(`${f.label}: ${shown||'None'}`);}
   if(r.scope)lines.push('Commercial cash: nonportfolio, unposted');return lines.join('\n');}
- get('confirm').onclick=()=>{if(!reviewed||!writable()||busy||!workflow||workflow.busy())return;const command={path:String(reviewed.path),body:structuredClone(reviewed.body as Record<string,unknown>),operationId:crypto.randomUUID(),label:actions.find(a=>a[0]===kind)?.[1]??'Gas delivery operation'};busy=true;sync();void(async()=>{try{await workflow.queue(command);}catch(error){if(!disposed)message.textContent=String(error);}finally{busy=false;if(!disposed){reviewed=undefined;get('review').hidden=true;sync();}}})();};
+ get('confirm').onclick=()=>{if(!reviewed||!writable()||busy||!workflow||workflow.busy())return;const command={path:String(reviewed.path),body:cloneRead(reviewed.body as Record<string,unknown>),operationId:crypto.randomUUID(),label:actions.find(a=>a[0]===kind)?.[1]??'Gas delivery operation'};busy=true;sync();void(async()=>{try{await workflow.queue(command);}catch(error){if(!disposed)message.textContent=String(error);}finally{busy=false;if(!disposed){reviewed=undefined;get('review').hidden=true;sync();}}})();};
  function history(){if(!view||!daily)return;const s=view.state;renderRegularTable(get('history'),'gas-operations:'+o.tradeId,o.tradeId,['Record','Reference','State / value','Evidence'],[
   ...s.accounts.filter(a=>a.trade_id===o.tradeId).map(a=>['Service',String(a.external_reference),`Terms ${a.revision} · ${a.active?'active':'inactive'}`,String(a.version_evidence??'')]),
   ...daily.rows.filter(r=>r.day===day()).flatMap(r=>r.heads.map(h=>[r.sideCode,h.kind,`${h.status} · ${h.quantity??'withdrawn'}`,h.evidence])),

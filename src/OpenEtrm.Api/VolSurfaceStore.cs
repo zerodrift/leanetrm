@@ -238,10 +238,11 @@ internal static class VolSurfaceStore
         await using var transaction=await connection.BeginTransactionAsync(ct);
         await using(var bind=ScheduleStore.Command(connection,"SELECT risk.bind($1,$2)",id,lease))await bind.ExecuteScalarAsync(ct);
         await using var database=new PreviewDatabase(manifest,source);
+        using var admissions=database.OwnReadTransaction(connection,transaction);
         var data=await RetainedFrames.ReadBoundJobInputs(database,connection,frame,revision,ReferenceReadScope.DefinitionClosure,ct);
         var plan=OptionSurfaceAnalytics.Plan(request["sensitivities"],frame.At);
         // Calibration and analytics value under the job's one certified context, as a portfolio valuation does.
-        var context=PinnedContext.Exact((await new KnowledgeStore(catalog).Read(connection,frame.ContextId!.Value,ct)).Context);
+        var context=PinnedContext.Exact((await new KnowledgeResolver(catalog).Read(connection,frame.ContextId!.Value,ct)).Context);
         var snapshot=MarketSnapshotBinding.Bind(data.Snapshot(frame),frame.ContextId.Value,SchedulePreview.ParseAt(context.KnownAt));
         var elapsed=Stopwatch.StartNew();
         var fitted=await VolSurfaceFit.Compute(connection,database,data,frame,snapshot,product["code"]!.GetValue<string>(),model,ct);
@@ -249,7 +250,7 @@ internal static class VolSurfaceStore
         var analysing=Stopwatch.StartNew();
         var analysed=await OptionSurfaceAnalytics.Attach(connection,database,data,frame,snapshot,context,fitted,plan,ct);
         analysing.Stop();
-        await transaction.CommitAsync(ct);
+        await admissions.Commit(ct);
         var surface=Encode(analysed.Surface);
         return new(analysed.ObservationIds,surface,Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(surface))),
             fitted.Result.Series.Length,fitted.Result.Series.Count(s=>s.Series.Outcome==FuturesOptionPricing.SolvedMode),elapsed.ElapsedMilliseconds,

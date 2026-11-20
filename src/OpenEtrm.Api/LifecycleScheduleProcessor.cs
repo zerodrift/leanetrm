@@ -13,6 +13,7 @@ public sealed class LifecycleScheduleProcessor(NpgsqlDataSource scheduler,Npgsql
     public async Task Process(JobClaim claim,CancellationToken ct)
     {
         if(claim.Operation!=LifecycleScheduleJobs.Operation)throw new AutomationException("job_operation","Select an owned lifecycle occurrence.");
+        await OccurrenceReadAdmission.Admit(scheduler,runtime,manifest,claim,ct);
         await using var issue=scheduler.CreateCommand("SELECT automation.issue_lifecycle_context($1,$2,$3)");
         issue.Parameters.AddWithValue(claim.Id);issue.Parameters.AddWithValue(claim.Fence);issue.Parameters.AddWithValue(claim.WorkerId);
         var token=(Guid)(await issue.ExecuteScalarAsync(ct)??throw Invalid());
@@ -35,7 +36,7 @@ public sealed class LifecycleScheduleProcessor(NpgsqlDataSource scheduler,Npgsql
         await using(var save=ScheduleStore.Command(connection,"SAVEPOINT lifecycle_scheduled_frame"))await save.ExecuteNonQueryAsync(ct);
         try
         {
-            var source=(await new KnowledgeStore(manifest.CatalogId).Read(connection,context.ContextId,ct)).Context;
+            var source=(await new KnowledgeResolver(manifest.CatalogId).Read(connection,context.ContextId,ct)).Context;
             await PinnedContext.BindExact(connection,manifest.CatalogId,source,ct);
             await TradingContext.Bind(connection,manifest.CatalogId,source,context.AsOf,ct);
             frame=(await MarketCloses.Frame(connection,manifest.CatalogId,close.Id,context.ContextId,ct)) with{ContextId=null};

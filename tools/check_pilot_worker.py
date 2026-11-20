@@ -113,7 +113,10 @@ def run_checks(url,query,manifest,dotnet,owned_root,environment,psql):
         statement=f"PERFORM automation.publish_pilot_close({args});"
         if expected_error:
             statement=f"BEGIN {statement} RAISE EXCEPTION 'Tampered pilot payload was accepted';EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM<>'{expected_error}' THEN RAISE;END IF;END;"
-        query(f"SET SESSION AUTHORIZATION pilot_fixture_runtime;BEGIN;SELECT security.use_context('{old_token}');SELECT security.use_market_context('{manifest['catalogId']}',security.capture_date_context('{manifest['catalogId']}','2020-12-19',NULL));SELECT security.use_trading_context('{manifest['catalogId']}','{due}');DO $$BEGIN {statement} END$$;ROLLBACK;")
+        query(f"SET SESSION AUTHORIZATION pilot_fixture_runtime;BEGIN;SELECT security.use_context('{old_token}');SELECT security.use_market_context('{manifest['catalogId']}',(automation.occurrence_read_inputs()).id);SELECT security.use_trading_context('{manifest['catalogId']}','{due}');DO $$BEGIN {statement} END$$;ROLLBACK;")
+    admission_token=query(f"SET SESSION AUTHORIZATION pilot_fixture_scheduler;SELECT automation.issue_pilot_context('{claim['id']}',{claim['fence']},'{claim['workerId']}');")
+    query(f"SET SESSION AUTHORIZATION pilot_fixture_runtime;BEGIN;SELECT security.use_context('{admission_token}');SELECT automation.admit_occurrence_inputs();COMMIT;")
+    admitted_inputs=query(f"SELECT input_business_on::text||'|'||input_known_at::text||'|'||input_system_id||'|'||input_timeline FROM automation.runs WHERE id='{claim['id']}';")
     publish_probe(payload,None)
     wrong_member=json.loads(json.dumps(payload));wrong_member['members'][0]['ordinal']+=1
     publish_probe(wrong_member,'pilot_close_inputs')
@@ -206,12 +209,29 @@ def run_checks(url,query,manifest,dotnet,owned_root,environment,psql):
     assert query(f"SELECT count(*) FROM automation.pilot_reports WHERE run_id='{claim['id']}';")=='0'
     assert query(f"SELECT state FROM automation.runs WHERE id='{claim['id']}';")=='running'
     retained=query(f"SELECT request::text FROM market_data.market_closes WHERE run_id='{claim['id']}';")
+    current_claim=json.loads(query(f"SELECT jsonb_build_object('id',id,'fence',fence,'workerId',worker_id) FROM automation.runs WHERE id='{claim['id']}';"))
+    report_token=query(f"SET SESSION AUTHORIZATION pilot_fixture_scheduler;SELECT automation.issue_pilot_context('{claim['id']}',{current_claim['fence']},'{current_claim['workerId']}');")
+    later_context=query(f"SET SESSION AUTHORIZATION pilot_fixture_runtime;BEGIN;SELECT security.use_context('{report_token}');SELECT security.resolve_operation_context('{manifest['catalogId']}','2020-12-19',NULL);COMMIT;")
+    report_token=query(f"SET SESSION AUTHORIZATION pilot_fixture_scheduler;SELECT automation.issue_pilot_context('{claim['id']}',{current_claim['fence']},'{current_claim['workerId']}');")
+    wrong_report=dict(snapshotId=claim['id'],contextId=later_context,policy=policy,models=[{}],positions=[{}],totals=[{}],factors=[],risk=[],discounts=[])
+    report_json=json.dumps(wrong_report).replace("'","''")
+    query(f"""SET SESSION AUTHORIZATION pilot_fixture_runtime;BEGIN;SELECT security.use_context('{report_token}');
+        SELECT security.use_market_context('{manifest['catalogId']}','{later_context}');SELECT security.use_trading_context('{manifest['catalogId']}','{due}');
+        DO $$BEGIN PERFORM automation.publish_pilot_report('{claim['id']}','{report_json}'::jsonb);
+        RAISE EXCEPTION 'Report used a later knowledge cutoff';EXCEPTION WHEN SQLSTATE 'P0001' THEN
+        IF SQLERRM<>'pilot_report_source' THEN RAISE;END IF;END$$;ROLLBACK;""")
+    print('PASS generated report refuses a later cutoff before accepting financial payload rows',flush=True)
     query(f"UPDATE automation.runs SET lease_until=clock_timestamp()-interval '1 second' WHERE id='{claim['id']}';")
     once()
     assert query(f"SELECT request::text FROM market_data.market_closes WHERE run_id='{claim['id']}';")==retained,'A replacement worker changed the published close'
     rows=json.loads(query(f"SELECT jsonb_agg(jsonb_build_object('id',r.id,'state',r.state,'error',r.error_code,'jobState',j.state)) FROM automation.runs r JOIN automation.jobs j ON j.id=r.job_id WHERE j.id='{created['id']}';"))
     assert len(rows)==1 and rows[0]['state']=='succeeded' and rows[0]['jobState']=='completed',rows
     run=rows[0]['id'];catalog_id=manifest['catalogId']
+    assert query(f"SELECT input_business_on::text||'|'||input_known_at::text||'|'||input_system_id||'|'||input_timeline FROM automation.runs WHERE id='{run}';")==admitted_inputs
+    assert query(f"""SELECT p.input_known_at=security.checked_commit_time(c.publication_xid)
+        AND(p.input_system_id,p.input_timeline)=(r.input_system_id,r.input_timeline)
+        FROM automation.pilot_reports p JOIN automation.runs r ON r.id=p.run_id
+        JOIN market_data.market_closes c ON(c.catalog_id,c.id)=(p.catalog_id,p.close_id) WHERE p.run_id='{run}';""")=='t'
     assert query(f"SELECT name FROM market_data.market_closes WHERE run_id='{run}';")=='Generated pilot close','A close label embedded a UTC clock instead of leaving the instant to user-zone formatting'
     marks=json.loads(query(f"""SELECT jsonb_agg(jsonb_build_object('series',n.series_id,'anchor',a.id,'before',a.value::text,'after',n.value::text,'increment',q.clearing_increment::text))
       FROM market_data.market_closes c JOIN market_data.market_close_pins np ON(np.catalog_id,np.close_id)=(c.catalog_id,c.id)
@@ -243,5 +263,7 @@ def run_checks(url,query,manifest,dotnet,owned_root,environment,psql):
     check_report_resume(owner,body,query,psql,environment,[str(dotnet),str(published/'OpenEtrm.Worker.dll'),'--once'],worker_environment,repository)
     from check_pilot_alias_bounds import run_checks as check_alias_bounds
     check_alias_bounds(owner,body,query,manifest)
+    from check_occurrence_inputs import run_checks as check_occurrence_inputs
+    check_occurrence_inputs(owner,body,query)
     print('PASS actual pilot worker: whole mixed books, 30 generated native marks checked by independent Fraction/SHA oracle, exact rational report, no HTTP host and idempotent completed occurrence',flush=True)
     return run

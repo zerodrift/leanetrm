@@ -6,6 +6,7 @@ import os
 import platform
 import statistics
 import time
+from native_read_transport import select_owned_inputs
 
 
 def upgrade_checks(query,migration):
@@ -37,7 +38,7 @@ def economic(study):
 
 
 def admission_checks(query,manifest,job_id):
-    row=json.loads(query(f"SELECT jsonb_build_object('request',request,'frame',frame,'context',context_id,'revision',revision_id,'at',valuation_at) FROM risk.jobs WHERE id='{job_id}';"))
+    row=json.loads(query(f"SELECT jsonb_build_object('request',request,'frame',frame,'context',context_id,'revision',revision_id,'at',valuation_at,'input',jsonb_build_object('id',context_id,'effective_on',input_business_on,'known_at',input_known_at,'system_id',input_system_id,'timeline',input_timeline)) FROM risk.jobs WHERE id='{job_id}';"))
     cases=[]
     for field,value in [('validationPaths',1),('validationPaths',row['request']['monteCarlo']['policy']['paths']+1),('validationPaths','64'),
                         ('validationSeed','01'),('validationSeed','18446744073709551616'),('validationSeed',None),
@@ -54,7 +55,7 @@ def admission_checks(query,manifest,job_id):
     literal=lambda value:"'"+json.dumps(value).replace("'","''")+"'::jsonb"
     for request in cases:
         token=query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','risk','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
-        try:query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');SELECT security.use_market_context('{catalog}','{row['context']}');SELECT security.use_trading_context('{catalog}','{row['at']}');SELECT risk.submit('{catalog}','{uuid4()}','{row['context']}','{row['revision']}','{row['at']}',{literal(request)},{literal(row['frame'])});COMMIT;")
+        try:query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');"+select_owned_inputs(catalog,row['input'])+f"SELECT security.use_market_context('{catalog}','{row['context']}');SELECT security.use_trading_context('{catalog}','{row['at']}');SELECT risk.submit('{catalog}','{uuid4()}','{row['context']}','{row['revision']}','{row['at']}',{literal(request)},{literal(row['frame'])});COMMIT;")
         except RuntimeError as error:assert 'risk_monte_carlo_input' in str(error),str(error)
         else:raise AssertionError('Hybrid mode silently admitted an incomplete or conflicting policy')
     print('PASS hybrid SQL: exact mode/analysis/panel tuple, explicit count/seed/scope and all missing/unknown/mixed policies refuse',flush=True)

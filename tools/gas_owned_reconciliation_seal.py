@@ -49,7 +49,7 @@ def checks(query,call,command,catalog):
                     # Immediate probes roll back even on an unexpected pass.
                     # A COMMIT probe exercises the actual deferred boundary;
                     # unexpected acceptance stops this disposable fixture.
-                    try:call(command+("SET CONSTRAINTS ALL IMMEDIATE;" if ending=='immediate' else ''),rollback=ending=='immediate')
+                    try:call(command+("SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;" if ending=='immediate' else ''),rollback=ending=='immediate')
                     except RuntimeError as error:assert 'gas_owned_quantity_seal' in str(error),str(error)
                     else:
                         missing.append(name+':'+ending)

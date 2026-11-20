@@ -394,12 +394,12 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
                 "RAISE EXCEPTION 'admitted';EXCEPTION WHEN SQLSTATE 'P0001' THEN PERFORM set_config('check.outcome',SQLERRM,true);END")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');"
                      f"DO $check$ {body} $check$;SELECT current_setting('check.outcome');ROLLBACK;").splitlines()[-1]
-    current_capture = f"bound=security.capture_date_context('{catalog}','{DAY}',NULL);"
+    current_capture = f"bound=security.resolve_operation_context('{catalog}','{DAY}',NULL);"
     check('the submit operation admits a context captured from current knowledge', admission(current_capture) == 'admitted')
     check('the submit operation refuses a context captured at an earlier cutoff',
-          admission(f"bound=security.capture_date_context('{catalog}','{DAY}','{fitted['context']['knownAt']}');") == 'historical_read_only')
+          admission(f"bound=security.resolve_operation_context('{catalog}','{DAY}','{fitted['context']['knownAt']}');") == 'historical_read_only')
     check('the submit operation refuses a current capture a later capture superseded',
-          admission(current_capture + f"later=security.capture_date_context('{catalog}','{DAY}',NULL);") == 'historical_read_only')
+          admission(current_capture + f"later=security.resolve_operation_context('{catalog}','{DAY}',NULL);") == 'historical_read_only')
 
     # A context captured in an earlier transaction stays current only until the next certification: an admitted submit holds the
     # knowledge clock, so a certification waits for it to commit rather than superseding the context it was admitted at.
@@ -407,7 +407,7 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
         token = query("SET SESSION AUTHORIZATION preview_authenticator; SELECT security.issue_context("
                       f"'{manifest['identityIssuer']}','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{statements}").splitlines()[-1]
-    earlier = as_trader(f"SELECT security.capture_date_context('{catalog}','{DAY}',NULL);COMMIT;")
+    earlier = as_trader(f"SELECT security.resolve_operation_context('{catalog}','{DAY}',NULL);COMMIT;")
     # psql sends each statement on its own, so the holder is found by its application name while it sleeps after the submit.
     held = {}
 
@@ -427,7 +427,7 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
         assert time.monotonic() < deadline and holding.is_alive(), held
         time.sleep(.05)
     certification = as_trader("SET LOCAL lock_timeout='500ms';DO $check$ BEGIN "
-                              f"PERFORM security.capture_date_context('{catalog}','{DAY}',NULL);PERFORM set_config('check.outcome','certified',true);"
+                              f"PERFORM security.resolve_operation_context('{catalog}','{DAY}',NULL);PERFORM set_config('check.outcome','certified',true);"
                               "EXCEPTION WHEN lock_not_available THEN PERFORM set_config('check.outcome','waited',true);END $check$;"
                               "SELECT current_setting('check.outcome');ROLLBACK;")
     holding.join()

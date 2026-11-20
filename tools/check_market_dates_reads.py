@@ -8,6 +8,7 @@ import hashlib
 import platform
 import os
 import re
+import subprocess
 import threading
 import time
 from uuid import uuid4
@@ -423,7 +424,7 @@ def native_admission_parity(query, manifest):
     try:
         for day in (None, '2020-12-18', '2020-12-17'):
             token = query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','viewer','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
-            bind = '' if day is None else f"SELECT security.use_market_context('{catalog}',security.capture_date_context('{catalog}','{day}',clock_timestamp()));"
+            bind = '' if day is None else f"SELECT security.use_market_context('{catalog}',security.resolve_operation_context('{catalog}','{day}',clock_timestamp()));"
             actual = json.loads(query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{bind}SELECT public.synthetic_close_batch_compare('{catalog}',ARRAY[{closes}]);ROLLBACK;").splitlines()[-1])
             print('CALENDAR_NATIVE_PARITY=' + json.dumps({'day': day, **actual}), flush=True)
             assert actual['actual'] == actual['expected'], actual
@@ -500,8 +501,12 @@ def run_checks(url, query, manifest, psql, environment, log, api_pid, *, verify=
     def measure(path, request):
         offset = log.stat().st_size
         def cpu():
-            fields = Path(f'/proc/{api_pid}/stat').read_text().rsplit(')', 1)[1].split()
-            return (int(fields[11])+int(fields[12])) / os.sysconf('SC_CLK_TCK')
+            if platform.system()=='Linux':
+                fields = Path(f'/proc/{api_pid}/stat').read_text().rsplit(')', 1)[1].split()
+                return (int(fields[11])+int(fields[12])) / os.sysconf('SC_CLK_TCK')
+            elapsed=subprocess.run(['ps','-o','time=','-p',str(api_pid)],capture_output=True,text=True,check=True,timeout=5).stdout.strip()
+            days,clock=elapsed.split('-',1) if '-' in elapsed else ('0',elapsed)
+            return int(days)*86400+sum(float(value)*60**index for index,value in enumerate(reversed(clock.split(':'))))
         cpu_start = cpu()
         start = time.perf_counter(); answer = client.call(path, request); elapsed = time.perf_counter()-start
         with log.open() as stream:
@@ -540,7 +545,11 @@ def run_checks(url, query, manifest, psql, environment, log, api_pid, *, verify=
       'contracts',(SELECT count(DISTINCT m.contract_id) FROM market_data.market_close_members m JOIN market_data.market_closes c ON(c.catalog_id,c.id)=(m.catalog_id,m.close_id) WHERE c.session_code='{SESSION}'))
       FROM market_data.market_close_pins p JOIN market_data.market_closes c ON(c.catalog_id,c.id)=(p.catalog_id,p.close_id)
       JOIN(SELECT close_id,count(*) pins FROM market_data.market_close_pins GROUP BY close_id)n USING(close_id) WHERE c.session_code='{SESSION}';"""))
-    memory = {line.split(':')[0]: line.split(':')[1].strip() for line in Path(f'/proc/{api_pid}/status').read_text().splitlines() if line.startswith(('VmRSS:', 'VmHWM:'))}
+    if platform.system()=='Linux':
+        memory = {line.split(':')[0]: line.split(':')[1].strip() for line in Path(f'/proc/{api_pid}/status').read_text().splitlines() if line.startswith(('VmRSS:', 'VmHWM:'))}
+    else:
+        resident=subprocess.run(['ps','-o','rss=','-p',str(api_pid)],capture_output=True,text=True,check=True,timeout=5).stdout.strip()
+        memory={'VmRSS':str(int(resident))+' KiB','measurement':'current resident set; this sampler does not provide peak RSS'}
     print('CALENDAR_MEASUREMENTS=' + json.dumps({'runs': report, 'workload': workload, 'memory': memory,
           'environment': {'platform': platform.platform(), 'postgres': query('SHOW server_version;')}, 'scenarios': 0}), flush=True)
     if not verify:

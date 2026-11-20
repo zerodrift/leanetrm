@@ -7,6 +7,25 @@ import {mkdtemp,rm,stat,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
+import {workspaceProbe} from './workspace-probe.mjs';
+
+test('workspace fault inspection preserves exact read proofs across both response formats',async()=>{
+  const proof=JSON.stringify({'00000000-0000-0000-0000-000000000001':'synthetic-proof'});
+  const complete={type:'complete',catalog:{context:{contextId:'00000000-0000-0000-0000-000000000001'}},blotter:{},summaries:[]};
+  const send=workspaceProbe(async()=>new Response(JSON.stringify(complete)+'\n',
+    {headers:{'Content-Type':'application/x-ndjson','X-OpenETRM-Read-References':proof}}),
+    async(path,options,read)=>{
+      const response=await read(path,options);
+      assert.equal(response.headers.get('X-OpenETRM-Read-References'),proof);
+      assert.equal(response.headers.get('Content-Type'),'application/json');
+      return response;
+    });
+  const response=await send('/api/trading/workspace/stream',{});
+  assert.equal(response.headers.get('X-OpenETRM-Read-References'),proof);
+  assert.equal(response.headers.get('Content-Type'),'application/x-ndjson');
+  const frames=(await response.text()).trim().split('\n').map(JSON.parse);
+  assert.deepEqual(frames.at(-1).catalog,complete.catalog);
+});
 import {waitForBrowserPort,waitForBrowserPage,stopOwnedBrowser,stopOwnedBrowserGroup,connect,browserPageActions,closeOwnedPageFromControl,idle} from './owned-browser.mjs';
 
 async function fixture(t,args=['-e','setInterval(()=>{},1000)']){

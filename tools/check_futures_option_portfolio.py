@@ -179,6 +179,7 @@ def run_checks(url, query, manifest, *, run_worker):
     # Portfolio risk under each held option's underlying futures factor.
     retained = {**current, 'convention': TRADING, 'knowledgeMode': 'retained', 'contextId': read['context']['contextId']}
     c.call('profile', {'profile': 'risk'})
+    c.select_inputs(read['context'])
     risk_catalog = c.call('portfolio/risk/catalog', dict(context=retained, bookIds=[book], portfolioIds=[]), timeout=TIMEOUT)
 
     def underlying(option):
@@ -357,6 +358,7 @@ def run_checks(url, query, manifest, *, run_worker):
     check('at that close the short put\'s underlying future has no settlement: option_underlying_missing and no value',
           (earlier['unavailableReason'], earlier['presentValue']) == ('option_underlying_missing', None), earlier)
     c.call('profile', {'profile': 'risk'})
+    c.select_inputs(later['context'])
     later_context = {**retained, 'snapshotId': missing_frame['id'], 'contextId': later['context']['contextId']}
     excluded = c.call('portfolio/risk/catalog', dict(context=later_context, bookIds=[book], portfolioIds=[]), timeout=TIMEOUT)['excludedPositions']
     mine = {(e['tradeId'], e['bindingId'], e['reason']) for e in excluded if e['tradeId'] in {h[0]['tradeId'] for h in held.values()}}
@@ -380,6 +382,7 @@ def run_checks(url, query, manifest, *, run_worker):
           (settled['cashState'], Fraction(settled['quantity']), settled['premiumPaymentDate'], Fraction(settled['presentValue']), settled['unavailableReason'],
            settled['measureLabel']) == ('paid', paid_cash, SETTLED_DATE, 0, None, 'Option value excluding settled premium cash'), settled)
     c.call('profile', {'profile': 'risk'})
+    c.select_inputs(other['context'])
     other_context = {**retained, 'contextId': other['context']['contextId']}
     other_catalog = c.call('portfolio/risk/catalog', dict(context=other_context, bookIds=[other_book], portfolioIds=[]), timeout=TIMEOUT)
     lapsing_factor = next(f for f in other_catalog['factors'] if f['curves'] == ['nymex_cl'] and f['deliveryFrom'] == '2027-02-01')
@@ -407,6 +410,7 @@ def run_checks(url, query, manifest, *, run_worker):
           and Fraction(pending['presentValue']) == paid_cash * Fraction(anchored)
           and covered_option['unavailableReason'] is None and covered_option['presentValue'] is not None, early_rows)
     c.call('profile', {'profile': 'risk'})
+    c.select_inputs(early['context'])
     early_excluded = c.call('portfolio/risk/catalog', dict(context={**retained, 'snapshotId': first['id'], 'contextId': early['context']['contextId']}, bookIds=[other_book],
                             portfolioIds=[]), timeout=TIMEOUT)['excludedPositions']
     check('portfolio risk leaves out none of that trade',

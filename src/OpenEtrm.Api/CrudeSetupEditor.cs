@@ -215,7 +215,7 @@ public sealed class CrudeSetupEditor(PreviewDatabase database)
   var quantity=ExactDecimal.Parse(body.Quantity);
   if(quantity.CompareTo(default)<=0)throw Invalid("Enter a positive quantity below 10^24.");
   if(frame.ContextId is not {} contextId)throw Invalid("Preview requires a certified knowledge context.");
-  var context=(await new KnowledgeStore(Catalog).Read(c,contextId,ct)).Context;
+  var context=(await new KnowledgeResolver(Catalog).Read(c,contextId,ct)).Context;
   var snapshot=MarketSnapshotBinding.Bind(data.Snapshot(source),contextId,SchedulePreview.ParseAt(context.KnownAt));
   data=await SideCalendarPolicies.Prepare(c,data,[body.CalendarPolicy],ct);
   var side=new PhysicalCrudeSide(Guid.NewGuid(),assignment,from,to,default,SideCalendarPolicies.Resolve(data,body.CalendarPolicy));

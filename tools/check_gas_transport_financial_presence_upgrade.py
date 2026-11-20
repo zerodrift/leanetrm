@@ -3,6 +3,7 @@ import json
 from uuid import uuid4
 
 from check_reference_editing import main
+from seed_fixture_market import load_fixture
 from check_gas_transport_financial_presence import SIGNATURES, absence_commit, rejected, scope
 from gas_transport_financial_fixture import FinancialTransportFixture, fixture
 
@@ -14,8 +15,7 @@ def run():
         if migration.name != '0357_scoped_transport_financial_presence.sql':
             return
         reference, market, access, manifest = fixture(migration.parents[2])
-        for sql in (reference, market, access):
-            query(sql)
+        load_fixture(query,reference,market,access,manifest)
         f = FinancialTransportFixture(query, manifest)
         booking = f.booking()
         saved = f.book_financial(booking)
@@ -60,7 +60,7 @@ def run():
         rejected(lambda: scope(f, future, at, [f.book]), 'gas_transport_financial_context')
         print('PASS populated Transport presence upgrade preserves exact financial states, mark provenance, ordinary cash, native relationships, helper grants and original outcomes; excluded absence works while real future valuation still refuses.', flush=True)
 
-    main(verify, before_migration=before, fixture_factory=loaded)
+    main(verify, before_migration=before, fixture_factory=loaded,through_migration='0357')
 
 
 if __name__ == '__main__':

@@ -1,3 +1,4 @@
+import {carryReadReferences,cloneRead} from './read-references.js';
 import {mountOperationFields} from './operation-fields.js';
 import {actorTransport,PendingCommand} from './pending-command.js';
 import {overviewTermSections,renderPhysicalSections} from './physical-instrument.js';
@@ -84,8 +85,8 @@ export function setupPointTraderMark(root:HTMLElement,o:PointTraderMarkOptions){
  async function readSetup(selectedContext:PointContext,search=query,page=0){
   restore();if(pending.command)throw Error('Reconcile the original publication before reading new point choices.');
   const selected=o.selection();if(!selected||!o.permission('ReadMarketData'))throw Error('Select an authorized exact market source.');
-  generation++;const started=fence();reading=true;query=search;offset=page;context=structuredClone(selectedContext);clearSetup();field<HTMLInputElement>('search').value=query;sync();
-  const request={context:structuredClone(selectedContext),source:structuredClone(selected.source),curveCode:selected.curveCode??null,contractId:selected.contractId??null,
+  generation++;const started=fence();reading=true;query=search;offset=page;context=cloneRead(selectedContext);clearSetup();field<HTMLInputElement>('search').value=query;sync();
+  const request={context:cloneRead(selectedContext),source:cloneRead(selected.source),curveCode:selected.curveCode??null,contractId:selected.contractId??null,
    search,offset:page,limit:50,quoteFilter:selected.quoteFilter??null,eligibility:selected.eligibility??null};
   try{const value=await o.api<unknown>('market-values/setup',request);if(!current(started))return;setup=requirePointSetup(request,value);drawFields();dirty=entryDirty=criteriaDirty=false;get('message').textContent=o.historical()?'This header selection is read only. Use working inputs with current knowledge to publish.':'';}
   finally{if(current(started)){reading=false;sync();o.changed();}}
@@ -98,7 +99,7 @@ export function setupPointTraderMark(root:HTMLElement,o:PointTraderMarkOptions){
   const started=fence(),asOf=await atClock.instant(),knownAt=knowledge==='at'?await knownClock.instant():null;if(!current(started))return;
   const captured=await o.api<{context:{contextId:string;effectiveOn:string;knownAt:string}}>('date-schedules/context',{effectiveOn:businessDate,knownAt,mode:knowledge});if(!current(started))return;
   if(captured.context?.effectiveOn!==businessDate||!captured.context.contextId||!captured.context.knownAt)throw Error('The market context did not retain this exact business date.');
-  await readSetup({contextId:captured.context.contextId,asOf,businessDate,...selected.frame?{snapshotId:selected.frame.id}:{}},query);
+  await readSetup(carryReadReferences({contextId:captured.context.contextId,asOf,businessDate,...selected.frame?{snapshotId:selected.frame.id}:{}},captured.context),query);
  }
  function drawFields(){
   if(!setup)return;entry.replaceChildren();entry.hidden=false;
@@ -127,7 +128,7 @@ export function setupPointTraderMark(root:HTMLElement,o:PointTraderMarkOptions){
   const publish=node('button',acknowledgement?'Acknowledge reviewed value':'Publish reviewed value');publish.type='button';publish.dataset.pointValue='publish';box.append(publish);host.append(box);
   publish.onclick=()=>action(async()=>{
    if(reviewed!==selected||selected.serial!==draftVersion||selected.stamp!==stamp()||!writeAdmitted())throw Error('Review the current exact market value before publishing.');
-   const command=pending.begin('market-values/record',structuredClone(selected.request),()=>selected.request.operationId,'Publish market value') as PointPending;
+   const command=pending.begin('market-values/record',cloneRead(selected.request),()=>selected.request.operationId,'Publish market value') as PointPending;
    command.scopeStamp=selected.stamp;dirty=false;await send(command);
   });sync();
  }
@@ -161,13 +162,13 @@ export function setupPointTraderMark(root:HTMLElement,o:PointTraderMarkOptions){
  function accept(command:PointPending,value:unknown){
   const request=command.body as PointRequest;requirePointReceipt(request,value);
   pending.clear();checkedAbsent=undefined;store();clearSetup();dirty=entryDirty=criteriaDirty=false;
-  receipt={request:structuredClone(request),reply:value,stamp:command.scopeStamp};drawReceipt();
+  receipt={request:cloneRead(request),reply:value,stamp:command.scopeStamp};drawReceipt();
   get('message').textContent=value.acknowledgement?'The existing observation was acknowledged. Current inputs were not changed.':'The market value was published. Use an offered working input selection explicitly; financial adoption remains separate.';
  }
  async function send(command:PointPending){
   if(saving||pending.command!==command||!o.permission('ReadMarketData')||!o.permission('ImportObservations')||o.historical())throw Error('Restore publication authority before retrying the original request.');
   const owner=actor,previous=pending.sending();checkedAbsent=undefined;saving=true;store();sync();
-  try{const value=await o.api<unknown>(command.path,structuredClone(command.body));if(owner!==o.identity()||pending.command!==command)return;accept(command,value);}
+  try{const value=await o.api<unknown>(command.path,cloneRead(command.body));if(owner!==o.identity()||pending.command!==command)return;accept(command,value);}
   catch(error){if(owner===o.identity()&&pending.command===command){pending.failed((error as {code?:string}).code,previous);store();if(!pending.command)clearSetup();}throw error;}
   finally{if(owner===o.identity()){saving=false;sync();}}
  }
@@ -194,7 +195,7 @@ export function setupPointTraderMark(root:HTMLElement,o:PointTraderMarkOptions){
   invalidate();const serial=draftVersion,started=fence(),fields=await editor.read();if(!current(started)||serial!==draftVersion)return;
   const evidence=entry.querySelector<HTMLTextAreaElement>('[name=evidence]')!.value;
   if(!evidence)throw Error('Enter the publication evidence.');
-  const request:PointRequest={operationId:crypto.randomUUID(),ownerId:setup.ownerId,context:{...structuredClone(context),snapshotId:setup.originalInputs?.snapshotId??null},policy:fields.policy as string,target:fields.target as PointRequest['target'],value:fields.value as string,evidence,originalInputs:structuredClone(setup.originalInputs)};
+  const request:PointRequest={operationId:crypto.randomUUID(),ownerId:setup.ownerId,context:{...cloneRead(context),snapshotId:setup.originalInputs?.snapshotId??null},policy:fields.policy as string,target:fields.target as PointRequest['target'],value:fields.value as string,evidence,originalInputs:cloneRead(setup.originalInputs)};
   const value=await o.api<unknown>('market-values/preview',request);if(!current(started)||serial!==draftVersion)return;
   const accepted=reviewedPointRequest(request,value),reply=value as PointReply;
   overviewTermSections(reply.overviewSections,o.zone());reviewed={request:accepted,reply,serial,stamp:started.stamp};drawReview();

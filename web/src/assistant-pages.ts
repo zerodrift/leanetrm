@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import {tradingInstrumentTypes,type TradingInstrumentType} from './trading-instrument-types.js';
 // The pages as the assistant panel sees them (docs/ai-assistant.md §7.3, §8, §10.1, D191): the report an ask sends for
 // what a page shows, Looking at, which says exactly that, the context an ask pins, when a navigation target moves the
@@ -80,7 +81,7 @@ export function pageReport(state:PageState):PageReport{
     case 'jobs':return {page:'jobs',selection:state.job?{view:'history',job:state.job,page:null,before:null}:{view:'jobs',job:null,page:0,before:null}};
     case 'futures':{
       const layout:BlotterLayoutShown={pane:{...state.pane},poppedOut:state.poppedOut};
-      const pointers={...(state.digestView?{view:structuredClone(state.digestView)}:{}),...(state.focus?{focus:structuredClone(state.focus)}:{})};
+      const pointers={...(state.digestView?{view:cloneRead(state.digestView)}:{}),...(state.focus?{focus:cloneRead(state.focus)}:{})};
       if(state.risk)return {page:'blotter_risk',selection:state.assistant??{},layout,...pointers};
       if(state.entry)return {page:entryPages[state.entry.product??'none'],selection:state.entry.product==='rec'?{}:state.assistant??{},layout,...pointers};
       if(!state.trade&&state.lens==='risk')return {page:'blotter_risk_lens',selection:state.assistant??{},layout,...pointers};
@@ -215,8 +216,8 @@ export type Place={page:string;report:PageReport;context:PageContext};
 export class NavigationHistory{
   #places=new Map<string,Place>();
   #moves=0;
-  record(place:Place){const key=`move-${++this.#moves}`;this.#places.set(key,structuredClone(place));return key;}
-  origin(key:string){const place=this.#places.get(key);return place&&structuredClone(place);}
+  record(place:Place){const key=`move-${++this.#moves}`;this.#places.set(key,cloneRead(place));return key;}
+  origin(key:string){const place=this.#places.get(key);return place&&cloneRead(place);}
   clear(){this.#places.clear();}
 }
 
@@ -301,7 +302,6 @@ const messages:Record<string,string>={turn_active:'Wait for your current answer 
   question_too_long:'This question is longer than the assistant accepts. Shorten it and send it again.',
   conversation_not_found:'This conversation is no longer available. Start a new conversation.',
   conversation_agent_mismatch:'This conversation is with another agent. Start a new conversation to ask this one.',
-  knowledge_budget_reserved:'The workspace has no saved contexts left for working data. Select a historical view to ask over it.',
   access_changed:'This agent no longer has the access an earlier answer in this conversation used, so it cannot continue it. Start a new '
     +'conversation, or ask an administrator to restore the agent\'s access.',
   context_required:'Ask over the knowledge the page shows: working data, or the selected historical view.',

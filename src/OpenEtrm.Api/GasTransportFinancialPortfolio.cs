@@ -21,7 +21,7 @@ internal static class GasTransportFinancialPortfolio
         if(frame.ContextId is null||snapshot.Knowledge is not {} knowledge||knowledge.ContextId!=frame.ContextId||snapshot.ValuationAt!=frame.At||
             agreements.IsDefault||supplied.IsDefault||agreements.Select(r=>r.Id("tradeId")).Distinct().Count()!=agreements.Length)
             throw GasTransportFinancialStore.Source();
-        var known=(await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,frame.ContextId.Value,ct)).Context;
+        var known=(await new KnowledgeResolver(database.Manifest.CatalogId).Read(connection,frame.ContextId.Value,ct)).Context;
         if(SchedulePreview.ParseAt(known.KnownAt)!=knowledge.KnownAt)throw GasTransportFinancialStore.Source();
         var result=ImmutableArray.CreateBuilder<GasOwnedPortfolioInput>();
         foreach(var raw in agreements)
@@ -87,7 +87,7 @@ internal static class GasTransportFinancialPortfolio
         MarketSnapshot snapshot,JsonElement agreement,bool draft,CancellationToken ct)
     {
         var inputs=await PrepareAgreements(connection,database,frame,snapshot,[agreement],[(data,frame)],false,draft,ct);
-        var known=(await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,frame.ContextId!.Value,ct)).Context;
+        var known=(await new KnowledgeResolver(database.Manifest.CatalogId).Read(connection,frame.ContextId!.Value,ct)).Context;
         var total=ExactMoney.Parse("0",GasTransportFinancialAdapter.Terms(database.Manifest.CatalogId,agreement).Rights.Currency);
         foreach(var input in inputs)
         {

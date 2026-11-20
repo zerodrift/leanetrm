@@ -52,11 +52,11 @@ def accepted_checks(query,manifest,fixture):
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}COMMIT;")
     for signature in SIGNATURES:
         assert before[signature]==query(f"SELECT oid FROM pg_proc WHERE oid='{signature}'::regprocedure;"),'Upgrade replaced native operation identity'
-    source=call(f"SELECT security.capture_date_context('{catalog}','{f['at'][:10]}',NULL);")
+    source=call(f"SELECT security.resolve_operation_context('{catalog}','{f['at'][:10]}',NULL);")
     body=dict(profileId=str(uuid4()),expectedRevision=0,implementation='gas_accepted_quantity_lifecycle_projection_v3',
         quantityDisposition='retain_quantity_obligations_v1',effectiveAt=f['at'],performances=[],cashouts=[])
     def configure(selected,operation=None,context=None,account=None):
-        current=context or call(f"SELECT security.capture_date_context('{catalog}','{f['at'][:10]}',NULL);")
+        current=context or call(f"SELECT security.resolve_operation_context('{catalog}','{f['at'][:10]}',NULL);")
         literal="'"+json.dumps(selected).replace("'","''")+"'::jsonb"
         return json.loads(call(f"SELECT security.configure_gas_owned_projection('{catalog}','{operation or uuid4()}','projection_profile','{account or f['accountId']}',"
             f"{literal},'{f['at']}','{current}',false)::text;"))
@@ -90,7 +90,7 @@ def accepted_checks(query,manifest,fixture):
         "WHERE(n.catalog_id,n.account_id,n.action)=(b.catalog_id,b.account_id,b.action) AND n.revision>b.revision);"))
     future='2020-12-21T12:00:00Z'
     def native(action,selected,policy=None,revision=None,account=None,asof=future):
-        context=call(f"SELECT security.capture_date_context('{catalog}','{asof[:10]}',NULL);")
+        context=call(f"SELECT security.resolve_operation_context('{catalog}','{asof[:10]}',NULL);")
         literal="'"+json.dumps(selected).replace("'","''")+"'::jsonb";policy_sql='NULL' if policy is None else "'"+policy+"'"
         return json.loads(call(f"SELECT security.record_gas_owned('{catalog}','{uuid4()}','{action}','{account or f['accountId']}',{literal},'{asof}',"
             f"'{context}',{policy_sql},{revision or 'NULL'},false)::text;"))
@@ -110,7 +110,7 @@ def accepted_checks(query,manifest,fixture):
     target=Path(f['host'])/'gas-accepted-projection.json'
     target.write_text(json.dumps({**f,'profileId':body['profileId'],
         'profiles':[dict(accountId=f['accountId'],profileId=body['profileId'],revision=1)],'futureOwnerIds':[],
-        'contextId':call(f"SELECT security.capture_date_context('{catalog}','{f['at'][:10]}',NULL);"),
+        'contextId':call(f"SELECT security.resolve_operation_context('{catalog}','{f['at'][:10]}',NULL);"),
         'expectedEconomicPnl':str(-Decimal('.125')*mark*multiplier),
         'expectedHistoricalVar':str((Decimal('.125')*mark+Decimal('3.025'))*multiplier)}));target.chmod(0o600)
     qualify(query,target)
@@ -137,7 +137,7 @@ def accepted_checks(query,manifest,fixture):
     target=Path(f['host'])/'gas-accepted-partial-projection.json'
     target.write_text(json.dumps({**f,'profileId':body['profileId'],
         'profiles':[dict(accountId=f['accountId'],profileId=body['profileId'],revision=1),dict(accountId=operator,profileId=partial['profileId'],revision=1)],
-        'futureOwnerIds':[receipt],'contextId':call(f"SELECT security.capture_date_context('{catalog}','{f['at'][:10]}',NULL);"),
+        'futureOwnerIds':[receipt],'contextId':call(f"SELECT security.resolve_operation_context('{catalog}','{f['at'][:10]}',NULL);"),
         'expectedEconomicPnl':str(-Decimal('.125')*mark*multiplier),
         'expectedHistoricalVar':str((Decimal('.125')*mark+Decimal('1.825'))*multiplier)}));target.chmod(0o600)
     qualify(query,target)

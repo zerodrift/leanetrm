@@ -39,6 +39,15 @@ public sealed class ContractDateMaterialization(Guid catalog,ContractDateStore m
             await gate.ExecuteNonQueryAsync(ct);
         await using(var authority=ScheduleStore.Command(connection,"SELECT security.current_write_context() AND security.market_access($1,'WriteMarketDefinitions') AND security.market_access($1,'ReadMarketData')",catalog))
             if(!Equals(await authority.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
+        var payload=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(body,Json))));
+        await using(var prior=ScheduleStore.Command(connection,"SELECT payload_sha256 FROM market_data.contract_date_materialization_requests WHERE catalog_id=$1 AND actor_id=security.custom_curve_actor($1,'WriteMarketDefinitions') AND request_id=$2",catalog,body.RequestId))
+            if(await prior.ExecuteScalarAsync(ct) is string old)
+            {
+                if(old!=payload)throw Conflict();
+                // The original items recheck current source visibility through
+                // RLS; replay does not depend on the asking tab's proof lifetime.
+                return await Receipt(connection,body.RequestId,body.Contracts.Length,ct);
+            }
         Guid referenceCatalog,referenceRevision;string state;
         await using(var target=ScheduleStore.Command(connection,"SELECT reference_catalog_id,reference_revision_id,state FROM market_data.revisions WHERE(catalog_id,id)=($1,$2) FOR UPDATE",catalog,body.RevisionId))
         await using(var reader=await target.ExecuteReaderAsync(ct))
@@ -63,13 +72,6 @@ public sealed class ContractDateMaterialization(Guid catalog,ContractDateStore m
                 if(field.Source is not PublishedDateSource {Selection:"absolute_index" or "on_or_after" or "context_month",EngineVersion:"date_schedule_v3"}||field.BusinessDays is not null)
                     throw new MarketDataException("contract_materialization",$"Date '{field.Expression}' is not a position in a saved date list; generated schedules and business-day offsets cannot be admitted yet.");
         }
-        var payload=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(body,Json))));
-        await using(var prior=ScheduleStore.Command(connection,"SELECT payload_sha256 FROM market_data.contract_date_materialization_requests WHERE catalog_id=$1 AND actor_id=security.custom_curve_actor($1,'WriteMarketDefinitions') AND request_id=$2",catalog,body.RequestId))
-            if(await prior.ExecuteScalarAsync(ct) is string old)
-            {
-                if(old!=payload)throw Conflict();
-                return await Receipt(connection,body.RequestId,body.Contracts.Length,ct);
-            }
         await using(var request=ScheduleStore.Command(connection,"INSERT INTO market_data.contract_date_materialization_requests VALUES($1,security.custom_curve_actor($1,'WriteMarketDefinitions'),$2,$3)",catalog,body.RequestId,payload))
             await request.ExecuteNonQueryAsync(ct);
         for(var index=0;index<body.Contracts.Length;index++)
@@ -98,7 +100,7 @@ public sealed class ContractDateMaterialization(Guid catalog,ContractDateStore m
                 admission=await existing.ExecuteScalarAsync(ct) is Guid id?id:Guid.Empty;
             if(admission==Guid.Empty)
             {
-                if(mapping.Context.ReadCut is {} source)await source.RetainWriteSource(connection,mapping.Context,ct);
+                if(mapping.Context.ReadCut is {} source)await source.RegisterWriteSource(connection,mapping.Context,ct);
                 admission=Guid.NewGuid();
                 await using var insert=ScheduleStore.Command(connection,"INSERT INTO market_data.contract_date_admissions(catalog_id,id,revision_id,contract_id,mapping_id,mapping_version,ordinal,context_id,actor_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,security.custom_curve_actor($1,'WriteMarketDefinitions'))",
                     catalog,admission,body.RevisionId,row.ContractId,body.MappingId,body.MappingVersion,row.Ordinal,mapping.Context.ContextId!.Value);
@@ -130,14 +132,14 @@ WHERE i.catalog_id=$1 AND i.actor_id=security.custom_curve_actor($1,'WriteMarket
     public async Task<ImmutableArray<ContractDateAdmission>> Read(NpgsqlConnection connection,ContractAdmissionRead body,ScheduleContext? selectedContext,CancellationToken ct)
     {
         if(body.Context is null||body.RevisionId==Guid.Empty||body.ContractId==Guid.Empty)throw Invalid();
-        var context=await new KnowledgeStore(catalog).Retained(connection,body.Context,ct);
+        var context=await new KnowledgeResolver(catalog).Retained(connection,body.Context,ct);
         if(selectedContext is null)await MarketContextStore.Bind(connection,catalog,context,ct);
         else if(selectedContext.ContextId!=context.ContextId)throw Invalid();
         var rows=ImmutableArray.CreateBuilder<ContractDateAdmission>();
         await using var command=ScheduleStore.Command(connection,"""
 SELECT a.id,a.mapping_id,a.mapping_version,a.ordinal,t.effective_on,t.known_through,t.known_at,t.id,k.known_from
 FROM market_data.contract_date_admissions a JOIN market_data.contract_date_admission_receipts k ON(k.catalog_id,k.admission_id)=(a.catalog_id,a.id)
-JOIN market_data.temporal_contexts t ON(t.catalog_id,t.id)=(a.catalog_id,a.context_id)
+CROSS JOIN LATERAL security.read_owner_coordinates(a.catalog_id,a.input_business_on,a.input_known_at,a.input_system_id,a.input_timeline) t
 WHERE(a.catalog_id,a.revision_id,a.contract_id)=($1,$2,$3) ORDER BY k.known_from,a.id
 """,catalog,body.RevisionId,body.ContractId);
         await using var reader=await command.ExecuteReaderAsync(ct);

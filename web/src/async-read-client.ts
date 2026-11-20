@@ -1,3 +1,4 @@
+import {attachReadReferences,readReferences} from './read-references.js';
 const postOperations={
   evaluate:'curve.evaluate.v1',history:'curve.history.v1','market/curve-shapes':'curve.shapes.v1',
   'trading/directory':'trading.directory.v1','trading/freshness':'trading.freshness.v1','trading/positions':'trading.positions.v1',
@@ -38,7 +39,7 @@ export function asyncReadRequest(path:string,body?:unknown):{operation:AsyncRead
   if(!limit||!/^\d+$/.test(limit)||Number(limit)<1||Number(limit)>100)throw new AsyncReadError('risk_archive_input','Choose an explicit report page size from 1 to 100.');
   return {operation:'portfolio.risk.archive.v1',body:{method:archive[1].replace('-','_'),limit:Number(limit),before:query.get('before')||null,id:query.get('id')||null}};
 }
-const protocol='async_reads_v1',maximumRequests=128,maximumRequestBytes=32768,maximumResponseCharacters=16*1024*1024+8192;
+const protocol='async_reads_v1',maximumRequests=128,maximumRequestBytes=32768,maximumResponseCharacters=16*1024*1024+24576;
 const operations=new Set<string>([...Object.values(postOperations),'portfolio.risk.jobs.list.v1','portfolio.risk.jobs.read.v1','portfolio.risk.archive.v1']);
 const record=(value:unknown):value is Record<string,unknown>=>!!value&&typeof value==='object'&&!Array.isArray(value);
 const text=(value:unknown):value is string=>typeof value==='string'&&value.length>0;
@@ -183,7 +184,7 @@ export function createAsyncReadClient(options:AsyncReadClientOptions){
       const result=value.result,error=value.error;
       if(value.state==='completed'){
         if(error!=null||result===null||typeof result!=='object')throw protocolError();
-        settle(current,pending,result,undefined);
+        settle(current,pending,attachReadReferences(result,value.readReferences),undefined);
       }else{
         if(result!=null||(error!=null&&(!record(error)||!text(error.code)||!text(error.message)))||(value.state==='failed'&&error==null))throw protocolError();
         const failure=record(error)?new AsyncReadError(error.code as string,error.message as string,value.state==='failed'?'server':'client'):cancelled();
@@ -227,7 +228,7 @@ export function createAsyncReadClient(options:AsyncReadClientOptions){
       if(!operations.has(operation)||!record(body))throw new AsyncReadError('async_read_request','Choose a supported read operation with explicit inputs.');
       const json=JSON.stringify(body);
       if(new TextEncoder().encode(json).length>maximumRequestBytes)throw new AsyncReadError('async_read_request','The read exceeds the supported request size.');
-      captured=JSON.parse(json);snapshotId=snapshotFor(operation,captured);identity=currentIdentity();
+      captured=attachReadReferences(JSON.parse(json),readReferences(body));snapshotId=snapshotFor(operation,captured);identity=currentIdentity();
     }catch(error){return Promise.reject(error);}
     if(channel&&channel.identity!==identity)stop(channel,identityError(),'disconnected');
     if(channel){

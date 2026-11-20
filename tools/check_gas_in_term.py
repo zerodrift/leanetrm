@@ -13,6 +13,13 @@ from synthetic_side_calendars import side_calendar_policy
 from check_booked_side_programs import runtime_query, capture_context
 from gas_in_term_fixture import ADMINISTRATOR, BOOK_ONLY_ADMINISTRATOR, CLOSE, DISABLED_ADMINISTRATOR, EXPIRED, POINT, TERM, custom_curves, fixing, marks, premium_curve, published_at, trade
 
+def select_captured_inputs(client,query,identifier):
+    from native_read_transport import captured_input
+    source=captured_input(query,identifier)
+    selected=client.call('date-schedules/context',dict(effectiveOn=source['effective_on'],knownAt=source['known_at'],mode='at'))['context']
+    assert selected['contextId']==identifier and selected['knownThrough']==source['schedule_prefix']
+
+
 LOADER = 'preview_gas_in_term_loader'
 
 STARTED = {'whole_gas_day_delivery_v1', 'accrued_payment_v1'}
@@ -171,7 +178,7 @@ def run_checks(url, query, manifest, run_worker, admin_load, browse=None):
                                       f" WHERE(s.catalog_id,s.instrument_id,s.slot,r.local_key)=('{catalog}','{other['instrumentId']}',1,'payment/0/value');").split('|')
     copy = f"INSERT INTO trading.gas_cash_payments SELECT catalog_id,'{uuid4()}',trade_id,trade_revision,{{instrument}},slot,'synthetic-foreign',1,NULL,paid_at,reference_catalog_id,reference_revision_id,currency_code,-290,'{uuid4()}',actor_id,publication_order FROM trading.gas_cash_payments WHERE id='{revision['paymentId']}' RETURNING id"
     for statement, code in [(copy.format(instrument=f"'{other['instrumentId']}'") + ';', 'gas_cash_payments_catalog_id_trade_id_trade_revision_instr_fkey'),
-                            (f"WITH p AS({copy.format(instrument='instrument_id')}) INSERT INTO trading.gas_cash_payment_allocations SELECT '{catalog}',id,0,'{other_schedule}',{other_row},-290 FROM p;SET CONSTRAINTS ALL IMMEDIATE;", 'gas_payment_allocation')]:
+                            (f"WITH p AS({copy.format(instrument='instrument_id')}) INSERT INTO trading.gas_cash_payment_allocations SELECT '{catalog}',id,0,'{other_schedule}',{other_row},-290 FROM p;SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;", 'gas_payment_allocation')]:
         try: query('BEGIN;' + statement + 'ROLLBACK;')
         except RuntimeError as error: assert code in str(error), error
         else: raise AssertionError(f'A foreign occurrence was accepted instead of {code}')
@@ -338,6 +345,7 @@ def valuation_checks(c, query, manifest, run_worker, frame, context, body, trade
     print('PASS retained risk and its worker reproduce the total; accrued days are frozen and only fixed undelivered physical days move', flush=True)
 
     # A context known before the load sees no trade.
+    select_captured_inputs(c,query,before_load)
     refused = c.call('gas/composition/editor', dict(context={**working, 'knowledgeMode': 'retained', 'contextId': before_load}, tradeId=trade_id), expected=422)
     assert refused['code'] == 'gas_market_context' and set(refused) == {'code','message'}, refused
     print('PASS a historical context known before the load reads no in-term trade', flush=True)
@@ -467,6 +475,7 @@ def payment_revision_checks(c, query, manifest, frame, context, body, load):
     # The close lies between the two paid instants: the latest known revision applies and is not yet paid.
     assert shown(working) == ('AccruedUnpaid', None, -310), shown(working)
     # Knowledge before revision 2 sees revision 1, paid before the close.
+    select_captured_inputs(c,query,before_revision)
     assert shown({**working, 'knowledgeMode': 'retained', 'contextId': before_revision}) == ('Paid', '2026-11-04', 0)
     print('PASS the latest known payment revision applies by knowledge; one paid after the view stays unpaid there, never its earlier revision', flush=True)
 

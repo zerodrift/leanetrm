@@ -4,6 +4,7 @@ import re
 from uuid import uuid4
 
 from gas_operator_source_authority import _state
+from native_read_transport import register_captured_input
 
 
 PRODUCER='security.reconcile_gas_operator_quantities(uuid,uuid,uuid,jsonb,timestamptz,uuid,uuid,integer,boolean)'
@@ -13,7 +14,7 @@ def _literal(value):return "'"+json.dumps(value).replace("'","''")+"'::jsonb"
 
 
 def _refused(call,sql,expected,label,immediate):
-    try:call(sql+('SET CONSTRAINTS ALL IMMEDIATE;' if immediate else ''))
+    try:call(sql+('SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;' if immediate else ''))
     except RuntimeError as error:
         assert re.search(r'ERROR:\s+(?:[A-Z0-9]{5}:\s+)?'+re.escape(expected)+r'(?:\n|$)',str(error)),label+': '+str(error)
     else:raise AssertionError('Operator producer mutation '+label+' accepted at '+('IMMEDIATE validation' if immediate else 'actual COMMIT')+'.')
@@ -39,7 +40,7 @@ def checks(query,manifest,call,capture,read,record,amend,packet):
             (packet['body'],'gas_operator_quantity_seal','all-acknowledgement foreign-day source')]:
             for immediate in (False,True):
                 operation=str(uuid4());selected=capture()
-                sql=f"SELECT security.reconcile_gas_operator_quantities('{catalog}','{operation}','{account}',{_literal(body)},'{packet['at']}','{selected}','{packet['policyId']}',{packet['policyRevision']},false)::text;"
+                sql=register_captured_input(query,foreign)+f"SELECT security.reconcile_gas_operator_quantities('{catalog}','{operation}','{account}',{_literal(body)},'{packet['at']}','{selected}','{packet['policyId']}',{packet['policyRevision']},false)::text;"
                 _refused(call,sql,expected,label,immediate)
                 assert _state(query,catalog)==before,'Rejected foreign-day source changed native operator/cash/bank/receipt state.'
     finally:query(original)

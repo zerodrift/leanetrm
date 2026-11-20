@@ -29,16 +29,26 @@ internal sealed record CalendarReadCut(Guid Catalog,DateTimeOffset KnownAt,int S
         return new(day.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),SchedulePrefix,KnownAt.ToString("O",CultureInfo.InvariantCulture),id){ReadCut=this};
     }
 
-    internal async Task RetainWriteSource(NpgsqlConnection connection,ScheduleContext source,CancellationToken ct)
+    internal Task RegisterWriteSource(NpgsqlConnection connection,ScheduleContext source,CancellationToken ct)=>Register(connection,source,ct);
+
+    internal void RequireCoordinates(Guid catalog,ScheduleContext context)
     {
-        await using var command=ScheduleStore.Command(connection,"SELECT security.retain_workspace_write_source($1,$2,$3,$4,$5,$6,$7)",
-            Catalog,source.ContextId!.Value,DateWorkspace.Date(source.EffectiveOn),KnownAt,SchedulePrefix,SystemId,Timeline);
-        await command.ExecuteNonQueryAsync(ct);
+        if(catalog!=Catalog||context.KnownThrough!=SchedulePrefix||context.KnownAt is null||
+            SchedulePreview.ParseAt(context.KnownAt)!=KnownAt||context.ContextId is null||context.ReadCut!=this||
+            On(DateWorkspace.Date(context.EffectiveOn)).ContextId!=context.ContextId)
+            throw new TemporalException("temporal_context","The read context differs from its certified catalog or coordinates.");
     }
 
-    internal static readonly System.Runtime.CompilerServices.ConditionalWeakTable<NpgsqlConnection,object> WorkspaceBindings=new();
+    internal async Task Register(NpgsqlConnection connection,ScheduleContext context,CancellationToken ct)
+    {
+        RequireCoordinates(Catalog,context);
+        await using var command=ScheduleStore.Command(connection,"SELECT security.register_read_source($1,$2,$3,$4,$5,$6,$7)",
+            Catalog,context.ContextId!.Value,DateWorkspace.Date(context.EffectiveOn),KnownAt,SchedulePrefix,SystemId,Timeline);
+        await command.ExecuteNonQueryAsync(ct);
+    }
     internal async Task Verify(NpgsqlConnection connection,Guid catalog,ScheduleContext context,CancellationToken ct)
     {
+        RequireCoordinates(catalog,context);
         await using var command=ScheduleStore.Command(connection,"SELECT security.workspace_cut_visible($1,$2,$3,$4,$5,$6,$7)",
             catalog,context.ContextId!.Value,DateWorkspace.Date(context.EffectiveOn),KnownAt,SchedulePrefix,SystemId,Timeline);
         if(!Equals(await command.ExecuteScalarAsync(ct),true))throw new TemporalException("knowledge_coverage","This workspace selection is outside certified coverage.");
@@ -46,11 +56,8 @@ internal sealed record CalendarReadCut(Guid Catalog,DateTimeOffset KnownAt,int S
 
     internal async Task Bind(NpgsqlConnection connection,Guid catalog,ScheduleContext context,CancellationToken ct)
     {
-        if(catalog!=Catalog||context.KnownThrough!=SchedulePrefix||context.KnownAt is null||
-            SchedulePreview.ParseAt(context.KnownAt)!=KnownAt||context.ContextId is null||context.ReadCut!=this)
-            throw new TemporalException("temporal_context","The read context differs from its certified catalog or cutoff.");
-        if(context.WorkspaceCut)WorkspaceBindings.GetOrCreateValue(connection);
-        var sql=context.WorkspaceCut?"SELECT security.bind_workspace_read($1,$2,$3,$4,$5,$6,$7)":"SELECT security.bind_calendar_read($1,$2,$3,$4,$5,$6,$7)";
+        RequireCoordinates(catalog,context);
+        const string sql="SELECT security.bind_operation_read($1,$2,$3,$4,$5,$6,$7)";
         await using var command=ScheduleStore.Command(connection,sql,
             catalog,context.ContextId!.Value,DateWorkspace.Date(context.EffectiveOn),KnownAt,SchedulePrefix,SystemId,Timeline);
         await command.ExecuteNonQueryAsync(ct);

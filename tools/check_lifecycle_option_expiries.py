@@ -96,6 +96,7 @@ def checks(query,manifest):
             f"'{issuer}','{profile}','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}COMMIT;")
     class Settings:
+        def __init__(self):self.observed_inputs={}
         def call(self,path,body):
             name={'lifecycle/policies/save':'save_policy','lifecycle/options/configure':'save_option_profile'}[path]
             return json.loads(call(f"SELECT lifecycle.{name}('{catalog}',{lit(body)})::text;"))
@@ -111,7 +112,7 @@ def checks(query,manifest):
         booked=json.loads(call(f"SELECT security.book_futures_option('{catalog}','{uuid4()}','{book}','{manifest['revisionId']}','{('synthetic_scheduled_call' if code=='call_atm' else 'synthetic_expiry_call_itm' if code=='short_call' else 'synthetic_expiry_'+code)}',{lots},0.1,'2026-10-19','premium_paid_up_front','2026-10-16T14:00:00Z',NULL,'futures_option_premium_v1',NULL,NULL,NULL,{lit(parties)})::text;"))
         enrolled.enroll(booked['tradeId']);rights.append((booked,outcome,future,strike))
     at=query(f"SELECT to_char(expiry_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') FROM ref_data.futures_option_series WHERE(catalog_id,revision_id,code)=('{manifest['referenceCatalogId']}','{manifest['referenceRevisionId']}','synthetic_expiry_call_itm');")
-    def capture():return call(f"SELECT security.capture_date_context('{catalog}','{at[:10]}',NULL);")
+    def capture():return call(f"SELECT security.resolve_operation_context('{catalog}','{at[:10]}',NULL);")
     def request(booked,context):return dict(operationId=str(uuid4()),context=dict(contextId=context,asOf=at,businessDate=at[:10]),target=enrolled.targets[booked['tradeId']],action='option.expiry',
         policyId=enrolled.policies['option.expiry'],policyRevision=1,automatic=False,previewHash='0'*64,selection=dict(evidenceId=booked['tradeId'],lots=None,expectedEventVersion=0,profileRevision=1))
     before=capture();missing=request(rights[0][0],before)
@@ -152,7 +153,7 @@ def checks(query,manifest):
         booked=json.loads(call(f"SELECT security.book_futures_option('{catalog}','{uuid4()}','{book}','{manifest['revisionId']}','synthetic_instruction_{code}',{lots},0.1,'2026-10-19','premium_paid_up_front','2026-10-16T14:00:00Z',NULL,'futures_option_premium_v1',NULL,NULL,NULL,{lit(parties)})::text;"))
         enrolled.enroll(booked['tradeId']);return booked
     def instruction(booked,action,version=0,at='2026-10-16T16:00:00Z'):
-        selected=call(f"SELECT security.capture_date_context('{catalog}','2026-10-16',NULL);")
+        selected=call(f"SELECT security.resolve_operation_context('{catalog}','2026-10-16',NULL);")
         return dict(operationId=str(uuid4()),context=dict(contextId=selected,asOf=at,businessDate='2026-10-16'),target=enrolled.targets[booked['tradeId']],
             action=action,policyId=enrolled.policies[action],policyRevision=1,automatic=False,previewHash='0'*64,
             selection=dict(evidenceId=str(uuid4()),lots=None,expectedEventVersion=version,profileRevision=1))
@@ -219,7 +220,7 @@ def checks(query,manifest):
     window=json.loads(call(f"SELECT security.book_futures_option('{catalog}','{uuid4()}','{book}','{manifest['revisionId']}','synthetic_expiry_call_itm',2,0.1,'2026-10-19','premium_paid_up_front','2026-10-16T14:00:00Z',NULL,'futures_option_premium_v1',NULL,NULL,NULL,{lit(parties)})::text;"))
     enrolled.enroll(window['tradeId'])
     for clock,code in [('2026-10-16T13:00:00Z','lifecycle_option_trade'),('2026-10-17T16:00:00Z','option_calendar'),('2026-10-28T16:00:00Z','option_exercise_window')]:
-        selected=call(f"SELECT security.capture_date_context('{catalog}','{clock[:10]}',NULL);")
+        selected=call(f"SELECT security.resolve_operation_context('{catalog}','{clock[:10]}',NULL);")
         body=dict(operationId=str(uuid4()),context=dict(contextId=selected,asOf=clock,businessDate=clock[:10]),target=enrolled.targets[window['tradeId']],
             action='option.exercise',policyId=enrolled.policies['option.exercise'],policyRevision=1,automatic=False,previewHash='0'*64,
             selection=dict(evidenceId=str(uuid4()),lots='1',expectedEventVersion=0,profileRevision=1))

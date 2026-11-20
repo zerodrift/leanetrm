@@ -66,7 +66,7 @@ def browser_checks(query,manifest,packet,frozen,setup,*,dotnet,browser,children)
     # booked option rights. Existing negative scope tests run before this hook.
     future=json.loads(call(f"SELECT security.book_futures_with_parties('{catalog}','{uuid4()}','{saved['bookId']}','{primary}',"
         f"'nymex_ng','{saved['contractId']}','2026-10-16T14:00:00Z',NULL,2,3,'contract_lot_execution_pnl_v2',NULL,NULL,NULL,{literal(setup['booking'])})::text;"))
-    context=call(f"SELECT security.capture_date_context('{catalog}','{saved['at'][:10]}',NULL);")
+    context=call(f"SELECT security.resolve_operation_context('{catalog}','{saved['at'][:10]}',NULL);")
     call(f"SELECT settlement_data.adopt_futures_margin('{catalog}',{literal(dict(operationId=str(uuid4()),tradeId=future['tradeId'],bindingId=future['bindingId'],
         expectedRevision=1,policyId=setup['marginId'],policyRevision=1,contextId=context,asOf=saved['at'],adoption='native_execution_inception_v1'))});")
     policy=query(f"SELECT policy_id::text||'|'||policy_revision::text FROM lifecycle.option_profiles WHERE(catalog_id,trade_id,action,revision)=('{catalog}','{saved['tradeId']}','option.expiry',1);").split('|')

@@ -7,7 +7,7 @@ from uuid import uuid4
 def checks(query,call,catalog,account,original,lender,policy):
     at='2020-12-21T16:00:00Z';when='2020-12-21T10:00:00Z'
     def literal(body):return "'"+json.dumps(body).replace("'","''")+"'::jsonb"
-    def capture(day):return call(f"SELECT security.capture_date_context('{catalog}','{day}',NULL);")
+    def capture(day):return call(f"SELECT security.resolve_operation_context('{catalog}','{day}',NULL);")
     def record(action,body,selected_policy):
         context=capture('2020-12-21')
         return json.loads(call(f"SELECT security.record_gas_owned('{catalog}','{uuid4()}','{action}','{account}',{literal(body)},'{at}','{context}',"

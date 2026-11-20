@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import {displayPaymentDate} from './payment-date.js';
 import {renderDataGrid,emptyGridLayout,type GridHandle,type GridLayout} from './data-grid.js';
 import {actorTransport,PendingCommand,type RequestCommand} from './pending-command.js';
@@ -87,7 +88,7 @@ export function setupLifecycle(root:HTMLElement,o:{api:Api;act:(work:()=>Promise
   const financial=command.path==='gas/transport/financial/record',label=financial?'Transport financial operation':command.path==='cash-payments/record'?'Recorded cash payment':'Custody observation';
   const actor=o.identity(),epoch=generation;saving=true;sync();let confirmed=false;
   try{
-   const reply=await o.api<{found:boolean;outcome?:Record<string,unknown>}>(path,financial?{operationId:command.operationId,ownerId:command.body.ownerId}:structuredClone(command.body));
+   const reply=await o.api<{found:boolean;outcome?:Record<string,unknown>}>(path,financial?{operationId:command.operationId,ownerId:command.body.ownerId}:cloneRead(command.body));
    if(!current(epoch,actor)||pending.command!==command)return;
    if(reply.found===false){message.textContent='No recorded outcome was found. The original request remains retained for an authorized retry.';return;}
    if(reply.found!==true||!reply.outcome)throw Error('Check the exact retained request outcome again.');
@@ -109,7 +110,7 @@ export function setupLifecycle(root:HTMLElement,o:{api:Api;act:(work:()=>Promise
    saving=false;await load(false);
   }catch(error){if(current(epoch,actor)){if(!confirmed){pending.failed((error as {code?:string}).code,wasUncertain);store();if(!pending.command)invalidate();message.textContent=String(error);}else message.textContent='Lifecycle change recorded. Its updated views could not be read. '+String(error);}throw error;}finally{if(o.identity()===actor){saving=false;sync();}}
  }
- async function queue(path:string,body:Record<string,unknown>,label:string){restore();if(pending.command)throw Error('Reconcile the retained lifecycle request first.');pending.command={path,operationId:lifecycleOperationId(path,body)??(()=>{throw Error('Retain the exact request identity.');})(),body:structuredClone(body),label};store();await send(pending.command);}
+ async function queue(path:string,body:Record<string,unknown>,label:string){restore();if(pending.command)throw Error('Reconcile the retained lifecycle request first.');pending.command={path,operationId:lifecycleOperationId(path,body)??(()=>{throw Error('Retain the exact request identity.');})(),body:cloneRead(body),label};store();await send(pending.command);}
  function showReview(review:Review,request:LifecycleRequest,references:{label:string;value:string;key?:string}[]=[]){panel.querySelector('[data-lifecycle-review]')?.remove();const section=element('section');section.dataset.lifecycleReview='';section.className='lifecycle-review';section.append(element('h3','Review '+(selected?.label??'action')));
   const list=element('dl');list.className='lifecycle-review-facts';
   const add=(label:string,value:unknown)=>{if(value===null||value===undefined||value===''||typeof value==='object')return;list.append(element('dt',label),element('dd',String(value)));};
@@ -296,7 +297,7 @@ export function setupLifecycle(root:HTMLElement,o:{api:Api;act:(work:()=>Promise
  function gasOptions(actor:string,epoch:number,view:number):GasOwnedUiOptions{return{api:o.api,act:o.act,zone:o.zone,permission:o.permission,current:()=>current(epoch,actor)&&view===panelVersion,changed:invalidate,confirmDiscard,
   queue:async(path,body,label)=>{if(current(epoch,actor)&&view===panelVersion)await queue(path,body,label);}};}
  async function gasSetup(target:LifecycleOffer['target']|null,actor:string,epoch:number,view:number){
-  if(!discovery)throw Error('Refresh the gas source.');const source=structuredClone(discovery.context);
+  if(!discovery)throw Error('Refresh the gas source.');const source=cloneRead(discovery.context);
   const value=await o.api<GasOwnedSetup>(gasSetupPath(target?.handler),{context:source,target});
   if(!current(epoch,actor)||view!==panelVersion)return;
   if(!value.context||value.context.contextId!==source.contextId||value.context.asOf!==source.asOf||value.context.businessDate!==source.businessDate||value.context.snapshotId!==source.snapshotId||
@@ -314,7 +315,7 @@ export function setupLifecycle(root:HTMLElement,o:{api:Api;act:(work:()=>Promise
    const preview=element('button','Review action');preview.type='submit';form.append(preview);
    form.onsubmit=event=>{event.preventDefault();void o.act(async()=>{
     const version=draftVersion,draft=await editor.read();if(!current(epoch,actor)||view!==panelVersion||selected!==offer||version!==draftVersion)return;
-    const request:LifecycleRequest={operationId:crypto.randomUUID(),context:structuredClone(setup.context),target:structuredClone(offer.target),action:offer.action,
+    const request:LifecycleRequest={operationId:crypto.randomUUID(),context:cloneRead(setup.context),target:cloneRead(offer.target),action:offer.action,
      policyId:draft.policyId,policyRevision:draft.policyRevision,automatic:false,previewHash:'0'.repeat(64),selection:draft.selection};
     const references=editor.references(),result=await o.api<Review>('lifecycle/preview',request);if(!current(epoch,actor)||view!==panelVersion||selected!==offer||version!==draftVersion)return;
     if(!result.offer||lifecycleKey(result.offer)!==lifecycleKey(offer)||result.offer.eligible!==true||!/^[a-f0-9]{64}$/.test(result.hash))throw Error('Review the exact gas target, occurrence and source again.');

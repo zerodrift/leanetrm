@@ -58,6 +58,7 @@ def run_checks(url,query=None,manifest=None,run_worker=None):
     c.call('trading/position',{**selected,'bindingId':str(uuid4())},expected=422)
     print('PASS gas shares blotter, exact individual selection and retained side terms; no receipt/delivery quantity double counting',flush=True)
     c.call('profile',{'profile':'risk'})
+    c.select_inputs(report['context'])
     gas_only=c.call('portfolio/risk/catalog',{'context':retained,'bookIds':[body['bookId']],'portfolioIds':[]})
     assert not gas_only['excludedPositions'] and any(f['id'] in gas_only['heldContractTargets'] for f in gas_only['scenarioTargets'])
     if query is not None:
@@ -122,7 +123,8 @@ def run_checks(url,query=None,manifest=None,run_worker=None):
     assert next(r for r in mixed['holdings'] if r['tradeId']==future['tradeId'])['executionPnl']=='0'
     if query is not None:
         catalog_id=manifest['catalogId']
-        bind=f"SELECT security.use_market_context('{catalog_id}','{mixed['context']['contextId']}');SELECT security.use_trading_context('{catalog_id}','2020-12-18T16:00:00Z');"
+        from native_read_transport import select_context_inputs,select_owned_inputs
+        bind=select_context_inputs(catalog_id,mixed['context'])+f"SELECT security.use_market_context('{catalog_id}','{mixed['context']['contextId']}');SELECT security.use_trading_context('{catalog_id}','2020-12-18T16:00:00Z');"
         scope=f"SELECT security.gas_position_scope('{catalog_id}','{{}}'::uuid[],'{{}}'::uuid[]);"
         assert booked['tradeId'] in runtime_query(query,manifest,bind+scope)
         runtime_query(query,manifest,f"""DO $test$ BEGIN BEGIN
@@ -138,6 +140,7 @@ def run_checks(url,query=None,manifest=None,run_worker=None):
         factor=next(f for f in risk['scenarioTargets'] if f['kind']=='contract' and f['factor']['target']['curve']['code']==gas_curve and f['id'] in risk['heldContractTargets'])
         request={'context':{**shared,'knowledgeMode':'retained','contextId':mixed['context']['contextId']},'bookIds':[],'portfolioIds':[],'bumps':[{'factor':factor['factor'],'size':'0.1','convention':risk['bumpConvention']}],
                  'convention':risk['convention'],'numericalPolicy':risk['numericalPolicy'],'pricingPolicy':risk['pricingPolicy'],'stress':[]}
+        c.select_inputs(mixed['context'])
         interactive=c.call('portfolio/risk',request)
         from check_trade_risk import selected_scope
         selected_scope(c,request,booked['tradeId'],interactive,run_worker=run_worker)
@@ -153,7 +156,9 @@ def run_checks(url,query=None,manifest=None,run_worker=None):
         stored=json.loads(query(f"SELECT row_to_json(j) FROM risk.jobs j WHERE id='{job['id']}';"))
         altered=deepcopy(stored['frame']);altered['connectedMarkets'][0]['manifestId']='0'*64
         def literal(v):return "'"+json.dumps(v).replace("'","''")+"'::jsonb"
-        raw=runtime_query(query,manifest,f"SELECT security.use_market_context('{manifest['catalogId']}','{stored['context_id']}');SELECT security.use_trading_context('{manifest['catalogId']}','{stored['valuation_at']}');"+
+        inputs=select_owned_inputs(manifest['catalogId'],dict(id=stored['context_id'],effective_on=stored['input_business_on'],
+            known_at=stored['input_known_at'],system_id=stored['input_system_id'],timeline=stored['input_timeline']))
+        raw=runtime_query(query,manifest,inputs+f"SELECT security.use_market_context('{manifest['catalogId']}','{stored['context_id']}');SELECT security.use_trading_context('{manifest['catalogId']}','{stored['valuation_at']}');"+
             f"SELECT risk.submit('{manifest['catalogId']}','{uuid4()}','{stored['context_id']}','{stored['revision_id']}','{stored['valuation_at']}',{literal(stored['request'])},{literal(altered)});",profile='risk')
         malformed=json.loads(raw.splitlines()[-1]);run_worker()
         failed=c.call('portfolio/risk/jobs/'+malformed['jobId'])

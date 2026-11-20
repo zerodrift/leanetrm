@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import {observationScheduleInput,type ObservationInspection,type ObservationOptions,type ObservationRow,type ObservationSchedule,type SamplingChoice} from './swap-observations.js';
 import {displayInstant,publicText} from './market-view.js';
 import {renderRegularTable} from './regular-table.js';
@@ -38,7 +39,7 @@ export function setupSwapObservationControls(options:{prefix:string;enabled:()=>
   for(const input of inputs){input.required=enabled&&!!choice?.requiresQuantityWeights;input.disabled=!enabled||options.busy()||pending||!choice?.requiresQuantityWeights;}
  }
  function reset(){generation++;current=undefined;requestKey='';pending=false;inputs=[];rows=null;retained=undefined;calendar.replaceChildren(new Option('Choose…',''));weights.replaceChildren();status.textContent='';sync();}
- function restore(value:ObservationSchedule|undefined){retained=value?structuredClone(value):undefined;}
+ function restore(value:ObservationSchedule|undefined){retained=value?cloneRead(value):undefined;}
  async function refresh(){
   sync();
   const started=++generation,request=options.request(),scope=JSON.stringify(request);

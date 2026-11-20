@@ -1,20 +1,24 @@
-"""Retained PPA contexts belong to one exact worker attempt, with live service rights."""
+"""PPA workers reconstruct their own inputs and reject unadmitted descendants."""
 import json
 from copy import deepcopy
+from datetime import date,timedelta
 from uuid import uuid4
+from native_read_transport import select_owned_inputs
 
 
 def run_checks(c, query, manifest, request, ppa_trade):
     catalog, tenant, workspace = (manifest[k] for k in ('catalogId', 'tenantId', 'workspaceId'))
     first = c.call('portfolio/risk/jobs', dict(requestId=str(uuid4()), request=request))
     stored = json.loads(query(f"SELECT row_to_json(j) FROM risk.jobs j WHERE id='{first['id']}';"))
+    inputs=select_owned_inputs(catalog,dict(id=stored['context_id'],effective_on=stored['input_business_on'],
+        known_at=stored['input_known_at'],system_id=stored['input_system_id'],timeline=stored['input_timeline']))
     second_frame = deepcopy(stored['frame'])
     second_frame['ppaReadContexts'] = []
     def literal(value):
         return "'" + json.dumps(value).replace("'", "''") + "'::jsonb"
     token = query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
         f"'https://preview.invalid','risk','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',120);")
-    submitted = json.loads(query(f"BEGIN;SET LOCAL SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{token}');"
+    submitted = json.loads(query(f"BEGIN;SET LOCAL SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{token}');"+inputs+
         f"SELECT security.use_market_context('{catalog}','{stored['context_id']}');SELECT security.use_trading_context('{catalog}','{stored['valuation_at']}');"
         f"SELECT risk.submit('{catalog}','{uuid4()}','{stored['context_id']}','{stored['revision_id']}','{stored['valuation_at']}',{literal(stored['request'])},{literal(second_frame)});COMMIT;"))
     def worker(sql):
@@ -26,7 +30,7 @@ def run_checks(c, query, manifest, request, ppa_trade):
     def runtime_bind():
         fresh = query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
             f"'https://preview.invalid','risk','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',120);")
-        return (f"SET SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{fresh}');"
+        return (f"SET SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{fresh}');"+inputs+
                 f"SELECT security.use_market_context('{catalog}','{stored['context_id']}');SELECT security.use_trading_context('{catalog}','{stored['valuation_at']}');")
     worker_bind = f"SET SESSION AUTHORIZATION preview_risk_worker;SELECT risk.bind('{a['jobId']}','{a['leaseToken']}');"
     reference = query(f"SELECT reference_catalog_id FROM trading.ppa_trade_revisions WHERE trade_id='{ppa_trade}' LIMIT 1;")
@@ -56,17 +60,24 @@ def run_checks(c, query, manifest, request, ppa_trade):
         else:
             raise AssertionError('A stale or cancelled worker kept reading PPA risk identities')
     print('PASS PPA risk identities withhold unreadable references and fence revoked, stale and cancelled workers', flush=True)
-    context = json.loads(query(f"SELECT json_build_object('effective',effective_on,'known',known_at) FROM market_data.temporal_contexts WHERE id='{stored['context_id']}';"))
-    capture = f"security.capture_date_context('{catalog}','{context['effective']}','{context['known']}')"
+    context = json.loads(query(f"SELECT json_build_object('effective',input_business_on,'known',input_known_at) FROM risk.jobs WHERE id='{a['jobId']}';"))
+    capture = f"security.resolve_operation_context('{catalog}','{context['effective']}','{context['known']}')"
     admitted = worker(f"BEGIN;SELECT risk.bind('{a['jobId']}','{a['leaseToken']}');SELECT {capture};COMMIT;")
     assert admitted.splitlines()[-1] == stored['context_id'], admitted
-    try:
-        worker(f"BEGIN;SELECT risk.bind('{b['jobId']}','{b['leaseToken']}');SELECT {capture};COMMIT;")
-    except RuntimeError as error:
-        assert 'knowledge_coverage' in str(error), str(error)
-    else:
-        raise AssertionError('One job borrowed the other job\'s admitted PPA contexts.')
-    print('PASS concurrent same-actor/context jobs read only their own admitted interval contexts', flush=True)
+    admitted = worker(f"BEGIN;SELECT risk.bind('{b['jobId']}','{b['leaseToken']}');SELECT {capture};COMMIT;")
+    assert admitted.splitlines()[-1] == stored['context_id'], admitted
+    child_day=(date.fromisoformat(context['effective'])+timedelta(days=1)).isoformat()
+    child_capture=f"security.resolve_operation_context('{catalog}','{child_day}','{context['known']}')"
+    child=query('BEGIN;'+runtime_bind()+f'SELECT {child_capture};ROLLBACK;').splitlines()[-1]
+    assert child!=stored['context_id'] and child not in stored['frame']['ppaReadContexts'] and child not in second_frame['ppaReadContexts']
+    for claim in (a,b):
+        try:
+            worker(f"BEGIN;SELECT risk.bind('{claim['jobId']}','{claim['leaseToken']}');SELECT {child_capture};COMMIT;")
+        except RuntimeError as error:
+            assert 'risk_job_denied' in str(error), str(error)
+        else:
+            raise AssertionError('A worker constructed an interval source outside its own admitted descendants.')
+    print('PASS same-source jobs reconstruct their own roots and each refuses an unadmitted interval descendant', flush=True)
     instrument = query(f"SELECT instrument_id FROM trading.ppa_revision_bindings WHERE trade_id='{ppa_trade}' LIMIT 1;")
     source = manifest['ppa']['series'][manifest['ppa']['assets'][0] + '_60']['forecast']
     terms = f"security.read_ppa_terms('{catalog}','{instrument}')"

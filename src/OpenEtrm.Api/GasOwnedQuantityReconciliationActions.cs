@@ -78,7 +78,7 @@ internal sealed class GasOwnedQuantityReconciliationActions(PreviewDatabase data
         {
             var receipt=await Record(connection,request,body,true,ct);alreadyRecorded=receipt is not null;
             outcome=receipt is {} retained?retained.GetProperty("outcome"):(await Record(connection,request,body,false,ct))!.Value;
-            await using var complete=ScheduleStore.Command(connection,"SET CONSTRAINTS ALL IMMEDIATE");await complete.ExecuteNonQueryAsync(ct);
+            await using var complete=ScheduleStore.Command(connection,"SELECT security.check_operation_seals()");await complete.ExecuteNonQueryAsync(ct);
         }
         finally
         {
@@ -94,6 +94,7 @@ internal sealed class GasOwnedQuantityReconciliationActions(PreviewDatabase data
     public async Task<LifecycleActionWrite> Execute(NpgsqlConnection connection,LifecycleActionRequest request,CancellationToken ct)
     {
         var body=Inputs(request);var admission=await GasOwnedOperations.Admission(connection,database,"owned_quantity_reconciliation",body,false,ct);
+        await GasOwnedOperations.AdmitNewCommandInputs(connection,database,request,admission,ct);
         if(await Record(connection,request,body,true,ct) is {} receipt)return new(receipt.GetProperty("outcome"),admission);
         var context=await LifecycleNative.Source(connection,database,request.Context,ct);
         _=await Source(connection,request,body,context,ct);

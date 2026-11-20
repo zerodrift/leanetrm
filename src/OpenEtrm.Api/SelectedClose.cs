@@ -26,7 +26,7 @@ public static class SelectedClose
     public static Task<ScheduleContext> Capture(NpgsqlConnection connection,PreviewDatabase database,InputFrame frame,CancellationToken ct)=>
         Capture(connection,database.Manifest.CatalogId,frame,ct);
     public static async Task<ScheduleContext> Capture(NpgsqlConnection connection,Guid catalog,InputFrame frame,CancellationToken ct)=>
-        (await new KnowledgeStore(catalog).Capture(connection,new(PreviewSession.BusinessDay(frame).ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),null,"current"),ct)).Context;
+        (await new KnowledgeResolver(catalog).Capture(connection,new(PreviewSession.BusinessDay(frame).ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),null,"current"),ct)).Context;
     // The explicitly selected regional session; every pin still obeys the certified knowledge cutoff.
     public static async Task BindSession(NpgsqlConnection connection,Guid catalog,string session,CancellationToken ct)
     {

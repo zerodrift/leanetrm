@@ -296,6 +296,7 @@ def run_risk_checks(session, run_worker):
     swap_context = {'snapshotId': dec31['id'], 'convention': SWAP_CONVENTION, 'knowledgeMode': 'current'}
     late_held = check_held_targets(c, check, close_context(dec31), swap_context, rows, 'Dec 31, 2020')
     c.call('profile', {'profile': 'risk'})
+    c.select_inputs(late_choices['context'])
     targets = {t['id']: t['factor']['target'] for t in late_held['scenarioTargets']}
     expired = {(r['definitionRevisionId'], r['curve'], r['contractId']) for r in rows if r['instrumentType'] == 'future' and r['unavailableReason'] == 'source_expired'}
     check('the contract of the futures that close cannot value is no held target',
@@ -318,6 +319,7 @@ def run_risk_checks(session, run_worker):
           and financial(completed['result']) == financial(report))
 
     check('the risk catalog at a close that values every position lists none', choices['excludedPositions'] == [])
+    c.select_inputs(early['context'])
     full = c.call('portfolio/risk', request(early_context, ng))
     check('a run at that close lists none and keeps all 25 positions',
           full['excludedPositions'] == [] and full['work']['positionCount'] == 25 and len(early['holdings']) == 25)
@@ -396,11 +398,13 @@ def run_scheduled_checks(session):
     check_money_totals(lambda view: blotter(c, dec31, view)[0], check, rows, 'Dec 31, 2020 with a scheduled swap')
 
     c.call('profile', {'profile': 'risk'})
+    c.select_inputs(early['context'])
     choices = risk_catalog(c, early_context)
     full = c.call('portfolio/risk', risk_request(choices, early_context, ng_factor(choices)))
     check('a risk run at Dec 18, 2020 keeps it at its Blotter value, unmoved by a contract it does not price from',
           full['excludedPositions'] == [] and full['work']['positionCount'] == len(early['holdings'])
           and Fraction(values(full)[key(before)]['base']) == Fraction(before['presentValue']) and Fraction(values(full)[key(before)]['delta']) == 0)
+    c.select_inputs(late['context'])
     report = c.call('portfolio/risk', risk_request(choices, late_context, ng_factor(choices)))
     check('a risk run at Dec 31, 2020 lists it with the Blotter\'s reason among the positions that close cannot value, and runs the rest',
           key(after) in {key(e) for e in report['excludedPositions']} and excluded(report) == unvalued_rows(rows)

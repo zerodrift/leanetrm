@@ -35,7 +35,7 @@ def checks(query, manifest):
         token=query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
             f"'{issuer}','{profile}','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}COMMIT;")
-    def capture():return user(f"SELECT security.capture_date_context('{catalog}','{day}',NULL);")
+    def capture():return user(f"SELECT security.resolve_operation_context('{catalog}','{day}',NULL);")
     def reject(work,code):
         try:work()
         except RuntimeError as error:assert code in str(error),str(error)

@@ -41,7 +41,7 @@ def run_checks(query, manifest, owner, profile, request, dotnet, environment, ow
     def measure(mode, baseline=None):
         body = dict(profile=profile, frame=frame, request=request, planMode=mode)
         if baseline:
-            body.update(context=baseline['context'], expected=baseline['data'])
+            body.update(context=baseline['context'], inputs=baseline['inputs'], expected=baseline['data'])
         fixture.write_text(json.dumps(body))
         result = subprocess.run([str(dotnet), 'run', '--no-restore', '--project', 'tests/OpenEtrm.Api.Checks', '--',
                                  '--gas-billing-read-work', str(fixture)], cwd=repository, env=environment,
@@ -52,9 +52,8 @@ def run_checks(query, manifest, owner, profile, request, dotnet, environment, ow
     modes = ('force_custom_plan', 'force_generic_plan')
 
     def context_rows():
-        return query("SELECT (SELECT count(*) FROM trading.contexts),"
-                     "(SELECT count(*) FROM market_data.market_contexts),"
-                     "(SELECT count(*) FROM market_data.temporal_contexts);")
+        return query("SELECT to_regclass('trading.contexts'),to_regclass('market_data.market_contexts'),"
+                     "to_regclass('market_data.temporal_contexts');")
 
     def grow():
         # Add only unrelated synthetic definition rows, never rewrite a source.
@@ -76,9 +75,8 @@ def run_checks(query, manifest, owner, profile, request, dotnet, environment, ow
         while query("SELECT count(*) FROM pg_stat_activity WHERE backend_type='autovacuum worker' AND datname=current_database();") != '0':
             assert time.monotonic() < deadline, 'Owned table maintenance did not finish'
             time.sleep(.1)
-        # Capturing a view inserts into all three context tables. Seed it before
-        # measuring either mode so later captures cannot enlarge an earlier
-        # baseline's RLS inputs independently of the unrelated curve growth.
+        # Resolve one complete input tuple before comparing plan modes. Each
+        # measurement reconstructs it without creating a saved context store.
         seed = measure(modes[0])
         held_context_rows = context_rows()
         baseline = {mode: measure(mode, seed) for mode in modes}

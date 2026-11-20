@@ -20,7 +20,7 @@ def configured(query, manifest, setup):
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}COMMIT;")
 
     def capture():
-        return call(f"SELECT security.capture_date_context('{catalog}','2026-10-16',NULL);")
+        return call(f"SELECT security.resolve_operation_context('{catalog}','2026-10-16',NULL);")
 
     def settings(context):
         result = json.loads(call(f"SELECT security.use_market_context('{catalog}','{context}');"
@@ -61,9 +61,9 @@ def configured(query, manifest, setup):
     statement = body[start:body.index(';', start)].replace('INTO accounts', '')
     for name, parameter in [('catalog', '$1'), ('prefix', '$2'), ('cut', '$3'), ('as_of', '$4')]:
         statement = re.sub(r'\b' + name + r'\b', lambda _: parameter, statement)
-    context = json.loads(query("SELECT jsonb_build_object('prefix',c.known_through,'cut',t.known_at) "
-                              "FROM trading.contexts c JOIN market_data.temporal_contexts t ON(t.catalog_id,t.id)=(c.catalog_id,c.context_id) "
-                              f"WHERE(c.catalog_id,c.context_id)=('{catalog}','{current}');"))
+    from native_read_transport import captured_input
+    source=captured_input(query,current)
+    context = dict(prefix=source['trading_prefix'],cut=source['known_at'])
 
     def work(node):
         visited = (node['Actual Rows'] + node.get('Rows Removed by Filter', 0)

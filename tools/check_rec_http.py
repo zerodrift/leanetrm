@@ -47,7 +47,7 @@ def run_checks(client, query, manifest):
     assert reopened['request'] == command and len(reopened['sides']) == 2
     value = client.call(route + 'valuation', selected)
     assert fraction(value['valuation']['value']) == -600
-    client.call('market/context/retained', dict(contextId=value['contextId'], selection='latest_correction'))
+    client.call('market/context', dict(effectiveOn='2020-12-15',knownAt=value['knownAt'],mode='at',selection='latest_correction'))
     historical = initial_frame(client.call('workspace'), '2020-12-15')['id']
     retained = deepcopy(selected); retained['context'].update(snapshotId=historical, knowledgeMode='retained', contextId=value['contextId'])
     assert client.call(route + 'valuation', retained) == client.call(route + 'valuation', retained)

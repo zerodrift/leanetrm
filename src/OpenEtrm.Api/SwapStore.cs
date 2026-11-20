@@ -193,7 +193,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
    data=selected[0].Data;frame=selected[0].Frame;
   }
   if(frame.ContextId is not {} contextId)throw Error("swap_context","Pricing requires the retained financial context.");
-  var context=(await new KnowledgeStore(manifest.CatalogId).Read(connection,contextId,ct)).Context;
+  var context=(await new KnowledgeResolver(manifest.CatalogId).Read(connection,contextId,ct)).Context;
   if(retained is not null)body=SideCalendarPolicies.Retain(body,slot=>DefinitionIdentity.For(retained.Sides[slot].Side).Canonical);
   else if(instrumentId is {} published)body=await RetainedTerms(connection,frame,body,published,ct);
   else data=await SideCalendarPolicies.Prepare(connection,data,SideCalendarPolicies.Inputs(body),ct);
@@ -451,7 +451,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
   async Task<SideScheduleSnapshot> Plan(string refusal)
   {
    var program=(await new RetainedScheduleStore(database).LoadPrograms(connection,row.Id("instrument_id"),frame.ContextId,frame.At,ct)).Single(p=>p.Slot==slot);
-   var context=(await new KnowledgeStore(manifest.CatalogId).Read(connection,frame.ContextId!.Value,ct)).Context;
+   var context=(await new KnowledgeResolver(manifest.CatalogId).Read(connection,frame.ContextId!.Value,ct)).Context;
    return SideScheduleSnapshot.Plan(side.SideId,frame.Id,frame.ContextId.Value,$"side_{slot}",program.Program,BookedScheduleSources.Utc,frame.At,SchedulePreview.ParseAt(context.KnownAt),refusal);
   }
   // Binding cash must never be substituted by ordinary reusable Side PV.

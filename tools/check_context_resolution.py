@@ -50,16 +50,34 @@ def main():
         psql = [bins['psql'], '-X', '-h', directory, '-p', '55479', '-U', 'preview_owner', '-d', 'postgres',
                 '-qAt', '-v', 'ON_ERROR_STOP=1', '-v', 'VERBOSITY=verbose']
 
-        def query(sql): return run(psql, input=sql)
+        transport=None
+        def raw_query(sql):return run(psql,input=sql)
+        def query(sql):
+            value=raw_query(transport.prepare(sql) if transport else sql)
+            return transport.receive(value) if transport else value
+        query.raw=raw_query
 
         assert Path(query('SHOW data_directory;')).resolve() == data
         query((ROOT/'db/bootstrap.sql').read_text())
         migrations=sorted((ROOT / 'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql'))
+        if args.upgrade_existing_close:
+            # This qualifier describes the historical in-place close upgrade.
+            # D435 separately refuses that populated state and requires reset.
+            migrations=[m for m in migrations if int(m.name[:4])<376]
         upgrade=[migration for migration in migrations if args.upgrade_existing_close and int(migration.name[:4])>=230]
         for migration in migrations:
             if migration not in upgrade:query(migration.read_text())
         reference, market, security, manifest = fixture(ROOT)
-        for sql in (reference, market, security, trading_fixture(manifest['catalogId'])): query(sql)
+        if not args.upgrade_existing_close:
+            from native_read_transport import NativeReadTransport
+            native_inputs=directory/'native-read-inputs.json'
+            transport=NativeReadTransport(native_inputs);query.read_sources=transport.sources
+            env['OPENETRM_NATIVE_CHECK_INPUTS']=str(native_inputs)
+        query(reference)
+        from seed_fixture_market import load_market
+        security=load_market(query,market,security,manifest)
+        if security.strip():query(security)
+        query(trading_fixture(manifest['catalogId']))
         catalog, rcat, rrev, tenant, workspace = [manifest[k] for k in
             ('catalogId', 'referenceCatalogId', 'referenceRevisionId', 'tenantId', 'workspaceId')]
         query("INSERT INTO security.role_permissions SELECT id,p FROM security.roles CROSS JOIN (VALUES('SealMarketDefinitions'),('WriteMarketDefinitions'),('PublishMarketData'),('RunScenario'),('RunJobs')) x(p) WHERE code='trader' ON CONFLICT DO NOTHING;")
@@ -99,7 +117,8 @@ def main():
             return json.loads(runtime(f"SELECT security.publish_catalogue('{catalog}','{request or uuid4()}',{expect},{literal(body)})::text;"))
         def context(day='2020-12-18',known=None):
             at='NULL' if known is None else "'"+known+"'::timestamptz"
-            return runtime(f"SELECT security.capture_date_context('{catalog}','{day}',{at});")
+            capture='security.capture_date_context' if args.upgrade_existing_close else 'security.resolve_operation_context'
+            return runtime(f"SELECT {capture}('{catalog}','{day}',{at});")
         def read(ctx):
             return json.loads(runtime(f"SELECT security.use_market_context('{catalog}','{ctx}');SELECT security.read_catalogue('{catalog}','{ctx}')::text;"))
         def reject(code, action):
@@ -107,7 +126,12 @@ def main():
             except RuntimeError as error:
                 if code not in str(error):raise
             else:raise AssertionError('Expected '+code)
-        first=publish(definition);old=context();known=query(f"SELECT known_at FROM market_data.temporal_contexts WHERE(catalog_id,id)=('{catalog}','{old}');")
+        first=publish(definition);old=context()
+        if args.upgrade_existing_close:
+            known=query(f"SELECT known_at FROM market_data.temporal_contexts WHERE(catalog_id,id)=('{catalog}','{old}');")
+        else:
+            from native_read_transport import captured_input
+            known=captured_input(query,old)['known_at']
         assert read(old)['id']==first['id']
         # A second sealed source introduces one curve without rewriting any of
         # the first source's terms, contract identities or observations.
@@ -198,7 +222,7 @@ def main():
         earlier_pins=json.loads(query(f"SELECT json_agg(json_build_object('definitionRevisionId',definition_revision_id,'seriesId',series_id,'observationId',id,'inputUse','variable')) FROM market_data.observations WHERE catalog_id='{catalog}' AND id IN({','.join(chr(39)+i+chr(39) for i in earlier_frame['observationIds'])});"))
         earlier_members=[m for m in members if m['definitionRevisionId']==revision]
         earlier_close=runtime(f"SELECT security.register_market_close('{catalog}','{revision}','{uuid4()}','Synthetic earlier source','test_source_inputs','2020-12-17','{earlier_frame['at']}',{literal(earlier_pins)},{literal(earlier_members)});")
-        if args.dotnet:
+        if args.dotnet and not args.upgrade_existing_close:
             frame=next(f for f in manifest['frames'] if f['at'].startswith('2020-12-18'))
             contract=frame['curveContracts']['future'][0]
             parts=json.loads(query(f"SELECT json_build_object('at','{frame['at']}','frozenObservationIds','[]'::json,'observationIds',(SELECT json_agg(id ORDER BY id) FROM market_data.observations WHERE catalog_id='{catalog}' AND definition_revision_id='{additional}' AND observed_at='{frame['at']}'),'curveContracts',json_build_object('additional_future',json_build_array('{contract}')))::text;"))
@@ -255,14 +279,16 @@ def main():
             print('PASS claimed worker reproduces interactive scenario results and held version evidence from the retained multi-source inputs')
         from close_listing_checks import check_listings
         active_close=check_listings(query,runtime,reject,literal,manifest,close,first_close_request,pins,members)
-        if args.dotnet:
+        if args.dotnet and not args.upgrade_existing_close:
             token=query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
                         f"'https://preview.invalid','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',120);")
             listing_check=directory/'listings.json'
             listing_check.write_text(json.dumps(dict(connection=f'Host={directory};Port=55479;Database=postgres;Username=preview_runtime;Pooling=false',
                                                     token=token,catalog=catalog,retired=close,active=active_close)))
             print(run([args.dotnet,'run','--project','tests/OpenEtrm.Api.Checks','--','--close-listings',listing_check]))
-        reject('permission denied',lambda:runtime(f"SELECT security.capture_pre_catalogue_context('{catalog}','2020-12-18',NULL);"))
+        if args.upgrade_existing_close:
+            reject('permission denied',lambda:runtime(f"SELECT security.capture_pre_catalogue_context('{catalog}','2020-12-18',NULL);"))
+        else:assert query("SELECT to_regprocedure('security.capture_pre_catalogue_context(uuid,date,timestamptz)') IS NULL;")=='t'
         query(f"DELETE FROM security.reference_catalog_scopes WHERE catalog_id='{rcat}';")
         reject('catalogue_denied',lambda:publish(after,first['id'],request))
         reject('catalogue_source',lambda:publish(after,first['id']))

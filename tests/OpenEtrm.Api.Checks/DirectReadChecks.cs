@@ -176,16 +176,13 @@ internal static class DirectReadChecks
                 foreach(var frame in view.Frames)frames.Add(await RecordedFrame(c,frame,ct));
                 return frames.ToImmutable();
             });
-        // A request binds a market context at most once, so a second bind shows whether the read bound one.
-        // Reads bind their view's context unless they say otherwise.
+        // Observe the native write-context fence without trying to register a
+        // newer probe source beneath an already bound historical parent.
         Task<T> Direct<T>(View view,string name,Func<NpgsqlConnection,CancellationToken,Task<T>> read,bool? binds=null)=>Read(async(c,ct)=>
         {
             var value=await read(c,ct);
-            await Execute(c,"SAVEPOINT bind_probe",ct);
-            var bound=false;
-            try{await MarketContextStore.Bind(c,database.Manifest.CatalogId,historical.Context!,ct);}
-            catch(PostgresException e) when(e.SqlState=="42501"&&e.MessageText.Contains("exactly once",StringComparison.Ordinal))
-            {bound=true;await Execute(c,"ROLLBACK TO SAVEPOINT bind_probe",ct);}
+            await using var probe=ScheduleStore.Command(c,"SELECT NOT security.current_write_context()");
+            var bound=Equals(await probe.ExecuteScalarAsync(ct),true);
             if(bound!=(binds??view.Context is not null))throw new Exception($"{view.Name} {name} did not bind exactly its pin.");
             return value;
         });
@@ -260,7 +257,7 @@ internal static class DirectReadChecks
         // A party read binds exactly its view's cutoff: one known just before the parties were published lists none of them.
         var cutoff=working.Page("parties")["legal_entity"]!["context"].Deserialize<ScheduleContext>(Json)!;
         var first=working.Page("parties")["legal_entity"]!["versions"]!.AsArray().Min(v=>SchedulePreview.ParseAt(v!["knownAt"]!.GetValue<string>()));
-        var unpublished=(await Read((c,ct)=>new KnowledgeStore(database.Manifest.CatalogId).Capture(c,new(cutoff.EffectiveOn,first.AddTicks(-10).ToString("O",CultureInfo.InvariantCulture),"at"),ct))).Context;
+        var unpublished=(await Read((c,ct)=>new KnowledgeResolver(database.Manifest.CatalogId).Capture(c,new(cutoff.EffectiveOn,first.AddTicks(-10).ToString("O",CultureInfo.InvariantCulture),"at"),ct))).Context;
         if((await Read((c,ct)=>parties.Catalog(c,new(working.Selected,unpublished,false),"legal_entity",ct))).Versions.GetArrayLength()!=0)
             throw new Exception("A party read must bind exactly its view's cutoff.");
         Console.WriteLine("PASS a party read binds exactly its view's cutoff");
@@ -275,7 +272,7 @@ internal static class DirectReadChecks
         Console.WriteLine("PASS party editing follows its permission, on freshly captured working data only");
         await Rejects("snapshot_missing","a trading view refuses a missing frame",()=>Task.FromResult(new TradingView(null,cutoff,true)));
         await Rejects("snapshot_missing","a historical trading view refuses a frame of another view",()=>Task.FromResult(TradingView.Retained(working.Selected,historical.Context!)));
-        await Rejects("snapshot_missing","a captured trading view refuses a retained frame",()=>Read((c,ct)=>TradingView.Capture(c,new KnowledgeStore(database.Manifest.CatalogId),historical.Selected,ct)));
+        await Rejects("snapshot_missing","a captured trading view refuses a retained frame",()=>Read((c,ct)=>TradingView.Capture(c,new KnowledgeResolver(database.Manifest.CatalogId),historical.Selected,ct)));
         await Rejects("temporal_context","a trading view refuses a cutoff without its publication prefix",()=>Task.FromResult(new TradingView(working.Selected,cutoff with{KnownThrough=null},true)));
         await Rejects("temporal_context","a trading view binds only its stored context's coordinates",()=>Read((c,ct)=>parties.Catalog(c,new(working.Selected,cutoff with{KnownThrough=cutoff.KnownThrough+1},true),"legal_entity",ct)));
         // Trade reads as a trader, who may read trades: the workspace under the page's own fresh
@@ -315,7 +312,7 @@ internal static class DirectReadChecks
         Same("futures trade detail matches its page",await AsTrader((c,ct)=>tradeReads.FuturesTrade(c,again,recorded.GetProperty("trade").GetProperty("request").GetProperty("tradeId").GetGuid(),null,ct)),
             Unadorned(Recorded("trade","response"),again));
         // A trade read binds exactly its view's cutoff: one known just before the parties were published lists none of the page's holdings.
-        var unbooked=(await AsTrader((c,ct)=>new KnowledgeStore(database.Manifest.CatalogId).Capture(c,new(traded.EffectiveOn,first.AddTicks(-10).ToString("O",CultureInfo.InvariantCulture),"at"),ct))).Context;
+        var unbooked=(await AsTrader((c,ct)=>new KnowledgeResolver(database.Manifest.CatalogId).Capture(c,new(traded.EffectiveOn,first.AddTicks(-10).ToString("O",CultureInfo.InvariantCulture),"at"),ct))).Context;
         // The recorded close was published after this cutoff. A deliberately
         // assembled working input selection makes no claim that the close existed.
         var earlierInputs=at with{OriginCloseId=null,Close=null};
@@ -339,7 +336,7 @@ internal static class DirectReadChecks
         var latest=head.Versions.Where(v=>v.State=="published").MaxBy(v=>v.PublicationOrder);
         if(latest is null||!head.Versions.Any(v=>v.State=="published"&&v.PublicationOrder<latest.PublicationOrder&&v.EffectiveFrom<=latest.EffectiveFrom&&latest.EffectiveFrom<v.EffectiveTo))
             throw new Exception("The fixture needs an earlier publication in force on the latest publication's first day.");
-        var before=(await Read((c,ct)=>new KnowledgeStore(database.Manifest.CatalogId).Capture(c,new(latest.EffectiveFrom.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),
+        var before=(await Read((c,ct)=>new KnowledgeResolver(database.Manifest.CatalogId).Capture(c,new(latest.EffectiveFrom.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),
             latest.PublishedAt!.Value.AddTicks(-10).ToString("O",CultureInfo.InvariantCulture),"at"),ct))).Context;
         var past=await Read((c,ct)=>schedules.Library(c,PinnedContext.Retained(before),ct));
         if(past.KnownThrough!=before.KnownThrough||past.KnownThrough>=head.KnownThrough||past.Versions.IsEmpty||past.Versions.Any(v=>v.State!="published"

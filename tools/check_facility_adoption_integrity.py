@@ -20,7 +20,7 @@ def check(query, manifest, ledger, plan):
       GRANT EXECUTE ON FUNCTION security.synthetic_incomplete_adoption(uuid,uuid,uuid) TO openetrm_runtime;""")
     before=query(f"SELECT count(*) FROM trading.facility_quantity_adoptions WHERE catalog_id='{catalog}';")
     try:
-        runtime_query(query,manifest,f"SELECT security.capture_date_context('{catalog}','2021-01-15',NULL);SELECT security.synthetic_incomplete_adoption('{catalog}','{ledger}','{plan}');")
+        runtime_query(query,manifest,f"SELECT security.resolve_operation_context('{catalog}','2021-01-15',NULL);SELECT security.synthetic_incomplete_adoption('{catalog}','{ledger}','{plan}');")
     except RuntimeError as error:
         assert 'facility_quantity_target' in str(error), str(error)
     else:

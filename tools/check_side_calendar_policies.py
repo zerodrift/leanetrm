@@ -39,12 +39,13 @@ def run_checks(query, manifest):
     def runtime(statement):
         token = query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','trader','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{statement} COMMIT;")
-    before_contexts=query(f"SELECT count(*) FROM market_data.temporal_contexts WHERE catalog_id='{catalog}';")
+    no_contexts="SELECT to_regclass('market_data.temporal_contexts') IS NULL;"
+    assert query(no_contexts)=='t'
     before_clock=query(f"SELECT coalesce(coverage_from::text,'NULL'),coalesce(certified_through::text,'NULL') FROM market_data.knowledge_clocks WHERE catalog_id='{catalog}';")
     assert query(f"SELECT count(*) FROM market_data.market_knowledge_receipts WHERE catalog_id='{catalog}';")=='0', 'The first exact read must certify a cold publication.'
     first_read=json.loads(runtime(f"SELECT security.read_side_calendar('{reference}','{revision}','test_utc_every_day');"))
     assert first_read['reference']['revisionId']==revision
-    assert query(f"SELECT count(*) FROM market_data.temporal_contexts WHERE catalog_id='{catalog}';")==before_contexts
+    assert query(no_contexts)=='t'
     assert query(f"SELECT coalesce(coverage_from::text,'NULL'),coalesce(certified_through::text,'NULL') FROM market_data.knowledge_clocks WHERE catalog_id='{catalog}';")==before_clock
     assert query("SELECT to_regprocedure('security.side_payment_date(jsonb,date,date,jsonb)') IS NOT NULL;") == 't', \
         'Native payment dates must consume the explicit Side payment binding.'
@@ -99,13 +100,13 @@ def run_checks(query, manifest):
         assert query(f"SELECT count(*) FROM market_data.market_knowledge_receipts WHERE catalog_id='{source_catalog}';")=='0'
         return source_catalog,selected_revision
     cold_catalog,cold_revision=cold_source('synthetic_cold_calendar')
-    pricing_context=runtime(f"SELECT security.capture_date_context('{catalog}','2021-01-01',NULL);")
+    pricing_context=runtime(f"SELECT security.resolve_operation_context('{catalog}','2021-01-01',NULL);")
     frozen=f"SELECT security.use_market_context('{catalog}','{pricing_context}');"
     cold_read=json.loads(runtime(frozen+f"SELECT security.read_side_calendar('{reference}','{cold_revision}','synthetic_days');"))
     assert cold_read['publication']['CatalogId']==cold_catalog, 'An independent authorized source committed before the cutoff must work on its first read.'
     late_catalog,late_revision=cold_source('synthetic_late_calendar')
     rejected(frozen+f"SELECT security.read_side_calendar('{reference}','{late_revision}','synthetic_days');",'calendar_reference')
-    assert query(f"SELECT count(*) FROM market_data.temporal_contexts WHERE catalog_id IN('{cold_catalog}','{late_catalog}');")=='0'
+    assert query(no_contexts)=='t'
     # Admission can wait behind publication. Current authority must still exist
     # after that wait, and failed certification must not leave a receipt.
     from threading import Thread
@@ -140,7 +141,7 @@ def run_checks(query, manifest):
         if reader is not None:reader.join(8)
         holder.join(8)
         query(';'.join(f"UPDATE security.role_grants SET granted_to='{g['until']}' WHERE id='{g['id']}'" for g in grants)+';')
-    early_context = runtime(f"SELECT security.capture_date_context('{catalog}','2021-01-01',NULL);")
+    early_context = runtime(f"SELECT security.resolve_operation_context('{catalog}','2021-01-01',NULL);")
     independent_revision, independent_source = str(uuid4()), str(uuid4())
     query(f"""
         BEGIN;
@@ -168,7 +169,7 @@ def run_checks(query, manifest):
         UPDATE market_data.revisions SET state='sealed' WHERE(catalog_id,id)=('{catalog}','{independent_source}');
         COMMIT;
     """)
-    later_context = runtime(f"SELECT security.capture_date_context('{catalog}','2021-01-01',NULL);")
+    later_context = runtime(f"SELECT security.resolve_operation_context('{catalog}','2021-01-01',NULL);")
     later = f"SELECT security.use_market_context('{catalog}','{later_context}');"
     assert runtime(later+f"SELECT security.reference_version_visible('{reference}','{independent_revision}');") == 'f', \
         'The exact-calendar reader must not broaden general pricing-reference visibility.'

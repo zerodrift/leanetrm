@@ -24,13 +24,13 @@ def run_checks(query, manifest, psql, environment):
         return f"DO $$ BEGIN {sql} RAISE EXCEPTION 'Expected rejection'; EXCEPTION WHEN SQLSTATE '{code}' THEN {guard} END $$;"
     def bind(context, at):
         return f"SELECT security.use_market_context('{catalog}','{context}'); SELECT security.use_trading_context('{catalog}','{at}');"
-    context = query(runtime(f"SELECT security.capture_date_context('{catalog}','2020-12-18',NULL);"))
+    context = query(runtime(f"SELECT security.resolve_operation_context('{catalog}','2020-12-18',NULL);"))
     count = query(f"SELECT count(*) FROM trading.trades WHERE catalog_id='{catalog}';")
-    check('every futures storage table forces RLS', query("SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='trading' AND c.relname IN('publications','knowledge_receipts','contexts','portfolios','books','futures_sides','instruments','instrument_sides','trades','trade_instruments','trade_revisions','trade_references','instrument_references','futures_contract_references','futures_revision_markets') AND c.relkind='r' AND c.relrowsecurity AND c.relforcerowsecurity;") == '15')
+    check('every futures storage table forces RLS', query("SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='trading' AND c.relname IN('publications','knowledge_receipts','portfolios','books','futures_sides','instruments','instrument_sides','trades','trade_instruments','trade_revisions','trade_references','instrument_references','futures_contract_references','futures_revision_markets') AND c.relkind='r' AND c.relrowsecurity AND c.relforcerowsecurity;") == '14')
     check('unbound trading reads cannot fall back to current state', query(runtime('SELECT count(*) FROM trading.trades; SELECT count(*) FROM trading.books;')) == '0\n0')
     check('same-day later executions are absent before their exact instant', query(runtime(bind(context, '2020-12-18T15:59:59Z')+'SELECT count(*) FROM trading.trades; SELECT count(*) FROM trading.trade_instruments;')) == '0\n0')
     check('exact execution instant includes the committed obligations', query(runtime(bind(context, '2020-12-18T16:00:00Z')+'SELECT count(*) FROM trading.trades;')) == count)
-    for table in ['publications', 'knowledge_receipts', 'contexts', 'portfolios', 'books', 'futures_sides', 'instruments', 'instrument_sides', 'trades', 'trade_instruments', 'trade_revisions', 'trade_references', 'instrument_references','futures_contract_references','futures_revision_markets']:
+    for table in ['publications', 'knowledge_receipts', 'portfolios', 'books', 'futures_sides', 'instruments', 'instrument_sides', 'trades', 'trade_instruments', 'trade_revisions', 'trade_references', 'instrument_references','futures_contract_references','futures_revision_markets']:
         query(runtime(reject(f'INSERT INTO trading.{table} SELECT * FROM trading.{table} WHERE false;', '42501')))
         check('runtime has no direct write path to '+table)
         check('immutable storage guard exists in '+table, query(f"SELECT count(*) FROM pg_trigger WHERE tgrelid='trading.{table}'::regclass AND tgname='immutable_record';")=='1')
@@ -38,18 +38,17 @@ def run_checks(query, manifest, psql, environment):
             query('BEGIN; '+reject(f'UPDATE trading.{table} SET catalog_id=catalog_id;', '55000')+' ROLLBACK;')
     # Setup and close-session publications can precede the first trade. Select
     # a certified prefix before that trade rather than a fixed publication number.
-    old = query(f"SELECT x.context_id FROM trading.contexts x JOIN market_data.temporal_contexts t ON(t.catalog_id,t.id)=(x.catalog_id,x.context_id) "
-                f"WHERE x.catalog_id='{catalog}' AND x.known_through<(SELECT min(publication_order) FROM trading.trade_revisions WHERE catalog_id='{catalog}') "
-                "AND t.effective_on='2020-12-18' ORDER BY t.known_at LIMIT 1;")
+    before_trade=query(f"SELECT min(k.known_from)-interval '1 microsecond' FROM trading.trade_revisions r "
+        "JOIN trading.knowledge_receipts k ON(k.catalog_id,k.publication_order)=(r.catalog_id,r.publication_order) "
+        f"WHERE r.catalog_id='{catalog}';")
+    old=query(runtime(f"SELECT security.resolve_operation_context('{catalog}','2020-12-18','{before_trade}');"))
     check('prior certified knowledge excludes later backdated executions at the same business instant', bool(old) and query(runtime(bind(old, '2020-12-18T16:00:00Z')+'SELECT count(*) FROM trading.trades;')) == '0')
-    missing = query(f"BEGIN; SELECT security.use_context('{issue(login='preview_owner')}'); SELECT security.capture_market_and_schedule_context('{catalog}','2020-12-18',NULL); COMMIT;")
-    query(runtime(f"SELECT security.use_market_context('{catalog}','{missing}');"+reject(f"PERFORM security.use_trading_context('{catalog}','2020-12-18T16:00:00Z');", 'P0001', 'knowledge_coverage')))
-    check('a context without a trading certificate is explicitly unavailable')
-    cutoff = query(f"SELECT known_at::text FROM market_data.temporal_contexts WHERE catalog_id='{catalog}' AND id='{missing}';")
-    query(runtime(reject(f"PERFORM security.capture_date_context('{catalog}','2020-12-18','{cutoff}');", 'P0001', 'knowledge_coverage')))
-    check('recapturing cannot silently qualify an older context missing trading history')
-    query(runtime(reject(f"PERFORM security.capture_market_and_schedule_context('{catalog}','2020-12-18',NULL);", '42501')))
-    check('runtime cannot bypass trading certification through the underlying capture')
+    from native_read_transport import captured_input
+    exact=captured_input(query,context)
+    query(runtime(reject(f"PERFORM security.register_read_source('{catalog}','{context}','2020-12-18',"
+        f"'{exact['known_at']}',{exact['schedule_prefix']+1},'{exact['system_id']}',{exact['timeline']});",'P0001','temporal_context')))
+    check('a runtime cannot manufacture an inconsistent certified publication prefix')
+    check('partial market/schedule capture is absent',query("SELECT to_regprocedure('security.capture_market_and_schedule_context(uuid,date,timestamptz)') IS NULL;")=='t')
     query(runtime(reject(f"PERFORM security.use_trading_context('{catalog}','2020-12-18T16:00:00Z');", 'P0001', 'knowledge_coverage')))
     check('trading requires an explicit common market context')
     query(runtime(f"SELECT security.use_market_context('{catalog}','{context}');"+reject(f"PERFORM security.use_trading_context('{catalog}','2020-12-17T16:00:00Z');", 'P0001', 'knowledge_coverage')))
@@ -110,14 +109,17 @@ ROLLBACK;""")
         operation = str(uuid4())
         publisher = connect(runtime(booking(operation=operation).replace('PERFORM','SELECT',1)).rsplit(' COMMIT;',1)[0], 'futures_uncommitted_booking')
         cutoff = query('SELECT clock_timestamp()::text;')
-        capture = waiter(runtime(f"SELECT security.capture_date_context('{catalog}','2020-12-18','{cutoff}');"), 'futures_capture_waiter')
+        capture_sql=(f"DO $$BEGIN PERFORM security.resolve_operation_context('{catalog}','2020-12-18','{cutoff}');END$$;"
+            "SELECT row_to_json(s) FROM security.operation_read_inputs s;SELECT security.finish_operation_read();")
+        capture = waiter(runtime(capture_sql), 'futures_capture_waiter')
         check('historical capture waits for the in-flight booking commit gate', capture.poll() is None)
         finish(publisher)
         output, error = capture.communicate(timeout=10)
         assert capture.returncode == 0, error
-        earlier = str(UUID(output.strip()))
+        source=json.loads(output.strip())
+        earlier=str(UUID(source['id']));query.read_sources[earlier]=source
         check('a booking committed after the requested cutoff is absent from that certified view', query(runtime(bind(earlier,'2020-12-18T16:00:00Z')+f"SELECT count(*) FROM trading.trades WHERE operation_id='{operation}';")) == '0')
-        later = query(runtime(f"SELECT security.capture_date_context('{catalog}','2020-12-18',NULL);"))
+        later = query(runtime(f"SELECT security.resolve_operation_context('{catalog}','2020-12-18',NULL);"))
         check('a later certified cutoff includes the same committed booking', query(runtime(bind(later,'2020-12-18T16:00:00Z')+f"SELECT count(*) FROM trading.trades WHERE operation_id='{operation}';")) == '1')
         before = query(f"SELECT count(*) FROM trading.publications WHERE catalog_id='{catalog}';")
         locker = connect('BEGIN; SELECT pg_advisory_xact_lock(730849102);', 'futures_expiry_lock')

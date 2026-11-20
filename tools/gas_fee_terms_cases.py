@@ -41,7 +41,7 @@ def amendments(query,call,capture,record,read,manifest,fee,zero,at):
     assert Decimal(source['currentPaid'])==Decimal('-.5')
     print('PASS fixed loan fee amendment: explicit gross reversal and revised due cash, unchanged original and bank, one publication and first outcomes',flush=True)
     zero_charge=json.loads(call(command({**body,'expectedRevision':2,'amount':'0','dueAt':None,
-        'effectiveAt':'2020-12-20T15:40:00Z'},str(uuid4()),capture())+'SET CONSTRAINTS ALL IMMEDIATE;',rollback=True))
+        'effectiveAt':'2020-12-20T15:40:00Z'},str(uuid4()),capture())+'SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;',rollback=True))
     assert zero_charge['changed'] and zero_charge['currentRevision']==3 and Decimal(zero_charge['currentAmount'])==0
     assert [(c['kind'],Decimal(c['amount']),c['dueAt'][:10]) for c in zero_charge['cashChanges']]==[
         ('reverse_prior_fee',Decimal('2.4'),'2020-12-22')]

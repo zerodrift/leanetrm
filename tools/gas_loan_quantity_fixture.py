@@ -26,7 +26,7 @@ def configure(query,manifest,*,form_source_counterexamples=True):
         token=query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
             f"'{issuer}','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}"+('ROLLBACK;' if rollback else 'COMMIT;'))
-    def capture():return call(f"SELECT security.capture_date_context('{catalog}','2020-12-20',NULL);")
+    def capture():return call(f"SELECT security.resolve_operation_context('{catalog}','2020-12-20',NULL);")
     account=str(uuid4())
     def record(action,body,policy=None):
         return json.loads(call(f"SELECT security.record_gas_owned('{catalog}','{uuid4()}','{action}','{account}',{literal(body)},'{at}','{capture()}',"
@@ -138,10 +138,17 @@ def configure(query,manifest,*,form_source_counterexamples=True):
     selected=correction|dict(expectedRevision=3,stockExpectedRevision=3,returnExpectedRevision=3,quantity='0.375',
         titleEvidenceId=title_managed,agreementEvidenceId=agreement_managed)
     host=query('SHOW unix_socket_directories;');path=Path(host)/'gas-loan-correction.json'
-    path.write_text(json.dumps(dict(manifest=manifest,host=host,at=at,contextId=capture(),operationId=str(uuid4()),
-        accountId=account,loanId=loan['id'],policyId=policy,selection=selected,expectedQuantity='0.375')))
+    managed=dict(manifest=manifest,host=host,at=at,contextId=capture(),operationId=str(uuid4()),
+        accountId=account,loanId=loan['id'],policyId=policy,selection=selected,expectedQuantity='0.375')
+    path.write_text(json.dumps(managed))
     subprocess.run([os.environ.get('DOTNET','dotnet'),'run','--project','tests/OpenEtrm.Api.Checks','--no-build','--no-restore','--',
         '--gas-loan-correction',str(path)],check=True,cwd=Path(__file__).resolve().parents[1])
+    from native_read_transport import captured_input
+    admitted=captured_input(query,managed['contextId'])
+    assert query(f"SELECT count(*)=2 AND bool_and((source_business_on,source_known_at,source_system_id,source_timeline)="
+        f"('{admitted['effective_on']}'::date,'{admitted['known_at']}'::timestamptz,'{admitted['system_id']}',{admitted['timeline']})) "
+        f"FROM trading.gas_loan_quantity_corrections WHERE(catalog_id,loan_id,source_context_id)=('{catalog}','{loan['id']}','{managed['contextId']}');")=='t', \
+        'Only the first managed correction and its proved acknowledgement may own complete original inputs; failed or retried calls add no row.'
     current_context=capture()
     source=json.loads(call(f"SELECT security.use_market_context('{catalog}','{current_context}');SELECT security.use_trading_context('{catalog}','{at}');"
         f"SELECT security.read_gas_loan_reconciliation('{catalog}','{loan['id']}','{current_context}','{at}')::text;"))

@@ -113,7 +113,7 @@ internal sealed class AssistantWorkspace(PreviewDatabase database,string scope,s
         type=Nullable.GetUnderlyingType(type)??type;
         if(type==typeof(ScheduleContext)&&certificate is not null)
         {
-            if(value.Deserialize<ScheduleContext>(JsonSerializerOptions.Web)!=certificate)throw new ToolRefusal("operation_context_mismatch");
+            if(!certificate.HasSameCoordinates(value.Deserialize<ScheduleContext>(JsonSerializerOptions.Web)))throw new ToolRefusal("operation_context_mismatch");
             return;
         }
         if(type==typeof(JsonElement)||type==typeof(JsonNode)||type.IsPrimitive||type==typeof(string)||type==typeof(Guid)||type==typeof(DateOnly)||type==typeof(DateTimeOffset)||type.IsEnum)return;
@@ -154,7 +154,7 @@ internal sealed class AssistantWorkspace(PreviewDatabase database,string scope,s
         if(turn.Pin.Operational||!turn.Pin.Resolved)return null;
         var owner=await Reader(turn,ct);
         return await AsOwner(owner,()=>database.WithIdentity(owner.Profile,"ReadMarketData",async(connection,t)=>
-            turn.Pin.Exact((await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,turn.Pin.ContextId,t)).Context),ct),
+            await turn.Context(connection,database.Manifest.CatalogId,t),ct),
             new AssistantInvocation(owner.Session){ReadLimit=turn.ReadLimit});
     }
 
@@ -297,7 +297,11 @@ internal sealed class AssistantWorkspace(PreviewDatabase database,string scope,s
         if(turn.Pin.Frame is {} frame)session.Frames.Add(frame.Id,operation.CurrentOnly?frame:frame with{ContextId=turn.Pin.ContextId});
         if(!operation.CurrentOnly)
             session.MarketContext=certificate;
-        var invocation=new AssistantInvocation(session){ReadLimit=turn.ReadLimit,CapturedWorkingRead=turn.Pin.Working};
+        // Certificate selection and endpoint work use separate transactions.
+        // Reconstruct the fenced turn's inputs in the actual business operation.
+        var invocation=new AssistantInvocation(session,operation.NeedsFinancialContext?
+            (connection,t)=>turn.Context(connection,database.Manifest.CatalogId,t):null)
+            {ReadLimit=turn.ReadLimit,CapturedWorkingRead=turn.Pin.Working};
         var value=await Invoke(owner,invocation,operation,request,ct);
         return(new(){["operation"]=id,["data"]=value,["knowledge"]=operation.CurrentOnly?"current_operations_or_definitions":"pinned",
             ["cutoff"]=turn.Pin.Resolved?turn.Pin.Cutoff.ToString("O",CultureInfo.InvariantCulture):null,["selectedObservationCutoff"]=selectedCutoff?.ToString("O",CultureInfo.InvariantCulture)},[..invocation.Access]);
@@ -309,7 +313,7 @@ internal sealed class AssistantWorkspace(PreviewDatabase database,string scope,s
         if(certificate is null||request.Body?["context"] is not JsonObject context||
             context["effectiveOn"]?.GetValue<string>()!=certificate.EffectiveOn||
             context["knowledgeMode"]?.GetValue<string>()!=(command?"current":"retained")||
-            (command?context["retained"] is not null:context["retained"]?.Deserialize<ScheduleContext>(JsonSerializerOptions.Web)!=certificate))
+            (command?context["retained"] is not null:!certificate.HasSameCoordinates(context["retained"]?.Deserialize<ScheduleContext>(JsonSerializerOptions.Web))))
             throw new ToolRefusal("operation_context_mismatch");
     }
 
@@ -370,7 +374,8 @@ internal sealed class AssistantWorkspace(PreviewDatabase database,string scope,s
         var held=await Permissions(owner,turn.ReadLimit,ct);
         if(!operation.Permissions.All(held.Contains))throw new PreviewDeniedException();
         if(operation.NeedsFinancialContext)await turn.EnsureContext(ct);
-        var invocation=new AssistantInvocation(owner.Session){ReadLimit=turn.ReadLimit};
+        var invocation=new AssistantInvocation(owner.Session,operation.NeedsFinancialContext?
+            (connection,t)=>turn.Context(connection,database.Manifest.CatalogId,t):null){ReadLimit=turn.ReadLimit};
         var value=await AsOwner(owner,()=>database.WithIdentity(owner.Profile,AssistantOperations.Permission,read,ct),invocation);
         return(value,[..invocation.Access]);
     }

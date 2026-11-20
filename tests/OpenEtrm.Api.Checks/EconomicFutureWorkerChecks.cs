@@ -19,7 +19,7 @@ internal static class EconomicFutureWorkerChecks
         await using var database=new PreviewDatabase(manifest,new NpgsqlConnectionStringBuilder(login.ConnectionString){Username="preview_authenticator"},login);
         await database.WithIdentity("trader",null,async(connection,ct)=>
         {
-            var context=(await new KnowledgeStore(manifest.CatalogId).Read(connection,fixture.Id("contextId"),ct)).Context;
+            var context=(await new KnowledgeResolver(manifest.CatalogId).Read(connection,fixture.Id("contextId"),ct)).Context;
             var frame=new InputFrame(fixture.TryGetProperty("snapshotId",out var selectedSnapshot)?selectedSnapshot.GetGuid():Guid.NewGuid(),"Synthetic economic futures source",fixture.Instant("at"),PublishedSchedules.ContextDate(context),
                 [..fixture.GetProperty("pins").EnumerateArray().Select(v=>v.GetGuid())],
                 ImmutableDictionary<string,ImmutableArray<Guid>>.Empty.Add("future",[fixture.Id("contractId")]),context.ContextId);

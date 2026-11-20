@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import {contractDateEvidence} from './payment-date.js';
 import {ppaSideLabel,ppaSideName,ppaMeasureLabel,ppaRoundingLabel,ppaPendingActualsLabel,quantityChoices} from './ppa-side-label.js';
 import {latestFrame,frameAt} from './context-defaults.js';
@@ -114,7 +115,7 @@ export function setupPpa(options:Options){
  function quantity():Quantity{const kind=value('ppa-quantity-kind');const assets=selected('ppa-assets');if(kind!=='profile'&&!assets.length)throw Error('Select every normalization asset explicitly.');const q:Quantity={kind,sources:[],stage:null,capacity:null,energy:null,hours:null,slots:[],assets:[]};
   if(kind==='volume'){q.sources=selected('ppa-sources');if(!q.sources.length)throw Error('Select volume sources for every asset.');q.stage=value('ppa-stage');}
   else if(kind==='profile'){const membership=value('ppa-hours'),tou=membership==='all'?null:JSON.parse(value('ppa-tou'));q.capacity=value('ppa-profile-capacity');q.energy=value('ppa-profile-energy');q.hours={membership,calendar:'',touProduct:tou?.[0]??null,touVersion:tou?.[1]??null};}
-  else if(kind==='accredited')q.assets=assets;else throw Error('Choose a catalog quantity source.');const retained=amending?amendTerms?.memberships.find(m=>m.side.quantity.hourlyProfile)?.side.quantity.hourlyProfile:undefined;if(kind==='profile'&&retained)q.hourlyProfile=structuredClone(retained);return q;
+  else if(kind==='accredited')q.assets=assets;else throw Error('Choose a catalog quantity source.');const retained=amending?amendTerms?.memberships.find(m=>m.side.quantity.hourlyProfile)?.side.quantity.hourlyProfile:undefined;if(kind==='profile'&&retained)q.hourlyProfile=cloneRead(retained);return q;
  }
  function terms():Terms{
   const c=catalog!,q=composed()?undefined:quantity(),discount=value('ppa-discount'),{snapshotId,...selectedRevisions}=pin();

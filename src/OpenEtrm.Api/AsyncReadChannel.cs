@@ -12,7 +12,7 @@ namespace OpenEtrm.Api;
 internal sealed record AsyncReadError(string Code,string Message);
 internal sealed record AsyncReadFailure(string Operation,Guid RequestId,string ExceptionType,string? Method,string? SqlState);
 internal sealed record AsyncReadCompletion(AsyncReadRequest Request,ReadPlan Plan,string State,ReadOnlyMemory<byte>? Result,AsyncReadError? Error,
-    Func<NpgsqlConnection,CancellationToken,Task>? Recheck=null);
+    Func<NpgsqlConnection,CancellationToken,Task>? Recheck=null,IReadOnlyDictionary<Guid,string>? ReadReferences=null);
 
 // Ephemeral reads for the workbench. This channel retains request hashes,
 // never durable outcomes, and owns every worker until cancellation and completion.
@@ -102,7 +102,7 @@ internal sealed class AsyncReadChannel:IAsyncDisposable
             }
             pending.Cancellation.Token.ThrowIfCancellationRequested();
             // The completion owns this buffer until publication or channel disposal.
-            completion=new(request,plan,"completed",output.Written,null,outcome.Recheck);
+            completion=new(request,plan,"completed",output.Written,null,outcome.Recheck,outcome.ReadReferences);
         }
         catch(OperationCanceledException){completion=new(request,plan,"cancelled",null,new("request_cancelled","The read was cancelled or exceeded its time limit."));}
         catch(Exception e)

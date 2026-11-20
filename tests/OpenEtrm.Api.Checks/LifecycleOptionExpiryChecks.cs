@@ -17,7 +17,7 @@ internal static class LifecycleOptionExpiryChecks
         await using var database=new PreviewDatabase(manifest,new NpgsqlConnectionStringBuilder(login.ConnectionString){Username="preview_authenticator"},login);
         await database.WithIdentity("trader",null,async(connection,ct)=>
         {
-            var source=(await new KnowledgeStore(manifest.CatalogId).Read(connection,f.Id("contextId"),ct)).Context;
+            var source=(await new KnowledgeResolver(manifest.CatalogId).Read(connection,f.Id("contextId"),ct)).Context;
             var at=f.GetProperty("at").GetDateTimeOffset();
             await TradingContext.AdmitSource(database,connection,source,at,ct);
             await PinnedContext.BindExact(connection,manifest.CatalogId,source,ct);

@@ -1,5 +1,6 @@
 """The managed scope boundary cannot recapture Gas authority after a base wait."""
 import json
+from datetime import date,timedelta
 import os
 from pathlib import Path
 import subprocess
@@ -49,10 +50,14 @@ def checks(query,manifest,*,probe='base'):
     verify('original')
     catalog,tenant,workspace=(manifest[k] for k in ('catalogId','tenantId','workspaceId'))
     issuer=manifest['identityIssuer']
+    from native_read_transport import captured_input
+    original_inputs=captured_input(query,retained['contextId'])
+    other_day=(date.fromisoformat(original_inputs['effective_on'])+timedelta(days=1)).isoformat()
     token=query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
         f"'{issuer}','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
     retained['otherContextId']=query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');"
-        f"SELECT security.capture_date_context('{catalog}','2020-12-19',NULL);COMMIT;")
+        f"SELECT security.resolve_operation_context('{catalog}','{other_day}','{original_inputs['known_at']}');COMMIT;")
+    assert retained['otherContextId']!=retained['contextId']
     verify('changed_source')
     # Give this control an explicitly empty book and a later captured source
     # that includes its own typed metadata publication. Existing fixture books
@@ -66,7 +71,7 @@ def checks(query,manifest,*,probe='base'):
     token=query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
         f"'{issuer}','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
     no_gas_context=query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');"
-        f"SELECT security.capture_date_context('{catalog}','2020-12-19',NULL);COMMIT;")
+        f"SELECT security.resolve_operation_context('{catalog}','2020-12-19',NULL);COMMIT;")
     before=query(f"SELECT max(publication_order) FROM trading.publications WHERE catalog_id='{manifest['catalogId']}';")
     if probe=='callback':
         from gas_scope_callback_authority import checks as callback_checks

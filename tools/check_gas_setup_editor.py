@@ -54,6 +54,7 @@ def run_checks(url,query,manifest):
     c.call('gas-setup/publish',{'operationId':str(uuid4()),'setupId':draft['setupId']},expected=409)
     c.call('profile',{'profile':'trader'})
     after=c.call('gas/catalog',context);assert after['gasSetupId']==new['setupId']
+    c.select_inputs(catalog['context'])
     earlier=c.call('gas/catalog',{**context,'knowledgeMode':'retained','contextId':catalog['context']['contextId']})
     assert earlier['gasSetupId']==catalog['gasSetupId'], 'Later setup publications cannot enter an earlier certified context'
     assert next(p for p in after['locations'] if p['deliveryPoint']=='synthetic_gas_point_d')['zone']=='synthetic_gas_zone_b'

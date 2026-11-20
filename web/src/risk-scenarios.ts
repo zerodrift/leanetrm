@@ -1,10 +1,11 @@
+import {cloneRead} from './read-references.js';
 /** Presentation transport only. Targets, units and containment policies are
  * offered by the backend; membership resolution and shock arithmetic stay there. */
 export type ScenarioTarget={id:string;label:string;coordinate:string;kind:string;unit:string;priceUnit:unknown;factor:{coordinate:string;target:Record<string,unknown>}};
 export type ScenarioShift={factor:ScenarioTarget['factor'];size:string;convention:string};
 export function scenarioShift(target:ScenarioTarget|undefined,size:string,convention:string,bucket?:{from:string;to:string}):ScenarioShift{
  if(!target)throw Error('Choose an available scenario target.');
- const factor=structuredClone(target.factor);
+ const factor=cloneRead(target.factor);
  if(target.kind==='delivery_bucket'){
   if(!bucket?.from||!bucket.to)throw Error('Enter the delivery start and exclusive end for this bucket.');
   factor.target={...factor.target,from:bucket.from,to:bucket.to};

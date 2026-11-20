@@ -17,7 +17,7 @@ public sealed record CloseBookRiskDefinition(Guid CloseId,ImmutableArray<Guid> B
 public sealed record CloseBookRiskCreate(JobCreate Schedule,CloseBookRiskDefinition Definition);
 
 public sealed record ClosePortfolioPreparation(PortfolioValuation.Prepared Prepared,ImmutableArray<PortfolioCurveBump> Bumps,
-    long DeclaredRows,long DeclaredRowScenarios)
+    long DeclaredRows,long DeclaredRowScenarios,ImmutableArray<ScheduleContext> ReadInputs)
 {
     public ScheduleContext Context=>Prepared.Context;
     public ImmutableArray<CloseQuoteFactor> Factors=>[..Bumps.Select(bump=>new CloseQuoteFactor(bump.Axis.Quote!,bump.Size))];
@@ -48,7 +48,7 @@ public static class CloseBookRiskJobs
             if(await replay.ExecuteScalarAsync(ct) is string prior)return JsonSerializer.Deserialize<JsonElement>(prior);
         var close=await MarketCloses.Read(connection,database.Manifest.CatalogId,request.Definition.CloseId,ct);
         await SelectedClose.RequireInForce(connection,database.Manifest.CatalogId,close.Id,ct);
-        var context=(await new KnowledgeStore(close.Definition.CatalogId).Capture(connection,
+        var context=(await new KnowledgeResolver(close.Definition.CatalogId).Capture(connection,
             new(DateOnly.FromDateTime(close.At.UtcDateTime).ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),null,"current"),ct)).Context;
         await MarketContextStore.Bind(connection,close.Definition.CatalogId,context,ct);
         await using(var bind=ScheduleStore.Command(connection,"SELECT security.use_trading_context($1,$2)",close.Definition.CatalogId,close.At))await bind.ExecuteNonQueryAsync(ct);
@@ -66,8 +66,8 @@ public static class CloseBookRiskJobs
         Validate(definition);
         if(definition.ValuationPolicy.PpaPendingActuals is {} pending&&pending!=definition.PendingActuals)
             throw new MarketDataException("pilot_close_inputs","The portfolio and close pending-actual policies must agree explicitly.");
-        var exact=PinnedContext.Exact(context);
-        await new KnowledgeStore(database.Manifest.CatalogId).Retained(connection,exact,ct);
+        var exact=await new KnowledgeResolver(database.Manifest.CatalogId).Retained(connection,PinnedContext.Exact(context),ct);
+        context=exact;
         await using(var guard=ScheduleStore.Command(connection,"SELECT security.require_bound_market_context($1,$2,$3)",database.Manifest.CatalogId,exact.ContextId!.Value,frame.At))
             await guard.ExecuteNonQueryAsync(ct);
         await using(var scope=ScheduleStore.Command(connection,"SELECT automation.close_risk_scope($1,$2,$3,$4::uuid[])::text",data.DefinitionRevision.CatalogId,exact.ContextId!.Value,frame.At,definition.BookIds.ToArray()))
@@ -86,7 +86,11 @@ public static class CloseBookRiskJobs
         var work=prepared.Markets.Select(market=>RiskEngine.IntervalWork(market.Connected)).ToArray();
         var rowsCount=work.Sum(item=>item.Rows);var rowScenarios=work.Sum(item=>item.RowScenarios);
         CloseRiskAdmission.RequireRowScenarios(rowScenarios,bumps.Length);
-        return new(prepared,bumps,rowsCount,rowScenarios);
+        var inputs=ImmutableArray.CreateBuilder<ScheduleContext>();
+        var resolver=new KnowledgeResolver(database.Manifest.CatalogId);
+        foreach(var id in prepared.Ppas.SelectMany(p=>p.ReadContexts).Distinct().Order())
+            inputs.Add((await resolver.Read(connection,id,ct)).Context);
+        return new(prepared,bumps,rowsCount,rowScenarios,inputs.ToImmutable());
     }
     internal static void RequireNativeEvidence(ImmutableArray<ConnectedMarketEvidence> markets)
     {

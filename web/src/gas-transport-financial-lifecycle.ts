@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import {mountOperationFields} from './operation-fields.js';
 import {overviewTermSections,renderPhysicalSections,type PhysicalOverviewSection} from './physical-instrument.js';
 import {sameUtcInstant} from './user-time.js';
@@ -42,20 +43,20 @@ export function mountTransportFinancialCommands(root:HTMLElement,setup:GasOwnedS
    if(!o.permission(definition.permission))throw Error('Restore the current financial amendment permission.');
    const {effectiveAt,...command}=await editor.read();if(!o.current()||serial!==version)return;
    if(typeof effectiveAt!=='string'||command.kind!==kind||command.tradeId!==target.scopeId)throw Error('Select this exact Transport agreement and financial command.');
-   const body={operationId:crypto.randomUUID(),ownerId,context:structuredClone(setup.context),effectiveAt,command};
+   const body={operationId:crypto.randomUUID(),ownerId,context:cloneRead(setup.context),effectiveAt,command};
    const result=await o.api<Preview>('gas/transport/financial/preview',body);if(!o.current()||serial!==version)return;
    if(result.operationId!==body.operationId||result.ownerId!==ownerId||result.tradeId!==target.scopeId||result.kind!==kind||!sameContext(result.context,setup.context)||
     canonical(result.requestedCommand)!==canonical(command)||result.requestedEffectiveAt!==effectiveAt||!object(result.command)||result.command.kind!==kind||result.command.tradeId!==target.scopeId||
     typeof result.effectiveAt!=='string'||!sameUtcInstant(result.effectiveAt,effectiveAt)||typeof result.acknowledgement!=='boolean'||!Array.isArray(result.overviewSections)||!result.overviewSections.length)
     throw Error('Review the exact financial command, selected source and original inputs again.');
    const sections=overviewTermSections(result.overviewSections,o.zone());
-   const accepted=reviewed={operationId:body.operationId,ownerId,context:structuredClone(setup.context),effectiveAt:result.effectiveAt,command:structuredClone(result.command)};
+   const accepted=reviewed={operationId:body.operationId,ownerId,context:cloneRead(setup.context),effectiveAt:result.effectiveAt,command:cloneRead(result.command)};
    const box=node('section');box.className='lifecycle-review';box.dataset.transportFinancialReview='';box.append(node('h3','Review '+definition.label.toLowerCase()));
    renderPhysicalSections(box,sections);
    const record=node('button','Record reviewed '+definition.label.toLowerCase());record.type='button';record.dataset.transportFinancialRecord='';box.append(record);reviewHost.replaceChildren(box);
    record.onclick=()=>void o.act(async()=>{
     if(!o.current()||version!==serial||reviewed!==accepted||!o.permission(definition.permission))throw Error('Review the current financial command before recording.');
-    await o.queue('gas/transport/financial/record',structuredClone(accepted),definition.label);
+    await o.queue('gas/transport/financial/record',cloneRead(accepted),definition.label);
    });
   });};
   refreshers.push(()=>{editor.refresh();invalidate();});

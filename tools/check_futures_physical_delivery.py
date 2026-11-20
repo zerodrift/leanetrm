@@ -34,7 +34,7 @@ def checks(query, manifest, *, configuration_checks=None, carrying='currency_cur
         token = query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
                       f"'{issuer}','{profile}','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}COMMIT;")
-    def capture(): return call(f"SELECT security.capture_date_context('{catalog}','2026-10-16',NULL);")
+    def capture(): return call(f"SELECT security.resolve_operation_context('{catalog}','2026-10-16',NULL);")
     def refuse(sql, code, profile='trader'):
         try: call(sql,profile)
         except RuntimeError as error: assert code in str(error), str(error)
@@ -117,7 +117,7 @@ def checks(query, manifest, *, configuration_checks=None, carrying='currency_cur
             +(f"'{previous}'" if previous else 'NULL')+f" FROM market_data.observations WHERE(catalog_id,id)=('{catalog}','{original_observation}');")
     add_final(observation,'5')
     final_day=expiry[:10]
-    final_context=call(f"SELECT security.capture_date_context('{catalog}','{final_day}',NULL);")
+    final_context=call(f"SELECT security.resolve_operation_context('{catalog}','{final_day}',NULL);")
     size=Decimal(query(f"SELECT p.contract_size FROM market_data.contracts c JOIN ref_data.futures_series s "
         "ON(s.catalog_id,s.revision_id,s.code)=(c.reference_catalog_id,c.reference_revision_id,c.futures_series_code) "
         "JOIN ref_data.futures_products p ON(p.catalog_id,p.revision_id,p.code)=(s.catalog_id,s.revision_id,s.product_code) "
@@ -144,12 +144,12 @@ def checks(query, manifest, *, configuration_checks=None, carrying='currency_cur
     acknowledged=json.loads(call(determine({**run,'operationId':str(uuid4())},[step])))
     assert acknowledged['version']==2 and acknowledged['changed']==0
     assert query(f"SELECT max(publication_order) FROM trading.publications WHERE catalog_id='{catalog}';")==publication
-    current=call(f"SELECT security.capture_date_context('{catalog}','{final_day}',NULL);")
+    current=call(f"SELECT security.resolve_operation_context('{catalog}','{final_day}',NULL);")
     bound=lambda context:f"SELECT security.use_market_context('{catalog}','{context}');SELECT security.use_trading_context('{catalog}','{expiry}');"
     native=json.loads(call(bound(current)+f"SELECT settlement_data.read_futures_delivery_obligation('{catalog}','{booked['tradeId']}','{booked['bindingId']}','{current}','{expiry}')::text;"))
     assert native['link']==link and Decimal(native['final']['final_price'])==5
     correction=str(uuid4());add_final(correction,'6',observation)
-    corrected_context=call(f"SELECT security.capture_date_context('{catalog}','{final_day}',NULL);")
+    corrected_context=call(f"SELECT security.resolve_operation_context('{catalog}','{final_day}',NULL);")
     corrected={**step,'previousDeterminationId':native['final']['determination_id'],'sourceObservationId':correction,
         'exactVariation':str(size*3),'roundedTotal':str(size*3),'adjustment':str(size),'adjustmentDue':'2026-11-02T12:00:00Z'}
     corrected_run={**run,'operationId':str(uuid4()),'expectedMarginRevision':2,'contextId':corrected_context,
@@ -157,7 +157,7 @@ def checks(query, manifest, *, configuration_checks=None, carrying='currency_cur
     assert json.loads(call(determine(corrected_run,[corrected],link['position_id'])))['version']==3
     assert query(f"SELECT count(*) FROM settlement_data.futures_delivery_obligations WHERE catalog_id='{catalog}';")=='1'
     assert query(f"SELECT count(*) FROM trading.gas_owned_positions WHERE catalog_id='{catalog}';")=='1'
-    current=call(f"SELECT security.capture_date_context('{catalog}','{final_day}',NULL);")
+    current=call(f"SELECT security.resolve_operation_context('{catalog}','{final_day}',NULL);")
     revised=json.loads(call(bound(current)+f"SELECT settlement_data.read_futures_delivery_obligation('{catalog}','{booked['tradeId']}','{booked['bindingId']}','{current}','{expiry}')::text;"))
     assert revised['link']==link and Decimal(revised['final']['final_price'])==6
     publication=query(f"SELECT max(publication_order) FROM trading.publications WHERE catalog_id='{catalog}';")
@@ -177,7 +177,7 @@ def checks(query, manifest, *, configuration_checks=None, carrying='currency_cur
         f"'{issuer}','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
     margin_action={**action_policy,'operationId':str(uuid4()),'policyId':str(uuid4()),'action':'futures.margin','mode':'review'}
     call(f"SELECT lifecycle.save_policy('{catalog}',{literal(margin_action)});")
-    action_context=call(f"SELECT security.capture_date_context('{catalog}','{final_day}',NULL);")
+    action_context=call(f"SELECT security.resolve_operation_context('{catalog}','{final_day}',NULL);")
     margin_request=dict(operationId=str(uuid4()),context=dict(contextId=action_context,asOf=expiry,businessDate=final_day,snapshotId=str(uuid4())),
         target=dict(handler='futures',scopeId=booked['tradeId'],bindingId=booked['bindingId']),action='futures.margin',
         policyId=margin_action['policyId'],policyRevision=1,automatic=False,previewHash='0'*64,

@@ -163,7 +163,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   if(frame.ContextId is not {} contextId)throw Invalid("Use a certified calculation context.");
   var unit=QuantityUnit(data,members.Select(m=>m.Assignments[0].Quote.Quantity));
   var programs=retained??[..draft!.Sides.Select((m,n)=>{var d=ScheduleDefinitionCompiler.Generate(m.Side,ct,ScheduleLifecycleSelection.StartedPhysicalDelivery);var p=BookedSideProgram.Compile(d);return new RetainedSideProgram(n,m.Side.Id,Guid.Empty,new(BookedSideProgram.Digest(p.Write()),d.Manifest,d.Family,d.EconomicIdentity,d.PricingBindingIdentity),p);})];
-  var knowledge=(await new KnowledgeStore(database.Manifest.CatalogId).Read(c,contextId,ct)).Context;
+  var knowledge=(await new KnowledgeResolver(database.Manifest.CatalogId).Read(c,contextId,ct)).Context;
   var snapshot=MarketSnapshotBinding.Bind(data.Snapshot(frame),contextId,SchedulePreview.ParseAt(knowledge.KnownAt));
   if(held is not {Started:true}&&unrecorded is null)PhysicalLifecycle.RequireUnstarted(programs.Select(p=>p.Program),snapshot.ValuationAt);
   var assignments=members.SelectMany(m=>m.Assignments).Distinct().ToImmutableArray();
@@ -304,7 +304,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   }
   catch(MarketDataException error)when(ValuationStatus.PositionSpecific(error)||error.Code is "gas_delivery_lifecycle" or "side_payment_due")
   {
-   var knowledge=(await new KnowledgeStore(database.Manifest.CatalogId).Read(c,frame.ContextId!.Value,ct)).Context;
+   var knowledge=(await new KnowledgeResolver(database.Manifest.CatalogId).Read(c,frame.ContextId!.Value,ct)).Context;
    result=SideScheduleSnapshot.Plan(program.SideId,frame.Id,frame.ContextId!.Value,member.Code,program.Program,member.Clock.Boundary,frame.At,SchedulePreview.ParseAt(knowledge.KnownAt),error.Code);
   }
   return result??throw new MarketDataException("side_schedule_inspection","The Side produced no evaluated schedule.");

@@ -12,9 +12,9 @@ internal static class GasLoanFeePvChecks
         await database.WithIdentity("trader","ReadGasOwnedHoldings",async(connection,token)=>
         {
             var catalog=database.Manifest.CatalogId;var day=DateOnly.FromDateTime(at.UtcDateTime);
-            await using var capture=ScheduleStore.Command(connection,"SELECT security.capture_date_context($1,$2,NULL)",catalog,day);
+            await using var capture=ScheduleStore.Command(connection,"SELECT security.resolve_operation_context($1,$2,NULL)",catalog,day);
             var contextId=(Guid)(await capture.ExecuteScalarAsync(token))!;
-            var knowledge=(await new KnowledgeStore(catalog).Read(connection,contextId,token)).Context;
+            var knowledge=(await new KnowledgeResolver(catalog).Read(connection,contextId,token)).Context;
             await PinnedContext.BindExact(connection,catalog,knowledge,token);
             await TradingContext.Bind(connection,catalog,knowledge,at,token);
             var context=new LifecycleReadContext(contextId,at,day);

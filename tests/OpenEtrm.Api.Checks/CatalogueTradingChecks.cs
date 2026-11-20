@@ -22,7 +22,7 @@ internal static class CatalogueTradingChecks
         using var admissions=database.OwnReadTransaction(connection,transaction);
         await using(var use=ScheduleStore.Command(connection,"SELECT security.use_context($1)",root.GetProperty("token").GetGuid()))
             await use.ExecuteNonQueryAsync();
-        var context=await new KnowledgeStore(manifest.CatalogId).Read(connection,root.GetProperty("context").GetGuid(),default);
+        var context=await new KnowledgeResolver(manifest.CatalogId).Read(connection,root.GetProperty("context").GetGuid(),default);
         await MarketContextStore.Bind(connection,manifest.CatalogId,context.Context,default);
         var seed=root.GetProperty("frame").Deserialize<PreviewSeedFrame>(Json)!;
         var frame=new InputFrame(Guid.NewGuid(),"Synthetic catalogue check",seed.At,DateWorkspace.Date(context.Context.EffectiveOn),
@@ -123,7 +123,7 @@ internal static class CatalogueTradingChecks
         {
             await using(var use=ScheduleStore.Command(rateConnection,"SELECT security.use_context($1)",root.GetProperty("shapeToken").GetGuid()))
                 await use.ExecuteNonQueryAsync();
-            var ownerContext=await new KnowledgeStore(manifest.CatalogId).Read(rateConnection,root.GetProperty("rateOwnerContext").GetGuid(),default);
+            var ownerContext=await new KnowledgeResolver(manifest.CatalogId).Read(rateConnection,root.GetProperty("rateOwnerContext").GetGuid(),default);
             var ownerFrame=frame with{ContextId=ownerContext.Context.ContextId};
             var read=await new MarketReads(database).Evaluate(rateConnection,PinnedContext.Retained(ownerContext.Context,ownerFrame),"interest_rates",default);
             var result=JsonSerializer.SerializeToElement(read.Result,Json);
@@ -145,7 +145,7 @@ internal static class CatalogueTradingChecks
         {
             await using(var use=ScheduleStore.Command(rateCalendarConnection,"SELECT security.use_context($1)",root.GetProperty("shapeToken").GetGuid()))
                 await use.ExecuteNonQueryAsync();
-            var ownerContext=await new KnowledgeStore(manifest.CatalogId).Read(rateCalendarConnection,root.GetProperty("rateOwnerContext").GetGuid(),default);
+            var ownerContext=await new KnowledgeResolver(manifest.CatalogId).Read(rateCalendarConnection,root.GetProperty("rateOwnerContext").GetGuid(),default);
             var ownerFrame=frame with{ContextId=ownerContext.Context.ContextId};
             var dates=await MarketDates.Read(database,rateCalendarConnection,PinnedContext.Retained(ownerContext.Context,ownerFrame),[ownerFrame],
                 new("interest_rates","UTC",frame.Close!.Session),default);
@@ -157,7 +157,7 @@ internal static class CatalogueTradingChecks
         {
             await using(var use=ScheduleStore.Command(missingRateConnection,"SELECT security.use_context($1)",root.GetProperty("shapeToken").GetGuid()))
                 await use.ExecuteNonQueryAsync();
-            var ownerContext=await new KnowledgeStore(manifest.CatalogId).Read(missingRateConnection,root.GetProperty("rateOwnerContext").GetGuid(),default);
+            var ownerContext=await new KnowledgeResolver(manifest.CatalogId).Read(missingRateConnection,root.GetProperty("rateOwnerContext").GetGuid(),default);
             var working=frame with{OriginCloseId=null,Close=null,ContextId=ownerContext.Context.ContextId,
                 SourceInputs=frame.SourceInputs!.Remove(added.DefinitionRevisionId)};
             try

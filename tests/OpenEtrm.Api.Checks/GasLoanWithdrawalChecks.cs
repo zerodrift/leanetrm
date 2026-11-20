@@ -21,7 +21,7 @@ internal static class GasLoanWithdrawalChecks
         await database.WithIdentity("trader",null,async(connection,ct)=>
         {
             var context=fixture.Id("contextId");var at=fixture.Instant("at");
-            var source=(await new KnowledgeStore(manifest.CatalogId).Read(connection,context,ct)).Context;
+            var source=(await new KnowledgeResolver(manifest.CatalogId).Read(connection,context,ct)).Context;
             await PinnedContext.BindExact(connection,manifest.CatalogId,source,ct);
             await TradingContext.Bind(connection,manifest.CatalogId,source,at,ct);
             var pins=ImmutableArray.Create(fixture.Id("markId")).AddRange(fixture.GetProperty("rateIds").EnumerateArray().Select(p=>p.GetGuid()));

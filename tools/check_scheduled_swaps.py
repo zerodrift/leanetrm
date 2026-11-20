@@ -71,6 +71,8 @@ def check_unvalued_lifecycle(c,workspace,trade,run_worker):
     # The desk's money totals (D223) add the valued positions across quantity units and count those they leave out, this one among them.
     check_money_totals(lambda view:blotter(c,frame(UNPRICED_FEBRUARY),view)[0],check,rows,'the unpriced-February close')
     c.call('profile',{'profile':'risk'})
+    c.select_inputs(c.observed_inputs[valued_context['contextId']])
+    c.select_inputs(c.observed_inputs[late_context['contextId']])
     # The risk report's presets shock what a position is priced from. At the close that values the swap, what remains of its lifecycle
     # moves under a contract target the catalog names as held, in parts of at most sixteen shocks.
     valued_catalog=risk_catalog(c,valued_context)

@@ -76,7 +76,10 @@ def run_checks(url, query, manifest):
     command=reviewed(transfer)
     import json
     from check_booked_side_programs import runtime_query
-    certificate=c.call('gas/operations/preview',transfer)['context']['contextId']
+    from native_read_transport import select_context_inputs
+    certificate_inputs=c.call('gas/operations/preview',transfer)['context']
+    certificate=certificate_inputs['contextId']
+    runtime_query(query,manifest,select_context_inputs(manifest['catalogId'],certificate_inputs))
     snapshot=state()['state'];acks=snapshot['responses']
     basis=dict(counterpartyId=next(r['id'] for r in acks if r['imbalance_id']==t['id'] and r['side']=='counterparty'),pipelineId=next(r['id'] for r in acks if r['imbalance_id']==t['id'] and r['side']=='pipeline'),buyerStatementId=statements[0],sellerStatementId=statements[1],buyerMovementId=None,sellerMovementId=None,cash='-600',numerator='-600',denominator='1')
     encoded=json.dumps(command).replace("'","''")

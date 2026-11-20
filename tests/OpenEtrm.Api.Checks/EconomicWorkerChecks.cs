@@ -84,7 +84,7 @@ internal static class EconomicWorkerChecks
         }
         var jobs=await database.WithIdentity("trader",null,async(connection,ct)=>
         {
-            var context=fixture.Id("contextId");var at=fixture.Instant("at");var captured=(await new KnowledgeStore(manifest.CatalogId).Read(connection,context,ct)).Context;
+            var context=fixture.Id("contextId");var at=fixture.Instant("at");var captured=(await new KnowledgeResolver(manifest.CatalogId).Read(connection,context,ct)).Context;
             await PinnedContext.BindExact(connection,manifest.CatalogId,captured,ct);await TradingContext.Bind(connection,manifest.CatalogId,captured,at,ct);
             var frame=new InputFrame(Guid.NewGuid(),"Synthetic complete economic worker source",at,PublishedSchedules.ContextDate(captured),
                 [fixture.Id("markId"),..fixture.GetProperty("rateIds").EnumerateArray().Select(p=>p.GetGuid())],

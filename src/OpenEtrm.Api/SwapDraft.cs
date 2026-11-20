@@ -94,7 +94,7 @@ public sealed partial class SwapStore
     {
         var dependencies=draft.Instrument.DependenciesAt(snapshot);
         if(draft.Frame.ContextId is not {} contextId)throw Error("swap_context","Connected draft pricing requires a retained financial context.");
-        var context=(await new KnowledgeStore(manifest.CatalogId).Read(connection,contextId,ct)).Context;
+        var context=(await new KnowledgeResolver(manifest.CatalogId).Read(connection,contextId,ct)).Context;
         return await CustomCurves.PrepareMarket(connection,database,draft.Data,draft.Frame,snapshot,context,[draft.Instrument],dependencies,purpose,ct);
     }
 }

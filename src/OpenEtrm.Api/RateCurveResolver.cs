@@ -35,7 +35,8 @@ public static class RateCurveResolver
         await using(var save=ScheduleStore.Command(connection,"SAVEPOINT rate_curve_tenors"))await save.ExecuteNonQueryAsync(ct);
         try
         {
-            var context=await SelectedClose.Capture(connection,catalog,frame,ct);
+            var context=(await new KnowledgeResolver(catalog).Source(connection,
+                new(PreviewSession.BusinessDay(frame).ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),null,"current"),ct)).Context;
             var (definition,sources,bindings,retained)=await dates.PinnedDateList(connection,new(list.Mapping,list.Version,context),ct);
             return new(definition,sources,bindings,retained.KnownThrough??throw new MarketDataException("rate_definition","The date list's knowledge view is incomplete."));
         }

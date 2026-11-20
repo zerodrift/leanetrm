@@ -30,7 +30,7 @@ def configured(query,manifest,setup):
     from datetime import date,timedelta
     delivery={**setup['profile'],'id':str(uuid4()),'contractId':selected['contract'],'fromAt':selected['from']+'T00:00:00Z',
         'toAt':selected['to']+'T00:00:00Z','cashDueAt':str(date.fromisoformat(selected['to'])+timedelta(days=1))+'T12:00:00Z'}
-    captured=lambda:call(f"SELECT security.capture_date_context('{catalog}','2026-10-16',NULL);")
+    captured=lambda:call(f"SELECT security.resolve_operation_context('{catalog}','2026-10-16',NULL);")
     profile_request=dict(operationId=str(uuid4()),expectedRevision=0,contextId=captured(),asOf=setup['at'],profile=delivery)
     call(f"SELECT settlement_data.save_futures_delivery_profile('{catalog}',{literal(profile_request)});")
     margin={**setup['marginRequest']['policy'],'id':str(uuid4()),'contractId':selected['contract'],'delivery':dict(id=delivery['id'],revision=1),
@@ -44,7 +44,7 @@ def configured(query,manifest,setup):
     saved=dict(operationId=str(uuid4()),tradeId=booked['tradeId'],action='option.exercise',expectedRevision=0,policyId=policy['policyId'],policyRevision=1,
         marginPolicyId=margin['id'],marginPolicyRevision=1,futureMarkCurve='nymex_ng',expiryCurve=None)
     call(f"SELECT lifecycle.save_option_profile('{catalog}',{literal(saved)});")
-    source=call(f"SELECT security.capture_date_context('{catalog}','2026-10-16',NULL);")
+    source=call(f"SELECT security.resolve_operation_context('{catalog}','2026-10-16',NULL);")
     request=dict(operationId=str(uuid4()),context=dict(contextId=source,asOf=setup['at'],businessDate='2026-10-16',snapshotId=str(uuid4())),
         target=dict(handler='listed_option',scopeId=booked['tradeId'],bindingId=booked['optionInstrumentId']),action='option.exercise',policyId=policy['policyId'],policyRevision=1,
         automatic=False,previewHash='0'*64,selection=dict(evidenceId=str(uuid4()),lots='1',expectedEventVersion=0,profileRevision=1))

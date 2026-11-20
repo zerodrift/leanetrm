@@ -108,6 +108,7 @@ def run(c, context, saved, partial_saved, exact_saved, query, run_worker, settle
                 assert F(amount['base']) == F(expected), amount
                 assert F(amount['delta']) == F(amount['gamma']) == 0, amount
         paid_context = {**settlement['paidContext'], 'convention': 'trading_workspace_v1'}
+        c.select_inputs(c.observed_inputs[paid_context['contextId']])
         paid_catalog = risk_catalog(c, paid_context)
         paid_request = risk_request(paid_catalog, paid_context, paid_catalog['availableFactors'][0]['factor'])
         paid_value = c.call('portfolio/risk', paid_request)

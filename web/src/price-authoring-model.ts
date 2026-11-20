@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import {type RequestCommand} from './pending-command.js';
 
 // Transport equality without dropping the microseconds through JavaScript Date.
@@ -23,13 +24,13 @@ export function publicationsOfIndex(publications:readonly Listed[],code:string){
  return latestPublications(publications).flatMap(d=>d.indices.filter(i=>i.key.code===code).map(i=>({id:d.key.id,version:d.key.version,name:d.name,publisher:d.publisher.name,symbol:i.symbol,statistic:i.statistic})));
 }
 export function publicationVersion<T extends {key:{version:number}}>(definition:T):T{
- const next=structuredClone(definition);next.key.version++;return next;
+ const next=cloneRead(definition);next.key.version++;return next;
 }
 export function restoreAuthoringRequest(value:unknown,path:string):RequestCommand|undefined{
  if(!value||typeof value!=='object'||Array.isArray(value))return;
  const saved=value as Record<string,unknown>;
  if(saved.path!==path||typeof saved.operationId!=='string'||!saved.operationId||!saved.body||typeof saved.body!=='object'||Array.isArray(saved.body))return;
- return {path,operationId:saved.operationId,body:structuredClone(saved.body as Record<string,unknown>),...(saved.uncertain===true?{uncertain:true}:{}),...(typeof saved.label==='string'?{label:saved.label}:{})};
+ return {path,operationId:saved.operationId,body:cloneRead(saved.body as Record<string,unknown>),...(saved.uncertain===true?{uncertain:true}:{}),...(typeof saved.label==='string'?{label:saved.label}:{})};
 }
 export const authoringLabels:Record<string,string>={
  same_delivery_period_v1:'Match the same delivery period',explicit_contracts_v1:'Map individual contracts',

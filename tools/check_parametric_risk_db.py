@@ -7,8 +7,11 @@ from uuid import uuid4
 
 def run_checks(query, manifest, job_id, run_worker, method="parametric"):
     catalog, tenant, workspace = (manifest[k] for k in ('catalogId', 'tenantId', 'workspaceId'))
-    row = json.loads(query(f"SELECT jsonb_build_object('request',request,'frame',frame,'context',context_id,'revision',revision_id,'at',valuation_at) FROM risk.jobs WHERE id='{job_id}';"))
+    row = json.loads(query(f"SELECT jsonb_build_object('request',request,'frame',frame,'context',context_id,'revision',revision_id,'at',valuation_at,'source',jsonb_build_object('id',context_id,'effective_on',input_business_on,'known_at',input_known_at,'system_id',input_system_id,'timeline',input_timeline)) FROM risk.jobs WHERE id='{job_id}';"))
     request, frame, context = row['request'], row['frame'], row['context']
+    from assistant_context import Contexts
+    from native_read_transport import captured_input,select_owned_inputs
+    Contexts(query,manifest).runtime('risk',select_owned_inputs(catalog,row['source']))
     literal = lambda value: "'" + json.dumps(value).replace("'", "''") + "'::jsonb"
     def reject(work, expected):
         try:
@@ -36,7 +39,7 @@ def run_checks(query, manifest, job_id, run_worker, method="parametric"):
             assert query(f"SELECT has_table_privilege('{role}','risk.{table}','SELECT,INSERT,UPDATE,DELETE');") == 'f'
         reject(lambda: query(f"UPDATE risk.{table} SET catalog_id=catalog_id WHERE catalog_id='{catalog}';"), 'immutable')
     for login in ('preview_runtime', 'preview_risk_worker'):
-        reject(lambda: query(f"SET SESSION AUTHORIZATION {login};SELECT risk.capture_history_clock('{catalog}','{context}',{literal(plan['calendar'])},{literal(plan['clock'])});"), 'permission denied')
+        reject(lambda: query(f"SET SESSION AUTHORIZATION {login};SELECT risk.attest_workspace_clock(pg_backend_pid(),pg_current_xact_id(),'{catalog}','{context}',{literal(plan['calendar'])},{literal(plan['clock'])});"), 'permission denied')
     for edit in (
         lambda p: p['clock']['resolvedCloses'][0].update(offsetSeconds=3600),
         lambda p: p['clock'].update(rules=p['clock']['rules']+' ',fingerprint=hashlib.sha256((p['clock']['rules']+' ').encode()).hexdigest()),
@@ -46,21 +49,21 @@ def run_checks(query, manifest, job_id, run_worker, method="parametric"):
         invalid = deepcopy(frame);edit(invalid['factorHistory'])
         reject(lambda: submit(invalid), 'risk_history_capture')
     # A receipt for a different certified forecast cannot authorize this frame.
-    other = user(f"SELECT security.capture_date_context('{catalog}','2020-12-17',NULL)")
-    capture_sql = lambda calendar,clock,ctx=context: f"SELECT risk.capture_history_clock('{catalog}','{ctx}',{literal(calendar)},{literal(clock)})"
-    issuer = lambda sql: query('SET SESSION AUTHORIZATION preview_authenticator;' + sql + ';')
-    foreign = issuer(capture_sql(plan['calendar'], plan['clock'], other))
+    from check_workspace_clock import capture_fixture_clock
+    other = Contexts(query,manifest).runtime('risk',f"SELECT security.resolve_operation_context('{catalog}','2020-12-17',NULL);")
+    foreign = capture_fixture_clock(query,manifest,captured_input(query,other),'2020-12-17T16:00:00Z',plan['calendar'],plan['clock'])
     invalid = deepcopy(frame);invalid['factorHistory']['clockCaptureId'] = foreign
     reject(lambda: submit(invalid), 'risk_history_capture')
-    assert issuer(capture_sql(plan['calendar'], plan['clock'])) == plan['clockCaptureId']
+    def capture(calendar,clock):return capture_fixture_clock(query,manifest,row['source'],row['at'],calendar,clock)
+    assert capture(plan['calendar'], plan['clock']) == plan['clockCaptureId']
     # Mint is trusted API work; orphan retries reuse the same UUID, and distinct
     # unpublished captures cannot grow without a per-context bound.
     for i in range(16):
         clock = deepcopy(plan['clock']);clock['tzdbVersion'] = 'capture_bound_' + str(i)
-        receipt = issuer(capture_sql(plan['calendar'], clock))
-        assert issuer(capture_sql(plan['calendar'], clock)) == receipt
+        receipt = capture(plan['calendar'], clock)
+        assert capture(plan['calendar'], clock) == receipt
     clock['tzdbVersion'] = 'capture_bound_excess'
-    reject(lambda: issuer(capture_sql(plan['calendar'], clock)), 'risk_capture_capacity')
+    reject(lambda: capture(plan['calendar'], clock), 'risk_capture_capacity')
     print('PASS statistical SQL receipt: immutable exact pins; runtime/worker cannot mint/read; altered clocks, missing and cross-context receipts refuse; retries reuse bounded captures', flush=True)
     # An actual owned worker lease is necessary, and the read still requires its
     # bound actor/tenant/workspace/catalog/context/valuation transaction.

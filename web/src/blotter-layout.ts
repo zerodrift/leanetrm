@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import type {GridLayout} from './data-grid.js';
 import {type Arrangement,type DockRules,parseArrangement} from './dock-model.js';
 export const priceMeasureChoices=[['executionPriceMin','Minimum execution price'],['executionPriceMax','Maximum execution price'],['executionPriceMean','Arithmetic average execution price · 18 decimal places, ties to even'],['markMin','Minimum curve price'],['markMax','Maximum curve price'],['markMean','Arithmetic average curve price · 18 decimal places, ties to even'],['fixedPriceMin','Minimum fixed price'],['fixedPriceMax','Maximum fixed price'],['fixedPriceMean','Arithmetic average fixed price · 18 decimal places, ties to even']] as const;
@@ -77,7 +78,7 @@ export function parseBlotterViews(raw:string):BlotterView[]{
   if(!grid||!Array.isArray(grid.order)||grid.order.length>128||grid.order.some((x:unknown)=>typeof x!=='string'||!validLayoutField(x))||new Set(grid.order).size!==grid.order.length||!grid.widths||typeof grid.widths!=='object'||Array.isArray(grid.widths)||Object.entries(grid.widths).some(([key,width])=>!validLayoutField(key)||!Number.isInteger(width)||Number(width)<40||Number(width)>3000)||Object.keys(grid.widths).length>128||!validSort(grid.sort))throw Error('Invalid saved grid layout.');
   if(!chart||typeof chart.visible!=='boolean'||!measureChoices.some(c=>c[0]===chart.measure)||!['bar','line','heatmap'].includes(chart.kind))throw Error('Invalid saved chart choices.');
   if(chart.visible&&chart.measure==='lots'&&v.mode==='pivot'&&!groupBy.includes('contract'))throw Error('Lot charts require dated-contract grouping.');
-  return {version:blotterVersion,name:v.name.trim(),sidebar:v.sidebar,mode:v.mode,rowGroup:v.rowGroup as RowGroup,columns,bookIds:ids(v.bookIds),portfolioIds:ids(v.portfolioIds),groupBy,measures,query:v.query,columnFilters:{...v.columnFilters},splitBy,grid:structuredClone(grid),panes,chart:{visible:chart.visible,measure:chart.measure,kind:chart.kind}};
+  return {version:blotterVersion,name:v.name.trim(),sidebar:v.sidebar,mode:v.mode,rowGroup:v.rowGroup as RowGroup,columns,bookIds:ids(v.bookIds),portfolioIds:ids(v.portfolioIds),groupBy,measures,query:v.query,columnFilters:{...v.columnFilters},splitBy,grid:cloneRead(grid),panes,chart:{visible:chart.visible,measure:chart.measure,kind:chart.kind}};
  });
  if(new Set(result.map(v=>v.name)).size!==result.length)throw Error('Saved view names must be unique.');return result;
 }

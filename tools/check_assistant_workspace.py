@@ -84,7 +84,7 @@ def run_checks(url, query, manifest, fake, trap, psql, environment):
     check('a text-only question neither copies market inputs nor captures a financial context',
           query(f"SELECT state='completed' AND pins IS NULL AND context_id IS NULL AND recorded_at IS NULL FROM assistant.turns WHERE id='{conceptual['id']}';") == 't')
 
-    def ask(requests, page='users_access', session=None, state=None, frame_id=None, operational=False, report=None, knowledge=None, question=None, answer='Synthetic reviewed result.'):
+    def ask(requests, page='users_access', session=None, state=None, frame_id=None, operational=False, report=None, knowledge=None, question=None, answer='Synthetic reviewed result.', timeout=20):
         session = session or owner
         state = state or agent
         before = len(fake.received)
@@ -94,7 +94,7 @@ def run_checks(url, query, manifest, fake, trap, psql, environment):
         turn = session.call('assistant/turns/ask', {'operationId': str(uuid4()), 'conversationId': None, 'agentId': state['id'], 'version': 1,
                          'question': question or 'Inspect the selected page and prepare only the explicitly requested synthetic change.',
                          'pageReport': report or {'page': page, 'selection': {}}, 'knowledge': knowledge or {'mode': 'current', 'contextId': None, 'frameId': None if operational else frame_id or frame['id']}})['turn']
-        deadline = time.monotonic() + 20
+        deadline = time.monotonic() + timeout
         while True:
             conversation = session.call(f"assistant/conversations/{turn['conversationId']}?after=0")
             current = conversation['turns'][0]
@@ -312,7 +312,7 @@ def run_checks(url, query, manifest, fake, trap, psql, environment):
 
     owner.call('futures/book', {**trading, **trade_booking(), 'operationId': str(uuid4()), 'bookId': offer['books'][0]['id'],
         'curve': 'future', 'contractId': contract['id'], 'definitionRevisionId': contract['definitionRevisionId'], 'lots': '4', 'executionPrice': '3.2', 'memo': 'Synthetic post-pin fact'})
-    owner.call('market/context/retained', {'contextId': retained_context, 'selection': 'latest_correction'})
+    owner.call(f"assistant/turns/{digest_turn['id']}/view", {'selection': 'latest_correction'})
     try:
         retained_frame = initial_frame(owner.call('workspace/navigation'), '2020-12-18')
         _, retained_digest, _ = ask([('read_page_digest', {'mode': 'overview'})], report=digest_report,
@@ -328,6 +328,29 @@ def run_checks(url, query, manifest, fake, trap, psql, environment):
     _, current_digest, _ = ask([('read_page_digest', {'mode': 'overview'})], report=digest_report)
     check('working digest includes later business facts while the retained digest keeps the original values',
           'Positions: future=2' in current_digest[0]['result']['text'] and current_digest[0]['result']['text'].split('Status:', 1)[1] != pinned_lines)
+    # Each selected report is a separate tool operation. A long turn must not
+    # accumulate the initiating HTTP request's browser read-reference quota.
+    risk_agent=fixture.publish(fixture.save(fixture.create('independent report reads'),model,
+        tools=['read_page_operation'],roles=['risk_analyst'],toolSteps=12))
+    owner.call('assistant/grants/grant',{'operationId':str(uuid4()),'agentId':risk_agent['id'],'version':1})
+    risk_jobs=[]
+    for _ in range(9):
+        selector={'snapshotId':frame['id'],'convention':'trading_workspace_v1','knowledgeMode':'current'}
+        risk_catalog=owner.call('portfolio/risk/catalog',{'context':selector,'bookIds':[],'portfolioIds':[]})
+        factor=risk_catalog['factors'][0]
+        request={'context':{**selector,'knowledgeMode':'retained','contextId':risk_catalog['context']['contextId']},
+            'bookIds':[],'portfolioIds':[],'detail':'books','convention':risk_catalog['convention'],
+            'numericalPolicy':risk_catalog['numericalPolicy'],'pricingPolicy':risk_catalog['pricingPolicy'],
+            'bumps':[{'factor':factor['factor'],'size':'0.1','convention':risk_catalog['bumpConvention']}],'stress':[]}
+        job=owner.call('portfolio/risk/jobs',{'requestId':str(uuid4()),'request':request})
+        risk_jobs.append(owner.call('portfolio/risk/jobs/'+job['id']+'/cancel',{}))
+    assert len({job['context']['contextId'] for job in risk_jobs})==9
+    report_turn,report_results,_=ask([('read_page_operation',{'operation':'portfolio.risk.jobs.id_v1',
+        'inputJson':json.dumps({'body':None,'parameters':{'id':job['id']}})}) for job in risk_jobs],
+        state=risk_agent,report={'page':'risk_jobs','selection':{'view':'reports'}},operational=True,timeout=90)
+    check('one assistant turn reads nine independent selected report inputs without inheriting browser transport state',
+          [result.get('data',{}).get('id') for result in report_results]==[job['id'] for job in risk_jobs]
+          and query(f"SELECT context_id IS NULL AND pins IS NULL FROM assistant.turns WHERE id='{report_turn['id']}';")=='t')
     # A proposal can expire while its ordinary command waits, without any role or epoch change. Its final guard must
     # roll back both the account mutation and the approval receipt rather than commit under the human's lasting role.
     # The administrative directory names its user records; the exact expected head is read from the owned fixture.
@@ -412,7 +435,7 @@ def run_checks(url, query, manifest, fake, trap, psql, environment):
           opened['status'] == 'unpriced_draft' and opened['definition'] == definition
           and opened['origin']['contextId'] == prepared['context']['contextId'] and opened['frameId'] == close['id'])
     try:
-        owner.call('market/context/retained', {'contextId': close_turn['context']['contextId'], 'selection': 'latest_correction'})
+        owner.call(f"assistant/turns/{close_turn['id']}/view", {'selection': 'latest_correction'})
         historical = next(f for f in owner.call('workspace')['frames'] if f.get('originCloseId') == close['id'])
         retained_turn, _, _ = ask([('read_page_digest', {'mode': 'overview'})], report=close_report,
             knowledge={'mode': 'retained', 'contextId': close_turn['context']['contextId'], 'frameId': historical['id']})

@@ -1,3 +1,4 @@
+import {attachReadReferences,readReferenceHeaders,retainedKnowledge} from './read-references.js';
 import {workspaceView} from './workspace-view.js';
 import {coalescedRead} from './coalesced-read.js';
 import {requestDeadlines} from './request-deadline.js';
@@ -49,7 +50,7 @@ function failed(error:unknown){text('error',error instanceof Error?error.message
 
 async function responseFor(path:string,body?:unknown,signal?:AbortSignal):Promise<Response>{
   let response:Response;
-  try{response=await fetch(apiRoot+path,{method:body===undefined?'GET':'POST',credentials:'same-origin',headers:{'X-OpenETRM-View':workspaceView(true),...(body===undefined?{}:{'Content-Type':'application/json','X-Preview-CSRF':csrf})},
+  try{response=await fetch(apiRoot+path,{method:body===undefined?'GET':'POST',credentials:'same-origin',headers:{...readReferenceHeaders(body),'X-OpenETRM-View':workspaceView(true),...(body===undefined?{}:{'Content-Type':'application/json','X-Preview-CSRF':csrf})},
     body:body===undefined?undefined:JSON.stringify(body),signal:signal?AbortSignal.any([signal,AbortSignal.timeout(deadlines.milliseconds(path))]):AbortSignal.timeout(deadlines.milliseconds(path))});}
   catch{throw Object.assign(Error(body!==undefined?'We could not confirm the result. Check the Blotter before trying again.':'This window could not connect.'),{code:'response_unknown'});}
   if(response.status===401){end('Signed out · sign in again in the main window');throw Object.assign(Error('Sign in to continue.'),{code:'sign_in_required'});}
@@ -57,7 +58,7 @@ async function responseFor(path:string,body?:unknown,signal?:AbortSignal):Promis
   return response;
 }
 async function transport<T>(path:string,body?:unknown,signal?:AbortSignal):Promise<T>{
-  return (await responseFor(path,body,signal)).json() as Promise<T>;
+  const response=await responseFor(path,body,signal);return attachReadReferences(await response.json() as T,response.headers.get('X-OpenETRM-Read-References'));
 }
 // Every read is followed by a check of the account: an action's at its end, and one made in the background, as a risk job's timer makes, at once.
 async function api<T>(path:string,body?:unknown,signal?:AbortSignal):Promise<T>{
@@ -137,7 +138,7 @@ const futures=setupFutures({volSurface:null,riskReportUrl:id=>{if(!tied)throw Er
   onViews:()=>undefined,curveListed:()=>false,openCurve:async()=>{throw Error('Curves & prices opens in the main window.');},tickets:mainWindowTickets,
   source:()=>{
     if(!applied||!navigation)throw Error('The main window has not handed over the Blotter yet.');
-    return {snapshotId:applied.snapshotId,convention:navigation.futuresConvention,...(applied.contextId===null?{}:{context:{contextId:applied.contextId}})};
+    return {snapshotId:applied.snapshotId,convention:navigation.futuresConvention,...(applied.contextId===null?{}:{context:navigation.context??(()=>{throw Error('Restore the exact historical selection before opening the Blotter.');})()})};
   },
   reported:report,unsavedChanged:report,
   assistant:{available:()=>can('UseAgents'),inPlace:kind=>{report();tie?.askInPlace(kind);window.opener?.focus();},about:({key,bookIds,portfolioIds})=>{try{tie?.ask(key,{bookIds,portfolioIds});window.opener?.focus();}catch(error){failed(error);}}}});

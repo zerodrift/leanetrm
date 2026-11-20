@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import type {SideCalendarPolicy} from './side-calendar.js';
 import type {ReferenceKey} from './swap-observations.js';
 import type {PaymentInput} from './swap-contract.js';
@@ -12,10 +13,10 @@ export type ContractObservationSource={definitionRevisionId:string;curve:string;
 // This is a UI receipt, not a source resolver. Only backend-returned observation
 // terms can become a new ticket source. Saved terms never rerun their selector.
 export function contractObservationReceipt<T>(saved?:T){
- let retained=saved===undefined?undefined:structuredClone(saved),signature:string|undefined,terms:T|undefined;
- return{retained:()=>retained===undefined?undefined:structuredClone(retained),invalidate(){retained=undefined;signature=undefined;terms=undefined;},
-  accept(request:unknown,value:T){retained=undefined;signature=JSON.stringify(request);terms=structuredClone(value);},
-  read(request:unknown):T{if(terms===undefined||signature!==JSON.stringify(request))throw Error('Preview the current contract observations before pricing.');return structuredClone(terms);}};
+ let retained=saved===undefined?undefined:cloneRead(saved),signature:string|undefined,terms:T|undefined;
+ return{retained:()=>retained===undefined?undefined:cloneRead(retained),invalidate(){retained=undefined;signature=undefined;terms=undefined;},
+  accept(request:unknown,value:T){retained=undefined;signature=JSON.stringify(request);terms=cloneRead(value);},
+  read(request:unknown):T{if(terms===undefined||signature!==JSON.stringify(request))throw Error('Preview the current contract observations before pricing.');return cloneRead(terms);}};
 }
 
 export function mountContractObservationTicket(options:{host:HTMLElement;from:string;to:string;initial?:ScheduledFloatingTerms|null;retainedObservations?:unknown[];sources:()=>ContractObservationSource[];

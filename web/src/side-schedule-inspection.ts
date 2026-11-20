@@ -1,3 +1,4 @@
+import {retainedKnowledge} from './read-references.js';
 import {displayPaymentDate} from './payment-date.js';
 import {numberText,sourceLabels} from './schedule-grid.js';
 import {lifecycleLines,quantityBasisText,words as text} from './lifecycle-text.js';
@@ -103,7 +104,7 @@ export function mountSideScheduleInspection(host:HTMLElement,o:{api:Api;position
    identity(value);if(value.sides.some(s=>!Array.isArray(s.windows)||s.windows.some(w=>!w.id||!w.label)))throw Error('The Side directory has invalid delivery windows.');
    const first=o.side?value.sides.find(s=>s.slot===o.side!.slot):value.sides.find(s=>s.slot===o.start)??value.sides[0];
    if(!first)throw Error(o.side?'The selected native Side membership is unavailable.':'This position has no Side schedules.');
-   directory=value;context={...context,knowledgeMode:'retained',contextId:value.contextId};reading=undefined;
+   directory=value;context={...context,...retainedKnowledge(value)};reading=undefined;
    if(!o.side){
     setupTabs(sides,value.sides.map(s=>[String(s.slot),`${text(s.family).replace(/^./,c=>c.toUpperCase())} · Side ${s.slot+1}`] as const),{label:'Sides',panel:rows,selected:String(first.slot),
      select:id=>{if(String(side?.slot)!==id||problem!==undefined)show(value.sides.find(s=>String(s.slot)===id)!);}});

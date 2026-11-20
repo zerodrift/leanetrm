@@ -1,3 +1,4 @@
+import {retainedKnowledge} from './read-references.js';
 import type {Holding} from './desk-model.js';
 import {displayInstant} from './market-view.js';
 import type {DetailRead} from './position-panel.js';
@@ -28,7 +29,7 @@ export async function readTransportView(api:Api,context:Record<string,unknown>,h
   throw Error('Reread the explicit unavailable Side composition; it cannot be replaced by financial absence or an obsolete state.');
  const unavailable=detail.unavailableReason===null?null:valuationReason(detail.unavailableReason,product);
  const compositionUnavailable=detail.sideGroupsUnavailableReason==null?null:valuationReason(detail.sideGroupsUnavailableReason,product);
- const certified={...requested,knowledgeMode:'retained',contextId:detail.context.contextId};
+ const certified={...requested,...retainedKnowledge(detail.context)};
  return {amend:{allowed:false,reason:detail.actions.amend.reason},view:zone=>({
   termsLabel:'Transport terms',
   terms:[{title:'Transport',rows:[['Trade',h.tradeReference],['Instrument',h.instrumentReference],['Book',h.book],['Value measure',detail.measureLabel],['Ownership',detail.ownershipNote],

@@ -40,7 +40,7 @@ SELECT v.definition_id,v.version,v.generation,v.state,d.code,v.name,v.kind,v.map
  v.missing_price,v.interpolation,v.currency_code,t.effective_on,t.known_through,t.known_at,t.id,v.publication_order,v.published_at,
  v.mark_unit,v.day_count,v.compounding,v.extrapolation
  FROM market_data.curve_definition_versions v JOIN market_data.curve_definitions d ON(d.catalog_id,d.id)=(v.catalog_id,v.definition_id)
- JOIN market_data.temporal_contexts t ON(t.catalog_id,t.id)=(v.catalog_id,v.validation_context_id)
+ CROSS JOIN LATERAL security.read_owner_coordinates(v.catalog_id,v.validation_business_on,v.validation_known_at,v.validation_system_id,v.validation_timeline) t
  WHERE v.catalog_id=$1 ORDER BY d.code,v.version
 """,catalog);
         await using var reader=await command.ExecuteReaderAsync(ct);var rows=ImmutableArray.CreateBuilder<CurveDefinitionVersion>();

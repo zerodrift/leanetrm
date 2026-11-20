@@ -83,7 +83,7 @@ def checks(query, manifest):
                      f"SELECT security.use_context('{token}');{sql}COMMIT;")
 
     def capture():
-        return call(f"SELECT security.capture_date_context('{catalog}','2020-12-18',NULL);")
+        return call(f"SELECT security.resolve_operation_context('{catalog}','2020-12-18',NULL);")
 
     def literal(body):
         return "'"+json.dumps(body).replace("'", "''")+"'::jsonb"
@@ -276,7 +276,10 @@ def checks(query, manifest):
         patch = dict(id=new_id, occurrence_count=bad_count)
         if bad_hash is not None:
             patch['terms_hash'] = bad_hash
-        native_rejected(f"BEGIN;INSERT INTO trading.publications SELECT '{catalog}',coalesce(max(publication_order),0)+1,pg_current_xact_id() "
+        # Copy already-admitted, complete input evidence while faulting only the
+        # independent policy seal. This privileged corruption rolls back.
+        native_rejected(f"BEGIN;ALTER TABLE settlement_data.futures_margin_policies DISABLE TRIGGER aaa_source_read_inputs;"
+                        f"INSERT INTO trading.publications SELECT '{catalog}',coalesce(max(publication_order),0)+1,pg_current_xact_id() "
                         f"FROM trading.publications WHERE catalog_id='{catalog}';"
                         f"INSERT INTO settlement_data.futures_margin_policies SELECT (jsonb_populate_record(NULL::settlement_data.futures_margin_policies,"
                         f"to_jsonb(p)||{literal(patch)}||jsonb_build_object('publication_order',(SELECT max(publication_order) FROM trading.publications WHERE catalog_id='{catalog}')))).* "
@@ -429,7 +432,7 @@ def checks(query, manifest):
                     f"DO $check$ DECLARE admitted_until timestamptz;BEGIN "
                     f"admitted_until=settlement_data.futures_margin_command_authority('{catalog}','adopt');"
                     f"PERFORM settlement_data.adopt_futures_margin('{catalog}',{literal(hosted_body)});"
-                    "SET CONSTRAINTS ALL IMMEDIATE;PERFORM pg_sleep(6);"
+                    "PERFORM security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;PERFORM pg_sleep(6);"
                     f"PERFORM settlement_data.finish_futures_margin_command('{catalog}','{hosted_body['operationId']}','adopt',"
                     f"{literal(hosted_body)},admitted_until);END $check$;COMMIT;", 'futures_margin_denied')
     assert financial_counts() == before, 'Hosted expiry retained a command receipt'

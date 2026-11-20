@@ -8,7 +8,7 @@ def checks(query,call,state,manifest):
     catalog,account=manifest['catalogId'],state['account']
     at='2020-12-21T16:00:00Z'
     def literal(value):return "'"+json.dumps(value).replace("'","''")+"'::jsonb"
-    def capture():return call(f"SELECT security.capture_date_context('{catalog}','2020-12-21',NULL);")
+    def capture():return call(f"SELECT security.resolve_operation_context('{catalog}','2020-12-21',NULL);")
     def record(action,body,policy=None):
         return json.loads(call(f"SELECT security.record_gas_owned('{catalog}','{uuid4()}','{action}','{account}',{literal(body)},'{at}','{capture()}',"
             +(f"'{policy}',1" if policy else 'NULL,NULL')+",false)::text;"))

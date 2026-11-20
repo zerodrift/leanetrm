@@ -23,7 +23,7 @@ internal sealed class OperationalBusinessContext(PreviewDatabase database)
     internal async Task<(ScheduleContext Context,DateTimeOffset At,bool Working)> Resolve(NpgsqlConnection c,
         FacilityQuantityContext request,ScheduleContext? selected,string invalidCode,CancellationToken ct)
     {
-        var selection=Select(request,selected,invalidCode);var store=new KnowledgeStore(database.Manifest.CatalogId);
+        var selection=Select(request,selected,invalidCode);var store=new KnowledgeResolver(database.Manifest.CatalogId);
         var context=selection.Working?(await store.Capture(c,new(request.EffectiveOn,null,"current"),ct)).Context:
             await store.Retained(c,request.Retained!,ct);
         return(context,selection.At,selection.Working);

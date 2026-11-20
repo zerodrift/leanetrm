@@ -73,7 +73,7 @@ def checks(query, manifest, read_policy_checks=None):
         token=query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
             f"'https://preview.invalid','{profile}','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}COMMIT;")
-    context = user(f"SELECT security.capture_date_context('{catalog}','2020-12-18',NULL);")
+    context = user(f"SELECT security.resolve_operation_context('{catalog}','2020-12-18',NULL);")
     seed=next(f for f in manifest['frames'] if f['at']=='2020-12-18T16:00:00Z')
     frame=dict(id=str(uuid4()), name='Synthetic economic risk inputs', at=seed['at'], businessDate='2020-12-18',contextId=context,
         observationIds=seed['observationIds'], frozenObservationIds=[],curveContracts=seed['curveContracts'],sourceInputs=None,
@@ -144,7 +144,7 @@ def checks(query, manifest, read_policy_checks=None):
     lines=worker(f"BEGIN;SELECT risk.bind('{accepted['jobId']}','{lease}');"
         "SELECT risk.worker_read();RESET SESSION AUTHORIZATION;SELECT jsonb_build_object('businessDate',q.trading_business_date,'asOf',q.trading_as_of,"
         "'deadlineCaptured',q.expires_at<=j.lease_expires_at)::text FROM security.request_contexts q JOIN risk.worker_attempt_contexts b ON b.context_id=q.id JOIN risk.jobs j ON j.id=b.job_id "
-        "WHERE q.runtime_login='synthetic_lifecycle_worker' AND q.backend_pid=pg_backend_pid() AND q.transaction_id=pg_current_xact_id_if_assigned();COMMIT;").splitlines()
+        "WHERE q.runtime_login='synthetic_lifecycle_worker' AND q.backend_pid=pg_backend_pid() AND q.transaction_id=pg_current_xact_id_if_assigned();SET SESSION AUTHORIZATION synthetic_lifecycle_worker;COMMIT;").splitlines()
     assert lines[-2]=='t', lines
     result=json.loads(lines[-1])
     assert result['businessDate']=='2020-12-18' and result['deadlineCaptured'],result
@@ -171,8 +171,12 @@ def checks(query, manifest, read_policy_checks=None):
     calendar['from']=calendar.pop('from_')
     clock=dict(reference=dict(revision=calendar_ref['revision'],code=clock_code),resolution='captured_calendar_session_closes_v1',closeTime='16:00',ambiguousTime='reject',invalidTime='reject',
         resolvedCloses=[dict(date=day,instant=day+'T16:00:00Z',offsetSeconds=0)for day in calendar['businessDates']])
-    capture=query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT risk.capture_history_clock('{catalog}','{context}',{literal(calendar)},{literal(clock)});")
-    forecast=json.loads(query(f"SELECT jsonb_build_object('catalogId',t.catalog_id,'contextId',t.id,'valuationAt','{seed['at']}','marketCutoff','{seed['at']}','knownAt',t.known_at,'marketKnownThrough',m.known_through)::text FROM market_data.temporal_contexts t JOIN market_data.market_contexts m ON(m.catalog_id,m.context_id)=(t.catalog_id,t.id) WHERE(t.catalog_id,t.id)=('{catalog}','{context}');"))
+    from native_read_transport import captured_input
+    from check_workspace_clock import capture_fixture_clock
+    inputs=captured_input(query,context)
+    capture=capture_fixture_clock(query,manifest,inputs,seed['at'],calendar,clock)
+    forecast=dict(catalogId=catalog,contextId=context,valuationAt=seed['at'],marketCutoff=seed['at'],
+        knownAt=inputs['known_at'],marketKnownThrough=inputs['market_prefix'])
     history=dict(scope=dict(context=request['context'],bookIds=books,portfolioIds=[]),pricingPolicy=request['pricingPolicy'],calendar=calendar_ref,
         from_='2020-12-16',to='2020-12-18',closeTime='16:00',expectedManifestId='c'*64,policy=dict(alignment='exact_session_close_v1'))
     history['from']=history.pop('from_')

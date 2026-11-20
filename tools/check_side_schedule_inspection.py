@@ -125,6 +125,7 @@ def run_checks(url,query,manifest,saved):
     c.call('profile',dict(profile='viewer'));c.call('trading/side-schedules',body,expected=403)
     c.call('profile',dict(profile='trader'))
     # A current source denial cannot be bypassed by retaining a context or page key.
+    c.select_inputs(c.observed_inputs[directory['contextId']])
     query("CREATE POLICY synthetic_inspection_hidden ON trading.gas_instruments AS RESTRICTIVE FOR SELECT TO openetrm_runtime USING(false);")
     try:assert c.call('trading/side-schedules',body,expected=422)['code']=='position_facts'
     finally:query('DROP POLICY synthetic_inspection_hidden ON trading.gas_instruments;')

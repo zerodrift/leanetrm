@@ -46,7 +46,7 @@ def acknowledgement_checks(f, checkpoint):
 def uncommitted_source_check(f, trade, selection):
     context = f.capture()
     rejected(lambda: f.call(f"SELECT security.record_gas_park_loan('{f.catalog}','{uuid4()}','{trade}','fee_determine',"
-        f"{literal(selection)},'{f.at}','{context}',false);SELECT security.capture_date_context('{f.catalog}','{f.day}',NULL);"), 'knowledge_retention')
+        f"{literal(selection)},'{f.at}','{context}',false);SELECT security.resolve_operation_context('{f.catalog}','{f.day}',NULL);"), 'knowledge_retention')
     print('PASS a source certificate cannot include its uncommitted fee publication.', flush=True)
 
 
@@ -61,6 +61,8 @@ def typed_fact_probe(f, trade, head, through, effective):
         "fact=old;fact.id=operation;fact.operation_id=operation;fact.revision=old.revision+1;fact.previous_id=old.id;"
         f"fact.business_key='synthetic_guard_probe';fact.through_at='{through}';fact.effective_at='{effective}';"
         "fact.source_context_id=context;fact.source_head=source_version;fact.contribution=0;fact.fee_id=NULL;"
+        "SELECT s.effective_on,s.known_at,s.system_id,s.timeline INTO fact.source_business_on,fact.source_known_at,fact.source_system_id,fact.source_timeline "
+        "FROM security.operation_read_inputs s WHERE(s.catalog_id,s.id)=(old.catalog_id,context);"
         "IF mode='amount' THEN fact.exact_n=fact.exact_n+1;END IF;"
         "IF mode='duplicate' THEN fact.business_key=old.business_key;fact.through_at=old.through_at;fact.effective_at=old.effective_at;END IF;"
         "SELECT max(p.publication_order)+1 INTO publication FROM trading.publications p WHERE p.catalog_id=old.catalog_id;"
@@ -87,7 +89,7 @@ def typed_fact_probe(f, trade, head, through, effective):
             f"(SELECT max(publication_order) FROM trading.gas_park_loan_fee_determinations WHERE(catalog_id,trade_id)=('{catalog}','{trade}')));")
         sql = f"SELECT security.{name}('{uuid4()}','{context}',{source},'{mode}');"
         if code is None:
-            f.call(sql + 'SET CONSTRAINTS ALL IMMEDIATE;', rollback=True)
+            f.call(sql + 'SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;', rollback=True)
         else:
             rejected(lambda: f.call(sql), code)
     return attempt

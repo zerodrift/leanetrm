@@ -42,7 +42,7 @@ internal static class CashPaymentStore
         if(trades.IsDefault||frame.ContextId is not {} contextId||snapshot.Knowledge?.ContextId!=contextId||snapshot.ValuationAt!=frame.At)
             throw Error("Cash state requires the exact retained frame, knowledge context and held memberships.");
         await RequireBoundContext(connection,catalog,contextId,frame.At,ct);
-        var knowledge=(await new KnowledgeStore(catalog).Read(connection,contextId,ct)).Context;
+        var knowledge=(await new KnowledgeResolver(catalog).Read(connection,contextId,ct)).Context;
         var cutoff=SchedulePreview.ParseAt(knowledge.KnownAt);
         if(cutoff!=snapshot.Knowledge.KnownAt||DateWorkspace.Date(knowledge.EffectiveOn)!=frame.BusinessDate)
             throw Error("Cash state coordinates must match the authorized retained read.");

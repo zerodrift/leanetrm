@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import type {RequestCommand} from './pending-command.js';
 
 const retired=new Set(['swaps/settlement/determine','swaps/settlement/payment','swaps/settlement/net']);
@@ -22,7 +23,7 @@ export function retiredSwapRequest(host:HTMLElement,options:{api:<T>(path:string
  }
  async function read(){
   const command=options.command();if(!command||!isRetiredSwapRequest(command.path)||checking||options.busy())return;
-  const sent=structuredClone(command),key=identity(command);checking=true;missing='';sync();
+  const sent=cloneRead(command),key=identity(command);checking=true;missing='';sync();
   await options.act(async()=>{
    let accepted=false;
    try{

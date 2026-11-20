@@ -36,7 +36,7 @@ def configured(query,manifest,state):
     def call(sql):
         token=query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('{issuer}','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}COMMIT;")
-    def capture(day):return call(f"SELECT security.capture_date_context('{catalog}','{day}',NULL);")
+    def capture(day):return call(f"SELECT security.resolve_operation_context('{catalog}','{day}',NULL);")
     policy=state['margin'];final=policy['occurrences'][0];book=state['bookId'];long=state['booked']
     short=json.loads(call(f"SELECT security.book_futures_with_parties('{catalog}','{uuid4()}','{book}','{manifest['revisionId']}',"
         f"'nymex_ng','{policy['contractId']}','2026-10-16T14:00:00Z',NULL,-2,3,'contract_lot_execution_pnl_v2',NULL,NULL,NULL,{literal(state['booking'])})::text;"))

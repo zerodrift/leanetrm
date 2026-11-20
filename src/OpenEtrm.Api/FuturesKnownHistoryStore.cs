@@ -49,7 +49,7 @@ internal static class FuturesKnownHistoryStore
         var until=opening is not null&&opening.AuthorityUntil<captured?opening.AuthorityUntil:captured;
         database.RegisterCommitAdmission(connection,new Admission(catalog,trade.Id,bindingId,policy.Id,policy.Revision,until));
         await FuturesMarginStore.RequireRead(connection,catalog,contextId,frame.At,until,ct);
-        var context=(await new KnowledgeStore(catalog).Read(connection,contextId,ct)).Context;
+        var context=(await new KnowledgeResolver(catalog).Read(connection,contextId,ct)).Context;
         frame.Time.RequireDate(PublishedSchedules.ContextDate(context));
         await TradingContext.AdmitSource(database,connection,context,frame.At,ct);
         await using var command=causal is null?

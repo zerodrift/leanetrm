@@ -111,7 +111,7 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
         if(policy.FuturesOptions?.Physical is not null)await FuturesOptionPhysicalPermissionAdmission.Capture(connection,database,ct);
         if(frame.ContextId is not {} contextId||bookIds.IsDefault||portfolioIds.IsDefault)
             throw new MarketDataException("risk_context","Select the shared financial context and explicit book and portfolio scopes.");
-        var context=(await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,contextId,ct)).Context;
+        var context=(await new KnowledgeResolver(database.Manifest.CatalogId).Read(connection,contextId,ct)).Context;
         var books=await BookScope.Read(connection,database.Manifest.CatalogId,ct);
         var selected=BookScope.Select(books,bookIds,portfolioIds).Select(b=>b.Id("id")).Order().ToImmutableArray();
         if(selected.IsEmpty)throw new MarketDataException("risk_position","Select visible books before running risk.");

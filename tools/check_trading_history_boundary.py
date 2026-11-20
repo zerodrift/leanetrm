@@ -2,6 +2,13 @@
 from uuid import UUID, uuid4
 from pathlib import Path
 from datetime import datetime, timezone
+from native_read_transport import captured_input
+
+
+def install_proxy(query):
+    query("""CREATE FUNCTION public.synthetic_history_boundary(catalog uuid,operation uuid,source uuid) RETURNS void
+        LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog AS
+        $$SELECT trading.record_history_boundary($1,$2,$3)$$;""")
 
 
 def run_checks(query, manifest):
@@ -14,12 +21,12 @@ def run_checks(query, manifest):
                      f"'https://preview.invalid','{profile}','human_interactive','{tenant}',"
                      f"'{workspace}',NULL,'preview_runtime',60);")
     def runtime(body, profile='trader', before=''):
-        return query(f"BEGIN;{before} SET SESSION AUTHORIZATION preview_runtime;"
-                     f"SELECT security.use_context('{issue(profile)}');{body} ROLLBACK;")
+        return query(f"BEGIN;SET SESSION AUTHORIZATION preview_runtime;"
+                     f"SELECT security.use_context('{issue(profile)}');{before}{body} ROLLBACK;")
     def capture():
         return query("SET SESSION AUTHORIZATION preview_runtime;BEGIN;"
                      f"SELECT security.use_context('{issue()}');"
-                     f"SELECT security.capture_date_context('{catalog}','2020-12-18',NULL);COMMIT;")
+                     f"SELECT security.resolve_operation_context('{catalog}','2020-12-18',NULL);COMMIT;")
     def refused(statement, code, message=None):
         exact = '' if message is None else f"IF SQLERRM<>'{message}' THEN RAISE;END IF;"
         return (f"DO $$BEGIN {statement};RAISE EXCEPTION 'Expected {message or code} refusal';"
@@ -36,7 +43,11 @@ def run_checks(query, manifest):
           f"pg_current_xact_id() FROM trading.publications WHERE catalog_id='{catalog}';")
     current = capture()
     operation = str(uuid4())
-    install = f"SELECT trading.record_history_boundary('{catalog}','{operation}','{current}');"
+    install_proxy(query)
+    query("""CREATE FUNCTION public.synthetic_history_boundary_delete() RETURNS void
+        LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog AS
+        $$DELETE FROM trading.history_boundaries$$;""")
+    install = f"SELECT public.synthetic_history_boundary('{catalog}','{operation}','{current}');"
     runtime(bind(old) + refused(trade(), 'P0001', 'trading_history_archived'), before=install)
     print('PASS trading archive boundary rejects an earlier certified whole-book context', flush=True)
     runtime(bind(current) + f"SELECT security.use_trading_context('{catalog}','{at}');"
@@ -48,17 +59,11 @@ def run_checks(query, manifest):
     ppa = f"PERFORM security.ppa_read_scope('{catalog}','books',ARRAY['{book}']::uuid[],'{old}','{at}',false)"
     runtime(refused(ppa, 'P0001', 'trading_history_archived'), before=install)
     print('PASS explicit PPA scope rejects archived history even when it has no PPA rows', flush=True)
-    deficient = str(uuid4())
-    partial = (f"INSERT INTO market_data.temporal_contexts SELECT catalog_id,'{deficient}',"
-               "DATE '2020-12-16',known_at,known_through,coverage_from,certified_through "
-               f"FROM market_data.temporal_contexts WHERE(catalog_id,id)=('{catalog}','{current}');"
-               f"INSERT INTO market_data.market_contexts SELECT catalog_id,'{deficient}',known_through "
-               f"FROM market_data.market_contexts WHERE(catalog_id,context_id)=('{catalog}','{current}');"
-               f"INSERT INTO trading.contexts SELECT catalog_id,'{deficient}',known_through-1 "
-               f"FROM trading.contexts WHERE(catalog_id,context_id)=('{catalog}','{current}');")
-    runtime(refused(ppa.replace(old, deficient).replace(at, '2020-12-16T16:00:00Z'),
-                    'P0001', 'trading_history_archived'), before=install + partial)
-    print('PASS equal knowledge time cannot admit an incomplete trading publication prefix', flush=True)
+    source=captured_input(query,current)
+    runtime(refused(f"PERFORM security.register_read_source('{catalog}','{current}','2020-12-18',"
+        f"'{source['known_at']}',{source['schedule_prefix']+1},'{source['system_id']}',{source['timeline']})",
+        'P0001','temporal_context'),before=install)
+    print('PASS a certified cutoff cannot be paired with a manufactured publication prefix',flush=True)
     runtime(bind(old) + "DO $$BEGIN IF NOT EXISTS(SELECT 1 FROM market_data.revisions) OR "
             "NOT EXISTS(SELECT 1 FROM ref_data.units) THEN RAISE EXCEPTION 'Market or reference history missing';END IF;END$$;",
             before=install)
@@ -67,12 +72,15 @@ def run_checks(query, manifest):
     runtime(refused(f"PERFORM trading.record_history_boundary('{catalog}','{operation}','{current}')", '42501'))
     runtime(refused(f"INSERT INTO trading.history_boundaries VALUES('{catalog}','{operation}','{current}')", '42501'))
     print('PASS current authority precedes archive refusal and runtime cannot write a boundary', flush=True)
-    query(f"BEGIN;{install}{install}" + refused(
-        f"PERFORM trading.record_history_boundary('{catalog}','{uuid4()}','{current}')", 'P0001',
+    runtime(f"{install}{install}" + refused(
+        f"PERFORM public.synthetic_history_boundary('{catalog}','{uuid4()}','{current}')", 'P0001',
         'trading_history_boundary_conflict') + refused(
-        "DELETE FROM trading.history_boundaries", '55000') + "ROLLBACK;")
-    query("BEGIN;" + refused(f"PERFORM trading.record_history_boundary('{catalog}','{operation}','{old}')",
-          'P0001', 'trading_history_boundary_input') + "ROLLBACK;")
+        "DELETE FROM trading.history_boundaries", '42501') + refused(
+        "PERFORM public.synthetic_history_boundary_delete()", '55000'))
+    runtime(refused(f"PERFORM public.synthetic_history_boundary('{catalog}','{operation}','{old}')",
+          'P0001', 'trading_history_boundary_input'))
+    query('DROP FUNCTION public.synthetic_history_boundary(uuid,uuid,uuid);')
+    query('DROP FUNCTION public.synthetic_history_boundary_delete();')
     print('PASS release boundary retries exactly, rejects incomplete certificates and remains immutable', flush=True)
 
 
@@ -100,7 +108,13 @@ def run_http_checks(query, manifest, url, owned_root, client=None):
     boundary = c.call('trading/directory', current)['context']
     assert boundary['knownAt'] > old['knownAt']
     operation = str(uuid4())
-    query(f"SELECT trading.record_history_boundary('{catalog}','{operation}','{UUID(boundary['contextId'])}');")
+    install_proxy(query)
+    from assistant_context import Contexts
+    Contexts(query,manifest).runtime('trader',f"""DO $$BEGIN
+        IF security.resolve_operation_context('{catalog}','{boundary['effectiveOn']}','{boundary['knownAt']}')<>'{UUID(boundary['contextId'])}'::uuid
+        THEN RAISE EXCEPTION 'Boundary coordinates changed';END IF;END$$;
+        SELECT public.synthetic_history_boundary('{catalog}','{operation}','{UUID(boundary['contextId'])}');""")
+    query('DROP FUNCTION public.synthetic_history_boundary(uuid,uuid,uuid);')
     try:
         cases = [('trading/directory', retained), ('trading/positions', facts),
                  ('trading/blotter', {'context': retained, 'view': view}),
@@ -113,12 +127,14 @@ def run_http_checks(query, manifest, url, owned_root, client=None):
             assert error['code'] == 'trading_history_archived', (path, error)
             print('PASS archived trading HTTP refusal: ' + path, flush=True)
         c.call('profile', {'profile': 'risk'})
+        c.select_inputs(old)
         error = c.call('portfolio/risk/catalog', {'context': retained, 'bookIds': [], 'portfolioIds': []}, expected=422)
         assert error['code'] == 'trading_history_archived', error
         print('PASS archived historical risk cannot return a surviving-product subset', flush=True)
         c.call('profile', {'profile': 'viewer'})
         assert c.call('trading/directory', retained, expected=403)['code'] == 'access_denied'
         c.call('profile', {'profile': 'trader'})
+        c.select_inputs(boundary)
         exact = {**retained, 'contextId': boundary['contextId']}
         assert c.call('trading/directory', exact)['context'] == boundary
         after = c.call('trading/positions', {**facts, 'context': exact})

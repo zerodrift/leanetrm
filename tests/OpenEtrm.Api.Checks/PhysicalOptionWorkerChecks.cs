@@ -37,7 +37,7 @@ internal static class PhysicalOptionWorkerChecks
             await using var interactive=new PreviewDatabase(database.Manifest,new NpgsqlConnectionStringBuilder(login.ConnectionString){Username="preview_authenticator"},login);
             var report=await interactive.WithIdentity("trader",null,async(current,token)=>
             {
-                var context=(await new KnowledgeStore(database.Manifest.CatalogId).Read(current,frame.ContextId!.Value,token)).Context;
+                var context=(await new KnowledgeResolver(database.Manifest.CatalogId).Read(current,frame.ContextId!.Value,token)).Context;
                 await PinnedContext.BindExact(current,database.Manifest.CatalogId,context,token);
                 await TradingContext.Bind(current,database.Manifest.CatalogId,context,frame.At,token);
                 var selected=await interactive.Read(current,token,selectedRevision:data.DefinitionRevision.RevisionId,

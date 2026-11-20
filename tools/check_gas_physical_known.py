@@ -39,7 +39,7 @@ def checks(query, manifest):
         token = query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
             f"'{manifest['identityIssuer']}','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}COMMIT;")
-    context = call(f"SELECT security.capture_date_context('{catalog}','2026-11-04',NULL);")
+    context = call(f"SELECT security.resolve_operation_context('{catalog}','2026-11-04',NULL);")
     book = query(f"SELECT book_id FROM trading.gas_owned_accounts WHERE catalog_id='{catalog}' LIMIT 1;")
     at = '2026-11-04T08:00:00Z'
     bound = f"SELECT security.use_market_context('{catalog}','{context}');SELECT security.use_trading_context('{catalog}','{at}');"

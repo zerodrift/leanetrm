@@ -262,7 +262,7 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
                 e.Risk.Repricing.Work,e.Risk.Repricing.GraphWork}).ToArray(),
             sources=(first.Prepared?.Markets??[]).Concat(last.Prepared?.Markets??[]).Select(m=>new{m.Data.DefinitionRevision,m.Data.ReferenceRevision,m.Frame.Id,m.Frame.ContextId,m.Frame.At,
                 scenarioId=m.Connected.Scenario.Id,manifestId=m.Connected.Scenario.Plan.ManifestId,contracts=m.Connected.UnitContracts}).ToArray()};
-        var receipts=new[]{first,last}.Select(e=>new PnlEndpointReceipt(JsonSerializer.SerializeToElement(RetainedFrames.Record(e.View.CalculationFrame),RiskJobs.Json),e.View.Context,e.Books,
+        var receipts=new[]{first,last}.Select(e=>new PnlEndpointReceipt(JsonSerializer.SerializeToElement(RetainedFrames.Record(e.View.CalculationFrame),RiskJobs.Json),ReadInputCoordinates.From(e.View.Context),e.Books,
             [..e.Trades.Select(t=>t.TradeId)],e.Prepared?.Markets.Select(m=>new PnlSourceReceipt(CatalogueSource.From(m.Data),
                 JsonSerializer.SerializeToElement(RetainedFrames.Record(m.Frame),RiskJobs.Json))).ToImmutableArray()??[],[..e.Cash.Select(PnlCashReceipt.From)],e.CashTradeSelection)).ToImmutableArray();
         await Reauthorize(connection,receipts,ct);
@@ -395,7 +395,8 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
         foreach(var receipt in receipts)
         {
             var frame=RetainedFrames.Read(System.Text.Json.Nodes.JsonNode.Parse(receipt.Frame.GetRawText())!);
-            var view=TradingView.Retained(frame,receipt.Context);
+            var inputContext=await receipt.Inputs.Resolve(connection,database.Manifest.CatalogId,ct);
+            var view=TradingView.Retained(frame,inputContext);
             await using(var save=ScheduleStore.Command(connection,"SAVEPOINT pnl_receipt"))await save.ExecuteNonQueryAsync(ct);
             try
             {

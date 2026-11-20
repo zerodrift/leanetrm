@@ -162,7 +162,7 @@ def selected_term_work(query,manifest,as_of):
             f"'https://preview.invalid','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
         result=query(rf"""SET track_functions='all';SET SESSION AUTHORIZATION preview_runtime;BEGIN;
           SELECT security.use_context('{token}');
-          SELECT security.capture_date_context('{catalog}','{as_of[:10]}',NULL) AS context \gset
+          SELECT security.resolve_operation_context('{catalog}','{as_of[:10]}',NULL) AS context \gset
           SELECT security.use_market_context('{catalog}',:'context');SELECT security.use_trading_context('{catalog}','{as_of}');
           SELECT trading.scheduled_swap_terms('{catalog}','{selected['trade']}',{revision},'{selected['instrument']}') IS NOT NULL;
           SELECT coalesce(sum(calls),0) FROM pg_stat_xact_user_functions WHERE schemaname='security' AND funcname='side_calendar_policy_document';ROLLBACK;""").splitlines()
@@ -179,7 +179,7 @@ def projection_parity(query,manifest,as_of,require_observations=True):
         token=query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
             f"'https://preview.invalid','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}COMMIT;")
-    context=runtime(f"SELECT security.capture_date_context('{catalog}','{as_of[:10]}',NULL);")
+    context=runtime(f"SELECT security.resolve_operation_context('{catalog}','{as_of[:10]}',NULL);")
     bind=f"SELECT security.use_market_context('{catalog}','{context}');SELECT security.use_trading_context('{catalog}','{as_of}');"
     def read(view):
         try:

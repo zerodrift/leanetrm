@@ -164,7 +164,7 @@ def run_checks(query, manifest):
         query(f"""DO $$BEGIN BEGIN PERFORM market_data.ppa_day_boundary('{at}','{reference}','{ref_revision}','synthetic_eastern');
           RAISE EXCEPTION 'uncovered clock accepted';EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'clock_coverage' THEN RAISE;END IF;END;END$$;""")
 
-    outside = str(UUID(query('BEGIN;' + runtime(issue(), f"SELECT security.capture_date_context('{catalog}','2019-01-01',NULL);") + 'COMMIT;')))
+    outside = str(UUID(query('BEGIN;' + runtime(issue(), f"SELECT security.resolve_operation_context('{catalog}','2019-01-01',NULL);") + 'COMMIT;')))
     for table in tables:
         rows = f"SELECT count(*) FROM market_data.{table} WHERE revision_id='{revision}';"
         expected = query(rows)
@@ -202,7 +202,7 @@ def run_checks(query, manifest):
     check('a current header read also respects a hidden required series',
           query('BEGIN;' + hidden + runtime(issue(), f"SELECT {header}::text;") + 'ROLLBACK;') == 'null')
     retained = str(UUID(query('BEGIN;' + runtime(issue(),
-        f"SELECT security.capture_date_context('{catalog}','2020-12-18',NULL);") + 'COMMIT;')))
+        f"SELECT security.resolve_operation_context('{catalog}','2020-12-18',NULL);") + 'COMMIT;')))
     bind = f"SELECT security.use_market_context('{catalog}','{retained}');"
     probe = f"""SELECT json_build_object('binding',({selected_source[:-1]}),
       'header',{header},'raw',(SELECT count(*) FROM market_data.interval_series

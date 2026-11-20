@@ -16,6 +16,8 @@ from gas_operator_source_authority import _state
 def market_inputs(query, manifest, context, *, loss_units):
     """Exact retained mark/rate pins and independent history endpoints for these consumers."""
     catalog, revision = manifest['catalogId'], manifest['revisionId']
+    from native_read_transport import captured_input
+    inputs=captured_input(query,context)
     mark = '70000000-0000-0000-0000-000000000001'
     point = Decimal(query(f"SELECT value FROM market_data.observations WHERE(catalog_id,id)=('{catalog}','{mark}');"))
     multiplier = Decimal(query("SELECT q.multiplier FROM market_data.curves c JOIN ref_data.quote_specifications q "
@@ -34,14 +36,12 @@ def market_inputs(query, manifest, context, *, loss_units):
         f"AND id=ANY(ARRAY[{','.join(repr(value)+'::uuid' for value in rates)}]);") == 't'
     history = json.loads(query("WITH eligible AS MATERIALIZED(SELECT o.* FROM market_data.observations o "
         "JOIN market_data.observations anchor ON(anchor.catalog_id,anchor.id)="+f"('{catalog}','{mark}'::uuid) "
-        "JOIN market_data.temporal_contexts cut ON(cut.catalog_id,cut.id)="+f"('{catalog}','{context}'::uuid) "
-        "JOIN market_data.market_contexts prefix ON(prefix.catalog_id,prefix.context_id)=(cut.catalog_id,cut.id) "
         "JOIN market_data.knowledge_events event ON(event.catalog_id,event.revision_id,event.observation_id)=(o.catalog_id,o.definition_revision_id,o.id) "
         "JOIN market_data.market_knowledge_receipts receipt ON(receipt.catalog_id,receipt.event_order,receipt.publication_xid)=(event.catalog_id,event.event_order,event.publication_xid) "
         "WHERE(o.catalog_id,o.definition_revision_id,o.series_id,o.source_code,o.role)="
         "(anchor.catalog_id,anchor.definition_revision_id,anchor.series_id,anchor.source_code,anchor.role) "
         "AND o.observed_at IN('2020-12-15T16:00:00Z','2020-12-16T16:00:00Z','2020-12-17T16:00:00Z') "
-        "AND event.event_order<=prefix.known_through AND receipt.known_from<=cut.known_at) "
+        f"AND event.event_order<={inputs['market_prefix']} AND receipt.known_from<='{inputs['known_at']}'::timestamptz) "
         "SELECT jsonb_build_object('count',count(*),'values',jsonb_object_agg(o.observed_at::date::text,o.value::text)) "
         "FROM eligible o WHERE o.publication_state='final' AND NOT EXISTS(SELECT 1 FROM eligible next WHERE next.corrects_id=o.id);"))
     assert history['count']==3,history

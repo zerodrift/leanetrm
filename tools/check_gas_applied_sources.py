@@ -23,7 +23,7 @@ def checks(query, manifest):
         token=query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
             f"'https://preview.invalid','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}COMMIT;")
-    def capture(day='2020-12-20'):return call(f"SELECT security.capture_date_context('{catalog}','{day}',NULL);")
+    def capture(day='2020-12-20'):return call(f"SELECT security.resolve_operation_context('{catalog}','{day}',NULL);")
     original=json.loads(query(f"SELECT to_jsonb(a) FROM trading.gas_owned_accounts a WHERE catalog_id='{catalog}' AND kind='operator_balance';"))
     operator=str(uuid4());cashout_book='d1000000-0000-0000-0000-000000000002'
     def command(action,body,policy=None):

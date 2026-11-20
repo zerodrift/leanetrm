@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import {renderRegularTable} from './regular-table.js';
 import {displayExactInstant,friendly} from './market-view.js';
 
@@ -24,7 +25,7 @@ export function readDeliveryAssessment(value:unknown,profile?:string):DeliveryAs
   v.constraints.some(c=>!c||!text(c.code)||!text(c.label)||!['within_limit','breached','unassessed'].includes(c.state)||
    !['quantity','per_elapsed_hour','timing'].includes(c.basis)||c.geometry!==null&&!geometry(c.geometry)||c.sourceId!==null&&!text(c.sourceId)||
    [c.observed,c.limit,c.residual].some(n=>n!==null&&!text(n))))throw invalid();
- return structuredClone(v);
+ return cloneRead(v);
 }
 
 const node=<K extends keyof HTMLElementTagNameMap>(tag:K,text?:string)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;return n;};

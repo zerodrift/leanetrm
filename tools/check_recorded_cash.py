@@ -143,7 +143,7 @@ def run_checks(url,query,manifest,verify_persistence=None):
              'bindingId':booked['premiumInstrumentId'],'expectedRevision':0,'paidAt':frame['at'],'amount':format(owed/4,'f'),'policy':POLICY}
     first=c.call('cash-payments/record',command);assert first['revision']==1
     row=premium();assert row['cashState']=='part_paid' and Decimal(row['presentValue'])==owed*Decimal('.75'),row
-    old=c.call('options/catalog',context)['context']['contextId']
+    old_inputs=c.call('options/catalog',context)['context'];old=old_inputs['contextId']
     spelling={**command,'operationId':command['operationId'].upper(),'paidAt':frame['at'].replace('+00:00','Z'),'amount':format(owed/4,'.3f')}
     assert c.call('cash-payments/record',spelling)==first
     same=c.call('cash-payments/record',{**spelling,'operationId':str(uuid4())});assert same['allocationId']==first['allocationId'] and same['revision']==1
@@ -182,7 +182,9 @@ def run_checks(url,query,manifest,verify_persistence=None):
                      f"'https://exchange-preview.invalid','trader','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',{seconds});")
     bound=token(30)
     mismatch=str(uuid4())
+    from native_read_transport import select_context_inputs
     guard=query(f"""BEGIN;SET SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{bound}');
+        {select_context_inputs(cat,old_inputs)}
         SELECT security.use_market_context('{cat}','{old}');SELECT security.use_trading_context('{cat}','{frame['at']}');
         SELECT security.require_cash_payment_read('{cat}','{old}','{frame['at']}');
         DO $check$ BEGIN BEGIN PERFORM security.require_cash_payment_read('{cat}','{mismatch}','{frame['at']}');

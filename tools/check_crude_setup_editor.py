@@ -164,9 +164,9 @@ def run_checks(url, query, manifest):
     def runtime(sql, context=None):
         bind = f"SELECT security.use_market_context('{catalog_id}','{context}');" if context else ''
         return f"BEGIN;SET LOCAL SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{issue()}');" + bind + sql + 'COMMIT;'
-    assert query("SELECT NOT has_function_privilege('preview_runtime','security.capture_pre_crude_setup_context(uuid,date,timestamptz)','EXECUTE') AND NOT has_function_privilege('openetrm_risk_worker','security.capture_pre_crude_setup_context(uuid,date,timestamptz)','EXECUTE');") == 't'
+    assert query("SELECT to_regprocedure('security.capture_pre_crude_setup_context(uuid,date,timestamptz)') IS NULL;") == 't'
     original_prices = query("SELECT count(*)||'/'||md5(string_agg(row_to_json(o)::text,',' ORDER BY id)) FROM market_data.observations o;")
-    before = query(runtime(f"SELECT security.capture_date_context('{catalog_id}','2020-12-18',NULL);"))
+    before = query(runtime(f"SELECT security.resolve_operation_context('{catalog_id}','2020-12-18',NULL);"))
     c = PreviewClient(url); c.bootstrap(); c.call('profile', {'profile': 'editor'})
     catalog = c.call('crude-setup/catalog')
     references = catalog['deliveryReferences']
@@ -276,6 +276,11 @@ def run_checks(url, query, manifest):
     c.call('crude-setup/preview', {'snapshotId': frame['id'], 'setupId': saved['setupId'], 'knowledgeMode': 'current',
         'deliveryFrom': '2020-12-18T00:00:00Z', 'deliveryTo': '2021-01-01T00:00:00Z', 'quantity': '1000', 'calendarPolicy': side_calendar_policy(dict(revision=dict(catalogId=RCAT,revisionId=RREV),code='test_utc_every_day'),delivery=True,observation=False,payment=False)}, expected=422)
     assert quoted['curve'] == source['curve'] and quoted['definitionRevisionId'] == source['definitionRevisionId']
+    from native_read_transport import select_context_inputs
+    quote_inputs=c.call('trading/positions',dict(context=dict(snapshotId=frame['id'],convention='trading_workspace_v1',
+        knowledgeMode='retained',contextId=quoted['contextId']),bookIds=[],portfolioIds=[],offset=0,limit=1))['context']
+    assert quote_inputs['contextId']==quoted['contextId']
+    query(runtime(select_context_inputs(catalog_id,quote_inputs)))
     for context, expected in ((before,'0'),(quoted['contextId'],'1')):
         assert query(runtime(f"SELECT count(*) FROM market_data.crude_setup_versions WHERE(catalog_id,id)=('{catalog_id}','{saved['setupId']}');",context)) == expected
     for reference in (delivery['catalog_id'], source['referenceCatalogId']):
@@ -300,7 +305,8 @@ def run_checks(url, query, manifest):
     c.call('crude-setup/save', body, expected=403)
     # Contextual history uses certified knowledge, while exact backend reads stay
     # available. A large history of one code cannot hide another current code.
-    known=query(f"SELECT to_char(known_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') FROM market_data.temporal_contexts WHERE(catalog_id,id)=('{catalog_id}','{before}');")
+    from native_read_transport import captured_input
+    known=captured_input(query,before)['known_at']
     selected_context=c.call('market/context',{'effectiveOn':'2020-12-18','knownAt':known,'mode':'at','selection':'latest_correction','snapshotId':frame['id'],'frameSelectionPolicy':'preserve_origin_or_unique_asof_frame_v1'})
     historical=c.call('crude-setup/catalog?snapshotId='+selected_context['snapshotId'])
     assert not historical['canSave'] and not historical['canPublish'] and not historical['contextSetups']
@@ -354,6 +360,7 @@ def run_booking_checks(url, query, manifest, *, run_worker):
     from fractions import Fraction
     retained = {**shared, 'knowledgeMode': 'retained', 'contextId': blotter['context']['contextId']}
     c.call('profile', {'profile': 'risk'})
+    c.select_inputs(blotter['context'])
     risk = c.call('portfolio/risk/catalog', {'context': retained, 'bookIds': [body['bookId']], 'portfolioIds': []})
     factors = [f for f in risk['factors'] if assignment['curve'] in f['curves']]
     assert len(factors) == 1
@@ -422,6 +429,7 @@ def run_booking_checks(url, query, manifest, *, run_worker):
     b_blotter = c.call('trading/blotter', {'context': b_context, 'view': {'mode':'trades','bookIds':[body['bookId']],'portfolioIds':[],'groupBy':[],'measures':[],'pivotConvention':None}})
     b_retained = {**b_context, 'knowledgeMode': 'retained', 'contextId': b_blotter['context']['contextId']}
     c.call('profile', {'profile': 'risk'})
+    c.select_inputs(b_blotter['context'])
     b_catalog = c.call('portfolio/risk/catalog', {'context': b_retained, 'bookIds': [body['bookId']], 'portfolioIds': []})
     b_factor = next(f for f in b_catalog['factors'] if assignment['curve'] in f['curves'])
     b_request = {**request, 'context': b_retained, 'bumps': [{'factor': b_factor['factor'], 'size':'1','convention':b_catalog['bumpConvention']}]}

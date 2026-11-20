@@ -229,15 +229,13 @@ def run_checks(url, query, psql, manifest, environment):
     generation = query('SELECT generation FROM assistant.worker_generation;')
     provider, credential, terms = query(f"SELECT a.provider_id||','||a.credential_version||','||a.terms_version FROM assistant.models m "
                                         f"CROSS JOIN LATERAL assistant.current_attestation(m.provider_id) a WHERE m.id='{one}';").split(',')
-    pinned = last(contexts.runtime('trader', f"SELECT security.capture_date_context('{manifest['catalogId']}','2020-12-18',NULL);"))
-    cutoff = query(f"SELECT known_at FROM market_data.temporal_contexts WHERE id='{pinned}';")
     mark = f'usage-content-{stamp}'
     owners = {'ana': principal(ana), 'ben': principal(ben)}
     conversations, turns, calls = {}, {}, {}
 
     def turn(key, owner, agent_state, state, asked):
         """A turn of the owner's conversation with the agent's published version, in `state`, holding a question, page report
-        and answer that no report may show."""
+        and answer that no report may show. These text-only usage facts perform no financial read."""
         if (owner, agent_state['id']) not in conversations:
             conversation, delegation = str(uuid4()), str(uuid4())
             agent_principal = query(f"SELECT principal_id FROM assistant.agents WHERE id='{agent_state['id']}';")
@@ -253,8 +251,8 @@ def run_checks(url, query, psql, manifest, environment):
         cancelled = f"'{asked}'::timestamptz+interval '1 second'" if state == 'cancelled' else 'NULL'
         ended = f"'{asked}'::timestamptz+interval '1 minute'" if state in ('completed', 'failed', 'cancelled', 'interrupted') else 'NULL'
         query(f"INSERT INTO assistant.turns VALUES('{identity}','{held[0]}','{tenant}','{workspace}',{held[2]},'{owner}','{uuid4()}','{agent_state['id']}',1,"
-              f"false,'{held[1]}','Synthetic question {mark}','{page}','{manifest['catalogId']}','current',NULL,NULL,'{pinned}','{cutoff}',NULL,'{asked}',"
-              f"ARRAY[]::uuid[],'turns_v1','{state}',{outcome},NULL,'{answer}',false,{generation},'{'0' * 64}','{'0' * 64}','Synthetic usage',"
+              f"false,'{held[1]}','Synthetic question {mark}','{page}','{manifest['catalogId']}','current',NULL,NULL,NULL,NULL,NULL,NULL,"
+              f"ARRAY[]::uuid[],'turns_v23','{state}',{outcome},NULL,'{answer}',false,{generation},'{'0' * 64}','{'0' * 64}','Synthetic usage',"
               f"'{asked}'::timestamptz+interval '30 minutes','{asked}','{asked}',{cancelled},NULL,{ended});")
         turns[key] = (identity, owner, agent_state['id'], state)
 

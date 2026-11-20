@@ -1,3 +1,4 @@
+import {retainedKnowledge} from './read-references.js';
 // The Positions widget: a saved risk run definition's latest completed run as a delta ladder by month, with Run now to queue a new one. The
 // ladder is `deltaLadder` of the backend's parts and the choice of run, its freshness and any newer or incomplete run are the backend's;
 // nothing is re-derived here. A definition is configured only from the books the page can read and the exact price units the risk
@@ -62,7 +63,7 @@ export function positionsView(latest:Latest,historical=false):PositionsView{
 /** The page's own context: current knowledge in working data, or the historical view's selected retained context. */
 export function pageContext(market:Pick<DashboardMarket,'snapshotId'|'navigation'>):PageContext{
   const selected=market.navigation.context;
-  return {snapshotId:market.snapshotId,convention:'trading_workspace_v1',...(selected?{knowledgeMode:'retained',contextId:selected.contextId}:{knowledgeMode:'current'})};
+  return {snapshotId:market.snapshotId,convention:'trading_workspace_v1',...(selected?{...retainedKnowledge(selected)}:{knowledgeMode:'current'})};
 }
 
 /**
@@ -124,7 +125,7 @@ export function barWidths(amounts:readonly (string|null)[]):number[]{
 /** The page's context retained, for the catalog and Run now, and the books readable there. */
 async function retainedContext(market:DashboardMarket,api:Api):Promise<{context:Context;books:Directory['books']}>{
   const request=pageContext(market),{context,books}=await api<Directory>('trading/directory',request);
-  return {context:{...request,knowledgeMode:'retained',contextId:context.contextId},books};
+  return {context:{...request,...retainedKnowledge(context)},books};
 }
 
 const knownRejections=new Set(['risk_definition','risk_run_choice','risk_definition_conflict','risk_definition_request_conflict','risk_definition_size','risk_definition_targets','risk_definition_version',

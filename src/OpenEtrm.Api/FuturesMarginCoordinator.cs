@@ -59,10 +59,12 @@ internal static class FuturesMarginCoordinator
         var at=TradingInstant.Parse(request.AsOf,"futures_margin_input");
         var correctionDue=request.CorrectionDue.ToImmutableDictionary(d=>d.OccurrenceId,d=>TradingInstant.Parse(d.DueAt,"futures_margin_correction_due"));
         FuturesMarginReview prepared;
+        // The publication needs these exact inputs after the review savepoint
+        // releases its temporary bindings.
+        var context=(await new KnowledgeResolver(catalog).Read(connection,request.ContextId,ct)).Context;
         await using(var savepoint=ScheduleStore.Command(connection,"SAVEPOINT futures_margin_review"))await savepoint.ExecuteNonQueryAsync(ct);
         try
         {
-            var context=(await new KnowledgeStore(catalog).Read(connection,request.ContextId,ct)).Context;
             await PinnedContext.BindExact(connection,catalog,context,ct);
             await TradingContext.Bind(connection,catalog,context,at,ct);
             await using var native=ScheduleStore.Command(connection,

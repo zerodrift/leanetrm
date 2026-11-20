@@ -27,6 +27,13 @@ internal static class GasBillingReadChecks
         {
             await using(var plan=ScheduleStore.Command(connection,$"SET LOCAL plan_cache_mode={mode}"))await plan.ExecuteNonQueryAsync(ct);
             // Hold one certified view across maintenance and unrelated-row growth.
+            if(captured is not null)
+            {
+                var inputs=input.GetProperty("inputs").Deserialize<ReadInputCoordinates>(Json)??throw new Exception("Billing comparison requires its complete original input coordinates.");
+                var source=await inputs.Resolve(connection,database.Manifest.CatalogId,ct);
+                if(!captured.HasSameCoordinates(source))throw new Exception("Billing comparison changed its certified input coordinates.");
+                captured=source;
+            }
             var view=captured is null?await TradingView.Capture(connection,new(database.Manifest.CatalogId),frame,ct):
                 new TradingView(frame,captured,request.Context is {KnowledgeMode:"current",ContextId:null});
             async Task<Dictionary<string,long>> Tuples()
@@ -40,7 +47,7 @@ internal static class GasBillingReadChecks
                 ()=>store.Read(connection,view.CalculationFrame,request,ct),ct);
             var elapsed=clock.Elapsed.TotalMilliseconds;
             var tables=(await Tuples()).ToDictionary(pair=>pair.Key,pair=>pair.Value-before.GetValueOrDefault(pair.Key)).Where(pair=>pair.Value!=0).ToDictionary();
-            return new {view.Context,data,tuples=tables.Values.Sum(),tables,elapsed};
+            return new {view.Context,inputs=ReadInputCoordinates.From(view.Context),data,tuples=tables.Values.Sum(),tables,elapsed};
         },CancellationToken.None);
         File.WriteAllText(fixturePath+".result.json",JsonSerializer.Serialize(result,Json));
         if(input.TryGetProperty("expected",out var expected)&&!JsonNode.DeepEquals(JsonSerializer.SerializeToNode(result.data,Json),JsonNode.Parse(expected.GetRawText())))

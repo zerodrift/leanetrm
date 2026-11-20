@@ -69,6 +69,7 @@ def checks(fixture, facility, plan_operation, plan_body, accepted, historical, b
     # A receipt must attest an existing typed fact, even if a future definer
     # accidentally bypasses the public producer and has current write authority.
     query("CREATE FUNCTION security.synthetic_storage_receipt(cat uuid,selected uuid) RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog AS $$ "
+        "SELECT security.register_owner_coordinates(cat,source_context_id,source_business_on,source_known_at,source_system_id,source_timeline) FROM trading.storage_facility_commands WHERE(catalog_id,operation_id)=(cat,selected);"
         "INSERT INTO trading.storage_facility_commands SELECT catalog_id,actor_id,gen_random_uuid(),facility_id,request,fact,"
         "jsonb_set(outcome,'{revisionId}',to_jsonb(gen_random_uuid())),security.storage_facility_authority(cat,'plan'),source_context_id "
         "FROM trading.storage_facility_commands WHERE(catalog_id,operation_id)=(cat,selected);$$;"
@@ -78,6 +79,7 @@ def checks(fixture, facility, plan_operation, plan_body, accepted, historical, b
     rejected(lambda: native(f"SELECT security.synthetic_storage_receipt('{catalog}','{plan_operation}');"), 'storage_facility_integrity')
 
     query("CREATE FUNCTION security.synthetic_storage_receipt_terms(cat uuid,selected uuid,recompute boolean) RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog AS $$ "
+        "SELECT security.register_owner_coordinates(cat,source_context_id,source_business_on,source_known_at,source_system_id,source_timeline) FROM trading.storage_facility_commands WHERE(catalog_id,operation_id)=(cat,selected);"
         "INSERT INTO trading.storage_facility_commands SELECT catalog_id,actor_id,gen_random_uuid(),facility_id,payload,"
         "CASE WHEN recompute THEN jsonb_build_object('body',trading.storage_facility_fact_key(payload->'body'),'effectiveAt',payload->'effectiveAt') ELSE fact END,"
         "outcome,security.storage_facility_authority(cat,'plan'),source_context_id "

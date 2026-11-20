@@ -184,7 +184,7 @@ public sealed class FacilityQuantityStore(PreviewDatabase database)
         // verifies canonical payload equality when an operation has an outcome.
         var prior=await Outcome(c,request.OperationId,ct);
         if(prior.TryGetProperty("found",out _))
-            _=await new KnowledgeStore(database.Manifest.CatalogId).Capture(c,new(request.Context.EffectiveOn,null,"current"),ct);
+            _=await new KnowledgeResolver(database.Manifest.CatalogId).Capture(c,new(request.Context.EffectiveOn,null,"current"),ct);
         var outcome=await Json(c,"SELECT security.record_facility_quantity_command($1,$2,$3::jsonb,$4)::text",ct,
             database.Manifest.CatalogId,request.OperationId,request.Command.GetRawText(),at);
         return JsonSerializer.SerializeToElement(new{operationId=request.OperationId,outcome});

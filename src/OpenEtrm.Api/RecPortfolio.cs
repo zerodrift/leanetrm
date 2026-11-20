@@ -20,7 +20,7 @@ internal static class RecPortfolio
         if(positions.IsDefault||supplied.IsDefault||frame.ContextId is not {} contextId)
             throw Invalid("Select exact certificate holdings and admitted sources under a certified context.");
         if(positions.IsEmpty)return [];
-        var context=PinnedContext.Exact((await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,contextId,ct)).Context);
+        var context=PinnedContext.Exact((await new KnowledgeResolver(database.Manifest.CatalogId).Read(connection,contextId,ct)).Context);
         var result=ImmutableArray.CreateBuilder<RecPortfolioInput>();var retained=new RetainedScheduleStore(database);
         foreach(var group in positions.GroupBy(p=>p.Definition).OrderBy(g=>g.Key))
         {
@@ -70,7 +70,7 @@ internal static class RecPortfolio
     {
         var groups=await Prepare(connection,database,frame,positions,[],false,ct);var values=ImmutableDictionary.CreateBuilder<Guid,ExactMoney>();
         if(groups.IsEmpty)return values.ToImmutable();
-        var context=PinnedContext.Exact((await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,frame.ContextId!.Value,ct)).Context);
+        var context=PinnedContext.Exact((await new KnowledgeResolver(database.Manifest.CatalogId).Read(connection,frame.ContextId!.Value,ct)).Context);
         foreach(var group in groups)
         {
             var market=await PrepareMarket(connection,database,group,context,ct);

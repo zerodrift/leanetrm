@@ -9,7 +9,9 @@ public sealed record ScheduleContext(string? EffectiveOn,int? KnownThrough,
 {
     // Only the server can construct a transient calendar binding.
     internal CalendarReadCut? ReadCut {get;init;}
-    internal bool WorkspaceCut {get;init;}
+    // Compare the JSON coordinate projection after its lineage has been admitted.
+    internal bool HasSameCoordinates(ScheduleContext? other)=>other is not null&&
+        (EffectiveOn,KnownThrough,KnownAt,ContextId)==(other.EffectiveOn,other.KnownThrough,other.KnownAt,other.ContextId);
 }
 public sealed record ScheduleVersion(Guid Id,int Version,int Generation,string State,MonthlyDraft Definition,
     string Selection,DateOnly EffectiveFrom,DateOnly EffectiveTo,int? PublicationOrder,DateTimeOffset? PublishedAt,string EngineVersion="date_schedule_v1",BitemporalRange? Temporal=null,

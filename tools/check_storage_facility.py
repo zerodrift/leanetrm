@@ -47,16 +47,17 @@ def checks(query, manifest):
     defined = record(definition, operation=operation, effective='2021-01-15T00:00:00Z')
     assert record(definition, operation=operation, effective='2021-01-15T00:00:00Z') == defined
     def zoned_retry(request):
+        selected=fixture.capture(day='2021-01-15')
         return json.loads(runtime_query(query, manifest, "SET LOCAL TimeZone='Etc/GMT-1';"
-            f"SELECT security.record_storage_facility('{catalog}','{request}',{literal(definition)},'2021-01-15T00:00:00Z',NULL,NULL)::text;"))
+            f"SELECT security.record_storage_facility('{catalog}','{request}',{literal(definition)},'2021-01-15T00:00:00Z',NULL,'{selected}')::text;"))
     assert zoned_retry(operation) == defined
     original_publication = query(f"SELECT max(publication_order) FROM trading.publications WHERE catalog_id='{catalog}';")
     assert zoned_retry(str(uuid4())) == {**defined, 'changed': False}
     assert query(f"SELECT max(publication_order) FROM trading.publications WHERE catalog_id='{catalog}';") == original_publication
     read = lambda context=None: fixture.read(facility, context)
     facts = read()
-    assert datetime.fromisoformat(facts['knownAt']) == datetime.fromisoformat(query(
-        f"SELECT known_at FROM market_data.temporal_contexts WHERE(catalog_id,id)=('{catalog}','{facts['contextId']}');"))
+    from native_read_transport import captured_input
+    assert datetime.fromisoformat(facts['knownAt']) == datetime.fromisoformat(captured_input(query,facts['contextId'])['known_at'])
     assert facts['version']['id'] == defined['versionId'] and len(facts['ports']) == 1
     assert facts['opening'] is None and facts['activities'] == [] and facts['coverage'] is None
     assert query("SELECT count(*) FROM trading.gas_owned_positions;") == '0'
@@ -180,7 +181,7 @@ def checks(query, manifest):
     # This reference-only bundle gives the physical consumer an explicit future
     # business date. It installs no financial curve, mark or pricing fallback.
     clock_context = fixture.capture()
-    known_at = datetime.fromisoformat(query(f"SELECT known_at FROM market_data.temporal_contexts WHERE(catalog_id,id)=('{catalog}','{clock_context}');"))
+    known_at = datetime.fromisoformat(captured_input(query,clock_context)['known_at'])
     future_at = known_at + timedelta(days=1)
     future_text = future_at.isoformat().replace('+00:00', 'Z')
     future_day, future_end = future_at.date(), future_at.date() + timedelta(days=1)
@@ -202,7 +203,7 @@ def checks(query, manifest):
     assert fixture.read(later_facility)['plan']['id'] == accepted_prospective['revisionId']
     coverage = record(coverage_body)
     assert read()['coverage']['activityRevisionIds'] == [measured['revisionId']]
-    historical = runtime_query(query, manifest, f"SELECT security.capture_date_context('{catalog}','2021-01-15',NULL);")
+    historical = runtime_query(query, manifest, f"SELECT security.resolve_operation_context('{catalog}','2021-01-15',NULL);")
     amended = record({**actual_body, 'expectedStateVersion': read()['stateVersion'], 'expectedPreviousId': measured['revisionId'],
         'quantity': '50', 'evidence': 'Synthetic corrected measured injection'})
     assert read()['activities'][0]['quantity'] == '50'

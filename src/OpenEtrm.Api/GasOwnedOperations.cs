@@ -141,6 +141,16 @@ internal static class GasOwnedOperations
         var admission=new GasOwnedWriteAdmission(database.Manifest.CatalogId,row.Instant("until"),row.GetProperty("configuring").GetBoolean(),row.GetProperty("requiresJobs").GetBoolean());
         database.RegisterCommitAdmission(connection,admission);return admission;
     }
+    internal static async Task AdmitNewCommandInputs(NpgsqlConnection connection,PreviewDatabase database,LifecycleActionRequest request,GasOwnedWriteAdmission admission,CancellationToken ct)
+    {
+        await using var command=ScheduleStore.Command(connection,"SELECT security.gas_owned_command_recorded($1,$2,$3)",
+            database.Manifest.CatalogId,request.OperationId,admission.Until);
+        // A new semantic acknowledgement owns inputs just like a new effect.
+        // An exact retry is validated by its producer without an external proof.
+        var recorded=(bool)(await command.ExecuteScalarAsync(ct))!;
+        if(!recorded)
+            await LifecycleNative.Source(connection,database,request.Context,ct);
+    }
     internal static async Task<JsonElement?> Receipt(NpgsqlConnection connection,PreviewDatabase database,Guid operation,LifecycleReadContext context,Guid account,string command,
         JsonElement body,Guid? policy,int? policyRevision,bool automatic,CancellationToken ct)
     {

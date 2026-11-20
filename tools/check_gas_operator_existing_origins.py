@@ -1,7 +1,7 @@
 """Upgrade accepted operator settlements without rewriting their financial history.
 
-This predecessor runs the native fixture prefix. The separate current-schema
-operator qualifier retains its complete managed and economic baseline.
+This native 0309 probe stays before the runtime reset boundary. The separate
+current-schema qualifier retains the complete managed and economic baseline.
 """
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_EVEN, localcontext
@@ -9,10 +9,10 @@ import json
 from pathlib import Path
 from uuid import uuid4
 
-import check_gas_operator_quantity_reconciliation as operators
 from check_gas_fee_existing_origins import _state as gas_state, _tables as gas_tables
 from check_reference_editing import main as native_main
-from preview_fixture import fixture as synthetic_fixture
+from preview_fixture import fixture as synthetic_fixture, trading_fixture, catalogue_fixture, trade_booking
+from seed_fixture_market import load_fixture
 
 
 def _literal(value):return "'"+json.dumps(value).replace("'","''")+"'::jsonb"
@@ -31,6 +31,64 @@ def _operations(query,manifest,at='2020-12-20T16:00:00Z'):
             +(f"'{policy}',{revision}" if policy else 'NULL,NULL')+",false)::text;"))
         return operation,result
     return call,record
+
+
+def _seed_base(query,manifest):
+    catalog,tenant,workspace=(manifest[key] for key in ('catalogId','tenantId','workspaceId'))
+    query(trading_fixture(catalog))
+    query(f"SELECT security.initialize_operating_policies('{tenant}','{workspace}');")
+    query(catalogue_fixture(manifest,manifest['identityIssuer']))
+    query("INSERT INTO security.role_permissions SELECT role_id,p FROM security.role_permissions CROSS JOIN "
+        "unnest(ARRAY['ReadGasOwnedHoldings','RecordGasOwnedHoldings','ConfigureGasOwnedHoldings'])p WHERE permission='AmendTrade' ON CONFLICT DO NOTHING;")
+    parties=trade_booking();call,record=_operations(query,manifest)
+    terms=json.loads(query("SELECT jsonb_build_object('quantity',q.quantity_code,'currency',q.currency_code,'location',c.location_code) "
+        "FROM market_data.curves c JOIN ref_data.quote_specifications q ON(q.catalog_id,q.revision_id,q.code)="
+        "(c.reference_catalog_id,c.reference_revision_id,c.quote_code) "
+        f"WHERE(c.catalog_id,c.revision_id,c.code)=('{catalog}','{manifest['revisionId']}','future');"))
+    accounts={};policies={}
+    for kind,code,actions in [('owned_inventory','synthetic_owned_inventory_1',['gas.owned.receive_title','gas.owned.loss']),
+            ('operator_balance','synthetic_operator_balance_2',['gas.operator.record','gas.operator.settle','gas.cash.record_payment'])]:
+        account=str(uuid4());accounts[kind]=account
+        record(account,'account',dict(code=code,kind=kind,bookId='d1000000-0000-0000-0000-000000000001',
+            legalEntityId=parties['legalEntityId'],legalEntityRevision=parties['legalEntityRevision'],
+            counterpartyId=parties['counterpartyId'] if kind=='operator_balance' else None,
+            counterpartyRevision=parties['counterpartyRevision'] if kind=='operator_balance' else None,
+            referenceCatalogId=manifest['referenceCatalogId'],referenceRevisionId=manifest['referenceRevisionId'],definitionRevisionId=manifest['revisionId'],
+            markCurve='future',markContractId='50000000-0000-0000-0000-000000000001',titlePolicy='explicit_accepted_title_v1',
+            lossPolicy='separate_evidenced_loss_v1',effectiveAt='2020-12-18T00:00:00Z',**terms))
+        for action in actions:
+            policy=str(uuid4());policies[action]=policy
+            call(f"SELECT lifecycle.save_policy('{catalog}',{_literal(dict(operationId=str(uuid4()),policyId=policy,expectedRevision=0,action=action,
+                mode='manual',fromAt='2020-01-01T00:00:00Z',untilAt='2022-01-01T00:00:00Z',implementation='explicit_lifecycle_action_policy_v1'))});")
+            record(account,'bind_policy',dict(action=action,policyId=policy,policyRevision=1,effectiveAt='2020-12-18T00:00:00Z'))
+    owned,operator=(accounts[key] for key in ('owned_inventory','operator_balance'))
+    def evidence(account,key,kind,quantity,when):
+        return record(account,'evidence',dict(sourceKey=key,kind=kind,quantity=quantity,occurredAt=when,expectedRevision=0,
+            evidence='Synthetic native operator origin'))[1]['id']
+    statement=evidence(operator,'synthetic_origin_return','operator_statement','10','2020-12-19T12:00:00Z')
+    _,claim=record(operator,'operator_claim',dict(evidenceId=statement,quantity='10',effectiveAt='2020-12-19T12:00:00Z',dueAt='2020-12-21T12:00:00Z',
+        carrying='nominal_mark_v1',settlementMode='return_quantity_v1',cashout=None),policies['gas.operator.record'],1)
+    receipt=evidence(owned,'synthetic_origin_receipt','title_receipt','10','2020-12-20T12:00:00Z')
+    record(operator,'operator_settle',dict(positionId=claim['id'],quantity='10',ownedAccountId=owned,lotId=None,reservationId=None,evidenceId=receipt,
+        effectiveAt='2020-12-20T12:00:00Z',availableAt='2020-12-20T12:00:00Z',sourceObservationId=None),policies['gas.operator.settle'],1)
+    observation=str(uuid4())
+    query("INSERT INTO market_data.observations SELECT catalog_id,"+f"'{observation}',definition_revision_id,series_id,reference_catalog_id,reference_revision_id,source_code,"
+        f"'synthetic_origin_cashout','1','daily_settlement','final','2020-12-19T15:00:00Z',clock_timestamp(),1.005,NULL "
+        f"FROM market_data.observations WHERE(catalog_id,id)=('{catalog}','70000000-0000-0000-0000-000000000001');")
+    source=query(f"SELECT source_code FROM market_data.observations WHERE(catalog_id,id)=('{catalog}','{observation}');")
+    statement=evidence(operator,'synthetic_origin_cash','operator_statement','3','2020-12-19T12:00:00Z')
+    _,claim=record(operator,'operator_claim',dict(evidenceId=statement,quantity='3',effectiveAt='2020-12-19T12:00:00Z',dueAt='2020-12-21T12:00:00Z',
+        carrying='nominal_mark_v1',settlementMode='cashout_final_price_v1',cashout=dict(source=source,role='daily_settlement',observedAt='2020-12-19T15:00:00Z',
+            cashDueAt='2020-12-21T12:00:00Z',rounding='payment_total_half_even_2dp_v1')),policies['gas.operator.record'],1)
+    cashout=evidence(operator,'synthetic_origin_determination','cashout_determination','3','2020-12-20T13:00:00Z')
+    first=None
+    for quantity in ['1','2']:
+        _,settlement=record(operator,'operator_settle',dict(positionId=claim['id'],quantity=quantity,ownedAccountId=None,lotId=None,reservationId=None,
+            evidenceId=cashout,effectiveAt='2020-12-20T13:00:00Z',availableAt=None,sourceObservationId=observation),policies['gas.operator.settle'],1)
+        first=first or settlement
+    payment=dict(feeId=first['cashId'],businessKey='synthetic_origin_bank',expectedRevision=0,paidAt='2020-12-20T14:00:00Z',amount='0.25',evidence='Synthetic bank receipt')
+    record(operator,'fee_payment',payment,policies['gas.cash.record_payment'],1)
+    record(operator,'fee_payment',payment|dict(expectedRevision=1,amount='0.5'),policies['gas.cash.record_payment'],1)
 
 
 def _seed_counterparts(query,manifest):
@@ -175,8 +233,8 @@ def main():
         if migration.name!=target:return
         assert not prepared and query("SELECT to_regclass('trading.gas_operator_settlement_quantities') IS NULL;")=='t'
         reference,market,security,manifest=synthetic_fixture(root);manifest['identityIssuer']='https://preview.invalid'
-        for sql in (reference,market,security):query(sql)
-        operators.owned_checks(query,manifest,native_only=True)
+        load_fixture(query,reference,market,security,manifest)
+        _seed_base(query,manifest)
         acknowledgement=_seed_counterparts(query,manifest);tables=gas_tables(query)
         identities=json.loads(query(f"SELECT jsonb_agg(id ORDER BY id) FROM trading.gas_owned_claim_settlements WHERE catalog_id='{manifest['catalogId']}';"))
         assert len(identities)==6
@@ -189,10 +247,13 @@ def main():
         assert prepared and manifest is prepared['manifest']
         if not prepared.get('verified'):verify(query)
         _future_loss(query,manifest)
-        operators.checks(query,manifest,baseline_already_run=True)
+        prior=json.loads(query(f"SELECT to_jsonb(c) FROM trading.gas_owned_commands c WHERE(c.catalog_id,c.request_id)=('{manifest['catalogId']}','{prepared['acknowledgement']}');"))
+        request=prior['request'];_,record=_operations(query,manifest)
+        _,ack=record(prior['account_id'],'operator_settle',request['body'],request['policyId'],request['policyRevision'])
+        assert ack['id']==prior['outcome']['id'] and not ack['changed'] and ack['semanticAcknowledgement']
         assert _origins(query,manifest['catalogId'],prepared['identities'],prepared['acknowledgement'])==prepared['origins']
-        print('PASS upgraded operator cases retain immutable q1 origins while running current source and correction checks after the explicitly prepared native prefix',flush=True)
-    native_main(checks=checks,before_migration=before_migration,fixture_factory=loaded_fixture)
+        print('PASS native operator upgrade retains immutable q1 origins through a new loss and a post-upgrade acknowledgement without enrolling new settlements',flush=True)
+    native_main(checks=checks,before_migration=before_migration,fixture_factory=loaded_fixture,through_migration='0309')
 
 
 if __name__=='__main__':main()

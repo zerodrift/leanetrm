@@ -21,7 +21,7 @@ def checks(query,manifest):
         token=query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
             f"'{manifest['identityIssuer']}','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}COMMIT;")
-    def capture():return call(f"SELECT security.capture_date_context('{catalog}','2026-11-06',NULL);")
+    def capture():return call(f"SELECT security.resolve_operation_context('{catalog}','2026-11-06',NULL);")
     context=capture()
     listed=json.loads(call(f"SELECT security.use_market_context('{catalog}','{context}');SELECT security.use_trading_context('{catalog}','{at}');"
         f"SELECT security.read_gas_futures_reconciliations('{catalog}','{context}','{at}')::text;"))
@@ -29,7 +29,7 @@ def checks(query,manifest):
     earliest=query(f"SELECT min(performed_at) FROM trading.gas_futures_delivery_performances WHERE catalog_id='{catalog}';")
     empty_at=datetime.fromisoformat(earliest).astimezone(timezone.utc)-timedelta(microseconds=1)
     empty_instant=empty_at.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
-    empty_context=call(f"SELECT security.capture_date_context('{catalog}','{empty_at.date().isoformat()}',NULL);")
+    empty_context=call(f"SELECT security.resolve_operation_context('{catalog}','{empty_at.date().isoformat()}',NULL);")
     empty=json.loads(call(f"SELECT security.use_market_context('{catalog}','{empty_context}');SELECT security.use_trading_context('{catalog}','{empty_instant}');"
         f"SELECT security.read_gas_futures_reconciliations('{catalog}','{empty_context}','{empty_instant}')::text;"))
     assert empty['corrections']==[],'A source-known future performance must not become a currently executable correction.'
@@ -105,7 +105,7 @@ def checks(query,manifest):
         try:
             try:query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');"
                 f"SELECT security.reconcile_gas_futures_delivery_batch('{catalog}','{operation}','{account}',{literal(body)},'{at}','{context}','{policy}',1,false,{literal(continuation)});"
-                "SET CONSTRAINTS ALL IMMEDIATE;ROLLBACK;")
+                "SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;ROLLBACK;")
             except RuntimeError as error:assert 'gas_quantity_batch_seal' in str(error),str(error)
             else:missing.append(label)
         finally:query('DROP TRIGGER synthetic_batch_command_fault ON trading.gas_owned_commands;DROP FUNCTION trading.synthetic_batch_command_fault();')

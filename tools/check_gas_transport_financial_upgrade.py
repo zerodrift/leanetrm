@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from check_fact_anchor_upgrade import run_checks as guard_checks
 from check_reference_editing import main
+from seed_fixture_market import load_fixture
 from gas_transport_financial_fixture import FinancialTransportFixture
 from gas_transport_route_fixture import RouteFixture, fixture
 
@@ -19,8 +20,7 @@ def run():
         guard_checks(query, migration, number='0354', guard='gas_transport_financial_upgrade',
             signatures=('assistant.is_prompt_page(text)',))
         reference, market, access, manifest = fixture(root)
-        for sql in [reference, market, access]:
-            query(sql)
+        load_fixture(query,reference,market,access,manifest)
         f = RouteFixture(query, manifest)
         f.source_plans()
         definition = f.route_definition()
@@ -65,7 +65,7 @@ def run():
         assert f.route_read(prepared['definition']['routeId'], context=prepared['context']) == prepared['retained']
         print('PASS populated upgrade preserves exact four-capacity/seven-claim route, historical witnesses and raw facts; genuine mixed-reference financial booking and mark adoption execute afterward.', flush=True)
 
-    main(verify, before_migration=before, fixture_factory=loaded)
+    main(verify, before_migration=before, fixture_factory=loaded,through_migration='0354')
 
 
 if __name__ == '__main__':

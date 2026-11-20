@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import {mountOperationFields} from './operation-fields.js';
 import type {GasForm,GasOwnedSetup,GasOwnedUiOptions} from './gas-owned-lifecycle.js';
 
@@ -20,7 +21,7 @@ export function mountCustodyObservation(root:HTMLElement,setup:GasOwnedSetup,o:G
  const definition=setup.configuration.evidence,target=setup.target;
  if(!definition||target?.handler!=='gas_park_custody')throw Error('Read the exact custody observation fields and agreement target.');
  return mountForm(root,definition,o,'custodyObservation','Record custody observation',async selection=>
-  o.queue('gas/park-custody/evidence',{operationId:crypto.randomUUID(),context:structuredClone(setup.context),target:structuredClone(target),selection},'Record custody observation'));
+  o.queue('gas/park-custody/evidence',{operationId:crypto.randomUUID(),context:cloneRead(setup.context),target:cloneRead(target),selection},'Record custody observation'));
 }
 
 export function mountCustodyPayment(root:HTMLElement,setup:GasOwnedSetup,o:GasOwnedUiOptions){

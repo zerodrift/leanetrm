@@ -14,7 +14,7 @@ internal static class SwapHoldingMarketChecks
             var frame=requested.OriginCloseId is {} close
                 ?await MarketCloses.Frame(connection,database.Manifest.CatalogId,close,null,ct)
                 :requested;
-            var view=await TradingView.Capture(connection,new KnowledgeStore(database.Manifest.CatalogId),frame,ct);
+            var view=await TradingView.Capture(connection,new KnowledgeResolver(database.Manifest.CatalogId),frame,ct);
             return await new TradeReads(database).Read(connection,view,async data=>
             {
                 var result=await new SwapStore(database).Holdings(connection,data,view.CalculationFrame,[],[],ct);

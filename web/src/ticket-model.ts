@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import type {SideCalendarPolicy} from './side-calendar.js';
 import type {TicketChoice,TicketDescription,TicketDraft,TicketField,TicketLookup} from './ticket-types.js';
 
@@ -78,7 +79,7 @@ export function ticketOf(d:TicketDescription,draft:TicketDraft):TicketState{
  if(draft.product!==d.product||draft.version!==d.version)throw new Error(`The draft is for ${draft.product} version ${draft.version}, not ${d.product} version ${d.version}.`);
  const values=(given:Record<string,string>)=>Object.fromEntries(Object.entries(given).map(([id,value])=>[id,{value}]));
  for(const side of draft.sides)if(!d.sides.some(k=>k.kind===side.kind))throw new Error(`The ticket has no side kind '${side.kind}'.`);
- return {description:d,trade:values(draft.trade),sides:draft.sides.map(x=>({kind:x.kind,code:x.code,...x.calendarPolicy?{calendarPolicy:structuredClone(x.calendarPolicy)}:{},values:values(x.values)})),removed:[],notices:[],previewSerial:0};
+ return {description:d,trade:values(draft.trade),sides:draft.sides.map(x=>({kind:x.kind,code:x.code,...x.calendarPolicy?{calendarPolicy:cloneRead(x.calendarPolicy)}:{},values:values(x.values)})),removed:[],notices:[],previewSerial:0};
 }
 
 export function applyLookup(s:TicketState,side:string|null,field:string,r:{value:string;source:Source}):TicketState{
@@ -142,7 +143,7 @@ function editable(fields:TicketField[],values:Record<string,FieldValue>){
 export function draftOf(s:TicketState):TicketDraft{
  const d=s.description;
  return {product:d.product,version:d.version,trade:editable(d.tradeFields,s.trade),
-  sides:s.sides.map(x=>({kind:x.kind,code:x.code,...x.calendarPolicy?{calendarPolicy:structuredClone(x.calendarPolicy)}:{},values:editable(d.sides.find(k=>k.kind===x.kind)!.fields,x.values)}))};
+  sides:s.sides.map(x=>({kind:x.kind,code:x.code,...x.calendarPolicy?{calendarPolicy:cloneRead(x.calendarPolicy)}:{},values:editable(d.sides.find(k=>k.kind===x.kind)!.fields,x.values)}))};
 }
 
 export function nextPreview(s:TicketState):{state:TicketState;serial:number}{
@@ -154,5 +155,5 @@ export function acceptPreview(s:TicketState,serial:number):boolean{return serial
 
 export function setCalendarPolicy(s:TicketState,side:string,calendarPolicy:SideCalendarPolicy):TicketState{
  if(!s.sides.some(x=>x.code===side))throw Error('Choose an existing Side.');
- return{...s,sides:s.sides.map(x=>x.code===side?{...x,calendarPolicy:structuredClone(calendarPolicy)}:x)};
+ return{...s,sides:s.sides.map(x=>x.code===side?{...x,calendarPolicy:cloneRead(calendarPolicy)}:x)};
 }

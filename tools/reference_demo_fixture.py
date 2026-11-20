@@ -79,6 +79,7 @@ def install(query, manifest):
     sql.extend([f"INSERT INTO trading.publications SELECT '{cat}',coalesce(max(publication_order),0)+1,pg_current_xact_id() FROM trading.publications WHERE catalog_id='{cat}';",
       "INSERT INTO trading.currency_discount_defaults(catalog_id,id,definition_revision_id,reference_catalog_id,reference_revision_id,currency_code,curve_code,publication_order,effective_at) "
       f"SELECT '{cat}','{mapping}','{definition}',{rr},{lit(chosen['currency_code'])},'demo_discount_curve',max(publication_order),{lit(min(f['at'] for f in main))} FROM trading.publications WHERE catalog_id='{cat}';",'COMMIT;'])
-    query('\n'.join(sql))
+    from seed_fixture_market import load_market
+    assert load_market(query,'\n'.join(sql),'',manifest)==''
     manifest.setdefault('inputMarkets',[]).append({'revisionId':definition,'frames':frames})
     return {'beforeSourceContextId':before_source,'definitionRevisionId':definition,'referenceRevisionId':revision,'referenceCatalogId':ref,'deliveryFrom':str(delivery),'deliveryTo':str(end),'paymentDate':str(payment),'mappingId':mapping,'currency':chosen['currency_code'],'frames':frames}

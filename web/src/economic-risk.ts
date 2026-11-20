@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import type {HistoryScope,HistoryRequest,HistoryCapabilities,HistoryManifest} from './factor-history.js';
 import type {MonteCarloPolicy} from './monte-carlo-risk.js';
 import type {RequestCommand} from './pending-command.js';
@@ -104,5 +105,5 @@ export function restoreEconomicCommand(value:unknown):RequestCommand|undefined{
   !request.context.snapshotId||!request.economic?.projection?.policy?.physicalDelivery||!methods.has(request.economic.policy?.implementation)||
   !Array.isArray(request.economic.factors)||!Array.isArray(request.bookIds)||!Array.isArray(request.bumps)||request.bumps.length||!Array.isArray(request.stress)||request.stress.length||
   !Object.hasOwn(request.economic,'history')||!Object.hasOwn(request.economic,'simulation'))return;
- return structuredClone(saved);
+ return cloneRead(saved);
 }

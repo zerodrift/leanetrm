@@ -19,7 +19,7 @@ def run_checks(url, manifest, query, run_worker):
     selected = c.call('market/context', {'effectiveOn': '2020-12-18', 'mode': 'current', 'selection': 'latest_correction',
         'snapshotId': frame['id'], 'frameSelectionPolicy': 'preserve_origin_or_unique_asof_frame_v1'})
     identifier = selected['context']['contextId']
-    source_count = f"SELECT count(*) FROM market_data.temporal_contexts WHERE catalog_id='{manifest['catalogId']}' AND id='{identifier}'"
+    source_count = "SELECT (to_regclass('market_data.temporal_contexts') IS NOT NULL)::integer;"
     assert query(source_count) == '0'
     scope = {'context': {**current, 'snapshotId': selected['snapshotId'], 'knowledgeMode': 'retained', 'contextId': identifier},
              'bookIds': [held['bookId']], 'portfolioIds': [], 'tradeIds': [held['tradeId']]}
@@ -90,7 +90,8 @@ def run_checks(url, manifest, query, run_worker):
     run_worker()
     completed = c.call('portfolio/risk/jobs/' + job['id'])
     assert completed['state'] == 'completed', completed
-    assert query(source_count) == '1', 'The explicitly submitted job must own its exact historical source'
+    assert query(source_count) == '0'
+    assert query(f"SELECT input_business_on=DATE '2020-12-18' AND input_known_at='{selected['context']['knownAt']}'::timestamptz FROM risk.jobs WHERE id='{job['id']}';")=='t', 'The submitted job must own its exact original inputs'
     retained = completed['result']['parametric']
     assert {key for key in direct['parametric'] if retained.get(key) != direct['parametric'][key]} <= {'passes'}, 'Financial inputs/results must replay exactly; preparation cache work can differ'
     for report in (direct, completed['result']):

@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import {PendingCommand,actorTransport,restoreTradeRequest,type RequestCommand} from './pending-command.js';
 import {renderOperationInspection,type OperationInspection} from './operation-inspection.js';
 import {zonedInput,sameUtcInstant} from './user-time.js';
@@ -20,7 +21,7 @@ function readSource(value:unknown):Source{
   source.channels.some(c=>!c||!text(c.value)||!text(c.label))||source.entries.some(e=>!e||!text(e.obligationId)||!text(e.tradeId)||!Number.isSafeInteger(e.expectedRevision)||e.expectedRevision<1||!text(e.day)||!text(e.quantity)||!text(e.label)||!Array.isArray(e.accounts)||
    e.accounts.some(a=>!a||!text(a.id)||!text(a.versionId)||!text(a.label)||a.expectedPreviousId!==null&&!text(a.expectedPreviousId)))||
   new Set(source.entries.map(e=>e.obligationId+':'+e.day)).size!==source.entries.length)throw Error('The nomination choices did not retain the exact committed delivery allocations. Refresh the source.');
- return structuredClone(source);
+ return cloneRead(source);
 }
 
 /** Records new external request streams under the existing gas nomination
@@ -77,14 +78,14 @@ export function setupDeliveryNominationBatch(root:HTMLElement,o:Options){
  form.addEventListener('input',invalidate);form.addEventListener('change',invalidate);
  form.onsubmit=event=>{event.preventDefault();void o.act(async()=>{
   restore();if(!source||unavailable()||pending.command||!form.reportValidity())throw Error(unavailable()??'Reconcile the original batch before reviewing another request.');
-  const at=fence(),serial=version,selected=source,ownerId=owner,context={...structuredClone(financial()!),contextId:null},submittedAt=await time.instant();if(!current(at)||serial!==version)return;
+  const at=fence(),serial=version,selected=source,ownerId=owner,context={...cloneRead(financial()!),contextId:null},submittedAt=await time.instant();if(!current(at)||serial!==version)return;
   const inputValue:Input={context,allocationPlanId:selected.allocationPlanId,profile:selected.profile,entries:selected.entries.map((e,index)=>{
    const account=e.accounts.find(a=>a.id===accounts[index].value);if(!account)throw Error('Select the exact service account for each allocated delivery.');
    return{obligationId:e.obligationId,tradeId:e.tradeId,expectedRevision:e.expectedRevision,day:e.day,details:{accountId:account.id,serviceVersionId:account.versionId,expectedPreviousId:account.expectedPreviousId,externalReference:references[index].value,quantity:e.quantity,submittedAt,channel:channel.value,reason:input('reason').value,evidence:input('evidence').value}};
   })};
   const operationId=crypto.randomUUID(),value=await o.api<Review>(path+'/preview',{operationId,ownerId,input:inputValue});if(!current(at)||serial!==version||source!==selected)return;
   if(value.operationId!==operationId||value.ownerId!==ownerId||value.allocationPlanId!==selected.allocationPlanId||canonical(value.requestedInput)!==canonical(inputValue)||!sameTargets(value.input,inputValue)||!text(value.previewHash))throw Error('Review the exact original nomination inputs and committed allocations again.');
-  reviewed=structuredClone(value);const review=node('section');review.append(node('h4','Review submitted nomination batch'));const facts=node('div');renderOperationInspection(facts,value,{key:'delivery-nomination-review',scope:operationId,label:'nomination batch',zone:o.zone(),busy:o.busy});review.append(facts);
+  reviewed=cloneRead(value);const review=node('section');review.append(node('h4','Review submitted nomination batch'));const facts=node('div');renderOperationInspection(facts,value,{key:'delivery-nomination-review',scope:operationId,label:'nomination batch',zone:o.zone(),busy:o.busy});review.append(facts);
   const record=node('button','Record reviewed nomination batch');record.type='button';record.dataset.deliveryNominations='record';record.onclick=()=>void o.act(async()=>{if(!reviewed||reviewed.operationId!==operationId||serial!==version||!current(at)||unavailable())throw Error('Review the current exact nomination batch before recording.');const r=reviewed,command=pending.begin(path+'/record',{ownerId:r.ownerId,input:r.input,previewHash:r.previewHash},()=>r.operationId,'Submitted nomination batch');retain();sync();await send(command);});review.append(record);get('review-host').replaceChildren(review);sync();
  });};
  get('discard').onclick=()=>{if(pending.command)return;clear();sync();};

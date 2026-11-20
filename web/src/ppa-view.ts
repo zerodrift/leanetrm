@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import {displayPaymentDate} from './payment-date.js';
 import type {Catalog} from './ppa-contract.js';
 import {displayInstant,timeLabels} from './market-view.js';
@@ -53,7 +54,7 @@ export class ReviewedPpaCommand{
 
 // Editing a shared form never silently replaces a retained side's independent source.
 export function componentQuantity<T>(selected:T,retained:T|undefined,choice:string):T{
- if(choice==='selected')return structuredClone(selected);
- if(choice==='retained'&&retained!==undefined)return structuredClone(retained);
+ if(choice==='selected')return cloneRead(selected);
+ if(choice==='retained'&&retained!==undefined)return cloneRead(retained);
  throw Error('Choose the retained component quantity or the explicitly selected delivery quantity.');
 }

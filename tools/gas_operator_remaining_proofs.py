@@ -53,7 +53,7 @@ def _read_publication(query,manifest,call,capture,read,record,amend,packet):
         query(original.replace(needle,needle+f' read_publication={forged};',1))
         for immediate in (False,True):
             sql=f"SELECT security.reconcile_gas_operator_quantities('{catalog}','{uuid4()}','{account}',{_literal(body)},'{packet['at']}','{context}','{packet['policyId']}',{packet['policyRevision']},false)::text;"
-            if not _denied(call,sql+('SET CONSTRAINTS ALL IMMEDIATE;' if immediate else ''),'gas_operator_quantity_seal'):
+            if not _denied(call,sql+('SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;' if immediate else ''),'gas_operator_quantity_seal'):
                 raise AcceptedDefect('A new receipt reported old current head1 while the actual newer financial head remained present at actual COMMIT.')
             assert _state(query,catalog)==before
     finally:query(original)

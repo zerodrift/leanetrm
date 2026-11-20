@@ -19,9 +19,10 @@ def run_checks(query, manifest):
     def issue(profile='viewer', seconds=60):
         return str(UUID(query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','{profile}','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',{seconds});")))
     def runtime(statement, selected=None, profile='viewer', seconds=60, prefix=''):
-        bind = '' if selected is None else f"SELECT security.use_market_context('{catalog}','{selected}');"
+        from native_read_transport import register_captured_input
+        bind = '' if selected is None else register_captured_input(query,selected)+f"SELECT security.use_market_context('{catalog}','{selected}');"
         return 'BEGIN;'+prefix+f"SET LOCAL SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{issue(profile,seconds)}');"+bind+statement+'ROLLBACK;'
-    context = str(UUID(query(runtime(f"SELECT security.capture_date_context('{catalog}','2020-12-17',NULL);").removesuffix('ROLLBACK;')+'COMMIT;')))
+    context = str(UUID(query(runtime(f"SELECT security.resolve_operation_context('{catalog}','2020-12-17',NULL);").removesuffix('ROLLBACK;')+'COMMIT;')))
     selected = json.loads(query(f"SELECT json_agg(id ORDER BY id) FROM(SELECT id FROM market_data.contracts WHERE catalog_id='{catalog}' AND revision_id='{revision}' ORDER BY id LIMIT 30)q;"))
     assert len(selected)==30
     selected_ids='ARRAY['+','.join("'"+str(UUID(value))+"'::uuid" for value in selected)+']'
@@ -59,9 +60,9 @@ def run_checks(query, manifest):
     check('the exact retained bundle remains authorized',query(runtime(count,context))=='30')
     total = 'SELECT sum(n) FROM('+' UNION ALL '.join('SELECT count(*) n FROM market_data.'+name for name in TABLES)+')q;'
     check('a runtime login without bound identity has no market rows',query('SET SESSION AUTHORIZATION preview_runtime;'+total)=='0')
-    pooled = query(runtime(count,context).removesuffix('ROLLBACK;')+'COMMIT;SET SESSION AUTHORIZATION preview_runtime;BEGIN;'+count+'COMMIT;').splitlines()
+    pooled = query(runtime(count,context).removesuffix('ROLLBACK;')+'DO $$BEGIN PERFORM security.finish_operation_read();END$$;COMMIT;SET SESSION AUTHORIZATION preview_runtime;BEGIN;'+count+'COMMIT;').splitlines()
     check('a pooled connection cannot carry authority into another transaction',pooled==['30','0'])
-    outside = str(UUID(query(runtime(f"SELECT security.capture_date_context('{catalog}','2019-01-01',NULL);").removesuffix('ROLLBACK;')+'COMMIT;')))
+    outside = str(UUID(query(runtime(f"SELECT security.resolve_operation_context('{catalog}','2019-01-01',NULL);").removesuffix('ROLLBACK;')+'COMMIT;')))
     check('unavailable historical rows never fall back to current data',query(runtime(total,outside))=='0')
     allow = ''.join('CREATE POLICY synthetic_market_allow ON market_data.'+name+' FOR SELECT TO openetrm_runtime USING(true);' for name in TABLES)
     check('an extra permissive policy cannot bypass missing identity',query('BEGIN;'+allow+'SET LOCAL SESSION AUTHORIZATION preview_runtime;'+total+'ROLLBACK;')=='0')

@@ -48,10 +48,10 @@ def run_checks(query, manifest):
     check('inherited runtime role reads its current exact reference bundle', int(query(runtime(issue(), 'SET LOCAL ROLE openetrm_runtime;'+count)))>0)
     pooled = query(runtime(issue(), count)+'BEGIN;'+count+'COMMIT;').splitlines()
     check('a reused connection cannot carry authority across transactions', int(pooled[0])>0 and pooled[1]=='0')
-    context = str(UUID(query(runtime(issue(),f"SELECT security.capture_date_context('{catalog}','2020-12-17',NULL);"))))
+    context = str(UUID(query(runtime(issue(),f"SELECT security.resolve_operation_context('{catalog}','2020-12-17',NULL);"))))
     bind = f"SELECT security.use_market_context('{catalog}','{context}');"
     check('a bound exact reference bundle remains visible', int(query(runtime(issue(),bind+count)))>0)
-    outside = str(UUID(query(runtime(issue(),f"SELECT security.capture_date_context('{catalog}','2019-01-01',NULL);"))))
+    outside = str(UUID(query(runtime(issue(),f"SELECT security.resolve_operation_context('{catalog}','2019-01-01',NULL);"))))
     check('an unavailable historical bundle never falls back to current references', query(runtime(issue(),f"SELECT security.use_market_context('{catalog}','{outside}');"+count))=='0')
     for selected, expected in [('', 't'),(bind,'f')]:
         check('NULL revision preserves the existing '+('bound' if selected else 'current')+' helper contract',

@@ -20,10 +20,12 @@ class LifecycleOptionClient:
     def lit(value):return "'"+json.dumps(value).replace("'","''")+"'::jsonb"
     def native(self,sql,profile='trader'):
         m=self.manifest
+        from native_read_transport import select_context_inputs
+        inputs=''.join(select_context_inputs(m['catalogId'],source) for identifier,source in self.client.observed_inputs.items() if identifier in sql)
         token=self.query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
             f"'{self.issuer}','{profile}','human_interactive','{m['tenantId']}','{m['workspaceId']}',NULL,'preview_runtime',60);")
-        return self.query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}COMMIT;")
-    def capture(self):return self.native(f"SELECT security.capture_date_context('{self.manifest['catalogId']}','{self.business_date}',NULL);")
+        return self.query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{inputs}{sql}COMMIT;")
+    def capture(self):return self.native(f"SELECT security.resolve_operation_context('{self.manifest['catalogId']}','{self.business_date}',NULL);")
     def enroll(self,trade):
         m=self.manifest;catalog=m['catalogId']
         source=json.loads(self.query("SELECT jsonb_build_object('book',r.book_id,'entity',r.legal_entity_id,'entityRevision',r.legal_entity_revision,"

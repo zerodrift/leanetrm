@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import {zonedInput} from './user-time.js';
 
 export type OperationTarget={handler:string;scopeId:string;bindingId:string};
@@ -83,7 +84,7 @@ export function mountOperationFields(root:HTMLElement,fields:OperationField[],o:
     return async()=>{
      if(input.value==='@null'&&field.nullable)return field.kind==='reference'?Object.fromEntries(field.members!.map(key=>[key,null])):{[field.name]:null};
      const choice=choices.find(c=>c.id===input.value);if(!choice)throw Error('Choose '+field.label+'.');
-     const value=structuredClone(choice.value===undefined?choice.id:choice.value);
+     const value=cloneRead(choice.value===undefined?choice.id:choice.value);
      if(field.kind==='reference'){
       if(!value||typeof value!=='object'||Array.isArray(value)||!field.members||Object.keys(value).length!==field.members.length||field.members.some(key=>!Object.hasOwn(value,key)))throw Error('Reread the exact '+field.label+' reference.');
       return value as Record<string,unknown>;

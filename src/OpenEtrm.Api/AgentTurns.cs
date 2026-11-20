@@ -21,12 +21,26 @@ public sealed record CurveProposalRequest([property:JsonRequired] Guid TurnId,[p
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record CurveDraftRequest([property:JsonRequired] Guid TurnId,[property:JsonRequired] int Step);
 
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record TurnViewRequest(string? Selection);
+
 // Turns over HTTP (docs/ai-assistant.md §7.2, §7.4, §8), in one scope: an ask admits the turn in the person's own
 // context and hands the turn's token and selected frame identity to the worker with the
 // scope's read tools; Stop and the owner's reads. The database owns every rule; this boundary passes it the runtime set
 // and the session's binding, and refuses a page report the tools could not read before anything is written.
 public sealed class AgentTurns(PreviewDatabase database,string scope,AgentWorker worker,TurnWorker turns,AgentTools tools)
 {
+    public async Task<KnowledgeSnapshot> ViewSource(NpgsqlConnection connection,Guid turn,CancellationToken ct)
+    {
+        var value=await ModelProviders.Read(connection,"SELECT assistant.turn_read_inputs($1,$2)::text",[scope,turn],ct);
+        if(value.Id("catalogId")!=database.Manifest.CatalogId)throw new PreviewDeniedException();
+        var inputs=value.Deserialize<ReadInputCoordinates>(RiskJobs.Json)??throw new PreviewDeniedException();
+        var snapshot=await inputs.ResolveSnapshot(connection,database.Manifest.CatalogId,ct);
+        if(snapshot.Context.ContextId!=value.Id("contextId"))throw new PreviewDeniedException();
+        ReadReferences.Expose(database.Manifest.CatalogId,snapshot);
+        return snapshot;
+    }
+
     public async Task<object> CurveProposal(NpgsqlConnection connection,CurveProposalRequest body,CancellationToken ct)
     {
         Task<JsonElement> Recorded()=>ModelProviders.Read(connection,"SELECT assistant.curve_proposal($1,$2,$3)::text",[scope,body.TurnId,body.Step],ct);
@@ -35,13 +49,13 @@ public sealed class AgentTurns(PreviewDatabase database,string scope,AgentWorker
         if(saved.GetProperty("pins").TryGetProperty("closeId",out var close))
         {
             var retained=saved.GetProperty("context").GetProperty("contextId").GetGuid();
-            var certificate=(await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,retained,ct)).Context;
+            var certificate=(await new KnowledgeResolver(database.Manifest.CatalogId).Read(connection,retained,ct)).Context;
             await MarketContextStore.Bind(connection,database.Manifest.CatalogId,certificate,ct);
             exactFrame=(await MarketCloses.Frame(connection,database.Manifest.CatalogId,close.GetGuid(),retained,ct))
                 with{Id=saved.GetProperty("context").GetProperty("frameId").GetGuid()};
         }
         var pin=TurnPin.From(saved.GetProperty("context"),saved.GetProperty("pins"),database.Manifest.CatalogId,database.Manifest,exactFrame:exactFrame);
-        var context=(await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,pin.ContextId,ct)).Context;
+        var context=(await new KnowledgeResolver(database.Manifest.CatalogId).Read(connection,pin.ContextId,ct)).Context;
         var arguments=AgentTools.Parse("prepare_custom_curve",saved.GetProperty("input")).Arguments as PrepareCurveArguments
             ??throw new InvalidOperationException("A recorded curve proposal has no preparation arguments.");
         var definition=AgentTools.CompileCurve(arguments);
@@ -73,8 +87,8 @@ public sealed class AgentTurns(PreviewDatabase database,string scope,AgentWorker
         var token=RandomNumberGenerator.GetBytes(32);
         var asked=await database.WithIdentity(profile,"UseAgents",async(connection,ct)=>
         {
-            if(retained is {} id&&session.Knowledge.Find(id)?.Context is {ReadCut:not null} selected)
-                await MarketContextStore.Bind(connection,database.Manifest.CatalogId,selected,ct);
+            if(retained is {} id)
+                _=await new KnowledgeResolver(database.Manifest.CatalogId).Read(connection,id,ct);
             object[] values=[body.OperationId,scope,(object?)body.ConversationId??DBNull.Value,body.AgentId,body.Version,(object?)body.Question??DBNull.Value,
                 body.PageReport.GetRawText(),database.Manifest.CatalogId,mode,
                 (object?)retained??DBNull.Value,(object?)frame?.Id??DBNull.Value,session.Digest,profile,session.Ends,
@@ -128,7 +142,6 @@ public sealed class AgentTurns(PreviewDatabase database,string scope,AgentWorker
         "conversation_agent_mismatch"=>"This conversation is with another agent. Start a new conversation to ask this one.",
         "turn_not_found"=>"You have no such question here.",
         "grant_required"=>"Grant this agent version its reads before asking it.",
-        "knowledge_budget_reserved"=>"The workspace has no saved contexts left for working data. Select a historical view to ask over it.",
         "access_changed"=>"This agent no longer has the access an earlier answer in this conversation used, so it cannot continue it. Ask an administrator to restore the agent's access.",
         _=>"Supply every required field in its documented form."
     };

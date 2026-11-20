@@ -3,6 +3,7 @@
 import copy
 import json
 import subprocess
+from native_read_transport import captured_input
 from pathlib import Path
 
 
@@ -13,7 +14,7 @@ def runtime_query(query,manifest,statement,profile='trader',prefix='',commit=Tru
 
 
 def capture_context(query,manifest,day):
-    return runtime_query(query,manifest,f"SELECT security.capture_date_context('{manifest['catalogId']}','{day}',NULL);")
+    return runtime_query(query,manifest,f"SELECT security.resolve_operation_context('{manifest['catalogId']}','{day}',NULL);")
 
 
 def append_program(catalog, request, schedule, content):
@@ -91,7 +92,7 @@ def run_direct_read_checks(query,manifest,root,dotnet,environment,instruments,re
     for entry in instruments:
         identifier=str(UUID(entry['instrumentId']));at=entry['asOf']
         selected=capture_context(query,manifest,at[:10])
-        known=query(f"SELECT to_jsonb(known_at)#>>'{{}}' FROM market_data.temporal_contexts WHERE(catalog_id,id)=('{catalog}','{selected}');")
+        known=captured_input(query,selected)['known_at']
         sides=json.loads(query(f"""SELECT jsonb_agg(jsonb_build_object('sideId',m.side_id,'scheduleId',m.schedule_id,
              'digest',encode(sha256(p.content),'hex')) ORDER BY m.slot)
             FROM trading.instrument_side_schedules m JOIN trading.side_schedule_programs p
@@ -278,8 +279,14 @@ def run_authority_checks(query,manifest,entry,before_context):
         'The same bound context must see a published program and hide sealed staging, even with an extra permissive policy'
     withdrawal=f"DELETE FROM security.reference_catalog_scopes WHERE catalog_id='{manifest['referenceCatalogId']}';"
     runtime_query(query,manifest,refused(read()),prefix=withdrawal,commit=False)
-    floor=f"SELECT trading.record_history_boundary('{catalog}','{uuid4()}','{selected}');"
-    runtime_query(query,manifest,refused(read(context=before_context),'P0001','trading_history_archived'),prefix=floor,commit=False)
+    from check_trading_history_boundary import install_proxy
+    def check_archived(statement):
+        install_proxy(query)
+        try:
+            floor=f"SELECT public.synthetic_history_boundary('{catalog}','{uuid4()}','{selected}');"
+            runtime_query(query,manifest,floor+refused(statement,'P0001','trading_history_archived'),commit=False)
+        finally:query('DROP FUNCTION public.synthetic_history_boundary(uuid,uuid,uuid);')
+    check_archived(read(context=before_context))
     query(f"BEGIN;SET LOCAL SESSION AUTHORIZATION openetrm_risk_worker;{refused(read())}ROLLBACK;")
     def cells(identifier=instrument,context=selected):
         return f"PERFORM security.read_instrument_schedule_cells('{catalog}','{identifier}','{context}','{at}')"
@@ -288,7 +295,7 @@ def run_authority_checks(query,manifest,entry,before_context):
     runtime_query(query,manifest,refused(f"PERFORM security.read_instrument_schedule_cells('{catalog}','{instrument}',NULL,NULL)"))
     runtime_query(query,manifest,refused(cells(context=before_context)))
     runtime_query(query,manifest,refused(cells()),prefix=withdrawal,commit=False)
-    runtime_query(query,manifest,refused(cells(context=before_context),'P0001','trading_history_archived'),prefix=floor,commit=False)
+    check_archived(cells(context=before_context))
     query(f"BEGIN;SET LOCAL SESSION AUTHORIZATION openetrm_risk_worker;{refused(cells())}ROLLBACK;")
     def metadata(identifier=instrument,context=selected):
         return f"PERFORM security.read_ppa_program_metadata('{catalog}','{identifier}','{context}','{at}')"
@@ -297,7 +304,7 @@ def run_authority_checks(query,manifest,entry,before_context):
     runtime_query(query,manifest,refused(f"PERFORM security.read_ppa_program_metadata('{catalog}','{instrument}',NULL,NULL)"))
     runtime_query(query,manifest,refused(metadata(context=before_context)))
     runtime_query(query,manifest,refused(metadata()),prefix=withdrawal,commit=False)
-    runtime_query(query,manifest,refused(metadata(context=before_context),'P0001','trading_history_archived'),prefix=floor,commit=False)
+    check_archived(metadata(context=before_context))
     query(f"BEGIN;SET LOCAL SESSION AUTHORIZATION openetrm_risk_worker;{refused(metadata())}ROLLBACK;")
     def swap_metadata(identifier=instrument,context=selected):
         return f"PERFORM security.read_swap_program_metadata('{catalog}','{identifier}','{context}','{at}')"
@@ -306,7 +313,7 @@ def run_authority_checks(query,manifest,entry,before_context):
     runtime_query(query,manifest,refused(f"PERFORM security.read_swap_program_metadata('{catalog}','{instrument}',NULL,NULL)"))
     runtime_query(query,manifest,refused(swap_metadata(context=before_context)))
     runtime_query(query,manifest,refused(swap_metadata()),prefix=withdrawal,commit=False)
-    runtime_query(query,manifest,refused(swap_metadata(context=before_context),'P0001','trading_history_archived'),prefix=floor,commit=False)
+    check_archived(swap_metadata(context=before_context))
     query(f"BEGIN;SET LOCAL SESSION AUTHORIZATION openetrm_risk_worker;{refused(swap_metadata())}ROLLBACK;")
     assert query("SELECT has_function_privilege('openetrm_runtime','security.seal_side_schedule_ports(uuid,uuid,jsonb)','EXECUTE');")=='f', 'The pre-mapping seal cannot bypass executable connection admission'
     assert query("SELECT count(*) FROM trading.instrument_schedule_cell_seals WHERE mapping_count=0;")!='0', 'Independent sides still require an explicit empty composition marker'

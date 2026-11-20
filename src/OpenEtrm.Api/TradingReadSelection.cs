@@ -20,16 +20,16 @@ internal sealed record TradingReadSelection(string Profile,InputFrame Frame,bool
     }
     // Current knowledge for a working read, captured in a transaction that does nothing else: the capture certifies
     // under the catalog's publication gate, which that transaction's end releases before the read values.
-    internal async Task<ScheduleContext> CaptureKnowledge(NpgsqlConnection connection,KnowledgeStore store,CancellationToken ct)
+    internal async Task<ScheduleContext> CaptureKnowledge(NpgsqlConnection connection,KnowledgeResolver store,CancellationToken ct)
     {
         if(!Working)throw new InvalidOperationException("Only a working read captures current knowledge.");
         if(DateTimeOffset.UtcNow>=Ends)throw new PreviewDeniedException();
         return (await TradingView.Capture(connection,store,Frame,ct)).Context;
     }
     // The working view of a read whose knowledge was captured by CaptureKnowledge.
-    internal Task<TradingView> Captured(NpgsqlConnection connection,KnowledgeStore store,ScheduleContext knowledge,CancellationToken ct)=>
+    internal Task<TradingView> Captured(NpgsqlConnection connection,KnowledgeResolver store,ScheduleContext knowledge,CancellationToken ct)=>
         DateTimeOffset.UtcNow>=Ends?throw new PreviewDeniedException():TradingView.Captured(connection,store,Frame,knowledge,ct);
-    internal async Task<TradingView> Resolve(NpgsqlConnection connection,KnowledgeStore store,FuturesReadRequest request,CancellationToken ct)
+    internal async Task<TradingView> Resolve(NpgsqlConnection connection,KnowledgeResolver store,FuturesReadRequest request,CancellationToken ct)
     {
         if(DateTimeOffset.UtcNow>=Ends)throw new PreviewDeniedException();
         if(Working)return await TradingView.Capture(connection,store,Frame,ct);

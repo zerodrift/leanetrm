@@ -142,7 +142,11 @@ def scope_entry_waits(f,rejected):
                 if mode.startswith('status'):
                     rejected(lambda:f.call(f"SELECT security.gas_transport_capacity_status('{f.catalog}','{operation}');"),'gas_transport_capacity_denied')
                 else:
-                    rejected(lambda:f.record(f.definition('synthetic_entry_scope_write'),context=source),'gas_transport_capacity_denied')
+                    # This negative must enter the producer before input
+                    # reconstruction; its original authority must refuse first.
+                    transport=f.query;f.query=q.raw
+                    try:rejected(lambda:f.record(f.definition('synthetic_entry_scope_write'),context=source),'gas_transport_capacity_denied')
+                    finally:f.query=transport
                 blocker.result(timeout=15)
                 assert q('SELECT generation FROM security.epoch;')==generation
                 assert f.call("SELECT security.has_permission('ConfigureGasServices');")=='t'

@@ -39,7 +39,7 @@ def checks(query,manifest):
         token=query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('{issuer}','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}COMMIT;")
     seed=manifest['frames'][0];at=seed['at'];day=at[:10]
-    context=user(f"SELECT security.capture_date_context('{catalog}','{day}',NULL);")
+    context=user(f"SELECT security.resolve_operation_context('{catalog}','{day}',NULL);")
     scope=f"SELECT security.use_market_context('{catalog}','{context}');SELECT security.use_trading_context('{catalog}','{at}','{day}'::date);"
     frame=dict(id=str(uuid4()),name='Synthetic fit authority inputs',at=at,businessDate=day,contextId=context,
         observationIds=seed['observationIds'],frozenObservationIds=[],curveContracts=seed['curveContracts'],sourceInputs=None,resolvesLatestCorrection=False,

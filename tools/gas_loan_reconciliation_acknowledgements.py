@@ -16,7 +16,7 @@ def checks(query,call,command,catalog):
             query('CREATE TRIGGER fixture_loan_ack_fault BEFORE INSERT ON trading.gas_owned_commands FOR EACH ROW EXECUTE FUNCTION trading.fixture_loan_ack_fault();')
             try:
                 for immediate in (True,False):
-                    try:call(command(str(uuid4()))+('SET CONSTRAINTS ALL IMMEDIATE;' if immediate else ''),rollback=immediate)
+                    try:call(command(str(uuid4()))+('SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;' if immediate else ''),rollback=immediate)
                     except RuntimeError as error:assert 'gas_loan_quantity_seal' in str(error) or 'gas_owned_input' in str(error),str(error)
                     else:raise AssertionError('All-acknowledgement loan receipt omitted or forged its complete native input/outcome: '+name)
             finally:query('DROP TRIGGER fixture_loan_ack_fault ON trading.gas_owned_commands;')

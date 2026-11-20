@@ -9,7 +9,7 @@ def checks(query,call,command,body,capture):
     try:
         query(original.replace(needle,needle+"outcome=jsonb_set(outcome,'{currentAmount}','\"-999\"');",1))
         for immediate in (True,False):
-            try:call(command(body,str(uuid4()),capture())+('SET CONSTRAINTS ALL IMMEDIATE;' if immediate else ''),rollback=immediate)
+            try:call(command(body,str(uuid4()),capture())+('SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;' if immediate else ''),rollback=immediate)
             except RuntimeError as error:assert 'gas_fee_terms_seal' in str(error),str(error)
             else:raise AssertionError('The native fee acknowledgement accepted an unproved first outcome at '+('immediate validation' if immediate else 'COMMIT')+'.')
     finally:query(original)

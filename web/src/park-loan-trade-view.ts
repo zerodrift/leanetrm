@@ -1,3 +1,4 @@
+import {retainedKnowledge} from './read-references.js';
 import type {Holding} from './desk-model.js';
 import {displayInstant} from './market-view.js';
 import type {DetailRead} from './position-panel.js';
@@ -27,7 +28,7 @@ export async function readParkLoanView(api:Api,context:Record<string,unknown>,h:
   detail.lifecycleTarget?.handler!=='gas_park_custody'||detail.lifecycleTarget.scopeId!==h.tradeId||detail.lifecycleTarget.bindingId!==h.bindingId))
   throw Error('The custody response did not retain its selected profile and exact agreement target. Refresh the Blotter.');
  overviewTermSections(detail.overviewSections,'UTC');
- const certified={...requested,knowledgeMode:'retained',contextId:detail.context.contextId};
+ const certified={...requested,...retainedKnowledge(detail.context)};
  let ticket:TicketHandle|undefined;
  return {amend:{allowed:false,reason:detail.actions.amend.reason},view:zone=>({
   termsLabel:'Park and loan terms',

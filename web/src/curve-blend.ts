@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import {type PublishedSourceReference} from './custom-curve-model.js';
 
 type Choice={value:unknown;label:string};
@@ -30,7 +31,7 @@ export function setupCurveBlend(build:(request:Request)=>void,edited:()=>void){
  }
  add.onclick=()=>{if(controls.length>=30)return;append();changed();};discard.onclick=()=>{reset();edited();};form.oninput=changed;form.onchange=changed;
  form.onsubmit=event=>{event.preventDefault();if(!form.reportValidity())return;build({aggregation:aggregation.value,alignment:alignment.value,
-  inputs:controls.map(c=>({source:structuredClone(sources[Number(c.source.value)].reference),weight:c.weight.value}))});};
+  inputs:controls.map(c=>({source:cloneRead(sources[Number(c.source.value)].reference),weight:c.weight.value}))});};
  function reset(){rows.replaceChildren();controls.length=0;aggregation.value=alignment.value='';append();dirty=false;}
  append();
  return {element:section,dirty:()=>dirty,

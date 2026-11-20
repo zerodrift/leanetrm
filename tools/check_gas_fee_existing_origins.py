@@ -1,7 +1,7 @@
-"""Upgrade pre-fee-terms loans, then run the current fee source and action checks.
+"""Qualify actual native loan origins across migration 0308.
 
-The predecessor runs the native fixture prefix only. The separate ordinary fee
-qualifier retains the complete managed gas baseline on the fully migrated schema.
+The current fee source, managed actions and browser qualify separately on the
+complete fresh schema; this historical probe does not cross the reset boundary.
 """
 from decimal import Decimal
 import json
@@ -11,6 +11,9 @@ from uuid import uuid4
 
 import check_gas_fee_terms as fees
 from check_reference_editing import main as native_main
+from seed_fixture_market import load_fixture
+from preview_fixture import trading_fixture,catalogue_fixture,trade_booking
+from assistant_context import Contexts
 
 
 def _literal(value):
@@ -47,6 +50,44 @@ def _record(query,manifest):
     return record
 
 
+
+def _seed_nonzero(query,manifest):
+    catalog,tenant,workspace=(manifest[k] for k in ('catalogId','tenantId','workspaceId'))
+    query(trading_fixture(catalog))
+    query(f"SELECT security.initialize_operating_policies('{tenant}','{workspace}');")
+    query(catalogue_fixture(manifest,manifest['identityIssuer']))
+    query("INSERT INTO security.role_permissions SELECT role_id,p FROM security.role_permissions CROSS JOIN "
+        "unnest(ARRAY['ReadGasOwnedHoldings','RecordGasOwnedHoldings','ConfigureGasOwnedHoldings'])p WHERE permission='AmendTrade' ON CONFLICT DO NOTHING;")
+    parties=trade_booking();entity=parties['legalEntityId'];party=parties['counterpartyId']
+    terms=json.loads(query("SELECT jsonb_build_object('quantity',q.quantity_code,'currency',q.currency_code,'location',c.location_code) "
+        "FROM market_data.curves c JOIN ref_data.quote_specifications q ON(q.catalog_id,q.revision_id,q.code)="
+        "(c.reference_catalog_id,c.reference_revision_id,c.quote_code) "
+        f"WHERE(c.catalog_id,c.revision_id,c.code)=('{catalog}','{manifest['revisionId']}','future');"))
+    record=_record(query,manifest);account=str(uuid4());contract='50000000-0000-0000-0000-000000000001'
+    record(account,'account',dict(code='synthetic_owned_inventory_1',kind='owned_inventory',bookId='d1000000-0000-0000-0000-000000000001',
+        legalEntityId=entity,legalEntityRevision=parties['legalEntityRevision'],counterpartyId=None,counterpartyRevision=None,
+        referenceCatalogId=manifest['referenceCatalogId'],referenceRevisionId=manifest['referenceRevisionId'],definitionRevisionId=manifest['revisionId'],
+        markCurve='future',markContractId=contract,titlePolicy='explicit_accepted_title_v1',lossPolicy='separate_evidenced_loss_v1',effectiveAt='2020-12-18T00:00:00Z',**terms))
+    policies={}
+    for action in ('gas.loan.borrow','gas.cash.record_payment'):
+        policy=str(uuid4())
+        request=dict(operationId=str(uuid4()),policyId=policy,expectedRevision=0,action=action,mode='manual',fromAt='2020-01-01T00:00:00Z',untilAt='2022-01-01T00:00:00Z',implementation='explicit_lifecycle_action_policy_v1')
+        Contexts(query,manifest).runtime('trader',f"SELECT lifecycle.save_policy('{catalog}',{_literal(request)});")
+        record(account,'bind_policy',dict(action=action,policyId=policy,policyRevision=1,effectiveAt='2020-12-18T00:00:00Z'))
+        policies[action]=policy
+    evidence={}
+    for kind in ('loan_agreement','title_receipt'):
+        _,created=record(account,'evidence',dict(sourceKey='synthetic_origin_'+kind,kind=kind,quantity='100',occurredAt='2020-12-20T10:00:00Z',evidence='Synthetic accepted loan origin',expectedRevision=0))
+        evidence[kind]=created['id']
+    body=dict(agreementId=evidence['loan_agreement'],evidenceId=evidence['title_receipt'],quantity='100',titleAt='2020-12-20T10:00:00Z',availableAt='2020-12-20T10:00:00Z',
+        returnAt='2020-12-21T12:00:00Z',returnMarkCurve='future',returnMarkContractId=contract,carrying='nominal_mark_v1',feeAmount='-2',feeDueAt='2020-12-21T12:00:00Z',lenderId=party,lenderRevision=parties['counterpartyRevision'])
+    _,loan=record(account,'borrow',body,policies['gas.loan.borrow'],1)
+    fee=query(f"SELECT id FROM trading.gas_owned_fees WHERE(catalog_id,loan_id)=('{catalog}','{loan['id']}');")
+    payment=dict(feeId=fee,businessKey='synthetic_origin_payment',expectedRevision=0,paidAt='2020-12-20T14:00:00Z',amount='-1',evidence='Synthetic bank receipt')
+    record(account,'fee_payment',payment,policies['gas.cash.record_payment'],1)
+    record(account,'fee_payment',{**payment,'expectedRevision':1,'amount':'-0.5'},policies['gas.cash.record_payment'],1)
+
+
 def _seed_zero(query,manifest):
     catalog=manifest['catalogId'];record=_record(query,manifest)
     source=json.loads(query("SELECT jsonb_build_object('account',l.account_id,'lender',l.lender_id,'revision',l.lender_revision) "
@@ -68,7 +109,7 @@ def _seed_zero(query,manifest):
     assert created['changed'] and not created['semanticAcknowledgement']
     assert not ack['changed'] and ack['semanticAcknowledgement'] and ack['id']==created['id']
     assert query(f"SELECT count(*) FROM trading.gas_owned_fees WHERE(catalog_id,loan_id)=('{catalog}','{created['id']}');")=='0'
-    return dict(loan=created['id'],operation=operation,acknowledgement=acknowledgement)
+    return dict(loan=created['id'],operation=operation,acknowledgement=acknowledgement,account=account,body=body,policy=policy)
 
 
 def _origins(query,manifest,zero):
@@ -107,10 +148,10 @@ def main():
         if migration.name!='0308_gas_fixed_fee_terms.sql':return
         assert not prepared and query("SELECT to_regclass('trading.gas_loan_fee_terms') IS NULL;")=='t'
         reference,market,security,manifest=fees.fixture(root)
-        for sql in (reference,market,security):query(sql)
-        fees.baseline(query,manifest,native_only=True)
+        load_fixture(query,reference,market,security,manifest)
+        _seed_nonzero(query,manifest)
         zero=_seed_zero(query,manifest);tables=_tables(query)
-        prepared.update(manifest=manifest,zero=zero,tables=tables,state=_state(query,manifest['catalogId'],tables),baseline=fees.baseline)
+        prepared.update(manifest=manifest,zero=zero,tables=tables,state=_state(query,manifest['catalogId'],tables))
         print('PASS predecessor fixture: actual nonzero-fee and explicit zero-fee native borrow operations, retained bank revisions and a distinct zero-loan acknowledgement before 0308',flush=True)
 
     def verify(query):
@@ -127,25 +168,16 @@ def main():
         assert prepared and manifest is prepared['manifest']
         if not prepared.get('verified'):verify(query)
         _origins(query,manifest,prepared['zero'])
-        original=fees.baseline;skipped=[]
-        def already_run(selected_query,selected_manifest,*,form_source_counterexamples):
-            assert original is prepared['baseline'] and selected_query is query and selected_manifest is manifest
-            assert form_source_counterexamples is False
-            skipped.append(True)
-        def finished(selected_query,selected_manifest,_):
-            assert selected_query is query and selected_manifest is manifest
-            catalog=manifest['catalogId'];zero=prepared['zero']
-            assert query(f"SELECT count(*) FROM trading.gas_loan_fee_terms WHERE(catalog_id,loan_id,revision,origin_request_id)=('{catalog}','{zero['loan']}',1,'{zero['operation']}');")=='1'
-            assert query(f"SELECT count(*) FROM trading.gas_owned_fees WHERE(catalog_id,loan_id)=('{catalog}','{zero['loan']}');")=='0'
-            assert query(f"SELECT count(*) FROM trading.gas_owned_commands WHERE catalog_id='{catalog}' AND request->>'action'='borrow' AND outcome->>'id'='{zero['loan']}' AND outcome->>'changed'='false' AND outcome->>'semanticAcknowledgement'='true';")=='2'
-            print('PASS upgraded ordinary fee cases: shared zero creation acknowledges its preexisting native loan, backfilled origin survives, normal source/seal/managed amendments remain enabled',flush=True)
-        try:
-            fees.baseline=already_run
-            fees.checks(query,manifest,after_amendments=finished)
-            assert skipped==[True],'Only the already-run predecessor native fixture prefix may be skipped.'
-        finally:fees.baseline=original
+        zero=prepared['zero'];catalog=manifest['catalogId']
+        _,ack=_record(query,manifest)(zero['account'],'borrow',zero['body'],zero['policy']['id'],zero['policy']['revision'])
+        assert not ack['changed'] and ack['semanticAcknowledgement'] and ack['id']==zero['loan']
+        assert query(f"SELECT count(*) FROM trading.gas_loan_fee_terms WHERE(catalog_id,loan_id,revision,origin_request_id)=('{catalog}','{zero['loan']}',1,'{zero['operation']}');")=='1'
+        assert query(f"SELECT count(*) FROM trading.gas_owned_fees WHERE(catalog_id,loan_id)=('{catalog}','{zero['loan']}');")=='0'
+        assert query(f"SELECT count(*) FROM trading.gas_owned_commands WHERE catalog_id='{catalog}' AND request->>'action'='borrow' AND outcome->>'id'='{zero['loan']}' AND outcome->>'changed'='false' AND outcome->>'semanticAcknowledgement'='true';")=='2'
+        _origins(query,manifest,zero)
+        print('PASS native fee-origin upgrade: a post-upgrade acknowledgement retains the original zero-loan origin without inventing fee cash',flush=True)
 
-    native_main(checks=checks,before_migration=before_migration,fixture_factory=loaded_fixture)
+    native_main(checks=checks,before_migration=before_migration,fixture_factory=loaded_fixture,through_migration='0308')
 
 
 if __name__=='__main__':main()

@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import {displayPaymentDate} from './payment-date.js';
 import {resolvedUtcInstant as instant} from './user-time.js';
 import {amountText} from './amount-display.js';
@@ -25,7 +26,7 @@ export function restoreCrudeCommand(value:unknown):RequestCommand|undefined{
  if(!value||typeof value!=='object'||Array.isArray(value))return;
  const v=value as Record<string,unknown>;
  if(v.path!=='crude/book'||typeof v.operationId!=='string'||!v.operationId||!v.body||typeof v.body!=='object'||Array.isArray(v.body))return;
- return{path:'crude/book',operationId:v.operationId,body:structuredClone(v.body as Record<string,unknown>),uncertain:true};
+ return{path:'crude/book',operationId:v.operationId,body:cloneRead(v.body as Record<string,unknown>),uncertain:true};
 }
 // What a crude preview or booked valuation shows: its delivery, volume, pricing source and contract terms by name, each side's signed PV, and amounts at
 // the display precision. A direction or side the contract does not name is refused rather than shown as its code.

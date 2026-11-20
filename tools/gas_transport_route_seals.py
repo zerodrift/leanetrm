@@ -7,10 +7,12 @@ from gas_transport_capacity_fixture import literal,identity
 def seals(f,refuses,facts):
     q=f.query;route=facts['route']['id'];head=next(p for p in facts['plans'] if p['kind']=='plan');context=f.capture()
     def attack(body,code):
+        from native_read_transport import register_captured_input
+        inputs=''.join(register_captured_input(q,identifier) for identifier in q.read_sources)
         q("CREATE OR REPLACE FUNCTION security.synthetic_route_seal_attack() RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $attack$DECLARE "
             "p trading.gas_transport_route_plans;r jsonb;op uuid;publication integer;payload jsonb;outcome jsonb;fact_value jsonb;BEGIN "+body+" END$attack$;"
             "ALTER FUNCTION security.synthetic_route_seal_attack() OWNER TO openetrm_security_owner;GRANT EXECUTE ON FUNCTION security.synthetic_route_seal_attack() TO openetrm_runtime;")
-        try:refuses(lambda:f.call('SELECT security.synthetic_route_seal_attack();'),code)
+        try:refuses(lambda:f.call(inputs+'SELECT security.synthetic_route_seal_attack();'),code)
         finally:q('DROP FUNCTION security.synthetic_route_seal_attack();')
     before=q(f"SELECT count(*) FROM trading.gas_transport_route_plans WHERE catalog_id='{f.catalog}';")
     new=str(uuid4())

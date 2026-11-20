@@ -19,7 +19,7 @@ def checks(query, manifest):
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{issue()}');{sql}COMMIT;")
 
     def capture():
-        return call(f"SELECT security.capture_date_context('{catalog}','{day}',NULL);")
+        return call(f"SELECT security.resolve_operation_context('{catalog}','{day}',NULL);")
 
     owner = json.loads(query("SELECT to_jsonb(a)::text FROM settlement_data.futures_margin_adoptions a "
                              f"WHERE catalog_id='{catalog}' ORDER BY publication_order LIMIT 1;"))

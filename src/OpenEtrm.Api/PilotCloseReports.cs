@@ -149,7 +149,7 @@ public static class PilotCloseReports
         using var document=JsonDocument.Parse((string)(await load.ExecuteScalarAsync(ct)??throw new PreviewDeniedException()));
         var rowsets=document.RootElement;
         var h=rowsets.GetProperty("header").Clone();var catalog=h.Id("catalog_id");var reference=new ReferenceRevision(h.Id("reference_catalog_id"),h.Id("reference_revision_id"));
-        if(pin.Context is {} selected)await new KnowledgeStore(catalog).Retained(connection,selected,ct);
+        if(pin.Context is {} selected)await new KnowledgeResolver(catalog).Retained(connection,selected,ct);
         ReferenceKey Key(string code)=>new(reference,code);
         object Cash(string n,string d,string currency)=>new{numerator=n,denominator=d,currency=Key(currency)};
         ImmutableArray<JsonElement> Rows(string name)=>[..rowsets.GetProperty(name).EnumerateArray().Select(row=>row.Clone())];

@@ -337,9 +337,11 @@ def run_checks(url, query=None, manifest=None, pg_log=None, *, check_budget=Fals
     assert earlier['rows']==average['rows']
     assert client.call('custom-curves/component-history',{**history_request,'snapshotId':earlier_frame['id']})['preview']['rows']==raw['rows']
     if query and manifest:
-        temporal_context=client.call('custom-curves')['context']['contextId']
+        from native_read_transport import select_context_inputs
+        temporal_context=client.call('custom-curves')['context']
         query(f"""BEGIN;SET LOCAL SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{token()}');
-            SELECT security.use_market_context('{cat}','{temporal_context}');
+            {select_context_inputs(cat,temporal_context)}
+            SELECT security.use_market_context('{cat}','{temporal_context['contextId']}');
             DO $$BEGIN IF EXISTS(SELECT 1 FROM market_data.custom_curve_requests WHERE catalog_id='{cat}') THEN
              RAISE EXCEPTION 'Future mutation receipts leaked into historical context';END IF;
              BEGIN

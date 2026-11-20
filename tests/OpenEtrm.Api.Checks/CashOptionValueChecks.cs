@@ -21,7 +21,7 @@ internal static class CashOptionValueChecks
         await using var database=new PreviewDatabase(manifest,new NpgsqlConnectionStringBuilder(login.ConnectionString){Username="preview_authenticator"},login);
         await database.WithIdentity("trader","RunScenario",async(connection,ct)=>
         {
-            var context=(await new KnowledgeStore(manifest.CatalogId).Read(connection,fixture.Id("contextId"),ct)).Context;
+            var context=(await new KnowledgeResolver(manifest.CatalogId).Read(connection,fixture.Id("contextId"),ct)).Context;
             await PinnedContext.BindExact(connection,manifest.CatalogId,context,ct);await TradingContext.Bind(connection,manifest.CatalogId,context,fixture.Instant("at"),ct);
             if(await PreviewDatabase.HasPermission(connection,"ReadGasOwnedHoldings",ct))throw new Exception("This exact cash consumer must be qualified without gas authority.");
             var pins=fixture.GetProperty("pins").EnumerateArray().Select(p=>p.GetGuid()).ToImmutableArray();

@@ -1,3 +1,4 @@
+import {retainedKnowledge} from './read-references.js';
 import {sideCalendar,referenceCalendarChoices,type SideCalendar,type SideCalendarPolicy} from './side-calendar.js';
 import {decorateSideCard,sideAddButton,alignSideCard,prepareSideDeck} from './side-card.js';
 import type {ContractObservationSource} from './contract-observation-ticket.js';
@@ -37,7 +38,7 @@ export type ScheduledReview={indices:Pick<Index,'currencyCode'|'currency'|'quant
   intervals?:()=>Promise<IntervalRow[]>};
 /** The read of a retained scheduled revision's UTC delivery intervals, in the certified context it was read in. */
 export const retainedIntervals=(api:Api,context:Record<string,unknown>,detail:{state:{tradeId:string;revision:number};context:unknown})=>async()=>
- (await api<{intervals:IntervalRow[]}>('swaps/quantity-schedule',{context:{...context,knowledgeMode:'retained',contextId:(detail.context as {contextId:string}).contextId},tradeId:detail.state.tradeId,revision:detail.state.revision})).intervals;
+ (await api<{intervals:IntervalRow[]}>('swaps/quantity-schedule',{context:{...context,...retainedKnowledge(detail.context as {contextId:string})},tradeId:detail.state.tradeId,revision:detail.state.revision})).intervals;
 /**
  * A scheduled swap's valuation review (D214), as its ticket and the side panel's Terms show it: its trade PV, and for each side its
  * direction, a power schedule's delivery hours, its resolved period quantities with signed cash, dates, discount factors and PV, its
@@ -173,7 +174,7 @@ export function setupScheduledSwapEditor(options:{api:Api;act:(work:()=>Promise<
    const pay=paymentEditor(card,calendar,saved?.fixed?.paymentSchedule);syncPayment=pay.sync;applyTerms=async(value)=>{if(value.price!==undefined)price.value=value.price;if(value.payment)pay.restore(value.payment);};bulkRead=groups=>({...(groups.includes('price')?{price:price.value}:{}),...(groups.includes('payment')?{payment:pay.read()}:{})});
    read=()=>({amount:amount.value||null,floating:null,fixed:{price:pricing.value==='par'?null:price.value,currency:settlementIndex()?.currencyCode??'',deliveryFrom:from,deliveryTo:to,paymentSchedule:pay.read()}});
   }else{
-   const editor=mountScheduledFloatingEditor({host:terms,from,to,sideCalendar:()=>calendar.reference('observation'),calendarPolicy:calendar.read,initial:saved?.floating,retainedObservations:detail?.valuation?.sides.find(s=>s.slot===slot)?.payments.find(p=>p.deliveryFrom===from&&p.deliveryTo===to)?.resets.map(r=>(r as typeof r&{contractObservation?:unknown}).contractObservation).filter(v=>v!=null),indices:()=>available(slot),contractSources:()=>availableSources(slot),payment:()=>pay.read(),context:()=>({...context(),knowledgeMode:'retained',contextId:catalog?.context.contextId}),
+   const editor=mountScheduledFloatingEditor({host:terms,from,to,sideCalendar:()=>calendar.reference('observation'),calendarPolicy:calendar.read,initial:saved?.floating,retainedObservations:detail?.valuation?.sides.find(s=>s.slot===slot)?.payments.find(p=>p.deliveryFrom===from&&p.deliveryTo===to)?.resets.map(r=>(r as typeof r&{contractObservation?:unknown}).contractObservation).filter(v=>v!=null),indices:()=>available(slot),contractSources:()=>availableSources(slot),payment:()=>pay.read(),context:()=>({...context(),...retainedKnowledge(catalog?.context??{})}),
     enabled:()=>!detail||detail.canAmend,busy:options.busy,api:options.api,run:refreshObservations,changed:invalidate,quoteChanged:()=>syncFixedQuotes(true)});
    const pay=paymentEditor(card,calendar,saved?.floating?.paymentSchedule);syncPayment=()=>{pay.sync();editor.sync();};
    selectedQuote=editor.quote;refreshPeriod=editor.refresh;disposePeriod=editor.dispose;applyTerms=async(value,requireCurrent)=>{if(value.observations)await editor.apply(value.observations);requireCurrent();if(value.price!==undefined)editor.setSpread(value.price);if(value.payment)pay.restore(value.payment);};bulkRead=groups=>({...(groups.includes('observations')?{observations:editor.read()}:{}),...(groups.includes('price')?{price:editor.spread()}:{}),...(groups.includes('payment')?{payment:pay.read()}:{})});

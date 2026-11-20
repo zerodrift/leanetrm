@@ -98,7 +98,7 @@ public sealed partial class SwapStore
                 throw Error("settlement_not_final","Every contractual source observation must be due before determining cash.");
             if(snapshot.MarketCutoff!=frame.At)
                 throw Error("contract_observation_context","This source consumer requires an explicit market cutoff equal to the valuation instant.");
-            var context=(await new KnowledgeStore(manifest.CatalogId).Read(connection,frame.ContextId??
+            var context=(await new KnowledgeResolver(manifest.CatalogId).Read(connection,frame.ContextId??
                 throw Error("settlement_context","Supply the exact certified context."),ct)).Context;
             var exact=PinnedContext.Exact(context);
             var samples=await ContractObservationSamples.Read(connection,database,data,frame,exact,sources,ct);
@@ -258,7 +258,7 @@ public sealed partial class SwapStore
         var enabled = terms.Discounting ?? throw Error("settlement_policy","Select the explicit swap discount policy.");
         var mapping = enabled ? await Discount(connection,data,frame,resolved.Instrument.Currency,ct) : null;
         var discounting = new CurrencyDefaultDiscounting(inputs.DiscountKeys(resolved.Instrument,snapshot),snapshot,enabled,mapping);
-        var context = (await new KnowledgeStore(manifest.CatalogId).Read(connection,frame.ContextId??throw Error("settlement_context","Supply the exact certified context."),ct)).Context;
+        var context = (await new KnowledgeResolver(manifest.CatalogId).Read(connection,frame.ContextId??throw Error("settlement_context","Supply the exact certified context."),ct)).Context;
         var connected = await CustomCurves.PrepareMarket(connection,database,data,frame,snapshot,context,[resolved.Instrument],resolved.Instrument.DependenciesAt(snapshot),CustomCurves.MarketPreparation.ValuationDependencies,ct,
             activePrices:inputs.RequiredPrices(resolved.Instrument),sourceHistories:sourceHistories,preparationScope:preparationScope);
         return new(resolved.Instrument,resolved.Quantity,inputs,inputs.Evaluate(resolved.Instrument,

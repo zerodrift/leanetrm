@@ -36,7 +36,7 @@ def source_and_seals(f, booking, outcome, rejected):
   SELECT max(publication_order)+1 INTO publication FROM trading.publications WHERE catalog_id=catalog;
   INSERT INTO trading.publications VALUES(catalog,publication,pg_current_xact_id());
   INSERT INTO trading.gas_transport_financial_states SELECT(jsonb_populate_record(NULL::trading.gas_transport_financial_states,
-   to_jsonb(h)||jsonb_build_object('id',gen_random_uuid(),'revision',h.revision+1,'previous_id',h.id,'source_context_id',context,
+   (to_jsonb(h)-ARRAY['source_business_on','source_known_at','source_system_id','source_timeline'])||jsonb_build_object('id',gen_random_uuid(),'revision',h.revision+1,'previous_id',h.id,'source_context_id',context,
     'publication_order',publication,'source_as_of',at,'effective_at',at))).*;
  END$$;
  ALTER FUNCTION trading.synthetic_financial_orphan(uuid,uuid,uuid,timestamptz) OWNER TO openetrm_security_owner;
@@ -48,15 +48,16 @@ def source_and_seals(f, booking, outcome, rejected):
   c.operation_id=gen_random_uuid();c.outcome=c.outcome||jsonb_build_object('changed',false);
   c.request=jsonb_set(c.request,'{body,observationId}',to_jsonb(gen_random_uuid()));
   c.fact=trading.gas_transport_financial_fact(c.request->'body',(c.request->>'effectiveAt')::timestamptz);
+  PERFORM security.register_owner_coordinates(c.catalog_id,c.source_context_id,c.source_business_on,c.source_known_at,c.source_system_id,c.source_timeline);
   INSERT INTO trading.gas_transport_financial_commands SELECT c.*;
  END$$;
  ALTER FUNCTION trading.synthetic_financial_false_ack(uuid,uuid) OWNER TO openetrm_security_owner;
  GRANT EXECUTE ON FUNCTION trading.synthetic_financial_false_ack(uuid,uuid) TO openetrm_runtime;""")
     context = f.capture()
     rejected(lambda: f.call(f"SELECT trading.synthetic_financial_orphan('{f.catalog}','{trade}','{context}','{f.valuation_at}');"
-        'SET CONSTRAINTS ALL IMMEDIATE;', commit=False), 'gas_transport_financial_receipt')
+        'SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;', commit=False), 'gas_transport_financial_receipt')
     rejected(lambda: f.call(f"SELECT trading.synthetic_financial_false_ack('{f.catalog}','{accepted['markId']}');"
-        'SET CONSTRAINTS ALL IMMEDIATE;', commit=False), 'gas_transport_financial_receipt')
+        'SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;', commit=False), 'gas_transport_financial_receipt')
     print('PASS independent deferred seals reject a typed financial state without a receipt and a forged changed=false observation acknowledgement.', flush=True)
 
     f.query("""CREATE FUNCTION trading.synthetic_financial_late_quote(catalog uuid,operation uuid,body jsonb,context uuid,at timestamptz,corrected uuid,created uuid) RETURNS void

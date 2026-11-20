@@ -34,10 +34,39 @@ class PreviewClient:
         self.jar = http.cookiejar.CookieJar()
         self.opener = build_opener(HTTPCookieProcessor(self.jar))
         self.token = ''
+        self.last_read_references = {}
+        self.read_references = {}
+        self.observed_inputs = {}
+        self.last_status = None
+
+    def remember_inputs(self,value):
+        if isinstance(value,dict):
+            keys=('contextId','effectiveOn','knownAt','knownThrough')
+            if all(value.get(key) is not None for key in keys):
+                self.observed_inputs[value['contextId']]={key:value[key] for key in keys}
+            for child in value.values():self.remember_inputs(child)
+        elif isinstance(value,list):
+            for child in value:self.remember_inputs(child)
+
+    def reference_headers(self,body,path=''):
+        selected={}
+        def visit(value):
+            if isinstance(value,str) and value in self.read_references:selected[value]=self.read_references[value]
+            elif isinstance(value,dict):
+                for child in value.values():visit(child)
+            elif isinstance(value,list):
+                for child in value:visit(child)
+        if isinstance(body,bytes):
+            try:body=json.loads(body)
+            except (ValueError,UnicodeDecodeError):body=None
+        visit(body)
+        for identifier,proof in self.read_references.items():
+            if identifier in path:selected[identifier]=proof
+        return {'X-OpenETRM-Read-References':json.dumps(selected)} if selected else {}
 
     def call(self, path, body=None, expected=200, headers=None, timeout=20):
         """POST a body, serialized unless it is already bytes, or GET without one."""
-        request_headers = {'Origin': self.url, **(headers or {})}
+        request_headers = {'Origin': self.url, **self.reference_headers(body,path), **(headers or {})}
         if body is not None:
             request_headers.update({'Content-Type':'application/json','X-Preview-CSRF':self.token})
             request_headers.update(headers or {})
@@ -48,29 +77,46 @@ class PreviewClient:
         except HTTPError as error:
             response = error
         value = response.read()
+        self.last_read_references = json.loads(response.headers.get('X-OpenETRM-Read-References', '{}'))
+        if path=='profile':self.read_references.clear()
+        self.read_references.update(self.last_read_references)
         session = next((c.value for c in self.jar if c.name == self.COOKIES[self.example]), None)
         if session is not None and session != self.session:
             self.session = session
             PreviewClient.sessions[self.example] += 1
-        if response.code != expected:
+        self.last_status=response.code
+        if response.code not in ((expected,) if isinstance(expected,int) else expected):
             raise AssertionError(f'{path}: expected {expected}, got {response.code}: {value.decode()}')
-        return json.loads(value) if value else None
+        parsed=json.loads(value) if value else None
+        self.remember_inputs(parsed)
+        return parsed
 
     def stream(self, path, body, timeout=20):
         """POST and yield each NDJSON frame as parsed; closing the generator closes the response (a client abort)."""
-        headers = {'Origin': self.url, 'Content-Type': 'application/json', 'X-Preview-CSRF': self.token}
+        headers = {'Origin': self.url, 'Content-Type': 'application/json', 'X-Preview-CSRF': self.token, **self.reference_headers(body,path)}
         request = Request(self.url+self.api_prefix+path, data=json.dumps(body).encode(), headers=headers, method='POST')
         try:
             response = self.opener.open(request, timeout=timeout)
         except HTTPError as error:
             raise AssertionError(f'{path}: expected a stream, got {error.code}: {error.read().decode()}') from None
         with response:
+            self.last_read_references=json.loads(response.headers.get('X-OpenETRM-Read-References','{}'))
+            self.read_references.update(self.last_read_references)
             if response.headers.get_content_type() != 'application/x-ndjson':
                 raise AssertionError(f'{path}: expected NDJSON, got {response.headers.get_content_type()}')
             for line in response:
-                yield json.loads(line)
+                frame=json.loads(line)
+                if isinstance(frame,dict) and isinstance(frame.get("readReferences"),dict):self.read_references.update(frame["readReferences"])
+                self.remember_inputs(frame)
+                yield frame
 
     def bootstrap(self):
         boot = self.call('bootstrap')
         self.token = boot['csrfToken']
         return boot
+
+    def select_inputs(self,context):
+        """Explicitly select supplied coordinates under this client's own authority."""
+        selected=self.call('date-schedules/context',dict(effectiveOn=context['effectiveOn'],knownAt=context['knownAt'],mode='at'))['context']
+        assert selected==context,'The explicitly selected input coordinates changed'
+        return selected

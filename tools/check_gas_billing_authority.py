@@ -7,6 +7,9 @@ import time
 
 def check(query, manifest, original, pending, calculation, context):
     catalog=manifest['catalogId'];tenant=manifest['tenantId'];workspace=manifest['workspaceId']
+    from native_read_transport import select_context_inputs
+    inputs=select_context_inputs(catalog,context)
+    context=context['contextId']
     principal=query("SELECT principal_id FROM security.identity_bindings WHERE issuer='https://preview.invalid' AND subject='trader';")
     saved=query(f"SELECT jsonb_agg(to_jsonb(p)) FROM security.role_permissions p WHERE permission='AmendTrade' AND role_id IN(SELECT role_id FROM security.role_grants WHERE principal_id='{principal}');")
     counts=lambda:query(f"SELECT (SELECT count(*) FROM trading.gas_cash_determinations WHERE catalog_id='{catalog}')||'|'||(SELECT count(*) FROM trading.gas_billing_commands WHERE catalog_id='{catalog}')||'|'||(SELECT count(*) FROM trading.publications WHERE catalog_id='{catalog}');")
@@ -32,7 +35,7 @@ def check(query, manifest, original, pending, calculation, context):
                     f"SELECT security.gas_billing_status('{catalog}','{original['operationId']}',NULL);")
                 def execute():
                     try:
-                        query(f"\\set VERBOSITY verbose\nSET application_name='{app}';SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{operation}COMMIT;")
+                        query(f"\\set VERBOSITY verbose\nSET application_name='{app}';SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{inputs}{operation}COMMIT;")
                     except RuntimeError as error:return str(error)
                     raise AssertionError('Expired billing authority returned after a storage wait: '+mode)
                 waiter=pool.submit(execute)

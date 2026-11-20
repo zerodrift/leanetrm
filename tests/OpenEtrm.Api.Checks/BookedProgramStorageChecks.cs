@@ -21,7 +21,7 @@ internal static class BookedProgramStorageChecks
             {
                 var context=entry.GetProperty("contextId").GetGuid();
                 var at=entry.GetProperty("asOf").GetDateTimeOffset();
-                var selectedContext=(await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,context,ct)).Context;
+                var selectedContext=(await new KnowledgeResolver(database.Manifest.CatalogId).Read(connection,context,ct)).Context;
                 await PinnedContext.Retained(selectedContext).Bind(connection,database.Manifest.CatalogId,ct);
                 var retained=await store.LoadInstrumentPrograms(connection,entry.GetProperty("instrumentId").GetGuid(),context,at,ct);
                 var programs=retained.Members;

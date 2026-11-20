@@ -70,6 +70,8 @@ def run_checks(c, check, query, manifest):
         check('priced trading retains the explicitly selected corrected observation',
               new_result == legacy_trading_reads(c, new_pin, data['futuresConvention'])
               and old_result['catalog']['contracts'] != new_result['catalog']['contracts'])
+        restored=c.call('date-schedules/context',dict(effectiveOn=old_cut['effectiveOn'],knownAt=old_cut['knownAt'],mode='at'))['context']
+        assert restored==old_cut
         check('priced trading replays the original cutoff after later correction publication',
               trading_workspace(c, trading_context(frame, old_cut)) == before)
         c.call('trading/workspace', {'context': trading_context(changed['frame'], old_cut),

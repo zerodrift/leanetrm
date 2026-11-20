@@ -58,8 +58,11 @@ internal static class GasParkCustodyEvidenceStore
         request=Normalize(request);var admission=await Admission(connection,database,request.Target.ScopeId,ct);
         var outcome=await Receipt(connection,database,request,ct);
         if(outcome.ValueKind==JsonValueKind.Null)
+        {
+            await LifecycleNative.Source(connection,database,request.Context,ct);
             outcome=await LifecycleNative.Read(connection,"SELECT security.record_gas_park_custody_evidence($1,$2,$3,$4::jsonb,$5,$6)::text",ct,
                 database.Manifest.CatalogId,request.OperationId,request.Target.ScopeId,request.Selection.GetRawText(),request.Context.AsOf,request.Context.ContextId);
+        }
         GasParkCustodyActions.RequireOutcomeTarget(request.Target,outcome);
         return new(outcome,admission);
     }

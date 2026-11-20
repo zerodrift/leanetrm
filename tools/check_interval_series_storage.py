@@ -146,7 +146,8 @@ def run_checks(query, manifest, psql, environment):
 
     # Series are not effective-dated: one retained context per cutoff, dated by the cutoff, whatever the window.
     later_window = read(series, '2027-01-02T05:00:00Z', '2027-01-02T06:00:00Z', after)
-    dated = query(f"SELECT effective_on FROM market_data.temporal_contexts WHERE catalog_id='{catalog}' AND id='{latest['contextId']}';")
+    from native_read_transport import captured_input
+    dated = captured_input(query,latest['contextId'])['effective_on']
     check('a read keeps one context per cutoff, on the cutoff\'s date',
           later_window['contextId'] == latest['contextId'] and later_window['rows'] == [] and dated == after[:10])
 

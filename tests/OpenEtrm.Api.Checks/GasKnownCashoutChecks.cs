@@ -40,7 +40,7 @@ internal static class GasKnownCashoutChecks
                 await database.WithIdentity("trader",null,async(connection,ct)=>
                 {
                     var context=f.Id("contextId");var at=f.Instant("at");
-                    var source=(await new KnowledgeStore(manifest.CatalogId).Read(connection,context,ct)).Context;
+                    var source=(await new KnowledgeResolver(manifest.CatalogId).Read(connection,context,ct)).Context;
                     await PinnedContext.BindExact(connection,manifest.CatalogId,source,ct);await TradingContext.Bind(connection,manifest.CatalogId,source,at,ct);
                     var pins=ImmutableArray.Create(f.Id("markId")).AddRange(f.GetProperty("rateIds").EnumerateArray().Select(row=>row.GetGuid()));
                     var frame=new InputFrame(Guid.NewGuid(),"Synthetic accepted future cashout",at,new(2020,12,20),pins,

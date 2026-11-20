@@ -17,7 +17,12 @@ def run_checks(url, query, manifest):
         return frames[0]
 
     def context(day):
-        return viewer.call('date-schedules/context', {'effectiveOn': day, 'knownAt': None, 'mode': 'current'})['context']
+        selected=viewer.call('date-schedules/context', {'effectiveOn': day, 'knownAt': None, 'mode': 'current'})['context']
+        for who in (editor,approver):who.select_inputs(selected)
+        from assistant_context import Contexts
+        from native_read_transport import select_context_inputs
+        Contexts(query,manifest).runtime('viewer',select_context_inputs(cat,selected))
+        return selected
 
     # Futures positions must last trade when their exchange series does, so the mapping takes the seeded series' last-trading dates.
     # Both schedules select the first date on or after the context: at 15 January the front contract is February, January having expired.
@@ -86,7 +91,7 @@ def run_checks(url, query, manifest):
     # close another session lists is refused.
     historical = client('viewer')
     selected = context('2021-01-15')
-    historical.call('market/context/retained', {'contextId': selected['contextId'], 'selection': 'latest_correction'})
+    historical.call('market/context', {'effectiveOn': selected['effectiveOn'], 'knownAt': selected['knownAt'], 'mode': 'at', 'selection': 'latest_correction'})
     terms = lambda preview: [(c['label'], c['start'], c['end'], c['lastTradingAt'], c['futuresSeries']) for c in preview['contracts']]
     retained = preview(future, who=historical)
     assert terms(retained) == terms(january) and retained['context']['contextId'] == selected['contextId'], retained['context']
@@ -177,12 +182,11 @@ def run_checks(url, query, manifest):
     # A knowledge view captured before these publications cannot see them.
     assert not any(d['id'] in (saved['id'], gas['id']) for d in historical.call('curve-definitions')['definitions'])
     historical.call('profile', {'profile': 'editor'})
-    historical.call('market/context/retained', {'contextId': selected['contextId'], 'selection': 'latest_correction'})
+    historical.call('market/context', {'effectiveOn': selected['effectiveOn'], 'knownAt': selected['knownAt'], 'mode': 'at', 'selection': 'latest_correction'})
     assert historical.call('curve-definitions/save', {'requestId': str(uuid4()), 'definition': {**rates, 'code': 'usd_zero_historical'},
         'snapshotId': close(historical, '2021-01-15')}, expected=422)['code'] == 'curve_definition_historical'
-    # Risk workers keep capturing through the outer function only; the renamed inner capture is not theirs to call.
-    assert query("SELECT has_function_privilege('openetrm_risk_worker','security.capture_date_context(uuid,date,timestamptz)','EXECUTE'),"
-                 "has_function_privilege('openetrm_risk_worker','security.capture_pre_curve_definitions_context(uuid,date,timestamptz)','EXECUTE');") == 't|f'
+    assert query("SELECT has_function_privilege('openetrm_risk_worker','security.register_read_source(uuid,uuid,date,timestamptz,integer,text,integer)','EXECUTE') "
+                 "AND to_regprocedure('security.capture_pre_curve_definitions_context(uuid,date,timestamptz)') IS NULL;") == 't'
     print('PASS curve definitions save, publish and edit with inline tenors, atomically and idempotently')
 
     # D359: admitting a published rate definition into a draft definition revision creates one series per tenor label.

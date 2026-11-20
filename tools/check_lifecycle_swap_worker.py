@@ -15,7 +15,7 @@ def workers(query,manifest,path,managed,packet):
     directory=path.parent.resolve();assert directory.name.startswith('oetrm-ref-')
     query("INSERT INTO security.role_permissions SELECT role_id,'RunScenario' FROM security.role_permissions WHERE permission='AmendTrade' ON CONFLICT DO NOTHING;")
     login='synthetic_swap_economic_worker';provision_worker(query,manifest,login)
-    access=json.loads(query(f"SELECT jsonb_build_object('contexts',has_table_privilege('{login}','trading.contexts','SELECT'),'receipts',has_table_privilege('{login}','trading.knowledge_receipts','SELECT'))::text;"))
+    access=json.loads(query(f"SELECT jsonb_build_object('contexts',to_regclass('trading.contexts') IS NOT NULL,'receipts',has_table_privilege('{login}','trading.knowledge_receipts','SELECT'))::text;"))
     assert access=={'contexts':False,'receipts':True},'The profile reader changed the existing native context/receipt table boundary'
     assert query(f"SELECT NOT has_function_privilege('{login}','lifecycle.require_read(uuid,timestamptz)','EXECUTE') AND NOT has_function_privilege('{login}','settlement_data.require_futures_margin_preview(uuid,timestamptz)','EXECUTE');")=='t'
     assert query("SELECT p.proowner='openetrm_security_owner'::regrole AND p.prorettype='jsonb'::regtype AND NOT p.proretset AND p.prokind='f' AND NOT p.proisstrict AND NOT p.proleakproof AND p.provariadic=0 AND p.proargmodes IS NULL AND p.proallargtypes IS NULL AND p.pronargdefaults=0 AND p.proargdefaults IS NULL AND p.prosecdef AND p.provolatile='v' AND p.proparallel='u' AND l.lanname='plpgsql' AND p.proconfig=ARRAY['search_path=pg_catalog'] AND p.proacl::text='{openetrm_security_owner=X/openetrm_security_owner,openetrm_runtime=X/openetrm_security_owner,openetrm_risk_worker=X/openetrm_security_owner}' FROM pg_proc p JOIN pg_language l ON l.oid=p.prolang WHERE p.oid='security.read_lifecycle_projection_profiles(uuid,text,uuid,integer,uuid,timestamptz,date,timestamptz)'::regprocedure;")=='t'
@@ -26,7 +26,7 @@ def workers(query,manifest,path,managed,packet):
     env={**os.environ,'OPENETRM_RISK_WORKER_CONFIG':str(config)};dotnet=os.environ.get('DOTNET','dotnet')
     def context(day):
         token=query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','trader','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',60);")
-        return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');SELECT security.capture_date_context('{manifest['catalogId']}','{day}',NULL);COMMIT;")
+        return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');SELECT security.resolve_operation_context('{manifest['catalogId']}','{day}',NULL);COMMIT;")
     for variable,day,at,frame_at in [(True,'2020-12-18','2020-12-18T16:00:00Z','2020-12-18T16:00:00Z'),
                                     (False,'2021-01-20','2021-01-20T00:00:00Z','2021-01-15T08:00:00Z')]:
         source=next(frame for frame in manifest['frames'] if frame['at']==frame_at)

@@ -144,7 +144,11 @@ def authority(f, trade, rejected):
                 elif mode.startswith('status'):
                     rejected(lambda: f.call(f"SELECT security.gas_transport_financial_status('{f.catalog}','{accepted_mark}');"), 'gas_transport_financial_denied')
                 else:
-                    rejected(lambda: f.record_financial(body, context=context), 'gas_transport_financial_denied')
+                    # Probe the native entry deadline. Transport registration
+                    # must not wait on the scope before that deadline exists.
+                    f.query=q.raw
+                    try:rejected(lambda: f.record_financial(body, context=context), 'gas_transport_financial_denied')
+                    finally:f.query=q
                 blocker.result(timeout=15)
                 assert q('SELECT generation FROM security.epoch;') == generation
                 assert f.call(f"SELECT security.has_permission('{permission}');") == 't'

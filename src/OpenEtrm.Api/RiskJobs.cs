@@ -82,15 +82,23 @@ public static class RiskJobs
         pinnedFrame["optionCalibrations"]=JsonSerializer.SerializeToNode(prepared.Portfolio.OptionCalibrations,Json);
         if(prepared.Economic is {} economic)
             pinnedFrame["economicLifecycle"]=EconomicFrame(economic);
-        pinnedFrame["ppaReadContexts"]=JsonSerializer.SerializeToNode(prepared.Portfolio.Ppas.SelectMany(p=>p.ReadContexts).Distinct().Order().ToImmutableArray(),Json);
+        var ppaSources=prepared.Portfolio.Ppas.SelectMany(p=>p.ReadContexts).Distinct().Order().ToImmutableArray();
+        pinnedFrame["ppaReadContexts"]=JsonSerializer.SerializeToNode(ppaSources,Json);
         // The books and portfolios the run was asked for, as chosen: its results are shown only against a read of the same (D222).
         pinnedFrame["scope"]=ScopeFrame(body.Request.BookIds,body.Request.PortfolioIds,body.Request.TradeIds);
         if(run is not null)pinnedFrame["run"]=run;
         await using var command=ScheduleStore.Command(connection,
-            "SELECT risk.submit($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb)::text",manifest.CatalogId,body.RequestId,contextId,
-            data.DefinitionRevision.RevisionId,frame.At,payload.ToJsonString(Json),pinnedFrame.ToJsonString(Json));
+            "SELECT risk.submit_portfolio($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb)::text",manifest.CatalogId,body.RequestId,contextId,
+            data.DefinitionRevision.RevisionId,frame.At,payload.ToJsonString(Json),pinnedFrame.ToJsonString(Json),JsonSerializer.Serialize(body,Json));
         var submitted=JsonNode.Parse((string)(await command.ExecuteScalarAsync(ct))!)!.AsObject();
         return await Read(connection,manifest.CatalogId,(submitted["id"]??submitted["jobId"])!.GetValue<Guid>(),ct);
+    }
+
+    internal static async Task<object?> Replay(NpgsqlConnection connection,Guid catalog,SubmitPortfolioRiskJob body,CancellationToken ct)
+    {
+        await using var command=ScheduleStore.Command(connection,"SELECT risk.replay_submission($1,$2,$3::jsonb)",catalog,body.RequestId,JsonSerializer.Serialize(body,Json));
+        var existing=await command.ExecuteScalarAsync(ct);
+        return existing is Guid id?await Read(connection,catalog,id,ct):null;
     }
 
     internal static JsonObject EconomicFrame(PreparedLifecyclePortfolio prepared)
@@ -131,7 +139,7 @@ public static class RiskJobs
             throw new MarketDataException("risk_trade_scope","The retained request and scope must identify the same selected trades.");
     }
 
-    public static async Task<object> Read(NpgsqlConnection connection,Guid catalog,Guid id,CancellationToken ct,bool cancel=false,string? expectedConvention=null)
+    public static async Task<object> Read(NpgsqlConnection connection,Guid catalog,Guid id,CancellationToken ct,bool cancel=false,string? expectedConvention=null,bool expose=true)
     {
         async Task<JsonObject> ReadValue()
         {
@@ -148,7 +156,7 @@ public static class RiskJobs
             await cancellation.ExecuteScalarAsync(ct);
             value=await ReadValue();
         }
-        var receipt=await Receipt(connection,catalog,value,ct);
+        var receipt=await Receipt(connection,catalog,value,ct,expose);
         if(receipt["result"] is JsonObject result)
         {
             receipt["underStatedPricingPolicy"]=PortfolioRiskPreview.UnderStatedPricingPolicy(result);
@@ -189,12 +197,15 @@ public static class RiskJobs
         if(!Equals(await check.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
     }
 
-    private static async Task<JsonObject> Receipt(NpgsqlConnection connection,Guid catalog,JsonObject value,CancellationToken ct)
+    private static async Task<JsonObject> Receipt(NpgsqlConnection connection,Guid catalog,JsonObject value,CancellationToken ct,bool expose=false)
     {
         if(value["id"] is null)value["id"]=value["jobId"]?.DeepClone();
         var contextId=value["contextId"]!.GetValue<Guid>();
-        var context=await new KnowledgeStore(catalog).Read(connection,contextId,ct);
-        value["context"]=JsonSerializer.SerializeToNode(context.Context,Json);
+        var inputs=value["sourceInputs"]?.Deserialize<ReadInputCoordinates>(Json)??throw new InvalidOperationException("Missing job input coordinates.");
+        var source=await inputs.ResolveSnapshot(connection,catalog,ct);
+        if(source.Context.ContextId!=contextId)throw new PreviewDeniedException();
+        if(expose)ReadReferences.Expose(catalog,source);
+        value["context"]=JsonSerializer.SerializeToNode(source.Context,Json);
         value["asOf"]=value["valuationAt"]?.DeepClone();
         var code=value["errorCode"]?.GetValue<string>();
         var message=code switch

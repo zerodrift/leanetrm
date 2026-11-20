@@ -10,7 +10,7 @@ internal static class TradingBookingRead
  {
   // Current-knowledge booking explicitly resolves a certified pricing view.
   // Its temporary read binding must not turn the ensuing write into a historical write.
-  var context=(await new KnowledgeStore(database.Manifest.CatalogId).Capture(connection,
+  var context=(await new KnowledgeResolver(database.Manifest.CatalogId).Capture(connection,
    new(frame.Time.Date.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),null,"current"),ct)).Context;
   await using(var savepoint=ScheduleStore.Command(connection,"SAVEPOINT connected_booking_price"))await savepoint.ExecuteNonQueryAsync(ct);
   try

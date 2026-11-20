@@ -1,3 +1,4 @@
+import {retainedKnowledge} from './read-references.js';
 import {sideCalendar,referenceCalendarChoices,type SideCalendar,type SideCalendarPolicy,type SideCalendarCatalogRow} from './side-calendar.js';
 import {sideOffers,sideStructure,type SideStructure} from './swap-side-composer.js';
 import {sideAddButton,sideCardHeader} from './side-card.js';
@@ -376,7 +377,7 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
  }
  const observations:Record<string,ReturnType<typeof setupSwapObservationControls>>={};
  for(const side of ['floating','first'])observations[side]=setupSwapObservationControls({prefix:side==='first'?'swap-first':'swap',sideCalendar:()=>sideCalendars[side].reference('observation'),enabled:()=>!!field('swap-type').value&&(side==='floating'||floatingPair()),api:options.api,busy:options.busy,choice:()=>selectedSampling(side),unit:()=>selectedIndex(side)?.unit??'',
-  request:()=>{const i=selectedIndex(side),definition=side==='first'?selectedIndex()??i:i,custom=retainedProjectionChoices(side).find(choice=>JSON.stringify(choice.reference)===field(observationId(side,'price-source')).value);return {context:{...context(),knowledgeMode:'retained',contextId:catalog?.context.contextId},
+  request:()=>{const i=selectedIndex(side),definition=side==='first'?selectedIndex()??i:i,custom=retainedProjectionChoices(side).find(choice=>JSON.stringify(choice.reference)===field(observationId(side,'price-source')).value);return {context:{...context(),...retainedKnowledge(catalog?.context??{})},
    ...(definition?{definitionRevisionId:definition.definitionRevisionId}:{}),...(i?{curve:i.curve,settlement:selections[side].selected()}:{}),commodity:field(observationId(side,'commodity')).value||undefined,index:field(observationId(side,'index')).value||undefined,
    resetFrequency:field(observationId(side,'reset-frequency')).value||undefined,averagingMethod:field(observationId(side,'averaging')).value||undefined,
    deliveryFrom:field(`swap-${side}-from`).value||undefined,deliveryTo:field(`swap-${side}-to`).value||undefined,

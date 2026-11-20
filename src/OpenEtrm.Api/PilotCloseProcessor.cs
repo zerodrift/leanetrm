@@ -30,19 +30,24 @@ public sealed class PilotCloseProcessor(NpgsqlDataSource scheduler,NpgsqlDataSou
             await WithRun(claim,async(connection,database,cancellation)=>
             {
                 await Bind(connection,manifest.CatalogId,prepared.Preparation.Context,prepared.At,cancellation);
+                var resolver=new KnowledgeResolver(manifest.CatalogId);
+                foreach(var input in prepared.Preparation.ReadInputs)
+                    await resolver.Retained(connection,input,cancellation);
                 return await PilotCloseReports.Publish(connection,claim.Id,result,cancellation);
             },ct,RunPhase.Publication);
             return;
         }
         if(claim.Operation!=PilotCloseJobs.Operation)throw new AutomationException("job_operation","Select an admitted pilot close occurrence.");
+        await OccurrenceReadAdmission.Admit(scheduler,runtime,manifest,claim,ct);
         await WithRun(claim,async(connection,database,cancellation)=>
         {
             var existing=await PreviewDatabase.Rows(connection,"SELECT row_to_json(t)::text FROM(SELECT id FROM market_data.market_closes WHERE run_id=$1)t",[claim.Id],cancellation);
             if(!existing.IsEmpty)return true;
             var definition=await Definition(connection,cancellation);
             var header=await MarketCloses.Read(connection,manifest.CatalogId,definition.PriorCloseId,cancellation);
-            var context=(await new KnowledgeStore(header.Definition.CatalogId).Capture(connection,
-                new(Date(claim.DueAt),null,"current"),cancellation)).Context;
+            await using var inputs=ScheduleStore.Command(connection,"SELECT (automation.occurrence_read_inputs()).id");
+            var correlation=(Guid)(await inputs.ExecuteScalarAsync(cancellation)??throw Invalid("The occurrence has no admitted inputs."));
+            var context=(await new KnowledgeResolver(header.Definition.CatalogId).Read(connection,correlation,cancellation)).Context;
             await Bind(connection,header.Definition.CatalogId,context,claim.DueAt,cancellation);
             var anchor=await MarketCloses.Frame(connection,header.Definition.CatalogId,header.Id,context.ContextId,cancellation);
             var data=await database.Read(connection,cancellation,ppaBundle:Source(header),observationIds:anchor.ObservationIds,
@@ -110,8 +115,7 @@ public sealed class PilotCloseProcessor(NpgsqlDataSource scheduler,NpgsqlDataSou
             var header=await MarketCloses.Read(connection,manifest.CatalogId,claim.Id,cancellation);
             await using var stamp=ScheduleStore.Command(connection,"SELECT automation.pilot_close_commit()");
             var known=new DateTimeOffset((DateTime)(await stamp.ExecuteScalarAsync(cancellation))!);
-            var context=(await new KnowledgeStore(header.Definition.CatalogId).Capture(connection,
-                new(header.BusinessDate.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),known.ToString("O",CultureInfo.InvariantCulture),"at"),cancellation)).Context;
+            var context=(await new KnowledgeResolver(header.Definition.CatalogId).Source(connection,new(header.BusinessDate.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),known.ToString("O",CultureInfo.InvariantCulture),"at"),cancellation)).Context;
             await Bind(connection,header.Definition.CatalogId,context,header.At,cancellation);
             var frame=await MarketCloses.Frame(connection,header.Definition.CatalogId,header.Id,context.ContextId,cancellation);
             var data=await database.Read(connection,cancellation,ppaBundle:Source(header),observationIds:frame.ObservationIds,

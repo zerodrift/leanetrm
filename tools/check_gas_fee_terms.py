@@ -29,7 +29,7 @@ def checks(query,manifest,after_amendments=None):
         token=query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
             f"'{manifest['identityIssuer']}','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{statement}"+('ROLLBACK;' if rollback else 'COMMIT;'))
-    def capture():return call(f"SELECT security.capture_date_context('{catalog}','2020-12-20',NULL);")
+    def capture():return call(f"SELECT security.resolve_operation_context('{catalog}','2020-12-20',NULL);")
     def read(loan):
         context=capture()
         return json.loads(call(f"SELECT security.use_market_context('{catalog}','{context}');SELECT security.use_trading_context('{catalog}','{at}');"

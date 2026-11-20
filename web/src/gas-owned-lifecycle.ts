@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import {sameUtcInstant} from './user-time.js';
 import {mountOperationFields,type OperationChoice,type OperationField} from './operation-fields.js';
 import type {LifecycleContext,LifecycleOffer,LifecycleTarget} from './lifecycle-model.js';
@@ -23,7 +24,7 @@ export function mountGasOwnedAction(root:HTMLElement,offer:LifecycleOffer,setup:
  const body=node('fieldset');body.className='schedule-fields gas-lifecycle-fields';body.dataset.lifecyclePermission=form.permission;body.disabled=!o.permission(form.permission);root.append(body);
  const editor=mountOperationFields(body,form.fields,o,async(target,action)=>{
   const sourceAction=action??offer.action;
-  const read=await o.api<GasOwnedSetup>(gasSetupPath(target.handler),{context:structuredClone(setup.context),target:structuredClone(target)});
+  const read=await o.api<GasOwnedSetup>(gasSetupPath(target.handler),{context:cloneRead(setup.context),target:cloneRead(target)});
   if(read.target?.handler!==target.handler||read.target.scopeId!==target.scopeId||read.target.bindingId!==target.bindingId||
    read.context?.contextId!==setup.context.contextId||read.context.businessDate!==setup.context.businessDate||read.context.snapshotId!==setup.context.snapshotId||!sameUtcInstant(read.context.asOf,setup.context.asOf)||
    read.forms?.[sourceAction]?.permission!==form.permission)throw Error('The member fields do not match this exact observed target and source.');
@@ -52,7 +53,7 @@ export function mountGasOwnedSettings(root:HTMLElement,setup:GasOwnedSetup,o:Gas
   form.onsubmit=event=>{event.preventDefault();void o.act(async()=>{
    if(!account.value||!o.permission(definition.permission)||!o.permission('RecordGasOwnedHoldings'))throw Error('Choose an account and restore its configuration permission.');const accountChoice=account.value,version=accountVersion,accountId=accountChoice==='@new'?created:accountChoice;
    const selection=await currentEditor.read();if(accountChoice!==account.value||version!==accountVersion)throw Error('The gas account changed. Review its current inputs again.');if(!o.current()||generation!==view)return;
-   await o.queue('lifecycle/gas/configure',{operationId:crypto.randomUUID(),context:structuredClone(setup.context),accountId,action:selected,selection},'Save '+definition.label.toLowerCase());
+   await o.queue('lifecycle/gas/configure',{operationId:crypto.randomUUID(),context:cloneRead(setup.context),accountId,action:selected,selection},'Save '+definition.label.toLowerCase());
   });};
  });};
  return{edited:()=>accountEdited||!!editor?.dirty(),refresh:()=>editor?.refresh()};

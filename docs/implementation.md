@@ -2627,10 +2627,9 @@ quarter-hour previews take 9.435/19.186 seconds, both below 20 seconds, with
   available; the HTTP check reads values and the change log of a series whose clock
   declares another release, and only its revision is refused. Fixed-offset clocks are
   unaffected.
-- Each values or change-log read at a new cutoff stores one retained temporal
-  context, and a catalog holds at most 4,096 of them, never reclaimed
-  (`knowledge_limit`). This existing platform limit is open decision O07; every
-  such interval series read counts against it, and the benchmark stores five.
+- Those measurements preceded D435. Values and change-log reads now construct
+  runtime contexts without saved context rows or a lifetime context quota. The
+  publication journals and explicit inclusive cutoff remain authoritative.
 - Reads are bounded and not paged: windows over 35,136 intervals or change logs over
   100,000 rows are refused, not truncated. A values read's cost grows with the
   revisions stored per interval, which nothing bounds.

@@ -25,7 +25,7 @@ internal static class FuturesMarginSourceChecks
             await using var transaction=await connection.BeginTransactionAsync();
             await using(var identity=ScheduleStore.Command(connection,"SELECT security.use_context($1)",sample.Id("token")))
                 await identity.ExecuteNonQueryAsync();
-            var context=(await new KnowledgeStore(manifest.CatalogId).Read(connection,sample.Id("contextId"),default)).Context;
+            var context=(await new KnowledgeResolver(manifest.CatalogId).Read(connection,sample.Id("contextId"),default)).Context;
             await PinnedContext.BindExact(connection,manifest.CatalogId,context,default);
             var pin=fixture.Id("original");var at=fixture.Instant("at");
             var data=await database.Read(connection,default,selectedRevision:manifest.RevisionId,observationIds:[pin],includeCalendarDays:false,
@@ -71,7 +71,7 @@ internal static class FuturesMarginSourceChecks
             await using var transaction=await connection.BeginTransactionAsync();
             await using(var identity=ScheduleStore.Command(connection,"SELECT security.use_context($1)",sample.Id("token")))
                 await identity.ExecuteNonQueryAsync();
-            var context=(await new KnowledgeStore(manifest.CatalogId).Read(connection,sample.Id("contextId"),default)).Context;
+            var context=(await new KnowledgeResolver(manifest.CatalogId).Read(connection,sample.Id("contextId"),default)).Context;
             await PinnedContext.BindExact(connection,manifest.CatalogId,context,default);
             var pin=fixture.Id("original");var at=sample.Instant("at");
             var data=await database.Read(connection,default,selectedRevision:manifest.RevisionId,observationIds:[pin],includeCalendarDays:false,

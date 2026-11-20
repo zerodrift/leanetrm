@@ -24,7 +24,7 @@ internal static class GasParkLoanNativeChecks
         {
             var at=fixture.Instant("at");var context=fixture.Id("contextId");var book=fixture.Id("bookId");var trade=fixture.Id("tradeId");
             var day=DateWorkspace.Date(fixture.Text("businessDate"));
-            var source=(await new KnowledgeStore(manifest.CatalogId).Read(connection,context,ct)).Context;
+            var source=(await new KnowledgeResolver(manifest.CatalogId).Read(connection,context,ct)).Context;
             await PinnedContext.BindExact(connection,manifest.CatalogId,source,ct);
             await TradingContext.Bind(connection,manifest.CatalogId,source,at,ct);
             var agreement=await GasParkLoanTicketStore.Read(connection,database,new(context,at,day),trade,ct);
@@ -114,8 +114,8 @@ internal static class GasParkLoanNativeChecks
         await database.WithIdentity("trader",null,async(connection,ct)=>
         {
             var catalog=database.Manifest.CatalogId;var at=fixture.Instant("at");var context=fixture.Id("contextId");
-            var source=(await new KnowledgeStore(catalog).Read(connection,context,ct)).Context;
-            var original=(await new KnowledgeStore(catalog).Capture(connection,new(fixture.Text("businessDate"),null,"current"),ct)).Context;
+            var source=(await new KnowledgeResolver(catalog).Read(connection,context,ct)).Context;
+            var original=(await new KnowledgeResolver(catalog).Capture(connection,new(fixture.Text("businessDate"),null,"current"),ct)).Context;
             if(original.ContextId==context)throw new Exception("The presence restoration fixture needs distinct certified source identities.");
             DateTimeOffset? until=retainOriginal?await TradingContext.AdmitSource(database,connection,original,at,ct):null;
             await using(var save=ScheduleStore.Command(connection,"SAVEPOINT presence_source"))await save.ExecuteNonQueryAsync(ct);

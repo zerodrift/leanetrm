@@ -15,8 +15,8 @@ internal static class ExactPinReadChecks
             {
                 if(sample.GetProperty("contextId").ValueKind!=JsonValueKind.Null)
                 {
-                    await using var bind=ScheduleStore.Command(connection,"SELECT security.use_market_context($1,$2)",database.Manifest.CatalogId,sample.GetProperty("contextId").GetGuid());
-                    await bind.ExecuteNonQueryAsync(ct);
+                    var source=await new KnowledgeResolver(database.Manifest.CatalogId).Read(connection,sample.GetProperty("contextId").GetGuid(),ct);
+                    await PinnedContext.BindExact(connection,database.Manifest.CatalogId,source.Context,ct);
                 }
                 await using(var bind=ScheduleStore.Command(connection,"SELECT security.use_close_session($1,$2)",database.Manifest.CatalogId,sample.GetProperty("session").GetString()!))
                     await bind.ExecuteNonQueryAsync(ct);

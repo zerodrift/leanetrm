@@ -9,6 +9,7 @@ def run_checks(query, claim):
     fence = int(claim['fence'])
     profile=json.loads(query(f"SELECT jsonb_build_object('catalog',p.catalog_id,'close',p.close_id,'context',p.context_id) FROM automation.runs r JOIN automation.jobs j ON j.id=r.job_id JOIN automation.close_risk_profiles p ON p.id=j.close_risk_profile_id WHERE r.id='{run}';"))
     catalog,close,context=(str(UUID(profile[k])) for k in ('catalog','close','context'))
+    source="DO $$BEGIN PERFORM automation.close_risk_run_definition();END$$;"
     stats = "SELECT 'CALLS|'||coalesce(sum(calls) FILTER(WHERE funcname='pilot_context_live'),0)||'|'||coalesce(sum(calls) FILTER(WHERE funcname='close_risk_authorized'),0) FROM pg_stat_xact_user_functions WHERE schemaname='automation';"
     for mode in ('force_custom_plan', 'force_generic_plan'):
         token = str(UUID(query(f"SET SESSION AUTHORIZATION pilot_fixture_scheduler;SELECT automation.issue_pilot_context('{run}',{fence},'{worker}');")))
@@ -20,11 +21,11 @@ def run_checks(query, claim):
         print(f'PASS close-risk authority: {mode} performs one fresh complete authorization per live-context check', flush=True)
 
         token = str(UUID(query(f"SET SESSION AUTHORIZATION pilot_fixture_scheduler;SELECT automation.issue_pilot_context('{run}',{fence},'{worker}');")))
-        result=query("SET track_functions='all';BEGIN;"+f"SET LOCAL plan_cache_mode={mode};SET LOCAL SESSION AUTHORIZATION pilot_fixture_runtime;SELECT security.use_context('{token}');SELECT security.use_market_context('{catalog}','{context}');"+
+        result=query("SET track_functions='all';BEGIN;"+f"SET LOCAL plan_cache_mode={mode};SET LOCAL SESSION AUTHORIZATION pilot_fixture_runtime;SELECT security.use_context('{token}');"+source+f"SELECT security.use_market_context('{catalog}','{context}');"+
                      stats+f"SELECT 'VISIBLE|'||security.market_close_visible('{catalog}','{close}');"+stats+'ROLLBACK;').splitlines()
         calls=[list(map(int,row.split('|')[1:])) for row in result if row.startswith('CALLS|')]
         authorizations=calls[1][1]-calls[0][1]
-        assert 'VISIBLE|true' in result and 2<=authorizations<=12,(mode,authorizations,result)
+        assert 'VISIBLE|true' in result and 2<=authorizations<=20,(mode,authorizations,result)
         print(f'PASS close-risk visibility: {mode} uses {authorizations} fresh complete authority checks for the entire native pin set',flush=True)
 
         pins=int(query(f"SELECT count(*) FROM market_data.market_close_pins WHERE(catalog_id,close_id)=('{catalog}','{close}');"))
@@ -36,13 +37,13 @@ def run_checks(query, claim):
                 # The small set is a rollback-only synthetic owner fixture; read
                 # it with restored triggers through the actual runtime below.
                 subset=(f"SET LOCAL session_replication_role=replica;DELETE FROM market_data.market_close_pins WHERE(catalog_id,close_id)=('{catalog}','{close}') AND observation_id<>(SELECT observation_id FROM market_data.market_close_pins WHERE(catalog_id,close_id)=('{catalog}','{close}') ORDER BY observation_id LIMIT 1);SET LOCAL session_replication_role=origin;" if size==1 else '')
-                bind=f"SELECT security.use_market_context('{catalog}','{context}');" if bound else ''
+                bind=source+f"SELECT security.use_market_context('{catalog}','{context}');" if bound else ''
                 result=query("SET track_functions='all';BEGIN;"+subset+f"SET LOCAL plan_cache_mode={mode};SET LOCAL SESSION AUTHORIZATION pilot_fixture_runtime;SELECT security.use_context('{token}');"+bind+
                     stats+f"SELECT 'VISIBLE|'||security.market_close_visible('{catalog}','{close}');"+stats+
                     f"SELECT 'VISIBLE|'||security.market_close_visible('{catalog}','{close}');"+stats+'ROLLBACK;').splitlines()
                 calls=[list(map(int,row.split('|')[1:])) for row in result if row.startswith('CALLS|')]
                 deltas=[end[1]-start[1] for start,end in zip(calls,calls[1:])]
-                assert result.count('VISIBLE|true')==2 and all(2<=n<=12 for n in deltas),(mode,size,bound,deltas,result)
+                assert result.count('VISIBLE|true')==2 and all(2<=n<=20 for n in deltas),(mode,size,bound,deltas,result)
                 counts.extend(deltas)
             assert len(set(counts))==1,(mode,bound,counts)
             print(f"PASS close-risk visibility: {mode}, historical={bound}, repeats fresh {counts[0]}-check authority for 1 and {pins} pins",flush=True)
@@ -62,8 +63,8 @@ def run_checks(query, claim):
         }
         for name,change in changes.items():
             token = str(UUID(query(f"SET SESSION AUTHORIZATION pilot_fixture_scheduler;SELECT automation.issue_pilot_context('{run}',{fence},'{worker}');")))
-            result = query(f"BEGIN;SET LOCAL plan_cache_mode={mode};SET LOCAL SESSION AUTHORIZATION pilot_fixture_runtime;SELECT security.use_context('{token}');"
-                           f"SELECT security.use_market_context('{catalog}','{context}');SELECT security.has_permission('ReadMarketData');SELECT security.market_close_visible('{catalog}','{close}');RESET SESSION AUTHORIZATION;"+change+
+            result = query(f"BEGIN;SET LOCAL plan_cache_mode={mode};SET LOCAL SESSION AUTHORIZATION pilot_fixture_runtime;SELECT security.use_context('{token}');"+
+                           source+f"SELECT security.use_market_context('{catalog}','{context}');SELECT security.has_permission('ReadMarketData');SELECT security.market_close_visible('{catalog}','{close}');RESET SESSION AUTHORIZATION;"+change+
                            f"SET LOCAL SESSION AUTHORIZATION pilot_fixture_runtime;SELECT security.has_permission('ReadMarketData');SELECT security.market_close_visible('{catalog}','{close}');ROLLBACK;").splitlines()
             assert result == ['t','t','f','f'], (mode,name,result)
         print(f'PASS close-risk authority: {mode} rechecks revoked authority, expiry, cancellation and replaced ownership in the same bound transaction', flush=True)

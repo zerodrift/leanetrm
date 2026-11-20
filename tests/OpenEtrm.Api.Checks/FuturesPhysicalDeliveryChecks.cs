@@ -21,7 +21,7 @@ internal static class FuturesPhysicalDeliveryChecks
         await using var connection=await runtime.OpenConnectionAsync();await using var transaction=await connection.BeginTransactionAsync();
         using var owned=database.OwnReadTransaction(connection,transaction);
         await using(var identity=ScheduleStore.Command(connection,"SELECT security.use_context($1)",fixture.Id("token")))await identity.ExecuteNonQueryAsync();
-        var context=(await new KnowledgeStore(manifest.CatalogId).Read(connection,fixture.Id("contextId"),default)).Context;
+        var context=(await new KnowledgeResolver(manifest.CatalogId).Read(connection,fixture.Id("contextId"),default)).Context;
         await PinnedContext.BindExact(connection,manifest.CatalogId,context,default);
         var at=fixture.Instant("at");await TradingContext.Bind(connection,manifest.CatalogId,context,at,default);
         var pins=fixture.GetProperty("pins").EnumerateArray().Select(v=>v.GetGuid()).ToImmutableArray();

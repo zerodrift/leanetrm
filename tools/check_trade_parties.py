@@ -25,7 +25,8 @@ def run_checks(url, query, manifest, client=None):
     def detail(revision=None):
         return c.call('futures/editor', {'context': context, 'tradeId': first['tradeId'], 'revision': revision})
     assert all(detail()['state']['booking'][key] == value for key, value in booking().items())
-    retained = detail()['context']['contextId']
+    retained_context = detail()['context']
+    retained = retained_context['contextId']
     amend = {**body, **booking(other_entity, other_party), 'operationId': str(uuid4()),
              'tradeId': first['tradeId'], 'expectedRevision': 1, 'effectiveAt': catalog['asOf'],
              'reason': 'Synthetic party correction', 'amendmentConvention': 'unprocessed_futures_booking_amendment_v1'}
@@ -82,6 +83,7 @@ def run_checks(url, query, manifest, client=None):
         COMMIT;""")
     current = c.call('futures/catalog', context)
     assert next(p for p in current['counterparties'] if p['id'] == party['id'])['revision'] == 2
+    c.select_inputs(retained_context)
     old_catalog = c.call('futures/catalog', {**context, 'knowledgeMode': 'retained', 'contextId': retained})
     assert next(p for p in old_catalog['counterparties'] if p['id'] == party['id'])['revision'] == 1
     new_version = c.call('futures/book', {**body, 'operationId': str(uuid4()), 'counterpartyRevision': 2})
@@ -95,6 +97,9 @@ def run_checks(url, query, manifest, client=None):
         token = query("SET SESSION AUTHORIZATION preview_authenticator; SELECT security.issue_context("
                       f"'https://preview.invalid','trader','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime; BEGIN; SELECT security.use_context('{token}'); {sql} COMMIT;")
+    from assistant_context import Contexts
+    from native_read_transport import select_context_inputs
+    Contexts(query,manifest).runtime('trader',select_context_inputs(catalog_id,retained_context))
     payload = json.dumps({**booking(), 'counterpartyRevision': 2})
     runtime(f"""SELECT security.use_market_context('{catalog_id}','{retained}');SELECT security.use_trading_context('{catalog_id}','2020-12-18T16:00:00Z');
        DO $$ BEGIN PERFORM security.require_trade_parties('{catalog_id}','{payload}'::jsonb,'2020-12-18T15:00:00Z');

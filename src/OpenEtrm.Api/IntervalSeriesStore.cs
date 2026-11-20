@@ -122,7 +122,7 @@ public sealed partial class IntervalSeriesStore(PreviewDatabase database)
     {
         var cutoff=ParseInstant(request.KnownAt);
         await RequireReadableSeries(connection,request.SeriesId,ct);
-        _=await new KnowledgeStore(database.Manifest.CatalogId).Capture(connection,
+        _=await new KnowledgeResolver(database.Manifest.CatalogId).Capture(connection,
             new(cutoff.UtcDateTime.ToString("yyyy-MM-dd"),request.KnownAt,"at"),ct);
         await using var command=ScheduleStore.Command(connection,"""
             SELECT max(ends_at) FROM (

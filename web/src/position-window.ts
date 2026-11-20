@@ -1,3 +1,4 @@
+import {attachReadReferences,readReferenceHeaders} from './read-references.js';
 import {onWorkspaceLeave,releaseView,workspaceDocument} from './workspace-view.js';
 import {readRetainedSideTrade} from './retained-side-trade-view.js';
 import {withSideSchedules,genericPositionView} from './position-schedules.js';
@@ -56,12 +57,12 @@ async function load(){
  try{
   selection=readPositionWindowUrl(location.href);const picked=selection,root=picked.example==='exchange'?'/examples/exchange/api/':'/api/';let csrf='';const deadlines=requestDeadlines();
   async function request<T>(path:string,body?:unknown,signal?:AbortSignal):Promise<T>{
-   const response=await fetch(root+path,{method:body===undefined?'GET':'POST',credentials:'same-origin',headers:{...(picked.viewId?{'X-OpenETRM-View':picked.viewId,'X-OpenETRM-Document':workspaceDocument,...(path.startsWith('bootstrap?')?{'X-OpenETRM-Reattach':'attach'}:{})}:{}),...(body===undefined?{}:{'Content-Type':'application/json','X-Preview-CSRF':csrf})},
+   const response=await fetch(root+path,{method:body===undefined?'GET':'POST',credentials:'same-origin',headers:{...readReferenceHeaders(body),...(picked.viewId?{'X-OpenETRM-View':picked.viewId,'X-OpenETRM-Document':workspaceDocument,...(path.startsWith('bootstrap?')?{'X-OpenETRM-Reattach':'attach'}:{})}:{}),...(body===undefined?{}:{'Content-Type':'application/json','X-Preview-CSRF':csrf})},
     body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.any([current.signal,AbortSignal.timeout(deadlines.milliseconds(path)),...signal?[signal]:[]])});
    if(!response.ok){const refusal=await response.json().catch(()=>({}));const message=response.status===401?'Sign in to the workspace, then read this trade again.':refusal.message??'The retained trade could not be read.';
     if(started===generation&&(response.status===401||response.status===403))fail(message);
     throw Object.assign(Error(message),{code:refusal.code??'request_failed'});}
-   return await response.json() as T;
+   return attachReadReferences(await response.json() as T,response.headers.get('X-OpenETRM-Read-References'));
   }
   const api:Api=async<T>(path:string,body?:unknown,signal?:AbortSignal)=>{
    if(!operations.has(path))throw Error('This trade window supports authorized reads and earlier request status only.');

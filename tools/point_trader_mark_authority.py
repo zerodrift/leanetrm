@@ -36,7 +36,7 @@ def authority(f, rejected):
         body = f.command('17', target=f.point_target(at=at))
         before = f.publication_heads()
         with ThreadPoolExecutor(max_workers=1) as pool:
-            lock = 'SELECT pg_advisory_xact_lock(730849102);' if mode == 'status' else 'LOCK TABLE security.market_catalog_scopes IN ACCESS EXCLUSIVE MODE;'
+            lock = 'LOCK TABLE security.market_catalog_scopes IN ACCESS EXCLUSIVE MODE;' if mode == 'record' else 'SELECT pg_advisory_xact_lock(730849102);'
             blocker = pool.submit(q, "SET application_name='synthetic_point_scope_wait';BEGIN;" + lock + "SELECT pg_sleep(7);COMMIT;")
             limit = time.monotonic() + 5
             while q("SELECT count(*) FROM pg_stat_activity WHERE application_name='synthetic_point_scope_wait' AND wait_event='PgSleep';") != '1':
@@ -46,7 +46,13 @@ def authority(f, rejected):
             epoch = q('SELECT generation FROM security.epoch;')
             try:
                 if mode == 'record':
-                    rejected(lambda: f.call(f"SELECT security.record_point_trader_mark('{f.catalog}','{uuid4()}',{literal(body)},'{context}','{at}');", profile='editor'), 'point_trader_mark_denied')
+                    # This negative probe starts at the producer's admission.
+                    # Client input registration would itself wait on the scope
+                    # lock, before the native original deadline is captured.
+                    f.query=q.raw
+                    try:
+                        rejected(lambda: f.call(f"SELECT security.record_point_trader_mark('{f.catalog}','{uuid4()}',{literal(body)},'{context}','{at}');", profile='editor'), 'point_trader_mark_denied')
+                    finally:f.query=q
                 elif mode == 'status':
                     rejected(lambda: f.call(f"SELECT security.point_trader_mark_status('{f.catalog}','{uuid4()}');", profile='editor'), 'point_trader_mark_denied')
                 else:

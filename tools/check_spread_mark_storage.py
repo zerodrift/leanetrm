@@ -67,7 +67,7 @@ def run_checks(query,manifest):
     assert [(m['markId'],m['revision'],m['changed']) for m in same['marks']]==[(m['markId'],1,False) for m in first['marks']] and stored()=='2/2',same
     print('PASS spread mark storage: a retried request returns its first outcome and the same value at the same instant is not recorded twice',flush=True)
 
-    known_before_revision=runtime(f"SELECT security.capture_date_context('{catalog}','2020-12-16',NULL);")
+    known_before_revision=runtime(f"SELECT security.resolve_operation_context('{catalog}','2020-12-16',NULL);")
     time.sleep(1)
     revised=dict(body,operationId=str(uuid4()),marks=[mark('2021-02',1,'0.7','0.5','0.85')])
     stale=dict(revised,operationId=str(uuid4()),marks=[mark('2021-02',0,'0.7','0.5','0.85')])
@@ -88,16 +88,17 @@ def run_checks(query,manifest):
         return json.loads(runtime(f"SELECT security.use_market_context('{catalog}','{context}');SELECT security.use_trading_context('{catalog}','{as_of}');"
             f"SELECT security.read_spread_marks('{catalog}','{definition}','local_power','local_gas',{months});",actor))
     values=lambda rows:[(row['month'],row['revision'],row['longVolatility'],row['shortVolatility'],row['correlation']) for row in rows]
-    current=runtime(f"SELECT security.capture_date_context('{catalog}','2020-12-16',NULL);")
+    current=runtime(f"SELECT security.resolve_operation_context('{catalog}','2020-12-16',NULL);")
     assert values(read(current,'2020-12-16T23:59:59.999999Z'))==[('2021-02',2,'0.7','0.5','0.85'),('2021-03',1,'0.55','0.4','0.75')]
     assert values(read(current,'2020-12-16T12:00:00Z'))==[('2021-02',1,'0.6','0.45','0.8'),('2021-03',1,'0.55','0.4','0.75')]
     assert values(read(known_before_revision,'2020-12-16T23:59:59.999999Z'))==[('2021-02',1,'0.6','0.45','0.8'),('2021-03',1,'0.55','0.4','0.75')]
-    day_before=runtime(f"SELECT security.capture_date_context('{catalog}','2020-12-14',NULL);")
+    day_before=runtime(f"SELECT security.resolve_operation_context('{catalog}','2020-12-14',NULL);")
     assert read(day_before,'2020-12-14T23:59:59.999999Z')==[]
     selected_marks=f"SELECT security.read_spread_marks('{catalog}','{definition}','local_power','local_gas',{months});"
     for as_of in ('2020-12-16T12:00:00Z','2020-12-16T23:59:59.999999Z'):
         assert read_trading_workspace(query,runtime,catalog,as_of,selected_marks)==read(current,as_of)
-    before_correction=query(f"SELECT known_at FROM market_data.temporal_contexts WHERE catalog_id='{catalog}' AND id='{known_before_revision}';")
+    from native_read_transport import captured_input
+    before_correction=captured_input(query,known_before_revision)['known_at']
     earlier_marks=read_trading_workspace(query,runtime,catalog,'2020-12-17T23:59:59.999999Z',selected_marks,known_at=before_correction)
     assert values(earlier_marks)==[('2021-02',1,'0.6','0.45','0.8'),('2021-03',1,'0.55','0.4','0.75')]
     reject(f"SELECT security.read_spread_marks('{catalog}','{definition}','local_power','local_gas',{months});",'knowledge_coverage','trader')
@@ -124,7 +125,7 @@ def run_checks(query,manifest):
     added,existing=json.loads(runtime(record(mixed)))['marks']
     assert (added['month'],added['revision'],added['changed'])==('2021-04',1,True)
     assert existing=={**original,'changed':False} and publications()==before_publications+1
-    latest=runtime(f"SELECT security.capture_date_context('{catalog}','2020-12-16',NULL);")
+    latest=runtime(f"SELECT security.resolve_operation_context('{catalog}','2020-12-16',NULL);")
     march=next(row for row in read(latest,'2020-12-16T23:59:59.999999Z') if row['month']=='2021-03')
     assert (march['revision'],march['longVolatility'])==(2,'0.72')
     print('PASS spread mark storage: historical repeats preserve the correcting head and mixed batches are atomic',flush=True)

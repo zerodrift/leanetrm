@@ -82,6 +82,10 @@ def main():
             source=dict(definitionRevisionId=f.definition_revision, referenceCatalogId=f.reference, referenceRevisionId=f.valuation_reference),
             contractId=f.contract, policy='manual_final_direct_point_trader_mark_v1',
             noFrameContext=dict(contextId=f.market_context(), asOf='2020-12-19T16:00:00.000020Z', businessDate='2020-12-19', snapshotId=str(uuid4())))
+        from native_read_transport import captured_input
+        missing_frame_inputs=captured_input(query,packet['noFrameContext']['contextId'])
+        packet['noFrameInputs']=dict(contextId=missing_frame_inputs['id'],effectiveOn=missing_frame_inputs['effective_on'],
+            knownAt=missing_frame_inputs['known_at'],knownThrough=missing_frame_inputs['schedule_prefix'])
         print('Point TraderMark browser fixture migrations loaded.', flush=True)
         artifacts = Path(tempfile.mkdtemp(prefix='openetrm-point-publication-artifacts-'))
         artifacts.chmod(0o700)
@@ -109,27 +113,19 @@ def main():
         preview = cuts['previewOnly']['contextId']
         for table, key in [('market_data.temporal_contexts', 'id'), ('market_data.market_contexts', 'context_id'),
                            ('market_data.catalogue_contexts', 'context_id'), ('trading.contexts', 'context_id')]:
-            assert query(f"SELECT count(*) FROM {table} WHERE (catalog_id,{key})=('{f.catalog}','{preview}');") == '0', \
+            assert query(f"SELECT to_regclass('{table}') IS NULL;") == 't', \
                 f'Point setup, preview or refused publication persisted the preview-only source in {table}'
         selected = cuts['accepted']
         matched = query(f"""
             SELECT count(*) FROM market_data.point_trader_mark_commands cmd
-            JOIN market_data.temporal_contexts t ON (t.catalog_id,t.id)=(cmd.catalog_id,cmd.source_context_id)
-            JOIN market_data.market_contexts m ON (m.catalog_id,m.context_id)=(t.catalog_id,t.id)
-            JOIN market_data.catalogue_contexts c ON (c.catalog_id,c.context_id)=(t.catalog_id,t.id)
-            JOIN trading.contexts b ON (b.catalog_id,b.context_id)=(t.catalog_id,t.id)
             WHERE (cmd.catalog_id,cmd.operation_id)=('{f.catalog}','{cuts['operation']}')
-              AND (t.id,t.effective_on,t.known_at,t.known_through)=('{selected['contextId']}',
-                   '{selected['effectiveOn']}','{selected['knownAt']}',{selected['knownThrough']})
-              AND m.known_through=(SELECT coalesce(max(event_order),0) FROM market_data.market_knowledge_receipts
-                                   WHERE catalog_id=t.catalog_id AND known_from<=t.known_at)
-              AND c.known_through=(SELECT coalesce(max(publication_order),0) FROM market_data.catalogue_knowledge_receipts
-                                   WHERE catalog_id=t.catalog_id AND known_from<=t.known_at)
-              AND b.known_through=(SELECT coalesce(max(publication_order),0) FROM trading.knowledge_receipts
-                                   WHERE catalog_id=t.catalog_id AND known_from<=t.known_at);
+              AND (cmd.source_context_id,cmd.source_business_on,cmd.source_known_at)=('{selected['contextId']}',
+                   '{selected['effectiveOn']}','{selected['knownAt']}')
+              AND cmd.source_system_id=(pg_control_system()).system_identifier::text
+              AND cmd.source_timeline=(pg_control_checkpoint()).timeline_id;
         """)
-        assert matched == '1', 'The accepted mark must retain the exact displayed identity, both time coordinates and original domain prefixes.'
-        print('PASS point reads and previews leave zero context rows; publication retains the exact certified source and original domain prefixes.', flush=True)
+        assert matched == '1', 'The accepted mark must own the exact displayed coordinates and original clock lineage.'
+        print('PASS point reads and previews create no saved contexts; publication owns its exact inputs.', flush=True)
         assert query(f"SELECT count(*) FROM trading.publications WHERE catalog_id='{f.catalog}';") == before_trading
         assert f.read_financial(trade['tradeId'])['mark'] is None, 'Ordinary publication automatically adopted a financial mark.'
         heads = json.loads(query(f"SELECT jsonb_agg(jsonb_build_object('id',o.id,'value',o.value::text)) FROM market_data.observations o "

@@ -160,7 +160,7 @@ internal sealed class AsyncReads(PreviewDatabase database,CancellationToken stop
                         {
                             owner.RequireCurrent();
                             return Write(c,"response",new AsyncReadFrame(AsyncReadChannel.Protocol,id,response.Request.RequestId,
-                                response.Request.Operation,response.State,response.Plan.Input.SnapshotId,response.Result,response.Error),publication);
+                                response.Request.Operation,response.State,response.Plan.Input.SnapshotId,response.Result,response.Error,response.ReadReferences),publication);
                         });
                     }
                     finally{session.Gate.Release();}

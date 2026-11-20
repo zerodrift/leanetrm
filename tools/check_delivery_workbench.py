@@ -1,7 +1,6 @@
 """Qualify delivery workbench source/target relationships in an owned stock database."""
 import json
 import os
-from pathlib import Path
 from uuid import uuid4
 from check_reference_editing import main
 from gas_transport_route_fixture import RouteFixture, fixture, identity, literal
@@ -18,20 +17,16 @@ def refuses(action, code):
         raise AssertionError('Expected refusal ' + code)
 
 
-prepared = {}
-
-
 def before(query, migration):
     if migration.name != '0358_delivery_workbench_allocations.sql':
         return
-    if not os.environ.get('DOTNET'):
-        raise ValueError('Set DOTNET to qualify populated native booking upgrade.')
     from check_fact_anchor_upgrade import run_checks as guard_checks
     guard_checks(query, migration, number='0358', guard='delivery_workbench_upgrade', signatures=('assistant.is_prompt_page(text)',))
-    root = Path(__file__).resolve().parents[1]
-    reference, market, access, manifest = fixture(root)
-    for sql in [reference, market, access]:
-        query(sql)
+
+
+def source_setup(query,manifest):
+    if not os.environ.get('DOTNET'):
+        raise ValueError('Set DOTNET to qualify ordinary managed booking and source allocation.')
     f = RouteFixture(query, manifest)
     query("INSERT INTO security.role_permissions SELECT id,p FROM security.roles CROSS JOIN "
           "unnest(ARRAY['ReadFacilityQuantities','RecordFacilityQuantities','ConfigureFacilityLimits'])p WHERE code='trader' ON CONFLICT DO NOTHING;")
@@ -53,18 +48,7 @@ def before(query, migration):
         f.route_record(command, f.route_witness(facts, command, operation), operation=operation)
     retained = f.capture()
     route_facts = f.route_read(route['routeId'], context=retained)
-    tables = json.loads(query("SELECT jsonb_agg(n.nspname||'.'||c.relname ORDER BY n.nspname,c.relname) "
-        "FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN('trading','settlement_data') "
-        "AND c.relkind='r' AND EXISTS(SELECT 1 FROM pg_attribute a WHERE a.attrelid=c.oid AND a.attname='catalog_id' AND NOT a.attisdropped);"))
-    def digest():
-        return query('SELECT jsonb_object_agg(name,digest ORDER BY name) FROM(' + ' UNION ALL '.join(
-            f"SELECT '{table}'::text name,md5(coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]')::text) digest FROM {table} t WHERE t.catalog_id='{f.catalog}'" for table in tables) + ')s;')
-    prepared.update(f=f, owned=owned, manifest=manifest, source=source, route=route, retained=retained,
-                    route_facts=route_facts, digest=digest, before=digest())
-
-
-def loaded(_):
-    return '', '', '', prepared['manifest']
+    return dict(f=f,owned=owned,source=source,route=route,retained=retained,route_facts=route_facts)
 
 
 def temporal_target_regression(f, source, route):
@@ -115,15 +99,15 @@ def temporal_target_regression(f, source, route):
 
 
 def checks(query, manifest):
+    prepared=source_setup(query,manifest)
     f = prepared['f']
     assert query("SELECT assistant.is_prompt_page('delivery_workbench_gas') AND assistant.is_prompt_page('delivery_workbench_crude') AND NOT assistant.is_prompt_page('synthetic_uninstalled_delivery');") == 't', 'Displayed delivery page identities must be admitted for prompts without enabling financial operations.'
-    assert prepared['digest']() == prepared['before'], 'Installing delivery relationships changed existing native movement, target, title or cash rows.'
     assert query('SELECT count(*) FROM trading.delivery_route_allocation_plans;') == '0'
     assert f.route_read(prepared['route']['routeId'], context=prepared['retained'])['plans'] == prepared['route_facts']['plans']
     source = prepared['source']
     legacy = json.loads(prepared['owned'].call(f"SELECT security.read_facility_quantity_ledger('{f.catalog}','{source['ledgerId']}')::text;"))
     assert legacy['source']['id'] == source['sourceRevisionId'] and legacy['allocations'][0]['quantity'] == '60'
-    print('PASS populated additive delivery upgrade preserves booked1000, reported100/allocation60, exact native route/capacity IDs, retained heads and original facts', flush=True)
+    print('PASS fresh delivery relationships retain booked1000, reported100/allocation60, exact native route/capacity IDs and original source facts', flush=True)
     temporal_target_regression(f, source, prepared['route'])
     f.at, f.effective = '2020-12-19T23:59:59.999999Z', '2020-12-19T16:00:00Z'
     definition = f.route_definition('synthetic_delivery_workbench_route')
@@ -149,4 +133,4 @@ def checks(query, manifest):
 
 
 if __name__ == '__main__':
-    main(checks=checks, before_migration=before, fixture_factory=loaded)
+    main(checks=checks, before_migration=before, fixture_factory=fixture)

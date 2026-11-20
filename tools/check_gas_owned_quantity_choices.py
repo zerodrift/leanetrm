@@ -30,7 +30,7 @@ def checks(query,manifest):
             token=query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
                 f"'https://preview.invalid','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
             return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}COMMIT;")
-        context=call(f"SELECT security.capture_date_context('{catalog}','2020-12-20',NULL);")
+        context=call(f"SELECT security.resolve_operation_context('{catalog}','2020-12-20',NULL);")
         account=query(f"SELECT account_id FROM trading.gas_owned_quantity_corrections WHERE catalog_id='{catalog}' ORDER BY publication_order LIMIT 1;")
         bound=f"SELECT security.use_market_context('{catalog}','{context}');SELECT security.use_trading_context('{catalog}','2020-12-20T16:00:00Z');"
         sizes=call(bound+f"WITH source AS(SELECT security.read_gas_owned_operations('{catalog}','{context}','2020-12-20T16:00:00Z','{account}') value) SELECT(pg_column_size(value)<16777216 AND octet_length(convert_to(value::text,'UTF8'))>16777216)::text FROM source;")

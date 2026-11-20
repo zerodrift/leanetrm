@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import {PendingCommand,type RequestCommand} from './pending-command.js';
 import {node,pair} from './reference-detail.js';
 import {askInPanel} from './side-panel.js';
@@ -21,7 +22,7 @@ export function restoreReferenceRequest(value:unknown):RequestCommand|undefined{
   if(!value||typeof value!=='object'||Array.isArray(value))return;
   const saved=value as Record<string,unknown>;
   if(saved.path!=='reference/commit'||typeof saved.operationId!=='string'||!saved.operationId||!saved.body||typeof saved.body!=='object'||Array.isArray(saved.body))return;
-  return {operationId:saved.operationId,path:saved.path,body:structuredClone(saved.body as Record<string,unknown>),uncertain:true};
+  return {operationId:saved.operationId,path:saved.path,body:cloneRead(saved.body as Record<string,unknown>),uncertain:true};
 }
 // What a commit's response confirms: its own new display version, or, when its values were already applied, the
 // unchanged version it was based on (D238). Anything else is unconfirmed.

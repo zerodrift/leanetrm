@@ -92,8 +92,11 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('a curve draft pins its edited tenors',"document.querySelector('#error').hidden&&document.querySelector('#curve-definition-status').textContent.includes('Saved draft')");
  await evaluate(`(async()=>{const token=(await(await window.workspaceFetch('/api/bootstrap')).json()).csrfToken;
   const m=(await(await window.workspaceFetch('/api/date-schedules')).json()).contractDefinitions.filter(v=>v.definition.code==='rate_tenors').sort((a,b)=>b.version-a.version)[0];
-  const r=await window.workspaceFetch('/api/date-schedules/contracts/save',{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':token},body:JSON.stringify({requestId:crypto.randomUUID(),
-   code:'rate_tenors',name:'Synthetic rate tenors changed in Settings',context:m.definition.context,contracts:null,dates:m.definition.dates,id:m.id,version:m.version,generation:m.generation,expectedState:m.state})});
+  const selected=await window.workspaceFetch('/api/date-schedules/context',{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':token},body:JSON.stringify({effectiveOn:m.definition.context.effectiveOn,knownAt:m.definition.context.knownAt,mode:'at'})});
+  if(!selected.ok)throw Error(await selected.text());
+  const context=(await selected.json()).context;
+  const r=await window.workspaceFetch('/api/date-schedules/contracts/save',{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':token,'X-OpenETRM-Read-References':selected.headers.get('X-OpenETRM-Read-References')},body:JSON.stringify({requestId:crypto.randomUUID(),
+   code:'rate_tenors',name:'Synthetic rate tenors changed in Settings',context,contracts:null,dates:m.definition.dates,id:m.id,version:m.version,generation:m.generation,expectedState:m.state})});
   if(!r.ok)throw Error(await r.text());})()`);
  await click('#nav-market');await wait(idle);await click('#nav-curve-definitions');await wait("document.querySelectorAll('#curve-definition-list .shortcut-saved-row').length>1&&"+idle);
  await open('browser_zero');await wait(idle);

@@ -34,7 +34,7 @@ def checks(query,manifest,*,future_origin=False,closed=False):
     def call(sql):
         token=query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('{issuer}','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}COMMIT;")
-    def capture(day=None):return call(f"SELECT security.capture_date_context('{catalog}','{day or at[:10]}',NULL);")
+    def capture(day=None):return call(f"SELECT security.resolve_operation_context('{catalog}','{day or at[:10]}',NULL);")
     if closed:complete(query,manifest,call,capture)
     sql_session(query,manifest,'synthetic_native_physical_projection','source_business_days','16:00',['nymex_ng'],[],effective=('2026-10-01','2027-01-01'))
     accounts=json.loads(query(f"SELECT jsonb_agg(to_jsonb(a) ORDER BY id) FROM trading.gas_owned_accounts a WHERE catalog_id='{catalog}';"))

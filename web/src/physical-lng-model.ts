@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import {resolvedUtcInstant} from './user-time.js';
 import type {RequestCommand} from './pending-command.js';
 export const lngConvention='physical_lng_cargo_v1';
@@ -15,5 +16,5 @@ export function restoreLngCommand(value:unknown):RequestCommand|undefined{
  if(!value||typeof value!=='object'||Array.isArray(value))return;
  const v=value as Record<string,unknown>;
  if(v.path!=='lng/book'||typeof v.operationId!=='string'||!v.operationId||!v.body||typeof v.body!=='object'||Array.isArray(v.body))return;
- return{path:'lng/book',operationId:v.operationId,body:structuredClone(v.body as Record<string,unknown>),uncertain:true};
+ return{path:'lng/book',operationId:v.operationId,body:cloneRead(v.body as Record<string,unknown>),uncertain:true};
 }

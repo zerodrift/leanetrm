@@ -12,13 +12,14 @@ async function run(driver){
  await command('Page.enable');await command('Runtime.enable');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
  await command('Page.navigate',{url});await wait(idle,60000);await persona('trader');
- await evaluate(`(async()=>{window.calls=[];window.financialCases=[];window.workspaceStreams=[];const send=window.fetch;window.fetch=async(input,init)=>{
+ await evaluate(`(async()=>{window.calls=[];window.financialCases=[];window.workspaceStreams=[];window.fixtureReadReferences={};const send=window.fetch;window.fetch=async(input,init)=>{
   const path=String(input),reply=await send(input,init);
+  Object.assign(window.fixtureReadReferences,JSON.parse(reply.headers.get('X-OpenETRM-Read-References')||'{}'));
   if(path==='/api/trading/workspace/stream'){const observed={status:reply.status,body:JSON.parse(init.body),finished:false};workspaceStreams.push(observed);void reply.clone().text().then(raw=>{observed.frames=raw.trim().split('\\n').filter(Boolean).map(line=>JSON.parse(line));}).catch(error=>{observed.error=error.message;}).finally(()=>{observed.finished=true;});}
   if(path.startsWith('/api/')&&init?.body&&reply.headers.get('content-type')?.includes('application/json'))calls.push({path,body:JSON.parse(init.body),status:reply.status,result:await reply.clone().json()});
   if(reply.ok&&((window.loseBooking&&path==='/api/tickets/book')||(window.loseFinancial&&path==='/api/gas/transport/financial/record')||(window.losePayment&&path==='/api/cash-payments/record'))){window.loseBooking=false;window.loseFinancial=false;window.losePayment=false;throw new TypeError('Synthetic lost accepted response');}return reply;};
   const token=(await(await window.workspaceFetch('/api/bootstrap?includeFrames=false')).json()).csrfToken;
-  window.post=async(path,body)=>{const response=await window.workspaceFetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':token},body:JSON.stringify(body)}),value=await response.json();if(!response.ok)throw Error(path+': '+JSON.stringify(value));return value;};})()`);
+  window.post=async(path,body)=>{const payload=JSON.stringify(body),references=Object.fromEntries(Object.entries(window.fixtureReadReferences).filter(([id])=>payload.includes(id)));const response=await window.workspaceFetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':token,...(Object.keys(references).length?{'X-OpenETRM-Read-References':JSON.stringify(references)}:{})},body:payload}),value=await response.json();if(!response.ok)throw Error(path+': '+JSON.stringify(value));return value;};})()`);
  await click('#profile-open');await set('#zone','America/Chicago');await click('#profile-save',60000);
  const ticket=gasTicket(driver,'#transport-ticket .deal-ticket'),cases=[];
  const local=at=>evaluate(`(()=>{const p=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:'America/Chicago',hourCycle:'h23',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'}).formatToParts(new Date(${q(at)})).map(p=>[p.type,p.value]));return p.year+'-'+p.month+'-'+p.day+'T'+p.hour+':'+p.minute+':'+p.second;})()`);
@@ -201,13 +202,31 @@ async function run(driver){
   await pick(host,'policyId',policies[0].id+':'+policies[0].revision);await submit(panel+' > form',60000);await wait(`document.querySelector('[data-lifecycle-execute]')?.disabled===false&&${idle}`,60000);await click('[data-lifecycle-execute]',60000);
   await wait(`document.querySelector('[data-lifecycle=pending]').hidden&&${idle}`,60000);
   const expired=await latest('lifecycle/execute');if(expired.status!==200||expired.result.operationId!==expired.body.operationId||expired.body.target.scopeId!==c.tradeId||expired.body.target.bindingId!==c.instrumentId)throw Error('Expiry did not acknowledge its exact retained lifecycle request.');
+  if(index===0){
+   await evaluate(`delete window.fixtureReadReferences[${q(expired.body.context.contextId)}]`);
+   const review=await evaluate(`post('lifecycle/preview',${q(expired.body)})`);
+   if(!review.details.acknowledgement)throw Error('An exact expiry retry presented a new rights effect.');
+   await evaluate(`delete window.fixtureReadReferences[${q(expired.body.context.contextId)}]`);
+   const replay=await evaluate(`post('lifecycle/execute',${q(expired.body)})`);
+   if(!same(replay,expired.result))throw Error('Expiry recovery changed its original outcome.');
+  }
   await priced(c,index===0?'-7.5':c.signedFee,'expiry');
  }
  await openTrade(cases[0]);await click('#blotter-dock [data-maximize=details]');await evaluate("document.querySelector('#position-details').scrollIntoView({block:'start'})");await shot('transport-financial-closed');await click('#blotter-dock [data-maximize=details]');
+ const selected=await evaluate(`post('date-schedules/context',${q({effectiveOn:history.context.effectiveOn,knownAt:history.context.knownAt,mode:'at'})})`);
+ if(['contextId','effectiveOn','knownAt','knownThrough'].some(key=>selected.context[key]!==history.context[key]))throw Error('The original financial input coordinates changed.');
  const old=await read(cases[0],'initial',{...context('initial'),knowledgeMode:'retained',contextId:history.context.contextId});if(old.presentValue!=='12.5'||old.draft.trade.capacity_version===version)throw Error('Recorded knowledge did not retain its original rights and payment state.');
  for(const exact of [true,false]){
   const body=structuredClone(originalMark.body);if(!exact)body.operationId=await evaluate('crypto.randomUUID()');
+  if(exact){
+   await evaluate(`delete window.fixtureReadReferences[${q(body.context.contextId)}]`);
+   const missing={...body,operationId:await evaluate('crypto.randomUUID()')};
+   if(!await evaluate(`(async()=>{try{await post('gas/transport/financial/preview',${q(missing)});return false;}catch(error){return error.message.includes('temporal_context');}})()`))throw Error('A new acknowledgement borrowed another command\'s owned inputs.');
+   const wrongDate=structuredClone(body);wrongDate.context.businessDate='2020-12-17';
+   if(!await evaluate(`(async()=>{try{await post('gas/transport/financial/preview',${q(wrongDate)});return false;}catch(error){return error.message.includes('gas_transport_financial_context');}})()`))throw Error('Recovery accepted a different financial business date.');
+  }
   const preview=await evaluate(`post('gas/transport/financial/preview',${q(body)})`);if(!preview.acknowledgement)throw Error('A replay presented a fresh financial effect.');
+  if(exact)await evaluate(`delete window.fixtureReadReferences[${q(body.context.contextId)}]`);
   const outcome=await evaluate(`post('gas/transport/financial/record',${q(body)})`);
   if(exact&&!same(outcome.outcome,originalMark.result.outcome)||!exact&&outcome.outcome.changed!==false)throw Error('Financial recovery changed its first outcome.');
   await priced(cases[0],'-7.5','expiry');

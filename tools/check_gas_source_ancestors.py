@@ -16,7 +16,7 @@ def checks(query,manifest):
         token=query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
             f"'https://preview.invalid','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}COMMIT;")
-    def capture(day):return call(f"SELECT security.capture_date_context('{catalog}','{day}',NULL);")
+    def capture(day):return call(f"SELECT security.resolve_operation_context('{catalog}','{day}',NULL);")
     def command(account,action,body,at,code=None):
         policy=json.loads(query(f"SELECT jsonb_build_object('id',policy_id,'revision',policy_revision) FROM trading.gas_owned_action_bindings "
             f"WHERE(catalog_id,account_id,action)=('{catalog}','{account}','{code}') ORDER BY revision DESC LIMIT 1;")) if code else None

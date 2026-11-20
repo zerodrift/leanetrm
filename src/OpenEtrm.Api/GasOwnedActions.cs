@@ -37,7 +37,7 @@ internal sealed class GasOwnedActions(PreviewDatabase database):ILifecycleAction
         try
         {
             planned=await GasOwnedOperations.Record(connection,database,request.OperationId,request.Context,request.Target.ScopeId,command,body,request.PolicyId,request.PolicyRevision,request.Automatic,ct);
-            await using var constraints=ScheduleStore.Command(connection,"SET CONSTRAINTS ALL IMMEDIATE");await constraints.ExecuteNonQueryAsync(ct);
+            await using var constraints=ScheduleStore.Command(connection,"SELECT security.check_operation_seals()");await constraints.ExecuteNonQueryAsync(ct);
         }
         finally
         {

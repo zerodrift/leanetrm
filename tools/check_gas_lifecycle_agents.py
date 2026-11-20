@@ -70,7 +70,7 @@ def checks(query,manifest):
         token=query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
             f"'{issuer}','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}COMMIT;")
-    def capture():return call(f"SELECT security.capture_date_context('{catalog}','2020-12-20',NULL);")
+    def capture():return call(f"SELECT security.resolve_operation_context('{catalog}','2020-12-20',NULL);")
     policy=str(uuid4());account=source['account'];at=source['at']
     call(f"SELECT lifecycle.save_policy('{catalog}',{literal(dict(operationId=str(uuid4()),policyId=policy,expectedRevision=0,action='gas.owned.reconcile_quantity',mode='review',fromAt='2020-01-01T00:00:00Z',untilAt='2022-01-01T00:00:00Z',implementation='explicit_lifecycle_action_policy_v1'))});")
     call(f"SELECT security.record_gas_owned('{catalog}','{uuid4()}','bind_policy','{account}',{literal(dict(action='gas.owned.reconcile_quantity',policyId=policy,policyRevision=1,effectiveAt='2020-12-18T00:00:00Z'))},'{at}','{capture()}',NULL,NULL,false);")
@@ -82,6 +82,7 @@ def checks(query,manifest):
     (host/'manifest.json').write_text(json.dumps(manifest));(host/'manifest.json').chmod(0o600)
     shutil.copyfile(root/'deploy/process-limits.example.json',host/'process-limits.json')
     environment={key:value for key,value in os.environ.items() if not key.startswith(('PG','OPENETRM_'))}
+    environment['OPENETRM_NATIVE_CHECK_INPUTS']=os.environ['OPENETRM_NATIVE_CHECK_INPUTS']
     for name,login in (('OPENETRM_PREVIEW_RUNTIME','preview_runtime'),('OPENETRM_PREVIEW_AUTHENTICATOR','preview_authenticator')):
         environment[name]=f'Host={host};Port=55439;Database=postgres;Username={login};SSL Mode=Disable;Timeout=5;Command Timeout=5;Maximum Pool Size=2'
     command=[os.environ.get('DOTNET','dotnet'),str(root/'tests/OpenEtrm.Api.Checks/bin/Debug/net10.0/OpenEtrm.Api.Checks.dll'),'--gas-lifecycle-agent',str(packet)]

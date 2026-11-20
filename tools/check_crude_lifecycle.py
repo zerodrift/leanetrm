@@ -4,6 +4,7 @@ from decimal import Decimal
 from uuid import uuid4
 from check_booked_side_programs import runtime_query
 from preview_client import PreviewClient, initial_frame
+from native_read_transport import select_context_inputs
 
 
 def run_checks(url, query, manifest, booked):
@@ -143,10 +144,11 @@ def run_checks(url, query, manifest, booked):
     def native_statement(payload):
         encoded=json.dumps(payload).replace("'","''")
         return f"security.record_crude_lifecycle('{manifest['catalogId']}','receipt','{encoded}'::jsonb,'2021-01-15T16:00:00Z','{final['context']['contextId']}')"
-    runtime_query(query,manifest,f"DO $test$ BEGIN IF NOT ({native_statement(valid)}->>'unchanged')::boolean THEN RAISE EXCEPTION 'native_noop_failed';END IF;END $test$;",commit=False)
+    inputs=select_context_inputs(manifest['catalogId'],final['context'])
+    runtime_query(query,manifest,inputs+f"DO $test$ BEGIN IF NOT ({native_statement(valid)}->>'unchanged')::boolean THEN RAISE EXCEPTION 'native_noop_failed';END IF;END $test$;",commit=False)
     for changed in [{**valid,'context':{**valid['context'],'snapshotId':'x'*20000}},
                     {**valid,'context':{**valid['context'],'unrecognizedPolicy':True}}]:
-        runtime_query(query,manifest,f"""DO $test$ BEGIN
+        runtime_query(query,manifest,inputs+f"""DO $test$ BEGIN
           PERFORM {native_statement(changed)};
           RAISE EXCEPTION 'unsupported_native_payload_succeeded';
           EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM<>'crude_lifecycle_input' THEN RAISE;END IF;

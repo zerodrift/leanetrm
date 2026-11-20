@@ -56,12 +56,14 @@ def run_checks(client, context, view, expected, query, earlier, owned_root):
                     coverageFrom=None, coverageTo=None, knownAt=catalog['knownAt'], pendingActuals='estimate_until_actual_v1', detailMonths=[])
         assert client.call('ppa/preview', body, expected=422)['code'] == code
         client.call('profile', {'profile': 'risk'})
+        client.select_inputs(facts['context'])
         try:
             risk = client.call('portfolio/risk/catalog', dict(context=selected, bookIds=view['bookIds'], portfolioIds=[]), expected=422)
             assert risk['code'] == 'pilot_close_inputs' and risk['affectedBindings'], risk
             assert {binding['reason'] for binding in risk['affectedBindings']} == {code}, risk
         finally:
             client.call('profile', {'profile': 'trader'})
+            client.select_inputs(facts['context'])
 
     def report(code, affected):
         summary = dict(mode='pivot', bookIds=view['bookIds'], portfolioIds=[], groupBy=['instrumentType'],
@@ -112,6 +114,7 @@ def run_checks(client, context, view, expected, query, earlier, owned_root):
             client.call('trading/workspace', dict(context=selected, view=view, bookingCatalog='directory', summaries=[]), expected=403)
         finally:
             client.call('profile', {'profile': 'trader'})
+            client.select_inputs(facts['context'])
     finally:
         change(f"UPDATE trading.side_schedules SET schema_version='{header['version']}',content_hash=decode('{header['hash']}','hex') WHERE id='{schedule}';")
     restored = client.call('trading/workspace', dict(context=selected, view=view, bookingCatalog='directory', summaries=[]))
@@ -123,4 +126,5 @@ def run_checks(client, context, view, expected, query, earlier, owned_root):
         client.call('trading/position', request(target), expected=403)
     finally:
         client.call('profile', {'profile': 'trader'})
+        client.select_inputs(facts['context'])
     print('PASS individual positions: current trading authority is required before frame or trade selection', flush=True)

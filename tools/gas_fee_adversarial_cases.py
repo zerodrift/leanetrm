@@ -33,7 +33,7 @@ def _state(query,catalog):
 
 def _refused(call,statement,expected,*,immediate=False):
     try:
-        call(statement+('SET CONSTRAINTS ALL IMMEDIATE;' if immediate else ''),rollback=immediate)
+        call(statement+('SELECT security.finish_operation_read();SET CONSTRAINTS ALL IMMEDIATE;' if immediate else ''),rollback=immediate)
     except RuntimeError as error:
         assert re.search(r'ERROR:\s+(?:[A-Z0-9]{5}:\s+)?'+re.escape(expected)+r'(?:\n|$)',str(error)),str(error)
     else:
@@ -123,8 +123,8 @@ def checks(query,call,command,body,capture,manifest,fee,at):
     known=query(f"SELECT to_char((k.known_from-interval '1 microsecond') AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') "
         "FROM trading.gas_loan_fee_terms t JOIN trading.knowledge_receipts k USING(catalog_id,publication_order) "
         f"WHERE(t.catalog_id,t.loan_id,t.revision)=('{catalog}','{loan}',2);")
-    historical=call(f"SELECT security.capture_date_context('{catalog}','{at[:10]}','{known}');")
-    foreign_day=call(f"SELECT security.capture_date_context('{catalog}','2020-12-19',NULL);")
+    historical=call(f"SELECT security.resolve_operation_context('{catalog}','{at[:10]}','{known}');")
+    foreign_day=call(f"SELECT security.resolve_operation_context('{catalog}','2020-12-19',NULL);")
     before=_state(query,catalog)
     _refused(call,command({**candidate,'expectedRevision':1},str(uuid4()),capture()),'gas_fee_terms_revision')
     _refused(call,command(candidate,str(uuid4()),historical),'gas_owned_context')

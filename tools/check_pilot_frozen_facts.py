@@ -68,10 +68,15 @@ def run_checks(query,manifest,choices):
              OR EXISTS(SELECT 1 FROM market_data.observations WHERE catalog_id='{catalog}' AND role='index_fixing' AND source_event_id LIKE 'pilot:%')
              OR NOT EXISTS(SELECT 1 FROM market_data.market_closes WHERE id='{claim['id']}' AND(session_code,business_date,at)=('test_pilot_morning','2021-01-02','{due}'))
              THEN RAISE EXCEPTION 'Exact actual identity was replaced or generated';END IF;"""
-        selected = f"'{context}'::uuid" if context else f"security.capture_date_context('{catalog}','2021-01-02',NULL)"
+        selected=(f"security.resolve_operation_context('{catalog}','2021-01-02',NULL)" if context=='current' else
+                  f"'{context}'::uuid" if context else '(automation.occurrence_read_inputs()).id')
         query(f"""SET SESSION AUTHORIZATION pilot_fixture_runtime;BEGIN;SELECT security.use_context('{service_token()}');
          SELECT security.use_market_context('{catalog}',{selected});
          SELECT security.use_trading_context('{catalog}','{due}');DO $$BEGIN {statement} END$$;ROLLBACK;""")
+    publish([fixed],expected='occurrence_inputs_required',context='current')
+    query(f"SET SESSION AUTHORIZATION pilot_fixture_runtime;BEGIN;SELECT security.use_context('{service_token()}');SELECT automation.admit_occurrence_inputs();COMMIT;")
+    original_inputs=query(f"SELECT input_catalog_id::text||'|'||input_business_on::text||'|'||input_known_at::text||'|'||input_system_id||'|'||input_timeline FROM automation.runs WHERE id='{claim['id']}';")
+    publish([fixed],expected='occurrence_inputs_conflict',context='current')
     publish([fixed])
     publish([],expected='pilot_close_inputs')
     publish([{**fixed,'inputUse':'variable'}],expected='pilot_close_inputs')
@@ -81,10 +86,12 @@ def run_checks(query,manifest,choices):
     register(pins,day='2021-01-02')
     publish([fixed],expected='close_exists')
     preflight_context = query(f"SET SESSION AUTHORIZATION pilot_fixture_runtime;BEGIN;SELECT security.use_context('{service_token()}');"
-                              f"SELECT security.capture_date_context('{catalog}','2021-01-02',NULL);COMMIT;").splitlines()[-1]
+                              "SELECT (automation.occurrence_read_inputs()).id;COMMIT;").splitlines()[-1]
     assert register(pins,name='Synthetic revised anchor')!=anchor
     publish([fixed],expected='close_replaced',context=preflight_context)
     publish([fixed],expected='close_replaced')
+    assert query(f"SELECT input_catalog_id::text||'|'||input_business_on::text||'|'||input_known_at::text||'|'||input_system_id||'|'||input_timeline FROM automation.runs WHERE id='{claim['id']}';")==original_inputs
+    print('PASS generated close publication requires first admission and refuses a later preflight cutoff',flush=True)
     query(f"SET SESSION AUTHORIZATION pilot_fixture_scheduler;SELECT automation.finish_run('{claim['id']}',{claim['fence']},'{claim['workerId']}',false,'synthetic_qualification',NULL);")
     assert query(f"SELECT count(*) FROM market_data.market_closes WHERE run_id='{claim['id']}';")=='0'
     print('PASS frozen actual carry: final exact index fact retained, variable/preliminary/missing/substituted/generated actuals rejected, no durable generated writes',flush=True)

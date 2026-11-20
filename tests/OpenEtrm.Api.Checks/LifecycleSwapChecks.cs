@@ -48,7 +48,7 @@ internal static class LifecycleSwapChecks
             {
                 await database.WithIdentity("trader",null,async(c,t)=>
                 {
-                    var source=(await new KnowledgeStore(manifest.CatalogId).Read(c,selected.ContextId,t)).Context;
+                    var source=(await new KnowledgeResolver(manifest.CatalogId).Read(c,selected.ContextId,t)).Context;
                     await TradingContext.AdmitSource(database,c,source,selected.AsOf,t);
                     await PinnedContext.BindExact(c,manifest.CatalogId,source,t);
                     await TradingContext.Bind(c,manifest.CatalogId,source,selected.AsOf,t);
@@ -93,7 +93,7 @@ internal static class LifecycleSwapChecks
             {
                 await database.WithIdentity("trader",null,async(c,t)=>
                 {
-                    var source=(await new KnowledgeStore(manifest.CatalogId).Read(c,selected.ContextId,t)).Context;
+                    var source=(await new KnowledgeResolver(manifest.CatalogId).Read(c,selected.ContextId,t)).Context;
                     await PinnedContext.BindExact(c,manifest.CatalogId,source,t);
                     await using(var bind=ScheduleStore.Command(c,"SELECT security.use_trading_context($1,$2,$3)",manifest.CatalogId,frame.At,frame.BusinessDate))await bind.ExecuteNonQueryAsync(t);
                     var retainedFrame=frame with{ContextId=selected.ContextId};
@@ -130,7 +130,7 @@ internal static class LifecycleSwapChecks
             {
                 var actual=await database.WithIdentity("trader",null,async(c,t)=>
                 {
-                    var retainedSource=(await new KnowledgeStore(manifest.CatalogId).Read(c,selected.ContextId,t)).Context;
+                    var retainedSource=(await new KnowledgeResolver(manifest.CatalogId).Read(c,selected.ContextId,t)).Context;
                     var owner=new OpenEtrm.MarketData.Trading.AccountingPositionKey(f.GetProperty("target").Id("scopeId"),f.GetProperty("target").Id("bindingId"),f.Id("bookId"));
                     return await SwapKnownPaymentStore.Read(c,database,frame with{ContextId=selected.ContextId},retainedSource,owner,1,t);
                 },default);

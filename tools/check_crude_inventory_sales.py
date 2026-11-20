@@ -3,6 +3,7 @@ import json
 from uuid import uuid4
 from check_booked_side_programs import runtime_query
 from preview_client import PreviewClient, initial_frame
+from native_read_transport import select_context_inputs
 
 
 def run_checks(url, query, manifest, booked):
@@ -20,10 +21,10 @@ def run_checks(url, query, manifest, booked):
     receipt=c.call('crude/operations/receipt',command('inventory-receipt',quantity='1000',titleTransferred=True,disposition='owned_inventory',saleTradeId=None,saleRevision=None))
     purchase_cash=read()['balances']['cash']
     allocation_body=command('allocate-six-hundred',receiptId=receipt['eventId'],quantity='600',saleTradeId=sale,saleRevision=1)
-    allocation_context=read()['context']['contextId']
+    allocation_source=read()['context'];allocation_context=allocation_source['contextId']
     encoded=json.dumps(allocation_body).replace("'","''")
     native=f"security.record_crude_lifecycle('{manifest['catalogId']}','allocation','{encoded}'::jsonb,'2021-01-15T08:00:00Z','{allocation_context}')"
-    runtime_query(query,manifest,f"DO $test$ BEGIN IF NOT ({native}?'eventId') THEN RAISE EXCEPTION 'allocation_not_recorded';END IF;END $test$;",commit=False)
+    runtime_query(query,manifest,select_context_inputs(manifest['catalogId'],allocation_source)+f"DO $test$ BEGIN IF NOT ({native}?'eventId') THEN RAISE EXCEPTION 'allocation_not_recorded';END IF;END $test$;",commit=False)
     allocation=c.call('crude/operations/allocation',allocation_body)
     assert c.call('crude/operations/allocation',allocation_body)==allocation
     assert c.call('crude/operations/status',{'operationId':allocation_body['operationId']})==allocation
@@ -84,6 +85,7 @@ def run_checks(url, query, manifest, booked):
     c.call('profile',{'profile':'risk'});assert read(sale)['invoices']
     c.call('crude/operations/payment',part,expected=403)
     c.call('profile',{'profile':'trader'})
+    c.select_inputs(final['context'])
     print('PASS crude inventory sales: explicit lot reservation, split title dispatch, unchanged purchase cash, sales invoices, partial collection, replay, history and authority',flush=True)
     # Cash corrections on a sale use the same immutable history and component chain.
     paid_context={**context,'knowledgeMode':'retained','contextId':final['context']['contextId']}
@@ -150,7 +152,7 @@ def run_checks(url, query, manifest, booked):
     stale_body=multi_command('stale-cross-purchase',purchases[1],receiptId=lots[1],quantity='100',saleTradeId=multi_sale,saleRevision=1)
     encoded=json.dumps(stale_body).replace("'","''")
     statement=f"security.record_crude_lifecycle('{manifest['catalogId']}','allocation','{encoded}'::jsonb,'2021-01-15T08:00:00Z','{stale_context}')"
-    runtime_query(query,manifest,f"DO $test$ BEGIN PERFORM {statement};RAISE EXCEPTION 'unseen_source_reservation_accepted';EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM<>'crude_lifecycle_context' THEN RAISE;END IF;END $test$;",commit=False)
+    runtime_query(query,manifest,select_context_inputs(manifest['catalogId'],stale['context'])+f"DO $test$ BEGIN PERFORM {statement};RAISE EXCEPTION 'unseen_source_reservation_accepted';EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM<>'crude_lifecycle_context' THEN RAISE;END IF;END $test$;",commit=False)
     old_sale=read(multi_sale);old_sale_context={**context,'knowledgeMode':'retained','contextId':old_sale['context']['contextId']}
     second=c.call('crude/operations/allocation',multi_command('multi-reserve',purchases[1],receiptId=lots[1],quantity='600',saleTradeId=multi_sale,saleRevision=1))
     deliveries=[]
@@ -217,7 +219,8 @@ def run_checks(url, query, manifest, booked):
     bound_purchases=[c.call('crude/book',{**terms,'operationId':str(uuid4())})['tradeId'] for _ in range(3)]
     bound_receipts=[c.call('crude/operations/receipt',command('bound-lot',trade=p,quantity='1',titleTransferred=True,disposition='onward_delivery',saleTradeId=bound_sale,saleRevision=1))['eventId'] for p in bound_purchases]
     bound_body=command('bound-dispatch',trade=bound_purchases[2],receiptId=bound_receipts[2],quantity='0.1',titleTransferred=True)
-    bound_context=read(bound_purchases[2])['context']['contextId'];catalog=manifest['catalogId']
+    bound_source=read(bound_purchases[2])['context'];bound_context=bound_source['contextId'];catalog=manifest['catalogId']
+    bound_inputs=select_context_inputs(catalog,bound_source)
     actor=query("SELECT principal_id FROM security.identity_bindings WHERE issuer='https://preview.invalid' AND subject='trader';")
     encoded=json.dumps(bound_body).replace("'","''")
     native=f"security.record_crude_lifecycle('{catalog}','dispatch','{encoded}'::jsonb,'2021-01-15T08:00:00Z','{bound_context}')"
@@ -225,8 +228,9 @@ def run_checks(url, query, manifest, booked):
     c.call('crude/operations/dispatch',explicit_null,expected=422)
     null_encoded=json.dumps(explicit_null).replace("'","''")
     null_native=f"security.record_crude_lifecycle('{catalog}','dispatch','{null_encoded}'::jsonb,'2021-01-15T08:00:00Z','{bound_context}')"
-    runtime_query(query,manifest,f"DO $test$ BEGIN PERFORM {null_native};RAISE EXCEPTION 'null_allocation_id_accepted';EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM<>'crude_lifecycle_input' THEN RAISE;END IF;END $test$;",commit=False)
+    runtime_query(query,manifest,bound_inputs+f"DO $test$ BEGIN PERFORM {null_native};RAISE EXCEPTION 'null_allocation_id_accepted';EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM<>'crude_lifecycle_input' THEN RAISE;END IF;END $test$;",commit=False)
     def bound_prefix(count):return f"""
+      CREATE FUNCTION pg_temp.seed_crude_dispatch_bound() RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $fixture$ BEGIN
       CREATE TEMP TABLE generated_dispatches AS SELECT n,md5('synthetic-dispatch-bound-'||n)::uuid id,
        CASE WHEN n<=5000 THEN '{bound_purchases[0]}'::uuid ELSE '{bound_purchases[1]}'::uuid END trade,
        CASE WHEN n<=5000 THEN '{bound_receipts[0]}'::uuid ELSE '{bound_receipts[1]}'::uuid END receipt,
@@ -238,7 +242,8 @@ def run_checks(url, query, manifest, booked):
        SELECT '{catalog}',id,trade,1,version,'dispatch','synthetic-bound-'||n,'physical_crude_receipt_cash_v1','2021-01-05T12:00:00Z','Synthetic exact-boundary dispatch fixture','{bound_context}','{actor}',publication FROM generated_dispatches;
       INSERT INTO trading.crude_dispatches SELECT '{catalog}',id,trade,receipt,0.0001,true,NULL FROM generated_dispatches;
       INSERT INTO trading.crude_dispatch_sales SELECT '{catalog}',id,trade,'{bound_sale}',1 FROM generated_dispatches;
+      END$fixture$;
     """
-    runtime_query(query,manifest,f"DO $test$ BEGIN IF NOT({native}?'eventId') THEN RAISE EXCEPTION 'last_supported_dispatch_refused';END IF;END $test$;",prefix=bound_prefix(9999),commit=False)
-    runtime_query(query,manifest,f"DO $test$ BEGIN PERFORM {native};RAISE EXCEPTION 'aggregate_dispatch_limit_missing';EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM<>'crude_sale_delivery_limit' THEN RAISE;END IF;END $test$;",prefix=bound_prefix(10000),commit=False)
+    runtime_query(query,manifest,bound_inputs+f"SELECT pg_temp.seed_crude_dispatch_bound();DO $test$ BEGIN IF NOT({native}?'eventId') THEN RAISE EXCEPTION 'last_supported_dispatch_refused';END IF;END $test$;",prefix=bound_prefix(9999),commit=False)
+    runtime_query(query,manifest,bound_inputs+f"SELECT pg_temp.seed_crude_dispatch_bound();DO $test$ BEGIN PERFORM {native};RAISE EXCEPTION 'aggregate_dispatch_limit_missing';EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM<>'crude_sale_delivery_limit' THEN RAISE;END IF;END $test$;",prefix=bound_prefix(10000),commit=False)
     print('PASS crude allocation concurrency: one accepted reservation and no oversell; exact 10,000 sale-dispatch bound preserves readable state',flush=True)

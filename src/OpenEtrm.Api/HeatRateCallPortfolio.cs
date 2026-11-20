@@ -26,7 +26,7 @@ internal static class HeatRateCallPortfolio
         if(positions.IsDefault||supplied.IsDefault||frame.ContextId is not {} contextId)
             throw Invalid("Select exact option holdings and admitted sources under a certified context.");
         if(positions.IsEmpty)return [];
-        var context=PinnedContext.Exact((await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,contextId,ct)).Context);
+        var context=PinnedContext.Exact((await new KnowledgeResolver(database.Manifest.CatalogId).Read(connection,contextId,ct)).Context);
         var result=ImmutableArray.CreateBuilder<HeatRateCallPortfolioInput>();
         foreach(var group in positions.GroupBy(p=>p.Definition).OrderBy(g=>g.Key))
         {
@@ -94,7 +94,7 @@ internal static class HeatRateCallPortfolio
     internal static async Task<ExactMoney> Value(NpgsqlConnection connection,PreviewDatabase database,InputFrame frame,HeatRateCallPosition position,CancellationToken ct)
     {
         var group=(await Prepare(connection,database,frame,[position],[],false,ct)).Single();
-        var context=PinnedContext.Exact((await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,frame.ContextId!.Value,ct)).Context);
+        var context=PinnedContext.Exact((await new KnowledgeResolver(database.Manifest.CatalogId).Read(connection,frame.ContextId!.Value,ct)).Context);
         var market=await PrepareMarket(connection,database,group,context,ct);
         var prepared=RiskEngine.PrepareConnected(market.Valuation,market.Bindings,[group.Portfolio],market.Authority,ct);
         return RiskEngine.CalculateExact(prepared,[],RiskEngine.ExactNumericalPolicy,ct,RiskDetail.Holdings).Groups.Single().BasePositions.Single().Value;

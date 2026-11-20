@@ -54,7 +54,13 @@ def main():
         for migration in sorted((ROOT / 'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
             query(migration.read_text())
         reference, market, security, manifest = fixture(ROOT)
-        for sql in (reference, market, security, trading_fixture(manifest['catalogId'])): query(sql)
+        from native_read_transport import native_query
+        query=native_query(query)
+        query(reference)
+        from seed_fixture_market import load_market
+        security=load_market(query,market,security,manifest)
+        if security.strip():query(security)
+        query(trading_fixture(manifest['catalogId']))
         catalog, rcat, rrev, tenant, workspace = [manifest[k] for k in
             ('catalogId', 'referenceCatalogId', 'referenceRevisionId', 'tenantId', 'workspaceId')]
         query("INSERT INTO security.role_permissions SELECT id,p FROM security.roles CROSS JOIN (VALUES('WriteMarketDefinitions'),('ImportObservations')) x(p) WHERE code='trader' ON CONFLICT DO NOTHING;")
@@ -90,7 +96,7 @@ def main():
                     calendar=ref(query(f"SELECT code FROM ref_data.calendars WHERE(catalog_id,revision_id)=('{rcat}','{rrev}') ORDER BY code LIMIT 1;")),
                     clock=ref(query(f"SELECT code FROM ref_data.clock_rules WHERE(catalog_id,revision_id)=('{rcat}','{rrev}') ORDER BY code LIMIT 1;")),
                     implementation='gas_monthly_explicit_v1')
-        before = runtime(f"SELECT security.capture_date_context('{catalog}','2020-12-15',NULL);")
+        before = runtime(f"SELECT security.resolve_operation_context('{catalog}','2020-12-15',NULL);")
         request = str(uuid4())
         first = save(body, request=request)
         assert first == body, (first, body)

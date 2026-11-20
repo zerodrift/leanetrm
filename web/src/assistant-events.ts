@@ -3,7 +3,7 @@ import {readWalkthrough,type Walkthrough} from './assistant-walkthroughs.js';
 // with its sequence, turn, hidden marker and a payload of one closed shape, and the stream's replaced and refused. The
 // panel accepts nothing else: anything it cannot read closes the stream, which then reads the turn again.
 export type TargetContext={mode:'current'|'retained'|'operational';contextId:string|null;frameId:string|null};
-export type Target={page:string;selection:Record<string,unknown>|null;context:TargetContext;kind:'page'|'record'|'filter'|'proposal'|'draft';label:string};
+export type Target={sourceTurnId?:string;page:string;selection:Record<string,unknown>|null;context:TargetContext;kind:'page'|'record'|'filter'|'proposal'|'draft';label:string};
 export type Dimension={count:number;unknownCalls:number};
 export type Usage={calls:number;uncachedInput:Dimension;cacheRead:Dimension;cacheWrite:Dimension;output:Dimension;reasoning:Dimension;
   cost:{currency:{catalogId:string;revisionId:string;code:string};amount:string|null;unpricedCalls:number}[]};

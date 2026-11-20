@@ -221,7 +221,7 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap):
     viewing.bootstrap()
     selected = viewing.call('market/context', {'effectiveOn': '2020-12-18', 'mode': 'current', 'selection': 'latest_correction'})['context']
     past = frame_of(viewing)
-    captures = "SELECT count(*) FROM market_data.temporal_contexts;"
+    captures = "SELECT count(*) FROM assistant.turns WHERE requested_known_at IS NOT NULL;"
     before = query(captures)
     refused = ask(viewing, at=past, expected=422)
     assert query(captures)==before
@@ -229,7 +229,10 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap):
     retained = settled(ask(viewing, knowledge={'mode': 'retained', 'contextId': selected['contextId'], 'frameId': past['id']})['turn'], viewing)[0]
     check('an admitted historical turn owns the exact selected coordinates and a refused working-data ask retains nothing',
           refused['code'] == 'context_required' and (retained['state'], retained['context']['mode'], retained['context']['contextId'])
-          == ('completed', 'retained', selected['contextId']) and query(f"SELECT pins IS NULL FROM assistant.turns WHERE id='{retained['id']}';") == 't' and int(query(captures)) == int(before)+1,
+          == ('completed', 'retained', selected['contextId']) and query(f"SELECT pins IS NULL AND input_known_at IS NULL "
+              f"AND requested_context='{selected['contextId']}' AND requested_business_on='{selected['effectiveOn']}'::date "
+              f"AND requested_known_at='{selected['knownAt']}'::timestamptz AND requested_system_id IS NOT NULL AND requested_timeline>0 "
+              f"FROM assistant.turns WHERE id='{retained['id']}';") == 't' and int(query(captures)) == int(before)+1,
           (refused, retained))
     risk = client('risk')
     check('an ask without a covering grant is refused', ask(risk, at=frame_of(risk), expected=403)['code'] == 'grant_required')

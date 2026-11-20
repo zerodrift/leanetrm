@@ -245,7 +245,7 @@ public sealed class PhysicalLngStore(PreviewDatabase database)
             p.Slot == 0 ? Sign(body.Direction, true) : Sign(body.ConsiderationDirection), p.Program)).ToImmutableArray();
         _ = new RetainedLngInstrument(instrumentId, assignment,
             draft?.Incoterms ?? await ResolveIncoterms(connection, data, body.Incoterms, ct), members);
-        var context = (await new KnowledgeStore(Catalog).Read(connection, contextId, ct)).Context;
+        var context = (await new KnowledgeResolver(Catalog).Read(connection, contextId, ct)).Context;
         var snapshot = MarketSnapshotBinding.Bind(data.Snapshot(frame), contextId, SchedulePreview.ParseAt(context.KnownAt));
         if(inspectSlot is not null&&inspect is null)throw Invalid("A selected schedule inspection requires an evaluation consumer.");
         if(inspectSlot is {} selectedSlot)programs=[programs.Single(p=>p.Slot==selectedSlot)];

@@ -39,10 +39,12 @@ def run_checks(owner,body,query,manifest):
             claim=json.loads(query(f"SET SESSION AUTHORIZATION pilot_fixture_scheduler;SELECT automation.claim_next('{uuid4()}',120,true)::text;"))
             assert claim['jobId']==job['id']
             token=query(f"SET SESSION AUTHORIZATION pilot_fixture_scheduler;SELECT automation.issue_pilot_context('{claim['id']}',{claim['fence']},'{claim['workerId']}');")
+            query(f"SET SESSION AUTHORIZATION pilot_fixture_runtime;BEGIN;SELECT security.use_context('{token}');SELECT automation.admit_occurrence_inputs();COMMIT;")
+            token=query(f"SET SESSION AUTHORIZATION pilot_fixture_scheduler;SELECT automation.issue_pilot_context('{claim['id']}',{claim['fence']},'{claim['workerId']}');")
             marks=[{'seriesId':series,'anchorObservationId':observation,'moveTicks':0,'value':'0.1'}]
             statement=f"PERFORM automation.publish_pilot_close({encoded(marks)},'[]'::jsonb,{encoded(members)});"
             if rejected:statement=f"BEGIN {statement} RAISE EXCEPTION 'Conflicting native alias bounds were silently combined';EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM<>'pilot_close_inputs' THEN RAISE;END IF;END;"
-            query(f"SET SESSION AUTHORIZATION pilot_fixture_runtime;BEGIN;SELECT security.use_context('{token}');SELECT security.use_market_context('{catalog}',security.capture_date_context('{catalog}','2020-12-19',NULL));SELECT security.use_trading_context('{catalog}','2020-12-19T16:00:00Z');DO $$BEGIN {statement} END$$;ROLLBACK;")
+            query(f"SET SESSION AUTHORIZATION pilot_fixture_runtime;BEGIN;SELECT security.use_context('{token}');SELECT security.use_market_context('{catalog}',(automation.occurrence_read_inputs()).id);SELECT security.use_trading_context('{catalog}','2020-12-19T16:00:00Z');DO $$BEGIN {statement} END$$;ROLLBACK;")
             assert query(f"SELECT count(*) FROM market_data.market_closes WHERE run_id='{claim['id']}';")=='0'
         finally:owner.call('jobs/control',{'requestId':str(uuid4()),'id':job['id'],'action':'cancel','expectedVersion':job['version']})
     print('PASS pilot native aliases: conflicting bounds reject; two direct aliases with the same explicit bound share one admissible native factor',flush=True)

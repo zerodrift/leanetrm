@@ -45,7 +45,7 @@ internal static class GasTransportFinancialNativeChecks
         if(mode=="read")
         {
             var row=await database.WithIdentity("trader","ReadTrades",async(c,ct)=>{
-                var source=(await new KnowledgeStore(manifest.CatalogId).Read(c,context.ContextId,ct)).Context;
+                var source=(await new KnowledgeResolver(manifest.CatalogId).Read(c,context.ContextId,ct)).Context;
                 await PinnedContext.BindExact(c,manifest.CatalogId,source,ct);
                 await TradingContext.Bind(c,manifest.CatalogId,source,context.AsOf,ct);
                 return await GasTransportFinancialStore.Read(c,database,context,trade,ct);

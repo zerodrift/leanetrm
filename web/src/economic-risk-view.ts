@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import {node,table} from './risk-report-elements.js';
 import {amountText,prepareAmountDisplay} from './amount-display.js';
 import {actorTransport,PendingCommand,type RequestCommand} from './pending-command.js';
@@ -83,13 +84,13 @@ export function setupEconomicRisk(host:HTMLElement,resultHost:HTMLElement,o:Opti
   }
  }
  function bindingPolicy(price:EconomicSetup['pricing'][number]){
-  const policy=structuredClone(price.policy),bad=()=>Error('Reread the complete holding valuation settings.');
+  const policy=cloneRead(price.policy),bad=()=>Error('Reread the complete holding valuation settings.');
   const object=(value:unknown):value is Record<string,unknown>=>!!value&&typeof value==='object'&&!Array.isArray(value);
   function selected(kind:typeof bindingInputs[number]['kind']){
    if(kind==='cashOptions'?configuration?.cashOptionBindings===undefined:!configuration?.physicalBindings)throw bad();
    return bindingInputs.filter(r=>r.kind===kind).map(row=>{
     const choice=row.binding.choices.find(c=>c.value===row.input.value);if(!choice)throw Error('Choose the valuation for '+row.binding.label+'.');
-    return structuredClone(choice.selection);
+    return cloneRead(choice.selection);
    });
   }
   if(price.requiresFuturesBindings===true){
@@ -149,7 +150,7 @@ export function setupEconomicRisk(host:HTMLElement,resultHost:HTMLElement,o:Opti
  }
  async function configure(){
   if(pending().command||o.unconfirmed())throw Error('Resolve the unconfirmed risk submission before preparing a new run.');
-  const selected=structuredClone(o.scope());reset();owner=o.identity();scopeStamp=canonicalEconomic(selected);const version=epoch;
+  const selected=cloneRead(o.scope());reset();owner=o.identity();scopeStamp=canonicalEconomic(selected);const version=epoch;
   note.textContent='Reading source-known schedules and supported policies…';
   try{
    const c=await o.api<EconomicSetup>('portfolio/risk/economic/setup',selected);if(!current(version)||canonicalEconomic(o.scope())!==scopeStamp)return;
@@ -170,7 +171,7 @@ export function setupEconomicRisk(host:HTMLElement,resultHost:HTMLElement,o:Opti
   const price=c.pricing.find(p=>p.value===chosen(pricing,c.pricing,'a holdings and valuation profile'))!;
   const selected=c.sessions.find(s=>JSON.stringify([s.code,s.version])===session.value);if(!selected)throw Error('Choose the next-close schedule.');
   const gasOwned=price.policy.gasOwned?c.gasAccounts.flatMap(a=>{const control=gasInputs.get(a.accountId)!;if(!control.value)return[];const profile=a.profiles.find(p=>JSON.stringify([p.profileId,p.revision])===control.value);if(!profile)throw Error('Reread the selected gas account profile.');return[{accountId:a.accountId,profileId:profile.profileId,revision:profile.revision}];}):[];
-  const scope=structuredClone(c.scope);scope.bookIds.sort();scope.portfolioIds.sort();scope.tradeIds?.sort();
+  const scope=cloneRead(c.scope);scope.bookIds.sort();scope.portfolioIds.sort();scope.tradeIds?.sort();
   const request:EconomicSourceRequest={scope,pricingPolicy:bindingPolicy(price),projection:{implementation:c.projection.implementation,session:selected.code,sessionVersion:selected.version,
    horizonPolicy:c.projection.horizonPolicy,rateTimingPolicy:c.projection.rateTimingPolicy,eventMarketPolicy:c.projection.eventMarketPolicy,gasOwned,
    policy:{...c.projection.policy,pricePath:chosen(path,c.projection.pricePaths,'a market path'),cashDisposition:chosen(disposition,c.projection.cashDisposition,'a scheduled cash treatment'),
@@ -188,7 +189,7 @@ export function setupEconomicRisk(host:HTMLElement,resultHost:HTMLElement,o:Opti
   return fundingChoices.currencies.map(currency=>{
    const control=fundingInputs.get(canonicalEconomic(currency));
    const selected=fundingChoices!.choices.find(c=>canonicalEconomic(c.selection.currency)===canonicalEconomic(currency)&&canonicalEconomic(c.selection)===control?.value);
-   if(!selected)throw Error('Choose a cash funding curve for '+currency.code+'.');return structuredClone(selected.selection);
+   if(!selected)throw Error('Choose a cash funding curve for '+currency.code+'.');return cloneRead(selected.selection);
   });
  }
  async function readFunding(){
@@ -236,7 +237,7 @@ export function setupEconomicRisk(host:HTMLElement,resultHost:HTMLElement,o:Opti
   if(!from.value||!to.value)throw Error('Choose both history dates.');
   if(close.value!==s.history.guided.closeTime)throw Error('Choose the configured history close time.');
   const selectedType=chosen(priceType,s.history.priceTypes.map(t=>({value:t.code,label:t.label})),'an allowed history price type');
-  return {scope:structuredClone(s.source.scope),pricingPolicy:structuredClone(s.source.pricingPolicy),policy:{...s.history.guided.profile,minimumSamples:count,priceTypes:[selectedType]},
+  return {scope:cloneRead(s.source.scope),pricingPolicy:cloneRead(s.source.pricingPolicy),policy:{...s.history.guided.profile,minimumSamples:count,priceTypes:[selectedType]},
    calendar:c.reference,from:from.value,to:to.value,closeTime:close.value,ambiguousTime:s.history.clockPolicy.ambiguousTime,invalidTime:s.history.clockPolicy.invalidTime};
  }
  async function captureHistory():Promise<EconomicHistory|undefined>{
@@ -265,9 +266,9 @@ export function setupEconomicRisk(host:HTMLElement,resultHost:HTMLElement,o:Opti
   if(selected.history){captured=history??await captureHistory();if(!captured||!current(version)||!sameScope())return;if(!captured.coverage.available)throw Error('Every branch factor needs complete aligned history before running economic risk.');}
   const simulation=selected.simulation?{...c.risk.simulation,confidence:confidence.value.trim(),drift:chosen(drift,c.risk.drifts,'a market-move mean'),paths:Number(paths.value),seed:seed.value.trim()}:null;
   if(simulation&&(!paths.value||!Number.isSafeInteger(simulation.paths)||!/^\d+$/.test(simulation.seed)))throw Error('Enter a whole path count and explicit reproducible seed.');
-  const economic:EconomicSpec={projection:structuredClone(s.source.projection),policy:{implementation:selected.value,confidence:confidence.value.trim(),quantilePolicy:c.risk.quantilePolicy,tailPolicy:c.risk.tailPolicy},
+  const economic:EconomicSpec={projection:cloneRead(s.source.projection),policy:{implementation:selected.value,confidence:confidence.value.trim(),quantilePolicy:c.risk.quantilePolicy,tailPolicy:c.risk.tailPolicy},
    history:captured?.request??null,simulation,factors:captured?.factors??[]};
-  return {...structuredClone(s.source.scope),pricingPolicy:structuredClone(s.source.pricingPolicy),convention:c.convention,numericalPolicy:c.numericalPolicy,detail:'holdings',bumps:[],stress:[],economic};
+  return {...cloneRead(s.source.scope),pricingPolicy:cloneRead(s.source.pricingPolicy),convention:c.convention,numericalPolicy:c.numericalPolicy,detail:'holdings',bumps:[],stress:[],economic};
  }
  async function show(value:EconomicReport,receipt?:EconomicJob){
   validateEconomicReport(value);const actor=o.identity(),version=epoch;

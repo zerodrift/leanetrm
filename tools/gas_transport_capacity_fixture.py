@@ -20,6 +20,7 @@ def identity(domain, scope, ordinal=0):
 class TransportCapacityFixture:
     def __init__(self, query, manifest):
         self.query, self.manifest = query, manifest
+        self.context_operation=('security.resolve_operation_context' if query("SELECT to_regprocedure('security.resolve_operation_context(uuid,date,timestamptz)') IS NOT NULL;")=='t' else 'security.capture_date_context')
         self.catalog = manifest['catalogId']
         self.at = '2020-12-19T23:59:59.999999Z'
         self.effective = '2020-12-19T16:00:00Z'
@@ -35,7 +36,7 @@ class TransportCapacityFixture:
 
     def capture(self, *, day=None, cutoff=None):
         cut = 'NULL' if cutoff is None else "'" + cutoff + "'"
-        return self.call(f"SELECT security.capture_date_context('{self.catalog}','{day or self.at[:10]}',{cut});")
+        return self.call(f"SELECT {self.context_operation}('{self.catalog}','{day or self.at[:10]}',{cut});")
 
     def read(self, entitlement, *, context=None):
         return json.loads(self.call(f"SELECT security.use_market_context('{self.catalog}','{context or self.capture()}');"
