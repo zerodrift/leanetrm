@@ -15,7 +15,7 @@ from uuid import UUID, uuid4
 
 
 def run_checks(query, manifest, context, pins, psql, environment, owned_root):
-    from native_read_transport import captured_input
+    from native_read_transport import captured_input,register_captured_input
     inputs=captured_input(query,context)
     root = Path(owned_root).resolve()
     assert (root / '.openetrm-preview').is_file()
@@ -44,7 +44,7 @@ def run_checks(query, manifest, context, pins, psql, environment, owned_root):
 
     def bind(token, retained=True, session='test_utc_close'):
         return (f"SET LOCAL SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{token}');" +
-                (f"SELECT security.use_market_context('{catalog}','{context}');" if retained else '') +
+                (register_captured_input(query,context)+f"SELECT security.use_market_context('{catalog}','{context}');" if retained else '') +
                 f"SELECT security.use_close_session('{catalog}',{quoted(session)});")
 
     def facts(array=selected, cat=catalog, rev=revision):
@@ -100,7 +100,8 @@ def run_checks(query, manifest, context, pins, psql, environment, owned_root):
     query('BEGIN;' + bind(issue()) + 'RESET SESSION AUTHORIZATION;' +
           f"DELETE FROM security.market_catalog_scopes WHERE(tenant_id,workspace_id)=('{tenant}','{workspace}');" +
           'SET LOCAL SESSION AUTHORIZATION preview_runtime;' + refuses(f'PERFORM * FROM {facts()}') + 'ROLLBACK;')
-    query('BEGIN;GRANT openetrm_risk_worker TO preview_runtime;' + bind(issue()) +
+    query('BEGIN;' + bind(issue()) +
+          'RESET SESSION AUTHORIZATION;GRANT openetrm_risk_worker TO preview_runtime;SET LOCAL SESSION AUTHORIZATION preview_runtime;' +
           refuses(f'PERFORM * FROM {facts()}') + 'ROLLBACK;')
     assert query(f"SELECT NOT has_function_privilege('preview_runtime','security.observation_visibility_scope(uuid,uuid,uuid[])','EXECUTE');") == 't'
     invalid = [

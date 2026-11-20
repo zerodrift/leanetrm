@@ -1,6 +1,6 @@
 """Adversarial exact reads against the archived policy oracle; owned, rollback-only faults."""
 from uuid import uuid4
-from native_read_transport import captured_input
+from native_read_transport import captured_input,register_captured_input
 
 
 def run_checks(query, manifest, context, pins, legacy, current):
@@ -11,7 +11,7 @@ def run_checks(query, manifest, context, pins, legacy, current):
         return query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','viewer','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',{seconds});")
     def bound(token, retained=True):
         return (f"SET LOCAL SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{token}');"+
-                (f"SELECT security.use_market_context('{catalog}','{context}');" if retained else '')+
+                (register_captured_input(query,context)+f"SELECT security.use_market_context('{catalog}','{context}');" if retained else '')+
                 f"SELECT security.use_close_session('{catalog}','test_utc_close');")
     def equal(selected=ids):
         return f"""SELECT coalesce((SELECT jsonb_agg(to_jsonb(o) ORDER BY o.observed_at,o.received_at,o.id)
@@ -44,7 +44,8 @@ def run_checks(query, manifest, context, pins, legacy, current):
             query('BEGIN;'+change+bound(issue())+denied()+'ROLLBACK;')
         print('PASS exact reads refuse changed permissive/restrictive policies, roles, RLS flags and revoked SELECT',flush=True)
         assert query("SELECT NOT has_function_privilege('preview_runtime','security.observation_visibility_scope(uuid,uuid,uuid[])','EXECUTE');")=='t'
-        query('BEGIN;GRANT openetrm_risk_worker TO preview_runtime;'+bound(issue())+
+        query('BEGIN;'+bound(issue())+
+              'RESET SESSION AUTHORIZATION;GRANT openetrm_risk_worker TO preview_runtime;SET LOCAL SESSION AUTHORIZATION preview_runtime;'+
               "DO $$BEGIN IF security.has_permission('ReadMarketData') IS NOT TRUE THEN RAISE EXCEPTION 'Missing baseline authority';END IF;END$$;"+denied()+'ROLLBACK;')
         print('PASS the internal visibility core is private and a risk-role caller without a live claim is refused',flush=True)
 
