@@ -886,6 +886,9 @@ D302 stores the closed display-preference contract per authenticated human,
 workspace and example, with exact owner binding and optimistic/idempotent saves.
 It does not migrate arbitrary browser state or change financial inputs. Broader
 profile fields and cross-window live synchronization remain outside that contract.
+D427 additionally saves the human's personal chat-history search opt-in here.
+Turn admission reads and pins that choice on the server; it cannot grant another
+person's data or replace current user/agent authority.
 
 Modules have explicit contracts. The domain and numerical core do not depend on
 web frameworks, persistence libraries, model-provider SDKs or browser state.

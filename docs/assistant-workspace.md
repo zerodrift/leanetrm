@@ -2,11 +2,12 @@
 
 ## Personal chat-history search (D427)
 
-The composer offers **Allow searching my chat history**, initially unchecked.
-The choice is recorded with each question and cannot change on an uncertain
-request's retry. New conversations and identity changes clear the choice. Existing
-conversation context and the agent version's history window remain independent.
-
+Personal Settings offers **Allow searching my chat history**, initially unchecked
+and saved for the human account, workspace and API/exchange entry point. Admission
+reads the saved preference on the server and pins the choice for that turn in
+`assistant.turn_history_options`. Changing the preference affects later questions;
+retrying an admitted question keeps its original choice. Existing conversation
+context and the agent version's history window remain independent.
 Only an opted-in question offers `search_chat_history`. An agent version or
 prompt cannot authorize it. The application derives owner, tenant, workspace and
 API/exchange scope from the admitted turn and its current delegation; tool input
@@ -35,14 +36,20 @@ Search excerpts go to the selected agent's configured provider as ordinary tool
 results. The installation can configure `tool:search_chat_history` guidance;
 the question pins its configured revision or explicit absence. No default prompt
 text or new business permission is installed. This turn-only tool is excluded
-from the agent-version editor. Migration 0365 and matching `turns_v23` assets are
-required. Earlier asks remain search-disabled; migration retains their data and
-allows the preceding runtime's ordinary operations during a controlled upgrade.
+from the agent-version editor. Migration 0365 introduced the reader and per-turn
+choice; migration 0375 and matching browser/API assets move admission to the saved
+preference. Earlier turns keep their retained choice, with missing options meaning
+no search authority. Old payloads containing `searchHistory` may only reconcile an
+existing request with its original choice; they cannot admit a new question.
+Older clients must adopt the new request form before asking new questions. Schema
+activation still requires a separately qualified release.
 
-Local verification passes 121 assistant/settings frontend checks, managed
-assistant contracts, 79 workspace integration checks and the existing
-turn/tool/stream/usage regressions with synthetic providers and disposable
-resources. Independent adversarial review has no remaining material finding.
+With migration 0375, local verification passes 2,260 frontend checks, 89 workspace
+integration checks, 44 assistant workspace browser checks, 25 regional-close/profile
+browser checks and native preference validation. The saved opt-in, later opt-out,
+immutable retries and replay-only legacy requests are exercised with synthetic
+providers and owned disposable resources. This evidence does not activate an
+installation.
 
 D312 adds the [bounded page digest](assistant-walkthroughs.md), under explicit
 new-tool consent. D319 adds workspace page target handles and native entry navigation

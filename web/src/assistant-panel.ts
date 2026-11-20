@@ -51,7 +51,6 @@ export function setupAssistant(options:PanelOptions){
   }
   const panel=get('assistant-panel'),launcher=get<HTMLButtonElement>('assistant-launcher'),picker=get<HTMLSelectElement>('assistant-agent');
   const question=get<HTMLTextAreaElement>('assistant-question'),send=get<HTMLButtonElement>('assistant-send'),handle=get('assistant-resize');
-  const searchHistory=get<HTMLInputElement>('assistant-search-history');
   const asking=new PendingCommand(definite),granting=new PendingCommand(definite),history=new NavigationHistory();
   let agents:UsableAgent[]=[],vendors:Vendor[]=[],agentsError='';
   let conversation:{id:string;agentId:string;version:number;readThrough:number}|undefined,views:TurnView[]=[];
@@ -385,7 +384,7 @@ export function setupAssistant(options:PanelOptions){
       if(lookingKey(place)!==lookedAt){error='The page changed. Check Looking at, then send again.';sync();return;}
       if(!knowledge||!askable||options.pageBusy()||!question.value.trim()||asking.command)return;
       command=asking.begin('assistant/turns/ask',{conversationId:conversation?.id??null,agentId:agent.id,version:agent.version,question:question.value,
-        pageReport:place.report,knowledge,searchHistory:searchHistory.checked});
+        pageReport:place.report,knowledge});
     }
     working=true;error='';consent=undefined;sync();
     const started=identity,previouslyUncertain=asking.sending();keep();
@@ -484,7 +483,7 @@ export function setupAssistant(options:PanelOptions){
   function startOver(){
     if(running()||working)return;
     closeStream();conversationGeneration++;walkthrough.clear();presenting=undefined;conversation=undefined;views=[];notices=new Map();note=undefined;error=asking.command?unconfirmedAsk:'';
-    searchHistory.checked=false;persist();render();sync();question.focus();
+    persist();render();sync();question.focus();
   }
 
   function renderLooking(){
@@ -505,7 +504,6 @@ export function setupAssistant(options:PanelOptions){
     if(panel.hidden)return;
     renderLooking();
     const turn=running(),agent=chosen(),retained=!!asking.command;
-    searchHistory.disabled=turn||working||retained;
     picker.disabled=turn||working;question.disabled=false;
     get<HTMLButtonElement>('assistant-new').disabled=turn||working||!conversation;get<HTMLButtonElement>('assistant-history-open').disabled=false;
     get<HTMLButtonElement>('assistant-close').disabled=false;
@@ -621,11 +619,11 @@ export function setupAssistant(options:PanelOptions){
       suppressed.clear();presented.clear();progress.clear();resumeReports.clear();takenOver.clear();
       agents=[];vendors=[];agentsError='';conversation=undefined;views=[];notices=new Map();askedHere=new Set();history.clear();stepsOpen.clear();
       granting.clear();consent=undefined;note=undefined;error='';unread=false;working=false;moving=Promise.resolve();live=undefined;
-      opened=false;panel.hidden=true;document.body.classList.remove('assistant-open');hideHistory();render();renderPicker(undefined);question.value='';searchHistory.checked=false;
+      opened=false;panel.hidden=true;document.body.classList.remove('assistant-open');hideHistory();render();renderPicker(undefined);question.value='';
       asking.clear();sync();if(!options.available())return;
       let saved:{conversationId?:unknown;open?:unknown}|null=null,kept:string|null=null;
       try{saved=JSON.parse(sessionStorage.getItem(stored('panel'))??'null');kept=sessionStorage.getItem(stored('ask'));}catch{/* Invalid browser state restores nothing. */}
-      asking.command=keptAsk(kept);if(asking.command){question.value=String(asking.command.body.question);searchHistory.checked=asking.command.body.searchHistory===true;error=unconfirmedAsk;}
+      asking.command=keptAsk(kept);if(asking.command){question.value=String(asking.command.body.question);error=unconfirmedAsk;}
       const started=identity;
       void readAgents().then(async()=>{
         if(started!==identity||!agents.length)return;

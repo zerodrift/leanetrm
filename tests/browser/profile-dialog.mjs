@@ -23,6 +23,8 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
   const frame=await evaluate("(async()=>{const w=await(await window.workspaceFetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')&&w.initialFrameIds.includes(f.id)).id;})()");
   await set('#snapshot',frame);await wait(idle);await click('#nav-futures');
   await click('#profile-open');
+  await check('personal settings starts with chat history search unchecked',"!document.querySelector('#assistant-search-history').checked&&!document.querySelector('#assistant-composer #assistant-search-history')");
+  await evaluate("document.querySelector('#assistant-search-history').checked=true");
   // Invalid nonempty preference still passes native required-field validation,
   // so the dialog's own validation, error announcement and retry are exercised.
   await evaluate(`{const zone=document.querySelector('#zone');zone.append(new Option('Synthetic invalid timezone','Synthetic/Invalid'));zone.value='Synthetic/Invalid';${save}.focus();}`);
@@ -32,6 +34,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
   await check('focus returns to Save preferences so Enter retries',`document.activeElement===${save}`);await shot('profile-error');
   await set('#zone','America/Chicago');await evaluate('window.__profileRequests=[]');await press('Enter',13);await wait(idle);
   await check('successful retry saves preferences, closes the dialog and clears its alert',`!${dialog}.open&&${cleared}&&${banner}.hidden&&document.querySelector('label[for=date-context-view] [data-user-time-zone]').textContent.includes('America/Chicago')`);
+  await check('saving personal settings persists the chat history opt-in',"window.workspaceFetch('/api/settings/preferences').then(r=>r.json()).then(r=>r.current.preferences.assistantSearchHistory===true)");
   await check('saving display preferences preserves the selected frame without reloading the Blotter',`document.querySelector('#snapshot').value===${JSON.stringify(frame)}&&!window.__profileRequests.some(p=>p==='/api/trading/workspace'||p==='/api/trading/workspace/stream')`);
   await click('#profile-open');if(!await evaluate("document.querySelector('#preview-access').open"))await click('#preview-access>summary');
   await set('#profile','viewer');await evaluate(`${change}.focus()`);
@@ -47,7 +50,11 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
   await evaluate("for(const key of Object.keys(localStorage))if(key.startsWith('openetrm.preferences.v1.'))localStorage.removeItem(key)");
   await command('Page.navigate',{url});await wait(idle);
   await check('the server preference survives reload without browser preference storage',"document.querySelector('[data-user-time-zone]').textContent==='America/Chicago'");
-  await click('#profile-open');await set('#zone','UTC');await evaluate(`${save}.click()`);await wait(idle);
+  await click('#profile-open');
+  await check('the saved chat history opt-in is restored after reload',"document.querySelector('#assistant-search-history').checked");
+  await evaluate("document.querySelector('#assistant-search-history').checked=false");
+  await set('#zone','UTC');await evaluate(`${save}.click()`);await wait(idle);
   await check('the user explicitly restores UTC for subsequent independent browser cases',"!document.querySelector('#profile-dialog').open&&document.querySelector('[data-user-time-zone]').textContent==='UTC'");
+  await check('personal settings saves an explicit chat history opt-out',"window.workspaceFetch('/api/settings/preferences').then(r=>r.json()).then(r=>r.current.preferences.assistantSearchHistory===false)");
 
 }

@@ -7,8 +7,9 @@ namespace OpenEtrm.Api;
 
 // An ask names its request identity, an existing conversation or none, the agent version, the question, the page
 // report and the knowledge to pin: current knowledge or the selected retained context, and the As of frame (§7.2, §8).
+// The legacy choice is accepted only for replay; new admission reads saved preferences on the server.
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record AskRequest(Guid OperationId,Guid? ConversationId,Guid AgentId,int Version,string? Question,JsonElement PageReport,AskKnowledge? Knowledge,bool SearchHistory=false);
+public sealed record AskRequest(Guid OperationId,Guid? ConversationId,Guid AgentId,int Version,string? Question,JsonElement PageReport,AskKnowledge? Knowledge,bool? SearchHistory=null);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record AskKnowledge(string? Mode,Guid? ContextId,Guid? FrameId);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
@@ -74,13 +75,16 @@ public sealed class AgentTurns(PreviewDatabase database,string scope,AgentWorker
         {
             if(retained is {} id&&session.Knowledge.Find(id)?.Context is {ReadCut:not null} selected)
                 await MarketContextStore.Bind(connection,database.Manifest.CatalogId,selected,ct);
-            return await ModelProviders.Read(connection,
-            "SELECT assistant.ask_turn($1,$2,$3::uuid,$4,$5,$6::text,$7::jsonb,$8,$9,$10::uuid,$11::uuid,$12,$13,$14,$15,$16::bigint,$17,$18,$19::integer,$20,$21)::text",
-            [body.OperationId,scope,(object?)body.ConversationId??DBNull.Value,body.AgentId,body.Version,(object?)body.Question??DBNull.Value,
+            object[] values=[body.OperationId,scope,(object?)body.ConversationId??DBNull.Value,body.AgentId,body.Version,(object?)body.Question??DBNull.Value,
                 body.PageReport.GetRawText(),database.Manifest.CatalogId,mode,
                 (object?)retained??DBNull.Value,(object?)frame?.Id??DBNull.Value,session.Digest,profile,session.Ends,
                 Convert.ToHexStringLower(SHA256.HashData(token)),(object?)await worker.Generation(ct)??DBNull.Value,RuntimeSet.Turns,RuntimeSet.QuestionLength,
-                DBNull.Value,RuntimeSet.AdmissionSeconds,body.SearchHistory],ct);
+                DBNull.Value,RuntimeSet.AdmissionSeconds];
+            var legacy=body.SearchHistory is not null;
+            if(body.SearchHistory is {} choice)values=[..values,choice];
+            return await ModelProviders.Read(connection,
+                "SELECT assistant.ask_turn($1,$2,$3::uuid,$4,$5,$6::text,$7::jsonb,$8,$9,$10::uuid,$11::uuid,$12,$13,$14,$15,$16::bigint,$17,$18,$19::integer,$20"+
+                (legacy?",$21":"")+")::text",values,ct);
         },aborted);
         if(asked.TryGetProperty("refused",out var refused))
         {
