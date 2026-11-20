@@ -84,7 +84,7 @@ def run_checks(url, query, manifest, fake, trap, psql, environment):
     check('a text-only question neither copies market inputs nor captures a financial context',
           query(f"SELECT state='completed' AND pins IS NULL AND context_id IS NULL AND recorded_at IS NULL FROM assistant.turns WHERE id='{conceptual['id']}';") == 't')
 
-    def ask(requests, page='users_access', session=None, state=None, frame_id=None, operational=False, report=None, knowledge=None, question=None, search_history=False, answer='Synthetic reviewed result.'):
+    def ask(requests, page='users_access', session=None, state=None, frame_id=None, operational=False, report=None, knowledge=None, question=None, answer='Synthetic reviewed result.'):
         session = session or owner
         state = state or agent
         before = len(fake.received)
@@ -92,7 +92,7 @@ def run_checks(url, query, manifest, fake, trap, psql, environment):
             fake.respond(stream(tool_use(identifier, [(str(n), tool, data) for n, (tool, data) in enumerate(requests)])))
         fake.respond(stream(recording(identifier, text=answer)))
         turn = session.call('assistant/turns/ask', {'operationId': str(uuid4()), 'conversationId': None, 'agentId': state['id'], 'version': 1,
-                         'searchHistory': search_history, 'question': question or 'Inspect the selected page and prepare only the explicitly requested synthetic change.',
+                         'question': question or 'Inspect the selected page and prepare only the explicitly requested synthetic change.',
                          'pageReport': report or {'page': page, 'selection': {}}, 'knowledge': knowledge or {'mode': 'current', 'contextId': None, 'frameId': None if operational else frame_id or frame['id']}})['turn']
         deadline = time.monotonic() + 20
         while True:

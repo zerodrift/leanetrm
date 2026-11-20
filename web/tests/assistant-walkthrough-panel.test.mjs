@@ -104,22 +104,24 @@ test('a final pause clearly finishes the walkthrough and accepts the keyboard',{
   });
 });
 
-test('history search starts unchecked and an uncertain question keeps its exact consent on retry',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+test('history search belongs to personal settings and an uncertain question retries its exact request',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
   await fixture(async evaluate=>{
     assert.equal(await evaluate("document.querySelector('#assistant-search-history')?.checked"),false);
-    assert.equal(await evaluate("calls.find(c=>c.path==='assistant/turns/ask').body.searchHistory"),false);
+    assert.equal(await evaluate("!!document.querySelector('#preferences-form #assistant-search-history')"),true);
+    assert.equal(await evaluate("document.querySelector('#assistant-composer #assistant-search-history')"),null);
+    assert.equal(await evaluate("'searchHistory' in calls.find(c=>c.path==='assistant/turns/ask').body"),false);
     await evaluate("emit('completed',{});document.querySelector('#assistant-search-history').checked=true;document.querySelector('#assistant-question').value='Find my earlier walkthrough';window.failAsk=true;document.querySelector('#assistant-composer').requestSubmit()");
     await waitFor(evaluate,"!document.querySelector('#assistant-retry').hidden");
     await evaluate("assistant.reset()");
     await waitFor(evaluate,"!document.querySelector('#assistant-panel').hidden");
-    assert.equal(await evaluate("document.querySelector('#assistant-search-history').checked"),true,'restored consent describes the request that will be retried');
-    assert.equal(await evaluate("document.querySelector('#assistant-search-history').disabled"),true);
+    assert.equal(await evaluate("document.querySelector('#assistant-search-history').checked"),true,'restoring an uncertain question leaves personal settings alone');
+    assert.equal(await evaluate("document.querySelector('#assistant-search-history').disabled"),false);
     await evaluate("document.querySelector('#assistant-retry').click()");
     await waitFor(evaluate,"calls.filter(c=>c.path==='assistant/turns/ask').length===3");
     const asks=await evaluate("calls.filter(c=>c.path==='assistant/turns/ask').map(c=>c.body)");
-    assert.deepEqual(asks[1],asks[2]);assert.equal(asks[1].searchHistory,true);
+    assert.deepEqual(asks[1],asks[2]);assert.equal('searchHistory' in asks[1],false);
     await evaluate("actor='another_synthetic_user';assistant.reset()");
-    assert.equal(await evaluate("document.querySelector('#assistant-search-history').checked"),false);
+    assert.equal(await evaluate("document.querySelector('#assistant-search-history').checked"),true,'profile loading owns the saved preference, independently of panel reset');
   });
 });
 

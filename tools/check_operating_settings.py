@@ -65,6 +65,11 @@ def run_checks(query, manifest):
     first = prefer()
     assert first['version'] == 1 and first['preferences'] == preferences
     assert prefer() == first
+    for enabled in (False, True):
+        payload = json.dumps({**preferences, 'assistantSearchHistory': enabled})
+        assert query("SELECT presentation.valid_user_preferences('"+payload+"'::jsonb)") == 't'
+    for invalid in (None, 'true', 1, {}, []):
+        refused(lambda invalid=invalid: prefer(op=str(uuid4()), expected=1, values={**preferences, 'assistantSearchHistory': invalid}), 'user_preferences_input')
     assert json.loads(call('viewer', "SELECT presentation.user_preferences('api')::text"))['current'] is None, 'Another human must not see the administrator preferences'
     assert json.loads(call('admin', "SELECT presentation.user_preferences('exchange')::text"))['current'] is None
     display_preferences = {**preferences, 'contractDisplay': {'version':'curve_display_v1','contracts':'captured_contracts_with_status_v1'}}

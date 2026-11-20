@@ -623,7 +623,7 @@ export function setupAssistant(options:PanelOptions){
       asking.clear();sync();if(!options.available())return;
       let saved:{conversationId?:unknown;open?:unknown}|null=null,kept:string|null=null;
       try{saved=JSON.parse(sessionStorage.getItem(stored('panel'))??'null');kept=sessionStorage.getItem(stored('ask'));}catch{/* Invalid browser state restores nothing. */}
-      asking.command=keptAsk(kept);if(asking.command){question.value=String(asking.command.body.question);searchHistory.checked=asking.command.body.searchHistory===true;error=unconfirmedAsk;}
+      asking.command=keptAsk(kept);if(asking.command){question.value=String(asking.command.body.question);error=unconfirmedAsk;}
       const started=identity;
       void readAgents().then(async()=>{
         if(started!==identity||!agents.length)return;

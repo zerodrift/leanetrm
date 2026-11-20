@@ -625,7 +625,11 @@ def literal(value):
 
 def lapsed_in(failure, function):
     """Whether a verbose error output is a lapsed authority that `function`'s own recheck refused."""
-    entry = '(?:pin_turn|pin_market_turn)' if function == 'pin_turn' else re.escape(function)
+    entry = re.escape(function)
+    if function == 'pin_turn':
+        entry = '(?:pin_turn|pin_market_turn)'
+    elif function == 'ask_turn':
+        entry = 'ask_turn_core'
     return bool(failure and '42501' in failure and re.search(
         rf'function assistant\.grant_actor\(boolean\) line \d+ at RAISE\n(?:(?!PL/pgSQL function).*\n)*PL/pgSQL function assistant\.{entry}\(', failure))
 
@@ -924,9 +928,11 @@ def run_checks(url, query, psql, manifest, environment, dotnet):
         worker_refuses(operation_name, first, *arguments, token=secrets.token_bytes(32))
     check("every worker write presents the turn's token", state(first) == 'running:-')
     write_refused('turn_state_conflict', 'end_turn', first, "'completed'", 'NULL')
-    # A real predecessor-runtime turn is created through the predecessor admission
-    # definition, then current admission is restored. Immutable turn history is never rewritten.
-    signature = 'assistant.ask_turn(uuid,text,uuid,uuid,integer,text,jsonb,uuid,text,uuid,uuid,text,text,timestamptz,text,bigint,text,integer,integer,integer)'
+    # A real predecessor-runtime turn is created through the public entry point with
+    # the predecessor core, then the current core is restored. Immutable history is never rewritten.
+    signature = 'assistant.ask_turn_core(uuid,text,uuid,uuid,integer,text,jsonb,uuid,text,uuid,uuid,text,text,timestamptz,text,bigint,text,integer,integer,integer)'
+    check('the admission core cannot bypass the preference entry point',
+          query(f"SELECT has_function_privilege('preview_runtime','{signature}','EXECUTE');") == 'f')
     admission = query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);")
     assert admission.count("runtime_set NOT IN('turns_v22','turns_v23')") == 1
     legacy_person = persona('legacy_plan', ['trader'])

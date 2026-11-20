@@ -15,7 +15,7 @@ export function newPreferences(zone:string):Preferences {
 }
 export function parsePreferences(raw:string):Preferences {
   const v=JSON.parse(raw);
-  if(v?.version!==1||!validTimeZone(v.timeZone)||!['commodity','marketType'].includes(v.browseBy)||v.market!==null&&(typeof v.market!=='string'||!v.market||v.market.length>128)||!['all','futures','forwards','rates'].includes(v.marketType)||!['prices','inputs','dependencies'].includes(v.tab))throw Error('Saved profile settings could not be read. Please save your preferences again.');
+  if(v?.version!==1||!validTimeZone(v.timeZone)||!['commodity','marketType'].includes(v.browseBy)||v.market!=null&&(typeof v.market!=='string'||!v.market||v.market.length>128)||!['all','futures','forwards','rates'].includes(v.marketType)||!['prices','inputs','dependencies'].includes(v.tab))throw Error('Saved profile settings could not be read. Please save your preferences again.');
   for(const name of ['sidebarCollapsed','libraryCollapsed','assistantHidden','assistantMinimized','assistantSearchHistory'])if(v[name]!==undefined&&typeof v[name]!=='boolean')throw Error('Saved layout settings could not be read.');
   for(const name of ['collapsedMenus','collapsedCurveGroups'])if(v[name]!==undefined&&(!Array.isArray(v[name])||v[name].length>64||v[name].some((x:unknown)=>typeof x!=='string'||x.length>128)||new Set(v[name]).size!==v[name].length))throw Error('Saved menu settings could not be read.');
   const menus:string[]=(v.collapsedMenus??[]).filter((x:string)=>!retiredMenus.includes(x));
