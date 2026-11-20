@@ -56,6 +56,8 @@ def main():
         zero=physical_seed(query,manifest,call,capture,record,zero=True)
         physical_prepare(query,manifest,call,capture,record,physical,zero=False)
         physical_prepare(query,manifest,call,capture,record,zero,zero=True)
+        from native_read_transport import captured_context
+        physical['futureUseInputs']=captured_context(query,physical['futureUseContext']['contextId'])
         session='synthetic_operator_quantity_close';at='2020-12-23T16:00:00Z'
         sql_session(query,manifest,session,'test_utc_every_day','16:00:00',['future'],['trader'],effective=('2020-01-01','2022-01-01'))
         query("INSERT INTO security.role_permissions SELECT role_id,'PublishMarketData' FROM security.role_permissions WHERE permission='AmendTrade' ON CONFLICT DO NOTHING;")

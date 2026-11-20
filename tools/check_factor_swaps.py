@@ -15,7 +15,8 @@ def run_checks(url,query,manifest,run_worker=None):
     workspace=c.call('workspace');frame=next(f for f in workspace['frames'] if f['at'].startswith('2020-12-18'))
     context=dict(snapshotId=frame['id'],convention='independent_side_financial_swap_v2',knowledgeMode='current')
     old=c.call('swaps/catalog',context)
-    query(fixture.SQL)
+    from seed_fixture_market import load_market
+    assert load_market(query,fixture.SQL,'',manifest)==''
     catalog=c.call('swaps/catalog',context)
     indices={i['curve']:i for i in catalog['indices'] if i['definitionRevisionId']==fixture.REVISION}
     assert set(indices)=={'factor_daily_gas','factor_daily_power'}
@@ -157,6 +158,7 @@ def run_checks(url,query,manifest,run_worker=None):
     c.call('profile',{'profile':'trader'})
     # Warm retained reads must still recheck current reference authority.
     warm={**context,'knowledgeMode':'retained','contextId':stored['context']['contextId']}
+    c.select_inputs(stored['context'])
     c.call('swaps/catalog',warm)
     scope=f"catalog_id='{manifest['referenceCatalogId']}' AND tenant_id='{manifest['tenantId']}' AND workspace_id='{manifest['workspaceId']}'"
     access=query('SELECT access_mode FROM security.reference_catalog_scopes WHERE '+scope+';')

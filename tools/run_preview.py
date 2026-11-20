@@ -550,8 +550,9 @@ def main():
                 market,manifest=prepare_delivery(market,manifest)
                 from crude_fixture import DELIVERY_CATALOG,UNRELATED_CATALOG
                 from preview_fixture import TENANT, WORKSPACE
-                security+=f"\nINSERT INTO security.reference_catalog_scopes VALUES('{DELIVERY_CATALOG}','{TENANT}','{WORKSPACE}','owner');"
-                security+=f"\nINSERT INTO security.reference_catalog_scopes VALUES('{UNRELATED_CATALOG}','{TENANT}','{WORKSPACE}','owner');"
+                # These catalogs are created in the later delivery-market phase.
+                market+=f"\nINSERT INTO security.reference_catalog_scopes VALUES('{DELIVERY_CATALOG}','{TENANT}','{WORKSPACE}','owner');"
+                market+=f"\nINSERT INTO security.reference_catalog_scopes VALUES('{UNRELATED_CATALOG}','{TENANT}','{WORKSPACE}','owner');"
         if args.lng_cargo_check:
             from lng_fixture import prepare as prepare_lng
             reference,market,manifest=prepare_lng(reference,market,manifest)

@@ -170,6 +170,7 @@ def run_checks(url, manifest, query, run_worker):
     assert updated['state']['terms']['floating']['customProjection'] == reference
     assert Fraction(updated['valuation']['presentValue']) == corrected_price * 20
     client.call('profile', {'profile': 'risk'})
+    client.select_inputs(risk_catalog['context'])
     assert client.call('portfolio/risk', request)['factors'] == result['factors']
     assert client.call('portfolio/risk/jobs/' + queued['id'])['result']['factors'] == result['factors']
     print('PASS connected amendment: explicit projection survives quantity change and retained prior risk stays unchanged', flush=True)

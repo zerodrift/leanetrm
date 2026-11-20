@@ -276,6 +276,11 @@ def run_checks(url, query, manifest):
     c.call('crude-setup/preview', {'snapshotId': frame['id'], 'setupId': saved['setupId'], 'knowledgeMode': 'current',
         'deliveryFrom': '2020-12-18T00:00:00Z', 'deliveryTo': '2021-01-01T00:00:00Z', 'quantity': '1000', 'calendarPolicy': side_calendar_policy(dict(revision=dict(catalogId=RCAT,revisionId=RREV),code='test_utc_every_day'),delivery=True,observation=False,payment=False)}, expected=422)
     assert quoted['curve'] == source['curve'] and quoted['definitionRevisionId'] == source['definitionRevisionId']
+    from native_read_transport import select_context_inputs
+    quote_inputs=c.call('trading/positions',dict(context=dict(snapshotId=frame['id'],convention='trading_workspace_v1',
+        knowledgeMode='retained',contextId=quoted['contextId']),bookIds=[],portfolioIds=[],offset=0,limit=1))['context']
+    assert quote_inputs['contextId']==quoted['contextId']
+    query(runtime(select_context_inputs(catalog_id,quote_inputs)))
     for context, expected in ((before,'0'),(quoted['contextId'],'1')):
         assert query(runtime(f"SELECT count(*) FROM market_data.crude_setup_versions WHERE(catalog_id,id)=('{catalog_id}','{saved['setupId']}');",context)) == expected
     for reference in (delivery['catalog_id'], source['referenceCatalogId']):
@@ -355,6 +360,7 @@ def run_booking_checks(url, query, manifest, *, run_worker):
     from fractions import Fraction
     retained = {**shared, 'knowledgeMode': 'retained', 'contextId': blotter['context']['contextId']}
     c.call('profile', {'profile': 'risk'})
+    c.select_inputs(blotter['context'])
     risk = c.call('portfolio/risk/catalog', {'context': retained, 'bookIds': [body['bookId']], 'portfolioIds': []})
     factors = [f for f in risk['factors'] if assignment['curve'] in f['curves']]
     assert len(factors) == 1
@@ -423,6 +429,7 @@ def run_booking_checks(url, query, manifest, *, run_worker):
     b_blotter = c.call('trading/blotter', {'context': b_context, 'view': {'mode':'trades','bookIds':[body['bookId']],'portfolioIds':[],'groupBy':[],'measures':[],'pivotConvention':None}})
     b_retained = {**b_context, 'knowledgeMode': 'retained', 'contextId': b_blotter['context']['contextId']}
     c.call('profile', {'profile': 'risk'})
+    c.select_inputs(b_blotter['context'])
     b_catalog = c.call('portfolio/risk/catalog', {'context': b_retained, 'bookIds': [body['bookId']], 'portfolioIds': []})
     b_factor = next(f for f in b_catalog['factors'] if assignment['curve'] in f['curves'])
     b_request = {**request, 'context': b_retained, 'bumps': [{'factor': b_factor['factor'], 'size':'1','convention':b_catalog['bumpConvention']}]}

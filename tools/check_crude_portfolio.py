@@ -46,6 +46,7 @@ def run_checks(url, receipt, *, run_worker):
     retained = {**context, 'knowledgeMode': 'retained', 'contextId': blotter['context']['contextId']}
 
     c.call('profile', {'profile': 'risk'})
+    c.select_inputs(blotter['context'])
     catalog = c.call('portfolio/risk/catalog', dict(context=retained, bookIds=[book], portfolioIds=[]))
     assert not any(x['tradeId'] == gas['tradeId'] for x in catalog['excludedPositions']), 'PV-capable gas must enter the common risk portfolio'
     assert not any(x['tradeId'] == receipt['tradeId'] for x in catalog['excludedPositions'])
