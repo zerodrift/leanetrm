@@ -142,7 +142,7 @@ def actual_products(client, query, manifest, frame, product):
         node('result', 'output', inputs=dict(values='hours'))])
     saved = client.call('custom-curves/save', dict(requestId=str(uuid4()), snapshotId=frame['id'], definition=definition, layout={}))
     client.call('profile', {'profile': 'approver'})
-    client.call('custom-curves/publish', dict(requestId=str(uuid4()), id=saved['id'], version=1, generation=saved['generation']))
+    client.call('custom-curves/publish', dict(snapshotId=frame['id'],requestId=str(uuid4()), id=saved['id'], version=1, generation=saved['generation']))
     client.call('power-location-bindings', dict(requestId=str(uuid4()), definitionRevisionId=manifest['revisionId'], location=LOCATION, market='RT',
         deliveryFrom='2020-11-01T04:00:00Z', deliveryTo='2021-04-01T04:00:00Z', curveId=saved['id'], policy='follow_location_activation_v1',
         reason='Synthetic product resolution checks', segments=[dict(effectiveFrom='2020-01-01', effectiveTo='2032-01-01', version=1, outputNode='result')]))

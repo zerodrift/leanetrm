@@ -141,7 +141,7 @@ def daily_price_shape(client,query,manifest,frame,lookup_body):
         DO $$BEGIN UPDATE market_data.custom_curve_versions SET state='published' WHERE(catalog_id,curve_id,version)=('{manifest['catalogId']}','{saved['id']}',1);
         RAISE EXCEPTION 'Expected shape publication refusal' USING ERRCODE='XX000';EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM NOT IN('power_price_shape_binding','power_interval_product','power_interval_source','custom_curve_source') THEN RAISE;END IF;END$$;ROLLBACK;""")
     client.call('profile',{'profile':'approver'})
-    published=client.call('custom-curves/publish',dict(requestId=str(uuid4()),id=saved['id'],version=1,generation=saved['generation']))
+    published=client.call('custom-curves/publish',dict(snapshotId=body['snapshotId'],requestId=str(uuid4()),id=saved['id'],version=1,generation=saved['generation']))
     assert published['state']=='published'
     client.call('profile',{'profile':'editor'})
     # One corrected offset changes calibration, but the old certified cutoff replays.

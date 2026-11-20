@@ -14,7 +14,7 @@ import {excludedPositions,valuationNote,valuationReason,type ValuationReason} fr
 
 export type Reference={revision:{catalogId:string;revisionId:string};code:string};
 /** A position as the trading workspace reads it. */
-export type Holding={booking:Booking;commodity:{code:string;name:string};priceTick?:string;markTick?:string;fixedAmountFormat:DisplayPrecision;quoteMultiplier?:string;amountFormat:DisplayPrecision;
+export type Holding={priceUnitReference?:import('./financial-provenance.js').PriceUnitReference|null;priceUnitLabel?:string|null;booking:Booking;commodity:{code:string;name:string};priceTick?:string;markTick?:string;fixedAmountFormat:DisplayPrecision;quoteMultiplier?:string;amountFormat:DisplayPrecision;
   instrumentType:string;
   /** Whether the position has Side schedules to read, as the backend's registered schedule sources say. */
   sideSchedules:boolean;
@@ -134,9 +134,9 @@ function distinct(entries:ReadonlyMap<string,Identity>,word:string|null):Map<str
 }
 // A reference is identified by its code in its catalog's revision; a key built from it has been validated by referenceKey.
 const referenceIdentity=(label:string,reference:unknown):Identity=>{const {code,revision}=reference as Reference;return {label,code,revision:revision.revisionId,catalog:revision.catalogId};};
-// A currency or unit reads by its code in whichever reference revision it was booked under; amounts in each stay apart all the same (D98).
-const currencyLabels=(groups:readonly PivotGroup[])=>distinct(new Map(groups.map(g=>[referenceKey(g.currencyReference),referenceIdentity(text(g,'currency'),g.currencyReference)])),null);
-const unitLabels=(groups:readonly PivotGroup[])=>distinct(new Map(groups.map(g=>[referenceKey(g.quantitySpecification),referenceIdentity(text(g,'unit'),g.quantitySpecification)])),null);
+// A currency or unit reads by its code in whichever reference revision it was booked under; amounts in each stay apart; colliding labels identify their reference source.
+const currencyLabels=(groups:readonly PivotGroup[])=>distinct(new Map(groups.map(g=>[referenceKey(g.currencyReference),referenceIdentity(text(g,'currency'),g.currencyReference)])),'reference');
+const unitLabels=(groups:readonly PivotGroup[])=>distinct(new Map(groups.map(g=>[referenceKey(g.quantitySpecification),referenceIdentity(text(g,'unit'),g.quantitySpecification)])),'reference');
 const marketKey=(market:string,revision:string)=>`${market}|${revision}`;
 // The market a position is grouped under: its curve, or the several curves of a scheduled swap together as the backend keys them.
 const marketOf=(h:Pick<Holding,'curve'|'marketKey'|'definitionRevisionId'>)=>marketKey(h.marketKey??h.curve,h.definitionRevisionId);
@@ -416,9 +416,9 @@ export type DeskRow={tradeId:string;revision:string;instrumentType:string;pill:'
   /** The words its cells draw beside their exact amounts, which the grid's row search reads. */
   words:string}&Valuation;
 /** The unit of a position's price and mark: its currency per quantity unit, with the quote multiplier when it is not one. */
-// The line under a mark: an option's is its settlement price, whose unit its row does not state.
+// The line under a mark uses the price denomination supplied by its holding.
 export const markCaption=(row:{pill:string;priceUnit:string|null})=>[row.pill==='OPT'?'Settlement':'Mark',row.priceUnit].filter(Boolean).join(' · ');
-export const priceUnit=(h:{currency:string;unit:string;quoteMultiplier?:string})=>`${h.currency}/${h.unit}${h.quoteMultiplier&&h.quoteMultiplier!=='1'?' × '+h.quoteMultiplier:''}`;
+export const priceUnit=(h:{currency:string;unit:string;quoteMultiplier?:string;priceUnitLabel?:string|null})=>h.priceUnitLabel??`${h.currency}/${h.unit}${h.quoteMultiplier&&h.quoteMultiplier!=='1'?' × '+h.quoteMultiplier:''}`;
 const sides:Readonly<Record<string,string>>={pay_fixed:'Pay fixed',receive_fixed:'Receive fixed',multi_side:'Multi-side'};
 // The kinds of swap instrument and the valuation states of a swap the Blotter states; any other is refused, never shown as one of them.
 const swapKinds:readonly unknown[]=['swap_instrument','scheduled_swap_instrument'],swapValuations:readonly unknown[]=['Projection','Active'];
@@ -535,9 +535,9 @@ export function positionRows(holdings:readonly Holding[],zone='UTC'):DeskRow[]{
       if(h.mark===null&&type===instruments.future)throw Error('The Blotter returned a valued future without its mark.');
       valuation={value,unavailable:null};
     }
-    // An option's premium and settlement are quoted per the underlying's unit, which its rows do not state: neither names a price unit.
+    // Price denominations are independent of the holding's external lot or capacity quantity.
     const sidedRight=type===instruments.operating_right||type===instruments.rec_forward;
-    const price=h[type.price]??null,unitOfPrice=(h.priceNavigation===false||sidedRight||type===instruments.heat_rate_call||type===instruments.gas_storage||type===instruments.ppa||type===instruments.physical_gas||type===instruments.physical_gas_park_loan||type===instruments.futures_option)?null:priceUnit(h),delivery=deliveryLabel(h.deliveryFrom,h.deliveryTo,zone);
+    const price=h[type.price]??null,unitOfPrice=(h.priceNavigation===false||sidedRight||((type===instruments.futures_option||type===instruments.heat_rate_call)&&!h.priceUnitLabel)||type===instruments.gas_storage||type===instruments.ppa||type===instruments.physical_gas||type===instruments.physical_gas_park_loan)?null:priceUnit(h),delivery=deliveryLabel(h.deliveryFrom,h.deliveryTo,zone);
     // A scheduled swap states a fixed price only where every fixed period shares it; two floating sides have none at all.
     const quantityNote=h.quantity===null?(type===instruments.physical_gas?'By physical side':sidedRight?'By side':byPeriod):null,priceNote=(type===instruments.physical_gas_park_loan||type===instruments.physical_gas_park_custody)?'By contract':(sidedRight||type===instruments.ppa||type===instruments.physical_gas)?'By side':scheduledSwap&&price===null&&h.direction!=='multi_side'?byPeriod:null;
     const markNote=valuation.unavailable!==null||mark!==null?null:type===instruments.heat_rate_call?'Model value':type===instruments.gas_storage?'Plan value':type===instruments.physical_gas_transport?'Rights and fee terms':type===instruments.physical_gas_park_custody?'Fee terms':type===instruments.physical_gas_park_loan?'Saved account mark':type===instruments.futures_option?(h.component==='premium'?'Premium cash':'No open lots'):(sidedRight||type===instruments.ppa||type===instruments.physical_gas||type===instruments.physical_crude||type===instruments.physical_lng)?'Independent side schedules':h.settlement==='Active'?'Settlement lifecycle':scheduledSwap?byPeriod:'Several marks';

@@ -88,7 +88,7 @@ def run_checks(client, query, manifest, frame, original, published, binding):
       EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM<>'power_settlement_binding' THEN RAISE;END IF;END$$;ROLLBACK;""")
     old_known = client.call('interval-series')['knownAt']
     client.call('profile', {'profile': 'approver'})
-    client.call('custom-curves/publish', dict(requestId=str(uuid4()), id=draft['id'], version=3, generation=draft['generation']))
+    client.call('custom-curves/publish', dict(snapshotId=frame['id'],requestId=str(uuid4()), id=draft['id'], version=3, generation=draft['generation']))
     client.call('custom-curves/activation', dict(requestId=str(uuid4()), curveId=draft['id'], expectedRevision=2,
         policy='complete_effective_timeline_v1', reason='Synthetic captured interval pricing',
         segments=[dict(effectiveFrom='2020-01-01', effectiveTo='2032-01-01', version=3, outputNode='result')]))

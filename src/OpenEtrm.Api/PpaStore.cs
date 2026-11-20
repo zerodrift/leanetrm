@@ -273,7 +273,10 @@ internal sealed partial class PpaStore(PreviewDatabase database,TouProductStore 
                 bindingId=b.Id("binding_id"),instrumentId=b.Id("instrument_id"),coverageFrom=b.Instant("coverage_from"),coverageTo=b.Instant("coverage_to"),quantity=b.Text("quantity")}).ToArray()}).ToArray();
         var terms=new List<JsonElement>();foreach(var id in instruments.Order())terms.Add(await StoredTerms(connection,id,ct));
         await Authority(connection,heads.Select(r=>r.Id("reference_catalog_id")),ct);
-        return new{tradeId=request.TradeId,knowledgeContext=context,knownAt=request.KnownAt,head=heads.Single(),bindings=bindings.Select(BindingRow).ToArray(),instruments=terms,history,revisionBindings};
+        var currencyKeys=terms.Select(t=>t.GetProperty("terms")).Select(t=>new ReferenceKey(new(t.Id("referenceCatalogId"),t.Id("referenceRevisionId")),t.Text("currency"))).Distinct().ToArray();
+        var labels=await ReferenceDisplay.Read(connection,[],ct,currencyKeys);
+        return new{tradeId=request.TradeId,knowledgeContext=context,knownAt=request.KnownAt,head=heads.Single(),bindings=bindings.Select(BindingRow).ToArray(),instruments=terms,history,revisionBindings,
+            currencyLabels=currencyKeys.Select(reference=>new{reference,label=labels.Currency(reference)})};
     }
     internal async Task<object> Directory(NpgsqlConnection connection,InputFrame frame,PpaDirectoryRequest request,CancellationToken ct,Guid? bound=null)
     {

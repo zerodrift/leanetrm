@@ -9,6 +9,18 @@ namespace OpenEtrm.Api;
 
 public static partial class CustomCurves
 {
+    internal static async Task ValidatePublication(NpgsqlConnection connection,PreviewDatabase database,PinnedContext pin,CustomCurveVersion version,CancellationToken ct)
+    {
+        var frame=pin.RequireFrame();
+        var context=await SelectedClose.Capture(connection,database,frame,ct);
+        frame=frame with{ContextId=context.ContextId};
+        var revision=await CurveVersionInputs.Resolve(database,connection,version.MarketRevisionId,ct);
+        var data=await database.Read(connection,ct,selectedRevision:revision,observationIds:[],includeCalendarDays:false);
+        var versions=await new CustomCurvesStore(database).Read(connection,ct);
+        var preparation=new RecipePreparation(connection,database,data,frame,context,CalculationContext(frame,data.DefinitionRevision,context),versions,calendarReads:[]);
+        await preparation.ValidateRoot(version,ct);
+    }
+
     // One owner prepares each exact published version once under this context.
     // Imported panels keep graph references; no calculated price is materialized
     // into a replacement market observation or fictitious contract.
@@ -62,6 +74,17 @@ public static partial class CustomCurves
                 }
                 _=await Inputs(connection,database,selected,data,frame,native,calendar,schedule,context,ct,collectObservations:collect,calendarReads:calendarReads);
             }
+        }
+
+        public async Task ValidateRoot(CustomCurveVersion version,CancellationToken ct)
+        {
+            if(RecipeEngine.PowerIntervalOutput(version.Definition) is not null)return; // Its dedicated typed publication guard validates the native grid.
+            var parents=new Dictionary<string,RecipeTopology>();
+            foreach(var node in version.Definition.Nodes.Where(n=>n.Kind=="published_source"))parents.Add(node.Id,await Topology(node.PublishedSource!,ct));
+            var metadata=await Inputs(connection,database,version.Definition,data,frame,version.Sources,version.Calendars,version.Schedules,context,ct,topologyOnly:true,calendarReads:calendarReads);
+            var instants=metadata.Values.Dates.Values.SelectMany(d=>d).Concat(metadata.Values.Windows.Values.SelectMany(w=>w).SelectMany(w=>w.Days))
+                .Append(metadata.Values.ContextDate).Distinct().ToImmutableDictionary(d=>d,d=>new DateTimeOffset(d.ToDateTime(TimeOnly.FromDateTime(frame.At.UtcDateTime),DateTimeKind.Utc)));
+            _=RecipeEngine.Topology(version.Definition,InputsForPreparation(metadata.Values),parents,instants,ct);
         }
 
         public async Task<RecipeTopology> Topology(PublishedRecipeReference reference,CancellationToken ct)

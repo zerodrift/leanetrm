@@ -8,7 +8,7 @@ type Revision={catalogId:string;revisionId:string};
 type Reference={revision:Revision;code:string};
 type Key={catalogId:string;id:string;version:number};
 type Publisher={key:Key;name:string};
-type Index={key:Reference;commodity:Reference;location:Reference;quote:Reference;unit:unknown;symbol:string;statistic:string};
+type Index={key:Reference;commodity:Reference;location:Reference;quote:Reference;unit:unknown;unitLabel?:string;symbol:string;statistic:string};
 type Definition={key:Key;references:Revision;publisher:Publisher;name:string;commodities:Reference[];indices:Index[];calendar:Reference;clock:Reference;implementation:string};
 type Choice={reference:Reference;name:string};
 type Occurrence={publication:Key;assessmentDate:string;assessmentFrom:string;assessmentTo:string;expectedReleaseAt:string;periods:{from:string;to:string}[]};
@@ -134,7 +134,7 @@ export function setupPricePublications(host:HTMLElement,o:PriceAuthoringOptions)
  function renderUnpublished(){
   const published=new Set(latestPublications(catalog?.publications??[]).flatMap(d=>d.indices.map(i=>`${i.key.code}:${i.quote.code}`))),rest=catalog?.indices.filter(i=>!published.has(`${i.key.code}:${i.quote.code}`))??[];
   unpublished.hidden=!rest.length;
-  resultTable(unpublishedRows,['Reference index','Commodity · location · quote'],rest.map(i=>[indexLink(i),`${i.commodity.code} · ${i.location.code} · ${i.quote.code}`]));
+  resultTable(unpublishedRows,['Reference index','Commodity · location · quote'],rest.map(i=>[indexLink(i),`${i.commodity.code} · ${i.location.code} · ${i.unitLabel}`]));
  }
  function syncLibrary(){
   library.disabled=o.busy()||session.blocked()||!catalog;
@@ -167,7 +167,7 @@ export function setupPricePublications(host:HTMLElement,o:PriceAuthoringOptions)
    const prior=selected?.indices.find(member=>member.key.code===i.key.code&&member.quote.code===i.quote.code);include.checked=!!prior;
    const symbol=input(''),statistic=input('');symbol.dataset.symbol=i.key.code;statistic.dataset.statistic=i.key.code;symbol.value=prior?.symbol??'';statistic.value=prior?.statistic??'';symbol.maxLength=statistic.maxLength=200;symbol.setAttribute('aria-label',`${i.name} vendor symbol`);statistic.setAttribute('aria-label',`${i.name} statistic`);
    include.onchange=()=>{if(include.checked)for(const other of indexTable.querySelectorAll<HTMLInputElement>('[data-index]'))if(other!==include&&other.dataset.index===include.dataset.index)other.checked=false;syncIndexRows();};
-   return [include,indexLink(i),`${i.commodity.code} · ${i.location.code} · ${i.quote.code}`,symbol,statistic];
+   return [include,indexLink(i),`${i.commodity.code} · ${i.location.code} · ${i.unitLabel}`,symbol,statistic];
   });
   resultTable(indexTable,['Publishes','Reference index','Commodity · location · quote','Vendor symbol','Statistic'],rows);syncIndexRows();
  }
@@ -194,7 +194,7 @@ export function setupPricePublications(host:HTMLElement,o:PriceAuthoringOptions)
   const occurrences=catalog?.occurrences?.filter(item=>selected&&item.occurrence.publication.id===selected.key.id&&item.occurrence.publication.version===selected.key.version)??[];
   if(occurrences.length)resultTable(savedOccurrences,['Assessment date','Covered periods','Expected release · UTC'],occurrences.map(({occurrence:o})=>[o.assessmentDate,o.periods.map(p=>`${p.from} → ${p.to}`).join(', '),o.expectedReleaseAt]));else savedOccurrences.replaceChildren(help('No publication dates saved for this version.'));
   const received=catalog?.releases?.filter(r=>selected&&r.publication.id===selected.key.id&&r.publication.version===selected.key.version)??[];
-  if(received.length)resultTable(releases,['Index','Price','Quote','Stage','Published · UTC','Received · UTC'],received.map(r=>[r.indexCode,r.value,selected?.indices.find(i=>i.key.code===r.indexCode)?.quote.code??'—',r.correctsReleaseId?`${r.stage} · correction`:r.stage,r.publishedAt,r.receivedAt]));else releases.replaceChildren(help('No received prices visible for this version.'));
+  if(received.length)resultTable(releases,['Index','Price','Price unit','Stage','Published · UTC','Received · UTC'],received.map(r=>[r.indexCode,r.value,catalog?.indices.find(i=>i.key.code===r.indexCode&&i.quote.code===selected?.indices.find(s=>s.key.code===r.indexCode)?.quote.code)?.unitLabel??'—',r.correctsReleaseId?`${r.stage} · correction`:r.stage,r.publishedAt,r.receivedAt]));else releases.replaceChildren(help('No received prices visible for this version.'));
   status.textContent=selected?`${selected.name} · version ${selected.key.version}. Saving appends a version; existing curves retain their exact references.`:'New publication · select its publisher, commodities and methodology.';sync();return true;
  }
  function definition():Definition{

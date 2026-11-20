@@ -121,6 +121,8 @@ def factor(rate, maturity, effective):
 
 
 def run_checks(url, manifest, regional, query, run_worker):
+    from check_currency_integrity import run_checks as check_currency_integrity
+    check_currency_integrity(query)
     authorization_checks(query,manifest)
     client = PreviewClient(url)
     client.bootstrap()
@@ -168,6 +170,11 @@ def run_checks(url, manifest, regional, query, run_worker):
         expected=Fraction(factor(rate,'2021-02-03','2020-12-18')*100)
         assert Fraction(reopened['valuation']['presentValue'])==expected,(currency,reopened['valuation']['presentValue'],str(expected))
         assert reopened['state']['terms']['fixed']['paymentSchedule']['days']==3
+        if currency=='gbp':
+            from check_side_schedule_inspection import check_swap
+            binding=query(f"SELECT binding_id FROM trading.swap_trade_revisions WHERE trade_id='{status['tradeId']}' AND revision=1;")
+            check_swap(client,frame,dict(tradeId=status['tradeId'],bindingId=binding,revision=1))
+
         for day in ('2020-07-15','2020-12-18'):
             uk_context={**context,'snapshotId':frames['uk_close',day]['id']}
             uk=client.call('swaps/editor',{'context':uk_context,'tradeId':status['tradeId'],'revision':None})
@@ -209,3 +216,5 @@ def run_checks(url, manifest, regional, query, run_worker):
         raise AssertionError('A conflicting same-version source fact was accepted')
     assert counts()==before
     print('PASS regional seed: retained worker parity; full replay adds no business facts; no financial contexts or privileged public helpers retained',flush=True)
+    from check_currency_graphs import run_checks as check_currency_graphs
+    check_currency_graphs(url,query,manifest,regional)

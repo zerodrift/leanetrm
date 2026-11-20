@@ -1,5 +1,5 @@
 import {chartTokens,init,palette,type Chart} from './chart-view.js';
-import {amountText} from './options-positions.js';
+import {amountText} from './amount-display.js';
 import type {StrategyChart} from './options-strategy.js';
 
 // The strategy's profit and loss against the futures price, drawn in the theme's tokens. The expiry payoff is one solid
@@ -8,8 +8,8 @@ import type {StrategyChart} from './options-strategy.js';
 
 // One dash per dated curve, so the curves are told apart without colour.
 export const curveDashes:number[][]=[[8,5],[2,4],[12,4,2,4]];
-// A stated profit and loss to the cent, half to even on its exact text, signed when it is a gain.
-const signed=(amount:string)=>{const text=amountText(amount,2);return (!text.startsWith('-')&&/[1-9]/.test(text)?'+':'')+text;};
+// A stated profit and loss at its prepared managed display precision, signed when it is a gain.
+const signed=(amount:string)=>{const text=amountText(amount,'money');return (!text.startsWith('-')&&/[1-9]/.test(text)?'+':'')+text;};
 // An axis tick is the chart's own number, not a stated figure.
 const tick=new Intl.NumberFormat('en',{maximumFractionDigits:2,signDisplay:'exceptZero'});
 const escape=(value:string)=>value.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
@@ -31,8 +31,8 @@ export function strategyChartOptions(chart:StrategyChart){
   tooltip:{trigger:'axis',axisPointer:{type:'cross',label:{backgroundColor:t['surface-3'],color:t.text},lineStyle:{color:t['text-3']},crossStyle:{color:t['text-3']}},
    backgroundColor:t['surface-2'],borderColor:t['border-strong'],textStyle:{color:t.text},
    formatter:(items:{seriesName:string;data:{price:string;profitAndLoss:string};marker:string}[])=>items.map(item=>
-    `${item.marker}${escape(item.seriesName)} at ${escape(item.data.price)}: <b>${escape(signed(item.data.profitAndLoss))}</b> ${escape(chart.currency)}`).join('<br>')},
-  xAxis:{type:'value',name:'Futures price',nameLocation:'middle',nameGap:28,min:expiry.points[0].x,max:expiry.points[expiry.points.length-1].x,
+    `${item.marker}${escape(item.seriesName)} at ${escape(item.data.price)} ${escape(chart.priceUnit)}: <b>${escape(signed(item.data.profitAndLoss))}</b> ${escape(chart.currency)}`).join('<br>')},
+  xAxis:{type:'value',name:'Futures price · '+chart.priceUnit,nameLocation:'middle',nameGap:28,min:expiry.points[0].x,max:expiry.points[expiry.points.length-1].x,
    axisLine:{lineStyle:line},axisLabel:{color:t['text-2']},splitLine:{lineStyle:{color:t.border}},nameTextStyle:{color:t['text-3']}},
   yAxis:{type:'value',scale:true,axisLine:{lineStyle:line},axisLabel:{color:t['text-2'],formatter:(value:number)=>tick.format(value)},
    splitLine:{lineStyle:{color:t.border}}},

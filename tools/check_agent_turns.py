@@ -537,7 +537,7 @@ def check_curve_draft_tool(query, check, dotnet, environment, catalog, stamp, to
                                                   'definition': {**definition, 'code': code, 'name': 'Synthetic person curve'}})
     published_code, hidden_code = f'synthetic_sealed_{stamp}', f'synthetic_hidden_{stamp}'
     sealed = person_save(published_code)
-    approver.call('custom-curves/publish', {'requestId': str(uuid4()), **{k: sealed[k] for k in ('id', 'version', 'generation')}})
+    approver.call('custom-curves/publish', {'snapshotId':frame,'requestId': str(uuid4()), **{k: sealed[k] for k in ('id', 'version', 'generation')}})
     hidden = person_save(hidden_code)
 
     main, started = tool_turn()

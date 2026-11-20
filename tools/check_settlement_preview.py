@@ -7,7 +7,7 @@ from exact_values import instant
 from check_ppa_bookings_http import profile_terms
 
 POLICIES = dict(contract='ppa_monthly_gross_fixed_v1', evidence='verified_meter_head_v1',
-    rounding='cash_2dp_half_even_per_occurrence_v1', approval='two_principals_exact_action_24h_v1',
+    rounding='cash_explicit_increment_per_occurrence_v1', approval='two_principals_exact_action_24h_v1',
     correction='restate_rounded_occurrence_v1', adjustmentDue='original_due_for_adjustment_v1')
 
 
@@ -87,13 +87,29 @@ def run_checks(url, query, manifest, dotnet, temporary, environment, *, quarter_
     frame=next(f for f in client.call('ppa/frames') if f['at'].startswith('2020-12-15'))['id']
     client.bootstrap()
     mapping=dict(bindingId=binding['bindingId'],originRevision=1,instrumentId=binding['instrumentId'],sideId=side['sideId'],role='strike_payment',ordinal=0)
-    body=dict(snapshotId=frame,tradeId=booked['tradeId'],expectedRevision=1,original=mapping,mappings=[mapping],policies=POLICIES)
+    body=dict(snapshotId=frame,tradeId=booked['tradeId'],expectedRevision=1,original=mapping,mappings=[mapping],policies=POLICIES,roundingTerms=dict(currency=dict(revision=dict(catalogId=terms['referenceCatalogId'],revisionId=terms['referenceRevisionId']),code=terms['currency']),increment='0.01',tieRule='to_even',stage='payment_total'))
     client.call('settlement/payment-lineages/plan',body,expected=403)
     print('PASS settlement preview: no inferred proposal permission grant',flush=True)
     # No migration role grants: synthetic qualification grants only the proposed action explicitly.
     query("INSERT INTO security.role_permissions SELECT r.id,p.code FROM security.roles r CROSS JOIN security.permissions p WHERE r.code='trader' AND p.code='ProposeSettlementDeterminations' ON CONFLICT DO NOTHING;")
     planned=client.call('settlement/payment-lineages/plan',body)
     assert planned['lineage']['trade_id']==booked['tradeId']
+    assert planned['lineage']['rounding_increment']=='0.01'
+    before_rounding=query(f"SELECT count(*) FROM settlement_data.payment_lineages WHERE catalog_id='{catalog}';")
+    from copy import deepcopy
+    for field,value in [('increment','0'),('increment','-0.01'),('tieRule','unknown'),('stage','cashflow')]:
+        invalid=deepcopy(body);invalid['roundingTerms'][field]=value
+        assert client.call('settlement/payment-lineages/plan',invalid,expected=422)['code']=='settlement_rounding'
+    for key,value in [('code','missing_currency'),('revisionId',str(uuid4())),('catalogId',str(uuid4()))]:
+        invalid=deepcopy(body)
+        if key=='code':invalid['roundingTerms']['currency'][key]=value
+        else:invalid['roundingTerms']['currency']['revision'][key]=value
+        assert client.call('settlement/payment-lineages/plan',invalid,expected=422)['code']=='settlement_rounding'
+    invalid={k:v for k,v in body.items() if k!='roundingTerms'}
+    assert client.call('settlement/payment-lineages/plan',invalid,expected=422)['code']=='settlement_rounding'
+    assert query(f"SELECT count(*) FROM settlement_data.payment_lineages WHERE catalog_id='{catalog}';")==before_rounding
+    print('PASS settlement rounding: exact text transport; missing/wrong currency revision, nonpositive increment, unknown tie and wrong stage refuse without writes',flush=True)
+
     print('PASS settlement preview: explicit immutable original payment mapping',flush=True)
     from fractions import Fraction as F
     from datetime import timedelta
@@ -210,7 +226,7 @@ def run_checks(url, query, manifest, dotnet, temporary, environment, *, quarter_
     assert query(f"SELECT effective_at=TIMESTAMPTZ '{AMEND_AT}' FROM trading.ppa_trade_revisions WHERE trade_id='{hbook['tradeId']}' AND revision=2;")=='t'
     htail=next(b for b in hamended['bindings'] if b['bindingId']!=hbinding['bindingId'])
     later_frame=next(f for f in client.call('ppa/frames') if f['at'].startswith('2020-12-18'))['id']
-    hp=client.call('settlement/payment-lineages/plan',dict(snapshotId=later_frame,tradeId=hbook['tradeId'],expectedRevision=2,original=horigin,mappings=[horigin,mapping_for(htail,2)],policies=POLICIES))
+    hp=client.call('settlement/payment-lineages/plan',dict(snapshotId=later_frame,tradeId=hbook['tradeId'],expectedRevision=2,original=horigin,mappings=[horigin,mapping_for(htail,2)],policies=POLICIES,roundingTerms=body["roundingTerms"]))
     earlier=preview(lineageId=hp['lineage']['id'])
     check('late planned mapping retains originating business time',earlier['proposalPins']['tradeHead']['revision']==1 and len(earlier['components'])==721)
     from concurrent.futures import ThreadPoolExecutor
@@ -218,10 +234,10 @@ def run_checks(url, query, manifest, dotnet, temporary, environment, *, quarter_
     racebook=save('book',payload);racebinding=racebook['bindings'][0];raceorigin=mapping_for(racebinding,1);barrier=Barrier(2)
     def race(_):
         barrier.wait(timeout=10)
-        return json.loads(runtime(f"SELECT settlement_data.plan_payment_lineage('{catalog}','{racebook['tradeId']}',1,security.resolve_operation_context('{catalog}','2020-12-15',NULL),'2020-12-15T16:00:00Z',{encoded(raceorigin)},{encoded([raceorigin])},{encoded(POLICIES)});"))
+        return json.loads(runtime(f"SELECT settlement_data.plan_payment_lineage('{catalog}','{racebook['tradeId']}',1,security.resolve_operation_context('{catalog}','2020-12-15',NULL),'2020-12-15T16:00:00Z',{encoded(raceorigin)},{encoded([raceorigin])},{encoded(POLICIES)},{encoded(body["roundingTerms"])});"))
     with ThreadPoolExecutor(max_workers=2) as pool: raced=list(pool.map(race,range(2)))
     check('independent database sessions assign one canonical lineage',raced[0]['lineage']['id']==raced[1]['lineage']['id'] and query(f"SELECT count(*) FROM settlement_data.payment_lineages WHERE catalog_id='{catalog}' AND trade_id='{racebook['tradeId']}';")=='1')
-    bad=dict(snapshotId=later_frame,tradeId=hbook['tradeId'],expectedRevision=2,original=horigin,mappings=[horigin,horigin],policies=POLICIES)
+    bad=dict(snapshotId=later_frame,tradeId=hbook['tradeId'],expectedRevision=2,original=horigin,mappings=[horigin,horigin],policies=POLICIES,roundingTerms=body["roundingTerms"])
     check('duplicated or extra mapping cannot narrow manifest',client.call('settlement/payment-lineages/plan',bad,expected=422)['code']=='settlement_manifest')
     bad={**body,'mappings':[mapping]*33}
     check('binding-work limit refuses before planning',client.call('settlement/payment-lineages/plan',bad,expected=422)['code']=='settlement_manifest')
@@ -231,7 +247,7 @@ def run_checks(url, query, manifest, dotnet, temporary, environment, *, quarter_
         if incompatible=='due':change['terms']['memberships'][1]['side']['paymentRule']['dayOfMonth']=11
         else:change['terms']['memberships'][1]['coefficient']='1'
         altered=save('amend',change);last_binding=next(b for b in altered['bindings'] if b['bindingId']!=fresh['bindings'][0]['bindingId'])
-        command=dict(snapshotId=frame,tradeId=fresh['tradeId'],expectedRevision=2,original=first_map,mappings=[first_map,mapping_for(last_binding,2)],policies=POLICIES)
+        command=dict(snapshotId=frame,tradeId=fresh['tradeId'],expectedRevision=2,original=first_map,mappings=[first_map,mapping_for(last_binding,2)],policies=POLICIES,roundingTerms=body["roundingTerms"])
         check('incompatible '+incompatible+' refuses atomic lineage planning',client.call('settlement/payment-lineages/plan',command,expected=422)['code']=='settlement_incompatible' and query(f"SELECT count(*) FROM settlement_data.payment_lineages WHERE catalog_id='{catalog}' AND trade_id='{fresh['tradeId']}';")=='0')
     for table,selected_catalog in [('market_catalog_scopes',catalog),('reference_catalog_scopes',manifest['referenceCatalogId'])]:
         where=f"catalog_id='{selected_catalog}' AND tenant_id='{tenant}' AND workspace_id='{workspace}'"
@@ -241,7 +257,7 @@ def run_checks(url, query, manifest, dotnet, temporary, environment, *, quarter_
             check('current '+table+' access is required despite old pins',preview(expected=403,known=retained,expectedRevision=3)['code']=='access_denied')
         finally:query(f"INSERT INTO security.{table} SELECT(json_populate_record(NULL::security.{table},{encoded(json.loads(saved))}::json)).*;")
     publication_count=query(f"SELECT count(*) FROM trading.publications WHERE catalog_id='{catalog}';")
-    client.call('settlement/payment-lineages/plan',dict(snapshotId=later_frame,tradeId=hbook['tradeId'],expectedRevision=2,original=horigin,mappings=[horigin,mapping_for(htail,2)],policies=POLICIES))
+    client.call('settlement/payment-lineages/plan',dict(snapshotId=later_frame,tradeId=hbook['tradeId'],expectedRevision=2,original=horigin,mappings=[horigin,mapping_for(htail,2)],policies=POLICIES,roundingTerms=body["roundingTerms"]))
     check('idempotent planning creates no empty publication',query(f"SELECT count(*) FROM trading.publications WHERE catalog_id='{catalog}';")==publication_count)
     query("DELETE FROM security.role_permissions WHERE permission='ProposeSettlementDeterminations' AND role_id=(SELECT id FROM security.roles WHERE code='trader');")
     check('current proposal authority loss refuses retained preview',preview(expected=403,expectedRevision=3)['code']=='access_denied')

@@ -18,7 +18,7 @@ def run(c, context, terms, definition, published, projection, saved):
         id=published['id'], version=published['version'], generation=published['generation'], expectedState=published['state'],
         definition=successor, layout={}))
     c.call('profile', {'profile': 'approver'})
-    second = c.call('custom-curves/publish', dict(requestId=str(uuid4()), id=draft['id'], version=draft['version'], generation=draft['generation']))
+    second = c.call('custom-curves/publish', dict(snapshotId=context['snapshotId'],requestId=str(uuid4()), id=draft['id'], version=draft['version'], generation=draft['generation']))
     assert second['version'] == 2
     c.call('profile', {'profile': 'trader'})
     reopened = c.call('swaps/editor', dict(context=context, tradeId=saved['tradeId'], revision=None))

@@ -28,7 +28,7 @@ def run_checks(url, manifest, query, run_worker):
     saved = client.call('custom-curves/save', {'requestId': str(uuid4()), 'snapshotId': frame['id'],
         'definition': parent, 'layout': {}})
     client.call('profile', {'profile': 'approver'})
-    published = client.call('custom-curves/publish', {'requestId': str(uuid4()), 'id': saved['id'],
+    published = client.call('custom-curves/publish', {'snapshotId':frame['id'],'requestId': str(uuid4()), 'id': saved['id'],
         'version': saved['version'], 'generation': saved['generation']})
     reference = {'catalogId': manifest['catalogId'], 'curveId': published['id'],
                  'version': published['version'], 'outputNode': parent['output']}
@@ -61,7 +61,7 @@ def run_checks(url, manifest, query, run_worker):
 
     def publish(saved_curve):
         client.call('profile', {'profile': 'approver'})
-        return client.call('custom-curves/publish', {'requestId': str(uuid4()), 'id': saved_curve['id'],
+        return client.call('custom-curves/publish', {'snapshotId':frame['id'],'requestId': str(uuid4()), 'id': saved_curve['id'],
             'version': saved_curve['version'], 'generation': saved_curve['generation']})
 
     saved_child = save(child)

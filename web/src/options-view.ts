@@ -12,7 +12,7 @@ import {decimalText,hereHeading,volModel,type FuturesReadRequest,type SurfaceExp
 // chooses what to show and formats it. A product with no surface at this close shows that, never another close's figures.
 type Api=<T>(path:string,body?:unknown,signal?:AbortSignal)=>Promise<T>;
 type Job={state:string}|null;
-type SurfaceRead={definitionRevisionId:string;snapshotId:string;model:string;state:'fitted'|'notFitted';job:Job;surface:VolSurfaceResult|null};
+type SurfaceRead={referenceRevision:{catalogId:string;revisionId:string};priceUnit:string;definitionRevisionId:string;snapshotId:string;model:string;state:'fitted'|'notFitted';job:Job;surface:VolSurfaceResult|null};
 type ProductPage={definitionRevisionId:string;rows:Record<string,string|number|null>[];hasMore:boolean};
 // One expiry's strategy: the legs a person is assembling, what its setup offered, and its last analysis with whether the
 // choice has changed since.
@@ -161,7 +161,8 @@ export function setupOptions(o:{api:Api;context:()=>FuturesReadRequest;zone:()=>
  function renderChain(){
   const surface=shown!.surface!,expiry=renderExpiries();
   if(!expiry){tableHost.replaceChildren(el('p','vol-empty-shelf','Every listed expiry of this product has passed.'));renderReadout(undefined);basis.textContent='';return;}
-  const rows=chainRows(surface,expiryAt,held),table=el('table','options-chain');table.id='options-chain';
+  const exactHeld=new Map((positions?.held??[]).filter(h=>h.seriesReference.revision.catalogId===shown!.referenceRevision.catalogId&&h.seriesReference.revision.revisionId===shown!.referenceRevision.revisionId).map(h=>[h.series,h.openLots]));
+  const rows=chainRows(surface,expiryAt,exactHeld),table=el('table','options-chain');table.id='options-chain';
   const head=el('thead'),groups=el('tr','options-chain-groups'),names=el('tr');
   const group=(text:string,span:number)=>{const th=el('th',undefined,text);th.colSpan=span;th.scope='colgroup';return th;};
   groups.append(group('Calls',7),group('',1),group('Puts',7));
@@ -177,7 +178,7 @@ export function setupOptions(o:{api:Api;context:()=>FuturesReadRequest;zone:()=>
   table.append(head,body);tableHost.replaceChildren(table);
   renderReadout(surface.series.find(s=>s.series.code===selected));
   const stated=surface.sensitivities;
-  basis.textContent=stated?`Per unit of quote. Delta per 1.00 of the future’s price, gamma per 1.00 squared, vega per volatility point, theta for one day${stated.dayTo?` to ${instant(stated.dayTo)}`:''}. Held: open lots across your books. Sensitivities are the option model’s own (${stated.policy}); Risk reports keep theirs.`:'';
+  basis.textContent=stated?`Per unit of quote. Delta per (${shown!.priceUnit}), gamma per (${shown!.priceUnit})², vega per volatility point, theta for one day${stated.dayTo?` to ${instant(stated.dayTo)}`:''}. Held: open lots across your books. Sensitivities are the option model’s own (${stated.policy}); Risk reports keep theirs.`:'';
  }
  // The booked positions by underlying future. A position whose product has no surface here shows its lots and where to calibrate.
  function renderPositions(){
@@ -193,7 +194,7 @@ export function setupOptions(o:{api:Api;context:()=>FuturesReadRequest;zone:()=>
    name.append(el('span','options-position-future',group.underlyingSeries),el('span','options-position-note',`${group.productName} · expires ${instant(group.expiryAt)} · money in ${group.currency}, delta and gamma in ${group.quantityUnit}${group.sensitivities?.dayTo?` · theta for the day to ${instant(group.sensitivities.dayTo)}`:''}`));
    title.append(name);body.append(title);
    const figures=(cells:{value:Cell;delta:Cell;gamma:Cell;vega:Cell;theta:Cell})=>[figure(cells.value,group.currency),figure(cells.delta,group.quantityUnit),
-    figure(cells.gamma,`${group.quantityUnit} per 1.00 of price`),figure(cells.vega,`${group.currency} per volatility point`),figure(cells.theta,`${group.currency} for one day`)];
+    figure(cells.gamma,`${group.quantityUnit} per (${group.priceUnit})`),figure(cells.vega,`${group.currency} per volatility point`),figure(cells.theta,`${group.currency} for one day`)];
    for(const row of group.rows){
     const tr=el('tr');tr.dataset.series=row.series;tr.dataset.state=row.state;
     const series=el('td');series.append(el('code','vol-card-code',row.series));

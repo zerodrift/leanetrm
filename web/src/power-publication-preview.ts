@@ -4,7 +4,7 @@ import {utcMicrosecondText} from './price-authoring-model.js';
 type Reference={revision:{catalogId:string;revisionId:string};code:string};
 type Publication={key:{catalogId:string;id:string;version:number};implementation:string;indices:{key:Reference}[]};
 type Source={id:string;name:string;provider:string;market:string;minutes:number};
-type Inspection={publication:Publication['key'];index:Reference;source:{id:string};market:string;fromDate:string;throughDate:string;knownAt:string;contextId:string;
+type Inspection={unitLabel:string;publication:Publication['key'];index:Reference;source:{id:string};market:string;fromDate:string;throughDate:string;knownAt:string;contextId:string;
  publicationStatus:string;contractuallyFinal:boolean;bindingSaved:boolean;complete:boolean;expectedIntervals:number;missingIntervals:number;
  rows:{start:string;end:string;price:{value:string};batchId:string;revision:number|null;knownAt:string}[]};
 type ProductChoice={code:string;name:string;version:number};
@@ -69,7 +69,7 @@ export function setupPowerPublicationPreview(host:HTMLElement,o:PriceAuthoringOp
  function renderCapture(host:HTMLElement,response:Inspection){
   host.append(help(`Collected prices · not qualified final settlements. ${response.expectedIntervals} expected intervals · ${response.missingIntervals} missing. Source match inspected; no binding saved.`));
   host.append(help(`Known at · ${response.knownAt} · Knowledge context ${response.contextId}`));
-  const rows=element('div');resultTable(rows,['Interval start · UTC','Interval end · UTC','Captured price','Provider revision','Batch','Known at · UTC'],response.rows.map(r=>[r.start,r.end,r.price.value,r.revision===null?'—':String(r.revision),r.batchId,r.knownAt]));host.append(rows);
+  const rows=element('div');resultTable(rows,['Interval start · UTC','Interval end · UTC',`Captured price · ${response.unitLabel}`,'Provider revision','Batch','Known at · UTC'],response.rows.map(r=>[r.start,r.end,r.price.value,r.revision===null?'—':String(r.revision),r.batchId,r.knownAt]));host.append(rows);
  }
  async function inspect(){
   clear();const request=captureRequest(),valid=ticket();
@@ -92,9 +92,9 @@ export function setupPowerPublicationPreview(host:HTMLElement,o:PriceAuthoringOp
   if(response.product?.code!==request.product||response.product?.version!==request.productVersion||response.block!==request.block||response.averaging!==request.averaging)
    throw Error('The product response did not match the selected product and averaging policy.');
   result.append(help(`Selected-product coverage · ${response.expectedIntervals} expected intervals · ${response.missingIntervals} missing.`),
-   help(`Native-hour average · ${response.formattedAverage??'Unavailable'}. This diagnostic is not an official monthly exchange fixing.`),
+   help(`Native-hour average · ${response.formattedAverage??'Unavailable'} ${response.capture.unitLabel}. This diagnostic is not an official monthly exchange fixing.`),
    help(`Delivery calendar · ${response.calendar.code} · Holidays in range: ${response.calendar.holidays.join(', ')||'none'}`));
-  const days=element('div');resultTable(days,['Operating date','Selected intervals','Missing','State','Native-hour average'],response.days.map(d=>[d.operatingDate,String(d.expectedIntervals),String(d.missingIntervals),d.state,d.formattedAverage]));result.append(days);
+  const days=element('div');resultTable(days,['Operating date','Selected intervals','Missing','State',`Native-hour average · ${response.capture.unitLabel}`],response.days.map(d=>[d.operatingDate,String(d.expectedIntervals),String(d.missingIntervals),d.state,d.formattedAverage]));result.append(days);
   const evidence=element('details');evidence.append(element('summary','Captured hourly evidence'));renderCapture(evidence,response.capture);result.append(evidence);
  }
  return {reset,sync};

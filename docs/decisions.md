@@ -6842,3 +6842,29 @@ Side schedules. Retire the synthetic UTC bootstrap listing without deleting its
 financial facts. Preserve subsequent personal choices and all hosted selections.
 This adds no saved-context storage or schema migration. See the
 [preset and qualification contract](regional-seed.md).
+
+## D438 — Exact currency and price-unit ownership
+
+Plain monetary indexes retain required exact currency references. Derived monetary
+outputs inherit their underlying currency, quantity specification and quote
+multiplier; explicit quantity conversion preserves currency. Combining incompatible
+units refuses, including at native custom-curve publication. Separate output
+positions may retain different currencies. There is no inferred FX conversion or
+same-denomination mapping across reference revisions.
+
+Currency discount defaults reference their curve's exact currency tuple through
+a composite foreign key. Option cash totals and held lots use exact currency and
+series identities. Blotter price statistics use price denomination independently
+of external holding quantity, and retain quote multipliers in their partition.
+Human source/version qualifiers appear when labels collide; this refines D98's
+presentation without changing its financial partitions. Exports preserve exact
+row/cell identities, including filtered and regrouped ladders.
+
+PPA cash preview accepts configured exact currencies with required explicit,
+currency-bound payment-total rounding terms. New lineages select an increment and
+tie rule under `cash_explicit_increment_per_occurrence_v1`; display precision
+selects no financial convention. Existing immutable two-decimal contracts retain
+their declared semantics and exact range. No rounding catalogue or seed row is
+introduced. Qualified external feed currency contracts remain unchanged.
+
+See [the implementation and verification contract](currency-and-price-units.md).

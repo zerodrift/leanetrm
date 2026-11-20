@@ -62,6 +62,7 @@ internal static class CashSideAlignmentChecks
             if(inspected.Kind!="Payment"||inspected.ValueAt!=due||inspected.Start is not null||inspected.End is not null||
                 inspected.PresentValue!=expected||inspected.Paid!=expectedPaid||inspected.Outstanding!=expectedOutstanding)
                 throw new Exception("Cash Side inspection must expose the evaluated payment and paid state without fabricating physical delivery dates.");
+            if(inspected.QuantityReferenceKind!=ScheduleReferenceKinds.Currency)throw new Exception("Cash quantity inspection must declare currency identity, independently of the reference code.");
             if(inspected.PaymentTiming!="instant")
                 throw new Exception("Exact cash inspection must explicitly retain instant timing rather than truncate it to a payment date.");
             if(inspected.Lifecycle.Due!=(instant>=due?"Due":"NotDue"))

@@ -247,6 +247,7 @@ public sealed partial class FuturesStore(PreviewDatabase database)
                     tradeId=p.Trade.Id,tradeReference=TradingReference.Trade(row),instrumentReference=TradingReference.Instrument(row),revision=row.Number("revision").ToString(),revisionEffectiveAt=row.Text("revision_effective_at"),
                     bookId=p.Trade.BookId,book=Name(p.Trade.BookId),portfolioId=Portfolio(p.Trade.BookId),portfolio=books.Single(b=>b.Id("id")==p.Trade.BookId).Text("portfolio"),
                     definitionRevisionId=side.Contract.Key.Revision.RevisionId,quantitySpecification=p.Position.Quantity.Specification,currencyReference=side.Quote.Currency,
+                    priceUnitReference=new{side.Quote.Currency,side.Quote.Quantity,multiplier=side.Quote.Multiplier.ToString()},priceUnitLabel=PreviewData.PriceUnitLabel(Currency(side.Quote.Currency),Unit(side.Quote.Quantity),side.Quote.Multiplier.ToString()),
                     instrumentType="future",presentValue=(string?)null,fixedPrice=(string?)null,direction=(string?)null,
                     bindingId=p.Position.Id,instrumentId=p.Position.RetainedInstrumentId,pricingBindingId=side.Id,canonicalInstrumentId=side.Instrument.Id,
                     priceTick=side.Quote.TradingTick.ToString(),markTick=side.Quote.ClearingIncrement.ToString(),quoteMultiplier=side.Quote.Multiplier.ToString(),contractId=side.Contract.Key.Id,
@@ -256,7 +257,7 @@ public sealed partial class FuturesStore(PreviewDatabase database)
                     executionPrice=p.Execution.ExecutionPrice.Value.ToString(),mark=p.Holding?.Mark.Value.ToString(),markMinusPrice=p.Holding is {} held?held.Mark.Subtract(held.ExecutionPrice).Value.ToString():null,executionPnl=p.Holding?.ExecutionPnl.Amount.ToString(),
                     currency=Currency(p.Position.Instrument.Currency),settlement="unprocessed",unavailableReason=p.Reason};
             }).ToArray(),
-            totals=positions.GroupBy(p=>(p.Trade.BookId,p.Position.Instrument.Currency)).Select(g=>new {book=Name(g.Key.BookId),currency=Currency(g.Key.Currency),
+            totals=positions.GroupBy(p=>(p.Trade.BookId,p.Position.Instrument.Currency)).Select(g=>new {bookId=g.Key.BookId,book=Name(g.Key.BookId),currencyReference=g.Key.Currency,currency=Currency(g.Key.Currency),
                 executionPnl=g.Where(p=>p.Holding is not null).Select(p=>p.Holding!.ExecutionPnl).Aggregate((Money?)null,(sum,value)=>sum?.Add(value)??value)?.Amount.ToString(),
                 unvaluedPositions=g.Where(p=>p.Reason is not null).Select(p=>p.Trade.Id).Distinct().Count()}).ToArray()};
     }

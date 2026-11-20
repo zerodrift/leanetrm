@@ -156,6 +156,7 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
         var closingFactors=Canonical(last.Prepared?.Markets.SelectMany(m=>m.Data.Model.QuoteFactors(m.Snapshot))??[]).ToDictionary(f=>f.Input);
         // The opening holdings' price factors in reading order: one curve after the other, each by delivery period.
         var axes=first.Prepared is {} held?CurveRiskAxes.ByCurveAndDelivery(held,Canonical(held.Markets.SelectMany(m=>m.Connected.Factors)),ct):[];
+        var priceLabels=await ReferenceDisplay.Read(connection,axes.Select(f=>f.Unit),ct);
         if(axes.Length>RiskEngine.MaxSensitivityAxes)
             throw Error("pnl_factor_limit",$"This scope has {axes.Length} price factors. The opening-Greeks explanation covers at most {RiskEngine.MaxSensitivityAxes}; choose a smaller scope.");
         var ordinals=axes.Select((f,n)=>(f.Input,Ordinal:n)).ToDictionary(a=>a.Input,a=>a.Ordinal);
@@ -172,7 +173,7 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
             var end=closingFactors.TryGetValue(factor.Input,out var quoted)&&quoted.Unit==factor.Unit&&quoted.Quote==factor.Quote?quoted:null;
             var change=end is null?(ExactDecimal?)null:end.BaseValue-factor.BaseValue;
             movements.Add(new(Axis(factor),factor.Unit,change));
-            factorDetails.Add(new{axis=Axis(factor),label,input=factor.Input,unit=factor.Unit,priceTick=factor.TradingTick.ToString(),
+            factorDetails.Add(new{axis=Axis(factor),label,input=factor.Input,unit=factor.Unit,unitLabel=priceLabels.Price(factor.Unit),priceTick=factor.TradingTick.ToString(),
                 bump=new{size=bumps[factor.Input].ToString(),priceStep=priceStep?.ToString()},
                 opening=new{price=factor.BaseValue.ToString(),observation=factor.Observation},
                 closing=end is null?null:(object)new{price=end.BaseValue.ToString(),observation=end.Observation},
@@ -235,6 +236,7 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
         var policies=new{accounting=request.AccountingPolicy,attribution=request.AttributionPolicy,factors=request.FactorPolicy,timeModes=TimeModes,clockPolicy=ClockChange.FrozenInputs,
             clocks=Clocks(),maxAxes=RiskEngine.MaxSensitivityAxes,absoluteTolerance=selection.Delta.Absolute.ToString(),deltaRelativeTolerance=selection.Delta.Relative.ToString(),
             gammaRelativeTolerance=selection.Gamma.Relative.ToString(),coverage=Coverage(selection)};
+        var currencyLabels=await ReferenceDisplay.Read(connection,[],ct,report.Positions.Select(p=>p.Accounting.Currency));
         var result=new{id=Guid.NewGuid(),version="trading_pnl_report_v2",engineVersion=RiskJobs.EngineVersion,valuationPolicy=PortfolioRiskPreview.AccountingPricingPolicy,
             request,scope=new{books=first.BookDescriptions.Concat(last.BookDescriptions).DistinctBy(b=>b.Id("id")).ToArray(),tradeSelection=request.TradeIds is null?"All trades in the selected books":"Selected trades"},
             policies,opening=new{opening.Frame.Id,opening.Frame.Name,opening.Frame.At,opening.Context,close=Close(first)},
@@ -244,7 +246,7 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
             totals=report.Positions.GroupBy(p=>p.Accounting.Currency).Select(g=>
             {
                 var rows=g.ToArray();
-                return new{currency=g.Key,values=Values(rows),bridge=Bridge(rows),
+                return new{currency=g.Key,currencyLabel=currencyLabels.Currency(g.Key),values=Values(rows),bridge=Bridge(rows),
                     // What each factor these holdings price explains by itself.
                     factorEffects=movements.Select(m=>m.Axis).Where(axis=>rows.Any(r=>r.Contributions.Any(c=>c.Axes.Contains(axis)))).Select(axis=>new{axis,
                         delta=Greek(TradingPnlAttribution.Effect(rows,RiskEngine.CentralDelta,axis)),gamma=Greek(TradingPnlAttribution.Effect(rows,RiskEngine.CentralGamma,axis))}),

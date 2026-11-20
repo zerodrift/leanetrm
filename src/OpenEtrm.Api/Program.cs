@@ -1026,6 +1026,7 @@ Task<IResult> SettlementOperation(HttpContext c,Guid snapshot,Func<NpgsqlConnect
         return (IResult)new PpaJsonResult(bytes,200);
     },c.RequestAborted);
 });
+api.MapPost("/settlement/payment-lineages/read",(HttpContext c,PaymentLineagesReadRequest body)=>SettlementOperation(c,body.SnapshotId,async(connection,frame,ct)=>(await settlementPreview.ReadLineages(connection,frame,body,ct),body.TradeId)));
 api.MapPost("/settlement/payment-lineages/plan",(HttpContext c,PaymentLineageRequest body)=>SettlementOperation(c,body.SnapshotId,async(connection,frame,ct)=>(await settlementPreview.Plan(connection,frame,body,ct),body.TradeId)));
 api.MapPost("/settlement/ppa/preview",(HttpContext c,SettlementPreviewRequest body)=>SettlementOperation(c,body.SnapshotId,(connection,frame,ct)=>settlementPreview.Preview(connection,frame,body,ct)));
 

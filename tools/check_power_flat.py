@@ -52,7 +52,7 @@ def run_checks(url, query, manifest, *, booked_roll=False):
     unpublished=product_request(manifest,frame['id'],manifest['powerGraphProductBeforeKnownAt'],'peak',product,'2031-11-01T04:00:00Z','2031-12-01T05:00:00Z')
     assert client.call('ppa/preview',unpublished,expected=422)['code']=='ppa_tou_knowledge'
     client.call('profile',{'profile':'approver'})
-    client.call('custom-curves/publish',dict(requestId=str(uuid4()),id=proof['id'],version=1,generation=proof['generation']))
+    client.call('custom-curves/publish',dict(snapshotId=frame['id'],requestId=str(uuid4()),id=proof['id'],version=1,generation=proof['generation']))
     client.call('profile',{'profile':'editor'})
     # Distinct daily delivery periods can expire together over a weekend.
     date_context=client.call('date-schedules/context',dict(effectiveOn='2020-12-18',knownAt=None,mode='current'))['context']
@@ -89,10 +89,10 @@ def run_checks(url, query, manifest, *, booked_roll=False):
         WHERE(catalog_id,curve_id,version)=('{manifest['catalogId']}','{daily_saved['id']}',1) AND node_id IN('peak','daily_peak');COMMIT;""")
     retained_sources('test_power_flat_monthly','test_power_peak_product_monthly')
     client.call('profile',{'profile':'approver'})
-    refused=client.call('custom-curves/publish',dict(requestId=str(uuid4()),id=daily_saved['id'],version=1,generation=daily_saved['generation']),expected=422)
+    refused=client.call('custom-curves/publish',dict(snapshotId=frame['id'],requestId=str(uuid4()),id=daily_saved['id'],version=1,generation=daily_saved['generation']),expected=422)
     assert refused['code']=='power_interval_period',refused
     retained_sources('test_power_peak_product_monthly','test_power_peak_daily')
-    daily_published=client.call('custom-curves/publish',dict(requestId=str(uuid4()),id=daily_saved['id'],version=1,generation=daily_saved['generation']))
+    daily_published=client.call('custom-curves/publish',dict(snapshotId=frame['id'],requestId=str(uuid4()),id=daily_saved['id'],version=1,generation=daily_saved['generation']))
     assert daily_published['state']=='published'
     client.call('profile',{'profile':'editor'})
     product_rows=[]
@@ -126,7 +126,7 @@ def run_checks(url, query, manifest, *, booked_roll=False):
             assert expanded_preview['summary']['points']==12 and expanded_preview['columns'][0]=='Point'
         saved_child=client.call('custom-curves/save',dict(child_body,requestId=str(uuid4()),layout={}))
         client.call('profile',{'profile':'approver'})
-        saved_child=client.call('custom-curves/publish',dict(requestId=str(uuid4()),id=saved_child['id'],version=1,generation=saved_child['generation']))
+        saved_child=client.call('custom-curves/publish',dict(snapshotId=frame['id'],requestId=str(uuid4()),id=saved_child['id'],version=1,generation=saved_child['generation']))
         product_rows.append(saved_child)
         client.call('profile',{'profile':'editor'})
     lookup=deepcopy(stitched);lookup.update(code='synthetic_product_lookup',name='Synthetic saved product lookup')
@@ -150,12 +150,12 @@ def run_checks(url, query, manifest, *, booked_roll=False):
     weighted=next(n for n in bad['nodes'] if n['id']=='daily_map');weighted['contractWeights'][0]['weight']='2'
     bad_saved=client.call('custom-curves/save',dict(definition=bad,snapshotId=frame['id'],requestId=str(uuid4()),layout={}))
     client.call('profile',{'profile':'approver'})
-    bad_saved=client.call('custom-curves/publish',dict(requestId=str(uuid4()),id=bad_saved['id'],version=1,generation=bad_saved['generation']))
+    bad_saved=client.call('custom-curves/publish',dict(snapshotId=frame['id'],requestId=str(uuid4()),id=bad_saved['id'],version=1,generation=bad_saved['generation']))
     client.call('profile',{'profile':'editor'})
     invalid=deepcopy(lookup_body);invalid['definition']['nodes'][0]['publishedSource']['curveId']=bad_saved['id']
     client.call('custom-curves/preview',invalid,expected=422)
     client.call('profile',{'profile':'approver'})
-    client.call('custom-curves/publish',dict(requestId=str(uuid4()),id=saved_lookup['id'],version=1,generation=saved_lookup['generation']))
+    client.call('custom-curves/publish',dict(snapshotId=frame['id'],requestId=str(uuid4()),id=saved_lookup['id'],version=1,generation=saved_lookup['generation']))
     client.call('profile',{'profile':'editor'})
     from check_power_booked_roll import daily_price_shape
     daily_price_shape(client,query,manifest,frame,lookup_body)
@@ -175,7 +175,7 @@ def run_checks(url, query, manifest, *, booked_roll=False):
     del malformed['definition']['nodes'][2]['parameters']['implementation']
     client.call('custom-curves/preview', malformed, expected=422)
     client.call('profile', {'profile': 'approver'})
-    published = client.call('custom-curves/publish', dict(requestId=str(uuid4()), id=saved['id'], version=saved['version'], generation=saved['generation']))
+    published = client.call('custom-curves/publish', dict(snapshotId=frame['id'],requestId=str(uuid4()), id=saved['id'], version=saved['version'], generation=saved['generation']))
     assert published['state'] == 'published'
     replay = client.call('custom-curves/preview', dict(body, id=saved['id'], version=saved['version']))
     assert replay['rows'] == preview['rows']
@@ -245,7 +245,7 @@ def run_checks(url, query, manifest, *, booked_roll=False):
          RAISE EXCEPTION 'Expected mixed-unit publication refusal' USING ERRCODE='XX000';
         EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM<>'power_interval_units' THEN RAISE;END IF;END$$;ROLLBACK;""")
     client.call('profile', {'profile': 'approver'})
-    second_publication = client.call('custom-curves/publish', dict(requestId=str(uuid4()), id=saved['id'], version=2, generation=draft['generation']))
+    second_publication = client.call('custom-curves/publish', dict(snapshotId=frame['id'],requestId=str(uuid4()), id=saved['id'], version=2, generation=draft['generation']))
     client.call('custom-curves/activation', dict(requestId=str(uuid4()), curveId=saved['id'], expectedRevision=1,
                 policy='complete_effective_timeline_v1', reason='Synthetic version change',
                 segments=[dict(effectiveFrom='2020-01-01', effectiveTo='2032-01-01', version=2, outputNode='result')]))

@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Npgsql;
@@ -31,6 +32,13 @@ internal static class OptionPositionAnalytics
     {
         VolModels.Require(body.Model);
         var positions=await FuturesOptionPositions.Read(connection,database.Manifest,[],[],ct);
+        var labels=await ReferenceDisplay.Read(connection,positions.Select(p=>p.QuoteUnit),ct);
+        positions=[..positions.Select(p=>
+        {
+            var series=JsonSerializer.SerializeToNode(p.Series)!.AsObject();
+            series["currency"]=labels.Currency(p.Currency);series["quote_unit"]=labels.Quantity(p.QuoteUnit.Quantity);
+            return p with{Series=JsonSerializer.SerializeToElement(series)};
+        })];
         var surfaces=new Dictionary<(string Product,Guid Definition),OptionSurfaceLookup>();
         foreach(var key in positions.Where(p=>p.OpenLots!=default).Select(Key).Distinct())
         {
@@ -49,7 +57,7 @@ internal static class OptionPositionAnalytics
     {
         var rows=positions.Where(p=>p.OpenLots!=default).Select(position=>Row(position,surface(position))).ToArray();
         var groups=rows.GroupBy(r=>(r.Position.Series.Instant("expiry_at"),Underlying:r.Position.Series.Text("underlying_series_code"),Product:r.Position.Series.Text("product_code"),
-                r.Position.Definition,Currency:r.Position.Series.Text("currency"),Unit:r.Position.Series.Text("quote_unit")))
+                r.Position.Definition,Currency:r.Position.Currency,Unit:r.Position.Series.Text("quote_unit"),Quote:r.Position.QuoteUnit))
             .OrderBy(g=>g.Key.Item1).ThenBy(g=>g.Key.Underlying,StringComparer.Ordinal).ThenBy(g=>g.Key.Product,StringComparer.Ordinal).ThenBy(g=>g.Key.Definition);
         return new JsonObject
         {
@@ -57,8 +65,9 @@ internal static class OptionPositionAnalytics
             ["groups"]=new JsonArray([..groups.Select(group=>new JsonObject
             {
                 ["underlyingSeries"]=group.Key.Underlying,["expiryAt"]=group.Key.Item1.ToString("O",CultureInfo.InvariantCulture),["product"]=group.Key.Product,
-                ["productName"]=group.First().Position.Series.Text("product_name"),["definitionRevisionId"]=group.Key.Definition,["currency"]=group.Key.Currency,
-                ["quantityUnit"]=group.Key.Unit,
+                ["productName"]=group.First().Position.Series.Text("product_name"),["definitionRevisionId"]=group.Key.Definition,["currency"]=group.First().Position.Series.Text("currency"),["currencyReference"]=Reference(group.Key.Currency),
+                ["quantityUnit"]=group.Key.Unit,["priceUnit"]=PreviewData.PriceUnitLabel(group.First().Position.Series.Text("currency"),group.Key.Unit,group.First().Position.QuoteUnit.Multiplier.ToString()),
+                ["priceUnitReference"]=JsonSerializer.SerializeToNode(new{group.First().Position.QuoteUnit.Currency,group.First().Position.QuoteUnit.Quantity,multiplier=group.First().Position.QuoteUnit.Multiplier.ToString()},PpaStore.Json),
                 // The selection the group's surface was fitted under, with the day its thetas run to; none without a surface.
                 ["sensitivities"]=group.First().Stated is {} stated?new JsonObject{["policy"]=stated.Policy,["ticks"]=stated.Ticks,["priceSteps"]=stated.PriceSteps,
                     ["volatilityBump"]=stated.VolatilityBump.ToString(),["clockSource"]=stated.ClockSource,["clockZone"]=stated.ClockZone,["dayTo"]=stated.DayTo}:null,
@@ -67,11 +76,11 @@ internal static class OptionPositionAnalytics
                 ["subtotal"]=Sums(group,Measures)
             })]),
             // The open lots held in each series, added across the positions that hold it, for a chain to show beside it.
-            ["held"]=new JsonArray([..rows.GroupBy(r=>r.Position.SeriesKey.Code).OrderBy(g=>g.Key,StringComparer.Ordinal).Select(series=>new JsonObject
-                {["series"]=series.Key,["openLots"]=series.Aggregate(default(ExactDecimal),(lots,r)=>lots+r.Position.OpenLots).ToString()})]),
-            ["totals"]=new JsonArray([..rows.GroupBy(r=>r.Position.Series.Text("currency")).OrderBy(g=>g.Key,StringComparer.Ordinal).Select(total=>
+            ["held"]=new JsonArray([..rows.GroupBy(r=>r.Position.SeriesKey).OrderBy(g=>g.Key.Code,StringComparer.Ordinal).ThenBy(g=>g.Key.Revision.CatalogId).ThenBy(g=>g.Key.Revision.RevisionId).Select(series=>new JsonObject
+                {["series"]=series.Key.Code,["seriesReference"]=Reference(series.Key),["openLots"]=series.Aggregate(default(ExactDecimal),(lots,r)=>lots+r.Position.OpenLots).ToString()})]),
+            ["totals"]=new JsonArray([..rows.GroupBy(r=>r.Position.Currency).OrderBy(g=>g.Key.Code,StringComparer.Ordinal).ThenBy(g=>g.Key.Revision.CatalogId).ThenBy(g=>g.Key.Revision.RevisionId).Select(total=>
             {
-                var sums=Sums(total,["value","theta"]);sums.Insert(0,"currency",total.Key);return sums;
+                var sums=Sums(total,["value","theta"]);sums.Insert(0,"currency",total.First().Position.Series.Text("currency"));sums.Insert(1,"currencyReference",Reference(total.Key));return sums;
             })])
         };
     }
@@ -82,7 +91,7 @@ internal static class OptionPositionAnalytics
         internal JsonObject Json()
         {
             var row=new JsonObject{["tradeId"]=Position.Trade,["bindingId"]=Position.OptionBinding,["tradeReference"]=TradingReference.Trade(Position.Head),
-                ["bookId"]=Position.Book.Id("id"),["book"]=Position.Book.Text("name"),["series"]=Position.SeriesKey.Code,["right"]=Position.Series.Text("option_right"),
+                ["seriesReference"]=Reference(Position.SeriesKey),["currencyReference"]=Reference(Position.Currency),["bookId"]=Position.Book.Id("id"),["book"]=Position.Book.Text("name"),["series"]=Position.SeriesKey.Code,["right"]=Position.Series.Text("option_right"),
                 ["strike"]=Position.Series.Text("strike"),["openLots"]=Position.OpenLots.ToString(),["state"]=State,["reason"]=Reason};
             foreach(var measure in OptionPositionAnalytics.Measures)row[measure]=Figure(Measures[measure].Amount,Measures[measure].Missing);
             return row;
@@ -113,8 +122,14 @@ internal static class OptionPositionAnalytics
         foreach(var measure in measures)
             sums[measure]=members.Any(r=>r.Measures[measure].Amount is null)?Figure(null,Incomplete):
                 measure=="theta"&&members.Select(r=>r.Stated?.DayTo).Distinct().Count()>1?Figure(null,DaysDiffer):
-                Figure(SignedRatio.Sum(members.Select(r=>r.Measures[measure].Amount!.Value)),null);
+                Figure(measure is "value" or "vega" or "theta"?MoneySum(members,measure):SignedRatio.Sum(members.Select(r=>r.Measures[measure].Amount!.Value)),null);
         return sums;
+    }
+    private static JsonNode Reference(ReferenceKey key)=>JsonSerializer.SerializeToNode(key,PpaStore.Json)!;
+    private static SignedRatio MoneySum(Figures[] members,string measure)
+    {
+        var total=members.Select(r=>ExactMoney.Parse(r.Measures[measure].Amount!.Value.Numerator.ToString(CultureInfo.InvariantCulture)+"/"+r.Measures[measure].Amount!.Value.Denominator.ToString(CultureInfo.InvariantCulture),r.Position.Currency)).Aggregate((a,b)=>a.Add(b));
+        return new(System.Numerics.BigInteger.Parse(total.Numerator,CultureInfo.InvariantCulture),System.Numerics.BigInteger.Parse(total.Denominator,CultureInfo.InvariantCulture));
     }
     internal static JsonObject Figure(SignedRatio? amount,string? missing)=>new(){["amount"]=amount is {} stated?HalfEven18.Report(stated):null,["missing"]=missing};
     internal static SignedRatio Ratio(ExactDecimal value)=>SignedRatio.TryParse(value.ToString(),out var ratio)?ratio:

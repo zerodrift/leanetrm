@@ -63,7 +63,7 @@ public sealed partial class RecForwardStore
     var priceUnit=new PriceUnit(price.Currency!.Value,price.Unit!.Value,ExactDecimal.Parse(price.QuoteMultiplier!));
     var quoteCode=program.Slot==0?p.Product.Text("quote_code"):p.Terms().Terms.Consideration.QuoteCode;quote=new(p.Reference,quoteCode);
     rows.Add(new(guard.Output.Interval!,guard.Output.ValueAt!.Value,q,ExactUnitPrice.Parse(price.Values[0].Numerator+"/"+price.Values[0].Denominator,priceUnit),
-     ExactMoney.Parse(cash.Values[0].Numerator+"/"+cash.Values[0].Denominator,p.Currency).Scale(p.TotalQuantity),ExactMoney.Parse(pv.Values[0].Numerator+"/"+pv.Values[0].Denominator,p.Currency).Scale(p.TotalQuantity),VolumeState.Contractual,null,null));
+     ExactMoney.Parse(cash.Values[0].Numerator+"/"+cash.Values[0].Denominator,p.Currency).Scale(p.TotalQuantity),ExactMoney.Parse(pv.Values[0].Numerator+"/"+pv.Values[0].Denominator,p.Currency).Scale(p.TotalQuantity),VolumeState.Contractual,null,null){PriceUnitLabel=data.UnitLabel(priceUnit)});
    }
    var gross=value.PresentValue.Scale(p.TotalQuantity);var contribution=gross.Scale(sign);total=total.Add(contribution);
    sides.Add(new(program.SideId,name,sign.ToString(),quote??throw Invalid(),gross,contribution,rows.ToImmutable()));

@@ -28,7 +28,7 @@ def run_checks(url, manifest, query, run_worker):
         saved=client.call('custom-curves/save',{'requestId':str(uuid4()),'snapshotId':frame['id'],'definition':graph,'layout':{},
             **({'id':prior['id'],'version':prior['version'],'generation':prior['generation'],'expectedState':prior['state']} if prior else {})})
         client.call('profile',{'profile':'approver'})
-        return client.call('custom-curves/publish',{'requestId':str(uuid4()),'id':saved['id'],'version':saved['version'],'generation':saved['generation']})
+        return client.call('custom-curves/publish',{'snapshotId':frame['id'],'requestId':str(uuid4()),'id':saved['id'],'version':saved['version'],'generation':saved['generation']})
     saved=publish(definition)
     panel=client.call('custom-curves/preview',{'snapshotId':frame['id'],'id':saved['id'],'version':1,'definition':definition})
     expected=sum(Fraction(p['price']['numerator'])/Fraction(p['price']['denominator']) for p in panel['points'])

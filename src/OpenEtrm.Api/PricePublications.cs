@@ -35,7 +35,8 @@ public sealed record PowerProductPreviewRequest([property: JsonRequired] PowerPu
 public sealed record SavedPricePublicationOccurrence(Guid Id, PricePublicationOccurrence Occurrence);
 public sealed record PricePublicationChoice(ReferenceKey Reference, string Name);
 public sealed record PricePublicationIndexChoice(ReferenceKey Key, ReferenceKey Commodity, ReferenceKey Location,
-    ReferenceKey Quote, PriceUnit Unit, string Name);
+    ReferenceKey Quote, PriceUnit Unit, string Name)
+{public string UnitLabel{get;init;}="";}
 public sealed record PricePublicationCatalog(Guid CatalogId, ReferenceRevision References, bool CanEdit, bool CanIngest,
     ImmutableArray<PricePublisher> Publishers, ImmutableArray<PricePublicationDefinition> Publications,
     ImmutableArray<PricePublicationChoice> Commodities, ImmutableArray<PricePublicationIndexChoice> Indices,

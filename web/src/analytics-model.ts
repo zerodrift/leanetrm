@@ -34,7 +34,7 @@ export function pivotMatrix(groups:PivotGroup[],dimensions:string[],splitBy:stri
   const rows=new Map<string,Record<string,string|null>>(),filled=new Set<string>(),sources=new Map<string,Record<string,PivotGroup>>();
   for(const group of groups){
     if(!group.quantitySpecification||!group.currencyReference)throw Error('A pivot needs exact quantity and currency partitions.');
-    const key=canonical([rowsBy.map(d=>identity(group,d)),group.instrumentType,group.measure??null,group.quantitySpecification,group.currencyReference,group.quoteMultiplier??null]);
+    const key=canonical([rowsBy.map(d=>identity(group,d)),group.instrumentType,group.measure??null,group.quantitySpecification,group.currencyReference,group.quoteMultiplier??null,group.priceUnitReference??null]);
     const split=canonical(splitBy.map(d=>identity(group,d)));const cell=canonical([key,split]);
     if(filled.has(cell))throw Error('Duplicate pivot cells cannot be combined in the browser.');filled.add(cell);
     let row=rows.get(key);if(!row){row=Object.fromEntries(columns.map(c=>[c.key,null]));for(const d of rowsBy)row[d]=groupLabel(group,d,zone);if(group.instrumentType!==undefined)row.instrumentType=friendly(String(group.instrumentType));if(measured)row.measure=group.measure===undefined||group.measure===null?'':String(group.measureLabel??group.measure);row.unit=String(group.unit);row.currency=String(group.currency);if(group.priceUnit!==undefined)row.priceUnit=String(group.priceUnit);rows.set(key,row);}
@@ -52,7 +52,7 @@ export function pivotChartPanels(groups:PivotGroup[],dimensions:string[],splitBy
   const partitions=new Map<string,PivotGroup[]>();
   for(const group of groups){
     if(!group.quantitySpecification||!group.currencyReference)throw Error('A chart needs exact quantity and currency partitions.');
-    const key=canonical([group.instrumentType,group.quantitySpecification,group.currencyReference,isPriceMeasure(measure)?group.quoteMultiplier:null]);
+    const key=canonical([group.instrumentType,group.quantitySpecification,group.currencyReference,group.quoteMultiplier??null,group.priceUnitReference??null]);
     const rows=partitions.get(key)??[];rows.push(group);partitions.set(key,rows);
   }
   return [...partitions.values()].map(rows=>{
@@ -68,7 +68,7 @@ export function pivotChartPanels(groups:PivotGroup[],dimensions:string[],splitBy
       cells.set(category,row);series.set(key,cells);
     }
     const first=rows[0],unit=isPriceMeasure(measure)?String(first.priceUnit):measure==='quantity'?String(first.unit):measure==='tradeCount'?'Trades':measure==='lots'?'Lots':String(first.currency);
-    return {title:labels[measure],subtitle:[friendly(String(first.instrumentType??'')),String(first.unit),String(first.currency),isPriceMeasure(measure)?String(first.priceUnit):''].filter(Boolean).join(' · '),
+    return {title:labels[measure],subtitle:[friendly(String(first.instrumentType??'')),String(first.unit),String(first.currency),first.priceUnitReference?String(first.priceUnit):''].filter(Boolean).join(' · '),
       axis:categoriesBy.length===1&&categoriesBy[0]==='contract'?'delivery':'category',categoryTitle:categoriesBy.map(d=>labels[d]).join(' / '),unit,
       series:[...series.entries()].map(([key,cells])=>{const first=cells.values().next().value!;return {id:key,name:seriesBy.length?seriesBy.map(d=>groupLabel(first,d,zone)).join(' / '):labels[measure],points:categories.map(([x,row])=>({x,label:categoriesBy.map(d=>groupLabel(row,d,zone)).join(' / '),y:cells.has(x)&&cells.get(x)![measure]!==null?String(cells.get(x)![measure]):null}))};})};
   });

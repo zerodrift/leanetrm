@@ -24,7 +24,7 @@ def run_checks(url, manifest, query, run_worker):
     saved = client.call('custom-curves/save', {'requestId': str(uuid4()), 'snapshotId': frame['id'],
         'definition': definition, 'layout': {}})
     client.call('profile', {'profile': 'approver'})
-    client.call('custom-curves/publish', {'requestId': str(uuid4()), 'id': saved['id'],
+    client.call('custom-curves/publish', {'snapshotId':frame['id'],'requestId': str(uuid4()), 'id': saved['id'],
         'version': saved['version'], 'generation': saved['generation']})
     reference = {'catalogId': manifest['catalogId'], 'curveId': saved['id'], 'version': saved['version'],
         'outputNode': definition['output'], 'position': 1, 'selection': 'single_output_position_v1',

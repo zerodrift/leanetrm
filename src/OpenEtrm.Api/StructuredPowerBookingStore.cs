@@ -209,7 +209,7 @@ public sealed partial class StructuredPowerBookingStore
                 rows.Add(new(guard.Output.Interval!,guard.Output.ValueAt!.Value,quantity,ExactUnitPrice.Parse(pr.Values[0].Numerator+"/"+pr.Values[0].Denominator,unit),
                     ExactMoney.Parse(ar.Values[0].Numerator+"/"+ar.Values[0].Denominator,position.Currency),ExactMoney.Parse(pv.Values[0].Numerator+"/"+pv.Values[0].Denominator,position.Currency),
                     (plan.Composition is {} composed?composed.Sides[program.Slot].QuantitySource=="horizon_right":member.Text("name")=="access_fee")?
-                        OpenEtrm.MarketData.Power.VolumeState.Contractual:OpenEtrm.MarketData.Power.VolumeState.Forecast,null,null));
+                        OpenEtrm.MarketData.Power.VolumeState.Contractual:OpenEtrm.MarketData.Power.VolumeState.Forecast,null,null){PriceUnitLabel=data.UnitLabel(unit)});
             }
             var financial=plan.Valuation;
             var quoteCode=plan.Composition is {} composition?composition.Sides[program.Slot].Price.QuoteCode:member.Text("name") switch{

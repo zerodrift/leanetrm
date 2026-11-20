@@ -33,7 +33,7 @@ def run_checks(url, query, manifest, run_worker, admin_load, browse=None):
         c.call('profile', {'profile': 'editor'})
         saved = c.call('custom-curves/save', {'requestId': str(uuid4()), 'snapshotId': frame['id'], 'definition': graph, 'layout': {}})
         c.call('profile', {'profile': 'approver'})
-        return c.call('custom-curves/publish', {'requestId': str(uuid4()), 'id': saved['id'], 'version': saved['version'], 'generation': saved['generation']})
+        return c.call('custom-curves/publish', {'snapshotId':frame['id'],'requestId': str(uuid4()), 'id': saved['id'], 'version': saved['version'], 'generation': saved['generation']})
     sources = {s['code']: s for s in c.call('custom-curves')['sources']}
     curve = custom_curves(publish, sources, catalog)
     c.call('profile', {'profile': 'trader'})

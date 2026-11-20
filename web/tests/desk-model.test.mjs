@@ -86,18 +86,18 @@ test('tile rows are keyed on the exact currency reference, never on its display 
  const pv=summaryTiles(summaries)[0];
  assert.equal(pv.rows.length,3);
  assert.deepEqual(pv.rows.filter(r=>r.total==='220'||r.total==='7').map(r=>r.total).sort(),['220','7']);
- assert.deepEqual(pv.rows.map(r=>r.currency).filter(c=>c==='USD').length,2,'two references of one currency code stay two rows, each reading by that code');
+ assert.equal(new Set(pv.rows.map(r=>r.currency)).size,3,'colliding exact currencies receive distinct presentation labels');
 });
-test('a currency or unit of one code reads by that code in any reference revision, and never names a revision or catalog',()=>{
+test('currencies and quantity bases qualify their source only when labels collide',()=>{
  const catalogId='10000000-0000-0000-0000-000000000001',second='e5f6a7b8-0000-4000-8000-000000000002';
  // The fixture's own references are in revision 20000000-...; these two share their codes with them and differ in the revision.
  const currency={...fixture.summaries[0].groups[0].currencyReference,revision:{catalogId,revisionId:second}};
  const tiles=summaryTiles(changed(changed(fixture.summaries,0,groups=>[...groups,{...groups[0],currencyReference:currency,presentValue:'7',tradeCount:1,unvaluedPositions:0}]),1,groups=>[...groups,{...groups[0],currencyReference:currency,presentValue:'7',tradeCount:1,unvaluedPositions:0}]));
- assert.deepEqual(tiles[0].rows.map(r=>r.currency),['EUR','USD','USD']);
+ assert.equal(tiles[0].rows[0].currency,'EUR');assert.equal(new Set(tiles[0].rows.map(r=>r.currency)).size,3);
  const unit={...fixture.summaries[2].groups[0].quantitySpecification,revision:{catalogId,revisionId:second}};
  const mix=positionsTile(changed(fixture.summaries,2,groups=>[...groups,{...groups[0],quantitySpecification:unit,tradeCount:1}]),fixture.holdings.length,0);
  const swaps=mix.segments.filter(s=>s.label.startsWith('Synthetic gas · Swaps')),before=positionsTile(fixture.summaries,fixture.holdings.length,0).segments.find(s=>s.label==='Synthetic gas · Swaps');
- assert.deepEqual(swaps.map(s=>[s.label,s.trades]),[['Synthetic gas · Swaps',before.trades+1]],'segments that read alike in every term are one segment of their trades');
+ assert.equal(swaps.length,2);assert.equal(swaps.reduce((n,s)=>n+s.trades,0),before.trades+1,'distinct quantity bases stay visible');
  for(const label of [...tiles[0].rows.map(r=>r.currency),...mix.segments.map(s=>s.label)])assert.doesNotMatch(label,/[0-9a-f]{8}-[0-9a-f]{4}-.*:/,'a catalog is not part of what names a revision');
 });
 test('a book without positions of a measure gets no split, and a book that values none says so',()=>{
@@ -690,4 +690,10 @@ test('started-delivery gas is labelled and totalled under its own measure, never
  assert.deepEqual(positionRows(holdings).map(r=>r.measure),['Unrealized + realized unsettled','Contractual PV']);
  const [header]=deskGroups('instrumentType',summaries,holdings).headers;
  assert.deepEqual(header.subtotals.map(s=>[s.measure,s.amount,s.currency]),[['Contractual PV','64','USD'],['Unrealized + realized unsettled','18','USD']]);
+});
+
+test('a price uses its actual quote denominator rather than the holding lot or capacity unit',()=>{
+ const h={currency:'USD',unit:'lot',quoteMultiplier:'10000',priceUnitLabel:'USD/MMBtu'};
+ assert.equal(priceUnit(h),'USD/MMBtu');
+ assert.equal(priceUnit({...h,unit:'MW',priceUnitLabel:'USD/MWh'}),'USD/MWh');
 });
