@@ -176,7 +176,9 @@ def run_checks(query, manifest, psql, environment, dotnet, temporary):
 
     # Observe all independent runtime backends blocked at the same fence before release.
     def race(commands):
-        scripts = [runtime(sql) for sql in commands]
+        from native_read_transport import NativeReadTransport
+        transport=NativeReadTransport();transport.sources.update(query.read_sources)
+        scripts = [transport.prepare(runtime(sql)) for sql in commands]
         holder = hold_gate()
         with ThreadPoolExecutor(max_workers=len(scripts)) as pool:
             tasks = [pool.submit(subprocess.run, psql, input=script, text=True, capture_output=True,
@@ -185,7 +187,9 @@ def run_checks(query, manifest, psql, environment, dotnet, temporary):
                 waiting(len(tasks))
             finally:
                 release(holder)
-            return [t.result() for t in tasks]
+            outcomes=[t.result() for t in tasks]
+            for outcome in outcomes:outcome.stdout=transport.receive(outcome.stdout)
+            return outcomes
 
     concurrent = publish(str(uuid4()), zero['headId'], 3, 'suspended')
     outcomes = race([concurrent, concurrent])

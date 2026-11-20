@@ -43,3 +43,6 @@ export function carryReadReferences<T>(value:T,source:unknown):T{
  return value;
 }
 export function cloneRead<T>(value:T):T{return carryReadReferences(attachReadReferences(structuredClone(value),readReferences(value)),value);}
+export function renewReadReferences<T>(value:T,source:unknown):T{
+ return carryReadReferences(attachReadReferences(value,readReferences(source)),source);
+}

@@ -54,6 +54,7 @@ internal sealed partial class GasParkCustodyTicketStore(PreviewDatabase database
     {
         if(request.OperationId==Guid.Empty)throw GasParkCustodyTicket.Invalid("profile","Supply an exact booking request identity.");
         GasParkCustodyBooking? prepared=null;
+        ScheduleContext? preparedSource=null;
         var prior=await database.WithIdentity(profile,"BookTrade",async(connection,token)=>
         {
             var status=await Status(connection,request.OperationId,token);
@@ -68,14 +69,19 @@ internal sealed partial class GasParkCustodyTicketStore(PreviewDatabase database
             {
                 MarketInputSelection.RequireTerms(data,request.DefinitionRevisionId);
                 _=await Preview(connection,data,pinned,new(request.Context,request.Draft),token);
+                preparedSource=(await new KnowledgeResolver(database.Manifest.CatalogId).Read(connection,pinned.ContextId!.Value,token)).Context;
                 return GasParkCustodyTicket.Request(request.Draft,frame.Id,pinned.ContextId!.Value,request.Context.KnowledgeMode??"",request.OperationId,request.DefinitionRevisionId);
             },token);
             return null;
         },ct);
         if(prior is {} accepted)return accepted;
         return await database.WithIdentity(profile,"BookTrade",async(connection,token)=>
-            await LifecycleNative.Read(connection,"SELECT security.book_gas_park_custody($1,$2::jsonb,$3)::text",token,
-                database.Manifest.CatalogId,JsonSerializer.Serialize(prepared,GasOwnedOperations.Json),frame.At),ct);
+        {
+            var source=await new KnowledgeResolver(database.Manifest.CatalogId).Retained(connection,preparedSource??throw new InvalidOperationException("Missing prepared booking inputs."),token);
+            await TradingContext.AdmitSource(database,connection,source,frame.At,token);
+            return await LifecycleNative.Read(connection,"SELECT security.book_gas_park_custody($1,$2::jsonb,$3)::text",token,
+                database.Manifest.CatalogId,JsonSerializer.Serialize(prepared,GasOwnedOperations.Json),frame.At);
+        },ct);
     }
 
     internal async Task<object> Trade(NpgsqlConnection connection,PreviewData data,InputFrame frame,TicketTradeRequest request,CancellationToken ct)

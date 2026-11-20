@@ -23,21 +23,21 @@ def checks(query, manifest, economic_worker=None, *, form_source_counterexamples
     def literal(value):
         return "'"+json.dumps(value).replace("'", "''")+"'::jsonb"
 
-    def call(sql, profile='trader', rollback=False):
+    def call(sql, profile='trader', rollback=False, inputs=True):
         token = query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
                       f"'https://preview.invalid','{profile}','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
-        return query("SET SESSION AUTHORIZATION preview_runtime;BEGIN;"
+        return (query if inputs else query.raw)("SET SESSION AUTHORIZATION preview_runtime;BEGIN;"
                      f"SELECT security.use_context('{token}');{sql}"+('ROLLBACK;' if rollback else 'COMMIT;'))
 
     at = '2020-12-20T16:00:00Z'
     def capture():
         return call(f"SELECT security.resolve_operation_context('{catalog}','2020-12-20',NULL);")
 
-    def command(account, action, body, policy=None, operation=None, profile='trader', context=None, rollback=False):
+    def command(account, action, body, policy=None, operation=None, profile='trader', context=None, rollback=False, inputs=True):
         policy_id, policy_revision = policy or (None, None)
         sql_uuid = lambda value: "NULL" if value is None else "'"+str(value)+"'"
         return json.loads(call(f"SELECT security.record_gas_owned('{catalog}','{operation or uuid4()}','{action}','{account}',"
-                               f"{literal(body)},'{at}','{context or capture()}',{sql_uuid(policy_id)},{policy_revision or 'NULL'},false)::text;",profile,rollback))
+                               f"{literal(body)},'{at}','{context or capture()}',{sql_uuid(policy_id)},{policy_revision or 'NULL'},false)::text;",profile,rollback,inputs))
 
     def rejected(work, code):
         try:
@@ -232,7 +232,7 @@ def checks(query, manifest, economic_worker=None, *, form_source_counterexamples
     trader=query("SELECT principal_id FROM security.identity_bindings WHERE issuer='https://preview.invalid' AND subject='trader';")
     query(f"UPDATE security.role_grants SET revoked=true WHERE principal_id='{trader}';")
     try:
-        rejected(lambda:apply(owned,'receive_title',body,operation=operation,context=title_context),'gas_owned_denied')
+        rejected(lambda:apply(owned,'receive_title',body,operation=operation,context=title_context,inputs=False),'gas_owned_denied')
     finally:
         query(f"UPDATE security.role_grants SET revoked=false WHERE principal_id='{trader}';")
     print('PASS concurrent gas same-fact commands converge; competing source heads, unauthorized callers and revoked receipt replay refuse',flush=True)

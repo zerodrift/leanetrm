@@ -198,7 +198,7 @@ def run_checks(query, manifest):
     check_display_scale(query,manifest)
 
 
-def main(checks=run_checks, before_migration=None, fixture_factory=None, arguments=None, cleanup_ready=None):
+def main(checks=run_checks, before_migration=None, fixture_factory=None, arguments=None, cleanup_ready=None, through_migration=None):
     import argparse
     import os
     from pathlib import Path
@@ -243,6 +243,7 @@ def main(checks=run_checks, before_migration=None, fixture_factory=None, argumen
                  shlex.join(['-k',str(directory),'-h','','-p','55439','-c','track_commit_timestamp=on']),'start'])
             query((root / 'db/bootstrap.sql').read_text())
             for migration in sorted((root/'db/migrations').glob('*.sql')):
+                if through_migration is not None and migration.name[:4]>through_migration:break
                 if migration.name in('0223_bounded_fact_anchor_reads.sql','0225_bounded_observation_matching.sql'):
                     from check_fact_anchor_upgrade import run_checks as check_fact_upgrade
                     number=migration.name[:4]
@@ -292,9 +293,10 @@ def main(checks=run_checks, before_migration=None, fixture_factory=None, argumen
                 query(migration.read_text())
             from native_read_transport import NativeReadTransport
             native_inputs=directory/'native-read-inputs.json'
-            transport=NativeReadTransport(native_inputs)
-            os.environ['OPENETRM_NATIVE_CHECK_INPUTS']=str(native_inputs)
-            query.read_sources=transport.sources
+            if query("SELECT to_regprocedure('security.resolve_operation_context(uuid,date,timestamptz)') IS NOT NULL;")=='t':
+                transport=NativeReadTransport(native_inputs)
+                os.environ['OPENETRM_NATIVE_CHECK_INPUTS']=str(native_inputs)
+                query.read_sources=transport.sources
             reference,market,security,manifest=(fixture if fixture_factory is None else fixture_factory)(root)
             query(reference)
             from seed_fixture_market import load_market

@@ -1,4 +1,4 @@
-import {cloneRead,retainedKnowledge} from './read-references.js';
+import {cloneRead,retainedKnowledge,renewReadReferences,readReferences} from './read-references.js';
 import {validateMonteCarlo,type MonteCarloRequest,type MonteCarloContainer} from './monte-carlo-risk.js';
 import {projectionPolicyLabels} from './projection-policy.js';
 // The risk report of the Blotter desk (blotter-desk.md, Side panel: Risk report), drawn in the side panel's Risk report mode. It offers
@@ -251,7 +251,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
       if(run!==retained){forgetRun();run=retained;}
       reviewing=true;const version=generation;showRun();sync();
       // Handoffs omit result bodies. Reauthorize and hydrate known jobs as well as reconciling unknown submissions.
-      for(const part of retained.parts){if(!part.job)continue;const receipt=await call<Job>(`portfolio/risk/jobs/${encodeURIComponent(part.job.id)}`);if(version!==generation)return;take(part,receipt);}
+      for(const part of retained.parts){if(!part.job)continue;const receipt=await call<Job>(`portfolio/risk/jobs/${encodeURIComponent(part.job.id)}`);if(version!==generation)return;take(part,receipt);restoreSources(retained,receipt);}
       await recentJobs(version);if(version===generation)showRun();return;
     }
     // A catalog read for the Blotter on screen stands with the setup and run it holds: any new read of the Blotter resets the report. The
@@ -421,6 +421,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
         // A request sent again may return its job already done, with its result.
         const job=await options.api<Job>('portfolio/risk/jobs',{requestId:command.operationId,request:command.body.request,...(command.body.run?{run:command.body.run}:{})});
         part.recovery!.clear();take(part,job);
+        if(!stale()&&job.context&&readReferences(job.context)[job.context.contextId])restoreSources(current,job);
       }catch(error){
         part.recovery!.failed(code(error),previouslyUncertain);
         if(!part.recovery!.command)part.failure=failure(error,'The part was not queued.');
@@ -479,6 +480,24 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     recent=loaded;refresh();return true;
   }
   /** Reads the recent jobs, and settles a retained part whose original job is among them. Whether that left the run fully known. */
+  function restoreSources(current:Run,receipt:Job){
+    const pending=current.parts.filter(part=>part.recovery?.command);
+    if(!pending.length)return;
+    const source=receipt.context,pinned=current.context;
+    if(!source||!pinned||!source.knownAt||(['contextId','effectiveOn','knownAt','knownThrough'] as const).some(key=>source[key]!==pinned[key])||
+      !readReferences(source)[source.contextId])throw Error('Read the original job inputs before resuming this retained run.');
+    const requests=pending.flatMap(part=>{
+      const request=part.recovery!.command!.body.request as Request|undefined;
+      if(!request)throw Error('The retained risk command has no original request.');
+      return part.request?[part.request,request]:[request];
+    });
+    for(const request of requests){
+      const context=request.context as {contextId?:string}|undefined;
+      if(context?.contextId!==source.contextId)throw Error('The retained risk part differs from the original job inputs.');
+    }
+    for(const request of requests)renewReadReferences(request,source);
+    renewReadReferences(pinned,source);
+  }
   async function recentJobs(version:number){
     if(!await readHistory(version))return false;
     const retained=submissions.get(options.profile());
@@ -489,7 +508,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
       if(!match)continue;
       const receipt=await call<Job>(`portfolio/risk/jobs/${match.id}`);if(version!==generation)return false;
       if(receipt.id!==match.id||receipt.requestId!==command.operationId)throw Error('The retained job receipt does not match the unconfirmed request.');
-      part.recovery!.clear();take(part,receipt);found=true;
+      part.recovery!.clear();take(part,receipt);restoreSources(retained,receipt);found=true;
     }
     if(!found)return false;
     if(!uncertain(retained).length&&submissions.get(options.profile())===retained)submissions.delete(options.profile());

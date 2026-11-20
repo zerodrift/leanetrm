@@ -276,7 +276,10 @@ def checks(query, manifest):
         patch = dict(id=new_id, occurrence_count=bad_count)
         if bad_hash is not None:
             patch['terms_hash'] = bad_hash
-        native_rejected(f"BEGIN;INSERT INTO trading.publications SELECT '{catalog}',coalesce(max(publication_order),0)+1,pg_current_xact_id() "
+        # Copy already-admitted, complete input evidence while faulting only the
+        # independent policy seal. This privileged corruption rolls back.
+        native_rejected(f"BEGIN;ALTER TABLE settlement_data.futures_margin_policies DISABLE TRIGGER aaa_source_read_inputs;"
+                        f"INSERT INTO trading.publications SELECT '{catalog}',coalesce(max(publication_order),0)+1,pg_current_xact_id() "
                         f"FROM trading.publications WHERE catalog_id='{catalog}';"
                         f"INSERT INTO settlement_data.futures_margin_policies SELECT (jsonb_populate_record(NULL::settlement_data.futures_margin_policies,"
                         f"to_jsonb(p)||{literal(patch)}||jsonb_build_object('publication_order',(SELECT max(publication_order) FROM trading.publications WHERE catalog_id='{catalog}')))).* "

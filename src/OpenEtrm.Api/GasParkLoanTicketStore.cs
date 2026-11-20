@@ -105,6 +105,7 @@ internal sealed class GasParkLoanTicketStore(PreviewDatabase database)
     {
         if(request.OperationId==Guid.Empty)throw GasParkLoanTicket.Invalid("profile","Supply the booking request identity.");
         GasParkLoanBooking? prepared=null;
+        ScheduleContext? preparedSource=null;
         var prior=await database.WithIdentity(profile,"BookTrade",async(c,token)=>
         {
             var status=await Status(c,request.OperationId,token);
@@ -119,13 +120,18 @@ internal sealed class GasParkLoanTicketStore(PreviewDatabase database)
             {
                 MarketInputSelection.RequireTerms(data,request.DefinitionRevisionId);
                 _=await Preview(c,data,pinned,new(request.Context,request.Draft),token);
+                preparedSource=(await new KnowledgeResolver(database.Manifest.CatalogId).Read(c,pinned.ContextId!.Value,token)).Context;
                 return GasParkLoanTicket.Request(request.Draft,frame.Id,pinned.ContextId!.Value,request.Context.KnowledgeMode??"",request.OperationId,request.DefinitionRevisionId);
             },token);
             return null;
         },ct);
         if(prior is {} recorded)return recorded;
         return await database.WithIdentity(profile,"BookTrade",async(c,token)=>
-            await LifecycleNative.Read(c,"SELECT security.book_gas_park_loan($1,$2::jsonb,$3)::text",token,database.Manifest.CatalogId,JsonSerializer.Serialize(prepared,Json),frame.At),ct);
+        {
+            var source=await new KnowledgeResolver(database.Manifest.CatalogId).Retained(c,preparedSource??throw new InvalidOperationException("Missing prepared booking inputs."),token);
+            await TradingContext.AdmitSource(database,c,source,frame.At,token);
+            return await LifecycleNative.Read(c,"SELECT security.book_gas_park_loan($1,$2::jsonb,$3)::text",token,database.Manifest.CatalogId,JsonSerializer.Serialize(prepared,Json),frame.At);
+        },ct);
     }
 
     internal async Task<object> Trade(NpgsqlConnection c,PreviewData data,InputFrame frame,TicketTradeRequest request,CancellationToken ct)

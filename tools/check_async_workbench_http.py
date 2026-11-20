@@ -56,9 +56,9 @@ class Stream:
 
 def run_checks(url, query, psql, environment, manifest):
     passed = 0
-    def check(name, condition=True):
+    def check(name, condition=True, detail=None):
         nonlocal passed
-        assert condition, name
+        assert condition,(name,detail) if detail is not None else name
         passed += 1
         print('PASS async workbench: '+name, flush=True)
 
@@ -262,6 +262,7 @@ def run_checks(url, query, psql, environment, manifest):
     finally:
         stream.close()
     c.call('profile',{'profile':'risk'})
+    c.select_inputs(c.observed_inputs[risk['context']['contextId']])
     opened=c.call('async-reads/channels',{'clientId':client_id});channel=opened['channelId'];stream=Stream(c,channel)
     assert stream.event('ready') is not None
     principal="(SELECT principal_id FROM security.identity_bindings WHERE issuer='https://preview.invalid' AND subject='risk')"
@@ -340,18 +341,22 @@ def run_checks(url, query, psql, environment, manifest):
     c.call('profile',{'profile':'viewer'})
     c.call('portfolio/pnl/run',{**pnl,'closing':{**dated(frame),'knowledgeMode':'current'}},expected=403)
     c.call('profile',{'profile':'risk'})
+    c.select_inputs(c.observed_inputs[risk['context']['contextId']])
     check('a malformed P&L run is refused for its authority before its shape')
     # The ordinary routes of the covered reads execute outside the session gate (docs/async-reads.md).
     LOCK='LOCK market_data.observations IN ACCESS EXCLUSIVE MODE'
     def tab():
         """Another connection of the same session, so requests overlap as a page's do."""
         other=PreviewClient(url);other.session=c.session;other.token=c.token
+        other.read_references.update(c.read_references)
+        other.observed_inputs.update(c.observed_inputs)
         for cookie in c.jar:other.jar.set_cookie(cookie)
         return other
     def background(path,body,expected=200):
         result={}
         def work():
-            try:result['value']=tab().call(path,body,expected=expected)
+            try:
+                reader=tab();result['value']=reader.call(path,body,expected=expected);result['status']=reader.last_status
             except Exception as error:result['error']=repr(error)[:300]
             result['at']=time.monotonic()
         thread=threading.Thread(target=work);thread.start()
@@ -370,12 +375,15 @@ def run_checks(url, query, psql, environment, manifest):
     for thread,_ in reads:thread.join(timeout=20)
     check('a third ordinary read of one session waits for a slot, then completes',all(read.get('value')==expected['curve.evaluate.v1'] for _,read in reads))
     def switched():
-        thread,held=background('portfolio/risk',risk,expected=403);waiting(1)
+        thread,held=background('portfolio/risk',risk,expected=(403,422));waiting(1)
         c.call('profile',{'profile':'viewer'},timeout=5)
         return thread,held
     thread,held=holding(psql,environment,LOCK,switched);thread.join(timeout=20)
-    check('a profile switch during an ordinary read refuses its answer',(held.get('value') or {}).get('code')=='access_denied')
+    check('a profile switch during an ordinary read refuses its answer',
+        (held.get('status'),(held.get('value') or {}).get('code')) in [(403,'access_denied'),(422,'read_reference')]
+        and set(held.get('value') or {})<={'code','message'},held)
     c.call('profile',{'profile':'risk'})
+    c.select_inputs(c.observed_inputs[risk['context']['contextId']])
     saved=json.loads(query(f"SELECT json_agg(json_build_object('id',id,'until',granted_to)) FROM security.role_grants WHERE principal_id={principal};"))
     try:
         def expires_ordinary():

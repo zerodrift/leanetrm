@@ -36,6 +36,17 @@ class PreviewClient:
         self.token = ''
         self.last_read_references = {}
         self.read_references = {}
+        self.observed_inputs = {}
+        self.last_status = None
+
+    def remember_inputs(self,value):
+        if isinstance(value,dict):
+            keys=('contextId','effectiveOn','knownAt','knownThrough')
+            if all(value.get(key) is not None for key in keys):
+                self.observed_inputs[value['contextId']]={key:value[key] for key in keys}
+            for child in value.values():self.remember_inputs(child)
+        elif isinstance(value,list):
+            for child in value:self.remember_inputs(child)
 
     def reference_headers(self,body,path=''):
         selected={}
@@ -73,9 +84,12 @@ class PreviewClient:
         if session is not None and session != self.session:
             self.session = session
             PreviewClient.sessions[self.example] += 1
-        if response.code != expected:
+        self.last_status=response.code
+        if response.code not in ((expected,) if isinstance(expected,int) else expected):
             raise AssertionError(f'{path}: expected {expected}, got {response.code}: {value.decode()}')
-        return json.loads(value) if value else None
+        parsed=json.loads(value) if value else None
+        self.remember_inputs(parsed)
+        return parsed
 
     def stream(self, path, body, timeout=20):
         """POST and yield each NDJSON frame as parsed; closing the generator closes the response (a client abort)."""
@@ -86,11 +100,14 @@ class PreviewClient:
         except HTTPError as error:
             raise AssertionError(f'{path}: expected a stream, got {error.code}: {error.read().decode()}') from None
         with response:
+            self.last_read_references=json.loads(response.headers.get('X-OpenETRM-Read-References','{}'))
+            self.read_references.update(self.last_read_references)
             if response.headers.get_content_type() != 'application/x-ndjson':
                 raise AssertionError(f'{path}: expected NDJSON, got {response.headers.get_content_type()}')
             for line in response:
                 frame=json.loads(line)
                 if isinstance(frame,dict) and isinstance(frame.get("readReferences"),dict):self.read_references.update(frame["readReferences"])
+                self.remember_inputs(frame)
                 yield frame
 
     def bootstrap(self):

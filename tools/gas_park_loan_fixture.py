@@ -19,6 +19,7 @@ class ParkLoanFixture:
 
     def __init__(self, query, manifest):
         self.query, self.manifest = query, manifest
+        self.context_operation=('security.resolve_operation_context' if query("SELECT to_regprocedure('security.resolve_operation_context(uuid,date,timestamptz)') IS NOT NULL;")=='t' else 'security.capture_date_context')
         self.catalog = manifest['catalogId']
         self.at = '2020-12-20T16:00:00Z'
         self.day = '2020-12-20'
@@ -56,7 +57,7 @@ class ParkLoanFixture:
 
     def capture(self, *, day=None, cutoff=None):
         selected = 'NULL' if cutoff is None else "'" + cutoff + "'"
-        return self.call(f"SELECT security.resolve_operation_context('{self.catalog}','{day or self.day}',{selected});")
+        return self.call(f"SELECT {self.context_operation}('{self.catalog}','{day or self.day}',{selected});")
 
     def native(self, account, action, body, *, policy=None, operation=None, context=None, profile='trader', rollback=False):
         selected = f"'{policy}',1" if policy else 'NULL,NULL'

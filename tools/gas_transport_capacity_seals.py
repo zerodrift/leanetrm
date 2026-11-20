@@ -9,12 +9,14 @@ from gas_transport_capacity_fixture import identity, literal
 def seals(f, rejected):
     catalog = f.catalog
     def attack(statement, code):
+        from native_read_transport import register_captured_input
+        inputs=''.join(register_captured_input(f.query,identifier) for identifier in f.query.read_sources)
         # Only the owned disposable database receives this future-definer probe.
         f.query("CREATE FUNCTION trading.synthetic_transport_definer() RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $probe$BEGIN "
             + statement + " END;$probe$;ALTER FUNCTION trading.synthetic_transport_definer() OWNER TO openetrm_security_owner;"
             "REVOKE ALL ON FUNCTION trading.synthetic_transport_definer() FROM PUBLIC;GRANT EXECUTE ON FUNCTION trading.synthetic_transport_definer() TO openetrm_runtime;")
         try:
-            rejected(lambda: f.call('SELECT trading.synthetic_transport_definer();'), code)
+            rejected(lambda: f.call(inputs+'SELECT trading.synthetic_transport_definer();'), code)
         finally:
             f.query('DROP FUNCTION trading.synthetic_transport_definer();')
 
@@ -26,11 +28,14 @@ def seals(f, rejected):
     accepted = f.record(chosen,f.hourly_witness(facts,chosen['claims']),operation=operation)
     current = f.read(body['entitlementId'])
     source = f.capture()
+    from native_read_transport import captured_input
+    cut=captured_input(f.query,source)
+    inputs=dict(source_business_on=cut['effective_on'],source_known_at=cut['known_at'],source_system_id=cut['system_id'],source_timeline=cut['timeline'])
     fresh = str(uuid4())
     publication = f"(SELECT max(publication_order) FROM trading.publications WHERE catalog_id='{catalog}')"
     attack(f"INSERT INTO trading.publications SELECT '{catalog}',max(publication_order)+1,pg_current_xact_id() FROM trading.publications WHERE catalog_id='{catalog}';"
         "INSERT INTO trading.gas_transport_capacity_plans SELECT(jsonb_populate_record(NULL::trading.gas_transport_capacity_plans,to_jsonb(p)||"
-        f"{literal(dict(id=fresh,business_key='synthetic_unattested_plan',revision=1,previous_id=None,source_context_id=source,source_generation=current['stateVersion']))}"
+        f"{literal(dict(id=fresh,business_key='synthetic_unattested_plan',revision=1,previous_id=None,source_context_id=source,source_generation=current['stateVersion'],**inputs))}"
         f"||jsonb_build_object('publication_order',{publication}))).* FROM trading.gas_transport_capacity_plans p WHERE(p.catalog_id,p.id)=('{catalog}','{operation}');",
         'gas_transport_capacity_integrity')
 
@@ -46,7 +51,7 @@ def seals(f, rejected):
     request = deepcopy(chosen)
     request['claims'][0]['claimId'] = identity('gas_transport_claim_v1',forged)
     attack("INSERT INTO trading.gas_transport_capacity_commands SELECT(jsonb_populate_record(NULL::trading.gas_transport_capacity_commands,to_jsonb(c)||"
-        f"jsonb_build_object('operation_id','{forged}','outcome',jsonb_set(c.outcome,'{{changed}}','false'),'source_context_id','{source}',"
+        f"{literal(inputs)}||jsonb_build_object('operation_id','{forged}','outcome',jsonb_set(c.outcome,'{{changed}}','false'),'source_context_id','{source}',"
         f"'request',jsonb_build_object('body',{literal(request)},'contextId','{source}','effectiveAt',c.request->'effectiveAt')))).* "
         f"FROM trading.gas_transport_capacity_commands c WHERE(c.catalog_id,c.operation_id)=('{catalog}','{operation}');",'gas_transport_capacity_integrity')
 

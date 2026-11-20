@@ -1,9 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {attachReadReferences,carryReadReferences,cloneRead,readReferenceHeaders,retainedKnowledge} from '../dist/read-references.js';
+import {attachReadReferences,carryReadReferences,cloneRead,readReferenceHeaders,retainedKnowledge,renewReadReferences} from '../dist/read-references.js';
 import {actorTransport} from '../dist/pending-command.js';
 const first='00000000-0000-0000-0000-000000000001',second='00000000-0000-0000-0000-000000000002';
 const header='X-OpenETRM-Read-References';
+test('an owned receipt renews stale nested references without changing the original command',()=>{
+ const request=attachReadReferences({context:{contextId:first},run:{id:'original-run',part:3,parts:5},requestId:'original-request'},{[first]:'old-workspace-proof'});
+ carryReadReferences(request,request.context);
+ const before=JSON.stringify(request),source=attachReadReferences({contextId:first},{[first]:'current-owned-proof'});
+ renewReadReferences(request,source);
+ assert.deepEqual(JSON.parse(readReferenceHeaders(request)[header]),{[first]:'current-owned-proof'});
+ assert.equal(JSON.stringify(request),before);
+});
 test('independent read results retain their own references after a newer read completes',()=>{
  const a=attachReadReferences({context:{contextId:first},value:'3.25'},{[first]:'proof-a'});
  const b=attachReadReferences({context:{contextId:second},value:'3.50'},{[second]:'proof-b'});

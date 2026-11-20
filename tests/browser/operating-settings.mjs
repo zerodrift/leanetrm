@@ -10,7 +10,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await click('#access-policy-page > details > summary');await set('#access-policy-page [data-policy-field=sessionMinutes]','30');await submit('#access-policy-page form');
  await check('a deliberate subsequent policy revision restores the selected access operating value',"document.querySelector('#access-policy-page [data-policy-field=sessionMinutes]').value==='30'&&document.querySelector('#error').hidden");
  await click('#nav-ai');await click('#assistant-policy-page > details > summary');
- await check('the same policy widget renders assistant limits from server field metadata',"document.querySelectorAll('#assistant-policy-page [data-policy-field]').length===6&&document.querySelector('#assistant-policy-page [data-policy-field=pinBytes]').max==='262144'&&document.querySelector('#assistant-policy-page [data-policy-field=toolResultRows]').value==='500'");
+ await check('the same policy widget renders assistant limits from server field metadata',"document.querySelectorAll('#assistant-policy-page [data-policy-field]').length===5&&document.querySelector('#assistant-policy-page [data-policy-field=pinBytes]').max==='262144'&&document.querySelector('#assistant-policy-page [data-policy-field=toolResultRows]').value==='500'&&!document.querySelector('#assistant-policy-page [data-policy-field=retainedContextReserve]')");
  await click('#nav-admin');
  await persona('viewer');await check('a reader has no policy administration entry or retained policy form',"document.querySelector('#nav-admin').hidden&&document.querySelector('#access-policy-page').hidden&&document.querySelector('#assistant-policy-page').hidden");
 }

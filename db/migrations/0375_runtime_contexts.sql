@@ -1570,4 +1570,29 @@ ALTER FUNCTION risk.capture_workspace_clock(uuid,uuid,jsonb,jsonb,uuid) OWNER TO
 REVOKE ALL ON FUNCTION risk.capture_workspace_clock(uuid,uuid,jsonb,jsonb,uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION risk.capture_workspace_clock(uuid,uuid,jsonb,jsonb,uuid) TO openetrm_runtime;
 
+-- A new command recording an already-admitted operating fact keeps that fact's
+-- original inputs, rather than replacing them with the new request's cutoff.
+DO $$DECLARE change record;p pg_proc;definition text;
+BEGIN
+ FOR change IN SELECT * FROM(VALUES
+  ('security.record_storage_facility(uuid,uuid,jsonb,timestamptz,jsonb,uuid)',
+   '3639e72ebe12798b75781ffd96652cddc3bb9937f8627003f1405e8f6c66c8af',
+   'INSERT INTO trading.storage_facility_commands VALUES(catalog,actor,operation,facility,jsonb_set(payload,''{contextId}'',to_jsonb(prior.source_context_id)),fact_key,result,deadline,prior.source_context_id);'),
+  ('security.record_gas_transport_capacity(uuid,uuid,jsonb,timestamptz,jsonb,uuid)',
+   'b777be0a3493bb7dc676786fdf0095ff03e0a1c51bf4a9e61abaea2ab82ec0c7',
+   'source_context=prior.source_context_id;payload=jsonb_set(payload,''{contextId}'',to_jsonb(source_context));'),
+  ('security.record_gas_transport_route(uuid,uuid,jsonb,timestamptz,jsonb,uuid)',
+   '262c251ec5b936e2b4f0ddafb8325ad4b62ac4d301be9452362bee66c61eeeb6',
+   'source_context=prior.source_context_id;payload=jsonb_set(payload,''{contextId}'',to_jsonb(source_context));')
+ )v(signature,expected,original) LOOP
+ SELECT * INTO STRICT p FROM pg_proc WHERE oid=change.signature::regprocedure;
+ definition=pg_get_functiondef(p.oid);
+ IF encode(sha256(convert_to(definition||p.proowner::regrole::text||coalesce(p.proacl::text,''),'UTF8')),'hex')<>change.expected
+  OR position(change.original in definition)=0
+ THEN RAISE EXCEPTION 'runtime_fact_consumer_changed: %',change.signature USING ERRCODE='55000';END IF;
+ EXECUTE replace(definition,change.original,
+  'PERFORM security.register_owner_coordinates(catalog,prior.source_context_id,prior.source_business_on,prior.source_known_at,prior.source_system_id,prior.source_timeline);'||E'\n'||change.original);
+ END LOOP;
+END$$;
+
 COMMIT;

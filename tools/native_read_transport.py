@@ -5,6 +5,7 @@ not the database. Reusing an explicit correlation supplies its original complete
 coordinates under the next request's current authority. No context is saved.
 """
 import json
+from datetime import datetime,timezone
 import os
 from pathlib import Path
 import re
@@ -50,8 +51,13 @@ class NativeReadTransport:
         for line in output.splitlines():
             if line.startswith(self.marker):
                 for source in json.loads(line[len(self.marker):]):
+                    instant=datetime.fromisoformat(source['known_at'])
+                    if instant.tzinfo is None:raise AssertionError('A native read omitted its knowledge time zone')
+                    source['known_at']=instant.astimezone(timezone.utc).isoformat(timespec='microseconds')
                     identifier=source['id']
                     previous=self.sources.get(identifier)
+                    if previous:
+                        previous['known_at']=datetime.fromisoformat(previous['known_at']).astimezone(timezone.utc).isoformat(timespec='microseconds')
                     coordinates=('catalog_id','effective_on','known_at','schedule_prefix','system_id','timeline')
                     if previous and any(previous[k]!=source[k] for k in coordinates):raise AssertionError('A native read changed its exact coordinates')
                     changed|=previous is None

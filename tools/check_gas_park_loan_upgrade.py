@@ -47,8 +47,10 @@ def run():
         print('PASS Park and Loan upgrade refuses gas classifier source, owner, admission, settings and ACL drift under any caller search path', flush=True)
         print('PASS Park and Loan entry prompt registration refuses source, owner, language settings and ACL drift', flush=True)
         reference, market, security, manifest = fixture(root)
-        for sql in [reference, market, security]:
-            query(sql)
+        from seed_fixture_market import load_market
+        query(reference)
+        security=load_market(query,market,security,manifest)
+        if security:query(security)
         f = ParkLoanFixture(query, manifest)
         owned, book = f.account('park_loan_predecessor')
         policies = {action: f.bind(owned, action) for action in ['gas.loan.borrow', 'gas.loan.repay', 'gas.cash.record_payment']}
@@ -94,7 +96,7 @@ def run():
         assert not f.holdings(prepared['book'])['positions']
         print('PASS additive Park and Loan upgrade: retained stock/debt/fees/bank/receipts unchanged, no legacy conversion and ordinary native final return remains executable', flush=True)
 
-    main(checks=verify, before_migration=before, fixture_factory=loaded)
+    main(checks=verify, before_migration=before, fixture_factory=loaded,through_migration='0338')
 
 
 if __name__ == '__main__':

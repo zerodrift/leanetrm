@@ -12,9 +12,13 @@ def qualification():
     def before(query,migration):
         if migration.name=='0250_recorded_cash_payments.sql':
             reference,market,security,trading,manifest=fixture(migration.parents[2])
-            for sql in (reference,market,security,trading):query(sql)
             query("CREATE ROLE preview_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS INHERIT IN ROLE openetrm_runtime;"
                   "CREATE ROLE preview_authenticator LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS INHERIT IN ROLE openetrm_authenticator;")
+            from seed_fixture_market import load_market
+            query(reference)
+            security=load_market(query,market,security,manifest)
+            if security:query(security)
+            query(trading)
             query(f"SELECT security.initialize_operating_policies('{manifest['tenantId']}','{manifest['workspaceId']}');")
             query(catalogue_fixture(manifest,manifest['identityIssuer']))
             catalog=manifest['catalogId']
@@ -46,7 +50,7 @@ def qualification():
         assert retained.get('verified') is True,'The populated upgrade check did not run.'
         assert query("SELECT to_regclass('risk.saved_pnl_reports') IS NOT NULL;")=='t'
 
-    main(checks=after,before_migration=before)
+    main(checks=after,before_migration=before,through_migration='0251')
 
 
 if __name__=='__main__':qualification()

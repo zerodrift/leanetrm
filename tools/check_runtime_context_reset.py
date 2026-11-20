@@ -45,3 +45,10 @@ def run_checks(query,migration):
     else:raise AssertionError('Cutover accepted predecessor clock attestations')
     assert query("SELECT to_regclass('market_data.temporal_contexts') IS NOT NULL AND to_regtype('security.operation_read_coordinates') IS NULL;")=='t'
     print('PASS context cutover rejects changed clock issuer and pending predecessor attestations atomically',flush=True)
+    for name in ('record_storage_facility','record_gas_transport_capacity','record_gas_transport_route'):
+        signature=f'security.{name}(uuid,uuid,jsonb,timestamptz,jsonb,uuid)'
+        try:query(f"BEGIN;ALTER FUNCTION {signature} SET work_mem='64kB';"+candidate)
+        except RuntimeError as error:assert 'runtime_fact_consumer_changed' in str(error) and name in str(error),error
+        else:raise AssertionError('Cutover accepted a changed same-fact consumer: '+name)
+        assert query("SELECT to_regclass('market_data.temporal_contexts') IS NOT NULL AND to_regtype('security.operation_read_coordinates') IS NULL;")=='t'
+    print('PASS context cutover rejects changed same-fact operating consumers atomically',flush=True)

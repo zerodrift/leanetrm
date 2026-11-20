@@ -125,6 +125,6 @@ the pinned .NET 10 SDK and synthetic inputs. They cover:
   wrong transaction and expiry refusals, and repeated captures in one saving
   transaction with distinct one-use tokens and one business receipt.
 
-The frontend suite passes 2,263 checks and the verification-runner suite passes
-173 checks. This evidence qualifies the exercised synthetic paths; it does not
+The frontend suite passes 2,264 checks and the verification-runner suite passes
+176 checks. This evidence qualifies the exercised synthetic paths; it does not
 activate a hosted installation or replace the full CI matrix.

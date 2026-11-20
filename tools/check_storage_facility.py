@@ -47,8 +47,9 @@ def checks(query, manifest):
     defined = record(definition, operation=operation, effective='2021-01-15T00:00:00Z')
     assert record(definition, operation=operation, effective='2021-01-15T00:00:00Z') == defined
     def zoned_retry(request):
+        selected=fixture.capture(day='2021-01-15')
         return json.loads(runtime_query(query, manifest, "SET LOCAL TimeZone='Etc/GMT-1';"
-            f"SELECT security.record_storage_facility('{catalog}','{request}',{literal(definition)},'2021-01-15T00:00:00Z',NULL,NULL)::text;"))
+            f"SELECT security.record_storage_facility('{catalog}','{request}',{literal(definition)},'2021-01-15T00:00:00Z',NULL,'{selected}')::text;"))
     assert zoned_retry(operation) == defined
     original_publication = query(f"SELECT max(publication_order) FROM trading.publications WHERE catalog_id='{catalog}';")
     assert zoned_retry(str(uuid4())) == {**defined, 'changed': False}
