@@ -1,3 +1,4 @@
+import {retainedKnowledge} from './read-references.js';
 import {projectionPolicyLabels,type ProjectionPolicyReceipt} from './projection-policy.js';
 import {amountText,prepareAmountDisplay} from './amount-display.js';
 import {clearChart,renderChart} from './chart-view.js';
@@ -36,7 +37,7 @@ export function draftValuation<D extends Draft>(host:HTMLElement,o:{product:'fut
   summary.textContent=`${result.measure==='present_value'?'PV':'Execution P&L'}: ${amountText(pv,'money')} ${result.currency}`;
   note.textContent=o.amending?.()?'Estimate of proposed terms. To save, enter an amendment reason, choose Preview changes, review and confirm, then Save amendment.':result.measure==='present_value'?'Unbooked estimate. Risk uses ±one tick per price factor; interest rates stay fixed.':'Unbooked execution P&L and open-price exposure. Margin and settlement PV are not processed.';
   const resolved=result.resolvedFixedPrice!==undefined&&draft.fixed?{...draft,fixed:{...(draft.fixed as Record<string,unknown>),price:result.resolvedFixedPrice},parRatePolicy:null}:draft;
-  retained={draft:{...resolved,context:{...draft.context,knowledgeMode:'retained',contextId:result.context.contextId}},bumpPolicy:result.bumpPolicy,numericalPolicy:result.numericalPolicy};canRisk=result.canRunDealRisk;
+  retained={draft:{...resolved,context:{...draft.context,...retainedKnowledge(result.context)}},bumpPolicy:result.bumpPolicy,numericalPolicy:result.numericalPolicy};canRisk=result.canRunDealRisk;
   await o.priced?.(result);if(started!==generation||key!==o.key())return;
   await drawCurves(draft,started,key);if(started===generation&&key===o.key())sync();
  }

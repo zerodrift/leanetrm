@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import {zonedInput} from './user-time.js';
 import type {LifecycleDiscovery,LifecycleOffer} from './lifecycle-model.js';
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
@@ -10,7 +11,7 @@ export function mountLifecycleSchedule(root:HTMLElement,data:LifecycleDiscovery,
  root.replaceChildren(element('h2','Schedule this occurrence'));
  const settings=data.scheduling;
  if(!data.recordedCloseId||!offer.scheduleSettings||!settings){root.append(element('p','Record this market close and select saved product settings before scheduling an occurrence.'));return{edited:()=>false,refresh(){}};}
- const close=data.recordedCloseId,selectedSettings=structuredClone(offer.scheduleSettings);
+ const close=data.recordedCloseId,selectedSettings=cloneRead(offer.scheduleSettings);
  const form=element('form');form.className='lifecycle-form';form.dataset.lifecyclePermission='RunJobs';const fields=element('div');fields.className='schedule-fields';form.append(fields);root.append(form);
  function field(label:string,input:HTMLInputElement|HTMLSelectElement){const wrapper=element('label',label);wrapper.append(input);fields.append(wrapper);return input;}
  function input(label:string,type='text'){const control=element('input');control.type=type;control.required=true;field(label,control);return control;}
@@ -32,7 +33,7 @@ export function mountLifecycleSchedule(root:HTMLElement,data:LifecycleDiscovery,
   const revision=version,[policyId,policyRevision]=JSON.parse(policy.value),requestId=crypto.randomUUID();
   const schedule={requestId,name:name.value,operation:settings.operation,dueAt:await due.instant(),expiresAt:await expires.instant(),intervalSeconds:null,timeZone:settings.timeZone,misfire:settings.misfire,overlap:settings.overlap,timeoutSeconds:Number(timeout.value),maximumAttempts:Number(attempts.value),profileId:null,profileVersion:null};
   if(!o.current()||revision!==version)return;
-  const definition={closeId:close,target:structuredClone(offer.target),action:offer.action,occurrenceId:offer.occurrenceId,policyId,policyRevision,knowledgePolicy:knowledge.value,settingsPolicy:product.value,inputPolicy:inputs.value,settings:selectedSettings};
+  const definition={closeId:close,target:cloneRead(offer.target),action:offer.action,occurrenceId:offer.occurrenceId,policyId,policyRevision,knowledgePolicy:knowledge.value,settingsPolicy:product.value,inputPolicy:inputs.value,settings:selectedSettings};
   await o.queue('jobs/lifecycle/create',{schedule,definition},'Schedule '+offer.label);
  });};
  return{edited:()=>edited,refresh(){for(const time of times)time.refresh();}};

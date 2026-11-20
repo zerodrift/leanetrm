@@ -29,6 +29,7 @@ def run_checks(url, run_id, owned_root):
         totals = {book: sum((Decimal(r['executionPnl']) for r in rows if r['book'] == book), Decimal(0)) for book in ['Book A','Book B']}
         check(frame['at'][:10]+' shows its independently priced cumulative weekday trades', len(rows) == int(count) and totals == {'Book A':Decimal(a),'Book B':Decimal(b)})
         check(frame['at'][:10]+' preserves two books and one shared dated contract', {r['book'] for r in rows} == {'Book A','Book B'} and len({r['instrumentId'] for r in rows}) == 1 and len({r['pricingBindingId'] for r in rows}) == 1)
+    client.select_inputs(earlier)
     historical = client.call('futures/holdings', {**view, 'knowledgeMode':'retained', 'contextId':earlier['contextId']})
     check('new backdated demo trades do not leak into an earlier knowledge receipt', not any(r['tradeId'] in ids for r in historical['holdings']))
     check('all demo economic effective dates are weekdays and settlement remains unprocessed', all(datetime.fromisoformat(r['economicEffectiveAt']).weekday() < 5 and r['settlement'] == 'unprocessed' for r in rows))

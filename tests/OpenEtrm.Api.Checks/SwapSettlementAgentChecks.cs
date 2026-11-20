@@ -75,7 +75,7 @@ internal static class SwapSettlementAgentChecks
         if(!status.GetProperty("found").GetBoolean()||status.Id("determinationId")!=accepted.Id("determinationId"))throw new Exception("The agent could not reconcile its committed operation.");
         await database.WithIdentity("trader","ReadTrades",async(connection,ct)=>
         {
-            var view=await TradingView.Capture(connection,new KnowledgeStore(database.Manifest.CatalogId),frame,ct);
+            var view=await TradingView.Capture(connection,new KnowledgeResolver(database.Manifest.CatalogId),frame,ct);
             return await new TradeReads(database).Read(connection,view,async data=>
             {
                 var holdings=await new SwapStore(database).ReadRiskHoldings(connection,data,view.CalculationFrame,[],excluded:[],ct);

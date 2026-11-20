@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import type {StatisticalRequest,StatisticalCapabilities} from './historical-risk.js';
 import {node,table} from './risk-report-elements.js';
 import {renderChart,clearChart} from './chart-view.js';
@@ -90,7 +91,7 @@ export function setupFactorHistory(o:Options){
  }
  async function configure(){
   panel.open=true;if(configuration||setupController)return;
-  owner=o.identity();const scope=structuredClone(o.scope()),version=++generation,controller=setupController=new AbortController();clear('Reading the held factors and available calendars…');
+  owner=o.identity();const scope=cloneRead(o.scope()),version=++generation,controller=setupController=new AbortController();clear('Reading the held factors and available calendars…');
   try{
    const catalog=await o.api<Configuration&{context:{contextId:string}}>('portfolio/risk/catalog',scope,controller.signal);
    if(!current(version)||controller.signal.aborted)return;
@@ -120,7 +121,7 @@ export function setupFactorHistory(o:Options){
   if(!Number.isSafeInteger(count)||count<2||count>2048)throw Error('Minimum complete daily changes must be a whole number from 2 to 2048.');
   if(!from.value||!to.value||from.value>=to.value)throw Error('Choose a history window with a first date before its end date.');
   if(!priceTypes.length)throw Error('Allow at least one price type. Official daily close is the starting selection.');
-  return {scope:structuredClone(configuration.scope),pricingPolicy:configuration.pricingPolicy,policy:{...configuration.history.guided.profile,minimumSamples:count,priceTypes:[...priceTypes]},calendar:selected.reference,from:from.value,to:to.value,closeTime:configuration.history.guided.closeTime,ambiguousTime:configuration.history.clockPolicy.ambiguousTime,invalidTime:configuration.history.clockPolicy.invalidTime};
+  return {scope:cloneRead(configuration.scope),pricingPolicy:configuration.pricingPolicy,policy:{...configuration.history.guided.profile,minimumSamples:count,priceTypes:[...priceTypes]},calendar:selected.reference,from:from.value,to:to.value,closeTime:configuration.history.guided.closeTime,ambiguousTime:configuration.history.clockPolicy.ambiguousTime,invalidTime:configuration.history.clockPolicy.invalidTime};
  }
  function draw(){
   for(const p of plots)clearChart(p);plots=[];results.replaceChildren();if(!result)return;
@@ -164,7 +165,7 @@ export function setupFactorHistory(o:Options){
   const captured=await prepare(signal),version=generation;if(signal?.aborted||!captured||!current(version)||!sameScope()||configuration!==config||captured!==result||cacheKey!==requestedKey||JSON.stringify(request())!==requestedKey)return;
   if(action==='risk-history-run')return;
   message.textContent=hybridExecution?'Step 2 of 2 · fitting the hybrid valuation and pricing its recorded validation sample…':simulation?'Step 2 of 2 · generating correlated factor moves and repricing every simulation path…':historical?'Step 2 of 2 · repricing every joint historical change and calculating VaR and expected shortfall…':'Step 2 of 2 · calculating covariance, sensitivities, VaR and expected shortfall…';
-  const body:StatisticalRequest=simulation?{monteCarlo:{history:structuredClone(captured.request),policy:{...(hybridExecution?config.monteCarlo!.hybrid!.profile:config.monteCarlo!.profile),confidence:policy.confidence,drift:drift.value,paths:pathCount,seed:seed.value},...((hybridExecution||analysis.checked)&&config.monteCarlo!.analysis?{analysis:{...config.monteCarlo!.analysis.profile,valuationPolicy:hybridExecution?(fallback.checked?config.monteCarlo!.hybrid!.fittingPolicies.fullPvFallback:config.monteCarlo!.hybrid!.fittingPolicies.strict):(fallback.checked?config.monteCarlo!.analysis.fallbackValuationPolicy:config.monteCarlo!.analysis.profile.valuationPolicy),retainedComponents:Number(components.value),tradingTicks:Number(ticks.value),stabilityRelative:stability.value,lossAbsolute:lossAbsolute.value,lossRelative:lossRelative.value}}:{}),...(hybridExecution?{hybrid:{...config.monteCarlo!.hybrid!.executionProfile,validationPaths:Number(validation.value),validationSeed:validationSeed.value}}:{})}}:historical?{historical:{history:structuredClone(captured.request),policy:{...config.historical.profile,confidence:policy.confidence},...(comparison.checked?{comparison:{policy,finiteDifference}}:{})}}:{parametric:{history:structuredClone(captured.request),policy,finiteDifference}};
+  const body:StatisticalRequest=simulation?{monteCarlo:{history:cloneRead(captured.request),policy:{...(hybridExecution?config.monteCarlo!.hybrid!.profile:config.monteCarlo!.profile),confidence:policy.confidence,drift:drift.value,paths:pathCount,seed:seed.value},...((hybridExecution||analysis.checked)&&config.monteCarlo!.analysis?{analysis:{...config.monteCarlo!.analysis.profile,valuationPolicy:hybridExecution?(fallback.checked?config.monteCarlo!.hybrid!.fittingPolicies.fullPvFallback:config.monteCarlo!.hybrid!.fittingPolicies.strict):(fallback.checked?config.monteCarlo!.analysis.fallbackValuationPolicy:config.monteCarlo!.analysis.profile.valuationPolicy),retainedComponents:Number(components.value),tradingTicks:Number(ticks.value),stabilityRelative:stability.value,lossAbsolute:lossAbsolute.value,lossRelative:lossRelative.value}}:{}),...(hybridExecution?{hybrid:{...config.monteCarlo!.hybrid!.executionProfile,validationPaths:Number(validation.value),validationSeed:validationSeed.value}}:{})}}:historical?{historical:{history:cloneRead(captured.request),policy:{...config.historical.profile,confidence:policy.confidence},...(comparison.checked?{comparison:{policy,finiteDifference}}:{})}}:{parametric:{history:cloneRead(captured.request),policy,finiteDifference}};
   await o.calculate(body,{pricingPolicy:config.pricingPolicy,convention:config.convention,numericalPolicy:config.numericalPolicy,context:captured.context,asOf:captured.asOf},queued,signal);
   if(!signal?.aborted&&current(version))message.textContent='Calculation submitted. Its report retains the history, price-type choices and numerical settings.';
   };

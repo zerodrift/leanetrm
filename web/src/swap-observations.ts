@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import type {DeliveryPeriod} from './swap-selection.js';
 /** Exact backend plans are presented and transported; dates and weights are never calculated here. */
 export type ReferenceKey={revision:{catalogId:string;revisionId:string};code:string};
@@ -19,6 +20,6 @@ export function observationScheduleInput(choice:Pick<SamplingChoice,'requiresObs
  if(choice.requiresObservationCalendar&&!calendar)throw Error('Choose an exact observation calendar.');
  if(choice.requiresQuantityWeights&&(!rows?.length||rows.length!==values.length))throw Error('Resolve the observation intervals before entering quantity weights.');
  if(choice.requiresQuantityWeights&&values.some(value=>!value.trim()))throw Error('Enter a positive quantity for every planned observation.');
- return {implementation:'side_observation_schedule_v1',calendar:choice.requiresObservationCalendar?structuredClone(calendar):null,
-  quantities:choice.requiresQuantityWeights?rows!.map((row,index)=>({from:row.from,to:row.to,quantity:{value:values[index],specification:structuredClone(row.quantitySpecification)}})):null};
+ return {implementation:'side_observation_schedule_v1',calendar:choice.requiresObservationCalendar?cloneRead(calendar):null,
+  quantities:choice.requiresQuantityWeights?rows!.map((row,index)=>({from:row.from,to:row.to,quantity:{value:values[index],specification:cloneRead(row.quantitySpecification)}})):null};
 }

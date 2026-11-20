@@ -18,7 +18,7 @@ def checks(query, manifest):
                       f"'{issuer}','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}COMMIT;")
 
-    context = call(f"SELECT security.capture_date_context('{catalog}','2026-10-16',NULL);")
+    context = call(f"SELECT security.resolve_operation_context('{catalog}','2026-10-16',NULL);")
     at = '2026-10-16T15:30:00Z'
 
     def read(event_id=event, binding_id=binding, context_id=context, linked=True):
@@ -41,9 +41,10 @@ def checks(query, manifest):
             assert code in str(error), str(error)
         else:
             raise AssertionError('Expected ' + code)
-    early = query(f"SELECT t.context_id FROM trading.contexts t WHERE t.catalog_id='{catalog}' AND t.known_through<"
-                  f"(SELECT e.publication_order FROM trading.futures_option_events e WHERE(e.catalog_id,e.id)=('{catalog}','{event}')) "
-                  "ORDER BY t.known_through DESC LIMIT 1;")
+    before_event=query(f"SELECT k.known_from-interval '1 microsecond' FROM trading.futures_option_events e "
+        "JOIN trading.knowledge_receipts k ON(k.catalog_id,k.publication_order)=(e.catalog_id,e.publication_order) "
+        f"WHERE(e.catalog_id,e.id)=('{catalog}','{event}');")
+    early=call(f"SELECT security.resolve_operation_context('{catalog}','2026-10-16','{before_event}');")
     assert early
     try:
         read(context_id=early)

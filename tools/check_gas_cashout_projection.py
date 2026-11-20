@@ -41,7 +41,7 @@ def checks(query,manifest):
             f"'https://preview.invalid','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}"
             +('SET CONSTRAINTS ALL IMMEDIATE;ROLLBACK;' if rollback else 'COMMIT;'))
-    def capture():return call(f"SELECT security.capture_date_context('{catalog}','2020-12-20',NULL);")
+    def capture():return call(f"SELECT security.resolve_operation_context('{catalog}','2020-12-20',NULL);")
     # A separate synthetic book has no unrelated ownership or capital origin.
     book=str(uuid4())
     query(f"BEGIN;INSERT INTO trading.publications SELECT '{catalog}',coalesce(max(publication_order),0)+1,pg_current_xact_id() FROM trading.publications WHERE catalog_id='{catalog}';"

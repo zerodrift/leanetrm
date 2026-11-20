@@ -79,7 +79,7 @@ public sealed partial class GasTransportFinancialStore(PreviewDatabase database)
     {
         // Read only the named immutable certificate, including on recovery.
         // Never recapture a cutoff or resolve current business/market heads.
-        var stored=(await new KnowledgeStore(catalog).Read(c,context.ContextId,ct)).Context;
+        var stored=(await new KnowledgeResolver(catalog).Read(c,context.ContextId,ct)).Context;
         if(PublishedSchedules.ContextDate(stored)!=context.BusinessDate)
             throw new MarketDataException("gas_transport_financial_context","Retain the exact business date of the named financial source certificate.");
     }
@@ -121,7 +121,7 @@ public sealed partial class GasTransportFinancialStore(PreviewDatabase database)
         var admission=new GasTransportFinancialReadAdmission(database.Manifest.CatalogId,context.ContextId,context.AsOf,
             TradingInstant.Parse(row.Text("authorityUntil"),"gas_transport_financial_source"));
         database.RegisterCommitAdmission(c,admission);
-        var known=(await new KnowledgeStore(database.Manifest.CatalogId).Read(c,context.ContextId,ct)).Context;
+        var known=(await new KnowledgeResolver(database.Manifest.CatalogId).Read(c,context.ContextId,ct)).Context;
         RequireSource(row,context,trade,SchedulePreview.ParseAt(known.KnownAt));
         await admission.RequireCommit(c,ct);return row;
     }

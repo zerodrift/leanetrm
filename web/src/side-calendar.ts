@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import type {ReferenceKey} from './swap-observations.js';
 
 export const calendarKey=(reference:ReferenceKey)=>JSON.stringify([reference.revision.catalogId,reference.revision.revisionId,reference.code]);
@@ -18,9 +19,9 @@ export class SideCalendarPolicySelection{
  private selected:Partial<Record<CalendarPurpose,ReferenceKey>>={};
  restore(policy?:SideCalendarPolicy|null){
   this.selected={};
-  if(policy)for(const purpose of purposes){const ref=policy[purpose].calendar;if(ref)this.selected[purpose]=structuredClone(ref);}
+  if(policy)for(const purpose of purposes){const ref=policy[purpose].calendar;if(ref)this.selected[purpose]=cloneRead(ref);}
  }
- choose(purpose:CalendarPurpose,reference:ReferenceKey|null){if(reference)this.selected[purpose]=structuredClone(reference);else delete this.selected[purpose];}
+ choose(purpose:CalendarPurpose,reference:ReferenceKey|null){if(reference)this.selected[purpose]=cloneRead(reference);else delete this.selected[purpose];}
  value(purpose:CalendarPurpose,locks:CalendarLocks={}){return this.selected[purpose]??locks[purpose];}
  useOne(reference:ReferenceKey,applicable:CalendarPurposes,locks:CalendarLocks){
   for(const purpose of purposes)if(applicable[purpose]&&locks[purpose]&&!same(reference,locks[purpose]!))throw Error(`The ${purpose} calendar is locked by the selected product.`);
@@ -37,7 +38,7 @@ export class SideCalendarPolicySelection{
  }
  read(applicable:CalendarPurposes,choices:SideCalendarChoice[],locks:CalendarLocks={}):SideCalendarPolicy{
   this.check(applicable,choices,locks,true);
-  const binding=(purpose:CalendarPurpose):CalendarBinding=>({applicable:applicable[purpose],calendar:applicable[purpose]?structuredClone(this.value(purpose,locks)!):null});
+  const binding=(purpose:CalendarPurpose):CalendarBinding=>({applicable:applicable[purpose],calendar:applicable[purpose]?cloneRead(this.value(purpose,locks)!):null});
   return{implementation:'side_calendar_policy_v1',delivery:binding('delivery'),observation:binding('observation'),payment:binding('payment')};
  }
 }

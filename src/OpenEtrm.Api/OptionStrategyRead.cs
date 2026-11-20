@@ -197,7 +197,7 @@ internal static class OptionStrategyRead
         var source=await VolSurfaceStore.ProductSource(connection,database,view.CalculationFrame,ct,body.DefinitionRevisionId);
         var (data,frame)=await MarketInputSelection.Resolve(database,connection,view.CalculationFrame,source,[(root,view.CalculationFrame)],false,ct);
         if(frame.ContextId is not {} contextId)throw new MarketDataException("option_market_context","A strategy is analysed under the certified calculation context.");
-        var context=PinnedContext.Exact((await new KnowledgeStore(catalog).Read(connection,contextId,ct)).Context);
+        var context=PinnedContext.Exact((await new KnowledgeResolver(catalog).Read(connection,contextId,ct)).Context);
         var snapshot=MarketSnapshotBinding.Bind(data.Snapshot(frame),contextId,SchedulePreview.ParseAt(context.KnownAt));
 
         var listed=data.FuturesOptionSeries.Where(s=>s.Product.Code==body.Product).ToDictionary(s=>s.Key.Code,StringComparer.Ordinal);

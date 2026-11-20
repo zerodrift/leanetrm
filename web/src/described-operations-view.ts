@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import {mountOperationFields,type OperationField} from './operation-fields.js';
 import {PendingCommand,actorTransport,restoreTradeRequest,type RequestCommand} from './pending-command.js';
 import {zonedInput,sameUtcInstant} from './user-time.js';
@@ -96,7 +97,7 @@ export function setupDescribedOperations(root:HTMLElement,o:DescribedOperationsO
   const preview=node('button','Review operation');preview.type='submit';preview.setAttribute('data-'+p.data,'preview');fields.append(preview);dirty=false;sync();
  }
  async function load(id=selected,query=sourceSearch){
-  restore();generation++;const at=fence(),context=structuredClone(o.context()),searching=physical&&section==='activity';sourceSearch=searching&&id===selected&&queryScope===at.stamp?query:'';queryScope=at.stamp;if(searchInput)searchInput.value=sourceSearch;const requestedSearch=sourceSearch;reading=true;view=undefined;directory=undefined;o.inspected?.(null);clearEditor();select.replaceChildren(new Option(placeholder,''));drawContext();get('inspection').replaceChildren();get('actions').replaceChildren();get('message').textContent='Reading '+noun+' records…';sync();
+  restore();generation++;const at=fence(),context=cloneRead(o.context()),searching=physical&&section==='activity';sourceSearch=searching&&id===selected&&queryScope===at.stamp?query:'';queryScope=at.stamp;if(searchInput)searchInput.value=sourceSearch;const requestedSearch=sourceSearch;reading=true;view=undefined;directory=undefined;o.inspected?.(null);clearEditor();select.replaceChildren(new Option(placeholder,''));drawContext();get('inspection').replaceChildren();get('actions').replaceChildren();get('message').textContent='Reading '+noun+' records…';sync();
   try{const result=await o.api<View>(p.path+'/directory',{context});if(!current(at))return;validate(result,context);if(!Array.isArray(result[p.listKey]))throw Error('The '+noun+' directory is incomplete.');directory=result;
    select.replaceChildren(new Option(placeholder,''),...result[p.listKey]!.map(f=>new Option(`${f.label} · version ${f.revision}`,f.id)));if(id&&!result[p.listKey]!.some(f=>f.id===id))select.append(new Option('Previously selected '+noun,id));selected=id;select.value=id;
    if(id){const read=await o.api<View>(p.path+'/read',{context,[p.scopeKey]:id,...(searching?{sourceSearch:requestedSearch}:{})});if(!current(at))return;validate(read,context);if(read.ownerId!==result.ownerId)throw Error('The operating account changed. Refresh before continuing.');
@@ -111,13 +112,13 @@ export function setupDescribedOperations(root:HTMLElement,o:DescribedOperationsO
  form.addEventListener('input',invalidate);form.addEventListener('change',invalidate);
  form.onsubmit=event=>{event.preventDefault();void o.act(async()=>{
   if(!definition||!editor||!effective||!allowed(definition)||pending.command)throw Error('Choose an authorized '+noun+' operation in working data.');
-  const at=fence(),version=draftVersion,f=definition,context=structuredClone(o.context()),operationId=crypto.randomUUID();
+  const at=fence(),version=draftVersion,f=definition,context=cloneRead(o.context()),operationId=crypto.randomUUID();
   const [fields,effectiveAt]=await Promise.all([editor.read(),effective.instant()]);if(!current(at)||version!==draftVersion||f!==definition)return;
   const body={context,ownerId:source()!.ownerId,operationId,effectiveAt,command:{...f.base,...fields}},value=await o.api<Preview>(p.path+'/preview',body);if(!current(at)||version!==draftVersion||f!==definition)return;
   if(p.profile!==undefined&&value.profile!==p.profile||value.operationId!==operationId||value.ownerId!==body.ownerId||value.kind!==body.command.kind||!scope(value)||!value.command||value.command.kind!==value.kind||value.command[p.scopeKey]!==scope(value)||
    typeof body.command[p.scopeKey]==='string'&&scope(value)!==body.command[p.scopeKey]||value.command.expectedStateVersion!==body.command.expectedStateVersion||value.command.expectedRouteStateVersion!==body.command.expectedRouteStateVersion||
    !sameUtcInstant(value.effectiveAt,effectiveAt)||value.context?.effectiveOn!==context.effectiveOn)throw Error('The review did not retain this exact '+noun+' request. Review it again.');
-  reviewed={value,body:{context,ownerId:body.ownerId,effectiveAt:value.effectiveAt,command:structuredClone(value.command)}};
+  reviewed={value,body:{context,ownerId:body.ownerId,effectiveAt:value.effectiveAt,command:cloneRead(value.command)}};
   const review=node('section');review.setAttribute('data-'+p.data,'review');review.append(node('h3','Review '+f.label));const facts=node('div');inspect(facts,value);review.append(facts);const record=node('button','Record reviewed operation');record.type='button';record.setAttribute('data-'+p.data,'record');record.onclick=()=>void o.act(async()=>{if(!reviewed)return;const r=reviewed;const command=pending.begin(p.path+'/record',r.body,()=>r.value.operationId,f.label);retain();sync();await send(command);});review.append(record);get('review-host').replaceChildren(review);sync();
  });};
  function receipt(command:RequestCommand,value:Outcome,complete=false){

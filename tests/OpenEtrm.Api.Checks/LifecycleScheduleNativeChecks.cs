@@ -37,6 +37,7 @@ internal static class LifecycleScheduleNativeChecks
         var login=new NpgsqlConnectionStringBuilder{Host=host,Port=55439,Database="postgres",Username="pilot_fixture_scheduler",Pooling=false,Timezone="UTC"};
         await using var scheduler=NpgsqlDataSource.Create(login.ConnectionString);
         await using var runtime=NpgsqlDataSource.Create(new NpgsqlConnectionStringBuilder(login.ConnectionString){Username="pilot_fixture_runtime"}.ConnectionString);
+        await OccurrenceReadAdmission.Admit(scheduler,runtime,manifest,claim,default);
         await using var issue=scheduler.CreateCommand("SELECT automation.issue_lifecycle_context($1,$2,$3)");
         issue.Parameters.AddWithValue(claim.Id);issue.Parameters.AddWithValue(claim.Fence);issue.Parameters.AddWithValue(claim.WorkerId);
         var token=(Guid)(await issue.ExecuteScalarAsync())!;
@@ -49,7 +50,7 @@ internal static class LifecycleScheduleNativeChecks
         await using var database=new PreviewDatabase(manifest with{RevisionId=close.Definition.RevisionId,ReferenceCatalogId=close.Reference.CatalogId,ReferenceRevisionId=close.Reference.RevisionId},runtime);
         using var admitted=database.OwnReadTransaction(connection,transaction);
         await using(var save=ScheduleStore.Command(connection,"SAVEPOINT task_fixture_frame"))await save.ExecuteNonQueryAsync();
-        var source=(await new KnowledgeStore(manifest.CatalogId).Read(connection,context.ContextId,default)).Context;
+        var source=(await new KnowledgeResolver(manifest.CatalogId).Read(connection,context.ContextId,default)).Context;
         await PinnedContext.BindExact(connection,manifest.CatalogId,source,default);await TradingContext.Bind(connection,manifest.CatalogId,source,context.AsOf,default);
         var frame=(await MarketCloses.Frame(connection,manifest.CatalogId,close.Id,context.ContextId,default)) with{ContextId=null};
         await using(var restore=ScheduleStore.Command(connection,"ROLLBACK TO SAVEPOINT task_fixture_frame;RELEASE SAVEPOINT task_fixture_frame"))await restore.ExecuteNonQueryAsync();
@@ -62,7 +63,7 @@ internal static class LifecycleScheduleNativeChecks
         {
             if(packet.GetProperty("earlySeal").GetBoolean())
             {
-                await using var seal=ScheduleStore.Command(connection,"SET CONSTRAINTS ALL IMMEDIATE");await seal.ExecuteNonQueryAsync();
+                await using var seal=ScheduleStore.Command(connection,"SELECT security.check_operation_seals()");await seal.ExecuteNonQueryAsync();
             }
             else await admitted.Commit(default);
         }

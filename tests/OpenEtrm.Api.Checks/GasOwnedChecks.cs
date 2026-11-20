@@ -67,11 +67,11 @@ internal static class GasOwnedChecks
         Console.WriteLine("PASS owned gas coordinator: same native preview/execute, stale review and native-head refusal, first outcome and semantic no-op");
 
         var finalContext=await database.WithIdentity("trader",null,async(connection,ct)=>{
-            await using var capture=ScheduleStore.Command(connection,"SELECT security.capture_date_context($1,$2,NULL)",manifest.CatalogId,context.BusinessDate);
+            await using var capture=ScheduleStore.Command(connection,"SELECT security.resolve_operation_context($1,$2,NULL)",manifest.CatalogId,context.BusinessDate);
             return(Guid)(await capture.ExecuteScalarAsync(ct))!;
         },default);
         await database.WithIdentity("trader",null,async(connection,ct)=>{
-            var source=(await new KnowledgeStore(manifest.CatalogId).Read(connection,finalContext,ct)).Context;
+            var source=(await new KnowledgeResolver(manifest.CatalogId).Read(connection,finalContext,ct)).Context;
             await PinnedContext.BindExact(connection,manifest.CatalogId,source,ct);
             await TradingContext.Bind(connection,manifest.CatalogId,source,context.AsOf,ct);
             var frame=new InputFrame(Guid.NewGuid(),"Synthetic gas-owned mark",context.AsOf,context.BusinessDate,[fixture.Id("markId")],
@@ -95,7 +95,7 @@ internal static class GasOwnedChecks
         async Task<PortfolioValuationResult> Integrated(bool includeGas,ImmutableArray<Guid> books,ImmutableArray<Guid>? tradeIds=null,bool includeRates=true)
         {
             return await database.WithIdentity("trader",null,async(connection,ct)=>{
-                var source=(await new KnowledgeStore(manifest.CatalogId).Read(connection,finalContext,ct)).Context;
+                var source=(await new KnowledgeResolver(manifest.CatalogId).Read(connection,finalContext,ct)).Context;
                 await PinnedContext.BindExact(connection,manifest.CatalogId,source,ct);
                 await TradingContext.Bind(connection,manifest.CatalogId,source,context.AsOf,ct);
                 var pins=ImmutableArray.Create(fixture.Id("markId"));

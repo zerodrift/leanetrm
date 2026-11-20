@@ -33,7 +33,7 @@ internal static class GasTransportRouteNativeChecks
         var store=new GasTransportRouteStore(database);
         async Task<ScheduleContext> Context(NpgsqlConnection c,CancellationToken ct)
         {
-            var source=(await new KnowledgeStore(manifest.CatalogId).Read(c,contextId,ct)).Context;
+            var source=(await new KnowledgeResolver(manifest.CatalogId).Read(c,contextId,ct)).Context;
             if(source.EffectiveOn!=packet.Text("businessDate"))throw new Exception("The supplied source certificate has a different operating business date.");
             return source;
         }

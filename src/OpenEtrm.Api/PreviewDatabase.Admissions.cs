@@ -28,11 +28,10 @@ public sealed partial class PreviewDatabase
             {
                 if(result is not null)await result.RequireCommit(connection,ct);
                 foreach(var admission in admissions)await admission.RequireCommit(connection,ct);
-                if(CalendarReadCut.WorkspaceBindings.Remove(connection))
-                {
-                    await using var finish=ScheduleStore.Command(connection,"SELECT security.finish_workspace_read()");
+                // Native readers also construct operation coordinates. Release
+                // every binding after admission checks, including those paths.
+                await using(var finish=ScheduleStore.Command(connection,"SELECT security.finish_operation_read()"))
                     await finish.ExecuteNonQueryAsync(ct);
-                }
                 await transaction.CommitAsync(commitUncancelled?CancellationToken.None:ct);
             }
             finally{Dispose();}
@@ -42,7 +41,6 @@ public sealed partial class PreviewDatabase
             if(finished)return;
             finished=true;
             database.commitAdmissions.Remove(connection);
-            CalendarReadCut.WorkspaceBindings.Remove(connection);
             admissions.Clear();
         }
     }

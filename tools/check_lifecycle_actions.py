@@ -105,7 +105,7 @@ def checks(query,manifest):
         token=query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
                     f"'{issuer}','{profile}','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}COMMIT;")
-    def capture():return call(f"SELECT security.capture_date_context('{catalog}','2026-10-16',NULL);")
+    def capture():return call(f"SELECT security.resolve_operation_context('{catalog}','2026-10-16',NULL);")
     def reject(sql,code,profile='trader'):
         try:call(sql,profile)
         except RuntimeError as error:assert code in str(error),str(error)
@@ -231,7 +231,7 @@ def checks(query,manifest):
                f"SELECT jsonb_array_length(lifecycle.read_option_known_history('{catalog}','{booked['tradeId']}','{booked['optionInstrumentId']}',1,'{historical}','2026-10-16T15:00:00Z','2026-10-16')->'events');"
                f"SELECT security.reference_version_visible('{manifest['referenceCatalogId']}','{private_reference}');")
     assert bound.splitlines()[-2:]==['2','f'],'An unbound option source reader retained current private reference visibility: '+bound
-    other=call(f"SELECT security.capture_date_context('{catalog}','2026-11-03',NULL);")
+    other=call(f"SELECT security.resolve_operation_context('{catalog}','2026-11-03',NULL);")
     reject(f"SELECT security.admit_trading_business_source('{catalog}','{historical}','2026-10-16T15:00:00Z','2026-10-16');"
            f"SELECT security.use_market_context('{catalog}','{other}');SELECT security.use_trading_context('{catalog}','2026-11-03T16:00:00Z','2026-11-03'::date);"
            f"SELECT lifecycle.read_option_known_history('{catalog}','{booked['tradeId']}','{booked['optionInstrumentId']}',1,'{historical}','2026-10-16T15:00:00Z','2026-10-16');",'lifecycle_option_source')

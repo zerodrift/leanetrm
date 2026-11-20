@@ -25,7 +25,7 @@ def checks(query, manifest, *, run_correction=None):
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}"+('ROLLBACK;' if rollback else 'COMMIT;'))
 
     def capture():
-        return call(f"SELECT security.capture_date_context('{catalog}','2026-11-06',NULL);")
+        return call(f"SELECT security.resolve_operation_context('{catalog}','2026-11-06',NULL);")
 
     physical = json.loads(query("SELECT to_jsonb(l)||jsonb_build_object('accountId',p.account_id) "
                                "FROM settlement_data.futures_delivery_obligations l JOIN trading.gas_owned_positions p "

@@ -51,6 +51,10 @@ certificate plus a renewal reload hook. Do not expose the synthetic persona mode
 
 ### Regional closes (D334, migration 0202)
 
+Migration 0375 instead requires the complete
+[runtime-context reset and reseed](ephemeral-context-cutover.md#operator-reset-and-reseed).
+The older regional-close cleanup below is not a substitute for that cutover.
+
 Migration 0202 refuses to run while any market close or pilot close profile
 exists: existing closes are retired, not mapped. Before the release, stop the
 deploy timer, clear the pilot's market closes and every record that refers to

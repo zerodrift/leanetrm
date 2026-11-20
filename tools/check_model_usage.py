@@ -229,8 +229,9 @@ def run_checks(url, query, psql, manifest, environment):
     generation = query('SELECT generation FROM assistant.worker_generation;')
     provider, credential, terms = query(f"SELECT a.provider_id||','||a.credential_version||','||a.terms_version FROM assistant.models m "
                                         f"CROSS JOIN LATERAL assistant.current_attestation(m.provider_id) a WHERE m.id='{one}';").split(',')
-    pinned = last(contexts.runtime('trader', f"SELECT security.capture_date_context('{manifest['catalogId']}','2020-12-18',NULL);"))
-    cutoff = query(f"SELECT known_at FROM market_data.temporal_contexts WHERE id='{pinned}';")
+    pinned = last(contexts.runtime('trader', f"SELECT security.resolve_operation_context('{manifest['catalogId']}','2020-12-18',NULL);"))
+    from native_read_transport import captured_input
+    cutoff = captured_input(query,pinned)['known_at']
     mark = f'usage-content-{stamp}'
     owners = {'ana': principal(ana), 'ben': principal(ben)}
     conversations, turns, calls = {}, {}, {}

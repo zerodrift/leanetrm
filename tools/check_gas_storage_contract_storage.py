@@ -171,7 +171,7 @@ def run_checks(query,manifest):
         except RuntimeError:pass
         else:raise AssertionError('A retained gas storage fact was rewritten: '+statement)
     def read(day,trades='NULL',actor='trader'):
-        context=runtime(f"SELECT security.capture_date_context('{catalog}','{day}',NULL);")
+        context=runtime(f"SELECT security.resolve_operation_context('{catalog}','{day}',NULL);")
         return json.loads(runtime(f"SELECT security.use_market_context('{catalog}','{context}');SELECT security.use_trading_context('{catalog}','{day}T23:59:59.999999Z');"
             f"SELECT security.read_gas_storage_positions('{catalog}',ARRAY[]::uuid[],ARRAY[]::uuid[],{trades});",actor))
     one=read('2020-12-15',f"ARRAY['{first['tradeId']}']::uuid[]")

@@ -19,7 +19,7 @@ internal static class GasLoanQuantityFormChecks
         // financial heads under its older review source would be invalid.
         var context=await database.WithIdentity("trader",null,async(connection,ct)=>
         {
-            await using var capture=ScheduleStore.Command(connection,"SELECT security.capture_date_context($1,$2,NULL)",manifest.CatalogId,new DateOnly(2020,12,20));
+            await using var capture=ScheduleStore.Command(connection,"SELECT security.resolve_operation_context($1,$2,NULL)",manifest.CatalogId,new DateOnly(2020,12,20));
             return(Guid)(await capture.ExecuteScalarAsync(ct))!;
         },default);
         var selected=new LifecycleReadContext(context,fixture.Instant("at"),new(2020,12,20),Guid.NewGuid());

@@ -135,7 +135,7 @@ def run_checks(url, query, manifest):
 
     # Select the server's exact retained context, rather than requesting a new
     # current-knowledge capture, before comparing complete immutable output.
-    client.call('market/context/retained', dict(contextId=solar_result['contextId'], selection='latest_correction'))
+    client.call('market/context',dict(effectiveOn='2020-12-15',knownAt=solar_result['knownAt'],mode='at',selection='latest_correction'))
     retained_frame = initial_frame(client.call('workspace'), '2020-12-15')['id']
     retained_request = deepcopy(solar_request)
     retained_request['snapshotId'] = retained_frame

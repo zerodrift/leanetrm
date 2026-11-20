@@ -5,19 +5,14 @@ using OpenEtrm.MarketData;
 namespace OpenEtrm.Api;
 
 public sealed record MarketContextRequest(string? EffectiveOn,string? KnownAt,string? Mode,string? Selection,Guid? SnapshotId=null,string? FrameSelectionPolicy=null,string? RestoreKey=null);
-// A retained context selected again by its id, as captured, with the same explicit correction policy.
-[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
-public sealed record RetainedContextRequest(Guid ContextId,string? Selection);
-
 // Selection is deliberately separate from certification. A certified timestamp
 // does not authorize choosing a source, filling a gap or rolling a contract.
 public static class MarketContextStore
 {
     public static async Task Bind(NpgsqlConnection connection,Guid catalog,ScheduleContext context,CancellationToken ct)
     {
-        if(context.ReadCut is {} cut){await cut.Bind(connection,catalog,context,ct);return;}
-        await using var command=ScheduleStore.Command(connection,"SELECT security.use_market_context($1,$2)",catalog,context.ContextId!);
-        await command.ExecuteNonQueryAsync(ct);
+        var exact=await new KnowledgeResolver(catalog).Retained(connection,context,ct);
+        await exact.ReadCut!.Bind(connection,catalog,exact,ct);
     }
 
     public static InputFrame Select(InputFrame seed,PreviewData data,ScheduleContext context)

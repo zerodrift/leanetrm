@@ -203,10 +203,11 @@ Facts the body relies on and does not restate:
   The CSP allows scripts and connections only from the application origin.
 - **Context.** The As of selection is an input frame in the session (at most 128).
   `POST /market/context` selects a historical context; `/market/current` or a profile
-  switch clears it. Every date-context capture certifies collection batches under
-  global advisory lock 730849102 (D134), held to commit; a catalog retains at most
-  4096 contexts, never reclaimed (`knowledge_limit`), and each current-mode capture
-  adds one.
+  switch clears it. Each operation reconstructs its context from explicit inputs
+  and certified publication history under global advisory lock 730849102 (D134).
+  D435 removes generic context storage and lifetime context quotas. The operation
+  releases its financial bindings before commit; durable facts and jobs own their
+  original date, cutoff and clock lineage.
 - **Authorization.** Market and reference page reads, the schedule library, TOU
   product and power hour catalog reads, the trade party read and the trading
   workspace, Blotter and trade detail reads call `MarketReads` or `ScheduleReads` with a
@@ -647,11 +648,10 @@ qualification remains open.
   frame ID, including historical aliases. Their source matrices are not copied into
   each turn. Working frames retain bounded exact pins only when requested. Retained
   programs and reviewed proposals continue to resolve their original inputs.
-- **Reserve.** Each first financial read over working data permanently uses one of the catalog's
-  4096 retained contexts. The assistant captures through a wrapper that, under lock
-  730849102, refuses with `knowledge_budget_reserved` when fewer than the runtime
-  set's reserve would remain, keeping it for page captures. Reclaiming stays open
-  (O07).
+- **Input evidence.** A first financial read records its exact coordinates on the
+  turn. Later tool operations construct runtime values from those turn-owned inputs
+  under current fenced authority. No generic context row, page reserve or lifetime
+  context quota exists (D435).
 - Tools take no context, snapshot or workspace inputs. Each read binds the turn's
   pinned context exactly as its record names it, at its recorded cutoff: over working
   data the context the first financial request captured, as of the turn's frame, as trades re-read an
@@ -1530,8 +1530,8 @@ The agent reader role amends D42 (seven role templates).
 
 **Open items:** O04 partly resolved (agent principals only through `ManageAgents`;
 standing, revocable delegations with explicit duration; redelegation, MFA and
-federation stay open). O09 stays open until real task outcomes are recorded. O07 adds
-reclaiming the retained contexts assistant asks consume. O10 gates phase 1 performance
+federation stay open). O09 stays open until real task outcomes are recorded. D435
+removes context retention and the associated reclaiming requirement. O10 gates phase 1 performance
 acceptance. O11 keeps conversations until an installation needs a retention policy, and
 O28 records per-catalog agent data scope.
 

@@ -67,9 +67,9 @@ def run_checks(url, query, manifest, dotnet, owned_root, environment):
         return 'BEGIN;SET LOCAL SESSION AUTHORIZATION preview_runtime;' + f"SELECT security.use_context('{token}');" + sql + 'COMMIT;'
 
     def capture():
-        identity = query(runtime(f"SELECT security.capture_date_context('{catalog}','{frame['at'][:10]}',NULL);"))
-        return json.loads(query("SELECT jsonb_build_object('contextId',id,'effectiveOn',effective_on,'knownAt',known_at,'knownThrough',known_through) "
-            f"FROM market_data.temporal_contexts WHERE id='{identity}';"))
+        identity = query(runtime(f"SELECT security.resolve_operation_context('{catalog}','{frame['at'][:10]}',NULL);"))
+        from native_read_transport import captured_context
+        return captured_context(query,identity)
 
     before = capture()
     from ppa_demo_terms import profile_terms

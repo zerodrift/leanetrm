@@ -5,11 +5,12 @@ import json
 from uuid import UUID, uuid4
 
 from preview_fixture import TENANT, WORKSPACE
+from native_read_transport import select_owned_inputs
 
 
 def run(query, job_id):
     job_id = str(UUID(job_id))
-    job = json.loads(query(f"SELECT jsonb_build_object('catalog',catalog_id,'context',context_id,'at',valuation_at,'markets',frame->'connectedMarkets') FROM risk.jobs WHERE id='{job_id}';"))
+    job = json.loads(query(f"SELECT jsonb_build_object('catalog',catalog_id,'context',context_id,'at',valuation_at,'markets',frame->'connectedMarkets','input',jsonb_build_object('id',context_id,'effective_on',input_business_on,'known_at',input_known_at,'system_id',input_system_id,'timeline',input_timeline)) FROM risk.jobs WHERE id='{job_id}';"))
     candidates = [(market['revisionId'], sample) for market in job['markets'] for sample in market['samples']
                   if sample['kind'] == 'contract_observation' and sample['freezeHistorical']]
     assert candidates, 'This admission oracle requires an actual historical source sample.'
@@ -32,6 +33,7 @@ def run(query, job_id):
  {scope}{admission} END $check$;
  SET LOCAL SESSION AUTHORIZATION preview_runtime;
  SELECT security.use_context('{token}');
+ {select_owned_inputs(job['catalog'],job['input'])}
  SELECT security.use_market_context('{job['catalog']}','{job['context']}');
  SELECT security.use_trading_context('{job['catalog']}','{job['at']}');
  SELECT pg_temp.check_contract_sample();ROLLBACK;""")

@@ -15,7 +15,7 @@ internal sealed record PnlCashReceipt(Guid Id,int Revision,OpenEtrm.MarketData.T
 {
     internal static PnlCashReceipt From(OpenEtrm.MarketData.Trading.AccountingFlow flow)=>new(flow.AllocationId,flow.Revision,flow.Position,flow.EffectiveAt,flow.KnownAt,flow.Amount.ToExactString(),flow.Amount.Currency);
 }
-internal sealed record PnlEndpointReceipt(JsonElement Frame,ScheduleContext Context,ImmutableArray<Guid> Books,ImmutableArray<Guid> Trades,ImmutableArray<PnlSourceReceipt> Sources,
+internal sealed record PnlEndpointReceipt(JsonElement Frame,ReadInputCoordinates Inputs,ImmutableArray<Guid> Books,ImmutableArray<Guid> Trades,ImmutableArray<PnlSourceReceipt> Sources,
     ImmutableArray<PnlCashReceipt> Cash,ImmutableArray<Guid>? CashTradeSelection);
 internal sealed record PnlCalculated(JsonElement Report,ImmutableArray<PnlEndpointReceipt> Endpoints);
 internal sealed record PnlArtifactOwner(Guid TenantId,Guid WorkspaceId,Guid PrincipalId);
@@ -147,7 +147,7 @@ internal sealed class PnlReportArtifacts(PreviewDatabase database,IDataProtector
                     INSERT INTO risk.saved_pnl_reports(catalog_id,id,request_id,tenant_id,workspace_id,owner_id,name,opening_context_id,closing_context_id,result_hash,artifact_hash,artifact,saved_at)
                     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
                     """,database.Manifest.CatalogId,id,request.RequestId,owner.TenantId,owner.WorkspaceId,owner.PrincipalId,name,
-                    artifact.Calculation.Endpoints[0].Context.ContextId!.Value,artifact.Calculation.Endpoints[1].Context.ContextId!.Value,
+                    artifact.Calculation.Endpoints[0].Inputs.Correlation(database.Manifest.CatalogId),artifact.Calculation.Endpoints[1].Inputs.Correlation(database.Manifest.CatalogId),
                     ResultHash(report),proof,stored,savedAt);
                 await insert.ExecuteNonQueryAsync(ct);
             }
@@ -171,7 +171,7 @@ internal sealed class PnlReportArtifacts(PreviewDatabase database,IDataProtector
         if(receipt.Owner!=owner||receipt.RequestId!=row.Id("request_id")||receipt.ReportId!=row.Id("report_id")||receipt.Name!=row.Text("name")||
             receipt.ResultHash!=row.Text("result_hash")||receipt.TransportHash!=row.Text("artifact_hash"))throw new PreviewDeniedException();
     }
-    internal async Task<Saved> Read(NpgsqlConnection connection,Guid id,CancellationToken ct)
+    internal async Task<Saved> Read(NpgsqlConnection connection,Guid id,CancellationToken ct,bool expose=true)
     {
         var owner=await Owner(connection,ct);
         var rows=await PreviewDatabase.Rows(connection,"SELECT row_to_json(r)::text FROM risk.saved_pnl_reports r WHERE(catalog_id,id)=($1,$2)",[database.Manifest.CatalogId,id],ct);
@@ -182,10 +182,12 @@ internal sealed class PnlReportArtifacts(PreviewDatabase database,IDataProtector
             throw new MarketDataException("pnl_saved_integrity","Saved result ownership or command evidence differs from its native record.");
         if(stored.SavedAt!=DateTimeOffset.Parse(row.Text("saved_at"),System.Globalization.CultureInfo.InvariantCulture))
             throw new MarketDataException("pnl_saved_integrity","Saved result timing differs from its native record.");
-        if(receipts.IsDefault||receipts.Length!=2||report.GetProperty("id").GetGuid()!=id||row.Id("opening_context_id")!=receipts[0].Context.ContextId||row.Id("closing_context_id")!=receipts[1].Context.ContextId)
+        if(receipts.IsDefault||receipts.Length!=2||report.GetProperty("id").GetGuid()!=id||row.Id("opening_context_id")!=receipts[0].Inputs.Correlation(database.Manifest.CatalogId)||row.Id("closing_context_id")!=receipts[1].Inputs.Correlation(database.Manifest.CatalogId))
             throw new MarketDataException("pnl_saved_integrity","Saved result contexts differ from their native records.");
         if(row.Text("result_hash")!=ResultHash(report))throw new MarketDataException("pnl_saved_integrity","Saved result content differs from its authenticated record.");
         await new TradingPnlReport(database).Reauthorize(connection,receipts,ct);_=await Owner(connection,ct);
+        if(expose)foreach(var receipt in receipts)
+            ReadReferences.Expose(database.Manifest.CatalogId,await receipt.Inputs.ResolveSnapshot(connection,database.Manifest.CatalogId,ct));
         return new(id,row.Text("name"),row.Text("result_hash"),row.Text("saved_at"),report);
     }
     internal async Task<object> List(NpgsqlConnection connection,CancellationToken ct)
@@ -201,7 +203,7 @@ internal sealed class PnlReportArtifacts(PreviewDatabase database,IDataProtector
             await using(var save=ScheduleStore.Command(connection,"SAVEPOINT pnl_list_item"))await save.ExecuteNonQueryAsync(ct);
             try
             {
-                var result=await Read(connection,row.Id("id"),ct);var scope=result.Report.GetProperty("scope");
+                var result=await Read(connection,row.Id("id"),ct,expose:false);var scope=result.Report.GetProperty("scope");
                 visible.Add(new{result.Id,result.Name,result.SavedAt,result.ResultHash,openingAt=result.Report.GetProperty("opening").GetProperty("at"),
                     closingAt=result.Report.GetProperty("closing").GetProperty("at"),books=scope.GetProperty("books").EnumerateArray().Select(b=>b.GetProperty("name")),
                     tradeSelection=scope.GetProperty("tradeSelection")});

@@ -25,7 +25,7 @@ internal static class GasPortfolio
   if(positions.IsDefault||supplied.IsDefault||frame.ContextId is not {} contextId)
    throw Invalid("Select explicit held positions and market frames under a retained context.");
   if(positions.IsEmpty)return [];
-  var context=PinnedContext.Exact((await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,contextId,ct)).Context);
+  var context=PinnedContext.Exact((await new KnowledgeResolver(database.Manifest.CatalogId).Read(connection,contextId,ct)).Context);
   var store=new GasCompositionStore(database);var result=ImmutableArray.CreateBuilder<GasPortfolioInput>();
   foreach(var group in positions.GroupBy(p=>p.Definition).OrderBy(g=>g.Key))
   {

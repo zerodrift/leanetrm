@@ -126,6 +126,7 @@ def run_checks(url,manifest,query,run_worker):
     for path in ('portfolio/risk/jobs/'+job['jobId'],'portfolio/risk/monte-carlo/archive?limit=1','portfolio/risk/statistical/archive?limit=1'):c.call(path,expected=403)
     c.call('portfolio/risk/monte-carlo',request,expected=403)
     c.call('profile',{'profile':'risk'})
+    c.select_inputs(holdings['context'])
     print('PASS Monte Carlo authority: calculation, report, export and archive require current permission',flush=True)
     missing=deepcopy(history['request']);missing.pop('expectedManifestId');missing['from']='2020-12-17';missing['policy']['minimumSamples']=60
     short=c.call('portfolio/risk/history',missing)

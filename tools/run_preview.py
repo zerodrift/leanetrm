@@ -28,6 +28,7 @@ def main():
     from check_standalone import main as check_standalone
     check_standalone()
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--ephemeral-context-check',action='store_true',help='Qualify runtime contexts, historical reads and worker reconstruction')
     parser.add_argument('--async-workbench-check',action='store_true',help='Qualify concurrent main-workbench SSE reads')
     parser.add_argument('--page-read-benchmark',action='store_true',help='Time covered page reads over ordinary HTTP and the response channel in the async workbench fixture and print a JSON report')
     parser.add_argument('--side-calendar-check', action='store_true', help='Qualify explicit Side calendar authoring, retention and replay')
@@ -134,6 +135,7 @@ def main():
     parser.add_argument('--authoring-browser-suite',choices=['curve-objects','contract-pricing-controls','publication-controls','price-authoring-recovery'],help='Run one focused authoring control suite in the owned authoring fixture')
     parser.add_argument('--example', choices=['standard','mixed-gas'], default='standard', help='Explicit synthetic dataset')
     args = parser.parse_args()
+    if args.ephemeral_context_check: args.check=True
     if args.historical_pool_check: args.jobs_check=True
     if args.market_dates_benchmark_only:args.market_dates_reads_check=True
     if args.market_dates_reads_check:args.market_dates_check=True
@@ -278,11 +280,15 @@ def main():
             raise RuntimeError(started_result.stderr)
         started=True
         psql=[bins['psql'],'-X','-h',temporary,'-p','55439','-U','preview_owner','-d','postgres','-qAt','-v','ON_ERROR_STOP=1']
-        def query(sql):
+        transport=None
+        def raw_query(sql):
             result=run(psql,input=sql)
-            if result.returncode:
-                raise RuntimeError(result.stderr)
+            if result.returncode:raise RuntimeError(result.stderr)
             return result.stdout.strip()
+        def query(sql):
+            result=raw_query(transport.prepare(sql) if transport is not None else sql)
+            return transport.receive(result) if transport is not None else result
+        query.raw=raw_query
         if Path(query('SHOW data_directory;')).resolve()!=data.resolve():
             raise RuntimeError('Refusing to operate on a database outside the owned disposable cluster')
         if args.example=='mixed-gas':
@@ -306,6 +312,13 @@ def main():
                 reference,market,security,manifest=add_in_term_fixture(reference,market,security,manifest)
         query((ROOT/'db/bootstrap.sql').read_text())
         for migration in sorted((ROOT/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
+            if migration.name=='0375_runtime_contexts.sql':
+                from check_runtime_context_reset import run_checks as check_context_reset
+                check_context_reset(query,migration)
+            if args.ephemeral_context_check:
+                # Runtime-context qualification installs the complete fresh chain.
+                query(migration.read_text())
+                continue
             if args.market_dates_check and migration.name=='0373_ephemeral_calendar_context.sql':
                 from check_fact_anchor_upgrade import run_checks as check_calendar_scope_upgrade
                 check_calendar_scope_upgrade(query,migration,number=migration.name[:4],guard='ephemeral_context_upgrade',signatures=(
@@ -511,6 +524,14 @@ def main():
                 from check_publication_resolution_upgrade import run_checks as check_publication_resolution_upgrade
                 check_publication_resolution_upgrade(query,migration)
             query(migration.read_text())
+        from native_read_transport import NativeReadTransport
+        native_inputs=temporary/'native-read-inputs.json'
+        transport=NativeReadTransport(native_inputs)
+        env['OPENETRM_NATIVE_CHECK_INPUTS']=str(native_inputs)
+        query.read_sources=transport.sources
+        if args.ephemeral_context_check:
+            from check_ephemeral_contexts import check_schema
+            check_schema(query)
         if args.example=='standard' and(args.structured_power_check or not args.check):
             from rec_fixture import extend as extend_rec
             reference,market,security,manifest=extend_rec(reference,market,security,manifest)
@@ -542,13 +563,13 @@ def main():
         if args.index_fixing_check:
             from check_index_fixings import prepare as prepare_index_fixings
             reference,market,manifest=prepare_index_fixings(reference,market,manifest)
-        if args.side_calendar_check or args.power_flat_check or args.interval_curves_check or args.ppa_check or args.ppa_bookings_check or args.with_ppa or args.demo_instruments_check or args.retained_schedule_check or args.blotter_stream_benchmark:
+        if args.ephemeral_context_check or args.side_calendar_check or args.power_flat_check or args.interval_curves_check or args.ppa_check or args.ppa_bookings_check or args.with_ppa or args.demo_instruments_check or args.retained_schedule_check or args.blotter_stream_benchmark:
             from interval_curve_fixture import prepare as prepare_interval_curves
             reference,market,security,manifest=prepare_interval_curves(reference,market,security,manifest)
         if args.power_flat_check:
             from check_power_output_settlement import prepare as prepare_power_output_settlement
             market=prepare_power_output_settlement(market,manifest)
-        if args.side_calendar_check or args.ppa_check or args.ppa_bookings_check or args.with_ppa or args.demo_instruments_check or args.retained_schedule_check or args.blotter_stream_benchmark:
+        if args.ephemeral_context_check or args.side_calendar_check or args.ppa_check or args.ppa_bookings_check or args.with_ppa or args.demo_instruments_check or args.retained_schedule_check or args.blotter_stream_benchmark:
             from ppa_fixture import prepare as prepare_ppa
             reference,market,security,manifest=prepare_ppa(reference,market,security,manifest)
             if not args.check:
@@ -623,11 +644,13 @@ def main():
             marker='UPDATE ref_data.revisions SET state='
             if marker not in market: raise RuntimeError('Synthetic reference sealing point is missing')
             market=market.replace(marker,clock_sql.read_text()+marker,1)
+        from seed_fixture_market import load_market
+        before_seal=None
         if args.contract_dates_check:
-            from contract_curve_fixture import prepare_market as prepare_contract_admissions
-            query(prepare_contract_admissions(market,security,manifest))
-        else:
-            query(market)
+            from contract_curve_fixture import verify_admissions
+            before_seal=lambda:query(verify_admissions(*(manifest[key] for key in ('catalogId','revisionId','tenantId','workspaceId'))))
+        historical_security=security
+        security=load_market(query,market,security,manifest,before_seal=before_seal)
         catalogue_roles={role:manifest[key]['revisionId'] for role,key in
             [('gas','gasMarket'),('crude','crudeMarket'),('lng','lngMarket')] if key in manifest}
         if args.example=='standard':
@@ -639,7 +662,7 @@ def main():
             if args.index_fixing_check:
                 from check_swap_settlement_selection import prepare_daily
                 swap_market=prepare_daily(swap_market,swap_manifest)
-            query(swap_market)
+            load_market(query,swap_market,'',manifest)
             if args.connected_portfolio_check or args.valuation_status_check or args.live_calculation_check or args.with_custom_curves or args.gas_in_term_check:
                 # The primary custom-curve fixture visits closes beyond the four standard weekdays.
                 # Its unrelated secondary bundle explicitly supplies no inputs there.
@@ -651,7 +674,7 @@ def main():
             if args.factor_swap_check:
                 from factor_swap_fixture import prepare as prepare_factor
                 prepare_factor(manifest)
-        if not args.contract_dates_check:query(security)
+        if security:query(security)
         if args.example=='standard' and (args.structured_power_check or not args.check):
             query("INSERT INTO security.role_permissions SELECT id,p FROM security.roles CROSS JOIN "
                   "(VALUES('ReadPhysical'),('ManagePhysicalSetup'),('RunScenario'))x(p) "
@@ -675,7 +698,10 @@ def main():
         if args.exchange_check or args.with_exchange:
             from exchange_fixture import fixture as exchange_fixture
             er,em,es,et,exchange_manifest=exchange_fixture(ROOT)
-            query(er);query(em);query(es);query(et)
+            query(er)
+            es=load_market(query,em,es,exchange_manifest)
+            if es.strip():query(es)
+            query(et)
             query(f"SELECT security.initialize_operating_policies('{exchange_manifest['tenantId']}','{exchange_manifest['workspaceId']}');")
             query(catalogue_fixture(exchange_manifest,exchange_manifest['identityIssuer']))
             (temporary/'exchange-manifest.json').write_text(json.dumps(exchange_manifest))
@@ -706,7 +732,7 @@ def main():
         if args.ppa_bookings_check and not args.close_risk_check:
             from check_pre_retention_storage import ppa as check_ppa_raw_admission
             check_ppa_raw_admission(query,psql,env,ROOT,
-                [reference,market,swap_market,security,trading_fixture(manifest['catalogId'],swap_defaults=True)],manifest)
+                [reference,market,swap_market,historical_security,trading_fixture(manifest['catalogId'],swap_defaults=True)],manifest)
         if args.ppa_check:
             from check_settlement_preview import prepare as prepare_settlement_preview
             manifest=prepare_settlement_preview(manifest)
@@ -738,7 +764,7 @@ def main():
         if args.factor_swap_check:
             from check_factor_swap_upgrade import run_checks as check_factor_upgrade
             check_factor_upgrade(query,psql,env,ROOT)
-        if args.check and args.example=='standard' and not (args.exchange_check or args.cash_pnl_check):
+        if args.check and args.example=='standard' and not (args.exchange_check or args.cash_pnl_check or args.ephemeral_context_check):
             from check_trade_revision_upgrade import run_checks as check_upgrade
             legacy_reference,legacy_market,legacy_security,_=fixture(ROOT,current_schema=False)
             check_upgrade(query,psql,env,ROOT,[legacy_reference,legacy_market,legacy_security,trading_fixture(manifest['catalogId'],annotations=False)],manifest)
@@ -852,7 +878,7 @@ def main():
                 if process.returncode:raise subprocess.CalledProcessError(process.returncode,command)
                 return peak
             return run
-        if (not gas_demo and not args.check or args.jobs_check or args.live_calculation_check or args.unit_check or args.risk_jobs_check or args.async_workbench_check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check or args.valuation_status_check or args.desk_fields_check) and args.example=='standard':
+        if (not gas_demo and not args.check or args.jobs_check or args.live_calculation_check or args.unit_check or args.risk_jobs_check or args.async_workbench_check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check or args.valuation_status_check or args.desk_fields_check or args.ephemeral_context_check) and args.example=='standard':
             if not args.check and date_plan is not None:
                 from demo_date_plan import verify_instrument_dates
                 count=verify_instrument_dates(query,date_plan,manifest['catalogId'],manifest['revisionId'],manifest['contractsOutsideDatePlan'] if args.with_custom_curves else ())
@@ -1251,7 +1277,7 @@ def main():
                         destination=Path(evidence).resolve();destination.mkdir(parents=True,exist_ok=True)
                         for screenshot in temporary.glob('ppa-*.png'):shutil.copy2(screenshot,destination/screenshot.name)
 
-            elif args.ppa_check:
+            elif args.ppa_check and not args.ephemeral_context_check:
                 from check_ppa_http import run_checks as check_ppa_http
                 check_ppa_http(url,query,manifest)
                 from check_ppa_break_even import run_checks as check_ppa_break_even
@@ -1344,6 +1370,13 @@ def main():
             elif args.market_dates_reads_check:
                 from check_market_dates_reads import run_checks as check_market_dates_reads
                 check_market_dates_reads(url,query,manifest,psql,env,temporary/'postgres.log',child.pid,verify=not args.market_dates_benchmark_only)
+            elif args.ephemeral_context_check:
+                from check_ephemeral_contexts import run_checks
+                def check_runtime_context_browser():
+                    target=temporary/'browser-target.json'
+                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                    subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--ephemeral-contexts'],cwd=ROOT,env=env,check=True,timeout=180)
+                run_checks(url,query,manifest,check_runtime_context_browser if args.browser_check else None,risk_worker_runner())
             elif args.market_dates_check:
                 from check_market_dates import run_checks as check_market_dates
                 check_market_dates(url,query,manifest,temporary/'postgres.log')
@@ -1798,7 +1831,7 @@ def main():
                 check_trading_history_http(query,manifest,url,temporary,session)
                 from check_pre_retention_storage import ordinary_swaps as check_swaps_storage
                 check_swaps_storage(query,psql,env,ROOT,
-                    [reference,market,swap_market,security,trading_fixture(manifest['catalogId'],swap_defaults=True)],manifest)
+                    [reference,market,swap_market,historical_security,trading_fixture(manifest['catalogId'],swap_defaults=True)],manifest)
                 from seed_preview_swaps import seed_swaps
                 seeded=seed_swaps(url,run_id,temporary,session)
                 assert len(seeded)==16 and seeded==seed_swaps(url,run_id,temporary,session)
@@ -1813,7 +1846,7 @@ def main():
                 from check_whole_term_swap_schema import run_storage_checks as check_whole_term_swap_storage, check_rebooking_guard
                 from check_pre_retention_storage import swaps as check_whole_term_swap_admission
                 check_whole_term_swap_admission(query,psql,env,ROOT,
-                    [reference,market,swap_market,security,trading_fixture(manifest['catalogId'],swap_defaults=True)],manifest)
+                    [reference,market,swap_market,historical_security,trading_fixture(manifest['catalogId'],swap_defaults=True)],manifest)
                 check_whole_term_swap_storage(query,manifest,require_retention=True)
                 check_rebooking_guard(query,psql,env,ROOT)
         else:

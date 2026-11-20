@@ -3,7 +3,8 @@ using System.Text.Json;
 
 namespace OpenEtrm.Api;
 
-internal sealed record AsyncReadFrame(string Protocol,Guid ChannelId,Guid RequestId,string Operation,string State,Guid? SnapshotId,ReadOnlyMemory<byte>? Result,AsyncReadError? Error);
+internal sealed record AsyncReadFrame(string Protocol,Guid ChannelId,Guid RequestId,string Operation,string State,Guid? SnapshotId,ReadOnlyMemory<byte>? Result,AsyncReadError? Error,
+    IReadOnlyDictionary<Guid,string>? ReadReferences=null);
 
 internal static class JsonReadTransport
 {
@@ -36,6 +37,11 @@ internal static class JsonReadTransport
             operation=frame.Operation,state=frame.State,snapshotId=frame.SnapshotId},JsonSerializerOptions.Web);
         await stream.WriteAsync("event: response\ndata: "u8.ToArray(),ct);
         await stream.WriteAsync(header.AsMemory(0,header.Length-1),ct);
+        if(frame.ReadReferences is {} references)
+        {
+            await stream.WriteAsync(",\"readReferences\":"u8.ToArray(),ct);
+            await Chunks(JsonSerializer.SerializeToUtf8Bytes(references,JsonSerializerOptions.Web));
+        }
         await stream.WriteAsync(",\"result\":"u8.ToArray(),ct);
         await Chunks(frame.Result??"null"u8.ToArray());
         await stream.WriteAsync(",\"error\":"u8.ToArray(),ct);

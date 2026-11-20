@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import type {CatalogueSource,FrameSummary} from './market-navigation.js';
 import type {PhysicalOverviewSection} from './physical-instrument.js';
 import type {RequestCommand} from './pending-command.js';
@@ -48,7 +49,7 @@ const sameContext=(left:PointContext,right:PointContext)=>context(left)&&context
 const sameTarget=(left:PointTarget,right:PointTarget)=>target(left)&&target(right)&&targetKeys.every(key=>key==='observedAt'?sameUtcInstant(left[key],right[key]):left[key]===right[key]);
 const request=(value:unknown):value is PointRequest=>closed(value,['operationId','ownerId','context',...commandKeys])&&text(value.operationId)&&text(value.ownerId)&&context(value.context)&&
  command(Object.fromEntries(commandKeys.map(key=>[key,value[key]])))&&sameUtcInstant((value.target as PointTarget).observedAt,(value.context as PointContext).asOf);
-const body=(value:PointRequest):PointCommand=>Object.fromEntries(commandKeys.map(key=>[key,structuredClone(value[key])])) as PointCommand;
+const body=(value:PointRequest):PointCommand=>Object.fromEntries(commandKeys.map(key=>[key,cloneRead(value[key])])) as PointCommand;
 
 export function requirePointSetup(expected:PointSetupRequest,value:unknown):PointSetup{
  const fail=()=>{throw Error('The point setup did not identify the exact source, context and search page.');};
@@ -89,7 +90,7 @@ export function reviewedPointRequest(expected:PointRequest,value:unknown):PointR
  if(!request(expected)||!object(value)||value.operationId!==expected.operationId||value.ownerId!==expected.ownerId||!sameContext(value.context as PointContext,expected.context)||
   !same(value.requestedCommand,body(expected))||!command(value.command)||value.command.policy!==expected.policy||!sameTarget(value.command.target,expected.target)||
   !same(value.command.originalInputs,expected.originalInputs)||typeof value.acknowledgement!=='boolean'||!Array.isArray(value.overviewSections)||!value.overviewSections.length)return fail();
- const accepted={...structuredClone(expected),...structuredClone(value.command)};
+ const accepted={...cloneRead(expected),...cloneRead(value.command)};
  if(!outcomeMatches(accepted,value.outcome)||value.acknowledgement===false&&value.outcome.changed===false)return fail();
  return accepted;
 }
@@ -121,5 +122,5 @@ export function requirePointInputs(expected:PointRequest,offer:AvailablePointSel
 export function restorePointRequest(value:unknown):PointPending|undefined{
  if(!object(value)||value.path!=='market-values/record'||!request(value.body)||value.operationId!==value.body.operationId||
   value.uncertain!==undefined&&typeof value.uncertain!=='boolean'||value.label!==undefined&&typeof value.label!=='string')return;
- return{path:value.path,operationId:value.operationId,body:structuredClone(value.body),...(value.uncertain===true?{uncertain:true}:{}),...(typeof value.label==='string'?{label:value.label}:{}),...(text(value.scopeStamp)?{scopeStamp:value.scopeStamp}:{})};
+ return{path:value.path,operationId:value.operationId,body:cloneRead(value.body),...(value.uncertain===true?{uncertain:true}:{}),...(typeof value.label==='string'?{label:value.label}:{}),...(text(value.scopeStamp)?{scopeStamp:value.scopeStamp}:{})};
 }

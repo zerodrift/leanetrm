@@ -151,7 +151,7 @@ public sealed partial class StructuredPowerBookingStore
         var positions=await OperatingPositions.Read(connection,database.Manifest,[],[],ct,trade:trade);
         if(positions.Length!=1)throw TradePositionSelection.Unavailable();var p=positions[0];
         var source=await MarketInputSelection.Resolve(database,connection,frame,new(p.Definition,p.Reference.CatalogId,p.Reference.RevisionId),[],false,ct,referenceScope:ReferenceReadScope.AllVisible);
-        var context=PinnedContext.Exact((await new KnowledgeStore(Catalog).Read(connection,frame.ContextId!.Value,ct)).Context);
+        var context=PinnedContext.Exact((await new KnowledgeResolver(Catalog).Read(connection,frame.ContextId!.Value,ct)).Context);
         var knownAt=SchedulePreview.ParseAt(context.KnownAt);
         var facility=await new PhysicalOperatingFacilityStore(Catalog).ReadExact(connection,p.Head.Id("facility_id"),int.Parse(p.Head.Text("facility_version"),CultureInfo.InvariantCulture),
             frame.ContextId.Value,frame.At,frame.Time.Date,ct);
@@ -181,7 +181,7 @@ public sealed partial class StructuredPowerBookingStore
             throw new MarketDataException("operating_delivery_lifecycle","A started complete operating right requires a separately qualified operational lifecycle.");
         var programs=SelectPrograms(await new RetainedScheduleStore(database).LoadPrograms(connection,position.Binding,frame.ContextId,frame.At,ct),selectedSlot);
         var members=position.Head.GetProperty("members").EnumerateArray().ToArray();
-        var context=(await new KnowledgeStore(Catalog).Read(connection,frame.ContextId!.Value,ct)).Context;
+        var context=(await new KnowledgeResolver(Catalog).Read(connection,frame.ContextId!.Value,ct)).Context;
         var snapshot=MarketSnapshotBinding.Bind(data.Snapshot(frame),frame.ContextId.Value,SchedulePreview.ParseAt(context.KnownAt));
         var dependencies=programs.SelectMany(p=>p.Program.Document.Instructions).SelectMany(i=>i.Bindings).Where(b=>b.Kind=="contract_price").Select(b=>b.Market!.Value).Distinct().ToImmutableArray();
         var market=data.Model.Build(snapshot,dependencies,ct);

@@ -82,7 +82,7 @@ def run_checks(url, query, manifest):
 
     # A day whose close in force the reader cannot see is named, never answered with an older close (D334): a close under a
     # definition revision sealed after a historical view's cutoff is invisible to that view.
-    context = query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token()}');SELECT security.capture_date_context('{catalog}','2021-01-15',NULL);COMMIT;").splitlines()[-1]
+    context = query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token()}');SELECT security.resolve_operation_context('{catalog}','2021-01-15',NULL);COMMIT;").splitlines()[-1]
     later = str(uuid4())
     query(f"""BEGIN;
     INSERT INTO market_data.revisions SELECT(jsonb_populate_record(NULL::market_data.revisions,to_jsonb(r)||jsonb_build_object('id','{later}','state','draft','generation',0))).* FROM market_data.revisions r WHERE(catalog_id,id)=('{catalog}','{revision}');

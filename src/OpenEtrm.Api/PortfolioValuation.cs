@@ -278,8 +278,8 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         if(excluded.IsDefault||excluded.Any(e=>e is null||(e.InstrumentType==FuturesOptionPositions.Type?!FuturesOptionMarket.Excludable(e.Reason):
             !ValuationStatus.PositionSpecific(e.Reason))))
             throw new MarketDataException("risk_contract","A risk run leaves out only held positions, each with a position-specific valuation reason.");
-        var exact=PinnedContext.Exact(context);
-        await new KnowledgeStore(database.Manifest.CatalogId).Retained(connection,exact,ct);
+        var exact=await new KnowledgeResolver(database.Manifest.CatalogId).Retained(connection,PinnedContext.Exact(context),ct);
+        context=exact;
         if(bookIds.IsDefaultOrEmpty||bookIds.Length>128||bookIds.Distinct().Count()!=bookIds.Length||bookIds.Any(id=>id==Guid.Empty)||
             snapshot.Definitions!=data.DefinitionRevision||frame.ContextId!=exact.ContextId||frame.Id!=snapshot.Id||frame.At!=snapshot.ValuationAt||
             frame.Time.Date!=PublishedSchedules.ContextDate(exact))

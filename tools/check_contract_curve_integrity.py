@@ -34,7 +34,7 @@ INSERT INTO market_data.revision_periods VALUES('{cat}','{revision}','2020-01-01
     def admissions(revision):
         # Identical absolute-list occurrences may already have been verified on different days. Reuse their evidence.
         for predicate, day in (('a.ordinal=0', '2021-01-14'), ('a.ordinal>0', '2021-01-15')):
-            context = runtime(f"SELECT security.capture_date_context('{cat}','{day}',NULL);")
+            context = runtime(f"SELECT security.resolve_operation_context('{cat}','{day}',NULL);")
             runtime(f"""INSERT INTO market_data.contract_date_admissions
  (catalog_id,id,revision_id,contract_id,mapping_id,mapping_version,ordinal,context_id,actor_id)
  SELECT a.catalog_id,gen_random_uuid(),'{revision}',a.contract_id,a.mapping_id,a.mapping_version,a.ordinal,'{context}',

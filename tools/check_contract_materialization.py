@@ -18,8 +18,13 @@ def run_checks(url, query, manifest, psql, environment):
     cat, revision = manifest['catalogId'], manifest['revisionId']
 
     def context():
-        return viewer.call('date-schedules/context', {
+        selected=viewer.call('date-schedules/context', {
             'effectiveOn': '2020-12-18', 'knownAt': None, 'mode': 'current'})['context']
+        for who in (editor,approver):who.select_inputs(selected)
+        from assistant_context import Contexts
+        from native_read_transport import select_context_inputs
+        Contexts(query,manifest).runtime('viewer',select_context_inputs(cat,selected))
+        return selected
 
     for symbol, dates in [
         ('oe.seed_boundaries', ['2021-01-01', '2021-02-01', '2021-03-01']),
@@ -44,6 +49,7 @@ def run_checks(url, query, manifest, psql, environment):
     author = open_tab(editor)
     before_adoption = prepare(author,'2020-12-18')
     initial_counts = history_counts(query,cat)
+    admissions_held=int(query(f"SELECT count(*) FROM market_data.contract_date_admissions WHERE catalog_id='{cat}';"))
     original = json.loads(query(f"SELECT row_to_json(c) FROM market_data.contracts c WHERE catalog_id='{cat}' AND revision_id='{revision}' AND kind='future' AND delivery_from='2021-01-01';"))
     assert (original['delivery_to'], original['expiry_at']) == ('2021-02-01', '2020-12-28T15:30:00+00:00')
     body = {'requestId': str(uuid4()), 'revisionId': revision, 'mappingId': mapping['id'],
@@ -51,10 +57,20 @@ def run_checks(url, query, manifest, psql, environment):
                 {'contractId': original['id'], 'ordinal': 0, 'label': 'January',
                  'kind': 'future', 'futuresSeriesCode': original['futures_series_code']}]}
     receipt = author.call('date-schedules/contracts/materialize', body)
-    assert history_counts(query,cat) == tuple(n+1 for n in initial_counts)
+    assert history_counts(query,cat) == initial_counts == (0,0,0,0)
+    assert int(query(f"SELECT count(*) FROM market_data.contract_date_admissions WHERE catalog_id='{cat}';"))==admissions_held+1
     assert receipt == editor.call('date-schedules/contracts/materialize', body)
+    scopes=query(f"DELETE FROM security.reference_catalog_scopes WHERE catalog_id='{manifest['referenceCatalogId']}' RETURNING tenant_id,workspace_id,access_mode;")
+    try:editor.call('date-schedules/contracts/materialize',body,expected=403)
+    finally:
+        for line in scopes.splitlines():
+            tenant,workspace,access=line.split('|')
+            query(f"INSERT INTO security.reference_catalog_scopes VALUES('{manifest['referenceCatalogId']}','{tenant}','{workspace}','{access}');")
+    assert editor.call('date-schedules/contracts/materialize',body)==receipt
+    editor.select_inputs(before_adoption)
     assert receipt['contracts'][0]['created'] is False
     admission = receipt['contracts'][0]['admissionId']
+    assert query(f"SELECT context_id='{before_adoption['contextId']}'::uuid AND input_business_on='{before_adoption['effectiveOn']}'::date AND input_known_at='{before_adoption['knownAt']}'::timestamptz FROM market_data.contract_date_admissions WHERE id='{admission}';")=='t'
     same_contract_source = prepare(author,'2020-12-18')
     stored = history_counts(query,cat)
     another = author.call('date-schedules/contracts/materialize', {**body, 'context':same_contract_source, 'requestId': str(uuid4())})
@@ -73,6 +89,7 @@ def run_checks(url, query, manifest, psql, environment):
         **body, 'requestId': str(uuid4()),
         'contracts': [{**body['contracts'][0], 'label': 'February'}]}, expected=422)
     read = {'revisionId': revision, 'contractId': original['id'], 'context': before_adoption}
+    viewer.select_inputs(before_adoption)
     assert viewer.call('date-schedules/contracts/admissions', read) == []
     after = context()
     admissions = viewer.call('date-schedules/contracts/admissions', {**read, 'context': after})
@@ -80,7 +97,7 @@ def run_checks(url, query, manifest, psql, environment):
     assert admissions[0]['mappingId'] == mapping['id'] and admissions[0]['mappingVersion'] == 1
     assert admissions[0]['context'] == before_adoption
     historical = client('viewer')
-    historical.call('market/context/retained', {'contextId': after['contextId'], 'selection': 'latest_correction'})
+    historical.call('market/context', {'effectiveOn': after['effectiveOn'], 'knownAt': after['knownAt'], 'mode': 'at', 'selection': 'latest_correction'})
     assert historical.call('date-schedules/contracts/admissions', {**read, 'context': after}) == admissions
     historical.call('date-schedules/contracts/admissions', read, expected=422)
     # A new draft is constructed from the same published rows. Concurrent
@@ -91,6 +108,7 @@ def run_checks(url, query, manifest, psql, environment):
     construction = {**body, 'revisionId': draft_revision, 'contracts': [
         {**body['contracts'][0], 'contractId': new_contract, 'kind': 'forward', 'futuresSeriesCode': None}]}
     second_editor = client('editor')
+    second_editor.select_inputs(before_adoption)
     commands = [{**construction, 'requestId': str(uuid4())} for _ in range(2)]
     with ThreadPoolExecutor(max_workers=2) as pool:
         futures = [pool.submit(c.call, 'date-schedules/contracts/materialize', command)
@@ -146,16 +164,18 @@ def run_checks(url, query, manifest, psql, environment):
         return f"INSERT INTO market_data.contract_date_admissions(catalog_id,id,revision_id,contract_id,mapping_id,mapping_version,ordinal,context_id,actor_id) VALUES('{cat}','{admission_id}','{revision}','{contract}','{mapping['id']}',2,{ordinal},'{order_context['contextId']}',security.custom_curve_actor('{cat}','WriteMarketDefinitions'));"
 
     first_token, second_token = token(), token()
+    from native_read_transport import register_captured_input
+    register=register_captured_input(query,order_context['contextId'])
     first_id, second_id = str(uuid4()), str(uuid4())
     first = subprocess.Popen(psql, env=environment, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
-        first.stdin.write(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{first_token}');SELECT pg_current_xact_id();\n\\echo READY\n")
+        first.stdin.write(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{first_token}');{register}SELECT pg_current_xact_id();\n\\echo READY\n")
         first.stdin.flush()
         while first.stdout.readline().strip() != 'READY':
             if first.poll() is not None:
                 raise AssertionError(first.stderr.read())
         query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{second_token}');{raw_admission(february, 1, second_id)}COMMIT;")
-        first.stdin.write(raw_admission(original['id'], 0, first_id) + 'COMMIT;\n\\q\n')
+        first.stdin.write(raw_admission(original['id'], 0, first_id) + 'SELECT security.finish_operation_read();COMMIT;\n\\q\n')
         first.stdin.flush()
         _, error = first.communicate(timeout=15)
         assert first.returncode == 0, error

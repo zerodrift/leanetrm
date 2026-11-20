@@ -22,6 +22,7 @@ import {setupCurveDefinitionEditor} from './curve-definition-editor.js';
 import {setupNativeCurveInspector} from './native-curve-inspector.js';
 import {askCloseChoice,closeLink,closeLinkHref,type CloseTarget} from './close-choice.js';
 import {streamBlotter} from './blotter-stream.js';
+import {attachReadReferences,carryReadReferences,readReferenceHeaders,retainedKnowledge} from './read-references.js';
 import {setupPhysicalLng} from './physical-lng-editor.js';
 import {setupPhysicalCrude} from './physical-crude-editor.js';
 import {productTickets} from './product-tickets.js';
@@ -245,7 +246,7 @@ function renderAsOfClose(){
 }
 async function responseFor(path:string,body?:unknown,root=apiRoot,signal?:AbortSignal):Promise<Response>{
   let response:Response;
-  try{response=await fetch(root+path,{method:body===undefined?'GET':'POST',credentials:'same-origin',headers:{'X-OpenETRM-View':workspaceView(),'X-OpenETRM-Document':workspaceDocument,...(path.startsWith('bootstrap?')?reattachHeaders():{}),...(body===undefined?{}:{'Content-Type':'application/json','X-Preview-CSRF':csrf})},body:body===undefined?undefined:JSON.stringify(body),signal:signal?AbortSignal.any([signal,AbortSignal.timeout(deadlines.milliseconds(path))]):AbortSignal.timeout(deadlines.milliseconds(path))});}
+  try{response=await fetch(root+path,{method:body===undefined?'GET':'POST',credentials:'same-origin',headers:{...readReferenceHeaders(body),'X-OpenETRM-View':workspaceView(),'X-OpenETRM-Document':workspaceDocument,...(path.startsWith('bootstrap?')?reattachHeaders():{}),...(body===undefined?{}:{'Content-Type':'application/json','X-Preview-CSRF':csrf})},body:body===undefined?undefined:JSON.stringify(body),signal:signal?AbortSignal.any([signal,AbortSignal.timeout(deadlines.milliseconds(path))]):AbortSignal.timeout(deadlines.milliseconds(path))});}
   catch{throw Object.assign(Error(body!==undefined?'We could not confirm the result. Refresh and check the saved changes before saving again.':'The app could not connect. Please refresh the page.'),{code:'response_unknown'});}
   signal?.throwIfAborted();
   if(response.status===401){sessionEnded=true;futures.ended('signed_out');workspace=undefined;result=undefined;historyData=undefined;curve='';document.body.hidden=true;location.replace('/auth');throw Object.assign(Error('Sign in to continue.'),{code:'sign_in_required'});}
@@ -254,10 +255,11 @@ async function responseFor(path:string,body?:unknown,root=apiRoot,signal?:AbortS
 }
 async function transport<T>(path:string,body?:unknown,root=apiRoot,signal?:AbortSignal):Promise<T>{
   const response=await responseFor(path,body,root,signal);signal?.throwIfAborted();
-  const value=await response.json() as T;signal?.throwIfAborted();return value;
+  const value=attachReadReferences(await response.json() as T,response.headers.get('X-OpenETRM-Read-References'));signal?.throwIfAborted();return value;
 }
 async function api<T>(path:string,body?:unknown,signal?:AbortSignal):Promise<T>{
- if(['profile','market/current','market/context','market/context/retained','market/live','market/live/pause'].includes(path)){pageRead?.controller.abort();pageRead=undefined;readClient.reset();}
+ const selectsContext=['profile','market/current','market/context'].includes(path)||/^assistant\/turns\/[^/]+\/view$/.test(path);
+ if(selectsContext||['market/live','market/live/pause'].includes(path)){pageRead?.controller.abort();pageRead=undefined;readClient.reset();}
  const operation=asyncReadsEnabled?asyncReadRequest(path,body):undefined;
  const pageSignal=operation&&pageRead?.page===page?pageRead.controller.signal:undefined;
  const selectedSignal=signal&&pageSignal?AbortSignal.any([signal,pageSignal]):signal??pageSignal;
@@ -272,7 +274,7 @@ async function api<T>(path:string,body?:unknown,signal?:AbortSignal):Promise<T>{
   throw error;
  }
  selectedSignal?.throwIfAborted();
- if(['profile','market/current','market/context'].includes(path))stopLive();
+ if(selectsContext)stopLive();
  const displayed=shownAmounts(path,payload);
  if(displayed!==undefined)await prepareAmountDisplay(displayed,request=>transport<string[]>('amounts/display',request,apiRoot,selectedSignal),path==='history'?decimalTick():undefined);
  selectedSignal?.throwIfAborted();
@@ -1331,10 +1333,10 @@ const parties=setupPartyEditors({api,act,busy:()=>busy,zone:()=>prefs.timeZone,p
 
 const lifecycle=setupLifecycle($('lifecycle-page'),{api,act,busy:()=>busy,zone:()=>prefs.timeZone,
  identity:()=>administrationScope+':'+exampleId+':'+currentProfile,permission:can,historical:()=>!!historicalContext(),changed:()=>{syncUnloadQuestion();assistant.sync();},committed:()=>{futures.financialCommitted();riskJobs.financialChanged();},
- context:()=>{if(contextDirty)throw Error('Apply the changed header context first.');const retained=historicalContext();return {snapshotId:frame().id,convention:'trading_workspace_v1',knowledgeMode:retained?'retained':'current',...(retained?{contextId:retained.contextId}:{})};}});
+ context:()=>{if(contextDirty)throw Error('Apply the changed header context first.');const retained=historicalContext();return {snapshotId:frame().id,convention:'trading_workspace_v1',knowledgeMode:retained?'retained':'current',...(retained?retainedKnowledge(retained):{})};}});
 const physicalOperations=setupPhysicalOperations($('physical-operations-page'),{api,act,busy:()=>busy,zone:()=>prefs.timeZone,
  identity:()=>administrationScope+':'+exampleId+':'+currentProfile,permission:can,changed:()=>{syncUnloadQuestion();assistant.sync();},
- context:()=>{if(contextDirty)throw Error('Apply the changed header context before reading physical operations.');const retained=historicalContext();return {snapshotId:frame().id,convention:'trading_workspace_v1',knowledgeMode:retained?'retained':'current',...(retained?{contextId:retained.contextId}:{})};}});
+ context:()=>{if(contextDirty)throw Error('Apply the changed header context before reading physical operations.');const retained=historicalContext();return {snapshotId:frame().id,convention:'trading_workspace_v1',knowledgeMode:retained?'retained':'current',...(retained?retainedKnowledge(retained):{})};}});
 const facilities=setupFacilities({api,act,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+exampleId+':'+currentProfile,permission:can,
  nominationContext:()=>!contextDirty&&!historicalContext()&&select('snapshot').value?{snapshotId:select('snapshot').value,convention:'physical_gas_fixed_quantity_v4',knowledgeMode:'current',contextId:null}:null,
  nativeDeliveryReason:()=>contextDirty?'Apply the changed context before opening native delivery operations.':!select('snapshot').value?'Choose a financial close in the Blotter before opening native delivery operations.':null,
@@ -1397,8 +1399,7 @@ $('back-view-context').onclick=()=>leaving(async()=>{
  viewHistory.pop();renderWorkspaceMode();await loadContextPage();
 },'closes');
 async function restoreCutoff(context:Context,restoreKey?:string){
- const snapshot=restoreKey?await api<{context:Context;restoreKey:string}>('market/context',{effectiveOn:context.effectiveOn,knownAt:context.knownAt,mode:'at',selection:'latest_correction',restoreKey}):
-  await api<{context:Context}>('market/context/retained',{contextId:context.contextId,selection:'latest_correction'});
+ const snapshot=await api<{context:Context;restoreKey:string}>('market/context',{effectiveOn:context.effectiveOn,knownAt:context.knownAt,mode:'at',selection:'latest_correction',restoreKey});
  if(snapshot.context.contextId!==context.contextId)throw Error('The saved selection could not be restored exactly.');
  await viewContext(snapshot);
 }
@@ -1464,7 +1465,7 @@ const transportTicket=setupTransportTicket({api,source:()=>({snapshotId:frame().
 // The applied trading context an option read is made at, and the close or working snapshot the header reads at.
 const optionContext=()=>{
  if(contextDirty)throw Error('Apply the changed market context first.');
- const view=historicalContext();return {snapshotId:frame().id,convention:optionConvention,...(view?{knowledgeMode:'retained' as const,contextId:view.contextId!}:{knowledgeMode:'current' as const})};};
+ const view=historicalContext();return {snapshotId:frame().id,convention:optionConvention,...(view?{...retainedKnowledge(view)!}:{knowledgeMode:'current' as const})};};
 const frameHere=()=>{const f=frame() as Frame&{close?:FrameClose|null};return {closeId:f.close?f.originCloseId??null:null,at:f.at,close:f.close?{session:f.close.session,businessDate:f.close.businessDate}:null};};
 const volSurfaces=setupVolSurfaces({api,zone:()=>prefs.timeZone,historical:()=>contextDirty||!!historicalContext(),context:optionContext,
  chain:(product,expiryAt,series)=>void openOptionChain(product,expiryAt,series),
@@ -1514,7 +1515,7 @@ const referenceEditor=setupReferenceEditor({host:$('reference-item'),api,act,bus
  clearPrices();await reload(selected);if(address)await openReferenceItem(address);
 }});
 const power=setupPowerView({api,act,zone:()=>prefs.timeZone,name:curveName,source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');const f=frame();return {snapshotId:f.id,curve,name:instant(f.at)};}});
-const recInventory=setupRecInventory($('rec-inventory-page'),{api,act,busy:()=>busy,identity:()=>administrationScope+':'+exampleId+':'+currentProfile,context:()=>{if(contextDirty)throw Error('Apply the changed inventory context first.');return recContext($<HTMLInputElement>('date-context-on').value,historicalContext()?'retained':'current',historicalContext()??null);},inventoryAvailable:()=>can('ReadRecInventory'),changed:()=>syncUnloadQuestion(),trading:{zone:()=>prefs.timeZone,snapshots:()=>navigation?.frames.map(f=>({id:f.id,label:instant(f.at)}))??[],context:snapshotId=>({snapshotId,convention:'rec_forward_v1',knowledgeMode:historicalContext()?'retained':'current',...(historicalContext()?{contextId:historicalContext()!.contextId!}:{})}),booked:ticketBooked,openTrade:async(id,revision)=>{if(busy||!await mayLeave('page'))return;await act(async()=>{await setPage('futures');await futures.load();await futures.openTrade(id,'rec_forward',revision);});}}});
+const recInventory=setupRecInventory($('rec-inventory-page'),{api,act,busy:()=>busy,identity:()=>administrationScope+':'+exampleId+':'+currentProfile,context:()=>{if(contextDirty)throw Error('Apply the changed inventory context first.');return recContext($<HTMLInputElement>('date-context-on').value,historicalContext()?'retained':'current',historicalContext()??null);},inventoryAvailable:()=>can('ReadRecInventory'),changed:()=>syncUnloadQuestion(),trading:{zone:()=>prefs.timeZone,snapshots:()=>navigation?.frames.map(f=>({id:f.id,label:instant(f.at)}))??[],context:snapshotId=>({snapshotId,convention:'rec_forward_v1',knowledgeMode:historicalContext()?'retained':'current',...(historicalContext()?retainedKnowledge(historicalContext()!):{})}),booked:ticketBooked,openTrade:async(id,revision)=>{if(busy||!await mayLeave('page'))return;await act(async()=>{await setPage('futures');await futures.load();await futures.openTrade(id,'rec_forward',revision);});}}});
 const recPrompt=document.createElement('div');recPrompt.className='side-panel-prompt';recPrompt.hidden=true;$('rec-inventory-page').prepend(recPrompt);
 const structuredPower=setupStructuredPower($('physical-power-page'),{api,act,zone:()=>prefs.timeZone,busy:()=>busy,source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,contextKey:JSON.stringify([frame().id,historicalContext()])};},identity:()=>administrationScope+':'+exampleId+':'+currentProfile,trading:{available:()=>can('ReadTrades'),canHedge:()=>can('RunScenario'),openTrade:async(tradeId,revision)=>{if(busy||!await mayLeave('page'))return;await act(async()=>{await setPage('futures');await futures.load();await futures.openTrade(tradeId,'operating_right',revision);});}}});
 const physicalPrompt=document.createElement('div');physicalPrompt.id='physical-power-page-prompt';physicalPrompt.className='side-panel-prompt';physicalPrompt.hidden=true;$('physical-power-page').prepend(physicalPrompt);
@@ -1837,9 +1838,9 @@ async function openCurve(code:string,contractId:string|null){
 }
 // Selects knowledge and an As of frame, as a target pins them or a place showed them, before a page opens there. Working data's time
 // controls then show the frame's effective date at current knowledge, as returning to working data leaves them (D217).
-async function selectContext(knowledge:TargetContext&{businessDate?:string}){
+async function selectContext(knowledge:TargetContext&{businessDate?:string},sourceTurnId?:string){
   if(knowledge.mode==='current'){if(contextDirty||historicalContext())await currentInputs();}
-  else if(contextDirty||historicalContext()?.contextId!==knowledge.contextId)await selectRetained(knowledge.contextId!);
+  else if(contextDirty||historicalContext()?.contextId!==knowledge.contextId)await selectRetained(knowledge.contextId!,sourceTurnId);
   const frame=knowledge.frameId??'';
   if(select('snapshot').value!==frame){
     if(frame&&!offeredFrames().some(f=>f.id===frame))throw Error(otherSessionRefusal(directory().frames,frame,closeSession,closeSessionNames)??'That As of date is not available in this session. Choose an As of date, or ask again.');
@@ -1848,11 +1849,12 @@ async function selectContext(knowledge:TargetContext&{businessDate?:string}){
   }
   if(knowledge.mode==='current'){if(knowledge.businessDate)await dateEditor.initialize(knowledge.businessDate);else await initializeContext();}
 }
-// A historical view selected again by its id, exactly as it was captured.
-async function selectRetained(contextId:string){
+// Restore captured coordinates, or reconstruct the named question's inputs.
+async function selectRetained(contextId:string,sourceTurnId?:string){
   const inspected=inspectedContexts.get(contextId);if(inspected){await restoreCutoff(inspected.context,inspected.restoreKey);return;}
   jobs.contextChanged();customCurves.contextChanged();intervalSeries.reset();intervalCurves.reset();parties.reset();unitConverter.reset();futures.reset('inputs');power.reset();
-  const snapshot=await api<{context:Context}>('market/context/retained',{contextId,selection:'latest_correction'});
+  if(!sourceTurnId)throw Error('The original input coordinates are unavailable. Reopen their recorded source.');
+  const snapshot=await api<{context:Context;restoreKey:string}>(`assistant/turns/${sourceTurnId}/view`,{selection:'latest_correction'});
   if(snapshot.context.contextId!==contextId)throw Error('The historical view could not be selected exactly. Reload the page.');
   await viewContext(snapshot);
 }
@@ -1911,7 +1913,7 @@ const assistant=setupAssistant({launcherHidden:()=>prefs.assistantHidden,launche
   go:async target=>{
     if(target.context.mode==='operational'){
       if(historicalContext())throw Error('Return to working data before opening this operational page.');
-    }else if(target.kind!=='proposal'&&target.kind!=='draft')await selectContext(target.context);
+    }else if(target.kind!=='proposal'&&target.kind!=='draft')await selectContext(target.context,target.sourceTurnId);
     await showTarget(target.page,target.selection,target.kind);
   },restore:restorePlace});
 // Coming back to the window asks whether a newer close arrived while it was away.

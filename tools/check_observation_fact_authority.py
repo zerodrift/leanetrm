@@ -15,6 +15,8 @@ from uuid import UUID, uuid4
 
 
 def run_checks(query, manifest, context, pins, psql, environment, owned_root):
+    from native_read_transport import captured_input
+    inputs=captured_input(query,context)
     root = Path(owned_root).resolve()
     assert (root / '.openetrm-preview').is_file()
     assert Path(query('SHOW data_directory;')).resolve() == root / 'data'
@@ -116,8 +118,7 @@ def run_checks(query, manifest, context, pins, psql, environment, owned_root):
     newest = query(f"SELECT id FROM market_data.market_closes WHERE catalog_id='{catalog}' AND session_code='test_utc_close' AND business_date='2020-12-18' ORDER BY publication_order DESC LIMIT 1;")
     late = query(f"""SELECT p.observation_id FROM market_data.market_close_pins p
       JOIN market_data.knowledge_events e ON(e.catalog_id,e.observation_id)=(p.catalog_id,p.observation_id)
-      WHERE(p.catalog_id,p.close_id)=('{catalog}','{newest}') AND e.event_order>(SELECT known_through
-      FROM market_data.market_contexts WHERE(catalog_id,context_id)=('{catalog}','{context}')) ORDER BY p.observation_id LIMIT 1;""")
+      WHERE(p.catalog_id,p.close_id)=('{catalog}','{newest}') AND e.event_order>{inputs['market_prefix']} ORDER BY p.observation_id LIMIT 1;""")
     assert late, 'The retained fixture must precede at least one current close pin'
     other = next(p for p in pins if p != late)
     one_late = ids([late])
@@ -140,10 +141,8 @@ def run_checks(query, manifest, context, pins, psql, environment, owned_root):
     known = query(f"""SELECT o.id FROM market_data.observations o JOIN market_data.knowledge_events e
       ON(e.catalog_id,e.observation_id)=(o.catalog_id,o.id)
       JOIN market_data.market_knowledge_receipts k ON(k.catalog_id,k.event_order,k.publication_xid)=(e.catalog_id,e.event_order,e.publication_xid)
-      JOIN market_data.market_contexts m ON(m.catalog_id,m.context_id)=('{catalog}','{context}')
-      JOIN market_data.temporal_contexts t ON(t.catalog_id,t.id)=(m.catalog_id,m.context_id)
       WHERE o.catalog_id='{catalog}' AND o.definition_revision_id='{revision}' AND o.id=ANY({selected})
-       AND e.event_order<=m.known_through AND k.known_from<=t.known_at ORDER BY o.id LIMIT 1;""")
+       AND e.event_order<={inputs['market_prefix']} AND k.known_from<='{inputs['known_at']}'::timestamptz ORDER BY o.id LIMIT 1;""")
     assert known and result(rows(facts(ids([known])))), 'A known visible anchor is required'
     hidden_anchor = str(uuid4())
     insert_hidden = f"""INSERT INTO market_data.observations SELECT(jsonb_populate_record(NULL::market_data.observations,to_jsonb(o)||jsonb_build_object(
@@ -353,6 +352,8 @@ def run_checks(query, manifest, context, pins, psql, environment, owned_root):
 
 
 def run_frame_checks(query, manifest, context, pins, psql, environment, owned_root, dotnet):
+    from native_read_transport import captured_input
+    inputs=captured_input(query,context)
     """Exercise the actual managed batch with a second-call database barrier."""
     root = Path(owned_root).resolve()
     assert (root / '.openetrm-preview').is_file()
@@ -364,7 +365,7 @@ def run_frame_checks(query, manifest, context, pins, psql, environment, owned_ro
     selected = 'ARRAY[' + ','.join("'" + pin + "'::uuid" for pin in pins) + ']'
     # The managed authority probe needs a genuinely visible frame. Later close
     # replacements no longer release their prices into this retained cutoff.
-    pins=json.loads(query(f"SELECT json_agg(e.observation_id ORDER BY e.observation_id) FROM market_data.knowledge_events e JOIN market_data.market_knowledge_receipts k USING(catalog_id,event_order,publication_xid) JOIN market_data.market_contexts m ON(m.catalog_id,m.context_id)=(e.catalog_id,'{context}') JOIN market_data.temporal_contexts t ON(t.catalog_id,t.id)=(m.catalog_id,m.context_id) WHERE e.catalog_id='{catalog}' AND e.observation_id=ANY({selected}) AND e.event_order<=m.known_through AND k.known_from<=t.known_at;"))
+    pins=json.loads(query(f"SELECT json_agg(e.observation_id ORDER BY e.observation_id) FROM market_data.knowledge_events e JOIN market_data.market_knowledge_receipts k USING(catalog_id,event_order,publication_xid) WHERE e.catalog_id='{catalog}' AND e.observation_id=ANY({selected}) AND e.event_order<={inputs['market_prefix']} AND k.known_from<='{inputs['known_at']}'::timestamptz;"))
     assert len(pins)>1
     selected = 'ARRAY[' + ','.join("'" + pin + "'::uuid" for pin in pins) + ']'
     series = json.loads(query(f"SELECT json_agg(DISTINCT series_id) FROM market_data.observations WHERE catalog_id='{catalog}' AND id=ANY({selected});"))

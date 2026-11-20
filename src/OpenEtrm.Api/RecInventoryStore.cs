@@ -52,7 +52,7 @@ public sealed class RecInventoryStore(PreviewDatabase database)
     }
     private async Task<(ScheduleContext Context,DateTimeOffset At,bool Working)> Bind(NpgsqlConnection c,RecInventoryDateContext input,ScheduleContext? selected,CancellationToken ct)
     {
-        var day=Day(input);var store=new KnowledgeStore(Catalog);ScheduleContext context;
+        var day=Day(input);var store=new KnowledgeResolver(Catalog);ScheduleContext context;
         var working=input.KnowledgeMode=="current"&&input.Retained is null&&selected is null;
         if(working)context=(await store.Capture(c,new(input.EffectiveOn,null,"current"),ct)).Context;
         else if(input.KnowledgeMode=="retained"&&input.Retained is {} retained&&selected is not null&&retained.ContextId==selected.ContextId&&retained.EffectiveOn==input.EffectiveOn)

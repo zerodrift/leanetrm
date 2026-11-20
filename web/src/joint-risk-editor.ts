@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import {scenarioShift,type ScenarioTarget,type ScenarioShift} from './risk-scenarios.js';
 import {node} from './risk-report-elements.js';
 import type {JointRequest,JointCapabilities,RiskTolerance} from './joint-risk.js';
@@ -52,7 +53,7 @@ export function setupJointEditor(host:HTMLFieldSetElement,changed:(event:Event)=
    input(host,'label','Scenario label');host.append(button('Add named scenario to set','add-scenario',()=>{
     if(!value('label').trim()||!state.staged.length)throw Error('Enter a scenario label and add at least one shift.');
     if(state.scenarios.length>=caps!.maxScenarios)throw Error(`A set accepts at most ${caps!.maxScenarios} named scenarios.`);
-    state.scenarios.push({id:crypto.randomUUID(),label:value('label').trim(),shifts:structuredClone(state.staged)});state.staged=[];state.fields.label='';
+    state.scenarios.push({id:crypto.randomUUID(),label:value('label').trim(),shifts:cloneRead(state.staged)});state.staged=[];state.fields.label='';
    }),button('Clear staged scenario','clear-staged',()=>{state.staged=[];state.fields.label='';state.fields.shift='';}));
    const list=node('ol');list.className='joint-risk-list';state.scenarios.forEach((s,index)=>{const row=node('li');row.append(node('strong',s.label),node('p',s.shifts.map(x=>`${x.label}: ${x.shift.size} ${x.unit}`).join('; ')),button('Remove scenario','remove-scenario-'+index,()=>{state.scenarios.splice(index,1);}));list.append(row);});host.append(list,node('p',`${state.scenarios.length} scenarios in this set. Each branches independently from the selected parent; no probability is assigned.`));
   }else{
@@ -79,15 +80,15 @@ export function setupJointEditor(host:HTMLFieldSetElement,changed:(event:Event)=
    if(!value('name').trim()||!value('version').trim()||!state.scenarios.length)throw Error('Name and version the set, then add at least one named scenario.');
    if(state.staged.length||value('label').trim()||value('shift').trim())throw Error('Add the staged scenario to the set, or clear it before running.');
    return {convention:caps.convention,scenarios:{id:value('name').trim(),version:value('version').trim(),convention:caps.scenarioConvention,
-    scenarios:state.scenarios.map(s=>({id:s.id,label:s.label,shifts:s.shifts.map(x=>structuredClone(x.shift))}))},derivatives:null};
+    scenarios:state.scenarios.map(s=>({id:s.id,label:s.label,shifts:s.shifts.map(x=>cloneRead(x.shift))}))},derivatives:null};
   }
   if(!state.axes.length)throw Error('Add at least one sensitivity axis.');
   if(value('bump').trim())throw Error('Add or clear the staged axis before running.');
   return {convention:caps.convention,scenarios:null,derivatives:{convention:caps.derivativeConvention,
-   axes:state.axes.map(a=>({id:a.id,bump:structuredClone(a.target.shift),deltaTolerance:tolerance('delta'),gammaTolerance:tolerance('gamma')})),
+   axes:state.axes.map(a=>({id:a.id,bump:cloneRead(a.target.shift),deltaTolerance:tolerance('delta'),gammaTolerance:tolerance('gamma')})),
    mixed:state.mixed.map(p=>({...p,tolerance:tolerance('mixed')}))}};
  }
  return {show(next:typeof mode){mode=next;host.hidden=host.disabled=!mode;draw();},reset(){state=empty();targets=[];caps=undefined;draw();},
   load(next:JointCapabilities|undefined,offered:ScenarioTarget[]){caps=next?.convention==='portfolio_joint_risk_v1'?next:undefined;targets=offered;draw();},
-  choices:()=>structuredClone(state),put(kept:JointChoices){state=structuredClone(kept);draw();},request};
+  choices:()=>cloneRead(state),put(kept:JointChoices){state=cloneRead(kept);draw();},request};
 }

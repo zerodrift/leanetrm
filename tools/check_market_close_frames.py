@@ -5,10 +5,15 @@ import subprocess
 import time
 from uuid import uuid4
 from preview_client import PreviewClient
+from assistant_context import Contexts
 
 
 def run_checks(query,manifest,psql,environment,close_id,context):
     catalog=manifest['catalogId']
+    cut=json.loads(Contexts(query,manifest).runtime('viewer',f"SELECT row_to_json(c) FROM security.resolve_read_cut('{catalog}','{context['effectiveOn']}','{context['knownAt']}',false) c;"))
+    assert cut['id']==context['contextId'] and cut['known_through']==context['knownThrough']
+    binding=(f"SELECT security.bind_operation_read('{catalog}','{cut['id']}','{context['effectiveOn']}',"
+             f"'{cut['known_at']}',{cut['known_through']},'{cut['system_id']}',{cut['timeline']});")
     plan=json.loads(query(f"BEGIN;SET LOCAL enable_seqscan=off;EXPLAIN(FORMAT JSON) SELECT id,name,at FROM market_data.market_closes WHERE catalog_id='{catalog}' AND definition_revision_id='{manifest['revisionId']}' ORDER BY at DESC,id DESC LIMIT 129;ROLLBACK;"))
     def indexes(node):
         return [node.get('Index Name')]+[value for child in node.get('Plans',[]) for value in indexes(child)]
@@ -29,7 +34,7 @@ def run_checks(query,manifest,psql,environment,close_id,context):
     INSERT INTO security.role_grants VALUES('{grant}','{principal}','{role}','{manifest['tenantId']}','{manifest['workspaceId']}',clock_timestamp()-interval '1 day',clock_timestamp()+interval '1 day',false);""")
     token=query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','synthetic_expiring_close_reader','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',60);")
     query(f"""SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');
-    SELECT security.use_market_context('{catalog}','{context['contextId']}');
+    {binding}
     DO $$BEGIN PERFORM security.read_market_close_parts('{catalog}',ARRAY['{close_id}'::uuid],'{uuid4()}');
     RAISE EXCEPTION 'A close read mislabeled its bound context';EXCEPTION WHEN SQLSTATE '42501' THEN NULL;END$$;ROLLBACK;""")
     def attempt(expect_refusal,direct=False):
@@ -45,7 +50,7 @@ def run_checks(query,manifest,psql,environment,close_id,context):
             query(f"UPDATE security.role_grants SET granted_to=clock_timestamp()+interval '8 seconds' WHERE id='{grant}';")
             token=query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','synthetic_expiring_close_reader','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',60);")
             sql=f"""SET SESSION AUTHORIZATION preview_runtime;SET application_name='synthetic_close_parts_expiry';BEGIN;SET LOCAL statement_timeout='15s';
-            SELECT security.use_context('{token}');SELECT security.use_market_context('{catalog}','{context['contextId']}');
+            SELECT security.use_context('{token}');{binding}
             DO $$BEGIN {read} END$$;
             SELECT NOT security.has_permission('ReadMarketData');ROLLBACK;"""
             with ThreadPoolExecutor(max_workers=1) as pool:

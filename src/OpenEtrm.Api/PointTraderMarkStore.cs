@@ -53,7 +53,7 @@ internal sealed partial class PointTraderMarkStore(PreviewDatabase database)
     {
         if(context is null||context.ContextId==Guid.Empty||context.SnapshotId==Guid.Empty||context.BusinessDate==default||
             !TradingInstant.IsSupported(context.AsOf))throw Source();
-        var known=(await new KnowledgeStore(Catalog).Read(c,context.ContextId,ct)).Context;
+        var known=(await new KnowledgeResolver(Catalog).Read(c,context.ContextId,ct)).Context;
         if(PublishedSchedules.ContextDate(known)!=context.BusinessDate)throw Source();
         return known;
     }
@@ -99,7 +99,10 @@ internal sealed partial class PointTraderMarkStore(PreviewDatabase database)
         if(!status.GetProperty("found").GetBoolean())return new(){["found"]=false};
         var saved=status.GetProperty("request");var command=PointTraderMarkCommands.Normalize(Catalog,saved.GetProperty("body"));
         var provenance=command.GetProperty("originalInputs").Deserialize<PointTraderMarkOriginalInputs>(PointTraderMarkCommands.Json);
-        var known=(await new KnowledgeStore(Catalog).Read(c,saved.Id("sourceContextId"),ct)).Context;
+        var snapshot=await status.GetProperty("sourceInputs").Deserialize<ReadInputCoordinates>(PointTraderMarkCommands.Json)!.ResolveSnapshot(c,Catalog,ct);
+        if(snapshot.Context.ContextId!=saved.Id("sourceContextId"))throw Source();
+        ReadReferences.Expose(Catalog,snapshot);
+        var known=snapshot.Context;
         var context=new PointTraderMarkContext(saved.Id("sourceContextId"),saved.Instant("asOf"),PublishedSchedules.ContextDate(known),provenance?.SnapshotId);
         var result=await Reply(c,request.OperationId,request.OwnerId,context,command,command,true,status.GetProperty("outcome"),ct);
         result["found"]=true;return result;
@@ -107,12 +110,11 @@ internal sealed partial class PointTraderMarkStore(PreviewDatabase database)
     private async Task<JsonElement> RecordNative(NpgsqlConnection c,PointTraderMarkWriteRequest request,JsonElement command,
         ScheduleContext source,bool retry,CancellationToken ct)
     {
-        // Publication needs current import authority and a durable FK to the displayed cut.
-        // Capture those exact coordinates in the producer's transaction or its preview savepoint.
+        // Register the displayed coordinates in this transaction. The command
+        // records its explicit provenance atomically; no context object is saved.
         if(!retry&&source.ReadCut is {} cut)
         {
-            await using var capture=ScheduleStore.Command(c,"SELECT security.capture_date_context($1,$2,$3)",Catalog,request.Context.BusinessDate,cut.KnownAt);
-            if(await capture.ExecuteScalarAsync(ct) is not Guid retained||retained!=request.Context.ContextId)throw Source();
+            await cut.Register(c,source,ct);
         }
         return await Native(c,"SELECT security.record_point_trader_mark($1,$2,$3::jsonb,$4,$5)::text",ct,
             Catalog,request.OperationId,command.GetRawText(),request.Context.ContextId,request.Context.AsOf);
@@ -133,10 +135,12 @@ internal sealed partial class PointTraderMarkStore(PreviewDatabase database)
         database.RegisterCommitAdmission(c,new PointTraderMarkAdmission(Catalog,
             new(target.Id("definitionRevisionId"),target.Id("referenceCatalogId"),target.Id("referenceRevisionId")),true,bound.Until));
         await RequireOwner(c,request.OwnerId,ct);
-        var source=await RequireContext(c,request.Context,ct);
-        if(command.GetProperty("target").Instant("observedAt")!=request.Context.AsOf)throw Source();
         var prior=await NativeStatus(c,request.OperationId,ct);
         var retry=prior.GetProperty("found").GetBoolean();
+        var source=retry
+            ?await prior.GetProperty("sourceInputs").Deserialize<ReadInputCoordinates>(PointTraderMarkCommands.Json)!.Resolve(c,Catalog,ct)
+            :await RequireContext(c,request.Context,ct);
+        if(source.ContextId!=request.Context.ContextId||command.GetProperty("target").Instant("observedAt")!=request.Context.AsOf)throw Source();
         JsonElement outcome;
         if(preview)
         {

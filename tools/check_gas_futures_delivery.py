@@ -43,7 +43,7 @@ def checks(query, manifest, *, carrying='currency_curve_v1'):
         token = query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
             f"'{issuer}','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}COMMIT;")
-    def capture(day='2026-11-06'): return call(f"SELECT security.capture_date_context('{catalog}','{day}',NULL);")
+    def capture(day='2026-11-06'): return call(f"SELECT security.resolve_operation_context('{catalog}','{day}',NULL);")
     def refuse(sql, code):
         try: call(sql)
         except RuntimeError as error: assert code in str(error), str(error)

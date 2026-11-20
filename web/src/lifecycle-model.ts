@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import type {RequestCommand} from './pending-command.js';
 
 export type LifecycleContext={contextId:string;asOf:string;businessDate:string;snapshotId?:string|null};
@@ -33,12 +34,12 @@ export function lifecycleRows(offers:LifecycleOffer[],instant:(value:string)=>st
 export function lifecycleRequest(context:LifecycleContext,offer:LifecycleOffer,draft:LifecycleDraft,operationId:string):LifecycleRequest{
  if(!offer.selection)throw Error('Configure the product lifecycle settings first.');
  if(!draft.policyId||!Number.isSafeInteger(draft.policyRevision)||draft.policyRevision<1)throw Error('Choose an exact saved action policy.');
- const selection=structuredClone(offer.selection);
+ const selection=cloneRead(offer.selection);
  for(const input of offer.requiredInputs){
   if(input==='policyId')continue;
   if(input==='correctionDue'){
    if(!Array.isArray(draft.correctionDue))throw Error('Choose explicit correction due times, or confirm that none are needed.');
-   selection.correctionDue=structuredClone(draft.correctionDue);continue;
+   selection.correctionDue=cloneRead(draft.correctionDue);continue;
   }
   if(input==='netSettlement'){
    if(!selection.net||typeof selection.net!=='object')throw Error('Choose a supported net settlement.');
@@ -46,7 +47,7 @@ export function lifecycleRequest(context:LifecycleContext,offer:LifecycleOffer,d
    if(!preview||typeof preview!=='object'||!Array.isArray(draft.allocations)||!Object.hasOwn(draft,'reversesId'))throw Error('Choose explicit net allocations or one original settlement to reverse.');
    if(draft.reversesId===null){if(typeof draft.amount!=='string'||!draft.amount.trim()||draft.allocations.length<2)throw Error('Enter the observed net amount and at least two gross allocations.');}
    else if(typeof draft.reversesId!=='string'||!draft.reversesId||draft.amount!==null||draft.allocations.length)throw Error('A reversal uses its exact original settlement without replacement amounts.');
-   Object.assign(preview,{amount:draft.amount,allocations:structuredClone(draft.allocations),reversesId:draft.reversesId});continue;
+   Object.assign(preview,{amount:draft.amount,allocations:cloneRead(draft.allocations),reversesId:draft.reversesId});continue;
   }
   if(input==='correctionDueAt'){
    if(!Object.hasOwn(draft,input))throw Error('Choose a correction due time, or confirm that this is an original determination.');
@@ -60,7 +61,7 @@ export function lifecycleRequest(context:LifecycleContext,offer:LifecycleOffer,d
   (owner as Record<string,unknown>)[input]=value;
  }
  if(selection.payment&&typeof selection.payment==='object'&&Object.hasOwn(draft,'reversesId'))(selection.payment as Record<string,unknown>).reversesId=draft.reversesId;
- return {operationId,context:structuredClone(context),target:structuredClone(offer.target),action:offer.action,policyId:draft.policyId,policyRevision:draft.policyRevision,automatic:false,previewHash:'0'.repeat(64),selection};
+ return {operationId,context:cloneRead(context),target:cloneRead(offer.target),action:offer.action,policyId:draft.policyId,policyRevision:draft.policyRevision,automatic:false,previewHash:'0'.repeat(64),selection};
 }
 /** A confirmed source change invalidates current inputs, independently of edits. */
 export function lifecycleChangesFinancialSource(command:Pick<RequestCommand,'path'|'body'>):boolean{
@@ -76,5 +77,5 @@ export function restoreLifecycleRequest(value:unknown):RequestCommand|undefined{
  if(!value||typeof value!=='object'||Array.isArray(value))return;
  const saved=value as RequestCommand;
  if(!lifecycleWritePaths.includes(saved.path as typeof lifecycleWritePaths[number])||typeof saved.operationId!=='string'||!saved.operationId||!saved.body||typeof saved.body!=='object'||Array.isArray(saved.body)||lifecycleOperationId(saved.path,saved.body)!==saved.operationId)return;
- return {path:saved.path,operationId:saved.operationId,body:structuredClone(saved.body),...(saved.uncertain===true?{uncertain:true}:{}),...(typeof saved.label==='string'?{label:saved.label}:{})};
+ return {path:saved.path,operationId:saved.operationId,body:cloneRead(saved.body),...(saved.uncertain===true?{uncertain:true}:{}),...(typeof saved.label==='string'?{label:saved.label}:{})};
 }

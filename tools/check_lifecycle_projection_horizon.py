@@ -27,7 +27,7 @@ def before_migration(query, migration):
     token = query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
                   f"'https://preview.invalid','risk','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',60);")
     old = query("SET SESSION AUTHORIZATION preview_runtime;BEGIN;"
-                f"SELECT security.use_context('{token}');SELECT security.capture_date_context('{manifest['catalogId']}','2020-12-18',NULL);COMMIT;")
+                f"SELECT security.use_context('{token}');SELECT security.resolve_operation_context('{manifest['catalogId']}','2020-12-18',NULL);COMMIT;")
     _upgrade.update(manifest=manifest, context=old)
 
 
@@ -47,7 +47,7 @@ def checks(query, manifest):
                      f"SELECT security.use_context('{token}');{sql}COMMIT;")
 
     def capture(day='2020-12-18'):
-        return call(f"SELECT security.capture_date_context('{catalog}','{day}',NULL);")
+        return call(f"SELECT security.resolve_operation_context('{catalog}','{day}',NULL);")
 
     def publish(code, cutoff='16:00', effective=('2020-12-01', '2021-12-01')):
         body = json.dumps(draft(code, 'test_business', cutoff, ['future'], effective)).replace("'", "''")

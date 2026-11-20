@@ -46,7 +46,7 @@ def acknowledgement_checks(f, checkpoint):
 def uncommitted_source_check(f, trade, selection):
     context = f.capture()
     rejected(lambda: f.call(f"SELECT security.record_gas_park_loan('{f.catalog}','{uuid4()}','{trade}','fee_determine',"
-        f"{literal(selection)},'{f.at}','{context}',false);SELECT security.capture_date_context('{f.catalog}','{f.day}',NULL);"), 'knowledge_retention')
+        f"{literal(selection)},'{f.at}','{context}',false);SELECT security.resolve_operation_context('{f.catalog}','{f.day}',NULL);"), 'knowledge_retention')
     print('PASS a source certificate cannot include its uncommitted fee publication.', flush=True)
 
 

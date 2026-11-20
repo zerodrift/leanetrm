@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import {componentTypeBadge} from './curve-component-types.js';
 import {portAccepts} from './custom-curve-model.js';
 import {offersComponentHistory,setupComponentHistory,type HistoryCatalog} from './component-history-view.js';
@@ -41,7 +42,7 @@ type Options={headingSlot:HTMLElement;api:Api;act:(work:()=>Promise<void>)=>Prom
  narrow:()=>boolean;
  /** The page assistant: whether this person may use it, and opening it with a question to start from. */
  assistant:{available:()=>boolean;draft:(text:string)=>void}};
-const clone=<T>(value:T):T=>structuredClone(value);
+const clone=<T>(value:T):T=>cloneRead(value);
 const empty=():CurveDefinition=>({code:'',name:'',nodes:[],output:''});
 const pretty=(value:unknown)=>typeof value==='string'?value:JSON.stringify(value,null,2);
 const assistantStart='Help me set up a new curve in the Curve builder: prepare it and show me its key values, then save it as a draft.';

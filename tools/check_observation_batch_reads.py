@@ -18,7 +18,7 @@ def check_small_point_scope(query,manifest):
     WHERE(o.catalog_id,o.id)=('{catalog}','{original}');""")
     def issue():
         return query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','viewer','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',120);")
-    token=issue();context=query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');SELECT security.capture_date_context('{catalog}','2020-12-17',NULL);COMMIT;")
+    token=issue();context=query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');SELECT security.resolve_operation_context('{catalog}','2020-12-17',NULL);COMMIT;")
     selected='ARRAY['+','.join("'"+pin+"'::uuid" for pin in pins)+']'
     for plan in ['force_generic_plan','force_custom_plan']:
         token=issue()
@@ -35,7 +35,7 @@ def check_reference_version_scope(query,manifest):
     def issue():
         return query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','viewer','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',120);")
     def capture():
-        return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{issue()}');SELECT security.capture_date_context('{catalog}','2020-12-17',NULL);COMMIT;")
+        return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{issue()}');SELECT security.resolve_operation_context('{catalog}','2020-12-17',NULL);COMMIT;")
     def seal(revision,reference):
         query(f"INSERT INTO market_data.revisions VALUES('{catalog}','{revision}','{reference_catalog}','{reference}','draft',0);"
               f"INSERT INTO market_data.revision_periods VALUES('{catalog}','{revision}','2020-12-01','2021-12-01');"
@@ -106,7 +106,7 @@ def run_checks(query,manifest):
     'id',gen_random_uuid(),'source_event_id','synthetic_unrelated_'||o.id,'source_revision_id','first','corrects_id',NULL,'received_at',clock_timestamp()))copied
     WHERE o.catalog_id='{catalog}' AND o.id=ANY({corrections});""")
     array+='||'+corrections
-    token=issue();context=query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');SELECT security.capture_date_context('{catalog}','2020-12-17',NULL);COMMIT;")
+    token=issue();context=query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');SELECT security.resolve_operation_context('{catalog}','2020-12-17',NULL);COMMIT;")
     def read(expression,plan,selected_context,deadline='5s'):
         token=issue()
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SET LOCAL plan_cache_mode={plan};SET LOCAL statement_timeout='{deadline}';SELECT security.use_context('{token}');SELECT security.use_market_context('{catalog}','{selected_context}');SELECT security.use_close_session('{catalog}','scale_close');{expression};DO $mode$BEGIN IF current_setting('plan_cache_mode')<>'{plan}' THEN RAISE EXCEPTION 'Fact read changed caller planning mode';END IF;END$mode$;ROLLBACK;")
@@ -139,7 +139,7 @@ def run_checks(query,manifest):
     CROSS JOIN LATERAL jsonb_populate_record(NULL::market_data.observations,to_jsonb(o)||jsonb_build_object(
     'id',gen_random_uuid(),'source_event_id','synthetic_known_receipt_'||n,'source_revision_id','first','corrects_id',NULL,'received_at',clock_timestamp()))copied
     WHERE(o.catalog_id,o.id)=('{catalog}','{pins[0]}');""")
-    token=issue();context=query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');SELECT security.capture_date_context('{catalog}','2020-12-17',NULL);COMMIT;")
+    token=issue();context=query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');SELECT security.resolve_operation_context('{catalog}','2020-12-17',NULL);COMMIT;")
     for plan in ['force_generic_plan','force_custom_plan']:
         for reader in readers:
             after=measured(plan,context,reader)

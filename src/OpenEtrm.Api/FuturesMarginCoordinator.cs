@@ -62,7 +62,7 @@ internal static class FuturesMarginCoordinator
         await using(var savepoint=ScheduleStore.Command(connection,"SAVEPOINT futures_margin_review"))await savepoint.ExecuteNonQueryAsync(ct);
         try
         {
-            var context=(await new KnowledgeStore(catalog).Read(connection,request.ContextId,ct)).Context;
+            var context=(await new KnowledgeResolver(catalog).Read(connection,request.ContextId,ct)).Context;
             await PinnedContext.BindExact(connection,catalog,context,ct);
             await TradingContext.Bind(connection,catalog,context,at,ct);
             await using var native=ScheduleStore.Command(connection,

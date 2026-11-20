@@ -1,3 +1,4 @@
+import {cloneRead,retainedKnowledge} from './read-references.js';
 import {renderDataGrid,emptyGridLayout,type GridHandle,type GridLayout} from './data-grid.js';
 import {readPhysicalDelivery,type PhysicalDeliveryView} from './physical-delivery.js';
 import {renderPhysicalDeliveryGrid,renderDeliveryCapabilities} from './physical-delivery-grid.js';
@@ -57,7 +58,7 @@ export function setupPhysicalOperations(root:HTMLElement,o:{api:Api;act:(work:()
   for(const b of get('tabs').querySelectorAll<HTMLButtonElement>('button'))b.disabled=busy();
  }
  async function leave(){if(!edited())return true;if(asking)return false;const controller=asking=new AbortController();try{const go=await askInPanel(root,{text:'This physical operation has unsaved edits. Leaving discards those edits; an unconfirmed request remains retained.',keep:'Keep editing',go:'Discard changes'})(controller.signal);if(go)clearWidgets();return go;}finally{if(asking===controller)asking=undefined;}}
- async function queue(command:RequestCommand){restore();if(pending.command)throw Error('Reconcile the retained physical request first.');if(!commandAllowed(command))throw Error('Choose a supported physical operation.');pending.command=structuredClone(command);store();sync();await send(pending.command);}
+ async function queue(command:RequestCommand){restore();if(pending.command)throw Error('Reconcile the retained physical request first.');if(!commandAllowed(command))throw Error('Choose a supported physical operation.');pending.command=cloneRead(command);store();sync();await send(pending.command);}
  async function accepted(command:RequestCommand){if(pending.command!==command)return;pending.clear();store();message.textContent='Operation recorded. The selected view is refreshed under the header context.';await mount();}
  async function send(command:RequestCommand){const actor=o.identity(),epoch=generation,uncertain=pending.sending();store();sync();try{const outcome=await o.api<{operationId?:string}>(command.path,{...command.body,operationId:command.operationId});requirePhysicalReceipt(command,outcome);if(current(epoch,actor))await accepted(command);}catch(error){if(current(epoch,actor)){if(releasesRetained(command.path,(error as {code?:string}).code,uncertain)){pending.clear();store();}message.textContent=String(error);}throw error;}finally{sync();}}
  async function check(){const command=pending.command;if(!command)return;const actor=o.identity(),epoch=generation;const outcome=await o.api<{found?:boolean}>(tradeStatusPath(command.path),{operationId:command.operationId});if(!current(epoch,actor)||pending.command!==command)return;if(outcome.found===false){message.textContent='No committed outcome is available. Retry the retained original request.';return;}requirePhysicalReceipt(command,outcome);await accepted(command);}
@@ -83,7 +84,7 @@ export function setupPhysicalOperations(root:HTMLElement,o:{api:Api;act:(work:()
  async function mount(){clearWidgets();o.changed();if(!selected){clearInstrument();message.textContent='';content.innerHTML='<div class="operations-empty"><span aria-hidden="true">⇄</span><h3>Choose an instrument to begin</h3><p>Select a trade in the grid above to view its delivery work.</p></div>';sync();return;}
   tabs();get('tabs').hidden=false;get('instrument').hidden=false;get('family').textContent=physicalProduct(selected.instrumentType).label;get('reference').textContent=selected.tradeReference;get('market').textContent=selected.marketLabel??'';get('book').textContent=selected.book;get('period').textContent=selected.deliveryFrom&&selected.deliveryTo?`${selected.deliveryFrom} → ${selected.deliveryTo} · exclusive`:'Not available';
   const p=selected,epoch=++generation,actor=o.identity();message.textContent='';reading=true;sync();
-  try{const context=structuredClone(o.context());if(tab==='delivery'&&p.instrumentType==='physical_gas'){gas=setupGasOperations(content,{api:o.api,context:gasContext,tradeId:p.tradeId,actor:o.identity,zone:o.zone,workflow});const allocations=await o.api<{facilityAllocations:FacilityAllocationTrack[]}>('trading/gas',{context,tradeId:p.tradeId,bindingId:p.bindingId,revision:p.revision,instrumentType:p.instrumentType});if(current(epoch,actor)&&allocations.facilityAllocations?.length)gas.afterFlowHost.append(facilityAllocationTrack(allocations.facilityAllocations));}
+  try{const context=cloneRead(o.context());if(tab==='delivery'&&p.instrumentType==='physical_gas'){gas=setupGasOperations(content,{api:o.api,context:gasContext,tradeId:p.tradeId,actor:o.identity,zone:o.zone,workflow});const allocations=await o.api<{facilityAllocations:FacilityAllocationTrack[]}>('trading/gas',{context,tradeId:p.tradeId,bindingId:p.bindingId,revision:p.revision,instrumentType:p.instrumentType});if(current(epoch,actor)&&allocations.facilityAllocations?.length)gas.afterFlowHost.append(facilityAllocationTrack(allocations.facilityAllocations));}
    else if(tab==='cash'&&p.instrumentType==='physical_gas')billing=setupGasBilling(content,{api:o.api,context:gasContext,tradeId:p.tradeId,actor:o.identity,zone:o.zone,workflow});
    else if(tab==='delivery'&&(p.instrumentType==='physical_crude'||p.instrumentType==='physical_lng')){
     const path=p.instrumentType==='physical_crude'?'trading/crude':'trading/lng';
@@ -99,8 +100,8 @@ export function setupPhysicalOperations(root:HTMLElement,o:{api:Api;act:(work:()
   }catch(error){if(current(epoch,actor)){clearWidgets();message.textContent=String(error);}}finally{if(current(epoch,actor)){reading=false;sync();}}
  }
  async function load(target?:PhysicalDeliveryTarget){restore();const previous=selected&&physicalTradeKey(selected),actor=o.identity(),epoch=++generation;clearWidgets();clearGrid(true);positions=[];selected=undefined;clearInstrument();tradeHost.textContent='Loading physical trades…';reading=true;sync();try{
-   const context=structuredClone(o.context());let facts=readPositionFacts(await o.api('physical/operations/directory',{context,bookIds:[],portfolioIds:[],offset:0,limit:64}),64);if(!current(epoch,actor))return;
-   while(facts.nextOffset!==null){const offset=facts.nextOffset;facts=appendPositionFacts(facts,await o.api('physical/operations/directory',{context:{...context,knowledgeMode:'retained',contextId:facts.context.contextId},bookIds:[],portfolioIds:[],offset,limit:64}),64);if(!current(epoch,actor))return;}
+   const context=cloneRead(o.context());let facts=readPositionFacts(await o.api('physical/operations/directory',{context,bookIds:[],portfolioIds:[],offset:0,limit:64}),64);if(!current(epoch,actor))return;
+   while(facts.nextOffset!==null){const offset=facts.nextOffset;facts=appendPositionFacts(facts,await o.api('physical/operations/directory',{context:{...context,...retainedKnowledge(facts.context)},bookIds:[],portfolioIds:[],offset,limit:64}),64);if(!current(epoch,actor))return;}
    positions=facts.positions;
    selected=target?positions.find(p=>p.tradeId===target.tradeId&&p.bindingId===target.bindingId&&p.revision===target.revision&&p.instrumentType===target.instrumentType):positions.find(p=>physicalTradeKey(p)===previous)??(positions.length===1?positions[0]:undefined);
    if(target&&!selected)throw Error('The exact delivery trade and revision are not visible under the selected financial close and knowledge context.');
@@ -113,6 +114,6 @@ export function setupPhysicalOperations(root:HTMLElement,o:{api:Api;act:(work:()
   instrumentType:selected.instrumentType as PhysicalShown['instrumentType'],tab,...(tab==='delivery'&&gas?.shown())||{day:null,obligationId:null,stage:null}};
  return{load:()=>load(),async open(target:PhysicalDeliveryTarget){
   if(!target||!target.tradeId||!target.bindingId||!Number.isSafeInteger(target.revision)||target.revision<1||!['physical_gas','physical_crude'].includes(target.instrumentType)||target.tab!=='delivery')throw Error('Choose an exact supported native delivery target.');
-  if(await leave())await load(structuredClone(target));
+  if(await leave())await load(cloneRead(target));
  },sync,leave,edited:()=>edited()||!!pending.command,selected:()=>selected,shown,reset(){generation++;reading=false;asking?.abort();asking=undefined;clearWidgets();positions=[];selected=undefined;tab='overview';pending.clear();identity='';clearGrid();filters=undefined;clearInstrument();message.textContent='';},async refresh(){if(await leave())await load();}};
 }

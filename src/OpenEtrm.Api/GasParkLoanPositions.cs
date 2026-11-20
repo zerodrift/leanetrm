@@ -87,7 +87,7 @@ internal static class GasParkLoanPositions
             if(position is not null||trade is not null)throw TradePositionSelection.Unavailable();
             return [];
         }
-        var context=(await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,frame.ContextId!.Value,ct)).Context;
+        var context=(await new KnowledgeResolver(database.Manifest.CatalogId).Read(connection,frame.ContextId!.Value,ct)).Context;
         var until=(DateTimeOffset?)null;
         var directory=await LifecycleNative.Read(connection,"SELECT security.gas_park_loan_directory($1,$2,$3,$4::uuid[],$5::uuid[],$6::uuid[])::text",ct,
             database.Manifest.CatalogId,frame.ContextId.Value,frame.At,books.Keys.ToArray(),Array.Empty<Guid>(),selected?.ToArray()??Array.Empty<Guid>());

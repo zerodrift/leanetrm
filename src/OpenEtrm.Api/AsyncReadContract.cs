@@ -20,7 +20,10 @@ internal sealed record AsyncReadJob(Guid Id);
 internal sealed record AsyncReadArchive(string Method,int Limit,string? Before,Guid? Id);
 internal sealed record ReadInput(string Operation,object Body,Guid? SnapshotId,ImmutableArray<string> Permissions,FuturesReadRequest? Context=null);
 internal sealed record ReadPlan(ReadInput Input,Func<CancellationToken,Task<ReadOutcome>> Execute);
-internal sealed record ReadOutcome(object Value,Func<NpgsqlConnection,CancellationToken,Task> Recheck);
+internal sealed record ReadOutcome(object Value,Func<NpgsqlConnection,CancellationToken,Task> Recheck)
+{
+    internal IReadOnlyDictionary<Guid,string>? ReadReferences {get;init;}
+}
 internal sealed class AsyncReadException(int status,string code,string message):Exception(message)
 {
     internal int Status=>status;

@@ -1,3 +1,4 @@
+import {cloneRead,retainedKnowledge} from './read-references.js';
 import {validateMonteCarlo,type MonteCarloRequest,type MonteCarloContainer} from './monte-carlo-risk.js';
 import {projectionPolicyLabels} from './projection-policy.js';
 // The risk report of the Blotter desk (blotter-desk.md, Side panel: Risk report), drawn in the side panel's Risk report mode. It offers
@@ -259,12 +260,12 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     // A new read keeps the choices carried over from inputs that changed, and puts them back over the catalog it reads.
     const kept=carried;reset();carry(kept);const version=generation;reading=true;describe();sync();
     try{
-      scope=structuredClone(options.scope());
+      scope=cloneRead(options.scope());
       const loaded=await call<Catalog>('portfolio/risk/catalog',scope);if(version!==generation)return;
       // A catalog that does not say which positions a run leaves out is refused, never read as saying none.
       if(!Array.isArray(loaded.excludedPositions))throw Error('The risk catalog is inconsistent. Reload it.');
       catalog={...loaded,limits:riskLimits(loaded.limits)};
-      scope={...scope,context:{...(scope.context as Record<string,unknown>),knowledgeMode:'retained',contextId:catalog.context.contextId}};
+      scope={...scope,context:{...(scope.context as Record<string,unknown>),...retainedKnowledge(catalog.context)}};
       offer();
       if(carried)restore(carried);
       await recentJobs(version);
@@ -360,17 +361,17 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     const base={...scope,pricingPolicy:catalog.pricingPolicy,convention:catalog.convention,numericalPolicy:catalog.numericalPolicy};
     const choice=chosen();
     if(choice===null)throw Error('Choose a report: Shock every held contract, Parallel shift or Custom scenario.');
-    if(choice==='scenarios'||choice==='derivatives')return {parts:[structuredClone({...base,bumps:[],stress:stress.map(layer=>layer.shift),joint:jointEditor.request()})],
+    if(choice==='scenarios'||choice==='derivatives')return {parts:[cloneRead({...base,bumps:[],stress:stress.map(layer=>layer.shift),joint:jointEditor.request()})],
       setup:{report:choice,label:choice==='scenarios'?'Named joint scenarios':'Selected Greeks and cross-gamma',sizes:{},withoutTarget:[]}};
     if(choice==='custom'){
       const target=catalog.scenarioTargets.find(f=>f.id===select.value);
-      return {parts:[structuredClone({...base,bumps:[scenarioShift(target,bump.value,catalog.bumpConvention,bucket('risk'))],stress:stress.map(layer=>layer.shift)})],
+      return {parts:[cloneRead({...base,bumps:[scenarioShift(target,bump.value,catalog.bumpConvention,bucket('risk'))],stress:stress.map(layer=>layer.shift)})],
         setup:{report:'custom',label:'Custom scenario',sizes:{},withoutTarget:[]}};
     }
     const targets=presetTargets(catalog,choice),withoutTarget=presetGaps(catalog,choice);
     if(!targets.length)throw Error(presetText[choice].none);
     const entered=Object.fromEntries(sizesByUnit(targets).map(unit=>[unit,sizes.get(unit)?.value.trim()??'']));
-    const parts=splitBumps(presetRequest(targets,entered,catalog.bumpConvention),catalog.limits.maxHoldingsBumps).map(part=>structuredClone({...base,bumps:part,stress:[]}));
+    const parts=splitBumps(presetRequest(targets,entered,catalog.bumpConvention),catalog.limits.maxHoldingsBumps).map(part=>cloneRead({...base,bumps:part,stress:[]}));
     return {parts,setup:{report:choice,label:presetText[choice].label,sizes:entered,withoutTarget:[...withoutTarget]},sizes:entered};
   }
 
@@ -691,7 +692,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
       const selected=options.scope();
       if((!request.parametric&&!request.historical&&!request.monteCarlo)||!sameRiskScope(selected,request)||JSON.stringify(selected.context)!==JSON.stringify(request.context))throw Error('The statistical scope changed. Prepare its history again.');
       forgetRun();const version=++generation;
-      run={key:++runs,queued,making:!queued,parts:[{request:structuredClone(request)}],context,asOf,
+      run={key:++runs,queued,making:!queued,parts:[{request:cloneRead(request)}],context,asOf,
         scope:{bookIds:[...selected.bookIds],portfolioIds:[...selected.portfolioIds],tradeIds:selected.tradeIds??null}};
       const current=run;sync();if(queued)await queue(current,version);else await runNow(current,version,signal);
     },
@@ -742,7 +743,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
       if(submissions.has(options.profile()))throw Error('An unconfirmed risk submission is already kept here, so the one the Blotter’s window held was not taken over. Check Risk jobs for its outcome.');
       const parts:Part[]=given.parts.map(p=>{
         const part:Part={...(p.request?{request:p.request as Request}:{}),...(p.job?{job:p.job as Job}:{}),...(p.failure!==null?{failure:p.failure}:{})};
-        if(p.command){part.recovery=new PendingCommand(knownRiskRejection);part.recovery.command={...structuredClone(p.command),uncertain:true};}
+        if(p.command){part.recovery=new PendingCommand(knownRiskRejection);part.recovery.command={...cloneRead(p.command),uncertain:true};}
         return part;
       });
       const adopted:Run={key:++runs,queued:given.queued,parts,...(given.id?{id:given.id}:{}),...(given.context?{context:given.context}:{}),

@@ -8,6 +8,7 @@ from uuid import uuid4
 from assistant_context import migration_body
 from check_reference_editing import main
 from check_lifecycle_future_worker import fixture
+from native_read_transport import select_owned_inputs
 
 
 def literal(value):return "'"+json.dumps(value).replace("'","''")+"'::jsonb"
@@ -83,9 +84,11 @@ def checks(query,manifest):
 def custody_checks(query,manifest,jobs):
     original=json.loads(query(f"SELECT to_jsonb(j)FROM risk.jobs j WHERE id='{jobs[0]['id']}';"))
     catalog,tenant,workspace=(manifest[k]for k in('catalogId','tenantId','workspaceId'))
+    inputs=select_owned_inputs(catalog,dict(id=original['context_id'],effective_on=original['input_business_on'],
+        known_at=original['input_known_at'],system_id=original['input_system_id'],timeline=original['input_timeline']))
     def runtime(sql):
         token=query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
-        return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');"
+        return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');"+inputs+
             f"SELECT security.use_market_context('{catalog}','{original['context_id']}');"
             f"SELECT security.use_trading_context('{catalog}','{original['valuation_at']}','{original['frame']['businessDate']}');"
             f"SELECT security.admit_trading_business_source('{catalog}','{original['context_id']}','{original['valuation_at']}','{original['frame']['businessDate']}');"+sql+'ROLLBACK;')
@@ -115,7 +118,7 @@ def custody_checks(query,manifest,jobs):
         +'CREATE TEMP TABLE synthetic_funding_token(token uuid);GRANT SELECT,INSERT ON synthetic_funding_token TO preview_authenticator,preview_runtime;'
         +'SET SESSION AUTHORIZATION preview_authenticator;'
         +f"INSERT INTO synthetic_funding_token SELECT security.issue_context('https://preview.invalid','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);"
-        +'SET SESSION AUTHORIZATION preview_runtime;SELECT security.use_context((SELECT token FROM synthetic_funding_token));'
+        +'SET SESSION AUTHORIZATION preview_runtime;SELECT security.use_context((SELECT token FROM synthetic_funding_token));'+inputs
         +f"SELECT security.use_market_context('{catalog}','{original['context_id']}');SELECT security.use_trading_context('{catalog}','{original['valuation_at']}','{original['frame']['businessDate']}');"
         +'CREATE TEMP TABLE synthetic_funding_until(value timestamptz);'
         +f"INSERT INTO synthetic_funding_until SELECT security.admit_trading_business_source('{catalog}','{original['context_id']}','{original['valuation_at']}','{original['frame']['businessDate']}');"
@@ -129,7 +132,8 @@ def custody_checks(query,manifest,jobs):
 
 
 def funding_source(query,manifest,frame):
-    from rate_curve_fixture import admitted_curve,discount_default
+    from rate_curve_fixture import admitted_curve,discount_default,by_schema
+    from seed_fixture_market import load_market
     catalog,reference,revision=(manifest[k]for k in('catalogId','referenceCatalogId','referenceRevisionId'))
     funding=str(uuid4());snapshot=str(uuid4());mapping=str(uuid4());observation=str(uuid4());code='synthetic_cash_funding'
     refs=f"'{reference}','{revision}'"
@@ -139,16 +143,16 @@ def funding_source(query,manifest,frame):
     unselected,_=admitted_curve(catalog,funding,refs,code+'_unpinned','Synthetic unpinned funding',[('2021-01-18','2021-01-18')],currency='usd',
         unit='decimal_per_year',specification='test_zero_rate',source='fixture',day_count='actual_365_fixed',compounding='simple',
         interpolation='log_linear_discount',extrapolation='none')
-    query(f"BEGIN;INSERT INTO market_data.revisions VALUES('{catalog}','{funding}',{refs},'draft',0);"
+    load_market(query,f"BEGIN;INSERT INTO market_data.revisions VALUES('{catalog}','{funding}',{refs},'draft',0);"
           f"INSERT INTO market_data.revision_periods VALUES('{catalog}','{funding}','2020-01-01','2022-01-01');"
-          'DO $funding$ BEGIN '+definition+unselected+' END $funding$;'
+          +by_schema(definition)+by_schema(unselected)+
           f"UPDATE market_data.revisions SET state='sealed'WHERE(catalog_id,id)=('{catalog}','{funding}');"
           'INSERT INTO market_data.observations(catalog_id,id,definition_revision_id,series_id,reference_catalog_id,reference_revision_id,source_code,'
           'source_event_id,source_revision_id,role,publication_state,observed_at,received_at,value)'
           f"VALUES('{catalog}','{observation}','{funding}','{series[0]}',{refs},'fixture','synthetic_funding_{observation}','1','parameter','final','{frame['at']}',clock_timestamp(),0.05);"
           f"INSERT INTO trading.publications SELECT '{catalog}',max(publication_order)+1,pg_current_xact_id() FROM trading.publications WHERE catalog_id='{catalog}';"
           +discount_default(catalog,mapping,funding,refs,'usd',code,f"(SELECT max(publication_order) FROM trading.publications WHERE catalog_id='{catalog}')",'2020-01-01T00:00:00Z')
-          +discount_default(catalog,str(uuid4()),funding,refs,'usd',code+'_unpinned',f"(SELECT max(publication_order) FROM trading.publications WHERE catalog_id='{catalog}')",'2020-01-02T00:00:00Z')+'COMMIT;')
+          +discount_default(catalog,str(uuid4()),funding,refs,'usd',code+'_unpinned',f"(SELECT max(publication_order) FROM trading.publications WHERE catalog_id='{catalog}')",'2020-01-02T00:00:00Z')+'COMMIT;','',manifest)
     selected=json.loads(query(f"SELECT jsonb_build_object('currency',jsonb_build_object('revision',jsonb_build_object('catalogId','{reference}','revisionId','{revision}'),'code','usd'),"
         f"'snapshotId','{snapshot}','curve',jsonb_build_object('revision',jsonb_build_object('catalogId',catalog_id,'revisionId',revision_id),'code',code),"
         f"'mappingId','{mapping}','definitionId',definition_id,'definitionVersion',definition_version)FROM market_data.rate_curves WHERE(catalog_id,revision_id,code)=('{catalog}','{funding}','{code}');"))

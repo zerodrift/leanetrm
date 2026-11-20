@@ -22,7 +22,9 @@ def checks(query, manifest):
     # cutoff. An empty Transport scope must not impose its valuation restriction.
     future_at = '2198-12-19T16:00:00Z'
     future_context = f.capture(day=future_at[:10])
-    assert query(f"SELECT known_at<'{future_at}' FROM market_data.temporal_contexts WHERE(catalog_id,id)=('{f.catalog}','{future_context}');") == 't'
+    from datetime import datetime
+    from native_read_transport import captured_input
+    assert datetime.fromisoformat(captured_input(query,future_context)['known_at']) < datetime.fromisoformat(future_at)
     def future_scope(trades='NULL'):
         return f.call(f"SELECT security.use_market_context('{f.catalog}','{future_context}');"
             f"SELECT security.use_trading_context('{f.catalog}','{future_at}','{future_at[:10]}');"

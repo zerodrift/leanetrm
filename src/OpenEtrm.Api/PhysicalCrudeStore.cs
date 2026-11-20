@@ -205,7 +205,7 @@ public sealed class PhysicalCrudeStore(PreviewDatabase database)
   var programs=retained??[..draft!.Sides.Select((m,n)=>{var d=ScheduleDefinitionCompiler.Generate(m.Side,ct);var p=BookedSideProgram.Compile(d);return new RetainedSideProgram(n,m.Side.Id,Guid.Empty,new(BookedSideProgram.Digest(p.Write()),d.Manifest,d.Family,d.EconomicIdentity,d.PricingBindingIdentity),p);})];
   if(inspectSlot is not null&&inspect is null)throw Invalid("A selected schedule inspection requires an evaluation consumer.");
   if(inspectSlot is {} selectedSlot)programs=[programs.Single(p=>p.Slot==selectedSlot)];
-  var context=(await new KnowledgeStore(Catalog).Read(c,contextId,ct)).Context;
+  var context=(await new KnowledgeResolver(Catalog).Read(c,contextId,ct)).Context;
   var snapshot=MarketSnapshotBinding.Bind(data.Snapshot(frame),contextId,SchedulePreview.ParseAt(context.KnownAt));
   var deps=(programs.Any(p=>p.Program.Document.Instructions.Any(i=>i.Output.Operation=="price_lookup"))?new[]{assignment.Lookup}:[]).Select(x=>PeriodPriceSelector.ProjectionAt(x,snapshot)).OfType<CurveRequest>().Distinct().ToImmutableArray();
   var market=data.Model.Build(snapshot,deps,ct);var sources=ScheduleMarketSources.ForPhysicalCrude(market,[assignment]);

@@ -68,6 +68,10 @@ def run_checks(url,query,manifest,dotnet,owned_root,environment,psql):
                                  'amendedTradeId':first['tradeId'],'earlierQuantity':body['quantity'],'earlierContext':earlier,'currentContext':editor['context'],'holdings':expected,
                                  'futureTradeId':future_trade['tradeId'],'futureExecutionPnl':future_price,'actualCases':actual_cases}))
     repository=Path(__file__).resolve().parents[1]
+    from native_read_transport import select_context_inputs
+    from check_booked_side_programs import runtime_query
+    for inputs in [earlier,editor['context'],*(case['context'] for case in actual_cases)]:
+        runtime_query(query,manifest,select_context_inputs(manifest['catalogId'],inputs))
     def managed(mode):subprocess.run([str(dotnet),'run',*(['--no-build'] if mode=='--swap-risk-holdings-expired' else []),'--project','tests/OpenEtrm.Api.Checks','--',mode,str(fixture)],cwd=repository,env=environment,check=True,timeout=90)
     managed('--swap-risk-holdings')
     managed('--portfolio-risk-scope')
@@ -117,7 +121,9 @@ def _read_trades_expiry(query,manifest,psql,environment,managed,frame,context):
               f"INSERT INTO security.role_grants VALUES('{grant}','{principal}','{temporary_role}','{manifest['tenantId']}','{manifest['workspaceId']}',clock_timestamp()-interval '1 day',clock_timestamp()+interval '3 seconds',false);COMMIT;")
         token=query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','risk','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',60);")
         guard=(f"SELECT security.require_bound_market_context('{manifest['catalogId']}','{context['contextId']}','{frame['at']}');")
-        prefix=(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');"
+        from native_read_transport import select_context_inputs
+        prefix=(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');"+
+                select_context_inputs(manifest['catalogId'],context)+
                 f"SELECT security.use_market_context('{manifest['catalogId']}','{context['contextId']}');"
                 f"SELECT security.use_trading_context('{manifest['catalogId']}','{frame['at']}');")
         # The same already-bound request loses only ReadTrades. Other calculation

@@ -69,7 +69,7 @@ def run_checks(query, manifest):
 
     check('the example bundle seals with 97 interval contracts', query(count) == '97')
     check('a viewer sees every interval of the marked curve', query('BEGIN;' + runtime(issue(), count) + 'ROLLBACK;') == '97')
-    outside = str(UUID(query('BEGIN;' + runtime(issue(), f"SELECT security.capture_date_context('{catalog}','2019-01-01',NULL);") + 'COMMIT;')))
+    outside = str(UUID(query('BEGIN;' + runtime(issue(), f"SELECT security.resolve_operation_context('{catalog}','2019-01-01',NULL);") + 'COMMIT;')))
     check('an unavailable historical context sees no intervals',
           query('BEGIN;' + runtime(issue(), f"SELECT security.use_market_context('{catalog}','{outside}');" + count) + 'ROLLBACK;') == '0')
     interval_row = f"SELECT * FROM market_data.contract_intervals WHERE(catalog_id,revision_id,contract_id)=('{catalog}','{revision}','{first}')"

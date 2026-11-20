@@ -1,3 +1,4 @@
+import {attachReadReferences} from './read-references.js';
 // Client for the streamed Blotter valuation (NDJSON frames: start, rows*, complete | error).
 // Parses and validates the frame contract only; it performs no financial arithmetic.
 
@@ -100,5 +101,7 @@ export async function streamBlotter(transport:(path:string,body:unknown,signal:A
     throw bad(typeof failure?.code==='string'?failure.code:'stream_http',typeof failure?.message==='string'?failure.message:`The stream request failed with status ${response.status}.`);
   }
   if(!response.body)throw bad('stream_truncated','The stream response has no body.');
-  await readBlotterStream(response.body,request,handlers,signal);
+  const metadata=response.headers.get('X-OpenETRM-Read-References');
+  const wrapped={...handlers,start:(value:Parameters<BlotterStreamHandlers['start']>[0])=>handlers.start(attachReadReferences(value,metadata)),complete:(value:Parameters<BlotterStreamHandlers['complete']>[0])=>handlers.complete(attachReadReferences(value,metadata))};
+  await readBlotterStream(response.body,request,wrapped,signal);
 }

@@ -82,7 +82,7 @@ def run_stage_checks(query, manifest, *, generator_version='whole_term_side_bloc
         token=query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','{actor}','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{statement} COMMIT;")
     if generator_version=='whole_term_side_blocks_v3':
-        runtime(f"SELECT security.capture_date_context('{catalog}','2021-01-01',NULL);")
+        runtime(f"SELECT security.resolve_operation_context('{catalog}','2021-01-01',NULL);")
         captured=json.loads(runtime(f"SELECT security.read_side_calendar('{reference}','{revision}','test_utc_every_day');"))
         policy,requested_calendar=calendar_terms(reference,revision,publication=captured['publication'])
     header=dict(family='fixed',definitionRevisionId=manifest['revisionId'],referenceCatalogId=reference,referenceRevisionId=revision,

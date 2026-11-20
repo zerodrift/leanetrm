@@ -1,5 +1,11 @@
 # Architecture and domain contracts
 
+D435 completes the [runtime context cutover](ephemeral-context-cutover.md).
+Contexts are constructed per operation and job attempt. Business facts, admitted
+job inputs and outcomes persist; generic context objects and their compatibility
+storage do not. Focused local qualification is recorded in the cutover contract;
+full CI and the fresh hosted installation remain release gates.
+
 The commercial [gas storage contract](gas-storage-contract.md) owns its entitlement
 and daily ratchets independently of the physical facility (D432). Booking retains
 the contract and its gas days. A supplied plan must satisfy the ratchets and

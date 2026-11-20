@@ -44,7 +44,7 @@ internal static class GasTransportFinancialPositions
             return [];
         }
         var context=GasTransportFinancialTicketStore.Context(frame);
-        var known=(await new KnowledgeStore(database.Manifest.CatalogId).Read(c,context.ContextId,ct)).Context;
+        var known=(await new KnowledgeResolver(database.Manifest.CatalogId).Read(c,context.ContextId,ct)).Context;
         var rows=await LifecycleNative.Read(c,"SELECT security.gas_transport_financial_directory($1,$2,$3,$4::uuid[],$5::uuid[])::text",ct,
             database.Manifest.CatalogId,context.ContextId,context.AsOf,books.Keys.ToArray(),(object?)selected?.ToArray()??DBNull.Value);
         if(rows.ValueKind!=JsonValueKind.Array)throw GasTransportFinancialStore.Source();

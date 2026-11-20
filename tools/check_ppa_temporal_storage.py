@@ -29,7 +29,7 @@ def run_checks(query, manifest):
             raise AssertionError('Accepted invalid PPA temporal read: ' + code)
 
     def capture(day='2020-12-15'):
-        return query(runtime(f"SELECT security.capture_date_context('{catalog}','{day}',NULL);") + 'COMMIT;')
+        return query(runtime(f"SELECT security.resolve_operation_context('{catalog}','{day}',NULL);") + 'COMMIT;')
 
     context = capture()
 

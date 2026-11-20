@@ -29,7 +29,6 @@ static class RuntimeSet
     // The turns a workspace runs at once.
     // Above the request deadline of 15 seconds, so admission never takes an ask still pinning its context for a stuck one.
     public const int AdmissionSeconds=30;
-    // The catalog's retained contexts a turn's capture leaves for page captures (§7.2).
     // How long streamed text gathers before one publication, and the most UTF-8 bytes one publication carries.
     public static readonly TimeSpan TextCoalescing=TimeSpan.FromMilliseconds(250);
     public const int TextChunkBytes=2048;

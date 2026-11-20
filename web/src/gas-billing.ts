@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import {renderRegularTable,tableFilterControls} from './regular-table.js';
 import type {RequestCommand} from './pending-command.js';
 import {trackEdits} from './edit-tracking.js';
@@ -68,7 +69,7 @@ export function setupGasBilling(host:HTMLElement,o:{api:Api;context:()=>Record<s
  form.onsubmit=event=>{event.preventDefault();void preview();};
  async function preview(){
   if(!view||!writable()||busy||workflow?.busy())return;
-  const epoch=++generation,context=structuredClone(o.context()),claim=view.claims[Number(get<HTMLSelectElement>('claim').value)];
+  const epoch=++generation,context=cloneRead(o.context()),claim=view.claims[Number(get<HTMLSelectElement>('claim').value)];
   if(!claim||!claim.supported||!claim.completed)return;
   const request={context,tradeId:o.tradeId,expectedRevision:view.expectedRevision,cashSlot:claim.cashSlot,day:claim.day,
    selectionPolicy:get<HTMLSelectElement>('policy').value,profile:get<HTMLSelectElement>('profile').value,decimalPlaces:claim.decimalPlaces,roundingPolicy:get<HTMLSelectElement>('rounding').value};
@@ -87,7 +88,7 @@ export function setupGasBilling(host:HTMLElement,o:{api:Api;context:()=>Record<s
  }
  confirm.onclick=()=>{
   if(!reviewed||!writable()||busy||!workflow||workflow.busy())return;
-  const command={path:'gas/billing/determine',operationId:crypto.randomUUID(),body:structuredClone(reviewed),label:'Gas cash determination'};
+  const command={path:'gas/billing/determine',operationId:crypto.randomUUID(),body:cloneRead(reviewed),label:'Gas cash determination'};
   busy=true;sync();
   void(async()=>{try{await workflow.queue(command);}catch(error){if(!disposed)message.textContent=String(error);}finally{busy=false;if(!disposed){reviewed=undefined;get('review').hidden=true;sync();}}})();
  };

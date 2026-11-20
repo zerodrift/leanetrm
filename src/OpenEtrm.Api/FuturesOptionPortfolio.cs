@@ -261,7 +261,7 @@ internal static class FuturesOptionPortfolio
         PreviewDatabase database,PreviewData data,InputFrame frame,ImmutableArray<FuturesOptionPosition> positions,CancellationToken ct)
     {
         if(frame.ContextId is not {} contextId)throw new MarketDataException("option_market_context","Option values require the certified calculation context.");
-        var context=PinnedContext.Exact((await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,contextId,ct)).Context);
+        var context=PinnedContext.Exact((await new KnowledgeResolver(database.Manifest.CatalogId).Read(connection,contextId,ct)).Context);
         var snapshot=MarketSnapshotBinding.Bind(data.Snapshot(frame),contextId,SchedulePreview.ParseAt(context.KnownAt));
         var market=await Prepare(connection,database.Manifest.CatalogId,data,frame,snapshot,positions,FuturesOptionValuationPolicy.Release1,ct);
         if(market.Portfolio(positions) is not {} portfolio)return(market,ImmutableDictionary<(Guid,Guid),ExactMoney>.Empty);

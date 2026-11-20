@@ -78,13 +78,13 @@ public sealed class TurnWorker:IAsyncDisposable
     {
         var r=new Running(token,session,sessionEnds,tools,selection);
         running[turn]=r;
-        r.Work=Task.Run(async()=>
+        using(ExecutionContext.SuppressFlow())r.Work=Task.Run(async()=>
         {
+            _=EndAt(turn,r,sessionEnds);
             try{await Execute(turn,r);}
             catch(Exception e){logger.LogError("A turn stopped before its end: {ErrorType}",e.GetType().Name);}
             finally{running.TryRemove(turn,out _);r.Tools.Workspace?.Release(turn);r.Ended.Cancel();streams.Ended(turn);}
         });
-        _=EndAt(turn,r,sessionEnds);
     }
 
     // A profile switch (§7.2): every turn the session asked stops now, and is cancelled with session_ended once the
@@ -160,6 +160,7 @@ public sealed class TurnWorker:IAsyncDisposable
         var offered=AgentTools.Offered(reads.Tools,version.GetProperty("toolPrompts"));
         var targets=new TurnTargets();
         var writes=new TurnWrites(turn,r.Token);
+        reads.RegisterInputs=writes.RegisterInputs;
         reads.Resolve=ct=>(r.Tools.Workspace??throw new InvalidOperationException("Missing turn owner.")).ResolveContext(reads,writes,ct);
         ImmutableArray<ModelMessage> messages=[new ModelUserText(Message(version.GetProperty("earlier"),state.GetProperty("question").GetString()!))];
         var (steps,failures)=(0,0);

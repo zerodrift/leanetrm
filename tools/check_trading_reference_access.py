@@ -50,7 +50,7 @@ def run_checks(query,manifest,url,client=None):
     assert json.loads(runtime('SELECT '+swap(swap_op)+';'))['tradeId']==original_swap['tradeId']
     default=f"security.swap_discount_default('{catalog}','{ref}','{revision}','usd','{REVISION}','2020-12-18T16:00:00Z')"
     assert json.loads(runtime('SELECT '+default+';'))['reference_catalog_id']==ref
-    context=runtime(f"SELECT security.capture_date_context('{catalog}','2020-12-18',NULL);")
+    context=runtime(f"SELECT security.resolve_operation_context('{catalog}','2020-12-18',NULL);")
     later=str(uuid4())
     query(f"""BEGIN;INSERT INTO market_data.revisions VALUES('{catalog}','{later}','{ref}','{revision}','draft',0);
       INSERT INTO market_data.revision_periods VALUES('{catalog}','{later}','2020-01-01','2022-01-01');

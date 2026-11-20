@@ -29,7 +29,7 @@ internal static class FuturesMarginAdoptionChecks
             await using var transaction=await connection.BeginTransactionAsync();
             await using(var identity=ScheduleStore.Command(connection,"SELECT security.use_context($1)",sample.Id("token")))
                 await identity.ExecuteNonQueryAsync();
-            var context=(await new KnowledgeStore(manifest.CatalogId).Read(connection,sample.Id("contextId"),default)).Context;
+            var context=(await new KnowledgeResolver(manifest.CatalogId).Read(connection,sample.Id("contextId"),default)).Context;
             await PinnedContext.BindExact(connection,manifest.CatalogId,context,default);
             var at=sample.Instant("at");
             await using(var trading=ScheduleStore.Command(connection,"SELECT security.use_trading_context($1,$2)",manifest.CatalogId,at))

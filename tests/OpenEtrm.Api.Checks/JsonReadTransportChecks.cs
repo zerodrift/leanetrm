@@ -35,6 +35,18 @@ internal static class JsonReadTransportChecks
             var expected=JsonSerializer.SerializeToElement(new{protocol=frame.Protocol,channelId=channel,requestId=request,operation=frame.Operation,state,snapshotId=frame.SnapshotId,result=state=="completed"?(JsonElement?)result.RootElement:null,error=frame.Error},JsonSerializerOptions.Web);
             if(!JsonElement.DeepEquals(expected,actual.RootElement))throw new Exception("Raw JSON changed a response value, identity or null/missing distinction.");
         }
+        var references=new Dictionary<Guid,string>{{channel,"synthetic-coordinate-proof"}};
+        var transported=new AsyncReadFrame(AsyncReadChannel.Protocol,channel,request,"curve.evaluate.v1","completed",channel,
+            JsonSerializer.SerializeToUtf8Bytes(result.RootElement),null,references);
+        using(var output=new MemoryStream())
+        {
+            await JsonReadTransport.WriteEvent(output,"response",transported,CancellationToken.None);
+            var encoded=Encoding.UTF8.GetString(output.ToArray());
+            using var value=JsonDocument.Parse(encoded["event: response\ndata: ".Length..^2]);
+            if(!JsonElement.DeepEquals(value.RootElement.GetProperty("result"),result.RootElement)||
+                value.RootElement.GetProperty("readReferences").GetProperty(channel.ToString()).GetString()!=references[channel])
+                throw new Exception("Read metadata must travel beside the unchanged financial result.");
+        }
         using var heartbeat=new MemoryStream();await JsonReadTransport.WriteEvent(heartbeat,null,null,CancellationToken.None);
         if(Encoding.UTF8.GetString(heartbeat.ToArray())!=": ping\n\n")throw new Exception("Heartbeat framing changed.");
         await Streaming();

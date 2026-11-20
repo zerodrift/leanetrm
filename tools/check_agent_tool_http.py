@@ -22,7 +22,8 @@ from fake_model_provider import recording, stream, tool_use
 from preview_client import initial_frame
 from preview_fixture import REV, trade_booking
 
-ASK, STOP, GRANTS, RETAINED = 'assistant/turns/ask', 'assistant/turns/stop', 'assistant/grants', 'market/context/retained'
+ASK, STOP, GRANTS = 'assistant/turns/ask', 'assistant/turns/stop', 'assistant/grants'
+INPUTS = 'SELECT count(*) FROM assistant.turns WHERE input_known_at IS NOT NULL;'
 ENDED = ('completed', 'failed', 'cancelled', 'interrupted')
 TOOLS = ('read_current_page', 'read_market_data', 'read_trades', 'read_trade_parties', 'read_schedules', 'read_reference_data', 'navigate')
 CURVE = {'page': 'curves', 'selection': {'view': 'curve', 'curve': 'future'}}
@@ -268,7 +269,7 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
     asked = ask()['turn']
     settled(asked, until=lambda t, events: any(e['kind'] == 'text' for e in events))
     navigated = trader.call('market/context', {'effectiveOn': '2020-12-18', 'mode': 'current', 'selection': 'latest_correction'})['context']
-    captures = query('SELECT count(*) FROM market_data.temporal_contexts;')
+    captures = query(INPUTS)
     release.set()
     turn, events = settled(asked)
     trader.call('market/current', {})
@@ -313,7 +314,7 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
           len(contexts_read) == 15 and all((c['actor'], c['application_name'], c['login']) == (principal(main), 'openetrm-agent-reads', 'preview_runtime')
                                            for c in contexts_read)
           and [c['context'] for c in contexts_read] == [None]+[None if o in CURRENT_ONLY else turn['context']['contextId'] for o in operations]
-          and turn['context']['contextId'] != navigated['contextId'] and int(query('SELECT count(*) FROM market_data.temporal_contexts;')) == int(captures)+1,
+          and turn['context']['contextId'] != navigated['contextId'] and int(query(INPUTS)) == int(captures)+1,
           contexts_read)
 
     answered = {k: content for k, (content, _) in answers(sent[2]).items()}
@@ -595,23 +596,23 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
           == [{'ordinal': 7, 'target': {'page': 'curves', 'selection': None, 'context': {'mode': 'retained', 'contextId': selected['contextId'], 'frameId': None},
                                         'kind': 'page', 'label': 'Curves & prices'}}]
           and [c['context'] for c in issued(grant_id)[before:]] == [None, selected['contextId'], None], (looked, directory, events))
-    # The panel's Go and Back (§10.1) select a target's retained context again by its id: exactly that context, never a capture.
-    contexts = query('SELECT count(*) FROM market_data.temporal_contexts;')
-    again = trader.call(RETAINED, {'contextId': selected['contextId'], 'selection': 'latest_correction'})
+    # The panel reopens the named question's exact owned inputs.
+    contexts = query(INPUTS)
+    view=f"assistant/turns/{historical['id']}/view"
+    again = trader.call(view, {'selection': 'latest_correction'})
     fake.respond(stream(recording(model_name, text='Pinned again.')))
     pinned, _ = settled(ask(report={'page': 'users_access', 'selection': {}}, knowledge={'mode': 'retained', 'contextId': selected['contextId'], 'frameId': None})['turn'])
-    check('a retained context selected by its id is exactly that context, which the session then shows and an ask pins, and selecting it '
-          'captures nothing',
+    check('reopening a recorded question selects its original coordinates, which a new ask owns unchanged',
           again['context'] == selected and trader.call('workspace/navigation')['context'] == selected
           and (pinned['state'], pinned['context']['contextId']) == ('completed', selected['contextId'])
-          and query('SELECT count(*) FROM market_data.temporal_contexts;') == contexts, (again, pinned))
+          and int(query(INPUTS)) == int(contexts)+1, (again, pinned))
     trader.call('market/current', {})
-    refused = [trader.call(RETAINED, {'contextId': selected['contextId'], 'selection': None}, expected=422)['code'],
-               trader.call(RETAINED, {'contextId': str(uuid4()), 'selection': 'latest_correction'}, expected=422)['code'],
-               trader.call(RETAINED, {'contextId': selected['contextId'], 'selection': 'latest_correction', 'mode': 'at'}, expected=400)['code']]
-    check('selecting a retained context by its id names the correction policy and a context that exists, in exactly that form, '
+    refused = [trader.call(view, {'selection': None}, expected=422)['code'],
+               trader.call(f'assistant/turns/{uuid4()}/view', {'selection': 'latest_correction'}, expected=404)['code'],
+               trader.call(view, {'selection': 'latest_correction', 'mode': 'at'}, expected=400)['code']]
+    check('reopening a question names the correction policy and an owned question in exactly that form, '
           'and a refusal leaves working data selected',
-          refused == ['selection_policy', 'temporal_context', 'request_format'] and trader.call('workspace/navigation')['context'] is None, refused)
+          refused == ['selection_policy', 'turn_not_found', 'request_format'] and trader.call('workspace/navigation')['context'] is None, refused)
 
     # The step limit (§7.5): a call whose requests would pass it has none of them run.
     fake.respond(stream(tool_use(model_name, [('toolu_synthetic_51', 'read_market_data', CURVES),
@@ -1038,7 +1039,7 @@ def check_ppa_reads(check, query, fake, trader, agent, grant, ask, settled, step
                                               ('toolu_ppa_3', 'navigate', {'page': 'ppa', 'target': None})])),
                  stream(tool_use(model_name, [('toolu_ppa_4', 'navigate', {'page': None, 'target': 'n1'})])),
                  stream(recording(model_name, text='No PPA trades are booked in this book.')))
-    captures = query('SELECT count(*) FROM market_data.temporal_contexts;')
+    captures = query(INPUTS)
     since = len(fake.received)
     turn, events = settled(ask(agent_state=ppa_agent, report={'page': 'ppa', 'selection': ppa_book([book])})['turn'])
     recorded, results = steps(turn), answers(requests(since)[-1])
@@ -1048,8 +1049,8 @@ def check_ppa_reads(check, query, fake, trader, agent, grant, ask, settled, step
           turn['state'] == 'completed' and listed['operation'] == 'trades.ppa_book_v1' and listed['target'] == 'n1'
           and (listed['context']['knowledge'], listed['context']['contextId'], listed['context']['cutoff']) == ('working_data', turn['context']['contextId'], turn['context']['cutoff'])
           and set(listed['result']) == {'knownAt', 'trades'} and at(listed['result']['knownAt']) == at(turn['context']['cutoff'])
-          and int(query('SELECT count(*) FROM market_data.temporal_contexts;')) == int(captures) + 1
-          and query(f"SELECT count(*) FROM market_data.temporal_contexts WHERE id='{turn['context']['contextId']}';") == '1'
+          and int(query(INPUTS)) == int(captures) + 1
+          and query(f"SELECT context_id='{turn['context']['contextId']}'::uuid AND cutoff=input_known_at FROM assistant.turns WHERE id='{turn['id']}';") == 't'
           and at(query('SELECT max(certified_through) FROM market_data.knowledge_clocks;')) <= at(turn['context']['recordedAt']), (turn, listed))
     check('a PPA book reads exactly one book, under the Blotter\'s trading, market and reference access, and Navigate opens neither PPA '
           'bookings nor a target a PPA read issued',

@@ -5,14 +5,15 @@ import json
 import ssl
 from urllib.parse import urlsplit
 from urllib.request import HTTPCookieProcessor, Request
-from preview_client import initial_frame
+from preview_client import PreviewClient,initial_frame
 
 
 def _raw(client, origin, csrf, path, body=None, encoding=None, headers=None, tls=None):
     """Reuse the client's cookies; omit Accept-Encoding literally when requested."""
     target = path if path.startswith('/') else '/api/' + path
     payload = None if body is None else json.dumps(body).encode()
-    selected = dict(headers or {})
+    if not hasattr(client,'read_references'):client.read_references={}
+    selected = {**PreviewClient.reference_headers(client,body,path),**(headers or {})}
     if payload is not None:
         selected = {'Origin': origin, 'Content-Type': 'application/json',
                     'X-Preview-CSRF': csrf, **selected}
@@ -32,6 +33,7 @@ def _raw(client, origin, csrf, path, body=None, encoding=None, headers=None, tls
             connection.putheader('Content-Length', str(len(payload)))
         connection.endheaders(payload)
         response = connection.getresponse()
+        client.read_references.update(json.loads(response.headers.get('X-OpenETRM-Read-References','{}')))
         return response.status, {k.lower(): v for k, v in response.getheaders()}, response.read()
     finally:
         connection.close()

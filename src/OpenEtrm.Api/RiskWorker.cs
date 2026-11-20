@@ -269,7 +269,7 @@ public static class RiskWorker
             InputMarkets:supplemental.Select(p=>new PreviewInputMarket(p.Key,[new(p.Value.At,p.Value.ObservationIds.ToArray(),
                 p.Value.CurveContracts.ToDictionary(c=>c.Key,c=>c.Value.ToArray()),p.Value.FrozenObservationIds.ToArray())])).ToArray(),
             FuturesConvention:sourceConventions[0]);
-        var context=(await new KnowledgeStore(catalog).Read(connection,requestContext.ContextId!.Value,ct)).Context;
+        var context=(await new KnowledgeResolver(catalog).Read(connection,requestContext.ContextId!.Value,ct)).Context;
         await using var database=new PreviewDatabase(manifest,source);
         using var admissions=database.OwnReadTransaction(connection,transaction);
         var data=await RetainedFrames.ReadBoundJobInputs(database,connection,frame,revision,ReferenceReadScope.TradeValuation,ct);

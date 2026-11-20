@@ -23,7 +23,7 @@ internal static class GasAppliedSourceChecks
             {
                 await database.WithIdentity("trader",null,async(connection,ct)=>
                 {
-                    var source=(await new KnowledgeStore(manifest.CatalogId).Read(connection,context,ct)).Context;
+                    var source=(await new KnowledgeResolver(manifest.CatalogId).Read(connection,context,ct)).Context;
                     await PinnedContext.BindExact(connection,manifest.CatalogId,source,ct);
                     var at=fixture.Instant("at");await TradingContext.Bind(connection,manifest.CatalogId,source,at,ct);
                     var frame=new InputFrame(Guid.NewGuid(),"Synthetic applied source correction",at,DateWorkspace.Date(source.EffectiveOn),[fixture.Id("markId")],

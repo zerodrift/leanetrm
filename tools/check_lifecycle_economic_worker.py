@@ -19,10 +19,11 @@ children=[]
 
 def label_checks(query,manifest,fixture):
     selected=json.loads(fixture.read_text());catalog=manifest['catalogId'];context=selected['contextId'];at=selected['at'];book=selected['bookId']
-    day=query(f"SELECT effective_on FROM market_data.temporal_contexts WHERE(catalog_id,id)=('{catalog}','{context}');")
+    from native_read_transport import captured_input,register_captured_input
+    day=captured_input(query,context)['effective_on']
     def authenticated(sql):
         token=query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','trader','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',60);")
-        return f"SET SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{token}');SELECT security.use_market_context('{catalog}','{context}');SELECT security.use_trading_context('{catalog}','{at}','{day}'::date);"+sql
+        return f"SET SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{token}');"+register_captured_input(query,context)+f"SELECT security.use_market_context('{catalog}','{context}');SELECT security.use_trading_context('{catalog}','{at}','{day}'::date);"+sql
     signature='security.read_gas_owned_holdings_before_labels(uuid,uuid,timestamptz,uuid[])'
     original=query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);")
     needle='RETURN security.read_gas_owned_holdings_pre_risk(catalog,context,at_time,books);'

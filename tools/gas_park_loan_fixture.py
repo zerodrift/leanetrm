@@ -56,7 +56,7 @@ class ParkLoanFixture:
 
     def capture(self, *, day=None, cutoff=None):
         selected = 'NULL' if cutoff is None else "'" + cutoff + "'"
-        return self.call(f"SELECT security.capture_date_context('{self.catalog}','{day or self.day}',{selected});")
+        return self.call(f"SELECT security.resolve_operation_context('{self.catalog}','{day or self.day}',{selected});")
 
     def native(self, account, action, body, *, policy=None, operation=None, context=None, profile='trader', rollback=False):
         selected = f"'{policy}',1" if policy else 'NULL,NULL'

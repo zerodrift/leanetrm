@@ -89,7 +89,7 @@ UPDATE ref_data.revisions SET state='sealed' WHERE catalog_id='{catalog}' AND id
         query(runtime(f"DO $$ DECLARE rejected boolean=false;BEGIN BEGIN {sql} EXCEPTION WHEN insufficient_privilege THEN rejected=true;END;IF NOT rejected THEN RAISE EXCEPTION 'Runtime bypassed trusted source validator' USING ERRCODE='XX000';END IF;END $$;",issue(login='preview_runtime'),login='preview_runtime'))
     # A historical view must hide all later imported evidence as well as canonical definitions.
     market=manifest['catalogId']
-    old= query(runtime(f"SELECT security.capture_date_context('{market}','2020-12-18',NULL);"))
+    old= query(runtime(f"SELECT security.resolve_operation_context('{market}','2020-12-18',NULL);"))
     for table in ['reference_import_receipts','source_documents','imported_product_keys','imported_series_keys']:
         assert query(runtime(f"SELECT security.use_market_context('{market}','{old}');SELECT count(*) FROM ref_data.{table} WHERE catalog_id='{catalog}' AND revision_id='{operation}';"))=='0'
     # Semantic identity uses the entire exact source key, not a trading-symbol search.
@@ -110,7 +110,7 @@ UPDATE ref_data.revisions SET state='sealed' WHERE catalog_id='{catalog}' AND id
     # A visible imported revision cannot expose a hidden later quantity revision.
     later=str(uuid4())
     query(f"BEGIN;INSERT INTO market_data.revisions VALUES('{market}','{later}','{catalog}','{operation}','draft',0);INSERT INTO market_data.revision_periods VALUES('{market}','{later}','2020-01-01','2022-01-01');UPDATE market_data.revisions SET state='sealed' WHERE catalog_id='{market}' AND id='{later}';COMMIT;")
-    view=query(runtime(f"SELECT security.capture_date_context('{market}','2020-12-18',NULL);"))
+    view=query(runtime(f"SELECT security.resolve_operation_context('{market}','2020-12-18',NULL);"))
     bind=f"SELECT security.use_market_context('{market}','{view}');"
     assert query(runtime(bind+f"SELECT count(*) FROM ref_data.imported_product_keys WHERE catalog_id='{catalog}' AND revision_id='{operation}';"))=='1'
     assert query(runtime(bind+f"SELECT count(*) FROM ref_data.imported_series_keys WHERE catalog_id='{catalog}' AND revision_id='{operation}';"))=='0'

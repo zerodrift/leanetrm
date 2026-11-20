@@ -16,7 +16,7 @@ public sealed class LiveContexts(PreviewDatabase database,CalculationChanges cha
             var head=await Head(connection,cancellation);
             if(head==selection.Head)return selection;
             var seed=selection.Seed;
-            var captured=await new KnowledgeStore(database.Manifest.CatalogId).Capture(connection,
+            var captured=await new KnowledgeResolver(database.Manifest.CatalogId).Capture(connection,
                 new(seed.Time.Date.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),null,"current"),cancellation);
             await MarketContextStore.Bind(connection,database.Manifest.CatalogId,captured.Context,cancellation);
             var bound=seed with{ContextId=captured.Context.ContextId};

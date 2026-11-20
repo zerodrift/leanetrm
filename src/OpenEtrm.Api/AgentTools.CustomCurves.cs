@@ -83,7 +83,7 @@ public sealed partial class AgentTools
     internal Task<CurveReferences> Previewed(TurnReads turn,RecipeDefinition definition,CancellationToken ct)=>
         database.WithAgent(turn.Agent,turn.ReadLimit,MarketData,_=>{},async(connection,t)=>
         {
-            var context=(await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,turn.Pin.ContextId,t)).Context;
+            var context=await turn.Context(connection,database.Manifest.CatalogId,t);
             await turn.Pin.Page(context).Bind(connection,database.Manifest.CatalogId,t);
             var data=await database.Read(connection,t,observationIds:[],includeCalendarDays:false);
             return await new CustomCurvesStore(database).References(connection,definition,data,t);

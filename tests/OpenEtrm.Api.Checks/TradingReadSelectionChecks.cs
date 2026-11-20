@@ -28,7 +28,7 @@ internal static class TradingReadSelectionChecks
         session.Profile="trader";Denied(()=>(selected with {Ends=DateTimeOffset.UtcNow.AddSeconds(-1)}).RequireSession(session));
         // Current knowledge is captured apart from the read that uses it. Only a working read captures, and a session
         // that ended between the capture and the read does not get the view.
-        var store=new KnowledgeStore(manifest.CatalogId);
+        var store=new KnowledgeResolver(manifest.CatalogId);
         try{retained.CaptureKnowledge(null!,store,CancellationToken.None).GetAwaiter().GetResult();throw new Exception("A historical read must not capture current knowledge.");}
         catch(InvalidOperationException){}
         Denied(()=>_=(selected with {Ends=DateTimeOffset.UtcNow.AddSeconds(-1)}).Captured(null!,store,historical,CancellationToken.None));

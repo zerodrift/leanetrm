@@ -249,7 +249,7 @@ export function setupAssistant(options:PanelOptions){
   // Go selects the target's context and opens it.
   function go(item:{sequence:number;target:Target}){
     const view=views.find(v=>v.targets.some(t=>t.sequence===item.sequence));if(!view||unconfirmed(item,'go',view.id))return;
-    void moveFrom(item,()=>options.go(item.target)).catch(()=>{notices.set(item.sequence,{moved:false});}).then(()=>refresh(view.id));
+    void moveFrom(item,()=>options.go({...item.target,sourceTurnId:view.id})).catch(()=>{notices.set(item.sequence,{moved:false});}).then(()=>refresh(view.id));
   }
   // Back restores the place the move left.
   function back(item:{sequence:number}){

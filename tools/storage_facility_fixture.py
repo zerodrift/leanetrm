@@ -35,7 +35,7 @@ class StorageFacilityFixture:
     def capture(self, *, day=None, cutoff=None):
         cut = 'NULL' if cutoff is None else "'" + cutoff + "'"
         return runtime_query(self.query, self.manifest,
-            f"SELECT security.capture_date_context('{self.catalog}','{day or self.at[:10]}',{cut});")
+            f"SELECT security.resolve_operation_context('{self.catalog}','{day or self.at[:10]}',{cut});")
 
     def call(self, sql, *, context=None, profile='trader'):
         return runtime_query(self.query, self.manifest,

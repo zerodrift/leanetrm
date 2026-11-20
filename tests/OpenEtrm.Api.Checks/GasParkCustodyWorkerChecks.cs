@@ -29,12 +29,12 @@ internal static class GasParkCustodyWorkerChecks
         if(!verify&&fixture.TryGetProperty("requirePnlRefusal",out var requirePnl)&&requirePnl.GetBoolean())
             await database.WithIdentity("trader",null,async(connection,ct)=>
             {
-                var source=(await new KnowledgeStore(manifest.CatalogId).Read(connection,fixture.Id("contextId"),ct)).Context;
+                var source=(await new KnowledgeResolver(manifest.CatalogId).Read(connection,fixture.Id("contextId"),ct)).Context;
                 var frame=new InputFrame(Guid.NewGuid(),"Synthetic cross-clock custody refusal",fixture.Instant("at"),DateWorkspace.Date(fixture.Text("businessDate")),
                     [fixture.Id("markId"),..fixture.GetProperty("rateIds").EnumerateArray().Select(p=>p.GetGuid())],
                     ImmutableDictionary<string,ImmutableArray<Guid>>.Empty.Add("future",[fixture.Id("contractId")]),fixture.Id("contextId"));
                 var openingSource=fixture.TryGetProperty("pnlOpeningContextId",out var openingId)
-                    ?(await new KnowledgeStore(manifest.CatalogId).Read(connection,openingId.GetGuid(),ct)).Context:source;
+                    ?(await new KnowledgeResolver(manifest.CatalogId).Read(connection,openingId.GetGuid(),ct)).Context:source;
                 await RequirePnlRefusal(connection,database,frame,openingSource,source,fixture.Id("bookId"),fixture.Id("tradeId"),ct);
                 return true;
             },default);
@@ -55,7 +55,7 @@ internal static class GasParkCustodyWorkerChecks
                 return true;
             }
             var at=fixture.Instant("at");var context=fixture.Id("contextId");var book=fixture.Id("bookId");var trade=fixture.Id("tradeId");
-            var source=(await new KnowledgeStore(manifest.CatalogId).Read(connection,context,ct)).Context;
+            var source=(await new KnowledgeResolver(manifest.CatalogId).Read(connection,context,ct)).Context;
             await PinnedContext.BindExact(connection,manifest.CatalogId,source,ct);await TradingContext.Bind(connection,manifest.CatalogId,source,at,ct);
             if(nativeOnly&&fixture.TryGetProperty("expectedDirectoryRefusal",out var expectedDirectory))
             {

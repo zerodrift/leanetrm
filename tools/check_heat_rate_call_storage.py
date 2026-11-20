@@ -126,7 +126,7 @@ def run_checks(query,manifest):
         try:query(statement+';')
         except RuntimeError:pass
         else:raise AssertionError('A retained heat-rate call fact was rewritten: '+statement)
-    context=runtime(f"SELECT security.capture_date_context('{catalog}','2020-12-15',NULL);")
+    context=runtime(f"SELECT security.resolve_operation_context('{catalog}','2020-12-15',NULL);")
     selected=f"SELECT security.use_market_context('{catalog}','{context}');SELECT security.use_trading_context('{catalog}','2020-12-15T23:59:59.999999Z');"
     read=lambda trades='NULL',actor='trader':json.loads(runtime(selected+f"SELECT security.read_heat_rate_call_positions('{catalog}',ARRAY[]::uuid[],ARRAY[]::uuid[],{trades});",actor))
     held=read()
@@ -147,7 +147,7 @@ def run_checks(query,manifest):
     try:runtime(f"SELECT security.read_heat_rate_call_positions('{catalog}',ARRAY[]::uuid[],ARRAY[]::uuid[],NULL);")
     except RuntimeError as error:assert 'knowledge_coverage' in str(error),str(error)
     else:raise AssertionError('Read heat-rate call positions without a selected knowledge context')
-    earlier=runtime("SELECT security.capture_date_context('"+catalog+"','2020-12-14',NULL);")
+    earlier=runtime("SELECT security.resolve_operation_context('"+catalog+"','2020-12-14',NULL);")
     before_booking=f"SELECT security.use_market_context('{catalog}','{earlier}');SELECT security.use_trading_context('{catalog}','2020-12-14T23:59:59.999999Z');"
     assert json.loads(runtime(before_booking+f"SELECT security.read_heat_rate_call_positions('{catalog}',ARRAY[]::uuid[],ARRAY[]::uuid[],NULL);"))==[]
     selected_trade=f"SELECT security.read_heat_rate_call_positions('{catalog}',ARRAY[]::uuid[],ARRAY[]::uuid[],ARRAY['{first['tradeId']}']::uuid[]);"

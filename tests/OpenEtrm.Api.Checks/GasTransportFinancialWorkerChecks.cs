@@ -35,7 +35,7 @@ internal static class GasTransportFinancialWorkerChecks
             if(packet.Text("pricingPolicy")!="base")throw new Exception("Select the installed contractual pricing policy explicitly.");
             var at=TradingInstant.Parse(packet.Text("asOf"),"gas_transport_financial_input");
             var context=packet.Id("contextId");var trade=packet.Id("tradeId");var book=packet.Id("bookId");
-            var source=(await new KnowledgeStore(manifest.CatalogId).Read(c,context,ct)).Context;
+            var source=(await new KnowledgeResolver(manifest.CatalogId).Read(c,context,ct)).Context;
             await PinnedContext.BindExact(c,manifest.CatalogId,source,ct);await TradingContext.Bind(c,manifest.CatalogId,source,at,ct);
             var day=PublishedSchedules.ContextDate(source);
             var raw=await GasTransportFinancialStore.Read(c,database,new(context,at,day),trade,ct);

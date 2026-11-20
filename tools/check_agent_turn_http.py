@@ -221,7 +221,7 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap):
     viewing.bootstrap()
     selected = viewing.call('market/context', {'effectiveOn': '2020-12-18', 'mode': 'current', 'selection': 'latest_correction'})['context']
     past = frame_of(viewing)
-    captures = "SELECT count(*) FROM market_data.temporal_contexts;"
+    captures = "SELECT count(*) FROM assistant.turns WHERE input_known_at IS NOT NULL;"
     before = query(captures)
     refused = ask(viewing, at=past, expected=422)
     assert query(captures)==before

@@ -34,7 +34,7 @@ internal static class PpaBlotter
         var selected=BookScope.Select(books,bookIds,portfolioIds)
             .Select(b=>b.Id("id")).ToImmutableArray();
         if(selected.IsEmpty)return new([]);
-        var context=(await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,frame.ContextId??throw new PreviewDeniedException(),ct)).Context;
+        var context=(await new KnowledgeResolver(database.Manifest.CatalogId).Read(connection,frame.ContextId??throw new PreviewDeniedException(),ct)).Context;
         var scope=await PpaPortfolio.Scope(connection,data,frame,context,selected,ct);
         if(position is not null)
         {

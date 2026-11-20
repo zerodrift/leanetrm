@@ -423,7 +423,7 @@ def native_admission_parity(query, manifest):
     try:
         for day in (None, '2020-12-18', '2020-12-17'):
             token = query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','viewer','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
-            bind = '' if day is None else f"SELECT security.use_market_context('{catalog}',security.capture_date_context('{catalog}','{day}',clock_timestamp()));"
+            bind = '' if day is None else f"SELECT security.use_market_context('{catalog}',security.resolve_operation_context('{catalog}','{day}',clock_timestamp()));"
             actual = json.loads(query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{bind}SELECT public.synthetic_close_batch_compare('{catalog}',ARRAY[{closes}]);ROLLBACK;").splitlines()[-1])
             print('CALENDAR_NATIVE_PARITY=' + json.dumps({'day': day, **actual}), flush=True)
             assert actual['actual'] == actual['expected'], actual

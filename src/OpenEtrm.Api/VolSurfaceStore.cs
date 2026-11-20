@@ -241,7 +241,7 @@ internal static class VolSurfaceStore
         var data=await RetainedFrames.ReadBoundJobInputs(database,connection,frame,revision,ReferenceReadScope.DefinitionClosure,ct);
         var plan=OptionSurfaceAnalytics.Plan(request["sensitivities"],frame.At);
         // Calibration and analytics value under the job's one certified context, as a portfolio valuation does.
-        var context=PinnedContext.Exact((await new KnowledgeStore(catalog).Read(connection,frame.ContextId!.Value,ct)).Context);
+        var context=PinnedContext.Exact((await new KnowledgeResolver(catalog).Read(connection,frame.ContextId!.Value,ct)).Context);
         var snapshot=MarketSnapshotBinding.Bind(data.Snapshot(frame),frame.ContextId.Value,SchedulePreview.ParseAt(context.KnownAt));
         var elapsed=Stopwatch.StartNew();
         var fitted=await VolSurfaceFit.Compute(connection,database,data,frame,snapshot,product["code"]!.GetValue<string>(),model,ct);

@@ -186,7 +186,7 @@ public sealed class IntervalCurvesStore(MarketReads reads,TouProductStore produc
         var selected=snapshot.Selections.Where(s=>s.Input.Use==InputUse.FrozenFact && s.Observation.Role==ObservationRole.FinalContractSettlement)
             .Select(s=>s.Observation.Key.Id).ToArray();
         if(selected.Length==0)return (ImmutableDictionary<ObservationKey,DateTimeOffset>.Empty,null);
-        var captured=await new KnowledgeStore(data.DefinitionRevision.CatalogId).Capture(connection,
+        var captured=await new KnowledgeResolver(data.DefinitionRevision.CatalogId).Source(connection,
             new(DateOnly.FromDateTime(snapshot.ValuationAt.UtcDateTime).ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),knownAt.ToString("O"),"at"),ct);
         var rows=await PreviewDatabase.Rows(connection,"""
             SELECT value::text FROM jsonb_array_elements(market_data.frozen_observation_knowledge($1,$2,$3::uuid[],$4,$5))

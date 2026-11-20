@@ -26,7 +26,7 @@ internal static class GasTransportFinancialCapacity
         var admission=new Admission(database.Manifest.CatalogId,context.ContextId,context.AsOf,
             TradingInstant.Parse(envelope.Text("authorityUntil"),"gas_transport_financial_source"));
         database.RegisterCommitAdmission(c,admission);
-        var known=(await new KnowledgeStore(database.Manifest.CatalogId).Read(c,context.ContextId,ct)).Context;
+        var known=(await new KnowledgeResolver(database.Manifest.CatalogId).Read(c,context.ContextId,ct)).Context;
         if(PublishedSchedules.ContextDate(known)!=context.BusinessDate)throw GasTransportFinancialStore.Source();
         var rows=Require(envelope,database.Manifest.CatalogId,context,TradingInstant.Parse(known.KnownAt,"gas_transport_financial_source"),entitlement);
         await admission.RequireCommit(c,ct);return rows;

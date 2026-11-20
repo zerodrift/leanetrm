@@ -82,7 +82,7 @@ class PointTraderMarkFixture(FinancialTransportFixture):
         return dict(policy=POLICY, target=target or self.point_target(), value=value, evidence=evidence, originalInputs=None)
 
     def market_context(self, *, profile='editor', day=None):
-        return self.call(f"SELECT security.capture_date_context('{self.catalog}','{day or self.valuation_at[:10]}',NULL);", profile=profile)
+        return self.call(f"SELECT security.resolve_operation_context('{self.catalog}','{day or self.valuation_at[:10]}',NULL);", profile=profile)
 
     def publish(self, body, *, operation=None, context=None, profile='editor', commit=True):
         operation = operation or str(uuid4())

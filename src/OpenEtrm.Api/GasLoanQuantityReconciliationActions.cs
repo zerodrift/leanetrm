@@ -73,7 +73,7 @@ internal sealed class GasLoanQuantityReconciliationActions(PreviewDatabase datab
         {
             var receipt=await Record(connection,request,body,true,ct);alreadyRecorded=receipt is not null;
             outcome=receipt is {} retained?retained.GetProperty("outcome"):(await Record(connection,request,body,false,ct))!.Value;
-            await using var complete=ScheduleStore.Command(connection,"SET CONSTRAINTS ALL IMMEDIATE");await complete.ExecuteNonQueryAsync(ct);
+            await using var complete=ScheduleStore.Command(connection,"SELECT security.check_operation_seals()");await complete.ExecuteNonQueryAsync(ct);
         }
         finally
         {

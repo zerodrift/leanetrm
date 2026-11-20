@@ -153,7 +153,7 @@ def run_checks(url,query,manifest,dotnet,owned_root,app_environment,psql,environ
     assert built.returncode==0,built.stdout+built.stderr
     command=[str(dotnet),str(published/'OpenEtrm.Worker.dll'),'--once']
     def market_counts():
-        names=['market_data.observations','market_data.market_closes','market_data.market_close_pins','market_data.market_close_receipts','market_data.market_knowledge_receipts','market_data.temporal_contexts','market_data.interval_series_knowledge_receipts','power_data.receipts']
+        names=['market_data.observations','market_data.market_closes','market_data.market_close_pins','market_data.market_close_receipts','market_data.market_knowledge_receipts','market_data.interval_series_knowledge_receipts','power_data.receipts']
         return {name:query(f'SELECT count(*) FROM {name};') for name in names}
     def work(job,pending=None):
         before=market_counts()

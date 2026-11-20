@@ -24,7 +24,7 @@ internal static class GasOwnedScopeAdmissionChecks
                 // Deliberately register no earlier gas admission: this directly
                 // callable scope boundary must preserve its own original term.
                 var context=fixture.Id("contextId");var at=fixture.Instant("at");
-                var source=(await new KnowledgeStore(manifest.CatalogId).Read(connection,context,ct)).Context;
+                var source=(await new KnowledgeResolver(manifest.CatalogId).Read(connection,context,ct)).Context;
                 await PinnedContext.BindExact(connection,manifest.CatalogId,source,ct);
                 await TradingContext.Bind(connection,manifest.CatalogId,source,at,ct);
                 var frame=new InputFrame(Guid.NewGuid(),"Synthetic scope authority",at,PublishedSchedules.ContextDate(source),[],
@@ -34,7 +34,7 @@ internal static class GasOwnedScopeAdmissionChecks
                     throw new Exception("The scope authority fixture changed its exact native gas population.");
                 if(testCase=="changed_source")
                 {
-                    var changed=(await new KnowledgeStore(manifest.CatalogId).Read(connection,fixture.Id("otherContextId"),ct)).Context;
+                    var changed=(await new KnowledgeResolver(manifest.CatalogId).Read(connection,fixture.Id("otherContextId"),ct)).Context;
                     await PinnedContext.BindExact(connection,manifest.CatalogId,changed,ct);
                     await TradingContext.Bind(connection,manifest.CatalogId,changed,at,ct);
                 }

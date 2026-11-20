@@ -110,7 +110,7 @@ def checks(query,manifest,*,economic=False,native_child=False,solved=False,margi
     def call(sql,profile='trader'):
         token=query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('{issuer}','{profile}','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}COMMIT;")
-    def capture():return call(f"SELECT security.capture_date_context('{catalog}','2026-10-16',NULL);")
+    def capture():return call(f"SELECT security.resolve_operation_context('{catalog}','2026-10-16',NULL);")
     book=query(f"SELECT id FROM trading.books WHERE catalog_id='{catalog}' ORDER BY id LIMIT 1;")
     entity=query(f"SELECT id FROM trading.legal_entities WHERE catalog_id='{catalog}' ORDER BY id LIMIT 1;")
     party=query(f"SELECT id FROM trading.counterparties WHERE catalog_id='{catalog}' ORDER BY id LIMIT 1;")

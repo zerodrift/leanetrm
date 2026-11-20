@@ -42,7 +42,7 @@ internal sealed partial class PointTraderMarkStore
         var outcome=status.GetProperty("outcome");PointTraderMarkReceipts.Require(Catalog,request.OperationId,body,outcome);
         var target=saved.Target;var source=new CatalogueSource(target.DefinitionRevisionId,target.ReferenceCatalogId,target.ReferenceRevisionId);
         if(original.At!=outcome.Instant("observedAt")||original.BusinessDate!=PublishedSchedules.ContextDate(
-            (await new KnowledgeStore(Catalog).Read(c,status.GetProperty("request").Id("sourceContextId"),ct)).Context))
+            await status.GetProperty("sourceInputs").Deserialize<ReadInputCoordinates>(PointTraderMarkCommands.Json)!.Resolve(c,Catalog,ct)))
             throw InputsUnavailable("The accepted point and original selection have different business coordinates.");
 
         // Inspect the complete original matrix, independently of the producer's

@@ -68,7 +68,7 @@ def run_checks(query, manifest):
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token()}');{statements}{end};")
 
     def capture():
-        return trader(f"SELECT security.capture_date_context('{catalog}','{day}',NULL);")
+        return trader(f"SELECT security.resolve_operation_context('{catalog}','{day}',NULL);")
 
     def bound(context):
         return f"SELECT security.use_market_context('{catalog}','{context}');SELECT security.use_trading_context('{catalog}','{frame_at}');"

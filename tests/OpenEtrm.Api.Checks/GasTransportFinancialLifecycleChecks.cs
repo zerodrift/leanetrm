@@ -48,7 +48,7 @@ internal static class GasTransportFinancialLifecycleChecks
             throw new Exception("Shared lifecycle execution and recovery must retain the first accepted expiry after the financial head changes.");
         var current=context with{ContextId=await database.WithIdentity("trader","ReadMarketData",async(c,ct)=>
         {
-            var captured=await new KnowledgeStore(database.Manifest.CatalogId).Capture(c,
+            var captured=await new KnowledgeResolver(database.Manifest.CatalogId).Capture(c,
                 new(context.BusinessDate.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),null,"current"),ct);
             return captured.Context.ContextId!.Value;
         },default),SnapshotId=null};

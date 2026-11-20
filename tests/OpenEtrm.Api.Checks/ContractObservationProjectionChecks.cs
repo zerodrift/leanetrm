@@ -26,7 +26,7 @@ internal static class ContractObservationProjectionChecks
         {
             var close=offered.OriginCloseId??throw new Exception("The working frame must name its recorded close.");
             var frame=await MarketCloses.Frame(connection,catalog,close,null,ct) with{Id=offered.Id,Name=offered.Name};
-            var view=await TradingView.Capture(connection,new KnowledgeStore(catalog),frame,ct);
+            var view=await TradingView.Capture(connection,new KnowledgeResolver(catalog),frame,ct);
             return(Outcome)await reads.Read(connection,view,async data=>
             {
                 var calculation=view.CalculationFrame;

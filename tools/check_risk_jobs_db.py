@@ -51,7 +51,7 @@ def run_checks(query, manifest, psql=None, environment=None):
     def user(sql, profile='risk'):
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token(profile)}');{sql};COMMIT;")
 
-    context = user(f"SELECT security.capture_date_context('{catalog}','{at[:10]}',NULL)")
+    context = user(f"SELECT security.resolve_operation_context('{catalog}','{at[:10]}',NULL)")
     frame['contextId'] = context
     books = json.loads(user(f"SELECT security.use_market_context('{catalog}','{context}');SELECT security.use_trading_context('{catalog}','{at}');SELECT coalesce(jsonb_agg(id),'[]'::jsonb) FROM trading.books WHERE catalog_id='{catalog}'"))
     assert books, 'Fixture must contain an explicit book scope'
@@ -285,7 +285,7 @@ def run_checks(query, manifest, psql=None, environment=None):
     corrected['supplementalMarkets'][supplemental_revision]['frozenObservationIds'] = [correction.upper()]
     corrected['swapMarketSelections'][supplemental_revision][0] = correction.upper()
     reject(lambda: submit(payload=generic_request, selected_frame=corrected), 'temporal_inputs_denied')
-    later = user(f"SELECT security.capture_date_context('{catalog}','{at[:10]}',NULL)")
+    later = user(f"SELECT security.resolve_operation_context('{catalog}','{at[:10]}',NULL)")
     corrected['contextId'] = later
     corrected['supplementalMarkets'][supplemental_revision]['contextId'] = later
     corrected_request = deepcopy(generic_request)
@@ -318,7 +318,7 @@ def run_checks(query, manifest, psql=None, environment=None):
     reject(lambda: submit(payload={**run_request, 'context': {**run_request['context'], 'snapshotId': other_close}}, selected_frame={**part(2), 'id': other_close}), 'risk_job_run')
     reject(lambda: submit(payload=run_request, selected_frame=part(1)), 'risk_job_run')
     reject(lambda: submit(payload=run_request, selected_frame=part(2, parts=3)), 'risk_job_run')
-    elsewhere = user(f"SELECT security.capture_date_context('{catalog}','{at[:10]}',NULL)")
+    elsewhere = user(f"SELECT security.resolve_operation_context('{catalog}','{at[:10]}',NULL)")
     reject(lambda: submit(payload={**run_request, 'context': {**run_request['context'], 'contextId': elsewhere}},
                           selected_frame={**part(2), 'contextId': elsewhere}, selected_context=elsewhere), 'risk_job_run')
     second_part = submit(payload=run_request, selected_frame=part(2))
@@ -347,18 +347,21 @@ def run_checks(query, manifest, psql=None, environment=None):
             return query(f"SELECT count(*) FROM pg_stat_activity WHERE application_name='{racer_name}' AND wait_event_type='Lock' AND wait_event='advisory'") == '1'
 
         def raced(first_frame, second_sql):
+            from native_read_transport import register_captured_input
+            register=register_captured_input(query,context)
             process = subprocess.Popen([str(x) for x in psql], cwd=ROOT, env=environment,
                                        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             result = {}
             second = lambda: query(f"SET application_name='{racer_name}';SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token()}');{second_sql};COMMIT;")
             racer = threading.Thread(target=lambda: result.update(error=outcome(second)))
             try:
-                process.stdin.write(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token()}');{submit_sql(payload=run_request, selected_frame=first_frame)};\n")
+                process.stdin.write(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token()}');{register}{submit_sql(payload=run_request, selected_frame=first_frame)};\n")
                 process.stdin.flush()
                 held = None
                 while held is None:
                     assert select.select([process.stdout], [], [], 10)[0], 'The first part was not admitted'
                     line = process.stdout.readline()
+                    assert line, process.stderr.read()
                     held = json.loads(line) if line.startswith('{') else None
                 racer.start()
                 deadline = time.monotonic() + 10
@@ -367,7 +370,7 @@ def run_checks(query, manifest, psql=None, environment=None):
                     time.sleep(0.05)
                     waited = waiting()
                 assert waited, ('The second part was not seen waiting on the run\'s lock before the first part committed', result)
-                process.stdin.write('COMMIT;\n\\q\n')
+                process.stdin.write('SELECT security.finish_operation_read();COMMIT;\n\\q\n')
                 process.stdin.flush()
                 assert process.wait(timeout=10) == 0
                 racer.join(30)
@@ -664,11 +667,17 @@ def main():
         for path in sorted((ROOT / 'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
             query(path.read_text())
         reference, market, security, manifest = fixture(ROOT)
+        from native_read_transport import native_query
+        query=native_query(query)
         from swap_fixture import fixture as swap_fixture
         swap_market, swap_manifest = swap_fixture()
         manifest['inputMarkets'] = [swap_manifest]
-        for sql in (reference, market, swap_market, security):
-            query(sql)
+        query(reference)
+        from seed_fixture_market import load_market
+        security=load_market(query,market,security,manifest)
+        if security.strip():query(security)
+        remainder=load_market(query,swap_market,'',manifest)
+        assert not remainder
         query(trading_fixture(manifest['catalogId'], swap_defaults=True))
         run_checks(query, manifest, psql, environment)
     finally:

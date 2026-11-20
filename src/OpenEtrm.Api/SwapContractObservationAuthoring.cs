@@ -59,7 +59,7 @@ public sealed partial class SwapStore
         var resolved=ResolveContractObservationPeriod(data,floating,Required(body.Commodity),null,calendars);
         _=new FloatingSide(Guid.NewGuid(),resolved.Quote,resolved.UnitQuantity,[resolved.Period],calendars);
         var contextId=frame.ContextId??throw Error("swap_context","Supply the exact certified context.");
-        var context=(await new KnowledgeStore(manifest.CatalogId).Read(connection,contextId,ct)).Context;
+        var context=(await new KnowledgeResolver(manifest.CatalogId).Read(connection,contextId,ct)).Context;
         if(data.Snapshot(frame).MarketCutoff!=frame.At)throw Error("contract_observation_context","This source consumer requires an explicit market cutoff equal to the valuation instant.");
         var samples=await ContractObservationSamples.Read(connection,database,data,frame,context,resolved.Period.ContractObservations,ct);
         var calculation=new OpenEtrm.MarketData.Calculation.ResolvedCalculationContext(contextId,frame.Id.ToString(),frame.At,

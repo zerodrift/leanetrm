@@ -81,7 +81,7 @@ internal sealed class GasQuantityBundleActions(PreviewDatabase database):ILifecy
                 (ordinary,physical)=await Sources(connection,request,selected,body,context,ct);
                 outcome=(await Record(connection,request,selected,body,physical.Continuation,false,ct))!.Value;
             }
-            await using var seal=ScheduleStore.Command(connection,"SET CONSTRAINTS ALL IMMEDIATE");await seal.ExecuteNonQueryAsync(ct);
+            await using var seal=ScheduleStore.Command(connection,"SELECT security.check_operation_seals()");await seal.ExecuteNonQueryAsync(ct);
         }
         finally
         {

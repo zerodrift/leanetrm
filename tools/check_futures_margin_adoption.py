@@ -83,7 +83,7 @@ def checks(query, manifest):
                      f"SELECT security.use_context('{token}');{sql}COMMIT;")
 
     def capture():
-        return call(f"SELECT security.capture_date_context('{catalog}','2020-12-18',NULL);")
+        return call(f"SELECT security.resolve_operation_context('{catalog}','2020-12-18',NULL);")
 
     def literal(body):
         return "'"+json.dumps(body).replace("'", "''")+"'::jsonb"

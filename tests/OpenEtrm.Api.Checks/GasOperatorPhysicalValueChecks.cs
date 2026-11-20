@@ -32,7 +32,7 @@ internal static class GasOperatorPhysicalValueChecks
         await database.WithIdentity("trader",null,async(connection,ct)=>
         {
             var context=f.Id(historical?"originalContextId":"contextId");
-            var source=(await new KnowledgeStore(manifest.CatalogId).Read(connection,context,ct)).Context;
+            var source=(await new KnowledgeResolver(manifest.CatalogId).Read(connection,context,ct)).Context;
             await PinnedContext.BindExact(connection,manifest.CatalogId,source,ct);await TradingContext.Bind(connection,manifest.CatalogId,source,at,ct);
             var frame=new InputFrame(Guid.NewGuid(),"Synthetic complete operator physical book",at,new(2020,12,20),
                 [f.Id("markId"),..f.GetProperty("rateIds").EnumerateArray().Select(p=>p.GetGuid())],

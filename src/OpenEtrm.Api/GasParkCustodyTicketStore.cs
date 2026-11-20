@@ -27,7 +27,7 @@ internal sealed partial class GasParkCustodyTicketStore(PreviewDatabase database
     internal static async Task<JsonElement> Read(NpgsqlConnection connection,PreviewDatabase database,LifecycleReadContext context,Guid trade,CancellationToken ct)
     {
         var row=await LifecycleNative.Read(connection,"SELECT security.read_gas_park_custody($1,$2,$3,$4)::text",ct,database.Manifest.CatalogId,trade,context.ContextId,context.AsOf);
-        var known=(await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,context.ContextId,ct)).Context;
+        var known=(await new KnowledgeResolver(database.Manifest.CatalogId).Read(connection,context.ContextId,ct)).Context;
         if(row.Id("tradeId")!=trade||row.Id("contextId")!=context.ContextId||row.Instant("asOf")!=context.AsOf||
             row.Instant("knownAt")!=SchedulePreview.ParseAt(known.KnownAt)||DateWorkspace.Date(row.Text("effectiveOn"))!=context.BusinessDate)
             throw new MarketDataException("gas_custody_source","Retain this exact custody agreement's business and certified knowledge coordinates.");
@@ -44,7 +44,7 @@ internal sealed partial class GasParkCustodyTicketStore(PreviewDatabase database
         {
             var body=GasParkCustodyTicket.Request(request.Draft,f.Id,f.ContextId!.Value,request.Context.KnowledgeMode??"",Guid.Empty,d.DefinitionRevision.RevisionId);
             await RequireBookingSource(connection,d,f,body,ct);
-            var known=(await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,f.ContextId.Value,ct)).Context;
+            var known=(await new KnowledgeResolver(database.Manifest.CatalogId).Read(connection,f.ContextId.Value,ct)).Context;
             var snapshot=d.Snapshot(f).WithKnowledge(f.ContextId.Value,SchedulePreview.ParseAt(known.KnownAt));
             var draft=Draft(body,f,snapshot);var value=await Value(connection,d,f,snapshot,draft,true,ct);
             return View(database.Manifest.CatalogId,draft,f,known,request.Draft,value,null,true);
@@ -83,7 +83,7 @@ internal sealed partial class GasParkCustodyTicketStore(PreviewDatabase database
         var row=await Read(connection,database,Context(frame),request.TradeId,ct);
         if(row.Id("instrumentId")!=request.BindingId||row.GetProperty("revision").GetInt32()!=request.Revision)
             throw GasParkCustodyTicket.Invalid("profile","Select this retained custody agreement's exact binding and revision.");
-        var known=(await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,frame.ContextId!.Value,ct)).Context;
+        var known=(await new KnowledgeResolver(database.Manifest.CatalogId).Read(connection,frame.ContextId!.Value,ct)).Context;
         var snapshot=data.Snapshot(frame).WithKnowledge(frame.ContextId.Value,SchedulePreview.ParseAt(known.KnownAt));
         string? value=null;string? unavailable=null;
         try{value=await Value(connection,data,frame,snapshot,row,false,ct);}
@@ -96,7 +96,7 @@ internal sealed partial class GasParkCustodyTicketStore(PreviewDatabase database
     {
         var inputs=await GasParkCustodyPortfolio.PrepareAgreements(connection,database,frame,snapshot,[agreement],[(data,frame)],false,draft,ct);
         var total=ExactMoney.FromMoney(new(default,GasParkCustodyAdapter.Terms(database.Manifest.CatalogId,agreement).Currency));
-        var known=(await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,frame.ContextId!.Value,ct)).Context;
+        var known=(await new KnowledgeResolver(database.Manifest.CatalogId).Read(connection,frame.ContextId!.Value,ct)).Context;
         foreach(var input in inputs)
         {
             var dependencies=input.Portfolio.Declare(input.Snapshot).SelectMany(s=>s.Dependencies).Distinct().ToImmutableArray();

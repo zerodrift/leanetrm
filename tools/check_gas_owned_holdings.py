@@ -31,7 +31,7 @@ def checks(query, manifest, economic_worker=None, *, form_source_counterexamples
 
     at = '2020-12-20T16:00:00Z'
     def capture():
-        return call(f"SELECT security.capture_date_context('{catalog}','2020-12-20',NULL);")
+        return call(f"SELECT security.resolve_operation_context('{catalog}','2020-12-20',NULL);")
 
     def command(account, action, body, policy=None, operation=None, profile='trader', context=None, rollback=False):
         policy_id, policy_revision = policy or (None, None)
@@ -389,7 +389,7 @@ def checks(query, manifest, economic_worker=None, *, form_source_counterexamples
     # not a reason to reject the earlier projection or consume stock early.
     later_at='2020-12-23T16:00:00Z'
     def later_command(action, body, policy=None):
-        selected=call(f"SELECT security.capture_date_context('{catalog}','2020-12-23',NULL);")
+        selected=call(f"SELECT security.resolve_operation_context('{catalog}','2020-12-23',NULL);")
         policy_id,policy_revision=policy or (None,None)
         policy_sql="NULL" if policy_id is None else "'"+policy_id+"'"
         return json.loads(call(f"SELECT security.record_gas_owned('{catalog}','{uuid4()}','{action}','{owned}',{literal(body)},'{later_at}','{selected}',{policy_sql},{policy_revision or 'NULL'},false)::text;"))
@@ -436,7 +436,7 @@ def checks(query, manifest, economic_worker=None, *, form_source_counterexamples
     future_profile={**profile_body,'profileId':str(uuid4()),'effectiveAt':'2020-12-18T00:00:00Z'}
     configure(future_owned,'projection_profile',future_profile)
     opening='2020-12-19T16:00:00Z'
-    known_context=call(f"SELECT security.capture_date_context('{catalog}','2020-12-19',NULL);")
+    known_context=call(f"SELECT security.resolve_operation_context('{catalog}','2020-12-19',NULL);")
     prefix=f"SELECT security.use_market_context('{catalog}','{known_context}');SELECT security.use_trading_context('{catalog}','{opening}');"
     opening_holdings=json.loads(call(prefix+f"SELECT security.read_gas_owned_holdings('{catalog}','{known_context}','{opening}',ARRAY['{future_book}']::uuid[])::text;"))
     assert opening_holdings['positions']==[]

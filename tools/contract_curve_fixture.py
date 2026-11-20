@@ -18,7 +18,7 @@ def admitted_future_curve(cat, rev, ref, code, name, members, *, commodity, loca
 
     def order(table):
         return f"(SELECT coalesce(max(publication_order),0)+1 FROM market_data.{table} WHERE catalog_id='{cat}')"
-    rows = [f"INSERT INTO market_data.temporal_contexts VALUES('{cat}','{context}','{first}','{first}T00:00:00Z',0,'{first}T00:00:00Z','{first}T00:00:00Z');",
+    rows = [f"-- fixture-validation: {cat} {first} {context}",
             f"INSERT INTO market_data.contract_date_definitions VALUES('{cat}','{mapping}','{code[:24]}_months');",
             "INSERT INTO market_data.contract_date_versions(catalog_id,definition_id,version,generation,state,name,engine_version,validation_context_id) "
             f"VALUES('{cat}','{mapping}',1,1,'draft','{name} months','contract_dates_v1','{context}');"]
@@ -62,7 +62,9 @@ DO $admit$ DECLARE capability uuid;context uuid;BEGIN
  capability=security.issue_context('https://preview.invalid','editor','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',120);
  SET LOCAL SESSION AUTHORIZATION preview_runtime;
  PERFORM security.use_context(capability);
- context=security.capture_date_context('{cat}','2021-01-15',NULL);
+ IF to_regprocedure('security.resolve_operation_context(uuid,date,timestamptz)') IS NOT NULL
+ THEN context=security.resolve_operation_context('{cat}','2021-01-15',NULL);
+ ELSE context=security.capture_date_context('{cat}','2021-01-15',NULL);END IF;
  INSERT INTO market_data.contract_date_admissions(catalog_id,id,revision_id,contract_id,mapping_id,mapping_version,ordinal,context_id,actor_id)
  SELECT c.catalog_id,gen_random_uuid(),c.revision_id,m.contract_id,v.mapping_definition_id,v.mapping_version,m.ordinal,context,
   security.custom_curve_actor(c.catalog_id,'WriteMarketDefinitions')
@@ -70,6 +72,7 @@ DO $admit$ DECLARE capability uuid;context uuid;BEGIN
   ON(v.catalog_id,v.definition_id,v.version)=(c.catalog_id,c.definition_id,c.definition_version)
  JOIN market_data.curve_members m ON(m.catalog_id,m.revision_id,m.curve_code)=(c.catalog_id,c.revision_id,c.code)
  WHERE(c.catalog_id,c.revision_id)=('{cat}','{rev}');
+ IF to_regprocedure('security.finish_operation_read()') IS NOT NULL THEN PERFORM security.finish_operation_read();END IF;
 END $admit$;
 COMMIT;
 """

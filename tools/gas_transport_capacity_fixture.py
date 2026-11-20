@@ -35,7 +35,7 @@ class TransportCapacityFixture:
 
     def capture(self, *, day=None, cutoff=None):
         cut = 'NULL' if cutoff is None else "'" + cutoff + "'"
-        return self.call(f"SELECT security.capture_date_context('{self.catalog}','{day or self.at[:10]}',{cut});")
+        return self.call(f"SELECT security.resolve_operation_context('{self.catalog}','{day or self.at[:10]}',{cut});")
 
     def read(self, entitlement, *, context=None):
         return json.loads(self.call(f"SELECT security.use_market_context('{self.catalog}','{context or self.capture()}');"

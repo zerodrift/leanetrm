@@ -62,8 +62,8 @@ def interrupted_reads(viewer, request, manifest, query, psql, environment):
 
 def run_checks(url, query, manifest, psql, environment):
     catalog = manifest['catalogId']
-    count = f"SELECT count(*) FROM market_data.temporal_contexts WHERE catalog_id='{catalog}'"
-    child_counts = 'SELECT ' + ','.join(f"(SELECT count(*) FROM {table} WHERE catalog_id='{catalog}')"
+    count = "SELECT (to_regclass('market_data.temporal_contexts') IS NOT NULL)::integer"
+    child_counts = 'SELECT ' + ','.join(f"(to_regclass('{table}') IS NOT NULL)::integer"
         for table in ('market_data.market_contexts','market_data.catalogue_contexts','trading.contexts'))
     identity = f"""SET SESSION AUTHORIZATION preview_authenticator;
         SELECT security.issue_context('https://preview.invalid','viewer','human_interactive',
@@ -80,7 +80,7 @@ def run_checks(url, query, manifest, psql, environment):
 
     def bind(selected, identifier):
         at, prefix, system, timeline = selected
-        return (f"SELECT security.bind_calendar_read('{catalog}','{identifier}',DATE '2020-12-18',"
+        return (f"SELECT security.bind_operation_read('{catalog}','{identifier}',DATE '2020-12-18',"
                 f"'{at}',{int(prefix)},'{system}',{int(timeline)});")
 
     def session(profile):
@@ -90,8 +90,8 @@ def run_checks(url, query, manifest, psql, environment):
         return client
 
     assert query("""SELECT NOT has_table_privilege('openetrm_runtime','security.bound_calendar_context','SELECT')
-        AND NOT has_table_privilege('openetrm_runtime','security.read_temporal_contexts','SELECT')
-        AND NOT has_function_privilege('openetrm_risk_worker','security.bind_calendar_read(uuid,uuid,date,timestamptz,integer,text,integer)','EXECUTE')
+        AND to_regclass('security.read_temporal_contexts') IS NULL
+        AND to_regprocedure('security.bind_calendar_read(uuid,uuid,date,timestamptz,integer,text,integer)') IS NULL
         AND NOT has_function_privilege('openetrm_risk_worker','security.calendar_read_cut(uuid)','EXECUTE');""")=='t'
     editor = session('editor')
     workspace = editor.call('workspace')
@@ -117,7 +117,7 @@ def run_checks(url, query, manifest, psql, environment):
         assert result[-1]=='t' and [Decimal(v) for v in result[:-1]]==expected, result
     assert int(query(count))==before, 'Rebinding the original cutoff retained a read'
     at, prefix, system, timeline = old_cut
-    for invalid, code in [((at,int(prefix)+1,system,timeline),'knowledge_coverage'),
+    for invalid, code in [((at,int(prefix)+1,system,timeline),'temporal_context'),
                           ((at,prefix,system,int(timeline)+1),'knowledge_coverage')]:
         try:
             query(identity + bind(invalid,identifier_for(old_cut)) + 'ROLLBACK;')
@@ -127,9 +127,9 @@ def run_checks(url, query, manifest, psql, environment):
             raise AssertionError('Accepted a cutoff with inconsistent publication evidence')
     # An incorrectly scoped caller cannot commit the temporary binding.
     try:
-        query(identity + bind(new_cut,identifier_for(new_cut)) + 'COMMIT;')
+        query.raw(identity + bind(new_cut,identifier_for(new_cut)) + 'COMMIT;')
     except RuntimeError as error:
-        assert 'request_contexts_market_catalog_id_market_context_id_fkey' in str(error), error
+        assert 'read_source_not_released' in str(error), error
     else:
         raise AssertionError('A temporary calendar binding survived commit')
     print('PASS earlier and later cuts bracket the same price correction and scope exit restores the parent',flush=True)
@@ -148,20 +148,14 @@ def run_checks(url, query, manifest, psql, environment):
     assert int(query(count))==before, 'A cancelled or superseded read retained a context'
     expected = strip(viewers[0])
     assert expected['dates']
-    # Schema 0366's retained cap is the regression fixture volume.
-    query(f"""INSERT INTO market_data.temporal_contexts(catalog_id,id,effective_on,known_at,known_through,coverage_from,certified_through)
-        SELECT t.catalog_id,gen_random_uuid(),DATE '2040-01-01'+i,t.known_at,t.known_through,t.coverage_from,t.certified_through
-        FROM (SELECT * FROM market_data.temporal_contexts WHERE catalog_id='{catalog}' ORDER BY id LIMIT 1) t
-        CROSS JOIN generate_series(1,4096-({count})::integer) i;""")
-    assert int(query(count))==4096
     with ThreadPoolExecutor(max_workers=len(viewers)) as pool:
         assert list(pool.map(strip,viewers))==[expected,expected]
-    assert strip(viewers[0])==expected and int(query(count))==4096
+    assert strip(viewers[0])==expected and int(query(count))==0
     from check_workspace_as_of import open_tab, prepare, select, priced
     tab=open_tab(viewers[0])
     for business_day in ('2020-12-17','2020-12-18','2020-12-17'):
         selected=prepare(tab,business_day)
         select(tab,selected)
         assert priced(tab,business_day)[0]==selected
-    assert int(query(count))==4096 and query(child_counts)==children_before, 'Calendar or As of reads added context rows'
-    print('PASS independent viewers return the same custom-curve dates at legacy capacity without retaining contexts',flush=True)
+    assert int(query(count))==0 and query(child_counts)==children_before, 'Calendar or As of reads recreated saved contexts'
+    print('PASS independent viewers return the same custom-curve dates without saved contexts',flush=True)

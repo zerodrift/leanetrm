@@ -1,5 +1,12 @@
 # Delivery plan and acceptance criteria
 
+D435 requires the [runtime context cutover](ephemeral-context-cutover.md), including
+removal of all four generic stores and their saved-context APIs, owner-specific
+input evidence, fresh construction by every job attempt and an explicit clean
+installation/reseed. The prior D434 partial read migration does not complete this
+contract. Focused local qualification is recorded in the cutover contract. Full
+CI and the fresh hosted installation remain release gates.
+
 D432 adds the commercial [gas storage contract](gas-storage-contract.md) at the
 managed level: its own entitlement with daily ratchets, exact feasibility of a
 supplied injection and withdrawal plan, and that plan's flows valued through the

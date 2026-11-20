@@ -67,12 +67,13 @@ def run_checks(client, manifest, query, run_worker, frame, mixed, daily_graph, p
     assert identities.splitlines()[-1]=='1|2',identities
     # Raw admission cannot reinterpret a source/query independently of the receipt.
     from check_booked_side_programs import runtime_query
+    from native_read_transport import select_context_inputs
     signature='trading.require_gas_program_shape(uuid,uuid,integer,date,date,timestamp with time zone,numeric,numeric,market_data.gas_valuation_assignments,ref_data.gas_delivery_conventions,timestamp with time zone,jsonb)'
     assert query(f"SELECT has_function_privilege('openetrm_runtime','{signature}','EXECUTE'),has_function_privilege('openetrm_risk_worker','{signature}','EXECUTE');")=='f|f'
     schedule=query(f"SELECT h.id FROM trading.gas_memberships m JOIN trading.side_schedules h ON(h.catalog_id,h.side_id)=(m.catalog_id,m.side_id) WHERE m.instrument_id='{booked['instrumentId']}' AND m.slot=0;")
     for source,mutation in [(None,''),(reference(alternate),''),(reference(mixed),f"ALTER TABLE trading.side_schedule_rows DISABLE TRIGGER USER;UPDATE trading.side_schedule_rows SET parameters=jsonb_set(parameters,'{{to}}','\"2021-01-03\"'::jsonb) WHERE schedule_id='{schedule}' AND local_key='gas/0/market';")]:
         encoded='NULL' if source is None else "'"+json.dumps(source).replace("'","''")+"'::jsonb"
-        runtime_query(query,manifest,f"""SELECT security.use_market_context('{manifest['catalogId']}','{facts['context']['contextId']}');
+        runtime_query(query,manifest,select_context_inputs(manifest['catalogId'],facts['context'])+f"""SELECT security.use_market_context('{manifest['catalogId']}','{facts['context']['contextId']}');
           SELECT security.use_trading_context('{manifest['catalogId']}','2020-12-18T16:00:00Z');
           DO $reject$ DECLARE a market_data.gas_valuation_assignments;d ref_data.gas_delivery_conventions;BEGIN
           SELECT x.* INTO STRICT a FROM market_data.gas_valuation_assignments x JOIN trading.gas_component_terms m

@@ -1,3 +1,4 @@
+import {cloneRead,retainedKnowledge} from './read-references.js';
 import {ticketFieldGroups} from './ticket-field-groups.js';
 import {isCalendarAuthoringRefusal} from './side-calendar.js';
 import {isCatalogueSource,type CatalogueSource} from './market-navigation.js';
@@ -416,7 +417,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
    const requested=o.context();
    if(r.snapshotId!==requested.snapshotId||!r.context?.contextId||!r.context.effectiveOn||!r.context.knownAt||requested.knowledgeMode==='retained'&&r.context.contextId!==requested.contextId)
     throw Error('The booked schedule response does not match its certified snapshot and context.');
-   scheduleContext={...requested,snapshotId:r.snapshotId,knowledgeMode:'retained',contextId:r.context.contextId};
+   scheduleContext={...requested,snapshotId:r.snapshotId,...retainedKnowledge(r.context)};
   }
   if(descriptionSelectors().length){d=await selectedDescription(r.draft,lifetime.signal);if(!current())return;}
   if(o.retainedTarget){
@@ -436,7 +437,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
      choice.value!==r.draft.trade[field.id]||!choice.value||typeof choice.label!=='string'||!choice.label.trim())throw invalid();
    }
    for(const key of Object.keys(choices))delete choices[key];
-   for(const field of fields)choices[field.id]=structuredClone(labels[field.id]);
+   for(const field of fields)choices[field.id]=cloneRead(labels[field.id]);
   }
   state=ticketOf(d!,r.draft);actions=o.readOnly?{...r.actions,record:{allowed:false,reason:'This trade window is read only.'}}:r.actions;quantityPolicy=r.quantityPolicy??undefined;
   if(mode==='booked'&&o.sideSchedule){

@@ -139,7 +139,8 @@ def checks(query, manifest):
                     dict(positionId=accepted['claimId'], quantity='1', ownedAccountId=owned, lotId=None, reservationId=None,
                          evidenceId=stray, effectiveAt='2020-12-20T13:00:00Z', availableAt='2020-12-20T13:00:00Z', sourceObservationId=None))
         rejected(lambda: f.native(native_owner, action, unlinked, policy=policy), 'gas_park_loan_counterpart')
-        before_final = query(f"SELECT known_at FROM market_data.temporal_contexts WHERE(catalog_id,id)=('{f.catalog}','{f.capture()}');")
+        from native_read_transport import captured_input
+        before_final = captured_input(query,f.capture())['known_at']
         assert read()['balances'] == {'acceptedPrincipal': '720', 'acceptedReturn': '270', 'outstandingPrincipal': '450'}
         fee = read()['advance']['feeId']
         payment = dict(expectedVersion=read()['stateVersion'], feeId=fee, businessKey=label + '_payment',

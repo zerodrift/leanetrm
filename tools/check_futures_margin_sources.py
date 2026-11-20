@@ -22,7 +22,7 @@ def checks(query, manifest):
         token = issue()
         return query("SET SESSION AUTHORIZATION preview_runtime;BEGIN;"
                      f"SELECT security.use_context('{token}');"
-                     f"SELECT security.capture_date_context('{catalog}','{on}',NULL);COMMIT;")
+                     f"SELECT security.resolve_operation_context('{catalog}','{on}',NULL);COMMIT;")
 
     before = current()
     original = '70000000-0000-0000-0000-000000000001'

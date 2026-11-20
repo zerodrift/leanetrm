@@ -329,7 +329,7 @@ def run_checks(url, query, psql, environment, manifest):
          'tradeIds':[swap['tradeId']],'accountingPolicy':policies['accounting'],'attributionPolicy':policies['attribution'],'factorPolicy':policies['factors'],
          'factorBump':policies['factorBump']['offered'],'time':{'mode':'opening_to_closing_clock_v1','policy':policies['clockPolicy'],'clock':None}}
     # What the request and its two frames refuse comes before the capture, so a run refused there stores no context.
-    contexts=f"SELECT count(*) FROM market_data.temporal_contexts WHERE known_at='{pnl['knownAt']}'::timestamptz;"
+    contexts="SELECT (to_regclass('market_data.temporal_contexts') IS NOT NULL)::integer;"
     stored=query(contexts)
     refused=[c.call('portfolio/pnl/run',{**pnl,**changed},expected=422)['code']
              for changed in ({'accountingPolicy':'unsupported'},{'bookIds':[swap['bookId']]*2})]

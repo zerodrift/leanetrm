@@ -58,7 +58,7 @@ def run_checks(query,manifest,dotnet,root,environment):
     publish('-17.125')
     assert query("SELECT count(*) FROM power_data.batches;")=='1'
     ordinary=query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','editor','human_interactive','{t}','{w}',NULL,'preview_runtime',60);")
-    query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{ordinary}');SELECT security.capture_date_context('{c}','2026-11-02',NULL);COMMIT;")
+    query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{ordinary}');SELECT security.resolve_operation_context('{c}','2026-11-02',NULL);COMMIT;")
     query(f"SELECT power_data.certify('{c}');")
     first=query('SELECT known_at::text FROM power_data.receipts ORDER BY sequence LIMIT 1;')
     def available(cutoff):

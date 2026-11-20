@@ -120,7 +120,7 @@ def run_checks(query, manifest):
     check('unbound runtime cannot read mappings', query('SET SESSION AUTHORIZATION preview_runtime;' + count) == '0')
     check('authorized current reader sees both sources', query('BEGIN;' + runtime(issue(), count) + 'ROLLBACK;') == '2')
     check('mandatory visibility survives an additional permissive policy', query("BEGIN;CREATE POLICY synthetic_allow ON market_data.curve_physical_price_sources FOR SELECT TO openetrm_runtime USING(true);SET LOCAL SESSION AUTHORIZATION preview_runtime;" + count + 'ROLLBACK;') == '0')
-    outside = str(UUID(query('BEGIN;' + runtime(issue(), f"SELECT security.capture_date_context('{catalog}','2019-01-01',NULL);") + 'COMMIT;')))
+    outside = str(UUID(query('BEGIN;' + runtime(issue(), f"SELECT security.resolve_operation_context('{catalog}','2019-01-01',NULL);") + 'COMMIT;')))
     check('an unavailable historical model never exposes its mapping', query('BEGIN;' + runtime(issue(), f"SELECT security.use_market_context('{catalog}','{outside}');" + count) + 'ROLLBACK;') == '0')
     for table, key in [('market_catalog_scopes', catalog), ('reference_catalog_scopes', reference)]:
         token = issue()

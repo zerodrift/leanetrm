@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import subprocess
 from uuid import UUID
+from native_read_transport import captured_input
 
 
 def run_checks(query, manifest, dotnet, environment, owned_root, psql, psql_environment):
@@ -10,12 +11,15 @@ def run_checks(query, manifest, dotnet, environment, owned_root, psql, psql_envi
     assert (root/'.openetrm-preview').is_file()
     catalog,revision,tenant,workspace=(str(UUID(manifest[k])) for k in ('catalogId','revisionId','tenantId','workspaceId'))
     pins=json.loads(query(f"SELECT json_agg(observation_id ORDER BY observation_id) FROM market_data.market_close_pins WHERE(catalog_id,close_id)=('{catalog}',(SELECT id FROM market_data.market_closes WHERE catalog_id='{catalog}' AND session_code='test_utc_close' AND business_date='2020-12-18' ORDER BY publication_order DESC LIMIT 1));"))
-    context=query(f"SELECT id FROM market_data.temporal_contexts WHERE catalog_id='{catalog}' AND effective_on='2020-12-18' ORDER BY known_at,id LIMIT 1;")
+    candidates=[s for s in query.read_sources.values() if s['catalog_id']==catalog and s['effective_on']=='2020-12-18']
+    assert candidates,'The close fixture must provide an explicitly captured input value'
+    context=min(candidates,key=lambda s:(s['known_at'],s['id']))['id']
     assert context and len(pins)>1
     selected="ARRAY["+','.join("'"+str(UUID(p))+"'::uuid" for p in pins)+"]"
     original=query("SELECT pg_get_functiondef('security.visible_observations()'::regprocedure);")
     legacy=(Path(__file__).resolve().parents[1]/'db/migrations/0202_regional_closes.sql').read_text()
     legacy='CREATE OR REPLACE FUNCTION security.visible_observations()'+legacy.split('CREATE OR REPLACE FUNCTION security.visible_observations()',1)[1].split('END$$;',1)[0]+'END$$;'
+    legacy=legacy.replace('market_data.temporal_contexts','security.operation_knowledge').replace('market_data.market_contexts','security.operation_markets')
     samples=[]
     try:
         query(legacy)

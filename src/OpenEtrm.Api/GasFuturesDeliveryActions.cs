@@ -73,7 +73,7 @@ internal sealed class GasFuturesDeliveryActions(PreviewDatabase database):ILifec
                 }
                 outcome=(await Record(connection,request,action,body,principal.Continuation,false,ct))!.Value;
             }
-            await using var complete=ScheduleStore.Command(connection,"SET CONSTRAINTS ALL IMMEDIATE");await complete.ExecuteNonQueryAsync(ct);
+            await using var complete=ScheduleStore.Command(connection,"SELECT security.check_operation_seals()");await complete.ExecuteNonQueryAsync(ct);
         }
         finally
         {

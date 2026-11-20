@@ -29,7 +29,7 @@ def checks(query, manifest):
                      f"SELECT security.use_context('{issue(profile)}');{sql}COMMIT;")
 
     def capture(day='2020-12-20'):
-        return call(f"SELECT security.capture_date_context('{catalog}','{day}',NULL);")
+        return call(f"SELECT security.resolve_operation_context('{catalog}','{day}',NULL);")
 
     def rejected(sql, code, profile='trader'):
         try:
@@ -358,20 +358,14 @@ def checks(query, manifest):
                                correctionDue=[dict(occurrenceId=occurrences[1]['id'],dueAt='2020-12-20T15:50:00Z')] if revision==2 else [])
         call(f"SELECT settlement_data.determine_futures_margin('{catalog}',{literal(guarded_request)},{literal(changed)});")
         actual = capture()
-        malformed = str(uuid4())
-        assert query(f"SELECT bool_and(k.known_from<=t.known_at-interval '1 microsecond') FROM settlement_data.futures_margin_runs r "
+        from native_read_transport import captured_input
+        inputs=captured_input(query,actual)
+        assert query(f"SELECT bool_and(k.known_from<='{inputs['known_at']}'::timestamptz-interval '1 microsecond') FROM settlement_data.futures_margin_runs r "
                      "JOIN trading.knowledge_receipts k ON(k.catalog_id,k.publication_order)=(r.catalog_id,r.publication_order) "
-                     f"JOIN market_data.temporal_contexts t ON(t.catalog_id,t.id)=('{catalog}','{actual}') "
                      f"WHERE(r.catalog_id,r.trade_id)=('{catalog}','{guarded_trade['tradeId']}');") == 't'
-        query(f"INSERT INTO market_data.temporal_contexts SELECT catalog_id,'{malformed}',effective_on,known_at-interval '1 microsecond',"
-              f"known_through,coverage_from,certified_through FROM market_data.temporal_contexts WHERE(catalog_id,id)=('{catalog}','{actual}');"
-              f"INSERT INTO market_data.market_contexts SELECT catalog_id,'{malformed}',known_through FROM market_data.market_contexts "
-              f"WHERE(catalog_id,context_id)=('{catalog}','{baseline}');"
-              f"INSERT INTO trading.contexts SELECT catalog_id,'{malformed}',known_through FROM trading.contexts WHERE(catalog_id,context_id)=('{catalog}','{actual}');")
-        rejected(f"SELECT security.use_market_context('{catalog}','{malformed}');"
-                 f"SELECT security.use_trading_context('{catalog}','2020-12-20T16:00:00Z');"
-                 f"SELECT settlement_data.read_futures_margin_state('{catalog}','{guarded_trade['tradeId']}',"
-                 f"'{guarded_trade['bindingId']}','{malformed}','2020-12-20T16:00:00Z');",'futures_margin_context')
+        rejected(f"SELECT security.register_read_source('{catalog}','{actual}','{inputs['effective_on']}',"
+                 f"'{inputs['known_at']}'::timestamptz-interval '1 microsecond',{inputs['schedule_prefix']},"
+                 f"'{inputs['system_id']}',{inputs['timeline']});",'temporal_context')
         prior_source = missing
         guarded_steps = changed
     print('PASS latest accepted heads cannot fall back through a missing source prefix, including same-price lineage',flush=True)

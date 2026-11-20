@@ -136,10 +136,11 @@ def run_checks(url, query, manifest):
     corrected = editor.call('corrections', {'snapshotId': base['id'], 'observationId': pinned['id'], 'value': '3.1'})
     selected = approver.call('select-observation', {'snapshotId': base['id'], 'observationId': corrected['observationId']})['frame']
     newest = record(approver, 'test_utc_close', '2020-12-18', 'Synthetic corrected after cutoff', snapshot=selected['id'])
-    context_id = historical.call('workspace')['context']['contextId']
+    from native_read_transport import select_context_inputs
+    historical_context = historical.call('workspace')['context']
     def released(session):
         bind = f"SELECT security.use_close_session('{catalog}','{session}');"
-        return query(f"""SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{issue()}');SELECT security.use_market_context('{catalog}','{context_id}');{bind}
+        return query(f"""SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{issue()}');{select_context_inputs(catalog,historical_context)}SELECT security.use_market_context('{catalog}','{historical_context['contextId']}');{bind}
           SELECT EXISTS(SELECT 1 FROM security.visible_observations() v WHERE v.observation='{corrected['observationId']}')::text||'|'||security.market_fact_visible('{catalog}','{revision}','{corrected['observationId']}')::text;COMMIT;""").splitlines()[-1]
     def issue():
         return query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','viewer','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',120);")

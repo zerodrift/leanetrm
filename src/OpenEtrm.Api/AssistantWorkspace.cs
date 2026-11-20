@@ -113,7 +113,7 @@ internal sealed class AssistantWorkspace(PreviewDatabase database,string scope,s
         type=Nullable.GetUnderlyingType(type)??type;
         if(type==typeof(ScheduleContext)&&certificate is not null)
         {
-            if(value.Deserialize<ScheduleContext>(JsonSerializerOptions.Web)!=certificate)throw new ToolRefusal("operation_context_mismatch");
+            if(!certificate.HasSameCoordinates(value.Deserialize<ScheduleContext>(JsonSerializerOptions.Web)))throw new ToolRefusal("operation_context_mismatch");
             return;
         }
         if(type==typeof(JsonElement)||type==typeof(JsonNode)||type.IsPrimitive||type==typeof(string)||type==typeof(Guid)||type==typeof(DateOnly)||type==typeof(DateTimeOffset)||type.IsEnum)return;
@@ -154,7 +154,7 @@ internal sealed class AssistantWorkspace(PreviewDatabase database,string scope,s
         if(turn.Pin.Operational||!turn.Pin.Resolved)return null;
         var owner=await Reader(turn,ct);
         return await AsOwner(owner,()=>database.WithIdentity(owner.Profile,"ReadMarketData",async(connection,t)=>
-            turn.Pin.Exact((await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,turn.Pin.ContextId,t)).Context),ct),
+            await turn.Context(connection,database.Manifest.CatalogId,t),ct),
             new AssistantInvocation(owner.Session){ReadLimit=turn.ReadLimit});
     }
 
@@ -309,7 +309,7 @@ internal sealed class AssistantWorkspace(PreviewDatabase database,string scope,s
         if(certificate is null||request.Body?["context"] is not JsonObject context||
             context["effectiveOn"]?.GetValue<string>()!=certificate.EffectiveOn||
             context["knowledgeMode"]?.GetValue<string>()!=(command?"current":"retained")||
-            (command?context["retained"] is not null:context["retained"]?.Deserialize<ScheduleContext>(JsonSerializerOptions.Web)!=certificate))
+            (command?context["retained"] is not null:!certificate.HasSameCoordinates(context["retained"]?.Deserialize<ScheduleContext>(JsonSerializerOptions.Web))))
             throw new ToolRefusal("operation_context_mismatch");
     }
 

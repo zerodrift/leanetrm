@@ -59,7 +59,7 @@ def run_checks(url,query,manifest,run_id,owner_profile='admin',*,psql,environmen
     owner.call('jobs/pilot-close/results?runId='+run_id,expected=403)
     owner.call('market/current',{})
     next_day=(date.fromisoformat(report['context']['effectiveOn'])+timedelta(days=1)).isoformat()
-    wrong_context=query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{_token(query,manifest,owner_profile)}');SELECT security.capture_date_context('{catalog}','{next_day}',NULL);COMMIT;").splitlines()[-1]
+    wrong_context=query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{_token(query,manifest,owner_profile)}');SELECT security.resolve_operation_context('{catalog}','{next_day}',NULL);COMMIT;").splitlines()[-1]
     query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{_token(query,manifest,owner_profile)}');SELECT security.use_market_context('{catalog}','{wrong_context}');DO $$BEGIN PERFORM automation.read_pilot_report('{run_id}','{wrong_context}');RAISE EXCEPTION 'A retained report silently substituted a different business date';EXCEPTION WHEN SQLSTATE '42501' THEN NULL;END$$;ROLLBACK;")
     query(f"DELETE FROM security.reference_catalog_scopes WHERE(catalog_id,tenant_id,workspace_id)=('{manifest['referenceCatalogId']}','{manifest['tenantId']}','{manifest['workspaceId']}');")
     try:owner.call('jobs/pilot-close/results?runId='+run_id,expected=403)

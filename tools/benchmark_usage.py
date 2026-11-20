@@ -42,9 +42,10 @@ def seed(client, query, psql, psql_env, manifest, contexts, stamp):
     generation = query('SELECT generation FROM assistant.worker_generation;')
     provider, credential, terms = query(f"SELECT a.provider_id||','||a.credential_version||','||a.terms_version FROM assistant.models m "
                                         f"CROSS JOIN LATERAL assistant.current_attestation(m.provider_id) a WHERE m.id='{models[0]}';").split(',')
-    pinned = [line for line in contexts.runtime('trader', f"SELECT security.capture_date_context('{manifest['catalogId']}','2020-12-18',NULL);").splitlines()
+    pinned = [line for line in contexts.runtime('trader', f"SELECT security.resolve_operation_context('{manifest['catalogId']}','2020-12-18',NULL);").splitlines()
               if line.strip()][-1]
-    cutoff = query(f"SELECT known_at FROM market_data.temporal_contexts WHERE id='{pinned}';")
+    from native_read_transport import captured_input
+    cutoff = captured_input(query,pinned)['known_at']
     agent_rows = ','.join(f"({i},'{a['id']}',(SELECT principal_id FROM assistant.agents WHERE id='{a['id']}'),'{m}',"
                           f"(SELECT max(version) FROM assistant.model_versions WHERE model_id='{m}'))" for i, (a, m) in enumerate(zip(agents, models)))
     # Each user asks the agent their number picks; a turn's calls start at evenly spaced instants of the year, its

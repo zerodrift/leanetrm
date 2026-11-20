@@ -25,7 +25,7 @@ def checks(query, manifest):
         return query("SET SESSION AUTHORIZATION preview_runtime;BEGIN;"
                      f"SELECT security.use_context('{issue(profile)}');{sql}COMMIT;")
 
-    context = call(f"SELECT security.capture_date_context('{catalog}','2020-12-20',NULL);")
+    context = call(f"SELECT security.resolve_operation_context('{catalog}','2020-12-20',NULL);")
     bind = f"SELECT security.use_market_context('{catalog}','{context}');"
     at = '2020-12-21T01:00:00Z'
 

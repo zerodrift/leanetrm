@@ -207,7 +207,7 @@ def run_checks(client, query, manifest, plan, *, other_plans=()):
     check_composition(client,query,manifest,request,route,frame,context)
     # Exact retained reopening cannot substitute a new facility revision or a new
     # plan, and a historical view cannot admit another contractual right.
-    client.call('market/context/retained',dict(contextId=value['contextId'],selection='latest_correction'))
+    client.call('market/context',dict(effectiveOn='2020-12-15',knownAt=value['knownAt'],mode='at',selection='latest_correction'))
     historical=initial_frame(client.call('workspace'),'2020-12-15')['id']
     retained=dict(snapshotId=historical,tradeId=saved['tradeId'])
     a=client.call(route+'valuation',retained)

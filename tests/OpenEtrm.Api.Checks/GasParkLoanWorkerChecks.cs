@@ -31,7 +31,7 @@ internal static class GasParkLoanWorkerChecks
                 return true;
             }
             var at=fixture.Instant("at");var context=fixture.Id("contextId");var book=fixture.Id("bookId");
-            var source=(await new KnowledgeStore(manifest.CatalogId).Read(connection,context,ct)).Context;
+            var source=(await new KnowledgeResolver(manifest.CatalogId).Read(connection,context,ct)).Context;
             await PinnedContext.BindExact(connection,manifest.CatalogId,source,ct);
             await TradingContext.Bind(connection,manifest.CatalogId,source,at,ct);
             var frame=new InputFrame(Guid.NewGuid(),"Synthetic frozen service PRICE source",at,DateWorkspace.Date(fixture.Text("businessDate")),

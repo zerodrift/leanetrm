@@ -60,7 +60,7 @@ def run_checks(query, manifest, psql=None, environment=None):
                 f"{expected},{literal(body)});")
 
     def capture():
-        return query(runtime(f"SELECT security.capture_date_context('{catalog}','2020-12-15',NULL);"))
+        return query(runtime(f"SELECT security.resolve_operation_context('{catalog}','2020-12-15',NULL);"))
 
     def read(context, version=1, selected=facility['id'], at='2020-12-15T16:00:00Z', business_on='2020-12-15'):
         return (f"SELECT physical.read_power_operating_facility('{catalog}','{selected}',{version},"
@@ -373,9 +373,12 @@ def main():
             query(migration.read_text())
         from preview_fixture import fixture
         reference, market, security, manifest = fixture(ROOT)
+        from native_read_transport import native_query
+        query=native_query(query)
         query(reference)
-        query(market)
-        query(security)
+        from seed_fixture_market import load_market
+        security=load_market(query,market,security,manifest)
+        if security.strip():query(security)
         print(f'{run_checks(query, manifest, psql, environment)} operating-facility checks passed', flush=True)
     finally:
         if startup_attempted:

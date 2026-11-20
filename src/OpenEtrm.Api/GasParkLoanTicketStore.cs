@@ -89,7 +89,7 @@ internal sealed class GasParkLoanTicketStore(PreviewDatabase database)
                     claim.OptionalId("counterparty_id")!=body.CounterpartyId||claim.GetProperty("counterparty_revision").GetInt32()!=body.CounterpartyRevision)
                     throw GasParkLoanTicket.Invalid("claim_account","Choose the exact compatible return claim account for this counterparty.");
             }
-            var knowledge=(await new KnowledgeStore(database.Manifest.CatalogId).Read(c,f.ContextId.Value,ct)).Context;
+            var knowledge=(await new KnowledgeResolver(database.Manifest.CatalogId).Read(c,f.ContextId.Value,ct)).Context;
             var snapshot=MarketSnapshotBinding.Bind(d.Snapshot(f),f.ContextId.Value,SchedulePreview.ParseAt(knowledge.KnownAt));
             var agreement=Draft(body,account,f,snapshot);
             var value=await Value(c,d,f,snapshot,agreement,true,ct);
@@ -133,7 +133,7 @@ internal sealed class GasParkLoanTicketStore(PreviewDatabase database)
         var row=await Read(c,database,Context(frame),request.TradeId,ct);
         if(row.Id("instrumentId")!=request.BindingId||row.GetProperty("revision").GetInt32()!=request.Revision)
             throw GasParkLoanTicket.Invalid("profile","Select the exact retained agreement binding and revision.");
-        var knowledge=(await new KnowledgeStore(database.Manifest.CatalogId).Read(c,frame.ContextId!.Value,ct)).Context;
+        var knowledge=(await new KnowledgeResolver(database.Manifest.CatalogId).Read(c,frame.ContextId!.Value,ct)).Context;
         var snapshot=MarketSnapshotBinding.Bind(data.Snapshot(frame),frame.ContextId.Value,SchedulePreview.ParseAt(knowledge.KnownAt));
         string? value=null;string? unavailable=null;
         try{value=await Value(c,data,frame,snapshot,row,false,ct);}
@@ -164,7 +164,7 @@ internal sealed class GasParkLoanTicketStore(PreviewDatabase database)
     {
         var inputs=await GasParkLoanPortfolio.PrepareAgreements(c,database,frame,snapshot,[agreement],[(data,frame)],false,draft,ct);
         var total=ExactMoney.Parse("0",GasParkLoanPortfolio.Terms(database.Manifest.CatalogId,agreement).Currency);
-        var exact=(await new KnowledgeStore(database.Manifest.CatalogId).Read(c,frame.ContextId!.Value,ct)).Context;
+        var exact=(await new KnowledgeResolver(database.Manifest.CatalogId).Read(c,frame.ContextId!.Value,ct)).Context;
         foreach(var input in inputs)
         {
             var dependencies=input.Portfolio.Declare(input.Snapshot).SelectMany(x=>x.Dependencies).Distinct().ToImmutableArray();

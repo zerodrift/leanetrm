@@ -215,7 +215,9 @@ internal sealed partial class PpaStore(PreviewDatabase database,TouProductStore 
     internal async Task<PpaRevisionRefusal?> AmendmentRefusal(NpgsqlConnection connection,InputFrame frame,PpaWriteRequest request,CancellationToken ct)
     {
         if(request.TradeId is not {} trade||request.Terms is not {} terms)return null;
-        var current=await new KnowledgeStore(Catalog).Capture(connection,new(frame.Time.Date.ToString("yyyy-MM-dd"),null,"current"),ct);
+        var store=new KnowledgeResolver(Catalog);
+        var current=frame.ContextId is {} selected?await store.Read(connection,selected,ct):
+            await store.Source(connection,new(frame.Time.Date.ToString("yyyy-MM-dd"),null,"current"),ct);
         var scope=await ReadScope(connection,"trades",[trade],current.Context.ContextId!.Value,frame,false,ct);
         await Authority(connection,Rows(scope,"heads").Select(r=>r.Id("reference_catalog_id")).Append(terms.ReferenceCatalogId),ct);
         return await RevisionRefusal(connection,Rows(scope,"bindings"),terms.DefinitionRevisionId,terms.ReferenceCatalogId,terms.ReferenceRevisionId,
@@ -240,7 +242,7 @@ internal sealed partial class PpaStore(PreviewDatabase database,TouProductStore 
     internal async Task<Guid> Bind(NpgsqlConnection connection,InputFrame frame,string cutoff,CancellationToken ct)
     {
         var known=await PpaQuantitiesStore.KnownAt(connection,cutoff,ct);
-        var context=await new KnowledgeStore(Catalog).Capture(connection,new(frame.Time.Date.ToString("yyyy-MM-dd"),known.ToString("O"),"at"),ct);
+        var context=await new KnowledgeResolver(Catalog).Source(connection,new(frame.Time.Date.ToString("yyyy-MM-dd"),known.ToString("O"),"at"),ct);
         return context.Context.ContextId!.Value;
     }
     internal async Task<JsonElement> ReadScope(NpgsqlConnection connection,string scope,Guid[] ids,Guid context,InputFrame frame,bool history,CancellationToken ct)
@@ -328,7 +330,7 @@ internal sealed partial class PpaStore(PreviewDatabase database,TouProductStore 
         var knowledge=retainedContext??await Bind(connection,frame,request.KnownAt,ct);
         if(retainedContext is not null)
         {
-            var bound=(await new KnowledgeStore(Catalog).Read(connection,knowledge,ct)).Context;
+            var bound=(await new KnowledgeResolver(Catalog).Read(connection,knowledge,ct)).Context;
             if(frame.ContextId!=knowledge||SchedulePreview.ParseAt(bound.KnownAt)!=known)throw PpaCompiler.Error("ppa_context","Use the exact retained frame context and its resolved cutoff.");
         }
         var scope=request.Scope=="draft"?(JsonElement?)null:await ReadScope(connection,request.Scope,request.SelectedIds,knowledge,frame,false,ct);

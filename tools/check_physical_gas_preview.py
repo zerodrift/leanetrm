@@ -81,12 +81,12 @@ def run_shape_checks(query, manifest):
     """Alter only owned disposable rows inside rolled-back subtransactions."""
     catalog=manifest['catalogId']
     from check_booked_side_programs import runtime_query
-    assert query("SELECT has_function_privilege('openetrm_risk_worker','security.capture_date_context(uuid,date,timestamptz)','EXECUTE'),has_function_privilege('openetrm_risk_worker','security.capture_pre_gas_setup_context(uuid,date,timestamptz)','EXECUTE');")=='t|f'
+    assert query("SELECT has_function_privilege('openetrm_risk_worker','security.register_read_source(uuid,uuid,date,timestamptz,integer,text,integer)','EXECUTE') AND to_regprocedure('security.capture_pre_gas_setup_context(uuid,date,timestamptz)') IS NULL;")=='t'
     # Single-point gas trades are no longer booked: the runtime cannot call their retired booking entry, while their status stays readable.
     assert query("SELECT has_function_privilege('openetrm_runtime','security.book_physical_gas(uuid,jsonb,timestamptz)','EXECUTE'),has_function_privilege('openetrm_runtime','security.gas_operation_status(uuid,uuid)','EXECUTE');")=='f|t'
     query(f"""BEGIN;SET LOCAL SESSION AUTHORIZATION openetrm_risk_worker;
       DO $test$ BEGIN BEGIN
-        PERFORM security.capture_date_context('{catalog}','2020-12-18',NULL);
+        PERFORM security.resolve_operation_context('{catalog}','2020-12-18',NULL);
         RAISE EXCEPTION 'unclaimed_worker_context_accepted';
       EXCEPTION WHEN insufficient_privilege THEN IF SQLERRM<>'risk_job_denied' THEN RAISE;END IF;END;END $test$;
       ROLLBACK;""")

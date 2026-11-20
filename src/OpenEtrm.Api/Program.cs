@@ -327,7 +327,7 @@ const string malformed="The request is incomplete or malformed.";
     PostgresException p when p.SqlState=="P0001" && p.MessageText=="grant_conflict" => (409,p.MessageText,AgentGrants.Refusal(p.MessageText)),
     PostgresException p when p.SqlState=="P0001" && p.MessageText=="grant_input" => (422,p.MessageText,AgentGrants.Refusal(p.MessageText)),
     PostgresException p when p.SqlState=="P0001" && p.MessageText is "turn_input" or "question_too_long" => (422,p.MessageText,AgentTurns.Refusal(p.MessageText)),
-    PostgresException p when p.SqlState=="P0001" && p.MessageText is "turn_conflict" or "conversation_agent_mismatch" or "knowledge_budget_reserved"
+    PostgresException p when p.SqlState=="P0001" && p.MessageText is "turn_conflict" or "conversation_agent_mismatch"
         or "access_changed" => (409,p.MessageText,AgentTurns.Refusal(p.MessageText)),
     PostgresException p when p.SqlState=="P0001" && p.MessageText is "conversation_not_found" or "turn_not_found" => (404,p.MessageText,AgentTurns.Refusal(p.MessageText)),
     PostgresException p when p.SqlState=="P0001" && p.MessageText=="grant_required" => (403,p.MessageText,AgentTurns.Refusal(p.MessageText)),
@@ -345,7 +345,15 @@ const string malformed="The request is incomplete or malformed.";
         => (422,p.MessageText,"Interval contracts must be forwards on their operating date, alone in their curve and as long as its delivery profile's interval."),
     PostgresException p when p.SqlState=="23505" => (409,"revision_conflict","This observation has already been revised. Inspect its history and explicitly select the intended revision."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText=="trading_history_archived" => (422,p.MessageText,"Trading history at this knowledge cutoff is archived. Select a context at or after the rebooking cutover; market and reference history remain available."),
-    PostgresException p when p.SqlState=="P0001" && p.MessageText is "knowledge_coverage" or "knowledge_clock" or "knowledge_tracking" or "knowledge_retention" or "knowledge_limit" or "knowledge_timeline" => (422,p.MessageText,"The requested knowledge cutoff cannot be certified. Check retained coverage, clock health and commit tracking."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText is "knowledge_coverage" or "knowledge_clock" or "knowledge_tracking" or "knowledge_retention" or "knowledge_timeline" => (422,p.MessageText,"The requested knowledge cutoff cannot be certified. Check retained coverage, clock health and commit tracking."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText is "read_inputs_required" or "temporal_context"
+        => (422,p.MessageText,"Supply the complete original input coordinates or refresh the view for its exact read reference."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText is "read_inputs_conflict" or "occurrence_inputs_conflict"
+        => (409,p.MessageText,"These inputs differ from the original recorded selection. Reopen its source or submit a new operation."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText=="occurrence_inputs_required"
+        => (422,p.MessageText,"The job occurrence requires its admitted inputs before it can execute."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText=="read_source_limit"
+        => (422,p.MessageText,"This operation requests too many distinct input selections. Reduce its scope."),
     PostgresException p when p.SqlState=="42501" => (403,"access_denied","Database permissions rejected this operation."),
     PostgresException p when p.SqlState is "23514" or "55000" => (422,"definition_rejected","The value or operation violates an explicit database specification."),
     Exception when context.Items.ContainsKey("rec_inventory_attempted") && e is NpgsqlException or OperationCanceledException
@@ -504,11 +512,19 @@ pageRegistries.Add(sessions);
 api.AddEndpointFilter(async(invocation,next)=>
 {
     var http=invocation.HttpContext;
-    if(WorkspaceTab(http) is null||http.Request.Path.Value!.EndsWith("/bootstrap",StringComparison.Ordinal)||http.Features.Get<AssistantInvocation>() is not null)
+    if(http.Request.Path.Value!.EndsWith("/bootstrap",StringComparison.Ordinal)||http.Request.Path.Value.EndsWith("/health",StringComparison.Ordinal)||http.Features.Get<AssistantInvocation>() is not null)
         return await next(invocation);
     var prior=WorkspaceReadContext.Page.Value;
-    try{WorkspaceReadContext.Page.Value=Session(http);return await next(invocation);}
-    finally{WorkspaceReadContext.Page.Value=prior;}
+    var priorReads=ReadReferences.Operation.Value;
+    var reads=new ReadReferences.Scope();
+    if(http.Request.Headers.TryGetValue(ReadReferences.Header,out var metadata))reads.Receive(metadata.ToString());
+    http.Response.OnStarting(()=>
+    {
+        if(!reads.References.IsEmpty)http.Response.Headers[ReadReferences.Header]=JsonSerializer.Serialize(reads.References);
+        return Task.CompletedTask;
+    });
+    try{WorkspaceReadContext.Page.Value=Session(http);ReadReferences.Operation.Value=reads;return await next(invocation);}
+    finally{WorkspaceReadContext.Page.Value=prior;ReadReferences.Operation.Value=priorReads;}
 });
 var marketReads=new MarketReads(database);
 var scheduleReads=new ScheduleReads(database);
@@ -602,11 +618,12 @@ PreviewSession Session(HttpContext context)
     if(hosted is not null&&session.Digest!=HostedAuthentication.SessionDigest(context))throw new PreviewSessionEnded();
     return sessions.View(id,session,WorkspaceTab(context));
 }
-async Task<IResult> Locked(HttpContext context,Func<PreviewSession,Task<IResult>> work)
+async Task<T> WithSession<T>(HttpContext context,Func<PreviewSession,Task<T>> work)
 {
     var session=Session(context); await session.Gate.WaitAsync(context.RequestAborted);
     try {return await work(session);} finally {session.Gate.Release();}
 }
+Task<IResult> Locked(HttpContext context,Func<PreviewSession,Task<IResult>> work)=>WithSession(context,work);
 string Profile(PreviewSession session)=>session.Profile ?? throw new PreviewDeniedException();
 api.MapPost("/time/inspect",(HttpContext c,LocalTimeRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),null,(_,_)=>
     Task.FromResult<IResult>(Results.Ok(new{candidates=UserTime.Inspect(body.LocalTime,body.TimeZone)})),c.RequestAborted)));
@@ -796,7 +813,7 @@ Task<IResult> PhysicalPowerSessionOperation(HttpContext c,PreviewSession session
         else
         {
             var view=pin.Context is {} retained?TradingView.Retained(frame,retained):
-                await TradingView.Capture(connection,new KnowledgeStore(database.Manifest.CatalogId),frame,ct);
+                await TradingView.Capture(connection,new KnowledgeResolver(database.Manifest.CatalogId),frame,ct);
             context=view.Context;
             if(pin.Context is null)await view.Bind(connection,database.Manifest.CatalogId,ct);
             frame=view.CalculationFrame;
@@ -868,7 +885,7 @@ api.MapPost("/physical/power-trades/book",(HttpContext c,StructuredPowerBookRequ
         var pin=Pin(session,(body.Plan??throw new MarketDataException("operating_booking","Supply a complete operating plan.")).SnapshotId);
         if(pin.Context is not null)throw new MarketDataException("historical_read_only","Book from the selected working financial snapshot.");
         var frame=pin.RequireFrame();
-        var view=await TradingView.Capture(connection,new KnowledgeStore(database.Manifest.CatalogId),frame,ct);
+        var view=await TradingView.Capture(connection,new KnowledgeResolver(database.Manifest.CatalogId),frame,ct);
         await view.Bind(connection,database.Manifest.CatalogId,ct);
         var selected=view.CalculationFrame;
         await TradingContext.Bind(connection,database.Manifest.CatalogId,selected,view.Context,ct);
@@ -1195,7 +1212,7 @@ api.MapPost("/schedules/contracts/preview",(HttpContext c,CurveDatesRequest body
 api.MapPost("/schedules/contracts/keep",(HttpContext c,CurveDatesRequest body)=>ScheduleOperation(c,(session,data)=>
     Results.Ok(session.Dates.KeepCurve(Profile(session),CompileCurve(session,data,body)))));
 var scheduleStore=new ScheduleStore(database.Manifest.CatalogId,database.Manifest.ReferenceCatalogId,database.Manifest.ReferenceRevisionId);
-var knowledgeStore=new KnowledgeStore(database.Manifest.CatalogId);
+var knowledgeStore=new KnowledgeResolver(database.Manifest.CatalogId);
 var contractDateStore=new ContractDateStore(database.Manifest.CatalogId,scheduleStore);
 var curveDefinitionStore=new CurveDefinitionStore(database.Manifest.CatalogId,contractDateStore);
 Task<IResult> DateOperation(HttpContext c,string permission,Func<PreviewSession,NpgsqlConnection,CancellationToken,Task<IResult>> work)=>Locked(c,session=>
@@ -1223,12 +1240,6 @@ api.MapPost("/date-schedules/publish",(HttpContext c,SchedulePublishRequest body
     Results.Ok(await scheduleStore.Publish(connection,body,ct))));
 api.MapPost("/date-schedules/context",(HttpContext c,ContextCaptureRequest body)=>Locked(c,async session=>
 {
-    if(WorkspaceReadContext.Page.Value!=session)
-        return await database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
-        {
-            if(session.MarketContext is {} prior)await MarketContextStore.Bind(connection,database.Manifest.CatalogId,prior,ct);
-            return Results.Ok(await knowledgeStore.Capture(connection,body,ct));
-        },c.RequestAborted);
     var selected=await database.WithIdentity(Profile(session),"ReadMarketData",(connection,ct)=>WorkspaceReadContext.Resolve(connection,database.Manifest.CatalogId,body,ct),c.RequestAborted);
     session.Knowledge.Prepared=selected;
     return Results.Ok(selected);
@@ -1425,9 +1436,7 @@ api.MapPost("/catalogue/publish",(HttpContext c,CataloguePublishRequest body)=>L
     return Results.Ok(await catalogueStore.Publish(connection,body,ct));
 },c.RequestAborted)));
 api.MapPost("/market/context",(HttpContext c,MarketContextRequest body)=>Locked(c,session=>
-    SelectContext(c,session,body.Selection,(connection,ct)=>WorkspaceReadContext.Page.Value==session
-        ?session.Knowledge.Select(connection,database.Manifest.CatalogId,body,ct)
-        :knowledgeStore.Capture(connection,new(body.EffectiveOn,body.KnownAt,body.Mode),ct),body.SnapshotId,body.FrameSelectionPolicy)));
+    SelectContext(c,session,body.Selection,(connection,ct)=>session.Knowledge.Select(connection,database.Manifest.CatalogId,body,ct),body.SnapshotId,body.FrameSelectionPolicy)));
 api.MapPost("/market/current",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,async session=>
 {
     await database.WithIdentity(Profile(session),"ReadMarketData",(_,_)=>Task.FromResult(true),c.RequestAborted);
@@ -1965,7 +1974,7 @@ api.MapPost("/rec/trades/book",(HttpContext c,RecForwardBookRequest body)=>Locke
         if(body.Context is null||body.Context.KnowledgeMode!="current")throw new MarketDataException("historical_read_only","Book from an explicitly selected working financial snapshot.");
         var pin=Pin(session,body.Context.SnapshotId);
         if(pin.Context is not null)throw new MarketDataException("historical_read_only","Book from the selected working financial snapshot.");
-        var view=await TradingView.Capture(connection,new KnowledgeStore(database.Manifest.CatalogId),pin.RequireFrame(),ct);
+        var view=await TradingView.Capture(connection,new KnowledgeResolver(database.Manifest.CatalogId),pin.RequireFrame(),ct);
         await view.Bind(connection,database.Manifest.CatalogId,ct);
         var frame=view.CalculationFrame;await TradingContext.Bind(connection,database.Manifest.CatalogId,frame,view.Context,ct);
         using var visibility=new AsyncReadVisibility();
@@ -2000,7 +2009,7 @@ async Task<T> HeatRateCallWrite<TPrepared,T>(HttpContext c,PreviewSession sessio
     {
         var pin=Pin(session,context.SnapshotId);
         if(pin.Context is not null)throw new MarketDataException("historical_read_only","Use the selected working financial snapshot.");
-        var view=await TradingView.Capture(connection,new KnowledgeStore(database.Manifest.CatalogId),pin.RequireFrame(),ct);
+        var view=await TradingView.Capture(connection,new KnowledgeResolver(database.Manifest.CatalogId),pin.RequireFrame(),ct);
         await view.Bind(connection,database.Manifest.CatalogId,ct);
         var frame=view.CalculationFrame;await TradingContext.Bind(connection,database.Manifest.CatalogId,frame,view.Context,ct);
         using var visibility=new AsyncReadVisibility();
@@ -2665,6 +2674,15 @@ Task<IResult> PortfolioRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlCon
         data=>read(connection,data,view.CalculationFrame,ct),ct,
         referenceScope:ReferenceReadScope.TradeValuation,observationScope:ObservationReadScope.ExactPins),
         scenario:true,expectedConvention:TradingBlotter.Convention);
+async Task<IResult> QueuePortfolioRisk(HttpContext c,SubmitPortfolioRiskJob body)
+{
+    var prior=await WithSession(c,session=>database.WithIdentity(Profile(session),"RunScenario",
+        (connection,ct)=>RiskJobs.Replay(connection,database.Manifest.CatalogId,body,ct),c.RequestAborted));
+    if(prior is not null)return Results.Ok(prior);
+    return await PortfolioRead(c,body.Request?.Context??throw new MarketDataException("risk_job_context","Supply the exact input selection."),
+        (connection,data,frame,ct)=>
+        {c.Items["risk_job_attempted"]=true;return RiskJobs.Submit(connection,database.Manifest,portfolioRisk,data,frame,body,ct);});
+}
 api.MapPost("/portfolio/risk/setup",(HttpContext c,PortfolioRiskCatalogRequest body)=>TradingRead(c,
     body.Context??throw new MarketDataException("risk_context","Select the shared financial context."),
     (connection,view,ct)=>tradeReads.ReadBound(connection,view,()=>portfolioRisk.Setup(connection,view.CalculationFrame,body,ct),ct),
@@ -2703,7 +2721,7 @@ api.MapPost("/portfolio/risk/monte-carlo",(HttpContext c,PortfolioMonteCarloRequ
 api.MapPost("/portfolio/risk/monte-carlo/jobs",(HttpContext c,SubmitMonteCarloRiskJob body)=>
 {
     var request=PortfolioRiskPreview.MonteCarloRequest(body.Request);
-    return PortfolioRead(c,request.Context,(connection,data,frame,ct)=>RiskJobs.Submit(connection,database.Manifest,portfolioRisk,data,frame,new(body.RequestId,request),ct));
+    return QueuePortfolioRisk(c,new(body.RequestId,request));
 });
 api.MapPost("/portfolio/risk/historical",(HttpContext c,PortfolioHistoricalRequest body)=>
 {
@@ -2723,8 +2741,7 @@ api.MapPost("/portfolio/risk/historical/sample",(HttpContext c,PortfolioHistoric
 api.MapPost("/portfolio/risk/historical/jobs",(HttpContext c,SubmitHistoricalRiskJob body)=>
 {
     var request=PortfolioRiskPreview.HistoricalRequest(body.Request);
-    return PortfolioRead(c,request.Context,(connection,data,frame,ct)=>
-    {c.Items["risk_job_attempted"]=true;return RiskJobs.Submit(connection,database.Manifest,portfolioRisk,data,frame,new(body.RequestId,request),ct);});
+    return QueuePortfolioRisk(c,new(body.RequestId,request));
 });
 api.MapPost("/portfolio/risk/statistical/setup",(HttpContext c,PortfolioRiskCatalogRequest body)=>PortfolioRead(c,
     body.Context??throw new MarketDataException("risk_context","Select the shared financial context."),
@@ -2737,16 +2754,9 @@ api.MapPost("/portfolio/risk/parametric/summary",(HttpContext c,PortfolioParamet
 api.MapPost("/portfolio/risk/parametric/jobs",(HttpContext c,SubmitParametricRiskJob body)=>
 {
     var request=PortfolioRiskPreview.StatisticalRequest(body.Request);
-    return PortfolioRead(c,request.Context,(connection,data,frame,ct)=>
-    {c.Items["risk_job_attempted"]=true;return RiskJobs.Submit(connection,database.Manifest,portfolioRisk,data,frame,new(body.RequestId,request),ct);});
+    return QueuePortfolioRisk(c,new(body.RequestId,request));
 });
-api.MapPost("/portfolio/risk/jobs",(HttpContext c,SubmitPortfolioRiskJob body)=>PortfolioRead(c,
-    body.Request?.Context??throw new MarketDataException("risk_job_context","Supply the risk request and exact retained context."),
-    (connection,data,frame,ct)=>
-    {
-        c.Items["risk_job_attempted"]=true;
-        return RiskJobs.Submit(connection,database.Manifest,portfolioRisk,data,frame,body,ct);
-    }));
+api.MapPost("/portfolio/risk/jobs",(HttpContext c,SubmitPortfolioRiskJob body)=>QueuePortfolioRisk(c,body));
 api.MapPost("/portfolio/risk/jobs/{id:guid}/cancel",(HttpContext c,Guid id)=>Locked(c,session=>
     database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskJobs.Read(connection,database.Manifest.CatalogId,id,ct,cancel:true,expectedConvention:PortfolioRiskPreview.Convention)),c.RequestAborted)));
 api.MapGet("/risk/definitions",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
@@ -3007,10 +3017,10 @@ api.MapGet("/assistant/turns/unfinished",(Func<HttpContext,Task<IResult>>)(c=>Lo
     database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await agentTurns.Unfinished(connection,ct)),c.RequestAborted))));
 api.MapPost("/assistant/conversations/read",(HttpContext c,MarkReadRequest body)=>Locked(c,session=>
     database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await agentTurns.MarkRead(connection,body,ct)),c.RequestAborted)));
-// The panel's Go and Back (§10.1) select a target's retained context again by its id: exactly that context, which an ask
-// may then pin, never a new capture.
-api.MapPost("/market/context/retained",(HttpContext c,RetainedContextRequest body)=>Locked(c,session=>
-    SelectContext(c,session,body.Selection,(connection,ct)=>knowledgeStore.Read(connection,body.ContextId,ct))));
+// A question owns its original inputs. Reopening its view reconstructs those
+// coordinates under current owner/source authority, without an id-only lookup.
+api.MapPost("/assistant/turns/{id:guid}/view",(HttpContext c,Guid id,TurnViewRequest body)=>Locked(c,session=>
+    SelectContext(c,session,body.Selection,(connection,ct)=>agentTurns.ViewSource(connection,id,ct))));
 // Usage (§9) is read under ReadModelUsage alone. An export records the report it carries in the model administration
 // audit, so like a change its outcome can be unknown, and repeating it answers as its original did.
 Task<IResult> UsageRead(HttpContext c,Func<NpgsqlConnection,CancellationToken,Task<object>> read)=>Locked(c,session=>
@@ -3141,7 +3151,8 @@ ReadPlan Plan(PreviewSession session,ReadInput input)
         var value=await JobRead(connection,t);var ids=AsyncReadJobs.Ids(value);
         return new ReadOutcome(value,async(publication,cancellation)=>
         {
-            foreach(var id in ids)await RiskJobs.Read(publication,database.Manifest.CatalogId,id,cancellation,expectedConvention:PortfolioRiskPreview.Convention);
+            foreach(var id in ids)await RiskJobs.Read(publication,database.Manifest.CatalogId,id,cancellation,
+                expectedConvention:PortfolioRiskPreview.Convention,expose:input.Body is AsyncReadJob);
         });
     },ct));
 }
@@ -3287,7 +3298,7 @@ public sealed partial class PreviewSession
     {
         StopLive();
         ForgetDiscoveredFrames(resetAliasIdentities:true);
-        MarketContext=null;Knowledge.Prepared=null;Knowledge.Applied=null;
+        MarketContext=null;Knowledge.Reset();
     }
     public Dictionary<string,string> CustomProfiles {get;}
     public Dictionary<Guid,InputFrame> Frames {get;}=[];

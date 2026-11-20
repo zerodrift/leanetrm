@@ -25,7 +25,7 @@ def _operations(query,manifest,at='2020-12-20T16:00:00Z'):
             f"'{manifest['identityIssuer']}','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{statement}COMMIT;")
     def record(account,action,body,policy=None,revision=None):
-        context=call(f"SELECT security.capture_date_context('{catalog}','{at[:10]}',NULL);")
+        context=call(f"SELECT security.resolve_operation_context('{catalog}','{at[:10]}',NULL);")
         operation=str(uuid4())
         result=json.loads(call(f"SELECT security.record_gas_owned('{catalog}','{operation}','{action}','{account}',{_literal(body)},'{at}','{context}',"
             +(f"'{policy}',{revision}" if policy else 'NULL,NULL')+",false)::text;"))

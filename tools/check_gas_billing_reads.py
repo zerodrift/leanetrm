@@ -52,9 +52,8 @@ def run_checks(query, manifest, owner, profile, request, dotnet, environment, ow
     modes = ('force_custom_plan', 'force_generic_plan')
 
     def context_rows():
-        return query("SELECT (SELECT count(*) FROM trading.contexts),"
-                     "(SELECT count(*) FROM market_data.market_contexts),"
-                     "(SELECT count(*) FROM market_data.temporal_contexts);")
+        return query("SELECT to_regclass('trading.contexts'),to_regclass('market_data.market_contexts'),"
+                     "to_regclass('market_data.temporal_contexts');")
 
     def grow():
         # Add only unrelated synthetic definition rows, never rewrite a source.

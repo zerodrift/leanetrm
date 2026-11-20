@@ -2,6 +2,7 @@
 from copy import deepcopy
 import json
 from uuid import uuid4
+from native_read_transport import select_owned_inputs
 
 
 def run_checks(query, manifest, job_id):
@@ -20,6 +21,8 @@ def run_checks(query, manifest, job_id):
         assert query(f"SELECT count(*) FROM risk.{table} WHERE job_id='{job_id}';") == str(count), table
 
     catalog, tenant, workspace = (manifest[k] for k in ('catalogId', 'tenantId', 'workspaceId'))
+    inputs=select_owned_inputs(catalog,dict(id=job['context_id'],effective_on=job['input_business_on'],
+        known_at=job['input_known_at'],system_id=job['input_system_id'],timeline=job['input_timeline']))
     def literal(value):
         return "'" + json.dumps(value).replace("'", "''") + "'::jsonb"
 
@@ -30,6 +33,7 @@ def run_checks(query, manifest, job_id):
         retained = context or job['context_id']
         authentication = token()
         return query(f"""SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{authentication}');
+            {inputs if context is None else ''}
             SELECT security.use_market_context('{catalog}','{retained}');SELECT security.use_trading_context('{catalog}','{job['valuation_at']}');
             SELECT risk.submit('{catalog}','{uuid4()}','{retained}','{job['revision_id']}','{job['valuation_at']}',
              {literal(request or job['request'])},{literal(selected)});ROLLBACK;""")
@@ -65,7 +69,7 @@ def run_checks(query, manifest, job_id):
       JOIN market_data.custom_curve_knowledge_receipts k ON(k.catalog_id,k.publication_order,k.publication_xid)=(v.catalog_id,v.publication_order,v.publication_xid)
       WHERE(v.catalog_id,v.curve_id,v.version)=('{catalog}','{recipe['curveId']}',{recipe['version']});""")
     assert before, 'The retained custom version must have a certified publication receipt'
-    old_context = query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token()}');SELECT security.capture_date_context('{catalog}','{job['valuation_at'][:10]}','{before}');COMMIT;")
+    old_context = query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token()}');SELECT security.resolve_operation_context('{catalog}','{job['valuation_at'][:10]}','{before}');COMMIT;")
     historical = deepcopy(frame)
     historical['contextId'] = old_context
     for market in historical['supplementalMarkets'].values():

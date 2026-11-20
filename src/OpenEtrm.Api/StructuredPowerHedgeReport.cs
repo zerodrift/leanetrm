@@ -119,7 +119,7 @@ internal sealed class StructuredPowerHedgeService(PreviewDatabase database)
         var books=BookScope.Select(await BookScope.Read(connection,database.Manifest.CatalogId,ct),body.BookIds,[])
             .Select(b=>b.Id("id")).Order().ToImmutableArray();
         var selection=await RiskTradeScope.Resolve(connection,database.Manifest.CatalogId,books,ids,ct);
-        var context=(await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,contextId,ct)).Context;
+        var context=(await new KnowledgeResolver(database.Manifest.CatalogId).Read(connection,contextId,ct)).Context;
         // A hedge comparison requires all selected positions to price. It never
         // publishes a net result after silently excluding a failed holding.
         var prepared=await new PortfolioValuation(database).Prepare(connection,data,frame,data.Snapshot(frame),context,books,

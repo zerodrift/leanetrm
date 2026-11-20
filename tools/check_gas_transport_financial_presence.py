@@ -59,11 +59,11 @@ def absence_commit(f, context, at, books, trades=None, *, marker=None):
 def checks(query, manifest):
     f = TransportCapacityFixture(query, manifest)
     seed = f.capture()
-    at = query("SELECT to_char(known_at+interval '1 day','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') "
-               f"FROM market_data.temporal_contexts WHERE(catalog_id,id)=('{f.catalog}','{seed}');")
+    from datetime import datetime,timedelta
+    from native_read_transport import captured_input
+    at = (datetime.fromisoformat(captured_input(query,seed)['known_at'])+timedelta(days=1)).isoformat()
     context = f.capture(day=at[:10])
-    assert query(f"SELECT known_at<'{at}'::timestamptz FROM market_data.temporal_contexts "
-                 f"WHERE(catalog_id,id)=('{f.catalog}','{context}');") == 't'
+    assert datetime.fromisoformat(captured_input(query,context)['known_at']) < datetime.fromisoformat(at)
     assert query(f"SELECT count(*) FROM trading.gas_transport_financial_trades WHERE catalog_id='{f.catalog}';") == '0'
     absence_commit(f, context, at, [f.book])
     print('PASS absent Transport scope admits an exact future source and original commit bound without imposing a Transport pricing policy.', flush=True)

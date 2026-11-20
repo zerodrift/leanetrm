@@ -1,3 +1,4 @@
+import {carryReadReferences,cloneRead,retainedKnowledge} from './read-references.js';
 import {readRetainedSideTrade} from './retained-side-trade-view.js';
 import {withSideSchedules,genericPositionView} from './position-schedules.js';
 import {watchVersions} from './version-updates.js';
@@ -313,7 +314,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     const values=get('desk-ladder-value');values.hidden=lens!=='ladder';
     for(const button of values.querySelectorAll<HTMLButtonElement>('[data-ladder-value]')){button.setAttribute('aria-pressed',String(button.dataset.ladderValue===ladderValue));button.disabled=busy();}
   }
-  function readContext(){const source=options.source();return {snapshotId:source.snapshotId,convention:source.convention,knowledgeMode:source.context?'retained' as const:'current' as const,...(source.context?{contextId:source.context.contextId}:{})};}
+  function readContext(){const source=options.source();return {snapshotId:source.snapshotId,convention:source.convention,knowledgeMode:source.context?'retained' as const:'current' as const,...(source.context?retainedKnowledge(source.context):{})};}
   const displayedContext=()=>holdings?.context??kept?.context??catalog?.context;
   // The main window's tie to the Blotter popped out of it (blotter-popout.ts), which follows what the header selects: the close, the
   // knowledge and the account. Its convention is not a selection, and the pop-out reads its own; a selection the header cannot state now,
@@ -325,11 +326,11 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   const tie=options.window.kind==='main'&&options.window.example?tieMainWindow({source:location.href,example:options.window.example,grace:3000,session:()=>crypto.randomUUID(),
     channel:openBlotterChannel,open:options.window.open,context:popoutContext,returned:cameBack,reported:()=>{options.reported();options.unsavedChanged();},ask:askAbout,askInPlace:kind=>options.assistant.inPlace?.(kind)}):undefined;
   const editor=setupTradeEditor({api,act,busy,zone:options.zone,context:readContext,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),leave:()=>panel.leave(),unsavedChanged:options.unsavedChanged,
-    queue:async command=>{takeHanded();if(pending.command)throw Error('Reconcile the retained request before submitting another command.');pending.command=structuredClone(command);uncertain=false;store();sync();await send(command);}});
+    queue:async command=>{takeHanded();if(pending.command)throw Error('Reconcile the retained request before submitting another command.');pending.command=cloneRead(command);uncertain=false;store();sync();await send(command);}});
 
   const swapEditor=setupSwapEditor({api,act,busy,zone:options.zone,context:readContext,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),leave:()=>panel.leave(),unsavedChanged:options.unsavedChanged,shape:market=>drafts.shape(market),lifecycle:options.lifecycle,
     ask:question=>detailsPane.ask(question),
-    queue:async command=>{takeHanded();if(pending.command)throw Error('Reconcile the retained request first.');pending.command=structuredClone(command);uncertain=false;store();sync();await send(command);}});
+    queue:async command=>{takeHanded();if(pending.command)throw Error('Reconcile the retained request first.');pending.command=cloneRead(command);uncertain=false;store();sync();await send(command);}});
   // The form of a new future, which the panel hosts as it hosts the forms of the amendments. What it books is kept as the request it was first sent as.
   const booking=setupFuturesBooking({api,act,busy,zone:options.zone,context:readContext,catalog:()=>catalog,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),unsavedChanged:options.unsavedChanged,shape:market=>drafts.shape(market),
     book:async body=>{takeHanded();const command=pending.begin('futures/book',body,undefined,'New futures trade');store();sync();await send(command);}});
@@ -393,7 +394,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     read:async(h,formats)=>{
       const stale=!holdings,context=readContext();
       const displayed=displayedContext();if(!displayed?.contextId)throw Error('Read the Blotter before inspecting its Side schedules.');
-      const inspectionContext={...context,knowledgeMode:'retained',contextId:displayed.contextId};
+      const inspectionContext={...context,...retainedKnowledge(displayed)};
       const read=await(h.instrumentType==='gas_storage'?readGasStorageView(api,inspectionContext,h,{recorded:()=>void act(load),working:context}):h.instrumentType==='heat_rate_call'?readHeatRateCallView(api,inspectionContext,h):h.instrumentType==='futures_option'?readOptionView(api,context,h,{actor:options.profile,recorded:()=>void act(load),surface:options.volSurface,lifecycle:options.lifecycle}):h.instrumentType==='physical_gas_transport'?readTransportView(api,inspectionContext,h,{actor:options.profile,lifecycle:options.window.kind==='main'?options.lifecycle:undefined}):(h.instrumentType==='physical_gas_park_loan'||h.instrumentType==='physical_gas_park_custody')?readParkLoanView(api,inspectionContext,h,{actor:options.profile,lifecycle:options.window.kind==='main'?options.lifecycle:undefined}):h.instrumentType==='physical_lng'?readLngView(api,context,h):h.instrumentType==='physical_crude'?readCrudeView(api,context,h):h.instrumentType==='physical_gas'?readGasView(api,context,h,{onDenied:clear,actor:options.profile,readOnly:stale,amend:options.window.kind==='main'?()=>void perform({kind:'amend',key:rowKey(h)}):undefined}):(h.instrumentType==='operating_right'||h.instrumentType==='rec_forward')?readRetainedSideTrade(api,inspectionContext,h):h.instrumentType==='ppa'?readPpaView(api,context,h,displayed.knownAt,()=>void manage('ppa',h.tradeId)):(h.instrumentType==='financial_swap'||h.instrumentType==='heat_rate')?readSwapView(api,context,h,formats,{busy,act,settle:()=>settle(h)}):h.instrumentType==='future'?readTradeView(api,context,h,formats):genericPositionView(h));
 
       // Details kept on screen while the Blotter is read again do not transition into a working settlement editor.
@@ -470,7 +471,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   function handOff(){return parseBlotterViews(JSON.stringify([readView()]))[0];}
   // A view the other window handed over, shown as the person left it there: unsaved.
   function adopt(handed:BlotterView){
-    restore();view=structuredClone(handed);draftBase=undefined;table=undefined;showPanes();field('blotter-name').value=view.name;field('blotter-saved').value='';viewControls();
+    restore();view=cloneRead(handed);draftBase=undefined;table=undefined;showPanes();field('blotter-name').value=view.name;field('blotter-saved').value='';viewControls();
     // A narrow window shows the positions among the stacked panes, as it does once it has become narrow.
     if(options.narrow())dock.reveal('grid');
   }
@@ -610,7 +611,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
       unchanged(h);
       const product=h.instrumentType==='future'?'futures' as const:'swaps' as const;
       let drafted;
-      const read={snapshotId:snapshot,contextId:holdings!.context.contextId},kind=h.instrumentType==='future'?'future' as const:'financial_swap' as const;
+      const read={snapshotId:snapshot,...retainedKnowledge(holdings!.context)},kind=h.instrumentType==='future'?'future' as const:'financial_swap' as const;
       try{drafted=adjustment?readCloseOutDraft(await api('trading/position-adjustment-draft',adjustmentRequest(read,h,adjustment)),kind,adjustment):readCloseOutDraft(await api('trading/close-out-draft',closeOutRequest(read,h)),kind);}
       catch(error){
         // The backend's own refusal is said in the details, in place of a form, and still refuses the operation; any other failure is the page's.
@@ -788,7 +789,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // A view keeps the layout of its own columns: the Risk lens draws others, whose layout it never keeps.
   function captureLayout(){captureFilters();if(table?.ready())view.grid=withoutColumns(table.layout(),transientKeys);}
   function readView():BlotterView{
-    captureLayout();const next=structuredClone(view);next.mode=field('blotter-mode').value as BlotterView['mode'];next.sidebar=get<HTMLInputElement>('blotter-sidebar').checked;
+    captureLayout();const next=cloneRead(view);next.mode=field('blotter-mode').value as BlotterView['mode'];next.sidebar=get<HTMLInputElement>('blotter-sidebar').checked;
     if(get<HTMLSelectElement>('blotter-books').options.length)next.bookIds=selected('blotter-books');
     if(get<HTMLSelectElement>('blotter-portfolios').options.length)next.portfolioIds=selected('blotter-portfolios');
     next.rowGroup=(field('blotter-row-group').value||null) as RowGroup;
@@ -1374,7 +1375,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     if(source.context&&!source.context.contextId)throw Error('Select a retained historical context before reading holdings.');
     snapshot=source.snapshotId;
     const inputs=JSON.stringify([source.snapshotId,source.context?.contextId??null,view.bookIds,view.portfolioIds]);
-    const request:ReadRequest={snapshotId:source.snapshotId,convention:source.convention,knowledgeMode:source.context?'retained':'current',...(source.context?{contextId:source.context.contextId}:{})};
+    const request:ReadRequest={snapshotId:source.snapshotId,convention:source.convention,knowledgeMode:source.context?'retained':'current',...(source.context?retainedKnowledge(source.context):{})};
     const selectedView={mode:view.mode,bookIds:[...view.bookIds],portfolioIds:[...view.portfolioIds],groupBy:view.mode==='pivot'?[...view.groupBy]:[],measures:view.mode==='pivot'?[...view.measures]:[],pivotConvention:view.mode==='pivot'?'trading_blotter_totals_v1':null,priceNumericalPolicy:view.mode==='pivot'&&view.measures.some(m=>isPriceMeasure(m)&&m.endsWith('Mean'))?priceMeanPolicy:null};
     const summaryViews=deskSummaryViews(view.bookIds,view.portfolioIds);
     const cacheKey=JSON.stringify([options.profile(),source,selectedView,summaryViews,view.chart,view.splitBy]);
@@ -1413,7 +1414,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
         catalog=directory;viewControls();
         // The count of booked positions is read beside the valuation, which waits for it only to check the bindings it values.
         factsRead=(async()=>{
-          const query={context:{...request,convention:'trading_workspace_v1',knowledgeMode:'retained',contextId:directory.context.contextId},bookIds:selectedView.bookIds,portfolioIds:selectedView.portfolioIds};
+          const query={context:{...request,convention:'trading_workspace_v1',...retainedKnowledge(directory.context)},bookIds:selectedView.bookIds,portfolioIds:selectedView.portfolioIds};
           const page=await api<unknown>('trading/positions',{...query,offset:0,limit:factPageSize});
           requireCurrentRead(started,scope);
           const read=readPositionFacts(page,factPageSize);
@@ -1476,8 +1477,8 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
         if(serverVersion)position.block(true);
         const previous={catalog,holdings,summaries,shapes,lastReadRequest,readPlace};
         catalog=combined.catalog;holdings=combined.blotter;summaries=combined.summaries;shapes=live?previous.shapes:undefined;drafts.reset();
-        const reportRequest={context:{...request,convention:'trading_workspace_v1',knowledgeMode:'retained',contextId:selected.contextId},view:selectedView};lastReadRequest=reportRequest;
-        readPlace={contextId:selected.contextId,asOf:combined.blotter.asOf,snapshotId:request.snapshotId,bookIds:[...selectedView.bookIds],portfolioIds:[...selectedView.portfolioIds]};
+        const reportRequest={context:{...request,convention:'trading_workspace_v1',...retainedKnowledge(selected)},view:selectedView};lastReadRequest=reportRequest;
+        readPlace=carryReadReferences({contextId:selected.contextId,asOf:combined.blotter.asOf,snapshotId:request.snapshotId,bookIds:[...selectedView.bookIds],portfolioIds:[...selectedView.portfolioIds]},selected);
         try{viewControls();acceptValuedRows(holdings.holdings.slice(arrived.length));if(serverVersion)await (table??ladderTable)?.updated();}catch(error){({catalog,holdings,summaries,shapes,lastReadRequest,readPlace}=previous);throw error;}
         facts=undefined;factsRequest=undefined;readInputs=inputs;showLoad(undefined);
         if(view.mode==='trades')loadShapes(started,scope,source,live);
@@ -1693,11 +1694,11 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     const draft=readView();const next=parseBlotterViews(JSON.stringify([{...draft,name:field('blotter-name').value}]))[0];
     const saved=await layoutApi<{version:string;layout:BlotterView}>('table-views/blotter',{layout:next,expectedVersion:draftBase?.name===next.name?draftBase.version:versions.get(next.name)??null});
     versions.set(next.name,saved.version);draftBase={name:next.name,version:saved.version};savedViews=[...savedViews.filter(v=>v.name!==next.name),saved.layout];earlierViews=earlierViews.filter(name=>name!==next.name);
-    view=structuredClone(saved.layout);showPanes();viewControls();field('blotter-saved').value=next.name;text('blotter-view-note','Saved to your account. Dates and market inputs are selected separately.');table=undefined;workspace.closeMenus();await load();
+    view=cloneRead(saved.layout);showPanes();viewControls();field('blotter-saved').value=next.name;text('blotter-view-note','Saved to your account. Dates and market inputs are selected separately.');table=undefined;workspace.closeMenus();await load();
   });
   // An earlier-format view is named so it can be saved again under its name, and explained as a notice, not an error.
   // A saved view the person chooses becomes the view the Blotter reads, the base of its next save.
-  function useSaved(saved:BlotterView){draftBase={name:saved.name,version:versions.get(saved.name)!};table=undefined;view=structuredClone(saved);showPanes();field('blotter-name').value=view.name;field('blotter-saved').value=view.name;viewControls();}
+  function useSaved(saved:BlotterView){draftBase={name:saved.name,version:versions.get(saved.name)!};table=undefined;view=cloneRead(saved);showPanes();field('blotter-name').value=view.name;field('blotter-saved').value=view.name;viewControls();}
   // Choosing the unsaved current view is no choice: the list shows the view the Blotter shows again.
   field('blotter-saved').onchange=()=>{const name=field('blotter-saved').value;if(name)void perform({kind:'selectView',name});else field('blotter-saved').value=draftBase?.name??'';};
   get('blotter-views-reload').onclick=()=>asked(async()=>{
@@ -1725,7 +1726,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // A Blotter view a navigation target names, applied as Apply applies the view's controls.
   async function show(selection:BlotterSelection){
     restore();if(!viewsLoaded)await loadViews();
-    const next:BlotterView={...structuredClone(view),mode:selection.mode,bookIds:[...selection.bookIds],portfolioIds:[...selection.portfolioIds],
+    const next:BlotterView={...cloneRead(view),mode:selection.mode,bookIds:[...selection.bookIds],portfolioIds:[...selection.portfolioIds],
       groupBy:[...selection.groupBy],splitBy:[],measures:[...selection.measures]};
     if(view.mode!==next.mode||JSON.stringify([view.groupBy,view.splitBy,view.measures])!==JSON.stringify([next.groupBy,next.splitBy,next.measures]))relayout(next);
     view=next;viewControls();await load();

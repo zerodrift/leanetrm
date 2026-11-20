@@ -1,3 +1,4 @@
+import {retainedKnowledge} from './read-references.js';
 // A close-out draft (blotter-workbench.md, Row context menu): the backend's offsetting trade of one position revision, which the booking
 // and swap forms open for review. Every term, side, quantity and price is the backend's; the browser only reads, labels and shows them.
 import {displayInstant} from './market-view.js';
@@ -18,7 +19,7 @@ export const swapCloseOutNote='Each fixed price is the floating side’s curve p
 
 /** The draft read of a position revision, in the context the Blotter's rows on screen were read in. */
 export function closeOutRequest(read:{snapshotId:string;contextId:string},h:{tradeId:string;bindingId:string;revision:string;instrumentType:string}){
-  return {context:{snapshotId:read.snapshotId,convention:'trading_workspace_v1',knowledgeMode:'retained' as const,contextId:read.contextId},
+  return {context:{snapshotId:read.snapshotId,convention:'trading_workspace_v1',...retainedKnowledge(read)},
     tradeId:h.tradeId,bindingId:h.bindingId,revision:Number(h.revision),instrumentType:h.instrumentType};
 }
 

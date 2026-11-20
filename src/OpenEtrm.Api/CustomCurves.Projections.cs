@@ -31,7 +31,7 @@ public static partial class CustomCurves
         SavedVersions? savedVersions=null)
     {
         if(frame.ContextId is not {} id)throw Invalid("Published projection qualification requires a retained context.");
-        var context=(await new KnowledgeStore(data.DefinitionRevision.CatalogId).Read(connection,id,ct)).Context;
+        var context=(await new KnowledgeResolver(data.DefinitionRevision.CatalogId).Read(connection,id,ct)).Context;
         var versions=await (savedVersions?.Read(connection,ct)??new CustomCurvesStore(database).Read(connection,ct));
         RequireNoContractObservations(versions,projection);
         var resolved=CalculationContext(frame,data.DefinitionRevision,context);
@@ -89,7 +89,7 @@ public static partial class CustomCurves
         PreviewDatabase database,PreviewData data,InputFrame frame,CancellationToken ct)
     {
         if(frame.ContextId is not {} id)throw Invalid("Published projection choices require the editor's retained context.");
-        var context=(await new KnowledgeStore(data.DefinitionRevision.CatalogId).Read(connection,id,ct)).Context;
+        var context=(await new KnowledgeResolver(data.DefinitionRevision.CatalogId).Read(connection,id,ct)).Context;
         var versions=await new CustomCurvesStore(database).Read(connection,ct);
         var eligible=versions.Where(v=>RecipeEngine.PowerIntervalOutput(v.Definition) is null&&v.State=="published"&&v.EngineVersion==RecipeEngine.Version&&
             v.Sources.Values.All(s=>s.CatalogId==data.DefinitionRevision.CatalogId&&s.RevisionId==data.DefinitionRevision.RevisionId)).ToArray();

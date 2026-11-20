@@ -3,6 +3,7 @@ import json
 from uuid import uuid4
 from check_booked_side_programs import runtime_query
 from preview_client import PreviewClient, initial_frame
+from native_read_transport import select_context_inputs
 
 
 def run_checks(url, query, manifest, booked):
@@ -89,17 +90,18 @@ def run_checks(url, query, manifest, booked):
     c.call('profile',{'profile':'trader'})
     encoded=json.dumps(part).replace("'","''")
     def match_at(selected):
-        return (f"SELECT security.use_market_context('{manifest['catalogId']}','{selected}');"
+        return (select_context_inputs(manifest['catalogId'],selected)+
+                f"SELECT security.use_market_context('{manifest['catalogId']}','{selected['contextId']}');"
                 f"SELECT security.use_trading_context('{manifest['catalogId']}','{frame['at']}');"
                 f"SELECT security.crude_lifecycle_business_match('{manifest['catalogId']}','payment_reversal','{encoded}'::jsonb);")
-    assert runtime_query(query,manifest,match_at(final['context']['contextId']),commit=False)=='t'
-    assert runtime_query(query,manifest,match_at(retained['contextId']),commit=False)=='f', 'A certified context before reversal must not discover its later business fact'
+    assert runtime_query(query,manifest,match_at(final['context']),commit=False)=='t'
+    assert runtime_query(query,manifest,match_at(original['context']),commit=False)=='f', 'A certified context before reversal must not discover its later business fact'
     # Counterfactual qualification: removing only the temporal predicate exposes
     # the later fact. The function change is confined to this rolled-back transaction.
     definition=query("SELECT pg_get_functiondef('security.crude_lifecycle_business_match(uuid,text,jsonb)'::regprocedure);")
     guard=' AND security.trading_visible(e.catalog_id,e.publication_order,e.effective_at)'
     assert definition.count(guard)==1
-    assert runtime_query(query,manifest,match_at(retained['contextId']),prefix=definition.replace(guard,'')+';',commit=False)=='t'
+    assert runtime_query(query,manifest,match_at(original['context']),prefix=definition.replace(guard,'')+';',commit=False)=='t'
     # An independent half-cent oracle exercises SQL cumulative allocation after
     # void/reissue with a still-active predecessor, not just integer cash.
     before_frame=initial_frame(c.call('workspace'),'2020-12-18')

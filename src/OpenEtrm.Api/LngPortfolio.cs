@@ -25,7 +25,7 @@ internal static class LngPortfolio
         if (positions.IsDefault || supplied.IsDefault || frame.ContextId is not {} contextId)
             throw Invalid("Select explicit positions and source frames under one certified calculation context.");
         if (positions.IsEmpty) return [];
-        var context = PinnedContext.Exact((await new KnowledgeStore(database.Manifest.CatalogId).Read(connection, contextId, ct)).Context);
+        var context = PinnedContext.Exact((await new KnowledgeResolver(database.Manifest.CatalogId).Read(connection, contextId, ct)).Context);
         var result = ImmutableArray.CreateBuilder<LngPortfolioInput>();
         var store = new PhysicalLngStore(database);
         var retained = new RetainedScheduleStore(database);
@@ -88,7 +88,7 @@ internal static class LngPortfolio
         var groups = await Prepare(connection, database, frame, positions, [], false, ct);
         var values = ImmutableDictionary.CreateBuilder<Guid, ExactMoney>();
         if (groups.IsEmpty) return values.ToImmutable();
-        var context = PinnedContext.Exact((await new KnowledgeStore(database.Manifest.CatalogId).Read(connection, frame.ContextId!.Value, ct)).Context);
+        var context = PinnedContext.Exact((await new KnowledgeResolver(database.Manifest.CatalogId).Read(connection, frame.ContextId!.Value, ct)).Context);
         foreach (var group in groups)
         {
             var dependencies = group.Portfolio.Declare(group.Snapshot).SelectMany(c => c.Dependencies).Distinct().ToImmutableArray();

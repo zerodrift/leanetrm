@@ -34,7 +34,7 @@ internal static class FuturesMarginJournalChecks
             var finalAdmission=new ReadCompletion();database.RegisterCommitAdmission(connection,finalAdmission);
             await using(var identity=ScheduleStore.Command(connection,"SELECT security.use_context($1)",sample.Id("token")))
                 await identity.ExecuteNonQueryAsync();
-            var context=(await new KnowledgeStore(manifest.CatalogId).Read(connection,sample.Id("contextId"),default)).Context;
+            var context=(await new KnowledgeResolver(manifest.CatalogId).Read(connection,sample.Id("contextId"),default)).Context;
             await PinnedContext.BindExact(connection,manifest.CatalogId,context,default);
             var at=sample.Instant("at");
             await using(var trading=ScheduleStore.Command(connection,"SELECT security.use_trading_context($1,$2)",manifest.CatalogId,at))
@@ -124,7 +124,7 @@ internal static class FuturesMarginJournalChecks
             await using var transaction=await connection.BeginTransactionAsync();
             using var admissions=database.OwnReadTransaction(connection,transaction);
             await using(var identity=ScheduleStore.Command(connection,"SELECT security.use_context($1)",sample.Id("token")))await identity.ExecuteNonQueryAsync();
-            var context=(await new KnowledgeStore(manifest.CatalogId).Read(connection,sample.Id("contextId"),default)).Context;
+            var context=(await new KnowledgeResolver(manifest.CatalogId).Read(connection,sample.Id("contextId"),default)).Context;
             await PinnedContext.BindExact(connection,manifest.CatalogId,context,default);
             var at=sample.Instant("at");await TradingContext.Bind(connection,manifest.CatalogId,context,at,default);
             var data=await database.Read(connection,default,selectedRevision:manifest.RevisionId,observationIds:[],includeCalendarDays:false,observationScope:ObservationReadScope.ExactPins);

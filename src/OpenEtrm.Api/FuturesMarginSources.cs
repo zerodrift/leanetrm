@@ -29,8 +29,8 @@ internal static class FuturesMarginSources
               JOIN market_data.market_knowledge_receipts k
                 ON(k.catalog_id,k.event_order,k.publication_xid)=(e.catalog_id,e.event_order,e.publication_xid)
               CROSS JOIN (
-                SELECT m.known_through,t.known_at FROM market_data.market_contexts m JOIN market_data.temporal_contexts t ON(t.catalog_id,t.id)=(m.catalog_id,m.context_id)
-                WHERE m.catalog_id=$1 AND m.context_id=$3 UNION ALL SELECT known_through,known_at FROM security.active_workspace_market($1,$3)
+                SELECT m.known_through,t.known_at FROM security.operation_markets m JOIN security.operation_knowledge t ON(t.catalog_id,t.id)=(m.catalog_id,m.context_id)
+                WHERE m.catalog_id=$1 AND m.context_id=$3
               ) m
               WHERE e.catalog_id=$1 AND e.observation_id=ANY($2::uuid[]) AND e.revision_id=$4
                 AND e.event_order<=m.known_through AND k.known_from<=m.known_at AND m.known_at=$5

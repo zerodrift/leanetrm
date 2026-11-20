@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import type {PivotCellFocus} from './assistant-pages.js';
 
 // Copy only native group identities from the server projection, never a label or cell amount.
@@ -7,7 +8,7 @@ export function pivotCellFocus(group:Record<string,unknown>,dimensions:readonly 
   const keys:Record<string,unknown>={};
   for(const field of fields){
     if(!Object.hasOwn(group,field))throw Error('This pivot cell has no exact server identity. Refresh it before asking.');
-    keys[field]=structuredClone(field==='commodity'?(group.commodity as {code:string}).code:group[field]);
+    keys[field]=cloneRead(field==='commodity'?(group.commodity as {code:string}).code:group[field]);
   }
   return {keys,measure};
 }

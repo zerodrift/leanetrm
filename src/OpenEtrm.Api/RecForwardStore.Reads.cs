@@ -30,7 +30,7 @@ public sealed partial class RecForwardStore
   var positions=await RecPositions.Read(c,database.Manifest,[],[],ct,trade:trade);
   if(positions.Length!=1||int.Parse(positions[0].Head.Text("revision"),CultureInfo.InvariantCulture)!=revision)throw TradePositionSelection.Unavailable();
   var p=positions[0];var source=await MarketInputSelection.Resolve(database,c,frame,new(p.Definition,p.Reference.CatalogId,p.Reference.RevisionId),[],false,ct);
-  var context=(await new KnowledgeStore(Catalog).Read(c,frame.ContextId!.Value,ct)).Context;var knownAt=SchedulePreview.ParseAt(context.KnownAt);
+  var context=(await new KnowledgeResolver(Catalog).Read(c,frame.ContextId!.Value,ct)).Context;var knownAt=SchedulePreview.ParseAt(context.KnownAt);
   var value=await EvaluatePrograms(c,source.Data,source.Frame,p,ct);var t=p.Terms().Terms;
   return new(frame.Id,frame.ContextId,knownAt,Convention,t.ProductCode,t.VintageFrom,t.VintageTo,t.DeliveryFrom,t.DeliveryTo,ExactQuantity.FromQuantity(new(p.TotalQuantity,p.Quantity)),value,
    ["Retained contractual delivery and consideration schedules; certificate fulfillment evidence is a separate inventory operation.","Explicitly undiscounted; started delivery and cash lifecycle are not yet admitted."]);
@@ -39,7 +39,7 @@ public sealed partial class RecForwardStore
  {
   var programs=await new RetainedScheduleStore(database).LoadPrograms(c,p.Binding,frame.ContextId,frame.At,ct);
   if(programs.Length!=2)throw Invalid();
-  var context=(await new KnowledgeStore(Catalog).Read(c,frame.ContextId!.Value,ct)).Context;
+  var context=(await new KnowledgeResolver(Catalog).Read(c,frame.ContextId!.Value,ct)).Context;
   var snapshot=MarketSnapshotBinding.Bind(data.Snapshot(frame),frame.ContextId.Value,SchedulePreview.ParseAt(context.KnownAt));
   var chosen=selectedSlot is {} selection?programs.Where(p=>p.Slot==selection).ToArray():programs.ToArray();
   if(chosen.Length!=(selectedSlot is null?2:1))throw Invalid();

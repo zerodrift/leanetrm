@@ -416,7 +416,7 @@ through the evidence and acceptance criteria in the plan.
 | P26 | Add four assistant permissions and an agent reader role held only by agent principals | ai-assistant.md §5.4: `ManageModelProviders`, `ManageAgents`, `ReadModelUsage` and `UseAgents`. Approved 2026-10-21: the role amends D42 to seven role templates. Users & access refuses agent principals and the role; hosted provisioning grants an explicit list of human roles |
 | P27 | Use three protocol adapters with explicit parameters and sourced usage mappings | ai-assistant.md §6: Messages, Responses and `generateContent` for five vendors. Every parameter whose vendor default could change behavior or billing is sent unless a supported model refuses it, and a withheld parameter's reported value, where the response reports one, must be the standard one; identifiers must not be repointed, and enabling needs the exact usage mapping version its adapter applies, confirmed by a reviewed migration with its date and sources, published terms that an administrator records as sourced and dated versions, and an attestation bound to the current credential and terms versions; Replace key and new terms each disable the provider until it is attested and enabled again. A model's capability version records its facts, each sourced and dated, and the usage mapping version it was validated under, which states the reasoning efforts its adapter sends; Enable needs a model whose current version was validated under the applied mapping, on an enabled, qualified provider, and an edit leaves the model's state alone. Conformance runs against a fake provider and is not qualification (O09) |
 | P28 | Derive grants from the agent version and recheck authority at publication and replay | ai-assistant.md §7.1: one current grant per user and agent, coverage by provider, model identity and permissions, pre-checked exclusive admission, an agent request context per tool read, checks before every model call, and content events appended under the epoch share lock |
-| P29 | Pin each turn's context at ask and reserve retained contexts for pages | ai-assistant.md §7.2: one working-data capture after admission, current-only definitions labeled with their read instant and a stored page report. Each working-data ask permanently uses a retained context (O07) |
+| P29 | Record a turn's first requested financial inputs | D435 supersedes the saved-context and page-reserve proposal. Each turn owns its original inputs; each tool operation reconstructs a runtime value under current authority. |
 | P30 | Read through a fixed tool set over operations extracted from the page handlers | ai-assistant.md §7.3 and §12 step 2: pages and tools share one implementation and authorization path. Results are bounded and never truncated or paged; refusals return as step results; the server issues every navigation target |
 | P31 | Run turns in one interim in-process worker per database | ai-assistant.md §7.4: advisory-lock generation, fencing tokens, serialized admission, a stuck-turn backstop and an interrupted state. Milestone 4 durable runs and phase 3 leases replace it |
 | P32 | Declare per-turn limits and a versioned runtime set | ai-assistant.md §7.5: input is checked against reported usage, never estimated; only transport and overload retry, before publication and with known input; nothing is truncated. Administrator pause, single-turn cancellation and run inspection (architecture §9 Operations; ai-assistant.md §2) are deferred |
@@ -505,7 +505,7 @@ and correction lifecycle; existing final-only fixing admission is unchanged.
 | O04 | First identity integration and bootstrap flow | Human/agent lifecycle, delegation expiry/revocation/redelegation, MFA/federation integration and credential custody; decide before an exposed application. The page assistant creates agent principals only through `ManageAgents` (D152); users delegate to them through standing, revocable grants with a maximum duration (D154, P28); redelegation, MFA and federation stay open |
 | O05 | Company/workspace/book/portfolio scope relationships | Capability matrix, delegation/elevation and current security classification after historical book transfers; decide before persistent business operations |
 | O06 | Approval thresholds and separation-of-duties defaults | Action classes, exact payloads, authority revalidation and atomic consumption; decide before enabling policy-controlled writes |
-| O07 | Date-to-knowledge resolution implementation | Mandatory baseline date selector; qualify publication/commit semantics, valid interval storage under timestamp ties/regressions, consistent cross-scope cuts, dependency closure, lag, recovery and retention before exposure; also reclaim the retained contexts that assistant asks consume (P29) |
+| O07 | Date-to-knowledge resolution implementation | Mandatory baseline date selector; qualify publication/commit semantics, valid interval storage under timestamp ties/regressions, consistent cross-scope cuts, dependency closure, lag and recovery before exposure. D435 removes generic context storage and its reclaiming requirement. |
 | O08 | Historical engine retention and upgrade compatibility | Replay fixtures across a schema/model upgrade; decide before claiming exact historical replay |
 | O09 | Initial model providers and supported capabilities | Common adapter conformance plus task outcomes; product operations remain provider independent. P27 proposes three protocol adapters for five vendors; conformance against a fake provider does not close this item, which stays open until real-provider task outcomes are recorded |
 | O10 | Performance deployment envelope | The page target is less than one second (D142). Qualify supported data volume, network conditions, cold/warm behavior, concurrent clients and calculation workloads before broader performance acceptance. Page-assistant phase 1 performance acceptance waits on it (ai-assistant.md §13) |
@@ -6257,7 +6257,7 @@ which the second transaction reads, has stored them.
   amendment that commits in that interval leaves the read showing the revision
   its context knows, with the head it read just before; the amendment command
   still validates its expected revision under the gate.
-- **Cost.** One more identity transaction for each working trading read and each
+- **Original cost, superseded by D435.** One more identity transaction for each working trading read and each
   P&L run. A read that fails or is abandoned after its capture keeps the temporal
   context that capture stored; before, its rollback discarded it. A catalog holds
   at most 4,096 contexts (O07), and each current-knowledge capture already adds
@@ -6772,7 +6772,7 @@ Leaving the document releases its active reads and its slot can be reused.
 Sign-out releases the server-side
 selection. A saved artifact can retain the exact selection under the identity
 already used in its calculations. Existing receipts keep their original IDs.
-Clients using the older cookie-only API keep their explicit receipt contract.
+The runtime cutover in D435 removes the older cookie-only receipt contract.
 
 Migration 0374 derives each new workspace ID from the binary catalog ID,
 business date and PostgreSQL microsecond cutoff. Durable admission reuses the
@@ -6781,3 +6781,18 @@ pricing policies and worker input formats continue to use their existing
 contracts. A statistical job receives its independent clock attestation for
 the exact saving database transaction. The transaction records the job, clock
 evidence and workspace receipt together.
+
+## D435 — Construct financial contexts at execution without saved context objects
+
+**Status:** accepted and implemented with focused local qualification; full CI
+and hosted reset/reseed remain release gates.
+
+Complete the D434 cutover for all consumers. Remove the four generic context
+stores, their foreign keys and lookup/retention APIs. Operations and every job
+attempt construct runtime contexts from their explicit inputs and certified fact
+journals. Durable facts, job occurrences and results own their necessary input
+coordinates and selected source relationships. A later occurrence resolves its
+declared policy anew; a retry reconstructs its original admission. No saved
+context compatibility reader remains. Use an explicit fresh installation and
+reseed rather than infer missing inputs from old rows. See the
+[cutover contract and qualification gates](ephemeral-context-cutover.md).

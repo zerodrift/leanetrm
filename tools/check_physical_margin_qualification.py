@@ -53,7 +53,7 @@ def upgrade_checks(query,migration):
         child(catalogue_fixture(manifest,manifest['identityIssuer']))
         child("INSERT INTO security.role_permissions SELECT role_id,'ReadTrades' FROM security.role_permissions WHERE permission='WriteMarketDefinitions' ON CONFLICT DO NOTHING;")
         lit,call,refused=helpers(child,manifest)
-        capture=lambda:call(f"SELECT security.capture_date_context('{catalog}','2026-10-16',NULL);")
+        capture=lambda:call(f"SELECT security.resolve_operation_context('{catalog}','2026-10-16',NULL);")
         book=child(f"SELECT id FROM trading.books WHERE catalog_id='{catalog}' ORDER BY id LIMIT 1;")
         parties={}
         for role,table in [('legalEntity','legal_entities'),('counterparty','counterparties')]:

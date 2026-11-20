@@ -46,7 +46,7 @@ internal static partial class GasOwnedSetup
         await using var capture=ScheduleStore.Command(connection,"SELECT security.gas_futures_delivery_discovery_authority($1)",catalog);
         var until=new DateTimeOffset((DateTime)(await capture.ExecuteScalarAsync(ct))!);
         var admission=new GasOwnedOperationReadAdmission(catalog,until);database.RegisterCommitAdmission(connection,admission);
-        var source=await LifecycleNative.Source(connection,database,request.Context,ct,bindWorkspaceForRead:true);
+        var source=await LifecycleNative.Source(connection,database,request.Context,ct);
         await using(var save=ScheduleStore.Command(connection,"SAVEPOINT gas_form_source"))await save.ExecuteNonQueryAsync(ct);
         try
         {

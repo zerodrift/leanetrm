@@ -1,3 +1,4 @@
+import {cloneRead,retainedKnowledge} from './read-references.js';
 import {setupFactorHistory} from './factor-history-view.js';
 import {setupRisk,type RiskJob,type RunView} from './risk-view.js';
 import {setupRiskJobs} from './risk-jobs-view.js';
@@ -50,7 +51,7 @@ export function setupRiskWorkspace(o:Options){
  const catalogApi=async<T>(path:string,body?:unknown,signal?:AbortSignal):Promise<T>=>{
   if(path!=='portfolio/risk/catalog')return o.api<T>(path,body,signal);
   if(!pricingValid())throw Error('Choose an available pricing policy for this exact Risk scope.');
-  const selected=structuredClone(pricing!.pricingPolicy),value=await o.api<T>(path,{...body as Record<string,unknown>,pricingPolicy:selected},signal);
+  const selected=cloneRead(pricing!.pricingPolicy),value=await o.api<T>(path,{...body as Record<string,unknown>,pricingPolicy:selected},signal);
   if(JSON.stringify((value as {pricingPolicy?:unknown}).pricingPolicy)!==JSON.stringify(selected))throw Error('The Risk catalog did not retain the selected pricing policy. Refresh and choose it again.');
   return value;
  };
@@ -90,7 +91,7 @@ export function setupRiskWorkspace(o:Options){
  }
  function requestScope(){
   if(!directory||!selection||!scopeValid()||JSON.stringify(o.source())!==JSON.stringify(selection))throw Error('Choose a market close and refresh the Risk scope first.');
-  return {...scope,context:{snapshotId:selection.snapshotId,convention:'trading_workspace_v1',knowledgeMode:'retained',contextId:directory.context.contextId}};
+  return {...scope,context:{snapshotId:selection.snapshotId,convention:'trading_workspace_v1',...retainedKnowledge(directory.context)}};
  }
  const pnl=setupPnlView(get('risk-pnl-view'),{...o,scope:()=>{const selected=requestScope();return {bookIds:selected.bookIds,portfolioIds:selected.portfolioIds,tradeIds:selected.tradeIds};},
   knownAt:()=>directory?.context.knownAt??'',
@@ -188,7 +189,7 @@ export function setupRiskWorkspace(o:Options){
   const version=epoch,offset=resetPage?0:nextTradeOffset;if(offset===null)return;
   tradesReady=false;get('risk-workspace-trade-help').textContent='Reading trades in these books…';
   try{
-   const page=await o.api<TradePage>('portfolio/risk/scope',{context:{snapshotId:selection.snapshotId,convention:'trading_workspace_v1',knowledgeMode:'retained',contextId:directory.context.contextId},
+   const page=await o.api<TradePage>('portfolio/risk/scope',{context:{snapshotId:selection.snapshotId,convention:'trading_workspace_v1',...retainedKnowledge(directory.context)},
     ...scope,offset,limit:100},scopeController?.signal);if(version!==epoch)return;
    if(page.contextId!==directory.context.contextId||page.snapshotId!==selection.snapshotId||!Array.isArray(page.trades)||!Array.isArray(page.selectedTrades))throw Error('The trade directory does not match the selected context.');
    if(resetPage)tradeChoices.clear();for(const trade of [...page.trades,...page.selectedTrades])tradeChoices.set(trade.tradeId,trade);
@@ -197,7 +198,7 @@ export function setupRiskWorkspace(o:Options){
  }
  async function readPricing(){
   if(!directory||!selection||!parentsValid())return;
-  const version=epoch,setup=await o.api<PricingSetup>('portfolio/risk/setup',{...scope,context:{snapshotId:selection.snapshotId,convention:'trading_workspace_v1',knowledgeMode:'retained',contextId:directory.context.contextId}},scopeController?.signal);
+  const version=epoch,setup=await o.api<PricingSetup>('portfolio/risk/setup',{...scope,context:{snapshotId:selection.snapshotId,convention:'trading_workspace_v1',...retainedKnowledge(directory.context)}},scopeController?.signal);
   if(version!==epoch)return;
   if(!Array.isArray(setup.pricingPolicies)||!setup.pricingPolicies.length||new Set(setup.pricingPolicies.map(choice=>choice.id)).size!==setup.pricingPolicies.length||
    setup.pricingPolicies.some(choice=>!choice.id||!choice.label||typeof choice.wholeBooksOnly!=='boolean'||!choice.pricingPolicy||typeof choice.pricingPolicy!=='object')||!setup.pricingPolicies.some(choice=>choice.id===setup.selectedPricingPolicyId))throw Error('The Risk pricing choices are incomplete. Refresh the scope.');
@@ -216,8 +217,8 @@ export function setupRiskWorkspace(o:Options){
   // A retained report does not depend on the current header being priceable.
   const jobsRead=jobs.load();void jobsRead.catch(()=>{});
   try{
-   selection=structuredClone(o.source());const source=selection;
-   const read=await o.api<Directory>('trading/directory',{snapshotId:source.snapshotId,convention:'trading_workspace_v1',knowledgeMode:source.context?'retained':'current',...(source.context?{contextId:source.context.contextId}:{})},controller.signal);
+   selection=cloneRead(o.source());const source=selection;
+   const read=await o.api<Directory>('trading/directory',{snapshotId:source.snapshotId,convention:'trading_workspace_v1',knowledgeMode:source.context?'retained':'current',...(source.context?retainedKnowledge(source.context):{})},controller.signal);
    if(version!==epoch)return;
    if(read.kind!=='directory'||!read.context?.contextId||!Array.isArray(read.books))throw Error('The selected scope directory is inconsistent.');
    directory=read;drawScope();await readTrades(true);if(version!==epoch)return;await readPricing();if(version!==epoch)return;

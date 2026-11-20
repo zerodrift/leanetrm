@@ -56,7 +56,7 @@ def checks(query,manifest,*,configuration_checks=None,option_value=None):
     def call(sql,profile='trader'):
         token=query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('{issuer}','{profile}','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}COMMIT;")
-    def capture():return call(f"SELECT security.capture_date_context('{catalog}','2026-10-16',NULL);")
+    def capture():return call(f"SELECT security.resolve_operation_context('{catalog}','2026-10-16',NULL);")
     publication=f"(SELECT max(publication_order) FROM trading.publications WHERE catalog_id='{catalog}')"
     reference=f"'{manifest['referenceCatalogId']}','{manifest['referenceRevisionId']}'"
     query(f"BEGIN;INSERT INTO trading.publications SELECT '{catalog}',max(publication_order)+1,pg_current_xact_id() FROM trading.publications WHERE catalog_id='{catalog}';"+

@@ -85,7 +85,30 @@ def configured(query, manifest, setup):
     worker_id=str(uuid4())
     claim=json.loads(query(f"SET SESSION AUTHORIZATION pilot_fixture_scheduler;SELECT automation.claim_lifecycle_next('{worker_id}',120)::text;"))
     assert claim['jobId']==created['id'] and claim['operation']=='lifecycle_action_v1'
-    token=query(f"SET SESSION AUTHORIZATION pilot_fixture_scheduler;SELECT automation.issue_lifecycle_context('{claim['id']}',{claim['fence']},'{worker_id}');")
+    def issue_inputs(selected):
+        def issue():return query(f"SET SESSION AUTHORIZATION pilot_fixture_scheduler;SELECT automation.issue_lifecycle_context('{selected['id']}',{selected['fence']},'{selected['workerId']}');")
+        admission=issue()
+        query(f"SET SESSION AUTHORIZATION pilot_fixture_runtime;BEGIN;SELECT security.use_context('{admission}');SELECT automation.admit_occurrence_inputs();SELECT security.finish_operation_read();COMMIT;")
+        return issue()
+    token=issue_inputs(claim)
+    coordinates=lambda selected:query(f"SELECT jsonb_build_array(input_catalog_id,input_business_on,input_known_at,input_system_id,input_timeline,input_policy)::text FROM automation.runs WHERE id='{selected['id']}';")
+    admitted_inputs=coordinates(claim)
+    # A failed execution rolls back product work, independently of admission.
+    original_source=json.loads(query(f"SET SESSION AUTHORIZATION pilot_fixture_runtime;BEGIN;SELECT security.use_context('{token}');SELECT automation.capture_lifecycle_source()::text;ROLLBACK;"))
+    call(f"SELECT security.resolve_operation_context('{catalog}','{day}',NULL);")
+    query(f"UPDATE automation.runs SET lease_until=clock_timestamp()-interval '1 second' WHERE id='{claim['id']}';")
+    old_token=token;worker_id=str(uuid4())
+    replacement=json.loads(query(f"SET SESSION AUTHORIZATION pilot_fixture_scheduler;SELECT automation.claim_lifecycle_next('{worker_id}',120)::text;"))
+    assert replacement['id']==claim['id'] and replacement['fence']>claim['fence']
+    try:query.raw(f"SET SESSION AUTHORIZATION pilot_fixture_runtime;BEGIN;SELECT security.use_context('{old_token}');SELECT automation.capture_lifecycle_source()::text;ROLLBACK;")
+    except RuntimeError as error:assert 'job_fence' in str(error) or 'lifecycle_schedule_authority' in str(error),error
+    else:raise AssertionError('A replaced worker retained its old authority')
+    claim=replacement;token=issue_inputs(claim)
+    assert coordinates(claim)==admitted_inputs,'A replacement worker refreshed the admitted inputs'
+    replayed=json.loads(query(f"SET SESSION AUTHORIZATION pilot_fixture_runtime;BEGIN;SELECT security.use_context('{token}');SELECT automation.capture_lifecycle_source()::text;ROLLBACK;"))
+    assert replayed['context']==original_source['context']
+    token=issue_inputs(claim)
+    print('PASS committed occurrence admission survives execution rollback and fenced worker replacement with the same exact inputs',flush=True)
     outcome=query(f"SET SESSION AUTHORIZATION pilot_fixture_runtime;BEGIN;SELECT security.use_context('{token}');SELECT automation.capture_lifecycle_source()::text;"
         "SELECT security.has_permission(NULL) OR security.has_permission('absent_lifecycle_permission') OR security.has_permission('ConfigureGasOwnedHoldings');"
         "SELECT security.authority_until(NULL)='-infinity'::timestamptz AND security.authority_until('ConfigureGasOwnedHoldings')='-infinity'::timestamptz;"
@@ -121,14 +144,14 @@ def configured(query, manifest, setup):
     bad_job=create(invalid_review)
     bad_claim=json.loads(query(f"SET SESSION AUTHORIZATION pilot_fixture_scheduler;SELECT automation.claim_lifecycle_next('{worker_id}',120)::text;"))
     assert bad_claim['jobId']==bad_job['id']
-    bad_token=query(f"SET SESSION AUTHORIZATION pilot_fixture_scheduler;SELECT automation.issue_lifecycle_context('{bad_claim['id']}',{bad_claim['fence']},'{worker_id}');")
+    bad_token=issue_inputs(bad_claim)
     try:
         query(f"SET SESSION AUTHORIZATION pilot_fixture_runtime;BEGIN;SELECT security.use_context('{bad_token}');DO $probe$DECLARE saved jsonb=automation.capture_lifecycle_source();BEGIN "
             f"PERFORM automation.publish_lifecycle_result('review',jsonb_build_object('request',jsonb_build_object('operationId','{bad_claim['id']}','context',saved->'context'),'review','{{}}'::jsonb),NULL);END$probe$;COMMIT;")
     except RuntimeError as error:assert 'lifecycle_schedule_result' in str(error),str(error)
     else:raise AssertionError('A scheduled review retained a missing hash and an unscoped incomplete request')
     print('PASS scheduled review refuses an incomplete, unscoped proposal before terminal publication',flush=True)
-    unrelated_token=query(f"SET SESSION AUTHORIZATION pilot_fixture_scheduler;SELECT automation.issue_lifecycle_context('{bad_claim['id']}',{bad_claim['fence']},'{worker_id}');")
+    unrelated_token=issue_inputs(bad_claim)
     try:
         query(f"SET SESSION AUTHORIZATION pilot_fixture_runtime;BEGIN;SELECT security.use_context('{unrelated_token}');DO $probe$DECLARE saved jsonb=automation.capture_lifecycle_source();request jsonb;target jsonb;BEGIN "
             f"target=jsonb_set(saved#>'{{definition,target}}','{{scopeId}}',to_jsonb('{uuid4()}'::text));"
@@ -153,7 +176,7 @@ def configured(query, manifest, setup):
     scoped_job=create(scoped)
     owned=json.loads(query(f"SET SESSION AUTHORIZATION pilot_fixture_scheduler;SELECT automation.claim_lifecycle_next('{worker_id}',120)::text;"))
     assert owned['jobId']==scoped_job['id']
-    scoped_token=query(f"SET SESSION AUTHORIZATION pilot_fixture_scheduler;SELECT automation.issue_lifecycle_context('{owned['id']}',{owned['fence']},'{worker_id}');")
+    scoped_token=issue_inputs(owned)
     wrong_operation=str(uuid4())
     try:
         query(f"SET SESSION AUTHORIZATION pilot_fixture_runtime;BEGIN;SELECT security.use_context('{scoped_token}');DO $probe$DECLARE saved jsonb=automation.capture_lifecycle_source();body jsonb;BEGIN "
@@ -179,7 +202,7 @@ def configured(query, manifest, setup):
             except RuntimeError as error:assert 'lifecycle_schedule_authority' in str(error),str(error)
             else:raise AssertionError('A scheduled attempt chained a successor gas grant through its first epoch wait')
             blocked.result()
-        fresh=query(f"SET SESSION AUTHORIZATION pilot_fixture_scheduler;SELECT automation.issue_lifecycle_context('{owned['id']}',{owned['fence']},'{worker_id}');")
+        fresh=issue_inputs(owned)
         assert fresh and fresh!=scoped_token
     print('PASS scheduled first-wait admission retains the original owner gas deadline; a fresh successor attempt is admitted separately',flush=True)
     host=query('SHOW unix_socket_directories;');read_path=Path(host)/'lifecycle-read-check.json'
@@ -195,7 +218,7 @@ def configured(query, manifest, setup):
     second=json.loads(call(f"SELECT security.book_futures_with_parties('{catalog}','{uuid4()}','{setup['bookId']}','{manifest['revisionId']}',"
         f"'nymex_ng','{setup['contractId']}','2026-10-16T14:00:00Z',NULL,2,3,'contract_lot_execution_pnl_v2',NULL,NULL,NULL,{literal(setup['booking'])})::text;"))
     adoption={**setup['adoption'],'operationId':str(uuid4()),'tradeId':second['tradeId'],'bindingId':second['bindingId'],
-        'contextId':call(f"SELECT security.capture_date_context('{catalog}','2026-10-16',NULL);")}
+        'contextId':call(f"SELECT security.resolve_operation_context('{catalog}','2026-10-16',NULL);")}
     call(f"SELECT settlement_data.adopt_futures_margin('{catalog}',{literal(adoption)});")
     unfinished=json.loads(json.dumps(automatic));unfinished['schedule'].update(requestId=str(uuid4()),name='Synthetic atomic terminal publication')
     unfinished['definition']['target'].update(scopeId=second['tradeId'],bindingId=second['bindingId'])

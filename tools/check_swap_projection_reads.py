@@ -4,6 +4,7 @@ from pathlib import Path
 from uuid import UUID
 
 from check_booked_side_programs import runtime_query
+from native_read_transport import select_context_inputs
 
 
 def run_checks(client, query, manifest):
@@ -17,7 +18,8 @@ def run_checks(client, query, manifest):
     retained = client.call('trading/workspace', {'context': context, 'view': view,
                                                'bookingCatalog': 'directory'})['catalog']['context']
     catalog = str(UUID(manifest['catalogId']))
-    bind = (f"SELECT security.use_market_context('{catalog}','{UUID(retained['contextId'])}');"
+    bind = (select_context_inputs(catalog,retained)+
+            f"SELECT security.use_market_context('{catalog}','{UUID(retained['contextId'])}');"
             f"SELECT security.use_trading_context('{catalog}','{frame['at']}');")
     statement = (f"SELECT coalesce(jsonb_agg(value ORDER BY value->>'trade_id',value->>'revision'),'[]'::jsonb) "
                  f"FROM trading.read_swap_revisions('{catalog}',NULL,false,ARRAY[]::uuid[])value;")

@@ -2,6 +2,7 @@
 from copy import deepcopy
 import json
 from uuid import uuid4
+from native_read_transport import select_owned_inputs
 
 
 def upgrade_checks(query, migration):
@@ -21,11 +22,11 @@ def upgrade_checks(query, migration):
 
 def admission_checks(query,manifest,job_id):
     catalog,tenant,workspace=(manifest[k] for k in ('catalogId','tenantId','workspaceId'))
-    row=json.loads(query(f"SELECT jsonb_build_object('request',request,'frame',frame,'context',context_id,'revision',revision_id,'at',valuation_at) FROM risk.jobs WHERE id='{job_id}';"))
+    row=json.loads(query(f"SELECT jsonb_build_object('request',request,'frame',frame,'context',context_id,'revision',revision_id,'at',valuation_at,'input',jsonb_build_object('id',context_id,'effective_on',input_business_on,'known_at',input_known_at,'system_id',input_system_id,'timeline',input_timeline)) FROM risk.jobs WHERE id='{job_id}';"))
     literal=lambda value:"'"+json.dumps(value).replace("'","''")+"'::jsonb"
     def submit(request,frame=None):
         token=query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','risk','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
-        return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');SELECT security.use_market_context('{catalog}','{row['context']}');SELECT security.use_trading_context('{catalog}','{row['at']}');SELECT risk.submit('{catalog}','{uuid4()}','{row['context']}','{row['revision']}','{row['at']}',{literal(request)},{literal(frame or row['frame'])});COMMIT;")
+        return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');"+select_owned_inputs(catalog,row['input'])+f"SELECT security.use_market_context('{catalog}','{row['context']}');SELECT security.use_trading_context('{catalog}','{row['at']}');SELECT risk.submit('{catalog}','{uuid4()}','{row['context']}','{row['revision']}','{row['at']}',{literal(request)},{literal(frame or row['frame'])});COMMIT;")
     cases=[]
     for factors in ([],row['request']['historical']['factors']*2):
         bad=deepcopy(row['request']);bad['historical']['factors']=factors;cases.append((bad,'risk_historical_input'))

@@ -48,7 +48,7 @@ public static class PilotCloseJobs
             """,[data.DefinitionRevision.CatalogId,data.DefinitionRevision.RevisionId],ct);
         await using var clock=ScheduleStore.Command(connection,"SELECT clock_timestamp()");
         var observed=new DateTimeOffset((DateTime)(await clock.ExecuteScalarAsync(ct))!);
-        var current=(await new KnowledgeStore(database.Manifest.CatalogId).Capture(connection,
+        var current=(await new KnowledgeResolver(database.Manifest.CatalogId).Capture(connection,
             new(DateOnly.FromDateTime(observed.UtcDateTime).ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),null,"current"),ct)).Context;
         await MarketContextStore.Bind(connection,database.Manifest.CatalogId,current,ct);
         await using(var bind=ScheduleStore.Command(connection,"SELECT security.use_trading_context($1,$2)",database.Manifest.CatalogId,observed))await bind.ExecuteNonQueryAsync(ct);

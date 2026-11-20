@@ -5,6 +5,7 @@ from urllib.request import HTTPCookieProcessor, build_opener
 from uuid import uuid4
 
 from check_booked_side_programs import capture_context
+from native_read_transport import captured_input
 from preview_client import PreviewClient
 
 
@@ -45,11 +46,11 @@ def run_checks(url, query, manifest):
     def counts():
         return history_counts(query, catalog)
 
-    # Seed a compatible legacy receipt after market setup, with certified knowledge.
+    # Capture complete inputs in the client before opening either tab.
     early_day, late_day = '2020-12-17', '2020-12-18'
     stored_day = late_day
     stored_id = capture_context(query, manifest, stored_day)
-    stored_time = query(f"SELECT known_at FROM market_data.temporal_contexts WHERE catalog_id='{catalog}' AND id='{stored_id}';")
+    stored_time = captured_input(query,stored_id)['known_at']
     started = counts()
     legacy = PreviewClient(url)
     legacy.bootstrap()
@@ -61,7 +62,7 @@ def run_checks(url, query, manifest):
     alternate = priced(second, late_day)
     assert original[0] is None and alternate[0] is None and alternate[1] != original[1]
 
-    # Reuse a genuine retained selection already present before opening either tab.
+    # Reconstruct the exact earlier selection from its explicit date and cutoff.
     old = prepare(first, stored_day, 'at', datetime.fromisoformat(stored_time).isoformat())
     assert old['contextId'] == stored_id and datetime.fromisoformat(old['knownAt']) == datetime.fromisoformat(stored_time)
 
@@ -85,7 +86,8 @@ def run_checks(url, query, manifest):
     select(first, early)
     assert priced(first, early_day) == current
     assert priced(second, late_day) == (late, *alternate[1:])
-    legacy.call('market/context/retained', {'contextId': stored_id, 'selection': 'latest_correction'})
+    legacy.call('market/context', {'effectiveOn': stored_day, 'knownAt': stored_time,
+        'mode': 'at', 'selection': 'latest_correction'})
     assert priced(first, early_day) == current and priced(second, late_day)[0] == late
     first.call('market/current', {})
     assert priced(first, early_day) == original
@@ -98,7 +100,7 @@ def run_checks(url, query, manifest):
     outsider.call('profile', {'profile': 'editor'})
     outsider.opener.addheaders = [('X-OpenETRM-View', str(first_id))]
     outsider.call('workspace/navigation', expected=403)
-    print('PASS tab and headerless views stay independent and Back, initialization and exact legacy replay add zero retained rows', flush=True)
+    print('PASS tab and headerless views stay independent and Back, initialization and exact replay create no saved contexts', flush=True)
 
     # Lifecycle discovery checks the business source again when its transaction commits.
     trader = PreviewClient(url)
@@ -124,7 +126,7 @@ def run_checks(url, query, manifest):
 
 def history_counts(query, catalog):
     tables = ('market_data.temporal_contexts', 'market_data.market_contexts', 'market_data.catalogue_contexts', 'trading.contexts')
-    columns = [f"(SELECT count(*) FROM {table} WHERE catalog_id='{catalog}')" for table in tables]
+    columns = [f"(to_regclass('{table}') IS NOT NULL)::integer" for table in tables]
     return tuple(map(int, query('SELECT ' + ','.join(columns)).split('|')))
 
 
@@ -133,14 +135,13 @@ def read_trading_workspace(query, runtime, catalog, as_of, statement, known_at=N
     before = history_counts(query, catalog)
     day = as_of[:10]
     knowledge = 'NULL' if known_at is None else f"'{known_at}'"
-    cut = runtime(f"""SELECT id,known_at,known_through,system_id,timeline,stored
-        FROM security.workspace_read_cut('{catalog}','{day}',{knowledge},false);""", 'trader')
-    identifier, cutoff, prefix, system, timeline, stored = cut.split('|')
-    assert stored == 'f', 'This fixture must exercise a workspace cutoff without a stored receipt'
-    answer = runtime(f"""SELECT security.bind_workspace_read('{catalog}','{identifier}','{day}','{cutoff}',{prefix},'{system}',{timeline});
+    cut = runtime(f"""SELECT id,known_at,known_through,system_id,timeline
+        FROM security.resolve_read_cut('{catalog}','{day}',{knowledge},false);""", 'trader')
+    identifier, cutoff, prefix, system, timeline = cut.split('|')
+    answer = runtime(f"""SELECT security.bind_operation_read('{catalog}','{identifier}','{day}','{cutoff}',{prefix},'{system}',{timeline});
         SELECT security.use_trading_context('{catalog}','{as_of}');
         {statement}
-        SELECT security.finish_workspace_read();""", 'trader')
+        SELECT security.finish_operation_read();""", 'trader')
     assert history_counts(query, catalog) == before, 'Reading a trading workspace stored its cutoff'
     return json.loads(answer)
 
@@ -166,9 +167,12 @@ def saved_mapping(first, second, late_day, query, catalog):
     command = {**definition, 'requestId': str(uuid4())}
     receipt = first.call(save_path, command)
     after = counts()
-    assert after == tuple(n+1 for n in started), 'Saving the reviewed mapping must retain its exact financial inputs once'
-    assert query(f"""SELECT validation_context_id FROM market_data.contract_date_versions
-        WHERE catalog_id='{catalog}' AND definition_id='{receipt['id']}' AND version={receipt['version']};""") == selected['contextId']
+    assert after == started == (0,0,0,0), 'Saving a mapping must not recreate context stores'
+    owned = query(f"""SELECT validation_context_id,validation_business_on,validation_known_at
+        FROM market_data.contract_date_versions WHERE catalog_id='{catalog}'
+        AND definition_id='{receipt['id']}' AND version={receipt['version']};""").split('|')
+    assert owned[:2] == [selected['contextId'],selected['effectiveOn']]
+    assert datetime.fromisoformat(owned[2]) == datetime.fromisoformat(selected['knownAt'])
     # Replay from a separate tab which never prepared this cut and read its saved source.
     first.call('market/current', {})
     second.call('market/current', {})

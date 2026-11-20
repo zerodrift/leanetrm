@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import {setupDescribedOperations,type DescribedOperationsOptions,type OperationProtocol} from './described-operations-view.js';
 import {setupDeliveryNominationBatch} from './delivery-nomination-batch.js';
 import type {PhysicalDeliveryTarget} from './physical-operations.js';
@@ -27,7 +28,7 @@ export function setupDeliveryWorkbench(root:HTMLElement,o:DeliveryWorkbenchOptio
   for(const raw of view.nativeActions){const action=raw as PhysicalDeliveryTarget&{label:string};
    if(!action||typeof action.label!=='string'||!action.label||typeof action.tradeId!=='string'||!action.tradeId||typeof action.bindingId!=='string'||!action.bindingId||!Number.isSafeInteger(action.revision)||action.revision<1||action.tab!=='delivery'||action.instrumentType!==(profile==='crude-receipt'?'physical_crude':'physical_gas')||profile==='crude-receipt'&&action.tradeId!==view.scopeId)throw Error('Native delivery navigation does not identify the exact installed source.');
    const target:PhysicalDeliveryTarget={tradeId:action.tradeId,bindingId:action.bindingId,revision:action.revision,instrumentType:action.instrumentType,tab:'delivery'};
-   const button=document.createElement('button');button.type='button';button.dataset.nativeDelivery='';button.textContent=action.label;button.onclick=()=>void(async()=>{if(button.disabled)return;try{await o.openNativeDelivery?.(structuredClone(target));}catch(error){if(nativeReason)nativeReason.textContent=String(error);}})();nativeButtons.push(button);nativeHost.append(button);
+   const button=document.createElement('button');button.type='button';button.dataset.nativeDelivery='';button.textContent=action.label;button.onclick=()=>void(async()=>{if(button.disabled)return;try{await o.openNativeDelivery?.(cloneRead(target));}catch(error){if(nativeReason)nativeReason.textContent=String(error);}})();nativeButtons.push(button);nativeHost.append(button);
   }
   nativeReason=document.createElement('p');nativeReason.setAttribute('role','status');nativeHost.append(nativeReason);syncNative();
  }

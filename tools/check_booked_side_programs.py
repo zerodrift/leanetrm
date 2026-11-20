@@ -3,6 +3,7 @@
 import copy
 import json
 import subprocess
+from native_read_transport import captured_input
 from pathlib import Path
 
 
@@ -13,7 +14,7 @@ def runtime_query(query,manifest,statement,profile='trader',prefix='',commit=Tru
 
 
 def capture_context(query,manifest,day):
-    return runtime_query(query,manifest,f"SELECT security.capture_date_context('{manifest['catalogId']}','{day}',NULL);")
+    return runtime_query(query,manifest,f"SELECT security.resolve_operation_context('{manifest['catalogId']}','{day}',NULL);")
 
 
 def append_program(catalog, request, schedule, content):
@@ -91,7 +92,7 @@ def run_direct_read_checks(query,manifest,root,dotnet,environment,instruments,re
     for entry in instruments:
         identifier=str(UUID(entry['instrumentId']));at=entry['asOf']
         selected=capture_context(query,manifest,at[:10])
-        known=query(f"SELECT to_jsonb(known_at)#>>'{{}}' FROM market_data.temporal_contexts WHERE(catalog_id,id)=('{catalog}','{selected}');")
+        known=captured_input(query,selected)['known_at']
         sides=json.loads(query(f"""SELECT jsonb_agg(jsonb_build_object('sideId',m.side_id,'scheduleId',m.schedule_id,
              'digest',encode(sha256(p.content),'hex')) ORDER BY m.slot)
             FROM trading.instrument_side_schedules m JOIN trading.side_schedule_programs p

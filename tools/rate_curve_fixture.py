@@ -39,8 +39,7 @@ def admitted_curve(cat, rev, ref, code, name, tenors, *, currency, unit, specifi
 
     def order(table):
         return f"(SELECT coalesce(max(publication_order),0)+1 FROM market_data.{table} WHERE catalog_id='{cat}')"
-    rows = [f"INSERT INTO market_data.temporal_contexts VALUES('{cat}','{context}','{first}','{first}T00:00:00Z',0,'{first}T00:00:00Z',"
-            f"'{first}T00:00:00Z') ON CONFLICT DO NOTHING;"]
+    rows = [f"-- fixture-validation: {cat} {first} {context}"]
     schedule = None
     if any(isinstance(at, int) for _, at in tenors):
         schedule, symbol = _id(code, 'schedule'), f'oe.{code}_days'

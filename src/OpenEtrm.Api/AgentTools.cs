@@ -71,6 +71,12 @@ public sealed record TurnReads(TurnPin Selection,AgentIdentity Agent,JsonElement
     TurnPin? resolved;
     public TurnPin Pin=>resolved??Selection;
     internal Func<CancellationToken,Task<TurnPin>>? Resolve {get;set;}
+    internal Func<NpgsqlConnection,CancellationToken,Task>? RegisterInputs {get;set;}
+    internal async Task<ScheduleContext> Context(NpgsqlConnection connection,Guid catalog,CancellationToken ct)
+    {
+        await (RegisterInputs??throw new InvalidOperationException("Missing fenced turn input admission."))(connection,ct);
+        return Pin.Exact((await new KnowledgeResolver(catalog).Read(connection,Pin.ContextId,ct)).Context);
+    }
     internal async Task EnsureContext(CancellationToken ct)
     {
         if(!Pin.Resolved)resolved=await (Resolve??throw new ToolRefusal("context_required"))(ct);
@@ -107,6 +113,12 @@ public sealed class TurnWrites
     readonly Guid turn;
     readonly byte[] token;
     public TurnWrites(Guid turn,byte[] token)=>(this.turn,this.token)=(turn,token.ToArray());
+
+    internal async Task RegisterInputs(NpgsqlConnection connection,CancellationToken ct)
+    {
+        await using var command=ScheduleStore.Command(connection,"SELECT assistant.register_turn_inputs($1,$2)",turn,token);
+        await command.ExecuteNonQueryAsync(ct);
+    }
 
     internal CurveDraftSaver Saver(int step)=>CurveDraftSaver.Assistant(turn,step,token);
 
@@ -445,6 +457,28 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
     // draft writes, and records its successful step itself, in the one transaction its write commits in (D260).
     public async Task<ToolStep> Run(TurnReads turn,TurnTargets targets,ModelToolRequest request,TurnWrites writes,CancellationToken ct)
     {
+        var previous=ReadReferences.Operation.Value;
+        var page=WorkspaceReadContext.Page.Value;
+        var selected=WorkspaceReadContext.Executing.Value;
+        try
+        {
+            // A tool rebuilds its admitted inputs under its own current authority.
+            // Browser proof transport and the asking page do not span tool steps.
+            ReadReferences.Operation.Value=new();
+            WorkspaceReadContext.Page.Value=null;
+            WorkspaceReadContext.Executing.Value=null;
+            return await RunOperation(turn,targets,request,writes,ct);
+        }
+        finally
+        {
+            ReadReferences.Operation.Value=previous;
+            WorkspaceReadContext.Page.Value=page;
+            WorkspaceReadContext.Executing.Value=selected;
+        }
+    }
+
+    async Task<ToolStep> RunOperation(TurnReads turn,TurnTargets targets,ModelToolRequest request,TurnWrites writes,CancellationToken ct)
+    {
         var (tool,input)=(request.Name,(JsonElement?)request.Input);
         ToolStep Before(string code,JsonElement? kept)=>new(tool,null,kept,code,null,[],Refusal(code),ToolStepEnd.Refusal);
         ToolCall call;
@@ -486,7 +520,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
                 await turn.EnsureContext(ct);
             }
             var result=await database.WithAgent(turn.Agent,turn.ReadLimit,Tools.Single(t=>t.Name==operation.Tool).Permissions,at=>readAt=at,
-                (connection,read)=>Read(connection,turn.Pin,call,read),ct);
+                (connection,read)=>Read(connection,turn,call,read),ct);
             if(!result.Access.IsDefaultOrEmpty)access=[..access.Concat(result.Access).Distinct()];
             if(operation.Id=="custom_curves.prepare_v1")result.Value["proposal"]=new JsonObject{["turnId"]=turn.TurnId.ToString(),["step"]=targets.Steps+1};
             return Returned(tool,request.Input,call,turn.Pin,readAt!.Value,access,result,targets.Next,turn.OutputLimits,dispatched?.Layout);
@@ -613,9 +647,10 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
 
     // One read at the turn's pin (§7.2): page views and trades as of the turn's context, read exactly as its record names
     // it, and current-only definitions with no context bound.
-    async Task<ToolResult> Read(NpgsqlConnection connection,TurnPin pin,ToolCall call,CancellationToken ct)
+    async Task<ToolResult> Read(NpgsqlConnection connection,TurnReads turn,ToolCall call,CancellationToken ct)
     {
-        async Task<ScheduleContext> Context()=>(await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,pin.ContextId,ct)).Context;
+        var pin=turn.Pin;
+        Task<ScheduleContext> Context()=>turn.Context(connection,database.Manifest.CatalogId,ct);
         return call switch
         {
             {Operation.Id:"custom_curves.catalog_v1"}=>await CurveCatalog(connection,pin.Page(await Context()),ct),

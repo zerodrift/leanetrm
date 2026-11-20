@@ -164,9 +164,9 @@ def run_checks(url, query, manifest):
     def runtime(sql, context=None):
         bind = f"SELECT security.use_market_context('{catalog_id}','{context}');" if context else ''
         return f"BEGIN;SET LOCAL SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{issue()}');" + bind + sql + 'COMMIT;'
-    assert query("SELECT NOT has_function_privilege('preview_runtime','security.capture_pre_crude_setup_context(uuid,date,timestamptz)','EXECUTE') AND NOT has_function_privilege('openetrm_risk_worker','security.capture_pre_crude_setup_context(uuid,date,timestamptz)','EXECUTE');") == 't'
+    assert query("SELECT to_regprocedure('security.capture_pre_crude_setup_context(uuid,date,timestamptz)') IS NULL;") == 't'
     original_prices = query("SELECT count(*)||'/'||md5(string_agg(row_to_json(o)::text,',' ORDER BY id)) FROM market_data.observations o;")
-    before = query(runtime(f"SELECT security.capture_date_context('{catalog_id}','2020-12-18',NULL);"))
+    before = query(runtime(f"SELECT security.resolve_operation_context('{catalog_id}','2020-12-18',NULL);"))
     c = PreviewClient(url); c.bootstrap(); c.call('profile', {'profile': 'editor'})
     catalog = c.call('crude-setup/catalog')
     references = catalog['deliveryReferences']
@@ -300,7 +300,8 @@ def run_checks(url, query, manifest):
     c.call('crude-setup/save', body, expected=403)
     # Contextual history uses certified knowledge, while exact backend reads stay
     # available. A large history of one code cannot hide another current code.
-    known=query(f"SELECT to_char(known_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') FROM market_data.temporal_contexts WHERE(catalog_id,id)=('{catalog_id}','{before}');")
+    from native_read_transport import captured_input
+    known=captured_input(query,before)['known_at']
     selected_context=c.call('market/context',{'effectiveOn':'2020-12-18','knownAt':known,'mode':'at','selection':'latest_correction','snapshotId':frame['id'],'frameSelectionPolicy':'preserve_origin_or_unique_asof_frame_v1'})
     historical=c.call('crude-setup/catalog?snapshotId='+selected_context['snapshotId'])
     assert not historical['canSave'] and not historical['canPublish'] and not historical['contextSetups']

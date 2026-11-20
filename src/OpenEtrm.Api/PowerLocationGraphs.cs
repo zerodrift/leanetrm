@@ -55,7 +55,7 @@ internal static class PowerLocationGraphs
     {
         var rows=await PreviewDatabase.Rows(connection,"SELECT security.read_power_locations($1,$2,$3,$4::jsonb)::text",[data.DefinitionRevision.CatalogId,data.DefinitionRevision.RevisionId,context,JsonSerializer.Serialize(demands,Json)],ct);
         if(rows.IsEmpty)return [];
-        var selected=(await new KnowledgeStore(data.DefinitionRevision.CatalogId).Read(connection,context,ct)).Context;
+        var selected=(await new KnowledgeResolver(data.DefinitionRevision.CatalogId).Read(connection,context,ct)).Context;
         var versions=await CustomCurvesStore.ReadVersions(connection,data.DefinitionRevision.CatalogId,ct);
         var products=await PowerIntervalCurves.Products(connection,data,ct);
         var result=ImmutableArray.CreateBuilder<ResolvedPowerLocation>();

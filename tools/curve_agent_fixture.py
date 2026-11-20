@@ -64,7 +64,7 @@ def prepare(url, query, manifest, client=None):
     price = pinned['points'][0]['price']
     assert pinned['points'][0]['dates'] == ['2020-12-18'], pinned
     assert Fraction(int(price['numerator']), int(price['denominator'])) == Fraction(native['points'][0]['value'])
-    client.call('market/context/retained', {'contextId': before['contextId'], 'selection': 'latest_correction'})
+    client.call('market/context', {'effectiveOn': before['effectiveOn'], 'knownAt': before['knownAt'], 'mode': 'at', 'selection': 'latest_correction'})
     earlier = initial_frame(client.call('workspace/navigation'), '2020-12-18')
     refused = client.call('custom-curves/preview', {'snapshotId': earlier['id'], 'definition': definition}, expected=422)
     assert refused['code'] == 'schedule_context', refused

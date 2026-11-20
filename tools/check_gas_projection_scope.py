@@ -52,7 +52,7 @@ def checks(query,manifest,*,probe='base'):
     token=query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
         f"'{issuer}','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
     retained['otherContextId']=query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');"
-        f"SELECT security.capture_date_context('{catalog}','2020-12-19',NULL);COMMIT;")
+        f"SELECT security.resolve_operation_context('{catalog}','2020-12-19',NULL);COMMIT;")
     verify('changed_source')
     # Give this control an explicitly empty book and a later captured source
     # that includes its own typed metadata publication. Existing fixture books
@@ -66,7 +66,7 @@ def checks(query,manifest,*,probe='base'):
     token=query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
         f"'{issuer}','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
     no_gas_context=query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');"
-        f"SELECT security.capture_date_context('{catalog}','2020-12-19',NULL);COMMIT;")
+        f"SELECT security.resolve_operation_context('{catalog}','2020-12-19',NULL);COMMIT;")
     before=query(f"SELECT max(publication_order) FROM trading.publications WHERE catalog_id='{manifest['catalogId']}';")
     if probe=='callback':
         from gas_scope_callback_authority import checks as callback_checks

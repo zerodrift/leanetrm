@@ -35,7 +35,7 @@ def checks(query,manifest,after_writer=None,*,after_counterparts=None,baseline_a
             f"'https://preview.invalid','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}COMMIT;")
     at='2020-12-20T16:00:00Z'
-    def capture(day='2020-12-20'):return call(f"SELECT security.capture_date_context('{catalog}','{day}',NULL);")
+    def capture(day='2020-12-20'):return call(f"SELECT security.resolve_operation_context('{catalog}','{day}',NULL);")
     def read(position,context):return json.loads(call(f"SELECT security.use_market_context('{catalog}','{context}');"
         f"SELECT security.use_trading_context('{catalog}','{at}','2020-12-20'::date);"
         f"SELECT security.read_gas_operator_quantity_reconciliation('{catalog}','{position}','{context}','{at}')::text;"))

@@ -22,7 +22,7 @@ def checks(query, manifest):
         token=query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
             f"'{manifest['identityIssuer']}','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}COMMIT;")
-    def capture():return call(f"SELECT security.capture_date_context('{catalog}','2026-11-06',NULL);")
+    def capture():return call(f"SELECT security.resolve_operation_context('{catalog}','2026-11-06',NULL);")
     # Retire one receipt which has not funded the independent short. Its title
     # disappears and its acquisition obligation returns; actual bank payments
     # and the other receipts remain exactly as recorded.
@@ -106,7 +106,7 @@ def checks(query, manifest):
     assert restored_result['changed'] and restored_result['currentRevision']==3
     assert query(f"SELECT trim_scale(sum(amount)) FROM trading.gas_futures_delivery_cash WHERE(catalog_id,position_id)=('{catalog}','{source['position_id']}');")=='-6.03'
     assert selected(retired_context)['revision']==2 and Decimal(str(selected(retired_context)['quantity']))==0
-    future_context=call(f"SELECT security.capture_date_context('{catalog}','2026-11-04',NULL);")
+    future_context=call(f"SELECT security.resolve_operation_context('{catalog}','2026-11-04',NULL);")
     future=selected(future_context,'2026-11-04T08:00:00Z')
     assert future['revision']==3 and Decimal(str(future['quantity']))==Decimal('.25') and future['performed_at']>'2026-11-04T08:00:00'
     before_ack=query(f"SELECT max(publication_order) FROM trading.publications WHERE catalog_id='{catalog}';")

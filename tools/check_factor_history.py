@@ -27,7 +27,7 @@ def run_checks(url, manifest, query):
     assert result['coverage']['available'] and len(history['columns']) == 1 and len(history['samples']) == 3 and not history['rejected']
     assert result['scope']['tradeIds'] == [held['tradeId']] and result['request']['scope']['bookIds'] == [held['bookId']]
     assert c.call('portfolio/risk/history', result['request'])['manifest'] == history
-    prefix = int(query(f"SELECT known_through FROM market_data.market_contexts WHERE catalog_id='{manifest['catalogId']}' AND context_id='{context['contextId']}';"))
+    prefix = int(query(f"SELECT coalesce(max(event_order),0) FROM market_data.market_knowledge_receipts WHERE catalog_id='{manifest['catalogId']}' AND known_from<='{context['knownAt']}'::timestamptz;"))
     assert history['forecast']['marketKnownThrough'] == prefix
     assert prefix != holdings['context']['knownThrough'], 'Fixture must distinguish market and schedule publication prefixes'
     for sample in history['samples']:

@@ -55,7 +55,7 @@ internal static class CloseOutDraftChecks
             database.WithIdentity("trader","ReadTrades",async(connection,ct)=>
             {
                 var frame=await ResolveFrame(connection,frameName,ct);
-                var view=earlier is null?await TradingView.Capture(connection,new KnowledgeStore(database.Manifest.CatalogId),frame,ct):TradingView.Reread(frame,earlier);
+                var view=earlier is null?await TradingView.Capture(connection,new KnowledgeResolver(database.Manifest.CatalogId),frame,ct):TradingView.Reread(frame,earlier);
                 var request=new CloseOutDraftRequest(new(frame.Id,TradingBlotter.Convention,earlier is null?"current":"retained",earlier?.ContextId),
                     position.Id("tradeId"),position.Id("bindingId"),revision??position.GetProperty("revision").GetInt32(),type??position.Text("instrumentType"));
                 return JsonSerializer.SerializeToElement(await reads.CloseOutDraft(connection,view,request,ct),Json);
@@ -65,7 +65,7 @@ internal static class CloseOutDraftChecks
             database.WithIdentity("trader","ReadTrades",async(connection,ct)=>
             {
                 var frame=await ResolveFrame(connection,frameName,ct);
-                var view=await TradingView.Capture(connection,new KnowledgeStore(database.Manifest.CatalogId),frame,ct);
+                var view=await TradingView.Capture(connection,new KnowledgeResolver(database.Manifest.CatalogId),frame,ct);
                 var request=new PositionAdjustmentDraftRequest(new(frame.Id,TradingBlotter.Convention,"current",null),
                     position.Id("tradeId"),position.Id("bindingId"),position.GetProperty("revision").GetInt32(),type??position.Text("instrumentType"),direction,quantity);
                 return JsonSerializer.SerializeToElement(await reads.PositionAdjustmentDraft(connection,view,request,ct),Json);

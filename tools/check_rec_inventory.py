@@ -87,7 +87,7 @@ def run_checks(query, manifest, psql=None, environment=None):
     duplicate_holding = record(dict(receipt, **{'to': '50'}), 0).replace(account['accountId'], other['accountId'])
     reject(duplicate_holding, 'rec_overlap')
     check('another owned account cannot issue the same registry serials')
-    context = query(runtime(f"SELECT security.capture_date_context('{catalog}','2020-12-15',NULL);"))
+    context = query(runtime(f"SELECT security.resolve_operation_context('{catalog}','2020-12-15',NULL);"))
     selected = (f"SELECT security.use_market_context('{catalog}','{context}');"
                 f"SELECT security.use_trading_context('{catalog}','2020-12-15T23:59:59.999999Z');")
     held = json.loads(query(runtime(selected + f"SELECT security.read_rec_inventory('{catalog}','{account['accountId']}','{context}','2020-12-15T23:59:59.999999Z');")))
@@ -115,7 +115,7 @@ def run_checks(query, manifest, psql=None, environment=None):
     check('changed retirement value appends a revision under the original business identity', correction['factId']==retired['factId'] and correction['revision']==2 and correction['generation']==3)
     old_view = json.loads(query(runtime(selected + f"SELECT security.read_rec_inventory('{catalog}','{account['accountId']}','{context}','2020-12-15T23:59:59.999999Z');")))
     check('certified old knowledge retains the original forty-certificate retirement', len(old_view['facts'])==2 and old_view['lotBalances'][0]['availableCount']=='60')
-    current_context = query(runtime(f"SELECT security.capture_date_context('{catalog}','2020-12-15',NULL);"))
+    current_context = query(runtime(f"SELECT security.resolve_operation_context('{catalog}','2020-12-15',NULL);"))
     current = (f"SELECT security.use_market_context('{catalog}','{current_context}');"
         f"SELECT security.use_trading_context('{catalog}','2020-12-15T23:59:59.999999Z');")
     current_read = f"SELECT security.read_rec_inventory('{catalog}','{account['accountId']}','{current_context}','2020-12-15T23:59:59.999999Z');"

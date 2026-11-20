@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import {newPreferences,parsePreferences,validTimeZone,type Preferences} from './preferences.js';
 
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
@@ -31,7 +32,7 @@ export function preferenceSession(api:Api,warn:(message:string)=>void){
    const incompatible=saved!==null&&typeof saved.preferences?.timeZone==='string'&&!validTimeZone(saved.preferences.timeZone);
    const preferences=saved===null?newPreferences(zone):copy(incompatible?{...saved.preferences,timeZone:zone}:saved.preferences);
    if(incompatible){owner.needsZoneChoice=true;warn(`Your saved time zone is unsupported by this browser. This visit displays times in ${zone}. Choose and save a supported time zone in Profile.`);}
-   owner.version=saved?.version??0;owner.confirmed=saved===null?undefined:structuredClone(saved.preferences);owner.loaded=true;
+   owner.version=saved?.version??0;owner.confirmed=saved===null?undefined:cloneRead(saved.preferences);owner.loaded=true;
    return preferences;
   },
   save(preferences:Preferences,confirmZone=false):Promise<void>{

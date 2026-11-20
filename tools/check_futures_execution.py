@@ -55,7 +55,7 @@ def run_checks(url,query,manifest):
     def token():
         return query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','trader','human_interactive','{t}','{ws}',NULL,'preview_runtime',60);")
     def raw(edit='',role='trader_mark',source='fixture',historical=False,reject=True,implementation='contract_lot_execution_pnl_v2'):
-        bind=f"PERFORM security.use_market_context('{market}',security.capture_date_context('{market}','2020-12-18','2000-01-01T00:00:00Z'));" if historical else ''
+        bind=f"PERFORM security.use_market_context('{market}',security.resolve_operation_context('{market}','2020-12-18','2000-01-01T00:00:00Z'));" if historical else ''
         invoke=f"PERFORM security.futures_execution_start('{r}','{rev}','test_gas_202101','{implementation}','{role}','{source}');"
         check=("DECLARE rejected boolean=false;BEGIN BEGIN "+bind+invoke+" EXCEPTION WHEN SQLSTATE 'P0001' OR SQLSTATE '42501' THEN rejected=true;END;IF NOT rejected THEN RAISE EXCEPTION 'Expected policy rejection' USING ERRCODE='XX000';END IF;END") if reject else ('BEGIN '+invoke+'END')
         query(f"BEGIN;{edit}SET LOCAL SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{token()}');DO $$ {check} $$;ROLLBACK;")

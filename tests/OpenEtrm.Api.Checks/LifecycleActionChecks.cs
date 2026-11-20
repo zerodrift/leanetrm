@@ -86,7 +86,7 @@ internal static class LifecycleActionChecks
                 await using var capture=ScheduleStore.Command(c,"SELECT settlement_data.futures_margin_preview_authority($1)",manifest.CatalogId);
                 var until=new DateTimeOffset((DateTime)(await capture.ExecuteScalarAsync(t))!);
                 database.RegisterCommitAdmission(c,new LifecycleReadAdmission(manifest.CatalogId,until));
-                var context=(await new KnowledgeStore(manifest.CatalogId).Read(c,source.ContextId,t)).Context;
+                var context=(await new KnowledgeResolver(manifest.CatalogId).Read(c,source.ContextId,t)).Context;
                 await PinnedContext.BindExact(c,manifest.CatalogId,context,t);
                 await TradingContext.Bind(c,manifest.CatalogId,context,frame.At,t);
                 var positions=await FuturesOptionPositions.Read(c,manifest,[],[],t,trades:System.Collections.Immutable.ImmutableHashSet.Create(request.Target.ScopeId));

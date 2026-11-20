@@ -47,7 +47,7 @@ internal sealed class SettlementPreview(PreviewDatabase database,PpaStore trades
     {
         if(request.Original is null || request.Policies is null || request.Mappings is not {Length:>=1 and <=MonthlyGrossPreview.MaximumBindings} || request.Mappings.Any(m=>m is null))
             throw Error("manifest","Supply explicit original membership, policies and bounded complete successor mappings.");
-        var capture=await new KnowledgeStore(Catalog).Capture(connection,new(frame.Time.Date.ToString("yyyy-MM-dd"),null,"current"),ct);
+        var capture=await new KnowledgeResolver(Catalog).Capture(connection,new(frame.Time.Date.ToString("yyyy-MM-dd"),null,"current"),ct);
         await using var command=ScheduleStore.Command(connection,"SELECT settlement_data.plan_payment_lineage($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb)::text",
             Catalog,request.TradeId,request.ExpectedRevision,capture.Context.ContextId!.Value,frame.At,Json(request.Original),Json(request.Mappings),Json(request.Policies));
         return JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
@@ -108,7 +108,7 @@ internal sealed class SettlementPreview(PreviewDatabase database,PpaStore trades
         var required=plan.Contributions.SelectMany(r=>MonthlyGrossPreview.Volume(r.Binding).Sources.Select(s=>new{source=s.Code,start=r.Interval.Start,end=r.Interval.End,
             stage=PpaQuantitiesStore.Source(data,s.Code).MeteredStage==QuantityStage.Generated?"generated":"delivered"})).Distinct().OrderBy(r=>r.start).ThenBy(r=>r.source,StringComparer.Ordinal).ToArray();
         if(required.Length>MonthlyGrossPreview.MaximumMeterCells)throw Error("limit","The full asset-cell manifest exceeds the request bound.");
-        await MarketContextStore.Bind(connection,Catalog,(await new KnowledgeStore(Catalog).Read(connection,context,ct)).Context,ct);
+        await MarketContextStore.Bind(connection,Catalog,(await new KnowledgeResolver(Catalog).Read(connection,context,ct)).Context,ct);
         // A bounded batch of exact native cells. The existing selector admits every
         // cell independently and retains its no-fallback finality semantics.
         var evidence=await PreviewDatabase.Rows(connection,"SELECT settlement_data.read_meter_finality($1,$2,r.source,r.stage,r.start,r.\"end\",$3,$4)::text FROM jsonb_to_recordset($5::jsonb) r(source text,stage text,start timestamptz,\"end\" timestamptz)",

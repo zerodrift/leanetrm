@@ -62,7 +62,8 @@ def checks(f, booking, booked, accepted, operation, original_context, advance, r
     # from an earlier business-time view; its previous revision cannot revive.
     fee_id = accepted['feeId']
     payment_key = f.query(f"SELECT business_key FROM trading.gas_owned_fee_payments WHERE(catalog_id,fee_id,revision)=('{catalog}','{fee_id}',1);")
-    payment_cutoff = f.query(f"SELECT known_at FROM market_data.temporal_contexts WHERE(catalog_id,id)=('{catalog}','{f.capture()}');")
+    from native_read_transport import captured_input
+    payment_cutoff = captured_input(f.query,f.capture())['known_at']
     command('fee_payment', dict(expectedVersion=read()['stateVersion'], feeId=fee_id, businessKey=payment_key,
         expectedRevision=1, paidAt='2020-12-23T11:00:00Z', amount='-5', evidence='Synthetic corrected bank payment time'))
     f.at, f.day = '2020-12-20T16:00:00Z', '2020-12-20'
@@ -86,7 +87,7 @@ def checks(f, booking, booked, accepted, operation, original_context, advance, r
     assert read()['balances']['outstandingPrincipal'] == '0'
 
     context = f.capture()
-    cutoff = f.query(f"SELECT known_at FROM market_data.temporal_contexts WHERE(catalog_id,id)=('{catalog}','{context}');")
+    cutoff = captured_input(f.query,context)['known_at']
     assert not read(context)['reconciliationRequired']
     original_evidence = f.query(f"SELECT source_key FROM trading.gas_owned_evidence WHERE(catalog_id,id)=('{catalog}','{partial_return['evidenceId']}');")
     corrected = f.evidence(booking['ownedAccountId'], original_evidence, 'loan_return', '240', '2020-12-20T12:00:00Z', revision=1)

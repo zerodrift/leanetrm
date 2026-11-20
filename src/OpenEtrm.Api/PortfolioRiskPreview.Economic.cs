@@ -34,7 +34,7 @@ public sealed partial class PortfolioRiskPreview
         if(frame.ContextId is not {} contextId||request.BookIds.IsDefault||request.PortfolioIds.IsDefault)
             throw new MarketDataException("risk_economic_scope","Select the shared opening source and explicit books.");
         var hasGas=await FuturesOptionPhysicalPermissionAdmission.TryCapture(connection,database,ct);
-        var context=(await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,contextId,ct)).Context;
+        var context=(await new KnowledgeResolver(database.Manifest.CatalogId).Read(connection,contextId,ct)).Context;
         var directory=await BookScope.Read(connection,database.Manifest.CatalogId,ct);
         var books=BookScope.Select(directory,request.BookIds,request.PortfolioIds).Select(b=>b.Id("id")).Order().ToImmutableArray();
         if(books.IsEmpty)throw new MarketDataException("risk_economic_scope","Select visible books before preparing lifecycle risk.");

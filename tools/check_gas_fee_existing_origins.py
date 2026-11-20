@@ -38,7 +38,7 @@ def _record(query,manifest):
         token=query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
             f"'{manifest['identityIssuer']}','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{statement}COMMIT;")
-    def capture():return call(f"SELECT security.capture_date_context('{catalog}','{at[:10]}',NULL);")
+    def capture():return call(f"SELECT security.resolve_operation_context('{catalog}','{at[:10]}',NULL);")
     def record(account,action,body,policy=None,revision=None):
         operation=str(uuid4());context=capture()
         result=json.loads(call(f"SELECT security.record_gas_owned('{catalog}','{operation}','{action}','{account}',{_literal(body)},'{at}','{context}',"

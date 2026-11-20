@@ -1,5 +1,5 @@
 """Turns in the database (docs/ai-assistant.md §5.1, §7.1–§7.6, §8): an ask in the person's own context, admission, the
-pinned-context record and the reserve, the worker's writes under the turn's token, a turn's calls, their retries and its
+owned input record, the worker's writes under the turn's token, a turn's calls, their retries and its
 tool steps, the source set and its rechecks, earlier turns' inclusion, cancellation and the sources that request it,
 recovery at a worker start, the owner's reads and the Providers directory's tests; in SQL, playing the asking request
 and the worker; owned synthetic preview only."""
@@ -732,9 +732,9 @@ def run_checks(url, query, psql, manifest, environment, dotnet):
         sql = f'PERFORM {ask_sql(Turn(), profile, **request)};'
         contexts.runtime(profile, expect(sql, code) if code == '42501' else refused(sql, code))
 
-    def pin_sql(turn, pins=None, reserve=64, token=None):
+    def pin_sql(turn, pins=None, token=None):
         return (f"assistant.pin_turn('{turn.id}',{bytea(token or turn.token)},'{EFFECTIVE}',"
-                f"{'NULL' if pins is None else literal(json.dumps(pins)) + '::jsonb'},{reserve})")
+                f"{'NULL' if pins is None else literal(json.dumps(pins)) + '::jsonb'})")
 
     def pin(turn, profile='trader', **arguments):
         return as_person(profile, f'SELECT {pin_sql(turn, **arguments)}::text;')
@@ -824,7 +824,7 @@ def run_checks(url, query, psql, manifest, environment, dotnet):
         return started
 
     def contexts_count():
-        return int(query(f"SELECT count(*) FROM market_data.temporal_contexts WHERE catalog_id='{catalog}';"))
+        return int(query(f"SELECT count(*) FROM assistant.turns WHERE catalog_id='{catalog}' AND input_known_at IS NOT NULL;"))
 
     def current(agent_state):
         return next(a for a in admin.call(AGENTS)['agents'] if a['id'] == agent_state['id'])
@@ -900,13 +900,9 @@ def run_checks(url, query, psql, manifest, environment, dotnet):
         contexts.runtime(profile, refused(f'PERFORM {pin_sql(first, token=token)};', 'agent_runtime_unavailable'))
     check('only the asking person presenting its token may record the selected context', query(RECORDS) == records)
     before = contexts_count()
-    contexts.runtime('trader', refused(f'PERFORM {pin_sql(first, reserve=4096 - before)};', 'knowledge_budget_reserved'))
-    check("an ask over working data is refused while fewer than the reserve of the catalog's retained contexts would remain",
-          query(RECORDS) == records and contexts_count() == before)
-    pinned = pin(first, reserve=4095 - before)['turn']
-    record = query(f"SELECT t.context_id||' '||(t.cutoff=c.known_at)||' '||(t.pins IS NULL) FROM assistant.turns t "
-                   f"JOIN market_data.temporal_contexts c ON(c.catalog_id,c.id)=(t.catalog_id,t.context_id) WHERE t.id='{first.id}';")
-    check('working data is captured once into the pinned record with its cutoff, leaving the reserve',
+    pinned = pin(first)['turn']
+    record = query(f"SELECT context_id||' '||(cutoff=input_known_at)||' '||(pins IS NULL) FROM assistant.turns WHERE id='{first.id}';")
+    check('working data is recorded once with the turn-owned original cutoff',
           pinned['context']['contextId'] == record.split()[0] and record.endswith('true true') and contexts_count() == before + 1, record)
     contexts.runtime('trader', refused(f'PERFORM {pin_sql(first)};', 'turn_state_conflict'))
     check('the pinned record is written once', contexts_count() == before + 1)
@@ -1455,7 +1451,8 @@ def run_checks(url, query, psql, manifest, environment, dotnet):
     retained = query(f"SELECT context_id FROM assistant.turns WHERE id='{first.id}';")
     frame = str(uuid4())
     observation = str(uuid4())
-    business_date = query(f"SELECT effective_on FROM market_data.temporal_contexts WHERE id='{retained}';")
+    from native_read_transport import captured_input
+    business_date = captured_input(query,retained)['effective_on']
     pins = {'at': '2020-12-18T12:00:00Z', 'businessDate': business_date, 'close': None,
             'originCloseId': None, 'ppaBundle': None, 'source': None, 'sourceInputs': None, 'curveContracts': {'test_curve': []}, 'frameId': frame, 'frozenObservationIds': [observation],
             'name': 'Synthetic certified inputs', 'observationIds': [observation], 'resolvesLatestCorrection': True,
@@ -1477,7 +1474,7 @@ def run_checks(url, query, psql, manifest, environment, dotnet):
     check("a retained context is pinned as named with the As of frame's exact pins, capturing nothing: an instant this database reads, a "
           'name, its observations and the ones it froze among them, its curve-contract and swap market selections, all as canonical uuids, '
           'and whether it resolves the latest correction',
-          (pinned['context']['contextId'], pinned['context']['frameId']) == (retained, frame) and contexts_count() == before
+          (pinned['context']['contextId'], pinned['context']['frameId']) == (retained, frame) and contexts_count() == before+1
           and json.loads(query(f"SELECT pins::text FROM assistant.turns WHERE id='{as_of.id}';")) == pins
           and query('SELECT assistant.is_uuid_array(NULL);') == 'f', pinned)
     end(as_of, 'failed', 'request_cancelled')
@@ -1490,7 +1487,7 @@ def run_checks(url, query, psql, manifest, environment, dotnet):
     ask(sized, mode='retained', context=retained, frame=frame)
     initial_policy = next(p['current'] for p in admin.call('settings/operating-policies')['policies'] if p['kind']=='assistant')
     reduced_policy = admin.call('settings/operating-policies', {'operationId':str(uuid4()), 'kind':'assistant', 'expectedVersion':initial_policy['version'],
-        'values':{**initial_policy['values'], 'pinBytes':1024, 'retainedContextReserve':1, 'toolResultRows':1, 'toolResultBytes':1024}})
+        'values':{**initial_policy['values'], 'pinBytes':1024, 'toolResultRows':1, 'toolResultBytes':1024}})
     contexts.runtime('trader', refused(f'PERFORM {pin_sql(sized, pins=beyond)};', 'turn_input'))
     as_person('trader', f'SELECT {pin_sql(sized, pins=large)}::text;')
     sizes = query(f"SELECT octet_length(pins::text)||','||octet_length({literal(json.dumps(beyond))}::jsonb::text) FROM assistant.turns "
@@ -1499,17 +1496,17 @@ def run_checks(url, query, psql, manifest, environment, dotnet):
     check("an As of frame's pins of more than 64 KiB and up to 256 KiB are kept as given, and larger ones are refused",
           65536 < kept <= 262144 < refused_size and json.loads(query(f"SELECT pins::text FROM assistant.turns WHERE id='{sized.id}';")) == large, sizes)
     admitted_limits = start(sized)['started']['operatingLimits']
-    check('a turn admitted before a policy change pins its original byte, reserve and output limits',
+    check('a turn admitted before a policy change pins its original byte and output limits',
           admitted_limits['revisionId']==initial_policy['revisionId'] and admitted_limits['pinBytes']==262144
-          and admitted_limits['retainedContextReserve']==64 and admitted_limits['toolResultRows']==500 and admitted_limits['toolResultBytes']==65536)
+          and 'retainedContextReserve' not in admitted_limits and admitted_limits['toolResultRows']==500 and admitted_limits['toolResultBytes']==65536)
     end(sized, 'failed', 'request_cancelled')
     under_new_policy = Turn()
     ask(under_new_policy, mode='retained', context=retained, frame=frame)
-    contexts.runtime('trader', refused(f'PERFORM {pin_sql(under_new_policy,pins=large,reserve="NULL")};', 'turn_input'))
-    pin(under_new_policy,pins=pins,reserve='NULL')
+    contexts.runtime('trader', refused(f'PERFORM {pin_sql(under_new_policy,pins=large)};', 'turn_input'))
+    pin(under_new_policy,pins=pins)
     next_started = start(under_new_policy)['started']
     check('a new turn applies the revised pin and output budgets without changing the older admitted turn',
-          next_started['operatingLimits']['revisionId']==reduced_policy['revisionId'] and next_started['operatingLimits']['retainedContextReserve']==1)
+          next_started['operatingLimits']['revisionId']==reduced_policy['revisionId'] and next_started['operatingLimits']['toolResultRows']==1)
     with tempfile.TemporaryDirectory(prefix='openetrm-admitted-output-') as owned:
         output = Path(owned)/'admitted.json';output.write_text(json.dumps(next_started['operatingLimits']))
         subprocess.run([str(dotnet),'run','--no-build','--project','tests/OpenEtrm.Api.Checks','--','--tool-output-limits',str(output)],cwd=ROOT,check=True)
@@ -2159,17 +2156,18 @@ def run_checks(url, query, psql, manifest, environment, dotnet):
     check("events never change, a conversation changes only what its owner read and only forward, a running turn's answer only grows, a "
           'refused publication stays recorded and its turn never completes, and a turn never moves backward or changes once ended')
 
-    # A record write counts the reserve only after a capture in progress commits.
-    reserving = Turn()
-    ask(reserving)
+    # A pin waits for publication and constructs its own runtime source.
+    waiting_turn = Turn()
+    ask(waiting_turn)
     occupied = contexts_count()
     thread, answers = holding(psql, environment, f"SET SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{issued('risk')}');"
-                              f"SELECT security.capture_date_context('{catalog}','{EFFECTIVE}',NULL)",
-                              lambda: waits(lambda: contexts.runtime('trader', refused(f'PERFORM {pin_sql(reserving, reserve=4095 - occupied)};',
-                                                                                        'knowledge_budget_reserved')), 'pin_turn'), ending='COMMIT')
+                              f"SELECT security.resolve_operation_context('{catalog}','{EFFECTIVE}',NULL);SELECT security.finish_operation_read()",
+                              lambda: waits(lambda: pin(waiting_turn), 'pin_turn'), ending='COMMIT')
     thread.join(timeout=15)
-    check('a record write waiting for a capture in progress counts it once committed, so the reserve holds',
-          'answer' in answers and contexts_count() == occupied + 1 and state(reserving) == 'queued:-', answers)
+    check('a record write waiting for publication records its own input once',
+          'answer' in answers and contexts_count() == occupied + 1 and state(waiting_turn) == 'queued:-', answers)
+    end(waiting_turn,'failed','request_cancelled')
+    reserving=Turn();ask(reserving)
 
     # An ask or record write whose authority lapses while it waits is refused at its own recheck, writing nothing.
     records, before = query(RECORDS), contexts_count()

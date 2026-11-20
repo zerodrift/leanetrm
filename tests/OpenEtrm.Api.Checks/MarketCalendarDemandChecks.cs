@@ -27,6 +27,16 @@ internal static class MarketCalendarDemandChecks
             // The built-in frame is a recorded close (D334), read as the close it was seeded as.
             var seeded=database.Manifest.Frames.Single(frame=>frame.At==DateTimeOffset.Parse("2020-12-18T16:00:00Z")).CloseId!.Value;
             var frame=await MarketCloses.Frame(connection,database.Manifest.CatalogId,seeded,null,ct);
+            var priorPage=WorkspaceReadContext.Page.Value;var priorReads=ReadReferences.Operation.Value;
+            try
+            {
+                WorkspaceReadContext.Page.Value=new PreviewSession(database.Manifest){Profile="viewer"};
+                var reads=new ReadReferences.Scope();ReadReferences.Operation.Value=reads;
+                for(var index=0;index<9;index++)await RateCurveResolver.Load(connection,metadata,frame,"interest_rates",ct);
+                if(!reads.References.IsEmpty)throw new Exception("Internal rate-tenor inputs must not spend browser read-reference slots.");
+            }
+            finally{WorkspaceReadContext.Page.Value=priorPage;ReadReferences.Operation.Value=priorReads;}
+            Console.WriteLine("PASS nine independent rate-tenor loads preserve complete internal inputs without browser proof quotas");
             var json=new JsonSerializerOptions(JsonSerializerDefaults.Web);
             var template=CustomCurves.Templates(metadata).Select(value=>JsonSerializer.SerializeToElement(value,json)).Single(row=>row.GetProperty("code").GetString()=="ng_average");
             var definition=template.GetProperty("definition").Deserialize<RecipeDefinition>(json)!;
@@ -39,7 +49,7 @@ internal static class MarketCalendarDemandChecks
             await using(var save=ScheduleStore.Command(connection,"SAVEPOINT calendar_demand"))await save.ExecuteNonQueryAsync(ct);
             try
             {
-                var context=(await new KnowledgeStore(database.Manifest.CatalogId).Capture(connection,new("2020-12-18",null,"current"),ct)).Context;
+                var context=(await new KnowledgeResolver(database.Manifest.CatalogId).Capture(connection,new("2020-12-18",null,"current"),ct)).Context;
                 await PinnedContext.BindExact(connection,database.Manifest.CatalogId,context,ct);
                 var demand=await CustomCurves.ObservationDemand(connection,database,definition,metadata,frames[0] with{ContextId=context.ContextId},
                     references.Sources,references.Calendars,references.Schedules,context,ct);

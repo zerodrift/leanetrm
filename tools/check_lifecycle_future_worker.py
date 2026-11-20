@@ -31,7 +31,7 @@ def checks(query,manifest,*,execution_price='3',daily_at='2020-12-21T16:00:00Z',
     def call(sql,profile='trader'):
         token=query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','{profile}','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}COMMIT;")
-    def capture():return call(f"SELECT security.capture_date_context('{catalog}','2020-12-18',NULL);")
+    def capture():return call(f"SELECT security.resolve_operation_context('{catalog}','2020-12-18',NULL);")
     book='d1000000-0000-0000-0000-000000000001';contract='50000000-0000-0000-0000-000000000001'
     booked=json.loads(call(f"SELECT security.book_futures_with_parties('{catalog}','{uuid4()}','{book}','{manifest['revisionId']}','future','{contract}','2020-12-18T15:00:00Z',NULL,2,{execution_price},'contract_lot_execution_pnl_v2',NULL,NULL,NULL,{literal(trade_booking())})::text;"))
     final=query(f"SELECT to_char(expiry_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') FROM market_data.contracts WHERE(catalog_id,revision_id,id)=('{catalog}','{manifest['revisionId']}','{contract}');")

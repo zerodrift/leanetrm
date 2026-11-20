@@ -1,3 +1,4 @@
+import {attachReadReferences,readReferences,retainedKnowledge} from './read-references.js';
 import {tradingInstrumentTypes,type TradingInstrumentType} from './trading-instrument-types.js';
 import type {FactsContext} from './position-facts.js';
 import {validTimeZone} from './preferences.js';
@@ -27,25 +28,25 @@ export function requirePositionWindowSelection(selection:PositionWindowSelection
 export function positionWindowUrl(source:string,selection:PositionWindowSelection):string{
  requirePositionWindowSelection(selection);const url=new URL('/position.html',source);
  if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw Error(invalid);
- url.hash=new URLSearchParams({...(selection.viewId?{view:selection.viewId}:{}),snapshot:selection.snapshotId,context:selection.context.contextId,effective:selection.context.effectiveOn,known:selection.context.knownAt,
+ url.hash=new URLSearchParams({...(selection.viewId?{view:selection.viewId}:{}),...(Object.keys(readReferences(selection.context)).length?{read:JSON.stringify(readReferences(selection.context))}:{}),snapshot:selection.snapshotId,context:selection.context.contextId,effective:selection.context.effectiveOn,known:selection.context.knownAt,
   asOf:selection.asOf,trade:selection.tradeId,binding:selection.bindingId,revision:String(selection.revision),type:selection.instrumentType,zone:selection.zone,example:selection.example,lifecycle:selection.lifecycle}).toString();
  return url.href;
 }
 
 export function readPositionWindowUrl(source:string):PositionWindowSelection{
  const url=new URL(source),values=new URLSearchParams(url.hash.slice(1));
- const expected=values.has('view')?[...fields,'view']:fields;
+ const expected=[...fields,...values.has('view')?['view']:[],...values.has('read')?['read']:[]];
  if(url.search||values.size!==expected.length||[...values.keys()].some(key=>!expected.includes(key))||fields.some(key=>values.getAll(key).length!==1))throw Error(invalid);
  const value=(key:string)=>values.get(key)!;
  if(!/^[1-9]\d{0,2}$/.test(value('revision')))throw Error(invalid);
- return requirePositionWindowSelection({...(values.has('view')?{viewId:value('view')}:{}),snapshotId:value('snapshot'),context:{contextId:value('context'),effectiveOn:value('effective'),knownAt:value('known')},
+ return requirePositionWindowSelection({...(values.has('view')?{viewId:value('view')}:{}),snapshotId:value('snapshot'),context:attachReadReferences({contextId:value('context'),effectiveOn:value('effective'),knownAt:value('known')},values.has('read')?value('read'):null),
   asOf:value('asOf'),tradeId:value('trade'),bindingId:value('binding'),revision:Number(value('revision')),instrumentType:value('type') as PositionWindowSelection['instrumentType'],
   zone:value('zone'),example:value('example') as PositionWindowSelection['example'],lifecycle:value('lifecycle') as PositionWindowSelection['lifecycle']});
 }
 
 export function positionWindowRequest(selection:PositionWindowSelection){
  requirePositionWindowSelection(selection);
- return {context:{snapshotId:selection.snapshotId,convention:'trading_workspace_v1',knowledgeMode:'retained' as const,contextId:selection.context.contextId},
+ return {context:{snapshotId:selection.snapshotId,convention:'trading_workspace_v1',...retainedKnowledge(selection.context)},
   tradeId:selection.tradeId,bindingId:selection.bindingId,revision:selection.revision,instrumentType:selection.instrumentType};
 }
 

@@ -62,7 +62,7 @@ public sealed record PinnedContext
             await cut.Bind(connection,catalog,context,ct);
             return;
         }
-        var exact=await new KnowledgeStore(catalog).Retained(connection,context,ct);
+        var exact=await new KnowledgeResolver(catalog).Retained(connection,context,ct);
         await MarketContextStore.Bind(connection,catalog,exact,ct);
     }
     internal static MarketDataException Missing()=>new("snapshot_missing","Select a saved input snapshot from this preview session.");

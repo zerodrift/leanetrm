@@ -7,6 +7,7 @@ import time
 from urllib.error import HTTPError
 from urllib.request import Request, build_opener, HTTPCookieProcessor
 from uuid import UUID, uuid4
+from preview_client import PreviewClient
 
 
 def run_checks(query, psql, environment, manifest, url):
@@ -41,15 +42,23 @@ def run_checks(query, psql, environment, manifest, url):
         assert process.returncode == 0, error
         return output.strip()
     def capture(token=None):
-        return query(runtime(token or issue('viewer'), f"SELECT security.capture_date_context('{catalog}','2021-02-15',NULL);"))
+        return query(runtime(token or issue('viewer'), f"SELECT security.resolve_operation_context('{catalog}','2021-02-15',NULL);"))
+    def collect_capture(day,cutoff):
+        return (f"DO $$BEGIN PERFORM security.resolve_operation_context('{catalog}','{day}','{cutoff}');END$$;"
+                "SELECT row_to_json(s) FROM security.operation_read_inputs s;SELECT security.finish_operation_read();")
+    def receive_capture(output):
+        source=json.loads(output.strip())
+        query.read_sources[source['id']]=source
+        return source
     columns = 'catalog_id,schedule_id,version,generation,state,definition,selection,effective_from,effective_to,engine_version,calendar_catalog_id,calendar_revision_id,calendar_code,publication_order,published_at,publication_xid'
     try:
         check('commit tracking explicitly enabled in owned preview', query('SHOW track_commit_timestamp;') == 'on')
-        capture()
-        check('all new knowledge stores force scoped RLS', query("SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='market_data' AND c.relname IN ('knowledge_clocks','knowledge_publications','temporal_contexts') AND c.relrowsecurity AND c.relforcerowsecurity;") == '3')
-        for table in ['knowledge_clocks', 'knowledge_publications', 'temporal_contexts', 'date_schedule_facts']:
+        initial_input=query.read_sources[capture()]
+        check('knowledge certification stores force scoped RLS', query("SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='market_data' AND c.relname IN ('knowledge_clocks','knowledge_publications') AND c.relrowsecurity AND c.relforcerowsecurity;") == '2')
+        check('financial context store is absent',query("SELECT to_regclass('market_data.temporal_contexts') IS NULL;")=='t')
+        for table in ['knowledge_clocks', 'knowledge_publications', 'date_schedule_facts']:
             check('unbound runtime sees no '+table, query('SET SESSION AUTHORIZATION preview_runtime; SELECT count(*) FROM market_data.'+table+';') == '0')
-        for table in ['knowledge_publications', 'temporal_contexts']:
+        for table in ['knowledge_publications']:
             query(runtime(issue('viewer'), expect(f"DELETE FROM market_data.{table};", '42501')))
             check('runtime cannot rewrite '+table)
         certificate = query(f"SELECT publication_order FROM market_data.knowledge_publications WHERE catalog_id='{catalog}' LIMIT 1;")
@@ -73,16 +82,17 @@ def run_checks(query, psql, environment, manifest, url):
         capture_process = connect(f"SET SESSION AUTHORIZATION preview_runtime; BEGIN; SELECT security.use_context('{capture_token}');", 'temporal_older_capture')
         publisher = connect(f"SET SESSION AUTHORIZATION preview_runtime; BEGIN; SELECT security.use_context('{issue()}'); SELECT security.publish_date_schedule('{catalog}','{schedule}',{version},1);", 'temporal_newer_publisher')
         cutoff = query("SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"');")
-        capture_process.stdin.write(f"SELECT security.capture_date_context('{catalog}','2021-02-15','{cutoff}'); COMMIT;\n"); capture_process.stdin.flush()
+        capture_process.stdin.write(collect_capture('2021-02-15',cutoff)+"COMMIT;\n"); capture_process.stdin.flush()
         wait_lock('temporal_older_capture')
         check('capture waits until in-flight publisher has committed', capture_process.poll() is None)
         finish(publisher)
         output, error = capture_process.communicate(timeout=10)
         check('capture admitted before a newer-XID publisher certifies successfully', capture_process.returncode == 0)
         if capture_process.returncode: raise AssertionError(error)
-        context_id = str(UUID(output.strip()))
-        check('commit after requested cutoff cannot leak into earlier known time', query(f"SELECT known_through FROM market_data.temporal_contexts WHERE catalog_id='{catalog}' AND id='{context_id}';") == old_head)
-        check('frozen context stores exact effective and knowledge coordinates', query(f"SELECT effective_on='2021-02-15' AND known_at='{cutoff}'::timestamptz FROM market_data.temporal_contexts WHERE catalog_id='{catalog}' AND id='{context_id}';") == 't')
+        source=receive_capture(output)
+        check('commit after requested cutoff cannot leak into earlier known time', str(source['schedule_prefix']) == old_head)
+        from datetime import datetime
+        check('runtime read returns exact effective and knowledge coordinates',source['effective_on']=='2021-02-15' and datetime.fromisoformat(source['known_at'])==datetime.fromisoformat(cutoff))
         # Two true publications in one transaction have exactly tied commit times.
         owner_token = issue(login='preview_owner')
         sql = f"BEGIN; SELECT security.use_context('{owner_token}');"
@@ -96,7 +106,7 @@ def run_checks(query, psql, environment, manifest, url):
         locker = connect('BEGIN; SELECT pg_advisory_xact_lock(730849102);', 'temporal_expiry_lock')
         token = issue('viewer', seconds=2)
         waiter = subprocess.Popen(psql+['-v','VERBOSITY=verbose'], env={**environment,'PGAPPNAME':'temporal_expiry_waiter'}, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        children.append(waiter);waiter.stdin.write(runtime(token,f"SELECT security.capture_date_context('{catalog}','2021-02-15',NULL);"));waiter.stdin.close();waiter.stdin=None
+        children.append(waiter);waiter.stdin.write(runtime(token,f"SELECT security.resolve_operation_context('{catalog}','2021-02-15',NULL);"));waiter.stdin.close();waiter.stdin=None
         wait_lock('temporal_expiry_waiter')
         for _ in range(100):
             if query(f"SELECT clock_timestamp()>expires_at FROM security.request_contexts WHERE id='{token}';") == 't': break
@@ -105,17 +115,10 @@ def run_checks(query, psql, environment, manifest, url):
         finish(locker);_,error=waiter.communicate(timeout=10)
         check('knowledge capture rechecks authority after lock waits', waiter.returncode != 0 and '42501' in error)
         # Current revocation blocks both HTTP replay and direct historical RLS.
-        opener = build_opener(HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        client=PreviewClient(url)
         def call_api(path, body=None, expected=200):
-            headers={'Origin':url}
-            if body is not None: headers.update({'Content-Type':'application/json','X-Preview-CSRF':csrf})
-            request=Request(url+'/api/'+path, data=None if body is None else json.dumps(body).encode(), headers=headers)
-            try: response=opener.open(request,timeout=10)
-            except HTTPError as error: response=error
-            data=json.loads(response.read())
-            assert response.code == expected,(path,response.code,data)
-            return data
-        csrf=call_api('bootstrap')['csrfToken'];call_api('profile',{'profile':'viewer'})
+            return client.call(path,body,expected=expected,timeout=10)
+        client.bootstrap();call_api('profile',{'profile':'viewer'})
         snapshot=call_api('date-schedules/context',{'effectiveOn':'2021-02-15','mode':'current','knownAt':None})['context']
         baseline=call_api('date-schedules/resolve',{'expression':'oe.ng','context':snapshot})
         actor="(SELECT principal_id FROM security.identity_bindings WHERE issuer='https://preview.invalid' AND subject='viewer')"
@@ -123,11 +126,14 @@ def run_checks(query, psql, environment, manifest, url):
         try:
             call_api('date-schedules/resolve',{'expression':'oe.ng','context':snapshot},expected=403)
             check('retained historical context cannot restore revoked HTTP permission')
-            check('revoked runtime cannot read even an existing context receipt', query(runtime(issue('viewer'),f"SELECT count(*) FROM market_data.temporal_contexts WHERE catalog_id='{catalog}';")).strip() == '0')
+            denied=(f"PERFORM security.register_read_source('{catalog}','{initial_input['id']}','{initial_input['effective_on']}',"
+                    f"'{initial_input['known_at']}',{initial_input['schedule_prefix']},'{initial_input['system_id']}',{initial_input['timeline']});")
+            query.raw(runtime(issue('viewer'),expect(denied,'42501')))
+            check('revoked runtime cannot register previously issued exact inputs')
         finally: query(f"UPDATE security.role_grants SET revoked=false WHERE principal_id={actor};")
         check('restored current permission replays the exact retained result', call_api('date-schedules/resolve',{'expression':'oe.ng','context':snapshot}) == baseline)
         # One context restricts raw market/reference reads as well as HTTP adapters.
-        ctx = query(runtime(issue('viewer'), f"SELECT security.capture_date_context('{catalog}','2020-12-17',NULL);"))
+        ctx = query(runtime(issue('viewer'), f"SELECT security.resolve_operation_context('{catalog}','2020-12-17',NULL);"))
         bind = f"SELECT security.use_market_context('{catalog}','{ctx}');"
         visible = query(runtime(issue('viewer'), bind+f"SELECT count(*) FROM market_data.observations WHERE catalog_id='{catalog}' AND observed_at>='2020-12-18';"))
         check('bound temporal RLS hides later market observation dates', visible == '0')
@@ -169,10 +175,10 @@ def run_checks(query, psql, environment, manifest, url):
         check('TOU products are current definitions: visible now, invisible under a historical market context',
               int(query(runtime(issue('viewer'),"SELECT count(*) FROM market_data.tou_product_versions;"))) >= 7
               and query(runtime(issue('viewer'),bind+"SELECT count(*) FROM market_data.tou_product_versions;")) == '0')
-        out_of_period = query(runtime(issue('viewer'),f"SELECT security.capture_date_context('{catalog}','2019-01-01',NULL);"))
+        out_of_period = query(runtime(issue('viewer'),f"SELECT security.resolve_operation_context('{catalog}','2019-01-01',NULL);"))
         check('definition applicability excludes bundles outside their business interval', query(runtime(issue('viewer'),f"SELECT security.use_market_context('{catalog}','{out_of_period}'); SELECT count(*) FROM market_data.revisions;")) == '0')
         check('reference closure cannot fall back outside definition applicability', query(runtime(issue('viewer'),f"SELECT security.use_market_context('{catalog}','{out_of_period}'); SELECT count(*) FROM ref_data.units;")) == '0')
-        for table in ['revision_periods','knowledge_events','market_knowledge_receipts','market_contexts']:
+        for table in ['revision_periods','knowledge_events','market_knowledge_receipts']:
             check('market temporal table forces scoped RLS: '+table, query(f"SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE oid='market_data.{table}'::regclass;") == 't')
         # received_at precedes commit. Pause an actual import before committing,
         # ask for a cutoff while it is in flight, and prove it stays excluded.
@@ -183,13 +189,13 @@ def run_checks(query, psql, environment, manifest, url):
         requested = query('SELECT clock_timestamp()::text;')
         waiter = subprocess.Popen(psql,env={**environment,'PGAPPNAME':'market_cutoff_waiter'},stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
         children.append(waiter)
-        waiter.stdin.write(runtime(issue('viewer'),f"SELECT security.capture_date_context('{catalog}','2020-12-17','{requested}');"));waiter.stdin.close();waiter.stdin=None
+        waiter.stdin.write(runtime(issue('viewer'),collect_capture('2020-12-17',requested)));waiter.stdin.close();waiter.stdin=None
         wait_lock('market_cutoff_waiter');finish(imported)
         output,error=waiter.communicate(timeout=10);assert waiter.returncode==0,error
-        old_context=output.strip()
+        old_context=receive_capture(output)['id']
         count=query(runtime(issue('viewer'),f"SELECT security.use_market_context('{catalog}','{old_context}'); SELECT count(*) FROM market_data.observations WHERE id='{new_id}';"))
         check('in-flight import is excluded even when received_at precedes cutoff',count=='0')
-        now_context=query(runtime(issue('viewer'),f"SELECT security.capture_date_context('{catalog}','2020-12-17',NULL);"))
+        now_context=query(runtime(issue('viewer'),f"SELECT security.resolve_operation_context('{catalog}','2020-12-17',NULL);"))
         check('later cutoff includes the genuinely committed correction',query(runtime(issue('viewer'),f"SELECT security.use_market_context('{catalog}','{now_context}'); SELECT count(*) FROM market_data.observations WHERE id='{new_id}';"))=='1')
         # Expiry while blocked must roll back both observation and event assertion.
         locker=connect('BEGIN; SELECT pg_advisory_xact_lock(730849102);','market_expiry_lock')
@@ -281,13 +287,13 @@ def run_checks(query, psql, environment, manifest, url):
         timeline=query(f"SELECT timeline_id FROM market_data.knowledge_clocks WHERE catalog_id='{catalog}';")
         query(f"UPDATE market_data.knowledge_clocks SET timeline_id=timeline_id+1 WHERE catalog_id='{catalog}';")
         try:
-            query(runtime(issue('viewer'),expect(f"PERFORM security.capture_date_context('{catalog}','2021-02-15',NULL);",'P0001','knowledge_timeline')))
+            query(runtime(issue('viewer'),expect(f"PERFORM security.resolve_operation_context('{catalog}','2021-02-15',NULL);",'P0001','knowledge_timeline')))
             check('fresh certification rejects an unqualified database timeline')
         finally: query(f"UPDATE market_data.knowledge_clocks SET timeline_id={timeline} WHERE catalog_id='{catalog}';")
         watermark=query(f"SELECT certified_through::text FROM market_data.knowledge_clocks WHERE catalog_id='{catalog}';")
         query(f"UPDATE market_data.knowledge_clocks SET certified_through='2099-01-01' WHERE catalog_id='{catalog}';")
         try:
-            query(runtime(issue('viewer'),expect(f"PERFORM security.capture_date_context('{catalog}','2021-02-15',NULL);",'P0001','knowledge_clock')))
+            query(runtime(issue('viewer'),expect(f"PERFORM security.resolve_operation_context('{catalog}','2021-02-15',NULL);",'P0001','knowledge_clock')))
             check('clock regression cannot reopen a certified knowledge interval')
         finally: query(f"UPDATE market_data.knowledge_clocks SET certified_through='{watermark}' WHERE catalog_id='{catalog}';")
         print(f'{passed} temporal storage/security checks passed.',flush=True)

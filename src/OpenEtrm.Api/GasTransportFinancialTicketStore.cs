@@ -41,7 +41,7 @@ internal sealed partial class GasTransportFinancialTicketStore(PreviewDatabase d
             var body=GasTransportFinancialTicket.Request(draft,frame.Id,pinned.ContextId!.Value,knowledgeMode,operation,definition);
             if(selected.Data.ReferenceRevision!=new ReferenceRevision(body.ValuationReferenceCatalogId,body.ValuationReferenceRevisionId))throw GasTransportFinancialStore.Source();
             var capacity=await GasTransportFinancialCapacity.ReadOne(c,database,Context(pinned),body.EntitlementId,ct);
-            var known=(await new KnowledgeStore(database.Manifest.CatalogId).Read(c,pinned.ContextId.Value,ct)).Context;
+            var known=(await new KnowledgeResolver(database.Manifest.CatalogId).Read(c,pinned.ContextId.Value,ct)).Context;
             return new PreparedBooking(body,selected.Frame,known,capacity);
         },ct);
         // The pricing read restores write scope. Retain its exact certificate
@@ -89,7 +89,7 @@ internal sealed partial class GasTransportFinancialTicketStore(PreviewDatabase d
     {
         var agreement=await GasTransportFinancialStore.Read(c,database,Context(frame),request.TradeId,ct);
         if(agreement.Id("instrumentId")!=request.BindingId||request.Revision!=1)throw TradePositionSelection.Unavailable();
-        var known=(await new KnowledgeStore(database.Manifest.CatalogId).Read(c,frame.ContextId!.Value,ct)).Context;
+        var known=(await new KnowledgeResolver(database.Manifest.CatalogId).Read(c,frame.ContextId!.Value,ct)).Context;
         _=GasTransportFinancialAdapter.Read(database.Manifest.CatalogId,agreement);
         string? value=null;string? unavailable=null;
         try

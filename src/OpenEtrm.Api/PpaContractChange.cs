@@ -14,7 +14,7 @@ internal sealed partial class PpaStore
     internal async Task RequireContractClose(NpgsqlConnection connection,InputFrame frame,string knownAt,CancellationToken ct)
     {
         var id=await Bind(connection,frame,knownAt,ct);
-        var context=(await new KnowledgeStore(Catalog).Read(connection,id,ct)).Context;
+        var context=(await new KnowledgeResolver(Catalog).Read(connection,id,ct)).Context;
         await using(var save=ScheduleStore.Command(connection,"SAVEPOINT power_close_admission"))await save.ExecuteNonQueryAsync(ct);
         try
         {

@@ -1,3 +1,4 @@
+import {cloneRead} from './read-references.js';
 import {sideCalendar,referenceCalendarChoices,type SideCalendarCatalogRow} from './side-calendar.js';
 import {setupVersionLabels} from './setup-versions.js';
 import {crudeChoices,type CrudeReferenceData} from './crude-selection.js';
@@ -102,7 +103,7 @@ export function setupCrudeConfiguration(o:{api:<T>(path:string,body?:unknown)=>P
    if(e===epoch&&actor===o.actor())get('cs-status').textContent=selected?.id!==result.setupId?`Original change confirmed (${result.setupId}). Its outcome is outside this context; showing the binding resolved by the header. Start new changes explicitly from this context.`:result.state==='published'?'Published version confirmed. New tickets derive pricing from the physical parameters; saved trades retain their selected version.':'Draft saved. Check this exact version before publication.';
   }catch(error){if(e===epoch&&actor===o.actor()&&!uncertain&&definiteRefusals.has((error as {code?:string}).code??'')){pending=undefined;retain();}throw error;}finally{sync();}
  }
- async function mutate(path:string,body:Record<string,unknown>){if(pending)throw Error('Retry the original change first.');pending={path,body:structuredClone({...body,operationId:crypto.randomUUID()}),uncertain:false};retain();await send();}
+ async function mutate(path:string,body:Record<string,unknown>){if(pending)throw Error('Retry the original change first.');pending={path,body:cloneRead({...body,operationId:crypto.randomUUID()}),uncertain:false};retain();await send();}
  function reset(){get('cs-starting-values').hidden=true;newEntry=false;deliveryDatesTouched=false;epoch++;previewEpoch++;catalog=undefined;calendar.reset();selected=undefined;pending=undefined;dirty=false;valid=false;base=null;restore();for(const input of root.querySelectorAll<HTMLInputElement|HTMLSelectElement>('input,select')){input.value='';if(input instanceof HTMLSelectElement)input.replaceChildren();}for(const id of ['cs-proposals','cs-coverage','cs-version-state','cs-market','cs-value'])get(id).replaceChildren();get('cs-status').textContent=pending?'A previous change awaits confirmation. Retry its original request.':'';sync();}
  async function load(){reset();await refresh();}
  for(const input of get('cs-fields').querySelectorAll('input,select'))input.addEventListener('input',edited);

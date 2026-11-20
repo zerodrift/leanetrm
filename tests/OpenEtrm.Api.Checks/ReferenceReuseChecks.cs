@@ -24,7 +24,7 @@ internal static class ReferenceReuseChecks
                 throw new Exception("A reference cache admitted a mismatched exact bundle.");
             }
             catch(MarketDataException error)when(error.Code=="reference_pin_mismatch") { }
-            var before=await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,fixture.Id("beforeSourceContextId"),ct);
+            var before=await new KnowledgeResolver(database.Manifest.CatalogId).Read(connection,fixture.Id("beforeSourceContextId"),ct);
             await MarketContextStore.Bind(connection,database.Manifest.CatalogId,before.Context,ct);
             var eligible=await database.Read(connection,ct,selectedRevision:database.Manifest.RevisionId,sharedReferences:candidate,observationIds:[]);
             if(eligible.ReferenceRevision!=candidate.ReferenceRevision)throw new Exception("The earlier context lost its still-authorized primary reference.");

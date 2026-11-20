@@ -121,7 +121,7 @@ def run_checks(url, query, manifest, fake, demo, dotnet, environment, owned_root
             'effectiveOn':'2021-01-16','knowledgeMode':'retained','retained':certificate,'convention':demo['context']['convention']}})
     _,results,_=ask([('read_workspace_page',{'page':'facility_quantities'}),wrong_date])
     check('the model cannot redirect a facility read to another business date',results[1]['code']=='operation_context_mismatch')
-    owner.call('market/context/retained',{'contextId':turn['context']['contextId'],'selection':'latest_correction'})
+    owner.call(f"assistant/turns/{turn['id']}/view",{'selection':'latest_correction'})
     try:
         _,results,_=ask([('read_workspace_page',{'page':'facility_quantities'}),preview_allocations,('propose_page_action',operation('facilities.quantities.record_v1',prepared[0]))],
                         knowledge={'mode':'retained','contextId':turn['context']['contextId'],'frameId':None})
