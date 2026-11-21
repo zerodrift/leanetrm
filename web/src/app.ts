@@ -838,7 +838,11 @@ function renderContract(){
   const p=result.points.find(p=>pointIdentity(p)===contract);
   if(!p){closeContract();notice('The contract the panel showed has no price at this close, so the panel was closed.');return;}
   const rates=result.kind==='rates';
-  contractPanel.head({kicker:`${curveName(result.curve)} · ${rates?'Maturity':'Contract'}`,title:contractLabel(p),sub:rates?`Discount factor ${p.displayDiscountFactor}`:`Expires ${instant(p.expiry!)}`,figure:rates?p.value:amountText(p.value,'price',p.priceTick),unit:$('unit').textContent??''});
+  const contractId=p.contractId,source=result.inputSelection?.source,pricedCurve=result.curve;
+  const future=contractId&&source&&p.futureOpenForBooking&&knowledgeView()==='working'&&can('BookTrade')&&
+    directory().curves.some(c=>c.code===pricedCurve&&c.source.definitionRevisionId===source.definitionRevisionId);
+  contractPanel.head({kicker:`${curveName(result.curve)} · ${rates?'Maturity':'Contract'}`,title:contractLabel(p),sub:rates?`Discount factor ${p.displayDiscountFactor}`:`Expires ${instant(p.expiry!)}`,figure:rates?p.value:amountText(p.value,'price',p.priceTick),unit:$('unit').textContent??'',
+    bookFuture:future?()=>openFutureTicket(pricedCurve,contractId!,source!.definitionRevisionId):undefined});
   const pricing=el('section');pricing.className='contract-flow pricing-flow';
   if(rates)pricing.append(el('h4',contractLabel(p)),rateFlow(p));else drawPricingGraph(pricing,pricingGraph(result,p));
   contractPanel.pricing().replaceChildren(pricing);
@@ -1498,7 +1502,7 @@ const optionContext=()=>{
  const view=historicalContext();return {snapshotId:frame().id,convention:optionConvention,...(view?{...retainedKnowledge(view)!}:{knowledgeMode:'current' as const})};};
 const frameHere=()=>{const f=frame() as Frame&{close?:FrameClose|null};return {closeId:f.close?f.originCloseId??null:null,at:f.at,close:f.close?{session:f.close.session,businessDate:f.close.businessDate}:null};};
 const volSurfaces=setupVolSurfaces({api,zone:()=>prefs.timeZone,historical:()=>contextDirty||!!historicalContext(),context:optionContext,
- chain:(product,expiryAt,series)=>void openOptionChain(product,expiryAt,series),
+ chain:(product,expiryAt,series,definition)=>void openOptionChain(product,expiryAt,series,definition),
  // The page opens another close only as the header does: an offered one is chosen there, so every page reads it.
  // A frame's id is session-scoped, so a stored surface is found by its close, or for a working snapshot by its instant.
  frames:{here:frameHere,
@@ -1513,12 +1517,19 @@ const openVolSurface=(product:string,definitionRevisionId:string,series?:string)
 // ticket in the Blotter on a series: the ticket selects it as a person would, or says this close does not list it.
 const optionChains=setupOptions({api,zone:()=>prefs.timeZone,context:optionContext,frames:{here:frameHere,sessionName:code=>closeSessionNames.get(code)??code},
  openSurface:(product,definitionRevisionId,series)=>void openVolSurface(product,definitionRevisionId,series),
- book:series=>void leaving(async()=>{
+ openContract:(curve,id,definition)=>leaving(()=>openCurve(curve,id,definition),'page'),
+ bookFuture:openFutureTicket,
+ book:(series,definition)=>void leaving(async()=>{
   if(contextDirty)await applyContext();await setPage('futures');await futures.enterEntry();
-  optionTicket.request(series);try{await futures.openProduct('options');}finally{optionTicket.request(null);}
+  optionTicket.request({series,definition});try{await futures.openProduct('options');}finally{optionTicket.request(null);}
  },contextDirty?'discards':'page')});
+function openFutureTicket(curve:string,id:string,definition:string){
+ leaving(async()=>{
+  await setPage('futures');await futures.enterEntry();await futures.openFutureContract(definition,curve,id);
+ },'page');
+}
 // A series on its surface links to its row in the chain of its expiry.
-const openOptionChain=(product:string,expiryAt:string,series:string)=>leaving(async()=>{if(contextDirty)await applyContext();await setPage('options');await optionChains.open(product,expiryAt,series);},contextDirty?'discards':'page');
+const openOptionChain=(product:string,expiryAt:string,series:string,definition:string)=>leaving(async()=>{if(contextDirty)await applyContext();await setPage('options');await optionChains.open(product,expiryAt,series,definition);},contextDirty?'discards':'page');
 const facilityActivity={
  available:()=>facilities.canReadTrades(),
  open:(profileId:string)=>leaving(async()=>{
@@ -1576,7 +1587,7 @@ const tickets=productTickets({
  storage:storageTicket,
 });
 async function ticketBooked(tradeId:string):Promise<void>{if(tickets.active())await futures.bookedExternal(tradeId);}
-const futures=setupFutures({lifecycle:()=>leaving(async()=>{if(contextDirty)await applyContext();await setPage('lifecycle');await lifecycle.load();},contextDirty?'discards':'page'),volSurface:openVolSurface,riskReportUrl:id=>riskReportAddress(id,{hosted:hostedPilot,example:exampleId}),narrow:()=>main.clientWidth<dockedGroupsFrom,assistant:{available:()=>can('UseAgents'),inPlace:kind=>assistant.draft(kind==='pivot'?askPivotText:askSelectionText),about:({reference})=>assistant.draft(askAboutText(reference))},window:{kind:'main',entry:{shown:newTradeShown,links:page=>pageAvailable(page,permissions),link:page=>navigate(page)()},example:exampleId as 'baseline'|'exchange',open:(url,target,features)=>window.open(url,target,features)},failed:showFailure,failureCleared:clearFailure,onViews:(listed,shown)=>{blotterViews={listed,shown};renderBlotterViews();},tickets,api,stream:(body,handlers,signal)=>streamBlotter((path,payload,abort)=>responseFor(path,payload,apiRoot,abort),body,handlers,signal),act,busy:()=>busy,updatesBlocked:()=>assistant.working(),canRunRisk:()=>permissions.includes('RunScenario'),bookingUnavailableReason:()=>bookingFallback({contextDirty,view:knowledgeView(),canBook:permissions.includes('BookTrade')}),knowledge:knowledgeView,contextDirty:()=>contextDirty,zone:()=>prefs.timeZone,profile:()=>administrationScope+':'+currentProfile,onReadContext:(at,known)=>text('header-calculation-time',`As of ${instant(at)} · knowledge cutoff ${instant(known)}`),notice,curveListed:code=>!!navigation?.curves.some(c=>c.code===code),openCurve:(code,contractId)=>openCurve(code,contractId),reported:()=>assistant.sync(),unsavedChanged:()=>syncUnloadQuestion(),source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,convention:directory().futuresConvention,context:historicalContext()};}});
+const futures=setupFutures({lifecycle:()=>leaving(async()=>{if(contextDirty)await applyContext();await setPage('lifecycle');await lifecycle.load();},contextDirty?'discards':'page'),volSurface:openVolSurface,optionChain:openOptionChain,riskReportUrl:id=>riskReportAddress(id,{hosted:hostedPilot,example:exampleId}),narrow:()=>main.clientWidth<dockedGroupsFrom,assistant:{available:()=>can('UseAgents'),inPlace:kind=>assistant.draft(kind==='pivot'?askPivotText:askSelectionText),about:({reference})=>assistant.draft(askAboutText(reference))},window:{kind:'main',entry:{shown:newTradeShown,links:page=>pageAvailable(page,permissions),link:page=>navigate(page)()},example:exampleId as 'baseline'|'exchange',open:(url,target,features)=>window.open(url,target,features)},failed:showFailure,failureCleared:clearFailure,onViews:(listed,shown)=>{blotterViews={listed,shown};renderBlotterViews();},tickets,api,stream:(body,handlers,signal)=>streamBlotter((path,payload,abort)=>responseFor(path,payload,apiRoot,abort),body,handlers,signal),act,busy:()=>busy,updatesBlocked:()=>assistant.working(),canRunRisk:()=>permissions.includes('RunScenario'),bookingUnavailableReason:()=>bookingFallback({contextDirty,view:knowledgeView(),canBook:permissions.includes('BookTrade')}),knowledge:knowledgeView,contextDirty:()=>contextDirty,zone:()=>prefs.timeZone,profile:()=>administrationScope+':'+currentProfile,onReadContext:(at,known)=>text('header-calculation-time',`As of ${instant(at)} · knowledge cutoff ${instant(known)}`),notice,curveListed:code=>!!navigation?.curves.some(c=>c.code===code),openCurve,reported:()=>assistant.sync(),unsavedChanged:()=>syncUnloadQuestion(),source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,convention:directory().futuresConvention,context:historicalContext()};}});
 // The contract panel beside the curve's chart and table: docked when the main area has the room and the assistant is closed, an overlay
 // otherwise, and on a phone a sheet over the page. Closing it returns focus to the contract's row, or else to what opened it.
 const contractPanel=setupContractPanel($('contract-panel'),{
@@ -1866,11 +1877,15 @@ async function showTarget(report:string,selection:Record<string,unknown>|null,ki
 }
 // Opens Curves & prices on a curve, and one of its contracts in the panel when a contract is named. A contract the close
 // does not price leaves only the curve, and says so.
-async function openCurve(code:string,contractId:string|null){
+async function openCurve(code:string,contractId:string|null,definitionRevisionId?:string){
+  if(definitionRevisionId&&directory().curves.find(c=>c.code===code)?.source.definitionRevisionId!==definitionRevisionId)
+    throw Error('The selected contract’s market definition is unavailable in Curves & prices at this close.');
   await showTarget('curves',{view:'prices',curve:code});
   if(contractId===null)return;
+  if(definitionRevisionId&&result&&result.inputSelection?.source.definitionRevisionId!==definitionRevisionId)
+    throw Error('The curve price belongs to another definition. Select the contract in its original market definition.');
   if(!result){notice("Choose a market date to see this contract's price history.");return;}
-  const point=result.points.find(p=>(p.seriesId??p.contractId)===contractId);
+  const point=result.points.find(p=>p.contractId===contractId||p.seriesId===contractId);
   if(!point){notice('That contract has no price at this close, so its price history is not shown.');return;}
   await openContract(pointIdentity(point));
 }

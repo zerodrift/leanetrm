@@ -54,11 +54,11 @@ function side(series:SurfaceSeries,held:ReadonlyMap<string,string>):ChainSide{
 }
 
 /** One row per strike the expiry lists, in the backend's strike order, each with its call and its put where one is listed. */
-export function chainRows(surface:VolSurfaceResult,expiryAt:string,held:ReadonlyMap<string,string>):ChainRow[]{
- const expiry=surface.expiries.find(e=>e.expiryAt===expiryAt);
+export function chainRows(surface:VolSurfaceResult,expiryAt:string,held:ReadonlyMap<string,string>,underlying?:string):ChainRow[]{
+ const expiry=surface.expiries.find(e=>e.expiryAt===expiryAt&&(!underlying||e.underlyingCode===underlying));
  if(!expiry)throw Error('The surface has no such expiry.');
  const listed=new Map<string,SurfaceSeries>();
- for(const series of surface.series.filter(s=>s.series.expiryAt===expiryAt)){
+ for(const series of surface.series.filter(s=>s.series.expiryAt===expiryAt&&(!underlying||s.series.underlyingCode===underlying))){
   const key=series.series.strike+'|'+series.series.right;
   if(listed.has(key))throw Error('The surface lists a series twice.');
   if(!surface.strikeAxis.includes(series.series.strike))throw Error('The surface lists a series outside its strike axis.');

@@ -112,6 +112,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   riskReportUrl?:(id:string)=>string;
   // Opens an option product's volatility surface; null in a window with no Vol surfaces page.
   volSurface:((product:string,definitionRevisionId:string)=>void)|null;
+  optionChain?:(product:string,expiry:string,series:string,definition:string)=>void;
   lifecycle?:()=>void;
   // Says why work that does not run under act failed: a read in the background, or an action the person took that was refused; and
   // takes that away again once the person acts anew.
@@ -120,7 +121,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // The saved views the person lists in the sidebar, and the one the Blotter shows, whenever the saved views are read or the shown one changes.
   onViews:(listed:string[],shown:string|null)=>void;
   // Whether Curves & prices lists a market, and opens it with one of its contracts' price history shown when a contract is named.
-  curveListed:(curve:string)=>boolean;openCurve:(curve:string,contractId:string|null)=>Promise<void>;source:()=>{convention:string;snapshotId:string;context?:{contextId?:string}};
+  curveListed:(curve:string)=>boolean;openCurve:(curve:string,contractId:string|null,definitionRevisionId?:string)=>Promise<void>;source:()=>{convention:string;snapshotId:string;context?:{contextId?:string}};
   // What the page reports of itself has changed: the panel moved to another mode, or its form was closed, or the lens changed.
   reported:()=>void;
   // The knowledge the Blotter is read at: working data at current knowledge, a historical view, or live corrections.
@@ -397,7 +398,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
       const stale=!holdings,context=readContext();
       const displayed=displayedContext();if(!displayed?.contextId)throw Error('Read the Blotter before inspecting its Side schedules.');
       const inspectionContext={...context,...retainedKnowledge(displayed)};
-      const read=await(h.instrumentType==='gas_storage'?readGasStorageView(api,inspectionContext,h,{recorded:()=>void act(load),working:context}):h.instrumentType==='heat_rate_call'?readHeatRateCallView(api,inspectionContext,h):h.instrumentType==='futures_option'?readOptionView(api,context,h,{actor:options.profile,recorded:()=>void act(load),surface:options.volSurface,lifecycle:options.lifecycle}):h.instrumentType==='physical_gas_transport'?readTransportView(api,inspectionContext,h,{actor:options.profile,lifecycle:options.window.kind==='main'?options.lifecycle:undefined}):(h.instrumentType==='physical_gas_park_loan'||h.instrumentType==='physical_gas_park_custody')?readParkLoanView(api,inspectionContext,h,{actor:options.profile,lifecycle:options.window.kind==='main'?options.lifecycle:undefined}):h.instrumentType==='physical_lng'?readLngView(api,context,h):h.instrumentType==='physical_crude'?readCrudeView(api,context,h):h.instrumentType==='physical_gas'?readGasView(api,context,h,{onDenied:clear,actor:options.profile,readOnly:stale,amend:options.window.kind==='main'?()=>void perform({kind:'amend',key:rowKey(h)}):undefined}):(h.instrumentType==='operating_right'||h.instrumentType==='rec_forward')?readRetainedSideTrade(api,inspectionContext,h):h.instrumentType==='ppa'?readPpaView(api,context,h,displayed.knownAt,()=>void manage('ppa',h.tradeId)):(h.instrumentType==='financial_swap'||h.instrumentType==='heat_rate')?readSwapView(api,context,h,formats,{busy,act,settle:()=>settle(h)}):h.instrumentType==='future'?readTradeView(api,context,h,formats):genericPositionView(h));
+      const read=await(h.instrumentType==='gas_storage'?readGasStorageView(api,inspectionContext,h,{recorded:()=>void act(load),working:context}):h.instrumentType==='heat_rate_call'?readHeatRateCallView(api,inspectionContext,h,!stale&&options.window.kind==='main'?(curve,id,definition)=>asked(()=>options.openCurve(curve,id,definition)):undefined):h.instrumentType==='futures_option'?readOptionView(api,context,h,{actor:options.profile,recorded:()=>void act(load),surface:options.volSurface,chain:!stale&&h.expiryAt&&holdings&&Date.parse(h.expiryAt)>Date.parse(holdings.asOf)?options.optionChain:undefined,lifecycle:options.lifecycle}):h.instrumentType==='physical_gas_transport'?readTransportView(api,inspectionContext,h,{actor:options.profile,lifecycle:options.window.kind==='main'?options.lifecycle:undefined}):(h.instrumentType==='physical_gas_park_loan'||h.instrumentType==='physical_gas_park_custody')?readParkLoanView(api,inspectionContext,h,{actor:options.profile,lifecycle:options.window.kind==='main'?options.lifecycle:undefined}):h.instrumentType==='physical_lng'?readLngView(api,context,h):h.instrumentType==='physical_crude'?readCrudeView(api,context,h):h.instrumentType==='physical_gas'?readGasView(api,context,h,{onDenied:clear,actor:options.profile,readOnly:stale,amend:options.window.kind==='main'?()=>void perform({kind:'amend',key:rowKey(h)}):undefined}):(h.instrumentType==='operating_right'||h.instrumentType==='rec_forward')?readRetainedSideTrade(api,inspectionContext,h):h.instrumentType==='ppa'?readPpaView(api,context,h,displayed.knownAt,()=>void manage('ppa',h.tradeId)):(h.instrumentType==='financial_swap'||h.instrumentType==='heat_rate')?readSwapView(api,context,h,formats,{busy,act,settle:()=>settle(h)}):h.instrumentType==='future'?readTradeView(api,context,h,formats):genericPositionView(h));
 
       // Details kept on screen while the Blotter is read again do not transition into a working settlement editor.
       const scheduled=withSideSchedules(read,api,inspectionContext,h,clear);
@@ -1941,6 +1942,9 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
         if(plan.risk.reopen)await risk.open();
         if(plan.reloadPanel){await position.reload();await swapEditor.liveRefresh();}
       }finally{patchValues=false;}
+    },
+    async openFutureContract(definition:string,curve:string,id:string){
+      if(await chooseProduct('futures',false,true))booking.selectContract(definition,curve,id);
     },
     openProduct:(product:NewProduct)=>chooseProduct(product,false,true),
     async openEntry(product:'futures'|'swaps'|null,signal?:AbortSignal){

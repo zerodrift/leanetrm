@@ -289,15 +289,21 @@ See [the lifecycle contract](exchange-futures.md#option-lifecycle) for the full 
   in its heading, and the Risk page opens a retained run as a scope's current
   report only when it was valued under the stated pricing policy (D396).
 - **Options.** A Trading page for readers of market data and trades (D408). Its
-  **Chain** view draws one expiry of a product from the product's stored
-  [volatility surface](vol-surfaces.md#option-analytics): calls and puts about
-  the strike, each with its settlement, implied volatility, delta, gamma, vega,
-  theta and the open lots held, the at-the-money strike marked and sides in the
-  money shaded. A figure the fit could not state is a dash that says why. A
-  chosen series can be booked, which opens the option ticket with the series
-  selected through its own lists and no execution terms, or opened on its
-  surface. A product with no surface at the close shows that and links to Vol
-  surfaces to calibrate it. Its **Positions** view lists booked option positions
+  product directory groups by commodity and searches product names, codes,
+  exchanges and underlying futures. **Chain** shows calls and puts by strike
+  for the selected expiry and underlying. `POST /api/options/listings` reads
+  the contract terms from the exact definition at the selected close. Changing
+  the close keeps a live selection or advances to the first live expiry. A
+  link to a specific series always resolves that exact series.
+  Traders can inspect the underlying delivery and, when the market contract
+  is available, open its price history or a ticket for the dated option or future.
+  A stored surface adds settlements, implied volatility, delta, gamma, vega
+  and theta. **Show all Greeks** expands the quote table. Live positions
+  and strategy legs link to their series in the chain. Expired open lots stay
+  visible in Positions until a lifecycle event closes them. A live booked option
+  also links from its Blotter details to its dated series.
+  See [volatility surfaces](vol-surfaces.md#option-analytics).
+  Its **Positions** view lists booked option positions
   with open lots under their underlying future, from
   **`POST /api/options/positions`** `{context, model}`: each row's value and
   sensitivities are the stored series figures times the multiplier and the signed

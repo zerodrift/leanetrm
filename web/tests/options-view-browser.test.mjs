@@ -51,13 +51,31 @@ const setup=`
   policies:{sensitivities:{policy:'option_sensitivities_layers_v1'},expiryRule:'option_expiry_exercise_value_v1'},limits,work:{calibrationTreePrices:60,valuationTreePrices:120,treePrices:180,curveSets:4,elapsedMs:900}});
  const analyses=[],signals=[],unhandled=[];let refuseDated=false,refuseAnalysis=false,holdAnalysis=null;
  addEventListener('unhandledrejection',event=>unhandled.push(String(event.reason)));
- const calls=[],opened=[],booked=[];let fitted=true,failPositions=false;
+ const calls=[],opened=[],booked=[],contracts=[];let fitted=true,failPositions=false,canBook=true,snapshotId='synthetic-close',holdPositions=null,closeAt=at,missingSource=null;
+ const optionProducts=[{code:'synthetic_on',name:'Synthetic gas options',underlying_product_code:'ng',exchange_code:'alpha'},
+  {code:'synthetic_lo',name:'Synthetic crude options',underlying_product_code:'cl',exchange_code:'beta'}];
+ const references={futures_products:[{code:'ng',name:'Gas future',commodity_code:'gas'},{code:'cl',name:'Crude future',commodity_code:'oil'}],
+  exchanges:[{code:'alpha',name:'Alpha Exchange'},{code:'beta',name:'Beta Exchange'}],commodities:[{code:'gas',name:'Natural gas'},{code:'oil',name:'Crude oil'}]};
+ const listing={expiryAt:expiry,underlyingCode:'ng_f27',name:'Gas future',deliveryFrom:'2027-01-01',deliveryTo:'2027-02-01',
+   contractId:'future-jan',curves:['gas_curve'],settlementMethod:'physical',openForBooking:true};
+ const listedSeries=surface.series.map(s=>({code:s.series.code,right:s.series.right,strike:s.series.strike,openForBooking:s.series.code!=='c325'}));
  const api=async(path,body,signal)=>{
   calls.push(path.split('?')[0]);
-  if(path.startsWith('reference/catalog'))return {definitionRevisionId:'definition-a',rows:[{code:'synthetic_on',name:'Synthetic gas options'},{code:'synthetic_lo',name:'Synthetic crude options'}],hasMore:false};
-  if(path==='options/positions'){if(failPositions)throw Object.assign(Error('The positions could not be read.'),{code:'synthetic_failure'});await prepareAmountDisplay(shownAmounts(path,positions),async requests=>requests.map(fixtureFormat));return positions;}
-  if(path==='vol-surfaces/axes')return {definitionRevisionId:'definition-a',snapshotId:'synthetic-close',model,initialAxis:'server_axis',axes:[{id:'server_axis',preset:{points:[{value:'0'}]}}]};
-  if(path==='vol-surfaces/read')return {referenceRevision:reference,priceUnit:'USD/MMBtu',definitionRevisionId:'definition-a',snapshotId:'synthetic-close',model,state:fitted?'fitted':'notFitted',job:null,surface:fitted?surface:null};
+  if(path.startsWith('reference/catalog')){
+   const revision=new URL(path,location.href).searchParams.get('definitionRevisionId')??'definition-a';
+   if(revision===missingSource)throw Object.assign(Error('The selected inputs omit this exact source.'),{code:'market_inputs_missing'});
+   return {definitionRevisionId:revision,rows:optionProducts,references,hasMore:false};
+  }
+  if(path==='options/positions'){if(holdPositions)return holdPositions;if(failPositions)throw Object.assign(Error('The positions could not be read.'),{code:'synthetic_failure'});await prepareAmountDisplay(shownAmounts(path,positions),async requests=>requests.map(fixtureFormat));return positions;}
+  if(path==='options/listings'){
+   if(body.expiryAt&&Date.parse(body.expiryAt)!==Date.parse(listing.expiryAt)||body.underlyingCode&&body.underlyingCode!==listing.underlyingCode||
+    body.series&&!listedSeries.some(s=>s.code===body.series))
+    throw Object.assign(Error('The selected option is unavailable at this close in this definition.'),{code:'option_definition'});
+   return {snapshotId,definitionRevisionId:body.definitionRevisionId,product:body.product,
+    expiries:[{expiryAt:listing.expiryAt,underlyingCode:listing.underlyingCode}],underlying:listing,series:listedSeries,canBook};
+  }
+  if(path==='vol-surfaces/axes')return {definitionRevisionId:'definition-a',snapshotId,model,initialAxis:'server_axis',axes:[{id:'server_axis',preset:{points:[{value:'0'}]}}]};
+  if(path==='vol-surfaces/read')return {referenceRevision:reference,priceUnit:'USD/MMBtu',definitionRevisionId:'definition-a',snapshotId,model,state:fitted?'fitted':'notFitted',job:null,surface:fitted?surface:null};
   if(path==='options/strategy/setup')return {...strategySetup,product:body.product,expiryAt:body.expiryAt};
   if(path==='options/strategy/analyze'){
    analyses.push(body);signals.push(signal);if(holdAnalysis)await holdAnalysis;
@@ -66,9 +84,10 @@ const setup=`
   }
   throw Error('unexpected read '+path);
  };
- const options=setupOptions({api,context:()=>({snapshotId:'synthetic-close',convention:'futures_option_premium_v1',knowledgeMode:'current'}),zone:()=>'UTC',
-  frames:{here:()=>({closeId:null,at:'2026-10-16T17:00:00Z',close:null}),sessionName:code=>code},
-  openSurface:(product,definition,series)=>opened.push([product,definition,series??null]),book:series=>booked.push(series)});
+ const options=setupOptions({api,context:()=>({snapshotId,convention:'futures_option_premium_v1',knowledgeMode:'current'}),zone:()=>'UTC',
+  frames:{here:()=>({closeId:null,at:closeAt,close:null}),sessionName:code=>code},
+  openSurface:(product,definition,series)=>opened.push([product,definition,series??null]),book:(series,definition)=>booked.push([series,definition]),
+  openContract:(curve,id,definition)=>contracts.push([curve,id,definition]),bookFuture:(curve,id,definition)=>booked.push([curve,id,definition])});
  const $=selector=>document.querySelector(selector),all=selector=>[...document.querySelectorAll(selector)];
  const tick=()=>new Promise(resolve=>setTimeout(resolve,0)),state=()=>$('#options-page').dataset.state;
 `;
@@ -90,7 +109,7 @@ browser('the chain draws the stored surface: calls mirrored about the strike, th
   own:[all('.vol-hero,.vol-eyebrow,.vol-here,.vol-close-chip').length,$('.options-hero .options-eyebrow').textContent,all('.options-expiry').length],basis:/option_sensitivities_layers_v1/.test($('#options-basis').textContent)&&/Risk reports keep theirs/.test($('#options-basis').textContent)};
 `,{idle:{state:'idle',products:['synthetic_on','synthetic_lo'],chosen:0,placeholder:true,reads:0},state:'fitted',expiry:true,strikes:['3','3.25'],atTheMoney:['3'],
  call3:['2','-0.004120','0.001634','1.988','0.52','45.1%','0.167'],put3:['0.167','45.1%','-0.48','1.988','0.001634','-0.004120',''],inTheMoney:['p325'],
- missing:['c325','—','Estimates at the half, whole and double bump did not agree'],own:[0,'Working snapshot',1],facts:'Underlying futureng_f27Settlement3.01ExpiryJan 26, 2027, 7:30 PMDays to expiry102.1',basis:true});
+ missing:['c325','—','Estimates at the half, whole and double bump did not agree'],own:[0,'Working snapshot',1],facts:'Underlying futureng_f27ContractGas futureDeliveryJan 2027Settlement methodPhysical deliverySettlement3.01ExpiryJan 26, 2027, 7:30 PMDays to expiry102.1TradeBook underlying future',basis:true});
 
 browser('a chosen series can be booked or opened on its surface, and a product with no surface says so and links to where it is calibrated',`
  await options.open('synthetic_on');await tick();
@@ -98,10 +117,10 @@ browser('a chosen series can be booked or opened on its surface, and a product w
  const readout=$('#options-readout').textContent,selected=all('#options-chain td.options-selected').length;
  $('#options-book').click();$('#options-open-surface').click();
  fitted=false;await options.refresh();await tick();
- const panel={state:state(),shown:!$('#options-missing').hidden&&/not calibrated at this close/.test($('#options-missing').textContent),chain:$('.options-chain-view').hidden};
+ const panel={state:state(),shown:!$('#options-missing').hidden&&/No calibrated analytics at this close/.test($('#options-missing').textContent),chain:!!$('#options-listed-chain')&&!$('.options-chain-view').hidden};
  $('#options-calibrate').click();
  return {readout:/p325/.test(readout)&&/Delta-0.477/.test(readout),selected,booked,opened,panel};
-`,{readout:true,selected:7,booked:['p325'],opened:[['synthetic_on','definition-a','p325'],['synthetic_on','definition-a',null]],panel:{state:'notFitted',shown:true,chain:true}});
+`,{readout:true,selected:7,booked:[['p325','definition-a']],opened:[['synthetic_on','definition-a','p325'],['synthetic_on','definition-a',null]],panel:{state:'notFitted',shown:true,chain:true}});
 
 browser('positions list the rows, subtotals and totals the backend states with their units, and a product with no surface links to its own definition',`
  await options.refresh();$('#options-view-positions').click();
@@ -225,3 +244,115 @@ browser('the keyboard keeps its place when the legs are redrawn, an answer leave
  return {afterTemplate,afterFlip,afterRemove,typing,cancelled,state:state(),product:$('.options-product[aria-pressed=true]').dataset.product,legs:$('#options-strategy-legs tbody').textContent,unhandled};
 `,{afterTemplate:'template:straddle',afterFlip:['side:c3','Sell'],afterRemove:'analyse',typing:['analysed',true,'7',true,'45.1%'],cancelled:true,state:'strategy',product:'synthetic_lo',
  legs:'No legs yet. Choose a template, or add a call or a put from the chain.',unhandled:[]});
+
+browser('the directory groups by commodity and finds products by their underlying or exchange',`
+ await options.refresh();
+ const groups=all('#options-products .options-market h4').map(n=>n.textContent).sort();
+ const search=$('#options-product-search');
+ const find=value=>{search.value=value;search.dispatchEvent(new Event('input'));return all('.options-product').map(b=>b.dataset.product);};
+ const byFuture=find('crude future'),byVenue=find('Alpha Exchange'),empty=find('no such contract');
+ return {groups,byFuture,byVenue,empty,message:$('#options-products').textContent.includes('No matching products')};
+`,{groups:['Crude oil','Natural gas'],byFuture:['synthetic_lo'],byVenue:['synthetic_on'],empty:[],message:true});
+
+browser('listed strikes, the dated underlying and an exact booking ticket are available before calibration',`
+ fitted=false;await options.open('synthetic_on');await tick();
+ const chosen=$('#options-listed-chain button[data-series=p3]');chosen.focus();chosen.click();
+ $('#options-book').click();$('#options-underlying-open').click();
+ $('#options-listed-chain button[data-series=c325]').click();const closed=$('#options-book').disabled;
+ canBook=false;await options.open('synthetic_on',expiry,'p3');
+ return {strikes:all('#options-listed-chain th[scope=row]').map(n=>n.textContent),
+  details:$('#options-facts').textContent.includes('ng_f27'),booked,contracts,closed,readOnly:$('#options-book').disabled,
+  calibration:!$('#options-calibrate').hidden,analytics:!!$('#options-listed-chain .options-leg-figure')};
+`,{strikes:['3','3.25'],details:true,booked:[['p3','definition-a']],contracts:[['gas_curve','future-jan','definition-a']],closed:true,readOnly:true,calibration:true,analytics:false});
+
+browser('a reference-only underlying shows its terms and explains why the series cannot be booked',`
+ fitted=false;listing.contractId=null;listing.curves=[];for(const row of listedSeries)row.openForBooking=false;
+ await options.open('synthetic_on',expiry,'p3');
+ return {terms:$('#options-facts').textContent.includes('ng_f27'),links:all('#options-facts button').length,
+  disabled:$('#options-book').disabled,reason:$('#options-book').title};
+`,{terms:true,links:0,disabled:true,reason:'This definition has no tradable contract for the underlying future.'});
+
+browser('the underlying future can be inspected outside its booking window',`
+ fitted=false;await options.open('synthetic_on');$('.options-future-book').click();
+ listing.openForBooking=false;await options.refresh();$('#options-underlying-open').click();
+ return {booked,contracts,offers:all('.options-future-book').length};
+`,{booked:[['gas_curve','future-jan','definition-a']],contracts:[['gas_curve','future-jan','definition-a']],offers:0});
+
+browser('a close without the retained definition offers the current directory after explaining the error',`
+ await options.open('synthetic_on',expiry,'p3','definition-held');missingSource='definition-held';await options.refresh();
+ const browse=$('#options-browse-current'),reason=state()==='error'&&$('#options-error').textContent.includes('exact source');
+ const available=!browse.closest('[hidden]');if(available){browse.click();await tick();await tick();}
+ return {reason,offered:available,choices:all('.options-product').length};
+`,{reason:true,offered:true,choices:2});
+
+browser('a strategy leg opens its own series in the chain and keeps the draft',`
+ await options.open('synthetic_on');$('#options-view-strategy').click();await tick();await tick();
+ $('.options-template[data-template=straddle]').click();await tick();await tick();
+ $('#options-strategy-legs tr[data-series=p3] .options-leg-contract').click();
+ const selected=$('#options-chain .options-selected').dataset.series;
+ $('#options-view-strategy').click();await tick();
+ return {selected,legs:all('#options-strategy-legs tr[data-series]').map(r=>r.dataset.series)};
+`,{selected:'p3',legs:['c3','p3']});
+
+browser('a product link reveals its exact selection even after searching and long names fit their buttons',`
+ optionProducts[0].name='Synthetic monthly natural gas option on a dated physically delivered future';
+ await options.refresh();const first=$('.options-product'),name=first.querySelector('.options-product-name');
+ const fits=name.getBoundingClientRect().right<=first.getBoundingClientRect().right;
+ const search=$('#options-product-search');search.value='crude';search.dispatchEvent(new Event('input'));
+ await options.open('synthetic_on',expiry,'p3','definition-a');
+ return {fits,selected:$('.options-product[aria-pressed=true]')?.dataset.product,search:search.value};
+`,{fits:true,selected:'synthetic_on',search:''});
+
+browser('a position in a retained definition can return to the current product directory',`
+ await options.refresh();$('#options-view-positions').click();
+ $('#options-position-table tr[data-series=c3] .options-leg-contract').click();await tick();await tick();
+ const retained=$('#options-readout').textContent.includes('c3');$('#options-browse-current').click();await tick();await tick();
+ $('.options-product[data-product=synthetic_on]').click();await tick();await tick();
+ $('#options-chain td[data-series=c3]').click();$('#options-book').click();
+ return {retained,booked,backHidden:$('#options-browse-current').hidden};
+`,{retained:true,booked:[['c3','definition-a']],backHidden:true});
+
+browser('a narrow listed chain keeps long series codes in the inspector and places booking above the strikes',`
+ fitted=false;optionProducts[0].name='Gas option';
+ const code='synthetic_natural_gas_december_202701_call_3';
+ listedSeries.find(s=>s.code==='c3').code=code;
+ $('#options-page').style.width='360px';await options.open('synthetic_on');
+ const quote=$('#options-listed-chain button[data-series="'+code+'"]');quote.click();
+ const selected=$('#options-listed-chain button[data-series="'+code+'"]'),summary=$('#options-readout');
+ return {quote:selected.innerText.toLowerCase().trim(),full:summary.textContent.includes(code),book:!!summary.querySelector('#options-book'),
+  inspectorFirst:summary.getBoundingClientRect().bottom<=$('#options-listed-chain').getBoundingClientRect().top};
+`,{quote:'3 call',full:true,book:true,inspectorFirst:true});
+
+browser('changing the close keeps a live series, advances past an expired contract and preserves exact links',`
+ fitted=false;await options.open('synthetic_on',expiry,'p3','definition-a');
+ snapshotId='another-live-close';await options.refresh();
+ const active=()=>$('#options-listed-chain button[aria-pressed=true]')?.dataset.series??null,stillLive=active();
+ const nextExpiry='2027-02-23T19:30:00+00:00';listing.expiryAt=nextExpiry;listing.underlyingCode='ng_g27';
+ listedSeries.splice(0,listedSeries.length,{code:'feb-c3',strike:'3',right:'call',openForBooking:true});
+ snapshotId='after-january-expiry';await options.refresh();
+ const advanced={state:state(),expiry:$('#options-expiries [aria-current=true]')?.dataset.expiry,
+  selected:active(),underlying:$('#options-underlying-open')?.textContent};
+ await options.open('synthetic_on',expiry,'p3','definition-a');
+ const exact={state:state(),reason:$('#options-error').textContent.includes('unavailable'),hidden:$('.options-chain-view').hidden};
+ $('.options-product[data-product=synthetic_on]').click();await tick();await tick();
+ return {stillLive,advanced,exact,browsed:state()==='notFitted'&&$('#options-underlying-open')?.textContent};
+`,{stillLive:'p3',advanced:{state:'notFitted',expiry:'2027-02-23T19:30:00+00:00',selected:null,underlying:'ng_g27'},
+ exact:{state:'error',reason:true,hidden:true},browsed:'ng_g27'});
+
+browser('a pending close refresh clears prior holdings and product actions until the new holdings arrive',`
+ await options.refresh();$('#options-view-positions').click();
+ const row=()=>!$('#options-positions').hidden&&!!$('#options-position-table tr[data-series=c3]');
+ const before=row(),oldProduct=$('.options-product'),empty={...positions,held:[],groups:[],totals:[]};
+ let finish;holdPositions=new Promise(resolve=>finish=resolve);snapshotId='new-close';
+ const pending=options.refresh();await tick();const during=row();
+ $('#options-view-chain').click();const visibleChoices=all('.options-product').filter(b=>!b.disabled&&!b.closest('[hidden],[inert]')).length;
+ oldProduct.click();$('#options-view-positions').click();finish(empty);await pending;await tick();
+ return {before,during,visibleChoices,after:row(),empty:$('#options-positions').textContent.includes('No option positions')};
+`,{before:true,during:false,visibleChoices:0,after:false,empty:true});
+
+browser('expired open lots remain in Positions and only a live expiry links to its chain',`
+ closeAt=expiry;await options.refresh();$('#options-view-positions').click();
+ const expired=$('#options-position-table tr[data-series=c3]'),live=$('#options-position-table tr[data-series=lo70]');
+ return {series:expired.cells[2].textContent,lots:expired.cells[3].textContent,
+  expiredLink:!!expired.querySelector('.options-leg-contract'),liveLink:live.querySelector('.options-leg-contract')?.textContent};
+`,{series:'c3',lots:'2',expiredLink:false,liveLink:'lo70'});

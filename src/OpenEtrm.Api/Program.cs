@@ -2891,6 +2891,8 @@ api.MapPost("/cash-payments/status",(HttpContext c,RecordCashPaymentRequest body
 // Listed futures options: the bookable series at a frame, and booking with premium paid up front under the futures booking authority.
 var optionStore=new FuturesOptionStore(database);
 api.MapPost("/options/catalog",(HttpContext c,FuturesReadRequest body)=>FuturesRead(c,body,optionStore.Catalog,expectedConvention:FuturesOptionStore.Convention));
+api.MapPost("/options/listings",(HttpContext c,OptionListingsRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("option_context","Supply the selected context."),
+    (connection,view,ct)=>tradeReads.ReadBound(connection,view,()=>OptionListings.Read(connection,database,view,body,ct),ct),expectedConvention:FuturesOptionStore.Convention));
 // Option bookings and lifecycle events, written by a human under the booking authority; no agent tool writes them.
 Task<IResult> OptionWrite(HttpContext c,Guid snapshot,Func<NpgsqlConnection,InputFrame,CancellationToken,Task<JsonElement>> write)=>Locked(c,async session=>
 {

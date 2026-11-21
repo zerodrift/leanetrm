@@ -79,6 +79,14 @@ export function pickOption(catalog:OptionCatalog,pick:OptionPick,level:OptionLev
  return next;
 }
 
+/** A chain link owns one product version. Other catalogs can legitimately reuse its series codes. */
+export function catalogForSeries<T extends OptionCatalog>(catalog:T,series:string,definition:string):T{
+ const matches=catalog.options.filter(s=>s.series===series&&s.definitionRevisionId===definition);
+ if(!matches.length)throw Error(`${series} is not listed for booking in this definition at this close.`);
+ if(matches.length!==1)throw Error(`The option catalog lists ${series} more than once in its definition.`);
+ return {...catalog,options:catalog.options.filter(s=>s.definitionRevisionId===definition&&s.product===matches[0].product)};
+}
+
 /** The selection that names one listed series, each level picked as the lists offer it. A series the catalog does not list selects nothing. */
 export function pickSeries(catalog:OptionCatalog,series:string):OptionPick{
  const listed=catalog.options.filter(s=>s.series===series);

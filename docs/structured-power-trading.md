@@ -163,8 +163,9 @@ fuel nomination, invoice or payment operation for this profile.
 ## Financial hedge comparison
 
 `operating_right_price_hedge_v1` requires one saved operating trade, explicit
-financial futures/swap/heat-rate hedge IDs, selected books, a certified context,
+financial hedge trade IDs (futures, swaps, heat-rate swaps, listed futures options or heat-rate calls), selected books, a certified context,
 nonempty shared factor bumps and explicit numerical/pricing/aggregation policies.
+Listed option hedges use the portfolio model’s minimum shock size for delta and gamma.
 All selected positions must price; excluded holdings cannot produce a successful
 net report. Ordinary futures retain their native execution/variation-margin
 measure rather than becoming forwards.

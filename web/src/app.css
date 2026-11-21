@@ -2877,13 +2877,61 @@ header>div:first-child{flex:1 1 160px}
 .options-view{display:inline-flex;align-items:center;gap:8px;padding:6px 14px;border-radius:999px;border:0;background:transparent;color:var(--text-2);font-weight:500}
 .options-view[aria-pressed=true]{background:var(--accent);color:var(--on-accent)}
 .options-view:disabled{color:var(--text-disabled);cursor:default}
-.options-products,.options-expiries{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0}
-.options-product{display:inline-flex;align-items:baseline;gap:8px;padding:8px 14px;border-radius:10px;font-weight:400;background:var(--surface-2);color:var(--text);border:1px solid var(--border)}
-.options-product:hover{border-color:var(--border-strong);background:var(--surface)}
-.options-product[aria-pressed=true]{background:var(--accent-soft);border-color:var(--accent)}
-.options-product-name{font-weight:600}
-.options-more{font-size:12px;color:var(--text-3)}
-.options-chain-view{display:flex;flex-direction:column;gap:12px;min-width:0}
+.options-directory{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden}
+.options-directory-head,.options-directory-title,.options-directory-tools,.options-chain-heading{display:flex;align-items:center;gap:12px}
+.options-directory-head{padding:14px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap;justify-content:space-between}
+.options-directory-title h3,.options-chain-heading h3{margin:0;font-size:16px}
+.options-directory-count,.options-product-meta{font-size:12px;color:var(--text-3);font-weight:400}
+.options-directory-tools{flex-wrap:wrap;gap:8px}
+.options-directory-tools input,.options-directory-tools select{margin:0;width:auto;max-width:100%;min-width:0}
+.options-directory-tools input{width:clamp(200px,24vw,315px)}
+.options-market-groups{max-height:18rem;overflow:auto;padding:0 16px}
+.options-market{display:grid;grid-template-columns:minmax(92px,13%) minmax(0,1fr);align-items:start;gap:12px;padding:12px 0}
+.options-market+.options-market{border-top:1px solid var(--border)}
+.options-market h4{margin:8px 0 0;font-size:13px;color:var(--text-2)}
+.options-product-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(210px,100%),1fr));gap:6px}
+.options-product{display:flex;min-width:0;flex-direction:column;align-items:flex-start;text-align:left;white-space:normal;gap:3px;padding:8px 12px;border-radius:8px;color:var(--text);border:1px solid var(--border);background:var(--surface-2)}
+.options-product:hover,.options-product:focus-visible{background:var(--surface);border-color:var(--accent)}
+.options-product[aria-pressed=true]{background:var(--accent-soft);border-color:var(--accent);box-shadow:inset 3px 0 var(--accent)}
+.options-product-name{font-size:13px;font-weight:600}.options-product-name,.options-product-meta{max-width:100%;overflow-wrap:anywhere}
+.options-expiries{display:flex;align-items:center;gap:6px;min-width:0;overflow-x:auto;padding:2px 1px 5px}
+.options-expiry{flex:none}
+.options-chain-view{display:grid;grid-template-columns:minmax(0,1fr);align-items:start;gap:10px;min-width:0}
+.options-chain-heading{justify-content:space-between}.options-chain-heading label{display:flex;align-items:center;gap:6px;margin:0;font-size:12px;color:var(--text-2)}
+.options-chain-heading input{width:auto;margin:0}
+#options-page .options-chain-host{min-width:0}
+.options-listed-chain{width:100%;table-layout:fixed}
+.options-listed-chain th,.options-listed-chain td{text-align:center}
+.options-listed-chain th.options-strike{background:var(--surface-2);font-family:var(--mono);font-weight:600}
+.options-underlying-links{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.options-contract-link,.options-leg-contract,.options-quote,.options-series-link{padding:2px 4px;min-height:0;border:0;background:transparent;color:var(--accent-text);font:inherit;text-align:inherit;overflow-wrap:anywhere}
+.options-contract-link,.options-leg-contract,.options-series-link{text-decoration:underline;text-underline-offset:3px}
+.options-contract-link:hover,.options-leg-contract:hover,.options-quote:hover,.options-series-link:hover,.options-series-link[aria-pressed=true]{background:var(--accent-soft);color:var(--accent-text)}
+.options-quote{font-weight:650;color:var(--text)}
+.options-series-link{width:100%;padding:5px;font-family:var(--mono);font-size:12px;white-space:normal}
+.options-series-short{display:none}.options-readout h3{overflow-wrap:anywhere}
+#options-missing{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;padding:14px 16px}
+#options-missing h4{font-size:14px}
+.option-exercise-contracts{display:grid;gap:10px}.option-exercise-contracts label{max-width:22rem}
+#options-page{container-type:inline-size}
+@container (min-width:960px){
+ .options-chain-view{grid-template-columns:minmax(0,1fr) minmax(220px,25%)}
+ .options-chain-heading,.options-basis{grid-column:1/-1}
+ .options-chain-view .options-readout{grid-column:2;grid-row:2}
+ .options-readout .vol-missing-actions{display:flex;flex-direction:column;align-items:stretch}
+}
+@container (max-width:959px){
+ .options-chain-view .options-readout:not([data-empty=true]){grid-row:2}
+ .options-chain-view .options-readout[data-empty=true]{display:none}
+}
+@container (max-width:620px){
+ .options-series-short{display:inline}.options-series-code{display:none}
+ .options-listed-chain .options-series-link{min-height:32px}
+ .options-directory-head,.options-directory-tools{align-items:stretch}
+ .options-directory-tools{width:100%}.options-directory-tools input{flex:1 1 180px}
+ .options-market{grid-template-columns:minmax(0,1fr);gap:6px}
+ .options-market h4{margin:0}.options-market-groups{max-height:15rem}
+}
 .options-facts{display:flex;flex-wrap:wrap;gap:6px 28px;margin:0;padding:12px 16px;border-radius:var(--radius-lg);background:var(--surface);border:1px solid var(--border);font-size:13px}
 .options-facts>div{display:flex;align-items:baseline;gap:8px}.options-facts dt{color:var(--text-3)}.options-facts dd{margin:0;font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--text)}
 .options-chain-host{overflow-x:auto;border-radius:var(--radius-lg);border:1px solid var(--border);background:var(--surface);box-shadow:var(--shadow)}
@@ -2897,7 +2945,7 @@ header>div:first-child{flex:1 1 160px}
 .options-chain td.options-missing-figure{color:var(--text-3)}
 .options-chain td.options-settle{font-weight:600}
 .options-held-lots{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;background:var(--surface-3);color:var(--text);border:1px solid var(--border-strong)}
-.options-readout dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:6px 24px;max-width:560px;margin:12px 0;font-size:13px}
+.options-readout dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 12px;max-width:560px;margin:12px 0;font-size:13px}
 .options-readout dl>dt{color:var(--text-3)}.options-readout dl>dd{margin:0;font-family:var(--mono);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 .options-basis{margin:0;font-size:12px;line-height:1.55;color:var(--text-3);max-width:110ch}
 .options-positions{display:flex;flex-direction:column;gap:12px;min-width:0}
@@ -2910,7 +2958,7 @@ header>div:first-child{flex:1 1 160px}
 .options-position-calibrate{padding:2px 10px;font-size:12px}
 /* Strategy (options-view.ts): legs on the expiry in view, their scenario, and the payoff the backend states. The last
    analysis stays on show, dimmed, while the legs or scenario differ from it. */
-.options-expiry-head{display:flex;flex-direction:column;gap:12px;min-width:0}
+.options-selected-product{margin:0;font-size:18px}.options-expiry-head{display:flex;flex-direction:column;gap:12px;min-width:0}
 .options-strategy{display:flex;flex-direction:column;gap:12px;min-width:0}
 .options-templates{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0}
 .options-templates-label{font-size:11px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);margin-right:4px}

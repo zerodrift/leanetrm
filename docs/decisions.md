@@ -5681,8 +5681,11 @@ activation remain separate.
   identities. Fixed native prices and explicitly selected covering flat
   contracts are supported; no mark implies an undeclared dependency.
 - The price hedge report reprices explicit operating and financial holdings under
-  one certified context and immutable base/up/down scenarios. Base measures stay
-  separate; only like-currency price changes and derivatives are added. Empty
+  one certified context and immutable base/up/down scenarios. Listed futures
+  options and heat-rate calls retain their native position bindings when selected
+  as hedges. A listed option includes its premium binding and uses the portfolio’s
+  minimum shock for delta and gamma. Base measures stay separate, and the report combines only
+  like-currency price changes and derivatives. Empty
   factors, excluded selected holdings and incomplete results refuse. Financial
   hedges create no physical flow or certificate and imply no hedge-accounting
   qualification.

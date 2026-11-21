@@ -117,3 +117,23 @@ test('a listed series named from elsewhere is selected through every level, and 
  assert.throws(()=>pickSeries(catalog,'a_gas_apr_c10'),/a_gas_apr_c10 is not listed at this close/);
  assert.throws(()=>pickSeries({...catalog,options:[...catalog.options,catalog.options[0]]},'a_gas_feb_c10'),/more than once/);
 });
+
+test('a ticket opened from a chain selects the named series in its exact product definition',async()=>{
+ const {catalogForSeries}=await import('../dist/futures-option-model.js');
+ const original=catalog.options[0],other={...original,definitionRevisionId:'other-definition'};
+ const combined={options:[other,...catalog.options],underlyings:[...catalog.underlyings,{...catalog.underlyings[0],definitionRevisionId:'other-definition'}]};
+ const scoped=catalogForSeries(combined,original.series,'definition-a');
+ assert.equal(optionChoices(scoped,pickSeries(scoped,original.series)).series,original);
+ assert.throws(()=>catalogForSeries(combined,original.series,'withdrawn'),/not listed/);
+});
+
+test('a booked option opens its exact dated series from the Blotter',async()=>{
+ const {readOptionView}=await import('../dist/futures-option-view.js');
+ const holding={tradeId:'saved',component:'option',series:'call-3',product:'gas-option',expiryAt:'2030-11-27T12:00:00Z',
+  executedAt:'2030-01-01T12:00:00Z',definitionRevisionId:'saved-definition',booking:{}};
+ const opened=[];
+ const details=await readOptionView(async()=>({tradeId:'saved',lots:'1',openLots:'1',events:[]}),{snapshotId:'snap'},holding,
+  {chain:(...args)=>opened.push(args),surface:null});
+ details.view('UTC').actions.find(a=>a.id==='option-trade-chain').run();
+ assert.deepEqual(opened,[['gas-option','2030-11-27T12:00:00Z','call-3','saved-definition']]);
+});
