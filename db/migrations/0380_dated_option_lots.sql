@@ -34,7 +34,7 @@ BEGIN
  LEFT JOIN ref_data.futures_lot_resolutions l ON (l.catalog_id,l.revision_id,l.series_code)=(us.catalog_id,us.revision_id,us.code)
  WHERE (s.catalog_id,s.revision_id,s.code)=(catalog,revision,series);
  IF result IS NULL THEN RAISE EXCEPTION 'option_multiplier' USING ERRCODE='P0001'; END IF;
- RETURN result;
+ RETURN trim_scale(result)::ref_data.exact_number;
 END$$;
 REVOKE ALL ON FUNCTION ref_data.futures_option_multiplier(uuid,uuid,text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION ref_data.futures_option_multiplier(uuid,uuid,text) TO openetrm_runtime,openetrm_security_owner;
