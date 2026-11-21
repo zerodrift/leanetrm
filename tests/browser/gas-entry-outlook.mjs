@@ -29,7 +29,12 @@ export async function checkGasEntryOutlook(actions){
   fitsWidth+"&&document.querySelector('#sidebar-menus').getBoundingClientRect().height===0&&document.querySelector('#facilities-section-picker').checkVisibility()&&document.querySelector('#facilities-section-picker').value==='outlook'");
  await click('#sidebar-toggle');await check('phone menu opens by keyboard-accessible control',"document.querySelector('#sidebar-toggle').getAttribute('aria-expanded')==='true'&&document.querySelector('#nav-facilities').checkVisibility()");await click('#sidebar-toggle');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:960,deviceScaleFactor:1,mobile:false});
- await blotterAt(actions,await decemberClose(evaluate));await newTrade(actions,'gas-locations');
+ await blotterAt(actions,await decemberClose(evaluate));await click('#nav-facilities');await click('[data-facilities-view=outlook]');
+ await set('#outlook-from','2021-01-01');await set('#outlook-to','2021-01-03');await click('#outlook-read');await click('#outlook-views-sources');
+ const bookedSide='.outlook-report .outlook-drill';await wait('!!document.querySelector('+JSON.stringify(bookedSide)+')&&'+idle);
+ await click(bookedSide);await wait("document.querySelector('#page-title').textContent==='Blotter'&&document.querySelector('#position-details').dataset.mode==='position'&&"+idle,60000);
+ await check('a booked Side opens its native gas position at the selected close',"document.querySelector('#position-details').checkVisibility()&&document.querySelector('#page-title').textContent==='Blotter'");
+ await newTrade(actions,'gas-locations');
  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
  await check('a chosen instrument leaves room for trade entry on a phone',
   "document.querySelector('#new-trade-switch')?.checkVisibility()&&!document.querySelector('#new-trade-product').checkVisibility()&&document.querySelector('#gas-location-assemble').getBoundingClientRect().top<innerHeight");

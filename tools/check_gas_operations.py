@@ -6,6 +6,48 @@ from preview_fixture import trade_booking
 from synthetic_side_calendars import side_calendar_policy
 
 
+def check_confirmation_agreements(client, query, manifest, booking):
+    import base64
+    import json
+    from copy import deepcopy
+    from check_booked_side_programs import runtime_query
+    from preview_fixture import blank_agreement_pdf
+
+    command = deepcopy(booking)
+    command['operationId'] = str(uuid4())
+    catalog = manifest['catalogId']
+    parties = trade_booking()
+    parties['counterpartyId'] = query(f"SELECT id FROM trading.counterparties WHERE catalog_id='{catalog}' AND code='party_2' AND revision=1")
+    for leg in command['tickets']:
+        leg['draft']['trade']['counterparty'] = parties['counterpartyId'] + '@1'
+    for permission in ['ReadTrades', 'ManageAgreements']:
+        query(f"INSERT INTO security.role_permissions SELECT id,'{permission}' FROM security.roles WHERE code='market_data_editor' ON CONFLICT DO NOTHING")
+    agreement = dict(**parties, kind='agreement', code='gas_location_master', name='Synthetic gas location master',
+        agreementType='gas_master', products=['physical_gas'], effectiveAt='2020-12-01T00:00:00Z', validTo=None,
+        status='executed', procedure='written', provisions='Synthetic delivery terms', filename='terms.pdf',
+        pdf=base64.b64encode(blank_agreement_pdf()).decode(), expectedRevision=0)
+    added = json.loads(runtime_query(query, manifest, f"SELECT desk.record('{catalog}','{uuid4()}','{json.dumps(agreement)}'::jsonb);", profile='editor'))['id']
+    applied = {}
+    for confirmation in ['purchase', 'sale']:
+        refusal = client.call('tickets/gas-locations/book', command, expected=422)
+        assert refusal['code'] == 'desk_agreement_ambiguous' and refusal.get('confirmation') == confirmation, refusal
+        choice = refusal['agreementSelection']
+        assert len(choice['choices']) == 2
+        applied[confirmation] = next(a['id'] for a in choice['choices'] if (a['id'] == added) == (confirmation == 'sale'))
+        selection = {'operationId': choice['operationId'], 'agreementId': applied[confirmation]}
+        changed = client.call('desk/choose', {**selection, 'expectedProfile': 'risk'}, expected=409)
+        assert changed['code'] == 'desk_profile_changed'
+        assert query(f"SELECT count(*) FROM desk.booking_choices WHERE catalog_id='{catalog}' AND operation_id='{choice['operationId']}'") == '0'
+        client.call('desk/choose', {**selection, 'expectedProfile': 'trader'})
+        assert client.call('tickets/gas-locations/status', {'requestId': command['operationId']}) == {'found': False}
+    receipt = client.call('tickets/gas-locations/book', command)
+    assert client.call('tickets/gas-locations/book', command) == receipt
+    for side, agreement_id in applied.items():
+        trade_id = receipt[side + 'TradeId']
+        assert query(f"SELECT agreement_id FROM desk.admissions WHERE catalog_id='{catalog}' AND trade_id='{trade_id}' AND revision=1") == agreement_id
+    print('PASS separate confirmations retain their chosen agreements and recover one group receipt', flush=True)
+
+
 def run_checks(url, query, manifest):
     c=PreviewClient(url);c.bootstrap();c.call('profile',{'profile':'trader'})
     principal=query("SELECT principal_id FROM security.identity_bindings WHERE issuer='https://preview.invalid' AND subject='trader';")
@@ -69,6 +111,8 @@ def run_checks(url, query, manifest):
         next(s for ticket in malformed['tickets'] for s in ticket['draft']['sides'] if s['code']=='sale_payment')['values']['cash_source']='purchase'
         c.call('tickets/gas-locations/book',malformed,expected=422)
         assert c.call('tickets/gas-locations/status',{'requestId':malformed['operationId']})=={'found':False}
+        if agreements=='separate_confirmations':
+            check_confirmation_agreements(c,query,manifest,command)
     terms={**before,**trade_booking(),'operationId':str(uuid4()),'bookId':catalog['books'][0]['id'],'definitionRevisionId':point['definitionRevisionId'],'gasSetupId':catalog['gasSetupId'],'discounting':False,'profile':'fixed_gas_composition_v1',
       'physicalSides':[{'code':'receipt','pipeline':point['pipeline'],'zone':point['zone'],'deliveryPoint':point['deliveryPoint'],'product':point['product'],'direction':'receive','deliveryFrom':'2021-01-01','deliveryTo':'2021-01-03','quantityBasis':'per_operating_day','quantity':'100','link':None,'calendarPolicy':side_calendar_policy(reference,delivery=True,observation=False,payment=False)}],
       'cashSides':[{'code':'payment','role':'consideration','direction':'pay','source':'receipt','stage':'delivery','price':'3','tariffCode':None,'paymentAt':'2021-02-02T00:00:00Z','calendarPolicy':side_calendar_policy(reference,delivery=True,observation=False,payment=True)}]}

@@ -1,4 +1,4 @@
-import {selectBookingAgreement} from './bilateral-desk.js';
+import {selectBookingAgreement,submitWithBookingAgreements} from './bilateral-desk.js';
 import {workspaceView,workspaceDocument,releaseView,viewEvents,rememberWorkspaceView,onWorkspaceLeave,reattachHeaders,workspaceRegistered} from './workspace-view.js';
 import {setupRecInventory} from './rec-inventory-view.js';
 import {recContext} from './rec-inventory-model.js';
@@ -260,7 +260,6 @@ async function transport<T>(path:string,body?:unknown,root=apiRoot,signal?:Abort
   const value=attachReadReferences(await response.json() as T,response.headers.get('X-OpenETRM-Read-References'));signal?.throwIfAborted();return value;
 }
 async function api<T>(path:string,body?:unknown,signal?:AbortSignal):Promise<T>{
- const bookingScope=/\/(book|amend)$/.test(path)?{actor:currentProfile,context:navigation?.context}:undefined;
  const selectsContext=['profile','market/current','market/context'].includes(path)||/^assistant\/turns\/[^/]+\/view$/.test(path);
  if(selectsContext||['market/live','market/live/pause'].includes(path)){pageRead?.controller.abort();pageRead=undefined;readClient.reset();}
  const operation=asyncReadsEnabled?asyncReadRequest(path,body):undefined;
@@ -268,16 +267,18 @@ async function api<T>(path:string,body?:unknown,signal?:AbortSignal):Promise<T>{
  const selectedSignal=signal&&pageSignal?AbortSignal.any([signal,pageSignal]):signal??pageSignal;
  if(operation&&asyncIdentityLost)throw Error('Reload the page before requesting data for the changed account or context.');
  let payload:T;
- try{payload=operation?await readClient.read<T>(operation.operation,operation.body,{signal:selectedSignal}):await transport<T>(path,body,apiRoot,signal);}
+ try{
+  const submit=()=>transport<T>(path,body,apiRoot,signal);
+  if(operation)payload=await readClient.read<T>(operation.operation,operation.body,{signal:selectedSignal});
+  else if(/\/(book|amend)$/.test(path)){
+   const scope=()=>JSON.stringify([apiRoot,administrationScope,exampleId,currentProfile,select('snapshot').value,closeSession,navigation?.context,contextDirty,sessionEnded]);
+   const original=scope(),expectedProfile=currentProfile;
+   const check=()=>{signal?.throwIfAborted();if(asyncIdentityLost||scope()!==original)throw Error('The account or market context changed. Open the booking again.');};
+   const pair=path==='tickets/gas-locations/book'&&(body as {agreements?:string}|undefined)?.agreements==='separate_confirmations';
+   payload=await submitWithBookingAgreements(submit,(operationId,agreementId)=>transport('desk/choose',{operationId,agreementId,expectedProfile},apiRoot,signal),selectBookingAgreement,check,pair?2:1);
+  }else payload=await submit();
+ }
  catch(error){
-  const refused=error as {code?:string;details?:{agreementSelection?:{operationId:string;choices:{id:string;name:string;revision:number}[]}}};
-  const selection=refused.details?.agreementSelection;
-  if(refused.code==='desk_agreement_ambiguous'&&selection){
-   const agreementId=await selectBookingAgreement(selection.choices);
-   if(!bookingScope||currentProfile!==bookingScope.actor||navigation?.context!==bookingScope.context)throw Error('The account or market context changed. Open the booking again.');
-   await transport('desk/choose',{operationId:selection.operationId,agreementId},apiRoot,signal);
-   return transport<T>(path,body,apiRoot,signal);
-  }
   if(operation&&error instanceof AsyncReadError){
    if(error.source==='server')throw readRefusal(path,{code:error.code,message:error.message},hostedPilot);
    if(error.code==='async_read_identity')invalidateReadIdentity();

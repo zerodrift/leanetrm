@@ -83,6 +83,7 @@ const string malformed="The request is incomplete or malformed.";
 // The HTTP status, code and message an API failure is reported with: as an error body, or as the error frame of a started Blotter stream.
 (int Status,string Code,string Message) Failure(Exception e,PathString apiPath,HttpContext context)=>e switch
 {
+    MarketDataException m when m.Code=="desk_profile_changed"=>(409,m.Code,m.Message),
     PostgresException p when p.MessageText.StartsWith("desk_",StringComparison.Ordinal)
         =>(p.SqlState=="42501"?403:p.MessageText is "desk_stale" or "desk_request_conflict"?409:422,p.MessageText,BilateralDesk.Error(p.MessageText)),
     PostgresException p when apiPath.StartsWithSegments("/api/desk") && (p.SqlState.StartsWith("22",StringComparison.Ordinal)||p.SqlState.StartsWith("23",StringComparison.Ordinal))
@@ -451,6 +452,8 @@ app.Use(async (context,next)=>
         if(e is CloseRiskInputsException closeRisk)body=new{code,message,affectedBindings=closeRisk.AffectedBindings};
         if(e is PostgresException {MessageText:"desk_agreement_ambiguous",Hint:{} selection})
             body=new{code,message,agreementSelection=JsonSerializer.Deserialize<JsonElement>(selection)};
+        if(e is GasBookingAgreementException agreement)
+            body=new{code,message,confirmation=agreement.Confirmation,agreementSelection=agreement.Selection};
         if(e is TicketFieldException ticket)body=new{code,message,side=ticket.Side,field=ticket.Field};
         if(e is RiskRunTieException tie)body=new{code,message,definition=tie.Definition,runs=tie.Runs};
         await context.Response.WriteAsJsonAsync(body,CancellationToken.None);
@@ -1731,8 +1734,11 @@ api.MapPost("/desk/eligibility",(HttpContext c,DeskEligibility body)=>Locked(c,s
         "SELECT desk.eligibility($1,$2,$3,$4,statement_timestamp())::text",ct,database.Manifest.CatalogId,body.LegalEntityId,body.CounterpartyId,body.Product)),c.RequestAborted);
 }));
 api.MapPost("/desk/choose",(HttpContext c,DeskChoice body)=>Locked(c,session=>{
+    var profile=Profile(session);
+    if(body.ExpectedProfile is {} expected&&profile!=expected)
+        throw new MarketDataException("desk_profile_changed","The account changed. Open the booking again.");
     if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Select working data to choose a booking agreement.");
-    return database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>{
+    return database.WithIdentity(profile,"ReadTrades",async(connection,ct)=>{
         var permission=await PreviewDatabase.HasPermission(connection,"BookTrade",ct)?"BookTrade":"AmendTrade";
         if(!await PreviewDatabase.HasPermission(connection,permission,ct))throw new PreviewDeniedException();
         await DeskAdmission.Capture(database,connection,permission,ct);

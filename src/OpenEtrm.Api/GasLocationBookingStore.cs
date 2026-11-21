@@ -4,6 +4,13 @@ using OpenEtrm.MarketData;
 
 namespace OpenEtrm.Api;
 
+internal sealed class GasBookingAgreementException(string confirmation,PostgresException refusal)
+    : MarketDataException(refusal.MessageText,BilateralDesk.Error(refusal.MessageText),refusal)
+{
+    internal string Confirmation { get; }=confirmation;
+    internal JsonElement Selection { get; }=JsonSerializer.Deserialize<JsonElement>(refusal.Hint!);
+}
+
 internal sealed class GasLocationBookingStore(PreviewDatabase database,GasCompositionStore gas)
 {
     readonly RetainedScheduleStore schedules=new(database);
@@ -27,7 +34,12 @@ internal sealed class GasLocationBookingStore(PreviewDatabase database,GasCompos
             if(await Read(c,input.OperationId,payload,t) is {} done)return done;
             foreach(var leg in terms)
             {
-                await gas.Save(c,frame,leg,false,t);
+                try { await gas.Save(c,frame,leg,false,t); }
+                catch(PostgresException e) when(e is {SqlState:"P0001",MessageText:"desk_agreement_ambiguous",Hint:not null})
+                {
+                    var confirmation=terms.Length==1?"bilateral":leg.PhysicalSides.Single().Code;
+                    throw new GasBookingAgreementException(confirmation,e);
+                }
                 await schedules.Publish(c,leg.OperationId,t);
             }
             return await LifecycleNative.Read(c,"SELECT security.record_gas_location_booking($1,$2,$3::jsonb)::text",t,

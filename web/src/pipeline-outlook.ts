@@ -1,7 +1,7 @@
 import type {setupFacilityQuantities} from './facility-quantities-view.js';
 import {setupTabs} from './side-panel.js';
 import {renderRegularTable} from './regular-table.js';
-import {displayInstant} from './market-view.js';
+import {displayExactInstant} from './market-view.js';
 
 type Path={pipeline:string;zone:string;point:string;product:string;unit:string;quantityCode:string;direction:string;referenceCatalogId:string;referenceRevisionId:string};
 type Stage={reported:number;provisional:number;withdrawn:number;quantity:string|null;reportedQuantity:string|null};
@@ -33,11 +33,13 @@ const views=[['volumes','Volumes'],['sources','Booked Sides'],['capacity','Capac
 type Lens=typeof views[number][0];
 
 export function setupPipelineOutlook(root:HTMLElement,o:Options,open:(section:'transport'|'gas-delivery')=>void){
- let generation=0,from='',to='',level='day',selected='',entitlementId='',capFrom='',capTo='',contextDay='',lens:Lens='volumes';
- const reset=()=>{generation++;from=to=selected=entitlementId=capFrom=capTo=contextDay='';level='day';lens='volumes';root.replaceChildren();};
+ let generation=0,from='',to='',level='day',selected='',entitlementId='',capFrom='',capTo='',contextDay='',scope='',lens:Lens='volumes';
+ const reset=()=>{generation++;from=to=selected=entitlementId=capFrom=capTo=contextDay=scope='';level='day';lens='volumes';root.replaceChildren();};
  async function load(){
   const g=++generation,context=o.context(),identity=o.identity();
-  const current=()=>g===generation&&identity===o.identity()&&JSON.stringify(context)===JSON.stringify(o.context());
+  const selectionScope=JSON.stringify([identity,context]);
+  if(scope!==selectionScope){selected=entitlementId=capFrom=capTo='';scope=selectionScope;}
+  const current=()=>g===generation&&selectionScope===JSON.stringify([o.identity(),o.context()]);
   if(contextDay!==context.effectiveOn){from=monthStart(context.effectiveOn);to=monthStart(context.effectiveOn,1);contextDay=context.effectiveOn;}
   root.classList.add('pipeline-outlook');
   const head=el('header'),heading=el('h2','Pipeline outlook'),ranges=el('div');head.className='outlook-heading';ranges.className='outlook-ranges';
@@ -73,6 +75,7 @@ export function setupPipelineOutlook(root:HTMLElement,o:Options,open:(section:'t
    month.className='outlook-drill';month.title='Open gas days in '+r.period.slice(0,7);return month;
   }
   function draw(){
+   if(!current())return;
    capacityControls.hidden=lens!=='capacity';tables.replaceChildren();if(!result)return;
    const match=(p:Pick<Path,'pipeline'|'referenceCatalogId'|'referenceRevisionId'>)=>!selected||pipelineKey(p)===selected;
    const rows=result.rows.filter(r=>match(r.path));
@@ -90,15 +93,15 @@ export function setupPipelineOutlook(root:HTMLElement,o:Options,open:(section:'t
     const sources=result.sources.filter(s=>match(s.path));
     if(!sources.length){tables.append(el('p',level==='month'?'Select a month in Volumes or group by gas day to see booked Sides.':'No booked Sides in this window.'));return;}
     table(tables,'Booked Side detail',['Gas day','Trade','Side','Point','Native start','Native end','Unit','Contracted','Nominated','Submitted','Confirmed','Scheduled','Allocated'],sources.map(s=>{
-     const trade=button(s.reference,()=>void o.act(async()=>{const reason=o.tradeInspection();if(reason)throw Error(reason);await o.openTrade(s.tradeId,s.revision);}));trade.className='outlook-drill';
-     return [s.day,trade,s.side,s.path.point,displayInstant(s.start,o.zone()),displayInstant(s.end,o.zone()),s.path.unit,s.contracted,fact(s.nominated),
-      s.submitted?valueCell(s.submitted.quantity!,s.requests!.map(r=>r.externalReference+' · '+displayInstant(r.submittedAt,o.zone())).join(', ')):fact(null),fact(s.confirmed),fact(s.scheduled),fact(s.allocated)];}),[7,8,9,10,11,12]);
+     const trade=button(s.reference,()=>{const reason=o.tradeInspection();if(reason)void o.act(async()=>{throw Error(reason);});else void o.openTrade(s.tradeId,s.revision);});trade.className='outlook-drill';
+     return [s.day,trade,s.side,s.path.point,displayExactInstant(s.start,o.zone()),displayExactInstant(s.end,o.zone()),s.path.unit,s.contracted,fact(s.nominated),
+      s.submitted?valueCell(s.submitted.quantity!,s.requests!.map(r=>r.externalReference+' · '+displayExactInstant(r.submittedAt,o.zone())).join(', ')):fact(null),fact(s.confirmed),fact(s.scheduled),fact(s.allocated)];}),[7,8,9,10,11,12]);
    }else if(lens==='capacity'){
     const cap=result.capacity;
     if(!cap){tables.append(el('p',result.entitlements.length?'Choose an agreement to see its hourly limits and chosen plans.':'No visible transport entitlements at this business time.'));return;}
     tables.append(el('p',cap.ready?'Commercial capacity in '+cap.unit+' per elapsed hour.':'This entitlement has a future-effective revision. Capacity assessment is unavailable at this business time.'));
     for(const t of cap.tables){if(!t.rows.length){tables.append(el('p','No capacity intervals in this window.'));continue;}
-     table(tables,'Native capacity intervals',t.columns,t.rows.map(row=>row.map((v,i)=>t.instantColumns.includes(i)?displayInstant(v,o.zone()):v)),t.columns.flatMap((label,i)=>label.endsWith(' / hour')?[i]:[]));}
+     table(tables,'Native capacity intervals',t.columns,t.rows.map(row=>row.map((v,i)=>t.instantColumns.includes(i)?displayExactInstant(v,o.zone()):v)),t.columns.flatMap((label,i)=>label.endsWith(' / hour')?[i]:[]));}
    }else{
     const balances=result.balances.filter(match);
     if(!balances.length)tables.append(el('p','No eligible service accounts or statements in this window.'));
@@ -113,8 +116,9 @@ export function setupPipelineOutlook(root:HTMLElement,o:Options,open:(section:'t
    const pipelines=new Map<string,string>();for(const p of [...data.rows.map(r=>r.path),...data.balances])pipelines.set(pipelineKey(p),p.pipeline);
    pipeline.replaceChildren(new Option('All visible pipelines',''));
    for(const [id,name]of pipelines){const duplicate=[...pipelines.values()].filter(n=>n===name).length>1;pipeline.add(new Option(duplicate?name+' · '+JSON.parse(id)[1]:name,id));}
-   if(!pipelines.has(selected))selected='';pipeline.value=selected;
-   status.textContent='Business time '+displayInstant(data.at,o.zone())+' · Known at '+displayInstant(data.context.knownAt,o.zone());
+   if(selected&&!pipelines.has(selected)){const [,revision,name]=JSON.parse(selected);pipeline.add(new Option(name+' · '+revision,selected));}
+   pipeline.value=selected;
+   status.textContent='Business time '+displayExactInstant(data.at,o.zone())+' · Known at '+displayExactInstant(data.context.knownAt,o.zone());
    draw();
   }
   entitlement.onchange=()=>{entitlementId=entitlement.value;capacityWindow.hidden=!entitlementId;
