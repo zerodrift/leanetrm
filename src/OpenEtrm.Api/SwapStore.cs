@@ -430,6 +430,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
    history.Add(State(exact.Data,revisionRow,exact.Frame.Id));
   }
   var settlement=await SettlementState(connection,tradeId,ct);
+  var behind=await SettlementOrderRefusal(connection,tradeId,frame.At,ct);
   if(settlement.GetProperty("occurrences").GetArrayLength()!=0)
   {
    if(selected!=int.Parse(rows[^1].Text("revision"),CultureInfo.InvariantCulture))throw Error("settlement_revision","Select the effective trade head or its original certified historical context.");
@@ -439,14 +440,14 @@ public sealed partial class SwapStore(PreviewDatabase database)
     settlementValuation=LifecycleValue(lifecycle.Value),settlement,catalog=await Catalog(connection,data,frame,ct,Terms(data,row,frame.Id)),
     quantityInputs=scheduled?await RetainedQuantityInputs(connection,row,ct):null,
     lockedPeriods=scheduled?LockedPeriods(StartedPeriods(lifecycle.Instrument,frame.At),settlement,frame.At):(object?)null,
-    lifecycleEligible=scheduled&&frame.At>=row.Instant("effective_at")&&RunningAmendmentCovers(Terms(data,row,frame.Id).Scheduled!)};
+    lifecycleEligible=behind is null&&scheduled&&frame.At>=row.Instant("effective_at")&&RunningAmendmentCovers(Terms(data,row,frame.Id).Scheduled!),lifecycleReason=behind};
   }
   var terms=await RetainedTerms(connection,frame,Terms(data,row,frame.Id),row.Id("instrument_id"),ct);var value=await Price(connection,data,frame,terms,row.Id("instrument_id"),row.Id("fixed_side_id"),row.Id("floating_side_id"),ct);
   if(terms.Scheduled is null)ValidateProjections(value,row);
   var locked=terms.Scheduled is null?(ImmutableArray<SwapLockedPeriod>?)null:LockedPeriods(StartedPeriods(ResolveScheduled((await ScheduledMarket(connection,data,frame,terms.DefinitionRevisionId,ct)).Data,terms,row.Id("instrument_id")).Instrument,frame.At),settlement,frame.At);
   return new{state=State(data,row,frame.Id),history=history.ToImmutable(),valuation=Value(value),quantityInputs=terms.Scheduled is null?null:await RetainedQuantityInputs(connection,row,ct),catalog=await Catalog(connection,data,frame,ct,terms),
-   lockedPeriods=locked,
-   lifecycleEligible=terms.Scheduled is not null?frame.At>=row.Instant("effective_at")&&(locked!.Value.IsEmpty||RunningAmendmentCovers(terms.Scheduled)):frame.At<row.Instant("first_fixing_at")&&(row.OptionalText("first_floating_fixing") is not {} firstFixing||frame.At<SchedulePreview.ParseAt(firstFixing))&&frame.At>=row.Instant("effective_at")};
+   lockedPeriods=locked,lifecycleReason=behind,
+   lifecycleEligible=behind is null&&(terms.Scheduled is not null?frame.At>=row.Instant("effective_at")&&(locked!.Value.IsEmpty||RunningAmendmentCovers(terms.Scheduled)):frame.At<row.Instant("first_fixing_at")&&(row.OptionalText("first_floating_fixing") is not {} firstFixing||frame.At<SchedulePreview.ParseAt(firstFixing))&&frame.At>=row.Instant("effective_at"))};
  }
  internal async Task<SideScheduleSnapshot> InspectSchedule(NpgsqlConnection connection,PreviewData data,InputFrame frame,JsonElement row,
   ImmutableArray<BookedScheduleSide> headers,int slot,CancellationToken ct)
@@ -503,6 +504,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
   {
    var rows=await Rows(connection,trade,ct);if(rows.IsEmpty)throw Error("swap_trade","The retained trade is unavailable.");
    var head=rows[^1];var original=await ScheduledMarket(connection,data,frame,head.Id("definition_revision_id"),ct);
+   await RequireSettlementOrder(connection,trade,frame.At,ct);
    var retained=Terms(original.Data,head,original.Frame.Id);booked=retained;
    if(body.ExpectedRevision!=int.Parse(head.Text("revision"),CultureInfo.InvariantCulture)||body.ExpectedRevision>=256||
     SchedulePreview.ParseAt(body.EffectiveAt)!=frame.At||frame.At<head.Instant("effective_at")||

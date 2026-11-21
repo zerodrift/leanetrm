@@ -38,8 +38,19 @@ swap, stored swap risk, close-out draft, gas-amendment, PPA and structured-power
 checks passed unchanged. A browser test of the ticket covers locked controls, kept
 months on extension and the exact request.
 
-Not run: the owned browser suites against a live preview, the complete standard
-check and continuous integration. Not covered by a check: the owned write's refusal
+For D442 the same check settles January on a scheduled and a composed swap, then
+amends each at the December booking As of: both are refused with
+`swap_amendment_backdated`, the scheduled preview and trade read state the instant
+of the latest activity, and the composed save, which has no managed preview, is
+refused by the owned write alone. With the permission granted to the trader role
+the scheduled amendment is admitted, a change to the settled month is still refused
+by the settlement guard, and after the grant is removed the next one is refused
+again. The check was first run without the rule and failed with an accepted
+preview.
+
+Not run: the owned browser suites against a live preview and the complete standard
+check. Not covered for D442: a payment or net command as the latest activity, and
+the role assigned through Users & access. Not covered by a check: the owned write's refusal
 of a changed started month when the managed operation is bypassed, beyond its
 native proof function; started swaps with a fixing-only month, floating/floating
 sides, observation schedules or custom projections; the scope refusals for factor,

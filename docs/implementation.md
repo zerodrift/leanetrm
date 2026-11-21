@@ -917,7 +917,9 @@ page is busy, and D216's reviewed common-term edits of selected periods are made
 The ticket of a swap that has started (D441) shows each started month as read-only with the
 backend's reason, keeps its delivery start, quantity basis and unit, keeps every entered month when
 the term is extended, and reviews the proposed terms by their lifecycle value
-(`swap-locked-periods.ts`).
+(`swap-locked-periods.ts`). At an As of before the swap's latest settlement activity the read
+states that instant as the reason no amendment is offered, unless the account holds
+`AmendBehindSettlement` (D442).
 A swap's Terms, and either ticket, offer Settlement and P&L (`swap-settlement.ts`), which takes the
 form part in place of the terms, with the head's Close editor, after the panel has asked about a
 ticket's edits; there it also settles selected gross contributions of the trade by one net amount,

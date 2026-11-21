@@ -6951,3 +6951,31 @@ swap is therefore no longer amendable between its delivery start and first fixin
 keeps its total and its months once a month has started. The general trading P&L
 report does not cover swaps; the swap's own bridge reports the amendment as Impact
 of amendments.
+
+## D442 — Amending a swap behind its settlement activity needs its own permission
+
+Which months of a swap have started is judged at the working As of. An amendment
+dated before the trade's latest settlement command would judge that as of the
+earlier date, after later facts were recorded. Such an amendment is refused with
+`swap_amendment_backdated` unless the account holds `AmendBehindSettlement`
+together with `AmendTrade`. Settlement commands already refuse to record behind
+later activity; this applies the same order to amendments of composed and
+scheduled swaps. The preview and the trade read state the instant of the latest
+activity; the owned write refuses by code.
+
+Migration 0386 adds the permission, a trigger on swap revisions that enforces the
+order for every write path, and the Trade supervisor role, which holds the
+permission with trade and market reads and `AmendTrade`. The role is assigned to no
+one; an access administrator assigns it in Users & access.
+
+What the permission grants is the earlier As of, with its view of which months
+have started. It does not unlock a determined period: the settlement guard keeps
+each determined side's terms whoever amends. A holder can change a month that is
+unstarted at the chosen As of and not determined, including one that has since
+begun.
+
+Limits. The order is kept against recorded settlement commands only. A swap with
+no settlement command can still be amended at any As of from its latest revision's
+effective instant, by any holder of `AmendTrade`, even when a month has begun since
+that As of. Gas billing and futures margin record their own dated commands and are
+not covered here.

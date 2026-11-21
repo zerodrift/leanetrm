@@ -2766,7 +2766,9 @@ months locked (D441). Remaining, in order: scheduled swaps across market definit
 revisions, with power-hour quantities, factor contracts or official daily exchange
 settlement, their termination, their net settlement settings and scheduled
 lifecycle jobs after an amendment, and swap coverage in the general trading P&L
-report with an Impact of amendments column; running physical gas, which must
+report with an Impact of amendments column, and an order rule for a swap amended
+at an earlier As of before any settlement command exists (D442 covers recorded
+settlement activity only); running physical gas, which must
 carry started obligations to the new revision; gas storage, after a started
 contract can be valued. Also remaining: generated confirmation documents for new
 bookings and amendments; a confirmation for a termination; a correction label for

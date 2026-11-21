@@ -96,7 +96,7 @@ def check_unvalued_lifecycle(c,workspace,trade,run_worker):
     print('PASS a swap whose settlement lifecycle the close cannot value states why with no PV or mark and keeps its facts; totals, a risk run, its job and the risk catalog leave it out and list it, and where the close values it, it moves under the held contract targets')
 
 
-def check_running_amendment(c,w,context,body,currency,query):
+def check_running_amendment(c,w,context,body,composed,currency,query):
     """A swap whose January is settled is amended from February forward at mid-January.
 
     January keeps its terms, its determination and its run settings; February is repriced and March is added. Cash is an
@@ -139,6 +139,44 @@ def check_running_amendment(c,w,context,body,currency,query):
         assert refusal['code']=='swap_amendment_locked' and 'direction and the discounting' in refusal['message'],refusal
     def reindexed(s):s['second']['periods'][1]['floating']['settlement']=dict(mode='override',index='synthetic_other_index',projectionPolicy='forward_curve_no_basis_v1')
     refused(reindexed,'swap_amendment_locked','price settlement')
+    # An As of before the swap's latest settlement activity: January settled in mid-January, the amendment dated in December.
+    behind=deepcopy(running);behind['operationId']=str(uuid4())
+    behind_trade=c.call('swaps/book',behind)['tradeId']
+    behind_january={**january,'tradeId':behind_trade}
+    c.call('swaps/settlement/determine',dict(preview=behind_january,operationId=str(uuid4()),expectedVersion=0,
+        previewHash=c.call('swaps/settlement/preview',behind_january)['previewHash'],correctionPolicy='swap_explicit_correction_due_v1',correctionDueAt=None,**policies))
+    booked_at=next(f['at'] for f in w['frames'] if f['id']==context['snapshotId'])
+    backdated=deepcopy(running);backdated.update(operationId=str(uuid4()),tradeId=behind_trade,expectedRevision=1,effectiveAt=booked_at,reason='Synthetic back-dated repricing')
+    backdated['scheduled']['first']['periods'][1]['fixed']['price']='3.75'
+    for path in ('swaps/preview','swaps/amend'):
+        refusal=c.call(path,backdated,expected=422)
+        assert refusal['code']=='swap_amendment_backdated' and '2021-01-15 08:00 UTC' in refusal['message'] and 'Amend behind settlement' in refusal['message'],refusal
+    earlier_read=c.call('swaps/editor',dict(context=context,tradeId=behind_trade,revision=None))
+    assert not earlier_read['canAmend'] and '2021-01-15 08:00 UTC' in earlier_read['amendUnavailableReason'] and 'lifecycleReason' not in earlier_read,earlier_read['amendUnavailableReason']
+    # A composed swap's amendment is not previewed by its save, so only the owned write's guard can refuse it.
+    single=deepcopy(composed);single['operationId']=str(uuid4())
+    single_trade=c.call('swaps/book',single)['tradeId']
+    single_january={**january,'tradeId':single_trade}
+    c.call('swaps/settlement/determine',dict(preview=single_january,operationId=str(uuid4()),expectedVersion=0,
+        previewHash=c.call('swaps/settlement/preview',single_january)['previewHash'],correctionPolicy='swap_explicit_correction_due_v1',correctionDueAt=None,**policies))
+    late=deepcopy(composed);late.update(operationId=str(uuid4()),tradeId=single_trade,expectedRevision=1,effectiveAt=booked_at,reason='Synthetic back-dated composed repricing')
+    late['fixed']['price']='3.75'
+    assert c.call('swaps/amend',late,expected=422)['code']=='swap_amendment_backdated'
+    assert '2021-01-15 08:00 UTC' in c.call('swaps/preview',late,expected=422)['message']
+    if query:
+        assert query("SELECT string_agg(p.permission,',' ORDER BY p.permission) FROM security.role_permissions p JOIN security.roles r ON r.id=p.role_id WHERE r.code='trade_supervisor';").strip()=='AmendBehindSettlement,AmendTrade,ReadMarketData,ReadTradeParties,ReadTrades'
+        held="FROM security.role_permissions WHERE permission='AmendBehindSettlement' AND role_id=(SELECT id FROM security.roles WHERE code='trader')"
+        query("INSERT INTO security.role_permissions SELECT id,'AmendBehindSettlement' FROM security.roles WHERE code='trader';")
+        try:
+            # The permission admits the earlier As of; it does not unlock what is already settled.
+            settled_change=deepcopy(backdated);settled_change['operationId']=str(uuid4());settled_change['scheduled']['second']['periods'][0]['amount']='151'
+            assert c.call('swaps/amend',settled_change,expected=422)['code']=='settlement_amendment_unsupported'
+            assert c.call('swaps/amend',backdated)['revision']==2
+        finally:query(f"DELETE {held};")
+        assert query(f"SELECT count(*) {held};").strip()=='0'
+        again=deepcopy(backdated);again.update(operationId=str(uuid4()),expectedRevision=2);again['scheduled']['first']['periods'][1]['fixed']['price']='3.8'
+        assert c.call('swaps/amend',again,expected=422)['code']=='swap_amendment_backdated'
+    print('PASS an amendment dated before the latest settlement activity is refused for scheduled and composed swaps, and admitted only with the Amend behind settlement permission, which leaves a settled month locked')
     # A swap that has not started cannot gain a month that has: February and March, then January in mid-January.
     def shifted(body,months):
         for kind,side in (('fixed',body['scheduled']['first']),('floating',body['scheduled']['second'])):
@@ -620,5 +658,5 @@ def run_checks(url,query=None,manifest=None,*,run_worker):
     agent_preview=dict(context={**context,'snapshotId':partial['id']},tradeId=mixed_saved['tradeId'],expectedRevision=1,membershipOrdinal=0,paymentOrdinal=0,
         currency=value['currency'],decimalPlaces=2,roundingPolicy='currency_minor_units_to_even_v1')
     c.configure(agent_preview,'swap.determine');c.configure(agent_preview,'swap.payment')
-    check_running_amendment(c,w,context,body,value['currency'],query)
+    check_running_amendment(c,w,context,body,ordinary,value['currency'],query)
     return dict(frame=partial,tradeId=mixed_saved['tradeId'],currency=value['currency'],netTradeId=net_fixture['tradeId'])

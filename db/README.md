@@ -21,6 +21,9 @@ application. See [current implementation](../docs/implementation.md) and
 
 Recent schema groups and their contracts:
 
+- [0386](migrations/0386_amend_behind_settlement.sql) refuses a swap amendment
+  dated before the trade's latest settlement activity unless the account holds
+  `AmendBehindSettlement`, and adds the Trade supervisor role that holds it (D442).
 - [0385](migrations/0385_running_swap_amendment.sql) lets a scheduled swap that
   has started be amended from a later month forward. Started months are taken
   from the booked rows and proved unchanged, and run settings follow an unchanged

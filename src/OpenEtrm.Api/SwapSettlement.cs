@@ -133,6 +133,21 @@ public sealed partial class SwapStore
         return JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
     }
 
+    // An amendment dated before the trade's latest settlement activity needs its own permission (D442); the owned write decides.
+    // This states the refusal such an amendment meets, or none.
+    private async Task<string?> SettlementOrderRefusal(NpgsqlConnection connection,Guid trade,DateTimeOffset at,CancellationToken ct)
+    {
+        await using var command=ScheduleStore.Command(connection,"SELECT settlement_data.swap_activity_through($1,$2)",manifest.CatalogId,trade);
+        if(await command.ExecuteScalarAsync(ct) is not DateTime activity)return null;
+        var latest=new DateTimeOffset(DateTime.SpecifyKind(activity,DateTimeKind.Utc));
+        return latest>at&&!await PreviewDatabase.HasPermission(connection,"AmendBehindSettlement",ct)?
+            $"This swap has settlement activity at {latest.ToString("yyyy-MM-dd HH:mm",CultureInfo.InvariantCulture)} UTC, after the working As of. Amend it at an As of at or after that time; an earlier one needs the Amend behind settlement permission.":null;
+    }
+    private async Task RequireSettlementOrder(NpgsqlConnection connection,Guid trade,DateTimeOffset at,CancellationToken ct)
+    {
+        if(await SettlementOrderRefusal(connection,trade,at,ct) is {} refusal)throw Error("swap_amendment_backdated",refusal);
+    }
+
     public Task<object> DetermineSettlement(NpgsqlConnection connection, InputFrame frame, SwapSettlementDetermineRequest request, CancellationToken ct)
         =>throw LifecycleRequired();
     internal async Task<object> DetermineSettlement(NpgsqlConnection connection,InputFrame frame,SwapSettlementDetermineRequest request,ScheduleContext source,SwapLifecycleInvocation invocation,CancellationToken ct)

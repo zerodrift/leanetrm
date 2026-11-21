@@ -307,6 +307,7 @@ public sealed partial class SwapStore
                 body.ExpectedRevision>=256||frame.At<head.Instant("effective_at")||SchedulePreview.ParseAt(body.EffectiveAt)!=frame.At||
                 string.IsNullOrWhiteSpace(body.Reason)||body.Reason.Length>500)
                 throw Error("swap_amendment","Amend the latest scheduled revision at As of with a reason.");
+            await RequireSettlementOrder(connection,trade,frame.At,ct);
             RequireUnstartedAdditions(retained,body,frame.At);
             var settlement=await SettlementState(connection,trade,ct);
             var locked=LockedPeriods(StartedPeriods(ResolveScheduled(original,retained,head.Id("instrument_id")).Instrument,frame.At),settlement,frame.At);

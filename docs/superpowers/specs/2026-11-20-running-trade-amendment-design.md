@@ -155,6 +155,11 @@ Decisions:
   period, direction and quantity are unchanged; a new or changed occurrence
   needs its own configuration.
 
+Which periods have started is judged at the working As of. An amendment dated
+before the trade's latest settlement activity is refused unless the account
+holds the Amend behind settlement permission, which the Trade supervisor role
+carries (D442).
+
 Built: the owned write takes started months from the booked rows and proves
 them unchanged; the preview values the proposed terms under the trade's
 settlement lifecycle; the ticket locks started months, keeps entered months when
