@@ -54,6 +54,12 @@ Native projection checks use complete source-pinned recipes and reject unpublish
 outputs at booking. Native publication validates structural policies before
 deriving units, preserving the structured refusals for malformed splice graphs.
 
+Actual-browser requalification passed 92 publication/contract authoring checks,
+10 captured-power checks, 18 shared-trading checks, 30 option ticket/position
+checks and 33 Options page checks. Strategy cash displays match the actual managed
+formatter responses; captured product means and publication receipts retain their
+complete price units without requiring insignificant trailing decimal zeros.
+
 These results qualify local behavior. Full CI, coordinated migration/API/UI
 release and hosted activation remain separate gates; no hosted database was
 changed by these checks. See the [contract](currency-and-price-units.md).
