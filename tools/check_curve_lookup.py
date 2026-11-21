@@ -26,7 +26,7 @@ def run_checks(url, manifest, query, run_worker):
         return client.call('custom-curves/save',{'requestId':str(uuid4()),'snapshotId':frame['id'],'definition':graph,'layout':{}})
     def publish(graph):
         saved=save(graph);client.call('profile',{'profile':'approver'})
-        return client.call('custom-curves/publish',{'requestId':str(uuid4()),'id':saved['id'],'version':saved['version'],'generation':saved['generation']})
+        return client.call('custom-curves/publish',{'snapshotId':frame['id'],'requestId':str(uuid4()),'id':saved['id'],'version':saved['version'],'generation':saved['generation']})
     endpoints=publish(parent)
     preview=lambda graph,**extra:client.call('custom-curves/preview',{'snapshotId':frame['id'],'definition':graph,**extra})
     exact=lambda p:Fraction(p['price']['numerator'])/Fraction(p['price']['denominator'])

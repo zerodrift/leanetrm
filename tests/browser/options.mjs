@@ -16,7 +16,7 @@ export async function run({command,evaluate,wait,click,persona,check,idle,fitsWi
  const {identifier}=await command('Page.addScriptToEvaluateOnNewDocument',{source:`
   window.optionCalls=[];window.optionsUnfitted=false;window.optionEntryValuations=[];const send=window.fetch;
   window.fetch=async(input,init)=>{
-   const path=String(typeof input==='string'?input:input.url),call=/[/](vol-surfaces[/]read|options[/]positions|options[/]strategy[/]setup)$/.exec(path);
+   const path=String(typeof input==='string'?input:input.url),call=/[/](amounts[/]display|vol-surfaces[/]read|options[/]positions|options[/]strategy[/](?:setup|analyze))$/.exec(path);
    if(window.refuseOptionEntryValuation&&/[/]trading[/](workspace|blotter)([/]|$)/.test(path)){
     window.optionEntryValuations.push(path);
     return new Response(JSON.stringify({code:'request_failed',message:'Synthetic portfolio valuation refusal.'}),{status:503,headers:{'Content-Type':'application/json'}});
@@ -171,12 +171,18 @@ export async function run({command,evaluate,wait,click,persona,check,idle,fitsWi
   await click('.options-template[data-template=straddle]');
   await settled(`${strategy}==='analysed'||${strategy}==='refused'`,60000);
   const money=offer.answer.atTheMoneyStrike;
+  const cash=await evaluate(`(()=>{
+   const answer=${calls('options/strategy/analyze')}.at(-1).answer;
+   const formats=${calls('amounts/display')}.filter(c=>c.status===200&&Array.isArray(c.body)&&Array.isArray(c.answer)&&c.body.length===c.answer.length).flatMap(c=>c.body.map((r,i)=>({...r,text:c.answer[i]})));
+   const money=value=>{const row=formats.findLast(r=>r.value===value&&!r.trimTrailingZeros&&typeof r.text==='string');if(!row)throw Error('Missing managed cash display for '+value);return row.text+' '+answer.currency;};
+   return {premium:money(answer.expiry.netPremium.amount),loss:money(answer.expiry.maximumLoss.amount)};
+  })()`);
   await check('a straddle is analysed: two legs at the money at their settlements, the payoff drawn, and the premium, extremes and breakevens stated',
    `${strategy}==='analysed'&&[...document.querySelectorAll('#options-strategy-legs tbody tr')].map(r=>r.dataset.side+' '+r.querySelector('.options-leg-name').textContent).join()===${q(`buy ${Number(money)} call,buy ${Number(money)} put`)}&&
     [...document.querySelectorAll('#options-strategy-legs .options-leg-entry')].every(i=>Number(i.value)>0)&&!!document.querySelector('#options-strategy-chart canvas')&&
-    (card=>/Net premium\\s*Debit [\\d,]+[.]\\d\\d USD/.test(card)&&/Maximum profit\\s*Unbounded/.test(card)&&/Maximum loss\\s*-[\\d,]+[.]\\d\\d USD/.test(card)&&/Breakevens\\s*[\\d.]+ · [\\d.]+/.test(card))(document.querySelector('#options-strategy-analysis').innerText)&&
+    (card=>card.includes('Net premium Debit '+${q(cash.premium)})&&/Maximum profit\\s*Unbounded/.test(card)&&card.includes('Maximum loss '+${q(cash.loss)})&&/Breakevens\\s*[\\d.]+ · [\\d.]+/.test(card))(document.querySelector('#options-strategy-analysis').innerText.replace(/\\s+/g,' '))&&
     document.querySelectorAll('#options-strategy-tiles .options-tile').length===5&&/At expiry/.test(document.querySelector('#options-strategy-chart .options-strategy-plot').getAttribute('aria-label'))`,
-   `[${strategy},document.querySelector('#options-strategy-message').textContent,document.querySelector('#options-strategy-analysis').innerText,document.querySelector('#options-strategy-legs').innerText]`);
+   `[${strategy},${q(cash)},document.querySelector('#options-strategy-message').textContent,document.querySelector('#options-strategy-analysis').innerText,document.querySelector('#options-strategy-legs').innerText]`);
   await check('each leg shows its implied volatility and delta, or a dash that says why, and a strategy figure that is missing says why',
    `[...document.querySelectorAll('#options-strategy-legs .options-leg-figure')].every(td=>td.textContent==='—'?td.title.length>0:/^-?[\\d.]+%?$/.test(td.textContent))&&
     [...document.querySelectorAll('#options-strategy-tiles .options-tile')].every(t=>t.querySelector('.options-tile-value').textContent==='—'?t.title.length>0:/^-?[\\d,.]+$/.test(t.querySelector('.options-tile-value').textContent))&&

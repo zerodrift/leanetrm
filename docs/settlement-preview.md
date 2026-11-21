@@ -1,4 +1,4 @@
-# Bounded monthly gross fixed-strike preview
+# Bounded monthly gross cash preview
 
 D203 implements shared payment-lineage planning and one completed operating
 month's gross fixed-strike preview for the explicitly opted-in fixed physical
@@ -17,14 +17,18 @@ valuation, so it cannot double count a future accepted obligation.
 
 The existing `ppa/catalog` response exposes `settlementPreview`: exact policies,
 operation names, required permission, work/response limits and exclusions.
-Both operations use authenticated current working sessions and an explicitly
+The operations use authenticated current working sessions and an explicitly
 selected available snapshot. Historical inputs use an explicit certified cutoff;
 selecting historical evidence does not restore historical permissions.
 
 - `POST /api/settlement/payment-lineages/plan`: `snapshotId`, `tradeId`,
   `expectedRevision`, exact `original` membership, complete `mappings` for the
-  selected head and all six accepted `policies`. Each mapping names `bindingId`,
+  selected head, all six accepted `policies`, and explicit `roundingTerms`
+  (`currency` as an exact reference, decimal-text `increment`, `tieRule`,
+  `stage=payment_total`). Each mapping names `bindingId`,
   `originRevision`, `instrumentId`, `sideId`, `role` and `ordinal`.
+- `POST /api/settlement/payment-lineages/read`: `snapshotId`, `tradeId` and
+  certified `knownAt`, returning only visible retained terms under current authority.
 - `POST /api/settlement/ppa/preview`: `snapshotId`, `lineageId`,
   `expectedRevision`, `month` as the first operating date, and exact `knownAt`.
   The caller cannot submit a component subset or cash total. Unknown fields refuse.
@@ -242,3 +246,17 @@ amendments and from the one-cell versus all-cell meter correction examples above
 The integrated checkpoint's full gate includes separate hourly and quarter-hour
 owned fixtures and an interruption regression. See the
 [tester guide](experimental-ppa-testing.md) for current commands and limits.
+
+## Configured currencies and explicit rounding (D438)
+
+Migrations 0380–0381 admit configured currencies without creating PPA examples or
+rounding data. New lineages require a positive exact increment and `to_even` or
+`away_from_zero` at payment-total stage. Round once after the complete occurrence;
+retain exact cash, rounded cash and their difference. The currency's display
+precision never chooses these terms. Missing or incompatible components refuse.
+Undiscounted cash preview consumes no interest-rate curve.
+
+The PPA inspection panel reads immutable retained terms, saves explicit new terms
+and previews a complete selected month. Saving explicitly refreshes current
+knowledge after commit so the newly retained terms are visible. Historical reads
+preserve their selected cutoff. These operations do not approve or pay cash.

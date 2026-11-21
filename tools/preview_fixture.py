@@ -427,6 +427,17 @@ def blank_agreement_pdf():
     return bytes(pdf)
 
 
+def example_products(example, *, gas, regional, ppa):
+    if example!='standard':
+        return []
+    products=['physical_gas'] if gas else ['financial_swap']
+    if regional and 'financial_swap' not in products:
+        products.append('financial_swap')
+    if ppa:
+        products.append('ppa')
+    return products
+
+
 def trading_fixture(catalog, swap_defaults=False, annotations=True, bilateral_products=None):
     """Immutable synthetic books used by the local futures booking operation."""
     from rate_curve_fixture import discount_default

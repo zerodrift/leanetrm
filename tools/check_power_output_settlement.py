@@ -3,6 +3,8 @@
 All prices, identities and collection events are synthetic. UTC operating grids
 use the installed New York clock; these checks assert no ISO release timetable.
 """
+
+from price_publication_fixture import index_binding
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import time
@@ -56,7 +58,7 @@ def run_checks(client, query, manifest, frame, original, published, binding):
     publication = dict(key=dict(catalogId=catalog['catalogId'], id=str(uuid4()), version=1), references=catalog['references'],
         publisher=dict(key=dict(catalogId=catalog['catalogId'], id=str(uuid4()), version=1), name='Synthetic hourly publisher'),
         name='Synthetic captured hourly LMPs', commodities=[index['commodity']],
-        indices=[{k: v for k, v in index.items() if k != 'name'} | dict(symbol='SYNTHETIC_HOURLY', statistic='day_ahead_hourly_total_lmp')],
+        indices=[index_binding(index, symbol='SYNTHETIC_HOURLY', statistic='day_ahead_hourly_total_lmp')],
         calendar=next(c['reference'] for c in catalog['calendars'] if c['reference']['code'] == calendar),
         clock=next(c['reference'] for c in catalog['clocks'] if c['reference']['code'] == source['clock_code']),
         implementation='power_captured_hourly_v1')
@@ -88,7 +90,7 @@ def run_checks(client, query, manifest, frame, original, published, binding):
       EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM<>'power_settlement_binding' THEN RAISE;END IF;END$$;ROLLBACK;""")
     old_known = client.call('interval-series')['knownAt']
     client.call('profile', {'profile': 'approver'})
-    client.call('custom-curves/publish', dict(requestId=str(uuid4()), id=draft['id'], version=3, generation=draft['generation']))
+    client.call('custom-curves/publish', dict(snapshotId=frame['id'],requestId=str(uuid4()), id=draft['id'], version=3, generation=draft['generation']))
     client.call('custom-curves/activation', dict(requestId=str(uuid4()), curveId=draft['id'], expectedRevision=2,
         policy='complete_effective_timeline_v1', reason='Synthetic captured interval pricing',
         segments=[dict(effectiveFrom='2020-01-01', effectiveTo='2032-01-01', version=3, outputNode='result')]))

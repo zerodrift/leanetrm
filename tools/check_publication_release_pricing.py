@@ -158,7 +158,7 @@ def run_checks(url, query, manifest):
     assert refused['code'] == 'custom_curve_definition', refused
     client.call('price-publications/ingest', ingest, expected=403)
     client.call('profile', {'profile':'approver'})
-    curve = client.call('custom-curves/publish', dict(requestId=str(uuid4()), id=curve['id'], version=curve['version'], generation=curve['generation']))
+    curve = client.call('custom-curves/publish', dict(snapshotId=live['id'],requestId=str(uuid4()), id=curve['id'], version=curve['version'], generation=curve['generation']))
     client.call('profile', {'profile':'viewer'})
     assert status(fixed)[0]['fixingPrice'] == '3.29'
     client.call('price-publications/ingest', ingest, expected=403)

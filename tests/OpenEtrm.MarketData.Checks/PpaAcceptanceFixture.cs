@@ -28,9 +28,10 @@ internal sealed class PpaAcceptanceFixture
     internal QuantitySpecification Certificates { get; }
     internal QuantitySpecification CapacityDays { get; }
     internal Quantity UnitMw=>new(D("1"),Capacity.Key);
-    internal PriceUnit EnergyPrice=>new(R("synthetic_usd"),Energy.Key,D("1"));
-    internal PriceUnit CertificatePrice=>new(R("synthetic_usd"),Certificates.Key,D("1"));
-    internal PriceUnit CapacityPrice=>new(R("synthetic_usd"),CapacityDays.Key,D("1"));
+    internal ReferenceKey Currency { get; }
+    internal PriceUnit EnergyPrice=>new(Currency,Energy.Key,D("1"));
+    internal PriceUnit CertificatePrice=>new(Currency,Certificates.Key,D("1"));
+    internal PriceUnit CapacityPrice=>new(Currency,CapacityDays.Key,D("1"));
     internal GenerationAsset Asset { get; }
     internal VolumeSourceDefinition Source { get; }
     internal ImmutableArray<LocationAssignment> Assignments { get; }
@@ -52,15 +53,15 @@ internal sealed class PpaAcceptanceFixture
         var ports=quantity is SlotQuantity linked?linked.Slots.Select(slot=>new ScheduleInputPort(slot,
             slot.Role switch{PpaRole.CertificateDelivery=>Certificates.Key,PpaRole.CapacityDelivery=>CapacityDays.Key,_=>Energy.Key},schedule)).ToImmutableArray():[];
         var output=scheduleQuantity??(quantity is AccreditedQuantity?CapacityDays.Key:ports.IsEmpty?Energy.Key:ports[0].Quantity);
-        return new(Delivery,quantity,R("synthetic_usd"),UnitMw,Payment(paymentDay),schedule,output,normalization??Normalization(assets),ports);
+        return new(Delivery,quantity,Currency,UnitMw,Payment(paymentDay),schedule,output,normalization??Normalization(assets),ports);
     }
     internal ProfileQuantity Profile=>new(Capacity.Key,Energy.Key,new(BlockMembership.All,null,[]));
     internal VolumeQuantity Volume=>new([Source.Key],QuantityStage.Generated,Energy.Key);
 
-    internal PpaAcceptanceFixture(int minutes=60,DateOnly? month=null)
+    internal PpaAcceptanceFixture(int minutes=60,DateOnly? month=null,string currency="synthetic_usd")
     {
         if(month is {} selected)Month=selected;
-        Minutes=minutes;
+        Minutes=minutes;Currency=R(currency);
         Energy=new(R("synthetic_mwh"),R("synthetic_power"),R("synthetic_electricity"),R("megawatt_hour"),R("energy"));
         Capacity=new(R("synthetic_mw"),R("synthetic_power"),R("synthetic_electricity"),R("megawatt"),R("power"));
         Certificates=new(R("synthetic_rec"),R("synthetic_power"),R("synthetic_generation_certificate"),R("rec"),R("certificate"));

@@ -42,13 +42,13 @@ public static class StructuredPowerChecks
         {
             ["quantity_specifications"]=[Q("power","megawatt","power"),Q("energy","megawatt_hour","energy"),Q("right","resource_right","count"),Row(new{code="fuel",commodity_code="gas",basis_code="energy",unit_code="megawatt_hour",dimension_code="energy"})],
             ["quote_specifications"]=[Price("energy_price","energy"),Price("fuel_price","fuel"),Price("right_price","right")],
-            ["trading_close_times"]=[],["currencies"]=[Row(new{code="usd"})],["settlement_targets"]=[],["value_specifications"]=[],["futures_basis_settlements"]=[],
+            ["trading_close_times"]=[],["currencies"]=[Row(new{code="usd",display_code="USD"})],["settlement_targets"]=[],["value_specifications"]=[],["futures_basis_settlements"]=[],
             ["locations"]=[Row(new{code="synthetic_facility",clock_code="utc"})],
             ["clock_rules"]=[Row(new{code="utc",kind="fixed_offset",fixed_offset_seconds=0,iana_zone=(string?)null,tzdb_version=(string?)null})],
             ["commodities"]=[Row(new{code="power"}),Row(new{code="gas"})],
             ["measurement_bases"]=[Row(new{code="power"}),Row(new{code="energy"}),Row(new{code="count",mass_power=0,length_power=0,time_power=0,temperature_power=0,amount_power=0,current_power=0,luminous_power=0})],
             ["dimensions"]=[Row(new{code="power"}),Row(new{code="energy"}),Row(new{code="count",mass_power=0,length_power=0,time_power=0,temperature_power=0,amount_power=0,current_power=0,luminous_power=0})],
-            ["units"]=[Row(new{code="megawatt",dimension_code="power"}),Row(new{code="megawatt_hour",dimension_code="energy"}),Row(new{code="resource_right",dimension_code="count"})]
+            ["units"]=[Row(new{code="megawatt",symbol="MW",dimension_code="power"}),Row(new{code="megawatt_hour",symbol="MWh",dimension_code="energy"}),Row(new{code="resource_right",symbol="right",dimension_code="count"})]
         };
         var terms=new StructuredPowerFacilityTerms("battery",cat,rev,rcat,rrev,"synthetic_facility","utc",60,"power","energy",null,
             new("10","10","0","20","0.9","0.9","grid_side_ac","zero_auxiliary_and_self_discharge","fixed","prohibited","grid","uncapped",null),null,null,"structured_power_facility_v1");
@@ -72,6 +72,7 @@ public static class StructuredPowerChecks
         Reject("structured_power_reference",()=>StructuredPowerPreview.Calculate(NewData(f.Manifest,malformed),frame,saved,frame.At,request));
         Equal(result.Valuation.Sides.Length,4);Equal(result.ClosingState!.Quantities[0].Quantity.Numerator,"0");
         Equal(result.Valuation.Sides[0].Rows[0].State,OpenEtrm.MarketData.Power.VolumeState.Forecast);
+        Equal(result.Valuation.Sides[0].Rows[0].PriceUnitLabel,"USD/MWh");
         Equal(result.Valuation.Sides[0].Rows[0].EvidenceId,null);
         Equal(JsonSerializer.Serialize(result),JsonSerializer.Serialize(StructuredPowerPreview.Calculate(f.Data,frame,saved,frame.At,request)));
         Reject("battery_simultaneous",()=>StructuredPowerPreview.Calculate(f.Data,frame,saved,frame.At,request with{BatteryDispatch=[new("1","1","1")]}));

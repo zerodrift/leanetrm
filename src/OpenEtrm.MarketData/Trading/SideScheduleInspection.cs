@@ -3,6 +3,8 @@ using OpenEtrm.Shared.Numerics;
 
 namespace OpenEtrm.MarketData.Trading;
 
+public static class ScheduleReferenceKinds
+{public const string Quantity="quantity_specification",Currency="currency";}
 public sealed record ScheduleInspectionLifecycle(string Delivery,string? Due,string? Cash,string? EconomicClass,string? Coverage,string? UnavailableReason)
 {public string? Fulfillment{get;init;}}
 public sealed record ScheduleInspectionRow(string Key,string Operation,string Kind,DateOnly? DeliveryFrom,DateOnly? DeliveryTo,
@@ -13,8 +15,13 @@ public sealed record ScheduleInspectionRow(string Key,string Operation,string Ki
  public string? PaymentTiming{get;init;}
  public DateTimeOffset? PaymentAt=>Kind==nameof(ComponentKind.Payment)?ValueAt:null;
  public ReferenceKey? QuantitySpecification{get;init;}
+ public string QuantityReferenceKind{get;init;}=ScheduleReferenceKinds.Quantity;
  public ReferenceKey? Currency{get;init;}
  public string? QuoteMultiplier{get;init;}
+ public PriceUnit? PriceUnit{get;init;}
+ public string? PriceUnitLabel{get;init;}
+ public string? CurrencyLabel{get;init;}
+ public string? QuantityLabel{get;init;}
  public DateOnly? OperatingDate{get;init;}
  public string? Paid{get;init;}
  public string? Outstanding{get;init;}
@@ -77,7 +84,7 @@ public static partial class SideScheduleInspection
      Scaled(contribution.Amount,cell,true),Scaled(discount.Column,discount.Cell,false),Scaled(contribution.PresentValue,cell,true),quantity.Column.States[quantity.Cell].Quantity?.ToString(),prices,
      new ScheduleInspectionLifecycle(Delivery(geometry.Start,geometry.End,evaluation.Context.ValuationAt),due,state.Kind==ComponentKind.Payment?"NotTracked":null,state.Class?.ToString(),state.Coverage.ToString(),state.UnavailableReason)
       {Fulfillment=state.Kind is ComponentKind.Delivery or ComponentKind.Holding?"NotTracked":null})
-      {PaymentTiming=RetainedTiming(guard.Output,state.Kind),QuantitySpecification=quantity.Column.Unit,Currency=contribution.Amount.Currency,QuoteMultiplier=price.Column.QuoteMultiplier,OperatingDate=geometry.OperatingDate});
+      {PaymentTiming=RetainedTiming(guard.Output,state.Kind),QuantitySpecification=quantity.Column.Unit,Currency=contribution.Amount.Currency,QuoteMultiplier=price.Column.QuoteMultiplier,PriceUnit=price.Column.Currency is {} currency&&price.Column.Unit is {} priceQuantity&&price.Column.QuoteMultiplier is {} multiplier?new(currency,priceQuantity,ExactDecimal.Parse(multiplier)):null,OperatingDate=geometry.OperatingDate});
    }
   }
   return new(side.Code,program.ScheduleManifest,evaluation.Context.ValuationAt,evaluation.Context.KnownAt,offset,total,rows.ToImmutable());

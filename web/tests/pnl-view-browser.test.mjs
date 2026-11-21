@@ -19,7 +19,7 @@ const setup=`(async()=>{window.calls=[];window.actor='risk';window.failSave=fals
  const held=(tradeReference,instrumentReference,values,contributions)=>({position:{tradeId:tradeReference,bindingId:instrumentReference,bookId:'book'},tradeReference,instrumentReference,state:'continuing',values,contributions});
  const positions=[held('TR-1','IN-1',amounts(60,65,0,4,1),estimates('price_0',4)),held('TR-1','IN-2',amounts(-3,-3,2,0,0),[]),held('TR-2','IN-3',amounts(43,46,0,2,1),estimates('price_1',2)),
   held('TR-2','IN-4',amounts(-5,-5,0,0,0),[])];
- const factor=(axis,label,opening,closing,change)=>({axis,label,priceTick:'0.01',opening:{price:opening},closing:closing===null?null:{price:closing},change:change===null?null:{price:change},
+ const factor=(axis,label,opening,closing,change)=>({axis,label,unit:{currency,quantity:{...currency,code:axis==='price_0'?'mmbtu':'barrel'},multiplier:'1'},unitLabel:axis==='price_0'?'USD/MMBtu':'USD/bbl',priceTick:'0.01',opening:{price:opening},closing:closing===null?null:{price:closing},change:change===null?null:{price:change},
   unavailableReason:closing===null?'closing_exact_price_unavailable':null});
  const effect=(axis,delta)=>({axis,delta:{amount:money(delta),unavailableEstimates:0},gamma:{amount:null,unavailableEstimates:1}});
  window.report={id:'report',version:'trading_pnl_report_v2',scope:{books:[{id:'book',name:'Gas options'}],tradeSelection:'Selected trades'},
@@ -237,7 +237,7 @@ test('the knowledge cutoff reads as local time, sends the exact header cutoff, a
 test('amounts and prices read as the shared display formats them, with the exact value kept beside them',browser,()=>page(async evaluate=>{
  await evaluate(setup);await evaluate("display=r=>'['+r.value+(r.tick?' tick '+r.tick:' to '+r.decimalPlaces)+']'");await evaluate('run()');
  assert.deepEqual(await evaluate("[document.querySelector('.pnl-hero .pnl-money').textContent,document.querySelector('.pnl-hero .pnl-money').title]"),['[10 to 3]','10']);
- assert.deepEqual(await evaluate("rows('.pnl-factors tbody tr')[0].slice(1,4)"),['[3.30 tick 0.01]','[3.33 tick 0.01]','[0.03 tick 0.01]']);
+ assert.deepEqual(await evaluate("rows('.pnl-factors tbody tr')[0].slice(1,4)"),['[3.30 tick 0.01] USD/MMBtu','[3.33 tick 0.01] USD/MMBtu','[0.03 tick 0.01] USD/MMBtu']);
  assert.equal(await evaluate("document.querySelector('.pnl-bar-value').textContent"),'[6 to 3]');
 }));
 test('only the amounts the page shows are sent for display, not the evidence a report carries',browser,()=>page(async evaluate=>{
@@ -246,12 +246,12 @@ test('only the amounts the page shows are sent for display, not the evidence a r
  assert.deepEqual(await evaluate("(()=>{const sent=calls.filter(c=>c.path==='amounts/display').flatMap(c=>c.body.map(r=>r.value));return [sent.includes('10'),sent.includes('424242'),sent.includes('535353')];})()"),[true,false,false]);
 }));
 test('what moved lists each factor with its prices, its change and what it explains',browser,()=>page(async evaluate=>{
- await evaluate(setup);await evaluate("report.factors.push({axis:'price_2',label:'Power futures · Dec 2026',priceTick:'0.01',opening:{price:'40.00'},closing:null,change:null,unavailableReason:'closing_exact_price_unavailable'});"+
+ await evaluate(setup);await evaluate("report.factors.push({axis:'price_2',label:'Power futures · Dec 2026',unitLabel:'USD/MWh',priceTick:'0.01',opening:{price:'40.00'},closing:null,change:null,unavailableReason:'closing_exact_price_unavailable'});"+
   "report.totals[0].factorEffects.push({axis:'price_2',delta:{amount:null,unavailableEstimates:1},gamma:{amount:null,unavailableEstimates:1}})");
  await evaluate('run()');
  assert.deepEqual(await evaluate("texts('.pnl-factors thead th')"),['Factor','Opening','Closing','Change','Delta effect','Gamma effect']);
- assert.deepEqual(await evaluate("rows('.pnl-factors tbody tr')"),[['Gas futures · Dec 2026','3.30','3.33','0.03','4','Unavailable'],['Crude futures · Dec 2026','60.50','61.25','0.75','2','Unavailable'],
-  ['Power futures · Dec 2026','40.00','No closing price','—','Unavailable','Unavailable']]);
+ assert.deepEqual(await evaluate("rows('.pnl-factors tbody tr')"),[['Gas futures · Dec 2026','3.30 USD/MMBtu','3.33 USD/MMBtu','0.03 USD/MMBtu','4','Unavailable'],['Crude futures · Dec 2026','60.50 USD/bbl','61.25 USD/bbl','0.75 USD/bbl','2','Unavailable'],
+  ['Power futures · Dec 2026','40.00 USD/MWh','No closing price','—','Unavailable','Unavailable']]);
 }));
 test('a Greek effect with no available estimate reads Unavailable in the bridge chart and table, never 0',browser,()=>page(async evaluate=>{
  await evaluate(setup);await evaluate('run()');
@@ -270,7 +270,7 @@ test('a report in two currencies shows the chosen currency alone: its result, fa
  await evaluate("(()=>{const eur={code:'EUR',revision:{catalogId:'catalog',revisionId:'ref-eur'}},euro=n=>({amount:String(n),currency:eur}),none={amount:null,unavailableEstimates:1};"+
   "const values={openingValue:euro(20),closingValue:euro(27),valueMovement:euro(7),cash:euro(0),priorCash:euro(0),transfers:euro(0),economicPnl:euro(7),explained:null,residual:euro(7),unavailableEstimates:2};"+
   "const step=(label,kind,amount,start,end,unavailableEstimates=0)=>({label,kind,amount:amount===null?null:euro(amount),start:euro(start),end:euro(end),unavailableEstimates});"+
-  "report.factors.push({axis:'price_2',label:'Power futures · Dec 2026',priceTick:'0.01',opening:{price:'40.00'},closing:null,change:null,unavailableReason:'closing_exact_price_unavailable'});"+
+  "report.factors.push({axis:'price_2',label:'Power futures · Dec 2026',unitLabel:'USD/MWh',priceTick:'0.01',opening:{price:'40.00'},closing:null,change:null,unavailableReason:'closing_exact_price_unavailable'});"+
   "report.totals.push({currency:eur,values,greekCoverage:'partial',factorEffects:[{axis:'price_2',delta:none,gamma:none}],"+
   "bridge:[step('Delta','greek',null,0,0,1),step('Gamma','greek',null,0,0,1),step('Cross gamma','greek',0,0,0),step('Residual','residual',7,0,7),step('Cash','cash',0,7,7)]});"+
   "report.positions.push({position:{tradeId:'TR-3',bindingId:'IN-5',bookId:'book'},tradeReference:'TR-3',instrumentReference:'IN-5',state:'continuing',values,"+
@@ -287,7 +287,7 @@ test('a report in two currencies shows the chosen currency alone: its result, fa
  assert.deepEqual(await shown(),{result:'7 EUR',count:'1 holding or cash item',factors:['Power futures · Dec 2026'],
   coverage:'Partial price-Greek coverage · 1 factor without a closing price · 2 estimates unavailable. Their effects remain in Residual.',
   holdings:['TR-3 · IN-5 Held'],time:'No opening exposure in this currency.'});
- assert.deepEqual(await evaluate("rows('.pnl-factors tbody tr')[0]"),['Power futures · Dec 2026','40.00','No closing price','—','Unavailable','Unavailable']);
+ assert.deepEqual(await evaluate("rows('.pnl-factors tbody tr')[0]"),['Power futures · Dec 2026','40.00 USD/MWh','No closing price','—','Unavailable','Unavailable']);
  // Nothing of the euro holding is explained: that reads Unavailable beside its residual, never 0, and the keyboard stays on the chooser.
  assert.deepEqual(await evaluate("[texts('.pnl-metrics > div').find(t=>t.startsWith('Available Greek effects')),rows('.pnl-positions tbody tr')[0].slice(8),document.activeElement.getAttribute('aria-label')]"),
   ['Available Greek effectsUnavailable',['Unavailable','7'],'Report currency']);

@@ -4,6 +4,8 @@ using System.Globalization;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
 using var nativeInputs=NativeReadInputs.Open(args);
+if(args is ["--currency-contracts"]){CurrencyContractChecks.Run();TradingBlotterChecks.Run();OptionPositionAnalyticsChecks.Run();return;}
+if(args is ["--currency-pivots"]){TradingBlotterChecks.Run();return;}
 if(args is ["--read-references"]){ReadReferenceChecks.Run();return;}
 if(args is ["--managed-pool-controller",var poolConnection]){RiskWorkerConnectionChecks.Run();await ManagedPoolGatewayChecks.Run(poolConnection);return;}
 if(args is ["--gas-source-instrument-evidence"]){GasSourceInstrumentEvidenceChecks.Run();return;}
@@ -297,6 +299,7 @@ if (args is ["--schedules"])
     CashOptionPolicyChecks.Run();
     SelectedOptionInputChecks.Run();
     OptionSensitivityRequestChecks.Run();
+    CurrencyContractChecks.Run();
     OptionPositionAnalyticsChecks.Run();
     OptionStrategyRequestChecks.Run();
     ReferencePresentationChecks.Run();

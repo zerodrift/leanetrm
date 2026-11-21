@@ -76,7 +76,11 @@ static class AssistantDigestChecks
         if(!cell.Text.Contains("Selected pivot:")||!cell.Text.Contains("executionPnl=20.000"))throw new Exception("Pivot identity did not resolve the server total.");
         var priceRows=new[]{Row(1,"10"),Row(2,"20")};
         priceRows[0]["quoteMultiplier"]="1";priceRows[1]["quoteMultiplier"]="10";
-        foreach(var row in priceRows)row["executionPrice"]="3.123456789";
+        foreach(var row in priceRows)
+        {
+            row["executionPrice"]="3.123456789";
+            row["priceUnitReference"]=new JsonObject{["currency"]=row["currencyReference"]!.DeepClone(),["quantity"]=row["quantitySpecification"]!.DeepClone(),["multiplier"]=row["quoteMultiplier"]!.DeepClone()};
+        }
         var priceGroups=TradingBlotter.Groups(new("pivot",[],[],["book"],["executionPriceMean"],TradingBlotter.PivotConvention,OpenEtrm.MarketData.PriceStatistics.MeanPolicy),[..priceRows]);
         if(priceGroups.Count!=2||priceGroups.Any(g=>g["groupId"] is null)||JsonNode.DeepEquals(priceGroups[0]["groupId"],priceGroups[1]["groupId"]))
             throw new Exception("Native pivot identities must distinguish quote-multiplier partitions without sending an amount.");

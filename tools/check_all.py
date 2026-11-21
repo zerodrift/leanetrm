@@ -57,6 +57,10 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
                                   '-s', 'tests', '-p', 'test_*.py'])
     check('independent settlement specification', [sys.executable, '-m', 'unittest', 'discover', '-s', 'specs/settlement', '-v'])
     check('standalone dependencies', [sys.executable, 'tools/check_standalone.py'])
+    if group in ('all','reference','trading'):
+        regional_group='reference' if group=='all' else group
+        check('locked regional seed restore',[str(dotnet),'restore','tools/OpenEtrm.Seed/OpenEtrm.Seed.csproj','--locked-mode'],suite=regional_group)
+        check('regional seed build',[str(dotnet),'build','tools/OpenEtrm.Seed/OpenEtrm.Seed.csproj','--no-restore'],suite=regional_group)
     check('owned process cleanup', [sys.executable, 'tools/check_owned_process.py'])
     check('owned browser readiness', ['node', '--test', 'tests/browser/owned-browser.test.mjs', 'tests/browser/gas-ticket.test.mjs'])
     # Each integration checkout builds its own assets; shared behavior checks
@@ -319,6 +323,9 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     preview_check('isolated hosted authentication and browser', [*preview, '--hosted-check', '--browser-check', '--browser', str(browser)])
     preview_check('isolated jobs and infrastructure browser', [*preview, '--jobs-check', '--historical-pool-check', '--browser-check', '--browser', str(browser)])
     preview_check('additive reference demo and exact-version discounting',[*preview,'--reference-demo-check'], suite='reference')
+    preview_check('regional closes and independent currency pricing seed',[*preview,'--regional-seed-check'],suite='reference')
+    check('interactive regional and date seed startup',[sys.executable,'tools/run_preview.py','--pg-bin',str(pg_bin),
+        '--dotnet',str(dotnet),'--no-build','--regional-seed-startup-check'],suite='trading')
     preview_check('isolated reference metadata editor',[*preview,'--reference-check','--browser-check','--browser',str(browser)], suite='reference')
     preview_check('isolated nested risk and durable workers', [*preview, '--risk-jobs-check', '--browser-check', '--browser', str(browser)], suite='risk')
     preview_check('Monte Carlo full-PV and hybrid VaR/ES, explicit consent, custody and graphical reports', [*preview, '--with-exchange', '--monte-carlo-risk-check', '--browser-check', '--browser', str(browser)], suite='risk')

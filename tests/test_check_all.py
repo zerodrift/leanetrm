@@ -640,7 +640,7 @@ class CheckAllTests(unittest.TestCase):
                    Path('/browser executable'), run=run)
         restored = {c[c.index('restore') + 1] for c in commands if 'restore' in c}
         executed = {c[c.index('--project') + 1] for c in commands if '--project' in c}
-        self.assertEqual(restored, expected | {'src/OpenEtrm.Worker/OpenEtrm.Worker.csproj'})
+        self.assertEqual(restored, expected | {'src/OpenEtrm.Worker/OpenEtrm.Worker.csproj','tools/OpenEtrm.Seed/OpenEtrm.Seed.csproj'})
         self.assertEqual(executed, expected)
         schedule_commands = [c for c in commands if '--project' in c and 'Api.Checks' in c[c.index('--project') + 1]]
         self.assertEqual([c[-2:] for c in schedule_commands],

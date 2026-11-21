@@ -12,7 +12,7 @@ public sealed record CurveNodePosition(decimal X,decimal Y);
 public sealed record CustomCurveSaveRequest(Guid RequestId,RecipeDefinition Definition,
     ImmutableDictionary<string,CurveNodePosition> Layout,Guid SnapshotId,Guid? Id=null,int? Version=null,int? Generation=null,string? ExpectedState=null);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record CustomCurvePublishRequest(Guid RequestId,Guid Id,int Version,int Generation);
+public sealed record CustomCurvePublishRequest(Guid RequestId,Guid Id,int Version,int Generation,[property:JsonRequired]Guid SnapshotId);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record CustomCurveCompileRequest(string Formula,string Code,string Name,Guid SnapshotId);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
@@ -330,7 +330,12 @@ INSERT INTO market_data.custom_curve_generation_savers(catalog_id,curve_id,versi
         ["custom_curve_catalog_limit"]="This catalog already holds 64 custom curves, the most it can.",
         ["agent_runtime_unavailable"]="The assistant's turn is no longer running here."
     }.ToImmutableDictionary();
-    public async Task<CustomCurveVersion> Publish(NpgsqlConnection connection,CustomCurvePublishRequest body,CancellationToken ct)
+    internal async Task<CustomCurveVersion?> ReplayPublication(NpgsqlConnection connection,CustomCurvePublishRequest body,CancellationToken ct)
+    {
+        await Lock(connection,ct);
+        return await Replay(connection,body.RequestId,"publish",JsonSerializer.Serialize(body,Json),"SealMarketDefinitions",ct);
+    }
+    public async Task<CustomCurveVersion> Publish(NpgsqlConnection connection,CustomCurvePublishRequest body,PinnedContext pin,CancellationToken ct)
     {
         await Lock(connection,ct);
         var payload=JsonSerializer.Serialize(body,Json);
@@ -338,8 +343,11 @@ INSERT INTO market_data.custom_curve_generation_savers(catalog_id,curve_id,versi
         var row=await RequireVersion(connection,body.Id,body.Version,ct);
         if(row.Generation!=body.Generation)throw Conflict();
         CustomCurves.Validate(row.Definition);
+        await CustomCurves.ValidatePublication(connection,database,pin,row,ct);
         await using var command=ScheduleStore.Command(connection,"SELECT security.publish_custom_curve($1,$2,$3,$4)",Catalog,body.Id,body.Version,body.Generation);
         try{await command.ExecuteScalarAsync(ct);}
+        catch(PostgresException error)when(error.SqlState=="P0001"&&error.MessageText=="recipe_units")
+        {throw new MarketDataException("recipe_units","Derived prices require compatible exact currencies, quantities and quote multipliers on every combined output.");}
         catch(PostgresException error)when(error.SqlState=="P0001"&&error.MessageText.StartsWith("power_interval_",StringComparison.Ordinal))
         {throw new MarketDataException(error.MessageText,"The exact power interval graph has incompatible policies, source units, grid terms or port bindings.");}
         var result=(await Read(connection,ct)).Single(v=>v.Id==body.Id&&v.Version==body.Version);

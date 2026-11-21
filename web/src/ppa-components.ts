@@ -111,5 +111,11 @@ export function componentEditor(host:HTMLElement,catalog:Catalog,template:Templa
  }
  field('curve').addEventListener('change',()=>{field('settlement-mode').value='';field('settlement-index').value='';});
  host.addEventListener('input',()=>{changed();sync();});host.addEventListener('change',()=>{changed();sync();});sync();
- return{read,sync,template,linkedSlots:()=>sideQuantity?.linkedSlots()??template.linkedSlots};
+ function currencyChanged(currency:string){
+  const curves=catalog.definitionsMetadata.priceCurves.filter(c=>(c.quote as unknown as {currency_code:string})?.currency_code===currency);
+  pick('curve',choices(curves));pick('settlement-index',choices(catalog.references.priceIndices.filter(i=>i.currency_code===currency)));
+  for(const name of ['price','initial-price','rate','adder','index-multiplier','multiplier','steps']){const input=host.querySelector<HTMLInputElement|HTMLTextAreaElement>(`[data-field="${name}"]`);if(input)input.value='';}
+  field('settlement-mode').value='';field('settlement-index').value='';changed();sync();
+ }
+ return{read,sync,template,currencyChanged,linkedSlots:()=>sideQuantity?.linkedSlots()??template.linkedSlots};
 }

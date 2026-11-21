@@ -2,19 +2,15 @@
 import json
 from uuid import uuid4
 from synthetic_schedule_stage import copy_stage
+from typed_recipe_fixture import author_token, draft_recipe, publish_recipe
 
 
 def run_checks(query, manifest):
     assert query("SELECT to_regclass('trading.custom_curve_projection_bindings') IS NOT NULL") == 't', 'Custom projection retention is missing'
     catalog = manifest['catalogId']
     curve, binding = str(uuid4()), str(uuid4())
-    setup = f"""BEGIN;
-    INSERT INTO market_data.custom_curves VALUES('{catalog}','{curve}','synthetic_projection_check');
-    INSERT INTO market_data.custom_curve_versions(catalog_id,curve_id,version,generation,state,name,output_node,engine_version,layout)
-      VALUES('{catalog}','{curve}',1,1,'draft','Synthetic projection','result','custom_curve_recipe_v2','{{}}');
-    INSERT INTO market_data.custom_curve_nodes VALUES('{catalog}','{curve}',1,'result','output','{{}}');
-    UPDATE market_data.custom_curve_versions SET state='published',publication_order=(SELECT coalesce(max(publication_order),0)+1 FROM market_data.custom_curve_versions WHERE catalog_id='{catalog}'),published_at=clock_timestamp(),publication_xid=pg_current_xact_id()
-      WHERE catalog_id='{catalog}' AND curve_id='{curve}';
+    token=author_token(query,manifest)
+    setup = f"BEGIN;SET LOCAL SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{token}');"+draft_recipe(catalog,curve,'synthetic_projection_check','result',catalog,manifest['revisionId'],'future')+publish_recipe(catalog,curve,1)+f"""
     INSERT INTO trading.publications SELECT '{catalog}',coalesce(max(publication_order),0)+1,pg_current_xact_id() FROM trading.publications WHERE catalog_id='{catalog}';
     """
     def insert(version=1, node='result', selection='single_output_position_v1'):
@@ -50,11 +46,11 @@ def run_booking_checks(query, manifest, trade_id):
     other_revision = query(f"SELECT id FROM market_data.revisions WHERE catalog_id='{catalog}' AND id<>'{original['definition']}' AND state='sealed' ORDER BY id LIMIT 1;")
     assert other_revision, 'The fixture needs another visible exact market revision'
 
-    def invoke(request, request_id, setup=''):
+    def invoke(request, request_id):
         token = query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
         value = "'" + json.dumps(request).replace("'", "''") + "'::jsonb"
         stage=copy_stage(catalog,operation,request_id) if operation!=request_id else ''
-        return query(f"""BEGIN;{stage}{setup}SET SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{token}');
+        return query(f"""BEGIN;{stage}SET SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{token}');
           SELECT security.save_composed_swap('{catalog}','{request_id}',NULL,NULL,
            (p->>'book')::uuid,(p->>'definition')::uuid,(p->>'referenceCatalog')::uuid,(p->>'referenceRevision')::uuid,
            p->>'commodity',NULLIF(p->'fixed','null'::jsonb),NULLIF(p->'firstFloating','null'::jsonb),p->'floating',
@@ -65,22 +61,20 @@ def run_booking_checks(query, manifest, trade_id):
 
     assert json.loads(invoke(original, operation))['tradeId'] == trade_id
     missing = str(uuid4())
-    missing_setup = f"""INSERT INTO market_data.custom_curves VALUES('{catalog}','{missing}','synthetic_missing_source');
-      INSERT INTO market_data.custom_curve_versions(catalog_id,curve_id,version,generation,state,name,output_node,engine_version,layout)
-       VALUES('{catalog}','{missing}',1,1,'draft','Synthetic missing source','result','custom_curve_recipe_v2','{{}}');
-      INSERT INTO market_data.custom_curve_nodes VALUES('{catalog}','{missing}',1,'result','output','{{}}');
-      UPDATE market_data.custom_curve_versions SET state='published',publication_order=(SELECT max(publication_order)+1 FROM market_data.custom_curve_versions WHERE catalog_id='{catalog}'),published_at=clock_timestamp(),publication_xid=pg_current_xact_id()
-       WHERE catalog_id='{catalog}' AND curve_id='{missing}';"""
+    token=query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','editor','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',120);")
+    query(f"BEGIN;SET LOCAL SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{token}');"+
+          draft_recipe(catalog,missing,'synthetic_unpublished_projection','result',catalog,original['definition'],'future')+
+          'SET LOCAL SESSION AUTHORIZATION preview_runtime;COMMIT;')
     failures = []
-    for changed, label, setup, code in [({**original, 'definition': other_revision}, 'another exact market revision', '', 'swap_definition'),
+    for changed, label, code in [({**original, 'definition': other_revision}, 'another exact market revision', 'swap_definition'),
                                  ({**original, 'floating': {**original['floating'], 'customProjection': {**original['floating']['customProjection'], 'curveId': missing,
-                                     'version': 1, 'outputNode': 'result'}}}, 'a projection without source relationships', missing_setup, 'custom_projection')]:
+                                     'version': 1, 'outputNode': 'result'}}}, 'an unpublished projection', 'custom_projection')]:
         try:
-            invoke(changed, str(uuid4()), setup)
+            invoke(changed, str(uuid4()))
         except RuntimeError as error:
             if code not in str(error):
                 failures.append(f'The SQL command did not reject {label}: ' + str(error))
         else:
             failures.append(f'The SQL command accepted {label}')
     assert not failures, '\n'.join(failures)
-    print('PASS custom projection SQL booking: accepted replay and rejected mismatched/missing sources ', flush=True)
+    print('PASS custom projection SQL booking: accepted replay and rejected mismatched source revisions/unpublished projections', flush=True)

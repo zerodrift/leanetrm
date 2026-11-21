@@ -105,7 +105,8 @@ internal static class AssistantOperations
         Add("risk_jobs","RunScenario|ReadTrades|ReadMarketData",true,"!portfolio/risk/jobs !portfolio/risk/jobs/{id:guid}","portfolio/risk/jobs portfolio/risk/jobs/{id:guid}/cancel");
         // The page's full VaR catalog, history and report exceed a tool result; these bounded reads run the same calculation.
         Add("risk_jobs","RunScenario|ReadTrades|ReadMarketData",false,"portfolio/risk/statistical/setup portfolio/risk/parametric/summary portfolio/risk/historical/summary portfolio/risk/historical/sample");
-        Add("ppa","ReadTrades|ReadMarketData",true,"!ppa/frames ppa/catalog ppa/directory ppa/editor ppa/legs ppa/validate ppa/preview ppa/inspect ppa/break-even ppa/status settlement/payment-lineages/plan settlement/ppa/preview");
+        Add("ppa","ReadTrades|ReadMarketData",true,"!ppa/frames ppa/catalog ppa/directory ppa/editor ppa/legs ppa/validate ppa/preview ppa/inspect ppa/break-even ppa/status");
+        Add("ppa","ProposeSettlementDeterminations|ReadTrades|ReadMarketData",true,"settlement/payment-lineages/read settlement/ppa/preview","settlement/payment-lineages/plan");
         Add("ppa","BookTrade|ReadTrades|ReadMarketData",true,"","ppa/book");
         Add("ppa","AmendTrade|ReadTrades|ReadMarketData",true,"","ppa/amend ppa/terminate");
         Add("jobs","ReadJobs",true,"!jobs !jobs/pilot-close/catalog !jobs/pilot-close/definition !jobs/pilot-close/results !jobs/lifecycle/{id:guid}");

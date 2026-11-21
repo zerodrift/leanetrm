@@ -1,5 +1,78 @@
 # Local verification and continuous integration
 
+## Exact currency and price units (D438)
+
+Local qualification on 2026-11-20 used .NET SDK 10.0.402, stock PostgreSQL
+18.7 and disposable synthetic databases on macOS arm64. The 799 managed core
+checks, 88 rate checks, API `--schedules` suite and 178 Python checks passed.
+
+The native/HTTP regional gate verified exact discount-default foreign keys,
+valid populated upgrades and atomic refusal of conflicting mappings. Derived
+publication rejected incompatible currencies through both API and native entry
+points, retained independent output currencies, and traversed 22 nested published
+parents without prices. Accepted publication retried successfully from a fresh
+session; changing its snapshot under the same request ID refused. GBP booked
+Side inspection retained its full quantity and price units.
+
+The PPA gate passed 32 break-even HTTP checks. Its quarter-hour settlement gate
+passed 17 indexed and eight fixed-preview checks over 2,884 native DST cells,
+including later-known corrections, original-cutoff replay, amendment and
+termination. The fixed response contained 14,752,814 decoded JSON bytes and
+the indexed response contained 16,711,466, within the existing response cap.
+Response-byte and work limits remain independent refusal boundaries; these
+fixtures qualify no production latency or concurrent capacity. Managed
+fixed/indexed checks also covered exact USD, GBP, EUR and CAD inputs with explicit
+rounding terms.
+
+The owned exchange gate passed. It verified price multipliers independently of
+option lot sizes, absence of a price denomination on premium cash, and exact
+currency and held-series references. Option values, premium cash, scenario risk, stored
+surface reads and strategy analyses retained their independent numerical checks.
+Later settlement/rate corrections retained the original surface at its old
+knowledge cutoff.
+
+The web suite ran 2,273 checks with no skips: 2,272 passed in the full run;
+one failed before loading its page because the owned Chrome debugger did not
+start. That check passed on its isolated rerun. Currency-specific browser
+checks covered retained rounding controls, post-save knowledge refresh,
+stale-response disposal, managed amount display and exact series selection.
+Export checks retained filtered/regrouped factor and currency/price identities.
+Independent domain, storage and UI adversarial review found no remaining blocker.
+
+Requalification with facility migrations 0377–0379 present passed the API/seed/web
+builds, 799 managed core checks, API `--schedules`, 178 Python checks plus the
+combined-preset product regression, 133 focused web checks and the fresh native
+regional gate. Currency migrations are numbered 0380–0381. Interactive combined
+gas/regional presets retain agreement coverage for both products; integration
+review found no remaining blocker.
+
+Additional requalification passed 180 Python checks, the populated recorded-cash
+upgrade and the regional, publication-authoring, captured-power and flat-power
+integration gates. Temporary source helpers leave no runtime grants on their
+temporary schemas while deferred commit guards retain the caller's identity.
+Native projection checks use complete source-pinned recipes and reject unpublished
+outputs at booking. Native publication validates structural policies before
+deriving units, preserving the structured refusals for malformed splice graphs.
+
+Actual-browser requalification passed 92 publication/contract authoring checks,
+10 captured-power checks, 18 shared-trading checks, 30 option ticket/position
+checks and 33 Options page checks. Strategy cash displays match the actual managed
+formatter responses; captured product means and publication receipts retain their
+complete price units without requiring insignificant trailing decimal zeros.
+
+The complete owned risk gate passed 172 browser checks across scenario setup,
+retained workspace recovery and cross-close results. The three suites share a
+fifteen-minute aggregate watchdog and retain their individual action deadlines.
+
+Integration with the grouped structured entry passed all 2,285 web checks, the
+focused preview regression and 35 native/API-backed power and structured-booking
+browser checks. Operating values retain their emphasis and every native price row
+retains its full managed price unit.
+
+These results qualify local behavior. Full CI, coordinated migration/API/UI
+release and hosted activation remain separate gates; no hosted database was
+changed by these checks. See the [contract](currency-and-price-units.md).
+
 ## Calendar and browser As of context lifetimes (D434)
 
 Six consecutive requests for the ten most recent qualifying dates of the

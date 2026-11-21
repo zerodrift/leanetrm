@@ -1,3 +1,4 @@
+import {financialReferenceFields} from './financial-provenance.js';
 import {carryReadReferences,cloneRead,retainedKnowledge} from './read-references.js';
 import {readRetainedSideTrade} from './retained-side-trade-view.js';
 import {withSideSchedules,genericPositionView} from './position-schedules.js';
@@ -42,7 +43,7 @@ import {chooserGroups,newTradeControl,productName,setupNewTrade,type NewMode,typ
 import {createTableWorkspace} from './table-workspace.js';
 import {setupBookScopePicker} from './scope-picker.js';
 import {renderDataGrid} from './data-grid.js';
-import {contractPositions,deltaLadder,ladderExport,type LadderCell,type LadderValue} from './delta-ladder.js';
+import {contractPositions,deltaLadder,ladderExport,ladderCsv,type LadderCell,type LadderValue} from './delta-ladder.js';
 import {pivotMatrix,pivotChartPanels,groupLabel,type PivotGroup} from './analytics-model.js';
 import type {ChartSpec} from './chart-view.js';
 import {pivotCellFocus} from './assistant-selections.js';
@@ -202,7 +203,8 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // A position is opened only from the read on screen, so these rows open nothing.
   let kept:{strip:StripItem[]|undefined;context:Catalog['context']|undefined}|undefined,strip:StripItem[]|undefined;
   // The delta ladder (D230) the Ladder lens draws in place of the trade rows, by the value it shows, with what an export of it states.
-  let ladderTable:ReturnType<typeof renderDataGrid>|undefined,ladderValue:LadderValue='delta',ladderShown:{headers:string[];rows:string[][];numeric:number[]}|undefined;
+  let ladderTable:ReturnType<typeof renderDataGrid>|undefined,ladderValue:LadderValue='delta',ladderShown:ReturnType<typeof ladderExport>|undefined;
+  let pivotExportReferences:Record<string,Record<string,unknown>>[]=[];
   // Columns the current read shows that a saved view never keeps: each pivot group's count of positions it leaves out, and the desk's curve shapes.
   let transientKeys:ReadonlySet<string>=new Set();
   let versions=new Map<string,string>();
@@ -1133,8 +1135,8 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   function choose(id:string,rows:{id:string;name:string}[],selected:string,placeholder='Choose…'){const select=get<HTMLSelectElement>(id);select.replaceChildren(new Option(placeholder,''),...rows.map(r=>new Option(publicText(r.name),r.id)));select.value=rows.some(r=>r.id===selected)?selected:'';}
   // A trade row's fields as the trade columns and exports state them: exact amounts, readable names.
   function tradeFields(h:Holding):Record<string,string|null>{
-    const {booking,amountFormat,fixedAmountFormat,commodity,quantitySpecification,currencyReference,projectionCurves,coverage,exchange,linkedFuturesTradeIds,linkedFuturesTrades,actions,sideSchedules,priceNavigation,...fields}=h;
-    return {...fields,exchange:exchange?.name??null,linkedFuturesTradeIds:linkedFuturesTradeIds?.join(', ')??null,linkedFuturesTrades:linkedFuturesTrades?.join(', ')??null,priceUnit:h.priceNavigation===false||h.instrumentType==='ppa'?null:priceUnit(h),tradeDate:booking.tradeDate,legalEntity:booking.legalEntity??null,counterparty:booking.counterparty??null,instrumentType:friendly(h.instrumentType),commodity:commodity.name,market:h.marketLabel??curveName(h.curve),contract:deliveryLabel(h.deliveryFrom,h.deliveryTo,options.zone()),executed:displayInstant(h.executedAt,options.zone()),settlement:publicText(h.settlement==='unprocessed'?'Unprocessed':h.settlement)};
+    const {priceUnitReference,booking,amountFormat,fixedAmountFormat,commodity,quantitySpecification,currencyReference,projectionCurves,coverage,exchange,linkedFuturesTradeIds,linkedFuturesTrades,actions,sideSchedules,priceNavigation,...fields}=h;
+    return {...fields,...financialReferenceFields(h),exchange:exchange?.name??null,linkedFuturesTradeIds:linkedFuturesTradeIds?.join(', ')??null,linkedFuturesTrades:linkedFuturesTrades?.join(', ')??null,priceUnit:h.priceNavigation===false||h.instrumentType==='ppa'||h.instrumentType==='futures_option'&&h.component==='premium'||![h.executionPrice,h.fixedPrice,h.mark,h.instrumentType==='futures_option'?h.premium:null].some(v=>v!==null&&v!==undefined)?null:priceUnit(h),tradeDate:booking.tradeDate,legalEntity:booking.legalEntity??null,counterparty:booking.counterparty??null,instrumentType:friendly(h.instrumentType),commodity:commodity.name,market:h.marketLabel??curveName(h.curve),contract:deliveryLabel(h.deliveryFrom,h.deliveryTo,options.zone()),executed:displayInstant(h.executedAt,options.zone()),settlement:publicText(h.settlement==='unprocessed'?'Unprocessed':h.settlement)};
   }
   // What a trade row's value cell says when the close cannot value it, on screen and in exports (D220).
   function notValued(h:Holding,key:string){return h.unavailableReason&&valueFields(h.instrumentType).includes(key)?`Not valued · ${valuationReason(h.unavailableReason,h.instrumentType)}`:undefined;}
@@ -1325,6 +1327,10 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     transientKeys=new Set(gridColumns.filter(c=>(c.measure??c.key)==='unvaluedPositions').map(c=>c.key));
     const gridVisible=gridColumns.map(c=>transientKeys.has(c.key)||(c.key.startsWith('pivot:')?view.columns.includes(c.measure!):view.columns.includes(c.key)||required.includes(c.key)));
     const rawRows=matrix?.rows??rows;
+    pivotExportReferences=rawRows.map((_,row)=>Object.fromEntries(gridColumns.flatMap(c=>{
+      const group=matrix?matrix.sources[row]?.[c.key]:read.groups[row];
+      return group&&view.measures.includes(c.measure??c.key)?[[c.key,{groupId:group.groupId,instrumentType:group.instrumentType,priceUnitReference:group.priceUnitReference,...financialReferenceFields(group as unknown as Parameters<typeof financialReferenceFields>[0])}]]:[];
+    })));
     const displayRows=rawRows.map(row=>gridColumns.map(c=>{
       const value=row[c.key]??'';if(!c.numeric||value==='')return value;
       const measure=c.measure??c.key;
@@ -1713,13 +1719,15 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   function tradeExport(grid:ReturnType<typeof renderDataGrid>):{headers:string[];rows:string[][];numeric:number[]}{
     const read=holdings!,columns=tradeColumns.filter(([key])=>(deskFields as readonly string[]).includes(key)||key==='currency'||view.columns.includes(key));
     const rows=grid.shownRows().map(i=>{const h=read.holdings[i],fields=tradeFields(h);return columns.map(([key])=>notValued(h,key)??noted(drawn?.rows[i],key)??fields[key]??'');});
-    return {headers:columns.map(c=>c[1]),rows,numeric:columns.flatMap(([key],i)=>numericFields.includes(key)?[i]:[])};
+    const references=grid.shownRows().map(i=>financialReferenceFields(read.holdings[i])),keys=references.length?Object.keys(references[0]):Object.keys(financialReferenceFields({}));
+    return {headers:[...columns.map(c=>c[1]),...keys],rows:rows.map((r,i)=>[...r,...keys.map(k=>references[i][k])]),numeric:columns.flatMap(([key],i)=>numericFields.includes(key)?[i]:[])};
   }
   get('blotter-export').onclick=()=>{if(busy()||!(table||ladderTable)||!holdings||!lastReadRequest)return;const grid=(table??ladderTable)!,filterKeys=table?tableColumns:ladderShown?.headers??[];const pivot=view.mode==='pivot';const metadata=[['Blotter snapshot'],['As of',holdings.asOf],['Knowledge cutoff',holdings.context.knownAt],['Convention',holdings.convention],['Display',view.mode],['Grouping',pivot?view.groupBy.join(' / '):rowGroupLabel(view.rowGroup)],['Measures',pivot?view.measures.join(' / '):'Trade rows'],['Portfolios',view.portfolioIds.length?catalog!.books.filter(b=>view.portfolioIds.includes(b.portfolio_id)).map(b=>b.portfolio).filter((v,i,a)=>a.indexOf(v)===i).join(' / '):'All authorized portfolios'],['Books',view.bookIds.length?catalog!.books.filter(b=>view.bookIds.includes(b.id)).map(b=>b.name).join(' / '):'All books in selected portfolios'],['Search',grid.state().query],['Column filters',JSON.stringify(Object.fromEntries(grid.state().columns.flatMap((v,i)=>v===null?[]:[[filterKeys[i],v]])))],['Numerical policy',holdings.pivotNumericalPolicy],['Pivot convention',pivot?'trading_blotter_totals_v1':'Not applicable'],['Positions not valued at this close',String(excludedPositions(holdings.unvaluedPositions))],[]];
     // The Ladder lens exports the ladder's rows the filters show, exactly, with the run they come from (D230).
-    const ladder=ladderTable&&ladderShown?{...ladderShown,rows:ladderTable.shownRows().map(i=>ladderShown!.rows[i])}:undefined;
-    const shown=ladder??(pivot?{headers:table!.headers(),rows:table!.visibleRows(),numeric:table!.numeric()}:tradeExport(table!));
+    const ladder=ladderTable&&ladderShown?ladderCsv(ladderShown,ladderTable.shownRows()):undefined;
+    const shown=ladder??(pivot?{headers:[...table!.headers(),'Exact cell references'],rows:table!.visibleRows().map((row,i)=>[...row,JSON.stringify(table!.columnKeys().flatMap((key,column)=>{const source=pivotExportReferences[table!.shownRows()[i]]?.[key];return source?[{column,title:table!.headers()[column],...source}]:[];}))]),numeric:table!.numeric()}:tradeExport(table!));
     const about=ladder?[...metadata.slice(0,-1),['Risk run',get('desk-run-title').textContent??''],['Run detail',get('desk-run-detail').textContent??''],[]]:metadata;
+    if(ladder)about.splice(about.length-1,0,['Exact ladder columns',JSON.stringify(ladder.columnReferences)]);
     const csv=guardedCsv(about)+guardedCsv([shown.headers,...shown.rows],shown.numeric);void act(async()=>{try{await api('trading/blotter',lastReadRequest);}catch(error){if((error as {code?:string}).code==='access_denied')clear();throw error;}downloadCsv(ladder?'leanetrm-delta-ladder.csv':'leanetrm-blotter.csv',csv);});
   };
   get('futures-refresh').onclick=get('blotter-retry').onclick=()=>asked(()=>load('directory',false,true));

@@ -252,6 +252,8 @@ internal static class OptionStrategyRead
             ["product"]=body.Product,["expiryAt"]=Instant(body.ExpiryAt),["valuationAt"]=Instant(snapshot.ValuationAt),["underlyingSeries"]=terms.UnderlyingSeries.Code,
             ["currency"]=data.ReferenceRows("currencies","code",terms.Currency.Code).ToArray() is [var currency]?currency.Text("display_code"):
                 throw new MarketDataException("option_definition","The legs' currency is not in this market's reference data."),
+            ["priceUnit"]=PreviewData.PriceUnitLabel(data.ReferenceRows("currencies","code",terms.Currency.Code).Single().Text("display_code"),data.QuantityUnit(future.QuoteQuantity.Code),data.QuoteRows(data.ReferenceRows("futures_option_products","code",body.Product).Single().Text("quote_code")).Single().Multiplier.ToString()),
+            ["currencyReference"]=JsonSerializer.SerializeToNode(terms.Currency,Json),
             ["quantityUnit"]=data.QuantityUnit(future.QuoteQuantity.Code),
             ["futures"]=bindings.Values.Select(b=>b.BaseFutures.ToString()).Distinct().ToArray() is [{} settled]?settled:null,
             ["request"]=new JsonObject{["prices"]=new JsonObject{["lower"]=body.Prices.Lower.ToString(),["upper"]=body.Prices.Upper.ToString(),["points"]=body.Prices.Points},

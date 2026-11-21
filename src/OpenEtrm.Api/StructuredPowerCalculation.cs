@@ -17,7 +17,8 @@ public sealed record StructuredPowerIntervalResult(DeliveryInterval Interval,Imm
 public sealed record StructuredPowerStateResult(string At,string? Commitment,int? ElapsedMinutes,int? StartsUsed,
     ImmutableArray<StructuredPowerQuantityResult> Quantities);
 public sealed record StructuredPowerSideRow(DeliveryInterval Interval,DateTimeOffset PaymentAt,ExactQuantity Quantity,
-    ExactUnitPrice Price,ExactMoney Amount,ExactMoney PresentValue,VolumeState State,Guid? EvidenceId,DateTimeOffset? KnownAt);
+    ExactUnitPrice Price,ExactMoney Amount,ExactMoney PresentValue,VolumeState State,Guid? EvidenceId,DateTimeOffset? KnownAt)
+{public string PriceUnitLabel{get;init;}="";}
 public sealed record StructuredPowerSideResult(Guid Id,string Name,string Coefficient,ReferenceKey Quote,
     ExactMoney GrossValue,ExactMoney Contribution,ImmutableArray<StructuredPowerSideRow> Rows);
 public sealed record StructuredPowerValuationResult(string Measure,string Perspective,ReferenceKey Currency,

@@ -12,6 +12,9 @@ public sealed record ScheduleCalculationRow(string Key,string Role,string Operat
 {
  public ImmutableSortedDictionary<string,string> Parameters{get;init;}=ImmutableSortedDictionary<string,string>.Empty;
  public DateOnly? PaymentDate{get;init;}
+ public string? QuoteMultiplier{get;init;}
+ public string UnitReferenceKind{get;init;}=ScheduleReferenceKinds.Quantity;
+ public string? ValueUnitLabel{get;init;}
  public Guid? ActualBatch{get;init;}
  public int? ActualRevision{get;init;}
  public DateTimeOffset? ActualKnownAt{get;init;}
@@ -63,7 +66,7 @@ public static partial class SideScheduleInspection
     [..Inputs(address.Instruction,address.Cell).Select(i=>new ScheduleCalculationInput(i.Port,Key(i.Address)))],instruction.Bindings,
     lookup?.Fixing?.FixingAt??observation?.FixingAt,lookup?.Contract.DeliveryFrom??observation?.Contract.DeliveryFrom,
     lookup?.Contract.DeliveryTo??observation?.Contract.DeliveryTo,[..lineage.OrderBy(k=>k.Id)])
-    {PaymentDate=ScheduleLifecycles.IsPayment(program.Instructions[ordinal].Output)&&row.ValueAt is {} paymentAt?PaymentDatePolicy.Date(paymentAt):null,Parameters=row.Parameters,ActualBatch=native?.Resolution.Actual?.BatchId,ActualRevision=native?.Resolution.Actual?.Revision,ActualKnownAt=native?.Resolution.Actual?.KnownAt});
+    {QuoteMultiplier=column.QuoteMultiplier,PaymentDate=ScheduleLifecycles.IsPayment(program.Instructions[ordinal].Output)&&row.ValueAt is {} paymentAt?PaymentDatePolicy.Date(paymentAt):null,Parameters=row.Parameters,ActualBatch=native?.Resolution.Actual?.BatchId,ActualRevision=native?.Resolution.Actual?.Revision,ActualKnownAt=native?.Resolution.Actual?.KnownAt});
   }
   return new(side.Code,program.ScheduleManifest,$"{ordinal}:{selected}","unit_side_v1",side.Scale.ToString(),side.Coefficient.Numerator.ToString(System.Globalization.CultureInfo.InvariantCulture),
    side.Coefficient.Denominator.ToString(System.Globalization.CultureInfo.InvariantCulture),offset,ordered.Length,rows.ToImmutable());

@@ -1,4 +1,6 @@
 """Product selection over captured prices, using real 2020 PJM dates and masks."""
+
+from price_publication_fixture import index_binding
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
@@ -16,7 +18,7 @@ def run_checks(client, query, manifest, capture, collector):
     definition['key']['id'] = str(uuid4())
     definition['name'] = 'PJM 2020 captured product check'
     definition['calendar'] = next(c['reference'] for c in catalog['calendars'] if c['reference']['code'] == 'pjm_2020_nerc')
-    definition['indices'] = [{k: v for k, v in index.items() if k != 'name'} | dict(symbol='CAPTURED_2020', statistic='hourly_total_lmp')]
+    definition['indices'] = [index_binding(index, symbol='CAPTURED_2020', statistic='hourly_total_lmp')]
     client.call('price-publications/save', dict(requestId=str(uuid4()), snapshotId=capture['snapshotId'], expectedVersion=0, definition=definition))
     publish('pjm', '2020-12-18', datetime(2020, 12, 18, 5, tzinfo=timezone.utc), 24, 60, ['20'] * 24, 1)
     publish('pjm', '2020-12-19', datetime(2020, 12, 19, 5, tzinfo=timezone.utc), 24, 60, ['40'] * 24, 1)

@@ -66,7 +66,7 @@ internal sealed partial class PricePublicationStore(PreviewDatabase database)
             var quantity = data.References["quantity_specifications"].Single(q => q.Text("code") == quote.Quantity.Code);
             if (quantity.Text("commodity_code") != index.Text("commodity_code") || quantity.Text("unit_code") != index.Text("quote_unit_code")) continue;
             choices.Add(new(Key(index.Text("code")), Key(index.Text("commodity_code")), Key(index.Text("location_code")), quote.Key,
-                PriceUnit.FromQuote(quote), index.Text("code")));
+                PriceUnit.FromQuote(quote), index.Text("code")){UnitLabel=data.UnitLabel(PriceUnit.FromQuote(quote))});
         }
         return choices.ToImmutable();
     }

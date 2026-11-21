@@ -18,7 +18,7 @@ def run_checks(url,query,manifest):
   {'id':'output','kind':'output','parameters':{},'inputs':{'values':'sample'}}]}
  frame=initial_frame(c.call('workspace'),'2020-12-18');context={'snapshotId':frame['id'],'convention':'physical_gas_fixed_quantity_v4','knowledgeMode':'current'}
  saved=c.call('custom-curves/save',{'requestId':str(uuid4()),'snapshotId':frame['id'],'definition':graph,'layout':{}})
- c.call('profile',{'profile':'approver'});curve=c.call('custom-curves/publish',{'requestId':str(uuid4()),'id':saved['id'],'version':saved['version'],'generation':saved['generation']})
+ c.call('profile',{'profile':'approver'});curve=c.call('custom-curves/publish',{'snapshotId':frame['id'],'requestId':str(uuid4()),'id':saved['id'],'version':saved['version'],'generation':saved['generation']})
  pricing={'source':'published_custom_v1','curveId':curve['id'],'version':curve['version'],'outputNode':'output','selection':'containing_delivery_interval_v1','implementation':'published_custom_curve_projection_v1'}
  payload=deepcopy(original);point=next(p for p in payload['paths'] if p['point']=='synthetic_gas_point_a')
  group=next(g for g in payload['groups'] if g['code']==point['groupCode']);assert group['curve']=='local_gas'

@@ -38,7 +38,7 @@ internal sealed record CrudePosition(JsonElement Head,JsonElement Book,JsonEleme
   direction=Head.Text("direction")=="1"?"receive":"deliver",considerationDirection=Head.Text("consideration_direction")=="1"?"receive":"pay",
   handlingFeeDirection=Head.OptionalText("handling_fee_direction") switch{"1"=>"receive","-1"=>"pay",_=>null},
   deliveryFrom=From,deliveryTo=To,lots=(string?)null,quantity=Head.Text("quantity"),unit=Physical.Text("unit"),quantitySpecification=Quantity,
-  currency=Physical.Text("currency"),currencyReference=Currency,quoteMultiplier=Physical.Text("multiplier"),
+  currency=Physical.Text("currency"),currencyReference=Currency,priceUnitReference=new{currency=Currency,quantity=Quantity,multiplier=Physical.Text("multiplier")},priceUnitLabel=PreviewData.PriceUnitLabel(Physical.Text("currency"),Physical.Text("unit"),Physical.Text("multiplier")),quoteMultiplier=Physical.Text("multiplier"),
   executedAt=Head.Text("executed_at"),bookingFacts=new{implementation=Head.Text("booking_implementation"),labelCapturedAt=Head.Text("label_captured_at")},
   executionPrice=(string?)null,fixedPrice=Head.Text("fixed_price"),mark=(string?)null,markMinusPrice=(string?)null,executionPnl=(string?)null,
   settlement="unprocessed",measure=CrudePositions.Measure,measureLabel="Crude contractual PV",quantityPolicy="standard_volume_total",

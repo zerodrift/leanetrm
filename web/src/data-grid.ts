@@ -593,6 +593,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
       }
     },
     state:()=>({query:state.query,columns:state.columns.slice()}),layout,
+    columnKeys:()=>visibleIndices().map(i=>options.keys[i]),
     headers:()=>visibleIndices().map(i=>headers[i]),numeric:()=>visibleIndices().flatMap((original,i)=>numeric.includes(original)?[i]:[]),
     visibleRows:()=>{if(!current()||!ready)throw Error('Refresh this table before exporting.');return table.getData('display').filter(matches).map(row=>visibleIndices().map(i=>row[field(i)]));},
     /** The source rows the filters show, in display order. */

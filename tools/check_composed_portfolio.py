@@ -10,7 +10,7 @@ def run_checks(client, manifest, query, run_worker, frame, parent, signed, terms
     signed.update(code='synthetic_signed_parent', name='Synthetic signed parent')
     second = client.call('custom-curves/save', {'requestId': str(uuid4()), 'snapshotId': frame['id'], 'definition': signed, 'layout': {}})
     client.call('profile', {'profile': 'approver'})
-    second = client.call('custom-curves/publish', {'requestId': str(uuid4()), 'id': second['id'], 'version': second['version'], 'generation': second['generation']})
+    second = client.call('custom-curves/publish', {'snapshotId':frame['id'],'requestId': str(uuid4()), 'id': second['id'], 'version': second['version'], 'generation': second['generation']})
     def reference(version):
         return {'catalogId': manifest['catalogId'], 'curveId': version['id'], 'version': version['version'], 'outputNode': version['definition']['output']}
     composition = {'code': 'synthetic_composed_portfolio', 'name': 'Synthetic composed portfolio',
@@ -25,7 +25,7 @@ def run_checks(client, manifest, query, run_worker, frame, parent, signed, terms
     client.call('profile', {'profile': 'editor'})
     saved = client.call('custom-curves/save', {'requestId': str(uuid4()), 'snapshotId': frame['id'], 'definition': definition, 'layout': {}})
     client.call('profile', {'profile': 'approver'})
-    published = client.call('custom-curves/publish', {'requestId': str(uuid4()), 'id': saved['id'], 'version': saved['version'], 'generation': saved['generation']})
+    published = client.call('custom-curves/publish', {'snapshotId':frame['id'],'requestId': str(uuid4()), 'id': saved['id'], 'version': saved['version'], 'generation': saved['generation']})
     check_weights(query, manifest, published['id'])
     client.call('profile', {'profile': 'trader'})
     choices = client.call('swaps/catalog', {key: terms[key] for key in ('snapshotId', 'convention', 'knowledgeMode')})

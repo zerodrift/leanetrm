@@ -42,7 +42,7 @@ def run_checks(url,query,manifest):
     # Other node kinds carry no terms member at all.
     assert all('observationTerms' not in node for node in saved['definition']['nodes'] if node['id']!='observed')
     client.call('profile',{'profile':'approver'})
-    published=client.call('custom-curves/publish',{'requestId':str(uuid4()),'id':curve,'version':1,'generation':1})
+    published=client.call('custom-curves/publish',{'snapshotId':frame['id'],'requestId':str(uuid4()),'id':curve,'version':1,'generation':1})
     assert published['state']=='published' and stored_terms(published)==TERMS
     listed=next(v for v in client.call('custom-curves')['recipes'] if v['id']==curve)
     assert listed['version']==1 and stored_terms(listed)==TERMS and 'lessPosition' in stored_terms(listed)[0]
@@ -55,7 +55,7 @@ def run_checks(url,query,manifest):
     panel=client.call('custom-curves/save',{'requestId':str(uuid4()),'snapshotId':frame['id'],'definition':combined,'layout':{}})
     assert panel['kind']=='observation_formula' and stored_terms(panel)==TERMS,panel['kind']
     client.call('profile',{'profile':'approver'})
-    assert client.call('custom-curves/publish',{'requestId':str(uuid4()),'id':panel['id'],'version':1,'generation':1})['state']=='published'
+    assert client.call('custom-curves/publish',{'snapshotId':frame['id'],'requestId':str(uuid4()),'id':panel['id'],'version':1,'generation':1})['state']=='published'
     client.call('profile',{'profile':'editor'})
     draft=client.call('custom-curves/save',{**body,'requestId':str(uuid4()),'id':curve,'version':1,'generation':1,'expectedState':'published'})
     assert (draft['version'],draft['state'])==(2,'draft') and stored_terms(draft)==TERMS

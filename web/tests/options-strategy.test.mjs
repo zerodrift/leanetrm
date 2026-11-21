@@ -1,4 +1,5 @@
-import {test} from 'node:test';
+import {prepareAmountDisplay,shownAmounts,selectDisplayPrecision,initialDisplayPrecision} from '../dist/amount-display.js';
+import {test,before} from 'node:test';
 import assert from 'node:assert/strict';
 import {analysisLines,analysisRequest,breakevenText,choiceProblem,legFigures,offeredChoice,sensitivityTiles,strategyChart,strategyReason,templateLegs} from '../dist/options-strategy.js';
 import {curveDashes,strategyChartOptions} from '../dist/options-strategy-chart.js';
@@ -11,7 +12,7 @@ const offered={prices:{lower:'2.600',upper:'3.4',points:21},pointCounts:[11,21,4
 const straddle={id:'straddle',name:'Straddle',refusal:null,legs:[{series:'c3',right:'call',strike:'3.000',side:'buy',lots:1,entryPrice:'0.0800'},{series:'p3',right:'put',strike:'3.000',side:'buy',lots:1,entryPrice:null}]};
 const setup={product:'synthetic_on',model:'m',expiryAt:expiry,state:'fitted',limits,templates:[straddle,{id:'iron_condor',name:'Iron condor',legs:null,refusal:{code:'strategy_template_strike',message:'Iron condor needs a put 4 listed strikes below 3, and the expiry lists none there.'}}],offered};
 const figure=(amount,missing=null)=>({amount,missing}),measure=(value,missing=null)=>({value,missing});
-const analysis={product:'synthetic_on',expiryAt:expiry,valuationAt:at,underlyingSeries:'ng_f27',currency:'USD',quantityUnit:'MMBtu',futures:'3.01',
+const analysis={product:'synthetic_on',expiryAt:expiry,valuationAt:at,underlyingSeries:'ng_f27',currency:'USD',priceUnit:'USD/MMBtu',quantityUnit:'MMBtu',futures:'3.01',
  request:{prices:{lower:'2.9',upper:'3.2',points:4},instants:[at],volatilityShiftPoints:'0'},
  legs:[{series:'c3',right:'call',strike:'3',side:'buy',lots:'1',entryPrice:'0.08',multiplier:'10000',premium:'800',state:'solved',reason:null,settlement:'0.08',impliedVolatility:'0.4512',value:'0.08',delta:measure('0.523')},
   {series:'p3',right:'put',strike:'3',side:'buy',lots:'1',entryPrice:'0.08',multiplier:'10000',premium:'800',state:'at_intrinsic',reason:'option_at_intrinsic',settlement:'0.08',impliedVolatility:null,value:'0.08',delta:measure(null,'option_at_intrinsic')}],
@@ -21,6 +22,12 @@ const analysis={product:'synthetic_on',expiryAt:expiry,valuationAt:at,underlying
  dated:{state:'valued',reason:null,message:null,curves:[{at,points:[{price:'2.9',value:'1750.5',profitAndLoss:'150.5'},{price:'3',value:'1600',profitAndLoss:'0'},{price:'3.1',value:'1760',profitAndLoss:'160'},{price:'3.2',value:'2400',profitAndLoss:'800'}]}]},
  strategy:{value:figure('1600'),delta:figure('460.000000000000000000'),gamma:figure('39759.1066'),vega:figure(null,'incomplete'),theta:figure('-82.4'),dayTo:later},
  policies:{sensitivities:{policy:'option_sensitivities_layers_v1'},expiryRule:'option_expiry_exercise_value_v1'},limits,work:{calibrationTreePrices:60,valuationTreePrices:120,treePrices:180,curveSets:4,elapsedMs:900}};
+
+before(async()=>{
+ selectDisplayPrecision(initialDisplayPrecision());
+ const values={'1600':'1,600.000','-1600':'-1,600.000','600':'600.000','-1400':'-1,400.000','460.000000000000000000':'460','39759.1066':'39,759.107','400':'400.000','-12.505':'-12.505','1234567890123456789012.125':'1,234,567,890,123,456,789,012.125','0':'0.000','-82.4':'-82.400'};
+ await prepareAmountDisplay([{presentValue:'600'},{presentValue:'-1400'},{presentValue:'-12.505'},{presentValue:'1234567890123456789012.125'},...shownAmounts('options/strategy/analyze',analysis)],async body=>body.map(r=>values[r.value]??r.value));
+});
 
 test('a template gives its legs with the settlements the backend offers as entry prices, and a refused template gives its reason',()=>{
  assert.deepEqual(templateLegs(straddle),[{series:'c3',right:'call',strike:'3.000',side:'buy',lots:'1',entryPrice:'0.08'},{series:'p3',right:'put',strike:'3.000',side:'buy',lots:'1',entryPrice:''}]);
@@ -63,20 +70,20 @@ test('leg figures show the analysed volatility and delta, or a dash that says wh
 });
 
 test('the analysis card states the premium, the extremes and the breakevens as the backend gives them, signed and labelled',()=>{
- assert.deepEqual(analysisLines(analysis).map(l=>[l.term,l.value,l.tone]),[['Net premium','Debit 1,600.00 USD','none'],['Maximum profit','Unbounded','none'],
-  ['Maximum loss','-1,600.00 USD','loss'],['Breakevens','2.84 · 3.16','none']]);
+ assert.deepEqual(analysisLines(analysis).map(l=>[l.term,l.value,l.tone]),[['Net premium','Debit 1,600.000 USD','none'],['Maximum profit','Unbounded','none'],
+  ['Maximum loss','-1,600.000 USD','loss'],['Breakevens','2.84 · 3.16','none']]);
  const condor={...analysis,expiry:{...analysis.expiry,netPremium:{amount:'600',direction:'credit'},maximumProfit:{amount:'600',bounded:true},maximumLoss:{amount:'-1400',bounded:true},breakevens:[{lower:'2.8',upper:'3.2'}]}};
- assert.deepEqual(analysisLines(condor).map(l=>[l.term,l.value,l.tone]),[['Net premium','Credit 600.00 USD','none'],['Maximum profit','+600.00 USD','gain'],['Maximum loss','-1,400.00 USD','loss'],['Breakeven','2.8 – 3.2','none']]);
+ assert.deepEqual(analysisLines(condor).map(l=>[l.term,l.value,l.tone]),[['Net premium','Credit 600.000 USD','none'],['Maximum profit','+600.000 USD','gain'],['Maximum loss','-1,400.000 USD','loss'],['Breakeven','2.8 – 3.2','none']]);
  const flat={...analysis,expiry:{...analysis.expiry,netPremium:{amount:'0',direction:'none'},maximumProfit:{amount:'0',bounded:true},breakevens:[]}};
- assert.deepEqual(analysisLines(flat).map(l=>l.value),['0.00 USD','0.00 USD','-1,600.00 USD','None']);
+ assert.deepEqual(analysisLines(flat).map(l=>l.value),['0.000 USD','0.000 USD','-1,600.000 USD','None']);
  assert.equal(breakevenText({lower:'3.2',upper:null}),'3.2 and above');
  assert.equal(breakevenText({lower:'3.083333333333333333',upper:'3.083333333333333333'}),'3.08333');
 });
 
 test('sensitivity tiles carry each figure with its unit, and a sum with a missing member is a dash that says why',()=>{
- assert.deepEqual(sensitivityTiles(analysis),[{term:'Value',value:'1,600.00',unit:'USD',missing:null},{term:'Delta',value:'460',unit:'MMBtu',missing:null},
-  {term:'Gamma',value:'39,759',unit:'MMBtu per 1.00 of price',missing:null},{term:'Vega',value:'—',unit:'USD per volatility point',missing:'A position in this sum has no figure'},
-  {term:'Theta',value:'-82.40',unit:'USD for one day',missing:null}]);
+ assert.deepEqual(sensitivityTiles(analysis),[{term:'Value',value:'1,600.000',unit:'USD',missing:null},{term:'Delta',value:'460',unit:'MMBtu',missing:null},
+  {term:'Gamma',value:'39,759.107',unit:'MMBtu per (USD/MMBtu)',missing:null},{term:'Vega',value:'—',unit:'USD per volatility point',missing:'A position in this sum has no figure'},
+  {term:'Theta',value:'-82.400',unit:'USD for one day',missing:null}]);
 });
 
 test('the chart draws the stated payoff through its breakevens, one curve per dated instant, and marks only what lies in range',()=>{
@@ -109,7 +116,7 @@ test('the chart options use the theme: a solid expiry line filled gain above zer
  // The readout states the backend's text, rounded half to even as the analysis card rounds it, whatever its size.
  assert.equal(options.tooltip.formatter([{seriesName:'At expiry',data:{price:'3.2',profitAndLoss:'400'},marker:''},{seriesName:'Valuation',data:{price:'3.2',profitAndLoss:'-12.505'},marker:''},
   {seriesName:'<Later>',data:{price:'3.083333',profitAndLoss:'1234567890123456789012.125'},marker:''},{seriesName:'Flat',data:{price:'3.16',profitAndLoss:'0'},marker:''}]),
-  'At expiry at 3.2: <b>+400.00</b> USD<br>Valuation at 3.2: <b>-12.50</b> USD<br>&lt;Later&gt; at 3.083333: <b>+1,234,567,890,123,456,789,012.12</b> USD<br>Flat at 3.16: <b>0.00</b> USD');
+  'At expiry at 3.2 USD/MMBtu: <b>+400.000</b> USD<br>Valuation at 3.2 USD/MMBtu: <b>-12.505</b> USD<br>&lt;Later&gt; at 3.083333 USD/MMBtu: <b>+1,234,567,890,123,456,789,012.125</b> USD<br>Flat at 3.16 USD/MMBtu: <b>0.000</b> USD');
  assert.equal(options.yAxis.axisLabel.formatter(1500),'+1,500');assert.equal(options.yAxis.axisLabel.formatter(-1e22),'-10,000,000,000,000,000,000,000');assert.equal(options.yAxis.axisLabel.formatter(0),'0');
  assert.deepEqual([options.xAxis.min,options.xAxis.max],[2.9,3.2]);
 });

@@ -18,14 +18,14 @@ def run_checks(url, manifest, query):
     definition.update(code='activation_curve', name='Synthetic effective curve')
     first = client.call('custom-curves/save', {'requestId': str(uuid4()), 'snapshotId': frame['id'], 'definition': definition, 'layout': {}})
     client.call('profile', {'profile': 'approver'})
-    first = client.call('custom-curves/publish', {'requestId': str(uuid4()), 'id': first['id'], 'version': first['version'], 'generation': first['generation']})
+    first = client.call('custom-curves/publish', {'snapshotId':frame['id'],'requestId': str(uuid4()), 'id': first['id'], 'version': first['version'], 'generation': first['generation']})
     client.call('profile', {'profile': 'editor'})
     for node in definition['nodes']:
         if node['kind'] == 'select': node['parameters']['first'] = '2'
     second = client.call('custom-curves/save', {'requestId': str(uuid4()), 'snapshotId': frame['id'], 'definition': definition, 'layout': {},
         'id': first['id'], 'version': first['version'], 'generation': first['generation'], 'expectedState': first['state']})
     client.call('profile', {'profile': 'approver'})
-    second = client.call('custom-curves/publish', {'requestId': str(uuid4()), 'id': second['id'], 'version': second['version'], 'generation': second['generation']})
+    second = client.call('custom-curves/publish', {'snapshotId':frame['id'],'requestId': str(uuid4()), 'id': second['id'], 'version': second['version'], 'generation': second['generation']})
     segment = {'effectiveFrom': '2020-12-01', 'effectiveTo': '2021-01-01', 'version': 1, 'outputNode': definition['output']}
     request = {'requestId': str(uuid4()), 'curveId': first['id'], 'expectedRevision': 0, 'policy': POLICY,
         'reason': 'Synthetic initial activation', 'segments': [segment]}

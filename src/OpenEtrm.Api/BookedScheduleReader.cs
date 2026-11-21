@@ -53,6 +53,20 @@ internal sealed class BookedScheduleReader
     values.ValuationAt!=view.CalculationFrame.At||values.KnownAt!=SchedulePreview.ParseAt(view.Context.KnownAt))
     throw Error("The evaluated Side belongs to another exact membership, manifest, snapshot or resolved context.");
    object page=request.Contribution is null?values.Read(request.Offset,request.Limit,ct):values.Calculation(request.Contribution,request.Offset,request.Limit,ct);
+   if(page is ScheduleInspectionPage inspected)
+   {
+    var labels=await ReferenceDisplay.Read(connection,inspected.Rows.Where(r=>r.PriceUnit is not null).Select(r=>r.PriceUnit!),ct,
+     inspected.Rows.Where(r=>r.Currency is not null).Select(r=>r.Currency!.Value).Concat(inspected.Rows.Where(r=>r.QuantitySpecification is not null&&r.QuantityReferenceKind==ScheduleReferenceKinds.Currency).Select(r=>r.QuantitySpecification!.Value)),inspected.Rows.Where(r=>r.QuantitySpecification is not null&&r.QuantityReferenceKind==ScheduleReferenceKinds.Quantity).Select(r=>r.QuantitySpecification!.Value));
+    page=inspected with{Rows=[..inspected.Rows.Select(r=>r with{PriceUnitLabel=r.PriceUnit is {} unit?labels.Price(unit):null,
+     CurrencyLabel=r.Currency is {} currency?labels.Currency(currency):null,QuantityLabel=r.QuantitySpecification is {} quantity?labels.Label(quantity,r.QuantityReferenceKind):null})]};
+   }
+   if(page is ScheduleCalculationPage calculation)
+   {
+    PriceUnit? Unit(ScheduleCalculationRow r)=>r.Currency is {} c&&r.Unit is {} q&&r.QuoteMultiplier is {} m?new(c,q,ExactDecimal.Parse(m)):null;
+    var labels=await ReferenceDisplay.Read(connection,calculation.Rows.Select(Unit).OfType<PriceUnit>(),ct,
+     calculation.Rows.Where(r=>r.Currency is not null).Select(r=>r.Currency!.Value).Concat(calculation.Rows.Where(r=>r.Unit is not null&&r.UnitReferenceKind==ScheduleReferenceKinds.Currency).Select(r=>r.Unit!.Value)),calculation.Rows.Where(r=>r.Unit is not null&&r.UnitReferenceKind==ScheduleReferenceKinds.Quantity).Select(r=>r.Unit!.Value));
+    page=calculation with{Rows=[..calculation.Rows.Select(r=>r with{ValueUnitLabel=Unit(r) is {} u?labels.Price(u):r.Currency is {} c?labels.Currency(c):r.Unit is {} q?labels.Label(q,r.UnitReferenceKind):null})]};
+   }
    result=new{selected.TradeId,selected.BindingId,selected.Revision,contextId=view.Context.ContextId,snapshotId=view.CalculationFrame.Id,request.SideSlot,request.Window,side.SideId,side.Manifest,page};
   }
   await position.Recheck(ct);ct.ThrowIfCancellationRequested();return result;

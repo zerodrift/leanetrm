@@ -16,8 +16,18 @@ public sealed record PaymentMembershipInput([property:JsonRequired]Guid BindingI
 public sealed record SettlementPolicies([property:JsonRequired]string Contract,[property:JsonRequired]string Evidence,
     [property:JsonRequired]string Rounding,[property:JsonRequired]string Approval,[property:JsonRequired]string Correction,[property:JsonRequired]string AdjustmentDue);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record PaymentRoundingTerms([property:JsonRequired]ReferenceKey Currency,[property:JsonRequired]ExactDecimal Increment,
+    [property:JsonRequired]string TieRule,[property:JsonRequired]string Stage)
+{
+    internal CashRoundingConvention Convention()=>new(Currency,Increment,TieRule switch
+    {"to_even"=>CashTieRule.ToEven,"away_from_zero"=>CashTieRule.AwayFromZero,_=>throw new MarketDataException("settlement_rounding","Choose a supported cash tie rule.")},
+        Stage=="payment_total"?CashRoundingStage.PaymentTotal:throw new MarketDataException("settlement_rounding","Select payment-total rounding."));
+}
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record PaymentLineageRequest([property:JsonRequired]Guid SnapshotId,[property:JsonRequired]Guid TradeId,[property:JsonRequired]int ExpectedRevision,
-    [property:JsonRequired]PaymentMembershipInput Original,[property:JsonRequired]PaymentMembershipInput[] Mappings,[property:JsonRequired]SettlementPolicies Policies);
+    [property:JsonRequired]PaymentMembershipInput Original,[property:JsonRequired]PaymentMembershipInput[] Mappings,[property:JsonRequired]SettlementPolicies Policies,PaymentRoundingTerms? RoundingTerms=null);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record PaymentLineagesReadRequest([property:JsonRequired]Guid SnapshotId,[property:JsonRequired]Guid TradeId,[property:JsonRequired]string KnownAt);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record SettlementPreviewRequest([property:JsonRequired]Guid SnapshotId,[property:JsonRequired]Guid LineageId,[property:JsonRequired]int ExpectedRevision,
     [property:JsonRequired]string Month,[property:JsonRequired]string KnownAt);
@@ -29,14 +39,16 @@ internal sealed class SettlementPreview(PreviewDatabase database,PpaStore trades
     internal const string Permission="ProposeSettlementDeterminations";
     private Guid Catalog=>database.Manifest.CatalogId;
     private static MarketDataException Error(string code,string message)=>new("settlement_"+code,message);
-    private static string Json(object value)=>JsonSerializer.Serialize(value,PpaStore.Json);
+    private static string Json(object value)=>JsonSerializer.Serialize(value,JsonOptions);
     internal static object Capabilities=>new{implementation=MonthlyGrossPreview.Implementation,
-        operations=new[]{"settlement/payment-lineages/plan","settlement/ppa/preview"},permission=Permission,
-        policies=new SettlementPolicies(MonthlyGrossPreview.Implementation,"verified_meter_head_v1",OccurrenceCash.Rounding,"two_principals_exact_action_24h_v1","restate_rounded_occurrence_v1","original_due_for_adjustment_v1"),
-        indexedPolicies=new SettlementPolicies(MonthlyGrossPreview.IndexedImplementation,"verified_meter_head_v1",OccurrenceCash.Rounding,"two_principals_exact_action_24h_v1","restate_rounded_occurrence_v1","original_due_for_adjustment_v1"),
+        operations=new[]{"settlement/payment-lineages/read","settlement/payment-lineages/plan","settlement/ppa/preview"},permission=Permission,
+        policies=new SettlementPolicies(MonthlyGrossPreview.Implementation,"verified_meter_head_v1",OccurrenceCash.ExplicitRounding,"two_principals_exact_action_24h_v1","restate_rounded_occurrence_v1","original_due_for_adjustment_v1"),
+        indexedPolicies=new SettlementPolicies(MonthlyGrossPreview.IndexedImplementation,"verified_meter_head_v1",OccurrenceCash.ExplicitRounding,"two_principals_exact_action_24h_v1","restate_rounded_occurrence_v1","original_due_for_adjustment_v1"),
         indexPrices=new{source="explicit_payment_index",publication="collected",contractuallyFinal=false,missing="refuse_whole_occurrence",aggregation="sum_native_quantity_times_price_then_round_once"},
         limits=new{months=1,bindings=MonthlyGrossPreview.MaximumBindings,assets=MonthlyGrossPreview.MaximumAssets,nativeCells=MonthlyGrossPreview.MaximumCells,meterCells=MonthlyGrossPreview.MaximumMeterCells,responseBytes=MaximumResponseBytes,deadlineSeconds=15},
-        cashState="unaccepted_preview",supportedCurrency="explicitly_opted_in_usd_reference",unsupported=new[]{"cash_approval","cash_acceptance","obligations","payments","workers","gas"}};
+        cashState="unaccepted_preview",supportedCurrency="exact_configured_currency",roundingTerms=new{currency="exact_reference",increment="explicit_positive_decimal",tieRules=new[]{"to_even","away_from_zero"},stages=new[]{"payment_total"},missing="refuse"},unsupported=new[]{"cash_approval","cash_acceptance","obligations","payments","workers","gas"}};
+    private static object WireLineage(JsonElement row)=>row.EnumerateObject().ToDictionary(p=>p.Name,p=>
+        p.Name=="rounding_increment"&&p.Value.ValueKind!=JsonValueKind.Null?JsonSerializer.SerializeToElement(row.Text("rounding_increment")):p.Value);
     private static object WireBinding(JsonElement row)=>row.EnumerateObject().ToDictionary(p=>p.Name,p=>p.Name=="quantity"?JsonSerializer.SerializeToElement(row.Text("quantity")):p.Value);
     internal async Task Recheck(NpgsqlConnection connection,Guid trade,CancellationToken ct)
     {
@@ -47,10 +59,28 @@ internal sealed class SettlementPreview(PreviewDatabase database,PpaStore trades
     {
         if(request.Original is null || request.Policies is null || request.Mappings is not {Length:>=1 and <=MonthlyGrossPreview.MaximumBindings} || request.Mappings.Any(m=>m is null))
             throw Error("manifest","Supply explicit original membership, policies and bounded complete successor mappings.");
+        if(request.RoundingTerms is null)throw Error("rounding","Supply explicit currency-bound rounding terms.");
+        var rounding=request.RoundingTerms.Convention();
+        try{rounding.Require(rounding.Currency,CashRoundingStage.PaymentTotal);}
+        catch(MarketDataException){throw Error("rounding","Supply an exact currency and positive supported payment-total rounding terms.");}
         var capture=await new KnowledgeResolver(Catalog).Capture(connection,new(frame.Time.Date.ToString("yyyy-MM-dd"),null,"current"),ct);
-        await using var command=ScheduleStore.Command(connection,"SELECT settlement_data.plan_payment_lineage($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb)::text",
-            Catalog,request.TradeId,request.ExpectedRevision,capture.Context.ContextId!.Value,frame.At,Json(request.Original),Json(request.Mappings),Json(request.Policies));
+        await using var command=ScheduleStore.Command(connection,"SELECT settlement_data.plan_payment_lineage($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb)::text",
+            Catalog,request.TradeId,request.ExpectedRevision,capture.Context.ContextId!.Value,frame.At,Json(request.Original),Json(request.Mappings),Json(request.Policies),Json(request.RoundingTerms));
         return JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
+    }
+    internal async Task<object> ReadLineages(NpgsqlConnection connection,InputFrame frame,PaymentLineagesReadRequest request,CancellationToken ct)
+    {
+        var context=await trades.Bind(connection,frame,request.KnownAt,ct);
+        await using var command=ScheduleStore.Command(connection,"SELECT settlement_data.read_payment_lineages($1,$2,$3,$4)::text",Catalog,request.TradeId,context,frame.At);
+        return JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
+    }
+    internal static CashRoundingConvention Rounding(JsonElement lineage)
+    {
+        var currency=new ReferenceKey(new(lineage.Id("reference_catalog_id"),lineage.Id("reference_revision_id")),lineage.Text("currency_code"));
+        if(lineage.Text("rounding")==OccurrenceCash.Rounding)
+            return new(currency,ExactDecimal.Parse("0.01"),CashTieRule.ToEven,CashRoundingStage.PaymentTotal);
+        if(lineage.Text("rounding")!=OccurrenceCash.ExplicitRounding)throw Error("rounding","The retained rounding policy is unsupported.");
+        return new PaymentRoundingTerms(currency,lineage.Number("rounding_increment"),lineage.Text("rounding_tie_rule"),lineage.Text("rounding_stage")).Convention();
     }
     internal async Task<(object Value,Guid Trade)> Preview(NpgsqlConnection connection,InputFrame frame,SettlementPreviewRequest request,CancellationToken ct)
     {
@@ -101,7 +131,7 @@ internal sealed class SettlementPreview(PreviewDatabase database,PpaStore trades
         }
         var clock=clocks[original.Instrument.Id];
         var terminated=head.Text("event_kind")=="terminated";
-        var plan=MonthlyGrossPreview.Plan(new(Catalog,trade,request.LineageId,month),original,bindings.ToImmutable(),terminated,terminated?head.Instant("boundary_at"):null,frame.At,clock);
+        var plan=MonthlyGrossPreview.Plan(new(Catalog,trade,request.LineageId,month),original,bindings.ToImmutable(),terminated,terminated?head.Instant("boundary_at"):null,frame.At,clock,Rounding(lineage));
         var sources=plan.Contributions.SelectMany(r=>MonthlyGrossPreview.Volume(r.Binding).Sources).Distinct().Select(s=>PpaQuantitiesStore.Source(data,s.Code)).ToImmutableArray();
         var assets=PpaQuantitiesStore.Assets(data,[..plan.Contributions.SelectMany(r=>r.Binding.Instrument.NormalizationAssets).Select(a=>a.Code).Distinct()]);
         if(assets.Length>MonthlyGrossPreview.MaximumAssets)throw Error("limit","The whole occurrence admits at most four distinct assets.");
@@ -149,15 +179,15 @@ internal sealed class SettlementPreview(PreviewDatabase database,PpaStore trades
         else if(lineage.Text("contract")!=MonthlyGrossPreview.Implementation)throw Error("incompatible","The lineage calculation contract differs from its original payment terms.");
         var value=MonthlyGrossPreview.Calculate(plan,assets,sources,energy,meters,new(data.DefinitionRevision,data.ReferenceRevision,frame.At,IntervalSeriesStore.ParseInstant(request.KnownAt),PendingActualsPolicy.RequireActuals),ct,indexPrices);
         ct.ThrowIfCancellationRequested();await Recheck(connection,trade,ct);
-        return (new{implementation=lineage.Text("contract"),cashState="unaccepted_preview",occurrence=plan.Identity,
+        return (new{implementation=lineage.Text("contract"),cashState="unaccepted_preview",occurrence=plan.Identity,roundingTerms=new PaymentRoundingTerms(plan.Rounding.Currency,plan.Rounding.Increment,plan.Rounding.TieRule==CashTieRule.ToEven?"to_even":"away_from_zero","payment_total"),
             quantity=value.Quantity,exactCash=value.ExactCash,roundedCash=value.RoundedCash,roundingDifference=value.RoundingDifference,
             due=new{at=plan.DueAt,date=PaymentDatePolicy.Date(plan.DueAt),status=PaymentDatePolicy.IsOverdue(plan.DueAt,frame.At)?"overdue_candidate":PaymentDatePolicy.IsDue(plan.DueAt,frame.At)?"due_candidate":"not_due_candidate",paymentRuleId=lineage.Id("payment_rule_id"),adjustmentPolicy=lineage.Text("adjustment_due")},
             components=value.Components.Select(c=>new{key=c.Origin.Key,bindingId=c.Origin.Binding.BindingId,originRevision=c.Origin.Binding.OriginRevision,instrumentId=c.Origin.Binding.Instrument.Id,
-                sideId=c.Origin.Binding.SideId,originalMw=c.Origin.Binding.Mw.ToString(),c.Origin.Interval,c.Origin.Strike,paymentPrice=c.Index is null?null:new{c.PaymentPrice!.Numerator,c.PaymentPrice.Denominator},
+                sideId=c.Origin.Binding.SideId,originalMw=c.Origin.Binding.Mw.ToString(),c.Origin.Interval,c.Origin.Strike,paymentPrice=c.Index is null?null:new{c.PaymentPrice!.Numerator,c.PaymentPrice.Denominator,c.PaymentPrice.Unit},
                 index=c.Index is {} p?new{curve=((FloatingSide)MonthlyGrossPreview.Member(c.Origin.Binding).Side).Price.Curve.Code,state=p.State.ToString(),p.Publication,contractuallyFinal=false,
-                    price=new{p.Price!.Numerator,p.Price.Denominator},p.DueAt,actual=new{p.Actual!.BatchId,p.Actual.Revision,p.Actual.KnownAt,value=p.Actual.Price.Value.ToString()}}:null,c.Origin.DueAt,c.Quantity,c.Cash,normalization=new{c.Normalization.Aggregate,c.Normalization.CapacityBasis,c.Normalization.PerUnit,
+                    price=new{p.Price!.Numerator,p.Price.Denominator,p.Price.Unit},p.DueAt,actual=new{p.Actual!.BatchId,p.Actual.Revision,p.Actual.KnownAt,value=p.Actual.Price.Value.ToString()}}:null,c.Origin.DueAt,c.Quantity,c.Cash,normalization=new{c.Normalization.Aggregate,c.Normalization.CapacityBasis,c.Normalization.PerUnit,
                     contributions=c.Normalization.Contributions.Select(n=>new{n.Volume.Asset,n.Volume.Source,n.Volume.AssetVersion,n.Volume.Stage,n.Volume.SourceStage,n.Volume.Energy,n.PerUnit,n.Volume.Series,n.Volume.Revision,n.Volume.KnownAt,n.Volume.ContextId})}}),
-            proposalPins=new{lineage,tradeHead=head,selectedBindings=rows.Select(WireBinding),lineageMappings=mappings,originalBinding=WireBinding(originalRow),terms=envelopes.Values,knowledgeContext=context,knownAt=request.KnownAt,
+            proposalPins=new{lineage=WireLineage(lineage),tradeHead=head,selectedBindings=rows.Select(WireBinding),lineageMappings=mappings,originalBinding=WireBinding(originalRow),terms=envelopes.Values,knowledgeContext=context,knownAt=request.KnownAt,
                 valuationAt=frame.At,frame.Id,definitions=data.DefinitionRevision,reference=data.ReferenceRevision,clockFingerprint=clock.Fingerprint,meterHeads=evidence,priceSources},
             work=new{nativeCells=plan.Contributions.Length,meterCells=required.Length,bindings=bindings.Count}},trade);
     }
