@@ -95,6 +95,14 @@ public sealed partial record FuturesContract : Instrument
     public ReferenceKey SeriesKey => Series.Key;
     public FuturesSeriesSpecification Series { get; }
     public Quantity LotSize => ResolveLot(Series);
+    public ExactDecimal OptionPremiumMultiplier(QuoteSpecification premiumQuote)
+    {
+        if (Series.LotBasis != LotBasis.PerDeliveryHour || premiumQuote.Kind != QuoteKind.Outright ||
+            premiumQuote.Quantity != Series.QuoteQuantity || premiumQuote.Currency != Currency ||
+            premiumQuote.Multiplier != Series.Multiplier)
+            throw FuturesMarketBinding.Error("option_multiplier", "A delivery-hour option needs the future's currency, quote unit and price multiplier.");
+        return LotSize.Amount * Series.Multiplier;
+    }
     public override ReferenceKey Currency => Series.Currency;
     public override Quantity UnitQuantity => new(ExactDecimal.Parse("1"), Series.QuoteQuantity);
     public FuturesContract(FuturesSeriesSpecification series)

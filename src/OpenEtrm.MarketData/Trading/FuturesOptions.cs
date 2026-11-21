@@ -25,6 +25,7 @@ public sealed partial record FuturesOptionInstrument : Instrument
         if (series is null || series.Terms is null || series.Multiplier.CompareTo(default) <= 0 ||
             series.ClearingIncrement.CompareTo(default) <= 0 || series.Terms.Strike.CompareTo(default) <= 0 ||
             !TradingInstant.IsSupported(series.Terms.ExpiryAt) ||
+            series.LastTradingAt is { } lastTrade && (!TradingInstant.IsSupported(lastTrade) || lastTrade > series.Terms.ExpiryAt) ||
             series.InstructionCutoffAt is { } cutoff && (!TradingInstant.IsSupported(cutoff) || cutoff > series.Terms.ExpiryAt) ||
             series.ContraryInstructionsAllowed && series.InstructionCutoffAt is null ||
             string.IsNullOrWhiteSpace(series.AutomaticExerciseRule) ||

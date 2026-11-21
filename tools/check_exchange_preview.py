@@ -175,3 +175,31 @@ def run_checks(url,query=None,manifest=None):
                 RAISE EXCEPTION 'Expected canonical-profile rejection';
               EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM<>'futures_definition' THEN RAISE;END IF;END $$;ROLLBACK;""")
         print('PASS SQL boundary: missing/incompatible canonical profiles reject through raw authorized booking; exact reference tables force RLS and runtime cannot rewrite verified identity.',flush=True)
+
+        # Exercise the seal validator against the synthetic ERCOT fixture. All
+        # variations are rolled back, including the temporary fixture edits.
+        ref=f"catalog_id='{manifest['referenceCatalogId']}' AND revision_id='{manifest['referenceRevisionId']}'"
+        validate=f"market_data.validate_revision('{manifest['catalogId']}','{manifest['revisionId']}')"
+        mismatch=f"""DO $$ BEGIN
+            PERFORM {validate};
+            RAISE EXCEPTION 'Expected the mismatched delivery clock to be refused';
+          EXCEPTION WHEN check_violation THEN
+            IF SQLERRM<>'Constituent conflicts with common curve/futures specifications' THEN RAISE; END IF;
+          END $$;"""
+        query(f"""BEGIN;
+            ALTER TABLE ref_data.futures_products DISABLE TRIGGER guard_definition;
+            ALTER TABLE ref_data.delivery_profiles DISABLE TRIGGER guard_definition;
+            UPDATE ref_data.futures_products SET market_clock_code='ept',trading_calendar_code='ept_published_peak'
+             WHERE {ref} AND code='ice_ern';
+            SELECT {validate};
+            SAVEPOINT matching_clocks;
+            UPDATE ref_data.futures_products SET trading_calendar_code='cpt_published_peak' WHERE {ref} AND code='ice_ern';
+            {mismatch}
+            ROLLBACK TO matching_clocks;
+            UPDATE ref_data.delivery_profiles SET clock_code='ppt' WHERE {ref} AND code='ice_ern_profile';
+            {mismatch}
+            ROLLBACK TO matching_clocks;
+            UPDATE ref_data.delivery_profiles SET quantity_basis='fixed_total' WHERE {ref} AND code='ice_ern_profile';
+            {mismatch}
+            ROLLBACK;""")
+        print('PASS Eastern trading and Central delivery require matching calendars and an hourly lot.',flush=True)

@@ -1064,11 +1064,18 @@ public sealed class PreviewData
         var expiry=closes.Require("option_expiry",product.Text("code"),Date(series.Text("last_trading_date")),series.Instant("expiry_at"));
         if(contract.Expiry!=expiry)throw new MarketDataException("close_time_mismatch",$"Option contract {contract.Key.Id} does not expire at its series' configured close.");
         var right=series.Text("option_right") switch{"call"=>OpenEtrm.MarketData.Options.OptionRight.Call,"put"=>OpenEtrm.MarketData.Options.OptionRight.Put,_=>throw Unsupported()};
+        var multiplier=(product.TryGetProperty("multiplier_basis",out var basis)?basis.GetString():null) switch
+        {
+            null or "fixed" => product.Number("multiplier"),
+            "underlying_lot" => new FuturesContract(Single(FuturesSeries.Where(f=>f.Key==R(series.Text("underlying_series_code"))))).OptionPremiumMultiplier(quote),
+            _ => throw Unsupported()
+        };
         return new(contract.FuturesSeries!.Value,R(product.Text("code")),R(series.Text("underlying_series_code")),
             new(right,series.Number("strike"),expiry,product.Text("exercise_style"),product.Text("settlement_method")),
-            product.Number("multiplier"),quote.Currency,R(product.Text("lot_quantity_code")),quote.ClearingIncrement,
+            multiplier,quote.Currency,R(product.Text("lot_quantity_code")),quote.ClearingIncrement,
             product.Text("automatic_exercise_rule_code"),product.GetProperty("contrary_instructions_allowed").GetBoolean(),
-            series.OptionalText("instruction_cutoff_at") is null?null:series.Instant("instruction_cutoff_at"),product.Text("premium_style"));
+            series.OptionalText("instruction_cutoff_at") is null?null:series.Instant("instruction_cutoff_at"),product.Text("premium_style"))
+            {LastTradingAt=series.TryGetProperty("last_trading_at",out var lastTrade)&&lastTrade.ValueKind!=JsonValueKind.Null?series.Instant("last_trading_at"):null};
     }
     private static DateOnly Date(string value)=>DateOnly.ParseExact(value,"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture);
     // A future names exactly its futures series and a futures option exactly its option series; a forward names neither.

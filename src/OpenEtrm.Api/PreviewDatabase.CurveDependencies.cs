@@ -42,9 +42,20 @@ public sealed partial class PreviewDatabase
             ), pinned_series AS MATERIALIZED (
                 SELECT id,contract_id FROM market_data.series
                 WHERE catalog_id=$1 AND revision_id=$2 AND id=ANY($4::uuid[])
-            ), initial_contract_ids AS (
+            ), selected_contracts AS MATERIALIZED (
                 SELECT contract_id FROM members
                 UNION SELECT contract_id FROM pinned_series WHERE contract_id IS NOT NULL
+            ), initial_contract_ids AS (
+                SELECT contract_id FROM selected_contracts
+                UNION
+                SELECT future.id FROM selected_contracts selected
+                JOIN market_data.contracts c ON (c.catalog_id,c.revision_id,c.id)=($1,$2,selected.contract_id)
+                JOIN ref_data.futures_option_series s ON (s.catalog_id,s.revision_id,s.code)=
+                    (c.reference_catalog_id,c.reference_revision_id,c.futures_option_series_code)
+                JOIN ref_data.futures_option_products p ON (p.catalog_id,p.revision_id,p.code)=(s.catalog_id,s.revision_id,s.product_code)
+                JOIN market_data.contracts future ON (future.catalog_id,future.revision_id,future.futures_series_code)=
+                    (c.catalog_id,c.revision_id,s.underlying_series_code)
+                WHERE p.multiplier_basis='underlying_lot'
             ), contract_ids(contract_id) AS (
                 SELECT contract_id FROM initial_contract_ids
                 UNION

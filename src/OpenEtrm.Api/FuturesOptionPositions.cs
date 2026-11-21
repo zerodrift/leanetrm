@@ -145,7 +145,8 @@ internal static class FuturesOptionPositions
         var series=await PreviewDatabase.Rows(connection,"""
             SELECT row_to_json(x)::text FROM(
              SELECT k.id contract_id,k.revision_id definition_revision_id,s.catalog_id reference_catalog_id,s.revision_id reference_revision_id,s.code series_code,
-              s.option_right,trim_scale(s.strike)::text strike,s.underlying_series_code,s.expiry_at,pr.code product_code,pr.name product_name,fp.name underlying_product_name,trim_scale(pr.multiplier)::text multiplier,
+              s.option_right,trim_scale(s.strike)::text strike,s.underlying_series_code,s.expiry_at,pr.code product_code,pr.name product_name,fp.name underlying_product_name,
+              trim_scale(ref_data.futures_option_multiplier(s.catalog_id,s.revision_id,s.code))::text multiplier,
               pr.lot_quantity_code,ex.code exchange_code,ex.name exchange_name,co.code commodity_code,co.name commodity_name,q.currency_code,q.quantity_code quote_quantity_code,trim_scale(q.multiplier)::text quote_multiplier,cu.display_code currency,
               pr.contrary_instructions_allowed,u.symbol unit,qu.symbol quote_unit,us.delivery_from,us.delivery_to,c.code curve_code,c.name curve_name
              FROM market_data.contracts k

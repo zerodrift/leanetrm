@@ -80,13 +80,17 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
  await check('the ticket offers no volatility surface until a series is chosen',"document.querySelector('#option-ticket-vol-surface').hidden");
  await set('#option-strike',chosen.strike);
  await check('the chosen series offers its product\'s volatility surface',"!document.querySelector('#option-ticket-vol-surface').hidden&&document.querySelector('#option-ticket-vol-surface').textContent==='Volatility surface'");
- await check('expiry, contract and the backend\'s settlement are read-only values of the picked series',
-  `(()=>{const facts=Object.fromEntries([...document.querySelectorAll('#option-page .option-fact')].map(f=>[f.querySelector('.option-fact-label').textContent,f.querySelector('.option-fact-value').textContent]));
-   return facts.Series===${q(chosen.series)}&&facts['Exchange contract'].endsWith(${q(chosen.product)})&&facts['Settlement at this close']===${q(chosen.settlementPrice+' '+chosen.currency)}&&
-    facts.Expiry!=='—'&&facts['Contrary instructions']==='Not accepted'&&!document.querySelector('#option-page .option-fact input');})()`);
+ const ticketFacts=`Object.fromEntries([...document.querySelectorAll('#option-page .option-fact:not([hidden])')].map(f=>[f.querySelector('.option-fact-label').textContent,f.querySelector('.option-fact-value').textContent]))`;
+ await check('the picked series shows its quoted settlement and one-lot cash premium as read-only facts',
+  `(()=>{const facts=${ticketFacts};
+   return facts.Series===${q(chosen.series)}&&facts['Exchange contract'].endsWith(${q(chosen.product)})&&facts.Expiry&&facts.Expiry!=='—'&&
+    facts['Settlement at this close']===${q(chosen.settlementPrice+' '+chosen.priceUnit)}&&
+    facts['One-lot premium at settlement']===${q(chosen.settlementPremiumPerLot+' '+chosen.currency)}&&
+    facts['Contrary instructions']==='Not accepted'&&!document.querySelector('#option-page .option-fact input');})()`,ticketFacts);
  await set('#option-commodity',[...new Set(catalog.options.map(o=>o.commodity.code))].find(c=>c!==chosen.commodity.code));
  await check('changing the commodity clears the underlying future, call or put and strike below it',
-  `document.querySelector('#option-underlying').value===''&&${empty('right')}&&${empty('strike')}&&document.querySelector('#option-page .option-fact-value').textContent==='—'`);
+  `(()=>{const facts=${ticketFacts};return document.querySelector('#option-underlying').value===''&&${empty('right')}&&${empty('strike')}&&
+   facts.Expiry==='—'&&facts['Settlement at this close']==='—'&&!('One-lot premium at settlement' in facts);})()`,ticketFacts);
  async function pick(series){
   for(const [id,value] of [['commodity',series.commodity.code],['underlying',series.underlyingSeries],['right',series.right],['strike',series.strike]])await set('#option-'+id,value);
  }
