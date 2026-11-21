@@ -1,5 +1,63 @@
 # Local verification and continuous integration
 
+## Running-trade amendments (D439–D441)
+
+Qualification on 2026-11-21 used .NET SDK 10.0.402, stock PostgreSQL 18.7 and
+disposable synthetic databases, with database-backed checks on Linux and the
+managed and web suites on macOS arm64. The 799 managed core checks, the API
+project's default checks including the started-month boundaries, the `--ppa-sides`
+and `--settlement-preview` suites, 180 Python checks and all 2,293 web checks
+passed.
+
+The native desk check covers the commercial-change rule over independent revision
+rows, including restated scheduled terms, and confirmations read and recorded
+through the revision whose terms are carried. Through HTTP, the scheduled-swap
+check refuses a quantity amendment under a credit hold while a memo correction is
+admitted under the earlier agreement and credit decision, and admits a memo
+correction as commercial when another agreement is chosen. The PPA booking check
+appends an extension at the retained end, moves the end later from an earlier
+boundary with exact independent values, and refuses an earlier end, a gap and an
+empty termination. The settlement check previews a delivered month with unchanged
+exact cash and lineage after the running trade is extended.
+
+For a running scheduled swap (D441) the scheduled-swap check settles January,
+then at mid-January restates the terms its read returns, reprices February and adds
+March. Preview, ticket price, saved lifecycle value and Blotter PV equal an
+independent decimal oracle over stated quantities, agreed prices and one
+separately priced March mark; January's determination, settlement version and
+period identity are unchanged, and the bridge reports the change as its amendment
+component with no continuing movement. It refuses a changed price or quantity of
+the settled month by name, a shorter term, a changed direction, discounting or
+price settlement, a contract total re-spread over a longer term, and a month that
+has already started added to a swap that has not. Run settings carry for an
+unchanged month and not for a repriced one, January's fixed side settles under the
+carried settings, and a second amendment restates a later month. The native proof
+admits an unchanged started month and refuses a repriced month, a changed quantity
+and a shorter term. The lifecycle swap, scheduling and action checks, the factor
+swap, stored swap risk, close-out draft, gas-amendment, PPA and structured-power
+checks passed unchanged. A browser test of the ticket covers locked controls, kept
+months on extension and the exact request.
+
+For D442 the same check settles January on a scheduled and a composed swap, then
+amends each at the December booking As of: both are refused with
+`swap_amendment_backdated`, the scheduled preview and trade read state the instant
+of the latest activity, and the composed save, which has no managed preview, is
+refused by the owned write alone. With the permission granted to the trader role
+the scheduled amendment is admitted, a change to the settled month is still refused
+by the settlement guard, and after the grant is removed the next one is refused
+again. The check was first run without the rule and failed with an accepted
+preview.
+
+Not run: the owned browser suites against a live preview and the complete standard
+check. Not covered for D442: a payment or net command as the latest activity, and
+the role assigned through Users & access. Not covered by a check: the owned write's refusal
+of a changed started month when the managed operation is bypassed, beyond its
+native proof function; started swaps with a fixing-only month, floating/floating
+sides, observation schedules or custom projections; the scope refusals for factor,
+power-hour and exchange-settled swaps; carried settings on a composed swap. An
+added PPA month is planned in the managed planner check only; no HTTP preview covers
+one, because the fixture publishes final meters for one month.
+
 ## Exact currency and price units (D438)
 
 Local qualification on 2026-11-20 used .NET SDK 10.0.402, stock PostgreSQL

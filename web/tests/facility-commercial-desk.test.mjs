@@ -45,3 +45,33 @@ test('the credit officer can record a decision independently of legal document a
   })()`);
   assert.equal(result.agreement,false);assert.ok(result.fields.includes('Decision reason'));
  }));
+
+test('a revision that carries earlier commercial terms shows their confirmation and records against the revision that set them',
+ {skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<main id="bilateral-desk"></main>',async evaluate=>{
+  const result=await evaluate(`(async()=>{
+   const {setupBilateralDesk}=await import('/bilateral-desk.js');
+   const root=document.querySelector('main'),party={id:'party',revision:1,name:'Party'},sent=[];
+   const matched={revision:1,status:'matched',reference:'CP-7',evidence:'Recorded call',effective_at:'2020-12-02T00:00:00Z'};
+   const trade=(revision,carried_from,confirmations)=>({trade_id:'swap',revision,carried_from,product:'financial_swap',agreement_id:'master',
+    executed_at:'2020-12-01T00:00:00Z',confirmations});
+   const widget=setupBilateralDesk({source:()=>'frame',busy:()=>false,act:fn=>fn(),api:async(path,body)=>path==='desk/directory'?{
+     products:['financial_swap'],entities:[{...party,id:'buyer'}],parties:[party],agreements:[],clearances:[],
+     trades:[trade(4,null,[]),trade(3,2,[matched]),trade(2,undefined,[matched])],
+     canEdit:false,canCredit:false,canDownload:false,canConfirm:true,working:true}:(sent.push(body.record),{revision:2})});
+   await widget.load();
+   const rows=[...root.querySelectorAll('tbody tr')].map(row=>[...row.cells].map(cell=>cell.textContent));
+   const carried=[...root.querySelectorAll('tbody tr')].find(row=>row.cells[0].textContent==='swap / 3');
+   carried.querySelector('button').click();
+   const form=root.querySelector('form'),heading=form.querySelector('p').textContent;
+   form.querySelector('input[type=text]').value='CP-8';form.querySelector('textarea').value='Disputed by letter';
+   form.requestSubmit();await new Promise(resolve=>setTimeout(resolve,50));
+   return {rows:rows.map(cells=>cells.slice(0,5)),heading,sent};
+  })()`);
+  assert.deepEqual(result.rows,[
+   ['swap / 4','Set by this revision','financial swap','Filed','Awaiting confirmation'],
+   ['swap / 3','Carried from revision 2','financial swap','Filed','matched'],
+   ['swap / 2','Set by this revision','financial swap','Filed','matched']]);
+  assert.equal(result.heading,'swap / revision 2');
+  assert.equal(result.sent.length,1);
+  assert.deepEqual([result.sent[0].tradeId,result.sent[0].tradeRevision,result.sent[0].expectedRevision],['swap',2,1]);
+ }));

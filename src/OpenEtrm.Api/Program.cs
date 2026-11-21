@@ -290,6 +290,9 @@ const string malformed="The request is incomplete or malformed.";
     PostgresException p when p.SqlState=="P0001" && p.MessageText is "vol_surface_product" or "vol_surface_context" or "vol_surface_input" or "vol_model_unknown"
         => (422,p.MessageText,"Name an option product of this market, the context's business date and a supported vol model."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("risk_",StringComparison.Ordinal) => (422,p.MessageText,"The risk job does not meet its retained context, input or execution contract."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText=="swap_amendment_locked" => (422,p.MessageText,"A month of this swap that has started would change. An amendment changes only months that start after its effective date."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText=="swap_amendment_backdated" => (422,p.MessageText,"This swap has settlement activity after the working As of. Amend it at an As of at or after that activity; an earlier one needs the Amend behind settlement permission."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText=="swap_amendment_term" => (422,p.MessageText,"A swap that has started cannot end earlier by amendment. Ending it early is a termination."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText is "swap_conflict" or "swap_revision_conflict" or "trade_operation_conflict" => (409,p.MessageText,"This trade or operation changed. Reconcile the original request or reload the latest revision."),
     PostgresException p when p.SqlState=="P0001" && (p.MessageText.StartsWith("clock_",StringComparison.Ordinal)||p.MessageText.StartsWith("calendar_",StringComparison.Ordinal)||p.MessageText.StartsWith("side_calendar_",StringComparison.Ordinal)||p.MessageText=="delivery_completion")
         => (422,p.MessageText,"Schedules require exact published calendars and clocks, covered dates and matching contractual completion terms."),
@@ -1872,9 +1875,11 @@ Task<(object Result,TradingView View)> ExecuteTrading(string profile,Func<Tradin
             var canAmend=working&&currentHead==selectedRevision&&lifecycleEligible&&await PreviewDatabase.HasPermission(connection,"AmendTrade",ct);
             if(amendmentPreview&&!canAmend)throw new MarketDataException(expectedConvention==SwapStore.Convention?"swap_revision_conflict":"futures_revision_conflict","Reload the latest eligible trade revision before amending.");
             json["canAmend"]=JsonSerializer.SerializeToNode(canAmend);
+            var stated=json["lifecycleReason"]?.GetValue<string>();json.Remove("lifecycleReason");
             json["amendUnavailableReason"]=JsonSerializer.SerializeToNode(!working?$"{selection.ReadOnlyLabel} is read-only. Return to working data to amend."
                 :currentHead!=selectedRevision?"This is an earlier trade revision. Open the latest revision at its working As of date."
-                :!lifecycleEligible?"This retained state is outside the supported live, unprocessed futures lifecycle. Settlement must be handled separately."
+                :!lifecycleEligible?stated??(expectedConvention==SwapStore.Convention?"This swap cannot be amended in this state. Once started, only a scheduled swap with index-settled sides in period, daily-rate or contract-total quantities can be amended."
+                    :"This retained state is outside the supported live, unprocessed futures lifecycle. Settlement must be handled separately.")
                 :!canAmend?"Your current role does not have Amend Trade permission.":null);
         }
         }

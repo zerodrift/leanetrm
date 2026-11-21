@@ -133,6 +133,21 @@ public sealed partial class SwapStore
         return JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
     }
 
+    // An amendment dated before the trade's latest settlement activity needs its own permission (D442); the owned write decides.
+    // This states the refusal such an amendment meets, or none.
+    private async Task<string?> SettlementOrderRefusal(NpgsqlConnection connection,Guid trade,DateTimeOffset at,CancellationToken ct)
+    {
+        await using var command=ScheduleStore.Command(connection,"SELECT settlement_data.swap_activity_through($1,$2)",manifest.CatalogId,trade);
+        if(await command.ExecuteScalarAsync(ct) is not DateTime activity)return null;
+        var latest=new DateTimeOffset(DateTime.SpecifyKind(activity,DateTimeKind.Utc));
+        return latest>at&&!await PreviewDatabase.HasPermission(connection,"AmendBehindSettlement",ct)?
+            $"This swap has settlement activity at {latest.ToString("yyyy-MM-dd HH:mm",CultureInfo.InvariantCulture)} UTC, after the working As of. Amend it at an As of at or after that time; an earlier one needs the Amend behind settlement permission.":null;
+    }
+    private async Task RequireSettlementOrder(NpgsqlConnection connection,Guid trade,DateTimeOffset at,CancellationToken ct)
+    {
+        if(await SettlementOrderRefusal(connection,trade,at,ct) is {} refusal)throw Error("swap_amendment_backdated",refusal);
+    }
+
     public Task<object> DetermineSettlement(NpgsqlConnection connection, InputFrame frame, SwapSettlementDetermineRequest request, CancellationToken ct)
         =>throw LifecycleRequired();
     internal async Task<object> DetermineSettlement(NpgsqlConnection connection,InputFrame frame,SwapSettlementDetermineRequest request,ScheduleContext source,SwapLifecycleInvocation invocation,CancellationToken ct)
@@ -253,16 +268,32 @@ public sealed partial class SwapStore
     {
         (data,frame) = await ScheduledMarket(connection,data,frame,terms.DefinitionRevisionId,ct);
         var resolved = await ResolveRetained(connection,data,frame,terms,row.Id("instrument_id"),row.Id("fixed_side_id"),row.Id("floating_side_id"),ct,schedules);
-        var inputs = SettlementInputs(row,resolved.Quantity,resolved.Instrument.Currency,state,SettlementCompletions(resolved.Instrument));
+        return (await EvaluateLifecycle(connection,data,frame,row,terms,resolved.Instrument,resolved.Quantity,state,ct,sourceHistories,preparationScope)).Evaluation;
+    }
+    // The settlement facts belong to the trade by membership and delivery month, so they value any instrument of the trade
+    // whose started months are unchanged: its retained head, or the terms an amendment proposes.
+    private async Task<(LifecycleEvaluation Evaluation,MarketSnapshot Snapshot)> EvaluateLifecycle(NpgsqlConnection connection,PreviewData data,InputFrame frame,JsonElement row,
+        SwapWriteRequest terms,SidedInstrument instrument,Quantity quantity,JsonElement state,CancellationToken ct,ContractObservationSamples.History? sourceHistories=null,CustomCurves.PreparationScope? preparationScope=null)
+    {
+        var inputs = SettlementInputs(row,quantity,instrument.Currency,state,SettlementCompletions(instrument));
         var snapshot = data.Snapshot(frame);
         var enabled = terms.Discounting ?? throw Error("settlement_policy","Select the explicit swap discount policy.");
-        var mapping = enabled ? await Discount(connection,data,frame,resolved.Instrument.Currency,ct) : null;
-        var discounting = new CurrencyDefaultDiscounting(inputs.DiscountKeys(resolved.Instrument,snapshot),snapshot,enabled,mapping);
+        var mapping = enabled ? await Discount(connection,data,frame,instrument.Currency,ct) : null;
+        var discounting = new CurrencyDefaultDiscounting(inputs.DiscountKeys(instrument,snapshot),snapshot,enabled,mapping);
         var context = (await new KnowledgeResolver(manifest.CatalogId).Read(connection,frame.ContextId??throw Error("settlement_context","Supply the exact certified context."),ct)).Context;
-        var connected = await CustomCurves.PrepareMarket(connection,database,data,frame,snapshot,context,[resolved.Instrument],resolved.Instrument.DependenciesAt(snapshot),CustomCurves.MarketPreparation.ValuationDependencies,ct,
-            activePrices:inputs.RequiredPrices(resolved.Instrument),sourceHistories:sourceHistories,preparationScope:preparationScope);
-        return new(resolved.Instrument,resolved.Quantity,inputs,inputs.Evaluate(resolved.Instrument,
-            connected.Valuation.PaymentContext(connected.Bindings,connected.Authority,discounting,ct)),state);
+        var connected = await CustomCurves.PrepareMarket(connection,database,data,frame,snapshot,context,[instrument],instrument.DependenciesAt(snapshot),CustomCurves.MarketPreparation.ValuationDependencies,ct,
+            activePrices:inputs.RequiredPrices(instrument),sourceHistories:sourceHistories,preparationScope:preparationScope);
+        return (new(instrument,quantity,inputs,inputs.Evaluate(instrument,
+            connected.Valuation.PaymentContext(connected.Bindings,connected.Authority,discounting,ct)),state),snapshot);
+    }
+    private async Task<(SwapLifecycleValue Value,ScheduledResolution Resolved,MarketSnapshot Snapshot)> ProposedLifecycle(NpgsqlConnection connection,PreviewData data,InputFrame frame,
+        JsonElement head,SwapWriteRequest proposed,JsonElement state,CancellationToken ct)
+    {
+        (data,frame)=await ScheduledMarket(connection,data,frame,proposed.DefinitionRevisionId,ct);
+        data=await SideCalendarPolicies.Prepare(connection,data,SideCalendarPolicies.Inputs(proposed),ct);
+        var resolved=ResolveScheduled(data,proposed);
+        var result=await EvaluateLifecycle(connection,data,frame,head,proposed,resolved.Instrument,resolved.Quantity,state,ct);
+        return (result.Evaluation.Value,resolved,result.Snapshot);
     }
 
     public async Task<object> InspectSettlement(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapSettlementReadRequest request,CancellationToken ct)

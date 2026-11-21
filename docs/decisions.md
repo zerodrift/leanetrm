@@ -6871,3 +6871,114 @@ their declared semantics and exact range. No rounding catalogue or seed row is
 introduced. Qualified external feed currency contracts remain unchanged.
 
 See [the implementation and verification contract](currency-and-price-units.md).
+
+## D439 — A forward PPA amendment may end later
+
+A running trade is amended from a date forward: every period before the boundary
+keeps its exact terms, and the replacement may end later than the trade did. The
+trade keeps its identifier and reference; each amendment appends one immutable
+revision. PPAs are the first trade type to support moving the end.
+
+Migration 0384 lets an amended segment end after the retained coverage, from a
+boundary inside it or appended exactly at its end. A segment ending before the
+retained end refuses with `ppa_segment_coverage`; shortening remains a
+termination. Earlier bindings keep their identity, coverage, MW and terms. The
+amended terms still use the trade's original definition and reference revisions
+and must lie inside their own delivery term.
+
+The monthly gross planner accepts a head that runs contiguously from the original
+start to at or beyond the original end. Added cells belong to the original payment
+lineage, as replacement cells do, and the amended binding still needs its explicit
+mapping. This refines D203; no successor lineage is introduced.
+
+Running swaps, physical gas and storage are designed and not built. See
+[amending a running trade](superpowers/specs/2026-11-20-running-trade-amendment-design.md).
+
+## D440 — A book or memo change carries its commercial confirmation
+
+A bilateral revision changes commercial terms unless its revision row differs from
+its predecessor only in internal booking fields: revision links, event identity,
+book, memo, reason, request body, operation, actor, publication and effective
+instant. A term the rule does not name, or a revision row with no instrument
+binding to compare, makes the change commercial, so the rule fails toward asking
+for a confirmation. A scheduled swap's stated quantity basis, unit and delivery
+hours are compared as well, even when they resolve to the same instrument.
+Choosing another agreement for the operation is commercial. Every PPA and physical
+gas amendment is therefore commercial.
+
+Migration 0383 admits a revision without a commercial change under its
+predecessor's agreement and credit decision, with no new credit check, and records
+the earlier revision whose terms it carries. Confirmations are shown and recorded
+through that revision; the desk refuses a confirmation against a carried revision.
+A commercial amendment is admitted as before and awaits its own confirmation. This
+refines D436. Generated confirmation documents, a confirmation for a termination
+and a correction label for exchange-traded edits remain planned.
+
+## D441 — A started month of a scheduled swap is locked; later months amend
+
+A scheduled financial swap that has started is amended at the working As of from a
+later month forward. A delivery month has started once, on either side, its
+delivery has begun or a fixing is due. A started month
+keeps every booked term, its definition and reference revisions, its direction and
+its exact quantity, and the swap keeps its direction and discounting. A side keeps
+one index, currency and price settlement across its months, so a started month
+fixes those for the side. Months that have not started may be repriced, resized or
+given another payment rule, and the term may end later; an added month starts after
+the effective instant, whether or not the swap has started. The term may not end
+earlier: that is a termination, which scheduled swaps do not have. This adopts the contractual P&L rule at booking and
+supersedes the former refusal of any amendment after the first fixing; it also
+locks a month whose delivery has begun before its first fixing.
+
+Migration 0385 takes each started month from the booked period rows instead of
+preparing it again, and `settlement_data.require_retained_swap_periods` proves the
+result: every booked month remains, and each started month has one owned period
+identity, coefficient and exact quantity in the booked and the amended instrument.
+Determinations and cash are keyed by trade, membership and delivery month, so they
+stay attached. The preview and the ticket value the proposed terms under the
+trade's settlement lifecycle and state the locked months with a reason (settled,
+delivered, in progress or fixing). The managed operation refuses a change to one by
+naming it; the owned write refuses the same change by code.
+
+Run settings (`lifecycle.swap_profiles`) follow a payment occurrence to a later
+revision while its period, direction and quantity are unchanged; a new or changed
+occurrence is configured as before. A carried setting keeps its policy, including
+an automatic one, without a new authority check; scheduled lifecycle jobs still
+name the revision they were saved under and are saved again, as are net settlement
+settings, so nothing runs unattended on a carried setting alone.
+
+Not covered, each refused with a structured error: a swap whose booked market
+definition revision is no longer the one in force (one instrument cannot yet be
+valued across two market definitions), power-hour quantities, factor contracts,
+quantity-weighted observations and official daily exchange settlement. A power-hour
+swap is therefore no longer amendable between its delivery start and first fixing. A side that allocates one contract total
+keeps its total and its months once a month has started. The general trading P&L
+report does not cover swaps; the swap's own bridge reports the amendment as Impact
+of amendments.
+
+## D442 — Amending a swap behind its settlement activity needs its own permission
+
+Which months of a swap have started is judged at the working As of. An amendment
+dated before the trade's latest settlement command would judge that as of the
+earlier date, after later facts were recorded. Such an amendment is refused with
+`swap_amendment_backdated` unless the account holds `AmendBehindSettlement`
+together with `AmendTrade`. Settlement commands already refuse to record behind
+later activity; this applies the same order to amendments of composed and
+scheduled swaps. The preview and the trade read state the instant of the latest
+activity; the owned write refuses by code.
+
+Migration 0386 adds the permission, a trigger on swap revisions that enforces the
+order for every write path, and the Trade supervisor role, which holds the
+permission with trade and market reads and `AmendTrade`. The role is assigned to no
+one; an access administrator assigns it in Users & access.
+
+What the permission grants is the earlier As of, with its view of which months
+have started. It does not unlock a determined period: the settlement guard keeps
+each determined side's terms whoever amends. A holder can change a month that is
+unstarted at the chosen As of and not determined, including one that has since
+begun.
+
+Limits. The order is kept against recorded settlement commands only. A swap with
+no settlement command can still be amended at any As of from its latest revision's
+effective instant, by any holder of `AmendTrade`, even when a month has begun since
+that As of. Gas billing and futures margin record their own dated commands and are
+not covered here.

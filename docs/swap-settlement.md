@@ -245,8 +245,12 @@ start strictly after the amendment effective instant and remain undetermined at
 that instant. Date-only start uses UTC midnight; clocked power uses retained first
 delivery interval start. Started/completed undetermined rewrites also refuse.
 Book transfers, missing scope, unknown continuity, incomplete inputs and unsupported
-transformations refuse the entire comparison. Legacy amendment admission is not
-broadened by this reporting capability.
+transformations refuse the entire comparison. Booking applies the same period
+rule (D441): an amendment of a scheduled swap that has started keeps every started
+month as booked, so its determinations and cash stay attached and the bridge reports
+the change as its amendment component, shown as Impact of amendments. An amendment
+dated before the trade's latest settlement command needs `AmendBehindSettlement`
+(D442), as settlement commands themselves refuse to record behind later activity.
 
 Prior exact terms are reread with closing authority and valued in the closing
 certified market, independently resolving primary/supplemental definitions. Only

@@ -1,5 +1,10 @@
 # Delivery plan and acceptance criteria
 
+D439 and D440 start [amending a running trade](superpowers/specs/2026-11-20-running-trade-amendment-design.md):
+a forward PPA amendment may end later, and a book or memo change carries its
+commercial confirmation. Running swaps, physical gas and storage, generated
+confirmation documents and the trade types with no amendment remain planned.
+
 D438 implements [currency and price-unit integrity](currency-and-price-units.md),
 including native discount relationships, mark-free graph publication, exact
 analytics partitions and explicit payment rounding. Release qualification covers
@@ -2751,6 +2756,26 @@ adjustment for a stated quantity beside the close-out draft; Risk from a positio
 runs for that trade. Remaining: termination and novation (drawn Coming soon);
 adjustments of scheduled swaps and of instruments the close-out draft does not
 support; a position's own retained risk run beside the desk's.
+
+### Amending a running trade (D439–D441)
+
+A forward PPA amendment may move the end later, and the desk asks for a new
+commercial confirmation only when a revision changes commercial terms. Remaining,
+A running scheduled swap is amended from a later month forward with its started
+months locked (D441). Remaining, in order: scheduled swaps across market definition
+revisions, with power-hour quantities, factor contracts or official daily exchange
+settlement, their termination, their net settlement settings and scheduled
+lifecycle jobs after an amendment, and swap coverage in the general trading P&L
+report with an Impact of amendments column, and an order rule for a swap amended
+at an earlier As of before any settlement command exists (D442 covers recorded
+settlement activity only); running physical gas, which must
+carry started obligations to the new revision; gas storage, after a started
+contract can be valued. Also remaining: generated confirmation documents for new
+bookings and amendments; a confirmation for a termination; a correction label for
+exchange-traded edits; the amendment preview stating whether a confirmation will
+be needed; listing the trades bound to a superseded definition revision and
+moving them by amendment; and the trade types with no amendment. See the
+[design](superpowers/specs/2026-11-20-running-trade-amendment-design.md).
 
 ### Managed risk workers (D429)
 

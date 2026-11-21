@@ -10,7 +10,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('administration-only identity opens users without business access',"!document.querySelector('#admin-page').hidden&&document.querySelector('#market-page').hidden&&document.querySelector('#nav-market').hidden&&document.querySelector('#page-title').textContent==='Users & access'&&document.querySelector('#error').hidden");
   await check("Users & access shows the workspace's agent grants in force and their recent changes, read-only, and none are made here","!document.querySelector('#admin-grants-card').hidden&&!document.querySelector('#admin-grant-history-card').hidden&&document.querySelectorAll('#admin-grants tbody tr,#admin-grant-history tbody tr').length===0");
   const humanRoles=['access_administrator','assistant_prompt_editor','contracts_officer','credit_officer','facility_limits_admin',
-    'facility_operator','gas_operator','gas_service_admin','market_data_approver','market_data_editor','risk_analyst','trade_confirmations','trader','viewer'];
+    'facility_operator','gas_operator','gas_service_admin','market_data_approver','market_data_editor','risk_analyst','trade_confirmations','trade_supervisor','trader','viewer'];
   await check('each assignable role has a choice and permission details',
     `[...document.querySelectorAll('#admin-roles input')].map(input=>input.value).sort().join(',')==='${humanRoles.join(',')}'&&document.querySelectorAll('#admin-roles details').length===${humanRoles.length}`);
   await check('accounts are created as humans or services, and agents are listed as agent readers without Edit',

@@ -78,11 +78,13 @@ public static class MonthlyGrossPreview
         var grid=PowerHours.Compile(month,month.AddMonths(1),clock,TimeOfUse.All(delivery.IntervalMinutes),[],delivery.IntervalMinutes).ToImmutableArray();
         if(grid.Length>MaximumCells || valuationAt<grid[^1].End)throw Invalid("month_not_complete","The entire operating month must end before preview, including after early termination.");
         var ordered=bindings.OrderBy(b=>b.Coverage.From).ToArray();
-        var end=terminated?terminationAt??throw Invalid("manifest","Termination requires its exact retained boundary."):original.Coverage.To;
-        if(!terminated && terminationAt is not null || end<original.Coverage.From || end>original.Coverage.To ||
-            ordered[0].Coverage.From!=original.Coverage.From || ordered[^1].Coverage.To!=end ||
+        // An amended segment may end after the original end; its cells stay in this original lineage. Only a termination ends the trade earlier.
+        var last=ordered[^1].Coverage.To;
+        if(terminated && terminationAt is null)throw Invalid("manifest","Termination requires its exact retained boundary.");
+        if((terminated?last!=terminationAt:terminationAt is not null || last<original.Coverage.To) ||
+            ordered[0].Coverage.From!=original.Coverage.From ||
             ordered.Zip(ordered.Skip(1)).Any(p=>p.First.Coverage.To!=p.Second.Coverage.From))
-            throw Invalid("manifest","Retained coverage must be contiguous, with only an explicitly terminated suffix removed.");
+            throw Invalid("manifest","Retained coverage must be contiguous from the original start, and only an explicit termination may end it before the original end.");
         var generated=baseline.Side.Terms.DateRule.Generate(month,month.AddMonths(1));
         var due=new DateTimeOffset(generated.Date.ToDateTime(TimeOnly.MinValue,DateTimeKind.Utc));
         var rows=ImmutableArray.CreateBuilder<PlannedPaymentContribution>();

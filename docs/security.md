@@ -55,8 +55,10 @@ is assigned automatically. The two agent-only roles remain separately managed.
 Facility operations can read/record shared quantities and allocation plans;
 facility operating limits can
 read/configure maxima. Each also requires market/trade reads. Neither is assigned
-automatically, and the two writing capabilities are separate. Users & access
-serves role names/permissions from the stored catalog.
+automatically, and the two writing capabilities are separate. Migration 0386 adds
+the Trade supervisor role, which alone holds `AmendBehindSettlement`: amending a swap
+at an As of before its latest settlement activity (D442). It is not assigned
+automatically. Users & access serves role names/permissions from the stored catalog.
 
 The initial role-grant trigger kept the agent reader role to agent principals and
 agent principals to it, even for the database owner, while any grant can still be revoked;

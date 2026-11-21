@@ -36,12 +36,19 @@ public sealed record SwapScheduledInput(string Implementation,SwapScheduledSideI
 public sealed record SwapScheduledPriceRequest(SwapWriteRequest Terms,string PriceMode,ParRateInput? ParRatePolicy);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record SwapScheduledPeriodsRequest(FuturesReadRequest Context,string From,string To);
+/// <summary>A delivery month of a running swap, which an amendment must keep exactly as booked, and why.</summary>
+public sealed record SwapLockedPeriod(string DeliveryFrom,string DeliveryTo,string Reason);
 internal sealed record RetainedScheduledSide(Guid Id,ImmutableArray<ExactRatio> Shares,ExactRatio RelativeQuantity,ImmutableArray<JsonElement> Evidence);
 
 public sealed partial class SwapStore
 {
     public const string ScheduledPriceApplication="period_average_times_quantity_v1";
-    private sealed record ScheduledPreview(int? ExpectedRevision,object Valuation,object QuantityInputs,SwapChangeReview? ChangeReview,[property:JsonIgnore]ScheduledResolution Prepared,[property:JsonIgnore]MarketSnapshot Snapshot,[property:JsonIgnore]ImmutableDictionary<ContractObservationLookup,Guid> ContractObservationPins);
+    // A running swap has no pure valuation: its settlement lifecycle values it, as its read does.
+    private sealed record ScheduledPreview(int? ExpectedRevision,object? Valuation,object QuantityInputs,SwapChangeReview? ChangeReview,[property:JsonIgnore]ScheduledResolution Prepared,[property:JsonIgnore]MarketSnapshot Snapshot,[property:JsonIgnore]ImmutableDictionary<ContractObservationLookup,Guid> ContractObservationPins)
+    {
+        [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public object? SettlementValuation { get; init; }
+        [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public ImmutableArray<SwapLockedPeriod>? LockedPeriods { get; init; }
+    }
     private sealed record ScheduledResolution(SidedInstrument Instrument,Quantity Quantity,
         ImmutableArray<SwapQuantitySchedule> Quantities,ImmutableArray<ImmutableArray<PowerQuantitySchedule>> Power);
     private static SwapScheduledInput CanonicalScheduled(SwapScheduledInput input)
@@ -218,10 +225,70 @@ public sealed partial class SwapStore
             _=>throw Error("swap_definition","Unsupported swap version.")};
         return(evaluated.Scale(resolved.Quantity),resolved,evaluated);
     }
-    internal static bool ScheduledAmendmentEligible(SidedInstrument instrument,DateTimeOffset at)=>
-        instrument.Sides.SelectMany(s=>((SidePaymentSchedule)s.Side.GenerateSchedule()).Payments)
-            .All(p=>!PaymentDatePolicy.IsOverdue(p.PaymentAt,at)&&(p.FirstFixingAt is not {} fixing||at<fixing)&&
-                p.Prices.All(price=>(price.ContractObservation?.FixingAt??price.Lookup?.Fixing?.FixingAt) is not {} publication||at<publication));
+    // A delivery month has started once, on either side, its delivery has begun or a fixing is due. Its payment day follows both.
+    internal static ImmutableArray<QuantityPeriod> StartedPeriods(SidedInstrument instrument,DateTimeOffset at)=>
+        [..instrument.Sides.SelectMany(s=>((SidePaymentSchedule)s.Side.GenerateSchedule()).Payments)
+            .Where(p=>PaymentDatePolicy.Start(p.DeliveryFrom)<=at||p.FirstFixingAt is {} fixing&&at>=fixing||
+                p.Prices.Any(price=>(price.ContractObservation?.FixingAt??price.Lookup?.Fixing?.FixingAt) is {} publication&&at>=publication))
+            .Select(p=>new QuantityPeriod(p.DeliveryFrom,p.DeliveryTo)).Distinct().OrderBy(p=>p.From)];
+    private static ImmutableArray<SwapLockedPeriod> LockedPeriods(ImmutableArray<QuantityPeriod> started,JsonElement settlement,DateTimeOffset at)
+    {
+        var settled=settlement.GetProperty("occurrences").EnumerateArray().Select(o=>Date(o.Text("delivery_from"))).ToHashSet();
+        return [..started.Select(p=>new SwapLockedPeriod(Date(p.From),Date(p.To),settled.Contains(p.From)?"settled":
+            at>=PaymentDatePolicy.Start(p.To)?"delivered":at>=PaymentDatePolicy.Start(p.From)?"in_progress":"fixing"))];
+    }
+    private static string LockedReason(SwapLockedPeriod period)=>
+        $"{Month(period.DeliveryFrom)} {period.Reason switch {"settled"=>"is settled","delivered"=>"has been delivered","in_progress"=>"is in progress",_=>"has started fixing"}}";
+    private static string Authored(object value)=>JsonSerializer.Serialize(value,new JsonSerializerOptions(JsonSerializerDefaults.Web));
+    private static string Month(string? deliveryFrom)=>Date(deliveryFrom).ToString("MMMM yyyy",CultureInfo.InvariantCulture);
+    // The contracts the running amendment rule covers (D441): index-settled sides in period, daily-rate or contract-total quantities.
+    internal static bool RunningAmendmentCovers(SwapScheduledInput terms)=>terms.Factor is null&&new[]{terms.First,terms.Second}.All(side=>side.Power is null&&
+        side.Periods.All(p=>p.Floating is not {ContractObservations:not null}&&p.Floating is not {ObservationSchedule.Quantities:not null}));
+    // Every month an amendment adds starts after its effective instant, whether or not the swap has started (D441).
+    private static void RequireUnstartedAdditions(SwapWriteRequest booked,SwapWriteRequest proposed,DateTimeOffset at)
+    {
+        foreach(var (held,replacement) in new[]{(booked.Scheduled!.First,proposed.Scheduled!.First),(booked.Scheduled.Second,proposed.Scheduled.Second)})
+        {
+            var months=held.Periods.Select(p=>p.Fixed?.DeliveryFrom??p.Floating!.DeliveryFrom).ToHashSet();
+            if(replacement.Periods.Select(p=>p.Fixed?.DeliveryFrom??p.Floating!.DeliveryFrom).FirstOrDefault(from=>!months.Contains(from)&&PaymentDatePolicy.Start(Date(from))<=at) is {} added)
+                throw Error("swap_amendment_locked",$"{Month(added)} has already started, so it cannot be added. An amendment adds or changes only months that start after its effective date.");
+        }
+    }
+    // The running amendment contract (D441): a started month keeps every booked term, the term does not end earlier, and the
+    // swap stays on the market version its started months were booked under. The owned write proves the same from retained rows.
+    private static void RequireRetainedPeriods(SwapWriteRequest booked,SwapWriteRequest proposed,ImmutableArray<SwapLockedPeriod> locked)
+    {
+        var sides=new[]{(Booked:booked.Scheduled!.First,Proposed:proposed.Scheduled!.First),(Booked:booked.Scheduled.Second,Proposed:proposed.Scheduled.Second)};
+        if(!RunningAmendmentCovers(booked.Scheduled)||!RunningAmendmentCovers(proposed.Scheduled))
+            throw Error("swap_amendment_scope","A swap that has started can be amended only with index-settled sides in period, daily-rate or contract-total quantities. Power-hour quantities, factor contracts, quantity-weighted observations and official daily exchange settlement are not supported yet.");
+        if(booked.DefinitionRevisionId!=proposed.DefinitionRevisionId)
+            throw Error("swap_amendment_definition","The started months of this swap were booked on another version of its market definition. Amending a running swap across market versions is not supported yet.");
+        if(ExactDecimal.Parse(Required(booked.FirstCoefficient)).ToString()!=ExactDecimal.Parse(Required(proposed.FirstCoefficient)).ToString()||booked.Discounting!=proposed.Discounting)
+            throw Error("swap_amendment_locked",$"{LockedReason(locked[0])}, so the direction and the discounting of the swap cannot change.");
+        foreach(var side in sides)
+        {
+            // A side keeps one index, currency and price settlement across its months, so a started month fixes them for the side.
+            static string Reference(SwapScheduledPeriodInput p)=>Authored(new{p.Floating?.Index,currency=p.Fixed?.Currency??p.Floating?.Currency,p.Floating?.Settlement});
+            if(side.Proposed.Periods.Any(p=>Reference(p)!=Reference(side.Booked.Periods[0])))
+                throw Error("swap_amendment_locked",$"{LockedReason(locked[0])}, so the index, currency and price settlement of its side cannot change.");
+            if(side.Proposed.Periods.Length<side.Booked.Periods.Length)
+                throw Error("swap_amendment_term","A swap that has started cannot end earlier by amendment. Ending it early is a termination.");
+            if(Authored(new{side.Booked.Basis,side.Booked.Quantity,side.Booked.Allocation,side.Booked.PriceApplication})!=
+                Authored(new{side.Proposed.Basis,side.Proposed.Quantity,side.Proposed.Allocation,side.Proposed.PriceApplication}))
+                throw Error("swap_amendment_locked",$"{LockedReason(locked[0])}, so the quantity basis and unit of its side cannot change.");
+            if(side.Booked.Basis=="contract_total"&&(side.Booked.Amount!=side.Proposed.Amount||side.Proposed.Periods.Length!=side.Booked.Periods.Length))
+                throw Error("swap_amendment_locked",$"{LockedReason(locked[0])}, and this side allocates one contract total across its whole term, so its total and its months cannot change.");
+            for(var n=0;n<side.Booked.Periods.Length;n++)
+            {
+                var period=side.Booked.Periods[n];var replacement=side.Proposed.Periods[n];
+                var from=period.Fixed?.DeliveryFrom??period.Floating!.DeliveryFrom;
+                if(locked.FirstOrDefault(l=>l.DeliveryFrom==from) is not {} started)continue;
+                if(Authored(new{period.Amount,period.Fixed,floating=CanonicalFloating(period.Floating)})!=
+                    Authored(new{replacement.Amount,replacement.Fixed,floating=CanonicalFloating(replacement.Floating)}))
+                    throw Error("swap_amendment_locked",$"{LockedReason(started)}, so its terms cannot change. An amendment changes only months that start after its effective date.");
+            }
+        }
+    }
     private async Task<object> PreviewScheduled(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapWriteRequest body,CancellationToken ct)
     {
         body=body with{Scheduled=CanonicalScheduled(body.Scheduled??throw Error("scheduled_swap_input","Supply scheduled side terms."))};
@@ -236,11 +303,21 @@ public sealed partial class SwapStore
             var original=(await ScheduledMarket(connection,data,frame,head.Id("definition_revision_id"),ct)).Data;
             var retained=await RetainedTerms(connection,frame,Terms(original,head,frame.Id),head.Id("instrument_id"),ct);booked=retained;
             if(retained.Scheduled?.Implementation!=body.Scheduled!.Implementation)throw Error("swap_amendment","An amendment must preserve the retained contract implementation. Book a separate contract to change its quantity semantics.");
-            if(retained.Scheduled is null||!ScheduledAmendmentEligible(ResolveScheduled(original,retained,head.Id("instrument_id")).Instrument,frame.At))throw Error("swap_amendment","Fixings or payments are due on a retained side; use an explicit lifecycle operation.");
-            if(head.OptionalId("scheduled_first_id") is null||body.ExpectedRevision!=int.Parse(head.Text("revision"),CultureInfo.InvariantCulture)||
+            if(retained.Scheduled is null||head.OptionalId("scheduled_first_id") is null||body.ExpectedRevision!=int.Parse(head.Text("revision"),CultureInfo.InvariantCulture)||
                 body.ExpectedRevision>=256||frame.At<head.Instant("effective_at")||SchedulePreview.ParseAt(body.EffectiveAt)!=frame.At||
-                string.IsNullOrWhiteSpace(body.Reason)||body.Reason.Length>500||frame.At>=head.Instant("first_fixing_at")||frame.At>=head.Instant("floating_payment"))
-                throw Error("swap_amendment","Amend the latest eligible scheduled revision at As of with a reason; due fixings or payments require a separate lifecycle operation.");
+                string.IsNullOrWhiteSpace(body.Reason)||body.Reason.Length>500)
+                throw Error("swap_amendment","Amend the latest scheduled revision at As of with a reason.");
+            await RequireSettlementOrder(connection,trade,frame.At,ct);
+            RequireUnstartedAdditions(retained,body,frame.At);
+            var settlement=await SettlementState(connection,trade,ct);
+            var locked=LockedPeriods(StartedPeriods(ResolveScheduled(original,retained,head.Id("instrument_id")).Instrument,frame.At),settlement,frame.At);
+            if(!locked.IsEmpty)
+            {
+                RequireRetainedPeriods(retained,body,locked);
+                var running=await ProposedLifecycle(connection,data,frame,head,body,settlement,ct);
+                return new ScheduledPreview(body.ExpectedRevision,null,QuantityInputs(body.Scheduled!,running.Resolved),ReviewChanges(retained,body),running.Resolved,running.Snapshot,
+                    ImmutableDictionary<ContractObservationLookup,Guid>.Empty){SettlementValuation=LifecycleValue(running.Value),LockedPeriods=locked};
+            }
         }
         else if(body.ExpectedRevision is not null)throw Error("swap_input","A new trade has no prior revision.");
         var priced=await ScheduledPriceDetail(connection,data,frame,body,null,ct);
@@ -348,7 +425,7 @@ public sealed partial class SwapStore
         {
             if(request.ParRatePolicy is not null)throw Error("swap_par_rate","Precision belongs only to a par calculation.");
             var agreed=(ScheduledPreview)await PreviewScheduled(connection,data,frame,body,ct);
-            return new{expectedRevision=agreed.ExpectedRevision,terms=body,valuation=agreed.Valuation,quantityInputs=agreed.QuantityInputs,changeReview=agreed.ChangeReview,parRate=(object?)null};
+            return new{expectedRevision=agreed.ExpectedRevision,terms=body,valuation=agreed.Valuation,settlementValuation=agreed.SettlementValuation,quantityInputs=agreed.QuantityInputs,changeReview=agreed.ChangeReview,parRate=(object?)null};
         }
         if(request.PriceMode!="par"||request.ParRatePolicy is not {Implementation:FinancialSwapValuation.ParRatePolicy,DecimalPlaces:>=0 and <=18,TieRule:"to_even"} policy||
             input.First.Periods.IsDefaultOrEmpty||input.First.Periods.Any(p=>p is null||p.Fixed is null||!string.IsNullOrEmpty(p.Fixed.Price)))

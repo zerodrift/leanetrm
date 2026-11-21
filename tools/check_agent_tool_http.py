@@ -373,14 +373,15 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
     swapped = trader.call('swaps/editor', {'context': {**reread, 'convention': SWAPS}, 'tradeId': swap, 'revision': None})
     rows_read, totals, trade, swap_read = (answered[f'toolu_synthetic_{n}'] for n in range(11, 15))
     check("Read trades returns the Blotter's rows, a pivot's totals and a trade's revisions, with a swap's valuation, as the pages read "
-          "them at the turn's context, without the booking catalog, lifecycle flag or the frame the envelope names",
+          "them at the turn's context and the months an amendment must keep, without the booking catalog, lifecycle flag or the frame the envelope names",
           plain(untargeted(rows_read['result']['holdings'])) == blotter['holdings'] and {booked, swap} <= {r['tradeId'] for r in blotter['holdings']}
           and all(r['amountDisplay'] == 'tool_amount_display_v1' for r in (rows_read, totals, trade, swap_read)) and 'groups' not in rows_read['result']
           and plain(totals['result']['groups']) == pivoted['groups'] and len(pivoted['groups']) > 0 and 'holdings' not in totals['result']
           and plain(trade['result']) == {'instrumentType': 'future', 'state': detail['state'], 'history': detail['history']}
           and plain(swap_read['result']) == {'instrumentType': 'financial_swap', 'state': swapped['state'], 'history': swapped['history'],
                                              'valuation': without(swapped['valuation'], 'snapshotId', 'asOf'),
-                                             'quantityInputs': swapped['quantityInputs']}, (rows_read, totals, trade, swap_read))
+                                             'quantityInputs': swapped['quantityInputs'], 'lockedPeriods': swapped['lockedPeriods']},
+          (rows_read, totals, trade, swap_read))
 
     check("A swap's valuation names the snapshot and definitions it was read under, not every market input of that close, "
           "so one trade fits in one read",
