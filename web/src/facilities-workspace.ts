@@ -38,12 +38,18 @@ export function setupFacilities(o:Options){
  consumers.trades=setupFacilityTrades(hosts.trades,o);
  const active=()=>consumers[section];
  const sections:[Section,string][]=[['trades','Trades and volumes'],['outlook','Pipeline outlook'],['definitions','Facility definitions'],['activity','Physical activity'],['quantities','Quantities & allocations'],['transport','Transport capacity'],['route','Transport route plans'],['gas-delivery','Gas delivery'],['crude-delivery','Crude delivery']];
- const tabs=setupTabs(navigation,sections,{label:'Facilities workspace',panel:content,selected:section,select:next=>{
-  tabs.mark(section);if(next===section||o.busy()||!available(next as Section))return;
-  void o.act(async()=>{if(!await active().leave())return;section=next as Section;show();await active().load();o.changed();});
- }});
+ const picker=document.createElement('select');picker.id='facilities-section-picker';picker.setAttribute('aria-label','Facilities workspace');picker.setAttribute('aria-controls',content.id);
+ for(const [id,label] of sections)picker.add(new Option(label,id));
+ navigation.before(picker);
+ function chooseSection(next:Section){
+  tabs.mark(section);picker.value=section;
+  if(next===section||o.busy()||!available(next))return;
+  void o.act(async()=>{if(!await active().leave())return;section=next;show();await active().load();o.changed();});
+ }
+ const tabs=setupTabs(navigation,sections,{label:'Facilities workspace',panel:content,selected:section,select:next=>chooseSection(next as Section)});
+ picker.onchange=()=>chooseSection(picker.value as Section);
  for(const [id]of sections)navigation.querySelector<HTMLButtonElement>('#'+navigation.id+'-'+id)!.dataset.facilitiesView=id;
- function show(){tabs.mark(section);for(const [id,host]of Object.entries(hosts))host.hidden=id!==(section==='definitions'?'activity':section);if(section==='definitions'||section==='activity')operations.show(section);}
+ function show(){tabs.mark(section);picker.value=section;for(const [id,host]of Object.entries(hosts))host.hidden=id!==(section==='definitions'?'activity':section);if(section==='definitions'||section==='activity')operations.show(section);}
  show();
  return{
   canReadTrades:()=>available('trades'),
@@ -56,7 +62,7 @@ export function setupFacilities(o:Options){
    if(ledgerId!==undefined){if(!physicalAllowed())throw Error('Facility quantity read permission is required.');section='quantities';show();await quantities.load(ledgerId,rememberSelection);}
    else{const recovering=sections.find(([id])=>consumers[id].unconfirmed());if(recovering)section=recovering[0]==='definitions'?operations.recoverySection():recovering[0];else if(!available(section))section=initial();show();await active().load();}
   },
-  sync(){for(const consumer of unique())consumer.sync();for(const button of navigation.querySelectorAll<HTMLButtonElement>('button'))button.disabled=o.busy()||!available(button.dataset.facilitiesView as Section);},
+  sync(){for(const consumer of unique())consumer.sync();picker.disabled=o.busy();for(const item of picker.options)item.disabled=!available(item.value as Section);for(const button of navigation.querySelectorAll<HTMLButtonElement>('button'))button.disabled=o.busy()||!available(button.dataset.facilitiesView as Section);},
   section:()=>section,selected:()=>section==='quantities'?quantities.selected():null,
   edited:()=>unique().some(consumer=>consumer.edited()),leave:()=>active().leave(),refresh:()=>active().refresh(),
   reset(){for(const consumer of unique())consumer.reset();if(!available(section))section=initial();show();},

@@ -29,7 +29,12 @@ for(const width of [1280,1440,1920,400])test(`New trade's page shows the chooser
   assert.equal(await evaluate(`(b=>b.scrollWidth<=b.clientWidth+1)(document.querySelector('#new-trade-product'))`),true,'the bar wraps and never scrolls sideways');
   const bar=`document.querySelector('#new-trade-product').getBoundingClientRect().height`,unchosen=await evaluate(bar);
   if(width>=1280)assert.ok(unchosen<=150,`the bar is at most two rows where there is room (${unchosen}px)`);
-  assert.equal(await evaluate(`(entry.show({kind:'new',product:'swaps'},'loading'),${bar})`),unchosen,'choosing an instrument does not redraw the bar');
+  await evaluate(`entry.show({kind:'new',product:'swaps'},'loading')`);
+  if(width===400){
+   assert.equal(await evaluate(bar),0,'the chosen instrument gives the phone ticket room');
+   await evaluate("document.querySelector('#new-trade-switch').click()");
+  }
+  assert.equal(await evaluate(bar),unchosen,'the same grouped bar remains available');
  });
 });
 

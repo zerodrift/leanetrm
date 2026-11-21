@@ -163,6 +163,7 @@ async function run(a){
  await check('historical capacity inspection remains read only under the exact selected entitlement',`capacitySource.entitlementId===${q(id)}&&capacitySource.historical===true&&[...document.querySelectorAll('[data-transport-command]')].every(button=>button.disabled)&&capacityCalls.filter(call=>call.path==='/api/gas/transport/capacity/read').at(-1).body.context.knowledgeMode==='retained'`);
  await click('[data-facilities-view=outlook]',60000);await wait("document.querySelector('#outlook-read')&&"+idle);
  await set('#outlook-from','2020-12-19');await set('#outlook-to','2020-12-22');await click('#outlook-read');
+ await click('#outlook-views-capacity');
  const picker='select[aria-label="Transport entitlement"]';await wait(`!!document.querySelector(${q(picker+' option[value="'+id+'"]')})&&`+idle);
  await set(picker,id);await wait("document.querySelector('#facilities-workspace-content').innerText.includes('Native capacity intervals')&&"+idle,60000);
  await set('#outlook-from','2021-01-01');await set('#outlook-to','2021-01-02');await click('#outlook-read');

@@ -436,10 +436,15 @@ async function setPage(next:string){
   if(inConsole&&next!=='custom-curves'&&navigation&&!contextDirty){await loadWorkspace();referenceConsole.sync();}
 }
 function showView(view:Preferences['tab']){document.querySelectorAll<HTMLElement>('.view').forEach(n=>n.hidden=n.id!==`view-${view}`);document.querySelectorAll<HTMLButtonElement>('.tab').forEach(b=>{const active=b.dataset.view===view;b.classList.toggle('active',active);b.setAttribute('aria-selected',String(active));});}
+const compactNavigation=window.matchMedia('(max-width:760px)');
+let mobileMenuOpen=false;
+const sidebarIsCollapsed=()=>compactNavigation.matches?!mobileMenuOpen:prefs.sidebarCollapsed;
 function renderLayout(){
-  document.body.classList.toggle('sidebar-collapsed',prefs.sidebarCollapsed);document.body.classList.toggle('library-collapsed',prefs.libraryCollapsed);
-  const sidebar=$('sidebar-toggle');sidebar.setAttribute('aria-expanded',String(!prefs.sidebarCollapsed));sidebar.setAttribute('aria-label',prefs.sidebarCollapsed?'Expand navigation':'Collapse navigation');sidebar.title=prefs.sidebarCollapsed?'Expand navigation':'Collapse navigation';sidebar.textContent=prefs.sidebarCollapsed?'›':'‹';
-  for(const {id} of sidebarGroups){const group=groupNode(id);group.open=prefs.sidebarCollapsed||!prefs.collapsedMenus.includes(id);group.querySelector('summary')!.hidden=prefs.sidebarCollapsed;}
+  const collapsed=sidebarIsCollapsed(),sidebar=$('sidebar-toggle');
+  document.body.classList.toggle('sidebar-collapsed',collapsed);document.body.classList.toggle('library-collapsed',prefs.libraryCollapsed);
+  sidebar.setAttribute('aria-expanded',String(!collapsed));sidebar.title=collapsed?'Expand navigation':'Collapse navigation';sidebar.setAttribute('aria-label',sidebar.title);
+  sidebar.textContent=compactNavigation.matches?(collapsed?'Menu':'Close'):(collapsed?'›':'‹');
+  for(const {id} of sidebarGroups){const group=groupNode(id);group.open=collapsed||!prefs.collapsedMenus.includes(id);group.querySelector('summary')!.hidden=collapsed;}
   const library=$('library-toggle');library.setAttribute('aria-expanded',String(!prefs.libraryCollapsed));library.setAttribute('aria-label',prefs.libraryCollapsed?'Expand curve list':'Collapse curve list');library.title=prefs.libraryCollapsed?'Expand curve list':'Collapse curve list';$('curves').hidden=prefs.libraryCollapsed;
 }
 function renderTimeZones(){document.querySelectorAll<HTMLElement>('[data-user-time-zone]').forEach(n=>{n.textContent=prefs.timeZone;});}
@@ -1200,9 +1205,20 @@ async function openProfile(){
   await profileChoices();await loadProfileCloseConvention();
   choose('zone',zoneChoices(prefs.timeZone),prefs.timeZone);$<HTMLInputElement>('show-assistant').checked=!prefs.assistantHidden;$<HTMLInputElement>('assistant-search-history').checked=prefs.assistantSearchHistory;select('preferred-browse').value=prefs.browseBy;$<HTMLDialogElement>('profile-dialog').showModal();
 }
-$('sidebar-toggle').onclick=()=>{if(busy)return;prefs.sidebarCollapsed=!prefs.sidebarCollapsed;renderLayout();persist();};
+compactNavigation.addEventListener('change',()=>{mobileMenuOpen=false;renderLayout();});
+$('sidebar-toggle').onclick=()=>{
+ if(busy)return;
+ if(compactNavigation.matches)mobileMenuOpen=!mobileMenuOpen;
+ else{prefs.sidebarCollapsed=!prefs.sidebarCollapsed;persist();}
+ renderLayout();
+};
+$('sidebar-menus').addEventListener('click',event=>{
+ if(compactNavigation.matches&&mobileMenuOpen&&(event.target as Element).closest('button.nav-item:not(:disabled)')){
+  mobileMenuOpen=false;renderLayout();$('sidebar-toggle').focus({preventScroll:true});
+ }
+});
 $('library-toggle').onclick=()=>{if(busy)return;prefs.libraryCollapsed=!prefs.libraryCollapsed;renderLayout();persist();};
-for(const {id} of sidebarGroups)groupNode(id).ontoggle=()=>{if(!currentProfile||prefs.sidebarCollapsed)return;const closed=prefs.collapsedMenus.includes(id),open=groupNode(id).open;if(closed===!open)return;prefs.collapsedMenus=open?prefs.collapsedMenus.filter(k=>k!==id):[...prefs.collapsedMenus,id];persist();};
+for(const {id} of sidebarGroups)groupNode(id).ontoggle=()=>{if(!currentProfile||sidebarIsCollapsed())return;const closed=prefs.collapsedMenus.includes(id),open=groupNode(id).open;if(closed===!open)return;prefs.collapsedMenus=open?prefs.collapsedMenus.filter(k=>k!==id):[...prefs.collapsedMenus,id];persist();};
 function profileError(message=''){text('profile-error',message);$('profile-error').hidden=!message;}
 // The page behind an open modal is inert, so its actions report within the modal.
 async function profileAction(control:HTMLElement,work:()=>Promise<void>){
@@ -1471,7 +1487,7 @@ const deliverySetup=setupDeliverySetupSwitch({open:next=>navigate(next)(),availa
 const crude=setupPhysicalCrude({api,act,zone:()=>prefs.timeZone,busy:()=>busy,source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,onBooked:ticketBooked});
 const lng=setupPhysicalLng({api,act,zone:()=>prefs.timeZone,busy:()=>busy,canBook:()=>can('BookTrade'),source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,onBooked:ticketBooked});
 const gas=setupGasTicket({api,source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,instant,zone:()=>prefs.timeZone,onBooked:ticketBooked});
-const gasLocations=setupGasLocationTicket({api,source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,instant,zone:()=>prefs.timeZone,onBooked:ticketBooked});
+const gasLocations=setupGasLocationTicket({api,busy:()=>busy,source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,instant,zone:()=>prefs.timeZone,onBooked:ticketBooked});
 const parkLoan=setupParkLoanTicket({api,source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,instant,zone:()=>prefs.timeZone,onBooked:ticketBooked});
 const transportTicket=setupTransportTicket({api,source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,instant,zone:()=>prefs.timeZone,onBooked:ticketBooked});
 // Vol surfaces read the option product's stored surface at the applied context; a fit is admitted only in the current workspace.

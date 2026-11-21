@@ -6888,3 +6888,10 @@ linked to a recorded external request, with its reference and submission time.
 The account balance follows its statement and accepted movements. An explicitly
 selected entitlement supplies its dated rates, claims and headroom on
 elapsed-time intervals, with a separately selected UTC window.
+
+The entry screen shows the physical and payment directions at each location
+before pricing is chosen. Switching locations preserves the entered terms.
+The outlook opens on gross volumes with links to gas days. Booked Sides,
+commercial capacity and statement balances have their own views. On phones,
+navigation and the selected instrument's chooser open on demand. The chooser
+reuses D424's grouped list and retains the working draft.
