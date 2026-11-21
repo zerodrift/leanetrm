@@ -1,4 +1,6 @@
 """Product masks through physical Side price resolution; owned synthetic data."""
+
+from price_publication_fixture import index_binding
 from copy import deepcopy
 from datetime import timedelta
 from fractions import Fraction
@@ -128,7 +130,7 @@ def actual_products(client, query, manifest, frame, product):
     publication = dict(key=dict(catalogId=catalog['catalogId'], id=str(uuid4()), version=1), references=catalog['references'],
         publisher=dict(key=dict(catalogId=catalog['catalogId'], id=str(uuid4()), version=1), name='Synthetic product publisher'),
         name='Synthetic RT product prices', commodities=[member['commodity']],
-        indices=[{k: v for k, v in member.items() if k != 'name'} | dict(symbol='SYNTHETIC_RT', statistic='real_time_hourly_total_lmp')],
+        indices=[index_binding(member, symbol='SYNTHETIC_RT', statistic='real_time_hourly_total_lmp')],
         calendar=ref('synthetic_eastern_holidays'), clock=ref('synthetic_eastern'), implementation='power_captured_hourly_v1')
     client.call('price-publications/save', dict(requestId=str(uuid4()), snapshotId=frame['id'], expectedVersion=0, definition=publication))
     node = lambda id, kind, parameters=None, inputs=None: dict(id=id, kind=kind, parameters=parameters or {}, inputs=inputs or {})

@@ -72,6 +72,8 @@ qualification, independent discount-factor and booked-PV calculations, unchanged
 USD holdings, retained-worker parity and a complete repeated seed. Disposable
 hosted admission checks cover read-only actors, shared read-only reference scope,
 expired sessions, sign-in/role deadlines during a phase and revoked replay.
+Successful source phases revoke their temporary-schema runtime grants before
+commit; admission checks verify that no such grants remain.
 The focused reference demo separately qualifies the shared HTTP booking path.
 A separate `--regional-seed-startup-check` in the trading CI group runs the full interactive seed,
 including the compiled date schedules and mappings, checks initial discovery and

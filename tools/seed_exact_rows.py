@@ -38,7 +38,9 @@ def hosted_write(query, sql, catalog, reference_catalog, identity):
     return query(f"""BEGIN;
 CREATE TEMP TABLE seed_phase_scope(marker boolean) ON COMMIT DROP;
 CREATE FUNCTION pg_temp.regional_seed_source() RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $seed_owner$
-BEGIN {check} EXECUTE {literal(body)}; {check} END $seed_owner$;
+BEGIN {check} EXECUTE {literal(body)}; {check}
+EXECUTE format('REVOKE USAGE ON SCHEMA %I FROM %I',pg_my_temp_schema()::regnamespace::text,'{runtime}');
+END $seed_owner$;
 REVOKE ALL ON FUNCTION pg_temp.regional_seed_source() FROM PUBLIC;
 DO $temp_grant$ BEGIN EXECUTE format('GRANT USAGE ON SCHEMA %I TO %I',pg_my_temp_schema()::regnamespace::text,'{runtime}');END $temp_grant$;
 GRANT EXECUTE ON FUNCTION pg_temp.regional_seed_source() TO {runtime};

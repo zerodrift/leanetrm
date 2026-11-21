@@ -16,7 +16,7 @@ export async function run({command,evaluate,wait,click,persona,check,idle,fitsWi
  const {identifier}=await command('Page.addScriptToEvaluateOnNewDocument',{source:`
   window.optionCalls=[];window.optionsUnfitted=false;window.optionEntryValuations=[];const send=window.fetch;
   window.fetch=async(input,init)=>{
-   const path=String(typeof input==='string'?input:input.url),call=/[/](vol-surfaces[/]read|options[/]positions|options[/]strategy[/]setup)$/.exec(path);
+   const path=String(typeof input==='string'?input:input.url),call=/[/](vol-surfaces[/]read|options[/]positions|options[/]strategy[/](?:setup|analyze))$/.exec(path);
    if(window.refuseOptionEntryValuation&&/[/]trading[/](workspace|blotter)([/]|$)/.test(path)){
     window.optionEntryValuations.push(path);
     return new Response(JSON.stringify({code:'request_failed',message:'Synthetic portfolio valuation refusal.'}),{status:503,headers:{'Content-Type':'application/json'}});
@@ -171,10 +171,11 @@ export async function run({command,evaluate,wait,click,persona,check,idle,fitsWi
   await click('.options-template[data-template=straddle]');
   await settled(`${strategy}==='analysed'||${strategy}==='refused'`,60000);
   const money=offer.answer.atTheMoneyStrike;
+  const cash=await evaluate(`(async()=>{const {amountText}=await import('/amount-display.js'),answer=${calls('options/strategy/analyze')}.at(-1).answer;return {premium:amountText(answer.expiry.netPremium.amount,'money')+' '+answer.currency,loss:amountText(answer.expiry.maximumLoss.amount,'money')+' '+answer.currency};})()`);
   await check('a straddle is analysed: two legs at the money at their settlements, the payoff drawn, and the premium, extremes and breakevens stated',
    `${strategy}==='analysed'&&[...document.querySelectorAll('#options-strategy-legs tbody tr')].map(r=>r.dataset.side+' '+r.querySelector('.options-leg-name').textContent).join()===${q(`buy ${Number(money)} call,buy ${Number(money)} put`)}&&
     [...document.querySelectorAll('#options-strategy-legs .options-leg-entry')].every(i=>Number(i.value)>0)&&!!document.querySelector('#options-strategy-chart canvas')&&
-    (card=>/Net premium\\s*Debit [\\d,]+[.]\\d\\d USD/.test(card)&&/Maximum profit\\s*Unbounded/.test(card)&&/Maximum loss\\s*-[\\d,]+[.]\\d\\d USD/.test(card)&&/Breakevens\\s*[\\d.]+ · [\\d.]+/.test(card))(document.querySelector('#options-strategy-analysis').innerText)&&
+    (card=>card.includes('Net premium Debit '+${q(cash.premium)})&&/Maximum profit\\s*Unbounded/.test(card)&&card.includes('Maximum loss '+${q(cash.loss)})&&/Breakevens\\s*[\\d.]+ · [\\d.]+/.test(card))(document.querySelector('#options-strategy-analysis').innerText.replace(/\\s+/g,' '))&&
     document.querySelectorAll('#options-strategy-tiles .options-tile').length===5&&/At expiry/.test(document.querySelector('#options-strategy-chart .options-strategy-plot').getAttribute('aria-label'))`,
    `[${strategy},document.querySelector('#options-strategy-message').textContent,document.querySelector('#options-strategy-analysis').innerText,document.querySelector('#options-strategy-legs').innerText]`);
   await check('each leg shows its implied volatility and delta, or a dash that says why, and a strategy figure that is missing says why',

@@ -87,7 +87,9 @@ def load_market(query,market,security,manifest,*,before_seal=None,resume_phase=N
             query(f"""BEGIN;
 CREATE TEMP TABLE seed_phase_scope(marker boolean) ON COMMIT DROP;
 CREATE FUNCTION pg_temp.seed_library_phase() RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $fixture$
-DECLARE fixture_validation_id uuid;BEGIN {authority}{initialize}\n{phase}\n{authority}END$fixture$;
+DECLARE fixture_validation_id uuid;BEGIN {authority}{initialize}\n{phase}\n{authority}
+EXECUTE format('REVOKE USAGE ON SCHEMA %I FROM %I',pg_my_temp_schema()::regnamespace::text,'{runtime}');
+END$fixture$;
 REVOKE ALL ON FUNCTION pg_temp.seed_library_phase() FROM PUBLIC;
 DO $temp_grant$ BEGIN EXECUTE format('GRANT USAGE ON SCHEMA %I TO %I',pg_my_temp_schema()::regnamespace::text,'{runtime}');END $temp_grant$;
 GRANT EXECUTE ON FUNCTION pg_temp.seed_library_phase() TO {runtime};

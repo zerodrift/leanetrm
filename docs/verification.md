@@ -46,6 +46,14 @@ regional gate. Currency migrations are numbered 0380–0381. Interactive combine
 gas/regional presets retain agreement coverage for both products; integration
 review found no remaining blocker.
 
+Additional requalification passed 180 Python checks, the populated recorded-cash
+upgrade and the regional, publication-authoring, captured-power and flat-power
+integration gates. Temporary source helpers leave no runtime grants on their
+temporary schemas while deferred commit guards retain the caller's identity.
+Native projection checks use complete source-pinned recipes and reject unpublished
+outputs at booking. Native publication validates structural policies before
+deriving units, preserving the structured refusals for malformed splice graphs.
+
 These results qualify local behavior. Full CI, coordinated migration/API/UI
 release and hosted activation remain separate gates; no hosted database was
 changed by these checks. See the [contract](currency-and-price-units.md).

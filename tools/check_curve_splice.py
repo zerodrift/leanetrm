@@ -30,10 +30,12 @@ def run_checks(query, manifest, contracts, parent, lookup, save, publish, previe
     publish(blended)
     assert list(map(exact,preview(direct)['points']))==list(map(exact,preview(blended)['points']))==expected
     invalid_graph=deepcopy(splice);invalid_graph['code']='splice_invalid_draft';invalid=save(invalid_graph)
+    token=query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','approver','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',120);")
     def refuse(change,code):
         try:
             query(f"""BEGIN;{change}
-              UPDATE market_data.custom_curve_versions SET state='published',publication_order=(SELECT coalesce(max(publication_order),0)+1 FROM market_data.custom_curve_versions WHERE catalog_id='{manifest['catalogId']}'),published_at=clock_timestamp(),publication_xid=pg_current_xact_id() WHERE curve_id='{invalid['id']}';ROLLBACK;""")
+              SET LOCAL SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{token}');
+              DO $$BEGIN PERFORM security.publish_custom_curve('{manifest['catalogId']}','{invalid['id']}',1,{invalid['generation']});END$$;ROLLBACK;""")
         except RuntimeError as error:
             assert code in str(error), error
         else:raise AssertionError('Malformed raw splice was published')

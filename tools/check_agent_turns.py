@@ -171,19 +171,19 @@ def check_curve_drafts_upgrade(query, migration):
         *((f'GRANT EXECUTE ON FUNCTION {helper} TO PUBLIC;', helper) for helper in helpers)))
 
 
-def check_curve_drafts(query, check, catalog, first, follow, other):
+def check_curve_drafts(query, check, manifest, first, follow, other):
     """The assistant's draft-save scope (D260), playing saved drafts in SQL: `first` and `follow` are turns of one
     conversation, `other` a turn of another conversation that has recorded tool steps under one model call."""
+    from typed_recipe_fixture import author_token, draft_recipe, publish_recipe
+    catalog=manifest['catalogId']
+    token=author_token(query,manifest)
     def writable(curve, version, turn):
         return query(f"SELECT security.custom_curve_agent_writable('{catalog}',{curve},{version},{turn});")
 
     def curve(name, *generations, published=False):
         """A curve with version 1 at the last of `generations`, each a saver: None for none, 'person', or a turn id."""
         identity = uuid4()
-        rows = [f"INSERT INTO market_data.custom_curves VALUES('{catalog}','{identity}','{name}');",
-                f"INSERT INTO market_data.custom_curve_versions VALUES('{catalog}','{identity}',1,1,'draft','Synthetic {name}','out',"
-                "'custom_curve_recipe_v2','{}');",
-                f"INSERT INTO market_data.custom_curve_nodes VALUES('{catalog}','{identity}',1,'out','output','{{}}');"]
+        rows = [draft_recipe(catalog,identity,name,'out',catalog,manifest['revisionId'],'future')]
         for generation, saver in enumerate(generations, 1):
             if generation > 1:
                 rows.append(f"UPDATE market_data.custom_curve_versions SET generation={generation} WHERE(catalog_id,curve_id)=('{catalog}','{identity}');")
@@ -195,9 +195,7 @@ def check_curve_drafts(query, check, catalog, first, follow, other):
                 rows.append(f"INSERT INTO market_data.custom_curve_generation_savers SELECT '{catalog}','{identity}',1,{generation},'assistant',a.principal_id,"
                             f"t.id,1 FROM assistant.turns t JOIN assistant.agents a ON a.id=t.agent_id WHERE t.id='{saver}';")
         if published:
-            rows.append(f"UPDATE market_data.custom_curve_versions SET state='published',publication_order=(SELECT coalesce(max(publication_order),0)+1 "
-                        f"FROM market_data.custom_curve_versions WHERE catalog_id='{catalog}'),published_at=clock_timestamp(),publication_xid=pg_current_xact_id() "
-                        f"WHERE(catalog_id,curve_id)=('{catalog}','{identity}');")
+            rows.append(publish_recipe(catalog,identity,len(generations)))
         return identity, ''.join(rows)
 
     fresh = f"'{uuid4()}'"
@@ -207,7 +205,7 @@ def check_curve_drafts(query, check, catalog, first, follow, other):
     legacy, unrecorded = curve('synthetic_legacy_draft', None)
     sealed, by_sealed = curve('synthetic_sealed_curve', other, published=True)
     same_conversation = curve('synthetic_same_conversation', first)
-    answers = query('BEGIN;' + by_person + by_assistant + taken_over + unrecorded + by_sealed + same_conversation[1] + ';'.join((
+    answers = query(f"BEGIN;SET LOCAL SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{token}');" + by_person + by_assistant + taken_over + unrecorded + by_sealed + same_conversation[1] + ';'.join((
         f"SELECT security.custom_curve_agent_writable('{catalog}',{fresh},1,'{first}')",
         f"SELECT security.custom_curve_agent_writable('{catalog}','{person}',1,'{first}')",
         f"SELECT security.custom_curve_agent_writable('{catalog}','{same_conversation[0]}',1,'{follow}')",
@@ -242,7 +240,7 @@ def check_curve_drafts(query, check, catalog, first, follow, other):
         selection = json.dumps({'turnId': turn, 'step': step, **extra})
         return (f"SELECT assistant.is_navigation_target(t,jsonb_build_object('page','{page}','kind','{kind}','selection','{selection}'::jsonb,"
                 f"'context','{pinned}'::jsonb,'label','Curve builder: synthetic draft')) FROM assistant.turns t WHERE t.id='{other}'")
-    answers = query('BEGIN;' + steps + ';'.join((target(), target(91), target(92), target(1), target(turn=first), target(page='curves'),
+    answers = query(f"BEGIN;SET LOCAL SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{token}');RESET SESSION AUTHORIZATION;" + steps + ';'.join((target(), target(91), target(92), target(1), target(turn=first), target(page='curves'),
                                                 target(note='x'), target(kind='proposal'), target(92, kind='proposal'), target(93))) + ';ROLLBACK;').split()
     check("a draft target opens Curve builder at a successful save step of its own turn that recorded the assistant as a saver, with exactly "
           "its turn and step; a refused save, an identical save that saved nothing, another tool's step, another turn, another page or another "
@@ -1817,7 +1815,7 @@ def run_checks(url, query, psql, manifest, environment, dotnet):
           and len(unreadable) == 2 and all(payloads(read, 'navigation') == [{'hidden': 'access_changed'}] * 2
                                           and payloads(read, 'step') == payloads(readable, 'step') for read in unreadable)
           and state(navigating) == 'completed:-', (readable, unreadable))
-    check_curve_drafts(query, check, catalog, first.id, follow.id, navigating.id)
+    check_curve_drafts(query, check, manifest, first.id, follow.id, navigating.id)
     check('the former direct curve-save capability is withdrawn from every runtime role',
           query("SELECT count(*) FROM security.role_permissions WHERE permission='DraftCustomCurves';") == '0')
 

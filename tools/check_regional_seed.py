@@ -110,6 +110,7 @@ INSERT INTO security.hosted_sessions(token_digest,principal_id,credential_versio
     query(f"UPDATE security.role_grants SET revoked=true WHERE principal_id='{owner}';")
     denied(lambda:install(query,manifest,identity=owner_identity))
     assert int(query('SELECT count(*) FROM ref_data.revisions;'))==int(before)+1
+    assert query("SELECT count(*) FROM pg_namespace n CROSS JOIN LATERAL aclexplode(n.nspacl) a JOIN pg_roles r ON r.oid=a.grantee WHERE n.nspname LIKE 'pg_temp_%' AND r.rolname='preview_runtime' AND a.privilege_type='USAGE';")=='0'
     print('PASS regional seed: read-only, expired sign-in, mid-phase sign-in/role expiry and revoked replay refuse without source writes',flush=True)
 
 

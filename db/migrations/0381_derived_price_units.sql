@@ -133,6 +133,7 @@ BEGIN
 END$$;
 ALTER FUNCTION market_data.guard_recipe_price_units() OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION market_data.guard_recipe_price_units() FROM PUBLIC;
-CREATE TRIGGER recipe_price_units BEFORE UPDATE OF state ON market_data.custom_curve_versions
+-- Derive units after existing structural/policy guards have validated their inputs.
+CREATE TRIGGER zz_recipe_price_units BEFORE UPDATE OF state ON market_data.custom_curve_versions
  FOR EACH ROW EXECUTE FUNCTION market_data.guard_recipe_price_units();
 COMMIT;
