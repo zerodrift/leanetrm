@@ -35,6 +35,30 @@ test('market filter choices follow display-name order, not code or received orde
   assert.deepEqual(navigationCategories({...navigation,curves:received}),
    [{code:'z_ethane',name:'Éthane'},{code:'m_gas',name:'Gas'},{code:'a_power',name:'Power'}]);
 });
+test('one commodity can have different labels in independently sourced reference revisions',()=>{
+ const future=navigation.curves[0];
+ const forward={...navigation.curves[1],source:{...future.source,referenceRevisionId:'later-revision'},
+  category:{...future.category,name:'Pipeline gas'}};
+ for(const source of [forward.source,{...future.source,referenceCatalogId:'another-catalog'}]){
+  for(const curves of [[future,{...forward,source}],[{...forward,source},future]]){
+   const value=validateMarketNavigation({...navigation,curves});
+   assert.deepEqual(navigationCategories(value),[{code:'gas',name:'Gas / Pipeline gas'}]);
+   const [group]=navigationGroups(value,'commodity','gas','all');
+   assert.equal(group.name,'Gas / Pipeline gas');
+   assert.deepEqual(group.curves.map(navigationCurveKind),['Pipeline gas · Forward curves','Gas · Futures']);
+   assert.deepEqual(navigationGroups(value,'commodity','gas','futures').map(g=>[g.name,g.curves.map(c=>c.code)]),
+    [['Gas / Pipeline gas',['future']]]);
+  }
+ }
+ const sameLabel={...forward,category:{...future.category,name:'Gas'}};
+ assert.deepEqual(navigationCategories({...navigation,curves:[future,sameLabel]}),[{code:'gas',name:'Gas'}]);
+});
+test('two definitions referencing the same commodity revision must agree on its label',()=>{
+ const future=navigation.curves[0];
+ const forward={...navigation.curves[1],source:{...future.source,definitionRevisionId:'another-definition'},
+  category:{...future.category,name:'Pipeline gas'}};
+ assert.throws(()=>validateMarketNavigation({...navigation,curves:[future,forward]}),/navigation/);
+});
 test('interest-rate curves stay apart from a commodity coded or named like them',()=>{
  const value={...navigation,curves:[...navigation.curves,{source:navigation.curves[0].source,code:'rate_future',name:'Stored rate futures',marketType:'futures',category:{code:'rates',name:'Interest rates',icon:'cube'},kind:'trader_mark'}]};
  validateMarketNavigation(value);

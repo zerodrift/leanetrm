@@ -47,13 +47,14 @@ export function validateMarketNavigation(value:MarketNavigation){
   throw Error('The market navigation is missing or inconsistent. Refresh and try again.');
  return value;
 }
-// Every curve of one commodity must carry the same label.
+// Curves reading the same commodity row must agree. Another reference revision can rename it.
 function conflictingLabels(curves:NavigationCurve[]){
  const labels=new Map<string,string>();
- for(const {category} of curves){
+ for(const {category,source} of curves){
   if(!category)continue;
-  if((labels.get(category.code)??category.name)!==category.name)return true;
-  labels.set(category.code,category.name);
+  const row=JSON.stringify([source.referenceCatalogId,source.referenceRevisionId,category.code]);
+  if(labels.has(row)&&labels.get(row)!==category.name)return true;
+  labels.set(row,category.name);
  }
  return false;
 }
@@ -64,17 +65,28 @@ function categoryName(category:NavigationCategory){
 export function navigationCurveKind(curve:NavigationCurve){
  const type=marketTypeName(curve.marketType);return curve.category?`${categoryName(curve.category)} · ${type}`:type;
 }
+function commodityLabels(curves:NavigationCurve[]){
+ const names=new Map<string,Set<string>>();
+ for(const {category} of curves){
+  if(!category)continue;
+  const labels=names.get(category.code)??new Set<string>();
+  labels.add(categoryName(category));
+  names.set(category.code,labels);
+ }
+ return new Map([...names].map(([code,labels])=>[code,[...labels].sort().join(' / ')]));
+}
 export function navigationCategories(navigation:MarketNavigation){
- return [...new Map(navigation.curves.flatMap(c=>c.category?[[c.category.code,categoryName(c.category)] as const]:[]))].map(([code,name])=>({code,name})).sort((a,b)=>a.name.localeCompare(b.name));
+ return [...commodityLabels(navigation.curves)].map(([code,name])=>({code,name})).sort((a,b)=>a.name.localeCompare(b.name));
 }
 // A null commodity lists all markets. Groups are keyed by commodity, or by market type when browsing by type
 // or for curves without a commodity, so equal names never merge them.
 export function navigationGroups(navigation:MarketNavigation,by:'commodity'|'marketType',commodity:string|null,type:string){
  const groups=new Map<string,{key:string;name:string;curves:NavigationCurve[]}>();
+ const labels=commodityLabels(navigation.curves);
  for(const curve of navigation.curves){
   if(commodity!==null&&curve.category?.code!==commodity||type!=='all'&&curve.marketType!==type)continue;
   const category=by==='commodity'?curve.category:null,key=category?'commodity:'+category.code:'type:'+curve.marketType;
-  const group=groups.get(key)??{key,name:category?categoryName(category):marketTypeName(curve.marketType),curves:[]};
+  const group=groups.get(key)??{key,name:category?labels.get(category.code)!:marketTypeName(curve.marketType),curves:[]};
   group.curves.push(curve);groups.set(key,group);
  }
  return [...groups.values()].sort((a,b)=>a.name.localeCompare(b.name)).map(({key,name,curves})=>({key,name,curves:curves.sort((a,b)=>a.name.localeCompare(b.name))}));
