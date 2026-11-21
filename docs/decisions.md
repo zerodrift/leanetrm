@@ -6868,3 +6868,45 @@ their declared semantics and exact range. No rounding catalogue or seed row is
 introduced. Qualified external feed currency contracts remain unchanged.
 
 See [the implementation and verification contract](currency-and-price-units.md).
+
+## D439 — A forward PPA amendment may end later
+
+A running trade is amended from a date forward: every period before the boundary
+keeps its exact terms, and the replacement may end later than the trade did. The
+trade keeps its identifier and reference; each amendment appends one immutable
+revision. PPAs are the first trade type to support moving the end.
+
+Migration 0384 lets an amended segment end after the retained coverage, from a
+boundary inside it or appended exactly at its end. A segment ending before the
+retained end refuses with `ppa_segment_coverage`; shortening remains a
+termination. Earlier bindings keep their identity, coverage, MW and terms. The
+amended terms still use the trade's original definition and reference revisions
+and must lie inside their own delivery term.
+
+The monthly gross planner accepts a head that runs contiguously from the original
+start to at or beyond the original end. Added cells belong to the original payment
+lineage, as replacement cells do, and the amended binding still needs its explicit
+mapping. This refines D203; no successor lineage is introduced.
+
+Running swaps, physical gas and storage are designed and not built. See
+[amending a running trade](superpowers/specs/2026-11-20-running-trade-amendment-design.md).
+
+## D440 — A book or memo change carries its commercial confirmation
+
+A bilateral revision changes commercial terms unless its revision row differs from
+its predecessor only in internal booking fields: revision links, event identity,
+book, memo, reason, request body, operation, actor, publication and effective
+instant. A term the rule does not name, or a revision row with no instrument
+binding to compare, makes the change commercial, so the rule fails toward asking
+for a confirmation. A scheduled swap's stated quantity basis, unit and delivery
+hours are compared as well, even when they resolve to the same instrument.
+Choosing another agreement for the operation is commercial. Every PPA and physical
+gas amendment is therefore commercial.
+
+Migration 0383 admits a revision without a commercial change under its
+predecessor's agreement and credit decision, with no new credit check, and records
+the earlier revision whose terms it carries. Confirmations are shown and recorded
+through that revision; the desk refuses a confirmation against a carried revision.
+A commercial amendment is admitted as before and awaits its own confirmation. This
+refines D436. Generated confirmation documents, a confirmation for a termination
+and a correction label for exchange-traded edits remain planned.

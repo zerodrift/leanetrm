@@ -259,6 +259,17 @@ def run_checks(url, query, manifest, dotnet, temporary, environment, *, quarter_
     publication_count=query(f"SELECT count(*) FROM trading.publications WHERE catalog_id='{catalog}';")
     client.call('settlement/payment-lineages/plan',dict(snapshotId=later_frame,tradeId=hbook['tradeId'],expectedRevision=2,original=horigin,mappings=[horigin,mapping_for(htail,2)],policies=POLICIES,roundingTerms=body["roundingTerms"]))
     check('idempotent planning creates no empty publication',query(f"SELECT count(*) FROM trading.publications WHERE catalog_id='{catalog}';")==publication_count)
+    # Extending the running trade past its original end must leave its delivered November in the same lineage with the same cash.
+    # It comes last among the checks of that trade, which plan against its second revision.
+    extension=deepcopy(ha);extension['terms']['delivery']['to']='2021-02-01'
+    extension.update(expectedRevision=2,boundaryAt='2020-12-25T05:00:00Z',coverageFrom='2020-12-25T05:00:00Z',coverageTo='2021-02-01T05:00:00Z',quantity='70')
+    extended=save('amend',extension);added=next(b for b in extended['bindings'] if b['bindingId'] not in (hbinding['bindingId'],htail['bindingId']))
+    replanned=client.call('settlement/payment-lineages/plan',dict(snapshotId=later_frame,tradeId=hbook['tradeId'],expectedRevision=3,original=horigin,
+        mappings=[horigin,mapping_for(htail,2),mapping_for(added,3)],policies=POLICIES,roundingTerms=body["roundingTerms"]))
+    delivered=preview(snapshotId=later_frame,lineageId=hp['lineage']['id'],expectedRevision=3)
+    check('a delivered month keeps its lineage and exact cash after the trade is extended past its original end',
+        replanned['lineage']['id']==hp['lineage']['id'] and delivered['proposalPins']['tradeHead']['revision']==3
+        and delivered['exactCash']==earlier['exactCash'] and len(delivered['components'])==721)
     query("DELETE FROM security.role_permissions WHERE permission='ProposeSettlementDeterminations' AND role_id=(SELECT id FROM security.roles WHERE code='trader');")
     check('current proposal authority loss refuses retained preview',preview(expected=403,expectedRevision=3)['code']=='access_denied')
     print(f'{count} settlement preview checks passed',flush=True)

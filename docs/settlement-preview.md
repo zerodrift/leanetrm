@@ -57,8 +57,9 @@ cash acceptance.
 
 Canonical identity is `(catalog, trade origin, payment lineage, operating month)`.
 The server reads one certified trade head and its whole binding partition. It
-requires a contiguous original coverage partition, allowing only an explicitly
-terminated suffix. Original and replacement segments retain their own MW and
+requires coverage that runs contiguously from the original start. An amended
+segment may end after the original end (D439) and its cells stay in the original
+lineage; only an explicit termination ends the trade earlier. Original and replacement segments retain their own MW and
 strike schedules, with one compatible currency, direction, clock, native cadence,
 monthly payment rule and due instant. Incompatible exact revision pins refuse the
 whole operation. Every native UTC cell belongs to exactly one retained segment;

@@ -48,6 +48,15 @@ internal static class SettlementPreviewChecks
         Equal("amended original MW and strike",amendedValue.ExactCash.Numerator,"-1081700");
         var terminated=MonthlyGrossPreview.Plan(identity,original,[prefix,suffix with{Coverage=new(suffix.Coverage.From,f.From.AddHours(4))}],true,f.From.AddHours(4),f.To,f.Clock,new(f.R("synthetic_usd"),PpaAcceptanceFixture.D("0.01"),CashTieRule.ToEven,CashRoundingStage.PaymentTotal));
         Equal("terminated suffix removed only",MonthlyGrossPreview.Calculate(terminated,[f.Asset],[f.Source],f.Energy,[..cells.Take(4)],context).ExactCash.Numerator,"-6200");
+        // An amended segment may end after the original end. Its months stay in the original payment lineage; only a termination shortens the trade.
+        var rounding=new CashRoundingConvention(f.R("synthetic_usd"),PpaAcceptanceFixture.D("0.01"),CashTieRule.ToEven,CashRoundingStage.PaymentTotal);
+        var extension=suffix with{Coverage=new(suffix.Coverage.From,f.To.AddHours(3))};
+        var extended=MonthlyGrossPreview.Plan(identity,original,[prefix,extension],false,null,f.To,f.Clock,rounding);
+        Equal("extension leaves a delivered month unchanged",MonthlyGrossPreview.Calculate(extended,[f.Asset],[f.Source],f.Energy,cells,context).ExactCash.Numerator,"-1081700");
+        var added=MonthlyGrossPreview.Plan(identity with{Month=f.Month.AddMonths(1)},original,[prefix,extension],true,f.To.AddHours(3),f.To.AddMonths(2),f.Clock,rounding);
+        Equal("added hours keep the original lineage",string.Join(",",added.Contributions.Select(row=>row.Key.OriginalBinding==originalId&&row.Binding.BindingId==extension.BindingId).Distinct())+"/"+added.Contributions.Length,"True/3");
+        Reject("an amended head cannot end before the original end",()=>MonthlyGrossPreview.Plan(identity,original,[prefix,suffix with{Coverage=new(suffix.Coverage.From,f.To.AddHours(-1))}],false,null,f.To,f.Clock,rounding));
+        Reject("a termination must end the retained coverage exactly",()=>MonthlyGrossPreview.Plan(identity,original,[prefix,extension],true,f.To.AddHours(2),f.To.AddMonths(2),f.Clock,rounding));
         var tinyInstrument=f.Physical("0.01",volume:true);
         var tiny=new GrossPaymentBinding(Guid.NewGuid(),1,tinyInstrument,new(PpaRole.StrikePayment),tinyInstrument.Memberships[1].Side.Id,new(f.From,f.From.AddHours(2)),PpaAcceptanceFixture.D("1"));
         var tinyPlan=MonthlyGrossPreview.Plan(identity,tiny,[tiny],false,null,f.To,f.Clock,new(f.R("synthetic_usd"),PpaAcceptanceFixture.D("0.01"),CashTieRule.ToEven,CashRoundingStage.PaymentTotal));

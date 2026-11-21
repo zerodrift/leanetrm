@@ -87,6 +87,28 @@ def durable_checks(url,query,manifest,client,frame):
     terminated=deepcopy(changed);terminated.update(operationId=str(uuid4()),expectedRevision=2,boundaryAt='2031-11-02T08:00:00Z',coverageFrom=None,coverageTo=None,quantity=None,terms=None,reason='Synthetic forward termination')
     client.call('ppa/terminate',terminated);ended=preview(scope='trades',ids=[trade])
     check('termination preserves prefix obligations and removes only forward tail',fraction(ended['valueExcludingOverdue'])==-850 and sum(len(s['measures']['rows']) for b in ended['bindings'] for s in b['sides'])==8)
+    # An amended segment may end later than the trade did. Independent arithmetic: the added Monday hours before 06:00 Eastern
+    # are off-peak, so each MW earns mark 40 plus adder 1.25 against its strike, as the booked Sunday hours do.
+    def coverage(trade_id):
+        return [(b['quantity'],b['coverage_from'],b['coverage_to']) for b in client.call('ppa/editor',{'snapshotId':frame,'tradeId':trade_id,'knownAt':cutoff()})['bindings']]
+    instant=lambda text:text.replace('Z','+00:00')
+    longer=client.call('ppa/book',{**body,'operationId':str(uuid4())})['tradeId']
+    append=deepcopy(body);append.update(operationId=str(uuid4()),tradeId=longer,expectedRevision=1,boundaryAt=end,coverageFrom=end,coverageTo='2031-11-03T09:00:00Z',reason='Synthetic extension')
+    shorter=deepcopy(append);shorter.update(operationId=str(uuid4()),boundaryAt='2031-11-02T06:00:00Z',coverageFrom='2031-11-02T06:00:00Z',coverageTo='2031-11-03T04:00:00Z')
+    check('an amended segment cannot end before the retained end',client.call('ppa/amend',shorter,expected=422)['code']=='ppa_segment_coverage' and len(coverage(longer))==1)
+    gap=deepcopy(append);gap.update(operationId=str(uuid4()),boundaryAt='2031-11-03T06:00:00Z',coverageFrom='2031-11-03T06:00:00Z')
+    check('an extension cannot leave a gap after the retained end',client.call('ppa/amend',gap,expected=422)['code']=='ppa_segment_coverage' and len(coverage(longer))==1)
+    client.call('ppa/amend',append)
+    check('an extension appended at the retained end leaves the booked binding and its value unchanged',
+        [(q,instant(a),instant(b)) for q,a,b in coverage(longer)]==[('80',instant(start),instant(end)),('80',instant(end),instant('2031-11-03T09:00:00Z'))]
+        and fraction(preview(scope='trades',ids=[longer])['valueExcludingOverdue'])==2500+Fraction(4*80*5,4))
+    repriced=deepcopy(append);repriced.update(operationId=str(uuid4()),expectedRevision=2,boundaryAt='2031-11-03T07:00:00Z',coverageFrom='2031-11-03T07:00:00Z',coverageTo='2031-11-03T11:00:00Z',
+        quantity='60',terms=profile_terms(manifest,'50'),reason='Synthetic repriced extension')
+    client.call('ppa/amend',repriced)
+    check('a forward amendment may also move the end later while every earlier hour keeps its MW and strike',
+        [q for q,_,_ in coverage(longer)]==['80','80','60'] and fraction(preview(scope='trades',ids=[longer])['valueExcludingOverdue'])==Fraction(27*80*5,4)+4*60*Fraction(-35,4))
+    at_end=deepcopy(repriced);at_end.update(operationId=str(uuid4()),expectedRevision=3,boundaryAt='2031-11-03T11:00:00Z',coverageFrom=None,coverageTo=None,quantity=None,terms=None,reason='Synthetic empty termination')
+    check('a termination at the retained end removes nothing and is refused',client.call('ppa/terminate',at_end,expected=422)['code']=='ppa_segment_coverage')
     malformed=deepcopy(terms);malformed['memberships'][1]['side']['quantity']['slots']=[None]
     check('null quantity slot is structured refusal',preview(t=malformed,expected=422)['code']=='ppa_term')
     malformed=deepcopy(terms);malformed['memberships'][1]['side']['fixedPrice'].update(kind='stepped',price=None,steps=[None])

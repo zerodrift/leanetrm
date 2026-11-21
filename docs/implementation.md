@@ -2507,6 +2507,8 @@ revisions and authorized catalog, validation, booking, amendment, termination,
 status, editor, binding-page and base-preview operations. Concurrent identical
 operation IDs produce one durable result; conflicting reuse refuses. Forward
 amendment and termination preserve historical bindings and original economics.
+Migration 0384 (D439) lets an amended segment end later than the retained coverage,
+from a boundary inside it or appended at its end; an earlier end stays a termination.
 The binding-page operation returns stored bindings, not valued schedule rows.
 
 Accepted R3 admission checks the complete requested PPA position set before any

@@ -1,5 +1,29 @@
 # Local verification and continuous integration
 
+## Running-trade amendments (D439–D440)
+
+Qualification on 2026-11-21 used .NET SDK 10.0.402, stock PostgreSQL 18.7 and
+disposable synthetic databases, with database-backed checks on Linux and the
+managed and web suites on macOS arm64. The 799 managed core checks, the
+`--ppa-sides` and `--settlement-preview` suites, 180 Python checks and all 2,288
+web checks passed.
+
+The native desk check covers the commercial-change rule over independent revision
+rows, including restated scheduled terms, and confirmations read and recorded
+through the revision whose terms are carried. Through HTTP, the scheduled-swap
+check refuses a quantity amendment under a credit hold while a memo correction is
+admitted under the earlier agreement and credit decision, and admits a memo
+correction as commercial when another agreement is chosen. The PPA booking check
+appends an extension at the retained end, moves the end later from an earlier
+boundary with exact independent values, and refuses an earlier end, a gap and an
+empty termination. The settlement check previews a delivered month with unchanged
+exact cash and lineage after the running trade is extended. The gas-amendment,
+stored swap risk and structured-power checks passed unchanged.
+
+Not run: the browser suites, the complete standard check and continuous
+integration. An added month is planned in the managed planner check only; no HTTP
+preview covers one, because the fixture publishes final meters for one month.
+
 ## Exact currency and price units (D438)
 
 Local qualification on 2026-11-20 used .NET SDK 10.0.402, stock PostgreSQL

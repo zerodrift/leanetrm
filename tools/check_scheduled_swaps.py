@@ -196,6 +196,36 @@ def run_checks(url,query=None,manifest=None,*,run_worker):
     assert changed_row['instrumentId']!=unchanged_row['instrumentId'] and Fraction(changed_row['presentValue'])==Fraction(expected-30) and Fraction(unchanged_row['presentValue'])==2*Fraction(expected)
     print('PASS an amended scheduled instrument gets its own valuation without changing another position in the original instrument')
     assert c.call('swaps/amend',amend)==amended
+    if query:
+        # Commercial terms decide the admission. Under a credit hold a memo correction still carries the admitted terms while
+        # a quantity change is refused, and an explicitly chosen other agreement makes even a memo correction commercial.
+        admissions=lambda:{row['revision']:row for row in c.call('desk/directory',dict(snapshotId=f['id']))['trades'] if row['trade_id']==saved['tradeId']}
+        parties="(catalog_id,legal_entity_id,counterparty_id)=('{}','{}','{}')".format(CAT,trade_booking()['legalEntityId'],trade_booking()['counterpartyId'])
+        def decide(revision,status):
+            query(f"INSERT INTO desk.clearances SELECT catalog_id,gen_random_uuid(),{revision},legal_entity_id,legal_entity_revision,counterparty_id,counterparty_revision,product,"
+                  f"clock_timestamp(),NULL,'{status}','Synthetic credit review',actor_id,publication_order,sha256(convert_to('{status}{revision}','UTF8')) "
+                  f"FROM desk.clearances WHERE {parties} AND product='financial_swap' AND revision=1;")
+        decide(2,'hold')
+        larger=deepcopy(amend);larger.update(operationId=str(uuid4()),expectedRevision=2);larger['scheduled']['first']['periods'][1]['amount']='220'
+        assert c.call('swaps/amend',larger,expected=422)['code']=='desk_credit_hold'
+        noted=deepcopy(amend);noted.update(operationId=str(uuid4()),expectedRevision=2,memo='Synthetic desk note',reason='Synthetic memo correction')
+        assert c.call('swaps/amend',noted)['revision']==3
+        decide(3,'approved')
+        admitted=admissions()
+        assert [admitted[n]['carried_from'] for n in (1,2,3)]==[None,None,2],admitted
+        assert all(admitted[3][term]==admitted[2][term] for term in ('agreement_id','clearance_id','executed_at')),admitted
+        other=query(f"INSERT INTO desk.agreements SELECT catalog_id,gen_random_uuid(),'second_swap_master',1,legal_entity_id,legal_entity_revision,counterparty_id,counterparty_revision,"
+                    f"'Second synthetic master',agreement_type,ARRAY['financial_swap'],clock_timestamp(),NULL,'executed',procedure,provisions,filename,digest,actor_id,publication_order,"
+                    f"sha256(convert_to('second_swap_master','UTF8')) FROM desk.agreements WHERE {parties} AND 'financial_swap'=ANY(products) AND revision=1 RETURNING id;").strip()
+        chosen=deepcopy(noted);chosen.update(operationId=str(uuid4()),expectedRevision=3,memo='Synthetic desk note under the second master')
+        assert c.call('desk/choose',dict(operationId=chosen['operationId'],agreementId=other))=={'agreementId':other}
+        assert c.call('swaps/amend',chosen)['revision']==4
+        query(f"INSERT INTO desk.agreements SELECT catalog_id,gen_random_uuid(),code,2,legal_entity_id,legal_entity_revision,counterparty_id,counterparty_revision,name,agreement_type,products,"
+              f"clock_timestamp(),NULL,'terminated',procedure,provisions,filename,digest,actor_id,publication_order,sha256(convert_to('second_swap_master ended','UTF8')) "
+              f"FROM desk.agreements WHERE catalog_id='{CAT}' AND id='{other}';")
+        admitted=admissions()
+        assert (admitted[4]['carried_from'],admitted[4]['agreement_id'])==(None,other) and admitted[3]['agreement_id']!=other,admitted
+        print('PASS a quantity amendment awaits its own confirmation and respects a credit hold; a memo correction carries the admitted terms unless another agreement is chosen')
     converted=deepcopy(body)
     other=next(q['specification'] for q in index['quantityChoices'] if q['specification']['code']=='synthetic_gas_energy_b')
     for s in (converted['scheduled']['first'],converted['scheduled']['second']):

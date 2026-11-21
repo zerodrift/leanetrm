@@ -1,5 +1,10 @@
 # Architecture and domain contracts
 
+D439 lets a forward PPA amendment end later than the trade did; earlier periods keep
+their exact terms. Other running trade types are designed, not built. D440 separates commercial
+changes, which await their own confirmation, from book and memo changes, which
+carry the earlier one. See [amending a running trade](superpowers/specs/2026-11-20-running-trade-amendment-design.md).
+
 D438 enforces [exact currency and price-unit ownership](currency-and-price-units.md).
 Plain monetary indexes declare their currency; derived outputs inherit complete
 units. Price statistics use their quote denominator independently of contract
