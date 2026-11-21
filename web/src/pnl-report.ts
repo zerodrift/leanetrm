@@ -39,13 +39,13 @@ function comparedDates(report:Report,shown:Shown){
 
 function hero(report:Report,total:Total,rows:number,shown:Shown){
  const top=node('div'),result=node('div'),period=node('div');top.className='pnl-hero';period.className='pnl-period';
- result.append(node('p','Economic P&L'),amount(total.values.economicPnl),node('small',total.currency.code.toUpperCase()));
+ result.append(node('p','Economic P&L'),amount(total.values.economicPnl),node('small',total.currencyLabel??total.currency.code.toUpperCase()));
  period.append(node('span',report.scope.books.map(b=>b.name).join(' · ')+' · '+report.scope.tradeSelection),node('strong',comparedDates(report,shown)),
   node('span',rows===1?'1 holding or cash item':`${rows} holdings and cash items`),node('span',`Known as of ${shown.instant(report.opening.context.knownAt)}`));
  top.append(result,period);
  if(report.totals.length>1){
   const chooser=node('select');chooser.setAttribute('aria-label','Report currency');
-  for(const [n,t] of report.totals.entries())chooser.add(new Option(t.currency.code.toUpperCase(),String(n),false,t===total));
+  for(const [n,t] of report.totals.entries())chooser.add(new Option(t.currencyLabel??t.currency.code.toUpperCase(),String(n),false,t===total));
   chooser.onchange=()=>shown.chooseCurrency(Number(chooser.value));top.append(chooser);
  }
  return top;
@@ -65,7 +65,7 @@ function factorsSection(report:Report,total:Total){
  if(!total.factorEffects.length){part.append(node('p','No holding in this currency is priced on a market factor.'));return part;}
  part.append(table(['Factor','Opening','Closing','Change','Delta effect','Gamma effect'],total.factorEffects.map(effect=>{
   const factor=named.get(effect.axis);if(!factor)throw Error('The backend P&L result is incomplete.');
-  const price=(value:string)=>amountText(value,'price',factor.priceTick);
+  const price=(value:string)=>amountText(value,'price',factor.priceTick)+' '+(factor.unitLabel??`${factor.unit.currency.code}/${factor.unit.quantity.code}`);
   return [factorName(factor.label),price(factor.opening.price),factor.closing?price(factor.closing.price):reasons.closing_exact_price_unavailable,factor.change?price(factor.change.price):'—',
    greek(effect.delta),greek(effect.gamma)];
  })));

@@ -119,3 +119,13 @@ test('PCA / hybrid comparison amounts and diagnostic arrays use the backend disp
  assert.equal(amountText(values.eigenvalues[0],'factor'),'factor formatted');
  assert.equal(requests.length,17);assert.equal(JSON.stringify(values),original);
 });
+
+test('option cash figures use managed money formatting and sensitivities retain their distinct display kinds',async()=>{
+ selectDisplayPrecision({...initialDisplayPrecision(),money:5});const requests=[];
+ const read={groups:[{rows:[{value:{amount:'1.234567',missing:null},delta:{amount:'9.125',missing:null},gamma:{amount:'2',missing:null},vega:{amount:'3',missing:null},theta:{amount:'-0.125',missing:null}}]}],totals:[],held:[]};
+ const shown=shownAmounts('options/positions',read);assert.notEqual(shown,undefined);
+ await prepareAmountDisplay(shown,async body=>{requests.push(...body);return body.map(r=>'managed:'+r.value);});
+ assert.equal(requests.find(r=>r.value==='1.234567').decimalPlaces,5);
+ assert.equal(requests.find(r=>r.value==='9.125').trimTrailingZeros,true);
+ assert.equal(amountText('1.234567','money'),'managed:1.234567');
+});

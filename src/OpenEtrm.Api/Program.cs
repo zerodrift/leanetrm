@@ -1026,6 +1026,7 @@ Task<IResult> SettlementOperation(HttpContext c,Guid snapshot,Func<NpgsqlConnect
         return (IResult)new PpaJsonResult(bytes,200);
     },c.RequestAborted);
 });
+api.MapPost("/settlement/payment-lineages/read",(HttpContext c,PaymentLineagesReadRequest body)=>SettlementOperation(c,body.SnapshotId,async(connection,frame,ct)=>(await settlementPreview.ReadLineages(connection,frame,body,ct),body.TradeId)));
 api.MapPost("/settlement/payment-lineages/plan",(HttpContext c,PaymentLineageRequest body)=>SettlementOperation(c,body.SnapshotId,async(connection,frame,ct)=>(await settlementPreview.Plan(connection,frame,body,ct),body.TradeId)));
 api.MapPost("/settlement/ppa/preview",(HttpContext c,SettlementPreviewRequest body)=>SettlementOperation(c,body.SnapshotId,(connection,frame,ct)=>settlementPreview.Preview(connection,frame,body,ct)));
 
@@ -2688,28 +2689,8 @@ Task<IResult> SaveSwap(HttpContext c,SwapWriteRequest body,bool amend)=>Locked(c
  if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data to book or amend.");
  if(amend!=(body.TradeId is not null))throw new MarketDataException("swap_input","Choose booking or latest-head amendment explicitly.");
  c.Items["swap_attempted"]=true;
- var profile=Profile(session);var permission=amend?"AmendTrade":"BookTrade";var frame=Frame(session,body.SnapshotId);
- var retained=new RetainedScheduleStore(database);
- var terms=await database.WithIdentity(profile,permission,async(connection,ct)=>
- {
-  var status=await swapStore.Status(connection,body.OperationId,ct);
-  if(status.TryGetProperty("tradeId",out _))return (Terms:(RetainedScheduleTerms?)null,Command:(JsonElement?)null);
-  var prepared=await swapStore.PrepareScheduleTerms(connection,await database.Read(connection,ct,observationIds:frame.ObservationIds,observationScope:ObservationReadScope.ExactPins),frame,body,ct);
-  return (Terms:(RetainedScheduleTerms?)prepared,Command:(JsonElement?)await swapStore.ScheduleCommand(connection,frame,body,prepared.Reference,ct));
- },c.RequestAborted);
- if(terms.Terms is not null)await retained.Stage(profile,body.OperationId,terms.Command!.Value,permission,body.TradeId,body.ExpectedRevision,terms.Terms.Generate(c.RequestAborted),c.RequestAborted);
- return await database.WithIdentity(profile,permission,async(connection,ct)=>
- {
-  if(terms.Terms is not null)await retained.Lock(connection,body.OperationId,ct);
-  await using(var gate=ScheduleStore.Command(connection,"SELECT pg_advisory_xact_lock(730849102)"))await gate.ExecuteNonQueryAsync(ct);
-  var receipt=await swapStore.Save(connection,await database.Read(connection,ct,observationIds:frame.ObservationIds,observationScope:ObservationReadScope.ExactPins),frame,body,ct);
-  if(terms.Terms is not null)
-  {
-   var instrument=await retained.Publish(connection,body.OperationId,ct);
-   await swapStore.VerifyPublishedPrograms(connection,await database.Read(connection,ct,observationIds:frame.ObservationIds,observationScope:ObservationReadScope.ExactPins),frame,body.OperationId,instrument,ct);
-  }
-  return Results.Ok(receipt);
- },c.RequestAborted);
+ var profile=Profile(session);var frame=Frame(session,body.SnapshotId);
+ return Results.Ok(await new SwapBookingOperations(database).Save(profile,frame,body,amend,c.RequestAborted));
 });
 api.MapPost("/swaps/book",(HttpContext c,SwapWriteRequest body)=>SaveSwap(c,body,false));
 api.MapPost("/swaps/amend",(HttpContext c,SwapWriteRequest body)=>SaveSwap(c,body,true));

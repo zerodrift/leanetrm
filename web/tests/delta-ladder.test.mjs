@@ -5,7 +5,7 @@ import {contractPositions,deltaLadder,ladderExport} from '../dist/delta-ladder.j
 const gas='1 USD / MMBtu (IT)',power='1 USD / MWh';
 const amounts=(delta,upPnl,downPnl,gamma='0')=>({base:'1',up:'2',down:'0',upPnl,downPnl,delta,gamma});
 const values=(delta,upPnl=delta,downPnl=delta.startsWith('-')?delta.slice(1):'-'+delta,gamma='0',unit=gas,currency='USD')=>
- ({...amounts(delta,upPnl,downPnl,gamma),display:amounts(`d:${delta}`,`u:${upPnl}`,`n:${downPnl}`,gamma),currency,currencyReference:{code:currency.toLowerCase()},deltaUnit:`${currency} / (${unit})`,gammaUnit:`${currency} / (${unit})²`});
+ ({...amounts(delta,upPnl,downPnl,gamma),display:amounts(`d:${delta}`,`u:${upPnl}`,`n:${downPnl}`,gamma),currency,currencyReference:{revision:{catalogId:'synthetic',revisionId:'r'},code:currency.toLowerCase()},deltaUnit:`${currency} / (${unit})`,gammaUnit:`${currency} / (${unit})²`});
 const total=(book,measure,v)=>({bookId:`id-${book}`,book,measure,measureLabel:{futures_execution_pnl:'Futures execution P&L',swap_present_value:'Swap PV'}[measure],values:v});
 const factor=(id,curves,coordinate,unit,from,to,label,totals)=>({factor:{id,label,coordinate,kind:'contract',unit,curves,deliveryFrom:from,deliveryTo:to},bump:'0.05',totals,positions:[]});
 const report=factors=>({factors,excludedPositions:[],scenario:{depth:0,isBase:true},context:{contextId:'c1'},snapshotId:'s1'});
@@ -99,4 +99,21 @@ test('a ladder row opens the positions its shock moves, each by book and measure
  assert.deepEqual(listed.positions.map(p=>p.exact),['7938000','3971724.92','-12.5'],'each with its exact amount, for the desk to display in the position\'s own format');
  assert.equal(listed.positions[0].label,'Book B · Swap PV');
  assert.equal(contractPositions({...shocked,positions:[position(2,'Book B','swap_present_value',values('0','0','0'))]},'delta').positions.length,0);
+});
+
+test('equal currency labels across exact revisions remain distinct ladder columns and values',()=>{
+ const a={revision:{catalogId:'c',revisionId:'r1'},code:'usd'},b={revision:{catalogId:'c',revisionId:'r2'},code:'usd'};
+ const totals=[total('Book A','swap_present_value',{...values('1'),currencyReference:a}),total('Book A','swap_present_value',{...values('2'),currencyReference:b})];
+ const ladder=deltaLadder([report([factor('f',['future'],'market_quote',gas,null,null,'Synthetic',totals)])],'delta',curveName);
+ assert.equal(ladder.columns.length,2);assert.equal(new Set(ladder.columns.map(c=>c.title)).size,2);
+ assert.deepEqual(ladder.groups[0].rows[0].cells.map(c=>c.exact),['1','2']);
+});
+
+test('filtered ladder CSV rows retain factor IDs after regrouping and exact column currencies',async()=>{
+ const {ladderCsv}=await import('../dist/delta-ladder.js');
+ const input=[report([factor('a1',['future'],'market_quote',gas,null,null,'Same',[total('Book A','swap_present_value',values('1'))]),factor('b1',['base_forward'],'market_quote',gas,null,null,'Same',[total('Book A','swap_present_value',values('2'))]),factor('a2',['future'],'market_quote',gas,null,null,'Same',[total('Book A','swap_present_value',values('3'))])])];
+ const result=ladderCsv(ladderExport(deltaLadder(input,'delta',curveName),'delta'),[1,0]);
+ assert.deepEqual(result.rows.map(r=>r.at(-2)),['a2','a1']);
+ assert.deepEqual(result.rows.map(r=>r[6]),['3','1']);
+ assert.equal(result.columnReferences[0].currencyReference.code,'usd');assert.equal(result.columnReferences[0].bookId,'id-Book A');
 });

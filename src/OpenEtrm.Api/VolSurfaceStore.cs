@@ -85,8 +85,18 @@ internal static class VolSurfaceStore
             revision=new JsonObject{["id"]=id,["knownFrom"]=stored["knownFrom"]?.DeepClone(),["actor"]=stored["actor"]!.DeepClone(),
                 ["inputsRevised"]=(bool)(await revised.ExecuteScalarAsync(ct))!};
         }
+        var quoteRows=await PreviewDatabase.Rows(connection,"""
+SELECT row_to_json(q)::text FROM ref_data.futures_option_products p JOIN ref_data.quote_specifications q
+ ON(q.catalog_id,q.revision_id,q.code)=(p.catalog_id,p.revision_id,p.quote_code)
+ WHERE(p.catalog_id,p.revision_id,p.code)=($1,$2,$3)
+""",[manifest.ReferenceCatalogId,manifest.ReferenceRevisionId,body.Product],ct);
+        var quote=quoteRows.Single();var reference=new ReferenceRevision(manifest.ReferenceCatalogId,manifest.ReferenceRevisionId);
+        var priceUnit=new PriceUnit(new(reference,quote.Text("currency_code")),new(reference,quote.Text("quantity_code")),quote.Number("multiplier"));
+        var labels=await ReferenceDisplay.Read(connection,[priceUnit],ct);
         var canFit=await PreviewDatabase.HasPermission(connection,"PublishMarketData",ct)&&await PreviewDatabase.HasPermission(connection,"ReadTrades",ct);
         return new JsonObject{["snapshotId"]=view.Frame.Id,["definitionRevisionId"]=manifest.RevisionId,["model"]=body.Model,
+            ["referenceRevision"]=JsonSerializer.SerializeToNode(reference,Json),["priceUnit"]=labels.Price(priceUnit),
+            ["priceUnitReference"]=JsonSerializer.SerializeToNode(new{priceUnit.Currency,priceUnit.Quantity,multiplier=priceUnit.Multiplier.ToString()},Json),
             ["solverPolicy"]=stored?["solverPolicy"]?.DeepClone()??SolverPolicy,["state"]=stored is null?"notFitted":"fitted",
             ["revision"]=revision,["job"]=job,["canFit"]=canFit,["surface"]=stored is null?null:ProjectContent(stored["content"],selection),
             // What a fit may select: offered for the page to send back, with the clocks a working snapshot may name.

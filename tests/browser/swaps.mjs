@@ -343,7 +343,7 @@ export async function run({command,evaluate,wait,click,set:setValue,submit,perso
   definition.code='synthetic_editor_'+crypto.randomUUID().replaceAll('-','').slice(0,8);definition.name='Synthetic editor mean';
   for(const node of definition.nodes){if(node.kind==='source')node.parameters.curve='base_forward';if(node.kind==='select')node.parameters.count='1';if(node.kind==='dates'){node.parameters.count='2';node.parameters.includeContext='true';}}
   const saved=await window.__customCall('custom-curves/save',{requestId:crypto.randomUUID(),snapshotId:${JSON.stringify(frame)},definition,layout:{}});
-  window.__customVersion={id:saved.id,version:saved.version,generation:saved.generation};
+  window.__customVersion={snapshotId:${JSON.stringify(frame)},id:saved.id,version:saved.version,generation:saved.generation};
   window.__customProjection={catalogId:catalog.sources.find(s=>s.code==='base_forward').catalogId,curveId:saved.id,version:saved.version,outputNode:definition.output,position:1,selection:'single_output_position_v1',implementation:'published_custom_curve_projection_v1'};
  })()`);
  await persona('approver');await evaluate("window.__customCall('custom-curves/publish',{requestId:crypto.randomUUID(),...window.__customVersion})");

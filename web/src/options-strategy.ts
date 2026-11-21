@@ -1,5 +1,6 @@
+import {amountText as managedAmountText} from './amount-display.js';
 import {measureReason,significantText,type Cell} from './options-chain.js';
-import {amountText,type Figure} from './options-positions.js';
+import {type Figure} from './options-positions.js';
 import {decimalText,type FuturesReadRequest,type Measure} from './vol-surface-view.js';
 
 // A strategy of option legs as the Options page shows it. Every premium, payoff, breakeven, curve and sensitivity is the
@@ -24,7 +25,7 @@ export type AnalysedLeg={series:string;right:'call'|'put';strike:string;side:Sid
 export type Extreme={amount:string|null;bounded:boolean};
 export type Breakeven={lower:string;upper:string|null};
 export type CurvePoint={price:string;profitAndLoss:string};
-export type StrategyAnalysis={product:string;expiryAt:string;valuationAt:string;underlyingSeries:string;currency:string;quantityUnit:string|null;futures:string|null;
+export type StrategyAnalysis={product:string;expiryAt:string;valuationAt:string;underlyingSeries:string;currency:string;priceUnit:string;quantityUnit:string|null;futures:string|null;
  request:{prices:PriceRange;instants:string[];volatilityShiftPoints:string};legs:AnalysedLeg[];
  expiry:{rule:string;netPremium:{amount:string;direction:'debit'|'credit'|'none'};maximumProfit:Extreme;maximumLoss:Extreme;breakevens:Breakeven[];curve:CurvePoint[]};
  dated:{state:'valued'|'refused';reason:string|null;message:string|null;curves:{at:string;points:(CurvePoint&{value:string})[]}[]};
@@ -86,7 +87,7 @@ export function legFigures(analysis:StrategyAnalysis):Map<string,{impliedVolatil
  }));
 }
 
-const money=(amount:string,signed=false)=>(signed&&!amount.startsWith('-')&&/[1-9]/.test(amountText(amount,2))?'+':'')+amountText(amount,2);
+const money=(amount:string,signed=false)=>(signed&&!amount.startsWith('-')&&/[1-9]/.test(managedAmountText(amount,'money'))?'+':'')+managedAmountText(amount,'money');
 // A price to six significant figures, without the zeros that would pad it.
 const price=(value:string)=>trimmed(significantText(value,6));
 /** A breakeven as text: one price, a range of prices, or every price from one upward. */
@@ -100,7 +101,7 @@ export function analysisLines(analysis:StrategyAnalysis):AnalysisLine[]{
  const extreme=(value:Extreme,term:string):AnalysisLine=>value.amount===null?{term,value:'Unbounded',tone:'none',note:'It has no bound over futures prices from zero upward'}:
   {term,value:`${money(value.amount,true)} ${currency}`,tone:value.amount.startsWith('-')?'loss':/[1-9]/.test(value.amount)?'gain':'none'};
  return [
-  {term:'Net premium',value:netPremium.direction==='none'?`0.00 ${currency}`:`${netPremium.direction==='debit'?'Debit':'Credit'} ${money(netPremium.amount)} ${currency}`,tone:'none',
+  {term:'Net premium',value:netPremium.direction==='none'?`${managedAmountText('0','money')} ${currency}`:`${netPremium.direction==='debit'?'Debit':'Credit'} ${money(netPremium.amount)} ${currency}`,tone:'none',
    note:netPremium.direction==='debit'?'Paid to enter':netPremium.direction==='credit'?'Received to enter':'Nothing paid or received'},
   extreme(maximumProfit,'Maximum profit'),extreme(maximumLoss,'Maximum loss'),
   {term:breakevens.length===1?'Breakeven':'Breakevens',value:breakevens.length?breakevens.map(breakevenText).join(' · '):'None',tone:'none',note:'Futures price at expiry'}];
@@ -110,9 +111,9 @@ export type Tile={term:string;value:string;unit:string;missing:string|null};
 /** The strategy's value and sensitivities with the unit each is stated in. A sum with a missing member is a dash that says why. */
 export function sensitivityTiles(analysis:StrategyAnalysis):Tile[]{
  const {strategy,currency}=analysis,quantity=analysis.quantityUnit??'underlying units';
- const tile=(term:string,figure:Figure,unit:string,places:number):Tile=>figure.amount!==null?{term,value:amountText(figure.amount,places),unit,missing:null}:
+ const tile=(term:string,figure:Figure,unit:string,places:number):Tile=>figure.amount!==null?{term,value:managedAmountText(figure.amount,places===2?'money':'quantity'),unit,missing:null}:
   {term,value:'—',unit,missing:strategyReason(figure.missing??'incomplete')};
- return [tile('Value',strategy.value,currency,2),tile('Delta',strategy.delta,quantity,0),tile('Gamma',strategy.gamma,`${quantity} per 1.00 of price`,0),
+ return [tile('Value',strategy.value,currency,2),tile('Delta',strategy.delta,quantity,0),tile('Gamma',strategy.gamma,`${quantity} per (${analysis.priceUnit})`,0),
   tile('Vega',strategy.vega,`${currency} per volatility point`,2),tile('Theta',strategy.theta,`${currency} for one day`,2)];
 }
 
@@ -120,7 +121,7 @@ export function sensitivityTiles(analysis:StrategyAnalysis):Tile[]{
 export type ChartPoint={x:number;y:number;price:string;profitAndLoss:string};
 export type ChartCurve={id:string;name:string;kind:'expiry'|'dated';points:ChartPoint[]};
 export type ChartMark={kind:'futures'|'breakeven';price:number;label:string};
-export type StrategyChart={currency:string;curves:ChartCurve[];marks:ChartMark[]};
+export type StrategyChart={priceUnit:string;currency:string;curves:ChartCurve[];marks:ChartMark[]};
 /**
  * The profit-and-loss chart: the expiry payoff through every point the backend states, with each breakeven inside the
  * range added at zero so the gain and loss fills meet the axis there, then one curve per dated instant. Numbers are for
@@ -137,6 +138,6 @@ export function strategyChart(analysis:StrategyAnalysis,instantLabel:(at:string)
  const marks:ChartMark[]=analysis.expiry.breakevens.flatMap(b=>b.upper!==null&&b.upper!==b.lower?[b.lower,b.upper]:[b.lower]).filter(value=>Number(value)>=low&&Number(value)<=high)
   .map(value=>({kind:'breakeven' as const,price:Number(value),label:`Breakeven ${price(value)}`}));
  if(analysis.futures!==null&&Number(analysis.futures)>=low&&Number(analysis.futures)<=high)marks.unshift({kind:'futures',price:Number(analysis.futures),label:`Futures ${price(analysis.futures)}`});
- return {currency:analysis.currency,marks,curves:[{id:'expiry',name:'At expiry',kind:'expiry',points:expiry},
+ return {priceUnit:analysis.priceUnit,currency:analysis.currency,marks,curves:[{id:'expiry',name:'At expiry',kind:'expiry',points:expiry},
   ...analysis.dated.curves.map(curve=>({id:curve.at,name:instantLabel(curve.at),kind:'dated' as const,points:curve.points.map(point)}))]};
 }

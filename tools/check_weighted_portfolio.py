@@ -49,7 +49,7 @@ def run_checks(url, manifest, query, run_worker):
     client.call('custom-curves/save', {'requestId': str(uuid4()), 'definition': invalid, 'snapshotId': frame['id'], 'layout': {}}, expected=422)
     saved = client.call('custom-curves/save', {'requestId': str(uuid4()), 'definition': definition, 'snapshotId': frame['id'], 'layout': {}})
     client.call('profile', {'profile': 'approver'})
-    published = client.call('custom-curves/publish', {'requestId': str(uuid4()), 'id': saved['id'], 'version': 1, 'generation': saved['generation']})
+    published = client.call('custom-curves/publish', {'snapshotId':frame['id'],'requestId': str(uuid4()), 'id': saved['id'], 'version': 1, 'generation': saved['generation']})
     assert published['engineVersion'] == 'custom_curve_recipe_v2'
     from check_recipe_weights_db import run_checks as check_weights
     check_weights(query, manifest, saved['id'])

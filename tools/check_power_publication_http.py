@@ -3,6 +3,8 @@
 This is a compatibility/knowledge test, not a sourced market seed. The real
 2021 Eastern DST grid is shared with the existing collected-price fixture.
 """
+
+from price_publication_fixture import index_binding
 from copy import deepcopy
 from uuid import uuid4
 
@@ -50,7 +52,7 @@ def run_checks(client, query, manifest, snapshot, first, second, first_prices, s
     definition = dict(key=dict(catalogId=catalog['catalogId'], id=str(uuid4()), version=1), references=catalog['references'],
         publisher=dict(key=dict(catalogId=catalog['catalogId'], id=str(uuid4()), version=1), name='Synthetic capture inspector'),
         name='Captured hourly compatibility check', commodities=[index['commodity']],
-        indices=[{k: v for k, v in index.items() if k != 'name'} | dict(symbol='CAPTURED_PRICE', statistic='hourly_total_lmp')],
+        indices=[index_binding(index, symbol='CAPTURED_PRICE', statistic='hourly_total_lmp')],
         calendar=next(c['reference'] for c in catalog['calendars'] if c['reference']['code'] == calendar),
         clock=next(c['reference'] for c in catalog['clocks'] if c['reference']['code'] == source['clock_code']),
         implementation='power_placeholder_v1')
@@ -99,7 +101,7 @@ def run_checks(client, query, manifest, snapshot, first, second, first_prices, s
                           (next(i for i in catalog['indices'] if i['key']['code'] == 'test_power_scaled_index'), definition['clock'])]:
         incompatible = deepcopy(definition)
         incompatible['key']['id'] = str(uuid4())
-        incompatible['indices'] = [{k: v for k, v in member.items() if k != 'name'} | dict(symbol='CAPTURED_MISMATCH', statistic='hourly_total_lmp')]
+        incompatible['indices'] = [index_binding(member, symbol='CAPTURED_MISMATCH', statistic='hourly_total_lmp')]
         incompatible['clock'] = clock
         client.call('price-publications/save', dict(requestId=str(uuid4()), snapshotId=snapshot, expectedVersion=0, definition=incompatible))
         assert client.call('price-publications/power/preview', body | {'publication': incompatible['key'], 'indexCode': member['key']['code']}, expected=422)['code'] == 'publication_power_source'

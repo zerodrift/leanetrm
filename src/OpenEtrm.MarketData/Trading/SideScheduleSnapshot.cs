@@ -62,12 +62,13 @@ public abstract partial class SideScheduleSnapshot
  }
  sealed class Evaluated:SideScheduleSnapshot
  {
-  readonly ImmutableArray<ScheduleRowValue> rows;readonly ExactDecimal scale;readonly SignedRatio coefficient;readonly Func<DateOnly,DateTimeOffset> boundary;
+  readonly string quantityReferenceKind;readonly ImmutableArray<ScheduleRowValue> rows;readonly ExactDecimal scale;readonly SignedRatio coefficient;readonly Func<DateOnly,DateTimeOffset> boundary;
   internal Evaluated(SideValuation value,ImmutableArray<ScheduleRowValue> rows,string manifest,ExactDecimal scale,SignedRatio coefficient,Func<DateOnly,DateTimeOffset> boundary)
    :base(value.SideId,value.Snapshot.Id,value.Snapshot.Knowledge?.ContextId??throw new MarketDataException("side_schedule_inspection","The valuation requires a certified knowledge context."),manifest,value.Snapshot.ValuationAt,value.Snapshot.Knowledge?.KnownAt??throw new MarketDataException("side_schedule_inspection","Inspection requires the valuation's certified knowledge context."))
   {
    if(!value.Context.IsBaseScenario||rows.IsDefault||rows.Any(r=>r.SideId!=value.SideId)||boundary is null||scale.CompareTo(default)<=0||coefficient.Denominator.Sign<=0||coefficient.Numerator.IsZero)
     throw new MarketDataException("side_schedule_inspection","Select base-scenario native Side rows and the exact signed holding scale.");
+   quantityReferenceKind=value.Schedule is ValueSideSchedule {Side:CashPaymentSide}?ScheduleReferenceKinds.Currency:ScheduleReferenceKinds.Quantity;
    this.rows=rows;this.scale=scale;this.coefficient=coefficient;this.boundary=boundary;
   }
   public override ScheduleInspectionPage Read(int offset,int limit,CancellationToken ct=default)
@@ -75,7 +76,7 @@ public abstract partial class SideScheduleSnapshot
    SideScheduleInspection.RequirePage(offset,limit);ct.ThrowIfCancellationRequested();
    var factor=scale.Power(1);var signed=new SignedRatio(factor.Numerator,factor.Denominator)*coefficient;
    return new(SideId.ToString(),Manifest,ValuationAt,KnownAt,offset,rows.Length,[..rows.Skip(offset).Take(limit).Select(row=>{
-    ct.ThrowIfCancellationRequested();return Scale(SideScheduleInspection.FromValue(row,ValuationAt,boundary),signed);
+    ct.ThrowIfCancellationRequested();return Scale(SideScheduleInspection.FromValue(row,ValuationAt,boundary,quantityReferenceKind),signed);
    })]);
   }
   public override ScheduleCalculationPage Calculation(string key,int offset,int limit,CancellationToken ct=default)
@@ -83,7 +84,7 @@ public abstract partial class SideScheduleSnapshot
    SideScheduleInspection.RequirePage(offset,limit);ct.ThrowIfCancellationRequested();
    var matches=rows.Where(r=>r.Row.Ordinal.ToString(System.Globalization.CultureInfo.InvariantCulture)==key).ToArray();
    if(matches is not [var row])throw new MarketDataException("side_schedule_inspection","Select one exact evaluated contribution.");
-   var cells=NativeCalculation(row,ValuationAt,boundary,ct);
+   var cells=NativeCalculation(row,ValuationAt,boundary,quantityReferenceKind,ct);
    return new(SideId.ToString(),Manifest,key,"unit_side_v1",scale.ToString(),coefficient.Numerator.ToString(System.Globalization.CultureInfo.InvariantCulture),coefficient.Denominator.ToString(System.Globalization.CultureInfo.InvariantCulture),offset,cells.Length,[..cells.Skip(offset).Take(limit)]);
   }
  }

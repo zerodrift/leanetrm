@@ -149,7 +149,7 @@ public static partial class StructuredPowerPreview
         {
             var sideId=contribution.SideId;var evaluated=(OperatingSideValuation)contribution.Value;
             var rows=evaluated.Rows.Select(row=>new StructuredPowerSideRow(row.Interval!,row.ValueAt,row.Quantity,row.PriceComponents[0].Price,row.Amount,row.RequirePresentValue(),row.QuantityState,
-                row.OperatingEvidence?.EvidenceId,row.OperatingEvidence?.KnownAt)).ToImmutableArray();
+                row.OperatingEvidence?.EvidenceId,row.OperatingEvidence?.KnownAt){PriceUnitLabel=data.UnitLabel(row.PriceComponents[0].Price.Unit)}).ToImmutableArray();
             return new StructuredPowerSideResult(sideId,names[sideId],contribution.Coefficient.ToString(),quotes[sideId],evaluated.PresentValue,contribution.Contribution,rows);
         }).ToImmutableArray();
         return new(new(RemainingValueMeasure,RightHolderPerspective,currency,unit,value.PresentValue,sides,value.NumericalPolicy),instrument,names.ToImmutableDictionary());

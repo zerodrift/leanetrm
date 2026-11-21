@@ -11,7 +11,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await actor.call('profile',{profile:'editor'});const definition=structuredClone(template);definition.code=code;definition.name='Synthetic '+code;
   definition.nodes.find(n=>n.kind==='source').parameters.curve=source;
   const saved=await actor.call('custom-curves/save',{requestId:crypto.randomUUID(),snapshotId:frame.id,definition,layout:{}});
-  await actor.call('profile',{profile:'approver'});return actor.call('custom-curves/publish',{requestId:crypto.randomUUID(),id:saved.id,version:saved.version,generation:saved.generation});
+  await actor.call('profile',{profile:'approver'});return actor.call('custom-curves/publish',{snapshotId:frame.id,requestId:crypto.randomUUID(),id:saved.id,version:saved.version,generation:saved.generation});
  }
  const first=await publish('browser_blend_base','base_forward'),second=await publish('browser_blend_parent','local_gas');
  const parentPrices=await Promise.all([first,second].map(p=>actor.call('custom-curves/preview',{snapshotId:frame.id,definition:p.definition})));

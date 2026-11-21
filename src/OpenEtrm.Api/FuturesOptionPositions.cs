@@ -22,6 +22,7 @@ internal sealed record FuturesOptionPosition(JsonElement Head,JsonElement Book,J
     internal ReferenceRevision Reference=>new(Head.Id("reference_catalog_id"),Head.Id("reference_revision_id"));
     internal ReferenceKey SeriesKey=>new(Reference,Head.Text("series_code"));
     internal ReferenceKey Currency=>new(Reference,Series.Text("currency_code"));
+    internal PriceUnit QuoteUnit=>new(Currency,new(Reference,Series.Text("quote_quantity_code")),ExactDecimal.Parse(Series.Text("quote_multiplier")));
     internal ReferenceKey LotQuantity=>new(Reference,Series.Text("lot_quantity_code"));
     internal ExactDecimal BookedLots=>ExactDecimal.Parse(Head.Text("lots"));
     internal bool Long=>BookedLots.CompareTo(default)>0;
@@ -87,7 +88,7 @@ internal sealed record FuturesOptionPosition(JsonElement Head,JsonElement Book,J
         deliveryFrom=Series.Text("delivery_from"),deliveryTo=Series.Text("delivery_to"),
         lots=Head.Text("lots"),openLots=OpenLots.ToString(),lifecycleState=LifecycleState,linkedFuturesTradeIds=LinkedFutures,linkedFuturesTrades=LinkedFuturesReferences,actions=option?Actions:null,closableLots=option?ClosableLots:null,
         quantity=option?OpenLots.ToString():Head.Text("premium_quantity"),unit=Series.Text(option?"unit":"currency"),quantitySpecification=option?LotQuantity:Currency,
-        currency=Series.Text("currency"),currencyReference=Currency,quoteMultiplier=Series.Text("multiplier"),
+        currency=Series.Text("currency"),currencyReference=Currency,priceUnitReference=option?(object)new{QuoteUnit.Currency,QuoteUnit.Quantity,multiplier=QuoteUnit.Multiplier.ToString()}:null,priceUnitLabel=option?PreviewData.PriceUnitLabel(Series.Text("currency"),Series.Text("quote_unit"),QuoteUnit.Multiplier.ToString()):null,quoteMultiplier=option?QuoteUnit.Multiplier.ToString():null,
         premium=Head.Text("premium"),premiumAmount=Head.Text("premium_quantity"),premiumPaymentDate=Head.Text("premium_payment_date"),cashState=(string?)null,
         executedAt=Head.Text("executed_at"),bookingFacts=new{implementation=Head.Text("booking_implementation"),labelCapturedAt=Head.Text("label_captured_at")},
         executionPrice=(string?)null,fixedPrice=(string?)null,mark=(string?)null,markMinusPrice=(string?)null,executionPnl=(string?)null,direction=(string?)null,
@@ -146,7 +147,7 @@ internal static class FuturesOptionPositions
              SELECT k.id contract_id,k.revision_id definition_revision_id,s.catalog_id reference_catalog_id,s.revision_id reference_revision_id,s.code series_code,
               s.option_right,trim_scale(s.strike)::text strike,s.underlying_series_code,s.expiry_at,pr.code product_code,pr.name product_name,fp.name underlying_product_name,
               trim_scale(ref_data.futures_option_multiplier(s.catalog_id,s.revision_id,s.code))::text multiplier,
-              pr.lot_quantity_code,ex.code exchange_code,ex.name exchange_name,co.code commodity_code,co.name commodity_name,q.currency_code,cu.display_code currency,
+              pr.lot_quantity_code,ex.code exchange_code,ex.name exchange_name,co.code commodity_code,co.name commodity_name,q.currency_code,q.quantity_code quote_quantity_code,trim_scale(q.multiplier)::text quote_multiplier,cu.display_code currency,
               pr.contrary_instructions_allowed,u.symbol unit,qu.symbol quote_unit,us.delivery_from,us.delivery_to,c.code curve_code,c.name curve_name
              FROM market_data.contracts k
              JOIN ref_data.futures_option_series s ON(s.catalog_id,s.revision_id,s.code)=(k.reference_catalog_id,k.reference_revision_id,k.futures_option_series_code)

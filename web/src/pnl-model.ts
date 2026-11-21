@@ -12,11 +12,11 @@ export type Step=GreekEffect&{label:string;kind:'greek'|'residual'|'cash'|'adjus
 export type Values={openingValue:Money;closingValue:Money;valueMovement:Money;cash:Money;priorCash:Money;transfers:Money;economicPnl:Money;explained:Money|null;residual:Money;
  unavailableEstimates:number};
 // A price factor of the opening holdings. It has no closing price, and so no change, when the closing endpoint states none.
-export type Factor={axis:string;label:string;priceTick:string;opening:{price:string};closing:{price:string}|null;change:{price:string}|null;unavailableReason:string|null};
+export type Factor={unit:{currency:Currency;quantity:Currency;multiplier:string};unitLabel:string;axis:string;label:string;priceTick:string;opening:{price:string};closing:{price:string}|null;change:{price:string}|null;unavailableReason:string|null};
 export type Contribution={formula:string;label:string;axes:string[];amount:Money|null;unavailableReason:string|null};
 export type Position={position:{tradeId:string;bindingId:string;bookId:string};tradeReference:string|null;instrumentReference:string|null;state:string;values:Values;
  contributions:Contribution[]};
-export type Total={currency:Currency;values:Values;bridge:Step[];factorEffects:{axis:string;delta:GreekEffect;gamma:GreekEffect}[];greekCoverage:string};
+export type Total={currency:Currency;currencyLabel:string;values:Values;bridge:Step[];factorEffects:{axis:string;delta:GreekEffect;gamma:GreekEffect}[];greekCoverage:string};
 // A date a report compares. A recorded close states its convention and the business day it closes; a working snapshot, and a
 // report saved before closes were stated, states neither.
 export type Endpoint={at:string;context:{knownAt:string};close?:{session:string;name:string;businessDate:string}|null};

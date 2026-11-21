@@ -138,7 +138,7 @@ def run_checks(url, query, manifest):
         if node['kind']=='dates':node['parameters'].update(count='1',includeContext='true')
     draft=client.call('custom-curves/save',dict(requestId=str(uuid4()),snapshotId=context['snapshotId'],definition=definition,layout={}))
     client.call('profile',{'profile':'approver'})
-    published=client.call('custom-curves/publish',dict(requestId=str(uuid4()),id=draft['id'],version=draft['version'],generation=draft['generation']))
+    published=client.call('custom-curves/publish',dict(snapshotId=context['snapshotId'],requestId=str(uuid4()),id=draft['id'],version=draft['version'],generation=draft['generation']))
     client.call('profile',{'profile':'trader'})
     choices=next(i for i in client.call('swaps/catalog',context)['indices'] if i['curve']=='base_forward')
     projection=next(p['reference'] for p in choices['customProjections'] if p['reference']['curveId']==published['id'])

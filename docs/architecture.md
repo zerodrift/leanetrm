@@ -1,5 +1,16 @@
 # Architecture and domain contracts
 
+D438 enforces [exact currency and price-unit ownership](currency-and-price-units.md).
+Plain monetary indexes declare their currency; derived outputs inherit complete
+units. Price statistics use their quote denominator independently of contract
+quantity. Payment lineages own explicit rounding terms; configured-currency cash
+preview introduces no FX conversion or seed data.
+
+D437 adds an explicit [regional currency seed](regional-seed.md) over the existing
+pricing and close operations. GBP, EUR and CAD examples consume independent
+discount curves; NYC and UK clocks retain their own cutoffs. Seed replay preserves
+exact source facts and personal close selections without saved context objects.
+
 D435 completes the [runtime context cutover](ephemeral-context-cutover.md).
 Contexts are constructed per operation and job attempt. Business facts, admitted
 job inputs and outcomes persist; generic context objects and their compatibility

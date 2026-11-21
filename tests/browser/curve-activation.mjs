@@ -13,7 +13,7 @@ export async function run({command,evaluate,wait,click,persona,set,check,idle,ur
  async function save(code,name,first,prior){
   await actor.call('profile',{profile:'editor'});const definition=structuredClone(template);definition.code=code;definition.name=name;definition.nodes.find(n=>n.kind==='select').parameters.first=String(first);
   const saved=await actor.call('custom-curves/save',{requestId:crypto.randomUUID(),snapshotId:frame.id,definition,layout:{},...(prior?{id:prior.id,version:prior.version,generation:prior.generation,expectedState:prior.state}:{})});
-  await actor.call('profile',{profile:'approver'});return actor.call('custom-curves/publish',{requestId:crypto.randomUUID(),id:saved.id,version:saved.version,generation:saved.generation});
+  await actor.call('profile',{profile:'approver'});return actor.call('custom-curves/publish',{snapshotId:frame.id,requestId:crypto.randomUUID(),id:saved.id,version:saved.version,generation:saved.generation});
  }
  const a=await save('browser_activation_a','Synthetic effective curve A',1),b=await save('browser_activation_b','Synthetic effective curve B',1);
  async function activate(expected,version){return actor.call('custom-curves/activation',{requestId:crypto.randomUUID(),curveId:a.id,expectedRevision:expected,policy:'complete_effective_timeline_v1',reason:'Synthetic browser activation',segments:version===null?[]:[{effectiveFrom:'2020-12-01',effectiveTo:'2021-01-01',version,outputNode:a.definition.output}]});}

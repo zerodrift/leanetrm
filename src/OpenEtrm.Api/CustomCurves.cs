@@ -88,8 +88,9 @@ public static partial class CustomCurves
             await store.Lock(connection,ct);
             return await store.ReplaySave(connection,body,CurveDraftSaver.Person,ct) is {} saved?Results.Ok(saved):null;
         }));
-        api.MapPost("/custom-curves/publish",(HttpContext c,CustomCurvePublishRequest body)=>operation(c,"SealMarketDefinitions",null,async(connection,pin,ct)=>
-            Results.Ok(await store.Publish(connection,body,ct))));
+        api.MapPost("/custom-curves/publish",(HttpContext c,CustomCurvePublishRequest body)=>operation(c,"SealMarketDefinitions",body.SnapshotId,async(connection,pin,ct)=>
+            Results.Ok(await store.Publish(connection,body,pin,ct)),async(connection,ct)=>
+                await store.ReplayPublication(connection,body,ct) is {} accepted?Results.Ok(accepted):null));
         api.MapPost("/custom-curves/component-history",(HttpContext c,ComponentHistoryRequest body)=>operation(c,"ReadMarketData",body.SnapshotId,async(connection,pin,ct)=>
         {
             pin=await SelectedClose.Pin(connection,database,pin,ct);

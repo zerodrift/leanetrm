@@ -55,7 +55,7 @@ def run_checks(url,query,manifest,dotnet,owned_root,environment):
     assert saved['kind']=='observation_formula' and observed(saved['definition'])['parameters']==OBSERVED,saved
     assert query(f"SELECT calendar_code FROM market_data.custom_curve_node_calendars WHERE(catalog_id,curve_id,version,node_id)=('{catalog}','{curve}',1,'crude');")==CALENDAR
     client.call('profile',{'profile':'approver'})
-    published=client.call('custom-curves/publish',{'requestId':str(uuid4()),'id':curve,'version':1,'generation':1})
+    published=client.call('custom-curves/publish',{'snapshotId':frame('2026-12-01')['id'],'requestId':str(uuid4()),'id':curve,'version':1,'generation':1})
     assert published['state']=='published'
 
     client.call('profile',{'profile':'viewer'})
@@ -197,7 +197,7 @@ def projections(client,manifest,working,formula,consumer,dotnet,owned_root,envir
         saved=client.call('custom-curves/save',{'requestId':str(uuid4()),'snapshotId':working['id'],'definition':deepcopy(definition),'layout':{},
             **({'id':prior['id'],'version':prior['version'],'generation':prior['generation'],'expectedState':prior['state']} if prior else {})})
         client.call('profile',{'profile':'approver'})
-        published=client.call('custom-curves/publish',{'requestId':str(uuid4()),'id':saved['id'],'version':saved['version'],'generation':saved['generation']})
+        published=client.call('custom-curves/publish',{'snapshotId':working['id'],'requestId':str(uuid4()),'id':saved['id'],'version':saved['version'],'generation':saved['generation']})
         assert published['state']=='published',published
         return published
     first=publish(ordinary)

@@ -157,3 +157,12 @@ test('the value measure column appears only for two defined measures, and a grou
  const one=pivotMatrix([swap,gas('gas_lifecycle_value_v1','Unrealized + realized unsettled','18')],['book','instrumentType'],['instrumentType'],['presentValue']);
  assert.ok(!one.columns.some(c=>c.key==='measure')&&one.rows.every(r=>!('measure' in r)));
 });
+
+test('price matrices and charts preserve native quote denominations independently of external capacity',()=>{
+ const currency={code:'usd',revision:{catalogId:'c',revisionId:'r'}},capacity={...currency,code:'mw'};
+ const rows=['mwh','gj'].map((denominator,i)=>({bookId:'b',book:'Book',instrumentType:'heat_rate_call',quantitySpecification:capacity,currencyReference:currency,unit:'MW',currency:'USD',quoteMultiplier:'1',priceUnit:'USD/'+denominator,priceUnitReference:{currency,quantity:{...currency,code:denominator},multiplier:'1'},fixedPriceMean:String(i+1)}));
+ const matrix=analytics.pivotMatrix(rows,['book','instrumentType'],['book'],['fixedPriceMean']);
+ assert.equal(matrix.rows.length,2);assert.equal(new Set(matrix.rows.map(r=>r.priceUnit)).size,2);
+ const charts=analytics.pivotChartPanels(rows,['book'],[],'fixedPriceMean');
+ assert.equal(charts.length,2);assert.deepEqual(charts.map(c=>c.unit),['USD/mwh','USD/gj']);
+});

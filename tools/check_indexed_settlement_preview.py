@@ -24,7 +24,7 @@ def run_checks(client, query, manifest, runtime, payload, frame, grid, cutoff, r
     booked=save('book',indexed);origin=mapping(booked['bindings'][0],1)
     from check_settlement_preview import POLICIES
     policies={**POLICIES,'contract':'ppa_monthly_gross_indexed_v1'}
-    body=dict(snapshotId=frame,tradeId=booked['tradeId'],expectedRevision=1,original=origin,mappings=[origin],policies=policies)
+    body=dict(snapshotId=frame,tradeId=booked['tradeId'],expectedRevision=1,original=origin,mappings=[origin],policies=policies,roundingTerms=dict(currency=dict(revision=dict(catalogId=indexed['terms']['referenceCatalogId'],revisionId=indexed['terms']['referenceRevisionId']),code=indexed['terms']['currency']),increment='0.01',tieRule='to_even',stage='payment_total'))
     planned=client.call('settlement/payment-lineages/plan',body)
     check('explicit indexed lineage retains its calculation contract',planned['lineage']['contract']==policies['contract'])
     lineage=planned['lineage']['id']

@@ -28,7 +28,26 @@ export function rationalText(value:unknown):string|null{
 // A risk report or retained job. The page that shows one prepares its amounts itself, after it knows the run is still the one on screen,
 // so the Blotter's run is never held waiting on the display of a report it may no longer show.
 export const riskReportRead=(path:string)=>/^portfolio\/risk(\/jobs\/[^/]+)?$/.test(path);
+// The option responses distinguish cash from quantity sensitivities and per-unit leg prices.
+// Project only the displayed fields into the shared formatter's existing amount kinds.
+function optionAmounts(payload:unknown){
+ const rows:Record<string,string>[]=[];
+ function visit(value:unknown){
+  if(!value||typeof value!=='object')return;
+  if(Array.isArray(value)){value.forEach(visit);return;}
+  for(const [field,raw] of Object.entries(value)){
+   if(raw&&typeof raw==='object'&&!Array.isArray(raw)&&'amount' in raw&&'missing' in raw){
+    const amount=(raw as {amount:unknown}).amount;
+    if(typeof amount==='string')rows.push({[field==='delta'||field==='gamma'?'quantity':'presentValue']:amount});
+   }else if(typeof raw==='string'&&['premium','profitAndLoss'].includes(field))rows.push({presentValue:raw});
+   else if(typeof raw==='string'&&field==='amount')rows.push({presentValue:raw});
+   else visit(raw);
+  }
+ }
+ visit(payload);return rows;
+}
 export function shownAmounts(path:string,payload:unknown):unknown{
+ if(path==='options/positions'||path==='options/strategy/analyze')return optionAmounts(payload);
  if(!/^(trading\/(blotter|workspace|position)|swaps\/(preview|editor)|futures\/(holdings|editor|amend-preview)|crude\/(preview|editor)|ppa\/(preview|inspect|break-even)|evaluate|history|power\/preview)$/.test(path))return undefined;
  const read=payload as {blotter?:unknown;summaries?:unknown;points?:unknown};
  return path==='trading/workspace'?{blotter:read.blotter,summaries:read.summaries}:path==='evaluate'||path==='history'?{points:read.points}:payload;

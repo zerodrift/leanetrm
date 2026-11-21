@@ -6820,3 +6820,51 @@ A bilateral booking or economic amendment retains the exact executed agreement a
 Commercial storage pins a versioned facility and two gas ports. Each port supplies a published valuation assignment. Working-inventory entitlements use daily contract ratchets. Physical storage limits retain their hourly basis. A physical toll identifies its operating plant. An attributed financial hedge retains its native settlement terms.
 
 Facility reports join whole trades and the operating facts visible at the selected knowledge cutoff. Gas, power, installed capacity and financial exposure retain their respective units. The shared meter ledger owns physical measurements and explicit allocations through source corrections. [Gas facility trading desk](gas-facility-desk.md)
+
+## D437 — Explicit regional currency examples and repeatable source seeding
+
+The selected synthetic preset records NYC Close at 16:00 New York and UK Close at
+16:30 London, using separate published clocks and Monday–Friday calendars without
+holiday exclusions. GBP, EUR and CAD each have a working discounted swap over an
+independent forward/index, currency discount default and simple Actual/365 Fixed
+interest rate curve. Marks are decimal annual rates, interpolation is log-linear
+in discount factors and extrapolation is refused. No FX conversion or regional
+gas market product is inferred from a currency.
+
+Append new exact-version source facts and publish through the existing native
+operations. Existing USD facts and trades retain their exact references. Stable
+identities, exact replay assertions and the publication gate support interrupted
+and concurrent reseeding; conflicting same-version terms refuse. Privileged
+hosted source phases require the authenticated owner's market permissions and
+ownership of the exact reference catalogue through commit. All helpers are
+session-local. Booking shares the HTTP operation, including independently retained
+Side schedules. Retire the synthetic UTC bootstrap listing without deleting its
+financial facts. Preserve subsequent personal choices and all hosted selections.
+This adds no saved-context storage or schema migration. See the
+[preset and qualification contract](regional-seed.md).
+
+## D438 — Exact currency and price-unit ownership
+
+Plain monetary indexes retain required exact currency references. Derived monetary
+outputs inherit their underlying currency, quantity specification and quote
+multiplier; explicit quantity conversion preserves currency. Combining incompatible
+units refuses, including at native custom-curve publication. Separate output
+positions may retain different currencies. There is no inferred FX conversion or
+same-denomination mapping across reference revisions.
+
+Currency discount defaults reference their curve's exact currency tuple through
+a composite foreign key. Option cash totals and held lots use exact currency and
+series identities. Blotter price statistics use price denomination independently
+of external holding quantity, and retain quote multipliers in their partition.
+Human source/version qualifiers appear when labels collide; this refines D98's
+presentation without changing its financial partitions. Exports preserve exact
+row/cell identities, including filtered and regrouped ladders.
+
+PPA cash preview accepts configured exact currencies with required explicit,
+currency-bound payment-total rounding terms. New lineages select an increment and
+tie rule under `cash_explicit_increment_per_occurrence_v1`; display precision
+selects no financial convention. Existing immutable two-decimal contracts retain
+their declared semantics and exact range. No rounding catalogue or seed row is
+introduced. Qualified external feed currency contracts remain unchanged.
+
+See [the implementation and verification contract](currency-and-price-units.md).

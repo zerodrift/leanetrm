@@ -123,6 +123,16 @@ def run_checks(url, query, manifest, *, run_worker):
         return rows[(booked['tradeId'], booked['premiumInstrumentId'])]
     for key, (booked, option, lots) in held.items():
         row = option_row(key)
+        quote_quantity,quote_label={'nymex_on':('test_gas_quantity','USD/MMBtu (IT)'),
+                                    'nymex_lo':('test_crude_quantity','USD/bbl (42 US gal)')}[option['product']]
+        check(f'the {key} option price unit is independent of its lot multiplier; premium cash has no price denomination',
+              row['priceUnitReference']['currency']==row['currencyReference']
+              and row['priceUnitReference']['quantity']==dict(revision=row['currencyReference']['revision'],code=quote_quantity)
+              and row['priceUnitReference']['quantity']!=row['quantitySpecification']
+              and row['priceUnitReference']['multiplier']==row['quoteMultiplier']=='1'
+              and row['priceUnitLabel']==quote_label
+              and premium_row(key)['priceUnitReference'] is None and premium_row(key)['quoteMultiplier'] is None,
+              (row['priceUnitReference'],row['quantitySpecification'],row['priceUnitLabel'],row['quoteMultiplier'],premium_row(key)['quoteMultiplier']))
         multiplier, increment = Fraction(option['multiplier']), Fraction(option['premiumTick'])
         expected = Fraction(option['settlementPrice']) * multiplier * open_lots[key]
         check(f'the {key} option values at settlement × multiplier × its {open_lots[key]} open lots, within half an increment per lot',

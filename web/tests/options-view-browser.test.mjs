@@ -6,6 +6,9 @@ import {browserAvailable,browserTestTimeout,withBrowserPage} from './browser-pag
 const page='<link rel="stylesheet" href="/app.css"><section id="options-page"></section>';
 const setup=`
  const {setupOptions}=await import('/options-view.js');
+ const {prepareAmountDisplay,shownAmounts}=await import('/amount-display.js');
+ const {decimalText}=await import('/vol-surface-view.js');
+ const fixtureFormat=r=>{let [w,f]=decimalText(r.value,{places:r.decimalPlaces}).split('.');if(r.trimTrailingZeros)f=f?.replace(/0+$/,'');return w.replace(/\\B(?=(\\d{3})+$)/g,',')+(f?'.'+f:'');};
  const expiry='2027-01-26T19:30:00+00:00',model='smile_quadratic_log_moneyness_v1';
  const measure=(value,missing=null)=>({value,missing});
  const analytics=delta=>({value:'0.167',priceBump:'0.012',delta:measure(delta),gamma:measure('1.987955334753591876'),vega:measure('0.001634163476493991'),theta:measure('-0.00412')});
@@ -16,13 +19,14 @@ const setup=`
   expiries:[{expiryAt:expiry,underlyingCode:'ng_f27',futures:'3.01',status:'fitted',parameters:{a:'0.45',b:'-0.1',c:'0.8'},points:5,rmsResidual:'0.001',maxAbsResidual:'0.002',grid:[],atTheMoneyStrike:'3',daysToExpiry:'102.104'}],
   series:[series('c3','call','3',false),series('p3','put','3',false),series('c325','call','3.25',false,{analytics:{...analytics('0.3'),vega:measure(null,'sensitivity_unstable')}}),series('p325','put','3.25',true)]};
  const figure=(amount,missing=null)=>({amount,missing});
- const positions={model,held:[{series:'c3',openLots:'2'}],totals:[{currency:'USD',value:figure('4000.000000000000000000'),theta:figure(null,'theta_days_differ')}],
-  groups:[{underlyingSeries:'ng_f27',expiryAt:expiry,product:'synthetic_on',productName:'Synthetic gas options',definitionRevisionId:'definition-held',currency:'USD',quantityUnit:'MMBtu',
+ const reference={catalogId:'synthetic',revisionId:'r'};
+ const positions={model,held:[{series:'c3',seriesReference:{revision:reference,code:'c3'},openLots:'2'},{series:'c3',seriesReference:{revision:{...reference,revisionId:'other'},code:'c3'},openLots:'99'}],totals:[{currency:'USD',value:figure('4000.000000000000000000'),theta:figure(null,'theta_days_differ')}],
+  groups:[{underlyingSeries:'ng_f27',expiryAt:expiry,product:'synthetic_on',productName:'Synthetic gas options',definitionRevisionId:'definition-held',currency:'USD',priceUnit:'USD/MMBtu',quantityUnit:'MMBtu',
     sensitivities:surface.sensitivities,
     rows:[{tradeId:'t1',bindingId:'b1',tradeReference:'TR-000001',bookId:'bk',book:'Synthetic options',series:'c3',right:'call',strike:'3',openLots:'2',state:'analysed',reason:null,
-      value:figure('3340.000000000000000000'),delta:figure('10460.000000000000000000'),gamma:figure('39759.106695071837520000'),vega:figure('32.683269529879820000'),theta:figure('-82.400000000000000000')}],
-    subtotal:{value:figure('3340.000000000000000000'),delta:figure('10460.000000000000000000'),gamma:figure('39759.106695071837520000'),vega:figure('32.683269529879820000'),theta:figure('-82.400000000000000000')}},
-   {underlyingSeries:'cl_g27',expiryAt:'2027-02-23T19:30:00+00:00',product:'synthetic_lo',productName:'Synthetic crude options',definitionRevisionId:'definition-other',currency:'USD',quantityUnit:'bbl',sensitivities:null,
+      value:figure('3340.000000000000000000'),delta:figure('10460.000000000000000000'),gamma:figure('39759.106695071837520000'),vega:figure('32.6833269529879820000'),theta:figure('-82.4000000000000000000')}],
+    subtotal:{value:figure('3340.000000000000000000'),delta:figure('10460.000000000000000000'),gamma:figure('39759.106695071837520000'),vega:figure('32.6833269529879820000'),theta:figure('-82.4000000000000000000')}},
+   {underlyingSeries:'cl_g27',expiryAt:'2027-02-23T19:30:00+00:00',product:'synthetic_lo',productName:'Synthetic crude options',definitionRevisionId:'definition-other',currency:'USD',priceUnit:'USD/MMBtu',quantityUnit:'bbl',sensitivities:null,
     rows:[{tradeId:'t2',bindingId:'b2',tradeReference:'TR-000002',bookId:'bk',book:'Synthetic options',series:'lo70',right:'call',strike:'70',openLots:'4',state:'notCalibrated',reason:'not_calibrated',
       value:figure(null,'not_calibrated'),delta:figure(null,'not_calibrated'),gamma:figure(null,'not_calibrated'),vega:figure(null,'not_calibrated'),theta:figure(null,'not_calibrated')}],
     subtotal:{value:figure(null,'incomplete'),delta:figure(null,'incomplete'),gamma:figure(null,'incomplete'),vega:figure(null,'incomplete'),theta:figure(null,'incomplete')}}]};
@@ -35,7 +39,7 @@ const setup=`
   clock:{source:'surface',zone:'UTC'},offered,templates:[
    {id:'straddle',name:'Straddle',refusal:null,legs:[{series:'c3',right:'call',strike:'3',side:'buy',lots:1,entryPrice:'0.1670'},{series:'p3',right:'put',strike:'3',side:'buy',lots:1,entryPrice:'0.1670'}]},
    {id:'iron_condor',name:'Iron condor',legs:null,refusal:{code:'strategy_template_strike',message:'Iron condor needs a put 4 listed strikes below 3, and the expiry lists none there.'}}]};
- const analysed=body=>({product:body.product,expiryAt:body.expiryAt,valuationAt:at,underlyingSeries:'ng_f27',currency:'USD',quantityUnit:'MMBtu',futures:'3.01',
+ const analysed=body=>({product:body.product,expiryAt:body.expiryAt,valuationAt:at,underlyingSeries:'ng_f27',currency:'USD',priceUnit:'USD/MMBtu',quantityUnit:'MMBtu',futures:'3.01',
   request:{prices:body.prices,instants:body.instants,volatilityShiftPoints:body.volatilityShiftPoints},
   legs:body.legs.map(leg=>({series:leg.series,right:leg.series[0]==='c'?'call':'put',strike:'3',side:leg.side,lots:String(leg.lots),entryPrice:leg.entryPrice,multiplier:'10000',premium:'1670',
    state:'solved',reason:null,settlement:'0.167',impliedVolatility:'0.4512',value:'0.167',delta:measure(leg.series[0]==='c'?'0.523':'-0.477')})),
@@ -51,14 +55,14 @@ const setup=`
  const api=async(path,body,signal)=>{
   calls.push(path.split('?')[0]);
   if(path.startsWith('reference/catalog'))return {definitionRevisionId:'definition-a',rows:[{code:'synthetic_on',name:'Synthetic gas options'},{code:'synthetic_lo',name:'Synthetic crude options'}],hasMore:false};
-  if(path==='options/positions'){if(failPositions)throw Object.assign(Error('The positions could not be read.'),{code:'synthetic_failure'});return positions;}
+  if(path==='options/positions'){if(failPositions)throw Object.assign(Error('The positions could not be read.'),{code:'synthetic_failure'});await prepareAmountDisplay(shownAmounts(path,positions),async requests=>requests.map(fixtureFormat));return positions;}
   if(path==='vol-surfaces/axes')return {definitionRevisionId:'definition-a',snapshotId:'synthetic-close',model,initialAxis:'server_axis',axes:[{id:'server_axis',preset:{points:[{value:'0'}]}}]};
-  if(path==='vol-surfaces/read')return {definitionRevisionId:'definition-a',snapshotId:'synthetic-close',model,state:fitted?'fitted':'notFitted',job:null,surface:fitted?surface:null};
+  if(path==='vol-surfaces/read')return {referenceRevision:reference,priceUnit:'USD/MMBtu',definitionRevisionId:'definition-a',snapshotId:'synthetic-close',model,state:fitted?'fitted':'notFitted',job:null,surface:fitted?surface:null};
   if(path==='options/strategy/setup')return {...strategySetup,product:body.product,expiryAt:body.expiryAt};
   if(path==='options/strategy/analyze'){
    analyses.push(body);signals.push(signal);if(holdAnalysis)await holdAnalysis;
    if(refuseAnalysis)throw Object.assign(Error('Choose a positive lower bound, a higher upper bound and at least two points whose even spacing is an exact decimal.'),{code:'strategy_price_range'});
-   return analysed(body);
+   const answer=analysed(body);await prepareAmountDisplay(shownAmounts(path,answer),async requests=>requests.map(fixtureFormat));return answer;
   }
   throw Error('unexpected read '+path);
  };
@@ -109,8 +113,8 @@ browser('positions list the rows, subtotals and totals the backend states with t
   uncalibrated:[crude.querySelector('tr[data-series=lo70]').dataset.state,...text(crude.querySelector('tr[data-series=lo70]')).slice(3)],
   total:text($('#options-position-table .options-position-total')),totalWhy:$('#options-position-table .options-position-total td.options-missing-figure').title,opened};
 `,{state:'positions',products:true,note:'ng_f27Synthetic gas options · expires Jan 26, 2027, 7:30 PM · money in USD, delta and gamma in MMBtu · theta for the day to Oct 17, 2026, 5:00 PM',
- row:['TR-000001','Synthetic options','c3','2','3,340.00','10,460','39,759','32.68','-82.40'],subtotal:['Subtotal · ng_f27','3,340.00','10,460','39,759','32.68','-82.40'],
- uncalibrated:['notCalibrated','4','—','—','—','—','—'],total:['Total · USD','4,000.00','','','','—'],totalWhy:'These thetas run to different days, so they are not one sum',
+ row:['TR-000001','Synthetic options','c3','2','3,340.000','10,460','39,759.107','32.683','-82.400'],subtotal:['Subtotal · ng_f27','3,340.000','10,460','39,759.107','32.683','-82.400'],
+ uncalibrated:['notCalibrated','4','—','—','—','—','—'],total:['Total · USD','4,000.000','','','','—'],totalWhy:'These thetas run to different days, so they are not one sum',
  opened:[['synthetic_lo','definition-other',null]]});
 
 browser('a read that fails is said, and stays said while the person changes view, until a read succeeds',`
@@ -157,8 +161,8 @@ browser('a template fills its legs and is analysed with the offered policies sen
   prices:{lower:'2.6',upper:'3.4',points:21},instants:true,shift:'0',policies:true,context:'synthetic-close',definition:'definition-a'},
  call:['Buy','1','3 call c3','0.167','45.1%','0.52'],put:['Buy','-0.48'],chart:true,
  label:'Profit and loss against the futures price: At expiry, Valuation · Oct 16, 2026, 5:00 PM. Futures 3.01, Breakeven 2.666, Breakeven 3.334',
- card:['Net premium','Debit 3,340.00 USD','Maximum profit','Unbounded','Maximum loss','-3,340.00 USD','Breakevens','2.666 · 3.334'],tones:['','','options-tone-loss',''],
- tiles:[['value','3,340.00','USD',''],['delta','460','MMBtu',''],['gamma','39,759','MMBtu per 1.00 of price',''],['vega','—','USD per volatility point','A position in this sum has no figure'],['theta','-82.40','USD for one day','']],
+ card:['Net premium','Debit 3,340.000 USD','Maximum profit','Unbounded','Maximum loss','-3,340.000 USD','Breakevens','2.666 · 3.334'],tones:['','','options-tone-loss',''],
+ tiles:[['value','3,340.000','USD',''],['delta','460','MMBtu',''],['gamma','39,759.1','MMBtu per (USD/MMBtu)',''],['vega','—','USD per volatility point','A position in this sum has no figure'],['theta','-82.400','USD for one day','']],
  basis:true,message:''});
 
 browser('a leg comes from the chain at its settlement; changing it marks the analysis as stale, and a refusal is said with its code while the legs stay',`

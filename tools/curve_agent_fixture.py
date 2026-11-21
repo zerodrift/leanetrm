@@ -51,7 +51,7 @@ def prepare(url, query, manifest, client=None):
     frame = initial_frame(client.call('workspace/navigation'), '2020-12-18')
     saved = client.call('custom-curves/save', {'requestId': str(uuid4()), 'snapshotId': frame['id'], 'definition': definition, 'layout': {}})
     client.call('profile', {'profile': 'approver'})
-    client.call('custom-curves/publish', {'requestId': str(uuid4()), **{k: saved[k] for k in ('id', 'version', 'generation')}})
+    client.call('custom-curves/publish', {'snapshotId':frame['id'],'requestId': str(uuid4()), **{k: saved[k] for k in ('id', 'version', 'generation')}})
     client.call('profile', {'profile': 'editor'})
     current_calendar = next(c['reference'] for c in client.call('date-schedules')['calendars'] if c['reference']['code'] == 'test_business')
     successor = client.call('date-schedules/save', {**schedule_terms, 'definition': {**schedule_terms['definition'], 'day': 17}, 'calendar': current_calendar, 'expectedState': 'published',

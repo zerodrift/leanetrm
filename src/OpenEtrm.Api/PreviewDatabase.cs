@@ -1031,6 +1031,12 @@ public sealed class PreviewData
         var quote=Single(QuoteRows(Single(DefinitionRows("curves","code",curve)).Text("quote_code")));
         return PriceUnitLabel(Single(ReferenceRows("currencies","code",quote.Currency.Code)).Text("display_code"),QuantityUnit(quote.Quantity.Code),quote.Multiplier.ToString());
     }
+    public string UnitLabel(PriceUnit unit)
+    {
+        if(unit.Currency.Revision!=ReferenceRevision||unit.Quantity.Revision!=ReferenceRevision)
+            throw new MarketDataException("reference_pin_mismatch","A price label requires its exact source reference revision.");
+        return PriceUnitLabel(Single(ReferenceRows("currencies","code",unit.Currency.Code)).Text("display_code"),QuantityUnit(unit.Quantity.Code),unit.Multiplier.ToString());
+    }
     // The symbol of the unit a quantity specification measures in.
     public string QuantityUnit(string specification)=>Single(ReferenceRows("units","code",Single(ReferenceRows("quantity_specifications","code",specification)).Text("unit_code"))).Text("symbol");
     // Currency, then unit, then a price multiplier other than one.

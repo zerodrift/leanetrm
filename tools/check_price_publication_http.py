@@ -1,4 +1,6 @@
 """Publication authoring and normalized final ingestion over the owned preview API."""
+
+from price_publication_fixture import index_binding
 from copy import deepcopy
 import json
 from uuid import uuid4
@@ -35,7 +37,7 @@ def run_checks(url, query, manifest):
     definition = dict(key=dict(catalogId=catalog['catalogId'], id=str(uuid4()), version=1), references=catalog['references'],
                       publisher=dict(key=dict(catalogId=catalog['catalogId'], id=str(uuid4()), version=1), name='Synthetic API publisher'),
                       name='Synthetic API monthly report', commodities=[index['commodity']],
-                      indices=[{k:v for k,v in index.items() if k != 'name'} | dict(symbol='SYNTH_API_GAS', statistic='monthly_index')],
+                      indices=[index_binding(index, symbol='SYNTH_API_GAS', statistic='monthly_index')],
                       calendar=catalog['calendars'][0]['reference'], clock=catalog['clocks'][0]['reference'], implementation='gas_monthly_explicit_v1')
     request = dict(requestId=str(uuid4()),snapshotId=snapshot,expectedVersion=0,definition=definition)
     saved = client.call('price-publications/save',request)

@@ -52,6 +52,19 @@ static class TradingBlotterChecks
 
     public static void Run()
     {
+
+        var capacityPrice=Position("capacity-1","heat_rate_call","mw","100");
+        capacityPrice["fixedPrice"]="10";capacityPrice["priceUnitLabel"]="USD/MWh";
+        capacityPrice["priceUnitReference"]=JsonSerializer.SerializeToNode(new{currency=new ReferenceKey(Revision,"usd"),quantity=new ReferenceKey(Revision,"mwh"),multiplier="1"},Json);
+        var energyPrice=(JsonObject)capacityPrice.DeepClone();energyPrice["tradeId"]="capacity-2";energyPrice["fixedPrice"]="20";energyPrice["priceUnitLabel"]="USD/GJ";
+        energyPrice["priceUnitReference"]=JsonSerializer.SerializeToNode(new{currency=new ReferenceKey(Revision,"usd"),quantity=new ReferenceKey(Revision,"gj"),multiplier="1"},Json);
+        var prices=TradingBlotter.Groups(Pivot(TotalsConvention,["instrumentType"],["fixedPriceMean"],PriceStatistics.MeanPolicy),[capacityPrice,energyPrice]);
+        Require(prices.Count==2&&prices.Select(p=>Text(p,"fixedPriceMean")).Order().SequenceEqual(new[]{"10","20"}),"Equal capacity quantities must not merge different price denominators.");
+        Require(prices.Select(p=>Text(p,"priceUnit")).Order().SequenceEqual(new[]{"USD/GJ","USD/MWh"}),"Price statistics must label their actual price denomination, independently of external MW.");
+        var scaled=(JsonObject)capacityPrice.DeepClone();scaled["tradeId"]="capacity-3";scaled["fixedPrice"]="30";scaled["priceUnitLabel"]="USD/MWh × 100";
+        scaled["priceUnitReference"]!["multiplier"]="100";
+        Require(TradingBlotter.Groups(Pivot(TotalsConvention,["instrumentType"],["fixedPriceMean"],PriceStatistics.MeanPolicy),[capacityPrice,scaled]).Count==2,"Quote multipliers are part of a price denomination.");
+        Console.WriteLine("PASS price pivots partition by exact quote units independently of external capacity quantities");
         Validation();
         Partitions();
         Aggregation();

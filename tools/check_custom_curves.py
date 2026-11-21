@@ -204,7 +204,7 @@ def run_checks(url, query=None, manifest=None, pg_log=None, *, check_budget=Fals
     updated=client.call('custom-curves/save',changed)
     assert updated['generation']==2 and updated['saver']=={'savedBy':'person'},updated
     client.call('custom-curves/save',{**changed,'requestId':str(uuid4())},expected=409)
-    publish={'requestId':str(uuid4()),'id':saved['id'],'version':1,'generation':2}
+    publish={'snapshotId':frame['id'],'requestId':str(uuid4()),'id':saved['id'],'version':1,'generation':2}
     client.call('custom-curves/publish',publish,expected=403)
     client.call('profile',{'profile':'approver'})
     published=client.call('custom-curves/publish',publish)

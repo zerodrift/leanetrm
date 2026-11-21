@@ -44,7 +44,7 @@ internal static class ScheduleViewChecks
         if(inspected.Total!=1||inspected.Rows is not [var payment]||payment.DeliveryFrom!=new DateOnly(2031,12,1)||
             payment.DeliveryTo!=new DateOnly(2032,1,1)||payment.ValueAt!=PayAt||payment.Quantity!="310000"||payment.Price!="3.412"||
             payment.Amount!="1057720"||payment.DiscountFactor!="1"||payment.PresentValue!="1057720"||payment.Lifecycle.Due!="NotDue"||
-            payment.Lifecycle.Cash!="NotTracked"||payment.QuantitySpecification!=Quote.Quantity||payment.Currency!=Quote.Currency||payment.QuoteMultiplier!="1")throw new Exception("The shared inspector must expose exact schedule dates and evaluated price, discount, value and independent lifecycle facts.");
+            payment.Lifecycle.Cash!="NotTracked"||payment.QuantitySpecification!=Quote.Quantity||payment.Currency!=Quote.Currency||payment.QuoteMultiplier!="1"||payment.PriceUnit!=PriceUnit.FromQuote(Quote))throw new Exception("The shared inspector must expose exact schedule dates and evaluated price, discount, value and independent lifecycle facts.");
         if(payment.PaymentTiming!="utc_payment_day")throw new Exception("Retained cash inspection must retain its actual saved UTC payment-day law.");
         var signed=SideScheduleInspection.Read(cash with{Coefficient=S(-1),Scale=D("2")},Utc,0,48).Rows.Single();
         if(signed.Quantity!="-620000"||signed.Amount!="-2115440"||signed.PresentValue!="-2115440"||signed.Price!="3.412"||signed.DiscountFactor!="1")

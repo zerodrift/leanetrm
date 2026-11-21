@@ -148,7 +148,7 @@ function scheduledTerms(detail:Detail,zone:string,formats:HoldingFormats):TermSe
 // What a settlement lifecycle states of a swap valued by it (D215), each measure in the swap's currency.
 function lifecycleSection(detail:Detail,formats:HoldingFormats):TermSection{
  const t=detail.state.terms,lifecycle=detail.settlementValuation!,floating=t.scheduled?t.scheduled.second.periods[0].floating!:t.floating;
- const currency=detail.catalog.indices.find(i=>i.currencyCode===floating.currency)?.currency??floating.currency;
+ const currency=detail.catalog.indices.find(i=>i.definitionRevisionId===t.definitionRevisionId&&i.currencyCode===floating.currency)?.currency??floating.currency;
  return {title:'Settlement lifecycle',rows:lifecycleMeasures.map(([name,field])=>{
   const value=lifecycle[field];if(typeof value!=='string')throw Error('The settlement lifecycle did not state its measures.');
   return [name,`${minus(formats.money(value))} ${currency}`] as const;})};
@@ -165,7 +165,7 @@ export function swapTerms(detail:Detail,zone:string,formats:HoldingFormats):Term
 function singlePeriodTerms(detail:Detail,zone:string,formats:HoldingFormats):TermSection[]{
  const s=detail.state,t=s.terms,catalog=detail.catalog,pair=t.swapType==='financial_floating_floating';
  const indexOf=(side:FloatingTerms)=>retainedIndex(catalog,t,side);
- const currency=(code:string)=>catalog.indices.find(i=>i.currencyCode===code)?.currency??code;
+ const currency=(code:string)=>catalog.indices.find(i=>i.definitionRevisionId===t.definitionRevisionId&&i.currencyCode===code)?.currency??code;
  // Every price of a swap is per its instrument quantity unit, which is the unit of its second floating side's index.
  const quantityIndex=indexOf(t.floating),payments=(payment:PaymentInput|null)=>payment?paymentRows(payment,catalog.paymentOptions):[];
  const common=(terms:{currency:string;deliveryFrom:string;deliveryTo:string;paymentSchedule:PaymentInput|null})=>[['Currency',currency(terms.currency)] as const,['Delivery',deliveryLabel(terms.deliveryFrom,terms.deliveryTo)] as const,...payments(terms.paymentSchedule)];

@@ -123,6 +123,19 @@ public sealed partial class TradingBlotter(PreviewDatabase database,FuturesStore
  private static bool Valuation(string measure)=>measure is "presentValue" or "executionPnl"||PriceMeasures.TryGetValue(measure,out var price)&&price.Field=="mark";
  private static string? Text(JsonObject row,string key)=>row[key]?.GetValue<string>();
  private static ReferenceKey Key(JsonObject row,string key)=>row[key]!.Deserialize<ReferenceKey>(Json);
+ private static PriceUnit? PriceDenomination(JsonObject row)
+ {
+  if(row["priceUnitReference"] is not JsonObject reference)
+  {
+   if(new[]{"executionPrice","fixedPrice","mark"}.Any(field=>row[field] is not null))
+    throw new MarketDataException("blotter_price_unit","A stated price requires its exact currency, quantity and multiplier.");
+   return null;
+  }
+  var unit=new PriceUnit(Key(reference,"currency"),Key(reference,"quantity"),ExactDecimal.Parse(Text(reference,"multiplier")??throw Invalid()));
+  if(unit.Currency!=Key(row,"currencyReference"))throw new MarketDataException("currency_mismatch","A price must retain the holding's exact currency.");
+  return unit;
+ }
+ private static object? PricePartition(JsonObject row)=>PriceDenomination(row) is {} unit?new{unit.Currency,unit.Quantity,multiplier=unit.Multiplier.ToString()}:null;
  private static bool Valued(JsonObject row)=>row["unavailableReason"] is null;
  private static int Unvalued(IEnumerable<JsonObject> selected)=>selected.Where(r=>!Valued(r)).Select(r=>Text(r,"tradeId")).Distinct().Count();
  internal static object Project(FuturesBlotterView view,List<JsonObject> rows,int evaluatedContracts,JsonNode? totals,Work work)=>
@@ -141,7 +154,7 @@ public sealed partial class TradingBlotter(PreviewDatabase database,FuturesStore
   string? Identity(JsonObject row,string field)=>row[field] is JsonObject reference?Text(reference,"code"):Text(row,field);
   var partitions=rows.OrderBy(r=>Text(r,"tradeId"),StringComparer.Ordinal).ThenBy(r=>Text(r,"bindingId"),StringComparer.Ordinal).GroupBy(r=>JsonSerializer.Serialize(new{
    dimensions=view.GroupBy.Select(d=>d=="market"?Text(r,"marketKey")??Identity(r,dimensions[d]):Identity(r,dimensions[d])),type=Text(r,"instrumentType"),quantity=byQuantity?Key(r,"quantitySpecification"):(ReferenceKey?)null,currency=Key(r,"currencyReference"),
-   priceMultiplier=hasPrices?Text(r,"quoteMultiplier"):null,definition=byDefinition?Text(r,"definitionRevisionId"):null,measure=Text(r,"measure")}));
+   priceUnit=hasPrices?PricePartition(r):null,definition=byDefinition?Text(r,"definitionRevisionId"):null,measure=Text(r,"measure")}));
   foreach(var partition in partitions)
   {
    var first=partition.First();var group=new JsonObject();
@@ -162,7 +175,7 @@ public sealed partial class TradingBlotter(PreviewDatabase database,FuturesStore
    if(first["measure"] is {} code){group["measure"]=code.DeepClone();group["measureLabel"]=first["measureLabel"]?.DeepClone();}
    foreach(var field in byQuantity?new[]{"instrumentType","unit","currency","quantitySpecification","currencyReference"}:new[]{"instrumentType","currency","currencyReference"})
     group[field]=first[field]?.DeepClone();
-   if(hasPrices){group["quoteMultiplier"]=first["quoteMultiplier"]?.DeepClone();group["priceUnit"]=PreviewData.PriceUnitLabel(Text(first,"currency")!,Text(first,"unit")!,Text(first,"quoteMultiplier"));}
+   if(hasPrices){group["quoteMultiplier"]=PriceDenomination(first)?.Multiplier.ToString();group["priceUnitReference"]=first["priceUnitReference"]?.DeepClone();group["priceUnit"]=first["priceUnitLabel"]?.DeepClone();}
    foreach(var measure in view.Measures)
    {
     if(measure=="tradeCount"){group[measure]=partition.Select(r=>Text(r,"tradeId")).Distinct().Count();continue;}
@@ -171,7 +184,7 @@ public sealed partial class TradingBlotter(PreviewDatabase database,FuturesStore
     if(PriceMeasures.TryGetValue(measure,out var price))
     {
      if(counted.Length==0||counted.Any(r=>r[price.Field] is null)){group[measure]=null;continue;}
-     var priceUnit=new PriceUnit(Key(first,"currencyReference"),Key(first,"quantitySpecification"),ExactDecimal.Parse(Text(first,"quoteMultiplier")??throw Invalid()));
+     var priceUnit=PriceDenomination(first)??throw new MarketDataException("blotter_price_unit","A price statistic requires its exact price denomination.");
      group[measure]=PriceStatistics.AggregateExact(counted.Select(r=>ExactUnitPrice.Parse(Text(r,price.Field)!,priceUnit)).ToImmutableArray(),price.Statistic,
       price.Statistic==PriceStatistic.ArithmeticMean?view.PriceNumericalPolicy:null).ToExactString();continue;
     }

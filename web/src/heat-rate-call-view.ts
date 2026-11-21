@@ -7,7 +7,7 @@ type Api=<T>(path:string,body?:unknown,signal?:AbortSignal)=>Promise<T>;
 const product='heat_rate_call',convention='heat_rate_call_trade_v1';
 type Exercise={delivery_day:string;exercise_at:string;payment_at:string;energy_per_unit:string};
 type Position={tradeId:string;bindingId:string;instrumentType:string;quantity:string;unit:string;direction:string;curve:string;fuelCurve:string;
- heatRate:string;heatRateUnit:string;strike:string;currency:string;exerciseStyle:string;model:string;deliveryFrom:string;deliveryTo:string;
+ heatRate:string;heatRateUnit:string;strike:string;currency:string;strikeUnit:string;exerciseEnergyUnit:string;exerciseStyle:string;model:string;deliveryFrom:string;deliveryTo:string;
  measureLabel:string;unavailableReason:ValuationReason|null};
 type Read={position:Position;exercises:Exercise[]};
 const styles:Readonly<Record<string,string>>={daily_automatic_cash_exercise_v1:'Daily, automatic, cash settled'};
@@ -26,11 +26,11 @@ export async function readHeatRateCallView(api:Api,context:Record<string,unknown
   terms:[
    {title:'Heat-rate call option',rows:[['Trade',h.tradeReference],['Instrument',h.instrumentReference],['Book',h.book],
     ['Side',p.direction==='buy'?'Bought':'Written'],['Capacity',`${p.quantity.replace(/^-/,'')} ${p.unit}`],
-    ['Power curve',p.curve],['Fuel curve',p.fuelCurve],['Heat rate',`${p.heatRate} ${p.heatRateUnit}`],['Strike',`${p.strike} ${p.currency}`],
+    ['Power curve',p.curve],['Fuel curve',p.fuelCurve],['Heat rate',`${p.heatRate} ${p.heatRateUnit}`],['Strike',`${p.strike} ${p.strikeUnit}`],
     ['Exercise',named(styles,p.exerciseStyle)],['Model',named(models,p.model)],['Value measure',p.measureLabel],
     ...unavailable?[['Value unavailable',unavailable] as [string,string]]:[]]},
    {title:`Exercise days (${exercises.length})`,rows:exercises.map(e=>[e.delivery_day,
-    `${e.energy_per_unit} per ${p.unit} · exercise ${displayInstant(e.exercise_at,zone)} · paid ${displayInstant(e.payment_at,zone)}`] as [string,string])}],
+    `${e.energy_per_unit} ${p.exerciseEnergyUnit} per ${p.unit} · exercise ${displayInstant(e.exercise_at,zone)} · paid ${displayInstant(e.payment_at,zone)}`] as [string,string])}],
   history:[{title:`Revision ${h.revision}`,rows:[['Booked',displayInstant(h.executedAt,zone)],['Booker',h.trader??''],['Trade date',h.booking.tradeDate??'Unavailable']]}],
  })};
 }

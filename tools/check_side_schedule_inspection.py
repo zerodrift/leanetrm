@@ -41,9 +41,11 @@ def check_swap(client,frame,saved,instrument_type='financial_swap'):
         selected={**request,'sideSlot':side['slot']}
         read=client.call('trading/side-schedules',selected)
         assert read['contextId']==directory['contextId'] and read['page']['rows'] and not side['windows']
+        assert all(r['priceUnit'] and r['priceUnitLabel'] for r in read['page']['rows'] if r['price'] is not None)
         assert sum(Fraction(r['presentValue']) for r in read['page']['rows'])==sum(Fraction(p['tradePresentValue']) for p in valued['payments'])
         detail=client.call('trading/side-schedules',{**selected,'contribution':read['page']['rows'][0]['key']})['page']
         assert detail['valueBasis']=='unit_side_v1' and any(r['operation']=='pv' for r in detail['rows'])
+        assert all(r["unit"] and r["quoteMultiplier"] and r["valueUnitLabel"] for r in detail["rows"] if r["kind"]=="price")
     client.call('profile',dict(profile='viewer'));client.call('trading/side-schedules',request,expected=403);client.call('profile',dict(profile='trader'))
     print('PASS shared '+instrument_type+' inspection: native Side membership, signed holding PV, calculation evidence and current authority',flush=True)
 

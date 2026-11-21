@@ -6,7 +6,7 @@ import {setCurveNames,curveName} from '../dist/market-view.js';
 
 setCurveNames([{code:'future',name:'Gas futures'}]);
 const amounts=(delta,up,down)=>({base:'1',up:'2',down:'0',upPnl:up,downPnl:down,delta,gamma:'0'});
-const values=delta=>({...amounts(delta,delta,'-'+delta),display:amounts('d:'+delta,'u:'+delta,'n:'+delta),currency:'USD',currencyReference:{code:'usd'},deltaUnit:'USD / (1 USD / MMBtu (IT))',gammaUnit:'USD'});
+const values=delta=>({...amounts(delta,delta,'-'+delta),display:amounts('d:'+delta,'u:'+delta,'n:'+delta),currency:'USD',currencyReference:{revision:{catalogId:'synthetic',revisionId:'r'},code:'usd'},deltaUnit:'USD / (1 USD / MMBtu (IT))',gammaUnit:'USD'});
 const factor=(id,from,to,delta)=>({factor:{id,label:id,coordinate:'market_quote',kind:'contract',unit:'1 USD / MMBtu (IT)',curves:['future'],deliveryFrom:from,deliveryTo:to},bump:'0.05',
   totals:[{bookId:'b1',book:'Book A',measure:'futures_execution_pnl',measureLabel:'Futures execution P&L',values:values(delta)}],positions:[]});
 const result=factors=>({factors,excludedPositions:[],scenario:{depth:0,isBase:true},context:{contextId:'c1'},snapshotId:'s1'});

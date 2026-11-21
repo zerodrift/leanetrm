@@ -209,6 +209,15 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
     # Booked option positions are scaled from these stored analytics; the read prices nothing.
     held = c.call('options/positions', {'context': {'snapshotId': frame['id'], 'convention': OPTION, 'knowledgeMode': 'current'}, 'model': MODEL}, timeout=TIMEOUT)
     rows = [(group, row) for group in held['groups'] for row in group['rows']]
+    reference=dict(catalogId=manifest['referenceCatalogId'],revisionId=manifest['referenceRevisionId'])
+    currency=dict(revision=reference,code='usd')
+    check('position groups, held series and cash totals retain their exact reference identities',
+          all(group['currencyReference']==currency and row['currencyReference']==currency
+              and row['seriesReference']==dict(revision=reference,code=row['series'])
+              and group['priceUnitReference']['currency']==currency
+              and group['priceUnitReference']['quantity']['revision']==reference for group,row in rows)
+          and all(total['currencyReference']==currency for total in held['totals'])
+          and all(series['seriesReference']==dict(revision=reference,code=series['series']) for series in held['held']))
     figures = ('value',) + measures
     check('position delta and gamma are stated in the unit the underlying is quoted per, never the option contract',
           rows and {(group['product'], group['quantityUnit']) for group, _ in rows} <= {('nymex_on', 'MMBtu (IT)'), ('nymex_lo', 'bbl (42 US gal)')},
@@ -221,7 +230,7 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
                                          and all((row[m]['amount'] is None) != (row[m]['missing'] is None) for m in figures) for _, row in rows)
           and all(row['state'] != 'notCalibrated' for group, row in rows if group['product'] == PRODUCT)
           and all(row[m]['missing'] == 'not_calibrated' for group, row in rows if group['product'] != PRODUCT for m in figures)
-          and all(set(total) == {'currency', 'value', 'theta'} for total in held['totals']), held)
+          and all(set(total) == {'currency', 'currencyReference', 'value', 'theta'} for total in held['totals']), held)
     print(f"WORKLOAD option positions: {len(rows)} positions in {len(held['groups'])} underlying futures", flush=True)
     check('an unknown model is refused for positions',
           c.call('options/positions', {'context': {'snapshotId': frame['id'], 'convention': OPTION, 'knowledgeMode': 'current'}, 'model': 'smile_unknown_v1'},

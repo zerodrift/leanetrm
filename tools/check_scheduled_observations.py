@@ -55,7 +55,7 @@ def run(c,context,manifest):
         if node['kind']=='select':node['parameters']['count']='1'
         if node['kind']=='dates':node['parameters'].update(count='2',includeContext='true')
     draft=c.call('custom-curves/save',dict(requestId=str(uuid4()),snapshotId=context['snapshotId'],definition=definition,layout={}))
-    c.call('profile',{'profile':'approver'});published=c.call('custom-curves/publish',dict(requestId=str(uuid4()),id=draft['id'],version=draft['version'],generation=draft['generation']))
+    c.call('profile',{'profile':'approver'});published=c.call('custom-curves/publish',dict(snapshotId=context['snapshotId'],requestId=str(uuid4()),id=draft['id'],version=draft['version'],generation=draft['generation']))
     c.call('profile',{'profile':'trader'});fresh=c.call('swaps/catalog',context)
     index=next(i for i in fresh['indices'] if i['curve']=='base_forward')
     projection=next(p['reference'] for p in index['customProjections'] if p['reference']['curveId']==published['id'])

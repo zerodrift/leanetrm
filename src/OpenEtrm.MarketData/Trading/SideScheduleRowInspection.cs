@@ -6,7 +6,7 @@ public static partial class SideScheduleInspection
 {
  // Interval and dated Side valuations expose the same inspection row. Cash
  // evidence belongs to the evaluated binding; dates never manufacture it.
- public static ScheduleInspectionRow FromValue(ScheduleRowValue value,DateTimeOffset valuationAt,Func<DateOnly,DateTimeOffset> boundary)
+ public static ScheduleInspectionRow FromValue(ScheduleRowValue value,DateTimeOffset valuationAt,Func<DateOnly,DateTimeOffset> boundary,string quantityReferenceKind=ScheduleReferenceKinds.Quantity)
  {
   if(value?.Row.IsValid!=true||boundary is null||!TradingInstant.IsSupported(valuationAt))throw Error("Select an evaluated schedule row and explicit valuation instant.");
   var window=value.Row.DeliveryWindow;
@@ -24,7 +24,7 @@ public static partial class SideScheduleInspection
    new ScheduleInspectionLifecycle(Delivery(start,end,valuationAt),value.Kind==ComponentKind.Payment?due?"Due":"NotDue":null,
     value.Kind==ComponentKind.Payment?value.CashBalance?.State.ToString()??"NotTracked":null,value.RowClass?.ToString(),value.Coverage.ToString(),value.UnavailableReason)
     {Fulfillment=value.Kind is ComponentKind.Delivery or ComponentKind.Holding?"NotTracked":null})
-   {PaymentTiming=value.Kind==ComponentKind.Payment?Timing(value.Row.Key.Timing):null,QuantitySpecification=value.Quantity.Specification,Currency=value.Amount.Currency,QuoteMultiplier=prices is [var quoted]?quoted.Unit.Multiplier.ToString():null,OperatingDate=window is IntervalScheduleWindow native?native.Interval.OperatingDate:null,
+   {QuantityReferenceKind=quantityReferenceKind,PaymentTiming=value.Kind==ComponentKind.Payment?Timing(value.Row.Key.Timing):null,QuantitySpecification=value.Quantity.Specification,Currency=value.Amount.Currency,PriceUnit=prices is [var single]?single.Unit:null,QuoteMultiplier=prices is [var quoted]?quoted.Unit.Multiplier.ToString():null,OperatingDate=window is IntervalScheduleWindow native?native.Interval.OperatingDate:null,
     Paid=value.CashBalance?.Paid.ToExactString(),Outstanding=value.CashBalance?.Outstanding.ToExactString()};
  }
 }

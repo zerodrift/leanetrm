@@ -14,15 +14,15 @@ internal static class OptionPositionAnalyticsChecks
     private const string Model="smile_quadratic_log_moneyness_v1",Jan="2027-01-26T19:30:00Z",Feb="2027-02-23T19:30:00Z";
     private static int next;
     private static FuturesOptionPosition Position(string series,string right,string strike,string expiry,string underlying,string lots,string closed="0",string product="synthetic_on",
-        string currency="USD",string unit="MMBtu",string multiplier="10000")
+        string currency="USD",string unit="MMBtu",string multiplier="10000",Guid? referenceRevision=null,Guid? referenceCatalog=null)
     {
         var n=++next;Guid G(int k)=>Guid.Parse($"00000000-0000-0000-0000-{n*100+k:000000000000}");
         JsonElement Row(object row)=>JsonSerializer.SerializeToElement(row);
         return new(Row(new{trade_id=G(1),option_instrument_id=G(2),premium_instrument_id=G(3),definition_revision_id=Guid.Parse("00000000-0000-0000-0000-00000000d001"),revision=1,
-                reference_catalog_id=Guid.Parse("00000000-0000-0000-0000-00000000c001"),reference_revision_id=Guid.Parse("00000000-0000-0000-0000-00000000c002"),series_code=series,
+                reference_catalog_id=referenceCatalog??Guid.Parse("00000000-0000-0000-0000-00000000c001"),reference_revision_id=referenceRevision??Guid.Parse("00000000-0000-0000-0000-00000000c002"),series_code=series,
                 lots,closed_lots=closed,expired=false,trade_reference=n}),
             Row(new{id=Guid.Parse("00000000-0000-0000-0000-00000000b001"),name="Synthetic options"}),
-            Row(new{product_code=product,product_name="Synthetic gas options",option_right=right,strike,expiry_at=expiry,underlying_series_code=underlying,multiplier,unit="contract",quote_unit=unit,currency}));
+            Row(new{product_code=product,product_name="Synthetic gas options",option_right=right,strike,expiry_at=expiry,underlying_series_code=underlying,multiplier,unit="contract",quote_unit=unit,currency,currency_code=currency.ToLowerInvariant(),quote_quantity_code="synthetic_"+unit,quote_multiplier="1"}));
     }
     private static OptionMeasure Stated(string? value,string? missing=null)=>new(value is null?null:ExactDecimal.Parse(value),missing);
     private static SurfaceSeriesResult Series(string code,string outcome,OptionSeriesSensitivities? analytics)=>
@@ -85,9 +85,25 @@ internal static class OptionPositionAnalyticsChecks
             "A product with no surface here shows its lots and no figures.");
         Console.WriteLine("PASS a product not calibrated at this close shows lots and no figures");
 
+        // Equal labels do not establish currency identity, nor does a repeated series code establish one holding.
+        foreach(var other in new[]{Position("on_f27_c3","call","3",Jan,"synthetic_ng_f27","1",referenceRevision:Guid.NewGuid()),
+            Position("on_f27_c3","call","3",Jan,"synthetic_ng_f27","1",referenceCatalog:Guid.NewGuid()),
+            Position("on_f27_c3","call","3",Jan,"synthetic_ng_f27","1",currency:"GBP"),
+            Position("on_f27_c3","call","3",Jan,"synthetic_ng_f27","1",currency:"EUR"),
+            Position("on_f27_c3","call","3",Jan,"synthetic_ng_f27","1",currency:"CAD")})
+        {
+            var separate=OptionPositionAnalytics.Build(Model,[call,other],_=>gas);
+            Expect(separate["totals"]!.AsArray().Count==2,"Distinct exact currencies cannot share an option cash total.");
+            Expect(separate["totals"]!.AsArray().All(t=>t!["currencyReference"] is not null),"Cash totals retain exact currency references.");
+            if(other.Reference!=call.Reference)
+                Expect(separate["held"]!.AsArray().Count==2&&separate["held"]!.AsArray().All(h=>h!["seriesReference"] is not null),
+                    "Identically named series in different exact references retain separate held lots.");
+        }
+        Console.WriteLine("PASS option totals and held lots preserve exact currency and series identity across equal labels");
+
         var totals=read["totals"]!.AsArray();
         Expect(totals.Count==1&&totals[0]!["currency"]!.GetValue<string>()=="USD"&&Missing(totals[0]!["value"]!)=="incomplete"&&Missing(totals[0]!["theta"]!)=="incomplete"&&
-            totals[0]!.AsObject().Select(p=>p.Key).Order().SequenceEqual(new[]{"currency","theta","value"}),"Value and theta total per currency; sensitivities to different futures are never added.");
+            totals[0]!.AsObject().Select(p=>p.Key).Order().SequenceEqual(new[]{"currency","currencyReference","theta","value"}),"Value and theta total per currency; sensitivities to different futures are never added.");
         var gasOnly=OptionPositionAnalytics.Build(Model,[call,put],_=>gas)["totals"]!.AsArray();
         Expect(gasOnly.Count==1&&Amount(gasOnly[0]!["value"]!)==1000m&&Amount(gasOnly[0]!["theta"]!)==-10m,"Complete rows total exactly.");
         Console.WriteLine("PASS value and theta total per currency, and only when every member has one");

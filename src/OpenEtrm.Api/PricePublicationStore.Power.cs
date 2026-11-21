@@ -41,7 +41,7 @@ internal sealed partial class PricePublicationStore
         var missing = chart.Count(point => point.Value is null);
         var receipt = new
         {
-            publication = publication.Key, index = index.Key, source = metadata.Display, request.Market,
+            publication = publication.Key, index = index.Key, unit=index.Unit,unitLabel=data.UnitLabel(index.Unit), source = metadata.Display, request.Market,
             request.FromDate, request.ThroughDate, history.KnownAt, contextId = history.ContextId,
             publicationStatus = "collected", contractuallyFinal = false, bindingSaved = false,
             expectedIntervals = window.Length, missingIntervals = missing, complete = missing == 0,

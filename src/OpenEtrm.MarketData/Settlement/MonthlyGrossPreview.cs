@@ -1,9 +1,7 @@
 using System.Collections.Immutable;
-using System.Numerics;
 using OpenEtrm.MarketData.CustomCurves;
 using OpenEtrm.MarketData.Power;
 using OpenEtrm.MarketData.Trading;
-using OpenEtrm.Shared.Numerics;
 
 namespace OpenEtrm.MarketData.Settlement;
 
@@ -25,18 +23,18 @@ public sealed class MonthlyGrossPlan
     public ImmutableArray<PlannedPaymentContribution> Contributions { get; }
     public DateTimeOffset DueAt { get; }
     public DateTimeOffset ValuationAt { get; }
-    internal MonthlyGrossPlan(PaymentOccurrenceIdentity identity,GrossPaymentBinding original,ImmutableArray<PlannedPaymentContribution> contributions,DateTimeOffset due,DateTimeOffset valuationAt)
-    {Identity=identity;Original=original;Contributions=contributions;DueAt=due;ValuationAt=valuationAt;}
+    public CashRoundingConvention Rounding { get; }
+    internal MonthlyGrossPlan(PaymentOccurrenceIdentity identity,GrossPaymentBinding original,ImmutableArray<PlannedPaymentContribution> contributions,DateTimeOffset due,DateTimeOffset valuationAt,CashRoundingConvention rounding)
+    {Identity=identity;Original=original;Contributions=contributions;DueAt=due;ValuationAt=valuationAt;Rounding=rounding;}
 }
 
 public static class OccurrenceCash
 {
     public const string Rounding="cash_2dp_half_even_per_occurrence_v1";
-    public static ExactMoney Round(ExactMoney amount)
-    {
-        var cents=IntegerRounding.RoundQuotient(BigInteger.Parse(amount.Numerator)*100,BigInteger.Parse(amount.Denominator),MidpointRounding.ToEven);
-        return ExactMoney.FromFraction(cents,100,amount.Currency);
-    }
+    public const string ExplicitRounding="cash_explicit_increment_per_occurrence_v1";
+    public static ExactMoney Round(ExactMoney amount,CashRoundingConvention convention)=>
+        amount.RoundExact(convention,CashRoundingStage.PaymentTotal);
+
 }
 
 public static class MonthlyGrossPreview
@@ -63,13 +61,20 @@ public static class MonthlyGrossPreview
         throw Invalid("incompatible","This gross payment requires one metered whole-asset energy quantity, directly or through one physical delivery membership.");
     }
     public static MonthlyGrossPlan Plan(PaymentOccurrenceIdentity identity,GrossPaymentBinding original,ImmutableArray<GrossPaymentBinding> bindings,
-        bool terminated,DateTimeOffset? terminationAt,DateTimeOffset valuationAt,PowerClock clock)
+        bool terminated,DateTimeOffset? terminationAt,DateTimeOffset valuationAt,PowerClock clock,CashRoundingConvention rounding)
     {
         if(identity.Catalog!=original.Instrument.Definitions.CatalogId || identity.Catalog==Guid.Empty || identity.Trade==Guid.Empty || identity.Lineage==Guid.Empty || identity.Month.Day!=1 || identity.Month.Year is <2000 or >2099 || original.OriginRevision!=1)
             throw Invalid("occurrence","Select an exact original lineage and one supported operating month.");
         if(bindings.IsDefaultOrEmpty || bindings.Length>MaximumBindings || bindings.Select(b=>b.BindingId).Distinct().Count()!=bindings.Length)
             throw Invalid("manifest","Supply the complete distinct binding partition of one certified head.");
-        var baseline=Member(original);var delivery=original.Instrument.Delivery;var month=identity.Month;
+        var baseline=Member(original);
+        try
+        {
+            if(rounding is null)throw Invalid("rounding","Select explicit currency-bound rounding terms.");
+            rounding.Require(baseline.Side.Terms.Currency,CashRoundingStage.PaymentTotal);
+        }
+        catch(MarketDataException){throw Invalid("rounding","Select an exact payment currency, positive increment, supported tie rule and payment-total stage.");}
+        var delivery=original.Instrument.Delivery;var month=identity.Month;
         var grid=PowerHours.Compile(month,month.AddMonths(1),clock,TimeOfUse.All(delivery.IntervalMinutes),[],delivery.IntervalMinutes).ToImmutableArray();
         if(grid.Length>MaximumCells || valuationAt<grid[^1].End)throw Invalid("month_not_complete","The entire operating month must end before preview, including after early termination.");
         var ordered=bindings.OrderBy(b=>b.Coverage.From).ToArray();
@@ -99,7 +104,7 @@ public static class MonthlyGrossPreview
             }
         }
         if(rows.Count==0 || rows.Count>MaximumCells || rows.Select(r=>r.Key).Distinct().Count()!=rows.Count)throw Invalid("manifest","The selected month needs nonempty exclusive complete coverage.");
-        return new(identity,original,rows.ToImmutable(),due,valuationAt);
+        return new(identity,original,rows.ToImmutable(),due,valuationAt,rounding);
     }
     public static GrossPaymentPreview Calculate(MonthlyGrossPlan plan,ImmutableArray<GenerationAsset> assets,ImmutableArray<VolumeSourceDefinition> sources,
         QuantitySpecification energy,ImmutableArray<FinalMeterCell> meters,VolumeContext context,CancellationToken cancellationToken=default,GrossIndexedPrices? prices=null)
@@ -139,7 +144,7 @@ public static class MonthlyGrossPreview
                 components.Add(new(row,normalized,quantity,cash){Index=index,PaymentPrice=paymentPrice});
             }
         }
-        var result=components.ToImmutable();var total=result.Select(c=>c.Cash).Aggregate((a,b)=>a.Add(b));var rounded=OccurrenceCash.Round(total);
+        var result=components.ToImmutable();var total=result.Select(c=>c.Cash).Aggregate((a,b)=>a.Add(b));var rounded=OccurrenceCash.Round(total,plan.Rounding);
         return new(plan,result,result.Select(c=>c.Quantity).Aggregate((a,b)=>a.Add(b)),total,rounded,rounded.Subtract(total));
     }
 }

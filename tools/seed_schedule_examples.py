@@ -52,7 +52,6 @@ def seed_date_plan(client, root):
     """Publish the exact mappings used by the offline instrument compiler."""
     source=json.loads((root/'date-seed-input.json').read_text())
     compiled=json.loads((root/'date-seed.json').read_text())
-    context=client.call('date-schedules/context',{'effectiveOn':'2020-12-18','knownAt':None,'mode':'current'})['context']
     results=[]
     for definition,expected in zip(source['mappings'],compiled['mappings'],strict=True):
         client.call('profile',{'profile':'editor'})
@@ -62,6 +61,9 @@ def seed_date_plan(client, root):
                 raise ValueError('An incomplete or revised demo mapping requires inspection.')
             saved=existing[0]
         else:
+            # A profile change ends the previous actor's read references. Capture
+            # these coordinates for this authoring operation, after choosing it.
+            context=client.call('date-schedules/context',{'effectiveOn':'2020-12-18','knownAt':None,'mode':'current'})['context']
             saved=client.call('date-schedules/contracts/save',{
                 **definition,'context':context,'requestId':str(uuid5(NAMESPACE,'save:'+definition['code']))})
             client.call('profile',{'profile':'approver'})

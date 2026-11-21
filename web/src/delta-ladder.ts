@@ -1,3 +1,5 @@
+import {exactReferenceKey,type PriceUnitReference} from './financial-provenance.js';
+import type {Reference} from './desk-model.js';
 // The desk's delta ladder (delta-ladder.md, D230): a risk run's per-factor totals exactly as the server returns them, one row for each
 // shocked factor and one column for each book, measure and currency. Nothing here adds, converts or infers a value: a row is its own
 // shock and rows overlap (a computed point repeats the exposure of the quotes it is built from), so the ladder has no totals.
@@ -9,14 +11,14 @@ import {sensitivityFactors,type RiskReport,type RiskFactorResult,type RiskTotal}
 
 /** Which of a total's values the ladder shows: its delta per one unit of the factor's price, or its P&L if the factor moves up or down. */
 export type LadderValue='delta'|'upPnl'|'downPnl';
-export type LadderColumn={key:string;title:string;bookId:string;book:string;measure:string;currency:string};
+export type LadderColumn={key:string;title:string;bookId:string;book:string;measure:string;currency:string;currencyReference:Reference};
 export type LadderCell={missing:true}|{missing?:false;text:string;exact:string;unit:string;zero:boolean;nonlinear:boolean;up:string;down:string;upExact:string;downExact:string};
-export type LadderRow={factorId:string;period:string;coordinate:string;shock:string;priceUnit:string;cells:LadderCell[]};
+export type LadderRow={factorId:string;period:string;coordinate:string;shock:string;priceUnit:string;priceUnitReference:PriceUnitReference;cells:LadderCell[]};
 export type LadderGroup={key:string;title:string;rows:LadderRow[]};
 export type Ladder={columns:LadderColumn[];groups:LadderGroup[]};
 
 const coordinates:Readonly<Record<string,string>>={market_quote:'Quote',computed_output:'Computed point'};
-const columnKey=(t:RiskTotal)=>JSON.stringify([t.bookId,t.measure,t.values.currency]);
+const columnKey=(t:RiskTotal)=>JSON.stringify([t.bookId,t.measure,exactReferenceKey(t.values.currencyReference)]);
 
 /**
  * The ladder of a run's reports, its parts in the order they ran. Columns follow the order the server first returns each book, measure
@@ -27,9 +29,12 @@ export function deltaLadder(reports:readonly Pick<RiskReport,'factors'>[],value:
   const factors=reports.flatMap(sensitivityFactors);
   if(new Set(factors.map(f=>f.factor.id)).size!==factors.length)throw Error('This run returns a shocked factor more than once, so its ladder is not shown. Run it again.');
   const columns=new Map<string,LadderColumn>();
+  const currencies=new Map<string,Set<string>>();
+  for(const t of factors.flatMap(f=>f.totals)){const refs=currencies.get(t.values.currency)??new Set();refs.add(exactReferenceKey(t.values.currencyReference));currencies.set(t.values.currency,refs);}
+  const label=(t:RiskTotal)=>t.values.currency+(currencies.get(t.values.currency)!.size>1?` (${t.values.currencyReference.revision.catalogId} ${t.values.currencyReference.revision.revisionId} ${t.values.currencyReference.code})`:'');
   for(const t of factors.flatMap(f=>f.totals)){
     const key=columnKey(t);
-    if(!columns.has(key))columns.set(key,{key,title:`${t.book} · ${t.measureLabel} · ${t.values.currency}`,bookId:t.bookId,book:t.book,measure:t.measure,currency:t.values.currency});
+    if(!columns.has(key))columns.set(key,{key,title:`${t.book} · ${t.measureLabel} · ${label(t)}`,bookId:t.bookId,book:t.book,measure:t.measure,currency:t.values.currency,currencyReference:t.values.currencyReference});
   }
   const groups=new Map<string,LadderGroup>();
   for(const {factor,bump,totals} of factors){
@@ -38,7 +43,7 @@ export function deltaLadder(reports:readonly Pick<RiskReport,'factors'>[],value:
     const key=factor.curves.join('+');
     const group=groups.get(key)??{key,title:factor.curves.map(curveName).join(' + '),rows:[]};groups.set(key,group);
     group.rows.push({factorId:factor.id,period:factor.deliveryFrom&&factor.deliveryTo?deliveryLabel(factor.deliveryFrom,factor.deliveryTo):factor.label,
-      coordinate:coordinates[factor.coordinate]??factor.coordinate,shock:`±${bump} ${factor.unit}`,priceUnit:factor.unit,
+      coordinate:coordinates[factor.coordinate]??factor.coordinate,shock:`±${bump} ${factor.unit}`,priceUnit:factor.unit,priceUnitReference:factor.priceUnit,
       cells:[...columns.keys()].map(column=>{
         const total=byColumn.get(column);
         if(!total)return {missing:true};
@@ -52,10 +57,16 @@ export function deltaLadder(reports:readonly Pick<RiskReport,'factors'>[],value:
 
 const valueWords:Readonly<Record<LadderValue,string>>={delta:'Delta per 1 price unit',upPnl:'Up P&L',downPnl:'Down P&L'};
 /** The ladder as a spreadsheet states it: a row for each factor, its exact amounts, and the unit of every value in its headers and rows. */
-export function ladderExport(ladder:Ladder,value:LadderValue):{headers:string[];rows:string[][];numeric:number[]}{
+export function ladderExport(ladder:Ladder,value:LadderValue){
   const head=['Curve','Contract','Coordinate','Shock','Price unit','Value'];
-  return {headers:[...head,...ladder.columns.map(c=>c.title)],numeric:ladder.columns.map((_,i)=>head.length+i),
+  return {rowReferences:ladder.groups.flatMap(g=>g.rows.map(r=>({factorId:r.factorId,priceUnit:r.priceUnitReference}))),columnReferences:ladder.columns.map(c=>({key:c.key,title:c.title,bookId:c.bookId,measure:c.measure,currencyReference:c.currencyReference})),headers:[...head,...ladder.columns.map(c=>c.title)],numeric:ladder.columns.map((_,i)=>head.length+i),
     rows:ladder.groups.flatMap(g=>g.rows.map(r=>[g.title,r.period,r.coordinate,r.shock,r.priceUnit,valueWords[value],...r.cells.map(c=>c.missing?'Not reported':c.exact)]))};
+}
+
+/** CSV keeps an exact identity on each filtered/reordered row and a dictionary for its numeric columns. */
+export function ladderCsv(exported:ReturnType<typeof ladderExport>,indices:readonly number[]){
+ return {headers:[...exported.headers,'Factor ID','Exact price unit'],numeric:exported.numeric,columnReferences:exported.columnReferences,
+  rows:indices.map(i=>[...exported.rows[i],exported.rowReferences[i].factorId,JSON.stringify(exported.rowReferences[i].priceUnit)??''])};
 }
 
 export type ContractPosition={key:string;tradeReference:string;label:string;text:string;exact:string;up:string;down:string;unit:string};
