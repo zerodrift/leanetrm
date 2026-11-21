@@ -8,7 +8,8 @@ import {bookingAllowed,unappliedContext} from './new-trade.js';
 type Named={code:string;name:string};
 /** One listed series as options/catalog returns it. */
 export type OptionSeries={definitionRevisionId:string;series:string;instrumentId:string;contractId:string;product:string;name:string;exchange:Named;commodity:Named;underlyingSeries:string;
- right:string;strike:string;expiryAt:string;exerciseStyle:string;premiumStyle:string;contraryInstructionsAllowed:boolean;multiplier:string;currency:string;
+ right:string;strike:string;expiryAt:string;lastTradingAt?:string|null;exerciseStyle:string;premiumStyle:string;contraryInstructionsAllowed:boolean;multiplier:string;currency:string;
+ quoteUnit?:string;priceUnit?:string;deliveryLot?:string|null;settlementPremiumPerLot?:string;
  premiumTick:string;minimumPremium:string;maximumPremium:string;curve:string;settlementPrice:string};
 /** An underlying future the catalog's series exercise into, with its product's name and delivery period. */
 export type OptionUnderlying={definitionRevisionId:string;series:string;name:string;deliveryFrom:string;deliveryTo:string};

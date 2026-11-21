@@ -97,6 +97,11 @@ ROLLBACK;""") is not None
     listed = chain + ['trading_close_times', 'futures_series', 'futures_milestones']
     def option_insert(changes):
         return f"INSERT INTO ref_data.futures_option_series SELECT (jsonb_populate_record(NULL::ref_data.futures_option_series,'{on_option}'::jsonb||jsonb_build_object('revision_id','{draft}','code','changed'{changes}))).*;"
+    check('a separate last trade belongs to the published local trading date', rejected(
+        draft_copy(listed) + option_insert(",'last_trading_at','2026-11-23T20:00:00Z'") + "SET CONSTRAINTS ALL IMMEDIATE;",
+        'P0001', message='option_trading_date'))
+    check('the original fixed option still converts one quoted premium into its published contract amount',
+          query(f"SELECT DISTINCT ref_data.futures_option_multiplier(catalog_id,revision_id,code) FROM ref_data.futures_option_series WHERE {in_revision} AND product_code='nymex_lo';") == '1000')
     check('a strike on the futures tick but off the strike grid is rejected', rejected(
         draft_copy(listed) + option_insert(f",'strike',(('{on_option}'::jsonb->>'strike')::numeric+{tick})"), 'P0001', message='option_strike'))
     check('a series whose option product is not readable in its own revision is refused', rejected(

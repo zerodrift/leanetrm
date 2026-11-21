@@ -71,6 +71,13 @@ Exchange specifics are reference data, never code:
   held at the signed premium amount: −premium × multiplier × lots, so a long pays and
   a short receives. Equal cash on the same date is one shared instrument.
 
+For a delivery-hour option, the series supplies the energy in one underlying
+futures lot. A quoted premium of 1.25 USD/MWh gives 400 USD per 320 MWh lot
+and 460 USD per 368 MWh lot. The ticket shows the dated quantity and one-lot
+premium at settlement. A fixed-multiplier product retains its own conversion.
+Where the listing supplies a separate last-trade instant, new bookings close
+at that instant. Exercise and expiry use the sourced notice and expiry times.
+
 The premium payment date is explicit and may not precede the execution date, the UTC
 date of the trade's execution; an earlier date is refused with `option_booking_input`.
 A premium dated on the execution date is due from the start of that UTC day.

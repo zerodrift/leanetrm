@@ -67,7 +67,11 @@ public sealed record FuturesSeriesSpecification(
 public sealed record FuturesOptionSeriesSpecification(
     ReferenceKey Key, ReferenceKey Product, ReferenceKey UnderlyingSeries, Options.FuturesOptionTerms Terms,
     ExactDecimal Multiplier, ReferenceKey Currency, ReferenceKey LotQuantity, ExactDecimal ClearingIncrement,
-    string AutomaticExerciseRule, bool ContraryInstructionsAllowed, DateTimeOffset? InstructionCutoffAt, string PremiumStyle);
+    string AutomaticExerciseRule, bool ContraryInstructionsAllowed, DateTimeOffset? InstructionCutoffAt, string PremiumStyle)
+{
+    public DateTimeOffset? LastTradingAt { get; init; }
+    public bool OpenForBooking(DateTimeOffset at) => at < (LastTradingAt ?? Terms.ExpiryAt);
+}
 
 // Identity mapping is the first supported delivery mapping. Explicitly named
 // pairs are required even where source and target delivery periods are equal.

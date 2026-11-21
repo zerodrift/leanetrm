@@ -70,12 +70,12 @@ public sealed partial class FuturesOptionStore(PreviewDatabase database)
             convention=Convention,options=options.ToImmutable(),underlyings=underlyings.ToImmutable(),unavailable=unavailable.ToImmutable()};
     }
 
-    // The listed option series whose expiry is after the frame.
+    // The listed option series still open for a new trade at the frame.
     private static IEnumerable<FuturesOptionSeriesSpecification> Listed(PreviewData data,InputFrame frame)
     {
         var members=frame.CurveContracts.SelectMany(pair=>pair.Value).ToHashSet();
         var series=data.Contracts.Where(contract=>contract.Kind==ContractKind.FutureOption&&members.Contains(contract.Key.Id)).Select(contract=>contract.FuturesSeries).ToHashSet();
-        return data.FuturesOptionSeries.Where(option=>series.Contains(option.Key)&&frame.At<option.Terms.ExpiryAt);
+        return data.FuturesOptionSeries.Where(option=>series.Contains(option.Key)&&option.OpenForBooking(frame.At));
     }
 
     // Every listed option series whose expiry is after the frame, with its exchange, commodity and daily settlement at the
@@ -108,14 +108,21 @@ public sealed partial class FuturesOptionStore(PreviewDatabase database)
                 var product=Single(data.ReferenceRows("futures_option_products","code",s.Series.Product.Code));
                 var quote=Single(data.QuoteRows(product.Text("quote_code")));
                 var exchange=Single(data.ReferenceRows("exchanges","code",product.Text("exchange_code")));
+                var quoteUnit=data.QuantityUnit(quote.Quantity.Code);
+                var settlement=prices![s.Request].Single().Price.Value;
+                var deliveryLot=product.TryGetProperty("multiplier_basis",out var basis)&&basis.GetString()=="underlying_lot"
+                    ? Single(data.FuturesSeries.Where(f=>f.Key==s.Series.UnderlyingSeries)).LotResolution!.Quantity.Amount.ToString()
+                    : null;
                 return new {definitionRevisionId=data.DefinitionRevision.RevisionId,series=s.Series.Key.Code,instrumentId=ContractIdentity.FuturesOption(s.Series.Key),contractId=s.Contract.Key.Id,
                     product=product.Text("code"),name=product.Text("name"),exchange=new{code=exchange.Text("code"),name=exchange.Text("name")},
                     commodity=data.Commodity(s.Request.Curve.Code),underlyingSeries=s.Series.UnderlyingSeries.Code,
                     right=s.Series.Terms.Right.ToString().ToLowerInvariant(),strike=s.Series.Terms.Strike.ToString(),expiryAt=s.Series.Terms.ExpiryAt.ToString("O",CultureInfo.InvariantCulture),
+                    lastTradingAt=s.Series.LastTradingAt?.ToString("O",CultureInfo.InvariantCulture),
                     exerciseStyle=s.Series.Terms.ExerciseStyle,premiumStyle=s.Series.PremiumStyle,contraryInstructionsAllowed=s.Series.ContraryInstructionsAllowed,
                     multiplier=s.Series.Multiplier.ToString(),currency=Single(data.ReferenceRows("currencies","code",s.Series.Currency.Code)).Text("display_code"),
                     premiumTick=quote.TradingTick.ToString(),minimumPremium=quote.Minimum.ToString(),maximumPremium=quote.Maximum.ToString(),
-                    curve=s.Request.Curve.Code,settlementPrice=prices![s.Request].Single().Price.Value.ToString()};
+                    curve=s.Request.Curve.Code,settlementPrice=settlement.ToString(),quoteUnit,priceUnit=data.PriceUnit(s.Request.Curve.Code),deliveryLot,
+                    settlementPremiumPerLot=(settlement*s.Series.Multiplier).ToString()};
             })];
     }
 

@@ -60,7 +60,46 @@ internal static partial class FuturesOptionChecks
         Check("futures option binding is refused by another market definition with the same snapshot", ForeignMarketBinding);
         Check("futures option receipts record every calibration input", ReceiptInputs);
         Check("an expired futures option settlement is never frozen as a forward block's final settlement", NoFrozenOptionSettlement);
+        Check("last trade closes before the final exercise instruction, with the legacy expiry as default", ListedTradingEndsBeforeExercise);
+        Check("the dated delivery quantity scales an option premium exactly once", DatedDeliveryPremium);
         StrikeCentredChecks();
+    }
+
+    private static void ListedTradingEndsBeforeExercise()
+    {
+        var market = new OptionMarket();
+        var expiry = OptionMarket.Expiry;
+        var legacy = market.Series(11);
+        var lastTrade = expiry.AddHours(-2);
+        var series = legacy with { LastTradingAt = lastTrade, InstructionCutoffAt = expiry };
+        var option = new FuturesOptionInstrument(series);
+        if (!option.Series.OpenForBooking(lastTrade.AddTicks(-1)) || option.Series.OpenForBooking(lastTrade) ||
+            !legacy.OpenForBooking(lastTrade) || legacy.OpenForBooking(expiry) || option.Series.Terms.ExpiryAt != expiry)
+            throw new Exception("Trading, final exercise and the original booking window must retain their own bounds.");
+        try { _ = new FuturesOptionInstrument(series with { LastTradingAt = expiry.AddSeconds(1) }); }
+        catch (MarketDataException e) when (e.Code == "option_definition") { return; }
+        throw new Exception("An option cannot trade after the exercise right expires.");
+    }
+
+    private static void DatedDeliveryPremium()
+    {
+        var market = new OptionMarket();
+        var one = ExactDecimal.Parse("1");
+        foreach (var (hours, cash) in new[] { ("320","400"), ("368","460"), ("352","440") })
+        {
+            var energy = ExactDecimal.Parse(hours);
+            var series = market.Underlying with { LotBasis = LotBasis.PerDeliveryHour, ContractSize = one,
+                QuoteQuantity = market.R("mwh"), LotQuantity = market.R("mw"),
+                LotResolution = new(new(energy, market.R("mwh")), energy, "published_contract_size_v1") };
+            var future = new FuturesContract(series);
+            var quote = market.OptionQuote with { Quantity = market.R("mwh") };
+            var multiplier = future.OptionPremiumMultiplier(quote);
+            if (future.LotSize.Amount != multiplier || ExactDecimal.Parse("1.25") * multiplier != ExactDecimal.Parse(cash))
+                throw new Exception("The power delivered at exercise and the cash premium must use the same dated lot.");
+            try { future.OptionPremiumMultiplier(market.OptionQuote); }
+            catch (MarketDataException e) when (e.Code == "option_multiplier") { continue; }
+            throw new Exception("A premium quoted in a different energy unit cannot use this delivery quantity.");
+        }
     }
 
     internal static void ClockLayers()

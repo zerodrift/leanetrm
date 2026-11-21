@@ -55,8 +55,8 @@ export function setupOptionTicket(o:{api:Api;source:()=>{snapshotId:string};hist
  const trade=section('Trade'),terms=el('div');terms.id='option-trade-terms';trade.append(terms,soon('Custom trade fields','Custom trade fields are coming soon.'));
  const contract=section('Contract'),selects=Object.fromEntries(optionLevels.map(level=>[level,el('select')])) as Record<OptionLevel,HTMLSelectElement>;
  for(const level of optionLevels)contract.append(row(`option-${level}`,levelLabels[level],selects[level]));
- const expiry=fact('Expiry'),code=fact('Exchange contract'),series=fact('Series'),surface=el('button','secondary','Volatility surface');
- surface.type='button';surface.id='option-ticket-vol-surface';surface.hidden=true;contract.append(expiry.line,code.line,series.line,surface);
+ const expiry=fact('Expiry'),lastTrade=fact('Last trade'),code=fact('Exchange contract'),series=fact('Series'),surface=el('button','secondary','Volatility surface');
+ surface.type='button';surface.id='option-ticket-vol-surface';surface.hidden=true;contract.append(lastTrade.line,expiry.line,code.line,series.line,surface);
  const execution=section('Execution'),side=el('select'),lots=el('input'),premium=el('input'),paid=el('input'),style=el('select');
  side.append(new Option('Choose…',''),new Option('Buy','buy'),new Option('Sell','sell'));lots.inputMode='numeric';premium.inputMode='decimal';paid.type='date';
  style.append(new Option('Choose…',''),new Option('Paid up front','premium_paid_up_front'));
@@ -65,8 +65,8 @@ export function setupOptionTicket(o:{api:Api;source:()=>{snapshotId:string};hist
   row('option-premium-style','Premium style',style));
  const executed=el('div');execution.append(executed,soon('Executing broker','Executing brokers are coming soon.'));
  const backend=section('From the backend'),settlement=fact('Settlement at this close'),multiplier=fact('Multiplier'),tick=fact('Premium tick'),range=fact('Premium range'),
-  exercise=fact('Exercise style'),instructions=fact('Contrary instructions');
- backend.append(settlement.line,multiplier.line,tick.line,range.line,exercise.line,instructions.line);
+  lot=fact('Delivery per lot'),lotPremium=fact('One-lot premium at settlement'),exercise=fact('Exercise style'),instructions=fact('Contrary instructions');
+ backend.append(settlement.line,lot.line,lotPremium.line,multiplier.line,tick.line,range.line,exercise.line,instructions.line);
  const more=section('More'),later=el('div','option-soon-actions');
  for(const label of ['Comments','Broker fees','Settlement instructions','Credit check','Risk-limit check','Compare versions','Import / export','Print'])later.append(soonButton(label,`${label} is coming soon.`));
  more.append(later);
@@ -83,14 +83,19 @@ export function setupOptionTicket(o:{api:Api;source:()=>{snapshotId:string};hist
   annotations.refresh();
   const s=catalog?optionChoices(catalog,pick).series:null;
   expiry.value.textContent=s?o.instant(s.expiryAt):'—';
+  lastTrade.line.hidden=!s?.lastTradingAt;
+  lastTrade.value.textContent=s?.lastTradingAt?o.instant(s.lastTradingAt):'—';
  }
  function draw(){
   if(!catalog)return;
   const shown=optionChoices(catalog,pick),s=shown.series;
   for(const level of optionLevels)options(selects[level],shown[level],pick[level]);
   refreshDisplay();code.value.textContent=s?publicText(`${s.name} · ${s.product}`):'—';series.value.textContent=s?publicText(s.series):'—';
-  settlement.value.textContent=s?`${s.settlementPrice} ${s.currency}`:'—';multiplier.value.textContent=s?s.multiplier:'—';tick.value.textContent=s?s.premiumTick:'—';
-  range.value.textContent=s?`${s.minimumPremium} to ${s.maximumPremium} ${s.currency}`:'—';exercise.value.textContent=s?publicText(s.exerciseStyle):'—';
+  const priceUnit=s?.priceUnit??s?.currency;
+  settlement.value.textContent=s?`${s.settlementPrice} ${priceUnit}`:'—';multiplier.value.textContent=s?s.multiplier:'—';tick.value.textContent=s?s.premiumTick:'—';
+  lot.line.hidden=!s?.deliveryLot;lot.value.textContent=s?.deliveryLot?`${s.deliveryLot} ${s.quoteUnit}`:'—';
+  lotPremium.line.hidden=!s?.settlementPremiumPerLot;lotPremium.value.textContent=s?.settlementPremiumPerLot?`${s.settlementPremiumPerLot} ${s.currency}`:'—';
+  range.value.textContent=s?`${s.minimumPremium} to ${s.maximumPremium} ${priceUnit}`:'—';exercise.value.textContent=s?publicText(s.exerciseStyle):'—';
   instructions.value.textContent=s?(s.contraryInstructionsAllowed?'Accepted':'Not accepted'):'—';
   surface.hidden=!s;surface.onclick=s?()=>o.surface(s.product,s.definitionRevisionId):null;
   sync();
