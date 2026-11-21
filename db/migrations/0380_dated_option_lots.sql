@@ -37,7 +37,7 @@ BEGIN
  RETURN trim_scale(result)::ref_data.exact_number;
 END$$;
 REVOKE ALL ON FUNCTION ref_data.futures_option_multiplier(uuid,uuid,text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION ref_data.futures_option_multiplier(uuid,uuid,text) TO openetrm_runtime,openetrm_security_owner;
+GRANT EXECUTE ON FUNCTION ref_data.futures_option_multiplier(uuid,uuid,text) TO openetrm_runtime,openetrm_risk_worker,openetrm_security_owner;
 
 CREATE FUNCTION ref_data.require_option_multiplier() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
 DECLARE clock_code ref_data.code;
