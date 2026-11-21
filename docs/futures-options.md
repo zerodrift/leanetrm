@@ -75,6 +75,9 @@ For a delivery-hour option, the series supplies the energy in one underlying
 futures lot. A quoted premium of 1.25 USD/MWh gives 400 USD per 320 MWh lot
 and 460 USD per 368 MWh lot. The ticket shows the dated quantity and one-lot
 premium at settlement. A fixed-multiplier product retains its own conversion.
+For an hourly-lot future on an exchange in a different time zone, the trading
+calendar supplies the venue clock and the delivery calendar supplies the local
+profile clock.
 Where the listing supplies a separate last-trade instant, new bookings close
 at that instant. Exercise and expiry use the sourced notice and expiry times.
 

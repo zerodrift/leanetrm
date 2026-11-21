@@ -76,6 +76,26 @@ END$$;
 REVOKE ALL ON FUNCTION ref_data.require_option_notice(ref_data.futures_option_products,ref_data.futures_option_series,text,timestamptz) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION ref_data.require_option_notice(ref_data.futures_option_products,ref_data.futures_option_series,text,timestamptz) TO openetrm_security_owner;
 
+-- Exchange trading hours and the local peak delivery block may use different
+-- clocks. Both calendars must identify those clocks on a delivery-hour future.
+DO $$DECLARE definition text;
+ anchor text='p.market_clock_code <> dp.clock_code OR p.delivery_calendar_code <> dp.calendar_code';
+ replacement text=$predicate$(p.market_clock_code <> dp.clock_code AND NOT (
+            p.lot_basis='per_delivery_hour' AND dp.quantity_basis='per_delivery_hour'
+            AND EXISTS (SELECT 1 FROM ref_data.calendars tc
+              WHERE (tc.catalog_id,tc.revision_id,tc.code,tc.clock_code)=
+                    (p.catalog_id,p.revision_id,p.trading_calendar_code,p.market_clock_code))
+            AND EXISTS (SELECT 1 FROM ref_data.calendars dc
+              WHERE (dc.catalog_id,dc.revision_id,dc.code,dc.clock_code)=
+                    (p.catalog_id,p.revision_id,p.delivery_calendar_code,dp.clock_code))))
+          OR p.delivery_calendar_code <> dp.calendar_code$predicate$;
+BEGIN
+ definition=pg_get_functiondef('market_data.validate_revision(uuid,uuid)'::regprocedure);
+ IF length(definition)-length(replace(definition,anchor,''))<>length(anchor)
+ THEN RAISE EXCEPTION 'future_delivery_validation_changed'; END IF;
+ EXECUTE replace(definition,anchor,replacement);
+END$$;
+
 -- Keep idempotent booking reconciliation ahead of both admission checks.
 DO $$DECLARE definition text; old_cash text='-premium*product.multiplier*lots'; old_end text='valuation>=series_row.expiry_at';
 BEGIN
