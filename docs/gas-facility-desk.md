@@ -16,6 +16,14 @@ Commercial storage grants the holder the right to inject and withdraw. Its five 
 
 Storage operating ratchets use total physical inventory and units per elapsed hour. The commercial bands use working inventory and units per gas day. On the storage ticket the profile supplies the capacity range, suggested contract ratchets, clock, curves and location price adjustments. The booked contract retains its negotiated terms.
 
+On Operating facilities, choose a saved version and use **Enter supplied plan**
+to go to its operating limits and interval inputs. A thermal plan shows the
+fuel and power references from the selected pricing profile. A sole eligible
+profile is selected automatically. When several profiles match the same
+version, choose the one that applies to the operating right. **View trades and
+volumes** opens the selected profile’s report in Facilities. The same action
+is available on linked storage and heat-rate call tickets.
+
 ## Read facility volumes
 
 | Measure | Source |

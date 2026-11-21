@@ -21,6 +21,17 @@ test('the facility desk shows a superseded allocation and opens its exact booked
   assert.match(result.text,/Earlier meter revision/);assert.match(result.text,/-2/);assert.match(result.text,/Supply agreement/);
  }));
 
+test('opening a commercial profile reads only its own report or explains its absence', {skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<main></main>',async evaluate=>{
+ const result=await evaluate(`(async()=>{
+  const {setupFacilityTrades}=await import('/facility-trades.js'),root=document.querySelector('main'),reports=[];
+  const widget=setupFacilityTrades(root,{context:()=>({effectiveOn:'2030-04-21'}),busy:()=>false,permission:()=>false,
+   api:async(path,body)=>path==='desk/facilities'?{profiles:['first','selected'].map(id=>({id,name:id,kind:'storage',inputAdjustment:'0',outputAdjustment:'0'}))}:(reports.push(body.profileId),{totals:[],meters:[],trades:[]})});
+  await widget.load('selected');const current=root.querySelector('select').value;
+  await widget.load('retired');await widget.load();return {reports,current,missing:root.innerText.includes('unavailable for the selected business date')};
+ })()`);
+ assert.deepEqual(result,{reports:['selected'],current:'selected',missing:true});
+}));
+
 test('the credit officer can record a decision independently of legal document access',
  {skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<main id="bilateral-desk"></main>',async evaluate=>{
   const result=await evaluate(`(async()=>{

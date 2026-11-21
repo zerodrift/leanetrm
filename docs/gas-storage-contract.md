@@ -185,13 +185,15 @@ in the valuation setup.
 
 ### Ticket and Details
 
-New trade lists Gas storage under Structured. The ticket has one field per row
-in stacked sections, and the ratchet bands as a small table: each row states
-where its band ends and its two daily limits, so the bands cover the range with
-no gap by construction and the last ends at capacity. The limits are drawn
-against inventory as they are typed, with the opening and terminal inventory
-marked. Nothing is preselected; zero fuel and zero charges are entered, not
-assumed. The drawing decides nothing: the backend judges every amount.
+In **New trade → Structured → Gas storage**, selecting a facility profile shows
+the injection and withdrawal pricing points, curves and location adjustments.
+The storage entitlement shows the facility inventory range alongside the
+negotiated capacity and opening inventory. These three panels stack in a narrow
+ticket. The profile supplies initial limits and ratchets. Each editable band
+gives its upper inventory and both daily flow limits, with the last band ending
+at contracted capacity. The chart follows the entered limits and marks opening
+and terminal inventory. The trader enters fuel and charges, including any
+explicit zeros. The backend validates the booked terms.
 
 A booked contract's Details draw the ratchets and, when a plan is in force, its
 inventory through the term against capacity and the band edges with each day's

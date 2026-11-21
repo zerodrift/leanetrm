@@ -9,6 +9,32 @@ const catalog={pins,locations:[{code:'existing',label:'Synthetic existing facili
 
 catalog.valuationFieldGroups=operatingFieldLayouts;
 
+test('a thermal plan shows the selected operating version and pricing profile before its interval instructions', {skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(markup,async evaluate=>{
+ const result=await evaluate(`(async()=>{
+  const {setupStructuredPower}=await import('/structured-power-view.js'),host=document.getElementById('physical-power-page');host.hidden=false;
+  const facility={id:'plant',version:4,effectiveFrom:'2031-01-01T00:00:00Z',effectiveTo:'2032-01-01T00:00:00Z',terms:{kind:'thermal',facilityCode:'existing',clockCode:'utc',intervalMinutes:60,powerQuantityCode:'mw',energyQuantityCode:'mwh',fuelQuantityCode:'fuel',thermal:{minimumOutputMw:'12',maximumOutputMw:'85',minimumUpMinutes:90}}};
+  const profile={id:'east',kind:'thermal',facilityId:'plant',version:4,name:'East profile',inputLocation:'Gate A',inputCurve:'Fuel A',outputLocation:'Bus E',outputCurve:'Power E'};
+  const trades={books:[],legalEntities:[],counterparties:[],convention:'right',canBook:true,facilityProfiles:[profile,{...profile,id:'west',name:'West profile',outputLocation:'Bus W',outputCurve:'Power W'}]};
+  let last,authorized=true;const widget=setupStructuredPower(host,{api:async path=>path.endsWith('power-trades/catalog')?trades:path.endsWith('/catalog')?${JSON.stringify(catalog)}:path.endsWith('/list')?[facility]:facility,
+   act:work=>(last=work()),busy:()=>false,source:()=>({snapshotId:'cut',contextKey:'scope'}),identity:()=>'synthetic',trading:{available:()=>authorized,openTrade:async()=>{}}});
+  await widget.load();const choice=host.querySelector('select');choice.value='plant/4';choice.dispatchEvent(new Event('change'));await last;
+  const field=title=>[...host.querySelectorAll('label')].find(x=>x.firstChild.textContent===title)?.querySelector('select,textarea');
+  const profileSelect=field('Thermal facility pricing profile'),plan=field('Supplied interval plan'),summary=host.querySelector('.operating-plan-facility');
+  const before=!!(profileSelect.compareDocumentPosition(plan)&Node.DOCUMENT_POSITION_FOLLOWING),empty=profileSelect.value;
+  [...host.querySelectorAll('button')].find(b=>b.textContent==='Enter supplied plan')?.click();const focused=document.activeElement===profileSelect;
+  profileSelect.value='west';profileSelect.dispatchEvent(new Event('change',{bubbles:true}));
+  const terms=summary?.innerText??'',form=profileSelect.form===field('Operating trade book').form;
+  trades.facilityProfiles=[profile];await widget.load();
+  const sole=profileSelect.value==='east'&&profileSelect.required&&![...profileSelect.options].some(x=>x.value==='');
+  authorized=false;widget.sync();
+  const revoked=!summary.innerText.includes('Gate A')&&!profileSelect.value&&!host.innerText.includes('East profile');
+  widget.contextChanged();return {before,empty,terms,form,focused,sole,revoked,cleared:!host.innerText.includes('Bus W')};
+ })()`);
+ assert.ok(result.before,'choose the facility profile before filling the plan');assert.equal(result.empty,'');assert.ok(result.form);assert.ok(result.focused,'enter the supplied plan from the facility chooser');
+ assert.match(result.terms,/Synthetic existing facility/);assert.match(result.terms,/Version 4/);assert.match(result.terms,/85/);
+ assert.match(result.terms,/Gate A/);assert.match(result.terms,/Bus W/);assert.doesNotMatch(result.terms,/Bus E/);assert.ok(result.cleared);assert.ok(result.sole,'the sole eligible profile is the one attached at booking');assert.ok(result.revoked,'revoking trade visibility clears its references from the physical plan');
+}));
+
 test('operating controls retain explicit disabled states through global busy updates',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(markup,async evaluate=>{
  const state=await evaluate(`(async()=>{const {setupStructuredPower}=await import('/structured-power-view.js');const host=document.getElementById('physical-power-page');host.hidden=false;let busy=false;const widget=setupStructuredPower(host,{api:async(path)=>path.endsWith('/catalog')?${JSON.stringify(catalog)}:[],act:async work=>work(),busy:()=>busy,source:()=>({snapshotId:'frame',contextKey:'working'}),identity:()=> 'workspace:alpha'});await widget.load();
  const kind=[...host.querySelectorAll('label')].find(n=>n.firstChild.textContent==='Operating kind').querySelector('select');kind.value='battery';kind.dispatchEvent(new Event('change'));widget.sync();
