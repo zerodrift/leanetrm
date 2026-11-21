@@ -21,9 +21,9 @@ internal static class StructuredPowerHedgeChecks
         var swap=Position(hedge,"financial_swap",PortfolioValuation.SwapMeasure);
         ExactMoney Money(string n,ReferenceKey? c=null)=>ExactMoney.Parse(n,c??currency);
         ExactRiskPositionValue Value(PortfolioPositionEvidence p,string n)=>new(p.TradeId,p.BindingId,p.BookId,p.ValuationId,Money(n));
-        PortfolioHoldingRisk Risk(PortfolioPositionEvidence p,string b,string u,string d,string up,string down,string delta,ReferenceKey? c=null)=>
+        PortfolioHoldingRisk Risk(PortfolioPositionEvidence p,string b,string u,string d,string up,string down,string delta,ReferenceKey? c=null,string gamma="0")=>
             new(p.Measure,"power",new(p.TradeId,p.BindingId,p.BookId,p.ValuationId,new(Money(b,c),Money(u,c),Money(d,c),Money(up,c),Money(down,c),
-                new(Money(delta,c),new(c??currency,unit,1)),new(Money("0",c),new(c??currency,unit,2)))));
+                new(Money(delta,c),new(c??currency,unit,1)),new(Money(gamma,c),new(c??currency,unit,2)))));
         var policy=PortfolioRiskPreview.AccountingPricingPolicy;
         var run=new PortfolioValuationResult(Guid.NewGuid(),new("2031-01-01",0,"2030-12-01T00:00:00Z",Guid.NewGuid()),policy,[],[right,swap],
             [new(axis,ExactDecimal.Parse("1"))],[],[],new(2,2,1,3,6,0,0))
@@ -33,6 +33,23 @@ internal static class StructuredPowerHedgeChecks
         if(report.BaseValues.Length!=2||report.BaseValues.Single(v=>v.Role=="operating").Value!="185"||
             report.PriceChanges is not [{Operating.UpPnl:"5",Hedges.UpPnl:"-5",Net.UpPnl:"0",Net.DownPnl:"0",Net.Delta:"0",Net.Gamma:"0"}])
             throw new Exception("The independently specified operating value and opposing hedge price changes were not retained exactly.");
+        foreach(var (type,measure) in new[]{(FuturesOptionPositions.Type,FuturesOptionPositions.Measure),(HeatRateCallPositions.Type,HeatRateCallPositions.Measure)})
+        {
+            var call=Position(hedge,type,measure);
+            var option=run with{Positions=[right,call],BasePositions=[run.BasePositions[0],new(measure,Value(call,"8"))],
+                HoldingRisk=[run.HoldingRisk[0],Risk(call,"8","10","7","2","-1","1.5",gamma:"1")]};
+            if(type==FuturesOptionPositions.Type)
+            {
+                var premium=Position(hedge,type,measure);
+                option=option with{Positions=option.Positions.Add(premium),BasePositions=option.BasePositions.Add(new(measure,Value(premium,"-3"))),
+                    HoldingRisk=option.HoldingRisk.Add(Risk(premium,"-3","-3","-3","0","0","0"))};
+            }
+            var comparison=StructuredPowerHedgeReport.Project(option,operating,[hedge],StructuredPowerHedgeReport.AggregationPolicy);
+            if(comparison.BaseValues.Single(v=>v.Role=="hedges") is not {Measure:var observed,Value:var value}||observed!=measure||
+                value!=(type==FuturesOptionPositions.Type?"5":"8")||
+                comparison.PriceChanges is not [{Hedges.Gamma:"1",Net.UpPnl:"7",Net.DownPnl:"-6",Net.Delta:"6.5",Net.Gamma:"1"}])
+                throw new Exception("An option hedge lost its own measure, holding values or convexity under the shared scenario.");
+        }
         Reject(run with{HoldingRisk=run.HoldingRisk.RemoveAt(1)});
         Reject(run with{BasePositions=run.BasePositions.RemoveAt(1)});
         Reject(run with{Positions=[right,swap with{InstrumentType="physical_gas"}]});

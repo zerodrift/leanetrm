@@ -16,7 +16,12 @@ export async function run({command,evaluate,wait,click,persona,check,idle,fitsWi
  const {identifier}=await command('Page.addScriptToEvaluateOnNewDocument',{source:`
   window.optionCalls=[];window.optionsUnfitted=false;window.optionEntryValuations=[];const send=window.fetch;
   window.fetch=async(input,init)=>{
-   const path=String(typeof input==='string'?input:input.url),call=/[/](amounts[/]display|vol-surfaces[/]read|options[/]positions|options[/]strategy[/](?:setup|analyze))$/.exec(path);
+   const path=String(typeof input==='string'?input:input.url),call=/[/](amounts[/]display|vol-surfaces[/]read|options[/](?:listings|positions)|options[/]strategy[/](?:setup|analyze))$/.exec(path);
+   if(window.futureOutsideBookingWindow&&path.endsWith('/evaluate')){
+    const response=await send(input,init);if(!response.ok)return response;
+    const priced=await response.json();return new Response(JSON.stringify({...priced,points:priced.points.map(p=>({...p,futureOpenForBooking:false}))}),
+     {headers:{'Content-Type':'application/json'}});
+   }
    if(window.refuseOptionEntryValuation&&/[/]trading[/](workspace|blotter)([/]|$)/.test(path)){
     window.optionEntryValuations.push(path);
     return new Response(JSON.stringify({code:'request_failed',message:'Synthetic portfolio valuation refusal.'}),{status:503,headers:{'Content-Type':'application/json'}});
@@ -126,7 +131,20 @@ export async function run({command,evaluate,wait,click,persona,check,idle,fitsWi
     document.querySelector('#option-underlying').value===${q(call.series.underlyingCode)}&&document.querySelector('#option-page').textContent.includes(${q(call.series.code)})&&
     ['#option-side','#option-lots','#option-premium'].every(id=>document.querySelector(id).value==='')`,
    "['exchange','commodity','underlying','right','strike','side','lots','premium'].map(id=>document.querySelector('#option-'+id)?.value)");
-  await evaluate('window.refuseOptionEntryValuation=false');await persona('risk');await click('#example');
+  await evaluate('window.refuseOptionEntryValuation=false');await click('#nav-options');await choose('nymex_on');
+  const listing=await evaluate(`${calls('options/listings')}.at(-1).answer`),underlying=listing.underlying;
+  await check('the chain names the exact future linked to this call',`document.querySelector('#options-underlying-open').textContent===${q(underlying.underlyingCode)}&&${q(underlying.underlyingCode===call.series.underlyingCode)}`);
+  await evaluate('window.futureOutsideBookingWindow=true');await click('#options-underlying-open');
+  await settled("!!document.querySelector('#contract-panel h2')?.offsetParent",30000);
+  await check('a priced future outside its booking window can be inspected in the contract panel',
+   "!!document.querySelector('#contract-panel h2')?.offsetParent&&!document.querySelector('#contract-book-future')");
+  await evaluate('window.futureOutsideBookingWindow=false');await click('#nav-options');await choose('nymex_on');
+  await click('#options-underlying-open');await settled("!!document.querySelector('#contract-book-future')?.offsetParent",30000);
+  await click('#contract-book-future');await settled("!!document.querySelector('#futures-new-trade')?.offsetParent&&!!document.querySelector('#futures-contract').value",30000);
+  await check('the contract panel opens its dated future in a ticket with blank execution terms',
+   `document.querySelector('#futures-contract').value===${q(JSON.stringify([listing.definitionRevisionId,underlying.curves[0],underlying.contractId]))}&&
+    ['#futures-lots','#futures-execution'].every(id=>document.querySelector(id).value==='')`);
+  await persona('risk');await click('#example');
 
   // Positions: the booked option positions with the backend's figures, subtotals and totals. The page adds nothing up.
   await click('#nav-options');await choose('nymex_on');await settled(`${state}==='fitted'`,30000);
@@ -216,12 +234,12 @@ export async function run({command,evaluate,wait,click,persona,check,idle,fitsWi
   await click('#options-strategy-clear');
   await click('#options-view-chain');await settled(`${state}==='fitted'&&!!document.querySelector('#options-chain tbody tr')`,30000);
 
-  // A close with no surface: the page says so and offers Vol surfaces, and draws no chain.
+  // A close with no surface still lists the exact series and offers calibration.
   await evaluate('window.optionsUnfitted=true');
   await click('#nav-options');await settled(`${state}==='notFitted'`,30000);
-  await check('a product not calibrated at this close shows that and no chain',
-   `!!document.querySelector('#options-missing').offsetParent&&/not calibrated at this close/.test(document.querySelector('#options-missing').textContent)&&
-    !document.querySelector('#options-chain')?.offsetParent&&document.querySelector('#options-calibrate').textContent==='Calibrate on Vol surfaces →'`,
+  await check('an uncalibrated product lists its calls and puts and offers calibration',
+   `!!document.querySelector('#options-missing').offsetParent&&/No calibrated analytics at this close/.test(document.querySelector('#options-missing').textContent)&&
+    !!document.querySelector('#options-listed-chain button[data-series]')?.offsetParent&&!document.querySelector('#options-chain')?.offsetParent&&document.querySelector('#options-calibrate').textContent==='Calibrate on Vol surfaces →'`,
    "document.querySelector('#options-missing').textContent");
   await evaluate('window.optionsUnfitted=false');
   await click('#options-calibrate');

@@ -273,7 +273,7 @@ export type VolSurfaceFrames={
  * to calibrate it there or to open a close that has one, and never shows another close's surface in its place.
  */
 export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;historical:()=>boolean;zone:()=>string;frames:VolSurfaceFrames;
- chain:(product:string,expiryAt:string,series:string)=>void}){
+ chain:(product:string,expiryAt:string,series:string,definitionRevisionId:string)=>void}){
  const root=document.getElementById('vol-surfaces-page')!;root.dataset.ownControls='';
  const link=surfaceLink(),pending=new PendingCommand(definite);
  const button=(className:string,text:string,id?:string)=>{const b=el('button',className,text);b.type='button';if(id)b.id=id;return b;};
@@ -726,7 +726,7 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
   row('Fitted',s.fitted===null?'—':`${points(s.fitted)} vol pts`);
   row('Rich / cheap',s.richCheap===null?'—':`${points(s.richCheap,true)} vol pts`);
   // The series' row in its expiry's chain, on Options.
-  const chain=button('secondary','Open chain','vol-open-chain');chain.onclick=()=>o.chain(product,s.series.expiryAt,s.series.code);
+  const chain=button('secondary','Open chain','vol-open-chain');chain.onclick=()=>o.chain(product,s.series.expiryAt,s.series.code,requireDefinition());
   readout.append(list,chain);
   const why=cells.find(c=>c.series===s)?.reasons??[];
   if(why.length)readout.append(el('p','vol-readout-reason',why.join('; ')));

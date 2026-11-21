@@ -51,7 +51,7 @@ public sealed partial class FuturesOptionStore(PreviewDatabase database)
             try
             {
                 var inputs=await MarketInputSelection.Resolve(database,connection,frame,source.Source,[(data,frame)],false,ct);
-                var selected=inputs.Frame with{CurveContracts=inputs.Frame.CurveContracts.Where(p=>codes.Contains(p.Key)).ToImmutableDictionary(StringComparer.Ordinal)};
+                var selected=BookingFrame(inputs.Frame,codes);
                 options.AddRange(Series(inputs.Data,selected));
                 foreach(var key in Listed(inputs.Data,selected).Select(s=>s.UnderlyingSeries).Distinct())
                 {
@@ -70,12 +70,16 @@ public sealed partial class FuturesOptionStore(PreviewDatabase database)
             convention=Convention,options=options.ToImmutable(),underlyings=underlyings.ToImmutable(),unavailable=unavailable.ToImmutable()};
     }
 
+    internal static InputFrame BookingFrame(InputFrame frame,IReadOnlySet<string> publishedCurves)=>
+        frame with{CurveContracts=frame.CurveContracts.Where(p=>publishedCurves.Contains(p.Key)).ToImmutableDictionary(StringComparer.Ordinal)};
+
     // The listed option series still open for a new trade at the frame.
-    private static IEnumerable<FuturesOptionSeriesSpecification> Listed(PreviewData data,InputFrame frame)
+    internal static IEnumerable<FuturesOptionSeriesSpecification> Listed(PreviewData data,InputFrame frame)
     {
         var members=frame.CurveContracts.SelectMany(pair=>pair.Value).ToHashSet();
         var series=data.Contracts.Where(contract=>contract.Kind==ContractKind.FutureOption&&members.Contains(contract.Key.Id)).Select(contract=>contract.FuturesSeries).ToHashSet();
-        return data.FuturesOptionSeries.Where(option=>series.Contains(option.Key)&&option.OpenForBooking(frame.At));
+        var futures=data.FuturesSeries.Select(future=>future.Key).ToHashSet();
+        return data.FuturesOptionSeries.Where(option=>series.Contains(option.Key)&&futures.Contains(option.UnderlyingSeries)&&option.OpenForBooking(frame.At));
     }
 
     // Every listed option series whose expiry is after the frame, with its exchange, commodity and daily settlement at the

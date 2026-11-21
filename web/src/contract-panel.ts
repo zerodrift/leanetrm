@@ -50,7 +50,7 @@ export function knownAtText(point:Pick<HistoryPoint,'observationIds'|'knownAt'>,
 }
 
 export type ContractMode=Extract<PanelMode,{kind:'curve-contract'}>;
-export type ContractHead={kicker:string;title:string;sub:string;figure:string;unit:string};
+export type ContractHead={kicker:string;title:string;sub:string;figure:string;unit:string;bookFuture?:()=>void};
 type Tab='history'|'pricing';
 /** What the History tab shows: the policy chosen, and the read's basis and chart once it has arrived, or what is happening instead. */
 export type HistoryState=
@@ -94,6 +94,9 @@ export function setupContractPanel(host:HTMLElement,o:{docked:()=>boolean;sheet:
       const kicker=node('div','side-panel-kicker'),value=node('div','side-panel-value'),figure=node('div','side-panel-figure');
       kicker.append(node('span','side-panel-reference',head.kicker));
       figure.append(node('span','side-panel-label','Price at this close'),kpi(head.figure,head.unit));value.append(figure);
+      if(head.bookFuture){
+        const book=node('button','secondary','Book future');book.type='button';book.id='contract-book-future';book.onclick=head.bookFuture;value.append(book);
+      }
       shell.element('head').replaceChildren(kicker,node('h2','side-panel-title',head.title),node('p','side-panel-sub',head.sub),value);
     },
     /** The overlay menu for a catalog, drawn once for it: what the person enters stays while the panel shows contracts. */

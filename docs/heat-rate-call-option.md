@@ -2,7 +2,8 @@
 
 Open **New trade → Structured → Heat-rate call option** to book the daily strip.
 Record spread marks through the API, then open the booked trade in the Blotter
-to inspect its exercises and valuation. Managed, database and HTTP checks cover
+to inspect its exercises and valuation. Select an exercise delivery day under **Underlying
+contracts** to open its retained power or fuel contract in Curves & prices. Managed, database and HTTP checks cover
 the model and booking path. A marks editor, premium and capacity-payment cash,
 exercise determination and settlement remain open. See [verification](#verification)
 and [remaining work](#remaining-work).
