@@ -121,10 +121,19 @@ def check_option_strip(report,opening,closing,months,options,selection):
                    'snapshot' not in p['input'] and 'definition' not in p['input'] for p in evidence['payments']),evidence['payments'][:1]
 
 
+def working_frame_at(workspace, at):
+    """Recorded closes can share the cash fixture's valuation instant but carry different market inputs."""
+    instant = datetime.fromisoformat(at.replace('Z', '+00:00'))
+    matches = [f for f in workspace['frames'] if f['id'] in workspace['initialFrameIds']
+               and not f.get('close') and datetime.fromisoformat(f['at'].replace('Z', '+00:00')) == instant]
+    assert len(matches) == 1, f'Expected one original working snapshot at {at}, found {len(matches)}'
+    return matches[0]
+
+
 def run_checks(url,query,manifest,verify_persistence=None):
     base=PreviewClient(url);base.bootstrap()
     c=PreviewClient(url,'exchange');c.opener=base.opener;c.bootstrap();c.call('profile',{'profile':'trader'})
-    frame=next(f for f in c.call('workspace')['frames'] if f['at'].startswith('2026-10-16T16'))
+    frame=working_frame_at(c.call('workspace'),'2026-10-16T16:00:00Z')
     context={'snapshotId':frame['id'],'knowledgeMode':'current','convention':'futures_option_premium_v1'}
     catalog=c.call('options/catalog',context);option=next(o for o in catalog['options'] if o['product']=='nymex_lo' and o['right']=='call')
     book=catalog['books'][0]['id'];cat=manifest['catalogId'];date=frame['at'][:10]
@@ -227,7 +236,7 @@ def run_checks(url,query,manifest,verify_persistence=None):
     c.call('profile',{'profile':'risk'})
     policies=c.call('portfolio/pnl/policies')
     ny_clock,=[clock for clock in policies['clocks'] if clock['ianaZone']=='America/New_York']
-    earlier=next(f for f in c.call('workspace')['frames'] if f['at'].startswith('2026-10-13T16'))
+    earlier=working_frame_at(c.call('workspace'),'2026-10-13T16:00:00Z')
     cutoff=c.call('options/catalog',context)['context']['knownAt']
     endpoint=lambda f:dict(snapshotId=f['id'],convention='trading_workspace_v1',knowledgeMode='at')
     # The prior date is a working snapshot, which belongs to no close convention: the request names the calendar clock one

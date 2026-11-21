@@ -1,7 +1,7 @@
 import {isCashStatus,cashStatusLabels} from './cash-status.js';
 import type {Holding} from './desk-model.js';
 import {trackEdits} from './edit-tracking.js';
-import {keepOffered,noOptionPick,optionChoices,optionLevels,optionTicketStatus,pickOption,pickSeries,underlyingLabel,type OptionCatalog,type OptionLevel,type OptionPick} from './futures-option-model.js';
+import {catalogForSeries,keepOffered,noOptionPick,optionChoices,optionLevels,optionTicketStatus,pickOption,pickSeries,underlyingLabel,type OptionCatalog,type OptionLevel,type OptionPick} from './futures-option-model.js';
 import {displayInstant,publicText} from './market-view.js';
 import {bookingAllowed} from './new-trade.js';
 import {actorTransport,PendingCommand,restoreTradeRequest,type RequestCommand} from './pending-command.js';
@@ -77,7 +77,7 @@ export function setupOptionTicket(o:{api:Api;source:()=>{snapshotId:string};hist
  fields.append(contract,execution,trade,backend,more);form.append(fields,booking);root.replaceChildren(status,form);
  const annotations=tradeAnnotations('option',o.zone,executed);
  const pending=new PendingCommand(definite);
- let catalog:Catalog|undefined,pick:OptionPick={...noOptionPick},sending=false,requested:string|undefined;
+ let catalog:Catalog|undefined,pick:OptionPick={...noOptionPick},sending=false,requested:{series:string;definition:string}|undefined;
 
  function refreshDisplay(){
   annotations.refresh();
@@ -157,7 +157,11 @@ export function setupOptionTicket(o:{api:Api;source:()=>{snapshotId:string};hist
    catalog=read;pick=keepOffered(read,pick);
    // A series named by the page that opened the ticket is selected as the person would select it; one this close does not
    // list selects nothing and is said so.
-   if(requested){const series=requested;requested=undefined;try{pick=pickSeries(read,series);}catch(error){said.textContent=reason(error);}}
+   if(requested){
+    const {series,definition}=requested;requested=undefined;
+    try{catalog=catalogForSeries(read,series,definition);pick=pickSeries(catalog,series);}
+    catch(error){said.textContent=reason(error);}
+   }
    const books=document.getElementById('option-book') as HTMLSelectElement;
    books.replaceChildren(new Option('Choose…',''),...read.books.map(b=>new Option(publicText(`${b.portfolio} · ${b.name}`),b.id)));
    annotations.populate(read.bookingActor,read);
@@ -171,7 +175,7 @@ export function setupOptionTicket(o:{api:Api;source:()=>{snapshotId:string};hist
    draw();
   },
   /** Names the series the next new ticket opens on, or none. */
-  request(series:string|null){requested=series??undefined;},
+  request(selection:{series:string;definition:string}|null){requested=selection??undefined;},
   inspect:()=>Promise.reject(Error('A booked futures option opens in the Details pane.')),
   unsaved:()=>!!catalog&&(edits.edited()||!!pending.command),
   pending:()=>!!pending.command||restoreTradeRequest(requests.read())?.path==='options/book',
@@ -185,7 +189,7 @@ const eventNames:Record<string,string>={exercise:'Exercise',assignment:'Assignme
 /** What an option view needs of its host: whether lifecycle events may be recorded now, asked again when one is sent; who is recording,
  *  whose unanswered requests it keeps; what hears a recorded event; and what opens a product's volatility surface, null where the
  *  host has no Vol surfaces page. */
-export type OptionHost={actor:()=>string;recorded:(note:string)=>void;surface:((product:string,definitionRevisionId:string)=>void)|null;lifecycle?:()=>void};
+export type OptionHost={actor:()=>string;recorded:(note:string)=>void;surface:((product:string,definitionRevisionId:string)=>void)|null;chain?:(product:string,expiry:string,series:string,definition:string)=>void;lifecycle?:()=>void};
 
 /**
  * An option trade's Details: its series, lots, settlement and value per contract from the Blotter row, its recorded events from
@@ -208,9 +212,12 @@ export async function readOptionView(api:Api,context:Record<string,unknown>&{sna
   const history:TermSection[]=[{title:`Revision ${h.revision}`,rows:[['Booked',displayInstant(h.executedAt,zone)],['Booker',h.trader??''],['Trade date',h.booking.tradeDate??'Unavailable']]},
    ...held.events.map(e=>({title:eventNames[e.kind]??publicText(e.kind),rows:[['Recorded for',displayInstant(e.businessAt,zone)],['Lots',e.lots??'Open lots at expiry'],['Open lots after',e.remainingLots],
     ['Linked future',e.futuresTradeReference??'None'],...(e.outcome?[['Outcome',publicText(e.outcome)] as const]:[])] as const}))];
-  const surface=host.surface,product=h.product;
+  const {surface,chain}=host,{product,expiryAt,series,definitionRevisionId}=h;
+  const actions=[];
+  if(chain&&product&&expiryAt&&series&&definitionRevisionId)actions.push({id:'option-trade-chain',label:'View option chain',run:()=>chain(product,expiryAt,series,definitionRevisionId)});
+  if(surface&&product&&definitionRevisionId)actions.push({id:'option-trade-vol-surface',label:'Volatility surface',run:()=>surface(product,definitionRevisionId)});
   return {terms,history,...(option?{termsContent:(box:HTMLElement)=>{widget=lifecycle(box,api,h,host);return()=>{widget?.dispose();widget=undefined;};}}:{}),
-   ...(surface&&product&&h.definitionRevisionId?{actions:[{id:'option-trade-vol-surface',label:'Volatility surface',run:()=>surface(product,h.definitionRevisionId)}]}:{})};
+   actions};
  }};
 }
 

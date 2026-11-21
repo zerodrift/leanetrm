@@ -29,6 +29,11 @@ def run_checks(url,query=None,manifest=None):
     assert not any(v['curve'] in {'ice_css','ice_ucs','ice_was','ice_pda','ice_dpn','ice_sdp','ice_end'} for v in contracts), 'Daily listing dates require an actual exchange contract list'
     nymex=next(v for v in contracts if v['curve']=='nymex_ng')
     assert nymex['settlementMethod']=='physical' and nymex['tick']=='0.001'
+    for code in ('nymex_ng','nymex_on'):
+        points=c.call('evaluate',{'snapshotId':frame['id'],'curve':code})['points']
+        offered={v['id'] for v in contracts if v['curve']==code}
+        assert points and {p['contractId'] for p in points if p['futureOpenForBooking']}==offered
+    print('PASS contract details offer the same dated futures as the native ticket.',flush=True)
     for curve,totals in [('ice_spm',['384','400','384','432','416']),('ice_pmi',['320','320','320','368','352'])]:
         selected=sorted((v for v in contracts if v['curve']==curve),key=lambda v:v['deliveryFrom'])
         assert [v['contractSize'] for v in selected]==totals

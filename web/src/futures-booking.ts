@@ -107,6 +107,11 @@ export function setupFuturesBooking(options:{api:Api;act:(work:()=>Promise<void>
    instrument.populate(priced()?.contracts??[],selected);terms();
    if(priced())selected=field('futures-contract').value;
   },
+  selectContract(definitionRevisionId:string,curve:string,id:string){
+   const contracts=priced()?.contracts,key=futuresContractKey({definitionRevisionId,curve,id});
+   if(!contracts?.some(c=>futuresContractKey(c)===key))throw Error('This future is unavailable for booking at the selected close.');
+   selected=key;instrument.populate(contracts,key);terms();draft.reset();sync();
+  },
   /** Puts the form in the panel's form part, empty of what an earlier one held. */
   open(){presentationRevision++;options.host().append(root);root.hidden=false;edits.clear();sync();},
   isOpen:()=>!root.hidden&&root.parentElement===options.host(),

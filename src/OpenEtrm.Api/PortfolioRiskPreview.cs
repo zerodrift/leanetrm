@@ -193,7 +193,7 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
             return new PortfolioCurveShift(axis,size);
         }).ToImmutableArray();
         // A parametric request sizes its own bumps in trading ticks; the refusal is the bump report's.
-        if(body.Parametric is null&&!bumps.IsEmpty)RequireTwoPriceSteps(DeclaredSteps(portfolio,bumps,stress,ct));
+        if(body.Parametric is null&&!bumps.IsEmpty)RequireTwoPriceSteps(portfolio,bumps,stress,ct);
         var historicalAxes=body.Historical is null&&body.MonteCarlo is null?ImmutableArray<PortfolioRiskAxis>.Empty:
             history!.Columns.Select(c=>CurveRiskAxes.Quote(portfolio,c.Mapping.Factor,ct)).ToImmutableArray();
         if(body.Historical is {} historicalSpec)

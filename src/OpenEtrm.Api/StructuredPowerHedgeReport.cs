@@ -44,7 +44,7 @@ public static class StructuredPowerHedgeReport
             run.HoldingRisk.IsDefault||run.Factors.IsDefaultOrEmpty||
             !run.Positions.Select(p=>p.TradeId).ToHashSet().SetEquals(ids)||
             run.Positions.Any(p=>p.Owner.Kind!=AccountingOwnerKind.Trade||p.Owner.TradeId!=p.TradeId||
-                (p.TradeId==operatingTradeId?p.InstrumentType!="operating_right":p.InstrumentType is not ("future" or "financial_swap" or "heat_rate"))))
+                (p.TradeId==operatingTradeId?p.InstrumentType!="operating_right":p.InstrumentType is not ("future" or "financial_swap" or "heat_rate" or FuturesOptionPositions.Type or HeatRateCallPositions.Type))))
             throw Invalid();
         var positions=run.Positions.ToArray();
         var keys=positions.Select(p=>(p.Measure,p.TradeId,p.BindingId,p.BookId,p.ValuationId)).ToHashSet();
@@ -132,6 +132,7 @@ internal sealed class StructuredPowerHedgeService(PreviewDatabase database)
             if(size.CompareTo(default)<=0)throw new MarketDataException("risk_bump","Select a positive absolute factor bump.");
             return new PortfolioCurveBump(CurveRiskAxes.Resolve(prepared,b.Factor,ct),size);
         }).ToImmutableArray();
+        PortfolioRiskPreview.RequireTwoPriceSteps(prepared,bumps,[],ct);
         return StructuredPowerHedgeReport.Project(PortfolioValuation.Calculate(prepared,bumps,[],RiskDetail.Holdings,ct),
             body.OperatingTradeId,body.HedgeTradeIds,body.AggregationPolicy);
     }

@@ -33,6 +33,9 @@ public sealed partial class PortfolioRiskPreview
             string.Join(" ",small));
     }
 
+    internal static void RequireTwoPriceSteps(PortfolioValuation.Prepared portfolio,ImmutableArray<PortfolioCurveBump> bumps,
+        ImmutableArray<PortfolioCurveShift> stress,CancellationToken ct)=>RequireTwoPriceSteps(DeclaredSteps(portfolio,bumps,stress,ct));
+
     // Each bump with the price steps that held valuations declare for the quoted prices it moves. A step is declared at
     // the unstressed price; where nested stresses move that price the step is taken at the stressed one.
     private static IEnumerable<(string Target,ExactDecimal Size,ImmutableArray<DeclaredStep> Declared)> DeclaredSteps(PortfolioValuation.Prepared portfolio,

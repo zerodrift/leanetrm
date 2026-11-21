@@ -1,10 +1,11 @@
-"""The named four-day trade examples do not consume added curve-history frames."""
+"""Trading fixtures select their original market inputs across additional closes and history."""
 from pathlib import Path
 import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 from seed_preview_positions import execution_frames, EXECUTIONS
+from check_recorded_cash import working_frame_at
 
 
 class PreviewExecutionFramesTests(unittest.TestCase):
@@ -33,6 +34,26 @@ class PreviewExecutionFramesTests(unittest.TestCase):
                     workspace['frames'][0]['at'] = '2020-12-15T17:00:00Z'
                 with self.assertRaises(ValueError):
                     execution_frames(workspace)
+
+
+class RecordedCashFrameTests(unittest.TestCase):
+    def test_original_working_frame_is_selected_independently_of_order(self):
+        at = '2026-10-16T16:00:00Z'
+        working = {'id': 'working', 'at': '2026-10-16T16:00:00+00:00'}
+        recorded = {'id': 'close', 'at': at, 'close': {'session': 'synthetic_west'}}
+        variant = {'id': 'variant', 'at': at}
+        later = {'id': 'later', 'at': '2026-10-16T16:30:00Z'}
+        frames = [recorded, variant, later, working]
+        for order in (frames, frames[::-1]):
+            with self.subTest(first=order[0]['id']):
+                workspace = {'frames': order, 'initialFrameIds': ['working', 'later', 'close']}
+                self.assertEqual(working_frame_at(workspace, at), working)
+
+    def test_missing_or_ambiguous_working_frame_is_refused(self):
+        at = '2026-10-13T16:00:00Z'
+        for ids in ([], ['one', 'two']):
+            with self.subTest(ids=ids), self.assertRaises(AssertionError):
+                working_frame_at({'frames': [{'id': i, 'at': at} for i in ids], 'initialFrameIds': ids}, at)
 
 
 if __name__ == '__main__':

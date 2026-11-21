@@ -641,6 +641,13 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
     # Keep the original close inputs and publish the option role on the new part.
     second_definition = str(uuid4())
     original_definition = manifest['revisionId']
+    # This source lists the fixed-multiplier crude options but carries only the reference
+    # terms of their December future. The gas surface still has its own market contracts.
+    crude = 'nymex_cl_20261201'
+    future_id = query(f"SELECT id FROM market_data.contracts WHERE(catalog_id,revision_id)=({M}) AND futures_series_code='{crude}';")
+    assert future_id
+    omitted = {'contracts': f" AND r.id<>'{future_id}'", 'curve_members': f" AND r.contract_id<>'{future_id}'",
+               'series': f" AND r.contract_id IS DISTINCT FROM '{future_id}'::uuid"}
     copies = []
     for table in ('revision_periods', 'contracts', 'curves', 'series', 'curve_members',
                   'rate_curves', 'rate_curve_tenors'):
@@ -648,7 +655,7 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
         INSERT INTO market_data.{table}
         SELECT (jsonb_populate_record(NULL::market_data.{table},
             to_jsonb(r)||jsonb_build_object('revision_id','{second_definition}'))).*
-        FROM market_data.{table} r WHERE(r.catalog_id,r.revision_id)=({M});""")
+        FROM market_data.{table} r WHERE(r.catalog_id,r.revision_id)=({M}){omitted.get(table, '')};""")
     query(f"""
     BEGIN;
     INSERT INTO market_data.revisions VALUES('{catalog}','{second_definition}',{R},'draft',0);
@@ -659,7 +666,8 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
         'id',gen_random_uuid(),'definition_revision_id','{second_definition}',
         'source_event_id','source_copy:'||o.id::text,'received_at',clock_timestamp()))).*
     FROM market_data.market_close_pins p JOIN market_data.observations o ON(o.catalog_id,o.id)=(p.catalog_id,p.observation_id)
-    WHERE(p.catalog_id,p.close_id)=('{catalog}','{west}');
+    WHERE(p.catalog_id,p.close_id)=('{catalog}','{west}') AND EXISTS(
+        SELECT 1 FROM market_data.series s WHERE(s.catalog_id,s.revision_id,s.id)=('{catalog}','{second_definition}',o.series_id));
     WITH publication AS (
         INSERT INTO trading.publications SELECT '{catalog}',max(publication_order)+1,pg_current_xact_id()
         FROM trading.publications WHERE catalog_id='{catalog}' RETURNING publication_order
@@ -673,13 +681,16 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
     """)
     copied_pins = json.loads(query(f"SELECT jsonb_agg(id ORDER BY id) FROM market_data.observations "
                                    f"WHERE(catalog_id,definition_revision_id)=('{catalog}','{second_definition}');"))
-    mixed = record_close(query, manifest, 'synthetic_west', 1, frame,
-                         retained=[(second_definition, {'observationIds': copied_pins, 'curveContracts': {}})])
+    option_curves = {code: frame['curveContracts'][code] for code in (PRODUCT, UNFITTED)}
+    primary = {**frame, 'curveContracts': {k: v for k, v in frame['curveContracts'].items() if k not in option_curves}}
+    mixed = record_close(query, manifest, 'synthetic_west', 1, primary,
+                         retained=[(second_definition, {'observationIds': copied_pins, 'curveContracts': option_curves})])
     c.call('profile', {'profile': 'approver'})
     prior = c.call('catalogue')
     original = {k: prior[k] for k in ('effectiveFrom', 'effectiveTo', 'curves', 'roles')}
     role_name = 'reference:futures_option_products'
-    added = {**original, 'roles': {**original['roles'], role_name: {
+    added = {**original, 'curves': [{**curve, 'definitionRevisionId': second_definition} if curve['code'] == UNFITTED else curve
+                                    for curve in original['curves']], 'roles': {**original['roles'], role_name: {
         **original['roles'][role_name], 'definitionRevisionId': second_definition}}}
 
     def publish_choices(definition, expected):
@@ -700,6 +711,23 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
                         f"&snapshotId={at_replacement['id']}&definitionRevisionId={second_definition}", expected=422)
         check('an exact directory read requires the source at the selected close', absent['code'] == 'market_inputs_missing')
         at_mixed = close_frame(c, mixed)
+        def listings(snapshot, product=UNFITTED, underlying=crude, expected=200):
+            return c.call('options/listings', {'context': {'snapshotId': snapshot, 'convention': OPTION, 'knowledgeMode': 'current'},
+                          'product': product, 'definitionRevisionId': second_definition, 'underlyingCode': underlying}, expected=expected)
+
+        check('a chain requires its exact source at the recorded close',
+              listings(at_replacement['id'], expected=422)['code'] == 'market_inputs_missing')
+        chain = listings(at_mixed['id'])
+        future = chain['underlying']
+        check('a listed option shows reference-only future terms without offering a trade',
+              (future['underlyingCode'], future['deliveryFrom'], future['deliveryTo'], future['contractId'], future['curves'])
+              == (crude, '2026-12-01', '2027-01-01', None, [])
+              and not future['openForBooking'] and chain['series'] and all(not row['openForBooking'] for row in chain['series']), future)
+        next_crude = listings(at_mixed['id'], underlying='nymex_cl_20270101')
+        gas = listings(at_mixed['id'], product=PRODUCT, underlying='nymex_ng_20261201')
+        check('booking needs the published option curve and future booking needs its own admitted contract',
+              any(row['openForBooking'] for row in next_crude['series']) and not next_crude['underlying']['openForBooking']
+              and gas['series'] and all(not row['openForBooking'] for row in gas['series']))
         secondary = fit(snapshot=at_mixed['id'])
         run_worker()
         fitted_secondary = read(snapshot=at_mixed['id'])
