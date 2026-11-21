@@ -30,6 +30,7 @@ import {productTickets} from './product-tickets.js';
 import {setupGasConfiguration} from './gas-setup-editor.js';
 import {setupGasTicket} from './gas-trade-view.js';
 import {setupParkLoanTicket} from './park-loan-trade-view.js';
+import {setupGasLocationTicket} from './gas-location-entry.js';
 import {setupTransportTicket} from './transport-trade-view.js';
 import {optionConvention,setupOptionTicket} from './futures-option-view.js';
 import {setupHeatRateCallTicket} from './heat-rate-call-ticket.js';
@@ -1235,6 +1236,7 @@ async function loadIdentity(initialAccess?:unknown){
   viewHistory.length=0;inspectedContexts.clear();
   cancelCurveRead();pageRead?.controller.abort();pageRead=undefined;readClient.reset();
   closeConventionDefaults.invalidate();
+  gasLocations.reset();$('gas-locations-page').hidden=true;
   parkLoan.reset();$('park-loan-page').hidden=true;
   transportTicket.reset();$('transport-page').hidden=true;
   pointTraderMark.reset();
@@ -1469,6 +1471,7 @@ const deliverySetup=setupDeliverySetupSwitch({open:next=>navigate(next)(),availa
 const crude=setupPhysicalCrude({api,act,zone:()=>prefs.timeZone,busy:()=>busy,source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,onBooked:ticketBooked});
 const lng=setupPhysicalLng({api,act,zone:()=>prefs.timeZone,busy:()=>busy,canBook:()=>can('BookTrade'),source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,onBooked:ticketBooked});
 const gas=setupGasTicket({api,source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,instant,zone:()=>prefs.timeZone,onBooked:ticketBooked});
+const gasLocations=setupGasLocationTicket({api,source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,instant,zone:()=>prefs.timeZone,onBooked:ticketBooked});
 const parkLoan=setupParkLoanTicket({api,source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,instant,zone:()=>prefs.timeZone,onBooked:ticketBooked});
 const transportTicket=setupTransportTicket({api,source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,instant,zone:()=>prefs.timeZone,onBooked:ticketBooked});
 // Vol surfaces read the option product's stored surface at the applied context; a fit is admitted only in the current workspace.
@@ -1548,6 +1551,7 @@ const tickets=productTickets({
  crude:{root:$('crude-page'),begin:crude.load,inspect:crude.inspect,reset:crude.reset,unsaved:crude.unsaved,pending:crude.pending,sync:crude.sync},
  ppa:{root:$('ppa-page'),begin:()=>ppa.begin(frame().at),inspect:id=>ppa.inspect(frame().at,id),reset:ppa.reset,unsaved:ppa.unsaved,pending:ppa.pending,sync:ppa.sync},
  gas,
+ 'gas-locations':gasLocations,
  'park-loan':parkLoan,
  transport:transportTicket,
  options:optionTicket,

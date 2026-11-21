@@ -1,3 +1,4 @@
+import {setupPipelineOutlook} from './pipeline-outlook.js';
 import {setupFacilityTrades} from './facility-trades.js';
 import {setupFacilityQuantities} from './facility-quantities-view.js';
 import {setupFacilityOperations} from './facility-operations-view.js';
@@ -6,7 +7,7 @@ import {setupTransportRoutes} from './transport-routes-view.js';
 import {setupDeliveryWorkbench,type DeliveryWorkbenchOptions} from './delivery-workbench-view.js';
 import {setupTabs} from './side-panel.js';
 
-type Section='trades'|'quantities'|'definitions'|'activity'|'transport'|'route'|'gas-delivery'|'crude-delivery';
+type Section='trades'|'outlook'|'quantities'|'definitions'|'activity'|'transport'|'route'|'gas-delivery'|'crude-delivery';
 type Options=Parameters<typeof setupFacilityQuantities>[0]&Pick<DeliveryWorkbenchOptions,'nominationContext'|'nativeDeliveryReason'|'openNativeDelivery'>&{permission:(name:string)=>boolean};
 type Consumer={load:(id?:string)=>Promise<void>;sync:()=>void;edited:()=>boolean;unconfirmed:()=>boolean;leave:()=>boolean|Promise<boolean>;refresh:()=>void;reset:()=>void};
 
@@ -14,13 +15,13 @@ type Consumer={load:(id?:string)=>Promise<void>;sync:()=>void;edited:()=>boolean
  * the chosen view reads; unknown command outcomes remain owned by their source. */
 export function setupFacilities(o:Options){
  const root=document.getElementById('facilities-page')!,navigation=document.createElement('div'),content=document.createElement('div');
- const host=()=>document.createElement('div'),hosts={trades:host(),quantities:host(),activity:host(),transport:host(),route:host(),'gas-delivery':host(),'crude-delivery':host()};
+ const host=()=>document.createElement('div'),hosts={outlook:host(),trades:host(),quantities:host(),activity:host(),transport:host(),route:host(),'gas-delivery':host(),'crude-delivery':host()};
  hosts.quantities.id='facility-quantities-workspace';hosts.activity.id='facility-operations-workspace';hosts.transport.id='transport-capacity-workspace';hosts.route.id='transport-routes-workspace';hosts['gas-delivery'].id='gas-delivery-workspace';hosts['crude-delivery'].id='crude-delivery-workspace';
  navigation.id='facilities-workspace-tabs';navigation.className='side-panel-tabs page-tabs';content.id='facilities-workspace-content';
  hosts.quantities.append(...root.childNodes);content.append(...Object.values(hosts));root.append(navigation,content);
  const has=(...rights:string[])=>rights.every(o.permission);
  const physicalAllowed=()=>has('ReadMarketData','ReadTrades','ReadFacilityQuantities'),transportAllowed=()=>has('ReadMarketData','ReadTrades','ReadGasOperations');
- const available=(next:Section)=>next==='trades'?has('ReadTrades','ReadMarketData'):next==='gas-delivery'||next==='transport'||next==='route'?transportAllowed():next==='crude-delivery'?has('ReadMarketData','ReadTrades'):physicalAllowed();
+ const available=(next:Section)=>next==='trades'?has('ReadTrades','ReadMarketData'):next==='gas-delivery'||next==='outlook'||next==='transport'||next==='route'?transportAllowed():next==='crude-delivery'?has('ReadMarketData','ReadTrades'):physicalAllowed();
  const initial=():Section=>physicalAllowed()?'quantities':transportAllowed()?'transport':available('crude-delivery')?'crude-delivery':'quantities';
  let section:Section=initial();const consumers={} as Record<Section,Consumer>;
  const unique=()=>[...new Set(Object.values(consumers))];
@@ -33,9 +34,10 @@ export function setupFacilities(o:Options){
  const routes=setupTransportRoutes(hosts.route,{...o,pendingElsewhere:()=>othersPending(routes)});consumers.route=routes;
  const gas=setupDeliveryWorkbench(hosts['gas-delivery'],{...o,pendingElsewhere:()=>othersPending(gas)},'gas-transport');consumers['gas-delivery']=gas;
  const crude=setupDeliveryWorkbench(hosts['crude-delivery'],{...o,pendingElsewhere:()=>othersPending(crude)},'crude-receipt');consumers['crude-delivery']=crude;
+ consumers.outlook=setupPipelineOutlook(hosts.outlook,o,next=>void o.act(async()=>{section=next;show();await active().load();o.changed();}));
  consumers.trades=setupFacilityTrades(hosts.trades,o);
  const active=()=>consumers[section];
- const sections:[Section,string][]=[['trades','Trades and volumes'],['definitions','Facility definitions'],['activity','Physical activity'],['quantities','Quantities & allocations'],['transport','Transport capacity'],['route','Transport route plans'],['gas-delivery','Gas delivery'],['crude-delivery','Crude delivery']];
+ const sections:[Section,string][]=[['trades','Trades and volumes'],['outlook','Pipeline outlook'],['definitions','Facility definitions'],['activity','Physical activity'],['quantities','Quantities & allocations'],['transport','Transport capacity'],['route','Transport route plans'],['gas-delivery','Gas delivery'],['crude-delivery','Crude delivery']];
  const tabs=setupTabs(navigation,sections,{label:'Facilities workspace',panel:content,selected:section,select:next=>{
   tabs.mark(section);if(next===section||o.busy()||!available(next as Section))return;
   void o.act(async()=>{if(!await active().leave())return;section=next as Section;show();await active().load();o.changed();});

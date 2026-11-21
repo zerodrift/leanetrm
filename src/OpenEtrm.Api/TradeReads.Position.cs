@@ -135,7 +135,21 @@ public sealed partial class TradeReads
         var history=await PreviewDatabase.Rows(connection,"SELECT row_to_json(x)::text FROM(SELECT r.revision,r.instrument_id,r.actor_id,r.effective_at,a.reason FROM trading.gas_trade_revisions r LEFT JOIN trading.gas_amendment_commands a ON(a.catalog_id,a.operation_id,a.changed)=(r.catalog_id,r.operation_id,true) WHERE(r.catalog_id,r.trade_id)=($1,$2) ORDER BY r.revision DESC)x",[database.Manifest.CatalogId,position.Trade],ct);
         var amend=await GasAmendments.Action(connection,database.Manifest.CatalogId,position.Trade,position.Binding,int.Parse(position.Head.Text("revision"),CultureInfo.InvariantCulture),view.CalculationFrame.At,view.Working,ct);
         var programs=await new RetainedScheduleStore(database).LoadPrograms(connection,position.Binding,view.CalculationFrame.ContextId,view.CalculationFrame.At,ct);
+        var confirmations=await PreviewDatabase.Rows(connection,"""
+            SELECT row_to_json(x)::text FROM(
+             SELECT b.agreements,p.trade_id AS purchase_id,s.trade_id AS sale_id,pr.reference_number AS purchase_reference,sr.reference_number AS sale_reference
+             FROM trading.gas_location_bookings b
+             JOIN trading.gas_trade_revisions p ON(p.catalog_id,p.operation_id)=(b.catalog_id,b.purchase_operation)
+             JOIN trading.gas_trade_revisions s ON(s.catalog_id,s.operation_id)=(b.catalog_id,b.sale_operation)
+             JOIN trading.trade_references pr ON(pr.catalog_id,pr.trade_id)=(p.catalog_id,p.trade_id)
+             JOIN trading.trade_references sr ON(sr.catalog_id,sr.trade_id)=(s.catalog_id,s.trade_id)
+             WHERE b.catalog_id=$1 AND $2 IN(p.trade_id,s.trade_id)
+            ) x
+            """,[database.Manifest.CatalogId,position.Trade],ct);
         return new{head=position.Head,physical=position.Physical,components,indexedCash,facilityAllocations,history,
+            confirmations=confirmations.Select(r=>new{agreements=r.Text("agreements"),purchaseTradeId=r.Id("purchase_id"),saleTradeId=r.Id("sale_id"),
+                purchaseReference=TradingReference.Trade(int.Parse(r.Text("purchase_reference"),CultureInfo.InvariantCulture)),
+                saleReference=TradingReference.Trade(int.Parse(r.Text("sale_reference"),CultureInfo.InvariantCulture))}),
             amend,sideGroups=new[]{RetainedInstrumentSidePresentation.Gas(position,programs,components)}};
     }
     public Task<object> Position(NpgsqlConnection connection,TradingView view,TradePositionReadRequest request,CancellationToken ct)

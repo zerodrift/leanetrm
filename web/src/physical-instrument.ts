@@ -25,12 +25,14 @@ export function overviewTermSections(sections:readonly PhysicalOverviewSection[]
  });
 }
 export type GasIndexedCashFacts={slot:string;index_code:string;observation_convention:string;payment_convention:string;payment_day:string;spread:string;projection_id:string|null};
-export type GasInstrumentFacts={head:Record<string,string|number|boolean|null>;physical:Record<string,string|number|null>[];components:Record<string,string|number|null>[];indexedCash?:GasIndexedCashFacts[]};
+export type GasInstrumentFacts={head:Record<string,string|number|boolean|null>;physical:Record<string,string|number|null>[];components:Record<string,string|number|null>[];confirmations?:{agreements:string;purchaseTradeId:string;saleTradeId:string;purchaseReference:string;saleReference:string}[];indexedCash?:GasIndexedCashFacts[]};
 export function gasInstrumentSections(f:GasInstrumentFacts,zone:string):TermSection[]{
  const quote=(p:GasInstrumentFacts['physical'][number]|undefined)=>p?.currency!=null&&p.unit!=null&&p.multiplier!=null?priceUnit({currency:String(p.currency),unit:String(p.unit),quoteMultiplier:String(p.multiplier)}):'Unavailable';
  if(!f.components.length)return [...f.physical.map(p=>({title:'Physical delivery',rows:[['Pipeline',String(p.pipeline_code)],['Zone',String(p.zone_code)],['Delivery point',String(p.point_code)],['Product',String(p.product_code)],['Direction',Number(f.head.direction)===1?'Receive':'Deliver'],['Delivery',`${p.delivery_from} to ${p.delivery_to} · exclusive`],['Quantity basis',friendly(f.head.quantity_basis)],['Quantity',`${f.head.quantity} ${p.unit}`],['Pricing reference',String(p.curve_name)]] as [string,string][]})),
   {title:'Fixed consideration',rows:[['Fixed unit price',String(f.head.fixed_price)],['Price unit',quote(f.physical[0])],['Payment',displayPaymentDate(String(f.head.payment_at))],['Usage fee',f.head.usage_fee===null?'None':String(f.head.usage_fee)]]}];
- return f.components.map<TermSection>(m=>{
+ const confirmations:TermSection[]=(f.confirmations??[]).map(pair=>({title:'Two-location gas',rows:pair.agreements==='one_agreement'?
+  [['Confirmation','One bilateral agreement']]:[['Purchase confirmation',pair.purchaseReference],['Sale confirmation',pair.saleReference]]}));
+ return confirmations.concat(f.components.map<TermSection>(m=>{
   const source=f.physical.find(s=>Number(s.slot)===Number(m.source_slot));
   const cash:TermSection['rows']=[['Side',friendly(m.role)],['Direction',Number(m.direction)===1?'Receive':'Pay'],['Quantity source',String(f.components.find(s=>s.slot===m.source_slot)?.code??'Unavailable')],['Quantity stage',friendly(m.stage)]];
   if(m.role==='indexed_consideration'){
@@ -41,5 +43,5 @@ export function gasInstrumentSections(f:GasInstrumentFacts,zone:string):TermSect
   const p=f.physical.find(p=>Number(p.slot)===Number(m.slot));const quantity:TermSection['rows']=m.independent_quantity!==null?[['Quantity',`${m.independent_quantity} ${p?.unit}`]]:[['Quantity source',String(f.components.find(s=>s.slot===m.source_slot)?.code??'Unavailable')],['Link formula',String(m.formula)],['Link fraction',String(m.fraction)]];return{title:String(m.code),rows:p?[
   ['Side','Physical delivery'],['Pipeline',String(p.pipeline_code)],['Zone',String(p.zone_code)],['Delivery point',String(p.point_code)],['Product',String(p.product_code)],
   ['Direction',Number(m.direction)===1?'Receive':'Deliver'],['Delivery',`${m.delivery_from} to ${m.delivery_to} · exclusive`],['Quantity basis',friendly(m.quantity_basis)],...quantity,['Unit',String(p.unit)],['Pricing reference',String(p.curve_name)]
- ]:[...cash,[m.tariff_code?'Tariff':'Fixed unit price',String(m.tariff_code??m.price)],['Price unit',quote(source)],['Payment',displayPaymentDate(String(m.payment_at))]]};});
+ ]:[...cash,[m.tariff_code?'Tariff':'Fixed unit price',String(m.tariff_code??m.price)],['Price unit',quote(source)],['Payment',displayPaymentDate(String(m.payment_at))]]};}));
 }

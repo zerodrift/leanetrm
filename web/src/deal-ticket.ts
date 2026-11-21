@@ -1,3 +1,4 @@
+import {sideNavigation} from './side-navigation.js';
 import {sideCalendar,referenceCalendarChoices,type SideCalendarPolicy} from './side-calendar.js';
 import {paymentDateInput,displayPaymentDate} from './payment-date.js';
 import {facilityAllocationTrack} from './facility-allocation-track.js';
@@ -298,13 +299,15 @@ function linksGrid(o:TicketView,content:HTMLElement):GridHandle|undefined{
 
 function groupedFields(o:TicketView,groups:TicketFieldGroup[],actual:InstrumentSideGroup[]|undefined){
  const root=el('section','ticket-strip ticket-grouped-fields');
+ const targets:{label:string;target:HTMLElement}[]=[];
  for(const group of groups){
   const card=el('fieldset',group.kind==='agreement'?'ticket-field-group':'ticket-field-group instrument-side');card.dataset.ticketFieldGroup=group.id;card.dataset.fieldGroupKind=group.kind;
   card.append(el('legend',undefined,group.label));const mapped=actual?.filter(member=>member.fieldGroupId===group.id)??[];
   card.append(tradeFields(o,group.fields.map(id=>o.state.description.tradeFields.find(field=>field.id===id)!)));
   if(mapped.length)renderInstrumentSides(card,mapped,{zone:o.zone,retained:o.mode==='booked',disclosure:true});
-  root.append(card);
+  root.append(card);if(group.id!=='agreement')targets.push({label:group.label,target:card});
  }
+ if(targets.length>1)root.prepend(sideNavigation('Agreement components',targets));
  root.append(statusLine(o.status));
  return root;
 }

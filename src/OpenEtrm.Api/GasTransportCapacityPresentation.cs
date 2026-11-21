@@ -49,10 +49,10 @@ internal static class GasTransportCapacityPresentation
             string Contributors(GasTransportCapacityInterval interval)=>string.Join(", ",interval.Uses.Select(id=>
                 claims.TryGetValue(id,out var owner)?owner:throw Source()).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal));
             return [new{label="Gross capacity by interval",
-                columns=new[]{"Capacity scope","Point or path","From","Through","Chosen / hour","Maximum / hour","Assessment","Chosen plans"},
+                columns=new[]{"Capacity scope","Point or path","From","Through","Chosen / hour","Maximum / hour","Assessment","Chosen plans","Remaining / hour"},
                 rows=assessment.Intervals.Select(i=>new[]{i.Axis switch{"agreement"=>"Agreement","receipt"=>"Receipt point","delivery"=>"Delivery point","route"=>"Path",_=>throw Source()},
                     Scope(i),LifecycleNative.Instant(i.From),LifecycleNative.Instant(i.Through),i.UsedPerHour.ToExactString(),i.MaximumPerHour.ToExactString(),
-                    i.WithinLimit?"Within limit":"Capacity exceeded",Contributors(i)}).ToArray(),instantColumns=new[]{2,3}}];
+                    i.WithinLimit?"Within limit":"Capacity exceeded",Contributors(i),i.MaximumPerHour.Add(i.UsedPerHour.Scale(ExactDecimal.Parse("-1"))).ToExactString()}).ToArray(),instantColumns=new[]{2,3}}];
         }
         catch(Exception error)when(error is KeyNotFoundException or InvalidOperationException or FormatException or ArgumentException)
         {throw new MarketDataException("gas_transport_capacity_source","Retain exact path references and complete claim-to-plan memberships before displaying capacity.",error);}

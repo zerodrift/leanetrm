@@ -36,7 +36,7 @@ export type PageState=(
   |({page:'futures';risk:boolean;trade:TradeShown|null;entry:EntryShown|null;lens:'values'|'risk';view:BlotterSelection}&BlotterLayoutShown)
   |{page:'jobs';job:string|null}|({page:'ppa'}&PpaShown)|{page:'custom-curves';curve:string|null;unsaved:boolean}
   |{page:'physical-operations';physical?:PhysicalShown}|{page:'lifecycle'}|{page:'risk';view:RiskView}
-  |{page:'rec-inventory'|'physical-power'|'facilities'|'dashboard'|'crude-setup'|'gas-setup'|'gas'|'crude'|'delivery'|'interval-series'|'interval-curves'|'vol-surfaces'|'options'|'admin'|'ai'})&{assistant?:WorkspaceSelection;digestView?:BlotterDigestView;focus?:PageFocus;businessDate?:string;facilityLedger?:string|null;facilitySection?:'trades'|'quantities'|'definitions'|'activity'|'transport'|'route'|'gas-delivery'|'crude-delivery'};
+  |{page:'rec-inventory'|'physical-power'|'facilities'|'dashboard'|'crude-setup'|'gas-setup'|'gas'|'crude'|'delivery'|'interval-series'|'interval-curves'|'vol-surfaces'|'options'|'admin'|'ai'})&{assistant?:WorkspaceSelection;digestView?:BlotterDigestView;focus?:PageFocus;businessDate?:string;facilityLedger?:string|null;facilitySection?:'outlook'|'trades'|'quantities'|'definitions'|'activity'|'transport'|'route'|'gas-delivery'|'crude-delivery'};
 // The knowledge a page shows: working data, with its As of frame once one is chosen; the selected historical view; or a
 // historical selection not yet applied, which pins nothing.
 export type PageContext={mode:'current';frameId:string|null;frameLabel:string|null;businessDate?:string}
@@ -50,7 +50,7 @@ const unopened:readonly string[]=['ppa'];
 const noBlotter={mode:null,portfolioIds:null,groupBy:null,measures:null};
 
 // The page a trade being entered is reported as: one id per product, and one while none is chosen. The assistant reads none of them.
-const entryPages={rec:'blotter_new_rec',none:'blotter_new_trade',futures:'blotter_new_future',swaps:'blotter_new_swap',ppa:'blotter_new_ppa',gas:'blotter_new_gas',transport:'blotter_new_transport','park-loan':'blotter_new_park_loan',crude:'blotter_new_crude',lng:'blotter_new_lng',options:'blotter_new_option',toll:'blotter_new_heat_rate_call',storage:'blotter_new_gas_storage'} as const;
+const entryPages={rec:'blotter_new_rec',none:'blotter_new_trade',futures:'blotter_new_future',swaps:'blotter_new_swap',ppa:'blotter_new_ppa',gas:'blotter_new_gas','gas-locations':'blotter_new_gas',transport:'blotter_new_transport','park-loan':'blotter_new_park_loan',crude:'blotter_new_crude',lng:'blotter_new_lng',options:'blotter_new_option',toll:'blotter_new_heat_rate_call',storage:'blotter_new_gas_storage'} as const;
 // The report an ask sends: a read page's selection is its read tool's input for the view the page shows; any other
 // page's is empty. Blotter trade rows name no grouping, which the Blotter keeps for when its totals are shown again. What the
 // Blotter's panel holds comes first, its risk report, a new trade or a position; then its trade rows under the Risk lens, whose
@@ -59,7 +59,7 @@ export function pageReport(state:PageState):PageReport{
   switch(state.page){
     case 'lifecycle':return {page:'lifecycle',selection:{}};
     case 'physical-operations':return {page:'physical_operations',selection:state.physical?{...state.physical}:{}};
-    case 'facilities':return state.facilitySection&&state.facilitySection!=='quantities'&&state.facilitySection!=='trades'?{page:state.facilitySection==='gas-delivery'?'delivery_workbench_gas':state.facilitySection==='crude-delivery'?'delivery_workbench_crude':state.facilitySection==='route'?'transport_route_plans':state.facilitySection==='transport'?'transport_capacity':state.facilitySection==='definitions'?'facility_definitions':'facility_activity',selection:{}}:
+    case 'facilities':return state.facilitySection&&state.facilitySection!=='quantities'&&state.facilitySection!=='trades'&&state.facilitySection!=='outlook'?{page:state.facilitySection==='gas-delivery'?'delivery_workbench_gas':state.facilitySection==='crude-delivery'?'delivery_workbench_crude':state.facilitySection==='route'?'transport_route_plans':state.facilitySection==='transport'?'transport_capacity':state.facilitySection==='definitions'?'facility_definitions':'facility_activity',selection:{}}:
       {page:'facility_quantities',selection:state.businessDate?{ledgerId:state.facilityLedger??null}:{},...(state.businessDate?{businessDate:state.businessDate}:{})};
     // Risk names the view it shows, and only Reports the retained report open there (D392).
     case 'risk':return {page:'risk_jobs',selection:{view:riskReportViews[state.view],...(state.view==='risk'&&state.assistant?state.assistant:{})}};

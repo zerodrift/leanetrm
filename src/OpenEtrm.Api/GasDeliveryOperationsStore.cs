@@ -51,7 +51,7 @@ public sealed class GasDeliveryOperationsStore(PreviewDatabase database)
     static JsonElement? Last(IEnumerable<JsonElement> rows, string ordinal = "revision") => rows.OrderByDescending(r => Int(r, ordinal)).Select(r => (JsonElement?)r).FirstOrDefault();
     internal sealed record Prepared(Guid ContextId, string Hash, object Calculation, object Review);
 
-    async Task<JsonElement> State(NpgsqlConnection c, Guid trade, DateOnly day, CancellationToken ct)
+    internal async Task<JsonElement> State(NpgsqlConnection c, Guid trade, DateOnly day, CancellationToken ct)
     {
         await using var q = ScheduleStore.Command(c, "SELECT security.read_gas_operations($1,$2,$3)::text", database.Manifest.CatalogId, trade, day);
         return JsonSerializer.Deserialize<JsonElement>((string)(await q.ExecuteScalarAsync(ct))!);
@@ -81,21 +81,27 @@ public sealed class GasDeliveryOperationsStore(PreviewDatabase database)
             moves.Select(m => new GasBalanceMovement(m.Id("id"), Int(m, "ordinal"), Quantity(source, m.Text("quantity")))).ToImmutableArray(), account.Text("statement_policy"));
         return (value, s.Id("id"), moves.LastOrDefault().ValueKind == JsonValueKind.Object ? moves[^1].Id("id") : null);
     }
-    public async Task<object> Read(NpgsqlConnection c, InputFrame frame, GasOperationsReadRequest body, CancellationToken ct)
+    internal sealed record AccountBalance(Guid AccountId,string? Amount,Guid? StatementId,Guid? MovementId,string? Refusal);
+    internal async Task<List<AccountBalance>> Balances(NpgsqlConnection c,JsonElement state,DateOnly day,DateTimeOffset at,IReadOnlySet<Guid>? accounts,CancellationToken ct)
     {
-        var day = DateWorkspace.Date(body.Day); var state = await State(c, body.TradeId, day, ct);
-        var balances = new List<object>();
-        foreach (var a in Rows(state, "accounts"))
+        var balances=new List<AccountBalance>();
+        foreach(var a in Rows(state,"accounts").Where(a=>accounts is null||accounts.Contains(a.Id("id"))))
         {
             try
             {
-                _ = Account(state, a.Id("id"), null, day);
-                var source = await Source(c, a.Id("origin_obligation_id"), day, frame.At, ct);
-                var b = Balance(state, a, source);
-                balances.Add(new { accountId = a.Id("id"), amount = b.Value.ToExactString(), statementId = (Guid?)b.Statement, movementId = b.Movement, refusal = (string?)null });
+                _=Account(state,a.Id("id"),null,day);
+                var source=await Source(c,a.Id("origin_obligation_id"),day,at,ct);
+                var balance=Balance(state,a,source);
+                balances.Add(new(a.Id("id"),balance.Value.ToExactString(),balance.Statement,balance.Movement,null));
             }
-            catch (MarketDataException e) { balances.Add(new { accountId = a.Id("id"), amount = (string?)null, statementId = (Guid?)null, movementId = (Guid?)null, refusal = e.Message }); }
+            catch(MarketDataException error){balances.Add(new(a.Id("id"),null,null,null,error.Message));}
         }
+        return balances;
+    }
+    public async Task<object> Read(NpgsqlConnection c, InputFrame frame, GasOperationsReadRequest body, CancellationToken ct)
+    {
+        var day=DateWorkspace.Date(body.Day);var state=await State(c,body.TradeId,day,ct);
+        var balances=await Balances(c,state,day,frame.At,null,ct);
         await using var permissions = ScheduleStore.Command(c, "SELECT jsonb_build_object('canConfigure',security.trading_access($1,'ConfigureGasServices'),'canRecord',security.trading_access($1,'RecordGasOperations') AND security.trading_access($1,'AmendTrade'))::text", database.Manifest.CatalogId);
         return new { body.TradeId, body.Day, state, balances, permissions = JsonSerializer.Deserialize<JsonElement>((string)(await permissions.ExecuteScalarAsync(ct))!), nominationProfile = GasNominationWorkflow.Profile, imbalanceProfile = GasImbalanceTrading.Profile, statementPolicies = new[] { GasImbalanceTrading.FinalPolicy, GasImbalanceTrading.ReportedPolicy }, roundingPolicy = GasCashBilling.RoundingImplementation, scope = "manual_nonportfolio_operations", liveConnection = "TBD" };
     }

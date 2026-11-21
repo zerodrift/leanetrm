@@ -16,6 +16,59 @@ def run_checks(url, query, manifest):
     after={**before,'snapshotId':january_delivery_frame(workspace)}
     catalog=c.call('gas/catalog',before);point=next(p for p in catalog['locations'] if p['deliveryPoint']=='synthetic_gas_point_a')
     reference=next(item['reference'] for item in catalog['sideCalendars'] if item['code']=='test_utc_every_day')
+
+    # Both confirmation structures use native gas tickets and one retained group receipt.
+    from copy import deepcopy
+    other=next(p for p in catalog['locations'] if p['deliveryPoint']!=point['deliveryPoint'])
+    parties=trade_booking()
+    for agreements in ['one_agreement','separate_confirmations']:
+        selection={'agreements':agreements,'purchasePrice':'fixed','salePrice':'fixed'}
+        drafts=c.call('tickets/gas-locations/start',{'context':before,**selection})
+        for draft in drafts:
+            draft['trade']={'book':catalog['books'][0]['id'],'legal_entity':parties['legalEntityId']+'@1','counterparty':parties['counterpartyId']+'@1'}
+            if catalog['gasSetupId']:draft['trade']['gas_setup']=catalog['gasSetupId']
+            for side in draft['sides']:
+                physical=side['kind']=='physical'
+                side['calendarPolicy']=side_calendar_policy(reference,delivery=True,observation=False,payment=not physical)
+                if physical:
+                    location=point if side['code']=='purchase' else other
+                    side['values'].update(pipeline=location['pipeline'],zone=location['zone'],delivery_point=location['deliveryPoint'],
+                        product=location['product'],delivery_from='2021-01-10',delivery_to='2021-01-12',quantity_basis='per_operating_day',quantity='25')
+                else:
+                    side['values'].update(cash_stage='delivery',cash_price='3',cash_payment_at='2021-02-02T00:00:00Z')
+        legs=[{'draft':d,'definitionRevisionId':c.call('tickets/preview',{'context':before,'draft':d})['source']['definitionRevisionId']} for d in drafts]
+        command={'context':before,'operationId':str(uuid4()),'tickets':legs,**selection}
+        if agreements=='separate_confirmations':
+            # Fail during the second native publication in this disposable database.
+            import hashlib
+            from uuid import UUID
+            children=[str(UUID(hex=hashlib.sha256(f"gas_location_booking_child_v1:{command['operationId']}:{i}".encode()).hexdigest()[:32])) for i in range(2)]
+            query(f'''CREATE FUNCTION trading.test_location_second_refusal() RETURNS trigger LANGUAGE plpgsql AS $test$
+                BEGIN RAISE EXCEPTION 'gas_conflict';END$test$;
+                CREATE TRIGGER test_location_second_refusal BEFORE INSERT ON trading.gas_trade_revisions
+                FOR EACH ROW WHEN(NEW.operation_id='{children[1]}') EXECUTE FUNCTION trading.test_location_second_refusal();''')
+            try:
+                c.call('tickets/gas-locations/book',command,expected=409)
+                assert query(f"SELECT count(*) FROM trading.gas_trade_revisions WHERE operation_id IN('{children[0]}','{children[1]}')")=='0'
+            finally:
+                query('DROP TRIGGER test_location_second_refusal ON trading.gas_trade_revisions;DROP FUNCTION trading.test_location_second_refusal()')
+        receipt=c.call('tickets/gas-locations/book',command)
+        assert (receipt['purchaseTradeId']==receipt['saleTradeId'])==(agreements=='one_agreement')
+        assert receipt==c.call('tickets/gas-locations/book',command)==c.call('tickets/gas-locations/status',{'requestId':command['operationId']})
+        another=PreviewClient(url);another.bootstrap();another.call('profile',{'profile':'risk'})
+        assert another.call('tickets/gas-locations/status',{'requestId':command['operationId']})=={'found':False}
+        for trade_id in set((receipt['purchaseTradeId'],receipt['saleTradeId'])):
+            instrument=query(f"SELECT instrument_id FROM trading.gas_trade_revisions WHERE trade_id='{trade_id}' AND revision=1;")
+            position=c.call('trading/gas',{'context':{**before,'convention':'trading_workspace_v1'},'tradeId':trade_id,'bindingId':instrument,'revision':1,'instrumentType':'physical_gas'})
+            link=position['confirmations'][0]
+            assert link['purchaseTradeId']==receipt['purchaseTradeId'] and link['saleTradeId']==receipt['saleTradeId']
+        amended=deepcopy(command)
+        amended['tickets'][0]['draft']['sides'][0]['values']['quantity']='26'
+        c.call('tickets/gas-locations/book',amended,expected=409)
+        malformed=deepcopy(command);malformed['operationId']=str(uuid4())
+        next(s for ticket in malformed['tickets'] for s in ticket['draft']['sides'] if s['code']=='sale_payment')['values']['cash_source']='purchase'
+        c.call('tickets/gas-locations/book',malformed,expected=422)
+        assert c.call('tickets/gas-locations/status',{'requestId':malformed['operationId']})=={'found':False}
     terms={**before,**trade_booking(),'operationId':str(uuid4()),'bookId':catalog['books'][0]['id'],'definitionRevisionId':point['definitionRevisionId'],'gasSetupId':catalog['gasSetupId'],'discounting':False,'profile':'fixed_gas_composition_v1',
       'physicalSides':[{'code':'receipt','pipeline':point['pipeline'],'zone':point['zone'],'deliveryPoint':point['deliveryPoint'],'product':point['product'],'direction':'receive','deliveryFrom':'2021-01-01','deliveryTo':'2021-01-03','quantityBasis':'per_operating_day','quantity':'100','link':None,'calendarPolicy':side_calendar_policy(reference,delivery=True,observation=False,payment=False)}],
       'cashSides':[{'code':'payment','role':'consideration','direction':'pay','source':'receipt','stage':'delivery','price':'3','tariffCode':None,'paymentAt':'2021-02-02T00:00:00Z','calendarPolicy':side_calendar_policy(reference,delivery=True,observation=False,payment=True)}]}
@@ -55,6 +108,18 @@ def run_checks(url, query, manifest):
     apply['details'].update(counterpartyResponseId=cp['id'],pipelineResponseId=pipe['id'])
     applied,_=write(apply)
     heads=state()['state']['heads'];assert next(h for h in heads if h['kind']=='scheduled')['quantity']=='90'
+    operating={'effectiveOn':'2021-01-31','knowledgeMode':'current','retained':None,'convention':'facility_business_date_end_utc_v1'}
+    def report(client=c,context=None):
+        return client.call('gas/pipeline-outlook',{'context':context or operating,'from':day,'to':'2021-01-02','period':'day'})
+    def outlook():
+        return report()['rows']
+    original=report()
+    before_renomination=original['context']['knownAt']
+    waiting=next(b for b in original['balances'] if b['accountId']==accounts[0]['id'])
+    assert waiting['amount'] is None and 'Awaiting' in waiting['reason']
+    assert any(s['scheduled'] is None for s in original['sources'] if s['tradeId']==trades[1])
+    row=next(r for r in outlook() if r['path']['point']==point['deliveryPoint'] and r['path']['direction']=='receive')
+    assert row['scheduled']['reportedQuantity']=='90' and row['nominated']['reportedQuantity']=='100' and row['submitted']['reportedQuantity']=='100',row
     retained=state()['context'];historic={**after,'knowledgeMode':'retained','contextId':retained['contextId']}
     # A newer nominated request prevents applying stale external scheduling evidence.
     later,_=write(nomination('synthetic-new-request','80'))
@@ -63,6 +128,15 @@ def run_checks(url, query, manifest):
     alias={**ncommand,'operationId':str(uuid4()),'preview':{**ncommand['preview'],'details':{**ncommand['preview']['details'],'quantity':'100.000','submittedAt':'2020-12-31T12:00:00+00:00','accountId':accounts[0]['id'].upper()}}}
     assert c.call('gas/operations/record',alias)['id']==n['id']
     assert next(h for h in state()['state']['heads'] if h['kind']=='nominated')['quantity']=='80'
+    row=next(r for r in outlook() if r['path']['point']==point['deliveryPoint'] and r['path']['direction']=='receive')
+    assert row['nominated']['reportedQuantity']=='80' and row['scheduled']['reportedQuantity']=='90' and row['submitted']['reportedQuantity']=='80',row
+    frozen_client=PreviewClient(url);frozen_client.bootstrap();frozen_client.call('profile',{'profile':'trader'})
+    frozen=frozen_client.call('market/context',{'effectiveOn':operating['effectiveOn'],'knownAt':before_renomination,'mode':'at','selection':'latest_correction'})['context']
+    frozen_row=next(r for r in report(frozen_client,{**operating,'knowledgeMode':'retained','retained':frozen})['rows']
+                    if r['path']==row['path'])
+    assert frozen_row['submitted']['reportedQuantity']=='100' and frozen_row['nominated']['reportedQuantity']=='100' and frozen_row['scheduled']['reportedQuantity']=='90'
+    before_booking=report(context={**operating,'effectiveOn':'2020-12-01'})
+    assert not any(s['tradeId'] in trades for s in before_booking['sources'])
     statements=[]
     def statement(i,balance,previous=None,included=None):
         return request('statement',dict(accountId=accounts[i]['id'],serviceVersionId=accounts[i]['version_id'],externalReference='synthetic-statement-'+str(i),expectedPreviousId=previous,balance=balance,status='final',reportedAt='2021-01-12T00:00:00Z',includedMovementId=included,evidence='Synthetic signed operator statement'),trades[i])
@@ -112,6 +186,7 @@ def run_checks(url, query, manifest):
     # Correct an earlier pre-transfer number: accepted movements remain consumed.
     write(statement(1,'150',net['id']))
     assert next(b for b in state()['balances'] if b['accountId']==accounts[1]['id'])['amount']=='-50'
+    assert next(b for b in report()['balances'] if b['accountId']==accounts[1]['id'])['amount']=='-50'
     c.call('gas/operations/preview',transfer,expected=422)
     assert c.call('gas/operations/record',command)['id']==accepted['id']
     assert len(state(context=historic)['state']['nominations'])==1

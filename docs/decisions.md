@@ -6868,3 +6868,23 @@ their declared semantics and exact range. No rounding catalogue or seed row is
 introduced. Qualified external feed currency contracts remain unchanged.
 
 See [the implementation and verification contract](currency-and-price-units.md).
+
+## D439 — Two-location gas confirmations and pipeline outlook
+
+A merchant purchase and sale have a physical Side and a payment Side at each
+location. The purchase receives gas and pays, and the sale delivers gas and
+receives payment. Each payment uses its chosen fixed rate or eligible index
+and an explicit quantity stage. A single agreement owns four Sides. Two
+confirmations have independent trade owners and party selections and publish
+atomically under a replayable instruction. Transportation rights and fees
+remain separate contractual instruments.
+
+Pipeline usage resolves exact trade and operating revisions at the selected
+business and knowledge times. Gross receipt and delivery volumes retain their
+own direction and native quantity specification. Daily nominations, evidenced
+submissions, confirmations, adopted schedules, and allocations each retain
+their own coverage. Submitted volume uses the latest native nomination revision
+linked to a recorded external request, with its reference and submission time.
+The account balance follows its statement and accepted movements. An explicitly
+selected entitlement supplies its dated rates, claims and headroom on
+elapsed-time intervals, with a separately selected UTC window.

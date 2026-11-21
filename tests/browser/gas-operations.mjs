@@ -1,3 +1,5 @@
+import {newTrade} from './new-trade.mjs';
+import {blotterAt,decemberClose} from './gas-ticket.mjs';
 import {selectDeliveryFrame,openPhysicalTrade,openGasDelivery} from './physical-operations-grid.mjs';
 // Real browser: manual scheduling review, trusted unsaved edits and shared recovery.
 export async function run(actions){
@@ -39,4 +41,19 @@ export async function run(actions){
  await persona('risk');await selectDeliveryFrame(actions,'2021-01-15T08:');await click('#nav-physical-operations');await openPhysicalTrade(actions,fixture.tradeId);
  await click('#physical-operations-tabs-delivery');await openGasDelivery(actions,'2021-01-01');
  await check('a role without gas operations access is told so, with the reason beside the unavailable operations',`(()=>{const ops=document.querySelector('${root}'),note=ops.querySelector('[data-ops=unavailable]');return ops.querySelector('[data-operation=nomination]').disabled&&!note.hidden&&note.textContent.includes('roles do not permit gas operations')&&!ops.querySelector('[data-ops=message]').textContent.includes('service terms');})()`,`[...document.querySelectorAll('${root} [data-ops=unavailable],${root} [data-ops=message]')].map(n=>n.textContent)`);
+ await persona('trader');await click('#nav-facilities');await click('[data-facilities-view=outlook]');
+ await set('#outlook-from','2021-01-01');await set('#outlook-to','2021-01-03');await click('#outlook-read');
+ await wait("document.querySelector('#facilities-workspace-content').innerText.includes('Booked Side detail')&&"+idle,60000);
+ await check('pipeline outlook displays separate native nominations, schedules and contractual gas days',
+  "['Gross pipeline volumes','Nominated','Confirmed','Scheduled','Allocated','Native start','Native end'].every(t=>document.querySelector('#facilities-workspace-content').innerText.includes(t))");
+ await set('#outlook-period','month');await click('#outlook-read');
+ await wait("[...document.querySelectorAll('#facilities-workspace-content button')].some(b=>b.textContent==='2021-01')&&"+idle);
+ await evaluate("[...document.querySelectorAll('#facilities-workspace-content button')].find(b=>b.textContent==='2021-01').click()");
+ await wait("document.querySelector('#outlook-period').value==='day'&&document.querySelector('#facilities-workspace-content').innerText.includes('Booked Side detail')&&"+idle);
+ await blotterAt(actions,await decemberClose(evaluate));await newTrade(actions,'gas-locations');
+ await set('#gas-location-agreements','separate_confirmations');await set('#gas-location-purchase-price','fixed');await set('#gas-location-sale-price','indexed');
+ await click('#gas-location-assemble');await wait("document.querySelectorAll('#gas-locations-page .ticket-card').length===4&&"+idle);
+ await check('separate confirmations expose two native editors and four correctly owned Sides',
+  "document.querySelectorAll('#gas-locations-page .deal-ticket').length===2&&['purchase','purchase_payment','sale','sale_payment'].every(code=>document.querySelector('#gas-locations-page .ticket-card[data-side='+code+']'))&&document.querySelector('#gas-locations-page [data-side=sale_payment]').dataset.kind==='floating'&&[...document.querySelectorAll('#gas-locations-page .ticket-book')].every(b=>b.hidden)");
+
 }

@@ -1010,6 +1010,7 @@ body.assistant-open:not(.assistant-overlay) .side-panel[data-placement=overlay]{
 .side-panel-section+.side-panel-section{margin-top:14px}
 .side-panel-section h3{margin:0 0 4px;font-size:12px;font-weight:650;color:var(--text)}
 .side-terms-list{margin:0}
+.ticket-grouped-fields>nav{grid-column:1/-1}
 .ticket-strip.ticket-grouped-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:16px}.ticket-field-group{min-width:0;margin:0;padding:16px;border:1px solid var(--border);border-radius:8px}.ticket-field-group[data-field-group-kind="agreement"]{grid-column:1/-1}.ticket-field-group>legend{font-size:13px;font-weight:600;padding:0 6px}.ticket-field-group .instrument-composition{margin:12px 0 0}.ticket-field-group .instrument-side{padding:10px}.ticket-field-group .instrument-side-group>h3{font-size:13px}
 .instrument-composition{display:flex;flex-direction:column;gap:20px;margin:20px 0}.instrument-side-group{min-width:0}.instrument-side-group>h3{margin:0 0 12px}.instrument-side-deck{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:16px}.instrument-composition .instrument-side>h4{margin:0 0 6px}.instrument-composition h5{font-size:12px;margin:16px 0 8px}
 .side-panel .side-term{grid-template-columns:minmax(84px,.8fr) minmax(0,1.2fr);gap:10px;padding:6px 0;border-top:1px solid var(--border);font-size:12px}

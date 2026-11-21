@@ -1,5 +1,16 @@
 # Delivery plan and acceptance criteria
 
+D439 adds **New trade → Gas & LNG → Two-location gas** and **Facilities →
+Pipeline outlook**. Independent purchase and sale tickets can have different
+parties, quantity bases and payment terms. One parent request commits the
+new trades and their retained schedules, and the Blotter shows both
+confirmation references. Current-month gas days and monthly forward windows
+use the retained local delivery intervals. The selected commercial entitlement
+supplies its own interval rates and headroom. Open the Gas delivery workbench
+for route allocations and submitted nomination batches.
+Hourly operator nominations, automatic submissions to a pipeline and automatic
+attribution of all point activity to a capacity lease remain outside this profile.
+
 D438 implements [currency and price-unit integrity](currency-and-price-units.md),
 including native discount relationships, mark-free graph publication, exact
 analytics partitions and explicit payment rounding. Release qualification covers

@@ -44,7 +44,7 @@ public sealed partial class GasTransportCapacityStore(PreviewDatabase database)
         await using var q=ScheduleStore.Command(c,"SELECT security.gas_transport_capacity_prior_fact($1,$2::jsonb,$3)",Catalog,command.GetRawText(),at);
         return (bool)(await q.ExecuteScalarAsync(ct))!;
     }
-    private async Task Capture(NpgsqlConnection c,string? kind,CancellationToken ct)
+    internal async Task Capture(NpgsqlConnection c,string? kind,CancellationToken ct)
     {
         await using var q=ScheduleStore.Command(c,"SELECT security.gas_transport_capacity_authority($1,$2)",Catalog,(object?)kind??DBNull.Value);
         var until=new DateTimeOffset((DateTime)(await q.ExecuteScalarAsync(ct))!);

@@ -61,14 +61,14 @@ test('the instruments are grouped in the chooser\'s order',()=>{
  assert.deepEqual(shape(chooserGroups(main)),[
   ['financial','Financial',['futures','options','swaps']],
   ['power','Power',['ppa','rec']],
-  ['gas-lng','Gas & LNG',['gas','park-loan','lng']],
+  ['gas-lng','Gas & LNG',['gas','park-loan','lng','gas-locations']],
   ['oil-liquids','Oil & liquids',['crude']],
   ['structured','Structured',['operating-right','toll','transport','storage']]]);
 });
 
 test('every product is listed once and has a name',()=>{
- assert.equal(new Set(newProducts).size,newProducts.length);assert.equal(newProducts.length,12);
- assert.equal(productName('park-loan'),'Park and loan');assert.equal(productName('gas'),'Physical gas');
+ assert.equal(new Set(newProducts).size,newProducts.length);assert.equal(newProducts.length,13);
+ assert.equal(productName('park-loan'),'Park and loan');assert.equal(productName('gas'),'Physical gas');assert.equal(productName('gas-locations'),'Two-location gas');
  assert.equal(productAbout('futures'),'An exchange contract with a defined expiry.');
 });
 
