@@ -8,7 +8,7 @@ export type Workspace = {referenceSources?:Record<string,ReferenceSource>;future
 import type {PricingNode} from './pricing-view.js';
 import type {FrameSummary} from './market-navigation.js';
 
-export type Point = {priceTick?:string;contractId?:string; seriesId?:string; maturity?:string; deliveryFrom?:string; deliveryTo?:string; expiry?:string; value:string; quote?:string; lineage:string[]; discountFactor?:string; displayDiscountFactor?:string; label?:string; mark?:string; actualDays?:number};
+export type Point = {priceTick?:string;contractId?:string;futureOpenForBooking?:boolean; seriesId?:string; maturity?:string; deliveryFrom?:string; deliveryTo?:string; expiry?:string; value:string; quote?:string; lineage:string[]; discountFactor?:string; displayDiscountFactor?:string; label?:string; mark?:string; actualDays?:number};
 export type CurveFront={contractId:string;deliveryFrom:string;deliveryTo:string;price:string};
 /** A curve's counts and front, stated by the backend (D233): contracts for futures and forwards, maturities for rates. */
 export type CurveSummary={kind:'contracts';contractCount:number;front:CurveFront|null;availability:'no_remaining_contracts'|'no_priced_contract'|null}|{kind:'rates';maturityCount:number;firstMaturity:string|null;firstMark:string|null;markUnitLabel:string;dayCount:string};

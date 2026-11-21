@@ -56,6 +56,16 @@ public sealed partial class FuturesStore(PreviewDatabase database)
         var quote=data.QuoteRows(c.Text("quote_code")).Single();
         return data.Model.BindFutures(id,new(new(contract.Key.Revision,curve),contract.Key),product.Text("settlement_method"),implementation,eligibleFrom);
     }
+    // A priced contract can remain inspectable even without an executable trading window.
+    internal static bool OpenForBooking(PreviewData data,string curve,Guid contractId,DateTimeOffset at)
+    {
+        try
+        {
+            var binding=Binding(data,curve,contractId,contractId,data.FuturesConvention);
+            return ContractEligibility.At(binding.TradingWindow,at)==EligibilityState.Eligible;
+        }
+        catch(MarketDataException){return false;}
+    }
     public Task<ImmutableArray<JsonElement>> Books(NpgsqlConnection connection,CancellationToken ct)=>
         BookScope.Read(connection,manifest.CatalogId,ct);
 

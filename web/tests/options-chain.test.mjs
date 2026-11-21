@@ -61,3 +61,25 @@ test('a missing measure is explained in words, and an unknown code is shown as i
  assert.match(measureReason('sensitivity_unstable'),/agree/);
  assert.equal(measureReason('some_new_code'),'some_new_code');
 });
+
+test('contracts sharing an expiry keep their own call, put and at-the-money strike',()=>{
+ const base=surface.series[0],other={...base,series:{...base.series,underlyingCode:'other',code:'other-call'}};
+ const together={...surface,expiries:[...surface.expiries,{...surface.expiries[0],underlyingCode:'other',atTheMoneyStrike:null}],series:[...surface.series,other]};
+ assert.deepEqual(chainRows(together,expiry,new Map(),'other').map(row=>[row.call?.code,row.put,row.atTheMoney]),[['other-call',null,false]]);
+});
+
+test('every product page uses the same exact definition and resolves its own underlying and commodity',async()=>{
+ const {readOptionProducts}=await import('../dist/option-directory.js');
+ const first={definitionRevisionId:'d1',offset:0,pageSize:1,hasMore:true,rows:[{code:'on',name:'Gas option',underlying_product_code:'ng',exchange_code:'n'}],
+  references:{futures_products:[{code:'ng',name:'Gas future',commodity_code:'gas'}],commodities:[{code:'gas',name:'Natural gas'}],exchanges:[{code:'n',name:'North'}]}};
+ const second={definitionRevisionId:'d1',offset:1,pageSize:1,hasMore:false,rows:[{code:'lo',name:'Oil option',underlying_product_code:'cl'}],
+  references:{futures_products:[{code:'cl',name:'Oil future',commodity_code:'oil'}],commodities:[{code:'oil',name:'Crude oil'}]}};
+ const seen=[],signal=new AbortController().signal;
+ const directory=await readOptionProducts(async(path,body,bound)=>{
+  const q=new URL(path,'http://localhost/').searchParams;assert.equal(bound,signal);
+  seen.push([q.get('snapshotId'),q.get('offset'),q.get('definitionRevisionId')]);return q.get('offset')==='0'?first:second;
+ },'snap',signal);
+ assert.deepEqual(seen,[['snap','0',null],['snap','1','d1']]);
+ assert.deepEqual(directory.products.map(p=>[p.name,p.market,p.underlying,p.exchange]),[['Gas option','Natural gas','Gas future','North'],['Oil option','Crude oil','Oil future','']]);
+ await assert.rejects(readOptionProducts(async()=>second,'snap',signal,'other-definition'),/changed definition/);
+});

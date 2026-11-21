@@ -490,9 +490,12 @@ public sealed partial class PreviewDatabase : IAsyncDisposable
         }
         else foreach(var table in completeTables)loaded[table]=await ReadTable(table);
 
-        // Follow only exact-version declared settlement links. These metadata
-        // references do not introduce market dependencies or pricing inputs.
+        // Options and basis settlements name exact-version futures. Their
+        // reference terms are visible even without a market contract for that future.
         var pending=Codes(definitions["contracts"],"futures_series_code").ToHashSet();
+        var optionCodes=Codes(definitions["contracts"],"futures_option_series_code").ToHashSet();
+        if(optionCodes.Count>0)
+            pending.UnionWith(loaded["futures_option_series"].Where(row=>optionCodes.Contains(row.Text("code"))).Select(row=>row.Text("underlying_series_code")));
         var seen=new HashSet<string>();
         var series=ImmutableArray.CreateBuilder<JsonElement>();
         var basis=ImmutableArray.CreateBuilder<JsonElement>();
@@ -662,10 +665,18 @@ public sealed partial class PreviewDatabase : IAsyncDisposable
                 _=>columns
             }:columns;
             var codes=selected.SelectMany(column=>Codes(rows,column)).Distinct().ToArray();
+            if(table=="futures_option_products"&&target=="futures_products")codes=Codes(rows,"underlying_product_code").Distinct().ToArray();
             if(codes.Length==0)continue;
             var linked=await Rows(connection,$"SELECT row_to_json(t)::text FROM(SELECT * FROM ref_data.{target} WHERE catalog_id=$1 AND revision_id=$2 AND code=ANY($3::text[]) ORDER BY {ReferenceKey(target)})t",[revision.CatalogId,revision.RevisionId,codes],ct);
             references[target]=references.TryGetValue(target,out var existing)
                 ? existing.Concat(linked).DistinctBy(row=>row.GetProperty("code").GetString()).ToImmutableArray():linked;
+        }
+        if(table=="futures_option_products"&&references.TryGetValue("futures_products",out var underlyings))
+        {
+            var commodities=Codes(underlyings,"commodity_code").Distinct().ToArray();
+            if(commodities.Length!=0)references["commodities"]=await Rows(connection,
+                "SELECT row_to_json(c)::text FROM ref_data.commodities c WHERE catalog_id=$1 AND revision_id=$2 AND code=ANY($3::text[])",
+                [revision.CatalogId,revision.RevisionId,commodities],ct);
         }
     }
 
@@ -1276,6 +1287,7 @@ public sealed class PreviewData
             {
                 var c=Single(contractDefinitions[v.Request.Contract.Id]);
                 return new { contractId=v.Request.Contract.Id,instrumentId=c.OptionalText("futures_series_code") is {} future?(Guid?)ContractIdentity.Futures(R(future)):null, deliveryFrom=c.Text("delivery_from"),deliveryTo=c.Text("delivery_to"),expiry=c.Text("expiry_at"),priceTick=c.Text("kind")=="future"?QuoteRows(v.Quote.Code).Single(q=>q.Key==v.Quote).ClearingIncrement.ToString():null,value=v.Price.Value.ToString(),quote=v.Quote.Code,lineage=v.Lineage.Select(k=>k.Id).Order().ToArray(),
+                    futureOpenForBooking=c.Text("kind")=="future"&&FuturesStore.OpenForBooking(this,code,v.Request.Contract.Id,frame.At),
                     interval=IntervalCurveDefinitions.Label(contractRows[v.Request.Contract.Id].Single().Interval) };
             }).ToArray(), observationIds=frame.ObservationIds };
     }
