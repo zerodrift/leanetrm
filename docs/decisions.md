@@ -6910,3 +6910,44 @@ through that revision; the desk refuses a confirmation against a carried revisio
 A commercial amendment is admitted as before and awaits its own confirmation. This
 refines D436. Generated confirmation documents, a confirmation for a termination
 and a correction label for exchange-traded edits remain planned.
+
+## D441 — A started month of a scheduled swap is locked; later months amend
+
+A scheduled financial swap that has started is amended at the working As of from a
+later month forward. A delivery month has started once, on either side, its
+delivery has begun or a fixing is due. A started month
+keeps every booked term, its definition and reference revisions, its direction and
+its exact quantity, and the swap keeps its direction and discounting. A side keeps
+one index, currency and price settlement across its months, so a started month
+fixes those for the side. Months that have not started may be repriced, resized or
+given another payment rule, and the term may end later; an added month starts after
+the effective instant, whether or not the swap has started. The term may not end
+earlier: that is a termination, which scheduled swaps do not have. This adopts the contractual P&L rule at booking and
+supersedes the former refusal of any amendment after the first fixing; it also
+locks a month whose delivery has begun before its first fixing.
+
+Migration 0385 takes each started month from the booked period rows instead of
+preparing it again, and `settlement_data.require_retained_swap_periods` proves the
+result: every booked month remains, and each started month has one owned period
+identity, coefficient and exact quantity in the booked and the amended instrument.
+Determinations and cash are keyed by trade, membership and delivery month, so they
+stay attached. The preview and the ticket value the proposed terms under the
+trade's settlement lifecycle and state the locked months with a reason (settled,
+delivered, in progress or fixing). The managed operation refuses a change to one by
+naming it; the owned write refuses the same change by code.
+
+Run settings (`lifecycle.swap_profiles`) follow a payment occurrence to a later
+revision while its period, direction and quantity are unchanged; a new or changed
+occurrence is configured as before. A carried setting keeps its policy, including
+an automatic one, without a new authority check; scheduled lifecycle jobs still
+name the revision they were saved under and are saved again, as are net settlement
+settings, so nothing runs unattended on a carried setting alone.
+
+Not covered, each refused with a structured error: a swap whose booked market
+definition revision is no longer the one in force (one instrument cannot yet be
+valued across two market definitions), power-hour quantities, factor contracts,
+quantity-weighted observations and official daily exchange settlement. A power-hour
+swap is therefore no longer amendable between its delivery start and first fixing. A side that allocates one contract total
+keeps its total and its months once a month has started. The general trading P&L
+report does not cover swaps; the swap's own bridge reports the amendment as Impact
+of amendments.

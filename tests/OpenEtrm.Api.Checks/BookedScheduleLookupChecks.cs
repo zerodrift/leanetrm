@@ -71,18 +71,23 @@ internal static class BookedScheduleLookupChecks
         var sourceSide=new FloatingSide(Guid.NewGuid(),quote,new(ExactDecimal.Parse("1"),quote.Quantity),[sourcePeriod],SyntheticSideCalendars.FloatingPeriods([sourcePeriod]));
         var sourceSwap=new FinancialSwapInstrument(Guid.NewGuid(),
             [new(sourceSide,ExactDecimal.Parse("-1")),new(sourceSide,ExactDecimal.Parse("1"))],FinancialSwapInstrument.Implementation,false);
-        foreach(var (at,eligible) in new[]{(sources[0].FixingAt.AddTicks(-1),true),(sources[0].FixingAt,false),(sources[0].FixingAt.AddTicks(1),false)})
-            if(SwapStore.ScheduledAmendmentEligible(sourceSwap,at)!=eligible)
-                throw new Exception("Scheduled source amendments must retain their explicit first-observation boundary after schedule-marker retirement.");
+        // D441: a delivery month has started once its delivery has begun or a fixing is due.
+        var deliveryStart=PaymentDatePolicy.Start(observationFrom);
+        foreach(var (at,started) in new[]{(deliveryStart.AddTicks(-1),false),(deliveryStart,true),(sources[0].FixingAt,true)})
+            if(SwapStore.StartedPeriods(sourceSwap,at).SequenceEqual([new QuantityPeriod(observationFrom,observationFrom.AddMonths(1))])!=started||
+                !started&&!SwapStore.StartedPeriods(sourceSwap,at).IsEmpty)
+                throw new Exception("A delivery month starts at its first delivery instant, before its first observation, and is stated once for both sides.");
         var noon=new DateTimeOffset(2040,2,1,12,0,0,TimeSpan.Zero);
         var dueSources=sources.Select((o,n)=>o with{Contract=o.Contract with{Expiry=noon.AddYears(1)},
             Observation=o.Observation with{FixingAt=noon.AddMinutes(n)},SelectionAt=noon.AddMinutes(n)}).ToImmutableArray();
-        var duePeriod=sourcePeriod with{FirstFixingAt=noon,PaymentAt=noon.AddHours(-12),ContractObservations=dueSources,
+        // A later delivery month isolates the fixing boundary from the delivery start.
+        var later=observationFrom.AddMonths(2);
+        var duePeriod=sourcePeriod with{DeliveryFrom=later,DeliveryTo=later.AddMonths(1),FirstFixingAt=noon,PaymentAt=PaymentDatePolicy.Start(later.AddMonths(1).AddDays(2)),ContractObservations=dueSources,
             Projections=[..dueSources.Select(o=>new SwapProjection(o.Market,o.Contract))]};
         var dueSide=new FloatingSide(Guid.NewGuid(),quote,new(ExactDecimal.Parse("1"),quote.Quantity),[duePeriod],SyntheticSideCalendars.FloatingPeriods([duePeriod]));
         var dueSwap=new FinancialSwapInstrument(Guid.NewGuid(),[new(dueSide,ExactDecimal.Parse("-1")),new(dueSide,ExactDecimal.Parse("1"))],FinancialSwapInstrument.Implementation,false);
-        if(!SwapStore.ScheduledAmendmentEligible(dueSwap,noon.AddHours(-2))||SwapStore.ScheduledAmendmentEligible(dueSwap,noon))
-            throw new Exception("A midnight payment coordinate cannot block an amendment at 10:00 before the same-day noon fixing.");
+        if(!SwapStore.StartedPeriods(dueSwap,noon.AddTicks(-1)).IsEmpty||SwapStore.StartedPeriods(dueSwap,noon).IsEmpty)
+            throw new Exception("A month whose first fixing is due has started before its delivery, and not an instant earlier.");
         var sourceDefinition=ScheduleDefinitionCompiler.Generate(sourceSide);
         var sourceProgram=Reload(sourceDefinition);
         var decoded=BookedScheduleLookups.Contracts(fixture.Data,sourceProgram);

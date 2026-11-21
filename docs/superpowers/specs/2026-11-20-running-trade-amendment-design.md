@@ -1,7 +1,8 @@
 # Amending a running trade: design
 
-Status: the first two slices below are implemented (D439, D440). The remaining
-slices are designed here and not built. This document records the contract, the
+Status: the first three slices below are implemented (D439, D440, D441), the
+third within the limits it states. The remaining slices are designed here and not
+built. This document records the contract, the
 alternatives considered and the facts that decide the order of work.
 
 ## Intent
@@ -124,42 +125,79 @@ where the original curves, sources and calendars cover them; coverage must lie
 inside the amended instrument's delivery term; capacity delivery uses whole
 operating months; a terminated head cannot be amended.
 
-## Slice 3: running financial swaps (designed, not built)
+## Slice 3: running financial swaps (D441, implemented within limits)
 
-A running scheduled swap is refused at five independent places, and four
-further layers depend on revision identity:
+Settlement facts already belonged to the trade by membership and delivery month,
+and the revision guard already admitted a new parent side whose settled periods
+keep their owned period identity. The slice extends that proof from settled
+periods to every started one and removes the refusals in front of it.
 
-1. The head gate in `security.save_scheduled_swap` refuses when any period has
-   a due fixing or a passed payment day.
-2. The period preparers refuse any submitted period whose payment day has
-   passed, so a retained period cannot be re-admitted as new.
-3. The managed preview repeats both tests and prices with a pure schedule that
-   refuses overdue payments; a running trade needs lifecycle valuation against
-   its settlement occurrences.
-4. The editor reports a trade with settlement occurrences as not amendable.
-5. A submission must use the market definition revision effective at the
-   valuation date, while a retained period's identity includes the definition
-   revision it was booked under.
+Decisions:
 
-Dependent layers: lifecycle action profiles are bound to the origin revision
-and stop until configured again; the general trading P&L report keys positions
-by binding, so a changed instrument reports as closed plus new; the change
-review compares periods by index; the period editor has no locked rows.
+- A period that has settled or started is locked. It keeps its identity,
+  quantity, terms and the definition and reference revisions it was booked
+  under.
+- An amendment changes only periods that start after the effective instant;
+  booking adopts the contractual P&L rule. A request that changes a locked
+  period refuses with a structured error naming the period and the reason. The
+  editor shows locked periods as read-only and says why: settled, delivered, in
+  progress or fixing.
+- An amended swap stays one trade in its P&L bridge, which reports the value
+  change caused by amendments as Impact of amendments.
+- Price, spread, quantity and payment rule of a period that has not started
+  may change; that is an ordinary commercial amendment that awaits its own
+  confirmation. A side keeps one index, currency and price settlement across
+  its periods, so a started period fixes those for the side, and the swap
+  keeps its direction and discounting.
+- A period an amendment adds starts after the effective instant, whether or
+  not the swap has started.
+- Run settings follow a payment occurrence to the new revision while its
+  period, direction and quantity are unchanged; a new or changed occurrence
+  needs its own configuration.
 
-Constraints found: a composed single-period swap cannot gain periods and cannot
-become a scheduled swap under the same trade; a contract-total quantity basis
-re-allocates every month when the term changes, which changes determined
-periods; a power side captures its clock over the whole term.
+Built: the owned write takes started months from the booked rows and proves
+them unchanged; the preview values the proposed terms under the trade's
+settlement lifecycle; the ticket locks started months, keeps entered months when
+the term is extended and reviews the lifecycle value; run settings carry.
 
-Decisions this slice needs before it is built:
+Limits, each a structured refusal:
 
-- Whether a retained period keeps its booked definition revision inside a side
-  that otherwise uses the current one.
-- Whether lifecycle profiles carry forward for unchanged periods.
-- Whether the general P&L report should treat an amended binding as continuing.
-- Whether the booking rule tightens to the contractual P&L rule (a changed
-  period must start after the effective instant), which today is stricter than
-  booking.
+- The booked market definition revision must still be the one in force. One
+  instrument cannot yet be valued across two market definitions, so started
+  months on an earlier revision cannot be joined by months on a later one.
+- Power-hour quantities, factor contracts, quantity-weighted observations and
+  official daily exchange settlement are outside the rule.
+- A side that allocates one contract total keeps its total and its months once
+  a month has started, because a new term would re-spread the started months.
+- A composed single-period swap cannot gain periods and cannot become a
+  scheduled swap under the same trade.
+
+Still to do for this slice: amending across market definition revisions; net
+settlement settings and scheduled lifecycle jobs, which name the revision they
+were saved under and are saved again; the general trading P&L report, which does
+not cover swaps, and so has no Impact of amendments column; a termination of a
+scheduled swap.
+
+## Changing a market, index or curve definition (proposed, not built)
+
+Two rules hold today. A published definition never changes in place: a change
+is a new revision. A new revision never rebinds a booked trade: each side and
+period keeps the exact revisions it was booked under, values and fixes against
+them, and refuses when its revision has no market frame at the working As of.
+
+Not built: publishing a revision does not show the trades bound to the one
+before it, and no operation moves a trade to a later revision.
+
+Proposed:
+
+- Publishing a revision lists the trades still bound to the revision before it
+  and changes none of them.
+- Moving a trade to a later revision is an amendment of that trade from a date
+  forward, under the shared rule above. It is commercial whenever the revision
+  changes a fixing source, a calendar or contract terms.
+- A bulk move lists the affected trades, asks for confirmation and creates one
+  amendment per trade. A trade that cannot be moved refuses on its own and is
+  reported; the others proceed.
 
 ## Slice 4: running physical gas (designed, not built)
 
@@ -179,6 +217,8 @@ storage contract cannot be extended meaningfully until that exists.
 
 - Generated confirmation documents for new bookings and amendments.
 - Slices 3 to 5 above.
+- Listing the trades bound to a superseded definition revision, and moving them
+  by amendment.
 - A termination is a commercial change but creates no admission, so no
   confirmation can be recorded against it.
 - Exchange-traded futures stay outside confirmations. Their edits are booking

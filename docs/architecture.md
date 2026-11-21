@@ -1,7 +1,8 @@
 # Architecture and domain contracts
 
 D439 lets a forward PPA amendment end later than the trade did; earlier periods keep
-their exact terms. Other running trade types are designed, not built. D440 separates commercial
+their exact terms. D441 amends a scheduled swap that has started from a later month forward
+and keeps its started months locked. Running gas and storage are designed, not built. D440 separates commercial
 changes, which await their own confirmation, from book and memo changes, which
 carry the earlier one. See [amending a running trade](superpowers/specs/2026-11-20-running-trade-amendment-design.md).
 

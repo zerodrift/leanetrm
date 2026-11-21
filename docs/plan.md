@@ -2757,17 +2757,22 @@ runs for that trade. Remaining: termination and novation (drawn Coming soon);
 adjustments of scheduled swaps and of instruments the close-out draft does not
 support; a position's own retained risk run beside the desk's.
 
-### Amending a running trade (D439–D440)
+### Amending a running trade (D439–D441)
 
 A forward PPA amendment may move the end later, and the desk asks for a new
 commercial confirmation only when a revision changes commercial terms. Remaining,
-in order: running scheduled swaps, which need decisions on retained definition
-revisions, lifecycle profiles and P&L continuity; running physical gas, which must
+A running scheduled swap is amended from a later month forward with its started
+months locked (D441). Remaining, in order: scheduled swaps across market definition
+revisions, with power-hour quantities, factor contracts or official daily exchange
+settlement, their termination, their net settlement settings and scheduled
+lifecycle jobs after an amendment, and swap coverage in the general trading P&L
+report with an Impact of amendments column; running physical gas, which must
 carry started obligations to the new revision; gas storage, after a started
 contract can be valued. Also remaining: generated confirmation documents for new
 bookings and amendments; a confirmation for a termination; a correction label for
 exchange-traded edits; the amendment preview stating whether a confirmation will
-be needed; and the trade types with no amendment. See the
+be needed; listing the trades bound to a superseded definition revision and
+moving them by amendment; and the trade types with no amendment. See the
 [design](superpowers/specs/2026-11-20-running-trade-amendment-design.md).
 
 ### Managed risk workers (D429)

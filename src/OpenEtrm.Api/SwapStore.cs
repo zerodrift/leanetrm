@@ -434,13 +434,19 @@ public sealed partial class SwapStore(PreviewDatabase database)
   {
    if(selected!=int.Parse(rows[^1].Text("revision"),CultureInfo.InvariantCulture))throw Error("settlement_revision","Select the effective trade head or its original certified historical context.");
    var lifecycle=await EvaluateLifecycle(connection,data,frame,row,Terms(data,row,frame.Id),settlement,ct);
+   var scheduled=row.OptionalId("scheduled_first_id") is not null;
    return new{state=State(data,row,frame.Id),history=history.ToImmutable(),valuation=(object?)null,memberships=Memberships(lifecycle.Instrument),
-    settlementValuation=LifecycleValue(lifecycle.Value),settlement,catalog=await Catalog(connection,data,frame,ct,Terms(data,row,frame.Id)),lifecycleEligible=false};
+    settlementValuation=LifecycleValue(lifecycle.Value),settlement,catalog=await Catalog(connection,data,frame,ct,Terms(data,row,frame.Id)),
+    quantityInputs=scheduled?await RetainedQuantityInputs(connection,row,ct):null,
+    lockedPeriods=scheduled?LockedPeriods(StartedPeriods(lifecycle.Instrument,frame.At),settlement,frame.At):(object?)null,
+    lifecycleEligible=scheduled&&frame.At>=row.Instant("effective_at")&&RunningAmendmentCovers(Terms(data,row,frame.Id).Scheduled!)};
   }
   var terms=await RetainedTerms(connection,frame,Terms(data,row,frame.Id),row.Id("instrument_id"),ct);var value=await Price(connection,data,frame,terms,row.Id("instrument_id"),row.Id("fixed_side_id"),row.Id("floating_side_id"),ct);
   if(terms.Scheduled is null)ValidateProjections(value,row);
+  var locked=terms.Scheduled is null?(ImmutableArray<SwapLockedPeriod>?)null:LockedPeriods(StartedPeriods(ResolveScheduled((await ScheduledMarket(connection,data,frame,terms.DefinitionRevisionId,ct)).Data,terms,row.Id("instrument_id")).Instrument,frame.At),settlement,frame.At);
   return new{state=State(data,row,frame.Id),history=history.ToImmutable(),valuation=Value(value),quantityInputs=terms.Scheduled is null?null:await RetainedQuantityInputs(connection,row,ct),catalog=await Catalog(connection,data,frame,ct,terms),
-   lifecycleEligible=terms.Scheduled is not null?ScheduledAmendmentEligible(ResolveScheduled((await ScheduledMarket(connection,data,frame,terms.DefinitionRevisionId,ct)).Data,terms,row.Id("instrument_id")).Instrument,frame.At):frame.At<row.Instant("first_fixing_at")&&(row.OptionalText("first_floating_fixing") is not {} firstFixing||frame.At<SchedulePreview.ParseAt(firstFixing))&&frame.At>=row.Instant("effective_at")};
+   lockedPeriods=locked,
+   lifecycleEligible=terms.Scheduled is not null?frame.At>=row.Instant("effective_at")&&(locked!.Value.IsEmpty||RunningAmendmentCovers(terms.Scheduled)):frame.At<row.Instant("first_fixing_at")&&(row.OptionalText("first_floating_fixing") is not {} firstFixing||frame.At<SchedulePreview.ParseAt(firstFixing))&&frame.At>=row.Instant("effective_at")};
  }
  internal async Task<SideScheduleSnapshot> InspectSchedule(NpgsqlConnection connection,PreviewData data,InputFrame frame,JsonElement row,
   ImmutableArray<BookedScheduleSide> headers,int slot,CancellationToken ct)

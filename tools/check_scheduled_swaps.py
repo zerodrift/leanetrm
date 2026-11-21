@@ -96,6 +96,150 @@ def check_unvalued_lifecycle(c,workspace,trade,run_worker):
     print('PASS a swap whose settlement lifecycle the close cannot value states why with no PV or mark and keeps its facts; totals, a risk run, its job and the risk catalog leave it out and list it, and where the close values it, it moves under the held contract targets')
 
 
+def check_running_amendment(c,w,context,body,currency,query):
+    """A swap whose January is settled is amended from February forward at mid-January.
+
+    January keeps its terms, its determination and its run settings; February is repriced and March is added. Cash is an
+    independent decimal oracle over the stated quantities, agreed prices and one separately priced March mark.
+    """
+    partial=next(f for f in w['frames'] if f['at'].startswith('2021-01-15T08:00:00'))
+    at={**context,'snapshotId':partial['id']}
+    running=deepcopy(body);running['operationId']=str(uuid4())
+    trade=c.call('swaps/book',running)['tradeId']
+    policies=dict(duePolicy='swap_due_nominal_v1',recognitionPolicy='swap_completed_period_trading_pnl_v1')
+    january=dict(context=at,tradeId=trade,expectedRevision=1,membershipOrdinal=1,paymentOrdinal=0,currency=currency,decimalPlaces=2,
+        roundingPolicy='currency_minor_units_to_even_v1')
+    settled=c.call('swaps/settlement/determine',dict(preview=january,operationId=str(uuid4()),expectedVersion=0,
+        previewHash=c.call('swaps/settlement/preview',january)['previewHash'],correctionPolicy='swap_explicit_correction_due_v1',correctionDueAt=None,**policies))
+    fixed_january={**january,'membershipOrdinal':0}
+    fixed_profile=c.configure(fixed_january,'swap.determine')
+    # February's floating side stays as booked and its fixed side is repriced below; only the first keeps its run settings.
+    floating_february=c.configure({**january,'paymentOrdinal':1},'swap.determine')
+    fixed_february=c.configure({**fixed_january,'paymentOrdinal':1},'swap.determine')
+    inspect=dict(context=at,tradeId=trade,revision=None,**policies)
+    opening=c.call('swaps/settlement/inspect',inspect)
+    def remaining(read):return {(p['membershipOrdinal'],p['ordinal']):Fraction(p['remainingValue']) for p in read['valuation']['payments']}
+    detail=c.call('swaps/editor',dict(context=at,tradeId=trade,revision=None))
+    assert detail['canAmend'] and detail['lockedPeriods']==[dict(deliveryFrom='2021-01-01',deliveryTo='2021-02-01',reason='settled')],detail.get('lockedPeriods')
+    # The amendment restates the terms the read returns, as the ticket does, not the request that booked them.
+    amend=deepcopy(running);amend.update(snapshotId=partial['id'],operationId=str(uuid4()),tradeId=trade,expectedRevision=1,effectiveAt=partial['at'],
+        reason='Synthetic extension of a running swap',scheduled=deepcopy(detail['state']['terms']['scheduled']))
+    def refused(change,code,*words):
+        request=deepcopy(amend);change(request['scheduled'])
+        for path in ('swaps/preview','swaps/amend'):
+            refusal=c.call(path,request,expected=422)
+            assert refusal['code']==code and all(word in refusal['message'] for word in words),refusal
+    refused(lambda s:s['first']['periods'][0]['fixed'].update(price='4'),'swap_amendment_locked','January 2021','settled')
+    refused(lambda s:s['second']['periods'][0].update(amount='151'),'swap_amendment_locked','January 2021')
+    def shorten(s):
+        for side in (s['first'],s['second']):side['periods']=side['periods'][:1]
+    refused(shorten,'swap_amendment_term')
+    for change in (dict(firstCoefficient='1'),dict(discounting=True)):
+        refusal=c.call('swaps/preview',{**deepcopy(amend),**change},expected=422)
+        assert refusal['code']=='swap_amendment_locked' and 'direction and the discounting' in refusal['message'],refusal
+    def reindexed(s):s['second']['periods'][1]['floating']['settlement']=dict(mode='override',index='synthetic_other_index',projectionPolicy='forward_curve_no_basis_v1')
+    refused(reindexed,'swap_amendment_locked','price settlement')
+    # A swap that has not started cannot gain a month that has: February and March, then January in mid-January.
+    def shifted(body,months):
+        for kind,side in (('fixed',body['scheduled']['first']),('floating',body['scheduled']['second'])):
+            side['periods']=[deepcopy(side['periods'][min(n,len(side['periods'])-1)]) for n in range(len(months))]
+            for period,(start,end) in zip(side['periods'],months):period[kind].update(deliveryFrom=start,deliveryTo=end)
+        return body
+    spring=[('2021-02-01','2021-03-01'),('2021-03-01','2021-04-01')]
+    later=shifted(deepcopy(running),spring);later['operationId']=str(uuid4())
+    later_trade=c.call('swaps/book',later)['tradeId']
+    unstarted=c.call('swaps/editor',dict(context=at,tradeId=later_trade,revision=None))
+    assert unstarted['canAmend'] and unstarted['lockedPeriods']==[]
+    earlier=shifted(deepcopy(amend),[('2021-01-01','2021-02-01')]+spring);earlier.update(operationId=str(uuid4()),tradeId=later_trade)
+    refusal=c.call('swaps/amend',earlier,expected=422)
+    assert refusal['code']=='swap_amendment_locked' and 'January 2021 has already started' in refusal['message'],refusal
+    print('PASS a running swap keeps its direction, discounting and index; a swap that has not started cannot gain a month that has')
+    def allocated(body):
+        for side in (body['scheduled']['first'],body['scheduled']['second']):
+            side.update(basis='contract_total',amount='590',allocation='calendar_days')
+            for period in side['periods']:period['amount']=None
+        return body
+    whole=allocated(deepcopy(running));whole['operationId']=str(uuid4())
+    whole_trade=c.call('swaps/book',whole)['tradeId']
+    assert c.call('swaps/editor',dict(context=at,tradeId=whole_trade,revision=None))['lockedPeriods']==[dict(deliveryFrom='2021-01-01',deliveryTo='2021-02-01',reason='in_progress')]
+    longer=allocated(deepcopy(amend));longer.update(operationId=str(uuid4()),tradeId=whole_trade)
+    for kind,side in (('fixed',longer['scheduled']['first']),('floating',longer['scheduled']['second'])):
+        added=deepcopy(side['periods'][1]);added[kind].update(deliveryFrom='2021-03-01',deliveryTo='2021-04-01');side['periods'].append(added)
+    refusal=c.call('swaps/preview',longer,expected=422)
+    assert refusal['code']=='swap_amendment_locked' and 'contract total' in refusal['message'] and 'January 2021 is in progress' in refusal['message'],refusal
+    repriced=allocated(deepcopy(amend));repriced.update(operationId=str(uuid4()),tradeId=whole_trade);repriced['scheduled']['first']['periods'][1]['fixed']['price']='3.25'
+    assert c.call('swaps/amend',repriced)['revision']==2
+    print('PASS a contract total cannot be re-spread over a longer term once a month has started; a later month can still be repriced')
+    first,second=amend['scheduled']['first'],amend['scheduled']['second']
+    march=('2021-03-01','2021-04-01')
+    def moved(period,kind):
+        value=deepcopy(period);value[kind].update(deliveryFrom=march[0],deliveryTo=march[1]);return value
+    first['periods'][1]['fixed']['price']='3.5'
+    first['periods'].append({**moved(first['periods'][1],'fixed'),'amount':'50'});first['periods'][2]['fixed']['price']='3'
+    second['periods'].append({**moved(second['periods'][1],'floating'),'amount':'60'})
+    single=deepcopy(running);single.update(snapshotId=partial['id'],operationId=str(uuid4()))
+    single['scheduled']['first']['periods']=[first['periods'][2]];single['scheduled']['second']['periods']=[second['periods'][2]]
+    march_mark=Fraction(c.call('swaps/preview',single)['valuation']['sides'][1]['payments'][0]['tradeCashAmount'])/60
+    # The trade pays fixed and receives floating; discounting is off, so each month's value is its signed cash.
+    expected={**remaining(opening),(0,1):Fraction(-700),(0,2):Fraction(-150),(1,2):60*march_mark}
+    preview=c.call('swaps/preview',amend)
+    assert preview['valuation'] is None and remaining(dict(valuation=preview['settlementValuation']))==expected
+    assert preview['changeReview']['action']=='amend_trade' and preview['expectedRevision']==1
+    ticket=c.call('swaps/scheduled-price',dict(terms=amend,priceMode='agreed',parRatePolicy=None))
+    assert ticket['valuation'] is None and remaining(dict(valuation=ticket['settlementValuation']))==expected and ticket['changeReview']==preview['changeReview']
+    amended=c.call('swaps/amend',amend)
+    assert amended['revision']==2 and c.call('swaps/amend',amend)==amended
+    closing=c.call('swaps/settlement/inspect',inspect)
+    assert remaining(closing)==expected and closing['settlement']['version']==opening['settlement']['version']
+    assert [d['id'] for d in closing['settlement']['determinations']]==[settled['determinationId']]
+    held=next(h for h in c.call('trading/blotter',dict(context={**at,'convention':'trading_workspace_v1'},
+        view=dict(mode='trades',bookIds=[],portfolioIds=[],groupBy=[],measures=[],pivotConvention=None)))['holdings'] if h['tradeId']==trade)
+    assert held['presentValue']==closing['valuation']['remainingValue'] and Fraction(held['presentValue'])==sum(expected.values()),held
+    again=c.call('swaps/settlement/preview',{**january,'expectedRevision':2})
+    assert again['previousTotal']==settled['total'] and not again['inputsChanged']
+    print('PASS a running swap is amended from February forward: settled January keeps its terms and determination, February is repriced and March is added')
+    profiles=[p for p in c.view(at)['swapProfiles'] if p['trade_id']==trade]
+    carried={(p['id'],int(p['origin_revision'])) for p in profiles}
+    assert {(fixed_profile,2),(floating_february,2)}<=carried and (fixed_february,2) not in carried,profiles
+    fixed_january['expectedRevision']=2
+    paid=c.call('swaps/settlement/determine',dict(preview=fixed_january,operationId=str(uuid4()),expectedVersion=closing['settlement']['version'],
+        previewHash=c.call('swaps/settlement/preview',fixed_january)['previewHash'],correctionPolicy='swap_explicit_correction_due_v1',correctionDueAt=None,**policies))
+    assert paid['total']=='-300'
+    print('PASS the run settings of unchanged months carry to the amended revision, a repriced month keeps none, and January settles under the carried ones')
+    bridge=c.call('swaps/settlement/pnl',dict(opening={**at,'knowledgeMode':'retained','contextId':opening['context']['contextId']},closing=at,
+        tradeIds=[trade],bookIds=[],contractChanges='closing_context_contract_changes_v1',**policies))['report']['trades'][0]['bridge']
+    impact=Fraction(-100)+Fraction(-150)+60*march_mark
+    assert Fraction(bridge['contractualAmendment'])==impact and Fraction(bridge['continuingEconomics'])==0 and Fraction(bridge['economicPnl'])==impact,bridge
+    print('PASS the amendment of a running swap reports as one continuing trade with its own impact, independent of market movement')
+    again=c.call('swaps/editor',dict(context=at,tradeId=trade,revision=None))
+    assert again['canAmend'] and again['state']['revision']==2 and again['lockedPeriods']==detail['lockedPeriods']
+    second=remaining(c.call('swaps/settlement/inspect',inspect))
+    resized=deepcopy(amend);resized.update(operationId=str(uuid4()),expectedRevision=2,reason='Synthetic second amendment',scheduled=deepcopy(again['state']['terms']['scheduled']))
+    resized['scheduled']['second']['periods'][2]['amount']='70'
+    assert c.call('swaps/amend',resized)['revision']==3
+    assert remaining(c.call('swaps/settlement/inspect',inspect))=={**second,(1,2):70*march_mark}
+    print('PASS a second amendment of the running swap restates a later month from the read terms and keeps every other month')
+    if query:
+        assert query(f"SELECT count(DISTINCT settlement_data.swap_owned_period_identity(p.catalog_id,p.id)) FROM trading.swap_trade_revisions r JOIN trading.swap_instruments i USING(catalog_id,instrument_id) JOIN trading.swap_side_periods p ON p.catalog_id=i.catalog_id AND p.side_id IN(i.scheduled_first_id,i.scheduled_second_id) WHERE r.trade_id='{trade}' AND p.delivery_from='2021-01-01';").strip()=='2'
+        print('PASS both revisions hold January under one period identity per side')
+        def started(delivery,fixing,at):
+            return query(f"SELECT trading.swap_period_started('{delivery}',{fixing},'{at}');").strip()=='t'
+        assert not started('2021-02-01','NULL','2021-01-31T23:59:59Z') and started('2021-02-01','NULL','2021-02-01T00:00:00Z')
+        assert started('2021-02-01',"'2021-01-27T00:00:00Z'",'2021-01-27T00:00:00Z') and not started('2021-02-01',"'2021-01-27T00:00:00Z'",'2021-01-26T23:59:59Z')
+        first,second=(query(f"SELECT instrument_id||','||quantity FROM trading.swap_trade_revisions WHERE trade_id='{trade}' AND revision={n};").strip().split(',') for n in (1,2))
+        def proof(booked,kept,month):
+            return f"SELECT settlement_data.require_retained_swap_periods(catalog_id,'{booked[0]}',{booked[1]},'{kept[0]}',{kept[1]},ARRAY[DATE '{month}']) FROM trading.swap_trade_revisions WHERE trade_id='{trade}' AND revision=1;"
+        def breaks(sql,code):
+            try:query(sql)
+            except RuntimeError as error:assert code in str(error),str(error)
+            else:raise AssertionError('Expected refusal: '+code)
+        query(proof(first,second,'2021-01-01'))
+        breaks(proof(first,second,'2021-02-01'),'swap_amendment_locked')
+        breaks(proof(second,first,'2021-01-01'),'swap_amendment_term')
+        breaks(proof(first,(first[0],str(Decimal(first[1])*2)),'2021-01-01'),'swap_amendment_locked')
+        print('PASS the native proof admits an unchanged started month and refuses a repriced month, a changed quantity and a shorter term')
+
+
 def run_checks(url,query=None,manifest=None,*,run_worker):
     c=PreviewClient(url);c.bootstrap();c.call('profile',{'profile':'trader'})
     c=LifecycleSwapClient(c,**SYNTHETIC_SWAP_REVIEW)
@@ -476,4 +620,5 @@ def run_checks(url,query=None,manifest=None,*,run_worker):
     agent_preview=dict(context={**context,'snapshotId':partial['id']},tradeId=mixed_saved['tradeId'],expectedRevision=1,membershipOrdinal=0,paymentOrdinal=0,
         currency=value['currency'],decimalPlaces=2,roundingPolicy='currency_minor_units_to_even_v1')
     c.configure(agent_preview,'swap.determine');c.configure(agent_preview,'swap.payment')
+    check_running_amendment(c,w,context,body,value['currency'],query)
     return dict(frame=partial,tradeId=mixed_saved['tradeId'],currency=value['currency'],netTradeId=net_fixture['tradeId'])
