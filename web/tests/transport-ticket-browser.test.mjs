@@ -31,6 +31,19 @@ window.setTerm=(id,value)=>{const control=document.querySelector('[data-field="'
 `;
 const page='<div id="transport-page"></div><div id="terms"></div>';
 
+test('the Transport entry keeps its declared agreement, rights and independent fee readable at both panel widths',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<link rel="stylesheet" href="/app.css">'+page,async(evaluate,command)=>{
+ await command('Emulation.setDeviceMetricsOverride',{width:1440,height:980,deviceScaleFactor:1,mobile:false});
+ await evaluate(`(async()=>{${fixture}
+  description.fieldGroups=[{id:'agreement',label:'Agreement and parties',kind:'agreement',fields:['profile']},{id:'rights',label:'Rights Side terms',kind:'side_terms',fields:['package_quantity']},{id:'fee',label:'Independent fee terms',kind:'independent_instrument_terms',fields:['fee_direction','fixed_fee_amount']}];
+  await editor.begin();await until(()=>document.querySelector('[data-ticket-field-group=fee]'));
+ })()`);
+ const layout=()=>evaluate(`[...document.querySelectorAll('[data-ticket-field-group]')].map(f=>{const r=f.getBoundingClientRect();return [f.querySelector('legend').textContent,r.x,Math.round(r.y)];})`);
+ const wide=await layout();assert.deepEqual(wide.map(row=>row[0]),['Agreement and parties','Rights Side terms','Independent fee terms']);
+ assert.ok(wide[0][1]<wide[1][1]&&wide[1][1]<wide[2][1]);assert.equal(wide[0][2],wide[2][2]);
+ await evaluate("document.getElementById('transport-page').style.width='330px'");
+ const narrow=await layout();assert.ok(narrow[0][2]<narrow[1][2]&&narrow[1][2]<narrow[2][2]);assert.equal(narrow[0][1],narrow[2][1]);
+}));
+
 test('Transport entry requires explicit package and fee choices and recovers the original product request',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await withBrowserPage(page,async evaluate=>{
   await evaluate(`(async()=>{${fixture}await editor.begin();await until(()=>document.querySelector('[data-field=profile] select')?.options.length===2);})()`);

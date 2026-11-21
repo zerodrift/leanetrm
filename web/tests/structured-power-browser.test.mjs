@@ -9,6 +9,32 @@ const catalog={pins,locations:[{code:'existing',label:'Synthetic existing facili
 
 catalog.valuationFieldGroups=operatingFieldLayouts;
 
+test('a thermal plan shows the selected operating version and pricing profile before its interval instructions', {skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(markup,async evaluate=>{
+ const result=await evaluate(`(async()=>{
+  const {setupStructuredPower}=await import('/structured-power-view.js'),host=document.getElementById('physical-power-page');host.hidden=false;
+  const facility={id:'plant',version:4,effectiveFrom:'2031-01-01T00:00:00Z',effectiveTo:'2032-01-01T00:00:00Z',terms:{kind:'thermal',facilityCode:'existing',clockCode:'utc',intervalMinutes:60,powerQuantityCode:'mw',energyQuantityCode:'mwh',fuelQuantityCode:'fuel',thermal:{minimumOutputMw:'12',maximumOutputMw:'85',minimumUpMinutes:90}}};
+  const profile={id:'east',kind:'thermal',facilityId:'plant',version:4,name:'East profile',inputLocation:'Gate A',inputCurve:'Fuel A',outputLocation:'Bus E',outputCurve:'Power E'};
+  const trades={books:[],legalEntities:[],counterparties:[],convention:'right',canBook:true,facilityProfiles:[profile,{...profile,id:'west',name:'West profile',outputLocation:'Bus W',outputCurve:'Power W'}]};
+  let last,authorized=true;const widget=setupStructuredPower(host,{api:async path=>path.endsWith('power-trades/catalog')?trades:path.endsWith('/catalog')?${JSON.stringify(catalog)}:path.endsWith('/list')?[facility]:facility,
+   act:work=>(last=work()),busy:()=>false,source:()=>({snapshotId:'cut',contextKey:'scope'}),identity:()=>'synthetic',trading:{available:()=>authorized,openTrade:async()=>{}}});
+  await widget.load();const choice=host.querySelector('select');choice.value='plant/4';choice.dispatchEvent(new Event('change'));await last;
+  const field=title=>[...host.querySelectorAll('label')].find(x=>x.firstChild.textContent===title)?.querySelector('select,textarea');
+  const profileSelect=field('Thermal facility pricing profile'),plan=field('Supplied interval plan'),summary=host.querySelector('.operating-plan-facility');
+  const before=!!(profileSelect.compareDocumentPosition(plan)&Node.DOCUMENT_POSITION_FOLLOWING),empty=profileSelect.value;
+  [...host.querySelectorAll('button')].find(b=>b.textContent==='Enter supplied plan')?.click();const focused=document.activeElement===profileSelect;
+  profileSelect.value='west';profileSelect.dispatchEvent(new Event('change',{bubbles:true}));
+  const terms=summary?.innerText??'',form=profileSelect.form===field('Operating trade book').form;
+  trades.facilityProfiles=[profile];await widget.load();
+  const sole=profileSelect.value==='east'&&profileSelect.required&&![...profileSelect.options].some(x=>x.value==='');
+  authorized=false;widget.sync();
+  const revoked=!summary.innerText.includes('Gate A')&&!profileSelect.value&&!host.innerText.includes('East profile');
+  widget.contextChanged();return {before,empty,terms,form,focused,sole,revoked,cleared:!host.innerText.includes('Bus W')};
+ })()`);
+ assert.ok(result.before,'choose the facility profile before filling the plan');assert.equal(result.empty,'');assert.ok(result.form);assert.ok(result.focused,'enter the supplied plan from the facility chooser');
+ assert.match(result.terms,/Synthetic existing facility/);assert.match(result.terms,/Version 4/);assert.match(result.terms,/85/);
+ assert.match(result.terms,/Gate A/);assert.match(result.terms,/Bus W/);assert.doesNotMatch(result.terms,/Bus E/);assert.ok(result.cleared);assert.ok(result.sole,'the sole eligible profile is the one attached at booking');assert.ok(result.revoked,'revoking trade visibility clears its references from the physical plan');
+}));
+
 test('operating controls retain explicit disabled states through global busy updates',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(markup,async evaluate=>{
  const state=await evaluate(`(async()=>{const {setupStructuredPower}=await import('/structured-power-view.js');const host=document.getElementById('physical-power-page');host.hidden=false;let busy=false;const widget=setupStructuredPower(host,{api:async(path)=>path.endsWith('/catalog')?${JSON.stringify(catalog)}:[],act:async work=>work(),busy:()=>busy,source:()=>({snapshotId:'frame',contextKey:'working'}),identity:()=> 'workspace:alpha'});await widget.load();
  const kind=[...host.querySelectorAll('label')].find(n=>n.firstChild.textContent==='Operating kind').querySelector('select');kind.value='battery';kind.dispatchEvent(new Event('change'));widget.sync();
@@ -27,7 +53,7 @@ test('facility form preserves exact transport, backend side values and actor-spe
   const state=window.operatingTest={identity:'alpha',context:'working',stored:[],requests:[],receipts:{},uncertain:false,busy:false,last:Promise.resolve()};
   const quantity=(numerator,denominator='1')=>({numerator,denominator,specification:{code:'mwh'}}),money=numerator=>({numerator,denominator:'1',currency:{code:'usd'}});
   const interval={start:'2031-01-01T01:00:00Z',end:'2031-01-01T02:00:00Z',operatingDate:'2031-01-01',hourBeginning:1,minute:0,occurrence:1};
-  const row=(q,price,amount)=>({interval,paymentAt:'2031-02-18T00:00:00Z',quantity:q,price:{numerator:price,denominator:'1'},amount:money(amount),presentValue:money(amount),state:1,evidenceId:null,knownAt:null});
+  const row=(q,price,amount)=>({interval,paymentAt:'2031-02-18T00:00:00Z',quantity:q,price:{numerator:price,denominator:'1',unit:{currency:{revision:{catalogId:'rc',revisionId:'rr'},code:'usd'},quantity:{revision:{catalogId:'rc',revisionId:'rr'},code:'mwh'},multiplier:'1'}},priceUnitLabel:'USD/MWh',amount:money(amount),presentValue:money(amount),state:1,evidenceId:null,knownAt:null});
   const api=async(path,body)=>{state.requests.push({path,body:structuredClone(body)});
    if(path.endsWith('/catalog'))return ${JSON.stringify(catalog)};
    if(path.endsWith('/list'))return state.stored;
@@ -53,9 +79,10 @@ test('facility form preserves exact transport, backend side values and actor-spe
   for(const [index,side]of [...host.querySelectorAll('[data-operating-side]')].entries())for(const [title,value]of Object.entries({'Pricing':'fixed','Fixed-price quote':'energy','Fixed price':index===0?'100':'20','Monthly payment convention':'monthly_calendar_unadjusted','Payment days after delivery month':'18'}))state.set(title,value,side);
   for(const [key,value] of Object.entries({at:'2031-01-01T00:00:00Z',storedMwh:'0',cumulativeGridThroughputMwh:'0',terminalMinimumMwh:'0',terminalMaximumMwh:'0'})){const control=host.querySelector('[data-field='+key+']');control.value=value;control.dispatchEvent(new Event('input',{bubbles:true}));}
   state.set('Supplied interval plan','10,0,1\\n0,8.1,1');if(!forms[1].reportValidity())throw Error('The completed supplied plan did not validate.');forms[1].requestSubmit();await state.last;
-  return {error:state.error??null,save:state.requests.find(x=>x.path.endsWith('/save')).body,preview:state.requests.find(x=>x.path.endsWith('/preview')).body,closing:host.textContent.includes('Closing state quantity')&&host.textContent.includes('stored energy'),shown:host.textContent.includes('Remaining operating value: 610 usd'),gross:host.textContent.includes('810')&&host.textContent.includes('-200'),overflow:document.documentElement.scrollWidth>innerWidth,timestamps:[...host.querySelectorAll('th')].map(n=>n.textContent)};
+  return {error:state.error??null,save:state.requests.find(x=>x.path.endsWith('/save')).body,preview:state.requests.find(x=>x.path.endsWith('/preview')).body,closing:host.textContent.includes('Closing state quantity')&&host.textContent.includes('stored energy'),shown:host.textContent.includes('Remaining operating value: 610 usd'),highlighted:host.querySelector('.operating-plan-value strong')?.textContent==='610 usd',priceUnits:host.textContent.includes('100 USD/MWh')&&host.textContent.includes('20 USD/MWh'),gross:host.textContent.includes('810')&&host.textContent.includes('-200'),overflow:document.documentElement.scrollWidth>innerWidth,timestamps:[...host.querySelectorAll('th')].map(n=>n.textContent)};
  })()`);
  assert.equal(submitted.error,null);assert.equal(submitted.save.facility.terms.facilityCode,'existing');assert.equal(submitted.save.facility.terms.battery.maximumChargeMw,'10.000000000001');assert.equal(Object.hasOwn(submitted.save.facility.terms,'rightQuantityCode'),false);
+ assert.equal(submitted.highlighted,true,'the remaining value retains its structured entry emphasis');assert.equal(submitted.priceUnits,true,'each native price retains its complete managed unit');
  assert.equal(submitted.preview.composition.rightQuantityCode,'right');assert.equal(submitted.preview.composition.sides[1].price.fixedPrice,'20');assert.equal(submitted.preview.batteryDispatch[1].dischargeMw,'8.1');assert.equal(submitted.shown,true);assert.equal(submitted.closing,true);assert.equal(submitted.gross,true);assert.equal(submitted.overflow,false);assert.equal(submitted.timestamps.includes('Value UTC'),true,'a mixed Side schedule must describe delivery or payment value timing without inventing cash');assert.equal(submitted.timestamps.includes('Payment UTC'),false);
  if(process.env.STRUCTURED_POWER_SCREENSHOT){const {writeFile}=await import('node:fs/promises');await evaluate("document.getElementById('physical-power-page').scrollIntoView({block:'start'});new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))");const shot=await command('Page.captureScreenshot',{format:'png'});await writeFile(process.env.STRUCTURED_POWER_SCREENSHOT+'-desktop.png',Buffer.from(shot.data,'base64'));}
  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false});

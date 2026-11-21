@@ -44,6 +44,7 @@ export function setupFacilities(o:Options){
  function show(){tabs.mark(section);for(const [id,host]of Object.entries(hosts))host.hidden=id!==(section==='definitions'?'activity':section);if(section==='definitions'||section==='activity')operations.show(section);}
  show();
  return{
+  canReadTrades:()=>available('trades'),
   async open(next:Exclude<Section,'quantities'>,scopeId?:string){
    if(!available(next))throw Error('Current permission for this operations workspace is required.');
    const actor=o.identity();if(!await active().leave()||actor!==o.identity())return;

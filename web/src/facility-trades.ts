@@ -19,18 +19,21 @@ function button(text:string,handler:()=>void){const b=el('button',text);b.type='
 export function setupFacilityTrades(root:HTMLElement,o:Options){
  let generation=0,reportGeneration=0,dirty=false,directory:Directory|undefined,active='',from='',to='';
  const reset=()=>{generation++;directory=undefined;active=from=to='';root.replaceChildren();dirty=false;};
- async function load(){
+ async function load(profileId?:string){
   const g=++generation,context=o.context();root.replaceChildren();dirty=false;
   const d=await o.api<Directory>('desk/facilities',{context});if(g!==generation)return;directory=d;
   const bar=el('div');bar.className='schedule-fields';root.append(el('h2','Facility trades and volumes'),bar);
-  const picker=field(bar,'Facility profile',select(d.profiles,p=>p.id,p=>p.name+' · '+p.kind));if(d.profiles.some(p=>p.id===active))picker.value=active;
+  const picker=field(bar,'Facility profile',select(d.profiles,p=>p.id,p=>p.name+' · '+p.kind));
+  if(profileId!==undefined)active=profileId;
+  if(active)picker.value=active;
   const first=field(bar,'Volume window from',input('date',from||context.effectiveOn.slice(0,7)+'-01')),end=field(bar,'To (exclusive)',input('date',to||context.effectiveOn));
   if(end.value<=first.value){const next=new Date(first.value+'T00:00:00Z');next.setUTCMonth(next.getUTCMonth()+1);end.value=next.toISOString().slice(0,10);}
   const details=el('div'),forms=el('div');root.append(details,forms);
   const table=(title:string,headers:string[],rows:(string|HTMLElement)[][])=>{details.append(el('h3',title));const target=el('div');details.append(target);renderRegularTable(target,'facility-'+title.replaceAll(' ','-'),JSON.stringify([active,from,to,g]),headers,rows,[],o.busy);};
   const run=()=>o.act(report);
   async function report(){
-   const request=++reportGeneration,p=d.profiles.find(x=>x.id===picker.value);details.replaceChildren();if(!p){details.append(el('p','No commercial profiles are available for this business date.'));return;}
+   const request=++reportGeneration,p=d.profiles.find(x=>x.id===picker.value);details.replaceChildren();
+   if(!p){details.append(el('p',active?'This facility profile is unavailable for the selected business date.':'No commercial profiles are available for this business date.'));return;}
    active=p.id;from=first.value;to=end.value;if(!from||!to||from>=to)throw Error('Choose an end date after the start date.');
    const result=await o.api<Report>('desk/facility-activity',{context,profileId:p.id,from,to});if(g!==generation||request!==reportGeneration)return;
    details.append(el('p',pricingLabel(p.inputLocation,p.inputCurve,p.inputAdjustment)+'  /  '+pricingLabel(p.outputLocation,p.outputCurve,p.outputAdjustment)));

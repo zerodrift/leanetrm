@@ -2970,12 +2970,82 @@ header>div:first-child{flex:1 1 160px}
 
 .assistant-history-choice{display:flex;align-items:center;gap:8px;font-size:.8rem}
 .assistant-history-choice input{width:auto;margin:0}
-/* Gas storage: the ratchet bands as rows of three amounts, and the contract's drawings with their hover notes. */
+/* Structured deal entry follows the width of the ticket or docked pane. */
+.structured-entry,#transport-ticket{container:structured-ticket / inline-size;min-width:0}
+.structured-entry{--entry-input:var(--power);--entry-contract:var(--side-cash);--entry-output:var(--gas)}
+#heat-rate-call-page{--entry-contract:var(--side-fee);--entry-output:var(--gas)}
+.structured-entry .side-panel-status:empty{display:none}
+.structured-entry .option-fields{display:grid;grid-template-columns:minmax(0,1fr);gap:16px}
+.entry-flow{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;grid-column:1/-1}
+.entry-section,.operating-plan-facility{min-width:0;padding:16px 18px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface)}
+.entry-section{display:grid;align-content:start;gap:12px}
+.entry-section>h3,.operating-plan-facility h4{margin:0;font-family:var(--font-display);font-size:16px;line-height:1.3;font-weight:650}
+.entry-section>h3{grid-column:1/-1}
+.entry-section[data-area=profile]{grid-column:1/-1;display:flex;align-items:center;flex-wrap:wrap;gap:8px 24px;background:var(--surface-2)}
+.entry-section[data-area=profile]>.option-row{flex:1 1 240px;max-width:520px}
+.entry-profile-detail{margin:0;color:var(--text-2);font-family:var(--mono);font-size:12px;overflow-wrap:anywhere}
+.entry-section[data-area=profile]>button{margin-inline-start:auto}
+.entry-flow>.entry-section{border-top:3px solid var(--stage-color);background:linear-gradient(160deg,color-mix(in srgb,var(--stage-color) 8%,var(--surface)),var(--surface) 52%)}
+.entry-flow>[data-area=input]{--stage-color:var(--entry-input)}
+.entry-flow>[data-area=contract]{--stage-color:var(--entry-contract)}
+.entry-flow>[data-area=output]{--stage-color:var(--entry-output)}
+.entry-section .option-row label{margin:0 0 4px;font-size:12px;color:var(--text-2);font-weight:550}
+.entry-section :is(select,input){min-width:0;max-width:100%}
+.entry-flow select:disabled{appearance:none;opacity:1;color:var(--text-2);background:var(--surface-2)}
+.entry-facts{display:grid;gap:8px;margin:0}
+.entry-facts>div{min-width:0}
+.entry-facts dt{margin:0 0 3px;font-size:12px;color:var(--text-3)}
+.entry-facts dd{margin:0;color:var(--text);font:550 13px/1.45 var(--mono);overflow-wrap:anywhere}
+.entry-point:not([hidden]){padding-bottom:12px;border-bottom:1px solid var(--border)}
+.entry-section[data-area=wide],.entry-section>.field-help,.entry-section>.entry-upcoming{grid-column:1/-1}
+.entry-section>.field-help{margin:0}
+.storage-limits{grid-column:1/-1;display:grid;gap:16px;min-width:0;align-items:start}
+.storage-ratchet-editor{display:grid;gap:8px;min-width:0}
+.storage-ratchet-editor>button{justify-self:start}
+.storage-limits>.storage-chart-host{width:100%;max-width:760px;justify-self:center}
+.entry-upcoming{color:var(--text-3);font-size:12px}
+.entry-upcoming summary{cursor:pointer}.entry-upcoming[open]>.option-row{margin-top:12px}
+.structured-entry .option-booking{align-items:flex-start;padding:16px 0 4px;border-top:1px solid var(--border)}
+.operating-plan-facility{margin:0 0 16px;background:var(--surface-2);border-inline-start:3px solid var(--power)}
+.operating-plan-facility header{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:6px 14px;margin-bottom:14px}
+.operating-plan-facility .entry-facts{grid-template-columns:repeat(auto-fit,minmax(min(100%,145px),1fr));gap:12px 18px}
+.operating-profile:not([hidden]){display:grid;gap:8px;margin-bottom:16px}
+.operating-profile>label{display:grid;gap:4px;max-width:520px;min-width:0;font-size:12px;font-weight:550;color:var(--text-2)}
+.operating-profile select{width:100%;min-width:0}
+.operating-plan-value{display:flex;align-items:baseline;flex-wrap:wrap;gap:6px 18px;margin:10px 0 16px;color:var(--text-2)}
+.operating-plan-value strong{font:650 22px/1.3 var(--mono);color:var(--text);overflow-wrap:anywhere}
+#transport-ticket .ticket-grouped-fields{background:none;border:0;box-shadow:none;padding:0;align-items:start}
+#transport-ticket .ticket-field-group{background:var(--surface);border-top:3px solid var(--border-hover);padding:12px 16px 16px}
+#transport-ticket [data-field-group-kind=side_terms]{border-top-color:var(--power)}
+#transport-ticket [data-field-group-kind=independent_instrument_terms]{border-top-color:var(--side-fee)}
+#transport-ticket .ticket-field-group>legend{font-size:15px;font-weight:650}
+#transport-ticket .ticket-grouped-fields>.ticket-status{grid-column:1/-1}
+#transport-ticket .ticket-field-group .ticket-trade-fields{grid-template-columns:minmax(0,1fr)}
+@container structured-ticket (min-width:680px){
+ .structured-entry .option-fields{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .entry-flow{grid-template-columns:repeat(3,minmax(0,1fr))}
+ .entry-section[data-area=wide]{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .entry-section[data-area=wide]>.option-fact{grid-column:1/-1}
+ .entry-section.storage-rules{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+@container structured-ticket (min-width:1080px){
+ .storage-limits:has(.storage-chart){grid-template-columns:minmax(0,1.1fr) minmax(0,1fr)}
+}
+@container structured-ticket (min-width:860px){
+ #transport-ticket .ticket-grouped-fields{grid-template-columns:repeat(3,minmax(0,1fr))}
+ #transport-ticket .ticket-field-group[data-field-group-kind=agreement]{grid-column:auto}
+}
+/* Gas storage contract ratchets and plan drawings. */
 .storage-ratchets{display:flex;flex-direction:column;gap:8px}
-.storage-ratchet-row{display:grid;grid-template-columns:64px repeat(3,minmax(0,1fr)) auto;gap:8px;align-items:center}
+.storage-ratchet-row{display:grid;grid-template-columns:64px repeat(3,minmax(0,1fr)) auto;gap:8px;align-items:end;padding:10px 0;border-top:1px solid var(--border)}
+.storage-ratchet-row label{min-width:0;display:grid;gap:4px;font-size:12px;color:var(--text-2)}
 .storage-ratchet-name{color:var(--text-3);font-size:12px}
 .storage-ratchet-row input{width:100%;min-width:0}
-@media(max-width:560px){.storage-ratchet-row{grid-template-columns:1fr 1fr}.storage-ratchet-name{grid-column:1/-1}}
+@container structured-ticket (max-width:600px){
+ .storage-ratchet-row{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .storage-ratchet-name,.storage-ratchet-row>label:first-of-type{grid-column:1/-1}
+ .storage-ratchet-row>button{justify-self:start}
+}
 .storage-chart-host{position:relative;min-width:0}
 .storage-chart{display:block;width:100%;height:auto;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm)}
 .storage-chart text{font-family:inherit;font-variant-numeric:tabular-nums}
