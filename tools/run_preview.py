@@ -1295,9 +1295,10 @@ def main():
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     risk_worker_process=subprocess.Popen([str(dotnet),str(frozen_dll),'--risk-worker','serve'],cwd=ROOT,env=worker_env,start_new_session=True)
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--risk'],cwd=ROOT,env=env,start_new_session=True)
-                    # Both complete suites include sequential multipart admission
-                    # and retained-worker recovery within their own deadlines.
-                    if browser_process.wait(timeout=600):raise RuntimeError('Owned risk browser checks failed')
+                    # Three complete suites cover setup, multipart recovery and
+                    # cross-close results. Keep their individual action deadlines;
+                    # the combined workload has a fifteen-minute watchdog.
+                    if browser_process.wait(timeout=900):raise RuntimeError('Owned risk browser checks failed')
             elif args.interval_series_benchmark:
                 from benchmark_interval_series import run_benchmark
                 print(json.dumps(run_benchmark(url,query,dotnet,child.pid),indent=2),flush=True)

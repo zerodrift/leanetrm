@@ -60,6 +60,10 @@ checks and 33 Options page checks. Strategy cash displays match the actual manag
 formatter responses; captured product means and publication receipts retain their
 complete price units without requiring insignificant trailing decimal zeros.
 
+The complete owned risk gate passed 172 browser checks across scenario setup,
+retained workspace recovery and cross-close results. The three suites share a
+fifteen-minute aggregate watchdog and retain their individual action deadlines.
+
 These results qualify local behavior. Full CI, coordinated migration/API/UI
 release and hosted activation remain separate gates; no hosted database was
 changed by these checks. See the [contract](currency-and-price-units.md).
