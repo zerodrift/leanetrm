@@ -1026,7 +1026,9 @@ def main():
                     for role in ['gas_operator','gas_service_admin']:
                         query(f"INSERT INTO security.role_grants SELECT '{uuid4()}','{principal}',id,'{manifest['tenantId']}','{manifest['workspaceId']}',clock_timestamp()-interval '1 day',clock_timestamp()+interval '1 hour',false FROM security.roles WHERE code='{role}';")
                     target=temporary/'browser-target.json';target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
-                    subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--unified-trading'],cwd=ROOT,env=env,check=True,timeout=240)
+                    # Opening a future prices the contracts and revalues the mixed portfolio built above.
+                    browser_env={**env,'OPENETRM_BROWSER_ACTION_WAIT_MS':'30000'}
+                    subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--unified-trading'],cwd=ROOT,env=browser_env,check=True,timeout=240)
             elif args.lng_cargo_check:
                 from check_lng_cargo_schema import run_schema_checks as check_lng_schema,run_resolution_checks as check_lng_resolution
                 from check_physical_lng_preview import run_checks as check_lng
@@ -1193,7 +1195,8 @@ def main():
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--live-calculation'],cwd=ROOT,env=env,start_new_session=True)
-                    if browser_process.wait(timeout=240):raise RuntimeError('Owned live calculation browser checks failed')
+                    # The suite exercises live corrections and retries in both the main window and the pop-out.
+                    if browser_process.wait(timeout=360):raise RuntimeError('Owned live calculation browser checks failed')
             elif args.connected_portfolio_check:
                 from check_custom_projection_db import run_checks as check_custom_projection_db
                 check_custom_projection_db(query,manifest)
