@@ -123,14 +123,14 @@ portfolio valuation or risk run that includes such an option refuses instead.
 
 ### Entry ticket
 
-New trade lists the option under Structured. The ticket has one field per row
-in stacked sections (contract, delivery, exercise, valuation, payment, trade)
-and offers only what the catalog returned. Nothing is preselected, including
-the single supported exercise style, model, day count and exercise rule: each
-is chosen and sent as stated. The page narrows lists from the catalog's own
-facts: a fuel curve is of another commodity in the power curve's currency, a
-capacity unit is of the power curve's commodity, and a block product is on the
-chosen clock. Buy or sell gives the sign of the capacity. Every other number is
+In **New trade → Structured → Heat-rate call**, the power and fuel references
+sit on either side of the cash-settled option terms and stack in a narrow
+ticket. An optional thermal facility profile supplies both pricing points and
+their curves. On an unlinked call the trader chooses the curves independently.
+The trader also chooses the exercise style, model, day count and exercise rule.
+A fuel curve must quote another commodity in the power curve’s currency. The
+capacity unit must match the power commodity and the block product must use
+the chosen clock. Buy or sell gives the sign of the capacity. Every other number is
 sent as entered for the booking to judge, and a refusal is shown in the
 backend's words. A request whose outcome is unknown is retained per person and
 can be checked or retried as sent, never edited. Premium, capacity payment and
