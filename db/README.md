@@ -21,6 +21,19 @@ application. See [current implementation](../docs/implementation.md) and
 
 Recent schema groups and their contracts:
 
+- [0386](migrations/0386_amend_behind_settlement.sql) refuses a swap amendment
+  dated before the trade's latest settlement activity unless the account holds
+  `AmendBehindSettlement`, and adds the Trade supervisor role that holds it (D442).
+- [0385](migrations/0385_running_swap_amendment.sql) lets a scheduled swap that
+  has started be amended from a later month forward. Started months are taken
+  from the booked rows and proved unchanged, and run settings follow an unchanged
+  payment occurrence to the new revision (D441).
+- [0383](migrations/0383_carried_commercial_terms.sql) lets a bilateral revision
+  that changes only internal booking fields carry the agreement, credit decision
+  and confirmations of the revision before it (D440).
+  [0384](migrations/0384_ppa_segment_extension.sql) lets a forward PPA amendment
+  end later than the retained coverage (D439). See
+  [amending a running trade](../docs/superpowers/specs/2026-11-20-running-trade-amendment-design.md).
 - [0373](migrations/0373_ephemeral_calendar_context.sql) makes a working
   custom-curve calendar use one certified knowledge cutoff across the dates it
   reads. [0374](migrations/0374_workspace_as_of.sql) lets a workspace browse an

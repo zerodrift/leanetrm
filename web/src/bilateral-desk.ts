@@ -5,7 +5,8 @@ type Party={id:string;name:string;revision:number};
 type Agreement={id:string;code:string;name:string;revision:number;agreement_type:string;products:string[];status:string;effective_at:string;valid_to:string|null;procedure:string;provisions?:string;filename:string|null;legal_entity_id:string;counterparty_id:string};
 type Credit={id:string;product:string;legal_entity_id:string;counterparty_id:string;revision:number;effective_at:string;valid_to:string|null;status:string;reason?:string};
 type Confirmation={revision:number;status:string;reference:string;evidence:string;effective_at:string};
-type Trade={trade_id:string;revision:number;product:string;agreement_id:string;executed_at:string;confirmations:Confirmation[]};
+// carried_from names the earlier revision whose commercial terms, and so confirmations, this revision carries unchanged.
+type Trade={trade_id:string;revision:number;carried_from?:number|null;product:string;agreement_id:string;executed_at:string;confirmations:Confirmation[]};
 type Directory={products:string[];entities:Party[];parties:Party[];agreements:Agreement[];clearances:Credit[];trades:Trade[];canEdit:boolean;canCredit:boolean;canDownload:boolean;canConfirm:boolean;working:boolean};
 type Options={api:Api;act:(work:()=>Promise<void>)=>Promise<void>;source:()=>string;busy:()=>boolean};
 
@@ -52,8 +53,9 @@ export function setupBilateralDesk(o:Options){
    d.working&&d.canEdit?action('Revise',()=>form('agreement',a)):'']));
   table('Credit decisions',['Entity','Counterparty','Product','Revision','Status','Effective UTC','Expires','Reason'],d.clearances.map(c=>[
    entityName(c.legal_entity_id),partyName(c.counterparty_id),labelText(c.product),String(c.revision),c.status,c.effective_at.slice(0,10),c.valid_to??'Open',c.reason??'—']));
-  table('Commercial confirmations',['Trade / revision','Product','Agreement','Status','Confirmation reference','Recorded UTC',''],d.trades.flatMap(t=>
-   (t.confirmations.length?t.confirmations:[undefined]).map(c=>[t.trade_id+' / '+t.revision,labelText(t.product),d.agreements.find(a=>a.id===t.agreement_id)?.name??'Filed',
+  table('Commercial confirmations',['Trade / revision','Commercial terms','Product','Agreement','Status','Confirmation reference','Recorded UTC',''],d.trades.flatMap(t=>
+   (t.confirmations.length?t.confirmations:[undefined]).map(c=>[t.trade_id+' / '+t.revision,
+   t.carried_from==null?'Set by this revision':'Carried from revision '+t.carried_from,labelText(t.product),d.agreements.find(a=>a.id===t.agreement_id)?.name??'Filed',
    c?.status??'Awaiting confirmation',c?.reference??'—',c?.effective_at??'—',d.working&&d.canConfirm?action('Record',()=>form('confirmation',undefined,t)):''])));
   if(!d.working)return;
   if(d.canEdit)summary.append(action('New agreement',()=>form('agreement')));
@@ -75,7 +77,8 @@ export function setupBilateralDesk(o:Options){
    const procedure=picker(['written','oral','signed_contract'],x=>x,labelText),notes=element('textarea'),pdf=input('file');pdf.accept='application/pdf';pdf.required=false;
    if(kind==='agreement'){add('Agreement code',code);code.disabled=!!previous;add('Name',name);add('Agreement type',type);add('Confirmation procedure',procedure);
     procedure.value=previous?.procedure??'written';add('Special provisions',notes);notes.value=previous?.provisions??'';add('Executed PDF (up to 8 MiB)',pdf);}
-   const reference=input();if(kind==='confirmation'){f.prepend(element('p',trade!.trade_id+' / revision '+trade!.revision));add('Counterparty reference',reference);}
+   const confirmed=trade&&(trade.carried_from??trade.revision);
+   const reference=input();if(kind==='confirmation'){f.prepend(element('p',trade!.trade_id+' / revision '+confirmed));add('Counterparty reference',reference);}
    if(kind!=='agreement'){notes.required=true;add(kind==='credit'?'Decision reason':'Confirmation evidence',notes);}
    const submit=element('button','Save revision');submit.type='submit';f.append(submit,action('Cancel',()=>{dirty=false;editor.replaceChildren();}));
    editor.replaceChildren(f);f.scrollIntoView({block:'nearest'});f.oninput=()=>{dirty=true;};
@@ -91,7 +94,7 @@ export function setupBilateralDesk(o:Options){
       expectedRevision:Math.max(0,...d.agreements.filter(x=>x.code===code.value).map(x=>x.revision))});
     }else if(kind==='credit')Object.assign(record,{product:product.value,reason:notes.value,expectedRevision:Math.max(0,...d.clearances.filter(x=>
      x.product===product.value&&x.legal_entity_id===entities.value&&x.counterparty_id===parties.value).map(x=>x.revision))});
-    else Object.assign(record,{tradeId:trade!.trade_id,tradeRevision:trade!.revision,reference:reference.value,evidence:notes.value,expectedRevision:Math.max(0,...trade!.confirmations.map(x=>x.revision))});
+    else Object.assign(record,{tradeId:trade!.trade_id,tradeRevision:confirmed,reference:reference.value,evidence:notes.value,expectedRevision:Math.max(0,...trade!.confirmations.map(x=>x.revision))});
     const key=JSON.stringify(record);if(retained?.key!==key)retained={key,operationId:crypto.randomUUID()};
     const result=await o.api<{revision:number}>('desk/'+kind,{operationId:retained.operationId,record});
     if(request!==generation)return;retained=undefined;await load();message.textContent='Saved revision '+result.revision+'.';

@@ -223,7 +223,7 @@ def run_late_cash(c,monthly_body,opening_context,closing_context,currency,openin
 
 
 def run_future_boundary(c,body,before,after):
-    """Independent side ranges must not make completed fixed terms amendable in a bridge."""
+    """Independent side ranges must not make completed fixed terms amendable."""
     terms=deepcopy(body);terms['operationId']=str(uuid4())
     first=terms['scheduled']['first'];second=terms['scheduled']['second']
     first['periods']=first['periods'][:1];second['periods']=second['periods'][:1]
@@ -234,10 +234,12 @@ def run_future_boundary(c,body,before,after):
     initial=c.call('swaps/settlement/inspect',inspection)
     amendment={**terms,**after,'operationId':str(uuid4()),'tradeId':trade,'expectedRevision':1,'effectiveAt':next(f['at'] for f in c.call('workspace')['frames'] if f['id']==after['snapshotId']),'reason':'Synthetic completed fixed period boundary'}
     amendment['scheduled']=deepcopy(terms['scheduled']);amendment['scheduled']['first']['periods'][0]['fixed']['price']='4'
-    c.call('swaps/amend',amendment)
-    c.call('swaps/settlement/pnl',dict(opening={**before,'knowledgeMode':'retained','contextId':initial['context']['contextId']},closing=after,
-        tradeIds=[trade],bookIds=[],contractChanges='closing_context_contract_changes_v1',duePolicy=inspection['duePolicy'],recognitionPolicy=inspection['recognitionPolicy']),expected=422)
-    print('PASS contractual bridge refuses completed undetermined fixed-period rewrites with independent later floating delivery')
+    refusal=c.call('swaps/amend',amendment,expected=422)
+    assert refusal['code']=='swap_amendment_locked' and 'January 2021 has been delivered' in refusal['message'],refusal
+    unchanged=c.call('swaps/settlement/pnl',dict(opening={**before,'knowledgeMode':'retained','contextId':initial['context']['contextId']},closing=after,
+        tradeIds=[trade],bookIds=[],contractChanges='closing_context_contract_changes_v1',duePolicy=inspection['duePolicy'],recognitionPolicy=inspection['recognitionPolicy']))['report']['trades'][0]['bridge']
+    assert F(unchanged['contractualAmendment'])==0
+    print('PASS a completed undetermined fixed period cannot be rewritten at booking, with independent later floating delivery, and its bridge states no amendment')
 
 
 def run_cross_market_bridge(c,legacy,context):

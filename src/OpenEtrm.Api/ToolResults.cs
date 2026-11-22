@@ -143,7 +143,7 @@ static class ToolResults
             if(actual!=instrumentType)throw new MarketDataException("instrument_type","The requested instrument type does not match the retained trade terms.");
         }
         var increment=instrumentType=="future"?Increment(read):null;
-        foreach(var page in new[]{"catalog","amendmentConvention","lifecycleEligible"})read.Remove(page);
+        foreach(var page in new[]{"catalog","amendmentConvention","lifecycleEligible","lifecycleReason"})read.Remove(page);
         var result=new JsonObject{["instrumentType"]=instrumentType};
         foreach(var (name,value) in read.ToArray())
         {
