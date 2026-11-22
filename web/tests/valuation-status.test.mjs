@@ -2,6 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {valuationReason,valuationNote,excludedPositions,valuationMeasure} from '../dist/valuation-status.js';
 
+test('a future without its exact close source has an explicit status, without widening other product statuses',()=>{
+ assert.equal(valuationReason('market_inputs_missing','future'),'Booked market inputs are unavailable at this close');
+ for(const instrumentType of ['ppa','financial_swap','heat_rate'])
+  assert.throws(()=>valuationReason('market_inputs_missing',instrumentType),{message:'The Blotter returned an unknown valuation status.'});
+});
+
 test('each position-specific status reads in plain words for the instrument it concerns',()=>{
  assert.equal(valuationReason('source_expired','future'),'Contract expired · awaiting settlement');
  assert.equal(valuationReason('source_expired','financial_swap'),'Past marking cutoff');

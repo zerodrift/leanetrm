@@ -80,6 +80,7 @@ internal static class CatalogueTradingChecks
                 held.GetProperty("mark").GetString()!=item.GetProperty("mark").GetString()||held.GetProperty("unavailableReason").ValueKind!=JsonValueKind.Null)
                 throw new Exception("A holding changed exact terms or selected another source's price.");
         }
+        await MissingCloseSourceChecks.Run(database,connection,data,frame,added.DefinitionRevisionId,actual);
         if(await CurveVersionInputs.Resolve(database,connection,root.GetProperty("original").GetGuid(),default)!=root.GetProperty("original").GetGuid())
             throw new Exception("The current deployment blocked a retained graph's exact source.");
         if(await CurveVersionInputs.Resolve(database,connection,null,default)!=root.GetProperty("original").GetGuid())
@@ -250,6 +251,12 @@ internal static class CatalogueTradingChecks
         var policy=riskCatalog.GetProperty("pricingPolicy").Deserialize<PortfolioValuationPolicy>(RiskJobs.Json)!;
         var request=new PortfolioRiskRequest(readContext,[book],[],[new(target,"0.01",riskCatalog.GetProperty("bumpConvention").GetString()!)],
             riskCatalog.GetProperty("convention").GetString(),riskCatalog.GetProperty("numericalPolicy").GetString(),policy,Stress:[]);
+        try
+        {
+            await calculator.Calculate(connection,data,frame with{SourceInputs=frame.SourceInputs!.Remove(added.DefinitionRevisionId)},request,default);
+            throw new Exception("Portfolio risk accepted a futures scope whose required source was absent from the close.");
+        }
+        catch(OpenEtrm.MarketData.MarketDataException error)when(error.Code=="market_inputs_missing"){}
         var interactive=JsonSerializer.SerializeToElement(await calculator.Calculate(connection,data,frame,request,default),RiskJobs.Json);
         var queued=JsonSerializer.SerializeToElement(await RiskJobs.Submit(connection,manifest,calculator,data,frame,new(Guid.NewGuid(),request),default),RiskJobs.Json);
         if(queued.GetProperty("state").GetString()!="queued")throw new Exception("The exact mixed-source calculation was not admitted to the queue.");

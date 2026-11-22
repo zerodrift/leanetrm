@@ -129,9 +129,9 @@ defaults (D217):
 
 ## Positions the close cannot value
 
-Decided by the owner (D220). Today one unvaluable position fails the whole
-Blotter read. For example, at every close after an expired constituent the read
-returns `422 source_expired` from `CurveModel.Connected.cs`. Instead:
+Decided by the owner (D220). Before position-level valuation status, one
+unvaluable position failed the whole Blotter read, for example with
+`422 source_expired` after a constituent expired. The reporting contract is:
 
 - Trading workspace, Blotter and pivot reads return each position with a
   valuation status. A position that cannot be valued at the selected close for
@@ -151,8 +151,15 @@ returns `422 source_expired` from `CurveModel.Connected.cs`. Instead:
   context, scope and catalog consistency.
 - The backend owns which codes are position-specific. The list is reviewed
   adversarially with the change.
-- A risk run excludes positions that are not valued at its base close and
-  lists them in the run bar.
+- A future whose exact booked source is absent from a recorded close remains
+  visible with `market_inputs_missing` and its original booking facts. Its marks
+  and P&L are blank, totals identify the exclusion, and covered sources still
+  price. Switching closes does not change the booking or borrow another close's
+  inputs. Invalid source matrices and authorization failures still fail the read.
+- Sensitivity and stress runs can exclude supported position-specific price
+  failures and list them in the run bar. A whole required source missing from
+  the selected close still refuses the risk scope. Historical, parametric and
+  Monte Carlo portfolio figures also require complete portfolio coverage.
 - A PPA booked under other reference or definition versions than the close
   is listed as **Not valued** · "Booked under other reference data versions",
   with its booked facts under its own versions (D246). Risk runs still refuse a
@@ -364,7 +371,8 @@ read trades.
    on each row.
 3. Swap direction on Blotter rows, from the trade's sides.
 4. A batched curve read for held markets, only if needed for the page target.
-5. Risk runs exclude and list positions that are not valued at the base close.
+5. Risk runs list supported position-specific price exclusions. Missing required
+   sources refuse the scope; complete portfolio figures require full coverage.
 
 ## Decisions to record
 
