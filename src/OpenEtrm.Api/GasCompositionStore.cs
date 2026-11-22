@@ -276,7 +276,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
    return result;
   },ct);
  }
- async Task<JsonElement> Save(NpgsqlConnection c,InputFrame frame,GasCompositionRequest body,bool inTerm,CancellationToken ct)
+ internal async Task<JsonElement> Save(NpgsqlConnection c,InputFrame frame,GasCompositionRequest body,bool inTerm,CancellationToken ct)
  {var operation=inTerm?"load_gas_composition_in_term":body.TradeId is null?"book_gas_composition":"amend_gas_composition";await using var q=ScheduleStore.Command(c,$"SELECT security.{operation}($1,$2::jsonb,$3)::text",database.Manifest.CatalogId,JsonSerializer.Serialize(body,Json),frame.At);return JsonSerializer.Deserialize<JsonElement>((string)(await q.ExecuteScalarAsync(ct))!);}
  public async Task<object> Editor(NpgsqlConnection c,PreviewData data,InputFrame frame,Guid trade,CancellationToken ct)=>await Read(c,data,frame,trade,ct);
  internal async Task<SideScheduleSnapshot> InspectSchedule(NpgsqlConnection c,PreviewData data,InputFrame frame,GasCompositionExecution execution,int slot,CancellationToken ct)

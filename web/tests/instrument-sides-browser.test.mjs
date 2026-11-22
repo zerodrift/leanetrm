@@ -103,6 +103,8 @@ test('entry groups editable terms once by declared Side and keeps the actual rev
  await evaluate(fixture);await evaluate(ticket);await evaluate(fieldGroups);await evaluate("ticket('new')");
  assert.deepEqual(await evaluate("[...document.querySelectorAll('[data-ticket-field-group]')].map(card=>card.dataset.ticketFieldGroup)"),['agreement','rights','fee']);
  for(const field of ['profile','quantity','fee'])assert.equal(await evaluate(`document.querySelectorAll('[data-field="${field}"] input').length`),1);
+ await evaluate("document.querySelector('[aria-label=\"Agreement components\"] button:last-child').click()");
+ assert.equal(await evaluate("document.activeElement.dataset.ticketFieldGroup"),'fee');
  assert.match(await evaluate("document.querySelector('[data-ticket-field-group=rights]').textContent"),/Rights Side terms.*Remaining rights.*Commercial entitlement/s);
  assert.match(await evaluate("document.querySelector('[data-ticket-field-group=fee]').textContent"),/Independent fee terms.*Recorded fee.*Company pays/s);
  assert.equal(await evaluate("document.querySelectorAll('[data-instrument-side-group]').length"),2,'there is no duplicate summary deck below the editable cards');

@@ -6982,3 +6982,35 @@ no settlement command can still be amended at any As of from its latest revision
 effective instant, by any holder of `AmendTrade`, even when a month has begun since
 that As of. Gas billing and futures margin record their own dated commands and are
 not covered here.
+
+## D443 — Two-location gas confirmations and pipeline outlook
+
+A merchant purchase and sale have a physical Side and a payment Side at each
+location. The purchase receives gas and pays, and the sale delivers gas and
+receives payment. Each payment uses its chosen fixed rate or eligible index
+and an explicit quantity stage. A single agreement owns four Sides. Two
+confirmations have independent trade owners and party selections and publish
+atomically under a replayable instruction. When several executed agreements
+qualify, the trader chooses an agreement for each affected confirmation. Both
+choices follow the original booking instruction on retry. Transportation rights
+and fees remain separate contractual instruments.
+
+Pipeline usage resolves exact trade and operating revisions at the selected
+business and knowledge times. Gross receipt and delivery volumes retain their
+own direction and native quantity specification. Daily nominations, evidenced
+submissions, confirmations, adopted schedules, and allocations each retain
+their own coverage. Submitted volume uses the latest native nomination revision
+linked to a recorded external request, with its reference and submission time.
+The account balance follows its statement and accepted movements. An explicitly
+selected entitlement supplies its dated rates, claims and headroom on
+elapsed-time intervals, with a separately selected UTC window.
+
+The entry screen shows the physical and payment directions at each location
+before pricing is chosen. Switching locations preserves the entered terms.
+The outlook opens on gross volumes with links to gas days. Booked Sides,
+commercial capacity and statement balances have their own views. The selected
+pipeline revision stays in scope across reporting windows, including empty
+windows. Native intervals and submission times retain their reported precision
+in the selected display zone. On phones, navigation and the selected
+instrument's chooser open on demand. The chooser
+reuses D424's grouped list and retains the working draft.

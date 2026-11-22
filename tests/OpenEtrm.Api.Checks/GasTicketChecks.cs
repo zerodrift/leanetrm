@@ -40,6 +40,80 @@ internal static class GasTicketChecks
         }
         void Equal(object? expected, object? actual, string what) { if (!Equals(expected, actual)) throw new Exception($"{what}: expected '{expected}', got '{actual}'."); }
         var full = Draft(Receipt, Linked, Cash, Fee);
+        Check("two-location entry preserves price choice, endpoint ownership and confirmation boundaries", () =>
+        {
+            foreach (var purchase in new[] { "fixed", "indexed" })
+            foreach (var sale in new[] { "fixed", "indexed" })
+            foreach (var agreements in new[] { "one_agreement", "separate_confirmations" })
+            {
+                var drafts = GasLocationEntry.Start(agreements, purchase, sale);
+                Equal(agreements == "one_agreement" ? 1 : 2, drafts.Length, "independent tickets");
+                var sides = drafts.SelectMany(draft => draft.Sides).ToArray();
+                Equal(4, sides.Length, "flat Side count");
+                foreach (var (endpoint, direction, payment, choice) in new[] {
+                    ("purchase", "receive", "pay", purchase), ("sale", "deliver", "receive", sale) })
+                {
+                    var physical = sides.Single(s => s.Code == endpoint);
+                    var cash = sides.Single(s => s.Code == endpoint + "_payment");
+                    Equal(direction, physical.Values["direction"], "physical direction");
+                    Equal(choice == "fixed" ? "cash" : "floating", cash.Kind, "explicit payment family");
+                    Equal(payment, cash.Values[cash.Kind + "_direction"], "payment direction");
+                    Equal(physical.Code, cash.Values[cash.Kind + "_source"], "quantity owner");
+                    Equal(false, physical.Values.ContainsKey("link_fraction"), "independent physical quantities");
+                    Equal(false, cash.Values.ContainsKey(cash.Kind + "_stage"), "explicit pricing quantity stage");
+                }
+            }
+        });
+        Check("independent confirmations retain asymmetric quantities, indexed payment, parties and native child identities", () =>
+        {
+            var a=Receipt with{Code="purchase"};
+            var pay=Cash with{Code="purchase_payment",Values=Cash.Values.SetItem("cash_source","purchase")};
+            var b=Receipt with{Code="sale",Values=Receipt.Values.SetItem("direction","deliver").SetItem("delivery_point","P2").SetItem("quantity","9700")};
+            var received=Indexed with{Code="sale_payment",Values=Indexed.Values.SetItem("floating_source","sale").SetItem("floating_direction","receive")};
+            var otherParty=Guid.NewGuid();
+            var command=new GasLocationBooking(new(Snapshot,PhysicalGasStore.Convention,"current"),Operation,"separate_confirmations","fixed","indexed",
+                [new(Draft(a,pay),Definition),new(Draft(b,received) with{Trade=Trade.SetItem("counterparty",otherParty+"@3")},Definition)]);
+            var terms=GasLocationEntry.Terms(command);
+            Equal(Counterparty,terms[0].CounterpartyId,"purchase counterparty");Equal(otherParty,terms[1].CounterpartyId,"sale counterparty");
+            Equal("10000",terms[0].PhysicalSides.Single().Quantity,"bought");Equal("9700",terms[1].PhysicalSides.Single().Quantity,"sold");
+            Equal("I",terms[1].CashSides.Single().Indexed!.Index,"sale pricing index");
+            Equal(2,terms.Select(t=>t.OperationId).Distinct().Count(),"distinct child commands");
+            Equal(terms[1].OperationId,GasLocationEntry.Terms(command)[1].OperationId,"stable child on retry");
+        });
+        Check("outlook retains pending, explicit zero, partial coverage and native precision", () =>
+        {
+            var day = new DateOnly(2027, 1, 3);
+            var contract = new GasOutlookPath(Guid.NewGuid(), Guid.NewGuid(), "PIPE", "ZONE", "P", "GAS", "UNIT", "u", "receive");
+            GasOutlookOccurrence Row(DateOnly d, string? scheduled, string status = "provisional") =>
+                new(contract, d, Guid.NewGuid(), 1, "inlet", "1000", "1",
+                    new("provisional","800"), null, scheduled is null && status != "withdrawn" ? null : new(status,scheduled), null);
+            var occurrences = new[]{Row(day,"750"), Row(day.AddDays(1),null), Row(day.AddDays(2),"0"), Row(day.AddDays(3),null,"withdrawn")};
+            var daily=GasPipelineOutlook.Summarize(occurrences,"day");
+            Equal(null,daily[0].Submitted.Quantity,"a daily nomination alone proves no external submission");
+            var submitted=GasPipelineOutlook.Summarize([occurrences[0] with{Submitted=new("submitted","800")}],"day").Single();
+            Equal("800",submitted.Submitted.Quantity,"explicit external submission");
+            Equal("50",submitted.SubmittedLessScheduled,"unfulfilled submitted request");
+            Equal("50", daily[0].RequestedLessScheduled, "comparable requested and scheduled");
+            Equal(null, daily[1].Scheduled.Quantity, "pending schedule");
+            Equal("0", daily[2].Scheduled.Quantity, "explicit zero");
+            Equal("800", daily[2].RequestedLessScheduled, "zero schedule is evidence");
+            Equal(1, daily[3].Scheduled.Withdrawn, "withdrawn evidence");
+            var month=GasPipelineOutlook.Summarize(occurrences,"month").Single();
+            Equal("3200", month.Nominated.Quantity, "four distinct requests");
+            Equal(2,month.Scheduled.Provisional,"provisional evidence remains identified");
+            Equal(2,month.Scheduled.Reported,"known schedule rows");
+            Equal(null,month.Scheduled.Quantity,"partial month is not a complete schedule");
+            Equal("750",month.Scheduled.ReportedQuantity,"observed subtotal");
+            Equal(null,month.RequestedLessScheduled,"no full-window gap on partial evidence");
+            var otherPoint=occurrences[0] with{Path=contract with{Point="P2"},Side="other"};
+            var delivery=otherPoint with{Path=otherPoint.Path with{Direction="deliver"}};
+            var totals=GasPipelineOutlook.Summarize([occurrences[0],otherPoint,delivery],"day",byPipeline:true);
+            Equal(2,totals.Length,"keep gross directions separate");
+            Equal("2000",totals.Single(r=>r.Path.Direction=="receive").Contracted,"gross receipts across two points");
+            Equal("1500",totals.Single(r=>r.Path.Direction=="receive").Scheduled.Quantity,"two scheduled receipt Sides");
+            Equal("1000",totals.Single(r=>r.Path.Direction=="deliver").Contracted,"independent delivery quantity");
+            Equal("1/3",GasPipelineOutlook.Summarize([occurrences[0] with{ContractNumerator="1",ContractDenominator="3"}],"day").Single().Contracted,"exact equal-days fraction");
+        });
         Check("published setup choices preserve the exact source tuple and reject incomplete metadata",()=>
         {
             Equal(new TicketChoice(Setup.ToString(),"Published setup 3"),GasTicket.SetupChoices(Setup,3).SingleOrDefault(),"selected published setup");

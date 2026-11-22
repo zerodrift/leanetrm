@@ -1,4 +1,4 @@
-import {selectBookingAgreement} from './bilateral-desk.js';
+import {selectBookingAgreement,submitWithBookingAgreements} from './bilateral-desk.js';
 import {workspaceView,workspaceDocument,releaseView,viewEvents,rememberWorkspaceView,onWorkspaceLeave,reattachHeaders,workspaceRegistered} from './workspace-view.js';
 import {setupRecInventory} from './rec-inventory-view.js';
 import {recContext} from './rec-inventory-model.js';
@@ -30,6 +30,7 @@ import {productTickets} from './product-tickets.js';
 import {setupGasConfiguration} from './gas-setup-editor.js';
 import {setupGasTicket} from './gas-trade-view.js';
 import {setupParkLoanTicket} from './park-loan-trade-view.js';
+import {setupGasLocationTicket} from './gas-location-entry.js';
 import {setupTransportTicket} from './transport-trade-view.js';
 import {optionConvention,setupOptionTicket} from './futures-option-view.js';
 import {setupHeatRateCallTicket} from './heat-rate-call-ticket.js';
@@ -259,7 +260,6 @@ async function transport<T>(path:string,body?:unknown,root=apiRoot,signal?:Abort
   const value=attachReadReferences(await response.json() as T,response.headers.get('X-OpenETRM-Read-References'));signal?.throwIfAborted();return value;
 }
 async function api<T>(path:string,body?:unknown,signal?:AbortSignal):Promise<T>{
- const bookingScope=/\/(book|amend)$/.test(path)?{actor:currentProfile,context:navigation?.context}:undefined;
  const selectsContext=['profile','market/current','market/context'].includes(path)||/^assistant\/turns\/[^/]+\/view$/.test(path);
  if(selectsContext||['market/live','market/live/pause'].includes(path)){pageRead?.controller.abort();pageRead=undefined;readClient.reset();}
  const operation=asyncReadsEnabled?asyncReadRequest(path,body):undefined;
@@ -267,16 +267,18 @@ async function api<T>(path:string,body?:unknown,signal?:AbortSignal):Promise<T>{
  const selectedSignal=signal&&pageSignal?AbortSignal.any([signal,pageSignal]):signal??pageSignal;
  if(operation&&asyncIdentityLost)throw Error('Reload the page before requesting data for the changed account or context.');
  let payload:T;
- try{payload=operation?await readClient.read<T>(operation.operation,operation.body,{signal:selectedSignal}):await transport<T>(path,body,apiRoot,signal);}
+ try{
+  const submit=()=>transport<T>(path,body,apiRoot,signal);
+  if(operation)payload=await readClient.read<T>(operation.operation,operation.body,{signal:selectedSignal});
+  else if(/\/(book|amend)$/.test(path)){
+   const scope=()=>JSON.stringify([apiRoot,administrationScope,exampleId,currentProfile,select('snapshot').value,closeSession,navigation?.context,contextDirty,sessionEnded]);
+   const original=scope(),expectedProfile=currentProfile;
+   const check=()=>{signal?.throwIfAborted();if(asyncIdentityLost||scope()!==original)throw Error('The account or market context changed. Open the booking again.');};
+   const pair=path==='tickets/gas-locations/book'&&(body as {agreements?:string}|undefined)?.agreements==='separate_confirmations';
+   payload=await submitWithBookingAgreements(submit,(operationId,agreementId)=>transport('desk/choose',{operationId,agreementId,expectedProfile},apiRoot,signal),selectBookingAgreement,check,pair?2:1);
+  }else payload=await submit();
+ }
  catch(error){
-  const refused=error as {code?:string;details?:{agreementSelection?:{operationId:string;choices:{id:string;name:string;revision:number}[]}}};
-  const selection=refused.details?.agreementSelection;
-  if(refused.code==='desk_agreement_ambiguous'&&selection){
-   const agreementId=await selectBookingAgreement(selection.choices);
-   if(!bookingScope||currentProfile!==bookingScope.actor||navigation?.context!==bookingScope.context)throw Error('The account or market context changed. Open the booking again.');
-   await transport('desk/choose',{operationId:selection.operationId,agreementId},apiRoot,signal);
-   return transport<T>(path,body,apiRoot,signal);
-  }
   if(operation&&error instanceof AsyncReadError){
    if(error.source==='server')throw readRefusal(path,{code:error.code,message:error.message},hostedPilot);
    if(error.code==='async_read_identity')invalidateReadIdentity();
@@ -435,10 +437,15 @@ async function setPage(next:string){
   if(inConsole&&next!=='custom-curves'&&navigation&&!contextDirty){await loadWorkspace();referenceConsole.sync();}
 }
 function showView(view:Preferences['tab']){document.querySelectorAll<HTMLElement>('.view').forEach(n=>n.hidden=n.id!==`view-${view}`);document.querySelectorAll<HTMLButtonElement>('.tab').forEach(b=>{const active=b.dataset.view===view;b.classList.toggle('active',active);b.setAttribute('aria-selected',String(active));});}
+const compactNavigation=window.matchMedia('(max-width:760px)');
+let mobileMenuOpen=false;
+const sidebarIsCollapsed=()=>compactNavigation.matches?!mobileMenuOpen:prefs.sidebarCollapsed;
 function renderLayout(){
-  document.body.classList.toggle('sidebar-collapsed',prefs.sidebarCollapsed);document.body.classList.toggle('library-collapsed',prefs.libraryCollapsed);
-  const sidebar=$('sidebar-toggle');sidebar.setAttribute('aria-expanded',String(!prefs.sidebarCollapsed));sidebar.setAttribute('aria-label',prefs.sidebarCollapsed?'Expand navigation':'Collapse navigation');sidebar.title=prefs.sidebarCollapsed?'Expand navigation':'Collapse navigation';sidebar.textContent=prefs.sidebarCollapsed?'›':'‹';
-  for(const {id} of sidebarGroups){const group=groupNode(id);group.open=prefs.sidebarCollapsed||!prefs.collapsedMenus.includes(id);group.querySelector('summary')!.hidden=prefs.sidebarCollapsed;}
+  const collapsed=sidebarIsCollapsed(),sidebar=$('sidebar-toggle');
+  document.body.classList.toggle('sidebar-collapsed',collapsed);document.body.classList.toggle('library-collapsed',prefs.libraryCollapsed);
+  sidebar.setAttribute('aria-expanded',String(!collapsed));sidebar.title=collapsed?'Expand navigation':'Collapse navigation';sidebar.setAttribute('aria-label',sidebar.title);
+  sidebar.textContent=compactNavigation.matches?(collapsed?'Menu':'Close'):(collapsed?'›':'‹');
+  for(const {id} of sidebarGroups){const group=groupNode(id);group.open=collapsed||!prefs.collapsedMenus.includes(id);group.querySelector('summary')!.hidden=collapsed;}
   const library=$('library-toggle');library.setAttribute('aria-expanded',String(!prefs.libraryCollapsed));library.setAttribute('aria-label',prefs.libraryCollapsed?'Expand curve list':'Collapse curve list');library.title=prefs.libraryCollapsed?'Expand curve list':'Collapse curve list';$('curves').hidden=prefs.libraryCollapsed;
 }
 function renderTimeZones(){document.querySelectorAll<HTMLElement>('[data-user-time-zone]').forEach(n=>{n.textContent=prefs.timeZone;});}
@@ -1203,9 +1210,20 @@ async function openProfile(){
   await profileChoices();await loadProfileCloseConvention();
   choose('zone',zoneChoices(prefs.timeZone),prefs.timeZone);$<HTMLInputElement>('show-assistant').checked=!prefs.assistantHidden;$<HTMLInputElement>('assistant-search-history').checked=prefs.assistantSearchHistory;select('preferred-browse').value=prefs.browseBy;$<HTMLDialogElement>('profile-dialog').showModal();
 }
-$('sidebar-toggle').onclick=()=>{if(busy)return;prefs.sidebarCollapsed=!prefs.sidebarCollapsed;renderLayout();persist();};
+compactNavigation.addEventListener('change',()=>{mobileMenuOpen=false;renderLayout();});
+$('sidebar-toggle').onclick=()=>{
+ if(busy)return;
+ if(compactNavigation.matches)mobileMenuOpen=!mobileMenuOpen;
+ else{prefs.sidebarCollapsed=!prefs.sidebarCollapsed;persist();}
+ renderLayout();
+};
+$('sidebar-menus').addEventListener('click',event=>{
+ if(compactNavigation.matches&&mobileMenuOpen&&(event.target as Element).closest('button.nav-item:not(:disabled)')){
+  mobileMenuOpen=false;renderLayout();$('sidebar-toggle').focus({preventScroll:true});
+ }
+});
 $('library-toggle').onclick=()=>{if(busy)return;prefs.libraryCollapsed=!prefs.libraryCollapsed;renderLayout();persist();};
-for(const {id} of sidebarGroups)groupNode(id).ontoggle=()=>{if(!currentProfile||prefs.sidebarCollapsed)return;const closed=prefs.collapsedMenus.includes(id),open=groupNode(id).open;if(closed===!open)return;prefs.collapsedMenus=open?prefs.collapsedMenus.filter(k=>k!==id):[...prefs.collapsedMenus,id];persist();};
+for(const {id} of sidebarGroups)groupNode(id).ontoggle=()=>{if(!currentProfile||sidebarIsCollapsed())return;const closed=prefs.collapsedMenus.includes(id),open=groupNode(id).open;if(closed===!open)return;prefs.collapsedMenus=open?prefs.collapsedMenus.filter(k=>k!==id):[...prefs.collapsedMenus,id];persist();};
 function profileError(message=''){text('profile-error',message);$('profile-error').hidden=!message;}
 // The page behind an open modal is inert, so its actions report within the modal.
 async function profileAction(control:HTMLElement,work:()=>Promise<void>){
@@ -1239,6 +1257,7 @@ async function loadIdentity(initialAccess?:unknown){
   viewHistory.length=0;inspectedContexts.clear();
   cancelCurveRead();pageRead?.controller.abort();pageRead=undefined;readClient.reset();
   closeConventionDefaults.invalidate();
+  gasLocations.reset();$('gas-locations-page').hidden=true;
   parkLoan.reset();$('park-loan-page').hidden=true;
   transportTicket.reset();$('transport-page').hidden=true;
   pointTraderMark.reset();
@@ -1473,6 +1492,7 @@ const deliverySetup=setupDeliverySetupSwitch({open:next=>navigate(next)(),availa
 const crude=setupPhysicalCrude({api,act,zone:()=>prefs.timeZone,busy:()=>busy,source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,onBooked:ticketBooked});
 const lng=setupPhysicalLng({api,act,zone:()=>prefs.timeZone,busy:()=>busy,canBook:()=>can('BookTrade'),source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,onBooked:ticketBooked});
 const gas=setupGasTicket({api,source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,instant,zone:()=>prefs.timeZone,onBooked:ticketBooked});
+const gasLocations=setupGasLocationTicket({api,busy:()=>busy,source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,instant,zone:()=>prefs.timeZone,onBooked:ticketBooked});
 const parkLoan=setupParkLoanTicket({api,source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,instant,zone:()=>prefs.timeZone,onBooked:ticketBooked});
 const transportTicket=setupTransportTicket({api,source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,instant,zone:()=>prefs.timeZone,onBooked:ticketBooked});
 // Vol surfaces read the option product's stored surface at the applied context; a fit is admitted only in the current workspace.
@@ -1559,6 +1579,7 @@ const tickets=productTickets({
  crude:{root:$('crude-page'),begin:crude.load,inspect:crude.inspect,reset:crude.reset,unsaved:crude.unsaved,pending:crude.pending,sync:crude.sync},
  ppa:{root:$('ppa-page'),begin:()=>ppa.begin(frame().at),inspect:id=>ppa.inspect(frame().at,id),reset:ppa.reset,unsaved:ppa.unsaved,pending:ppa.pending,sync:ppa.sync},
  gas,
+ 'gas-locations':gasLocations,
  'park-loan':parkLoan,
  transport:transportTicket,
  options:optionTicket,

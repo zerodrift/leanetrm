@@ -1010,6 +1010,7 @@ body.assistant-open:not(.assistant-overlay) .side-panel[data-placement=overlay]{
 .side-panel-section+.side-panel-section{margin-top:14px}
 .side-panel-section h3{margin:0 0 4px;font-size:12px;font-weight:650;color:var(--text)}
 .side-terms-list{margin:0}
+.ticket-grouped-fields>nav{grid-column:1/-1}
 .ticket-strip.ticket-grouped-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:16px}.ticket-field-group{min-width:0;margin:0;padding:16px;border:1px solid var(--border);border-radius:8px}.ticket-field-group[data-field-group-kind="agreement"]{grid-column:1/-1}.ticket-field-group>legend{font-size:13px;font-weight:600;padding:0 6px}.ticket-field-group .instrument-composition{margin:12px 0 0}.ticket-field-group .instrument-side{padding:10px}.ticket-field-group .instrument-side-group>h3{font-size:13px}
 .instrument-composition{display:flex;flex-direction:column;gap:20px;margin:20px 0}.instrument-side-group{min-width:0}.instrument-side-group>h3{margin:0 0 12px}.instrument-side-deck{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:16px}.instrument-composition .instrument-side>h4{margin:0 0 6px}.instrument-composition h5{font-size:12px;margin:16px 0 8px}
 .side-panel .side-term{grid-template-columns:minmax(84px,.8fr) minmax(0,1.2fr);gap:10px;padding:6px 0;border-top:1px solid var(--border);font-size:12px}
@@ -3101,3 +3102,164 @@ header>div:first-child{flex:1 1 160px}
 .storage-chart-tip div:first-child{color:var(--text);font-weight:600}
 .storage-panel{display:flex;flex-direction:column;gap:12px;margin-top:14px}.storage-panel p{margin:0}
 .storage-adoption{display:flex;flex-direction:column;gap:12px}
+
+/* Two-location trade setup and the pipeline report share the workbench's dark surfaces and focus treatment. */
+#gas-locations-page{container-type:inline-size}
+#position-details-body:has(>#position-details-form>#gas-locations-page:not([hidden])){padding:0;background:var(--surface)}
+#gas-locations-page :is(.location-setup,.location-choice){min-inline-size:0;margin:0;padding:0;border:0}
+#gas-locations-page .location-setup,.location-work{padding:clamp(16px,2vw,26px)}
+.location-structure,.location-work-head,.outlook-heading,.outlook-links{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.location-structure{align-items:flex-start;flex-direction:column;gap:20px}
+.location-structure h2,.location-work-head h2,.outlook-heading h2{font-family:var(--font-display);font-size:clamp(21px,2vw,28px);line-height:1.15;letter-spacing:-.035em;font-weight:600}
+.location-choice legend,.outlook-filters label,.outlook-capacity-controls label{display:block;margin:0 0 7px;padding:0;font-size:12px;font-weight:600;color:var(--text-2)}
+.location-options{display:flex;flex-wrap:wrap;gap:8px}
+.location-options label{position:relative;display:flex;align-items:center;gap:10px;cursor:pointer;margin:0;padding:10px 13px;border:1px solid var(--border-strong);border-radius:7px;background:var(--bg);color:var(--text-2);transition:border-color .12s,background .12s}
+.location-options label:has(:checked){border-color:var(--accent);background:var(--accent-soft);color:var(--text)}
+.location-options label:hover{border-color:var(--border-hover)}
+.location-options label:has(:focus-visible){outline:2px solid var(--focus);outline-offset:3px}
+.location-options input[type=radio]{appearance:none;flex:0 0 14px;width:14px;height:14px;min-height:0;margin:0;padding:0;border:1.5px solid var(--text-3);border-radius:50%;background:transparent}
+.location-options input:checked{border:4px solid var(--accent-text);background:var(--accent-soft)}
+.location-options strong{display:block;font-size:13px;font-weight:600}
+.location-options small{display:block;margin-top:2px;font-size:12px;color:var(--text-3)}
+.location-structure>.location-choice{align-self:stretch}
+.location-structure .location-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+.location-route{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin-top:24px}
+.location-endpoint{--flow-ink:var(--brand-warm);min-width:0;padding:18px 20px 20px;background:var(--surface-2);border:1px solid var(--border);border-radius:10px}
+.location-endpoint[data-leg=sale]{--flow-ink:var(--brand-cool)}
+.location-endpoint header{display:flex;justify-content:flex-start;align-items:center;gap:10px;margin:0;padding:0;min-height:0}
+.location-endpoint h3{margin:0;color:var(--text);font:600 20px/1.25 var(--font-display);letter-spacing:-.025em}
+.location-flow-mark{display:grid;place-items:center;width:32px;height:32px;border:1px solid var(--border-strong);border-radius:50%;background:var(--surface);color:var(--flow-ink);font:20px/1 var(--font)}
+.location-flows{display:flex;align-items:center;gap:8px;margin:9px 0 16px;color:var(--text-2);font-size:13px}
+.location-flows span+span::before{content:'·';margin-right:8px;color:var(--text-3)}
+.location-endpoint .location-options{gap:2px;display:inline-flex;flex-wrap:nowrap;padding:3px;background:var(--bg);border:1px solid var(--border-strong);border-radius:7px}
+.location-endpoint .location-options label{border-color:transparent;padding:6px 12px;border-radius:4px;background:transparent}
+.location-endpoint .location-options label:has(:checked){background:var(--surface-3);color:var(--accent-text);border-color:var(--border-hover)}
+.location-endpoint .location-options input{position:absolute;opacity:0;width:1px;height:1px}
+.location-initial-actions{display:flex;justify-content:flex-end;margin-top:22px}
+#gas-location-assemble,.location-booking-actions>button,.outlook-filters>button{width:auto;min-height:36px;font-size:13px;padding:8px 17px}
+#gas-locations-page button:disabled,.outlook-filters button:disabled{cursor:default}
+#gas-location-assemble:disabled,.location-booking-actions>button:disabled{background:var(--surface-3);border-color:var(--border-strong);color:var(--text-3)}
+.location-work{padding-bottom:10px}
+.location-work-head{margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--border)}
+.gas-view-tabs{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.gas-view-tabs .side-panel-tab{flex:none;width:auto;min-height:34px;padding:6px 13px;color:var(--text-2);font-size:13px;font-weight:600;letter-spacing:normal;border:1px solid transparent;border-radius:5px;background:transparent}
+.gas-view-tabs .side-panel-tab:hover{background:var(--surface-3)}
+.gas-view-tabs .side-panel-tab[aria-selected=true]{color:var(--accent-text);border-color:var(--accent-border);background:var(--accent-soft)}
+#gas-location-editors[data-leg=purchase] :is([data-confirmation=sale],.ticket-card[data-side=sale],.ticket-card[data-side=sale_payment]),
+#gas-location-editors[data-leg=sale] :is([data-confirmation=purchase],.ticket-card[data-side=purchase],.ticket-card[data-side=purchase_payment]){display:none}
+#gas-location-editors .ticket-deck{grid-template-columns:repeat(2,minmax(0,1fr));gap:0 14px}
+#gas-location-editors .ticket-chips{display:none}
+#gas-location-editors .ticket-card{border-top-width:2px;box-shadow:none}
+#gas-location-editors .ticket-card-head{padding:12px 14px}
+#gas-location-editors .ticket-own fieldset{min-width:0;border:0;border-top:1px solid var(--border);margin:12px 0 0;padding:8px 0 0}
+#gas-location-editors .ticket-own legend{padding-right:8px;color:var(--text-2)}
+.location-booking-actions,.location-receipt{display:flex;gap:8px;justify-content:flex-end;padding:0 24px 20px}
+.location-message{margin:0;padding:5px 24px 14px;color:var(--text-2);font-size:13px}
+.location-message:empty,.location-receipt:empty{display:none}
+
+.pipeline-outlook{min-width:0;padding-top:12px}
+#facilities-workspace-tabs{column-gap:16px;row-gap:0}
+#facilities-section-picker{display:none}
+.outlook-scope,.outlook-report .outlook-table,.outlook-points{border:1px solid var(--border);border-radius:10px;background:var(--surface)}
+.outlook-scope{padding:20px 22px 18px}
+.outlook-heading{margin:0 0 20px;padding:0;min-height:0}
+.outlook-ranges,.outlook-links{display:flex;flex-wrap:wrap;gap:8px}
+.outlook-ranges button,.outlook-links button,.outlook-capacity-window button{width:auto;padding:6px 10px;min-height:30px;font-size:12px}
+.outlook-filters{display:grid;grid-template-columns:minmax(160px,1.35fr) repeat(2,minmax(138px,1fr)) minmax(90px,.65fr) auto;align-items:end;gap:12px}
+.outlook-filters label,.outlook-capacity-controls label{min-width:0;margin:0}
+.outlook-filters :is(input,select),.outlook-capacity-controls :is(input,select){margin-top:6px;width:100%;min-height:36px}
+.outlook-panel-head{margin:16px 0 12px}
+.outlook-report{min-width:0}
+.outlook-report .outlook-table{padding:16px 0 0;overflow:hidden}
+.outlook-table>h3{margin:0;padding:0 16px 10px;font-size:16px;letter-spacing:-.018em}
+.outlook-report .table-filters{padding:0 16px 12px;gap:8px;margin:0;align-items:center}
+.outlook-report .table-filters .table-search{max-width:220px;height:30px;min-height:30px;font-size:12px}
+.outlook-report .table-row-count{margin-left:auto}
+.outlook-report .regular-table-scroll{border:0;border-top:1px solid var(--border);border-radius:0;max-width:100%}
+.outlook-report table{font-variant-numeric:tabular-nums;width:100%}
+.outlook-report :is(th,td){padding:9px 10px}
+.outlook-report td{vertical-align:top;font-size:12px}
+.outlook-amount{display:flex;flex-direction:column;gap:3px}
+.outlook-amount>small{display:block;font-size:11px;line-height:1.25;color:var(--text-3);max-width:20ch;white-space:normal}
+.outlook-amount[data-tone=muted]{color:var(--text-3)}
+.outlook-amount[data-tone=receive]>span{color:var(--brand-warm)}
+.outlook-amount[data-tone=deliver]>span{color:var(--brand-cool)}
+.outlook-points{margin-top:12px}
+.outlook-points>summary{cursor:pointer;padding:13px 16px;font-weight:600;font-size:13px;color:var(--text-2)}
+.outlook-points>summary::marker{color:var(--text-3)}
+.outlook-points>.outlook-table{border:0;border-top:1px solid var(--border);border-radius:0 0 10px 10px}
+.outlook-report button.outlook-drill{min-height:0;padding:0;border:0;background:none;color:var(--accent-text);font:inherit;font-weight:600;text-underline-offset:3px}
+.outlook-report .outlook-drill:hover{text-decoration:underline}
+.outlook-asof{margin:14px 0 0;color:var(--text-3);font-size:12px}
+.outlook-links{justify-content:flex-start;margin-top:8px}
+.outlook-links button{border:0;background:none;padding:4px 0;margin-right:12px;color:var(--accent-text)}
+.outlook-capacity-controls,.outlook-capacity-window{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap}
+.outlook-capacity-controls{margin:14px 0}
+.outlook-report>p{margin:12px 0;color:var(--text-2)}
+@container workspace (max-width:899px){
+ .outlook-filters{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .outlook-filters>button{justify-self:start}
+}
+@container (max-width:630px){
+ #gas-locations-page .location-structure .location-options{grid-template-columns:1fr}
+ #gas-locations-page .location-route{gap:10px;margin-top:16px}
+ #gas-locations-page .location-endpoint{padding:12px}
+ #gas-locations-page .location-endpoint .location-options{display:flex;flex-wrap:wrap}
+ #gas-locations-page .location-work-head{align-items:flex-start;flex-direction:column}
+ #gas-location-editors .ticket-deck{display:flex;flex-direction:column;gap:12px}
+}
+@media(max-width:760px){
+ .sidebar-toggle{width:auto;min-width:52px;padding:2px 10px;font:600 12px var(--font)}
+ #facilities-workspace-tabs{display:none}
+ #facilities-section-picker{display:block;width:100%;font-weight:600}
+ .pipeline-outlook{padding-top:8px}
+ #outlook-views{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0}
+ #outlook-views .side-panel-tab{padding:6px 2px;font-size:12px}
+ .outlook-scope{padding:14px}
+ .outlook-heading{align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:14px}
+ .outlook-filters{gap:10px}
+
+}
+@media(prefers-reduced-motion:reduce){.location-options label{transition:none}}
+
+.new-trade-head{container:instrument-picker / inline-size}
+.new-trade-head .instrument-chooser{margin:2px 0 0;padding:0;border:0;border-radius:0;background:none;align-items:flex-start}
+.new-trade-head .instrument-entries{padding:2px;border-color:transparent;background:var(--surface-2)}
+.new-trade-head button.instrument{padding:4px 8px;min-height:30px}
+.new-trade-head .instrument-switch{display:none}
+.side-navigation.schedule-actions{display:flex;align-items:center;flex-wrap:wrap;gap:4px;margin:0 0 12px;padding:0 0 10px;border-bottom:1px solid var(--border)}
+.side-navigation button{min-height:30px;padding:5px 10px;font-size:12px;background:transparent;color:var(--accent-text);border-color:var(--border)}
+.outlook-table{display:grid;grid-template-columns:minmax(0,1fr) auto}
+.outlook-table>h3{align-self:center}
+.outlook-table>div{display:contents}
+.outlook-table .regular-table-scroll,.outlook-table .table-filter-empty{grid-column:1/-1;min-width:0}
+#facilities-page .outlook-table .table-search{flex:0 1 12rem;width:12rem}
+@container workspace (max-width:800px){.outlook-table{display:block}.outlook-table>div{display:block}}
+@container (max-width:630px){
+ #gas-locations-page .location-route{grid-template-columns:minmax(0,1fr)}
+ .location-endpoint{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;column-gap:8px}
+ .location-endpoint header{gap:6px}
+ .location-endpoint h3{font-size:17px}
+ .location-endpoint .location-flow-mark{width:24px;height:24px;font-size:16px}
+ .location-endpoint .location-flows{grid-column:1;margin:4px 0 0;display:block;font-size:11.5px}
+ .location-endpoint .location-choice{grid-column:2;grid-row:1/3}
+ .location-endpoint .location-choice legend{font-size:11px}
+ .location-endpoint .location-options label{padding:5px 7px}
+ .location-endpoint .location-options strong{font-size:12px}
+}
+@container instrument-picker (max-width:620px){
+ .new-trade-head .instrument-switch:not([hidden]){display:inline-flex;align-items:center;gap:8px;background:none;color:var(--accent-text);border:1px solid var(--border-strong);padding:5px 10px;min-height:30px;font-size:12px}
+ .instrument-switch::after{content:'';width:5px;height:5px;border:solid currentColor;border-width:0 1px 1px 0;transform:rotate(45deg) translateY(-2px)}
+ .instrument-switch[aria-expanded=true]::after{transform:rotate(225deg)}
+ .new-trade-head:not([data-picker-open=true]) .instrument-chooser[data-state=chosen]{display:none}
+ .new-trade-head[data-picker-open=true] .instrument-chooser[data-state=chosen]{margin-top:10px}
+}
+@media(max-width:760px){
+ main>header:has(.context-toolbar:not([hidden])){gap:8px;margin-bottom:12px}
+ main>header:has(.context-toolbar:not([hidden])) .header-actions{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;flex-basis:100%}
+ main>header .context-toolbar{gap:6px;align-items:center;padding:7px 9px}
+ main>header .context-as-of{flex:1 1 0;min-width:0}
+ main>header .context-help:not([open]){margin:0;flex:none}
+ main>header .context-toolbar:has(.context-help[open],.as-of-context[open]){grid-column:1/-1}
+ main>header #profile-open .profile-text{display:none}
+}

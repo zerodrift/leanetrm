@@ -83,7 +83,7 @@ public sealed class GasDailyQuantities(PreviewDatabase database)
    scope="daily_delivery_quantity_inputs_only",valuationEffect="contractual_pv_unchanged",historyLimit=100,
    performance=body.MeasurePerformance?new{metadataMs=ms[0],headsMs=ms[1],historyMs=ms[2],programsMs=ms[3],selectionMs=ms[4],headCount=s.HeadCount,programCount=s.Programs.Length,uniquePrograms=s.Programs.Select(p=>p.Identity.ContentDigest).Distinct().Count(),dayCount=rows.Length}:null};
  }
- async Task<ImmutableArray<JsonElement>> QuantityRows(NpgsqlConnection c,Guid trade,string mode,bool facility,CancellationToken ct)
+ internal async Task<ImmutableArray<JsonElement>> QuantityRows(NpgsqlConnection c,Guid trade,string mode,bool facility,CancellationToken ct)
  {
   await using var query=ScheduleStore.Command(c,facility?"SELECT security.read_trade_facility_final_quantities($1,$2,$3)::text":"SELECT security.read_gas_quantity_rows($1,$2,$3)::text",database.Manifest.CatalogId,trade,mode);
   var result=JsonSerializer.Deserialize<JsonElement>((string)(await query.ExecuteScalarAsync(ct))!);

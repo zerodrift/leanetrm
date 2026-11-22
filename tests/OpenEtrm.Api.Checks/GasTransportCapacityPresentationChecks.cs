@@ -37,6 +37,8 @@ internal static class GasTransportCapacityPresentationChecks
         if(GasTransportCapacityPresentation.Tables(null,null,null).Length!=0)throw new Exception("An unavailable assessment cannot invent a display table.");
         var assessment=Assessment();var facts=Facts();var before=facts.GetRawText();
         var table=Json(GasTransportCapacityPresentation.Tables(assessment,facts,null))[0];
+        if(Cell(table,0,8)!="-10"||Cell(table,1,8)!="20"||Cell(table,3,8)!="0")
+            throw new Exception("Signed headroom uses the retained maximum and chosen quantity for each native interval.");
         if(table.GetProperty("columns")[7].GetString()!="Chosen plans"||!table.GetProperty("instantColumns").EnumerateArray().Select(v=>v.GetInt32()).SequenceEqual([2,3]))
             throw new Exception("The operating table must identify chosen plans while retaining exact instant columns.");
         if(Cell(table,3,0)!="Path"||Cell(table,3,1)!="synthetic_path_a"||Cell(table,0,1)!="Whole entitlement"||Cell(table,1,1)!="synthetic_receipt")

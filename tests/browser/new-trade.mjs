@@ -4,7 +4,7 @@
 import {idle} from './owned-browser.mjs';
 
 // The form each product opens, and the head the panel then shows.
-const forms={futures:{form:'#futures-new-trade',head:'New future'},options:{form:'#option-page',head:'New futures option'},swaps:{form:'#swap-editing',head:'New swap'},ppa:{form:'#ppa-page',head:'New PPA'},gas:{form:'#gas-page',head:'New physical gas trade'},crude:{form:'#crude-page',head:'New physical crude trade'},lng:{form:'#lng-page',head:'New physical LNG cargo'},transport:{form:'#transport-page',head:'New Transport agreement'},'park-loan':{form:'#park-loan-page',head:'New Park and loan'}};
+const forms={'gas-locations':{form:'#gas-locations-page',head:'New two-location gas trade'},futures:{form:'#futures-new-trade',head:'New future'},options:{form:'#option-page',head:'New futures option'},swaps:{form:'#swap-editing',head:'New swap'},ppa:{form:'#ppa-page',head:'New PPA'},gas:{form:'#gas-page',head:'New physical gas trade'},crude:{form:'#crude-page',head:'New physical crude trade'},lng:{form:'#lng-page',head:'New physical LNG cargo'},transport:{form:'#transport-page',head:'New Transport agreement'},'park-loan':{form:'#park-loan-page',head:'New Park and loan'}};
 
 const entered="document.querySelector('#futures-page').hasAttribute('data-entry')&&document.querySelector('#position-details').dataset.mode==='new'&&!!document.querySelector('#new-trade-product')";
 /** Whether New trade's page is shown, for a check to assert or wait on. */

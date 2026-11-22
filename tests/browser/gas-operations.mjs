@@ -1,3 +1,4 @@
+import {checkGasEntryOutlook} from './gas-entry-outlook.mjs';
 import {selectDeliveryFrame,openPhysicalTrade,openGasDelivery} from './physical-operations-grid.mjs';
 // Real browser: manual scheduling review, trusted unsaved edits and shared recovery.
 export async function run(actions){
@@ -39,4 +40,5 @@ export async function run(actions){
  await persona('risk');await selectDeliveryFrame(actions,'2021-01-15T08:');await click('#nav-physical-operations');await openPhysicalTrade(actions,fixture.tradeId);
  await click('#physical-operations-tabs-delivery');await openGasDelivery(actions,'2021-01-01');
  await check('a role without gas operations access is told so, with the reason beside the unavailable operations',`(()=>{const ops=document.querySelector('${root}'),note=ops.querySelector('[data-ops=unavailable]');return ops.querySelector('[data-operation=nomination]').disabled&&!note.hidden&&note.textContent.includes('roles do not permit gas operations')&&!ops.querySelector('[data-ops=message]').textContent.includes('service terms');})()`,`[...document.querySelectorAll('${root} [data-ops=unavailable],${root} [data-ops=message]')].map(n=>n.textContent)`);
+ await persona('trader');await checkGasEntryOutlook(actions);
 }

@@ -104,9 +104,35 @@ export function setupBilateralDesk(o:Options){
  return {load,reset,edited:()=>dirty};
 }
 
-export async function selectBookingAgreement(choices:{id:string;name:string;revision:number}[]):Promise<string>{
+type BookingConfirmation='purchase'|'sale'|'bilateral';
+type AgreementRefusal={code?:string;details?:{confirmation?:BookingConfirmation;agreementSelection?:{operationId:string;choices:Party[]}}};
+
+export async function submitWithBookingAgreements<T>(submit:()=>Promise<T>,record:(operationId:string,agreementId:string)=>Promise<unknown>,
+ select:typeof selectBookingAgreement,checkScope:()=>void,maxChoices:number):Promise<T>{
+ const chosen=new Set<string>();
+ for(;;){
+  checkScope();
+  try{return await submit();}
+  catch(error){
+   const refusal=error as AgreementRefusal,selection=refusal.details?.agreementSelection;
+   if(refusal.code!=='desk_agreement_ambiguous'||!selection||chosen.has(selection.operationId)||chosen.size>=maxChoices)throw error;
+   checkScope();
+   const agreement=await select(selection.choices,refusal.details?.confirmation);
+   checkScope();
+   await record(selection.operationId,agreement);
+   chosen.add(selection.operationId);
+  }
+ }
+}
+
+export async function selectBookingAgreement(choices:Party[],confirmation?:BookingConfirmation):Promise<string>{
  const dialog=element('dialog'),form=element('form');form.method='dialog';const select=picker(choices,a=>a.id,a=>a.name+' · revision '+a.revision);
- const ok=element('button','Use agreement');ok.value='accept';const cancel=element('button','Cancel');cancel.value='cancel';form.append(labelled('Applicable executed agreement',select),ok,cancel);
+ const title={purchase:'Purchase confirmation',sale:'Sale confirmation',bilateral:'Bilateral confirmation'};
+ const heading=element('h2',confirmation?title[confirmation]:'Booking agreement');heading.id='booking-agreement-title';
+ dialog.setAttribute('aria-labelledby',heading.id);select.prepend(new Option('Choose an agreement','',true,true));
+ const ok=element('button','Use agreement');ok.value='accept';ok.disabled=true;select.onchange=()=>{ok.disabled=!select.value;};
+ const cancel=element('button','Cancel');cancel.value='cancel';cancel.formNoValidate=true;
+ form.append(heading,labelled('Applicable executed agreement',select),ok,cancel);
  dialog.append(form);document.body.append(dialog);dialog.showModal();
  return new Promise((resolve,reject)=>{dialog.onclose=()=>{dialog.remove();if(dialog.returnValue==='accept')resolve(select.value);else reject(Object.assign(Error('Booking cancelled.'),{code:'desk_selection_cancelled'}));};});
 }

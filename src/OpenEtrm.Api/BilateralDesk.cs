@@ -11,7 +11,7 @@ public sealed record DeskReadRequest(Guid SnapshotId, Guid? Id = null);
 public sealed record DeskCommand(Guid OperationId, JsonElement Record);
 public sealed record FacilityTradeWindow(FacilityQuantityContext Context,Guid ProfileId,DateOnly From,DateOnly To);
 public sealed record FacilityAttribution(Guid TradeId,Guid ProfileId);
-public sealed record DeskChoice(Guid OperationId, Guid AgreementId);
+public sealed record DeskChoice(Guid OperationId, Guid AgreementId, string? ExpectedProfile=null);
 public sealed record DeskEligibility(Guid LegalEntityId, Guid CounterpartyId, string Product);
 
 internal sealed record DeskAdmission(Guid Catalog,string Permission,DateTimeOffset Until):ICommitAdmission

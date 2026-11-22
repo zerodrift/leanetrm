@@ -2,6 +2,17 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {browserAvailable,browserTestTimeout,withBrowserPage} from './browser-page.mjs';
 
+test('the applicable agreement dialog identifies the confirmation and requires a selection', {skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<main></main>',async evaluate=>{
+ const result=await evaluate(`(async()=>{
+  const {selectBookingAgreement}=await import('/bilateral-desk.js');
+  const pending=selectBookingAgreement([{id:'A',name:'Agreement A',revision:1},{id:'B',name:'Agreement B',revision:2}],'sale');
+  const dialog=document.querySelector('dialog'),select=dialog.querySelector('select'),ok=dialog.querySelector('button[value=accept]');
+  const before={text:dialog.innerText,selected:select.value,blocked:ok.disabled||!select.checkValidity()};
+  select.value='B';select.dispatchEvent(new Event('change'));ok.click();return {...before,result:await pending};
+ })()`);
+ assert.match(result.text,/Sale confirmation/);assert.equal(result.selected,'');assert.equal(result.blocked,true);assert.equal(result.result,'B');
+}));
+
 test('the facility desk shows a superseded allocation and opens its exact booked revision',
  {skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<main></main>',async evaluate=>{
   const result=await evaluate(`(async()=>{

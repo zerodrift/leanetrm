@@ -1,3 +1,4 @@
+import {sideNavigation} from './side-navigation.js';
 import {sideCalendar,referenceCalendarChoices,type SideCalendarPolicy} from './side-calendar.js';
 import {paymentDateInput,displayPaymentDate} from './payment-date.js';
 import {facilityAllocationTrack} from './facility-allocation-track.js';
@@ -25,7 +26,7 @@ export type TicketEntry={side:string;day:string;fields:TicketField[];values:Reco
 // fieldErrors and choices are keyed by the field id for a trade field and by "<side code>.<field id>" for a side field. Under the chosen
 // level every schedule row is open but those in `closed`, the rows the person closed. quantityUnit is the unit the schedule's preview resolved,
 // and instant the page's formatter for the instants the ticket shows. links are the schedule's quantity links, and entry the day entry open, if any.
-export type TicketView={state:TicketState;mode:'new'|'booked'|'amend';presentation?:'schedules'|'terms';actions:TradeActions|null;schedule:ScheduleView|null;quantityUnit:string|null;instant:(at:string)=>string;zone:string;previous:ScheduleView|null;summaries:TicketSummary[];
+export type TicketView={state:TicketState;sideLabels?:Readonly<Record<string,string>>;mode:'new'|'booked'|'amend';presentation?:'schedules'|'terms';actions:TradeActions|null;schedule:ScheduleView|null;quantityUnit:string|null;instant:(at:string)=>string;zone:string;previous:ScheduleView|null;summaries:TicketSummary[];
  links:TicketLink[];entry:TicketEntry|null;sideSchedule?:(host:HTMLElement,side:TicketSide)=>()=>void;facilityAllocations?:FacilityAllocationTrack[];sideGroups?:InstrumentSideGroup[];sideGroupsReason?:string|null;
  // A booked started-delivery gas trade's measures, with the currency its figures are in; none for any other trade.
  measures?:GasMeasures|null;currency?:string;
@@ -148,7 +149,7 @@ function card(o:TicketView,side:TicketSide,rows:string[]){
  const node=el('article','ticket-card');node.dataset.side=side.code;node.dataset.kind=side.kind;node.classList.toggle('selected',selected);node.style.setProperty('--side-colour',sideColour(kind.colour));
  // A click on a card selects its side and that side's tab; a click on one of its controls is the control's.
  node.onclick=event=>{if(selected&&o.tab===side.code||(event.target as HTMLElement).closest('input,select,button'))return;o.on.selectSide(side.code);};
- const head=sideCardHeader(sideName(d,side),kind.pill);
+ const head=sideCardHeader(o.sideLabels?.[side.code]??sideName(d,side),kind.pill);
  if(o.mode!=='booked'){
   const reason=refusal(()=>removeSide(o.state,side.code)),remove=button('ticket-remove','Remove',()=>o.on.removeSide(side.code));
   remove.disabled=reason!==null;remove.title=reason??`Remove ${sideName(d,side)}`;head.append(remove);
@@ -298,13 +299,15 @@ function linksGrid(o:TicketView,content:HTMLElement):GridHandle|undefined{
 
 function groupedFields(o:TicketView,groups:TicketFieldGroup[],actual:InstrumentSideGroup[]|undefined){
  const root=el('section','ticket-strip ticket-grouped-fields');
+ const targets:{label:string;target:HTMLElement}[]=[];
  for(const group of groups){
   const card=el('fieldset',group.kind==='agreement'?'ticket-field-group':'ticket-field-group instrument-side');card.dataset.ticketFieldGroup=group.id;card.dataset.fieldGroupKind=group.kind;
   card.append(el('legend',undefined,group.label));const mapped=actual?.filter(member=>member.fieldGroupId===group.id)??[];
   card.append(tradeFields(o,group.fields.map(id=>o.state.description.tradeFields.find(field=>field.id===id)!)));
   if(mapped.length)renderInstrumentSides(card,mapped,{zone:o.zone,retained:o.mode==='booked',disclosure:true});
-  root.append(card);
+  root.append(card);if(group.id!=='agreement')targets.push({label:group.label,target:card});
  }
+ if(targets.length>1)root.prepend(sideNavigation('Agreement components',targets));
  root.append(statusLine(o.status));
  return root;
 }
@@ -314,7 +317,7 @@ export function renderTicket(host:HTMLElement,o:TicketView){
  if(d.sideGroupsRequired!==undefined&&typeof d.sideGroupsRequired!=='boolean')throw Error('Reread the ticket Side composition requirement.');
  const groups=o.sideGroups!==undefined||o.sideGroupsReason!==undefined||d.sideGroupsRequired&&o.mode==='booked'?requireInstrumentSideGroups(o.sideGroups,o.mode==='booked',o.sideGroupsReason):undefined;
  const fields=ticketFieldGroups(d);if(groups)requireSideGroupMappings(groups,fields);
- const named:ScheduleSide[]=sides.map(s=>({kind:s.kind,code:s.code,name:sideName(d,s)}));
+ const named:ScheduleSide[]=sides.map(s=>({kind:s.kind,code:s.code,name:o.sideLabels?.[s.code]??sideName(d,s)}));
  // The ticket keeps its controls' states itself: a page's busy sweep leaves them as drawn.
  const root=el('div','deal-ticket');root.dataset.mode=o.mode;root.dataset.ownControls='';
  const notices=el('ul','ticket-notices');for(const text of o.state.notices){const n=el('li','ticket-notice',text);n.setAttribute('role','status');notices.append(n);}

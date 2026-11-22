@@ -29,11 +29,11 @@ class Source extends EventTarget{
 test('permission refresh retires pending reads before temporarily clearing account context',async()=>{
  const nodes=new Map(),node=id=>{if(!nodes.has(id))nodes.set(id,{dataset:{},replaceChildren(){},closest(){return this;}});return nodes.get(id);};
  const noop=()=>{},curveController=new AbortController(),pageController=new AbortController();
- let parkLoanResets=0,transportResets=0,pointResets=0;const productResets=[];
+ let locationResets=0,parkLoanResets=0,transportResets=0,pointResets=0;const productResets=[];
  const context={currentProfile:'synthetic-reader',viewHistory:[{}],inspectedContexts:new Map([['old',{}]]),navigation:{context:{contextId:'synthetic-retained-context',knownThrough:4}},
   permissions:['ReadMarketData'],marketGeneration:0,curveRead:curveController,pageRead:{controller:pageController},
   $:node,select:node,choose:noop,clearPrices:noop,clearReference:noop,setCurveNames:noop,renderBlotterViews:noop,scheduleWorkspace:undefined,
-  parkLoan:{reset(){parkLoanResets++;}},transportTicket:{reset(){transportResets++;}},pointTraderMark:{reset(){pointResets++;}}};
+  gasLocations:{reset(){locationResets++;}},parkLoan:{reset(){parkLoanResets++;}},transportTicket:{reset(){transportResets++;}},pointTraderMark:{reset(){pointResets++;}}};
  for(const name of ['recInventory','structuredPower','closeConventionDefaults','lifecycle','physicalOperations','deliverySetup','referenceConsole','curveWorkspace','customCurves',
   'volSurfaces','optionChains','riskJobs','riskViewsNav','facilities','jobs','dashboard','deliveryPrices','intervalSeries','intervalCurves','ppa','gas','crude',
   'lng','gasSetup','crudeSetup','referenceEditor','parties','unitConverter','futures','power','touProducts','schedules','dateEditor','priceSetup',
@@ -57,6 +57,7 @@ test('permission refresh retires pending reads before temporarily clearing accou
   await flush();stream.emit('ready',{protocol,channelId});await flush();assert.ok(submitted);
   refreshing=context.openProfile().catch(error=>error.message);await flush();
   assert.equal(accessReads,2,'a changed permission list must enter identity refresh and await fresh access');
+  assert.equal(locationResets,1);assert.equal(node('gas-locations-page').hidden,true);
   assert.equal(parkLoanResets,1,'the Park and loan ticket must release the previous account draft');
   assert.equal(transportResets,1,'the Transport ticket must release the previous account draft');
   assert.deepEqual(productResets.sort(),['optionChains','recInventory','structuredPower'],'REC, power and options must each release the prior account state before access returns');

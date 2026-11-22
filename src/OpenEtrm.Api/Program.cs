@@ -83,6 +83,7 @@ const string malformed="The request is incomplete or malformed.";
 // The HTTP status, code and message an API failure is reported with: as an error body, or as the error frame of a started Blotter stream.
 (int Status,string Code,string Message) Failure(Exception e,PathString apiPath,HttpContext context)=>e switch
 {
+    MarketDataException m when m.Code=="desk_profile_changed"=>(409,m.Code,m.Message),
     PostgresException p when p.MessageText.StartsWith("desk_",StringComparison.Ordinal)
         =>(p.SqlState=="42501"?403:p.MessageText is "desk_stale" or "desk_request_conflict"?409:422,p.MessageText,BilateralDesk.Error(p.MessageText)),
     PostgresException p when apiPath.StartsWithSegments("/api/desk") && (p.SqlState.StartsWith("22",StringComparison.Ordinal)||p.SqlState.StartsWith("23",StringComparison.Ordinal))
@@ -139,7 +140,7 @@ const string malformed="The request is incomplete or malformed.";
     // A missing or ended session is session_ended on the assistant's routes, which offer a reload; pages keep access_denied (§8).
     PreviewSessionEnded when apiPath.StartsWithSegments("/api/assistant") => (403,"session_ended",TurnStream.Refusal("session_ended")),
     PreviewDeniedException or PreviewSessionEnded => (403,"access_denied","The selected test identity cannot perform this operation."),
-    MarketDataException m when m.Code is "swap_conflict" or "ppa_conflict" or "pnl_save_conflict" => (409,m.Code,m.Message),
+    MarketDataException m when m.Code is "gas_location_conflict" or "swap_conflict" or "ppa_conflict" or "pnl_save_conflict" => (409,m.Code,m.Message),
     PostgresException p when p.SqlState=="P0001" && p.MessageText is "cash_payment_conflict" or "cash_payment_revision"
         => (409,p.MessageText,"The payment revision or request changed. Reload the current allocation or retry the unchanged original request."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText=="cash_payment_input"
@@ -278,7 +279,9 @@ const string malformed="The request is incomplete or malformed.";
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("crude_",StringComparison.Ordinal) => (422,p.MessageText,"The crude operation requires complete compatible terms and retained schedules."),
     MarketDataException m when m.Code=="gas_revision_conflict" => (409,m.Code,m.Message),
     PostgresException p when p.SqlState=="P0001" && GasAmendments.Message(p.MessageText) is {} message => (p.MessageText=="gas_revision_conflict"?409:422,p.MessageText,message),
-    PostgresException p when p.MessageText is "gas_conflict" or "gas_setup_conflict" or "gas_quantity_conflict" or "gas_billing_conflict" => (409,p.MessageText,"This operation already belongs to different terms or ownership."),
+    PostgresException p when p.MessageText=="gas_location_input" => (422,p.MessageText,"The native trades must match the selected confirmations and exact booking context."),
+    PostgresException p when p.MessageText=="gas_location_denied" => (403,"access_denied","The selected account cannot access this gas booking."),
+    PostgresException p when p.MessageText is "gas_location_conflict" or "gas_conflict" or "gas_setup_conflict" or "gas_quantity_conflict" or "gas_billing_conflict" => (409,p.MessageText,"This operation already belongs to different terms or ownership."),
     PostgresException p when p.SqlState is "23505" or "23514" or "23503" or "22P02" or "22003" or "22007" or "22008" && apiPath.StartsWithSegments("/api/gas/billing") => (422,"gas_billing_input","Supply compatible exact source, cash terms and a new correction occurrence."),
 
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("gas_",StringComparison.Ordinal) => (422,p.MessageText,"The gas operation requires complete compatible terms and retained schedules."),
@@ -452,6 +455,8 @@ app.Use(async (context,next)=>
         if(e is CloseRiskInputsException closeRisk)body=new{code,message,affectedBindings=closeRisk.AffectedBindings};
         if(e is PostgresException {MessageText:"desk_agreement_ambiguous",Hint:{} selection})
             body=new{code,message,agreementSelection=JsonSerializer.Deserialize<JsonElement>(selection)};
+        if(e is GasBookingAgreementException agreement)
+            body=new{code,message,confirmation=agreement.Confirmation,agreementSelection=agreement.Selection};
         if(e is TicketFieldException ticket)body=new{code,message,side=ticket.Side,field=ticket.Field};
         if(e is RiskRunTieException tie)body=new{code,message,definition=tie.Definition,runs=tie.Runs};
         await context.Response.WriteAsJsonAsync(body,CancellationToken.None);
@@ -1732,8 +1737,11 @@ api.MapPost("/desk/eligibility",(HttpContext c,DeskEligibility body)=>Locked(c,s
         "SELECT desk.eligibility($1,$2,$3,$4,statement_timestamp())::text",ct,database.Manifest.CatalogId,body.LegalEntityId,body.CounterpartyId,body.Product)),c.RequestAborted);
 }));
 api.MapPost("/desk/choose",(HttpContext c,DeskChoice body)=>Locked(c,session=>{
+    var profile=Profile(session);
+    if(body.ExpectedProfile is {} expected&&profile!=expected)
+        throw new MarketDataException("desk_profile_changed","The account changed. Open the booking again.");
     if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Select working data to choose a booking agreement.");
-    return database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>{
+    return database.WithIdentity(profile,"ReadTrades",async(connection,ct)=>{
         var permission=await PreviewDatabase.HasPermission(connection,"BookTrade",ct)?"BookTrade":"AmendTrade";
         if(!await PreviewDatabase.HasPermission(connection,permission,ct))throw new PreviewDeniedException();
         await DeskAdmission.Capture(database,connection,permission,ct);
@@ -2355,6 +2363,9 @@ api.MapPost("/gas/transport/routes/preview",(HttpContext c,GasTransportRouteWrit
 api.MapPost("/gas/transport/routes/record",(HttpContext c,GasTransportRouteWriteRequest body)=>Locked(c,session=>
  database.WithIdentity(Profile(session),GasTransportRouteStore.Permission(body.Command),async(connection,ct)=>Results.Ok(await transportRoutes.Record(connection,body,session.MarketContext,ct)),c.RequestAborted)));
 var transportCapacity=new GasTransportCapacityStore(database);
+var pipelineOutlook=new GasPipelineOutlookStore(database);
+api.MapPost("/gas/pipeline-outlook",(HttpContext c,GasPipelineOutlookRequest body)=>Locked(c,session=>
+ database.WithIdentity(Profile(session),"ReadGasOperations",async(connection,ct)=>Results.Ok(await pipelineOutlook.Read(connection,body,session.MarketContext,ct)),c.RequestAborted)));
 api.MapPost("/gas/transport/capacity/directory",(HttpContext c,FacilityDirectoryRequest body)=>Locked(c,session=>
  database.WithIdentity(Profile(session),"ReadGasOperations",async(connection,ct)=>Results.Ok(await transportCapacity.Directory(connection,body,session.MarketContext,ct)),c.RequestAborted)));
 api.MapPost("/gas/transport/capacity/read",(HttpContext c,GasTransportCapacityReadRequest body)=>Locked(c,session=>
@@ -2433,6 +2444,18 @@ Task<IResult> FinancialTicketRead(HttpContext c,FuturesReadRequest request,Func<
 FuturesReadRequest TicketContext(FuturesReadRequest? context)=>context??throw new MarketDataException("ticket_input","Supply the ticket's read context.");
 GasCompositionRequest TicketRequest(TicketDraft draft,FuturesReadRequest context,Guid operation,Guid definition)=>
  GasTicket.Request(draft,context.SnapshotId,context.KnowledgeMode??throw new MarketDataException("ticket_input","Supply the ticket's knowledge mode."),operation,definition);
+var gasLocations=new GasLocationBookingStore(database,gasComposition);
+api.MapPost("/tickets/gas-locations/book",(HttpContext c,GasLocationBooking body)=>Locked(c,async session=>{
+ var context=TicketContext(body.Context);RequireGasBooking(session,context.KnowledgeMode,context.ContextId);RequireConvention(context,PhysicalGasStore.Convention);
+ return Results.Ok(await gasLocations.Book(Profile(session),Frame(session,context.SnapshotId),body,c.RequestAborted));
+}));
+api.MapPost("/tickets/gas-locations/status",(HttpContext c,PhysicalPowerStatusRequest body)=>Locked(c,session=>
+ database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>Results.Ok<object?>((object?)await gasLocations.Read(connection,body.RequestId,null,ct)??new{found=false}),c.RequestAborted)));
+api.MapPost("/tickets/gas-locations/start",(HttpContext c,GasLocationStart body)=>Locked(c,session=>{
+ var context=TicketContext(body.Context);RequireGasBooking(session,context.KnowledgeMode,context.ContextId);RequireConvention(context,PhysicalGasStore.Convention);
+ _=Frame(session,context.SnapshotId);
+ return database.WithIdentity(Profile(session),"ReadTrades",(_,_)=>Task.FromResult(Results.Ok(GasLocationEntry.Start(body.Agreements,body.PurchasePrice,body.SalePrice))),c.RequestAborted);
+}));
 api.MapPost("/tickets/description",(HttpContext c,TicketDescriptionRequest body)=>body.Product==GasTransportFinancialTicket.Product?
  FinancialTicketRead(c,TicketContext(body.Context),(_,_,_)=>Task.FromResult<object>(GasTransportFinancialTicket.Describe(body.Draft))):FuturesRead(c,TicketContext(body.Context),
  async (connection,data,frame,ct)=>GasTicketStore.Description(body.Product,body.Draft) with{SideCalendars=await SideCalendarPolicies.Catalog(connection,ct)},expectedConvention:PhysicalGasStore.Convention,gasReferenceChoices:true));
