@@ -57,6 +57,11 @@ same-page schedules and mappings. Unsaved entries ask before being discarded;
 the common schedule prompt stays outside both tab panels. Saved commands and
 retained outcomes preserve their original version identities.
 
+An edit to a schedule, date mapping, time-of-use product or custom curve must
+name its latest version and expected generation. If another editor publishes
+a successor, saving from the earlier version returns a conflict. Exact reads
+and commands replayed from a saved receipt keep their original version.
+
 The frontend explicitly requests `preserve_origin_or_unique_asof_frame_v1` when
 applying context. The backend retains the selected close's exact origin when it
 remains eligible, or selects a unique offered close for a changed date. Missing
@@ -69,6 +74,7 @@ editing retains its existing atomic commit operation and original historical
 labels. Operational permissions and execution configuration keep their current
 policies; financial history never restores past permissions.
 
-This change adds no schema migration, financial default or production-data seed.
+Migration 0388 checks new draft writes against the stored curve and date-mapping
+versions, including versions omitted from an editor's library.
 Owned checks cover publication/retry, earlier knowledge, exact retained pins,
 cleared TOU choices and independent logical heads beyond bounded history.

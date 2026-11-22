@@ -86,13 +86,13 @@ public sealed class TouProductStore(Guid catalog,Guid referenceCatalog,Guid refe
         }
         else
         {
-            id=body.Id.Value;var old=all.SingleOrDefault(v=>v.Id==id&&v.Version==body.Version);
-            if(old is null || old.State!=body.ExpectedState || old.Generation!=body.Generation || old.Code!=body.Code)
+            id=body.Id.Value;var old=all.Where(v=>v.Id==id).MaxBy(v=>v.Version);
+            if(old is null || old.Version!=body.Version || old.State!=body.ExpectedState || old.Generation!=body.Generation || old.Code!=body.Code)
                 throw new MarketDataException("tou_conflict","This product changed or its code differs. Reload before editing.");
             if(old.State=="published")
             {
                 if(all.Any(v=>v.Id==id&&v.State=="draft"))throw new MarketDataException("tou_conflict","This product already has a draft. Open that draft.");
-                version=all.Where(v=>v.Id==id).Max(v=>v.Version)+1;generation=1;
+                version=old.Version+1;generation=1;
             }
             else {version=old.Version;generation=old.Generation+1;}
         }

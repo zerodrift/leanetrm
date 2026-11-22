@@ -153,8 +153,13 @@ export function setupSidePanel(host:HTMLElement,o:{unsaved:()=>boolean;confirmLe
     if(covers&&!release)release=isolate(host);
     else if(!covers&&release){release();release=undefined;}
   }
-  /** Applies docked or overlay placement now: the page calls it whenever the room it has changes. */
-  function place(){host.dataset.placement=o.docked()?'docked':'overlay';contain();o.changed?.();}
+  /** Updates the open panel's placement when the space available on the page changes. */
+  function place(){
+    if(mode===null)return;
+    host.dataset.placement=o.docked()?'docked':'overlay';
+    contain();
+    o.changed?.();
+  }
   /** Shows the form in the tab panel in place of its view, or the view again. Every mode starts on its view. */
   function form(on:boolean){part('view').hidden=on;part('form').hidden=!on;}
   /**

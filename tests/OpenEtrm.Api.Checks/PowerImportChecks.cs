@@ -40,6 +40,7 @@ static class PowerImportChecks
         Require(PowerImportProtocol.Window(new(2026,10,2),new(2026,11,1),clock,60).Length==745,"31 operating days crossing fall DST have 745 hours");
         Require(fall.Length==25,"fall-back operating day has 25 hourly prices");
         Require(PowerImportProtocol.Window(new(2026,3,8),new(2026,3,8),clock,15).Length==92,"spring operating day has 92 settlement intervals");
+        Reject(()=>PowerImportProtocol.Window(DateOnly.MaxValue,DateOnly.MaxValue,clock,60),"1–31 operating days");
         JsonElement Report(bool repeat,string price)=>JsonSerializer.SerializeToElement(new{fields=new[]{new{name="deliveryDate"},new{name="hourEnding"},new{name="settlementPoint"},new{name="settlementPointPrice"},new{name="DSTFlag"}},data=new object[][]{new object[]{"2026-11-01","02:00","HB_NORTH",price,repeat}}});
         var first=PowerImportProtocol.Ercot(Report(false,"0"),"DA","HB_NORTH",fall,unit).Single();
         var second=PowerImportProtocol.Ercot(Report(true,"-2.375"),"DA","HB_NORTH",fall,unit).Single();
