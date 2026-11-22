@@ -1,3 +1,4 @@
+import {selectRecentJob} from './risk-history-selection.mjs';
 // Risk owns its setup; both entry points show the same exact report widget. All data is the owned synthetic preview's.
 import {runJointChecks} from './joint-risk-workspace.mjs';
 const off=id=>`document.querySelector('${id}').classList.contains('risk-view-off')`;
@@ -144,7 +145,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await set('#risk-workspace-books','');await wait(idle);
 
  const single=new URL(link).hash.split('/').at(-1);
- await set('#workspace-risk-job-history',single);await wait(idle);
+ await selectRecentJob({wait,set},single,'#workspace-risk-job-history');await wait(idle);
  await check('the embedded retained history updates the report URL to the actual run shown',`location.hash===${JSON.stringify('#risk/job/'+single)}&&document.querySelector('#risk-workspace-results .risk-report-link').hash===location.hash`);
 
  // Recover from a known sibling, and from first-command replay when history

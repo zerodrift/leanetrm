@@ -130,6 +130,9 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   const submissions=new Map<string,Run>();
   let generation=0,pollTimer:ReturnType<typeof setTimeout>|undefined,run:Run|undefined,reviewing=false,recent:Job[]=[],runs=0;
   let calculationController:AbortController|undefined;
+  type HistoryRead={owner:string;controller:AbortController;required?:{generation:number;result:Promise<boolean>}};
+  let historyRead:HistoryRead|undefined,historyFailed=false;
+  let recoveryRead:{owner:string;run:Run;generation:number;result:Promise<void>}|undefined;
   const mounted=()=>!root.hidden;
   const statisticalRun=()=>!!run?.parts.some(p=>p.request?.monteCarlo||p.report?.monteCarlo||(p.job?.kind==='monte_carlo'||p.job?.kind==='hybrid_monte_carlo')||p.request?.historical||p.report?.historical||p.job?.kind==='historical'||p.request?.parametric||p.report?.parametric||p.job?.kind==='parametric');
   const running=()=>!!run&&run.parts.some(p=>active(p.job));
@@ -161,6 +164,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   }
   /** Forgets everything the report holds but the submissions whose outcome is unknown, which are kept until they are settled. */
   function reset(){
+    historyRead?.controller.abort();historyRead=undefined;historyFailed=false;
     generation++;forgetRun();catalog=undefined;scope=undefined;stress=[];recent=[];reading=false;unread=undefined;sizes=new Map();carried=undefined;
     get('risk-carried').hidden=true;get('risk-carried').textContent='';get('risk-job-history').replaceChildren(new Option('Choose a retained job…',''));
     resetControls();edits.clear();renderStress();showChoice();describe();sync();
@@ -245,18 +249,20 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     }));
   }
   async function open(){
-    const retained=submissions.get(options.profile());
+    const owner=options.profile(),retained=submissions.get(owner);
     // A run whose submission has no known outcome is shown under the context it was captured at until it is settled.
     if(retained){
+      if(recoveryRead?.owner===owner&&recoveryRead.run===retained&&recoveryRead.generation===generation)return recoveryRead.result;
       if(run!==retained){forgetRun();run=retained;}
       reviewing=true;const version=generation;showRun();sync();
-      // Handoffs omit result bodies. Reauthorize and hydrate known jobs as well as reconciling unknown submissions.
-      for(const part of retained.parts){if(!part.job)continue;const receipt=await call<Job>(`portfolio/risk/jobs/${encodeURIComponent(part.job.id)}`);if(version!==generation)return;take(part,receipt);restoreSources(retained,receipt);}
-      await recentJobs(version);if(version===generation)showRun();return;
+      const read={owner,run:retained,generation:version,result:recover(retained,owner,version)};
+      recoveryRead=read;
+      try{await read.result;}finally{if(recoveryRead===read)recoveryRead=undefined;}
+      return;
     }
     // A catalog read for the Blotter on screen stands with the setup and run it holds: any new read of the Blotter resets the report. The
     // history is read again, for what was queued or has ended since.
-    if(catalog){sync();await readHistory(generation);return;}
+    if(catalog){sync();void readHistory();return;}
     // A new read keeps the choices carried over from inputs that changed, and puts them back over the catalog it reads.
     const kept=carried;reset();carry(kept);const version=generation;reading=true;describe();sync();
     try{
@@ -268,8 +274,8 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
       scope={...scope,context:{...(scope.context as Record<string,unknown>),...retainedKnowledge(catalog.context)}};
       offer();
       if(carried)restore(carried);
-      await recentJobs(version);
-      if(version===generation)carried=undefined;
+      carried=undefined;
+      void readHistory();
     }catch(error){if(version===generation){scope=undefined;catalog=undefined;unread='The risk catalog could not be read.';}throw error;}
     finally{if(version===generation){reading=false;describe();showChoice();sync();}}
   }
@@ -435,7 +441,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     if(stale())return;
     if(first!==undefined){denied(first);if(version!==generation)throw first;}
     if(current.parts.length===1&&current.parts[0].failure!==undefined){forgetRun();sync();}else showRun();
-    if(first!==undefined){if(code(first)==='risk_job_conflict'&&uncertain(current).length&&await recentJobs(version))return;throw first;}
+    if(first!==undefined){if(code(first)==='risk_job_conflict'&&uncertain(current).length&&await recentJobs(current,owner,version))return;throw first;}
   }
   function beginPart(current:Run,part:Part,index:number){
     const run:JobRun|undefined=current.id===undefined?undefined:{id:current.id,part:index+1,parts:current.parts.length};
@@ -474,12 +480,43 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   };
 
   // --- jobs --------------------------------------------------------------------------------------------------------------------
-  /** Reads the recent jobs for the history. Whether the read is still the report's. */
-  async function readHistory(version:number){
-    const loaded=await call<Job[]>('portfolio/risk/jobs');if(version!==generation)return false;
-    recent=loaded;refresh();return true;
+  /** Recovery and report review await history for a particular generation. Ordinary editing can continue while the list loads. */
+  function readHistory(version?:number):Promise<boolean>{
+    const owner=options.profile(),required=historyRead?.required;
+    if(required&&historyRead?.owner===owner&&required.generation===generation)
+      return version===undefined?Promise.resolve(false):required.result;
+    historyRead?.controller.abort();
+    const read:HistoryRead={owner,controller:new AbortController()};
+    historyRead=read;historyFailed=false;historyControls();
+    const current=()=>historyRead===read&&options.profile()===owner&&(version===undefined||version===generation);
+    async function receive(){
+      try{
+        const loaded=await options.api<Job[]>('portfolio/risk/jobs',undefined,read.controller.signal);
+        if(!current())return false;
+        recent=loaded;refresh();return true;
+      }catch(error){
+        if(!current())return false;
+        recent=[];refresh();
+        if(code(error)==='access_denied'){
+          const visible=root.checkVisibility();denied(error);
+          if(version===undefined&&visible)options.failed?.(error);
+        }else historyFailed=true;
+        if(version!==undefined)throw error;
+        return false;
+      }finally{
+        if(historyRead===read){historyRead=undefined;historyControls();}
+      }
+    }
+    const result=receive();
+    if(version!==undefined)read.required={generation:version,result};
+    return result;
   }
-  /** Reads the recent jobs, and settles a retained part whose original job is among them. Whether that left the run fully known. */
+  function historyControls(){
+    const status=get('risk-history-status'),retry=get<HTMLButtonElement>('risk-history-retry');
+    status.textContent=historyRead?'Reading recent risk jobs…':historyFailed?'Recent risk jobs could not be read.':'';
+    status.hidden=!status.textContent;retry.hidden=!historyFailed;retry.disabled=options.busy();
+    get<HTMLSelectElement>('risk-job-history').disabled=options.busy()||!!historyRead||historyFailed;
+  }
   function restoreSources(current:Run,receipt:Job){
     const pending=current.parts.filter(part=>part.recovery?.command);
     if(!pending.length)return;
@@ -498,20 +535,42 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     for(const request of requests)renewReadReferences(request,source);
     renewReadReferences(pinned,source);
   }
-  async function recentJobs(version:number){
-    if(!await readHistory(version))return false;
-    const retained=submissions.get(options.profile());
-    if(!retained||run!==retained)return false;
+  function ownsRecovery(retained:Run,owner:string,version:number){
+    return version===generation&&owner===options.profile()&&run===retained&&submissions.get(owner)===retained;
+  }
+  async function retainedReceipt(id:string,retained:Run,owner:string,version:number){
+    try{
+      const receipt=await options.api<Job>(`portfolio/risk/jobs/${encodeURIComponent(id)}`);
+      if(ownsRecovery(retained,owner,version))return receipt;
+    }catch(error){if(ownsRecovery(retained,owner,version)){denied(error);throw error;}}
+  }
+  async function recover(retained:Run,owner:string,version:number){
+    // A handoff omits result bodies. Read known receipts under the current account before reconciling unconfirmed parts.
+    for(const part of retained.parts){
+      if(!part.job)continue;
+      const receipt=await retainedReceipt(part.job.id,retained,owner,version);
+      if(!receipt||!ownsRecovery(retained,owner,version))return;
+      take(part,receipt);restoreSources(retained,receipt);
+    }
+    await recentJobs(retained,owner,version);
+    if(version===generation&&owner===options.profile()&&run===retained)showRun();
+  }
+  async function recentJobs(retained:Run,owner:string,version:number){
+    if(!ownsRecovery(retained,owner,version)||!await readHistory(version)||!ownsRecovery(retained,owner,version))return false;
     let found=false;
     for(const index of uncertain(retained)){
-      const part=retained.parts[index],command=part.recovery!.command!,match=recent.find(j=>j.requestId===command.operationId);
+      const part=retained.parts[index],command=part.recovery?.command;
+      if(!command)continue;
+      const match=recent.find(j=>j.requestId===command.operationId);
       if(!match)continue;
-      const receipt=await call<Job>(`portfolio/risk/jobs/${match.id}`);if(version!==generation)return false;
+      const receipt=await retainedReceipt(match.id,retained,owner,version);
+      if(!receipt||!ownsRecovery(retained,owner,version))return false;
+      if(part.recovery?.command!==command)continue;
       if(receipt.id!==match.id||receipt.requestId!==command.operationId)throw Error('The retained job receipt does not match the unconfirmed request.');
       part.recovery!.clear();take(part,receipt);restoreSources(retained,receipt);found=true;
     }
     if(!found)return false;
-    if(!uncertain(retained).length&&submissions.get(options.profile())===retained)submissions.delete(options.profile());
+    if(!uncertain(retained).length)submissions.delete(owner);
     showRun();return !uncertain(retained).length;
   }
   function schedulePoll(version:number){stopPolling();pollTimer=setTimeout(()=>void refreshJobs(version),750);}
@@ -694,11 +753,12 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     reason.hidden=runnable;reason.textContent=runnable?'':riskDenied;
     for(const id of ['risk-run','risk-queue']){const button=get<HTMLButtonElement>(id);button.disabled=locked||!runnable;if(runnable)button.removeAttribute('aria-describedby');else button.setAttribute('aria-describedby',reason.id);}
     get<HTMLButtonElement>('risk-stress-parent').disabled=locked||!stress.length;get<HTMLButtonElement>('risk-stress-clear').disabled=locked||!stress.length;get<HTMLButtonElement>('risk-stress-add').disabled=locked||!!catalog&&stress.length>=catalog.limits.maxStress;
-    get<HTMLSelectElement>('risk-job-history').disabled=options.busy();get<HTMLButtonElement>('risk-reload').disabled=options.busy();
+    historyControls();get<HTMLButtonElement>('risk-reload').disabled=options.busy();
     for(const id of ['risk-job-refresh','risk-job-retry','risk-job-cancel','risk-job-return','risk-job-discard'])get<HTMLButtonElement>(id).disabled=options.busy();
     options.onChange();
   }
   get('risk-reload').onclick=()=>void options.act(open);
+  get('risk-history-retry').onclick=()=>{if(submissions.has(options.profile()))void options.act(open);else void readHistory();};
 
   return {
     /** Opens the report for the Blotter on screen: the setup and run it holds, or a retained submission, or a new catalog read. */
@@ -751,7 +811,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
         parts:current.parts.map(p=>{const {result,...job}=p.job??{} as Job;return {request:p.request??null,job:p.job?job:null,failure:p.failure??null,command:p.recovery?.command??null};})};
     },
     /** Forgets the account's unconfirmed submission, once another window has taken it over. */
-    handedOff(){const kept=submissions.get(options.profile());submissions.delete(options.profile());if(kept&&run===kept)forgetRun();sync();},
+    handedOff(){const kept=submissions.get(options.profile());submissions.delete(options.profile());if(kept&&run===kept){generation++;forgetRun();}sync();},
     /** Takes over an unconfirmed submission another window handed over, which is shown, to reconcile, when the report opens; one it cannot read is refused. */
     adopt(value:unknown){
       const given=value as ReturnType<NonNullable<typeof this.handOff>>&{};

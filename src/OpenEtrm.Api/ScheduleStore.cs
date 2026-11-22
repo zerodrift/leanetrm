@@ -90,13 +90,13 @@ WHERE(v.catalog_id,v.schedule_id,v.version)=($1,$2,$3) AND v.state='published'
         }
         else
         {
-            id=body.Id.Value;var old=all.SingleOrDefault(v=>v.Id==id&&v.Version==body.Version);
-            if(old is null || old.State!=body.ExpectedState || old.Generation!=body.Generation || old.Definition.Symbol!=body.Definition.Symbol)
+            id=body.Id.Value;var old=all.Where(v=>v.Id==id).MaxBy(v=>v.Version);
+            if(old is null || old.Version!=body.Version || old.State!=body.ExpectedState || old.Generation!=body.Generation || old.Definition.Symbol!=body.Definition.Symbol)
                 throw Error("schedule_conflict","The selected version changed or its reference identity differs. Reload before editing.");
             if(old.State=="published")
             {
                 if(all.Any(v=>v.Id==id&&v.State=="draft"))throw Error("schedule_conflict","This schedule already has a draft. Open that draft.");
-                version=all.Where(v=>v.Id==id).Max(v=>v.Version)+1;generation=1;
+                version=old.Version+1;generation=1;
             }
             else {version=old.Version;generation=old.Generation+1;}
         }

@@ -1496,6 +1496,8 @@ def main():
                     browser_suite='--'+args.authoring_browser_suite if args.authoring_browser_suite else '--price-authoring' if args.price_authoring_check else '--custom-curves'
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),browser_suite],cwd=ROOT,env=env,start_new_session=True)
                     if browser_process.wait(timeout=180):raise RuntimeError('Owned custom curve browser checks failed')
+                from check_definition_authoring import run_checks as check_definition_authoring
+                check_definition_authoring(url,query,manifest)
             elif args.execution_check:
                 from check_futures_execution import run_checks as check_execution
                 check_execution(url,query,manifest)

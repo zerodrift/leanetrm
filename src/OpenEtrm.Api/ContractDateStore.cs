@@ -188,13 +188,13 @@ SELECT h.definition_id,h.version,h.generation,h.state,h.code,h.name,h.effective_
         }
         else
         {
-            id=body.Id.Value;var old=all.SingleOrDefault(v=>v.Id==id&&v.Version==body.Version);
-            if(old is null||old.Generation!=body.Generation||old.State!=body.ExpectedState||old.Definition.Code!=body.Code)throw Conflict();
+            id=body.Id.Value;var old=all.Where(v=>v.Id==id).MaxBy(v=>v.Version);
+            if(old is null||old.Version!=body.Version||old.Generation!=body.Generation||old.State!=body.ExpectedState||old.Definition.Code!=body.Code)throw Conflict();
             if(old.EngineVersion!=engine)throw Invalid("A mapping keeps its type: contracts stay contracts and a date list stays a date list.");
             if(old.State=="published")
             {
                 if(all.Any(v=>v.Id==id&&v.State=="draft"))throw Conflict();
-                version=all.Where(v=>v.Id==id).Max(v=>v.Version)+1;generation=1;
+                version=old.Version+1;generation=1;
             }
             else {version=old.Version;generation=old.Generation+1;}
         }

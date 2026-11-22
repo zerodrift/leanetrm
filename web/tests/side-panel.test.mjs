@@ -80,6 +80,30 @@ test('the panel is an overlay when the page says it cannot dock, and the placeme
  assert.equal(shell.element('body'),parts.body);assert.equal(shell.element('tabs'),parts.tabs);assert.equal(shell.element('head'),parts.head);
 });
 
+test('a closed panel does no geometry work when the page synchronizes other controls',async()=>{
+ const {host}=markup();
+ let measurements=0,changes=0;
+ const shell=setupSidePanel(host,{
+  unsaved:()=>false,confirmLeave:async()=>true,
+  docked:()=>{measurements++;return true;},
+  changed:()=>{changes++;},
+ });
+ shell.place();
+ shell.place();
+ assert.equal(measurements,0);
+ assert.equal(changes,0);
+
+ await shell.show({kind:'risk'});
+ assert.equal(measurements,1);
+ assert.equal(host.dataset.placement,'docked');
+
+ await shell.show(null);
+ const closedChanges=changes;
+ shell.place();
+ assert.equal(measurements,1);
+ assert.equal(changes,closedChanges);
+});
+
 test('showing the mode it already shows is not a switch: nothing is asked, and focus comes back into the panel',async()=>{
  const {shell,host,asked}=panel({unsaved:true});
  await shell.show(position('t1'));
