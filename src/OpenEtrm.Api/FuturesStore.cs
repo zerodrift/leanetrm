@@ -199,13 +199,20 @@ public sealed partial class FuturesStore(PreviewDatabase database)
             else if(dimensions.Length!=0 || measures.Length!=0 || view.PivotConvention is not null)throw Error("blotter_view","Trade rows do not select pivot rules.");
         }
         var resolved=await ReadTrades(connection,data,books,view?.BookIds??[],view?.PortfolioIds??[],ct,selected);
-        return new(books,view,dimensions,measures,resolved){Inputs=await Inputs(connection,frame,resolved,[(data,frame)],false,ct)};
+        // Reporting keeps authorized booked terms even when this recorded close omits their source.
+        // Risk and retained execution still require every source through the strict Inputs operation.
+        var covered=frame.OriginCloseId is not null&&frame.SourceInputs is {} matrix
+            ?resolved with{Sources=resolved.Sources.RemoveRange(resolved.Sources.Keys.Where(id=>!matrix.ContainsKey(id)))}:resolved;
+        return new(books,view,dimensions,measures,resolved){Inputs=await Inputs(connection,frame,covered,[(data,frame)],false,ct)};
     }
     private object Price(HeldScope scope)
     {
         var (books,view,dimensions,measures,resolved)=scope;
         var rows=resolved.Rows;var trades=resolved.Trades;
         var unvalued=ImmutableDictionary.CreateBuilder<CurveRequest,string>();
+        foreach(var market in trades.SelectMany(t=>t.Instruments.Select(p=>FuturesExecution.Require(p).MarketBinding.Market))
+            .Where(m=>!scope.Inputs.ContainsKey(m.Curve.Revision.RevisionId)).Distinct())
+            unvalued.Add(market,"market_inputs_missing");
         var priced=new Dictionary<(Guid TradeId,Guid BindingId),FuturesHolding>();var evaluated=0;
         foreach(var source in scope.Inputs.Values)
         {
@@ -221,7 +228,7 @@ public sealed partial class FuturesStore(PreviewDatabase database)
                 .Select(t=>t.Instruments.All(Valued)?t:new Trade(t.Id,t.BookId,[..t.Instruments.Where(Valued)],t.Booking))],snapshot,build,manifest.FuturesConvention))
                 priced.Add((holding.TradeId,holding.BindingId),holding);
         }
-        PreviewData Source(DefinitionRevision revision)=>scope.Inputs[revision.RevisionId].Data;
+        PreviewData Source(DefinitionRevision revision)=>resolved.Sources[revision.RevisionId];
         PreviewData References(ReferenceRevision revision)=>resolved.Sources.Values.FirstOrDefault(d=>d.ReferenceRevision==revision)
             ??throw Error("reference_pin_mismatch","The holding requires its exact reference inputs.");
         // Every held binding in trade order, with its valuation or the reason the close cannot value it (D220).
