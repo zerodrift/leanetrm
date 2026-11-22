@@ -1,3 +1,4 @@
+import {selectRecentJob} from './risk-history-selection.mjs';
 import {setupWorkspaceProbe} from './workspace-probe.mjs';
 // A run's results are drawn only against the read of the close, context and books they were run at (D222): a run made at one close,
 // chosen from the job history at another, is made elsewhere. A part the job history no longer lists is said to be missing from it, and
@@ -21,7 +22,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   const workspace="window.__riskReads.filter(r=>r.path==='/api/trading/workspace')";
   const blotterAt=async close=>{await set('#snapshot',close);await wait(idle);await click('#nav-futures');await wait("document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')&&!document.querySelector('#blotter-risk').disabled&&"+idle);};
   const openReport=async()=>{await click('#blotter-risk');await wait(panelRisk+"&&!document.querySelector('#risk-fields').disabled&&"+idle);};
-  const fromHistory=async value=>{await set('#risk-job-history',value);await wait("!document.querySelector('#desk-run').hidden&&"+idle,60000);};
+  const fromHistory=async value=>{await selectRecentJob({wait,set},value);await wait("!document.querySelector('#desk-run').hidden&&"+idle,60000);};
 
   // A run made at the first close, queued as one job, is drawn there.
   await blotterAt(closes[0]);await openReport();

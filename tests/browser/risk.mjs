@@ -1,3 +1,4 @@
+import {selectRecentJob} from './risk-history-selection.mjs';
 import {workspaceProbeScript} from './workspace-probe.mjs';
 import {setupTradingReplies} from './trading-responses.mjs';
 // The risk report (blotter-desk.md, Risk report inline): its setup in the details' Risk report mode, with its presets, the custom
@@ -449,12 +450,12 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await set('#snapshot',earlier);await wait(idle);
   await check('changing the close clears the run and its choices, and the page says so',`document.querySelector('#position-details').hidden&&document.querySelector('#risk-factor').value===''&&${noRun}&&[...document.querySelectorAll('input[name=risk-choice]')].every(c=>!c.checked)&&document.querySelector('#notice').textContent.includes(${JSON.stringify(cleared)})`,
     "document.querySelector('#notice').textContent");
-  await click('#blotter-risk');await wait(panelRisk);await set('#risk-job-history',retainedJob);await wait(idle);await wait("!document.querySelector('#desk-run').hidden");
+  await click('#blotter-risk');await wait(panelRisk);await selectRecentJob({wait,set},retainedJob);await wait(idle);await wait("!document.querySelector('#desk-run').hidden");
   await check('recent jobs remain discoverable after context changes and identify their original dates, and their results are not shown against another close',"document.querySelector('#risk-job-context').textContent.includes('2020-12-18')&&document.querySelector('#risk-scope').textContent.includes('captured financial context')&&document.querySelector('#risk-form').hidden&&document.querySelector('#risk-job-scenario').textContent.includes('original market')&&document.querySelector('#risk-fields').disabled&&!document.querySelector('#risk-job-return').hidden&&document.querySelector('#desk-lens').hidden&&[...document.querySelectorAll('#desk-run-notes li')].some(li=>li.textContent.startsWith('This run was made at another close, context or books'))&&!document.querySelector('#risk-export').hidden");
   await click('#risk-job-return');
   await check('returning from a retained job clears results before enabling the selected context',`!document.querySelector('#risk-form').hidden&&!document.querySelector('#risk-fields').disabled&&${noRun}&&document.querySelector('#risk-job').hidden`);
   await click('#profile-open');await set('#zone','America/Chicago');await submit('#preferences-form');await click('#blotter-risk');await wait(panelRisk);
-  await set('#risk-job-history',retainedJob);await wait(idle);
+  await selectRecentJob({wait,set},retainedJob);await wait(idle);
   await check('retained job timestamp labels follow the selected display zone',"document.querySelector('label[for=risk-job-history]').textContent.includes('America/Chicago')&&document.querySelector('#risk-job-history').selectedOptions[0].textContent.includes('10:00 AM')");
   await persona('trader');await set('#snapshot',frame);await wait(idle);await click('#nav-futures');
   await check('Trader permissions do not enable the risk report, and the risk tile says why',`document.querySelector('#blotter-risk').disabled&&document.querySelector('#blotter-risk').title.includes('Risk Analyst role')&&[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk')).map(i=>i.textContent).join(' ').includes('Risk Analyst role')&&document.querySelector('#position-details').dataset.mode!=='risk'`);
@@ -504,10 +505,11 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await evaluate(hook);await setupTradingReplies(evaluate);
   await set('#snapshot',frame);await wait(idle);await click('#nav-futures');await wait("document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')&&!document.querySelector('#blotter-risk').disabled");
   await click('#blotter-risk');await wait(panelRisk+'&&'+idle);
+  await selectRecentJob({wait,set},'run:'+splitRun);
   await check('after a reload the job history lists the split run as one run, not each of its parts',
     `(async()=>{const jobs=(await(await window.workspaceFetch('/api/portfolio/risk/jobs')).json()).filter(j=>j.run?.id===${JSON.stringify(splitRun)}).map(j=>j.id),values=[...document.querySelectorAll('#risk-job-history option')].map(o=>o.value);return jobs.length===${parts}&&values.filter(v=>v==='run:'+${JSON.stringify(splitRun)}).length===1&&!jobs.some(id=>values.includes(id));})()`,
     "[...document.querySelectorAll('#risk-job-history option')].map(o=>[o.value,o.textContent])");
-  await set('#risk-job-history','run:'+splitRun);await wait("!document.querySelector('#desk-run').hidden&&"+idle);
+  await wait("!document.querySelector('#desk-run').hidden&&"+idle);
   await check('and the run bar shows its parts as one run, made at the context it was captured at, which is not the one on screen',
     `document.querySelector('#desk-run-detail').textContent.includes(' · queued as '+${parts}+' jobs, completed ')&&document.querySelectorAll('#risk-job-parts li').length===${parts}&&document.querySelector('#desk-lens').hidden&&!document.querySelector('#risk-export').disabled`,
     "[document.querySelector('#desk-run').textContent,document.querySelectorAll('#risk-job-parts li').length]");
