@@ -44,11 +44,18 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await check('a real pending SSE curve leaves navigation and other curves usable',
    "!document.querySelector('#nav-futures').disabled&&[...document.querySelectorAll('.curve-button')].every(button=>!button.disabled)&&document.querySelector('#market-page').dataset.readState==='pending'");
   await choose(curves[1]);await wait("document.querySelector('#market-page').dataset.readState!=='pending'&&document.querySelector('#contracts tbody tr')",30000);
+  const noDetails="['source-flow','dependencies','mappings','inputs'].every(id=>!document.getElementById(id).children.length)";
+  await check('a completed price read draws its chart without constructing hidden curve details',noDetails+"&&document.querySelector('#curve-chart canvas')");
   const latest=await evaluate("document.querySelector('#contracts').textContent");await evaluate('__reads.release()');
   await check('superseded curve completion cannot replace the selected curve',`document.querySelector('#contracts').textContent===${JSON.stringify(latest)}&&document.querySelector('#error').hidden`);
   // Returning to Market can build its retained selection before an explicit
   // new choice. That page-owned build has the same supersession rule.
+  await click('.tab[data-view=inputs]');await wait("document.querySelector('#inputs tbody tr')");await click('.tab[data-view=prices]');
   await evaluate("__reads.hold.push('curve.evaluate.v1')");await choose(curves[0]);await wait('__reads.held.length===1',30000);
+  await check('a pending selection retires the old source controls while keeping the prior chart visible',noDetails+"&&document.querySelector('#revision-card').hidden&&document.querySelector('#curve-chart canvas')");
+  await evaluate("document.querySelector('.tab[data-view=inputs]').click()");await wait("!document.querySelector('#view-inputs').hidden");
+  await evaluate("document.querySelector('.tab[data-view=prices]').click()");await wait("!document.querySelector('#view-prices').hidden");
+  await check('visiting another tab while the price read is pending preserves the pending selection',"document.querySelector('#market-page').dataset.readState==='pending'&&__reads.held.length===1");
   await evaluate("document.querySelector('#nav-risk-runs').click()");await wait("!document.querySelector('#risk-page').hidden",30000);
   await evaluate('__reads.release()');await wait(idle,30000);
   await evaluate("__reads.hold.push('curve.evaluate.v1');document.querySelector('#nav-market').click()");await wait('__reads.held.length===1',30000);

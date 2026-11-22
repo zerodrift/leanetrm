@@ -5,6 +5,11 @@ import {fitsWidth} from './owned-browser.mjs';
 
 export async function checkGasEntryOutlook(actions){
  const {command,click,evaluate,set,wait,check,idle}=actions;
+ async function usePhoneViewport(){
+  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+  // The viewport changes before the workspace finishes collapsing its navigation.
+  await wait("document.querySelector('#sidebar-toggle').getAttribute('aria-expanded')==='false'");
+ }
  await click('#nav-facilities');
  if(await evaluate("document.querySelector('#date-context-on').value!=='2021-01-31'")){
   await set('#date-context-on','2021-01-31');await wait("!document.querySelector('#use-business-date-current').disabled&&"+idle,60000);
@@ -23,8 +28,7 @@ export async function checkGasEntryOutlook(actions){
  const month="[...document.querySelectorAll('.outlook-report button')].find(b=>b.textContent==='2021-01')";
  await wait('!!('+month+')&&'+idle);await evaluate(month+'.click()');
  await wait("document.querySelector('#outlook-period').value==='day'&&document.querySelector('.outlook-report').innerText.includes('2021-01-01')&&"+idle);
- await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
- await wait("document.querySelector('#sidebar-toggle').getAttribute('aria-expanded')==='false'");
+ await usePhoneViewport();
  await check('phone opens with the report visible and full navigation is available on demand',
   fitsWidth+"&&document.querySelector('#sidebar-menus').getBoundingClientRect().height===0&&document.querySelector('#facilities-section-picker').checkVisibility()&&document.querySelector('#facilities-section-picker').value==='outlook'");
  await click('#sidebar-toggle');await check('phone menu opens by keyboard-accessible control',"document.querySelector('#sidebar-toggle').getAttribute('aria-expanded')==='true'&&document.querySelector('#nav-facilities').checkVisibility()");await click('#sidebar-toggle');
@@ -35,7 +39,7 @@ export async function checkGasEntryOutlook(actions){
  await click(bookedSide);await wait("document.querySelector('#page-title').textContent==='Blotter'&&document.querySelector('#position-details').dataset.mode==='position'&&"+idle,60000);
  await check('a booked Side opens its native gas position at the selected close',"document.querySelector('#position-details').checkVisibility()&&document.querySelector('#page-title').textContent==='Blotter'");
  await newTrade(actions,'gas-locations');
- await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+ await usePhoneViewport();
  await check('a chosen instrument leaves room for trade entry on a phone',
   "document.querySelector('#new-trade-switch')?.checkVisibility()&&!document.querySelector('#new-trade-product').checkVisibility()&&document.querySelector('#gas-location-assemble').getBoundingClientRect().top<innerHeight");
  await click('#new-trade-switch');await check('the same grouped chooser reopens on demand',"document.querySelector('#new-trade-product').checkVisibility()&&document.querySelector('#new-trade-gas-locations').getAttribute('aria-pressed')==='true'");
