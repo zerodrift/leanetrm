@@ -76,7 +76,7 @@ import {setupAiSettings} from './ai-settings.js';
 import {aiTabs} from './agent-settings.js';
 import {type Context,setupDateEditor} from './date-editor.js';
 import {renderRegularTable,clearTableFilters} from './regular-table.js';
-import {curveWorkbook,rateWorkbook,renderWorkbook} from './curve-workbook.js';
+import {type CurveWorkbook,curveWorkbook,rateWorkbook,renderWorkbook} from './curve-workbook.js';
 import {type PricingGraph,pricingGraph,pricingEquation} from './pricing-view.js';
 import {renderPricingGraph} from './pricing-graph-view.js';
 import {type Row,type Frame,type Workspace,type CurveResult,type Point,type ReferenceDisplay,type ReferenceRevision,displayReferenceRows,referenceLabel,presentedReferences,val,publicText,friendly,curveName,setCurveNames,exactRow,indexedRow,commodityName,displayInstant,deliveryMonth,frameOptions,quoteUnit,publicColumns,timeLabels,allCurves,displayDate,pointDate,pointIdentity,deliveryLabel,historyPriceLabel,summaryTiles,contractCountText,priceSourceInputIds} from './market-view.js';
@@ -118,7 +118,10 @@ const text=(id:string,value:string)=>{$(id).textContent=publicText(value);};
 function el<K extends keyof HTMLElementTagNameMap>(tag:K,content?:string){const node=document.createElement(tag);if(content!==undefined)node.textContent=publicText(content);return node;}
 function choose(id:string,options:{value:string;name:string}[],value:string){const node=select(id);node.replaceChildren(...options.map(o=>{const option=el('option',o.name);option.value=o.value;return option;}));node.value=value;}
 let csrf='',workspace:Workspace|undefined,curve='',result:CurveResult|undefined,pricingContract='',showAllContracts=false,input='',draftFor='',busy=false,page='market';
-let sourceOnlyCurve=false;
+type CurveDetailTab=Exclude<Preferences['tab'],'prices'>;
+const drawnCurveTabs=new Set<CurveDetailTab>();
+let curveDetails:{points:Point[];graphs:PricingGraph[];workbook?:CurveWorkbook}|undefined;
+const sourceOnlyCurve=()=>result?.kind!=='rates'&&curveDetails?.workbook?.connections.length===0;
 // The contract the panel shows, and its history: the revision policy (D237) and overlays the person chose, the read's answer and the
 // overlays it returned, named from the catalog, or that the read failed. The panel opens on exact closes with no overlays.
 let contractOpener:HTMLElement|undefined,contract='',historyPolicy:RevisionPolicy=revisionPolicies[0].policy,overlayRequests:OverlayRequest[]=[],historyData:ContractHistory|undefined,historySeries:OverlaySeries[]=[],historyFailed=false;
@@ -380,13 +383,14 @@ function action(name:string,run:()=>Promise<void>){const button=el('button',name
 function decimalTick(){if(!workspace||!curve||listedCurve().marketType!=='futures')return undefined;return val(row('quote_specifications','code',val(selectedCurve(),'quote_code'),true),'clearing_increment');}
 function table(target:string,headers:string[],rows:(string|HTMLElement)[][],numeric:number[]=[],displayRows?:string[][],onRowActivate?:(index:number)=>void){
   const referenceScope=[data().profile,page,referenceTable,referencePage?.referenceRevision,referencePage?.offset,referencePage?.search,historicalContext()];
-  const marketScope=[data().profile,curve,result?.snapshotId??'',target==='history-values'?contract:'',target==='revisions'?input:'',...(['inputs','mappings'].includes(target)?[showAllContracts||target==='inputs'&&sourceOnlyCurve?'all':pricingContract]:[])];
+  const marketScope=[data().profile,curve,result?.snapshotId??'',target==='history-values'?contract:'',target==='revisions'?input:'',...(['inputs','mappings'].includes(target)?[showAllContracts||target==='inputs'&&sourceOnlyCurve()?'all':pricingContract]:[])];
   renderRegularTable($(target),target,JSON.stringify(target==='reference'?referenceScope:marketScope),headers,rows,numeric,()=>busy,{displayRows,onRowActivate});
 }
 
-// Forgets the prices in view and closes what was opened from them; the drawing stays as it is.
-function forgetPrices(){result=undefined;pricingContract='';closeContract();input='';draftFor='';$('revision-card').hidden=true;}
-function clearPrices(){forgetPrices();text('build-info','');text('price-date','Choose a market date to view prices.');if(curve)renderSummary();clearChart($('curve-chart'),'Choose a market date above.');$('curve-chart').classList.add('empty');$('contracts').replaceChildren();$('inactive-contracts').hidden=true;$('inactive-contracts').replaceChildren();$('inputs').replaceChildren();if(curve)renderDependencies();}
+function forgetCorrection(){input='';draftFor='';$<HTMLInputElement>('correction-value').value='';text('correction-description','');}
+// Keep the prior chart visible during a replacement read. Its source controls belong to the retired result.
+function forgetPrices(){result=undefined;curveDetails=undefined;pricingContract='';closeContract();forgetCorrection();clearCurveTabs();}
+function clearPrices(){forgetPrices();text('build-info','');text('price-date','Choose a market date to view prices.');if(curve)renderSummary();clearChart($('curve-chart'),'Choose a market date above.');$('curve-chart').classList.add('empty');$('contracts').replaceChildren();$('inactive-contracts').hidden=true;$('inactive-contracts').replaceChildren();renderCurveTab(prefs.tab);}
 const showsDate=(next:string)=>next==='jobs'?can('ReadMarketData'):!['gas-setup','admin','ai','interval-series','ppa','delivery'].includes(next);
 const usesBusinessDate=(next:string)=>['rec-inventory','facilities','reference','schedules','jobs'].includes(next);
 const showsContext=(next:string)=>showsDate(next)&&next!=='interval-curves';
@@ -436,7 +440,11 @@ async function setPage(next:string){
   // The menu lists reference tables from the catalog this account reads. Curve builder reads no catalog of its own.
   if(inConsole&&next!=='custom-curves'&&navigation&&!contextDirty){await loadWorkspace();referenceConsole.sync();}
 }
-function showView(view:Preferences['tab']){document.querySelectorAll<HTMLElement>('.view').forEach(n=>n.hidden=n.id!==`view-${view}`);document.querySelectorAll<HTMLButtonElement>('.tab').forEach(b=>{const active=b.dataset.view===view;b.classList.toggle('active',active);b.setAttribute('aria-selected',String(active));});}
+function showView(view:Preferences['tab']){
+  document.querySelectorAll<HTMLElement>('.view').forEach(n=>n.hidden=n.id!==`view-${view}`);
+  document.querySelectorAll<HTMLButtonElement>('.tab').forEach(b=>{const active=b.dataset.view===view;b.classList.toggle('active',active);b.setAttribute('aria-selected',String(active));});
+  renderCurveTab(view);
+}
 const compactNavigation=window.matchMedia('(max-width:760px)');
 let mobileMenuOpen=false;
 const sidebarIsCollapsed=()=>compactNavigation.matches?!mobileMenuOpen:prefs.sidebarCollapsed;
@@ -743,7 +751,7 @@ function renderContext(){
     if(configuration){link.textContent=curveConfigurationAction(configuration);link.title=configuration.reason??'Open the exact saved definition';link.disabled=busy||contextDirty;}
     text('chart-title',kind==='rates'?'Zero-rate curve':kind==='futures'?'Futures curve':kind==='forwards'?'Forward curve':'Mixed curve');
     text('source-title',kind==='rates'?'Rates behind this curve':'Prices behind this curve');text('source-help',kind==='rates'?'Annual zero rates for the listed maturities.':'Prices and conversion factors for the selected market date.');text('contracts-help',kind==='rates'?'Choose a maturity to see its rate history and how it’s priced.':'Choose a contract to see its price history and how it’s priced.');
-    renderDependencies();if(result)renderInputs();}
+    prepareCurveDetails();}
   showView(prefs.tab);
 }
 const rateTenor=(series:Row)=>data().definitions.rate_curve_tenors.find(t=>t.curve_code===curve&&t.series_id===series.id);
@@ -785,7 +793,7 @@ function renderPrices(){
   if(!statuses.length)$('inactive-contracts').replaceChildren();
   if(statuses.length)table('inactive-contracts',['Delivery period','Marking status','Boundary'],statuses.map(c=>[
     deliveryLabel(c.deliveryFrom,c.deliveryTo),c.expired?c.status:`${c.status} · ${friendly(c.unavailableReason)}`,instant(c.expiry)]));
-  const rates=result.kind==='rates';if(result.availability==='no_remaining_contracts'){pricingContract='';closeContract();text('price-date',`As of: ${instant(result.at)}`);text('build-info','No eligible live contracts');clearChart($('curve-chart'),'No eligible live contracts for this market date.');$('contracts').replaceChildren();renderDependencies();renderInputs();return;}
+  const rates=result.kind==='rates';if(result.availability==='no_remaining_contracts'){pricingContract='';closeContract();text('price-date',`As of: ${instant(result.at)}`);text('build-info','No eligible live contracts');clearChart($('curve-chart'),'No eligible live contracts for this market date.');$('contracts').replaceChildren();return;}
   const exportCurve={snapshotId:result.snapshotId,curve:result.curve,contractDisplay:prefs.contractDisplay};
   renderChart($('curve-chart'),{exportImage:download=>void act(async()=>{try{await api('evaluate',exportCurve);}catch(error){clearPrices();throw error;}download();}),title:curveName(result.curve),axis:rates?'maturity':'delivery',unit:$('unit').textContent??'',series:[{name:curveName(result.curve),points:result.points.map(p=>({x:pointIdentity(p),label:rates?displayDate(pointDate(p)):deliveryLabel(p.deliveryFrom!,p.deliveryTo!),y:p.value}))}]});
   text('price-date',`As of: ${instant(result.at)}`);text('build-info',contractCountText(result));
@@ -794,7 +802,7 @@ function renderPrices(){
   table('contracts',rates?['Maturity',`Zero rate (${rateMarkUnit()})`,'Discount factor']:['Delivery period','Price','Expires'],result.points.map(p=>[contractLabel(p),p.value,rates?p.displayDiscountFactor!:instant(p.expiry!)]),rates?[1,2]:[1],result.points.map(p=>[contractLabel(p),amountText(p.value,'price',p.priceTick),rates?amountText(p.discountFactor!,'factor'):instant(p.expiry!)]),
     index=>void act(async()=>{if(result===shown)await openContract(pointIdentity(shown.points[index]));}));
   $('contracts').querySelector('table')?.setAttribute('aria-describedby','contracts-help');
-  renderContract();renderDependencies();renderInputs();
+  renderContract();
 }
 async function build(signal?:AbortSignal){
   if(contextDirty)throw Error('Apply the changed context before viewing prices.');
@@ -809,7 +817,15 @@ async function build(signal?:AbortSignal){
   current();
   if(next.snapshotId!==f.id||next.curve!==curve||next.observationScope!=='curve_lineage_v1'||!Array.isArray(next.observations))throw Error('The selected price sources are missing or inconsistent. Refresh and try again.');
   if(unexpectedWorkspace!==undefined)throw Error('The price response contains an unexpected market catalog. Refresh and try again.');
-  try{workspace=hydrated;data().observations=next.observations;result=next;renderContext();renderPrices();}
+  try{
+    const selectedInputs=priceSourceInputIds(next,hydrated);
+    // A contract-display change can reread this same curve and close under the same catalog.
+    // Keep an inspected observation only while that read still selects it with the same correction access.
+    if(input&&result&&(!previousWorkspace||result.curve!==next.curve||result.snapshotId!==next.snapshotId||
+      result.inputSelection?.correctionsSupported!==next.inputSelection?.correctionsSupported||!selectedInputs.has(input)))
+      forgetCorrection();
+    workspace=hydrated;data().observations=next.observations;result=next;renderContext();renderPrices();
+  }
   catch(error){clearPrices();if(!previousWorkspace)workspace=undefined;throw error;}
 }
 const contractLabel=(p:Point)=>result?.kind==='rates'?(p.label&&p.label!==p.maturity?`${p.label} · ${displayDate(pointDate(p))}`:displayDate(pointDate(p))):deliveryLabel(p.deliveryFrom!,p.deliveryTo!);
@@ -887,11 +903,11 @@ async function history(){
 const canCorrectPrice=()=>canCorrect()&&result?.inputSelection?.correctionsSupported===true;
 function renderInputs(){
   if(!result||!result.points.length){text('inputs',result?'No price sources are needed for an empty delivery window.':'Choose a market date to view price sources.');text('input-count','');return;}
-  priceSourceInputIds(result,data());const used=new Set(sourcePoints().flatMap(p=>p.lineage));const obs=[...used].map(observation);text('input-count',`${obs.length} prices & factors`);
+  const used=new Set(sourcePoints().flatMap(p=>p.lineage));const obs=[...used].map(observation);text('input-count',`${obs.length} prices & factors`);
   table('inputs',[isRates()?'Tenor':'Delivery period','Input','Source','Value','Units',''],obs.map(o=>{const series=row('series','id',val(o,'series_id')),c=series.contract_id?row('contracts','id',val(series,'contract_id')):undefined;return [c?deliveryLabel(val(c,'delivery_from'),val(c,'delivery_to')):rateTenor(series)?val(rateTenor(series)!,'label'):'All months',sourceName(series),referenceName('sources',val(o,'source_code')),val(o,'value'),inputUnit(series),action(canCorrectPrice()?'Correct price':'View versions',async()=>{input=val(o,'id');renderRevisions();})];}),[3]);renderRevisions();
 }
 function renderRevisions(){
-  if(!input||!result||!priceSourceInputIds(result,data()).has(input)||!sourcePoints().some(p=>p.lineage.includes(input))){$('revision-card').hidden=true;return;}
+  if(!input||!result||!sourcePoints().some(p=>p.lineage.includes(input))){$('revision-card').hidden=true;return;}
   const o=observation(input),series=row('series','id',val(o,'series_id'));$('revision-card').hidden=false;text('correction-description',`${sourceName(series)} · ${instant(val(o,'observed_at'))} · ${inputUnit(series)}`);
   const editor=canCorrectPrice();$('correction-form').hidden=!editor;text('changes-title',`${editor?'Correct':'Versions of'} this ${isRates()?'rate':'price'}`);
   text('edit-help',isRates()?`Enter the annual zero rate in ${rateMarkUnit()}. Earlier versions stay available.`:'Earlier prices stay available. Saving adds a new version for you to view.');
@@ -908,7 +924,7 @@ function pricingPoints(){
   if(!result||!result.points.length)throw Error('The contract pricing details are unavailable.');
   return showAllContracts?result.points:[pricingPoint()];
 }
-function sourcePoints(){return sourceOnlyCurve&&result?result.points:pricingPoints();}
+function sourcePoints(){return sourceOnlyCurve()&&result?result.points:pricingPoints();}
 function drawPricingGraph(target:HTMLElement,graph:PricingGraph){renderPricingGraph(target,graph,curveName,unit);}
 // A maturity's discount factor from its zero rate, under the convention the evaluated result states.
 function rateFlow(point:Point){
@@ -918,38 +934,66 @@ function rateFlow(point:Point){
   for(const [title,value,detail] of [['Zero rate',`${point.mark} ${rateMarkUnit()}`,'Annual zero rate'],['Time to maturity',`${point.actualDays} days`,convention.dayCount],['Discount factor',point.displayDiscountFactor,convention.compounding]]){const card=el('div');card.className='rate-step';card.append(el('small',title),el('strong',value),el('span',detail));flow.append(card);}
   return flow;
 }
-function renderDependencies(){
-  sourceOnlyCurve=false;select('source-contract').closest<HTMLElement>('.pricing-toolbar')!.hidden=false;
+function clearCurveTabs(){
+  drawnCurveTabs.clear();
   document.body.classList.toggle('showing-all-contracts',showAllContracts&&!!result);
-  for(const id of ['source-flow','dependencies','mappings','inputs'])$(id).replaceChildren();$('revision-card').hidden=true;
-  for(const id of ['source-all','pricing-all']){text(id,showAllContracts?'Show selected contract':'Show all contracts');$(id).setAttribute('aria-pressed',String(showAllContracts));}
-  if(!result||!result.points.length){for(const id of ['source-flow','dependencies'])$(id).replaceChildren(el('p',result?'No eligible live contracts for this market date.':'Choose a market date to see the contract pricing breakdown.'));for(const id of ['source-contract','pricing-contract'])choose(id,[],'');return;}
+  for(const id of ['source-flow','dependencies','mappings','inputs','revisions'])$(id).replaceChildren();
+  for(const id of ['source-contract','pricing-contract'])choose(id,[],'');
+  text('input-count','');$('revision-card').hidden=true;
+}
+// Check the evaluated graph and rate conventions before presenting prices, whichever tab is open.
+function prepareCurveDetails(){
+  clearCurveTabs();curveDetails=undefined;
+  if(!result?.points.length)return;
   if(!result.points.some(p=>pointIdentity(p)===pricingContract))pricingContract=pointIdentity(result.points[0]);
-  const points=pricingPoints(),rates=result.kind==='rates',options=result.points.map(p=>({value:pointIdentity(p),name:rates?displayDate(pointDate(p)):deliveryLabel(p.deliveryFrom!,p.deliveryTo!)}));
-  for(const id of ['source-contract','pricing-contract'])choose(id,options,pricingContract);
-  const sources=document.createDocumentFragment(),dependencies=document.createDocumentFragment();
-  if(rates){
-    rateConvention(); // the formula below is drawn only for the convention it states
-    if(showAllContracts){for(const container of [sources,dependencies]){const host=el('section');renderWorkbook(host,rateWorkbook(result));container.append(host);}}
-    for(const point of points){
-      if(point.mark===undefined||point.actualDays===undefined||point.discountFactor===undefined||point.displayDiscountFactor===undefined)throw Error('The rate calculation details are unavailable.');
-      if(!showAllContracts)for(const container of [sources,dependencies]){const section=el('section');section.className='contract-flow pricing-flow';section.append(el('h4',contractLabel(point)),rateFlow(point));container.append(section);}
-    }
-    table('mappings',['Tenor','Maturity','Discount factor'],points.map(p=>[p.label??'',displayDate(pointDate(p)),p.discountFactor!]),[2]);
+  const points=pricingPoints();
+  if(result.kind==='rates'){
+    rateConvention();
+    if(points.some(p=>p.mark===undefined||p.actualDays===undefined||p.discountFactor===undefined||p.displayDiscountFactor===undefined))
+      throw Error('The rate calculation details are unavailable.');
+    curveDetails={points,graphs:[],workbook:showAllContracts?rateWorkbook(result):undefined};
   }else{
     const graphs=points.map(point=>pricingGraph(result!,point));
     const workbook=showAllContracts||graphs.every(graph=>graph.nodes.length===1)?curveWorkbook(result,unit,curveName):undefined;
-    sourceOnlyCurve=workbook?.connections.length===0;
-    const workbookTargets:DocumentFragment[]=[];
-    if(showAllContracts||sourceOnlyCurve)workbookTargets.push(sources);
-    if(showAllContracts)workbookTargets.push(dependencies);
-    for(const container of workbookTargets){const host=el('section');renderWorkbook(host,workbook!);container.append(host);}
-    if(!showAllContracts)for(const graph of graphs)for(const container of sourceOnlyCurve?[dependencies]:[sources,dependencies]){const section=el('section');section.className='contract-flow pricing-flow';drawPricingGraph(section,graph);container.append(section);}
-    select('source-contract').closest<HTMLElement>('.pricing-toolbar')!.hidden=sourceOnlyCurve;
+    curveDetails={points,graphs,workbook};
+  }
+}
+function renderCurveTab(view:Preferences['tab']){
+  if(view==='prices'||page!=='market'||!curve||!workspace||contextDirty||drawnCurveTabs.has(view))return;
+  if(!result&&select('snapshot').value)return;
+  try{
+    renderBreakdown(view);
+    if(view==='inputs')renderInputs();
+    drawnCurveTabs.add(view);
+  }catch(error){clearCurveTabs();throw error;}
+}
+function renderBreakdown(view:CurveDetailTab){
+  const sources=view==='inputs',selector=sources?'source-contract':'pricing-contract',toggle=sources?'source-all':'pricing-all';
+  const target=$(sources?'source-flow':'dependencies');
+  text(toggle,showAllContracts?'Show selected contract':'Show all contracts');$(toggle).setAttribute('aria-pressed',String(showAllContracts));
+  if(sources)select(selector).closest<HTMLElement>('.pricing-toolbar')!.hidden=sourceOnlyCurve();
+  if(!result||!curveDetails){
+    target.replaceChildren(el('p',result?'No eligible live contracts for this market date.':'Choose a market date to see the contract pricing breakdown.'));
+    return;
+  }
+  const {points,graphs,workbook}=curveDetails,rates=result.kind==='rates';
+  choose(selector,result.points.map(p=>({value:pointIdentity(p),name:rates?displayDate(pointDate(p)):deliveryLabel(p.deliveryFrom!,p.deliveryTo!)})),pricingContract);
+  const content=document.createDocumentFragment();
+  if(workbook&&(showAllContracts||sources&&sourceOnlyCurve())){
+    const host=el('section');renderWorkbook(host,workbook);content.append(host);
+  }else if(rates){
+    for(const point of points){const section=el('section');section.className='contract-flow pricing-flow';section.append(el('h4',contractLabel(point)),rateFlow(point));content.append(section);}
+  }else{
+    for(const graph of graphs){const section=el('section');section.className='contract-flow pricing-flow';drawPricingGraph(section,graph);content.append(section);}
+  }
+  target.replaceChildren(content);
+  if(sources)return;
+  if(rates){
+    table('mappings',['Tenor','Maturity','Discount factor'],points.map(p=>[p.label??'',displayDate(pointDate(p)),p.discountFactor!]),[2]);
+  }else{
     table('mappings',['Delivery period','Step','Curve','Calculation','Result','Units'],graphs.flatMap(graph=>graph.nodes.map((n,i)=>[deliveryLabel(graph.root.deliveryFrom,graph.root.deliveryTo),String(i+1),`${curveName(n.curve)} · ${deliveryLabel(n.deliveryFrom,n.deliveryTo)}`,pricingEquation(n,graph),n.value,unit(n.quote)])),[4]);
     $('mappings').append(el('p',`Settlement: ${settlementText()}.`));
   }
-  $('source-flow').replaceChildren(sources);$('dependencies').replaceChildren(dependencies);
 }
 
 function referenceName(table:string,code:string,references=presentedReferences(data())){return referenceLabel(exactRow(references[table]??[],'code',code));}
@@ -1358,7 +1402,7 @@ async function applyPointInputs(next:FrameSummary,current:()=>boolean){
 $('example').onclick=()=>leaving(async()=>{curve='';clearPrices();await currentInputs();const example=directory().example;if(!example)throw Error('No sample is configured.');const f=directory().frames.find(f=>directory().initialFrameIds.includes(f.id)&&new Date(f.at).getTime()===new Date(example.at).getTime());if(!f)throw Error('These sample prices are unavailable.');prefs.market=null;prefs.marketType='all';prefs.tab='prices';persist();curve=example.curve;clearPrices();renderFrames(f.id);await initializeContext();if(isCurvePage(page)||['custom-curves','curve-definitions','configuration'].includes(page))await loadSelectedClose();else await build();});
 $('browse-by').onchange=()=>void changeMarketFilters();$('commodity').onchange=()=>void changeMarketFilters();
 document.querySelectorAll<HTMLButtonElement>('[data-type]').forEach(b=>b.onclick=()=>void changeMarketFilters(b.dataset.type as Preferences['marketType']));
-document.querySelectorAll<HTMLButtonElement>('.tab').forEach(b=>b.onclick=()=>{if(busy)return;prefs.tab=b.dataset.view as Preferences['tab'];persist();showView(prefs.tab);assistant.sync();});
+document.querySelectorAll<HTMLButtonElement>('.tab').forEach(b=>b.onclick=()=>{if(busy)return;prefs.tab=b.dataset.view as Preferences['tab'];persist();try{showView(prefs.tab);}catch(error){showFailure(error);}assistant.sync();});
 let scheduleWorkspace:ReturnType<typeof setupScheduleWorkspace>|undefined;
 const schedules=setupShortcutEditor(act,{time:api,load:()=>api('schedules'),preview:draft=>api('schedules/preview',draft),keep:draft=>api('schedules/keep',draft),resolve:body=>api('schedules/resolve',body)},()=>busy,()=>prefs.timeZone);
 function dirtyContext(){recInventory.reset();structuredPower.contextChanged();cancelCurveRead();pageRead?.controller.abort();pageRead=undefined;priceSetup.reset();lifecycle.reset();physicalOperations.reset();facilities.reset();curveDefinitions.contextChanged();riskJobs.contextChanged();volSurfaces.reset();optionChains.reset();scheduleWorkspace?.calendar.reset();dateEditor.contextChanged();touProducts.reset();gasSetup.reset();crudeSetup.reset();stopLive();marketGeneration++;jobs.contextChanged();customCurves.contextChanged();deliveryPrices.reset();intervalSeries.reset();intervalCurves.reset();ppa.reset();gas.reset();crude.reset();parties.reset();clearReference();referenceNavigation.clear();futures.reset('inputs');power.reset();contextDirty=true;clearPrices();if(page==='dashboard')dashboard.closeChanged();if(navigation)renderBrowse();renderMarketBoard();text('environment-context-note','Context changed · choose Apply to use it.');renderWorkspaceMode();}
@@ -1649,8 +1693,8 @@ window.addEventListener('hashchange',()=>{
 $('reference-search-form').onsubmit=event=>{event.preventDefault();void act(()=>loadReference(0,$<HTMLInputElement>('reference-search').value));};
 $('reference-previous').onclick=()=>void act(()=>loadReference(Math.max(0,referencePage!.offset-referencePage!.pageSize),referencePage!.search));
 $('reference-next').onclick=()=>void act(()=>loadReference(referencePage!.offset+referencePage!.pageSize,referencePage!.search));
-for(const id of ['source-contract','pricing-contract'])select(id).onchange=()=>void act(async()=>{pricingContract=select(id).value;input='';draftFor='';renderDependencies();renderInputs();});
-for(const id of ['source-all','pricing-all'])$(id).onclick=()=>void act(async()=>{showAllContracts=!showAllContracts;renderDependencies();renderInputs();});
+for(const id of ['source-contract','pricing-contract'])select(id).onchange=()=>void act(async()=>{pricingContract=select(id).value;forgetCorrection();prepareCurveDetails();renderCurveTab(prefs.tab);});
+for(const id of ['source-all','pricing-all'])$(id).onclick=()=>void act(async()=>{showAllContracts=!showAllContracts;prepareCurveDetails();renderCurveTab(prefs.tab);});
 $('curve-all-markets').onclick=()=>chooseCurve('');
 $('correction-form').onsubmit=event=>{event.preventDefault();void act(async()=>{const current=frame(),next=await api<{frame:Frame;observationId:string}>('corrections',{snapshotId:current.id,observationId:input,value:$<HTMLInputElement>('correction-value').value});closeCheckDue=true;clearPrices();await reload(next.frame.id);input=next.observationId;await build();notice('Your change was saved. The market date now shows the corrected prices. Earlier versions are still available.');});};
 // Power's current-only operations stay unavailable under a retained historical context.
@@ -1666,7 +1710,13 @@ async function loadPowerPage({refreshProducts}:{refreshProducts:boolean}){
 // Opens a page as its navigation does. The assistant's moves and Back open pages the same way.
 async function showPage(next:string){
   switch(next){
-    case 'market':await setPage('market');readPage('market',async signal=>{if(curve&&!result&&select('snapshot').value)await build(signal);await loadBoard();});return;
+    case 'market':
+      await setPage('market');
+      readPage('market',async signal=>{
+        if(curve&&!result&&select('snapshot').value)await build(signal);
+        else renderCurveTab(prefs.tab);
+        await loadBoard();
+      });return;
     case 'custom-curves':await setPage('custom-curves');await customCurves.load();return;
     case 'vol-surfaces':await setPage('vol-surfaces');await volSurfaces.refresh();return;
     case 'options':await setPage('options');await optionChains.refresh();return;
