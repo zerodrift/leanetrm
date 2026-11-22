@@ -174,13 +174,14 @@ INSERT INTO market_data.custom_curve_requests(catalog_id,actor_id,request_id,ope
         else
         {
             id=body.Id.Value;
-            var old=all.SingleOrDefault(v=>v.Id==id&&v.Version==body.Version);
-            if(old is not null&&old.Sources.Any(p=>references.Sources.TryGetValue(p.Key,out var exact)&&exact.Code==p.Value.Code&&exact!=p.Value))
+            var old=all.Where(v=>v.Id==id).MaxBy(v=>v.Version);
+            if(old is null||old.Version!=body.Version)throw Conflict();
+            if(old.Sources.Any(p=>references.Sources.TryGetValue(p.Key,out var exact)&&exact.Code==p.Value.Code&&exact!=p.Value))
                 throw Invalid("A saved curve revision must retain its exact source versions. Create a new curve to use different inputs.");
             // The assistant revises the draft its claim holds, at the generation the claim locked, so its request may leave
             // the generation and state to the claim; a person names both.
             var claimed=saver.IsAssistant&&body.Generation is null&&body.ExpectedState is null;
-            if(old is null||old.Generation!=(claimed?old.Generation:body.Generation)||old.State!=(claimed?old.State:body.ExpectedState)
+            if(old.Generation!=(claimed?old.Generation:body.Generation)||old.State!=(claimed?old.State:body.ExpectedState)
                 ||old.Definition.Code!=body.Definition.Code)throw Conflict();
             // The assistant saving the graph its draft already holds, pinned to the same exact references, writes nothing at
             // all (D260); a person's save is always a new generation.
@@ -188,7 +189,7 @@ INSERT INTO market_data.custom_curve_requests(catalog_id,actor_id,request_id,ope
             if(old.State=="published")
             {
                 if(all.Any(v=>v.Id==id&&v.State=="draft"))throw Conflict();
-                version=all.Where(v=>v.Id==id).Max(v=>v.Version)+1;generation=1;
+                version=old.Version+1;generation=1;
             }
             else{version=old.Version;generation=old.Generation+1;}
         }
