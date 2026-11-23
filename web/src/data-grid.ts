@@ -36,7 +36,7 @@ type Chosen=void|boolean|Promise<boolean>;
 export type GridOptions={displayRows?:string[][];cellTitles?:string[][];visible?:boolean[];initial?:{query:string;columns:(string|null)[]};retainMissingFilters?:boolean;keys:string[];columnGroups?:Record<string,{key:string;title:string;measureTitle:string}>;layout:GridLayout;onLayout:(value:GridLayout)=>void;onReady?:()=>void;onRowOpen?:(index:number)=>Chosen;onRowSelect?:(index:number)=>Chosen;onRowEscape?:()=>void;onRowMenu?:(index:number,at:{x:number;y:number})=>void;onRowDoubleOpen?:(index:number)=>void;onMultiSelection?:(keys:string[])=>void;onCellPick?:(row:number,column:number)=>void;
   patchValues?:boolean;cells?:(index:number,column:number)=>Node|null;searchText?:string[];visual?:number[];group?:GridGroupOption;rowKeys?:readonly string[];rowHeight?:number;pageSize?:number;stretch?:boolean;toolbarHost?:HTMLElement;fill?:boolean;giveUp?:readonly number[];
   tree?:{parents:(string|null)[];open:ReadonlySet<string>;onToggle:(key:string,open:boolean)=>void};totals?:string[][];headerGroups?:{title:string;colour:string;columns:number[]}[];
-  decorate?:(index:number,column:number)=>{sources:string[];changed:boolean;delivered:boolean}|null;soon?:Readonly<Record<number,string>>};
+  decorate?:(index:number,column:number)=>{sources:string[];changed:boolean;delivered:boolean;evidence?:string[]}|null;soon?:Readonly<Record<number,string>>};
 /**
  * What a grid is built for and cannot change while it stands: its key, scope and columns. A later render with the same identity changes the
  * standing grid's rows, grouping, column visibility, filters and layout in place, so the person keeps their place in it.
@@ -131,7 +131,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   const decorated=(content:Node,index:number,i:number)=>{
     const mark=options.decorate?.(index,i);
     if(!mark||!mark.changed&&!mark.sources.length)return content;
-    const wrap=el('span');wrap.className='grid-decorated';
+    const wrap=el('span');wrap.className='grid-decorated';if(mark.evidence?.length)wrap.title=mark.evidence.join('\n');
     if(mark.changed){const dot=el('span');dot.className='grid-changed';dot.title='Changed by the last edit';dot.setAttribute('role','img');dot.setAttribute('aria-label','Changed by the last edit');wrap.append(dot);}
     for(const source of mark.sources){const tag=el('span',source);tag.className='grid-source';wrap.append(tag);}
     wrap.append(content);return wrap;

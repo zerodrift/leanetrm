@@ -22,7 +22,7 @@ internal static class GasLocationEntry
         TicketSideDraft[] Endpoint(string code,string physical,string payment,string price)
         {
             var kind=price switch{"fixed"=>"cash","indexed"=>"floating",_=>throw Invalid()};
-            return [new("physical",code,empty.Add("direction",physical)),
+            return [new("physical",code,empty.Add("direction",physical).Add("quantity_policy","contract")),
                 new(kind,code+"_payment",empty.Add(kind+"_direction",payment).Add(kind+"_source",code))];
         }
         TicketDraft Draft(IEnumerable<TicketSideDraft> sides)=>new(GasTicket.Description.Product,GasTicket.Description.Version,empty,[..sides]);

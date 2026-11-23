@@ -220,7 +220,7 @@ def check_ticket_operations(c,context,cat,description,body,view,query,manifest):
     setup=lambda setup_id:{} if setup_id is None else {'gas_setup':setup_id}
     trade={'book':cat['books'][0]['id'],'legal_entity':party('legal_entity',body['legalEntityId']),'counterparty':party('counterparty',body['counterpartyId']),**setup(cat['gasSetupId'])}
     assert trade['legal_entity']==f"{body['legalEntityId']}@{body['legalEntityRevision']}",trade
-    physical={'direction':'deliver','delivery_from':'2021-01-01','delivery_to':'2021-02-01','product':p['product'],'quantity':'10000','quantity_basis':'per_operating_day',
+    physical={'quantity_policy':'contract','direction':'deliver','delivery_from':'2021-01-01','delivery_to':'2021-02-01','product':p['product'],'quantity':'10000','quantity_basis':'per_operating_day',
               'pipeline':p['pipeline'],'zone':p['zone'],'delivery_point':p['deliveryPoint']}
     def charge(kind,direction,price):
         return {f'{kind}_direction':direction,f'{kind}_source':'physical',f'{kind}_stage':'delivery',f'{kind}_price':price,f'{kind}_payment_at':'2021-02-05T00:00:00Z'}

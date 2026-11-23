@@ -581,7 +581,18 @@ profile's lifecycle and explicit no-discounting policy are unchanged.
   without refusal, and sends `tickets/book` as a retained request: an unknown
   outcome locks the ticket with Check and Retry, and survives a reload, where
   the Blotter offers to reconcile it.
-- A booked trade's schedule shows each physical day's quantity under the
+- A gas physical Side requires **Valuation quantity**: Contract quantity or
+  Delivery schedule. The latter is a visible editable starting value. A linked
+  composition refuses it on that field. Reopening an earlier trade explicitly
+  shows Contract quantity; the two-location entry keeps that choice locked.
+- Under Delivery schedule (D444), the schedule uses final allocation, provisional
+  allocation, scheduled, then labelled contract fallback for value and accrual.
+  Payment and usage-fee Sides inherit their source selection. Each day shows its
+  rank and evidence; Side inspection also shows contract quantity and the exact
+  selected ratio. The calculation graph remains the retained unit program and
+  explains that the lifecycle applies the displayed quantity adjustment. An
+  accrued amount corrected to zero after payment shows the full overpaid balance.
+- A booked trade on Contract quantity shows each physical day's quantity under the
   operations projection (`operational_projection_v1`, returned as
   `quantityPolicy`): the day's latest allocated, scheduled, confirmed or
   nominated record, tagged with its kind, else the contract's. Amounts stay the

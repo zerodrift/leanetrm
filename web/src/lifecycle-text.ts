@@ -19,7 +19,7 @@ export function measureLines(m:GasMeasures,currency:string,instant:(at:string)=>
   ...m.expectedCash.map(c=>({label:`Due ${displayPaymentDate(c.dueAt)}`,value:amount(c.amount)}))];
 }
 
-const basisTexts:Readonly<Record<string,string>>={contract_estimate_allocation_pending_v1:'estimated from contract; allocation pending'};
+const basisTexts:Readonly<Record<string,string>>={contract_estimate_allocation_pending_v1:'estimated from contract; allocation pending',contractual_quantity_v1:'contract quantity',selected_delivery_quantity_v1:'follows selected delivery quantity',allocated_final_v1:'allocated, final',allocated_provisional_v1:'allocated, provisional',scheduled_v1:'scheduled'};
 /** The trade overview's value measure: a started-delivery trade names its measure with its discounting basis, both or neither. */
 export function valueMeasureText(label:string|undefined,discounting:string|undefined){
  if((label===undefined)!==(discounting===undefined))throw Error('A trade’s value measure and its discounting basis come together.');

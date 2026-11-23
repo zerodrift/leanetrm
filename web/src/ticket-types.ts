@@ -23,7 +23,8 @@ export type TicketDraft={product:string;version:number;trade:Record<string,strin
 export type TicketChoice={value:string;label:string};
 export type TicketLookup={value:string;source:{kind:string;label:string}};
 // A null value means the level has no value there, never zero; trade.payment_at holds an ISO-8601 UTC instant.
-export type ScheduleViewCell={value:string|null;sources:string[]};
+export type DeliveryQuantityEvidence={source:string;revisionId:string;reference:string};
+export type ScheduleViewCell={value:string|null;sources:string[];quantityEvidence?:DeliveryQuantityEvidence[]};
 export type ScheduleViewRow={key:string;parent:string|null;level:string;start:string;end:string;operatingDate:string|null;cells:Record<string,ScheduleViewCell>;delivered:boolean};
 export type ScheduleView={levels:string[];rows:ScheduleViewRow[];totals:Record<string,ScheduleViewCell>;delivered:Record<string,ScheduleViewCell>|null;remaining:Record<string,ScheduleViewCell>|null;deliveredLeaves:number;leaves:number;valuationAt:string};
 export type ScheduleRefusal={code:string;message:string};
