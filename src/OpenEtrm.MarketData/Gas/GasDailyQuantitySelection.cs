@@ -7,13 +7,15 @@ namespace OpenEtrm.MarketData.Gas;
 
 public sealed record GasDailyContract(string Root,int Instruction,int Grid,DateOnly Day,DateTimeOffset Start,DateTimeOffset End,ExactQuantity Quantity);
 public sealed record GasQuantityObservation(Guid Id,string Kind,string Status,ExactQuantity Quantity,string Evidence,string Source);
-public sealed record GasSelectedQuantity(ExactQuantity Quantity,ExactQuantity NormalizedQuantity,string Kind,Guid? RevisionId,string? Evidence);
+public sealed record GasSelectedQuantity(ExactQuantity Quantity,ExactQuantity NormalizedQuantity,string Kind,Guid? RevisionId,string? Evidence,
+ string? Status=null,ImmutableArray<GasQuantityObservation> Provenance=default);
 
 // A typed quantity-input consumer, not an alternative pricing or payment engine.
 // Inputs are trade-owned absolute quantities; the retained unit schedule stays immutable.
 public static class GasDailyQuantitySelection
 {
  public const string ProjectionPolicy="operational_projection_v1",BillingPolicy="final_allocated_billing_v1",FacilityBillingPolicy="final_facility_allocated_billing_v1";
+ public const string ValuationPolicy="delivery_schedule_valuation_v1";
  public static ImmutableArray<GasDailyContract> ReadContract(BookedSideProgram program,ExactRatio scale)
  {
   if(program.Document.Family!="gas"||scale is null||scale.Numerator<=0)throw Invalid("Select a retained gas program and its positive absolute membership scale.");
@@ -24,7 +26,8 @@ public static class GasDailyQuantitySelection
  }
  public static GasSelectedQuantity Select(GasDailyContract contract,ImmutableArray<GasQuantityObservation> heads,string policy,DateTimeOffset at,ExactRatio scale)
  {
-  if(contract is null||heads.IsDefault||scale is null||scale.Numerator<=0||policy is not(ProjectionPolicy or BillingPolicy or FacilityBillingPolicy))throw Invalid("Select an explicit supported quantity policy and absolute membership scale.");
+  if(contract is null||heads.IsDefault||scale is null||scale.Numerator<=0||policy is not(ProjectionPolicy or BillingPolicy or FacilityBillingPolicy or ValuationPolicy))throw Invalid("Select an explicit supported quantity policy and absolute membership scale.");
+  if(policy==ValuationPolicy)return SelectValuation(contract,heads,at,scale);
   if(heads.Any(h=>h is null||h.Id==Guid.Empty||h.Source!=(policy==FacilityBillingPolicy?"facility_allocation_adoption_v1":"manual_daily_v1")||h.Kind is not("nominated" or "confirmed" or "scheduled" or "allocated")||h.Status is not("provisional" or "final" or "withdrawn")||h.Status=="final"&&(h.Kind!="allocated"||at<contract.End)||h.Quantity.Specification!=contract.Quantity.Specification||BigInteger.Parse(h.Quantity.Numerator)<0||string.IsNullOrWhiteSpace(h.Evidence))||heads.GroupBy(h=>h.Kind).Any(g=>g.Count()>1))throw Invalid("Supply one visible head per quantity kind, in the exact native unit, with source evidence.");
   var eligible=heads.Where(h=>h.Status!="withdrawn").ToArray();GasQuantityObservation? selected;
   if(policy is BillingPolicy or FacilityBillingPolicy)
@@ -36,5 +39,28 @@ public static class GasDailyQuantitySelection
   var q=selected?.Quantity??contract.Quantity;
   return new(q,q.Scale(scale.Inverse()),selected?.Kind??"contractual",selected?.Id,selected?.Evidence);
  }
+ static GasSelectedQuantity SelectValuation(GasDailyContract contract,ImmutableArray<GasQuantityObservation> heads,DateTimeOffset at,ExactRatio scale)
+ {
+  if(heads.Any(h=>h is null||h.Id==Guid.Empty||h.Source is not("manual_daily_v1" or "facility_allocation_adoption_v1")||
+      h.Kind is not("nominated" or "confirmed" or "scheduled" or "allocated")||h.Source=="facility_allocation_adoption_v1"&&h.Kind!="allocated"||
+      h.Status is not("provisional" or "final" or "withdrawn")||h.Status=="final"&&(h.Kind!="allocated"||at<contract.End)||
+      h.Quantity is null||h.Quantity.Specification!=contract.Quantity.Specification||BigInteger.Parse(h.Quantity.Numerator)<0||string.IsNullOrWhiteSpace(h.Evidence))||
+      heads.GroupBy(h=>(h.Source,h.Kind)).Any(g=>g.Count()>1))
+   throw Invalid("Supply each source's current visible head per quantity kind, in the exact native unit, with its evidence.");
+  static int Rank(GasQuantityObservation h)=>h.Status=="withdrawn"?0:h.Kind switch{"allocated"=>h.Status=="final"?3:2,"scheduled"=>1,_=>0};
+  var rank=heads.Select(Rank).DefaultIfEmpty(0).Max();
+  var winners=rank==0?ImmutableArray<GasQuantityObservation>.Empty:heads.Where(h=>Rank(h)==rank).OrderBy(h=>h.Source,StringComparer.Ordinal).ToImmutableArray();
+  if(winners.Select(h=>h.Quantity).Distinct().Count()>1)throw Invalid("Current sources disagree at the winning quantity rank for this gas day.");
+  var selected=winners.FirstOrDefault();var q=selected?.Quantity??contract.Quantity;
+  return new(q,q.Scale(scale.Inverse()),selected?.Kind??"contractual",selected?.Id,selected?.Evidence,selected?.Status,winners);
+ }
+ public static string ValuationSource(GasSelectedQuantity selected)=>selected.Kind switch
+ {
+  "contractual"=>PhysicalLifecycle.ContractQuantity,
+  "scheduled"=>PhysicalLifecycle.ScheduledQuantity,
+  "allocated" when selected.Status=="final"=>PhysicalLifecycle.AllocatedFinalQuantity,
+  "allocated" when selected.Status=="provisional"=>PhysicalLifecycle.AllocatedProvisionalQuantity,
+  _=>throw Invalid("The selected quantity has no supported valuation rank.")
+ };
  static MarketDataException Invalid(string message)=>new("gas_quantity_selection",message);
 }

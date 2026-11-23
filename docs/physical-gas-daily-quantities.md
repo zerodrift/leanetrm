@@ -4,7 +4,8 @@ The daily quantity workflow records trade-owned operational evidence separately
 from immutable contractual Side programs. It accepts composed gas bookings only;
 stored single-point trades are not enrolled. No trade amendment, physical
 completion, cash determination, payment, inventory or weighted inventory-cost
-calculation follows from recording or selecting a quantity.
+calculation follows from recording or selecting a quantity. D445 adds an explicit
+valuation consumer for newly opted-in physical memberships, described below.
 
 D321 adds a separate [facility-final input policy](gas-basis-demo.md#final-input-contract).
 It reads adopted exact allocation links rather than copying facility amounts into
@@ -74,14 +75,51 @@ absolute quantity and normalization by trade size times membership ratio. For
 absolute allocation 980 and scale 1,000, normalized input is exactly 49/50;
 applying the existing scale once recovers 980, not 980,000.
 
-The read consumer exposes those selected quantity inputs alongside contractual
-quantities. It does not substitute them into the existing fixed contractual
+For memberships on contract quantity, the read consumer exposes selected inputs
+alongside contractual quantities. It does not substitute them into the existing fixed contractual
 program's PV, physical completion or payment roots. Dynamic linked fuel/cash
-ports and settlement consumers need their own qualified execution profile. The
+ports and settlement consumers need their own qualified execution profile. Their
 read response states `contractual_pv_unchanged`; no source field silently enables
 that wider lifecycle. A billing quantity preview is not a settlement determination. The separately
 enrolled [D338 daily fixed cash consumer](gas-cash-billing.md) supplies that
 bounded determination and its corrections without changing this read contract.
+
+## Selected quantity valuation (D445)
+
+Migration 0390 stores optional `delivery_schedule_v1` on physical component terms.
+Null means contract quantity. Existing trades are not converted, and any quantity
+link in the composition prevents opt-in. The ticket requires a choice and proposes
+Delivery schedule visibly; direct booking and the administrator in-term load accept
+the same optional key. Payment and usage-fee memberships inherit their source's
+selected quantity, including receipt-stage cash when receipt equals delivery.
+
+`delivery_schedule_valuation_v1` selects allocated final, allocated provisional,
+scheduled, then contract. It ignores nominations and confirmations. A withdrawn
+head never revives an older revision of that source; another source remains
+eligible. Manual and adopted facility allocations of equal winning rank must agree,
+and all agreeing evidence references are retained. A conflicting winning rank
+refuses valuation. Final allocation still requires an ended gas day.
+
+`security.read_gas_valuation_quantities` resolves both source streams against the
+exact held binding and financial business/knowledge context. Ordinary queued risk
+uses its active lease and pinned job scope without requiring gas-operations rights.
+Missing source authority is a refusal, not empty evidence. Facility quantities
+follow the existing adoption-to-target-to-allocation links; no rows are copied.
+
+`GasHeldQuantities` builds complete days, including labelled contract fallback, for
+`PhysicalCashState`. Independent membership terms establish which slots follow a
+source even when no operational records exist. The shared lifecycle validates the
+contract quantities against retained schedules and applies exact selected/contract
+ratios. Ended-day cash uses selected quantity, known payment prices and unchanged
+recorded payments. A reduction to zero accrual can therefore leave an overpaid
+balance. Blotter, single-trade reads and retained risk share this behavior.
+
+The quantities response names the saved policy on each row and reports
+`delivery_schedule_valuation_v1` as the valuation effect when a membership opts in.
+Its requested operational or billing selection retains its own meaning; requesting
+the valuation policy reads the same combined heads as pricing. Schedules display
+source ranks and evidence, while Side inspection explains the retained contract
+quantity and selected ratio. Quantity-only P&L movement remains in the residual.
 
 ## API and user workflow
 
@@ -100,7 +138,8 @@ quantity entry with explicit status and evidence, followed by review and
 acceptance. Nominations, confirmations and schedule adoption use the separate
 [manual operations](gas-delivery-operations.md). The Blotter and separate trade
 windows mount the [deal ticket](deal-ticket.md) read-only; their schedules retain
-the operational projection alongside unchanged contractual amounts.
+the operational projection alongside unchanged contractual amounts for contract-quantity
+memberships. Opted-in memberships show the selected valuation quantity and amounts.
 
 Operational reads remain available after delivery starts without bypassing the
 pricing lifecycle guard. Financial calculations stay in the backend. The

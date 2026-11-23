@@ -177,7 +177,14 @@ public sealed record RetainedProgramValuation : SideValuation
         if(Lifecycle is null) return SideScheduleSnapshot.FromProgramValue(this, Execution, program, manifest, scale, coefficient, boundary);
         var factor = new SignedRatio(scale.ScaledValue, ExactDecimal.WorkingScale) * coefficient;
         var rows = PhysicalLifecycle.Scale(Lifecycle, factor).Rows;
-        return SideScheduleSnapshot.FromLifecycle(SideId, Snapshot.Id, new(SideId.ToString(), Execution, program, scale, coefficient, []),
+        ImmutableDictionary<DateOnly,ScheduleFollowedDay>? selected=null;
+        if(Context.RetainedPrograms is {Cash:{} held,Occurrence:{} occurrence} inputs&&held.Follows(occurrence.Slot))
+        {
+            var heldFactor=inputs.HeldFactors[occurrence.Slot];
+            var normalization=new SignedRatio(heldFactor.Denominator,System.Numerics.BigInteger.Abs(heldFactor.Numerator));
+            selected=held.Quantities.Where(q=>q.Slot==occurrence.Slot).ToImmutableDictionary(q=>q.Day,q=>ScheduleFollowedDay.FromHeld(q,factor*normalization));
+        }
+        return SideScheduleSnapshot.FromLifecycle(SideId, Snapshot.Id, new(SideId.ToString(), Execution, program, scale, coefficient, [],FollowedDays:selected),
             rows, ImmutableDictionary<int, ExactMoney>.Empty, boundary);
     }
 }

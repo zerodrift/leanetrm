@@ -78,6 +78,7 @@ if(args is ["--gas-daily-quantities"]){GasDailyQuantityChecks.Run();return;}
 if(args is ["--physical-gas-quantities"]){PhysicalGasQuantityChecks.Run();return;}
 if(args is ["--physical-gas-side"]){PhysicalGasSideChecks.Run();return;}
 if(args is ["--side-payment-state"]){SidePaymentStateChecks.Run();return;}
+if(args is ["--delivery-quantities"]){DeliveryQuantityChecks.Run();return;}
 if(args is ["--physical-lifecycle"]){PhysicalLifecycleChecks.Run();return;}
 if(args is ["--gas-forward-settlement-example"]){GasForwardSettlementExampleChecks.Run();return;}
 if(args is ["--gas-forward-settlement-example-json"]){Console.WriteLine(GasForwardSettlementExampleChecks.Export());return;}
@@ -628,6 +629,7 @@ TradingPnlChecks.Run();passed++;
 TradingPnlAttributionChecks.Run();passed++;
 UnpaidCashChecks.Run();passed++;
 PhysicalLifecycleChecks.Run();passed++;
+DeliveryQuantityChecks.Run();passed++;
 GasForwardSettlementExampleChecks.Run();passed++;
 SplicedCurveChecks.Run();passed++;
 CurvePriceBindingChecks.Run();passed++;

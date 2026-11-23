@@ -6,10 +6,10 @@ import type {ScheduleView,ScheduleViewCell,TicketColumn,TicketDescription} from 
 // of a tab and level and formats exact text for display.
 export type ScheduleTab={id:string;label:string;colour:string;soon:string|null};
 export type ScheduleSide={kind:string;code:string;name:string};
-export type CellDecoration={sources:string[];changed:boolean;delivered:boolean};
+export type CellDecoration={sources:string[];changed:boolean;delivered:boolean;evidence?:string[]};
 export type HeaderGroup={title:string;colour:string;columns:number[]};
 export const sourceLabels:Readonly<Record<string,string>>=Object.freeze({contract:'Contract',fwd:'Fwd',fixed:'Fixed',actual:'Actual',meter:'Meter',forecast:'Forecast',estimated:'Estimated',modeled:'Modeled',
- nominated:'Nominated',confirmed:'Confirmed',scheduled:'Scheduled',allocated:'Allocated',delivered:'Delivered'});
+ nominated:'Nominated',confirmed:'Confirmed',scheduled:'Scheduled',allocated:'Allocated',allocated_final:'Allocated, final',allocated_provisional:'Allocated, provisional',delivered:'Delivered'});
 const neutral='neutral',numericMeasures=['quantity','price','money'];
 
 /** The symbol of a field's or column's declared unit (TicketField.unit), from the units the latest preview resolved; null when it declares
@@ -65,7 +65,7 @@ export function scheduleGridData(view:ScheduleView,d:TicketDescription,sides:Sch
   const values=found.map((c,i)=>c.value&&columns[i].column.measure==='payment_date'?paymentDateValue(c.value):c.value??'');
   rows.push([r.key,...values]);
   displayRows.push([r.level==='term'?'Whole term':r.key,...values.map((v,i)=>displayText(columns[i].column,v,display))]);
-  decorations.push([null,...found.map((c,i)=>({sources:c.sources.map(s=>sourceLabels[s]),changed:previous!==undefined&&(prior?.[columns[i].key]?.value??null)!==c.value,delivered:r.delivered}))]);
+  decorations.push([null,...found.map((c,i)=>({sources:c.sources.map(s=>sourceLabels[s]),...(c.quantityEvidence?.length?{evidence:c.quantityEvidence.map(e=>`${e.reference} · ${e.revisionId}`)}:{}),changed:previous!==undefined&&(prior?.[columns[i].key]?.value??null)!==c.value,delivered:r.delivered}))]);
  }
  // In delivery the backend splits its totals into delivered and remaining; the grid pins them above the total, in that order.
  if((view.delivered===null)!==(view.remaining===null))throw Error('The schedule view reports delivered and remaining together or not at all.');

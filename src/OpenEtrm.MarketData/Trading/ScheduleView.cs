@@ -11,7 +11,11 @@ public enum ScheduleViewMeasure { Quantity,Price,Amount }
 // is not exact at the working scale or lies beyond the working decimal range.
 // trade.payment_at holds an ISO-8601 UTC instant instead. A null Value means the
 // level has no value there, never zero; delivered and remaining split whole pieces.
-public sealed record ScheduleViewCell(string? Value,ImmutableArray<string> Sources);
+public sealed record ScheduleViewCell(string? Value,ImmutableArray<string> Sources)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public ImmutableArray<DeliveryQuantityEvidence> QuantityEvidence { get;init; }
+}
 public sealed record ScheduleViewRow(string Key,string? Parent,string Level,DateTimeOffset Start,DateTimeOffset End,string? OperatingDate,
     ImmutableDictionary<string,ScheduleViewCell> Cells,bool Delivered);
 public sealed record ScheduleView(ImmutableArray<string> Levels,ImmutableArray<ScheduleViewRow> Rows,ImmutableDictionary<string,ScheduleViewCell> Totals,
@@ -23,7 +27,8 @@ public sealed record ScheduleViewQuantity(SignedRatio Quantity,string Source);
 // membership, an exact ratio; both apply to quantities and amounts, never to prices.
 // Recorded replaces the shown quantity of the days it names; their amounts stay the evaluated contract's.
 public sealed record SideViewInput(string Code,BookedSideEvaluation Evaluation,BookedSideProgram Program,ExactDecimal Scale,SignedRatio Coefficient,
-    ImmutableArray<(string Column,ScheduleViewMeasure Measure)> Columns,ImmutableDictionary<DateOnly,ScheduleViewQuantity>? Recorded=null);
+    ImmutableArray<(string Column,ScheduleViewMeasure Measure)> Columns,ImmutableDictionary<DateOnly,ScheduleViewQuantity>? Recorded=null,
+    ImmutableDictionary<DateOnly,ScheduleFollowedDay>? FollowedDays=null);
 
 // Every value comes from an evaluated contribution: its amount, and the quantity
 // and price operands of its amount instruction, on the contribution's own grid
@@ -40,13 +45,14 @@ public static class ScheduleViews
     public const string NetCash="trade.net_cash",PaymentAt="trade.payment_at";
     private static readonly string[] Supported=["term","month","day"];
     // One canonical tag order; a set of tags is a bit mask over it.
-    private static readonly string[] Tags=["contract","forecast","meter","fwd","actual","modeled","fixed","estimated","nominated","confirmed","scheduled","allocated","delivered"];
+    private static readonly string[] Tags=["contract","forecast","meter","fwd","actual","modeled","fixed","estimated","nominated","confirmed","scheduled","allocated","delivered","allocated_final","allocated_provisional"];
     private static readonly string[] RecordedTags=["nominated","confirmed","scheduled","allocated"];
     private const int ContractTag=1<<0,DeliveredTag=1<<12;
     private static readonly (SchedulePriceFacts Fact,int Tag)[] PriceTags=[(SchedulePriceFacts.Fixed,0),(SchedulePriceFacts.Projected,3),
         (SchedulePriceFacts.Actual,4),(SchedulePriceFacts.Modeled,5),(SchedulePriceFacts.PublishedFixing,6),(SchedulePriceFacts.Estimated,7)];
     private sealed record Piece(SideViewInput Side,string Level,string Month,string? Day,DateTimeOffset Start,DateTimeOffset End,
-        SignedRatio Quantity,SignedRatio? Price,SignedRatio? Amount,int QuantityTags,int PriceTags,int AmountTags,DateTimeOffset? Payment,ReferenceKey? Currency);
+        SignedRatio Quantity,SignedRatio? Price,SignedRatio? Amount,int QuantityTags,int PriceTags,int AmountTags,DateTimeOffset? Payment,ReferenceKey? Currency,
+        ImmutableArray<DeliveryQuantityEvidence> QuantityEvidence=default);
 
     public static ScheduleView Build(ImmutableArray<SideViewInput> sides,ImmutableArray<string> levels,Func<DateOnly,DateTimeOffset> boundary)
     {
@@ -100,7 +106,7 @@ public static class ScheduleViews
         if(evaluation.BaseScenarioId!=evaluation.ScenarioId)throw Error("A schedule view shows one scenario; its base and scenario lanes must be the same.");
         var scale=Ratio(side.Scale)*side.Coefficient;
         (ReferenceKey?,ReferenceKey?,ReferenceKey?,string?,ReferenceKey?)? units=null;
-        var pieces=new List<Piece>();var recorded=new HashSet<DateOnly>();
+        var pieces=new List<Piece>();var recorded=new HashSet<DateOnly>();var selectedDays=new HashSet<DateOnly>();
         ImmutableDictionary<(int Instruction,int Cell),ExactQuantity>? literals=null;
         // A recorded quantity replaces the day's shown quantity and its tags.
         (SignedRatio Quantity,int Tags) Shown(string? day,SignedRatio quantity,int tags)
@@ -123,13 +129,18 @@ public static class ScheduleViews
                 throw Error("Each contribution requires one amount and state per cell.");
             for(var cell=0;cell<cash.Values.Length;cell++)
             {
+                var selected=ScheduleSelectedQuantity.Read(side,guard.Output,cell);
+                if(selected is not null)foreach(var day in selected.Days)if(!selectedDays.Add(day))throw Error("Each selected day must name one shown contribution.");
+                var selectionTags=selected?.Tags.Aggregate(0,(mask,tag)=>mask|1<<Array.IndexOf(Tags,tag));
                 if(cash.Presence[cell]!=ScheduleCellPresence.Resolved&&side.Program.EndedWholeGasDay(guard.Output,cell,evaluation.Context.ValuationAt))
                 {
                     literals??=PhysicalDeliverySchedule.ReadLiteralQuantities(side.Program,ExactRatio.One).ToImmutableDictionary(row=>(row.Instruction,row.Cell),row=>row.Quantity);
                     if(!literals.TryGetValue((quantityRow,cell),out var contract))throw Error("Every shown cell requires its resolved quantity, price and amount; evaluate the side's complete term.");
                     var ended=Interval(document,guard.Output,cell,boundary);
                     var(held,heldTags)=Shown(ended.Day,new SignedRatio(contract.NumeratorValue,contract.DenominatorValue)*scale,ContractTag);
-                    pieces.Add(new(side,ended.Level,ended.Month,ended.Day,ended.Start,ended.End,held,null,null,heldTags|DeliveredTag,DeliveredTag,DeliveredTag,null,null));
+                    if(selected is not null&&selected.Contract!=held)throw Error("Selected day contract quantities must match the displayed retained schedule.");
+                    pieces.Add(new(side,ended.Level,ended.Month,ended.Day,ended.Start,ended.End,selected?.Selected??held,null,null,
+                        (selectionTags??heldTags)|DeliveredTag,DeliveredTag,DeliveredTag,null,null,selected?.Evidence??default));
                     continue;
                 }
                 var(quantity,q)=Resolved(quantities,cell,cash.Values.Length);var(price,p)=Resolved(prices,cell,cash.Values.Length);
@@ -141,12 +152,15 @@ public static class ScheduleViews
                 var interval=Interval(document,guard.Output,cell,boundary);
                 var payment=contribution.States[cell].Kind==ComponentKind.Payment?guard.Output.ValueAt??throw Error("A payment requires its value date."):(DateTimeOffset?)null;
                 var(shown,tags)=Shown(interval.Day,Ratio(quantity.Values[q])*scale,VolumeTag(volume));
+                if(selected is not null&&selected.Contract!=shown)throw Error("Selected contract quantities must match the displayed retained contribution.");
                 var priceTags=PriceTag(price.States[p].Prices);
-                pieces.Add(new(side,interval.Level,interval.Month,interval.Day,interval.Start,interval.End,shown,Ratio(price.Values[p]),
-                    Ratio(cash.Values[cell])*scale,tags,priceTags,VolumeTag(volume)|priceTags,payment,cash.Currency));
+                pieces.Add(new(side,interval.Level,interval.Month,interval.Day,interval.Start,interval.End,selected?.Selected??shown,Ratio(price.Values[p]),
+                    Ratio(cash.Values[cell])*scale*(selected?.Fraction??new SignedRatio(1,1)),selectionTags??tags,priceTags,(selectionTags??VolumeTag(volume))|priceTags,
+                    payment,cash.Currency,selected?.Evidence??default));
             }
         }
         if(side.Recorded is {} all&&all.Count!=recorded.Count)throw Error("Each recorded quantity must name a day the side shows.");
+        if(side.FollowedDays is {} followed&&!selectedDays.SetEquals(followed.Keys))throw Error("Selected quantities must cover exactly the days the side shows.");
         return pieces;
     }
     // The program's single in-range operand on a port.
@@ -192,12 +206,15 @@ public static class ScheduleViews
                 if(own.Length==0){cells.Add(key,new(null,[]));continue;}
                 // Delivered gas days have no price or amount: a coarser amount holds only the priced days, tagged as those are.
                 var priced=own.Where(piece=>piece.Amount is not null).ToArray();var tagged=priced.Length>0?priced:own;
-                cells.Add(key,measure switch
+                ScheduleViewCell cell=measure switch
                 {
                     ScheduleViewMeasure.Quantity=>new(ExactNumberText.Format(Sum(own,piece=>piece.Quantity)),Names(own,piece=>piece.QuantityTags)),
                     ScheduleViewMeasure.Price=>new(priced.Length==own.Length&&own.Select(piece=>piece.Price).Distinct().Count()==1?ExactNumberText.Format(own[0].Price!.Value):null,Names(tagged,piece=>piece.PriceTags)),
                     _=>new(priced.Length>0?ExactNumberText.Format(Sum(priced,piece=>piece.Amount!.Value)):null,Names(tagged,piece=>piece.AmountTags))
-                });
+                };
+                if(own.Any(p=>!p.QuantityEvidence.IsDefault)&&measure!=ScheduleViewMeasure.Price)
+                    cell=cell with{QuantityEvidence=[..own.SelectMany(p=>p.QuantityEvidence.IsDefault?[]:p.QuantityEvidence).Distinct()]};
+                cells.Add(key,cell);
             }
         }
         var cash=scope.Where(piece=>piece.Payment is not null).ToArray();

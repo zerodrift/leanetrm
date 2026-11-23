@@ -1,5 +1,23 @@
 # Current implementation record
 
+## Selected gas delivery quantities (D445)
+
+An independent physical membership may save `delivery_schedule_v1`. The gas
+adapter selects final allocation, provisional allocation, scheduled or labelled
+contract fallback under both time cutoffs. It reads manual and adopted facility
+heads together, retains all agreeing evidence, and refuses conflicting winning
+values. The shared held state and in-term lifecycle apply the selected quantities
+to physical value, cash accrual and risk; payments and usage fees inherit their
+source. A correction to zero accrual retains paid cash as an overpaid balance.
+
+Migration 0390 adds the immutable typed term and one authorized valuation read;
+retained schedule shapes and existing trades stay unchanged. Ticket and Side
+schedule views show the choice, selected ranks, provenance and exact quantity
+adjustment. The same policy is accepted by the administrator in-term load. Other
+commodities, fuel links, nonlinear pricing, changed points and separate quantity
+P&L attribution remain unimplemented in this increment. Publication and deployment
+are separate from this local implementation.
+
 ## Structured trades and historical replay
 
 To book a thermal toll, choose the contract that matches its terms under

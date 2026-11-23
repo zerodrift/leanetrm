@@ -60,6 +60,7 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
     // and original whole-day delivery-mark policy in its explicit model version.
     public override UnitPricingContract Declare(UnitValuationContext context) => RetainedDeclaration(new(Id,
         (context.BindingState is PhysicalCashState ? PhysicalCashState.Policy + "/" : "") +
+        (context.BindingState is PhysicalCashState {QuantityPolicy: {} quantityPolicy}?quantityPolicy+"/":"") +
         (Members.Any(m => PhysicalLifecycle.ReadsDeliveryMarks(m.Program)) ? PeriodPriceSelector.DeliveryMarkPolicy + "/" : "")+"retained_gas_side_pv_v3",
         PhysicalLifecycle.PriceDependencies(Members.Select(member => member.Program), PriceLookups, context.Snapshot),
         UnitQuantity.Specification, Currency) { Time = ValuationTimeDependency.Pinned,  ScheduleIdentity = RetainedScheduleIdentity });
@@ -108,6 +109,14 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
                 Members[p.Slot].Program.Document.Family == "gas" || p.Amount.Currency != Currency ||
                 !Members[p.Slot].Program.Document.Instructions.Any(i => i.Output is { Operation: "output_guard", Grid: null } && i.Output.PaymentOrdinal == p.Occurrence)))
             throw new MarketDataException("payment_state", "Each payment allocation must name a retained cash occurrence of this instrument in its currency and quantity.");
+        // These retained gas/fixed/floating programs are the admitted price-times-quantity
+        // profile. Selected quantities remain held inputs, outside economic Side identity.
+        if(cash.QuantityPolicy is not null)
+        {
+            var quantity=System.Numerics.BigInteger.Abs(cash.Quantity.Amount.ScaledValue);
+            cash.ValidateQuantitySchedules([..Members.Select(m=>(m.Program,m.Program.Document.Family=="gas",
+                new ExactRatio(quantity*m.Ratio.Numerator,ExactDecimal.WorkingScale*m.Ratio.Denominator)))]);
+        }
     }
 
     protected override ScheduleMarketSources Sources(CurveBuild basis) => new(basis.Graph.Plan.Context, basis, null, null,

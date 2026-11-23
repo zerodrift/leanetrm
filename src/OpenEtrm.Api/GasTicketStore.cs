@@ -27,6 +27,7 @@ public sealed class GasTicketStore(PreviewDatabase database)
 {
  const string CloseOutReason="Gas close-out is not supported yet.";
  const string RecordReason="A day's quantity is recorded as an operational revision; amounts stay the contract's.";
+ const string FollowedRecordReason="Scheduled and allocated quantities drive value on sides set to Delivery schedule; each day shows its selected source.";
  const string SinglePointRecordReason="Daily quantities are recorded on composed gas trades; this single-point trade shows its contract quantities.";
  static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
  readonly PhysicalGasStore gas=new(database);
@@ -35,6 +36,22 @@ public sealed class GasTicketStore(PreviewDatabase database)
  // A composed trade's schedule shows each day's quantity under the operations projection: its latest allocated, scheduled, confirmed or
  // nominated record, else the contract's. Amounts stay the contract's: recorded quantities do not revalue the trade.
  const string QuantityPolicy=GasDailyQuantitySelection.ProjectionPolicy;
+
+ // Reconstruct only an actor-owned retained command whose older ticket omitted
+ // the field. Contract maps to an absent stored term, so Stage/Save still compare
+ // the exact original request. New commands and previews require the field.
+ internal async Task<TicketDraft> RetriedDraft(string profile,TicketDraft draft,Guid operation,bool amendment,CancellationToken ct)
+ {
+  GasTicket.RequireShape(draft);
+  bool Missing(TicketSideDraft side)=>side.Kind=="physical"&&!side.Values.ContainsKey("quantity_policy");
+  if(!draft.Sides.Any(Missing))return draft;
+  var permission=amendment?"AmendTrade":"BookTrade";
+  var retained=await database.WithIdentity(profile,permission,async(connection,token)=>{
+   await using var q=ScheduleStore.Command(connection,"SELECT security.gas_ticket_retained_request($1,$2,$3)",database.Manifest.CatalogId,operation,permission);
+   return (bool)(await q.ExecuteScalarAsync(token))!;
+  },ct);
+  return retained?draft with{Sides=[..draft.Sides.Select(s=>Missing(s)?s with{Values=s.Values.Add("quantity_policy","contract")}:s)]}:draft;
+ }
 
  public static TicketDescription Description(string product,TicketDraft? draft=null)
  {
@@ -122,7 +139,7 @@ public sealed class GasTicketStore(PreviewDatabase database)
   var refused=composed?await daily.RecordRefusal(c,working,ct):null;
   var facilityAllocations=composed?await new FacilityQuantityStore(database).TradeAllocations(c,body.TradeId,ct):JsonSerializer.SerializeToElement(Array.Empty<object>(),Json);
   return new{snapshotId=frame.Id,draft=GasTicket.Reopen(read.Terms),definitionRevisionId=read.Terms.DefinitionRevisionId,schedule=read.Valuation.Schedule,summaries=read.Valuation.Summaries,scheduleRefusal=read.Valuation.ScheduleRefusal,quantityUnit=read.Valuation.QuantityUnit,
-   measures=read.Valuation.Measures,currency=read.Valuation.Currency,links=read.Valuation.Links,sideSlots=read.Valuation.SideSlots,quantityPolicy=composed?QuantityPolicy:null,facilityAllocations,
-   actions=new{amend=await GasAmendments.Action(c,database.Manifest.CatalogId,body.TradeId,body.BindingId,body.Revision,frame.At,working,ct),closeOut=new{allowed=false,reason=CloseOutReason},record=new{allowed=composed&&refused is null,reason=!composed?SinglePointRecordReason:refused?.Message??RecordReason}}};
+   measures=read.Valuation.Measures,currency=read.Valuation.Currency,links=read.Valuation.Links,sideSlots=read.Valuation.SideSlots,quantityPolicy=composed?(read.Terms.PhysicalSides.Any(p=>p.QuantityPolicy is not null)?GasDailyQuantitySelection.ValuationPolicy:QuantityPolicy):null,facilityAllocations,
+   actions=new{amend=await GasAmendments.Action(c,database.Manifest.CatalogId,body.TradeId,body.BindingId,body.Revision,frame.At,working,ct),closeOut=new{allowed=false,reason=CloseOutReason},record=new{allowed=composed&&refused is null,reason=!composed?SinglePointRecordReason:refused?.Message??(read.Terms.PhysicalSides.Any(p=>p.QuantityPolicy is not null)?FollowedRecordReason:RecordReason)}}};
  }
 }

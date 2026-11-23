@@ -1,5 +1,41 @@
 # Local verification and continuous integration
 
+## Selected gas delivery quantities (D445)
+
+Local qualification on 2026-11-23 uses .NET SDK 10.0.402, stock PostgreSQL 18.7,
+Node 24.22.0 and Chrome on macOS arm64, with isolated disposable databases and
+synthetic observations. The managed verification group, 127 gas ticket checks,
+2,326 frontend tests and the repository verification group pass. All gas preview
+workloads pass, including indexed cash, amendments, facility/daily operations,
+final billing and the administrator's in-term load. The trading verification group
+also passes, including shared booking, retained schedule reuse, cross-commodity
+risk, index fixings, close-out, observation schedules and regional startup.
+
+`DeliveryQuantityChecks` independently checks the four-day worked example:
+unrealized 380, accrued unpaid −6,090 and total −5,710; a +0.10 location shock
+raises unrealized to 570 without changing accrued cash. It checks exact fractions,
+unequal daily contract quantities, mixed policies, complete membership/day
+coverage, source copying, retained-instrument parity and trade-specific reuse.
+Selection checks cover every rank, zero, withdrawals, equal evidence and conflicts.
+
+`tools/check_gas_delivery_quantity.py` passes migration predecessor-drift checks,
+native persistence, earlier-cutoff reads, Blotter/ticket/portfolio parity, queued
+risk replay after a correction, and the ordinary worker's exact catalogue,
+binding, book, trade, time and lease scope. It exercises manual and adopted
+facility allocation conflicts, agreeing sources, independent withdrawals and
+known records that are not yet effective. A real recorded payment remains fully
+overpaid after ended-day quantities correct to zero. Configured usage fees follow
+the selected source. Completed and interrupted legacy ticket commands retain their
+outcomes; changed requests, another actor's retained command and fresh tickets
+without the policy refuse. Malformed retry drafts retain structured refusals.
+
+All five dedicated browser checks pass: the visible Delivery schedule proposal,
+the linked-composition refusal, per-day source labels, evidence references and
+the overpaid cash balance with its exact selected quantity ratio. Independent
+adversarial review covered numerical, temporal, authorization and retained-command
+behavior; its findings are resolved. Migration 0390 and these changes have not
+been published or applied to production by this qualification.
+
 ## Running-trade amendments (D439–D441)
 
 Qualification on 2026-11-21 used .NET SDK 10.0.402, stock PostgreSQL 18.7 and

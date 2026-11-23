@@ -14,7 +14,7 @@ namespace OpenEtrm.Api;
 internal static class GasCashPaymentStore
 {
  internal const string LatestKnownRevision="latest_known_receipt_v1";
- internal static async Task<PhysicalCashState> Read(NpgsqlConnection connection,Guid catalog,Guid trade,Guid binding,Guid book,Quantity quantity,string revisionPolicy,CancellationToken ct)
+ internal static async Task<PhysicalCashState> Read(NpgsqlConnection connection,Guid catalog,Guid trade,Guid binding,Guid book,Quantity quantity,string revisionPolicy,CancellationToken ct,GasDeliveryQuantityInputs? selected=null)
  {
   if(revisionPolicy!=LatestKnownRevision)throw new MarketDataException(PhysicalLifecycle.ContextRefusal,"Select the latest-known payment revision policy.");
   var rows=await PreviewDatabase.Rows(connection,"""
@@ -27,7 +27,7 @@ internal static class GasCashPaymentStore
    ORDER BY p.slot,a.occurrence,p.id
    """,[catalog,trade,binding],ct);
   return new(trade,binding,quantity,book,[..rows.Select(r=>new CashOccurrencePayment(r.Id("id"),Int(r,"slot"),Int(r,"occurrence"),Instant(r,"paid_at"),Instant(r,"known_from"),
-   ExactMoney.Parse(r.Text("amount"),Currency(r))))],PhysicalCashState.Policy);
+   ExactMoney.Parse(r.Text("amount"),Currency(r))))],PhysicalCashState.Policy,selected?.Days??default,selected is null?null:PhysicalLifecycle.SelectedQuantityPolicy,selected?.Memberships??default);
  }
 
  // The latest visible D338 final determination of each cash slot and gas day: separate facts shown beside the accrual.

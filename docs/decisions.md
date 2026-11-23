@@ -7072,3 +7072,49 @@ holds at most six roles, which the hosted owner already does. `ReadPhysical` for
 Trader and Risk analyst only: the eight other trade-reading roles would meet the
 refusals above. Whether the whole-read refusal should instead list the right as
 unavailable is not decided here.
+
+## D445 — Selected delivery quantities in the physical lifecycle
+
+A booked physical membership may select `delivery_schedule_v1`. Absence retains
+contract quantity, including every earlier booking. The policy is immutable in
+component terms; recorded quantities remain trade-owned evidence outside Side
+economic identity. Retained schedules and their admission rules do not change.
+Any composition containing a quantity link refuses this policy. The two-location
+entry keeps contract quantity.
+
+The gas adapter selects each day's latest eligible source heads at the financial
+business instant and knowledge cutoff: final allocation, provisional allocation,
+scheduled, then explicitly labelled contract fallback. Nominations and
+confirmations do not change value. Withdrawal removes only that source's current
+head and never revives its predecessor. Manual and adopted facility allocations
+both qualify. Unequal quantities at the winning rank refuse the trade's valuation
+and the complete risk request; equal quantities retain both evidence references.
+Explicit zero remains a quantity.
+
+The shared held state contains complete contract and selected native quantities,
+source ranks and revision evidence, with an independent map of physical and cash
+memberships. Payments and usage fees inherit their physical source's days. The
+shared lifecycle scales retained linear rows once. For a multi-day contractual
+amount A and total contract quantity Q, the selected amount is A times selected
+quantity divided by Q; accrued and remaining amounts use the selected quantities
+of ended and unended days respectively. This supersedes D360's contract-estimate
+accrual basis only for opted-in memberships. Prices, fixing admission and recorded
+payments keep their contracts. A correction to zero accrual retains a prior
+payment and shows the full overpaid balance; it does not issue a refund.
+
+Both direct reads and portfolio repricing consume this state. Risk uses the same
+pinned quantities for base/up/down scenarios, with trade-specific reuse boundaries.
+The native reader checks the exact visible binding, current source authority and,
+for an ordinary risk worker, its active lease and exact job scope. The facility
+desk's end-of-day context is not a financial valuation instant. Quantity-only P&L
+movement remains in the residual.
+
+The ticket visibly proposes Delivery schedule and requires an explicit choice.
+Older ticket commands may reconstruct an absent field as contract quantity only
+when the current actor owns an existing retained command with current write
+authority. Native staging and publication still compare the original complete
+request; fresh commands and previews require the field.
+Schedules expose selected quantities, ranks and evidence; common Side inspection
+also shows contract quantity and the exact selected ratio. Nonlinear pricing,
+fuel links, changed delivery locations, final indexed billing, keep-whole and
+imbalance positions, and adoption by other commodities remain separate work.

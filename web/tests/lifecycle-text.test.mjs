@@ -60,3 +60,12 @@ test('the value measure names its discounting basis, or neither; a half-present 
  assert.throws(()=>valueMeasureText('label',undefined),/come together/);
  assert.throws(()=>valueMeasureText(undefined,'undiscounted'),/come together/);
 });
+
+
+test('selected quantities name their saved basis without an internal version identifier',()=>{
+ assert.equal(quantityBasisText('selected_delivery_quantity_v1'),'follows selected delivery quantity');
+ assert.equal(quantityBasisText('allocated_final_v1'),'allocated, final');
+ assert.equal(quantityBasisText('allocated_provisional_v1'),'allocated, provisional');
+ assert.equal(quantityBasisText('scheduled_v1'),'scheduled');
+ assert.equal(quantityBasisText('contractual_quantity_v1'),'contract quantity');
+});

@@ -187,6 +187,14 @@ def run_checks(url, query, manifest, run_worker, admin_load, browse=None):
     shown = valuation_checks(c, query, manifest, run_worker, frame, context, body, trade_id, loaded['instrumentId'], before_load, load)
     # The browser reads the Blotter before the refusing trades below are planted: they make the portfolio total refuse, by design.
     if browse: browse(shown)
+    followed=deepcopy(body);followed['operationId']=str(uuid4());followed['physicalSides'][0]['quantityPolicy']='delivery_schedule_v1'
+    selected_load=load(followed)
+    assert load(followed)==selected_load
+    loaded_terms=c.call('gas/composition/editor',dict(context=context,tradeId=selected_load['tradeId']))
+    assert loaded_terms['terms']['physicalSides'][0]['quantityPolicy']=='delivery_schedule_v1'
+    quantity_sources=set(loaded_terms['valuation']['schedule']['rows'][0]['cells']['gas.quantity']['sources'])
+    assert 'contract' in quantity_sources and quantity_sources<={'contract','delivered'},quantity_sources
+    print('PASS the administrator in-term load retains the selected quantity policy and labelled contract fallback on replay',flush=True)
     delivery_mark_checks(c, frame, context, body, publish, sources)
     expired_mark_checks(c, context, body, other)
     payment_revision_checks(c, query, manifest, frame, context, body, load)

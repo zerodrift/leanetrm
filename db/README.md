@@ -21,6 +21,13 @@ application. See [current implementation](../docs/implementation.md) and
 
 Recent schema groups and their contracts:
 
+- [0390](migrations/0390_gas_delivery_quantity_valuation.sql) adds the optional
+  `delivery_schedule_v1` quantity policy to independent physical gas component
+  terms; composition booking accepts it and refuses it beside any quantity link.
+  `security.read_gas_valuation_quantities` returns one visible binding's manual
+  and adopted facility quantity heads under the financial business and knowledge
+  context, to the runtime and to a risk worker inside its leased job scope. A gas
+  ticket may retry a command retained before the field existed (D445).
 - [0389](migrations/0389_operating_role_grants.sql) installs the operating-facility
   capabilities that 0342 created and granted to no role: Market data editor holds
   `ManagePhysicalSetup`, and it and every human role that reads trades hold

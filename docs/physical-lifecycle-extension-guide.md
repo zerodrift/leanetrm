@@ -151,3 +151,20 @@ has an implemented qualified consumer. Never advertise LNG, NGLs, standalone pow
 PPA accepted cash, general inventory accounting or bank integration because a
 shared interface could accommodate them. Keep drafts local until publication is
 explicitly authorized.
+
+
+## Selected delivery quantity input (D445)
+
+`PhysicalCashState` can carry complete `HeldDayQuantity` rows and independent
+`HeldQuantityMembership` source terms under `selected_delivery_quantity_v1`.
+The shared lifecycle admits exact retained contract coverage, scales linear
+physical/cash rows once and accrues ended days on their selected quantities.
+A cash membership inherits its source's complete days and evidence. Zero selected
+accrual retains recorded cash and can produce an overpaid balance. Schedule views
+and common Side inspection expose the quantity basis and provenance.
+
+Gas supplies the first adapter and native evidence read. Another commodity must
+supply its own explicit saved policy, evidence selection, complete held quantities
+and qualified consumer. It does not add a commodity branch to the lifecycle or
+change a retained Side's economic identity. Nonlinear quantity pricing needs its
+own Side behavior; this scaling contract does not admit it.

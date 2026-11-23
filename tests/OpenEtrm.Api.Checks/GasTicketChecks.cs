@@ -18,7 +18,7 @@ internal static class GasTicketChecks
         var key=new ReferenceKey(new(Guid.Parse("00000000-0000-0000-0000-000000000011"),Guid.Parse("00000000-0000-0000-0000-000000000012")),"synthetic_calendar");
         return new("side_calendar_policy_v1",new(true,key),new(kind=="floating",kind=="floating"?key:null),new(kind!="physical",kind!="physical"?key:null));
     }
-    static TicketSideDraft Side(string kind, string code, params (string Id, string Value)[] values) => new(kind, code, V(values)){CalendarPolicy=Policy(kind)};
+    static TicketSideDraft Side(string kind, string code, params (string Id, string Value)[] values) => new(kind, code, V(kind=="physical"?[("quantity_policy","contract"),..values]:values)){CalendarPolicy=Policy(kind)};
     static readonly ImmutableDictionary<string, string> Trade = V(("book", Book.ToString()), ("legal_entity", $"{Entity}@4"), ("counterparty", $"{Counterparty}@7"), ("gas_setup", Setup.ToString()));
     static TicketSideDraft Receipt => Side("physical", "RCT", ("direction", "receive"), ("delivery_from", "2027-01-01"), ("delivery_to", "2027-02-01"), ("product", "firm"), ("quantity", "10000"), ("quantity_basis", "per_operating_day"), ("pipeline", "PIPE"), ("zone", "Z1"), ("delivery_point", "P1"));
     static TicketSideDraft Linked => Side("physical", "DLV", ("direction", "deliver"), ("delivery_from", "2027-01-01"), ("delivery_to", "2027-02-01"), ("product", "firm"), ("quantity_basis", "per_operating_day"), ("pipeline", "PIPE"), ("zone", "Z1"), ("delivery_point", "P2"), ("link_source", "RCT"), ("link_formula", "gross_less_fraction"), ("link_fraction", "0.02"));
@@ -40,6 +40,35 @@ internal static class GasTicketChecks
         }
         void Equal(object? expected, object? actual, string what) { if (!Equals(expected, actual)) throw new Exception($"{what}: expected '{expected}', got '{actual}'."); }
         var full = Draft(Receipt, Linked, Cash, Fee);
+        Check("delivery quantity policy is explicit, proposed visibly, and reopened unchanged",()=>{
+            ImmutableArray<TicketChoice> choices=[new("contract","Contract quantity"),new("delivery_schedule_v1","Delivery schedule")];
+            Equal("delivery_schedule_v1",GasTicket.ChoiceSet(Draft(Receipt),Receipt.Code,"quantity_policy",choices).StartingValue!.Value,"visible suggestion");
+            var selected=Map(Draft(Receipt with{Values=Receipt.Values.SetItem("quantity_policy","delivery_schedule_v1")},Cash));
+            Equal("delivery_schedule_v1",selected.PhysicalSides[0].QuantityPolicy,"saved opt-in");
+            Equal("delivery_schedule_v1",GasTicket.Reopen(selected).Sides[0].Values["quantity_policy"],"reopened opt-in");
+            Equal("contract",GasTicket.Reopen(Map(Draft(Receipt,Cash))).Sides[0].Values["quantity_policy"],"reopened legacy");
+        });
+        Reject("missing quantity policy",Draft(Receipt with{Values=Receipt.Values.Remove("quantity_policy")},Cash));
+        Reject("unknown quantity policy",Draft(Receipt with{Values=Receipt.Values.SetItem("quantity_policy","unknown")},Cash));
+        Reject("delivery schedule policy anywhere on a quantity-linked composition",Draft(Receipt with{Values=Receipt.Values.SetItem("quantity_policy","delivery_schedule_v1")},Linked,Cash));
+        Check("retained-command reconstruction rejects malformed drafts before a database read",()=>{
+            var method=typeof(GasTicketStore).GetMethod("RetriedDraft",BindingFlags.Instance|BindingFlags.NonPublic)!;
+            foreach(var malformed in new[]{Draft((TicketSideDraft)null!),Draft(Receipt with{Values=null!})})
+            {
+                var pending=(Task<TicketDraft>)method.Invoke(new GasTicketStore(null!),["trader",malformed,Operation,false,CancellationToken.None])!;
+                try{pending.GetAwaiter().GetResult();}
+                catch(MarketDataException error)when(error.Code=="ticket_input"){continue;}
+                throw new Exception("Malformed retry must refuse as ticket input before reading retained commands.");
+            }
+        });
+        Check("physical quantity policy preserves absent legacy terms and explicit opt-in",()=>{
+            var physical=Map(Draft(Receipt,Cash)).PhysicalSides[0];var json=new JsonSerializerOptions(JsonSerializerDefaults.Web);
+            var legacy=JsonSerializer.Serialize(physical,json);
+            Equal(false,JsonDocument.Parse(legacy).RootElement.TryGetProperty("quantityPolicy",out _),"legacy field omitted");
+            Equal(null,JsonSerializer.Deserialize<GasPhysicalRequest>(legacy,json)!.QuantityPolicy,"absent means contract quantity");
+            var followed=physical with{QuantityPolicy="delivery_schedule_v1"};
+            Equal("delivery_schedule_v1",JsonSerializer.Deserialize<GasPhysicalRequest>(JsonSerializer.Serialize(followed,json),json)!.QuantityPolicy,"opt-in round trip");
+        });
         Check("two-location entry preserves price choice, endpoint ownership and confirmation boundaries", () =>
         {
             foreach (var purchase in new[] { "fixed", "indexed" })
@@ -56,6 +85,7 @@ internal static class GasTicketChecks
                     var physical = sides.Single(s => s.Code == endpoint);
                     var cash = sides.Single(s => s.Code == endpoint + "_payment");
                     Equal(direction, physical.Values["direction"], "physical direction");
+                    Equal("contract",physical.Values["quantity_policy"],"two-location keeps contract");
                     Equal(choice == "fixed" ? "cash" : "floating", cash.Kind, "explicit payment family");
                     Equal(payment, cash.Values[cash.Kind + "_direction"], "payment direction");
                     Equal(physical.Code, cash.Values[cash.Kind + "_source"], "quantity owner");
@@ -232,9 +262,9 @@ internal static class GasTicketChecks
                 "GasCompositionRequest.TradeId", "GasCompositionRequest.BindingId", "GasCompositionRequest.ExpectedRevision", "GasCompositionRequest.Reason", "GasCompositionRequest.AmendmentPolicy",
                 "GasCashRequest.Indexed", "GasIndexedCashRequest.ObservationConvention", "GasIndexedCashRequest.PaymentConvention"];
             var parameters = new[] { typeof(GasPhysicalRequest), typeof(GasCashRequest), typeof(GasQuantityLinkRequest), typeof(GasCompositionRequest), typeof(GasIndexedCashRequest) }
-                .SelectMany(t => t.GetConstructors().Single().GetParameters().Select(x => $"{t.Name}.{x.Name}")).Where(x => !structural.Contains(x)).Order().ToArray();
+                .SelectMany(t => t.GetConstructors().Single().GetParameters().Select(x => $"{t.Name}.{x.Name}")).Where(x => !structural.Contains(x)).Append("GasPhysicalRequest.QuantityPolicy").Order().ToArray();
             string[] reached = ["GasPhysicalRequest.Pipeline:pipeline", "GasPhysicalRequest.Zone:zone", "GasPhysicalRequest.DeliveryPoint:delivery_point", "GasPhysicalRequest.Product:product", "GasPhysicalRequest.Direction:direction",
-                "GasPhysicalRequest.DeliveryFrom:delivery_from", "GasPhysicalRequest.DeliveryTo:delivery_to", "GasPhysicalRequest.QuantityBasis:quantity_basis", "GasPhysicalRequest.Quantity:quantity",
+                "GasPhysicalRequest.DeliveryFrom:delivery_from", "GasPhysicalRequest.DeliveryTo:delivery_to", "GasPhysicalRequest.QuantityBasis:quantity_basis", "GasPhysicalRequest.QuantityPolicy:quantity_policy", "GasPhysicalRequest.Quantity:quantity",
                 "GasQuantityLinkRequest.Source:link_source", "GasQuantityLinkRequest.Formula:link_formula", "GasQuantityLinkRequest.Fraction:link_fraction",
                 "GasCashRequest.Direction:cash_direction|fee_direction|floating_direction", "GasCashRequest.Source:cash_source|fee_source|floating_source", "GasCashRequest.Stage:cash_stage|fee_stage|floating_stage", "GasCashRequest.Price:cash_price|fee_price",
                 "GasCashRequest.TariffCode:fee_tariff", "GasCashRequest.PaymentAt:cash_payment_at|fee_payment_at",

@@ -44,6 +44,7 @@ def main():
     parser.add_argument('--with-gas-operations-demo',action='store_true',help='Seed the synthetic basis example plus manual scheduling and imbalance records')
     parser.add_argument('--gas-operations-check',action='store_true',help='Qualify manual gas requests, acknowledgments and imbalance transfers')
     parser.add_argument('--gas-billing-check',action='store_true',help='Qualify final daily gas cash and retained corrections')
+    parser.add_argument('--gas-delivery-quantity-check',action='store_true',help='Qualify selected delivery quantities in booked valuation and retained risk')
     parser.add_argument('--gas-daily-quantity-check',action='store_true',help='Qualify daily trade-owned quantities, temporal selection and corrections')
     parser.add_argument('--facility-quantity-check',action='store_true',help='Qualify shared facility quantity storage and explicit gas allocations')
     parser.add_argument('--gas-composition-check',action='store_true',help='Qualify multiple gas sides and explicit quantity links')
@@ -192,7 +193,7 @@ def main():
     if args.gas_quantity_benchmark: args.gas_daily_quantity_check=True
     if args.with_gas_operations_demo: args.with_gas_basis_demo=True
     if args.gas_billing_check or args.gas_operations_check: args.physical_gas_check=True
-    if args.gas_setup_check or args.gas_composition_check or args.gas_amendments_check or args.gas_indexed_check or args.gas_in_term_check or args.deal_ticket_check or args.gas_daily_quantity_check or args.facility_quantity_check: args.physical_gas_check=True
+    if args.gas_setup_check or args.gas_composition_check or args.gas_amendments_check or args.gas_indexed_check or args.gas_in_term_check or args.deal_ticket_check or args.gas_daily_quantity_check or args.gas_delivery_quantity_check or args.facility_quantity_check: args.physical_gas_check=True
     if args.gas_in_term_check and args.gas_indexed_check: parser.error('--gas-in-term-check and --gas-indexed-check use different fixtures; run them separately')
     if args.demo_instruments_check or args.gas_indexed_check or args.gas_in_term_check: args.check=True
 
@@ -205,7 +206,7 @@ def main():
     if args.authoring_browser_suite and not(args.browser_check and args.custom_curves_check):
         parser.error('--authoring-browser-suite requires --custom-curves-check or --price-authoring-check, and --browser-check')
     if args.lifecycle_swap_browser_check and not args.browser_check: parser.error('--lifecycle-swap-browser-check requires --browser-check and --browser')
-    fixing_frames=args.lifecycle_swap_browser_check or args.price_authoring_check or args.gas_operations_check or args.gas_billing_check or gas_demo or args.physical_crude_check or args.lng_cargo_check or args.crude_lifecycle_check or args.with_gas_quantity_dates or args.gas_amendments_check or args.gas_indexed_check or args.gas_daily_quantity_check or args.facility_quantity_check or args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check or args.close_out_drafts_check
+    fixing_frames=args.lifecycle_swap_browser_check or args.price_authoring_check or args.gas_operations_check or args.gas_billing_check or gas_demo or args.physical_crude_check or args.lng_cargo_check or args.crude_lifecycle_check or args.with_gas_quantity_dates or args.gas_amendments_check or args.gas_indexed_check or args.gas_daily_quantity_check or args.gas_delivery_quantity_check or args.facility_quantity_check or args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check or args.close_out_drafts_check
 
     if args.blotter_stream_benchmark and (args.output is None or args.output.resolve().is_relative_to(ROOT)):
         parser.error('--blotter-stream-benchmark requires an --output file outside the repository')
@@ -324,6 +325,9 @@ def main():
             if args.gas_indexed_check:
                 from gas_indexed_fixture import add_fixture
                 reference,market,security,manifest=add_fixture(reference,market,security,manifest)
+            if args.gas_delivery_quantity_check:
+                from delivery_quantity_fixture import add_fixture as add_delivery_quantity_fixture
+                reference,market,security,manifest=add_delivery_quantity_fixture(reference,market,security,manifest)
             if args.gas_in_term_check:
                 from gas_in_term_fixture import add_fixture as add_in_term_fixture
                 reference,market,security,manifest=add_in_term_fixture(reference,market,security,manifest)
@@ -369,6 +373,9 @@ def main():
             if migration.name=='0216_in_term_gas_lifecycle.sql':
                 from check_gas_in_term import upgrade_checks as check_in_term_upgrade
                 check_in_term_upgrade(query,migration)
+            if migration.name=='0390_gas_delivery_quantity_valuation.sql':
+                from check_gas_delivery_quantity import upgrade_checks as check_delivery_quantity_upgrade
+                check_delivery_quantity_upgrade(query,migration)
             if migration.name=='0221_facility_choices_set_based.sql':
                 from check_facility_quantity_ledger import upgrade_checks as check_facility_choices_upgrade
                 check_facility_choices_upgrade(query,migration)
@@ -1124,8 +1131,9 @@ def main():
                     subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-indexed'],cwd=ROOT,env=env,check=True,timeout=180)
             elif args.physical_gas_check:
                 from check_physical_gas_preview import run_checks,run_shape_checks
-                run_checks(url,query,manifest)
-                run_shape_checks(query,manifest)
+                if not args.gas_delivery_quantity_check:
+                    run_checks(url,query,manifest)
+                    run_shape_checks(query,manifest)
                 if args.facility_quantity_check:
                     from check_facility_quantity_ledger import run_checks as check_facility_quantities
                     facility_fixture=check_facility_quantities(url,query,manifest)
@@ -1141,8 +1149,11 @@ def main():
                 if args.gas_billing_check:
                     from check_gas_billing import run_checks as check_gas_billing
                     gas_billing_fixture=check_gas_billing(url,query,manifest)
-                run_gas_worker=risk_worker_runner() if args.gas_composition_check or args.gas_amendments_check or args.gas_indexed_check else None
+                run_gas_worker=risk_worker_runner() if args.gas_composition_check or args.gas_amendments_check or args.gas_indexed_check or args.gas_delivery_quantity_check else None
 
+                if args.gas_delivery_quantity_check:
+                    from check_gas_delivery_quantity import run_checks as check_gas_delivery_quantity
+                    delivery_quantity_fixture=check_gas_delivery_quantity(url,query,manifest,run_gas_worker)
                 if args.gas_composition_check:
                     from check_gas_composition import run_checks as check_gas_composition
                     check_gas_composition(url,query,manifest,run_worker=run_gas_worker)
@@ -1154,7 +1165,9 @@ def main():
                     check_deal_ticket(url,query,manifest)
                 if args.browser_check:
                     target=temporary/'browser-target.json'
-                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,**({'facility':gas_operations_fixture} if args.gas_operations_check else {'facility':gas_billing_fixture} if args.gas_billing_check else {'facility':facility_fixture} if args.facility_quantity_check else {}),**({'gasAmendment':amendment_fixture} if args.gas_amendments_check else {})}))
+                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,**({'facility':delivery_quantity_fixture} if args.gas_delivery_quantity_check else {'facility':gas_operations_fixture} if args.gas_operations_check else {'facility':gas_billing_fixture} if args.gas_billing_check else {'facility':facility_fixture} if args.facility_quantity_check else {}),**({'gasAmendment':amendment_fixture} if args.gas_amendments_check else {})}))
+                    if args.gas_delivery_quantity_check:
+                        subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-delivery-quantity'],cwd=ROOT,env=env,check=True,timeout=300)
                     if args.gas_operations_check:
                         subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-operations'],cwd=ROOT,env=env,check=True,timeout=180)
                     if args.gas_billing_check:
@@ -1164,7 +1177,8 @@ def main():
 
                     if args.facility_quantity_check:
                         subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--facility-quantities'],cwd=ROOT,env=env,check=True,timeout=300)
-                    subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--physical-gas'],cwd=ROOT,env=env,check=True,timeout=180)
+                    if not args.gas_delivery_quantity_check:
+                        subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--physical-gas'],cwd=ROOT,env=env,check=True,timeout=180)
                     if args.deal_ticket_check:
                         subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--deal-ticket'],cwd=ROOT,env=env,check=True,timeout=300)
                 if args.gas_setup_check:

@@ -45,6 +45,7 @@ public static class GasTicket
      Field("forecast_curve","Forecast curve","Published curve used for future prices; the assigned index and fixing source remain contractual.","choice",choices:"forecast_curves",required:false) with{DependsOn=["delivery_from","delivery_to","product","delivery_point"]},
      Info("price","Price","Market price at the delivery point.","price","market_price"),
      Info("payment","Payment","Sides that pay for this gas.","payment","paid_through"),
+     Field("quantity_policy","Valuation quantity","Choose whether value and accrued cash use the contract quantity or selected scheduled and allocated delivery quantities.","choice",choices:"quantity_policies"),
      Field("quantity_basis","Quantity basis","Whether the quantity applies to each operating day or to the whole period.","choice",choices:"quantity_basis"),
      Field("pipeline","Pipeline","Pipeline the gas moves on.","choice",choices:"pipelines"),
      Field("zone","Zone","Pipeline zone.","choice",choices:"zones",dependsOn:"pipeline"),
@@ -142,6 +143,9 @@ public static class GasTicket
    if(count>limit.Max)throw Bad($"Use at most {limit.Max} {string.Join(" and ",limit.Kinds)} sides together, not {count}.");
   }
   var physical=draft.Sides.Where(s=>s.Kind==Physical).ToArray();
+  if(physical.Any(s=>s.Values.ContainsKey("link_source")))
+   foreach(var side in physical.Where(s=>s.Values["quantity_policy"]==GasDeliveryQuantityStore.Policy))
+    throw On(side.Code,"quantity_policy","Delivery schedule valuation is unavailable on a composition with a quantity link. Choose Contract quantity.");
   var codes=physical.Select(s=>s.Code).ToHashSet();
   string Source(TicketSideDraft side,string id)=>codes.Contains(side.Values[id])?side.Values[id]:throw On(side.Code,id,$"{side.Kind} side '{side.Code}' names '{side.Values[id]}', which is not a physical side code.");
   var t=draft.Trade;
@@ -158,7 +162,7 @@ public static class GasTicket
  static GasPhysicalRequest PhysicalRequest(TicketSideDraft side,Func<TicketSideDraft,string,string> source)
  {
   var v=side.Values;var link=Link(side,source);
-  return new(side.Code,v["pipeline"],v["zone"],v["delivery_point"],v["product"],v["direction"],v["delivery_from"],v["delivery_to"],v["quantity_basis"],Quantity(side,link),link,Forecast(v.GetValueOrDefault("forecast_curve"))){CalendarPolicy=Calendar(side)};
+  return new(side.Code,v["pipeline"],v["zone"],v["delivery_point"],v["product"],v["direction"],v["delivery_from"],v["delivery_to"],v["quantity_basis"],Quantity(side,link),link,Forecast(v.GetValueOrDefault("forecast_curve"))){CalendarPolicy=Calendar(side),QuantityPolicy=v["quantity_policy"] switch{"contract"=>null,GasDeliveryQuantityStore.Policy=>GasDeliveryQuantityStore.Policy,_=>throw On(side.Code,"quantity_policy","Choose an offered valuation quantity policy.")}};
  }
 
  static readonly JsonSerializerOptions CurveJson=new(JsonSerializerDefaults.Web);
@@ -205,7 +209,7 @@ public static class GasTicket
  }
 
  // A malformed client draft refuses as ticket input, never as a missing object.
- static void RequireShape(TicketDraft? draft)
+ internal static void RequireShape(TicketDraft? draft)
  {
   if(draft?.Trade is null||draft.Sides.IsDefault||draft.Sides.Any(side=>side?.Values is null))throw Bad("Send the draft's trade values and each side with its values.");
   if(draft.Product!=Description.Product||draft.Version!=Description.Version)throw Bad($"Draft is for {draft.Product} v{draft.Version}, not {Description.Product} v{Description.Version}.");
@@ -224,7 +228,7 @@ public static class GasTicket
   Party("legal_entity",terms.LegalEntityId,terms.LegalEntityRevision);Party("counterparty",terms.CounterpartyId,terms.CounterpartyRevision);
   static ImmutableDictionary<string,string> Values(params (string Id,string? Value)[] values)=>values.Where(v=>v.Value is not null).ToImmutableDictionary(v=>v.Id,v=>v.Value!);
   var physical=terms.PhysicalSides.Select(p=>new TicketSideDraft(Physical,p.Code,Values(("direction",p.Direction),("delivery_from",p.DeliveryFrom),("delivery_to",p.DeliveryTo),("product",p.Product),("quantity",p.Quantity),
-   ("forecast_curve",p.ForecastCurve is {} curve?ForecastValue(curve):null),("quantity_basis",p.QuantityBasis),("pipeline",p.Pipeline),("zone",p.Zone),("delivery_point",p.DeliveryPoint),("link_source",p.Link?.Source),("link_formula",p.Link?.Formula),("link_fraction",p.Link?.Fraction))){CalendarPolicy=p.CalendarPolicy});
+   ("forecast_curve",p.ForecastCurve is {} curve?ForecastValue(curve):null),("quantity_policy",p.QuantityPolicy??"contract"),("quantity_basis",p.QuantityBasis),("pipeline",p.Pipeline),("zone",p.Zone),("delivery_point",p.DeliveryPoint),("link_source",p.Link?.Source),("link_formula",p.Link?.Formula),("link_fraction",p.Link?.Fraction))){CalendarPolicy=p.CalendarPolicy});
   var cash=terms.CashSides.Select(s=>{var kind=SideKind(s.Role).Kind;
    return new TicketSideDraft(kind,s.Code,Values(($"{kind}_direction",s.Direction),($"{kind}_source",s.Source),($"{kind}_stage",s.Stage),($"{kind}_price",s.Price),($"{kind}_payment_at",s.PaymentAt),($"{kind}_tariff",s.TariffCode),
     ("floating_index",s.Indexed?.ObservationConvention=="point_publications_v1"?"@location_publications_v1":s.Indexed?.Index),("floating_forecast_curve",s.Indexed is {} index?index.ForecastCurve is {} forecast?ForecastValue(forecast):"assigned":null),("floating_payment_day",s.Indexed?.PaymentDay.ToString(CultureInfo.InvariantCulture)),("floating_spread",s.Indexed?.Spread))){CalendarPolicy=s.CalendarPolicy};});
@@ -261,6 +265,7 @@ public static class GasTicket
   ["forecast_curves"]=[AssignedForecastChoice],
   ["payment_days"]=[..Enumerable.Range(1,28).Select(n=>new TicketChoice(n.ToString(CultureInfo.InvariantCulture),n.ToString(CultureInfo.InvariantCulture)))],
   ["physical_direction"]=[new("receive","Receive"),new("deliver","Deliver")],["cash_direction"]=[new("pay","Pay"),new("receive","Receive")],
+  ["quantity_policies"]=[new("contract","Contract quantity"),new(GasDeliveryQuantityStore.Policy,"Delivery schedule")],
   ["quantity_basis"]=[new("per_operating_day","Per operating day"),new("period_total_equal_days","Period total over equal days")],
   ["quantity_stages"]=[new("receipt","Receipt"),new("delivery","Delivery"),new("fuel","Fuel")],
   ["link_formulas"]=[new("none","None"),new("gross_less_fraction","Gross less fraction"),new("gross_divided_by_one_plus_fraction","Gross divided by one plus fraction")]}.ToImmutableDictionary();
@@ -275,7 +280,7 @@ public static class GasTicket
   var (target,f)=Field(draft,side,field);
   string? value=choices.Length==1&&(f.Required||side is null||f.Id=="forecast_curve")?choices[0].Value:null;
   value??=f.Choices switch{
-   "physical_direction"=>"receive","quantity_basis"=>"per_operating_day","quantity_stages"=>"delivery","payment_days"=>"10",
+   "quantity_policies"=>GasDeliveryQuantityStore.Policy,"physical_direction"=>"receive","quantity_basis"=>"per_operating_day","quantity_stages"=>"delivery","payment_days"=>"10",
    "forecast_curves" when target?.Kind=="floating"&&target.Values.TryGetValue("floating_source",out var linked)=>draft.Sides.SingleOrDefault(s=>s.Code==linked)?.Values.GetValueOrDefault("forecast_curve")??"assigned",
    "cash_direction" when target is not null&&target.Values.TryGetValue($"{target.Kind}_source",out var source)=>
     draft.Sides.SingleOrDefault(s=>s.Code==source)?.Values.GetValueOrDefault("direction") switch{"receive"=>"pay","deliver"=>"receive",_=>null},
