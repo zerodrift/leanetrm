@@ -58,7 +58,12 @@ read/configure maxima. Each also requires market/trade reads. Neither is assigne
 automatically, and the two writing capabilities are separate. Migration 0386 adds
 the Trade supervisor role, which alone holds `AmendBehindSettlement`: amending a swap
 at an As of before its latest settlement activity (D442). It is not assigned
-automatically. Users & access serves role names/permissions from the stored catalog.
+automatically. Migration 0389 installs the two
+[operating-facility capabilities](operating-facilities.md) that migration 0342 created
+and granted to no role (D444): Market data editor holds `ManagePhysicalSetup`, and it
+and the ten human roles that read trades hold `ReadPhysical`. No agent-only role holds
+either, and no person is assigned a role. Users & access serves role names/permissions
+from the stored catalog.
 
 The initial role-grant trigger kept the agent reader role to agent principals and
 agent principals to it, even for the database owner, while any grant can still be revoked;

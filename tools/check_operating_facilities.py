@@ -25,13 +25,13 @@ def run_checks(query, manifest, psql=None, environment=None):
         passed += 1
         print('PASS operating facilities: ' + label, flush=True)
 
-    def runtime(sql, actor='trader', expiry=120):
+    def runtime(sql, actor='editor', expiry=120):
         token = query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
                       f"'https://preview.invalid','{actor}','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',{expiry});")
         return ('BEGIN;SET LOCAL SESSION AUTHORIZATION preview_runtime;'
                 f"SELECT security.use_context('{token}');" + sql + 'COMMIT;')
 
-    def reject(sql, code, actor='trader'):
+    def reject(sql, code, actor='editor'):
         try:
             query(runtime(sql, actor))
         except RuntimeError as error:
@@ -70,11 +70,34 @@ def run_checks(query, manifest, psql=None, environment=None):
         return (f"SELECT physical.list_power_operating_facilities('{catalog}','{context}',"
                 f"'2020-12-15T16:00:00Z','2020-12-15','{policy}');")
 
-    # Installing capabilities never grants role authority.
-    reject(save(), '42501')
-    check('installation grants no new Physical authority')
-    query("INSERT INTO security.role_permissions SELECT id,p FROM security.roles CROSS JOIN "
-          "(VALUES('ReadPhysical'),('ManagePhysicalSetup'))x(p) WHERE code='trader';")
+    # The installed roles carry the authority (D444): Market data editor sets up and reads, a trade
+    # reader only reads, and a role without the read capability reaches nothing.
+    def holders(permission):
+        return set(query("SELECT r.code FROM security.role_permissions p JOIN security.roles r ON r.id=p.role_id "
+                         f"WHERE p.permission='{permission}';").split())
+
+    check('setup authority is installed on the Market data editor role alone',
+          holders('ManagePhysicalSetup') == {'market_data_editor'})
+    agent_only = {'agent_reader', 'swap_settlement_operator', 'gas_lifecycle_operator'}
+    check('every human role that reads trades, and the setup role, reads operating facilities; no agent-only role does',
+          holders('ReadPhysical') == (holders('ReadTrades') - agent_only) | {'market_data_editor'})
+    migration = (ROOT / 'db/migrations/0389_operating_role_grants.sql').read_text()
+    grants = "SELECT count(*) FROM security.role_permissions;"
+    installed = query(grants)
+    query(migration)
+    check('applying the grant again changes nothing', query(grants) == installed)
+    body = migration[migration.index('BEGIN;') + len('BEGIN;'):migration.rindex('COMMIT;')]
+    try:
+        query("BEGIN;UPDATE security.roles SET code='synthetic_renamed_role' WHERE code='trade_supervisor';" + body + 'ROLLBACK;')
+    except RuntimeError as error:
+        assert 'operating_role_grants' in str(error) and 'trade_supervisor' in str(error), str(error)
+    else:
+        raise AssertionError('The grant accepted an installation without one of its roles')
+    check('an installation without one of the named roles is told which and receives no part of the grant',
+          query(grants) == installed)
+    for actor in ('trader', 'risk', 'viewer', 'approver', 'admin'):
+        reject(save(), '42501', actor=actor)
+    check('only the installed setup role authors operating facilities')
     before = capture()
     request = str(uuid4())
     first = json.loads(query(runtime(save(request=request))))
@@ -182,10 +205,18 @@ def run_checks(query, manifest, psql=None, environment=None):
     check('request status returns the original durable outcome', json.loads(query(runtime(status))) == first)
     reject(f"SELECT security.use_market_context('{catalog}','{before}');" + status, 'power_facility_context')
     check('command recovery is explicit current control state and cannot leak later facts into historical reads')
-    query("INSERT INTO security.role_permissions SELECT id,'ReadPhysical' FROM security.roles WHERE code='viewer';")
-    check('request status is scoped to the current actor', query(runtime(status, 'viewer')) == '')
-    reject(save(), '42501', actor='viewer')
+    for actor in ('trader', 'risk'):
+        assert json.loads(query(runtime(read(second_context), actor))) == first['facility']
+        assert [v['version'] for v in json.loads(query(runtime(directory(second_context, 'all_known_versions_v1'), actor)))] == [1, 2]
+    check('installed trade readers read exact facility versions and the directory')
+    check('request status is scoped to the current actor', query(runtime(status, 'trader')) == '')
+    reject(save(), '42501', actor='trader')
     check('Physical read authority does not grant setup authoring')
+    for actor in ('viewer', 'approver', 'admin'):
+        reject(read(second_context), '42501', actor=actor)
+        reject(directory(second_context, 'all_known_versions_v1'), '42501', actor=actor)
+        reject(status, '42501', actor=actor)
+    check('roles without Physical read authority read no facility, directory or request outcome')
 
     def reject_control(change, operation, code):
         try:
@@ -195,10 +226,10 @@ def run_checks(query, manifest, psql=None, environment=None):
         else:
             raise AssertionError('Revoked authority admitted operating access')
 
-    revoke_read = "DELETE FROM security.role_permissions WHERE permission='ReadPhysical' AND role_id='a0000000-0000-0000-0000-000000000002';"
+    revoke_read = "DELETE FROM security.role_permissions WHERE permission='ReadPhysical' AND role_id='a0000000-0000-0000-0000-000000000004';"
     reject_control(revoke_read, read(second_context), '42501')
     reject_control(revoke_read, status, '42501')
-    revoke_write = "DELETE FROM security.role_permissions WHERE permission='ManagePhysicalSetup' AND role_id='a0000000-0000-0000-0000-000000000002';"
+    revoke_write = "DELETE FROM security.role_permissions WHERE permission='ManagePhysicalSetup' AND role_id='a0000000-0000-0000-0000-000000000004';"
     reject_control(revoke_write, save(request=request), '42501')
     check('current revoked capabilities fence reads, status and request replay')
     revoke_reference = f"DELETE FROM security.reference_catalog_scopes WHERE catalog_id='{reference}';"

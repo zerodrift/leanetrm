@@ -1,6 +1,6 @@
 # Operating facilities and supplied-plan valuation
 
-Status: bounded local implementation (D412). Managed checks, 44 disposable
+Status: bounded local implementation (D412). Managed checks, 50 disposable
 database cases and owned HTTP qualification pass on the current base. Browser component tests qualify form transport, recovery and desktop/phone
 layout. Thirteen owned live-server browser checks also pass native save/reopen,
 pricing, lost-response recovery, leave guards and account isolation. The
@@ -46,10 +46,34 @@ later command outcome as historical data.
 
 `ReadPhysical` and `ReadMarketData` govern scoped reads. Setup authoring and API
 command recovery additionally require `ManagePhysicalSetup`; previews require
-`RunScenario`. Installing the migration grants these capabilities to no role. The
-managed
+`RunScenario`. The managed
 [store](../src/OpenEtrm.Api/PhysicalOperatingFacilityStore.cs) and ordinary API
 operations share the same authorization and storage boundary.
+
+Migration 0342 created the two Physical capabilities and granted them to no role.
+Migration [0389](../db/migrations/0389_operating_role_grants.sql) installs them
+(D444). Market data editor holds `ManagePhysicalSetup`. It and every human role
+that reads trades hold `ReadPhysical`: Trader, Risk analyst, Facility operations,
+Facility operating limits, Gas delivery operations, Gas service setup, Contracts
+administration, Counterparty credit, Trade confirmations and Trade supervisor.
+Viewer, Market data approver, Access administrator, Assistant prompt editor and
+the agent-only roles hold neither. The migration assigns no role to any person.
+
+| A person holding | Can |
+| --- | --- |
+| Market data editor | Open Operating facilities, read facility versions, save a version and recover that save |
+| Trader | Read facility versions; review, book, reopen and value operating rights; read them in the Blotter |
+| Risk analyst | Read facility versions and operating rights; run the supplied-plan preview and the hedge report |
+| Another role that reads trades | Read facility versions and operating rights, including on the confirmations desk and in a plant's facility report |
+
+An operating right is a trade. A trade reader without `ReadPhysical` is refused
+the whole position, valuation or risk read of a scope that holds one
+(`operating_position_unavailable`), does not see the trade on the confirmations
+desk and reads a plant's facility report without its installed capacity and
+operating trades. The assistant's agent role holds no Physical capability: a read
+it makes under that role, such as its trade-reading tool, is refused over such a
+scope, while a workspace page operation runs under the asking person's authority
+and reads what that person reads.
 
 ## Saved fields and their consumers
 
@@ -150,8 +174,8 @@ certificate.
 The current checks cover managed API reference and valuation behavior, 20 thermal
 cases, 16 battery cases and 16 common operating-Side cases, plus the solar-output
 and REC-inventory behavior groups. The dedicated
-[storage check](../tools/check_operating_facilities.py) passes 44 cases in a new
-disposable stock PostgreSQL cluster. It covers exact references, canonical
+[storage check](../tools/check_operating_facilities.py) passes 50 cases in a new
+disposable stock PostgreSQL cluster. It covers installed role authority, exact references, canonical
 business-fact no-ops, expected-head races, command replay, rollback, old knowledge cutoffs, known future
 versions, historical read-only behavior, revoked authority and expiry after lock
 waits. Independent review exercises the numerical and temporal/authorization

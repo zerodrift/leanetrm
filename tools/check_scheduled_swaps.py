@@ -164,7 +164,7 @@ def check_running_amendment(c,w,context,body,composed,currency,query):
     assert c.call('swaps/amend',late,expected=422)['code']=='swap_amendment_backdated'
     assert '2021-01-15 08:00 UTC' in c.call('swaps/preview',late,expected=422)['message']
     if query:
-        assert query("SELECT string_agg(p.permission,',' ORDER BY p.permission) FROM security.role_permissions p JOIN security.roles r ON r.id=p.role_id WHERE r.code='trade_supervisor';").strip()=='AmendBehindSettlement,AmendTrade,ReadMarketData,ReadTradeParties,ReadTrades'
+        assert query("SELECT string_agg(p.permission,',' ORDER BY p.permission) FROM security.role_permissions p JOIN security.roles r ON r.id=p.role_id WHERE r.code='trade_supervisor';").strip()=='AmendBehindSettlement,AmendTrade,ReadMarketData,ReadPhysical,ReadTradeParties,ReadTrades'
         held="FROM security.role_permissions WHERE permission='AmendBehindSettlement' AND role_id=(SELECT id FROM security.roles WHERE code='trader')"
         query("INSERT INTO security.role_permissions SELECT id,'AmendBehindSettlement' FROM security.roles WHERE code='trader';")
         try:
