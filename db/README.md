@@ -21,6 +21,10 @@ application. See [current implementation](../docs/implementation.md) and
 
 Recent schema groups and their contracts:
 
+- [0389](migrations/0389_operating_role_grants.sql) installs the operating-facility
+  capabilities that 0342 created and granted to no role: Market data editor holds
+  `ManagePhysicalSetup`, and it and every human role that reads trades hold
+  `ReadPhysical` (D444).
 - [0386](migrations/0386_amend_behind_settlement.sql) refuses a swap amendment
   dated before the trade's latest settlement activity unless the account holds
   `AmendBehindSettlement`, and adds the Trade supervisor role that holds it (D442).

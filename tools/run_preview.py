@@ -692,11 +692,12 @@ def main():
                 prepare_factor(manifest)
         if security:query(security)
         if args.example=='standard' and (args.structured_power_check or not args.check):
-            query("INSERT INTO security.role_permissions SELECT id,p FROM security.roles CROSS JOIN "
-                  "(VALUES('ReadPhysical'),('ManagePhysicalSetup'),('RunScenario'))x(p) "
+            # Operating facilities and rights use the installed role grants (D444). The preview adds only what no
+            # installed role combines: scenarios for the people on its facility page, and certificate inventory.
+            query("INSERT INTO security.role_permissions SELECT id,'RunScenario' FROM security.roles "
                   "WHERE code='market_data_editor' ON CONFLICT DO NOTHING;")
             query("INSERT INTO security.role_permissions SELECT id,p FROM security.roles CROSS JOIN "
-                  "(VALUES('ReadPhysical'),('RunScenario'),('ReadRecInventory'),('RecordRecInventory'),('ConfigureRecInventory'))x(p) "
+                  "(VALUES('RunScenario'),('ReadRecInventory'),('RecordRecInventory'),('ConfigureRecInventory'))x(p) "
                   "WHERE code='trader' ON CONFLICT DO NOTHING;")
         query(f"SELECT security.initialize_operating_policies('{manifest["tenantId"]}','{manifest["workspaceId"]}');")
         if args.example=='standard' and (gas_demo or not args.check or args.async_workbench_check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check):
