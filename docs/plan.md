@@ -1,6 +1,6 @@
 # Delivery plan and acceptance criteria
 
-D444 implements the first [shared gas pricing building block](superpowers/specs/2026-11-23-delivery-quantity-input-design.md):
+D445 implements the first [shared gas pricing building block](superpowers/specs/2026-11-23-delivery-quantity-input-design.md):
 selected delivery quantities in the shared physical lifecycle. New independent
 physical memberships can opt in; payment and usage-fee quantities follow their
 source. Existing trades and two-location entry keep contract quantity. Temporal

@@ -1,6 +1,6 @@
 # Delivery quantity as a valuation input: design
 
-Status: implemented locally, 23 November 2026 (D444). Targeted managed, database,
+Status: implemented locally, 23 November 2026 (D445). Targeted managed, database,
 API and browser verification passes; broader regression qualification is recorded
 in [verification](../../verification.md). Publication and deployment are separate.
 The selected quantity applies in the in-term lifecycle instead of the
@@ -74,7 +74,7 @@ Each is its own design. This document covers the first only.
 
 ## Implementation baseline
 
-The following describes behavior before D444; contract-policy trades retain it.
+The following describes behavior before D445; contract-policy trades retain it.
 
 | Piece | Behavior | Where |
 | --- | --- | --- |
@@ -307,13 +307,13 @@ Checks are written first and are independent of the implementation's algorithm.
 
 ## Implementation records
 
-Migration `0389_gas_delivery_quantity_valuation.sql` adds the membership term,
+Migration `0390_gas_delivery_quantity_valuation.sql` adds the membership term,
 native valuation read and retained-command compatibility gate. The shared
 `PhysicalDeliveryQuantities` state validates coverage and source mappings;
 `GasHeldQuantities` selects gas evidence. Both valuation routes consume that
 state, and the ticket and common Side inspector display its selected quantities.
 
-[D444](../../decisions.md#d444--selected-delivery-quantities-in-the-physical-lifecycle)
+[D445](../../decisions.md#d445--selected-delivery-quantities-in-the-physical-lifecycle)
 supersedes D360's accrual basis for these trades. [Physical gas](../../physical-gas-side.md), [daily
 quantities](../../physical-gas-daily-quantities.md), the [deal
 ticket](../../deal-ticket.md), [plan](../../plan.md),

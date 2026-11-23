@@ -1,6 +1,6 @@
 # Local verification and continuous integration
 
-## Selected gas delivery quantities (D444)
+## Selected gas delivery quantities (D445)
 
 Local qualification on 2026-11-23 uses .NET SDK 10.0.402, stock PostgreSQL 18.7,
 Node 24.22.0 and Chrome on macOS arm64, with isolated disposable databases and
@@ -33,7 +33,7 @@ All five dedicated browser checks pass: the visible Delivery schedule proposal,
 the linked-composition refusal, per-day source labels, evidence references and
 the overpaid cash balance with its exact selected quantity ratio. Independent
 adversarial review covered numerical, temporal, authorization and retained-command
-behavior; its findings are resolved. Migration 0389 and these changes have not
+behavior; its findings are resolved. Migration 0390 and these changes have not
 been published or applied to production by this qualification.
 
 ## Running-trade amendments (D439–D441)
@@ -5960,3 +5960,50 @@ expired. Separate checks passed an exact non-primary recorded source and an
 expired curve with no eligible output. The 13 owned browser checks passed,
 including selection supersession and late catalog delivery. All 2,244
 frontend tests passed.
+
+## Operating facility and right access (D444)
+
+The checks were run first without migration 0389. The facility storage check and
+the native operating-trade check no longer grant themselves `ReadPhysical` or
+`ManagePhysicalSetup`; both stopped at the Market data editor's first facility
+save with `42501: power_facility_denied`. The owned
+`--structured-power-check` run, at that point still under the preview's own
+grants to Trader and Market data editor, passed the 95 lines of its existing
+flow and stopped when a Risk analyst was refused the facility catalog (403).
+
+With the migration, and with the preview's own grants of the two capabilities
+removed:
+
+- The facility storage check passes 50 cases. Applying the grant again changes
+  nothing, and an installation without one of the named roles is told which and
+  receives no part of it. Setup authority is installed on
+  Market data editor alone, and the roles that read operating facilities are
+  exactly the human roles that read trades plus Market data editor. Trader and
+  Risk analyst read exact versions and the directory and cannot save; Viewer,
+  Market data approver and Access administrator read nothing.
+- The native operating-trade check passes. The editor saves each facility and
+  the trader reaches admission. Risk analyst, Market data editor, Viewer,
+  Market data approver and Access administrator are refused with
+  `operating_booking_denied`, and a booker whose role loses `ReadPhysical` is
+  refused with `operating_facility_unavailable`. A hand grant made before the
+  migration is kept.
+- `--structured-power-check` passes 118 lines. Each of thirteen roles is run as
+  one person against the facility catalog, list, exact read, save, save
+  recovery and supplied-plan preview, and the operating-right catalog,
+  directory, exact read, valuation, review, booking, booking recovery, hedge
+  report and position read. Each role is allowed exactly what D444 lists and
+  refused the rest with 403. The confirmations desk lists the operating right,
+  and a trade reader whose role loses `ReadPhysical` is refused the whole
+  position read of the book that holds it. The preview gives Trader and Market
+  data editor `RunScenario` for its own pages, so the two scenario routes are
+  asserted through the eleven roles it leaves as installed.
+
+These runs used a disposable Linux container with stock PostgreSQL 18.7, Python
+3.12 and a Debug API build under SDK 10.0.402. With the migration the preview's
+default owned check, where the trade-reading roles now hold `ReadPhysical` as
+well, passes 1,584 HTTP and native lines there, and `--scheduled-swap-check`,
+which states the Trade supervisor's permissions exactly, passes 149 lines. The
+182 repository Python unit checks pass. In a running preview a Trader's New
+trade page lists Operating right, and choosing it opens Operating facilities
+with the catalog loaded and setup disabled. The browser suites and the other
+check groups were not run for this change outside CI.

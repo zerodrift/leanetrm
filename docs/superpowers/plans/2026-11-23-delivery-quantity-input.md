@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Implemented and verified locally under D444 on 23 November 2026. All eleven tasks are complete in one integrated local commit. Managed and trading groups, all gas preview workloads, frontend and repository checks pass. Independent review findings are resolved. Publication and deployment remain separate. The reviewed requirements govern the original task sketches below; implemented contracts are recorded in the linked design and verification documents.
+**Status:** Implemented and verified locally under D445 on 23 November 2026. All eleven tasks are complete in one integrated local commit. Managed and trading groups, all gas preview workloads, frontend and repository checks pass. Independent review findings are resolved. Publication and deployment remain separate. The reviewed requirements govern the original task sketches below; implemented contracts are recorded in the linked design and verification documents.
 
 **Goal:** A physical gas membership can follow its booked delivery schedule, so that value, accrued cash and risk use each gas day's scheduled and then allocated quantity.
 
@@ -425,7 +425,7 @@ git commit -s -m "Show a followed side's schedule quantities and amounts on the 
 ### Task 7: Database: the saved policy and the valuation read
 
 **Files:**
-- Create: `db/migrations/0389_gas_delivery_quantity_policy.sql` (use the next free number if 0389 is taken)
+- Create: `db/migrations/0390_gas_delivery_quantity_valuation.sql`
 - Modify: `db/README.md` (the "Recent schema groups" list)
 - Create: `tools/check_gas_delivery_quantity.py`
 - Modify: `tools/run_preview.py` (flag beside `--gas-daily-quantity-check` at `:47`, implication at `:195-199`, dispatch beside `:1132`)
@@ -466,7 +466,7 @@ Expected: each run ends with its checks passed.
 - [x] **Step 5: Commit (consolidated in the integrated local commit)**
 
 ```bash
-git add db/migrations/0389_gas_delivery_quantity_policy.sql db/README.md tools/check_gas_delivery_quantity.py tools/run_preview.py tools/check_all.py
+git add db/migrations/0390_gas_delivery_quantity_valuation.sql db/README.md tools/check_gas_delivery_quantity.py tools/run_preview.py tools/check_all.py
 git commit -s -m "Save a gas membership's quantity policy and read its valuation quantities"
 ```
 

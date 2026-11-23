@@ -158,6 +158,8 @@ def run_checks(url, query, manifest):
     operating=check_trades(client,query,manifest,request,other_plans=[
         ('thermal',booked_thermal,760,{'energy_output':1000,'fuel_input':240}),
         ('solar',booked_solar,500,{'payment_energy':500})])
+    from check_operating_access_http import run_checks as check_access
+    check_access(url,query,command,request,operating)
     from check_rec_http import run_checks as check_recs
     rec=check_recs(client,query,manifest)
     from check_heat_rate_call_http import run_checks as check_heat_rate_calls

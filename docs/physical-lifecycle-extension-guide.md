@@ -153,7 +153,7 @@ shared interface could accommodate them. Keep drafts local until publication is
 explicitly authorized.
 
 
-## Selected delivery quantity input (D444)
+## Selected delivery quantity input (D445)
 
 `PhysicalCashState` can carry complete `HeldDayQuantity` rows and independent
 `HeldQuantityMembership` source terms under `selected_delivery_quantity_v1`.

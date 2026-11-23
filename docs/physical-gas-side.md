@@ -503,10 +503,10 @@ net physical quantity is20; contractual fixed fees remain unchanged.
 The [daily delivery quantity workflow](physical-gas-daily-quantities.md) now records
 separate trade-owned operational revisions and resolves native quantity inputs
 from retained gas grids. Contract-quantity memberships keep their existing values.
-D444 separately opts a physical membership into `delivery_schedule_v1`: the
+D445 separately opts a physical membership into `delivery_schedule_v1`: the
 shared in-term lifecycle uses selected scheduled/allocated quantities for physical
 value, payment and usage-fee accrual, and risk. Retained Side schedules stay
-immutable. See the [quantity valuation contract](physical-gas-daily-quantities.md#selected-quantity-valuation-d444).
+immutable. See the [quantity valuation contract](physical-gas-daily-quantities.md#selected-quantity-valuation-d445).
 
 The integration checkpoint preserves dated-contract observation sources and the
 mandatory published-fixing admission rules in the shared schedule runtime. Local

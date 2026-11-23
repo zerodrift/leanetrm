@@ -4,7 +4,7 @@ The daily quantity workflow records trade-owned operational evidence separately
 from immutable contractual Side programs. It accepts composed gas bookings only;
 stored single-point trades are not enrolled. No trade amendment, physical
 completion, cash determination, payment, inventory or weighted inventory-cost
-calculation follows from recording or selecting a quantity. D444 adds an explicit
+calculation follows from recording or selecting a quantity. D445 adds an explicit
 valuation consumer for newly opted-in physical memberships, described below.
 
 D321 adds a separate [facility-final input policy](gas-basis-demo.md#final-input-contract).
@@ -84,9 +84,9 @@ that wider lifecycle. A billing quantity preview is not a settlement determinati
 enrolled [D338 daily fixed cash consumer](gas-cash-billing.md) supplies that
 bounded determination and its corrections without changing this read contract.
 
-## Selected quantity valuation (D444)
+## Selected quantity valuation (D445)
 
-Migration 0389 stores optional `delivery_schedule_v1` on physical component terms.
+Migration 0390 stores optional `delivery_schedule_v1` on physical component terms.
 Null means contract quantity. Existing trades are not converted, and any quantity
 link in the composition prevents opt-in. The ticket requires a choice and proposes
 Delivery schedule visibly; direct booking and the administrator in-term load accept

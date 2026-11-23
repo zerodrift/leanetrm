@@ -7015,7 +7015,65 @@ in the selected display zone. On phones, navigation and the selected
 instrument's chooser open on demand. The chooser
 reuses D424's grouped list and retains the working draft.
 
-## D444 — Selected delivery quantities in the physical lifecycle
+## D444 — Installed roles set up and read operating facilities
+
+Decided by the owner on 2026-11-22. Migration 0342 created `ReadPhysical` and
+`ManagePhysicalSetup` and granted them to no role (D412). On an installation no
+person could therefore set up an operating facility or read one, or book, read
+or value a thermal toll, battery right or solar right. Only the local preview and
+the checks could, by granting themselves the permissions.
+
+Migration 0389 installs both:
+
+- `ManagePhysicalSetup`: Market data editor. The role already writes the
+  reference data and market definitions a facility version pins, and hosted
+  provisioning gives it to the owner, so a facility can be set up without a
+  change to anyone's roles. A facility save stays one step, with no approver's
+  seal.
+- `ReadPhysical`: Market data editor and every human role that reads trades:
+  Trader, Risk analyst, Facility operations, Facility operating limits, Gas
+  delivery operations, Gas service setup, Contracts administration,
+  Counterparty credit, Trade confirmations and Trade supervisor.
+
+An operating right is a trade. A trade reader without `ReadPhysical` is refused
+the whole position, valuation or risk read of any scope that holds one
+(`operating_position_unavailable`), cannot see or confirm the trade on the
+confirmations desk, and reads a plant's facility report without its installed
+capacity and operating trades. Giving the read to every trade-reading human
+role means that booking the first operating right changes nothing in another
+person's reads. Setup stays with one role.
+
+Unchanged. Viewer, Market data approver, Access administrator and Assistant
+prompt editor read no trades and hold neither permission. The agent-only roles
+hold neither. A read the assistant makes under its own agent role, such as its
+trade-reading tool, is therefore refused over a scope that holds an operating
+right; a workspace page operation runs under the asking person's authority and
+reads what that person reads. Booking still needs `BookTrade`; the supplied-plan
+preview and the hedge report still need `RunScenario`, which only Risk analyst
+holds. The migration assigns no role to any person, keeps a grant an
+installation already made and stops if an installed role is missing. The local
+preview and the operating checks no longer grant themselves these permissions.
+
+The grant follows the role, whoever holds it. A scheduled risk run acts as the
+scheduler's service account, which needs `RunScenario` and so in practice Risk
+analyst, and now reads operating rights. The price collector's service account
+holds Market data editor, but its database login cannot execute the facility
+operations. A role an installation added by hand is not changed, as for earlier
+capabilities; if it reads trades, its holders meet the refusals above until the
+installation grants it `ReadPhysical`.
+
+A later human role that reads trades needs `ReadPhysical` too. The facility
+storage check compares the two sets of roles, and the owned HTTP check runs each
+role as one person against every operating route.
+
+Rejected. Facility operating limits, or a new setup role, for
+`ManagePhysicalSetup`: no person holds either at installation, and an account
+holds at most six roles, which the hosted owner already does. `ReadPhysical` for
+Trader and Risk analyst only: the eight other trade-reading roles would meet the
+refusals above. Whether the whole-read refusal should instead list the right as
+unavailable is not decided here.
+
+## D445 — Selected delivery quantities in the physical lifecycle
 
 A booked physical membership may select `delivery_schedule_v1`. Absence retains
 contract quantity, including every earlier booking. The policy is immutable in

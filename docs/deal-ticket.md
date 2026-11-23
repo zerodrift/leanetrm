@@ -585,7 +585,7 @@ profile's lifecycle and explicit no-discounting policy are unchanged.
   Delivery schedule. The latter is a visible editable starting value. A linked
   composition refuses it on that field. Reopening an earlier trade explicitly
   shows Contract quantity; the two-location entry keeps that choice locked.
-- Under Delivery schedule (D444), the schedule uses final allocation, provisional
+- Under Delivery schedule (D445), the schedule uses final allocation, provisional
   allocation, scheduled, then labelled contract fallback for value and accrual.
   Payment and usage-fee Sides inherit their source selection. Each day shows its
   rank and evidence; Side inspection also shows contract quantity and the exact
