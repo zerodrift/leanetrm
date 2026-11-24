@@ -263,7 +263,7 @@ def check_unpriced_ticket(c,context,call):
     assert c.call('gas/composition/preview',unpriced,expected=422)['code']=='exercise_marks'
     structurally_booked=c.call('gas/composition/book',unpriced)
     def read(saved):
-        return c.call('tickets/trade',dict(context=context,tradeId=saved['tradeId'],bindingId=saved['instrumentId'],revision=1))
+        return c.call('tickets/trade',dict(context=context,tradeId=saved['tradeId'],bindingId=saved['instrumentId'],revision=saved['revision']))
     draft=read(structurally_booked)['draft']
     preview=c.call('tickets/preview',dict(context=context,draft=draft))
     assert preview['presentValue'] is None and preview['groups'] is None and preview['schedule'] is None,preview
@@ -274,6 +274,32 @@ def check_unpriced_ticket(c,context,call):
     result=read(saved)
     assert result['scheduleRefusal']['code']=='exercise_marks' and result['groups'] is None and result['actions']['recordExercise']['allowed']
     print('PASS structurally admitted exercise ticket books while its exact mark is unavailable',flush=True)
+
+    plain={**unpriced,'operationId':str(uuid4())}
+    del plain['exerciseRights']
+    prior=c.call('gas/composition/book',plain)
+    assert 'exerciseRights' not in read(prior)['draft']
+    revised=deepcopy(draft)
+    for revision,lead in [(2,'8'),(3,'6')]:
+        revised['exerciseRights'][0]['right_lead_hours']=lead
+        amendment=dict(context=context,draft=revised,tradeId=prior['tradeId'],bindingId=prior['instrumentId'],
+                       expectedRevision=revision-1,definitionRevisionId=call['definitionRevisionId'],
+                       reason='Synthetic exercise terms correction',policy='future_gas_composition_replace_v1')
+        reviewed=c.call('tickets/amend-preview',amendment)
+        assert reviewed['presentValue'] is None and reviewed['groups'] is None and reviewed['schedule'] is None,reviewed
+        assert reviewed['scheduleRefusal']['code']=='exercise_marks' and reviewed['source']==preview['source'],reviewed
+        command={**amendment,'operationId':str(uuid4())}
+        amended=c.call('tickets/amend',command)
+        assert amended['tradeId']==prior['tradeId'] and amended['instrumentId']!=prior['instrumentId'] and amended['revision']==revision,amended
+        assert c.call('tickets/amend',command)==amended
+        retained=read(amended)
+        assert retained['draft']==revised and retained['scheduleRefusal']['code']=='exercise_marks' and retained['schedule'] is None,retained
+        assert c.call('gas/composition/editor',dict(context=context,tradeId=amended['tradeId']),expected=422)['code']=='exercise_marks'
+        assert c.call('tickets/amend-preview',amendment,expected=409)['code']=='gas_revision_conflict'
+        assert c.call('tickets/amend',{**amendment,'operationId':str(uuid4())},expected=409)['code']=='gas_revision_conflict'
+        assert c.call('tickets/amend-preview',{**amendment,'expectedRevision':revision},expected=409)['code']=='gas_revision_conflict'
+        prior=amended
+    print('PASS unmarked exercise can be added and edited by amendment; stale selections and direct valuation still refuse',flush=True)
 
 
 def election_checks(c,query,manifest,context,fixed,cash,plain,run_worker):

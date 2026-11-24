@@ -9,6 +9,14 @@ type ExerciseCommand={context:WorkingContext;tradeId:string;instrumentId:string;
 type ExerciseReceipt={operationId:string;tradeId:string;instrumentId:string;elections:{right:number;fromDate:string;revisionId:string}[]};
 type Api=<T>(path:string,body:unknown,signal?:AbortSignal)=>Promise<T>;
 
+// Keep the command or its cleared state across same-tab remounts when storage fails.
+const transports=new Map<string,ReturnType<typeof actorTransport<ExerciseCommand>>>();
+function exerciseTransport(identity:string){
+ let transport=transports.get(identity);
+ if(!transport)transports.set(identity,transport=actorTransport<ExerciseCommand>(()=>`deal-ticket-exercise:${identity}`,()=>sessionStorage));
+ return transport;
+}
+
 function element<K extends keyof HTMLElementTagNameMap>(tag:K,text?:string){
  const node=document.createElement(tag);if(text!==undefined)node.textContent=text;return node;
 }
@@ -30,12 +38,12 @@ const definite=(error:unknown)=>{
 export function setupExerciseAction(o:{api:Api;context:()=>WorkingContext;current:()=>boolean;signal:AbortSignal;owner:string;tradeId:string;bindingId:string;revision:number;writable:boolean;reread:()=>Promise<void>}){
  const node=element('section');node.className='ticket-exercise-controls';
  const identity=JSON.stringify([o.owner,o.tradeId,o.bindingId,o.revision,o.context()]);
- const transport=actorTransport<ExerciseCommand>(()=>`deal-ticket-exercise:${identity}`,()=>sessionStorage);
+ const transport=o.writable?exerciseTransport(identity):undefined;
  let action:ExerciseAction|undefined,working:WorkingContext|undefined;
- let prepared=o.writable?transport.read()??undefined:undefined;
+ let prepared=transport?.read()??undefined;
  let form:HTMLFormElement|undefined,open=false,sending=false,stale=false,said='';
  const current=()=>o.current()&&action?.allowed===true&&o.writable&&JSON.stringify(o.context())===JSON.stringify(working);
- const keep=(command:ExerciseCommand|undefined)=>{prepared=command;transport.write(command);};
+ const keep=(command:ExerciseCommand|undefined)=>{prepared=command;transport?.write(command);};
  const path=(selected:string,expected:string)=>{
   if(selected!==`/api/gas/exercise/${expected}`)throw Error('Reread the exact exercise operation for this trade.');
   return selected.slice('/api/'.length);

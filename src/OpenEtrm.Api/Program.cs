@@ -2565,7 +2565,7 @@ api.MapPost("/tickets/status",(HttpContext c,TicketStatusRequest body)=>Locked(c
  return Results.Ok(await gasStore.Status(connection,body.OperationId,ct));
 },c.RequestAborted)));
 api.MapPost("/tickets/amend-preview",(HttpContext c,TicketAmendRequest body)=>FuturesRead(c,TicketContext(body.Context),
- (connection,data,frame,ct)=>gasComposition.Preview(connection,data,frame,GasAmendments.Terms(body,Guid.Empty),ct),
+ (connection,data,frame,ct)=>gasComposition.TicketPreview(connection,data,frame,GasAmendments.Terms(body,Guid.Empty),ct),
  expectedConvention:PhysicalGasStore.Convention,gasTrade:body.TradeId,amendmentPreview:true));
 api.MapPost("/tickets/amend",(HttpContext c,TicketAmendRequest body)=>Locked(c,async session=>{
  var context=TicketContext(body.Context);RequireGasBooking(session,context.KnowledgeMode,context.ContextId);RequireConvention(context,PhysicalGasStore.Convention);

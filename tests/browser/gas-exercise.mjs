@@ -95,10 +95,32 @@ export async function run(actions){
  await open();
  await check('exercise entry starts with no selections or effective instant',
   '[...document.querySelectorAll('+q(form+' select,'+bookInput('effectiveAt'))+')].every(n=>!n.value)');
+ await evaluate(`{
+  const setItem=Storage.prototype.setItem;window.__exerciseStorageRefusals=0;
+  Storage.prototype.setItem=function(key,value){
+   if(key.startsWith('deal-ticket-exercise:')){window.__exerciseStorageRefusals++;throw new DOMException('Synthetic full storage','QuotaExceededError');}
+   return setItem.call(this,key,value);
+  };
+  window.__restoreExerciseStorage=()=>{Storage.prototype.setItem=setItem;};
+ }`);
  await selectPeriod('2021-01-16','exercised');await submit();
  const retry=bookedTicket+' .ticket-retry-exercise';
  await wait(at(retry)+'?.checkVisibility()&&!'+at(retry)+'.disabled',30000);
- await click(retry);await outcomeShown('2021-01-16','exercised');
+ const reopenSchedules=async()=>{
+  await click('#position-details-tabs-terms');await wait('!'+at(bookedTicket));
+  await openBookedSchedules(actions);await wait(at(action)+'?.checkVisibility()',30000);
+ };
+ await reopenSchedules();
+ await check('the remounted schedule retains the unconfirmed election when storage is full',
+  'window.__exerciseStorageRefusals>0&&'+at(action)+'.disabled&&'+at(retry)+'?.checkVisibility()');
+ await click(retry);
+ // The election already appears after the lost reply. Wait for the retry receipt to clear the pending command.
+ await wait('!'+at(retry)+'&&'+at(action)+'?.checkVisibility()&&!'+at(action)+'.disabled',30000);
+ await outcomeShown('2021-01-16','exercised');
+ await reopenSchedules();
+ await check('a second remount offers a fresh election after the original receipt is confirmed',
+  '!'+at(action)+'.disabled&&!'+at(retry));
+ await evaluate('window.__restoreExerciseStorage()');
  await check('recovery retries the exact prepared command under the working ticket and its issued read proof',
   `(()=>{const [a]=window.__electionPrepares,[first,retry]=window.__electionsSent;
    return !!a.proof&&a.request.context.knowledgeMode==='current'&&a.request.context.snapshotId===${q(close.id)}&&
