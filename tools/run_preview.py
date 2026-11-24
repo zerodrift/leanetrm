@@ -347,8 +347,12 @@ def main():
             if args.gas_in_term_check:
                 from gas_in_term_fixture import add_fixture as add_in_term_fixture
                 reference,market,security,manifest=add_in_term_fixture(reference,market,security,manifest)
+        operating_predecessors=None
         query((ROOT/'db/bootstrap.sql').read_text())
         for migration in sorted((ROOT/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
+            if args.structured_power_check and migration.name=='0356_operating_side_composition.sql':
+                from check_operating_populated_upgrade import helper_definitions
+                operating_predecessors=helper_definitions(query)
             if migration.name=='0376_runtime_contexts.sql':
                 from check_runtime_context_reset import run_checks as check_context_reset
                 check_context_reset(query,migration)
@@ -1037,7 +1041,7 @@ def main():
         if args.check:
             if args.structured_power_check:
                 from check_structured_power import run_checks as check_structured_power
-                structured=check_structured_power(url,query,manifest)
+                structured=check_structured_power(url,query,manifest,operating_predecessors=operating_predecessors)
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,

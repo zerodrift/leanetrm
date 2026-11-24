@@ -109,6 +109,17 @@ jobs, then removed its disposable database. This run also qualified both
 renumbered migration predecessor guards. The complete frontend build and
 two-worker suite passed all 2,356 tests with zero failures or skips.
 
+CI exposed a populated operating-upgrade fixture that reconstructed migration
+0356's calendar predecessor from the current helper, retaining migration 0399's
+later charge branch. The fixture now captures the actual four predecessors
+before 0356, verifies legacy quantities, programs and retries under both the
+predecessor and candidate, and atomically restores all current helper definitions.
+This preserves later facility-booking and charge-calendar extensions. Both the
+original guard failure and a current-helper preservation regression were observed
+before their corrections. Independent review passed. The final structured-power
+preview passed 156 checkpoints and all 35 owned browser checks, removed its
+disposable database, and the full repository Python suite passed all 186 tests.
+
 ## European futures options (D449)
 
 Qualified on synthetic data in two places on 2026-11-24. A workstation (macOS arm64,

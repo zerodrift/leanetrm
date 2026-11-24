@@ -1,10 +1,17 @@
 """Replay the operating upgrade over real bookings in a caller-owned disposable fixture."""
 import json
 from pathlib import Path
-import re
 from uuid import UUID
 
 from assistant_context import migration_body
+
+
+HELPERS = (
+    'trading.operating_plan_admission(physical.power_operating_facility_versions,jsonb,timestamp with time zone)',
+    'trading.require_operating_program_shape(uuid,uuid,integer,uuid)',
+    'security.book_operating_right(uuid,jsonb,jsonb,timestamp with time zone)',
+    'trading.request_side_calendar_policy(jsonb,integer)',
+)
 
 
 TABLES = (
@@ -34,31 +41,33 @@ def history_sql(catalog):
     return 'SELECT jsonb_build_object(' + ','.join(values) + ')::text;'
 
 
-def original_function(source, name):
-    matches = re.findall(r'CREATE FUNCTION ' + re.escape(name) + r'\(.*?\nEND\$\$;', source, re.S)
-    if len(matches) != 1:
-        raise AssertionError('Expected one exact tracked predecessor: ' + name)
-    return matches[0].replace('CREATE FUNCTION ', 'CREATE OR REPLACE FUNCTION ', 1)
+def helper_definitions(query):
+    """Read the operating upgrade's helpers at the current migration boundary."""
+    return {signature: query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);")
+            for signature in HELPERS}
 
 
-def run_checks(query, manifest, positions):
+def run_checks(query, manifest, positions, predecessors):
     """positions contain the actual legacy battery, thermal and solar bookings."""
     root = Path(__file__).resolve().parents[1]
     catalog = str(UUID(manifest['catalogId']))
     assert {row['kind'] for row in positions} == {'battery', 'thermal', 'solar'}
     assert all(row['request']['plan']['valuation'] is not None and
                'composition' not in row['request']['plan'] for row in positions)
-    old = (root / 'db/migrations/0345_operating_right_bookings.sql').read_text()
+    assert predecessors is not None and set(predecessors) == set(HELPERS), \
+        'The populated upgrade requires the actual migration 0356 predecessors.'
     migration = migration_body((root / 'db/migrations/0356_operating_side_composition.sql').read_text())
-    calendar = query("SELECT pg_get_functiondef('trading.request_side_calendar_policy(jsonb,integer)'::regprocedure);")
-    added = " IF command->>'convention'='supplied_operating_right_trade_v1' AND command->'plan' ? 'composition' THEN"
-    original = " IF command->>'convention'='supplied_operating_right_trade_v1' THEN"
-    assert calendar.count(added) == 1 and calendar.count(original) == 1
-    start, end = calendar.index(added), calendar.index(original)
-    assert start < end
-    restore = '\n'.join(original_function(old, name) for name in (
-        'trading.operating_plan_admission', 'trading.require_operating_program_shape',
-        'security.book_operating_right')) + '\n' + calendar[:start] + calendar[end:] + ';\n'
+    current_helpers = helper_definitions(query)
+    policy = dict(implementation='side_calendar_policy_v1',
+                  delivery=dict(applicable=False, calendar=None),
+                  observation=dict(applicable=False, calendar=None),
+                  payment=dict(applicable=False, calendar=None))
+    charge_command = dict(physicalSides=[dict(calendarPolicy=policy)],
+                          cashSides=[dict(calendarPolicy=policy)],
+                          chargeSides=[dict(calendarPolicy=policy)])
+    charge_calendar = "SELECT trading.request_side_calendar_policy(" + literal(json.dumps(charge_command)) + "::jsonb,2)::text;"
+    assert json.loads(query(charge_calendar)) == policy
+    restore = ';\n'.join(predecessors[signature] for signature in HELPERS) + ';\n'
     restore += """
 ALTER TABLE trading.operating_memberships DROP CONSTRAINT operating_memberships_name_check,
  ADD CONSTRAINT operating_memberships_name_check CHECK(name IN('discharging_energy','energy_output','payment_energy','charging_energy','fuel_input','variable_fee','access_fee')),
@@ -104,7 +113,7 @@ END$quantities$;"""
 
     reject('BEGIN;' + restore + proof +
            "ALTER FUNCTION security.book_operating_right(uuid,jsonb,jsonb,timestamp with time zone) SET work_mem='64kB';" +
-           migration + 'COMMIT;', 'operating_composition_upgrade: unexpected helper')
+           migration + 'COMMIT;', 'operating_composition_upgrade: unexpected helper security.book_operating_right')
     thermal = next(row for row in positions if row['kind'] == 'thermal')
     instrument = str(UUID(thermal['saved']['instrumentId']))
     # This transaction deliberately corrupts only its own synthetic fixture.
@@ -118,7 +127,9 @@ END$quantities$;"""
     token = str(UUID(query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
         f"'https://preview.invalid','trader','human_interactive','{manifest['tenantId']}',"
         f"'{manifest['workspaceId']}',NULL,'preview_runtime',120);")))
-    replay = 'SET LOCAL SESSION AUTHORIZATION preview_runtime;' + f"SELECT security.use_context('{token}');"
+    bind = ('SET LOCAL SESSION AUTHORIZATION preview_runtime;' +
+            f"SELECT security.use_context('{token}');RESET SESSION AUTHORIZATION;")
+    replay = 'SET LOCAL SESSION AUTHORIZATION preview_runtime;'
     for row in positions:
         body = literal(json.dumps(row['request'])) + '::jsonb'
         prepared = literal(json.dumps(dict(instrumentId=row['saved']['instrumentId'], members=[]))) + '::jsonb'
@@ -133,8 +144,14 @@ END$replay$;"""
     verify = f"""DO $unchanged$ BEGIN
  IF ({snapshot}) IS DISTINCT FROM {expected} THEN RAISE EXCEPTION 'operating_upgrade_history_changed';END IF;
 END$unchanged$;"""
-    # Commit the actual candidate upgrade. Subsequent HTTP get/value/replay calls
-    # exercise this installed result, rather than a rolled-back original schema.
-    query('BEGIN;' + restore + quantities + proof + replay + migration + verify + 'COMMIT;')
+    # Exercise both the predecessor and candidate against the retained bookings.
+    # Bind the single-use context once; both replay passes use this transaction.
+    # Preserve later helper extensions atomically for the subsequent HTTP checks.
+    restore_current = ';\n'.join(current_helpers[signature] for signature in HELPERS) + ';'
+    query('BEGIN;' + restore + quantities + proof + bind + replay + migration +
+          quantities + proof + replay + verify + restore_current + 'COMMIT;')
     assert json.loads(query(history_sql(catalog))) == before
+    assert helper_definitions(query) == current_helpers, 'The upgrade probe must preserve every current helper definition.'
+    assert json.loads(query(charge_calendar)) == policy, 'Replaying the old upgrade must preserve charge calendar selection.'
     print(f'PASS populated operating upgrade: exact predecessor reproduces battery/thermal/solar quantities and admits retained programs; drift and fuel corruption refuse; committed upgrade preserves {len(TABLES)} history/program/relationship sets and original outcomes', flush=True)
+    print('PASS populated operating upgrade preserves every current helper and charge slot selection', flush=True)
