@@ -36,7 +36,7 @@ internal static class StorageFacilityNativeChecks
             counterparty.Id("id"),counterparty.GetProperty("revision").GetInt32(),
             [new("synthetic_receipt",point.Text("pipeline"),point.Text("zone"),point.Text("deliveryPoint"),point.Text("product"),"receive",
                 "2021-01-01","2021-01-02","period_total_equal_days","1000",null){CalendarPolicy=Policy(false)}],
-            [new("synthetic_payment","consideration","pay","synthetic_receipt","delivery","3",null,"2021-02-02T00:00:00Z"){CalendarPolicy=Policy(true)}]);
+            [new("synthetic_payment","consideration","pay","synthetic_receipt","delivery","3",null,"2021-02-02T00:00:00Z"){Share="1",CalendarPolicy=Policy(true)}]);
         var compositions=new GasCompositionStore(database);
         var booked=await compositions.Book("trader",frame,booking,false,default);
         var replay=await compositions.Book("trader",frame,booking,false,default);
