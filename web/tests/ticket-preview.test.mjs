@@ -88,10 +88,28 @@ test('a multi-clock ticket retains its priced groups and currency when its combi
  const groups=[{right:0,from:'2041-01-01',to:'2041-01-02',state:'exercised',forwardSum:'2000',counted:'2000',inputs:null}];
  const preview={schedule:null,summaries:null,scheduleRefusal:{code:'schedule_view',message:'The sides keep different gas-day clocks.'},
   quantityUnit:'MMBtu',currency:'EUR',links:[],groups};
- const result=previewed(empty,{preview},{retained:true});
+ const priced=previewed(empty,{preview:{...preview,schedule:view('1'),summaries,scheduleRefusal:null}},{retained:true});
+ const result=previewed(priced,{preview},{retained:true});
+ assert.equal(result.schedule,null);
  assert.deepEqual(result.groups,groups);
  assert.equal(result.currency,'EUR');
  assert.match(result.status.text,/different gas-day clocks/);
- const failed=previewed(result,{preview:{...preview,groups:null,scheduleRefusal:{code:'exercise_conflict',message:'Conflicting delivery.'}}},{retained:true});
+ const failed=previewed(priced,{preview:{...preview,groups:null,scheduleRefusal:{code:'exercise_conflict',message:'Conflicting delivery.'}}},{retained:true});
  assert.equal(failed.groups,undefined);
+ assert.equal(failed.schedule,null);
+ assert.deepEqual(failed.summaries,[]);
 });
+
+for(const [label,groups,code] of [['a mixed-clock schedule',[],'schedule_view'],['missing exercise marks',null,'exercise_marks']]){
+ test(`an editable draft keeps its last priced grid and summaries after ${label} is refused`,()=>{
+  const oldGroups=groups===null?[{right:0,from:'2041-01-01',to:'2041-01-02',state:'exercised',forwardSum:'2',counted:'2',inputs:null}]:[];
+  const schedule={...view('1'),groups:oldGroups};
+  const first=previewed(empty,{preview:{schedule,summaries,groups:oldGroups,scheduleRefusal:null,quantityUnit:'MMBtu',currency:'USD',links:[]}});
+  const result=previewed(first,{preview:{schedule:null,summaries:null,groups,scheduleRefusal:{code,message:label},quantityUnit:'GJ',currency:'EUR',links:[]}},{retained:false});
+  assert.equal(result.schedule,schedule);
+  assert.deepEqual(result.summaries,summaries);
+  assert.deepEqual([result.quantityUnit,result.currency,result.status.kind],['MMBtu','USD','stale']);
+  assert.match(result.status.text,new RegExp(label));
+  assert.deepEqual(result.groups,[]);
+ });
+}

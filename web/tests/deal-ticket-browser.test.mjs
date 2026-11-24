@@ -95,7 +95,12 @@ test('a redraw keeps the person\'s open and closed rows and leaves out a side th
     rows:[row('2026-11',null,'month','2'),row('2026-11-01','2026-11','day','1'),row('2026-11-02','2026-11','day','1'),row('2026-12',null,'month','1'),row('2026-12-01','2026-12','day','1')]};
    window.toggles=[];
    const on=new Proxy({},{get:(_,name)=>name==='toggle'?(key,open)=>toggles.push([key,open]):()=>{}});
-   const view=(tab)=>({state:addSide(newTicket(d),'fee'),mode:'new',actions:null,schedule,quantityUnit:'MMBtu',instant:at=>at,previous:null,summaries:[],links:[],entry:null,status:{kind:'stale',text:'Preview refused'},fieldErrors:{},choices:{},
+   const {previewed}=await import('/ticket-preview.js');
+   const oldGroups=[{right:0,from:'2026-11-01',to:'2026-11-02',state:'exercised',forwardSum:'2',counted:'2',inputs:null}];
+   const prior=previewed({schedule:null},{preview:{schedule:{...schedule,groups:oldGroups},groups:oldGroups,quantityUnit:'MMBtu',currency:'USD',summaries:[],links:[]}});
+   const stale=previewed(prior,{preview:{schedule:null,groups:null,scheduleRefusal:{code:'exercise_marks',message:'Missing exercise marks.'},
+    quantityUnit:'GJ',currency:'EUR',summaries:null,links:[]}},{retained:false});
+   const view=(tab)=>({state:addSide(newTicket(d),'fee'),mode:'new',actions:null,...stale,instant:at=>at,entry:null,fieldErrors:{},choices:{},
     selectedSide:null,tab,level:'day',closed:new Set(['2026-11']),on});
    window.draw=tab=>{window.ticket?.destroy();window.ticket=renderTicket(document.querySelector('#host'),view(tab));};
    window.draw('instrument');
@@ -104,6 +109,9 @@ test('a redraw keeps the person\'s open and closed rows and leaves out a side th
   })()`);
   assert.deepEqual(await evaluate("[...document.querySelectorAll('.tabulator-row[data-row-key]')].map(r=>r.dataset.rowKey)"),['2026-11','2026-12','2026-12-01']);
   assert.deepEqual(await evaluate("[...document.querySelectorAll('.grid-group-title')].map(t=>t.textContent)"),['physical · physical-1']);
+  assert.equal(await evaluate("document.querySelector('.ticket-status').dataset.kind"),'stale');
+  assert.match(await evaluate("document.querySelector('.ticket-status').textContent"),/Missing exercise marks/);
+  assert.equal(await evaluate("document.querySelector('.ticket-exercise-groups')"),null);
   await evaluate("document.querySelector('.tabulator-row[data-row-key=\"2026-12\"] .tabulator-data-tree-control').click()");
   assert.deepEqual(await evaluate('toggles'),[['2026-12',false]]);
   await evaluate("draw('fee-1')");

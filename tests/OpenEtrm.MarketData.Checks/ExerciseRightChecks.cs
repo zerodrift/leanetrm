@@ -623,6 +623,33 @@ internal static class ExerciseRightChecks
             new RetainedGasInstrument(instrument.Id, instrument.Members, instrument.Assignments,
                 [..instrument.PriceLookups.Where(p => p.Fixing?.FixingAt != f.FixingAt)], [right]));
         RefusesRight("a cash group with only fixed payments", () => f.Instrument(ExerciseHolder.Us, null, f.Fixed, f.Fixed));
+
+        // The monthly price occurs on each of three delivery days. The daily price occurs
+        // only on the last day, and supplies the later deadline for this monthly group.
+        var source = f.Market.Instrument;
+        var staggered = right with { Period = ExercisePeriod.DeliveryMonth,
+            Groups = [new(f.Market.From, f.Market.To, f.FixingAt)] };
+        _ = new RetainedGasInstrument(source.Id, [source.Members[0], source.Members[1], f.Daily],
+            source.Assignments, source.PriceLookups, [staggered]);
+        var cap = f.Instrument(ExerciseHolder.Us, f.Marks, f.Daily, CashPayment(f.Fixed, "-1"));
+        var (_, coherent) = f.Value(cap, f.FixingAt.AddMinutes(1), "3.80");
+        if (coherent.State != "undecided_forecast" || coherent.Counted.Ratio != R("3000"))
+            throw new Exception("The original booked fixing gives the zero-time forecast one minute later.");
+        // Move the latest daily fixing with its deadline. Moving the earlier monthly fixing
+        // alone leaves the maximum unchanged. Neither change belongs to its booked Side.
+        RejectMovedFixing(cap, source.PriceLookups[5], f.FixingAt.AddDays(10));
+        RejectMovedFixing(instrument, source.PriceLookups[6], f.FixingAt);
+
+        static void RejectMovedFixing(RetainedGasInstrument held, IndexPriceLookup lookup, DateTimeOffset deadline)
+        {
+            var saved = held.Rights.Single();
+            var fixing = lookup.Fixing!;
+            var changed = lookup with { Fixing = fixing with { FixingAt = fixing.FixingAt.AddDays(10) } };
+            var lookups = held.PriceLookups.Replace(lookup, changed);
+            var wrong = saved with { Groups = [saved.Groups.Single() with { ExerciseAt = deadline }] };
+            RefusesRight("a supplied fixing inconsistent with the same booked Side", () =>
+                new RetainedGasInstrument(held.Id, held.Members, held.Assignments, lookups, [wrong], held.Marks));
+        }
     }
 
     private static void ContractDeliveryFacts()

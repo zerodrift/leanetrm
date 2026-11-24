@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Text.Json;
 using OpenEtrm.MarketData.Options;
 using OpenEtrm.MarketData.Power;
@@ -174,6 +175,7 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
         {
             var program = Members[slot].Program;
             var sources = PhysicalLifecycle.DatedInputs(program, index).ToLookup(p => p.Instruction.Output.Ordinal, p => p.Lookup);
+            var occurrences = new Dictionary<(int? Ordinal, DateOnly? From, DateOnly? To), HashSet<IndexFixing>>();
             foreach (var instruction in program.Document.Instructions.Where(i => i.Output is { Role: "source", OutputKind: "price" } &&
                 i.Output.Operation != "constant_price"))
             {
@@ -186,10 +188,13 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
                 foreach (var address in instruction.Consumers)
                 {
                     var row = program.Document.Instructions[address].Output;
-                    for (var day = row.DeliveryFrom!.Value; day < row.DeliveryTo!.Value; day = day.AddDays(1))
-                        if (fixing.FixingAt > latest.GetValueOrDefault(day)) latest[day] = fixing.FixingAt;
+                    var key = (row.PaymentOrdinal, row.DeliveryFrom, row.DeliveryTo);
+                    if (!occurrences.TryGetValue(key, out var fixings)) occurrences.Add(key, fixings = []);
+                    fixings.Add(fixing);
                 }
             }
+            if (program.Document.Family == "floating" || occurrences.Count != 0)
+                AddBookedCashFixings(program, occurrences, latest);
         }
         foreach (var group in right.Groups)
         {
@@ -197,6 +202,42 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
                 .Select(i => latest.GetValueOrDefault(group.From.AddDays(i))).Max();
             if (deadline != group.ExerciseAt)
                 throw InvalidRight("A cash exercise group must retain its latest covered index fixing instant.");
+        }
+    }
+
+    // Each booked period owns its first fixing and all of its exact observation records.
+    // A monthly observation may price several daily periods, each with its own occurrence.
+    private static void AddBookedCashFixings(BookedSideProgram program,
+        Dictionary<(int? Ordinal, DateOnly? From, DateOnly? To), HashSet<IndexFixing>> occurrences, Dictionary<DateOnly, DateTimeOffset> latest)
+    {
+        static MarketDataException Inconsistent() => InvalidRight("Each cash exercise occurrence must match its booked fixing terms.");
+        static DateOnly Date(JsonElement period, string field) =>
+            DateOnly.ParseExact(period.GetProperty(field).GetString()!, "yyyy-MM-dd", CultureInfo.InvariantCulture);
+        try
+        {
+            using var definition = JsonDocument.Parse(program.Document.EconomicIdentity);
+            var periods = definition.RootElement.GetProperty(nameof(FloatingSide.Periods));
+            if (occurrences.Count == 0 || periods.GetArrayLength() != occurrences.Count) throw Inconsistent();
+            var ordinal = 0;
+            foreach (var period in periods.EnumerateArray())
+            {
+                var from = Date(period, nameof(FloatingSidePeriod.DeliveryFrom));
+                var to = Date(period, nameof(FloatingSidePeriod.DeliveryTo));
+                if (!occurrences.TryGetValue((ordinal++, from, to), out var fixings)) throw Inconsistent();
+                var saved = period.GetProperty(nameof(FloatingSidePeriod.Fixings));
+                var supplied = fixings.Select(DefinitionIdentity.CanonicalTerm).ToHashSet(StringComparer.Ordinal);
+                var first = period.GetProperty(nameof(FloatingSidePeriod.FirstFixingAt));
+                if (first.GetRawText() != DefinitionIdentity.CanonicalTerm(fixings.Min(f => f.FixingAt)) ||
+                    saved.GetArrayLength() != supplied.Count || !supplied.SetEquals(saved.EnumerateArray().Select(f => f.GetRawText())))
+                    throw Inconsistent();
+                var last = fixings.Max(f => f.FixingAt);
+                for (var day = from; day < to; day = day.AddDays(1))
+                    if (last > latest.GetValueOrDefault(day)) latest[day] = last;
+            }
+        }
+        catch (Exception error) when (error is JsonException or InvalidOperationException or KeyNotFoundException or FormatException or ArgumentNullException)
+        {
+            throw Inconsistent();
         }
     }
 
