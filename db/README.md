@@ -21,6 +21,12 @@ application. See [current implementation](../docs/implementation.md) and
 
 Recent schema groups and their contracts:
 
+- [0391](migrations/0391_european_futures_options.sql) admits `european` beside
+  `american` in `ref_data.futures_option_products.exercise_style`, and adds the
+  check that a European product accepts no contrary instructions. The lifecycle
+  proposal and the option event primitive refuse exercise and assignment of a
+  European series with `option_exercise_style`, ahead of their notice and
+  exercise-window tests. No row is rewritten (D446).
 - [0390](migrations/0390_gas_delivery_quantity_valuation.sql) adds the optional
   `delivery_schedule_v1` quantity policy to independent physical gas component
   terms; composition booking accepts it and refuses it beside any quantity link.

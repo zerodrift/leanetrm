@@ -194,6 +194,7 @@ public sealed partial class FuturesOptionStore(PreviewDatabase database)
         "option_event_side"=>"Exercise and instructions apply to long holdings; assignment applies to short holdings.",
         "option_lots_exceeded"=>"The event closes more lots than the holding has open.",
         "option_exercise_window"=>"Exercise and assignment run from the trade's execution through the option's expiry date.",
+        "option_exercise_style"=>"A European option is exercised only at expiry.",
         "option_calendar"=>"The event date is not a business day of the underlying's trading calendar, or the calendar does not cover it.",
         "option_expired"=>"This holding has already expired.",
         "option_holding_closed"=>"This holding has no open lots.",
