@@ -8,8 +8,11 @@ namespace OpenEtrm.Api;
 public static class TicketBand { public static readonly ImmutableArray<string> Rows=["direction","start","end","product","quantity","price","payment"]; }
 // Unit names the unit a field's or column's values are in, resolved per trade, never a unit symbol: "quantity" is the trade's quantity unit,
 // which the product's preview and booked read return.
+public sealed record TicketFieldCondition(string Field,ImmutableArray<string> Values)
+{public bool Matches(IReadOnlyDictionary<string,string> values)=>values.TryGetValue(Field,out var value)&&Values.Contains(value);}
 public sealed record TicketField(string Id,string Label,string Meaning,string Type,string? Unit,string State,bool Required,string? Band,string? Choices,ImmutableArray<string> DependsOn,string? Lookup,string? Soon,string? Rule)
-{public ImmutableArray<string> RefreshOn{get;init;}=[];public bool AllowNotApplicable{get;init;}[JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)]public bool RefreshDescription{get;init;}}
+{[JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public TicketFieldCondition? VisibleWhen{get;init;}
+ public ImmutableArray<string> RefreshOn{get;init;}=[];public bool AllowNotApplicable{get;init;}[JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)]public bool RefreshDescription{get;init;}}
 // Input names the modes in which a side column's day cells are entered in the side's tab, each recorded by the product's own operation.
 // Soon, on a field, side kind, column or tab, is the hover text of an item drawn as coming soon: it holds no value, is never sent and reads nothing.
 public sealed record TicketColumn(string Id,string Label,string? Unit,string Measure,ImmutableArray<string> Input,string? Soon=null);
@@ -61,6 +64,9 @@ public static class TicketDescriptions
   {
    if(!ids.Add(field.Id))Fail(d,$"field '{field.Id}' is declared more than once");
    CheckField(d,field);
+   if(field.VisibleWhen is {} condition&&(condition.Values.IsDefaultOrEmpty||condition.Values.Distinct().Count()!=condition.Values.Length||
+    !d.Sides.Any(side=>side.Fields.Contains(field)&&side.Fields.Any(f=>f.Id==condition.Field&&f.Type=="choice"&&f.State=="editable"))))
+    Fail(d,$"field '{field.Id}' needs a condition on a choice in the same Side");
   }
   var selectors=d.TradeFields.Where(field=>field.RefreshDescription).Select(field=>field.Id).ToHashSet();
   if(selectors.Count>0&&d.Selection is null)Fail(d,"a refreshing description must attest its selected values, including an empty selection");

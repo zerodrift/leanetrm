@@ -37,20 +37,24 @@ public sealed class GasTicketStore(PreviewDatabase database)
  // nominated record, else the contract's. Amounts stay the contract's: recorded quantities do not revalue the trade.
  const string QuantityPolicy=GasDailyQuantitySelection.ProjectionPolicy;
 
- // Reconstruct only an actor-owned retained command whose older ticket omitted
- // the field. Contract maps to an absent stored term, so Stage/Save still compare
- // the exact original request. New commands and previews require the field.
- internal async Task<TicketDraft> RetriedDraft(string profile,TicketDraft draft,Guid operation,bool amendment,CancellationToken ct)
+ // An owned retry may express old terms with the new visible fields. Compare the
+ // complete mapped command before restoring its original representation; changed
+ // terms continue to the native command hash and conflict there.
+ internal async Task<GasCompositionRequest> RetriedRequest(string profile,TicketDraft draft,Guid operation,bool amendment,
+  Func<TicketDraft,bool,GasCompositionRequest> map,CancellationToken ct)
  {
   GasTicket.RequireShape(draft);
-  bool Missing(TicketSideDraft side)=>side.Kind=="physical"&&!side.Values.ContainsKey("quantity_policy");
-  if(!draft.Sides.Any(Missing))return draft;
   var permission=amendment?"AmendTrade":"BookTrade";
-  var retained=await database.WithIdentity(profile,permission,async(connection,token)=>{
-   await using var q=ScheduleStore.Command(connection,"SELECT security.gas_ticket_retained_request($1,$2,$3)",database.Manifest.CatalogId,operation,permission);
-   return (bool)(await q.ExecuteScalarAsync(token))!;
+  var command=await database.WithIdentity(profile,permission,async(connection,token)=>{
+   await using var q=ScheduleStore.Command(connection,"SELECT security.gas_ticket_retained_command($1,$2,$3)::text",database.Manifest.CatalogId,operation,permission);
+   return await q.ExecuteScalarAsync(token) as string;
   },ct);
-  return retained?draft with{Sides=[..draft.Sides.Select(s=>Missing(s)?s with{Values=s.Values.Add("quantity_policy","contract")}:s)]}:draft;
+  if(command is null)return map(draft,false);
+  using var document=JsonDocument.Parse(command);
+  var retained=document.RootElement.GetProperty("request");
+  var original=retained.ValueKind==JsonValueKind.Null?null:retained.Deserialize<GasCompositionRequest>(Json)!;
+  var candidate=map(GasTicket.RetryDraft(draft,original),original is not null);
+  return original is not null&&GasTicket.SameTerms(candidate,original)?original:candidate;
  }
 
  public static TicketDescription Description(string product,TicketDraft? draft=null)
@@ -76,12 +80,17 @@ public sealed class GasTicketStore(PreviewDatabase database)
    var choices=await CustomCurves.ProjectionChoices(c,database,data,frame,ct);
    var eligible=choices.Where(choice=>choice.Reference.Selection==CustomCurveProjectionBinding.ContainingDeliverySelection&&
     choice.Unit==PriceUnit.FromQuote(metadata.Assignments[0].Quote)&&choice.Covers(days)).ToArray();
-   if((body.Field=="forecast_curve"||metadata.Mapping.GetProperty("settlement_periods").GetArrayLength()>0)&&GasPointPricing.Configured(database.Manifest.CatalogId,metadata.Mapping) is {} configured)
+   if((body.Field=="forecast_curve"||body.Draft.Sides.Single(s=>s.Code==body.Side).Values.GetValueOrDefault("floating_pricing")=="point_publications"&&metadata.Mapping.GetProperty("settlement_periods").GetArrayLength()>0)&&GasPointPricing.Configured(database.Manifest.CatalogId,metadata.Mapping) is {} configured)
    {
     var selected=eligible.SingleOrDefault(choice=>choice.Reference==configured)??throw new MarketDataException("gas_location_curve_unavailable","The point's exact pricing curve must be visible and cover this delivery term in the required price unit.");
     return GasTicket.ChoiceSet(body.Draft,body.Side,body.Field,[new TicketChoice(GasTicket.ForecastValue(selected.Reference),selected.Label)]);
    }
    return GasTicket.ChoiceSet(body.Draft,body.Side,body.Field,[GasTicket.AssignedForecastChoice,..eligible.Select(choice=>new TicketChoice(GasTicket.ForecastValue(choice.Reference),choice.Label))]);
+  }
+  if(body.Field is "floating_pricing" or "floating_index")
+  {
+   var catalog=await Catalog(c,data,frame,ct);
+   return GasTicket.ChoiceSet(body.Draft,body.Side,body.Field,GasTicket.Choices(body.Draft,body.Side,body.Field,catalog),catalog);
   }
   ImmutableArray<TicketChoice>? independent=GasTicket.LocalChoices(body.Draft,body.Side,body.Field);
   if(independent is null&&body.Side is null)
@@ -140,6 +149,6 @@ public sealed class GasTicketStore(PreviewDatabase database)
   var facilityAllocations=composed?await new FacilityQuantityStore(database).TradeAllocations(c,body.TradeId,ct):JsonSerializer.SerializeToElement(Array.Empty<object>(),Json);
   return new{snapshotId=frame.Id,draft=GasTicket.Reopen(read.Terms),definitionRevisionId=read.Terms.DefinitionRevisionId,schedule=read.Valuation.Schedule,summaries=read.Valuation.Summaries,scheduleRefusal=read.Valuation.ScheduleRefusal,quantityUnit=read.Valuation.QuantityUnit,
    measures=read.Valuation.Measures,currency=read.Valuation.Currency,links=read.Valuation.Links,sideSlots=read.Valuation.SideSlots,quantityPolicy=composed?(read.Terms.PhysicalSides.Any(p=>p.QuantityPolicy is not null)?GasDailyQuantitySelection.ValuationPolicy:QuantityPolicy):null,facilityAllocations,
-   actions=new{amend=await GasAmendments.Action(c,database.Manifest.CatalogId,body.TradeId,body.BindingId,body.Revision,frame.At,working,ct),closeOut=new{allowed=false,reason=CloseOutReason},record=new{allowed=composed&&refused is null,reason=!composed?SinglePointRecordReason:refused?.Message??(read.Terms.PhysicalSides.Any(p=>p.QuantityPolicy is not null)?FollowedRecordReason:RecordReason)}}};
+   actions=new{amend=GasTicket.Retired(read.Terms)?new GasAmendmentAction(false,"This retained strict daily index form is read-only. Book a new trade using named index pricing."):await GasAmendments.Action(c,database.Manifest.CatalogId,body.TradeId,body.BindingId,body.Revision,frame.At,working,ct),closeOut=new{allowed=false,reason=CloseOutReason},record=new{allowed=composed&&refused is null,reason=!composed?SinglePointRecordReason:refused?.Message??(read.Terms.PhysicalSides.Any(p=>p.QuantityPolicy is not null)?FollowedRecordReason:RecordReason)}}};
  }
 }

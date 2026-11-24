@@ -47,7 +47,7 @@ internal static class GasAmendments
    throw new MarketDataException("gas_amendment_input",Message("gas_amendment_input")!);
   if(await Refusal(c,catalog,trade,binding,revision,at,ct) is {} code)throw new MarketDataException(code,Message(code)??"The gas amendment is unavailable.");
  }
- internal static GasCompositionRequest Terms(TicketAmendRequest body,Guid operation)=>GasTicket.Request(body.Draft,body.Context.SnapshotId,
-  body.Context.KnowledgeMode??throw new MarketDataException("ticket_input","Supply the amendment knowledge mode."),operation,body.DefinitionRevisionId) with
+ internal static GasCompositionRequest Terms(TicketAmendRequest body,Guid operation,bool retained=false)=>GasTicket.Request(body.Draft,body.Context.SnapshotId,
+  body.Context.KnowledgeMode??throw new MarketDataException("ticket_input","Supply the amendment knowledge mode."),operation,body.DefinitionRevisionId,retained) with
   {TradeId=body.TradeId,BindingId=body.BindingId,ExpectedRevision=body.ExpectedRevision,Reason=body.Reason,AmendmentPolicy=body.Policy};
 }

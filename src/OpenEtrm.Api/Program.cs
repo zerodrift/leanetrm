@@ -2508,8 +2508,8 @@ api.MapPost("/tickets/amend-preview",(HttpContext c,TicketAmendRequest body)=>Fu
 api.MapPost("/tickets/amend",(HttpContext c,TicketAmendRequest body)=>Locked(c,async session=>{
  var context=TicketContext(body.Context);RequireGasBooking(session,context.KnowledgeMode,context.ContextId);RequireConvention(context,PhysicalGasStore.Convention);
  if(body.OperationId is not {} operation||operation==Guid.Empty)throw new MarketDataException("gas_amendment_input","Supply the amendment request identity.");
- body=body with{Draft=await gasTicket.RetriedDraft(Profile(session),body.Draft,operation,true,c.RequestAborted)};
- return await BookGasComposition(c,session,GasAmendments.Terms(body,operation));
+ var terms=await gasTicket.RetriedRequest(Profile(session),body.Draft,operation,true,(draft,retained)=>GasAmendments.Terms(body with{Draft=draft},operation,retained),c.RequestAborted);
+ return await BookGasComposition(c,session,terms);
 }));
 // Booking maps the draft against the definition revision its booking read resolves for the selected frame.
 api.MapPost("/tickets/book",(HttpContext c,TicketBookRequest body)=>Locked(c,async session=>{
@@ -2517,8 +2517,9 @@ api.MapPost("/tickets/book",(HttpContext c,TicketBookRequest body)=>Locked(c,asy
  if(TicketDraft.Require(body.Draft).Product==GasTransportFinancialTicket.Product)return await BookTransport(c,session,body);
  if(GasParkCustodyTicket.IsSelected(body.Draft))return await BookParkCustody(c,session,body);
  if(body.Draft.Product==GasParkLoanTicket.Product)return await BookParkLoan(c,session,body);
- var draft=await gasTicket.RetriedDraft(Profile(session),body.Draft,body.OperationId,false,c.RequestAborted);
- return await BookGasComposition(c,session,TicketRequest(draft,context,body.OperationId,body.DefinitionRevisionId));
+ var terms=await gasTicket.RetriedRequest(Profile(session),body.Draft,body.OperationId,false,
+  (draft,retained)=>GasTicket.Request(draft,context.SnapshotId,context.KnowledgeMode!,body.OperationId,body.DefinitionRevisionId,retained),c.RequestAborted);
+ return await BookGasComposition(c,session,terms);
 }));
 
 async Task<IResult> BookParkLoan(HttpContext c,PreviewSession session,TicketBookRequest body)=>

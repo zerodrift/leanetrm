@@ -18,7 +18,7 @@ internal static class GasTicketChecks
         var key=new ReferenceKey(new(Guid.Parse("00000000-0000-0000-0000-000000000011"),Guid.Parse("00000000-0000-0000-0000-000000000012")),"synthetic_calendar");
         return new("side_calendar_policy_v1",new(true,key),new(kind=="floating",kind=="floating"?key:null),new(kind!="physical",kind!="physical"?key:null));
     }
-    static TicketSideDraft Side(string kind, string code, params (string Id, string Value)[] values) => new(kind, code, V(kind=="physical"?[("quantity_policy","contract"),..values]:values)){CalendarPolicy=Policy(kind)};
+    static TicketSideDraft Side(string kind, string code, params (string Id, string Value)[] values) => new(kind, code, V(kind=="physical"?[("quantity_policy","contract"),..values]:kind is "cash" or "fee" or "floating"?[(kind+"_share","1"),(kind+"_part","whole"),(kind+"_start","2027-01-01"),(kind+"_end","2027-02-01"),..kind=="floating"?new[]{("floating_pricing","named_daily")}:Array.Empty<(string,string)>(),..values]:values)){CalendarPolicy=Policy(kind)};
     static readonly ImmutableDictionary<string, string> Trade = V(("book", Book.ToString()), ("legal_entity", $"{Entity}@4"), ("counterparty", $"{Counterparty}@7"), ("gas_setup", Setup.ToString()));
     static TicketSideDraft Receipt => Side("physical", "RCT", ("direction", "receive"), ("delivery_from", "2027-01-01"), ("delivery_to", "2027-02-01"), ("product", "firm"), ("quantity", "10000"), ("quantity_basis", "per_operating_day"), ("pipeline", "PIPE"), ("zone", "Z1"), ("delivery_point", "P1"));
     static TicketSideDraft Linked => Side("physical", "DLV", ("direction", "deliver"), ("delivery_from", "2027-01-01"), ("delivery_to", "2027-02-01"), ("product", "firm"), ("quantity_basis", "per_operating_day"), ("pipeline", "PIPE"), ("zone", "Z1"), ("delivery_point", "P2"), ("link_source", "RCT"), ("link_formula", "gross_less_fraction"), ("link_fraction", "0.02"));
@@ -70,10 +70,10 @@ internal static class GasTicketChecks
         Reject("unknown quantity policy",Draft(Receipt with{Values=Receipt.Values.SetItem("quantity_policy","unknown")},Cash));
         Reject("delivery schedule policy anywhere on a quantity-linked composition",Draft(Receipt with{Values=Receipt.Values.SetItem("quantity_policy","delivery_schedule_v1")},Linked,Cash));
         Check("retained-command reconstruction rejects malformed drafts before a database read",()=>{
-            var method=typeof(GasTicketStore).GetMethod("RetriedDraft",BindingFlags.Instance|BindingFlags.NonPublic)!;
+            var method=typeof(GasTicketStore).GetMethod("RetriedRequest",BindingFlags.Instance|BindingFlags.NonPublic)!;
             foreach(var malformed in new[]{Draft((TicketSideDraft)null!),Draft(Receipt with{Values=null!})})
             {
-                var pending=(Task<TicketDraft>)method.Invoke(new GasTicketStore(null!),["trader",malformed,Operation,false,CancellationToken.None])!;
+                var pending=(Task<GasCompositionRequest>)method.Invoke(new GasTicketStore(null!),["trader",malformed,Operation,false,new Func<TicketDraft,bool,GasCompositionRequest>((draft,_)=>Map(draft)),CancellationToken.None])!;
                 try{pending.GetAwaiter().GetResult();}
                 catch(MarketDataException error)when(error.Code=="ticket_input"){continue;}
                 throw new Exception("Malformed retry must refuse as ticket input before reading retained commands.");
@@ -229,10 +229,10 @@ internal static class GasTicketChecks
 
         Check("location publication pricing maps and round-trips without an explicit index",()=>
         {
-            var draft=Draft(Receipt,Indexed with{Values=Indexed.Values.SetItem("floating_index","@location_publications_v1")});
+            var draft=Draft(Receipt,Indexed with{Values=Indexed.Values.SetItem("floating_pricing","point_publications").Remove("floating_index")});
             var terms=Map(draft);Equal(null,terms.CashSides[0].Indexed!.Index,"location-selected index");
             Equal("point_publications_v1",terms.CashSides[0].Indexed!.ObservationConvention,"dated location policy");
-            Equal("@location_publications_v1",GasTicket.Draft(terms).Sides[1].Values["floating_index"],"retained location selection");
+            Equal("point_publications",GasTicket.Draft(terms).Sides[1].Values["floating_pricing"],"retained location selection");
         });
         Check("the gas description is valid", () => TicketDescriptions.Validate(GasTicket.Description));
         Check("payment direction can be chosen before its source and refreshes its suggestion afterwards",()=>
@@ -278,14 +278,16 @@ internal static class GasTicketChecks
             string[] structural = ["GasPhysicalRequest.Code", "GasPhysicalRequest.Link", "GasCashRequest.Code", "GasCashRequest.Role", "GasCompositionRequest.SnapshotId", "GasCompositionRequest.Convention", "GasCompositionRequest.KnowledgeMode",
                 "GasCompositionRequest.Profile", "GasCompositionRequest.OperationId", "GasCompositionRequest.DefinitionRevisionId", "GasCompositionRequest.Discounting", "GasCompositionRequest.PhysicalSides", "GasCompositionRequest.CashSides",
                 "GasCompositionRequest.TradeId", "GasCompositionRequest.BindingId", "GasCompositionRequest.ExpectedRevision", "GasCompositionRequest.Reason", "GasCompositionRequest.AmendmentPolicy", "GasCompositionRequest.PreviewTradeId", "GasCompositionRequest.PreviewContextId",
-                "GasCashRequest.Indexed", "GasIndexedCashRequest.ObservationConvention", "GasIndexedCashRequest.PaymentConvention"];
+                "GasCashRequest.Indexed", "GasIndexedCashRequest.PaymentConvention"];
             var parameters = new[] { typeof(GasPhysicalRequest), typeof(GasCashRequest), typeof(GasQuantityLinkRequest), typeof(GasCompositionRequest), typeof(GasIndexedCashRequest) }
-                .SelectMany(t => t.GetConstructors().Single().GetParameters().Select(x => $"{t.Name}.{x.Name}")).Where(x => !structural.Contains(x)).Append("GasPhysicalRequest.QuantityPolicy").Order().ToArray();
+                .SelectMany(t => t.GetConstructors().Single().GetParameters().Select(x => $"{t.Name}.{x.Name}")).Where(x => !structural.Contains(x)).Concat(new[]{"GasPhysicalRequest.QuantityPolicy","GasCashRequest.Share","GasCashRequest.Part","GasCashRequest.DeliveryFrom","GasCashRequest.DeliveryTo"}).Order().ToArray();
             string[] reached = ["GasPhysicalRequest.Pipeline:pipeline", "GasPhysicalRequest.Zone:zone", "GasPhysicalRequest.DeliveryPoint:delivery_point", "GasPhysicalRequest.Product:product", "GasPhysicalRequest.Direction:direction",
                 "GasPhysicalRequest.DeliveryFrom:delivery_from", "GasPhysicalRequest.DeliveryTo:delivery_to", "GasPhysicalRequest.QuantityBasis:quantity_basis", "GasPhysicalRequest.QuantityPolicy:quantity_policy", "GasPhysicalRequest.Quantity:quantity",
                 "GasQuantityLinkRequest.Source:link_source", "GasQuantityLinkRequest.Formula:link_formula", "GasQuantityLinkRequest.Fraction:link_fraction",
                 "GasCashRequest.Direction:cash_direction|fee_direction|floating_direction", "GasCashRequest.Source:cash_source|fee_source|floating_source", "GasCashRequest.Stage:cash_stage|fee_stage|floating_stage", "GasCashRequest.Price:cash_price|fee_price",
-                "GasCashRequest.TariffCode:fee_tariff", "GasCashRequest.PaymentAt:cash_payment_at|fee_payment_at",
+                "GasCashRequest.Share:cash_share|fee_share|floating_share", "GasCashRequest.Part:cash_part|cash_part_lower|cash_part_upper|fee_part|fee_part_lower|fee_part_upper|floating_part|floating_part_lower|floating_part_upper",
+                "GasCashRequest.DeliveryFrom:cash_start|fee_start|floating_start", "GasCashRequest.DeliveryTo:cash_end|fee_end|floating_end",
+                "GasIndexedCashRequest.ObservationConvention:floating_pricing", "GasCashRequest.TariffCode:fee_tariff", "GasCashRequest.PaymentAt:cash_payment_at|fee_payment_at",
                 "GasCompositionRequest.BookId:book", "GasCompositionRequest.GasSetupId:gas_setup", "GasCompositionRequest.LegalEntityId:legal_entity", "GasCompositionRequest.LegalEntityRevision:legal_entity",
                 "GasPhysicalRequest.ForecastCurve:forecast_curve", "GasCompositionRequest.CounterpartyId:counterparty", "GasCompositionRequest.CounterpartyRevision:counterparty",
                 "GasIndexedCashRequest.Index:floating_index", "GasIndexedCashRequest.ForecastCurve:floating_forecast_curve", "GasIndexedCashRequest.Spread:floating_spread", "GasIndexedCashRequest.PaymentDay:floating_payment_day"];
@@ -344,7 +346,7 @@ internal static class GasTicketChecks
 
         TicketSideDraft With(TicketSideDraft side, string id, string? value) => side with { Values = value is null ? side.Values.Remove(id) : side.Values.SetItem(id, value) };
         Reject("an unknown field id", Draft(With(Receipt, "colour", "blue")));
-        Reject("a value for a derived field", Draft(Receipt, With(Cash, "cash_start", "2027-01-01")));
+        Reject("a value for an informational field", Draft(With(Receipt, "gas_day_start", "09:00")));
         Reject("a value for an info field", Draft(With(Receipt, "price", "3")));
         Reject("a value for a field of another side kind", Draft(Receipt, With(Cash, "fee_tariff", "T")));
         Reject("a missing required side value", Draft(With(Receipt, "product", null)));
@@ -396,6 +398,60 @@ internal static class GasTicketChecks
         Reject("a draft without a product", full with { Product = null! });
         Reject("no draft", null!);
 
+        Check("gas payment parts and shares map explicitly and reopen",()=>
+        {
+            foreach(var choice in new[]{"whole","up_to","above","between","shortfall"})
+            {
+                var values=Cash.Values.SetItem("cash_share","1.05").SetItem("cash_part",choice)
+                    .SetItem("cash_start","2027-01-15").SetItem("cash_end","2027-02-01");
+                if(choice is "above" or "between" or "shortfall")values=values.SetItem("cash_part_lower","8000");
+                if(choice is "up_to" or "between")values=values.SetItem("cash_part_upper","10000");
+                var mapped=Map(Draft(Receipt,Cash with{Values=values}));var cash=mapped.CashSides[0];
+                Equal("1.05",cash.Share,"explicit share");Equal("2027-01-15",cash.DeliveryFrom,"own dates");
+                Equal(choice switch{
+                    "whole"=>null,"up_to"=>new GasQuantityPartRequest("band","0","10000"),
+                    "above"=>new GasQuantityPartRequest("band","8000",null),"between"=>new GasQuantityPartRequest("band","8000","10000"),
+                    _=>new GasQuantityPartRequest("shortfall","8000",null)},cash.Part,"explicit part");
+                var reopened=GasTicket.Reopen(mapped).Sides[1].Values;
+                Equal(choice,reopened["cash_part"],"part reopened");Equal("1.05",reopened["cash_share"],"share reopened");
+            }
+        });
+        Check("older whole payment terms reopen with visible quantity and date fields",()=>
+        {
+            var old=Map(Draft(Receipt,Cash));old=old with{CashSides=[old.CashSides[0] with{Share=null!,DeliveryFrom=null,DeliveryTo=null}]};
+            var values=GasTicket.Reopen(old).Sides[1].Values;
+            Equal("1",values["cash_share"],"retained whole share");Equal("whole",values["cash_part"],"retained whole part");
+            Equal("2027-01-01",values["cash_start"],"retained source start");Equal("2027-02-01",values["cash_end"],"retained source end");
+        });
+        Names("a part beside a quantity link",Draft(Receipt,Linked,With(With(Cash,"cash_part","above"),"cash_part_lower","8000")),"ticket_input","PAY","cash_part");
+        Names("equal band levels",Draft(Receipt,With(With(With(Cash,"cash_part","between"),"cash_part_lower","8000"),"cash_part_upper","8000")),"ticket_input","PAY","cash_part_upper");
+        Names("a payment before its source",Draft(Receipt,With(Cash,"cash_start","2026-12-31")),"ticket_input","PAY","cash_start");
+        Names("a payment after its source",Draft(Receipt,With(Cash,"cash_end","2027-02-02")),"ticket_input","PAY","cash_end");
+        Check("seven payments fit only beside one physical side",()=>Equal(7,Map(Draft([Receipt,..Enumerable.Range(0,7).Select(n=>Cash with{Code=$"C{n}"})])).CashSides.Length,"seven payments"));
+        Reject("seven payments beside two physical sides",Draft([Receipt,Linked,..Enumerable.Range(0,7).Select(n=>Cash with{Code=$"C{n}"})]));
+        Check("three index pricing choices keep distinct conventions",()=>{
+            foreach(var (choice,convention) in new[]{("point_publications","point_publications_v1"),("named_daily","named_index_daily_v1"),("named_monthly","named_index_monthly_v1")})
+            {
+                var values=Indexed.Values.SetItem("floating_pricing",choice);
+                if(choice=="point_publications")values=values.Remove("floating_index");
+                var request=Map(Draft(Receipt,Indexed with{Values=values}));
+                Equal(convention,request.CashSides[0].Indexed!.ObservationConvention,"selected convention");
+                Equal(choice,GasTicket.Reopen(request).Sides[1].Values["floating_pricing"],"retained convention");
+            }
+            var old=Map(Draft(Receipt,Indexed));old=old with{CashSides=[old.CashSides[0] with{Indexed=old.CashSides[0].Indexed! with{ObservationConvention="daily_published_index_v1"}}]};
+            var draft=GasTicket.Reopen(old);
+            Equal("retained_daily",draft.Sides[1].Values["floating_pricing"],"strict retained convention");
+            Equal("I",draft.Sides[1].Values["floating_index"],"strict retained index");
+            Reject("retired convention in new entry",draft);
+        });
+        Check("retained ticket representation changes preserve the complete original command",()=>{
+            var original=Map(Draft(Receipt,Cash));original=original with{CashSides=[original.CashSides[0] with{Share=null!}]};
+            var draft=GasTicket.Reopen(original);var mapped=Map(draft);
+            Equal(true,GasTicket.SameTerms(mapped,original),"predecessor whole terms");
+            Equal(false,GasTicket.SameTerms(mapped with{OperationId=Guid.NewGuid()},original),"operation identity");
+            Equal(false,GasTicket.SameTerms(mapped with{SnapshotId=Guid.NewGuid()},original),"snapshot identity");
+            Equal(false,GasTicket.SameTerms(mapped with{CashSides=[mapped.CashSides[0] with{Share="1.1"}]},original),"changed share");
+        });
         Check("held preview retains its explicit historical context independently of booking terms",()=>
         {
             var request=Map(Draft(Receipt,Cash)) with{PreviewTradeId=Guid.NewGuid(),PreviewContextId=Guid.NewGuid(),KnowledgeMode="retained"};
@@ -455,6 +511,7 @@ internal static class GasTicketChecks
              {"pipeline":"PA","pipelineName":"Pipeline A","zone":"ZA2","zoneName":"Zone A2","deliveryPoint":"P3","deliveryPointName":"Point 3","clock":"fixed_utc","dayStartMinute":0,"product":"firm","productName":"Firm","valuation":{"quote":"Q","index":"I"}},
              {"pipeline":"PB","pipelineName":"Pipeline B","zone":"ZB1","zoneName":"Zone B1","deliveryPoint":"P4","deliveryPointName":"Point 4","clock":"fixed_utc","dayStartMinute":60,"product":"firm","productName":"Firm","valuation":{"quote":"Q","index":"I"}},
              {"pipeline":"PC","pipelineName":"Pipeline C","zone":"ZC1","zoneName":"Zone C1","deliveryPoint":"P5","deliveryPointName":"Point 5","clock":"fixed_utc","dayStartMinute":0,"product":"interruptible","productName":"Interruptible","valuation":null}],
+             "pricingIndices":[{"product":"firm","quote":"Q","code":"I","name":"I"},{"product":"firm","quote":"Q","code":"J","name":"J"}],
              "tariffs":[{"code":"T1","name":"Usage A","pipeline":"PA","product":"firm","quote":"Q","rate":"0.045","validFrom":"2027-01-01","validTo":"2027-12-31"},
               {"code":"T2","name":"Usage B","pipeline":"PB","product":"firm","quote":"Q","rate":"0.05","validFrom":"2027-01-01","validTo":"2027-12-31"},
               {"code":"T3","name":"Usage A later","pipeline":"PA","product":"firm","quote":"Q","rate":"0.06","validFrom":"2027-01-15","validTo":"2027-12-31"}],
@@ -473,6 +530,24 @@ internal static class GasTicketChecks
             try { action(); } catch (MarketDataException error) when (error.Code == code) { passed++; Console.WriteLine($"PASS {name}"); return; }
             throw new Exception($"Expected {code} for {name}.");
         }
+        Check("index pricing proposals are visible and named indices remain independent",()=>{
+            var draft=Open(A(Receipt),Indexed);var choices=GasTicket.Choices(draft,"IDX","floating_pricing",catalog);
+            Equal("point_publications,named_daily,named_monthly",string.Join(",",choices.Select(c=>c.Value)),"pricing choices");
+            Equal("named_daily",GasTicket.ChoiceSet(draft,"IDX","floating_pricing",choices,catalog).StartingValue!.Value,"daily proposal");
+            var indices=GasTicket.Choices(draft,"IDX","floating_index",catalog);
+            Equal("I,J",string.Join(",",indices.Select(c=>c.Value)),"independent eligible indexes");
+            Equal("I",GasTicket.ChoiceSet(draft,"IDX","floating_index",indices,catalog).StartingValue!.Value,"assigned index proposal");
+            var publications=System.Text.Json.Nodes.JsonNode.Parse(catalog.GetRawText())!;
+            publications["locations"]![0]!["valuation"]!["cashPricingSource"]="point_publications_v1";
+            var point=JsonSerializer.SerializeToElement(publications);
+            Equal("point_publications",GasTicket.ChoiceSet(draft,"IDX","floating_pricing",choices,point).StartingValue!.Value,"point proposal");
+            Equal("I,J",string.Join(",",GasTicket.Choices(draft,"IDX","floating_index",point).Select(c=>c.Value)),"named pricing on publication point");
+        });
+        Refuses("ticket_lookup","an unpriced path cannot propose index pricing",()=>{
+            var unpriced=Receipt with{Values=Receipt.Values.SetItems(V(("pipeline","PC"),("zone","ZC1"),("delivery_point","P5"),("product","interruptible")))};
+            var draft=Open(unpriced,Indexed);
+            GasTicket.ChoiceSet(draft,"IDX","floating_pricing",GasTicket.Choices(draft,"IDX","floating_pricing",catalog),catalog);
+        });
         var fee = With(With(Fee, "fee_source", "RCT"), "fee_tariff", null);
         Check("zones list only the chosen pipeline's zones", () => Equal("ZA1,ZA2", Listed(Open(A(Receipt)), "RCT", "zone"), "zones"));
         Check("points list only the chosen zone's points", () => Equal("P1,P2", Listed(Open(A(Receipt)), "RCT", "delivery_point"), "points"));
@@ -539,8 +614,8 @@ internal static class GasTicketChecks
         });
         Refuses("ticket_lookup", "a tariff lookup on a receipt-stage fee refuses", () => GasTicket.Lookup(Open(A(Receipt), With(fee, "fee_stage", "receipt")), "FEE", "fee_tariff", catalog));
         Refuses("ticket_lookup", "a tariff lookup beside a manual fee price refuses", () => GasTicket.Lookup(Open(A(Receipt), With(fee, "fee_price", "0.045")), "FEE", "fee_tariff", catalog));
-        Refuses("ticket_lookup", "a tariff lookup with no eligible tariff refuses", () => GasTicket.Lookup(Open(With(A(Receipt), "delivery_from", "2026-12-01"), fee), "FEE", "fee_tariff", catalog));
-        Refuses("ticket_lookup", "a tariff lookup with several eligible tariffs refuses", () => GasTicket.Lookup(Open(With(A(Receipt), "delivery_from", "2027-01-15"), fee), "FEE", "fee_tariff", catalog));
+        Refuses("ticket_lookup", "a tariff lookup with no eligible tariff refuses", () => GasTicket.Lookup(Open(With(A(Receipt), "delivery_from", "2026-12-01"), With(fee,"fee_start","2026-12-01")), "FEE", "fee_tariff", catalog));
+        Refuses("ticket_lookup", "a tariff lookup with several eligible tariffs refuses", () => GasTicket.Lookup(Open(With(A(Receipt), "delivery_from", "2027-01-15"), With(fee,"fee_start","2027-01-15")), "FEE", "fee_tariff", catalog));
         Check("a booked request reopens as its draft only when the draft maps back to it exactly", () =>
         {
             Equal(Values(full), Values(GasTicket.Reopen(Map(full))), "reopened draft");

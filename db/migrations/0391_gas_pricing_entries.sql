@@ -221,4 +221,27 @@ BEGIN
  EXECUTE definition;
 END$patch$;
 
+-- The ticket may show predecessor whole/full-term terms explicitly while replaying
+-- their unchanged original command. Only the originating actor with current write
+-- authority may read it; an owned staging request can exist without an outcome.
+CREATE FUNCTION security.gas_ticket_retained_command(catalog uuid,operation uuid,permission_name text) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog SET jit=off AS $function$
+DECLARE actor uuid;body jsonb;
+BEGIN
+ IF security.gas_ticket_retained_request(catalog,operation,permission_name) IS NOT TRUE THEN RETURN NULL;END IF;
+ SELECT actor_id INTO STRICT actor FROM security.request_contexts
+  WHERE backend_pid=pg_backend_pid() AND transaction_id=pg_current_xact_id_if_assigned() AND runtime_login=session_user AND market_context_id IS NULL;
+ IF permission_name='AmendTrade' THEN
+  SELECT request INTO body FROM trading.gas_amendment_commands WHERE(catalog_id,operation_id,actor_id)=(catalog,operation,actor);
+ ELSE
+  SELECT request INTO body FROM trading.trades WHERE(catalog_id,operation_id,actor_id)=(catalog,operation,actor);
+ END IF;
+ IF security.gas_ticket_retained_request(catalog,operation,permission_name) IS NOT TRUE
+ THEN RAISE EXCEPTION 'Gas ticket write authority expired' USING ERRCODE='42501';END IF;
+ RETURN jsonb_build_object('request',body);
+END$function$;
+ALTER FUNCTION security.gas_ticket_retained_command(uuid,uuid,text) OWNER TO openetrm_security_owner;
+REVOKE ALL ON FUNCTION security.gas_ticket_retained_command(uuid,uuid,text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION security.gas_ticket_retained_command(uuid,uuid,text) TO openetrm_runtime;
+
 COMMIT;

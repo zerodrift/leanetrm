@@ -14,7 +14,7 @@ internal static class GasTicketStartingValues
  internal static TicketLookup? Retained(TicketFieldRequest body)
  {
   var kind=GasTicket.LookupOf(body.Draft,body.Side,body.Field);
-  if(kind is not ("entry_from" or "entry_to" or "entry_quantity"))return null;
+  if(kind is not ("entry_from" or "entry_to" or "entry_quantity" or "entry_share"))return null;
   var side=body.Draft.Sides.Single(s=>s.Code==body.Side);
   if(kind=="entry_quantity"&&side.Values.ContainsKey("link_source"))throw Missing("Quantity follows the selected physical source.");
   var current=side.Values.GetValueOrDefault(body.Field);if(string.IsNullOrWhiteSpace(current))return null;
@@ -31,6 +31,12 @@ internal static class GasTicketStartingValues
   var side=body.Draft.Sides.Single(s=>s.Code==body.Side);var current=side.Values.GetValueOrDefault(body.Field);
   var kind=GasTicket.LookupOf(body.Draft,body.Side,body.Field);
   TicketLookup Suggest(string value,string label)=>new(value,new("suggestion",label));
+  if(kind=="entry_share")return Suggest(current??"1","Suggested whole share");
+  if(kind is "entry_source_from" or "entry_source_to")
+  {
+   var source=Source(body.Draft,side);var value=source.Values.GetValueOrDefault(kind=="entry_source_from"?"delivery_from":"delivery_to")??throw Missing("Choose the source delivery dates first.");
+   return Suggest(value,"Suggested source delivery term");
+  }
   if(kind=="entry_quantity")return Suggest(current??"100","Suggested native quantity");
   if(kind=="entry_spread")return Suggest(current??"0","Suggested zero additional spread");
   if(kind is "entry_from" or "entry_to")
@@ -49,7 +55,7 @@ internal static class GasTicketStartingValues
   }
   if(kind=="entry_payment")
   {
-   var source=Source(body.Draft,side);if(!DateOnly.TryParseExact(source.Values.GetValueOrDefault("delivery_to"),"yyyy-MM-dd",CultureInfo.InvariantCulture,DateTimeStyles.None,out var to))throw Missing("Choose the source delivery end first.");
+   var source=Source(body.Draft,side);if(!DateOnly.TryParseExact(side.Values.GetValueOrDefault($"{side.Kind}_end")??source.Values.GetValueOrDefault("delivery_to"),"yyyy-MM-dd",CultureInfo.InvariantCulture,DateTimeStyles.None,out var to))throw Missing("Choose the source delivery end first.");
    var path=Path(catalog,source);var clock=new GasDayClock(new(data.ReferenceRevision,path.Text("clock")),PpaQuantitiesStore.FixedClockRules(data,path.Text("clock")),path.GetProperty("dayStartMinute").GetInt32());
    if(current is not null&&OpenEtrm.MarketData.Trading.PaymentDatePolicy.Date(SchedulePreview.ParseAt(current))>=OpenEtrm.MarketData.Trading.PaymentDatePolicy.Date(clock.Boundary(to)))return Suggest(current,"Retained payment date");
    var last=to.AddDays(-1);var date=new DateOnly(last.Year,last.Month,1).AddMonths(1).AddDays(9);
