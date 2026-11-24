@@ -1,5 +1,27 @@
 # Deal ticket
 
+## Gas payment entry (D447)
+
+Gas admits one to four physical Sides, up to seven payments/fees and eight Sides
+in all. Each payment presents an explicit positive **Share of quantity** starting
+at 1, editable source-bounded dates, and **Quantity part** starting at Whole
+quantity. Up to uses an upper daily level; Above and Shortfall use a lower level;
+Between uses both. The backend maps these choices to exact band/shortfall terms
+and reports fuel-link, level and date refusals on the responsible field.
+
+**Pricing** offers Point publications, Named index, daily and Named index,
+monthly. The backend visibly proposes Point publications for a point with that
+configuration, otherwise Named index, daily with the assigned index. Named
+choices require the visible Pricing index. Old strict-index trades show their
+saved terms read-only. Older whole payments reopen as share 1 and full source
+term; owned retries preserve the original complete command bytes.
+
+A shared backend `visibleWhen` field condition controls presentation, required
+validation and which editable terms are sent. Hidden level/index controls are
+omitted from the request. Business arithmetic stays in managed code. The Side
+schedule shows taken quantity and its part, with source quantity and selection
+rank; signed payable quantities retain their negative display convention.
+
 Status: the description-driven ticket is implemented for physical gas. The local
 manual-entry update (D285) gives PPAs, native swaps, heat-rate swaps and physical
 crude the shared side-card presentation and removes PPA wizard navigation. These
@@ -478,8 +500,8 @@ profile's lifecycle and explicit no-discounting policy are unchanged.
   shows the unit its latest preview resolved beside quantities and in the
   schedule headers, and none before a preview.
 - The description reads its side caps from the composition contract
-  (`GasCompositionInstrument`): one to four physical sides, and up to four
-  fixed cash, fee and indexed payment sides together.
+  (`GasCompositionInstrument`): one to four physical sides, and up to seven
+  fixed cash, fee and indexed payment sides together, with eight Sides in all.
 - Current gas limits: a started delivery is refused at booking (an in-term
   trade is loaded by an administrator and shows its delivered days in the
   schedule), up to 1200 operating days with exact monthly source coverage, and

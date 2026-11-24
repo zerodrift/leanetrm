@@ -7091,10 +7091,12 @@ both qualify. Unequal quantities at the winning rank refuse the trade's valuatio
 and the complete risk request; equal quantities retain both evidence references.
 Explicit zero remains a quantity.
 
-The shared held state contains complete contract and selected native quantities,
-source ranks and revision evidence, with an independent map of physical and cash
-memberships. Payments and usage fees inherit their physical source's days. The
-shared lifecycle scales retained linear rows once. For a multi-day contractual
+D446 and D447 move the immutable policy and source relationship into the saved
+Instrument's entry terms and identity. The shared held state contains physical
+owner facts only: complete contract and selected native quantities, source ranks
+and revision evidence. The Instrument schedule derives payment and usage-fee
+days from their physical source. The shared lifecycle scales retained linear
+rows once. For a multi-day contractual
 amount A and total contract quantity Q, the selected amount is A times selected
 quantity divided by Q; accrued and remaining amounts use the selected quantities
 of ended and unended days respectively. This supersedes D360's contract-estimate
@@ -7115,6 +7117,78 @@ when the current actor owns an existing retained command with current write
 authority. Native staging and publication still compare the original complete
 request; fresh commands and previews require the field.
 Schedules expose selected quantities, ranks and evidence; common Side inspection
-also shows contract quantity and the exact selected ratio. Nonlinear pricing,
-fuel links, changed delivery locations, final indexed billing, keep-whole and
-imbalance positions, and adoption by other commodities remain separate work.
+also shows contract quantity and the exact selected ratio. D447 adds exact daily
+band/shortfall entries; broader nonlinear pricing, fuel links, changed delivery
+locations, final indexed billing, independent keep-whole/imbalance positions and
+adoption by other commodities remain separate work.
+
+## D446 — Every sided Instrument values through its schedule
+
+`SidedInstrument.GenerateSchedule()` returns a cached ordered Instrument schedule.
+Its sealed `PV(SideValuationContext)` evaluates that schedule. The plain schedule
+preserves the prior exact sum and context reuse, with explicit before/after
+conditions retaining product refusals. Row inspection remains lazy and belongs
+to the resulting valuation. Futures and exchange-traded futures options receive
+no schedule method; D181 stands.
+
+The saved-program base supplies the overriding schedule. It prepares per-entry
+occurrence inputs, invokes concrete Sides and combines their signed results.
+Each Side computes and inspects its own saved rows; a Side never reads a sibling,
+and the Instrument never runs a Side's program. Only gas changes its quantity
+behavior in this increment. Other product pricing and the audit boundaries in
+the [design](superpowers/specs/2026-11-23-instrument-schedule-and-gas-pricing-design.md#recorded-not-changed-here)
+remain unchanged.
+
+## D447 — Gas pricing is a composition of independent payment Sides
+
+A gas composition admits one to four physical entries, up to seven payment/fee
+entries and at most eight entries in all. Every new payment states a positive
+share. It may cover its own gas-day-aligned subset of its source's term and take
+whole quantity, a band, or a shortfall below a daily level. Levels entered in
+native units are saved as exact reduced ratios of the holding's base quantity;
+share is folded into the membership ratio. A part needs an independent physical
+source and a composition without fuel links. No intermediate rounding is added.
+
+The D445 policy is an immutable physical entry term in Instrument identity.
+Source slots and parts enter identity only when a policy or part is present;
+absent terms preserve legacy canonical bytes. Physical owner facts carry the
+contract and selected quantity under the pinned business/knowledge context.
+An Instrument with a policy or part refuses missing, incomplete or mismatched
+days. A source without a policy supplies contract-labelled days. The Instrument
+schedule applies the part once over the payment's own dates and passes the
+result to its Side. Explicit zero remains valid, including after a payment:
+paid cash is retained as an overpaid balance.
+
+New indexed payments choose `point_publications_v1`, `named_index_daily_v1` or
+`named_index_monthly_v1`. Named indexes resolve exactly one curve by index
+settlement target, commodity and quote, and one contract/fixing per gas day.
+Daily contracts cover that day; monthly contracts cover its containing month.
+Both use the existing delivery-index Side: a known published fixing prices its
+covered days immediately; otherwise rows are labelled forecasts. Ended days
+accrue only on an earned price; unended days remain unrealized. New
+`daily_published_index_v1` bookings refuse. Retained strict bookings keep their
+saved programs and reopen read-only.
+
+Fixed and indexed pricing, fees and physical value share the retained Instrument
+route for draft preview, held preview, trade reads, Blotter and portfolio risk.
+A held preview names an authorized trade/context and must match its saved terms;
+it cannot book or amend. Per-entry report values come from existing signed Side
+contributions, with no extra repricing. Risk still shocks shared scenarios and
+uses deterministic base/up/down PV. Quantity movement stays in P&L residual.
+
+Final daily billing refuses non-unit share, a part or shortened payment dates
+(`gas_billing_input` at the API, `gas_billing_profile` natively). Whole, full-term
+fixed cash remains supported. Native admission independently checks share,
+levels, source, dates, index coverage and exact schedule rows. Original requests
+and completed replay outcomes are not rewritten. A current actor may recover an
+owned predecessor command only under current write authority; changed complete
+commands still meet native hash conflict checks.
+
+The twelve design calls are adopted: published-as-available pricing; schedule
+reach limited to sided Instruments; saved-program-base ownership; D445 policy
+identity; mandatory day facts for parts; independent/no-fuel parts; exact base
+ratios for daily levels; share in membership and dates on the payment Side;
+eight total entries; unique index-target curve resolution; bounded billing
+refusal; and preservation of the design's read-only audit list. This implements
+the second shared gas pricing building block, not option models, general formula
+pricing, transport/storage optionality or automated gas closes.

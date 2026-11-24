@@ -1,5 +1,22 @@
 # Current implementation record
 
+## Instrument schedules and gas pricing entries (D446–D447)
+
+Every sided Instrument now exposes a cached schedule and its sealed PV delegates
+to that schedule. Plain evaluation preserves Side reuse and product checks;
+retained evaluation supplies occurrence inputs while each Side executes its own
+saved program. Gas owner facts are prepared once into entry day quantities.
+Payment share, band/shortfall and own dates use exact arithmetic, including
+repeating daily quantities, explicit zero and overpaid balances.
+
+Migration 0391 stores reduced shares/parts, admits independent named daily/monthly
+index payments and enforces bounded billing. Native checks independently validate
+request/program agreement, and predecessor function definitions and privileges
+are pinned. Completed old command replay and old identity bytes remain intact.
+The ticket, shared conditional controls and Side inspection expose the terms and
+provenance. Preview, trade, Blotter and queued risk report the same entry values.
+Local verification does not publish or deploy the migration.
+
 ## Selected gas delivery quantities (D445)
 
 An independent physical membership may save `delivery_schedule_v1`. The gas

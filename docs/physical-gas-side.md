@@ -1,5 +1,37 @@
 # Physical gas booking and pre-delivery valuation
 
+## Independent pricing entries (D446–D447)
+
+Every valuation route uses the retained Instrument schedule: draft and held
+preview, single-trade read, Blotter, interactive risk and queued risk. Each Side
+still owns its saved program and lifecycle rows. Physical selected quantities
+are prepared once per entry under the explicit business instant and knowledge
+cutoff; policy and source relationships are immutable entry terms in identity.
+
+Payments and fees state a positive `share` and may choose their own inclusive
+start/exclusive end within the source's gas-day boundaries. Whole quantity is
+the absent part; `band` takes quantity between a lower daily level and an optional
+upper level; `shortfall` takes the deficit below its daily level. Levels are
+entered in native units and retained as exact ratios of the holding base.
+A part needs an independent physical source and no fuel link anywhere in the
+composition. Contract-policy sources still require complete contract-labelled
+owner days when a payment has a part. Missing facts refuse; no implicit whole
+quantity is substituted. Zero after payment retains the overpaid balance.
+
+New floating payments choose point publications, a named daily index or a named
+monthly index. Named terms require exactly one eligible curve with that index as
+settlement target and exactly one contract/fixing for each payment gas day. A
+published monthly price can earn ended days while later days stay unrealized;
+before publication those rows are forecasts and accrue nothing. The retired
+strict daily convention refuses new booking and remains readable on saved trades.
+Final daily billing accepts only whole, share-one, full-source-term fixed cash.
+
+Schedule rows expose taken quantity, `band_v1`/`shortfall_v1` when present,
+source quantity, rank and evidence. Entry amounts partition Instrument value and
+are reported from that same calculation on every route. A held preview supplies
+explicit `previewTradeId` and `previewContextId`, requires exact saved terms and
+current authority, and is not a booking or amendment request.
+
 Physical gas is entered in the [deal ticket](deal-ticket.md) (D281). Its booking is
 the independent-side composition below: one to four physical sides with payment and
 fee sides. A purchase or sale at one point is the composition of one physical side.
@@ -77,8 +109,8 @@ context resolves: a request naming another setup, or none where the context reso
 one, refuses with `ticket_input` on the `gas_setup` field; a retried booking still
 receives its first outcome.
 
-Admit one to four physical memberships and up to four cash/fee memberships,
-including the separately qualified indexed consideration. Receive/deliver belongs
+Admit one to four physical memberships and up to seven cash/fee memberships,
+with at most eight memberships in all, including indexed consideration. Receive/deliver belongs
 on each physical membership; pay/receive
 belongs on each cash membership. There is no trade-wide direction. Each physical
 side selects its own PZL/product and future delivery term of 1–1200 operating
@@ -109,13 +141,13 @@ payment instant without inferred monthly allocation. Fixed nominal/capacity
 charges remain outside this profile.
 
 **Index payment** uses the existing `FloatingSide` under
-`indexed_gas_composition_v1`. Each source physical day has one exact daily index
-contract and published-fixing definition, an explicit forecast selection and
-additional spread. Payments use an explicit next-month UTC day from 1–28 without
+`indexed_gas_composition_v1`. Named pricing has one exact daily or containing-month
+index contract and fixing definition per payment gas day, an explicit forecast
+selection and additional spread. Point publications retain their own periods. Payments use an explicit next-month UTC day from 1–28 without
 holiday adjustment. Physical and payment Sides keep independent prices and signed
-contributions. This is contractual net MTM before delivery, not a lifecycle-aware
-unpaid-cash measure; started-delivery determinations, paid realization and broader
-cash settlement remain outside this admission.
+contributions. D360 supplies in-term unrealized and accrued-unsettled measures; D447
+uses published-as-available pricing for the new named forms. Final indexed
+billing and broader cash settlement remain outside this admission.
 
 The first independent physical amount defines the external holding quantity.
 Every side retains a normalized one-unit executable schedule; exact positive
@@ -131,9 +163,9 @@ Fixed links are materialized at booking. Reopening directly loads the retained
 unit programs, multiplies each quantity and PV by its stored membership ratio
 and the holding amount once, and reports receipt/delivery/fuel reconciliation.
 It does not regenerate a Side or recompute link ratios from current setup. Dated
-meter attribution uses each booked physical point and setup version. Exported
-quantities remain contractual, not readings or allocations. Linking operational
-actuals or future elections requires a separately admitted input-port profile.
+meter attribution uses each booked physical point and setup version. The saved
+programs keep contractual quantities. D445/D447 may apply selected owner facts and parts through the shared lifecycle without changing those
+programs; fuel-linked profiles keep contract quantities.
 
 Synthetic period-total oracle, with no discounting: receipt 1,000 at mark 3.20,
 delivery 980 at mark 3.10 after 2% gross-based fuel, and a payable fee of 0.10 on

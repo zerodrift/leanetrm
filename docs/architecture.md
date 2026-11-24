@@ -1481,6 +1481,8 @@ Instrument
 
 SidedInstrument : Instrument
   Sides -> immutable side memberships (one or more)
+  GenerateSchedule() -> cached InstrumentSchedule
+  PV(sideValuationContext) -> sealed delegation to that schedule
 
 Side
   GenerateSchedule(sideScheduleContext) -> SchedulePlan
@@ -1491,10 +1493,15 @@ Side
 
 The implemented managed boundary requires `Instrument.PV()` and the complete
 `Instrument.Declare()` valuation declaration. `Side` requires both
-`GenerateSchedule()` and `PV()`; sided instruments delegate to their constituent
-sides. A universal instrument-level `GenerateSchedule()` has not been implemented.
-It must not be simulated with a fabricated futures cashflow or an artificial
-discount provider merely to admit an instrument to risk (D181).
+`GenerateSchedule()` and `PV()`. D446 gives every `SidedInstrument` a cached
+`InstrumentSchedule`, with ordered membership entries and lazily inspected Side
+rows. Its sealed `PV` delegates to the schedule. The plain schedule evaluates
+Sides through the supplied context and combines their signed, normalized results;
+before/after conditions retain product refusals. The retained schedule prepares
+occurrence inputs and each Side executes its own program. Only gas adds entry
+quantity selection and parts. Futures and exchange-traded futures options remain
+leaves with no schedule method; D181 still forbids fabricated futures cashflows
+or artificial discount providers merely to admit them to risk.
 
 Use interfaces and abstract base classes to require the behavior. Provide shared
 base implementations where semantics agree: an ordinary instrument combines side

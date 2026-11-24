@@ -1,5 +1,72 @@
 # Local verification and continuous integration
 
+## Instrument schedule and independent gas pricing (D446–D447)
+
+Local qualification on 2026-11-23 uses synthetic inputs, disposable stock
+PostgreSQL 18.7, .NET SDK 10.0.402, Node 24.22.0 and Chrome on macOS arm64.
+Each integration group uses a frozen checkout's own API/worker assets and owned database. No production
+resources are used and no publication or deployment is implied.
+
+The managed schedule oracle covers all 27 concrete sided Instrument families,
+ordered memberships and rows, schedule instance reuse, exact independent Side
+sums and shared-Side context reuse. Legacy refusal codes/messages and canonical
+identity literals are pinned. Exact quantity checks include boundaries, explicit
+zero, a repeating daily quantity, incomplete/mismatched held state, partial-term
+exclusion, source-policy labels and a part reduced to zero after paid cash.
+
+The three-day synthetic pricing oracle independently checks every entry in
+Example A (total 2,650) and Example B (accrued unsettled −47,750, unrealized 500,
+total −47,250). With the monthly price unpublished, Example B instead has accrued
+9,250 and unrealized −56,500, retaining the total. Share 1.05 prices 10,500 units
+at 3.20 for 33,600. Doubled holdings/records double each amount exactly.
+
+The pricing HTTP/native suite checks reduced storage, request replay, independent
+native refusals, monthly/daily index qualification, exact partial period totals
+and billing boundaries. Preview, trade, Blotter and queued risk agree by entry;
+earlier-cutoff reads retain prior quantities. Held-preview mismatched terms and
+current-authority failures refuse. Migration checks pin predecessor definition,
+owner, grants and configuration, test an independent caller search path and
+preserve populated predecessor requests.
+
+The full managed group passes 80 runner checks, including 803 managed core
+checks. The ticket suite passes 156 checks and the shared description suite 67. All
+2,328 frontend tests pass with Node test concurrency explicitly bounded at two;
+unbounded attempts hit browser/process-startup timeouts, with no assertions or
+timeouts relaxed. Five pricing browser checks cover conditional levels, fuel-link
+refusal, named monthly booking and signed taken/source quantities. Nine indexed
+browser checks retain the original 59-day amounts and inspection paging.
+
+### Fixed synthetic benchmark
+
+Base `aab2c3e6` and application tip `23e93d81` ran the same
+`--risk-benchmark` workload in Release on .NET 10.0.13, macOS 26.6.2 arm64,
+14 logical processors. Every workload has 50,000 bindings. Each gets one warm-up
+and five sequential samples with fresh within-run caches. Construction is
+excluded except the portfolio/holding preparation stated by the benchmark;
+the first three timings include per-position reconciliation against an
+independent full-repricing reference. The basis and futures expected-value
+checks run outside their timed sections.
+
+Side work and unit calls below are equal at base and tip. Time and allocation
+columns are base / tip. Allocations are current-thread bytes, including timed
+validation; peak/resident/native memory is not measured.
+
+| Workload | Unique held contracts | Scenarios | Side evaluations, both | Unit calls, both | Median ms, base / tip | Allocated bytes, base / tip |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| repeated | 1 | 3 | 3 | 3 | 457.90 / 533.71 | 502,509,232 / 559,709,896 |
+| shared fanout | 128 | 7 | 388 | 388 | 820.82 / 819.93 | 884,424,448 / 1,024,876,880 |
+| distinct | 5,000 | 3 | 15,000 | 15,000 | 800.26 / 901.25 | 946,337,784 / 1,005,018,784 |
+| multilevel basis books (9) | 9 | 19 | 106 | 53 | 3.08 / 3.61 | 4,481,016 / 4,488,856 |
+| multilevel basis books (216) | 216 | 433 | 2,544 | 1,272 | 257.63 / 307.34 | 1,021,487,104 / 1,023,918,728 |
+| futures books | 1 | 3 | 0 | 3 | 153.01 / 170.54 | 228,780,792 / 228,781,712 |
+
+Exact output parity and unchanged evaluated Side work pass. Timing was measured
+on a shared development host, with isolated integration groups also running;
+these medians do not establish a throughput improvement or regression. This is
+managed calculation work, without database, serialization, authorization or
+service throughput. Shared fan-out uses three factors; the basis cases use nine
+and 216; the other workloads use one.
+
 ## Selected gas delivery quantities (D445)
 
 Local qualification on 2026-11-23 uses .NET SDK 10.0.402, stock PostgreSQL 18.7,

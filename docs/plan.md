@@ -1,14 +1,22 @@
 # Delivery plan and acceptance criteria
 
+D446 and D447 implement the Instrument schedule and independent gas pricing
+entries: exact share, daily band/shortfall and partial-term payments, with point,
+named daily or named monthly index pricing. All gas routes use the retained
+Instrument. Existing plain Instrument sums and shared-Side reuse stay unchanged;
+new final-billing profiles, options, broader formulas, transport/storage optionality
+and the other gas building blocks remain separate work. The local qualification
+and benchmark are recorded in [verification](verification.md).
+
 D445 implements the first [shared gas pricing building block](superpowers/specs/2026-11-23-delivery-quantity-input-design.md):
 selected delivery quantities in the shared physical lifecycle. New independent
 physical memberships can opt in; payment and usage-fee quantities follow their
 source. Existing trades and two-location entry keep contract quantity. Temporal
 selection, ordinary queued risk, provenance and zero-after-payment balances have
 explicit contracts. Local qualification is recorded in [verification](verification.md).
-Several weighted price terms, option strips, charge bases, balance positions and
-constrained rights remain separate designs; this increment does not complete the
-physical gas product catalog.
+D447 replaces the weighted-price-term design with independent payment entries.
+Option strips, charge bases, balance positions and constrained rights remain
+separate designs; these increments do not complete the physical gas product catalog.
 
 D443 adds **New trade → Gas & LNG → Two-location gas** and **Facilities →
 Pipeline outlook**. Independent purchase and sale tickets can have different

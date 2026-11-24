@@ -1,5 +1,25 @@
 # Unit instruments and trade bindings
 
+## Instrument schedule (D446)
+
+Every `SidedInstrument` exposes one cached `InstrumentSchedule` per instance.
+Entries retain membership order, Side reference, coefficient and quantity ratio;
+rows pair each Side row with its entry slot. Reading entries or evaluating the
+plain schedule does not eagerly generate Side schedules. `PV(SideValuationContext)`
+is sealed and delegates to `GenerateSchedule().Evaluate(context)`.
+`RequireBeforeValuation` and `RequireAfterValuation` preserve product admission
+and result checks. The plain evaluation preserves shared-Side context reuse.
+Futures and exchange-traded futures options remain unchanged leaves (D181).
+
+The retained-program schedule prepares occurrence inputs, then invokes each
+concrete Side. It never executes a Side's program itself. Gas memberships may
+carry an immutable quantity policy, source slot and exact quantity part in
+Instrument identity. Absent terms are omitted from canonical identity, preserving
+the exact earlier identity for an Instrument without policy or part. Physical
+owner days remain trade facts outside identity. The schedule validates them,
+computes each entry's own-date quantities once and supplies them through the
+occurrence context; the Side owns row pricing, lifecycle and inspection.
+
 ## Mandatory composition boundary (D417)
 
 Every financial instrument derives from `Instrument`. The only products allowed
