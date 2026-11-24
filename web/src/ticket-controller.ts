@@ -132,7 +132,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   if(!current()||!d||!state)return;
   const levels=panel.schedule?.levels??d.levels;
   if(!levels.includes(level)){level=levels[0];closed=new Set();}
-  const shown:TicketView={state,mode,presentation:o.presentation,sideLabels:entry?.sideLabels,groupedEntry:!!entry?.groupReview,actions,schedule:panel.schedule,quantityUnit:panel.quantityUnit,instant:o.instant,zone:o.zone(),previous:panel.previous,summaries:panel.summaries,links:panel.links,sideGroups:panel.sideGroups,sideGroupsReason:panel.sideGroupsReason,facilityAllocations,measures,currency:mode==='booked'?currency:panel.currency??currency,exerciseAction:exercise?.mount,entry:entryView(),status:panel.status,
+  const shown:TicketView={state,mode,presentation:o.presentation,sideLabels:entry?.sideLabels,groupedEntry:!!entry?.groupReview,actions,schedule:panel.schedule,groups:panel.groups,quantityUnit:panel.quantityUnit,instant:o.instant,zone:o.zone(),previous:panel.previous,summaries:panel.summaries,links:panel.links,sideGroups:panel.sideGroups,sideGroupsReason:panel.sideGroupsReason,facilityAllocations,measures,currency:mode==='booked'?currency:panel.currency??currency,exerciseAction:exercise?.mount,entry:entryView(),status:panel.status,
 
    fieldErrors:entry?{...choiceErrors,...lookupErrors,...panel.errors}:{},choices,selectedSide,tab,level,closed,on};
   if(mode==='booked'&&o.sideSchedule)shown.sideSchedule=(target,side)=>{

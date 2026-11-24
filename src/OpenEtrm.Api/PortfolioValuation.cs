@@ -592,11 +592,11 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             var connected=await CustomCurves.PrepareMarket(connection,database,first.Data,first.Frame,first.Snapshot,exact,instruments,dependencies,CustomCurves.MarketPreparation.ScenarioUniverse,ct,retained,activePrices,operation?.Histories,
                 calculationContext:policy.NativeFutures?.Economic is null&&policy.FuturesOptions?.Physical is null?null:CustomCurves.CompleteContext(first.Frame,first.Snapshot,exact),
                 linkedMarkets:[..inputMarkets.Where(m=>m.Snapshot.Definitions!=first.Snapshot.Definitions).Select(m=>m.Market)]);
-            var incomplete=gas.Where(g=>g.Snapshot.Definitions==first.Snapshot.Definitions&&!g.MissingCandidates.IsEmpty).ToArray();
-            if(incomplete.Length!=0)
+            var exerciseMarkets=gas.Where(g=>g.Snapshot.Definitions==first.Snapshot.Definitions&&!g.ExerciseHoldings.IsEmpty).ToArray();
+            if(exerciseMarkets.Length!=0)
             {
                 var basis=connected.Valuation.ProgramMarket(connected.Bindings,connected.Authority,ct);
-                var calls=incomplete.Sum(g=>g.QualifyMarks(basis,ct));
+                var calls=exerciseMarkets.Sum(g=>g.QualifyExercise(basis,ct));
                 materializationWork=materializationWork with{UnitPricerCalls=materializationWork.UnitPricerCalls+calls};
                 materializationScenarios++;
             }

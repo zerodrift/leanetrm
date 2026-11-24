@@ -12,14 +12,14 @@ namespace OpenEtrm.Api;
 internal sealed record GasPortfolioInput(PreviewData Data,InputFrame Frame,MarketSnapshot Snapshot,
  ValuationPortfolio Portfolio,ImmutableArray<PortfolioPositionEvidence> Evidence,string Measure)
 {
- internal ImmutableArray<(RetainedGasInstrument Instrument,PhysicalCashState State)> MissingCandidates{get;init;}=[];
+ internal ImmutableArray<(RetainedGasInstrument Instrument,PhysicalCashState State)> ExerciseHoldings{get;init;}=[];
 
- // Only ordinary base PV can determine whether a candidate volatility or correlation is actually required.
- internal int QualifyMarks(CurveBuild market,CancellationToken ct)
+ // Base PV qualifies the held group's price scope, publication and compatibility with recorded payments.
+ internal int QualifyExercise(CurveBuild market,CancellationToken ct)
  {
-  foreach(var (instrument,state) in MissingCandidates)
+  foreach(var (instrument,state) in ExerciseHoldings)
    _=instrument.PV(instrument.PrepareValuation(market,market,Portfolio.Setup.Discounting!,state,ct));
-  return MissingCandidates.Length;
+  return ExerciseHoldings.Length;
  }
  internal ImmutableArray<SchedulePriceTerm> ActivePrices=>[..Portfolio.Instruments.Cast<RetainedGasInstrument>().SelectMany(i=>i.ActivePrices).Distinct()];
 }
@@ -42,7 +42,7 @@ internal static class GasPortfolio
        [..group.Select(p => p.Reference)], supplied, requirePinnedSources, ct);
    var snapshot=MarketSnapshotBinding.Bind(source.Data.Snapshot(source.Frame),contextId,SchedulePreview.ParseAt(context.KnownAt));
    var held=new List<(string Measure,Trade Trade,PortfolioPositionEvidence Evidence)>();
-   var missing=new Dictionary<Guid,(RetainedGasInstrument Instrument,PhysicalCashState State)>();
+   var exercises=new Dictionary<Guid,(RetainedGasInstrument Instrument,PhysicalCashState State)>();
    var states=ImmutableDictionary.CreateBuilder<MeasureBinding,IBindingValuationState>();
    foreach(var position in group)
    {
@@ -61,9 +61,8 @@ internal static class GasPortfolio
      states.Add(new(position.Trade,position.Binding),state);
      if(!execution.Rights.IsEmpty)
      {
-      var binding=await new CurveMarkStore(database.Manifest.CatalogId).Bind(connection,instrument,snapshot,state,ct);
-      instrument=binding.Instrument;
-      if(binding.MissingCandidates)missing.Add(position.Trade,(instrument,state));
+      instrument=await new CurveMarkStore(database.Manifest.CatalogId).Bind(connection,instrument,snapshot,state,ct);
+      exercises.Add(position.Trade,(instrument,state));
      }
     }
     var measure=execution.Started?GasPositions.LifecycleMeasure:GasPositions.Measure;
@@ -77,7 +76,7 @@ internal static class GasPortfolio
     var portfolio=ValuationPortfolio.FromTrades([..measured.Select(h=>h.Trade)],new(ValuationMeasure.PresentValue,
      ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)){BindingStates=states.Where(s=>measured.Any(h=>h.Trade.Id==s.Key.TradeId)).ToImmutableDictionary()});
     result.Add(new(source.Data,source.Frame,snapshot,portfolio,[..measured.Select(h=>h.Evidence)],measured.Key)
-     {MissingCandidates=[..measured.Where(h=>missing.ContainsKey(h.Trade.Id)).Select(h=>missing[h.Trade.Id])]});
+     {ExerciseHoldings=[..measured.Where(h=>exercises.ContainsKey(h.Trade.Id)).Select(h=>exercises[h.Trade.Id])]});
    }
   }
   return result.ToImmutable();

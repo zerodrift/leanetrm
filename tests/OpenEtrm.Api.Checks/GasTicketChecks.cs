@@ -87,6 +87,14 @@ internal static class GasTicketChecks
             var head=Guid.NewGuid();
             GasExerciseActionPeriod Period(int day,Guid? prior=null)=>new(0,new(2027,1,day),new(2027,1,day+1),
                 new(2026,12,31,0,0,0,TimeSpan.Zero),prior,prior.HasValue?"exercised":null,prior.HasValue?new(2026,12,24,0,0,0,TimeSpan.Zero):null);
+            foreach(var valid in new[]{"2026-12-25T12:00:00+00:00","2026-12-25T12:00:00.123456Z"})
+                _=GasExerciseAction.Build(selection with{EffectiveAt=valid},[Period(1),Period(2),Period(3)]);
+            foreach(var invalid in new[]{"2026-12-25T12:00:00.Z","2026-12-25T12:00:00-00:00","2026-12-25T12:00:00.0000000Z"})
+            {
+                try{GasExerciseAction.Build(selection with{EffectiveAt=invalid},[Period(1),Period(2),Period(3)]);}
+                catch(MarketDataException error) when(error.Code=="exercise_election"){continue;}
+                throw new Exception($"Exercise preparation accepted the unsupported instant {invalid}.");
+            }
             var command=GasExerciseAction.Build(selection,[Period(1),Period(2,head),Period(3),Period(4)]);
             Equal((selection.TradeId,selection.InstrumentId,2,Operation,context),(command.TradeId,command.InstrumentId,command.ExpectedRevision,command.OperationId,command.Context),"command identity");
             Equal("2027-01-01,2027-01-02,2027-01-03",string.Join(",",command.Elections.Select(e=>e.FromDate)),"range");

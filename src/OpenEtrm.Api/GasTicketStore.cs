@@ -155,7 +155,7 @@ public sealed class GasTicketStore(PreviewDatabase database)
   var terms=execution.Terms;
   GasCompositionValue? value=null;GasScheduleRefusal? unavailable=null;
   try{value=await composition.Value(c,data,frame,execution,ct,recorded);}
-  catch(MarketDataException e)when(!execution.Rights.IsEmpty&&(ValuationStatus.PositionSpecific(e)||e.Code is "exercise_model_scope" or "holder_choice_inputs"))
+  catch(MarketDataException e)when(!execution.Rights.IsEmpty&&ValuationStatus.PositionSpecific(e))
   {unavailable=new(e.Code,e.Message);}
   var refused=composed?await daily.RecordRefusal(c,working,ct):null;
   GasExerciseAction? exercise=null;

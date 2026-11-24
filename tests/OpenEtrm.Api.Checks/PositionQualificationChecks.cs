@@ -18,6 +18,12 @@ internal static class PositionQualificationChecks
         },default);
         if(missing.Length!=1||missing[0]!=(17,"index_fixing_missing")||calls>14)
             throw new Exception("One unavailable binding must be isolated without valuing each healthy binding separately.");
+        foreach(var reason in new[]{"exercise_conflict","exercise_model_scope","holder_choice_inputs"})
+        {
+            var excluded=await ValuationStatus.Qualify(positions,block=>block.Contains(17)
+                ?throw new MarketDataException(reason,"Synthetic holding cannot be valued."):Task.CompletedTask,default);
+            if(!excluded.SequenceEqual(new[]{(17,reason)}))throw new Exception("Keep the base holding's exact exercise refusal.");
+        }
         var mixed=await ValuationStatus.Qualify(positions,block=>
         {
             if(block.Contains(17))throw new MarketDataException("index_fixing_missing","Synthetic fixing unavailable.");

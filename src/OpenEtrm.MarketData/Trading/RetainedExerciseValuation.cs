@@ -50,20 +50,21 @@ internal sealed class RetainedExerciseValuation
             var output = program.Document.Instructions[contribution.Instruction].Output;
             var row = byOccurrence[output.PaymentOrdinal!.Value];
             var amount = (row.Expected?.Add(row.Paid) ?? row.Unrealized).Ratio;
+            var certain = IsCertain(contribution.Amount.States[0].Prices);
             var shares = new Dictionary<Amounts, SignedRatio>();
             var total = SignedRatio.Zero;
             for (var day = row.DeliveryFrom; day < row.DeliveryTo; day = day.AddDays(1))
             {
+                var group = byDay[day];
+                group.HasUncertainPrice |= !certain;
                 var taken = quantities[day].Taken;
                 if (taken.Numerator.IsZero) continue;
-                var group = byDay[day];
                 shares[group] = shares.GetValueOrDefault(group, SignedRatio.Zero) + taken;
                 total += taken;
             }
             if (shares.Count == 0) continue;
             var modeled = shares.Keys.Any(group => group.Outcome == ExerciseDecisions.Undecided);
             if (modeled && amount.Numerator.Sign < 0) throw OutsideModel();
-            var certain = IsCertain(contribution.Amount.States[0].Prices);
             CurveKey? curve = null;
             if (modeled && !certain)
             {
@@ -85,7 +86,6 @@ internal sealed class RetainedExerciseValuation
                 group.Forward += forward;
                 if (group.Outcome != ExerciseDecisions.Undecided) continue;
                 var holder = right.Holder == ExerciseHolder.Us ? forward : SignedRatio.Zero - forward;
-                group.HasUncertainPrice |= !certain;
                 if (certain) group.Certain += holder;
                 else if (holderReceives)
                 {
@@ -183,9 +183,9 @@ internal sealed class RetainedExerciseValuation
         {
             var program = instrument.Members[slot].Program;
             var right = rights.SingleOrDefault(r => r.Slots.Contains(slot));
-            var selectedDays = entryDays[slot].IsDefault ? null : entryDays[slot].Where(d => d.Taken.Numerator.Sign > 0)
-                .Select(d => (d.Day, Group: decisions.UndecidedGroup(slot, d.Day))).Where(d => d.Group is not null)
-                .ToDictionary(d => d.Day, d => d.Group!);
+            var selectedDays = entryDays[slot].IsDefault ? null : entryDays[slot]
+                .Select(d => (d.Day, d.Taken, Group: decisions.UndecidedGroup(slot, d.Day))).Where(d => d.Group is not null)
+                .ToDictionary(d => d.Day);
             var physical = PhysicalLifecycle.ReadsDeliveryMarks(program);
             var instructions = program.Document.Instructions;
             foreach (var row in instrument.Sides[slot].Side.GenerateSchedule().Rows)
@@ -213,9 +213,11 @@ internal sealed class RetainedExerciseValuation
                     var from = guard.Grid is {} g ? program.Document.Grids[g].Interval(0).OperatingDate : guard.DeliveryFrom!.Value;
                     var to = guard.DeliveryTo ?? from.AddDays(1);
                     for (var day = from; day < to; day = day.AddDays(1))
-                        if (selectedDays.TryGetValue(day, out var group))
+                        if (selectedDays.TryGetValue(day, out var selected))
                         {
-                            used.Add((new(right!.Ordinal, group.From, group.To), lookup.Market.Curve, new(day.Year, day.Month, 1)));
+                            var group = selected.Group!;
+                            if (selected.Taken.Numerator.Sign > 0)
+                                used.Add((new(right!.Ordinal, group.From, group.To), lookup.Market.Curve, new(day.Year, day.Month, 1)));
                             modeled.Add(group);
                         }
                 }

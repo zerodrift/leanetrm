@@ -83,3 +83,15 @@ test('a refused replacement keeps the displayed exercise schedule and its origin
  assert.equal(refused.status.kind,'stale');
  assert.equal(refused.currency,'USD');
 });
+
+test('a multi-clock ticket retains its priced groups and currency when its combined schedule is unavailable',()=>{
+ const groups=[{right:0,from:'2041-01-01',to:'2041-01-02',state:'exercised',forwardSum:'2000',counted:'2000',inputs:null}];
+ const preview={schedule:null,summaries:null,scheduleRefusal:{code:'schedule_view',message:'The sides keep different gas-day clocks.'},
+  quantityUnit:'MMBtu',currency:'EUR',links:[],groups};
+ const result=previewed(empty,{preview},{retained:true});
+ assert.deepEqual(result.groups,groups);
+ assert.equal(result.currency,'EUR');
+ assert.match(result.status.text,/different gas-day clocks/);
+ const failed=previewed(result,{preview:{...preview,groups:null,scheduleRefusal:{code:'exercise_conflict',message:'Conflicting delivery.'}}},{retained:true});
+ assert.equal(failed.groups,undefined);
+});

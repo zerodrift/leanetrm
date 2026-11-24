@@ -17,15 +17,16 @@ internal sealed class GasPricingScheduleFixture
     readonly ImmutableArray<IndexFixing> fixings;
     readonly ImmutableArray<GasValuationAssignment> assignments;
     readonly Guid book = Guid.NewGuid();
-    internal readonly DateOnly From = new(2041, 1, 1);
+    internal readonly DateOnly From;
     internal DateOnly To => From.AddDays(3);
     internal GasDayClock Clock { get; }
     internal RetainedGasInstrument Instrument { get; }
     internal QuoteSpecification Quote => reference.Quotes[0];
     internal int Size { get; }
     internal GasPricingScheduleFixture(bool follows = true, int size = 10000, bool sharedPayment = false, bool partial = false,
-        (DateTimeOffset FixingAt, DateTimeOffset Expiry)? thirdDailyIndex = null, DateTimeOffset? monthlyFixingAt = null)
+        (DateTimeOffset FixingAt, DateTimeOffset Expiry)? thirdDailyIndex = null, DateTimeOffset? monthlyFixingAt = null, DateOnly? dailyPaymentStart = null)
     {
+        From = dailyPaymentStart ?? new DateOnly(2041, 1, 1);
         Size = size;
         Clock = GasDayClock.Capture(reference.R("synthetic_schedule_clock"), TimeZoneInfo.Utc, 360);
         var contracts = Enumerable.Range(0, 7).Select(n => new MarketContract(reference.K(100 + n), ContractKind.Forward,
@@ -70,7 +71,8 @@ internal sealed class GasPricingScheduleFixture
         members.Add(new(gas.Id, ExactDecimal.Parse("1"), ExactRatio.One, Book(gas), 0, follows ? "delivery_schedule_v1" : null));
         void Add(FloatingSide side, string sign, QuantityPart? part, ExactRatio? share = null) =>
             members.Add(new(side.Id, ExactDecimal.Parse(sign), share ?? ExactRatio.One, Book(side), 0, part: part));
-        if(sharedPayment) Add(Payment(false, "0", 0, 1), "1", null, new(21, 20));
+        if(dailyPaymentStart.HasValue) Add(Payment(false, "0"), "1", null);
+        else if(sharedPayment) Add(Payment(false, "0", 0, 1), "1", null, new(21, 20));
         else
         {
             Add(Payment(true, "0", partial ? 1 : 0), "-1", QuantityPart.Band(new(0, 1), new(4, 5)));

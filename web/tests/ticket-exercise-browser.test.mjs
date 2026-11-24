@@ -34,8 +34,9 @@ for(const failure of ['write','removal'])test(`election recovery survives a tick
      outcomes:[{value:'exercised',label:'Exercised'}]};
     const api=async(path,body)=>{
      if(path==='tickets/description')return description;
-     if(path==='tickets/trade')return {draft:{product,version:1,trade:{},sides:[]},schedule:null,summaries:null,groups:null,
-      scheduleRefusal:{code:'exercise_marks',message:'Marks unavailable'},quantityUnit:'MMBtu',links:[],context:{contextId:action.readContextId},
+     if(path==='tickets/trade')return {draft:{product,version:1,trade:{},sides:[]},schedule:null,summaries:null,
+      groups:[{right:0,from:'2041-02-01',to:'2041-02-02',state:'exercised',forwardSum:'2000',counted:'2000',inputs:null}],currency:'EUR',
+      scheduleRefusal:{code:'schedule_view',message:'The sides keep different gas-day clocks.'},quantityUnit:'MMBtu',links:[],context:{contextId:action.readContextId},
       actions:{amend:{allowed:false},closeOut:{allowed:false},record:{allowed:false},recordExercise:action}};
      if(path==='gas/exercise/prepare'){
       prepares.push(body);
@@ -62,6 +63,7 @@ for(const failure of ['write','removal'])test(`election recovery survives a tick
    form.requestSubmit();await until(()=>!!find(retry));
    window.reconcile=async()=>{find(retry).click();await until(()=>writes.length===2&&controls().record);};
   })()`);
+  assert.match(await evaluate("document.querySelector('.ticket-exercise-groups')?.textContent??''"),/Gross counted \(EUR\).*2,000/);
   const ready={record:true,retry:false};
   for(const scope of [{actor:'actor-b'},{tradeId:'trade-b'},{bindingId:'binding-b'},{revision:2},{snapshotId:'frame-b'}])
    assert.deepEqual(await evaluate(`mount(${JSON.stringify(scope)})`),ready);
@@ -75,5 +77,43 @@ for(const failure of ['write','removal'])test(`election recovery survives a tick
    assert.deepEqual(stored,await evaluate('writes[0]'),'storage still contains the original command when its removal fails');
   }
   assert.deepEqual(await evaluate('mount()'),ready);
+ });
+});
+
+test('an explicit reread clears a stale exercise message and a recorded reread keeps its receipt status',
+ {skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+ await withBrowserPage('<div id="host"></div>',async evaluate=>{
+  const statuses=await evaluate(`(async()=>{
+   const {setupExerciseAction}=await import('/ticket-exercise-action.js');
+   const context={snapshotId:'frame',knowledgeMode:'current'},day='2041-02-01';
+   const action={allowed:true,label:'Record exercise',preparePath:'/api/gas/exercise/prepare',recordPath:'/api/gas/exercise/record',
+    tradeId:'trade',instrumentId:'binding',expectedRevision:1,readContextId:'read',
+    periods:[{right:0,from:day,to:'2041-02-02',exerciseAt:'2041-01-31T16:00:00Z'}],outcomes:[{value:'exercised',label:'Exercised'}]};
+   let stale=true;
+   const controller=setupExerciseAction({context:()=>context,current:()=>true,signal:new AbortController().signal,owner:'owner',
+    tradeId:'trade',bindingId:'binding',revision:1,writable:true,reread:async()=>controller.select(action,context),
+    api:async(path,body)=>{
+     if(path.endsWith('/prepare'))return {command:{...body,elections:[{right:0,fromDate:day}]}};
+     if(stale){stale=false;throw Object.assign(Error('Synthetic conflicting instruction'),{code:'exercise_election_conflict'});}
+     return {...body,elections:[{right:0,fromDate:day,revisionId:'recorded'}]};
+    }});
+   controller.select(action,context);controller.mount(document.querySelector('#host'));
+   const find=selector=>document.querySelector(selector);
+   async function submit(){
+    find('.ticket-record-exercise').click();
+    const form=find('form');
+    for(const [key,value] of Object.entries({right:'0',firstPeriod:day,lastPeriod:day,outcome:'exercised',evidence:'Synthetic notice',effectiveAt:'2041-01-01T00:00:00Z'})){
+     const input=form.elements.namedItem(key);input.value=value;input.dispatchEvent(new Event('change'));
+    }
+    form.requestSubmit();await new Promise(resolve=>setTimeout(resolve,0));
+   }
+   const message=()=>find('.ticket-exercise-controls [role=status]')?.textContent??'';
+   await submit();const conflict=message();
+   find('.ticket-refresh-exercise').click();await new Promise(resolve=>setTimeout(resolve,0));const refreshed=message();
+   await submit();return [conflict,refreshed,message()];
+  })()`);
+  assert.match(statuses[0],/Refresh the trade/);
+  assert.doesNotMatch(statuses[1],/Refresh the trade/);
+  assert.equal(statuses[2],'Exercise election recorded.');
  });
 });

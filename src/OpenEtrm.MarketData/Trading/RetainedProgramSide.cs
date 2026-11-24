@@ -15,6 +15,7 @@ internal sealed record RetainedProgramContext(ScheduleMarketSources Sources, Cur
     internal RetainedProgramOccurrence? Occurrence { get; init; }
     internal ImmutableArray<SignedRatio> HeldFactors { get; init; } = [];
     internal ImmutableArray<ImmutableArray<EntryDayQuantity>> EntryDays { get; init; }
+    internal bool CashAutomatic { get; init; }
     internal QuantityPart? EntryPart { get; init; }
 }
 internal sealed record RetainedProgramOwner(Guid InstrumentId, DefinitionIdentity Definition, string ScheduleIdentity);
@@ -71,7 +72,7 @@ public sealed partial class SideValuationContext
         return scopes.Exercised = WithRetainedPrograms(inputs);
     }
 
-    internal SideValuationContext ForRetainedOccurrence(int slot, RetainedProgramSide side, ImmutableArray<ImmutableArray<EntryDayQuantity>> entryDays = default, QuantityPart? part = null)
+    internal SideValuationContext ForRetainedOccurrence(int slot, RetainedProgramSide side, ImmutableArray<ImmutableArray<EntryDayQuantity>> entryDays = default, QuantityPart? part = null, bool cashAutomatic = false)
     {
         if(RetainedPrograms is not { Cash: not null, Owner: not null, Occurrence: null } inputs ||
             inputs.HeldFactors.IsDefault || slot < 0 || slot >= inputs.HeldFactors.Length)
@@ -79,11 +80,11 @@ public sealed partial class SideValuationContext
         var scopes = Occurrences();
         if(!scopes.Children.TryGetValue(slot, out var child))
         {
-            child=WithRetainedPrograms(inputs with { Occurrence=new(slot, side.Id, side.ProgramDigest), EntryDays=entryDays, EntryPart=part });
+            child=WithRetainedPrograms(inputs with { Occurrence=new(slot, side.Id, side.ProgramDigest), EntryDays=entryDays, EntryPart=part, CashAutomatic=cashAutomatic });
             child.retainedOccurrenceParent=this;
             scopes.Children.Add(slot, child);
         }
-        if(child.RetainedPrograms!.Occurrence != new RetainedProgramOccurrence(slot, side.Id, side.ProgramDigest) || child.RetainedPrograms.EntryPart != part)
+        if(child.RetainedPrograms!.Occurrence != new RetainedProgramOccurrence(slot, side.Id, side.ProgramDigest) || child.RetainedPrograms.EntryPart != part || child.RetainedPrograms.CashAutomatic != cashAutomatic)
             throw new MarketDataException(PhysicalLifecycle.ContextRefusal, "A retained occurrence cannot change its exact Side program.");
         var previous = child.RetainedPrograms.EntryDays;
         if(previous.IsDefault != entryDays.IsDefault || !previous.IsDefault &&
@@ -185,10 +186,12 @@ public sealed record RetainedProgramSchedule : SideSchedule
         else if(context.BindingState is not null || !inputs.Geometries.IsDefault || inputs.Owner is not null || inputs.Occurrence is not null || !inputs.HeldFactors.IsEmpty)
             throw new MarketDataException(PhysicalLifecycle.ContextRefusal, "A held retained Side requires its complete explicit occurrence inputs.");
         // Admission precedes any program execution or price/discount demand.
-        var execution = inputs.Sources.Evaluate(Program, SideId, inputs.Scenario, context.Discounting, context.UnitEvaluation.Cancellation);
+        var execution = inputs.CashAutomatic
+            ? inputs.Sources.EvaluateCashExercise(Program, SideId, inputs.Scenario, context.Discounting, context.UnitEvaluation.Cancellation)
+            : inputs.Sources.Evaluate(Program, SideId, inputs.Scenario, context.Discounting, context.UnitEvaluation.Cancellation);
         var lifecycle = inputs.Cash is {} cash ? PhysicalLifecycle.EvaluateSide(Program, execution, Program.Document.Family == "gas", inputs.Occurrence!.Slot,
             inputs.HeldFactors[inputs.Occurrence.Slot], inputs.Geometries[inputs.Occurrence.Slot], cash, context.Snapshot, Currency,
-            inputs.EntryDays.IsDefault ? default : inputs.EntryDays[inputs.Occurrence.Slot]) : null;
+            inputs.EntryDays.IsDefault ? default : inputs.EntryDays[inputs.Occurrence.Slot], inputs.CashAutomatic) : null;
         return new(this, context, execution, lifecycle);
     }
 }

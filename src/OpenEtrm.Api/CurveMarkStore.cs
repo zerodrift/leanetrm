@@ -58,15 +58,14 @@ internal sealed class CurveMarkStore(Guid catalog)
     private static MarketDataException Invalid()=>new("curve_mark_input","Select exact curves and delivery months in yyyy-MM format.");
 
     // Request marks only for curves that occur together in an undecided group. Groups with the same curve set share a read.
-    internal async Task<(RetainedGasInstrument Instrument,bool MissingCandidates)> Bind(NpgsqlConnection connection,RetainedGasInstrument instrument,
+    internal async Task<RetainedGasInstrument> Bind(NpgsqlConnection connection,RetainedGasInstrument instrument,
         MarketSnapshot snapshot,PhysicalCashState? state,CancellationToken ct)
     {
-        if(instrument.Rights.IsEmpty)return (instrument,false);
+        if(instrument.Rights.IsEmpty)return instrument;
         if(state is null)throw new MarketDataException("gas_composition_input","Exercise valuation requires held quantities.");
         var scope=instrument.ExerciseMarkInputs(snapshot,state);
         var volatilities=new HashSet<CurveVolatilityMark>();
         var correlations=new HashSet<CurveCorrelationMark>();
-        var missing=false;
         var groups=scope.GroupBy(i=>(i.Group,i.Month,i.Curve.Revision)).Select(g=>new
         {
             g.Key.Month,g.Key.Revision,Curves=g.Select(i=>i.Curve.Code).Distinct().Order(StringComparer.Ordinal).ToArray()
@@ -81,18 +80,16 @@ internal sealed class CurveMarkStore(Guid catalog)
                 var result=await Read(connection,revision.RevisionId,curves,months,ct);
                 var volatilityRows=result.GetProperty("volatilities");
                 var correlationRows=result.GetProperty("correlations");
-                missing|=volatilityRows.GetArrayLength()!=curves.Length*months.Length ||
-                    correlationRows.GetArrayLength()!=curves.Length*(curves.Length-1)/2*months.Length;
                 foreach(var row in volatilityRows.EnumerateArray())
                     volatilities.Add(new(new(revision,row.Text("curve")),Month(row.Text("month")),
                         new(row.Id("markId"),row.Text("volatility"),VolatilityInput.Annualized)));
                 foreach(var row in correlationRows.EnumerateArray())
                     correlations.Add(new(new(revision,row.Text("firstCurve")),new(revision,row.Text("secondCurve")),
-                        Month(row.Text("month")),row.Text("correlation")));
+                        Month(row.Text("month")),row.Text("correlation"),row.Id("markId")));
             }
         }
-        if(volatilities.Count==0&&correlations.Count==0)return (instrument,missing);
-        return (new(instrument.Id,instrument.Members,instrument.Assignments,instrument.PriceLookups,rights:instrument.Rights,
-            marks:new([..volatilities],[..correlations],ExerciseMarks.HeldLogReturn),physicalSources:instrument.PhysicalSources),missing);
+        if(volatilities.Count==0&&correlations.Count==0)return instrument;
+        return new(instrument.Id,instrument.Members,instrument.Assignments,instrument.PriceLookups,rights:instrument.Rights,
+            marks:new([..volatilities],[..correlations],ExerciseMarks.HeldLogReturn),physicalSources:instrument.PhysicalSources);
     }
 }

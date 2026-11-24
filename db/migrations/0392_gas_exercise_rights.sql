@@ -33,6 +33,32 @@ CREATE TABLE trading.gas_exercise_groups(
  FOREIGN KEY(catalog_id,instrument_id,ordinal) REFERENCES trading.gas_exercise_rights,
  CHECK(isfinite(period_from) AND isfinite(period_to) AND period_from<period_to AND isfinite(exercise_at))
 );
+-- A binding can be shared. At least one selected trade must hold it at the worker's retained cut.
+CREATE FUNCTION risk.gas_exercise_binding_visible(catalog uuid,binding uuid) RETURNS boolean
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE job risk.jobs;
+BEGIN
+ IF risk.worker_read() IS NOT TRUE OR security.trading_access(catalog,'ReadTrades') IS NOT TRUE
+  OR security.market_access(catalog,'ReadMarketData') IS NOT TRUE THEN RETURN false;END IF;
+ job=risk.bound_lifecycle_reader();
+ RETURN catalog=job.catalog_id AND EXISTS(
+  SELECT FROM security.request_contexts q WHERE q.backend_pid=pg_backend_pid()
+   AND q.transaction_id=pg_current_xact_id_if_assigned() AND q.runtime_login=session_user
+   AND (q.market_catalog_id,q.market_context_id,q.trading_as_of)=(catalog,job.context_id,job.valuation_at)
+   AND q.expires_at>clock_timestamp())
+ AND security.gas_component_sources_visible(catalog,binding)
+ AND EXISTS(
+  SELECT FROM trading.gas_trade_revisions r WHERE (r.catalog_id,r.instrument_id)=(catalog,binding)
+   AND job.request->'bookIds' @> jsonb_build_array(r.book_id)
+   AND (NULLIF(job.request->'tradeIds','null'::jsonb) IS NULL OR job.request->'tradeIds' @> jsonb_build_array(r.trade_id))
+   AND security.trading_visible(catalog,r.publication_order,r.effective_at)
+   AND NOT EXISTS(SELECT FROM trading.gas_trade_revisions newer WHERE (newer.catalog_id,newer.trade_id)=(catalog,r.trade_id)
+    AND newer.revision>r.revision AND security.trading_visible(catalog,newer.publication_order,newer.effective_at)));
+END$$;
+ALTER FUNCTION risk.gas_exercise_binding_visible(uuid,uuid) OWNER TO openetrm_security_owner;
+REVOKE ALL ON FUNCTION risk.gas_exercise_binding_visible(uuid,uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION risk.gas_exercise_binding_visible(uuid,uuid) TO openetrm_risk_worker;
+
 DO $access$
 DECLARE t text;
 BEGIN
@@ -43,7 +69,7 @@ BEGIN
   EXECUTE format('CREATE POLICY owner_access ON trading.%I TO openetrm_security_owner USING(true) WITH CHECK(true)',t);
   EXECUTE format('CREATE POLICY scoped_read ON trading.%I FOR SELECT TO openetrm_runtime,openetrm_risk_worker USING(EXISTS(
    SELECT 1 FROM trading.gas_instruments i WHERE(i.catalog_id,i.instrument_id)=(%I.catalog_id,%I.instrument_id)))',t,t,t);
-  EXECUTE format('CREATE POLICY worker_service ON trading.%I AS RESTRICTIVE FOR SELECT TO openetrm_risk_worker USING(risk.worker_read())',t);
+  EXECUTE format('CREATE POLICY worker_service ON trading.%I AS RESTRICTIVE FOR SELECT TO openetrm_risk_worker USING(risk.gas_exercise_binding_visible(catalog_id,instrument_id))',t);
   EXECUTE format('GRANT SELECT ON trading.%I TO openetrm_runtime,openetrm_risk_worker',t);
   EXECUTE format('GRANT SELECT,INSERT ON trading.%I TO openetrm_security_owner',t);
  END LOOP;

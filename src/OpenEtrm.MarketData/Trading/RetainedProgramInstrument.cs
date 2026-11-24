@@ -153,12 +153,14 @@ internal class RetainedInstrumentSchedule<TMember> : InstrumentSchedule where TM
             var rights = retained.Rights;
             var decisions = rights.IsEmpty && state.Elections.IsEmpty ? null :
                 ExerciseDecisions.Resolve(rights, retained.Members, state, context.Snapshot, context.UnitEvaluation.CalculationAt);
+            var cashAutomaticSlots = rights.Where(r => r.Settlement == ExerciseSettlement.CashAutomatic)
+                .SelectMany(r => r.Slots).ToHashSet();
             RetainedProgramValuation EvaluateOccurrence(SideValuationContext parent, int slot,
                 ImmutableArray<ImmutableArray<EntryDayQuantity>> days)
             {
                 var side = (RetainedProgramSide)retained.Sides[slot].Side;
                 return (RetainedProgramValuation)parent.ForRetainedOccurrence(slot, side, days,
-                    retained.Members[slot].ValuationPart).Evaluate(side);
+                    retained.Members[slot].ValuationPart, cashAutomaticSlots.Contains(slot)).Evaluate(side);
             }
 
             ImmutableArray<ExerciseGroupValue> groups = [];

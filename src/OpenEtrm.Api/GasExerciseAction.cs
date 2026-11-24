@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Text.Json.Serialization;
 using Npgsql;
 using OpenEtrm.MarketData;
@@ -20,7 +21,7 @@ public sealed record GasExercisePrepareRequest(FuturesReadRequest Context,Guid? 
 public sealed record GasExerciseActionPeriod(int Right,DateOnly From,DateOnly To,DateTimeOffset ExerciseAt,
     Guid? PreviousId,string? PreviousOutcome,DateTimeOffset? PreviousEffectiveAt);
 
-public sealed record GasExerciseAction(bool Allowed,string? Reason,Guid TradeId,Guid InstrumentId,int ExpectedRevision,
+public sealed partial record GasExerciseAction(bool Allowed,string? Reason,Guid TradeId,Guid InstrumentId,int ExpectedRevision,
     Guid? ReadContextId,ImmutableArray<GasExerciseActionPeriod> Periods)
 {
     public string Label=>"Record exercise";
@@ -45,13 +46,16 @@ public sealed record GasExerciseAction(bool Allowed,string? Reason,Guid TradeId,
         if(await check.ExecuteScalarAsync(ct) is not true)throw new PreviewDeniedException();
     }
 
+    [GeneratedRegex(@"\A[0-9]{4}-[0-9]{2}-[0-9]{2}T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\.[0-9]{1,6})?(Z|\+00:00)\z")]
+    private static partial Regex EffectiveInstant();
+
     public static GasExerciseRecordRequest Build(GasExercisePrepareRequest request,ImmutableArray<GasExerciseActionPeriod> periods)
     {
         _=request.RetainedContext();
         if(request.OperationId==Guid.Empty||request.TradeId==Guid.Empty||request.InstrumentId==Guid.Empty||request.ExpectedRevision<1||
             request.Outcome is not ("abandoned" or "exercised")||string.IsNullOrWhiteSpace(request.Evidence)||request.Evidence.Trim(' ').EnumerateRunes().Count()>500)
             throw Invalid("Choose an outcome, supply evidence of 1 to 500 characters and identify the exact trade, revision and operation.");
-        if(!UtcInstant.TryParse(request.EffectiveAt,out var effective)||effective==default||effective.Ticks%10!=0)
+        if(request.EffectiveAt is null || !EffectiveInstant().IsMatch(request.EffectiveAt) || !UtcInstant.TryParse(request.EffectiveAt,out var effective)||effective==default)
             throw Invalid("Supply an explicit UTC effective instant with at most microsecond precision.");
         var selected=periods.Where(p=>p.Right==request.Right&&p.From>=request.FirstPeriod&&p.From<=request.LastPeriod).OrderBy(p=>p.From).ToArray();
         if(selected.Length is 0 or >9600||selected[0].From!=request.FirstPeriod||selected[^1].From!=request.LastPeriod)

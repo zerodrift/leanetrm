@@ -224,12 +224,29 @@ def curve_marks(c,query,manifest,context,fixed,base,plain,run_worker,browse):
     assert writer.call('correlation-marks/record',reverse)['marks']==[{**rho,'changed':False}]
     writer.call('correlation-marks/record',{**reverse,'secondCurve':other,'operationId':str(uuid4())},expected=422)
     assert exclusions()==[]
+    negative=spread('-4.20')
+    assert holding(negative)['unavailableReason']=='exercise_model_scope'
+    base_scope={**scope,'tradeIds':[negative['tradeId'],positive['tradeId']]}
+    assert [(r['tradeId'],r['reason']) for r in risk.call('portfolio/risk/catalog',base_scope)['excludedPositions']]==[
+        (negative['tradeId'],'exercise_model_scope')]
     current=c.call('curve-marks/read',read)
     assert [(v['curve'],v['volatility'],v['revision']) for v in current['volatilities']]==sorted([(point,'0.6',2),(other,'0.5',1)])
     assert [(r['firstCurve'],r['secondCurve'],r['correlation'],r['revision']) for r in current['correlations']]==[(*sorted([point,other]),'0.7',1)]
     correction={**reverse,'operationId':str(uuid4()),'marks':[dict(month='2021-01',expectedRevision=1,correlation='-0.25')]}
     assert writer.call('correlation-marks/record',correction)['marks'][0]['revision']==2
     assert writer.call('correlation-marks/record',pair)['marks']==[rho]
+    from preview_client import initial_frame
+    later={**context,'snapshotId':initial_frame(c.call('workspace'),'2021-01-01')['id']}
+    for kind,original,changed in [('volatility',mark,first['marks'][0]),('correlation',pair,rho)]:
+        path=f'{kind}-marks/record'
+        historical_command={**original,'operationId':str(uuid4())}
+        historical_receipt=writer.call(path,historical_command)
+        assert historical_receipt['marks']==[{**changed,'changed':False}]
+        for retry in (original,historical_command):
+            before=writer.call(path,retry)
+            assert writer.call(path,{**retry,'context':later},expected=409)['code']=='curve_mark_request_conflict'
+            assert writer.call(path,retry)==before
+    print('PASS curve mark replay: changed effective frame conflicts for original and historical volatility and correlation receipts',flush=True)
     revised=c.call('curve-marks/read',read)
     assert [(r['correlation'],r['revision']) for r in revised['correlations']]==[('-0.25',2)],revised
     # The latest publication is known now, but a mark effective one minute after this valuation is ineligible.
@@ -375,6 +392,7 @@ def election_checks(c,query,manifest,context,fixed,cash,plain,run_worker):
     risk=PreviewClient(c.url)
     risk.bootstrap()
     risk.call('profile',dict(profile='risk'))
+    check_contract_delivery_conflict(c,risk,context,shared,call,batch,plain,second_day,present)
     risk.call('gas/exercise/record',batch,expected=403)
     read_only=risk.call('tickets/trade',dict(context=context,tradeId=saved['tradeId'],bindingId=saved['instrumentId'],revision=1))
     assert not read_only['actions']['recordExercise']['allowed']
@@ -386,9 +404,12 @@ def election_checks(c,query,manifest,context,fixed,cash,plain,run_worker):
     assert record({**batch,'elections':[second]},expected=409)['code']=='exercise_election_conflict'
     # A native command temporarily reads under a certified cutoff; on return the calling write scope is still current.
     pending=json.dumps({**json.loads(wire),'operationId':str(uuid4()),'elections':[row(first_day,'abandoned',d1)]})
-    runtime_query(query,manifest,f"""DO $probe$ DECLARE first_receipt jsonb=security.record_gas_exercise_elections('{cat}','{pending}','{at}');BEGIN
+    runtime_query(query,manifest,f"""DO $probe$ DECLARE saved_source uuid=security.resolve_operation_context('{cat}','2020-12-17',NULL);
+      first_receipt jsonb=security.record_gas_exercise_elections('{cat}','{pending}','{at}');BEGIN
       IF security.record_gas_exercise_elections('{cat}','{pending}','{at}') IS DISTINCT FROM first_receipt
-      THEN RAISE EXCEPTION 'Native replay changed';END IF;END$probe$;""",commit=False)
+      THEN RAISE EXCEPTION 'Native replay changed';END IF;
+      PERFORM security.use_market_context('{cat}',saved_source);
+      IF NOT EXISTS(SELECT FROM security.operation_knowledge WHERE id=saved_source) THEN RAISE EXCEPTION 'Lost registered source';END IF;END$probe$;""",commit=False)
     replay_probe=f"""DO $probe$ BEGIN BEGIN PERFORM security.record_gas_exercise_elections('{cat}','{wire}','{at}');
       RAISE EXCEPTION 'Replay after revocation';EXCEPTION WHEN insufficient_privilege THEN NULL;END;END$probe$;"""
     runtime_query(query,manifest,replay_probe,commit=False,prefix="DELETE FROM security.role_permissions WHERE permission='AmendTrade';")
@@ -398,6 +419,27 @@ def election_checks(c,query,manifest,context,fixed,cash,plain,run_worker):
         assert record(invalid,expected=422)['code']=='exercise_election'
     assert record(command(row(first_day,'abandoned',d1),row(second_day,'exercised',str(uuid4()))),expected=409)['code']=='exercise_election_conflict'
     assert read()['elections'][0]['revisionId']==d1
+    # Normal booking allocates a new Instrument per trade. Seed the relationally supported shared binding
+    # on an additional synthetic holding, with a fresh publication, revision and amendment receipt.
+    other=c.call('gas/composition/book',{**call,'operationId':str(uuid4())})
+    link=str(uuid4())
+    query(f"""BEGIN;SELECT pg_advisory_xact_lock(730849102);
+      DO $fixture$ DECLARE publication integer;prior trading.gas_trade_revisions;body jsonb;result jsonb;BEGIN
+       SELECT * INTO STRICT prior FROM trading.gas_trade_revisions WHERE(catalog_id,trade_id,revision)=('{cat}','{other['tradeId']}',1);
+       SELECT max(publication_order)+1 INTO publication FROM trading.publications WHERE catalog_id='{cat}';
+       INSERT INTO trading.publications VALUES('{cat}',publication,pg_current_xact_id());
+       INSERT INTO trading.gas_trade_revisions SELECT (jsonb_populate_record(prior,jsonb_build_object(
+        'operation_id','{link}','revision',2,'instrument_id','{saved['instrumentId']}','publication_order',publication))).*;
+       SELECT request||jsonb_build_object('operationId','{link}','tradeId',prior.trade_id,'expectedRevision',1,'bindingId',prior.instrument_id,
+        'reason','Synthetic shared holding','amendmentPolicy','future_gas_composition_replace_v1') INTO body FROM trading.trades
+        WHERE(catalog_id,id)=(prior.catalog_id,prior.trade_id);
+       result=jsonb_build_object('tradeId',prior.trade_id,'instrumentId','{saved['instrumentId']}','revision',2,'operationId','{link}','unchanged',false);
+       INSERT INTO trading.gas_amendment_commands VALUES('{cat}','{link}',prior.trade_id,prior.actor_id,1,prior.instrument_id,
+        2,'{saved['instrumentId']}','{link}',true,'Synthetic shared holding',body,result);
+      END$fixture$;COMMIT;""")
+    shared_heads=query(f"""SELECT count(*) FROM (SELECT DISTINCT ON (trade_id) instrument_id FROM trading.gas_trade_revisions
+      WHERE catalog_id='{cat}' ORDER BY trade_id,revision DESC) heads WHERE instrument_id='{saved['instrumentId']}';""")
+    assert shared_heads=='2',shared_heads
     scope=dict(context=shared,bookIds=[],portfolioIds=[],tradeIds=[saved['tradeId']])
     catalog=risk.call('portfolio/risk/catalog',scope)
     assert not catalog['excludedPositions']
@@ -419,8 +461,18 @@ def election_checks(c,query,manifest,context,fixed,cash,plain,run_worker):
     worker(f"""BEGIN;DO $probe$ DECLARE lease jsonb=risk.claim(30,'{engine}');BEGIN
       PERFORM risk.bind((lease->>'jobId')::uuid,(lease->>'leaseToken')::uuid);
       IF {native(saved)}#>>'{{elections,0,revisionId}}' IS DISTINCT FROM '{d1}' THEN RAISE EXCEPTION 'Missing leased election';END IF;
+      IF jsonb_array_length(trading.gas_exercise_terms('{cat}','{saved['instrumentId']}'))<>1
+       OR trading.gas_exercise_terms('{cat}','{cash['instrumentId']}')<>'[]'::jsonb
+       OR (SELECT count(*) FROM trading.gas_exercise_rights)<>1
+       OR (SELECT count(*) FROM trading.gas_exercise_right_entries)<>2
+       OR (SELECT count(*) FROM trading.gas_exercise_groups)<>2
+       OR EXISTS(SELECT FROM trading.gas_exercise_rights WHERE instrument_id<>'{saved['instrumentId']}')
+       OR EXISTS(SELECT FROM trading.gas_exercise_right_entries WHERE instrument_id<>'{saved['instrumentId']}')
+       OR EXISTS(SELECT FROM trading.gas_exercise_groups WHERE instrument_id<>'{saved['instrumentId']}')
+       THEN RAISE EXCEPTION 'Worker exercise terms differ from the selected holding';END IF;
       BEGIN PERFORM {native(plain)};RAISE EXCEPTION 'Out-of-job trade disclosed';
       EXCEPTION WHEN insufficient_privilege THEN IF SQLERRM<>'risk_job_scope' THEN RAISE;END IF;END;END$probe$;ROLLBACK;""")
+    print('PASS leased exercise terms: selected shared binding readable, other bindings absent from projection and all three tables',flush=True)
     changed=record(command(row(first_day,'abandoned',d1)))['elections'][0]
     assert changed['revisionId']!=d1 and changed['revision']==2 and Fraction(editor()['valuation']['presentValue'])==0
     assert record(batch)==recorded
@@ -471,11 +523,41 @@ def election_checks(c,query,manifest,context,fixed,cash,plain,run_worker):
     print('PASS gas elections: atomic revisions, withdrawals, exact effective and knowledge cuts, held PV without marks, worker lease and pinned replay',flush=True)
 
 
+def check_contract_delivery_conflict(c,risk,context,shared,call,batch,plain,second_day,present):
+    saved=c.call('gas/composition/book',{**call,'operationId':str(uuid4())})
+    c.call('gas/exercise/record',{**batch,'operationId':str(uuid4()),'tradeId':saved['tradeId'],'instrumentId':saved['instrumentId']})
+    def editor(ctx=context):
+        return c.call('gas/composition/editor',dict(context=ctx,tradeId=saved['tradeId']))
+    # The physical member keeps contractual volume. Its independently recorded schedule still conflicts with abandonment.
+    quantity_read=c.call('gas/quantities/read',dict(context=context,tradeId=saved['tradeId'],selectionPolicy='operational_projection_v1'))
+    before_fact={**context,'knowledgeMode':'retained','contextId':quantity_read['context']['contextId']}
+    evidence=dict(context=context,tradeId=saved['tradeId'],expectedRevision=1,obligationId=quantity_read['rows'][0]['obligationId'],
+                  day=second_day,kind='scheduled',status='provisional',quantity='9000',evidence='Synthetic scheduled delivery',expectedPreviousId=None)
+    fact=c.call('gas/quantities/record',{**evidence,'operationId':str(uuid4())})
+    assert editor(before_fact)['valuation']['presentValue']==str(present)
+    view=dict(mode='trades',bookIds=[call['bookId']],portfolioIds=[],groupBy=[],measures=[],pivotConvention=None)
+    holdings={h['tradeId']:h for h in c.call('trading/blotter',dict(context=shared,view=view))['holdings']}
+    assert holdings[saved['tradeId']]['unavailableReason']=='exercise_conflict' and holdings[plain['tradeId']]['presentValue'] is not None
+    repair=c.call('tickets/trade',dict(context=context,tradeId=saved['tradeId'],bindingId=saved['instrumentId'],revision=1))
+    assert repair['groups'] is None and repair['scheduleRefusal']['code']=='exercise_conflict' and repair['actions']['recordExercise']['allowed']
+    pair_scope=dict(context=shared,bookIds=[],portfolioIds=[],tradeIds=[saved['tradeId'],plain['tradeId']])
+    pair_catalog=risk.call('portfolio/risk/catalog',pair_scope)
+    assert [(p['tradeId'],p['reason']) for p in pair_catalog['excludedPositions']]==[(saved['tradeId'],'exercise_conflict')]
+    held_request={**pair_scope,'context':{**shared,'knowledgeMode':'retained','contextId':pair_catalog['context']['contextId']},
+                  'detail':'holdings','convention':pair_catalog['convention'],'numericalPolicy':pair_catalog['numericalPolicy'],
+                  'pricingPolicy':pair_catalog['pricingPolicy'],'stress':[],
+                  'bumps':[dict(factor=pair_catalog['factors'][0]['factor'],size='0.1',convention=pair_catalog['bumpConvention'])]}
+    c.call('gas/quantities/record',{**evidence,'operationId':str(uuid4()),'status':'withdrawn','quantity':None,'expectedPreviousId':fact['revisionId']})
+    assert Fraction(editor()['valuation']['presentValue'])==present
+    assert risk.call('portfolio/risk',held_request)['excludedPositions']==pair_catalog['excludedPositions']
+    print('PASS contractual delivery facts: cutoff, withdrawal, two-holding Blotter, correction ticket and retained portfolio exclusion',flush=True)
+
+
 def ticket_authority_expiry(risk,query,manifest,context,saved,pending_head):
     request=dict(context=context,tradeId=saved['tradeId'],bindingId=saved['instrumentId'],revision=1)
     role,grant=uuid4(),uuid4()
     name='exercise_expiry_'+role.hex
-    table='trading.facility_gas_allocations'
+    table='trading.facility_gas_targets'
     try:
         query(f"""BEGIN;INSERT INTO security.roles VALUES('{role}','{name}','Synthetic expiring exercise authority');
           INSERT INTO security.role_permissions VALUES('{role}','AmendTrade');
@@ -766,12 +848,17 @@ def check_volatility_scenarios(risk,query,cat,req,value):
         dict(**{**scenarios[0],'id':'mixed','shifts':[price]})]))['joint']['samples']
     assert 'volatility' not in price_only and len(price_only['shifts'])==1,price_only
     assert mixed['shifts']==price_only['shifts'] and mixed['volatility']==scenarios[0]['volatility'],mixed
+    stressed=joint([{**scenarios[0],'shifts':[{**price,'size':'-100'}]}])
+    assert risk.call('portfolio/risk',stressed,expected=422)['code']=='exercise_model_scope'
     vol_job=risk.call('portfolio/risk/jobs',dict(requestId=str(uuid4()),request=joint_request))
     def native_sample(sample,allowed):
         command=json.dumps(joint([sample])).replace("'","''")
         try:query(f"SELECT risk.axis_commands('{command}'::jsonb);")
         except RuntimeError as error:assert not allowed and 'risk_joint_input' in str(error),error
         else:assert allowed,sample
+    for count,allowed in ((15,True),(16,False)):
+        shifts=[dict(inputId=str(uuid4()),size='0.01',convention=convention) for _ in range(count)]
+        native_sample({**scenarios[0],'shifts':[price],'volatility':shifts},allowed)
     native_sample(scenarios[0],True)
     for shifts in [[],[None],{},scenarios[0]['volatility']*2,[{**scenarios[0]['volatility'][0],'inputId':'invalid'}],
                    [{**scenarios[0]['volatility'][0],'size':'1e-4'}],

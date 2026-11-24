@@ -24,6 +24,10 @@ internal static class PortfolioJointRiskChecks
             catch(MarketDataException error)when(error.Code=="risk_joint_contract"){return;}
             throw new Exception("An incomplete or ambiguous joint risk contract was accepted.");
         }
+        PortfolioJointRiskRequest Mixed(int volatilities)=>scenario with{Scenarios=set with{Scenarios=[sample with{
+            Volatility=[..Enumerable.Range(0,volatilities).Select(_=>new PortfolioVolatilityShiftRequest(Guid.NewGuid(),"0.01",VolatilityShift.ParentAdditive))]}]}};
+        PortfolioJointRisk.Validate(Mixed(15));
+        Reject(Mixed(16));
         Reject(new(PortfolioJointRiskRequest.Version1,null,null));
         Reject(new(PortfolioJointRiskRequest.Version1,set,derivatives));
         Reject(scenario with{Convention="unsupported"});

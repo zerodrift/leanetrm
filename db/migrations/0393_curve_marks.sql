@@ -45,7 +45,8 @@ CREATE TABLE trading.correlation_marks(
 
 CREATE TABLE trading.curve_mark_requests(
  catalog_id uuid NOT NULL REFERENCES market_data.catalogs(id),actor_id uuid NOT NULL REFERENCES security.principals(id),
- kind text NOT NULL CHECK(kind IN('volatility','correlation')),operation_id uuid NOT NULL,command jsonb NOT NULL,outcome jsonb NOT NULL,
+ kind text NOT NULL CHECK(kind IN('volatility','correlation')),operation_id uuid NOT NULL,command jsonb NOT NULL,
+ effective_at ref_data.instant NOT NULL,outcome jsonb NOT NULL,
  PRIMARY KEY(catalog_id,actor_id,kind,operation_id)
 );
 DO $$DECLARE t text;BEGIN
@@ -110,7 +111,7 @@ BEGIN
  PERFORM trading.require_curve_mark_sources(catalog,definition,array_remove(ARRAY[first_code,second_code],NULL),mark_kind='correlation');
  SELECT * INTO prior FROM trading.curve_mark_requests WHERE(catalog_id,actor_id,kind,operation_id)=(catalog,actor,mark_kind,operation);
  IF FOUND THEN
-  IF prior.command IS DISTINCT FROM body THEN RAISE EXCEPTION 'curve_mark_request_conflict';END IF;
+  IF (prior.command,prior.effective_at) IS DISTINCT FROM (body,effective) THEN RAISE EXCEPTION 'curve_mark_request_conflict';END IF;
   RETURN prior.outcome;
  END IF;
  FOR item IN SELECT value FROM jsonb_array_elements(body->'marks') LOOP
@@ -150,7 +151,7 @@ BEGIN
   results=results||jsonb_build_array(jsonb_build_object('month',item->>'month','markId',mark,'revision',coalesce(head.revision,0)+1,'changed',true));
  END LOOP;
  outcome=jsonb_build_object('operationId',operation,'marks',results);
- INSERT INTO trading.curve_mark_requests VALUES(catalog,actor,mark_kind,operation,body,outcome);
+ INSERT INTO trading.curve_mark_requests VALUES(catalog,actor,mark_kind,operation,body,effective,outcome);
  PERFORM security.spread_mark_scope(catalog,true);
  PERFORM trading.require_curve_mark_sources(catalog,definition,array_remove(ARRAY[first_code,second_code],NULL),mark_kind='correlation');
  RETURN outcome;

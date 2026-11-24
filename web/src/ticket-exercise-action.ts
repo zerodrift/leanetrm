@@ -52,9 +52,9 @@ export function setupExerciseAction(o:{api:Api;context:()=>WorkingContext;curren
   action=next;working=context;form=undefined;open=false;
   draw();
  }
- async function reread(){
+ async function reread(success:string){
   sending=true;draw();
-  try{await o.reread();stale=false;}
+  try{await o.reread();stale=false;said=success;}
   catch(error){said=`The trade could not be refreshed. ${reasonOf(error)}`;stale=true;}
   finally{sending=false;if(o.current())draw();}
  }
@@ -79,7 +79,7 @@ export function setupExerciseAction(o:{api:Api;context:()=>WorkingContext;curren
   sending=false;
   if(!matches(command,saved)){said='The record response could not be reconciled. Retry the original exercise record.';draw();return;}
   keep(undefined);form=undefined;open=false;said='Exercise election recorded.';
-  await reread();
+  await reread('Exercise election recorded.');
  }
  async function prepare(values:FormData){
   const selection=action,context=working;
@@ -142,7 +142,7 @@ export function setupExerciseAction(o:{api:Api;context:()=>WorkingContext;curren
   if(note){const text=element('p',note);text.className='side-panel-status';text.setAttribute('role','status');node.append(text);}
   if(!current())return;
   if(stale){
-   const refresh=button('Refresh exercise elections','secondary ticket-refresh-exercise',()=>void reread());
+   const refresh=button('Refresh exercise elections','secondary ticket-refresh-exercise',()=>void reread('Exercise elections refreshed.'));
    refresh.disabled=sending;node.append(refresh);
   }else if(prepared){
    const command=prepared,retry=button('Retry the original exercise record','secondary ticket-retry-exercise',()=>void record(command,true));

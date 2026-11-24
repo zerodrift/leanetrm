@@ -22,7 +22,8 @@ internal static class GasDeliveryQuantityStore
  {
   if(held.Rights.IsEmpty&&!held.Members.Any(m=>m.QuantityPolicy is not null||m.Part is not null))return null;
   if(!held.Started)throw new MarketDataException("gas_quantity_policy","Delivery schedule quantities require the in-term physical lifecycle.");
-  return Build(held.Members,held.Programs,held.Quantity,at,held.Members.Any(m=>m.QuantityPolicy is not null)?await ReadHeads(connection,catalog,held.TradeId,held.InstrumentId,ct):[],held.Rights);
+  var readsHeads=held.Members.Any(m=>m.QuantityPolicy is not null)||held.Rights.Any(r=>r.Settlement==ExerciseSettlement.Physical);
+  return Build(held.Members,held.Programs,held.Quantity,at,readsHeads?await ReadHeads(connection,catalog,held.TradeId,held.InstrumentId,ct):[],held.Rights);
  }
  internal static async Task<ImmutableArray<JsonElement>> ReadHeads(NpgsqlConnection connection,Guid catalog,Guid trade,Guid binding,CancellationToken ct)
  {

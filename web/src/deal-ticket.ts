@@ -31,7 +31,7 @@ export type TicketEntry={side:string;day:string;fields:TicketField[];values:Reco
 export type TicketView={state:TicketState;sideLabels?:Readonly<Record<string,string>>;groupedEntry?:boolean;mode:'new'|'booked'|'amend';presentation?:'schedules'|'terms';actions:TradeActions|null;schedule:ScheduleView|null;quantityUnit:string|null;instant:(at:string)=>string;zone:string;previous:ScheduleView|null;summaries:TicketSummary[];
  links:TicketLink[];entry:TicketEntry|null;sideSchedule?:(host:HTMLElement,side:TicketSide)=>()=>void;facilityAllocations?:FacilityAllocationTrack[];sideGroups?:InstrumentSideGroup[];sideGroupsReason?:string|null;
  // A booked started-delivery gas trade's measures, with the currency its figures are in; none for any other trade.
- measures?:GasMeasures|null;currency?:string;exerciseAction?:(host:HTMLElement)=>void;
+ measures?:GasMeasures|null;currency?:string;groups?:ExerciseGroup[];exerciseAction?:(host:HTMLElement)=>void;
 
  status:TicketStatus;fieldErrors:Record<string,string>;choices:Record<string,TicketChoice[]>;selectedSide:string|null;tab:string;level:string;closed:ReadonlySet<string>;on:TicketEvents};
 
@@ -418,7 +418,8 @@ export function renderTicket(host:HTMLElement,o:TicketView){
  }
  if(o.presentation==='schedules')root.append(statusLine(o.status));
  const terms=exerciseTerms(o);if(terms)root.append(terms);
- if(o.schedule?.groups?.length)root.append(exerciseGroups(o.schedule.groups,o.currency));
+ const pricedGroups=o.groups??o.schedule?.groups;
+ if(pricedGroups?.length)root.append(exerciseGroups(pricedGroups,o.currency));
  o.exerciseAction?.(root);
  if(o.measures){if(!o.currency)throw Error('The trade measures require their currency.');root.append(measures(o.measures,o.currency,o.instant));}
  if(o.presentation!=='terms')root.append(panel);

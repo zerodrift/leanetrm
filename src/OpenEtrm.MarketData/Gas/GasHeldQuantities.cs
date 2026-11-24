@@ -27,12 +27,17 @@ public static class GasHeldQuantities
         foreach(var member in members.OrderBy(m=>m.Slot))
             foreach(var day in member.Days.OrderBy(d=>d.Day))
             {
+                ImmutableArray<GasQuantityObservation> observations = [..lookup[(member.Slot, day.Day)]];
                 if(member.QuantityPolicy is null)
                 {
-                    output.Add(new(member.Slot, day.Day, day.Quantity, day.Quantity, PhysicalLifecycle.ContractQuantity, []));
+                    GasDailyQuantitySelection.RequireValuationHeads(day, observations, at);
+                    output.Add(new(member.Slot, day.Day, day.Quantity, day.Quantity, PhysicalLifecycle.ContractQuantity, [])
+                    {
+                        HasContractDeliveryRecord = observations.Any(o => o.Kind is ("scheduled" or "allocated") && o.Status != "withdrawn")
+                    });
                     continue;
                 }
-                var selected=GasDailyQuantitySelection.Select(day,[..lookup[(member.Slot,day.Day)]],GasDailyQuantitySelection.ValuationPolicy,at,member.Scale);
+                var selected=GasDailyQuantitySelection.Select(day,observations,GasDailyQuantitySelection.ValuationPolicy,at,member.Scale);
                 var value=new HeldDayQuantity(member.Slot,day.Day,day.Quantity,selected.Quantity,GasDailyQuantitySelection.ValuationSource(selected),
                     [..selected.Provenance.Select(p=>new DeliveryQuantityEvidence(p.Source,p.Id,p.Evidence))]);
                 output.Add(value);

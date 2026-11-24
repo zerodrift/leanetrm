@@ -6,7 +6,11 @@ namespace OpenEtrm.MarketData.Trading;
 
 public sealed record DeliveryQuantityEvidence(string Source,Guid RevisionId,string Reference);
 public sealed record HeldDayQuantity(int Slot,DateOnly Day,ExactQuantity Contract,ExactQuantity Selected,string Source,
-    ImmutableArray<DeliveryQuantityEvidence> Evidence);
+    ImmutableArray<DeliveryQuantityEvidence> Evidence)
+{
+    // Independent of the quantity used for valuation on a contractual day.
+    public bool HasContractDeliveryRecord { get; init; }
+}
 
 // Held state contains physical-owner facts only. Membership policy and source
 // relationships are immutable instrument terms, never copied into this state.

@@ -129,7 +129,11 @@ export async function run(actions){
  const refresh=bookedTicket+' .ticket-refresh-exercise';
  await wait(at(refresh)+'?.checkVisibility()&&window.__electionsSent.at(-1)?.status===409',30000);
  await check('a stale predecessor requires explicit refresh before another election',at(action)+'.disabled&&!'+at(form)+'&&!'+at(retry));
- await click(refresh);await open();await selectPeriod('2021-01-17','abandoned');
+ await click(refresh);
+ await wait('!'+at(refresh)+'&& !'+at(action)+'.disabled',30000);
+ await check('a refreshed exercise action clears the stale instruction',
+  '!'+at(bookedTicket+' .ticket-exercise-controls')+'.textContent.includes("Refresh the trade")');
+ await open();await selectPeriod('2021-01-17','abandoned');
  await check('the refreshed group choice shows its known predecessor and effective instant',
   at(bookInput('firstPeriod'))+'?.selectedOptions[0].textContent.includes("known Exercised effective 2020-12-18T16:00:00")');
  await submit();await outcomeShown('2021-01-17','abandoned');

@@ -50,7 +50,7 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog SET jit=off SET tim
 DECLARE trade uuid;binding uuid;operation uuid;caller security.request_contexts;record_context uuid;head trading.gas_trade_revisions;
  command trading.gas_exercise_commands;prior trading.gas_exercise_elections;publication integer;
  item jsonb;group_ordinal integer;group_from date;effective timestamptz;expected uuid;decision text;proof text;
- deadline timestamptz;fact_count integer;unchanged boolean;rows jsonb='[]';result jsonb;
+ deadline timestamptz;fact_count integer;unchanged boolean;receipt_rows jsonb[]=ARRAY[]::jsonb[];result jsonb;
 BEGIN
  IF security.trading_access(catalog,'AmendTrade') IS NOT TRUE OR security.trading_access(catalog,'ReadTrades') IS NOT TRUE
  THEN RAISE EXCEPTION 'exercise_election_denied' USING ERRCODE='42501';END IF;
@@ -124,9 +124,9 @@ BEGIN
     INSERT INTO trading.gas_exercise_elections VALUES(catalog,gen_random_uuid(),trade,binding,group_ordinal,group_from,
       coalesce(prior.revision,0)+1,prior.id,decision,proof,effective,operation,caller.actor_id,publication) RETURNING * INTO prior;
    END IF;
-   rows=rows||jsonb_build_array(jsonb_build_object('right',group_ordinal,'fromDate',group_from,'revisionId',prior.id,'revision',prior.revision,'unchanged',unchanged));
+   receipt_rows=array_append(receipt_rows,jsonb_build_object('right',group_ordinal,'fromDate',group_from,'revisionId',prior.id,'revision',prior.revision,'unchanged',unchanged));
   END LOOP;
-  result=jsonb_build_object('tradeId',trade,'instrumentId',binding,'operationId',operation,'elections',rows);
+  result=jsonb_build_object('tradeId',trade,'instrumentId',binding,'operationId',operation,'elections',to_jsonb(receipt_rows));
   INSERT INTO trading.gas_exercise_commands(catalog_id,operation_id,trade_id,trade_revision,instrument_id,actor_id,request,recording_as_of,outcome,context_id)
    VALUES(catalog,operation,trade,head.revision,binding,caller.actor_id,body,as_of,result,record_context);
  END IF;

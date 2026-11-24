@@ -213,10 +213,10 @@ public static class PhysicalLifecycle
         return new(days.ToImmutableDictionary(),quantities.ToImmutableDictionary());
     }
     internal static PhysicalLifecycleValue EvaluateSide(BookedSideProgram program,BookedSideEvaluation evaluation,bool physical,int slot,
-        SignedRatio heldFactor,PhysicalLifecycleGeometry geometry,PhysicalCashState state,MarketSnapshot snapshot,ReferenceKey currency,ImmutableArray<EntryDayQuantity> entryDays)
+        SignedRatio heldFactor,PhysicalLifecycleGeometry geometry,PhysicalCashState state,MarketSnapshot snapshot,ReferenceKey currency,ImmutableArray<EntryDayQuantity> entryDays,bool cashAutomatic=false)
     {
         if(heldFactor.Numerator.IsZero)throw new MarketDataException(ContextRefusal,"A held Side requires nonzero exact quantity normalization.");
-        var held=EvaluateConnected([new(program,evaluation,physical,value=>value.Scale(heldFactor))],state,snapshot,currency,geometry,slot,entryDays);
+        var held=EvaluateConnected([new(program,evaluation,physical,value=>value.Scale(heldFactor))],state,snapshot,currency,geometry,slot,entryDays,cashAutomatic);
         return Scale(held,new SignedRatio(heldFactor.Numerator.Sign*heldFactor.Denominator,System.Numerics.BigInteger.Abs(heldFactor.Numerator)));
     }
     internal static PhysicalLifecycleValue Scale(PhysicalLifecycleValue value,SignedRatio factor)=>new(
@@ -224,7 +224,7 @@ public static class PhysicalLifecycle
         [..value.Rows.Select(row=>row with{Accrued=row.Accrued.Scale(factor),Paid=row.Paid.Scale(factor),Outstanding=row.Outstanding.Scale(factor),
             Unrealized=row.Unrealized.Scale(factor),RealizedUnsettled=row.RealizedUnsettled.Scale(factor),Expected=row.Expected?.Scale(factor)})]);
     private static PhysicalLifecycleValue EvaluateConnected(ImmutableArray<LifecycleMember> members,PhysicalCashState state,MarketSnapshot snapshot,
-        ReferenceKey currency,PhysicalLifecycleGeometry geometry,int firstSlot,ImmutableArray<EntryDayQuantity> entryDays)
+        ReferenceKey currency,PhysicalLifecycleGeometry geometry,int firstSlot,ImmutableArray<EntryDayQuantity> entryDays,bool cashAutomatic)
     {
         _=RequirePaymentKnowledge(snapshot);
         var at=snapshot.ValuationAt;var zero=ExactMoney.Parse("0",currency);
@@ -275,7 +275,7 @@ public static class PhysicalLifecycle
                 const SchedulePriceFacts finalPrices=SchedulePriceFacts.Fixed|SchedulePriceFacts.Actual|SchedulePriceFacts.PublishedFixing;
                 var fixedPrice=prices!=SchedulePriceFacts.None&&(prices&~finalPrices)==0;
                 var projectedPrice=(prices&SchedulePriceFacts.Projected)!=0&&(prices&~(finalPrices|SchedulePriceFacts.Projected))==0;
-                if(ended>0&&!fixedPrice&&(due||!projectedPrice))
+                if(ended>0&&!fixedPrice&&((due&&!cashAutomatic)||!projectedPrice))
                     throw new MarketDataException("side_due_leg_unresolved","Accrued cash requires its fixed, actual or published price.");
                 if(due&&ended<covered.Length)throw Unsupported("A due payment requires every gas day it covers to have ended.");
                 var contractAmount=Held(member,contribution.Amount);var amount=contractAmount.Scale(fractions.Total);
@@ -285,7 +285,7 @@ public static class PhysicalLifecycle
                     // cash. Until the required fixing, its projection keeps its market risk.
                     _=state.Paid(slot,occurrence,snapshot,zero,false);
                     rows.Add(new(slot,occurrence,from,to,ended==covered.Length?DeliveryState.Ended:DeliveryState.InProgress,
-                        SettlementState.Projected,zero,zero,amount,Held(member,contribution.PresentValue).Scale(fractions.Total),zero,
+                        SettlementState.Projected,zero,zero,amount,due?amount:Held(member,contribution.PresentValue).Scale(fractions.Total),zero,
                         follows?SelectedQuantityPolicy:EstimatedQuantity,valueAt,amount));
                     continue;
                 }

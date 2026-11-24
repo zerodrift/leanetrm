@@ -21,6 +21,11 @@ internal static class ExerciseRightChecks
         Check("the 30th input digit can change half-even rounding at the call output", CallRounding);
         Check("unrepresentable call inputs and exact results raise their contracted codes", ExactBoundaries);
         Check("malformed inputs are refused even if the payoff is determined", RejectsMalformedInputs);
+        Check("cash group deadlines match the latest retained fixing", CashDeadlines);
+        Check("contract quantities preserve owned delivery facts", ContractDeliveryFacts);
+        Check("unpublished cash forecasts survive the overdue boundary", OverdueForecast);
+        Check("physical elections cannot take effect after the saved deadline", ElectionDeadline);
+        Check("zero index exposure still requires publication", ZeroExposurePublication);
         MarkBindings();
         Check("saved rights retain their terms in identity and preserve the legacy canonical bytes", SavedIdentity);
         Check("saved gas rights require distinct members, complete group geometry and installed terms", RejectsMalformedRights);
@@ -55,6 +60,9 @@ internal static class ExerciseRightChecks
         if (fixture.Instrument.PricingBindingIdentity != reversed.PricingBindingIdentity)
             throw new Exception("Reversing the same held correlation must preserve the pricing binding.");
         Console.WriteLine("PASS exercise marks: symmetric pricing binding identity");
+        var revised = fixture.WithMarks(fixture.Marks with { Correlations = [pair with { RevisionId = Guid.NewGuid() }] });
+        if (revised.PricingBindingIdentity == fixture.Instrument.PricingBindingIdentity)
+            throw new Exception("Equal coefficients from different correlation revisions must distinguish the pricing binding.");
         var market = fixture.Prepare().Context.Snapshot;
         var curves = fixture.Instrument.ExerciseMarkInputs(market, fixture.State);
         if (!curves.Select(i => i.Curve).ToHashSet().SetEquals(fixture.Marks.Volatilities.Select(m => m.Curve)) ||
@@ -114,7 +122,7 @@ internal static class ExerciseRightChecks
             var month = new DateOnly(from.Year, from.Month, 1);
             CurveVolatilityMark Vol(CurveKey curve, string value) => new(curve, month, new(Guid.NewGuid(), value, VolatilityInput.Annualized));
             Marks = new(index && !sameCurve ? [Vol(assignments[0].Projection.Market.Curve, "0.5"), Vol(strike.Market.Curve, "0.4")] : [Vol(assignments[0].Projection.Market.Curve, "0.5")],
-                index && !sameCurve ? [new(point.Market.Curve, strike.Market.Curve, month, "0.90")] : [], "curve_marks_log_return_held_v1");
+                index && !sameCurve ? [new(point.Market.Curve, strike.Market.Curve, month, "0.90", Guid.NewGuid())] : [], "curve_marks_log_return_held_v1");
             ImmutableArray<RetainedGasMember> members = [Member(gas, !reverse), Member(payment, sameSign || reverse)];
             if(earlierPhysical)
             {
@@ -505,8 +513,10 @@ internal static class ExerciseRightChecks
             RejectElection("exercise_election", () => EvaluateElections(f, ElectedState(f, [invalid]), at));
         RejectElection("exercise_election", () => EvaluateElections(f, ElectedState(f,
             [valid, valid with { EffectiveAt = future, RevisionId = Guid.NewGuid() }]), at));
-        var cash = f.Instrument.Rights[0] with { Slots = [1], Settlement = ExerciseSettlement.CashAutomatic };
-        RejectElection("exercise_election", () => EvaluateElections(f, ElectedState(f, [valid]), at, Save(f.Instrument, [cash])));
+        var cashFixture = new CashFixture();
+        var cash = cashFixture.Instrument(ExerciseHolder.Us, cashFixture.Marks, cashFixture.Daily, cashFixture.Fixed);
+        RejectElection("exercise_election", () => cash.ValidateValuationState(ElectedState(f,
+            [valid with { From = cash.Rights[0].Groups[0].From }])));
         RejectElection("exercise_election", () => EvaluateElections(f, ElectedState(f, [valid]), at, f.Market.Instrument));
 
         var elected = ImmutableArray.Create(valid, Election(f, 1, "abandoned", at));
@@ -557,7 +567,7 @@ internal static class ExerciseRightChecks
                 SyntheticSideCalendars.Dated(false), gasDeliveryClock: Market.Clock));
             CurveVolatilityMark Vol(IndexPriceLookup lookup, string price) =>
                 new(lookup.Market.Curve, Market.From, new(Guid.NewGuid(), price, VolatilityInput.Annualized));
-            Marks = new([Vol(a, "0.5"), Vol(b, "0.4")], [new(a.Market.Curve, b.Market.Curve, Market.From, "0.90")],
+            Marks = new([Vol(a, "0.5"), Vol(b, "0.4")], [new(a.Market.Curve, b.Market.Curve, Market.From, "0.90", Guid.NewGuid())],
                 ExerciseMarks.HeldLogReturn);
         }
 
@@ -599,6 +609,97 @@ internal static class ExerciseRightChecks
 
     private static RetainedGasMember CashPayment(RetainedGasMember entry, string direction, QuantityPart? part = null) =>
         new(entry.SideId, E(direction), entry.Ratio, entry.Program, 0, part: part);
+
+    private static void CashDeadlines()
+    {
+        var f = new CashFixture();
+        var instrument = f.Instrument(ExerciseHolder.Us, f.Marks, f.Daily, f.Monthly);
+        var right = instrument.Rights.Single();
+        var group = right.Groups.Single();
+        foreach (var time in new[] { default(DateTimeOffset), f.FixingAt.AddTicks(-10), f.FixingAt.AddTicks(10) })
+            RefusesRight("a cash deadline different from its latest fixing", () =>
+                Save(instrument, [right with { Groups = [group with { ExerciseAt = time }] }]));
+        RefusesRight("an indexed member without its exact fixing", () =>
+            new RetainedGasInstrument(instrument.Id, instrument.Members, instrument.Assignments,
+                [..instrument.PriceLookups.Where(p => p.Fixing?.FixingAt != f.FixingAt)], [right]));
+        RefusesRight("a cash group with only fixed payments", () => f.Instrument(ExerciseHolder.Us, null, f.Fixed, f.Fixed));
+    }
+
+    private static void ContractDeliveryFacts()
+    {
+        var f = new GroupFixture();
+        var at = f.ExerciseAt.AddDays(-1);
+        var day = f.State.OwnerDays.Single();
+        var contract = new GasDailyContract("synthetic", 0, 0, day.Day, f.ExerciseAt.AddHours(1), f.ExerciseAt.AddHours(25), day.Contract);
+        foreach (var kind in new[] { "scheduled", "allocated" })
+        {
+            var head = new GasQuantityObservation(Guid.NewGuid(), kind, "provisional", day.Contract.Scale(new ExactRatio(1, 2)),
+                "Synthetic delivery notice", "manual_daily_v1");
+            ImmutableArray<HeldDayQuantity> Build(string status) => GasHeldQuantities.Build(
+                [new(0, [contract], ExactRatio.One, null)], [new(0, day.Day, head with { Status = status })], at);
+            var days = Build("provisional");
+            foreach (var elections in new[] { ImmutableArray<ExerciseElection>.Empty, ImmutableArray.Create(Election(f, 0, "abandoned", at)) })
+                RejectElection("exercise_conflict", () => EvaluateElections(f, ElectedState(f, elections, days), at));
+            var exercised = ElectedState(f, [Election(f, 0, "exercised", at)], days);
+            if (EvaluateElections(f, exercised, at).Value.Groups.Single().Counted.Ratio != R("2000"))
+                throw new Exception("A contractual physical day keeps its booked quantity after exercise.");
+            _ = EvaluateElections(f, ElectedState(f, [], Build("withdrawn")), at);
+        }
+    }
+
+    private static void ElectionDeadline()
+    {
+        var f = new GroupFixture();
+        var at = f.ExerciseAt;
+        var (_, context) = f.Prepare();
+        var valid = ElectedState(f, [Election(f, 0, "exercised", at)]);
+        _ = EvaluateElections(f, valid, at);
+        var late = ElectedState(f, [Election(f, 0, "exercised", at.AddTicks(10))]);
+        RejectElection("exercise_election", () => f.Instrument.ValidateValuationState(late));
+        RejectElection("exercise_election", () => f.Instrument.Declare(new UnitValuationContext(context.Snapshot, context.Setup, bindingState: late)));
+        RejectElection("exercise_election", () => EvaluateElections(f, late, at.AddTicks(10)));
+    }
+
+    private static void OverdueForecast()
+    {
+        var f = new CashFixture();
+        var at = f.FixingAt.AddDays(7);
+        var instrument = f.Instrument(ExerciseHolder.Us, f.Marks, f.Daily, CashPayment(f.Fixed, "-1"));
+        var (risk, group) = f.Value(instrument, at, "3.80");
+        if (group.State != "undecided_forecast" || group.Counted.Ratio != R("3000") || TradeValue(risk).Ratio != R("3000"))
+            throw new Exception("An unpublished overdue choice keeps the supplied forecast and zero-time payoff.");
+        var lookup = f.Market.Instrument.PriceLookups[5];
+        var bump = new ConnectedRiskBump(CurveShockCoordinate.MarketQuote, new ContractCurveTarget(lookup.Market.Curve, lookup.Market.Contract),
+            PriceUnit.FromQuote(f.Market.Quote), E("0.10"), ConnectedRiskBump.Convention);
+        var moved = RiskEngine.CalculateExact(risk, [bump], RiskEngine.ExactNumericalPolicy).Groups.Single().Factors.Single().Positions.Single().Values;
+        if (moved.Up.Ratio != R("4000") || moved.Down.Ratio != R("2000"))
+            throw new Exception("An overdue contingent forecast still reprices under the shared price scenarios.");
+        RejectElection("side_due_leg_unresolved", () => f.Value(Save(instrument, []), at, "3.80"));
+        var (_, decided) = f.Value(instrument, at, "3.80", dailyFixing: "3.90");
+        if (decided.State != "exercised" || decided.Counted.Ratio != R("4000"))
+            throw new Exception("The published overdue choice becomes an ordinary obligation.");
+        var plainIndex = f.Instrument(ExerciseHolder.Us, f.Marks, f.Daily, f.Daily, CashPayment(f.Fixed, "-1"));
+        RejectElection("side_due_leg_unresolved", () => f.Value(plainIndex, at, "3.80"));
+    }
+
+    private static void ZeroExposurePublication()
+    {
+        var f = new CashFixture();
+        var zero = CashPayment(f.Daily, "-1", QuantityPart.Shortfall(R("1")));
+        foreach (var (fixedEntry, expected) in new[] { (f.Fixed, "35000"), (CashPayment(f.Fixed, "1", QuantityPart.Shortfall(R("1"))), "0") })
+        {
+            var instrument = f.Instrument(ExerciseHolder.Us, null, zero, fixedEntry);
+            foreach (var (at, state) in new[] { (f.FixingAt.AddDays(-1), "undecided"), (f.FixingAt.AddDays(7), "undecided_forecast") })
+            {
+                var (risk, group) = f.Value(instrument, at);
+                if (group.State != state || group.Counted.Ratio != R(expected) || !risk.UnitContracts.Single().Volatility.IsEmpty)
+                    throw new Exception($"Unpublished zero index exposure must remain {state} at {expected} without marks.");
+            }
+            var (_, published) = f.Value(instrument, f.FixingAt, dailyFixing: "3.80");
+            if (published.State != (expected == "0" ? "abandoned" : "exercised") || published.Counted.Ratio != R(expected))
+                throw new Exception("Publication decides the exact positive or zero holder amount.");
+        }
+    }
 
     private static void AutomaticCash()
     {
@@ -713,7 +814,7 @@ internal static class ExerciseRightChecks
         var (_, shortfall) = f.Value(right, at, monthlyFixing: "3.00", selected: 9000);
         var (full, noShortfall) = f.Value(right, at, monthlyFixing: "3.00");
         if (shortfall.State != "undecided" || shortfall.Counted.Ratio.Format(4, MidpointRounding.ToEven) != "294.7442" ||
-            noShortfall.State != "abandoned" || noShortfall.Counted.Ratio != SignedRatio.Zero || !full.UnitContracts.Single().Volatility.IsEmpty)
+            noShortfall.State != "undecided" || noShortfall.Counted.Ratio != SignedRatio.Zero || !full.UnitContracts.Single().Volatility.IsEmpty)
             throw new Exception("Only the missing 1,000 units carry cash keep-whole value.");
     }
 
@@ -817,7 +918,8 @@ internal static class ExerciseRightChecks
         var instrument = fixture.Instrument;
         var groups = DayGroups(fixture.From, 3, fixture.Clock);
         var right = PhysicalRight(groups);
-        var cash = right with { Ordinal = 1, Slots = [2], Settlement = ExerciseSettlement.CashAutomatic };
+        var cash = right with { Ordinal = 1, Slots = [2], Settlement = ExerciseSettlement.CashAutomatic,
+            Groups = [..groups.Select(g => g with { ExerciseAt = fixture.Clock.Boundary(g.To) })] };
         var monthly = right with { Period = ExercisePeriod.DeliveryMonth, Groups = [groups[0] with { To = fixture.To }] };
         _ = Save(instrument, [right, cash]);
         _ = Save(instrument, [monthly]);
@@ -857,18 +959,15 @@ internal static class ExerciseRightChecks
 
     private static void MonthBoundaries()
     {
-        var fixture = new GasInstrumentScheduleChecks.IdentityFixture();
-        var original = fixture.Instrument;
-        var clock = fixture.Physical.Quantities.Clock;
         var from = new DateOnly(2041, 1, 30);
+        var fixture = new GasPricingScheduleFixture(dailyPaymentStart: from);
+        var instrument = fixture.Instrument;
         var february = new DateOnly(2041, 2, 1);
         var to = february.AddDays(1);
-        var cashMember = CashMember(fixture, from, to, clock);
-        var instrument = new RetainedGasInstrument(original.Id, original.Members.Add(cashMember), original.Assignments);
-        var january = new ExerciseGroup(from, february, clock.Boundary(from));
-        var next = new ExerciseGroup(february, to, clock.Boundary(february));
-        var right = new ExerciseRight(0, [2], ExercisePeriod.DeliveryMonth, ExerciseHolder.Us, ExerciseSettlement.CashAutomatic,
-            KirkSpreadCall.Implementation, OptionNumericalPolicies.ActualOver365FixedInstant, [january, next]);
+        var january = new ExerciseGroup(from, february, fixture.Clock.Boundary(february));
+        var next = new ExerciseGroup(february, to, fixture.Clock.Boundary(to));
+        var right = PhysicalRight([january, next]) with {
+            Slots = [1], Period = ExercisePeriod.DeliveryMonth, Settlement = ExerciseSettlement.CashAutomatic };
 
         _ = Save(instrument, [right]);
         RefusesRight("month grouping crosses into February", () => _ = Save(instrument, [right with { Groups = [january with { To = to }] }]));

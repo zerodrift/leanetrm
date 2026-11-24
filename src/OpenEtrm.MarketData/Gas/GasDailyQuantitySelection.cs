@@ -41,18 +41,22 @@ public static class GasDailyQuantitySelection
  }
  static GasSelectedQuantity SelectValuation(GasDailyContract contract,ImmutableArray<GasQuantityObservation> heads,DateTimeOffset at,ExactRatio scale)
  {
-  if(heads.Any(h=>h is null||h.Id==Guid.Empty||h.Source is not("manual_daily_v1" or "facility_allocation_adoption_v1")||
-      h.Kind is not("nominated" or "confirmed" or "scheduled" or "allocated")||h.Source=="facility_allocation_adoption_v1"&&h.Kind!="allocated"||
-      h.Status is not("provisional" or "final" or "withdrawn")||h.Status=="final"&&(h.Kind!="allocated"||at<contract.End)||
-      h.Quantity is null||h.Quantity.Specification!=contract.Quantity.Specification||BigInteger.Parse(h.Quantity.Numerator)<0||string.IsNullOrWhiteSpace(h.Evidence))||
-      heads.GroupBy(h=>(h.Source,h.Kind)).Any(g=>g.Count()>1))
-   throw Invalid("Supply each source's current visible head per quantity kind, in the exact native unit, with its evidence.");
+  RequireValuationHeads(contract,heads,at);
   static int Rank(GasQuantityObservation h)=>h.Status=="withdrawn"?0:h.Kind switch{"allocated"=>h.Status=="final"?3:2,"scheduled"=>1,_=>0};
   var rank=heads.Select(Rank).DefaultIfEmpty(0).Max();
   var winners=rank==0?ImmutableArray<GasQuantityObservation>.Empty:heads.Where(h=>Rank(h)==rank).OrderBy(h=>h.Source,StringComparer.Ordinal).ToImmutableArray();
   if(winners.Select(h=>h.Quantity).Distinct().Count()>1)throw Invalid("Current sources disagree at the winning quantity rank for this gas day.");
   var selected=winners.FirstOrDefault();var q=selected?.Quantity??contract.Quantity;
   return new(q,q.Scale(scale.Inverse()),selected?.Kind??"contractual",selected?.Id,selected?.Evidence,selected?.Status,winners);
+ }
+ internal static void RequireValuationHeads(GasDailyContract contract,ImmutableArray<GasQuantityObservation> heads,DateTimeOffset at)
+ {
+  if(heads.Any(h=>h is null||h.Id==Guid.Empty||h.Source is not("manual_daily_v1" or "facility_allocation_adoption_v1")||
+      h.Kind is not("nominated" or "confirmed" or "scheduled" or "allocated")||h.Source=="facility_allocation_adoption_v1"&&h.Kind!="allocated"||
+      h.Status is not("provisional" or "final" or "withdrawn")||h.Status=="final"&&(h.Kind!="allocated"||at<contract.End)||
+      h.Quantity is null||h.Quantity.Specification!=contract.Quantity.Specification||BigInteger.Parse(h.Quantity.Numerator)<0||string.IsNullOrWhiteSpace(h.Evidence))||
+      heads.GroupBy(h=>(h.Source,h.Kind)).Any(g=>g.Count()>1))
+   throw Invalid("Supply each source's current visible head per quantity kind, in the exact native unit, with its evidence.");
  }
  public static string ValuationSource(GasSelectedQuantity selected)=>selected.Kind switch
  {

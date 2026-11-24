@@ -41,7 +41,7 @@ public sealed record ExerciseElection(int Right, DateOnly From, string Outcome, 
     {
         foreach (var election in elections)
             if (election.Right >= rights.Length || rights[election.Right].Settlement != ExerciseSettlement.Physical ||
-                !rights[election.Right].Groups.Any(group => group.From == election.From))
+                !rights[election.Right].Groups.Any(group => group.From == election.From && election.EffectiveAt <= group.ExerciseAt))
                 throw Invalid();
     }
 
@@ -61,7 +61,7 @@ internal sealed class ExerciseDecisions
     {
         var decisions = new ExerciseDecisions(rights, state.Elections, at);
         // Owner-day facts belong to physical memberships. A cash right may use an outside owner's schedule.
-        if (state.OwnerDays.Any(day => day.Source != PhysicalLifecycle.ContractQuantity && !decisions.Counted(day.Slot, day.Day)))
+        if (state.OwnerDays.Any(day => (day.HasContractDeliveryRecord || !day.Evidence.IsEmpty) && !decisions.Counted(day.Slot, day.Day)))
             throw new MarketDataException("exercise_conflict", "Delivery records require an exercised day on the covered physical member.");
         decisions.RequireCompatiblePayments(members, state, snapshot, ExerciseSettlement.Physical);
         decisions.RequireDetermined(rights, at);
@@ -123,7 +123,7 @@ public sealed record CurveVolatilityMark([property: IdentityField] CurveKey Curv
 
 [EconomicDefinition("exercise_curve_correlation_v1")]
 public sealed record CurveCorrelationMark([property: IdentityField] CurveKey First, [property: IdentityField] CurveKey Second,
-    [property: IdentityField] DateOnly Month, [property: IdentityField] string Correlation);
+    [property: IdentityField] DateOnly Month, [property: IdentityField] string Correlation, [property: IdentityField] Guid RevisionId);
 
 [EconomicDefinition("exercise_marks_v1")]
 public sealed record ExerciseMarks(ImmutableArray<CurveVolatilityMark> Volatilities, ImmutableArray<CurveCorrelationMark> Correlations,
@@ -150,8 +150,9 @@ public sealed record ExerciseMarks(ImmutableArray<CurveVolatilityMark> Volatilit
             Volatilities.Any(v => v is null || !ValidCurve(v.Curve) || v.Volatility is null || v.Month == default || v.Month.Day != 1) ||
             Volatilities.DistinctBy(v => (v.Curve, v.Month)).Count() != Volatilities.Length ||
             Volatilities.DistinctBy(v => v.Volatility.Id).Count() != Volatilities.Length ||
-            Correlations.Any(c => c is null || !ValidCurve(c.First) || !ValidCurve(c.Second) || c.First == c.Second ||
+            Correlations.Any(c => c is null || c.RevisionId == Guid.Empty || !ValidCurve(c.First) || !ValidCurve(c.Second) || c.First == c.Second ||
                 c.Month == default || c.Month.Day != 1 || !ValidCorrelation(c.Correlation)) ||
+            Correlations.DistinctBy(c => c.RevisionId).Count() != Correlations.Length ||
             Correlations.Any(c => Correlations.Count(other => Matches(other, c.First, c.Second, c.Month)) != 1))
             throw Missing();
     }

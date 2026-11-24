@@ -123,7 +123,7 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
         ExerciseGroup? previous = null;
         foreach (var group in right.Groups)
         {
-            if (group is null || group.From >= group.To || previous is not null && previous.To > group.From)
+            if (group is null || group.ExerciseAt == default || !TradingInstant.IsSupported(group.ExerciseAt) || group.From >= group.To || previous is not null && previous.To > group.From)
                 throw InvalidRight("Exercise groups must be nonempty, ordered and disjoint.");
             if (right.Period == ExercisePeriod.DeliveryDay && group.To != group.From.AddDays(1))
                 throw InvalidRight("A daily exercise group must cover exactly one gas day.");
@@ -161,8 +161,43 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
             if (right.Settlement == ExerciseSettlement.Physical)
                 RequirePhysicalBoundaries(right.Groups, memberDays, Members[slot].Program);
         }
+        if (right.Settlement == ExerciseSettlement.CashAutomatic) RequireCashBoundaries(right);
         if (!groupDays.SetEquals(deliveryDays))
             throw InvalidRight("Exercise groups must cover exactly the selected members' retained delivery days.");
+    }
+
+    private void RequireCashBoundaries(ExerciseRight right)
+    {
+        var index = PriceLookups.ToLookup(p => (p.Market, p.Contract.DeliveryFrom, p.Contract.DeliveryTo));
+        var latest = new Dictionary<DateOnly, DateTimeOffset>();
+        foreach (var slot in right.Slots)
+        {
+            var program = Members[slot].Program;
+            var sources = PhysicalLifecycle.DatedInputs(program, index).ToLookup(p => p.Instruction.Output.Ordinal, p => p.Lookup);
+            foreach (var instruction in program.Document.Instructions.Where(i => i.Output is { Role: "source", OutputKind: "price" } &&
+                i.Output.Operation != "constant_price"))
+            {
+                var matches = sources[instruction.Output.Ordinal].ToArray();
+                if (matches.Length != 1 || matches[0].Fixing is not {} fixing || fixing.Implementation != IndexFixing.SupportedImplementation ||
+                    fixing.Index != matches[0].Index || fixing.Quote != matches[0].Quote.Key ||
+                    fixing.From != matches[0].Contract.DeliveryFrom || fixing.To != matches[0].Contract.DeliveryTo ||
+                    fixing.FixingAt == default || !TradingInstant.IsSupported(fixing.FixingAt))
+                    throw InvalidRight("Each cash exercise price requires its exact retained index fixing.");
+                foreach (var address in instruction.Consumers)
+                {
+                    var row = program.Document.Instructions[address].Output;
+                    for (var day = row.DeliveryFrom!.Value; day < row.DeliveryTo!.Value; day = day.AddDays(1))
+                        if (fixing.FixingAt > latest.GetValueOrDefault(day)) latest[day] = fixing.FixingAt;
+                }
+            }
+        }
+        foreach (var group in right.Groups)
+        {
+            var deadline = Enumerable.Range(0, group.To.DayNumber - group.From.DayNumber)
+                .Select(i => latest.GetValueOrDefault(group.From.AddDays(i))).Max();
+            if (deadline != group.ExerciseAt)
+                throw InvalidRight("A cash exercise group must retain its latest covered index fixing instant.");
+        }
     }
 
     private static void RequirePhysicalBoundaries(ImmutableArray<ExerciseGroup> groups,
