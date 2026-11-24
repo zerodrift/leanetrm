@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
-using OpenEtrm.Shared.Numerics;
+using OpenEtrm.MarketData.Gas;
 using OpenEtrm.MarketData.Risk;
+using OpenEtrm.Shared.Numerics;
 
 namespace OpenEtrm.MarketData.Trading;
 
@@ -14,6 +15,7 @@ public interface IRetainedProgramMember
     int? ValuationSourceSlot { get; }
     string? ValuationQuantityPolicy { get; }
     QuantityPart? ValuationPart { get; }
+    OwnedQuantity? ValuationOwned { get; }
 }
 
 // Published Members remain the canonical contract. Sides are a checked,

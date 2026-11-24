@@ -11,9 +11,11 @@ public enum GasQuantityStage { Receipt=1,Delivery,Fuel }
 public sealed record GasCompositionLink([property:IdentityField]string Source,[property:IdentityField]GasFuelConvention Formula,[property:IdentityField]ExactDecimal Fraction);
 public sealed record GasPhysicalComponent(string Code,PhysicalGasSide Side,ExactDecimal Direction,ExactDecimal? Quantity,GasCompositionLink? Link,string? QuantityPolicy=null);
 public sealed record GasCashComponent(string Code,Side Side,string Role,string Source,GasQuantityStage Stage,ExactDecimal Direction,ExactDecimal? Share=null,QuantityPart? Part=null);
+public sealed record GasChargeComponent(string Code,FixedSide Side,ChargeBasis Basis,string ClockSide,ExactDecimal DailyQuantity,ExactDecimal Direction);
 [EconomicDefinition("gas_composition_role_v1")]
 public sealed record GasCompositionRole([property:IdentityField]string Code,[property:IdentityField]string Role,[property:IdentityField]string? Source,[property:IdentityField]GasQuantityStage? Stage,[property:IdentityField]GasCompositionLink? Link,
- [property:IdentityField]ExactDecimal? Share=null,[property:IdentityField]QuantityPart? Part=null,[property:IdentityField]string? QuantityPolicy=null);
+ [property:IdentityField]ExactDecimal? Share=null,[property:IdentityField]QuantityPart? Part=null,[property:IdentityField]string? QuantityPolicy=null,
+ [property:IdentityField]OwnedQuantity? Owned=null,[property:IdentityField]string? ClockSide=null);
 
 public sealed class GasExerciseTermException(int ordinal,string message,bool leadHours=false):MarketDataException("gas_composition_input",message)
 {
@@ -59,6 +61,7 @@ public sealed record GasCompositionInstrument:SidedInstrument
  private readonly ImmutableArray<ExerciseRight> resolvedRights;
  public ImmutableArray<GasPhysicalComponent> Physical { get; }
  public ImmutableArray<GasCashComponent> Cash { get; }
+ public ImmutableArray<GasChargeComponent> Charges { get; }
  public ImmutableArray<ExactRatio> ReceiptRatios { get; }
  public ExactDecimal BaseQuantity { get; }
  public override ReferenceKey Currency=>Physical[0].Side.Currency;
@@ -66,15 +69,16 @@ public sealed record GasCompositionInstrument:SidedInstrument
  public override DefinitionIdentity PricingBindingIdentity=>DefinitionIdentity.For(new GasInstrumentPricingBindings([..Sides.Select(m=>m.Side.PricingBindingIdentity?.Canonical)]));
  internal override bool SupportsSettlement=>false;
  public GasCompositionInstrument(Guid id,ImmutableArray<GasPhysicalComponent> physical,ImmutableArray<GasCashComponent> cash,
-  ImmutableArray<GasExerciseRight> rights=default)
-  :this(id,physical,cash,rights,Resolve(physical,cash,!rights.IsDefaultOrEmpty)) { }
+  ImmutableArray<GasExerciseRight> rights=default,ImmutableArray<GasChargeComponent> charges=default)
+  :this(id,physical,cash,rights,charges,Resolve(physical,cash,charges.IsDefault?[]:charges,!rights.IsDefaultOrEmpty)) { }
  private GasCompositionInstrument(Guid id,ImmutableArray<GasPhysicalComponent> physical,ImmutableArray<GasCashComponent> cash,
-  ImmutableArray<GasExerciseRight> rights,Composition c):base(id,c.Members)
+  ImmutableArray<GasExerciseRight> rights,ImmutableArray<GasChargeComponent> charges,Composition c):base(id,c.Members)
  {
-  Physical=physical;Cash=cash;BaseQuantity=c.Base;ReceiptRatios=c.Receipts;
+  Physical=physical;Cash=cash;Charges=charges.IsDefault?[]:charges;BaseQuantity=c.Base;ReceiptRatios=c.Receipts;
   var entryTerms=physical.Any(p=>p.QuantityPolicy is not null)||cash.Any(p=>p.Part is not null);
   Roles=[..physical.Select(p=>new GasCompositionRole(p.Code,"physical",p.Link?.Source,null,p.Link,QuantityPolicy:p.QuantityPolicy)),
-   ..cash.Select(p=>new GasCompositionRole(p.Code,p.Role,p.Source,p.Stage,null,entryTerms||p.Share!=ExactDecimal.Parse("1")?p.Share:null,p.Part))];
+   ..cash.Select(p=>new GasCompositionRole(p.Code,p.Role,p.Source,p.Stage,null,entryTerms||p.Share!=ExactDecimal.Parse("1")?p.Share:null,p.Part)),
+   ..c.ChargeRoles];
   Rights=rights.IsDefault?[]:rights;
   resolvedRights=ResolveBookingRights();
  }
@@ -112,6 +116,8 @@ public sealed record GasCompositionInstrument:SidedInstrument
 
    var ordinal=saved.Count;
    var slots=GasExerciseRight.ClaimEntries(ordinal,right.Entries,physical,slotsByCode,Physical.Length,claimed);
+   if(slots.Any(slot=>Roles[slot].Owned is not null))
+    throw new GasExerciseTermException(ordinal,"An exercise right cannot cover an independently owned charge.");
    try{saved.Add(ResolveGroups(ordinal,right,slots));}
    catch(MarketDataException error)when(error.Code=="gas_composition_input"&&error is not GasExerciseTermException)
    {throw new GasExerciseTermException(ordinal,error.Message);}
@@ -191,17 +197,21 @@ public sealed record GasCompositionInstrument:SidedInstrument
  }
 
  public ExactRatio StageRatio(int physical,GasQuantityStage stage)=>Stage(ReceiptRatios[physical],Sides[physical].QuantityRatio!,stage);
- private sealed record Composition(ImmutableArray<SideMembership> Members,ImmutableArray<ExactRatio> Receipts,ExactDecimal Base);
- private static Composition Resolve(ImmutableArray<GasPhysicalComponent> physical,ImmutableArray<GasCashComponent> cash,bool hasRights)
+ private sealed record Composition(ImmutableArray<SideMembership> Members,ImmutableArray<ExactRatio> Receipts,ExactDecimal Base,
+  ImmutableArray<GasCompositionRole> ChargeRoles);
+ private static Composition Resolve(ImmutableArray<GasPhysicalComponent> physical,ImmutableArray<GasCashComponent> cash,
+  ImmutableArray<GasChargeComponent> charges,bool hasRights)
  {
-  if(physical.IsDefault||physical.Length is <MinPhysicalSides or >MaxPhysicalSides||cash.IsDefault||cash.Length>MaxCashSides||physical.Length+cash.Length>MaxSides||physical.Any(p=>p is null||p.Side is null)||cash.Any(p=>p is null||p.Side is null))
-   throw Invalid($"Select {MinPhysicalSides} to {MaxPhysicalSides} physical sides, up to {MaxCashSides} cash sides and at most {MaxSides} in all.");
+  if(physical.IsDefault||physical.Length is <MinPhysicalSides or >MaxPhysicalSides||cash.IsDefault||
+   (long)cash.Length+charges.Length>MaxCashSides||physical.Length+cash.Length+charges.Length>MaxSides||
+   physical.Any(p=>p is null||p.Side is null)||cash.Any(p=>p is null||p.Side is null)||charges.Any(p=>p is null||p.Side is null))
+   throw Invalid($"Select {MinPhysicalSides} to {MaxPhysicalSides} physical sides, up to {MaxCashSides} payment and charge sides and at most {MaxSides} in all.");
   if(physical.Any(p=>p.QuantityPolicy is not(null or GasHeldQuantities.DeliverySchedulePolicy))||
    physical.Any(p=>p.Link is not null)&&(physical.Any(p=>p.QuantityPolicy is not null)||cash.Any(p=>p.Part is not null)))
    throw Invalid("Quantity policies and parts require independent physical sources and no quantity links.");
   if(cash.Any(p=>p.Share is not {} share||share.CompareTo(default)<=0))
    throw Invalid("Every payment requires an explicit positive share of its source quantity.");
-  var codes=physical.Select(p=>p.Code).Concat(cash.Select(p=>p.Code)).ToArray();
+  var codes=physical.Select(p=>p.Code).Concat(cash.Select(p=>p.Code)).Concat(charges.Select(p=>p.Code)).ToArray();
   if(codes.Any(code=>string.IsNullOrWhiteSpace(code)||!System.Text.RegularExpressions.Regex.IsMatch(code,"^[a-z][a-z0-9_.-]{0,63}$"))||codes.Distinct(StringComparer.Ordinal).Count()!=codes.Length)throw Invalid("Every side requires its own unique code.");
   var root=physical.FirstOrDefault(p=>p.Link is null);
   if(root?.Quantity is not {} amount||amount.CompareTo(default)<=0)throw Invalid("An independent positive physical quantity is required.");
@@ -259,7 +269,22 @@ public sealed record GasCompositionInstrument:SidedInstrument
    }
    members.Add(new(p.Side,p.Direction,Ratio(p.Share!.Value).Times(Stage(inputs[source],outputs[source]!,p.Stage))));
   }
-  return new(members.ToImmutable(),[..inputs],amount);
+  var chargeRoles=ImmutableArray.CreateBuilder<GasCompositionRole>(charges.Length);
+  foreach(var charge in charges)
+  {
+   var clock=physical.FirstOrDefault(p=>p.Code==charge.ClockSide)?.Side.Quantities.Clock
+    ??throw Invalid("Each charge must select the clock of a physical side of this trade.");
+   if(charge.Side.UnitQuantity!=native.UnitQuantity||charge.Side.Currency!=native.Currency||
+    charge.Direction!=one&&charge.Direction!=minus)
+    throw Invalid("Charges require the trade's native quantity unit and currency and an explicit direction.");
+   if(charge.DailyQuantity.CompareTo(default)<=0||charge.Basis==ChargeBasis.LumpSum&&charge.DailyQuantity!=one)
+    throw Invalid("A charge requires a positive daily quantity, exactly one for a lump sum.");
+   GasChargeSides.RequireShape(charge.Side,charge.Basis,clock);
+   var owned=new OwnedQuantity(charge.Basis,clock,Ratio(charge.DailyQuantity));
+   members.Add(new(charge.Side,charge.Direction,owned.DailyQuantity.Times(basis.Inverse())));
+   chargeRoles.Add(new(charge.Code,"charge",null,null,null,Owned:owned,ClockSide:charge.ClockSide));
+  }
+  return new(members.ToImmutable(),[..inputs],amount,chargeRoles.MoveToImmutable());
  }
  private static ImmutableArray<GasQuantityRow> SourceDays(PhysicalGasSide source,GasCashComponent payment,bool hasRights)
  {

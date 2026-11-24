@@ -12,6 +12,7 @@ public sealed record RetainedLngMember : IRetainedProgramMember
     int? IRetainedProgramMember.ValuationSourceSlot => null;
     string? IRetainedProgramMember.ValuationQuantityPolicy => null;
     QuantityPart? IRetainedProgramMember.ValuationPart => null;
+    Gas.OwnedQuantity? IRetainedProgramMember.ValuationOwned => null;
     public Guid SideId { get; }
     public BookedSideProgram Program { get; }
     [IdentityField] public ExactDecimal Coefficient { get; }
