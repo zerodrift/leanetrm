@@ -87,12 +87,18 @@ internal sealed class PhysicalDeliveryQuantities
 internal readonly record struct DeliveryQuantityFractions(SignedRatio Total,SignedRatio Ended)
 {
     internal static DeliveryQuantityFractions For(IEnumerable<HeldDayQuantity> days,Func<DateOnly,bool> ended)
+        => For(days.Select(day => new EntryDayQuantity(day.Day,
+            new(day.Contract.NumeratorValue, day.Contract.DenominatorValue),
+            new(day.Selected.NumeratorValue, day.Selected.DenominatorValue),
+            new(day.Selected.NumeratorValue, day.Selected.DenominatorValue), day.Source, day.Evidence)), ended);
+
+    internal static DeliveryQuantityFractions For(IEnumerable<EntryDayQuantity> days,Func<DateOnly,bool> ended)
     {
         var contract=SignedRatio.Zero;var selected=SignedRatio.Zero;var accrued=SignedRatio.Zero;
         foreach(var day in days)
         {
-            contract+=new SignedRatio(day.Contract.NumeratorValue,day.Contract.DenominatorValue);
-            var quantity=new SignedRatio(day.Selected.NumeratorValue,day.Selected.DenominatorValue);
+            contract+=day.Contract;
+            var quantity=day.Taken;
             selected+=quantity;if(ended(day.Day))accrued+=quantity;
         }
         if(contract.Numerator<=0)throw PhysicalDeliveryQuantities.Invalid("Quantity scaling requires complete positive contractual coverage.");

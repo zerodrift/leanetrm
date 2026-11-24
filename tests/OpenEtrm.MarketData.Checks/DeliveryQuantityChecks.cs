@@ -9,7 +9,71 @@ using OpenEtrm.Shared.Numerics;
 
 internal static class DeliveryQuantityChecks
 {
-    internal static void Run(){HeldState();WorkedExample();RetainedRoute();Build();View();}
+    internal static void Run(){Parts();EntryDays();HeldState();WorkedExample();RetainedRoute();Build();View();}
+
+    static void Parts()
+    {
+        static SignedRatio Q(int amount) => new(amount, 1);
+        static void Same(SignedRatio actual, SignedRatio expected)
+        { if(actual != expected) throw new Exception($"Expected exact quantity {expected}; received {actual}."); }
+        var band = QuantityPart.Band(Q(0), new(4, 5));
+        var above = QuantityPart.Band(new(4, 5), null);
+        var shortfall = QuantityPart.Shortfall(Q(1));
+        Same(band.Take(Q(9000), Q(10000)), Q(8000));
+        Same(band.Take(Q(7000), Q(10000)), Q(7000));
+        Same(band.Take(Q(8000), Q(10000)), Q(8000));
+        Same(above.Take(Q(9000), Q(10000)), Q(1000));
+        Same(above.Take(Q(8000), Q(10000)), Q(0));
+        Same(above.Take(Q(7000), Q(10000)), Q(0));
+        Same(shortfall.Take(Q(9000), Q(10000)), Q(1000));
+        Same(shortfall.Take(Q(10000), Q(10000)), Q(0));
+        Same(shortfall.Take(Q(11000), Q(10000)), Q(0));
+        Same(band.Take(Q(18000), Q(20000)), Q(16000));
+        // 100,000 over 30 days stays 10,000/3, above the 3,000 daily band.
+        Same(QuantityPart.Band(Q(0), new(3, 100)).Take(new(10000, 3), Q(100000)), Q(3000));
+        Same(QuantityPart.Shortfall(Q(0)).Take(Q(0), Q(10000)), Q(0));
+        Reject("quantity_part", () => QuantityPart.Band(new(4, 5), new(4, 5)));
+        Reject("quantity_part", () => QuantityPart.Shortfall(Q(-1)));
+        Reject("quantity_part", () => QuantityPart.Band(Q(-1), Q(1)));
+        Reject("quantity_part", () => new QuantityPart(QuantityPartKind.Shortfall, Q(1), Q(2)));
+        Reject("quantity_part", () => new QuantityPart((QuantityPartKind)0, Q(0), null));
+        Reject("quantity_part", () => QuantityPart.Band(default, Q(1)));
+        Reject("physical_lifecycle_quantity", () => band.Take(Q(-1), Q(10000)));
+        Reject("physical_lifecycle_quantity", () => band.Take(Q(10000), Q(0)));
+        Require(DefinitionIdentity.For(band).Canonical == """
+            {"contract":"quantity_part_v1","Kind":1,"Lower":["signed_ratio","0","1"],"Upper":["signed_ratio","4","5"]}
+            """, "Part identity retains its exact reduced level ratios, including zero.");
+        Require(DefinitionIdentity.For(band) == DefinitionIdentity.For(QuantityPart.Band(Q(0), new(8, 10))),
+            "Equivalent reduced levels have one economic identity.");
+        Console.WriteLine("PASS quantity parts: bands, shortfalls, exact boundaries, size scaling and repeating daily quantities");
+    }
+
+    static void EntryDays()
+    {
+        var f = new DeliveryFixture();
+        var source = f.Days(("980", PhysicalLifecycle.AllocatedFinalQuantity), ("1050", PhysicalLifecycle.ScheduledQuantity),
+            ("900", PhysicalLifecycle.ScheduledQuantity), (null, PhysicalLifecycle.ContractQuantity)).Where(d => d.Slot == 0).ToArray();
+        var whole = EntryQuantities.For(source, null, new(1000, 1), f.From, f.To);
+        Require(whole.Select(d => d.Selected).SequenceEqual([new(980, 1), new(1050, 1), new(900, 1), new(1000, 1)]) &&
+            whole.All(d => d.Taken == d.Selected), "A whole entry takes exactly its selected source quantities.");
+        Require(whole.Zip(source).All(p => p.First.Source == p.Second.Source && p.First.Evidence.SequenceEqual(p.Second.Evidence)),
+            "Entry quantities retain the source's rank and exact revision evidence.");
+        var fractions = DeliveryQuantityFractions.For(whole, day => day < f.From.AddDays(2));
+        Require(fractions.Total == new SignedRatio(393, 400) && fractions.Ended == new SignedRatio(203, 400),
+            "The four-day example keeps its independent total and accrued quantity fractions.");
+        var partial = EntryQuantities.For(source, null, new(1000, 1), f.From.AddDays(1), f.To);
+        Require(partial.Select(d => d.Day).SequenceEqual([f.From.AddDays(1), f.From.AddDays(2), f.From.AddDays(3)]),
+            "A partial-term payment excludes source days outside its own dates.");
+        Require(DeliveryQuantityFractions.For(partial, day => day < f.From.AddDays(2)) ==
+            new DeliveryQuantityFractions(new(59, 60), new(7, 20)), "A partial term has its own contractual denominator.");
+        var band = EntryQuantities.For(source, QuantityPart.Band(new(0, 1), new(19, 20)), new(1000, 1), f.From, f.To);
+        Require(band.Select(d => d.Taken).SequenceEqual([new(950, 1), new(950, 1), new(900, 1), new(950, 1)]),
+            "The entry's part is applied once to each day's selected quantity.");
+        Reject("physical_lifecycle_quantity", () => EntryQuantities.For(source.Where(d => d.Day != f.From.AddDays(1)), null, new(1000, 1), f.From, f.To));
+        Reject("physical_lifecycle_quantity", () => EntryQuantities.For([..source, source[0]], null, new(1000, 1), f.From, f.To));
+        Reject("physical_lifecycle_quantity", () => EntryQuantities.For(source.Select((d, n) => n == 1 ? d with { Slot = 2 } : d), null, new(1000, 1), f.From, f.To));
+        Console.WriteLine("PASS entry quantities: whole and part, exact fractions, evidence, own dates and complete unambiguous coverage");
+    }
 
     static void View()
     {
