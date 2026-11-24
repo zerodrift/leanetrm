@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {measureLines,lifecycleLines,quantityBasisText,valueMeasureText} from '../dist/lifecycle-text.js';
+import {exerciseStateText,measureLines,lifecycleLines,quantityBasisText,valueMeasureText} from '../dist/lifecycle-text.js';
 const instant=at=>'@'+at.slice(0,10);
 const measures={unrealized:'1,445',realizedUnsettled:'-10855',total:'-9410',label:'Unrealized + realized unsettled',discounting:'undiscounted',
  expectedCash:[{dueAt:'2026-11-10T00:00:00Z',amount:'-9300'},{dueAt:'2026-12-10T00:00:00Z',amount:'-9648'}]};
@@ -73,4 +73,11 @@ test('selected quantities name their saved basis without an internal version ide
 test('quantity parts use plain labels on the native schedule',()=>{
  assert.equal(quantityBasisText('band_v1'),'part of the day quantity');
  assert.equal(quantityBasisText('shortfall_v1'),'shortfall of the day quantity');
+});
+
+test('exercise groups show the recorded outcome or the specific decision still awaited',()=>{
+ assert.equal(exerciseStateText('exercised'),'exercised');
+ assert.equal(exerciseStateText('abandoned'),'abandoned');
+ assert.equal(exerciseStateText('undecided'),'not yet exercised');
+ assert.equal(exerciseStateText('undecided_forecast'),'awaiting published price');
 });

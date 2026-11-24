@@ -5,3 +5,11 @@ export function exactNumber(value:string):ExactNumber|null{
  const m=/^(-?)(\d+)(?:\.(\d+)|\/([1-9]\d*))?$/.exec(value);
  return m?{sign:m[1] as ''|'-',integer:m[2],fraction:m[3]??null,denominator:m[4]??null}:null;
 }
+
+// Groups each part of the exact number without rounding it.
+const grouped=(digits:string)=>digits.replace(/\B(?=(\d{3})+$)/g,',');
+export function numberText(value:string){
+ const n=exactNumber(value);
+ if(!n)throw Error(`A schedule value is not an exact number: ${value}`);
+ return n.sign+grouped(n.integer)+(n.fraction===null?'':'.'+n.fraction)+(n.denominator===null?'':'/'+grouped(n.denominator));
+}

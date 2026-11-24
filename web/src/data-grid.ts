@@ -130,7 +130,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   // A cell's sources and change marker, drawn before its content; its row's delivered state marks the row (rowFormatter).
   const decorated=(content:Node,index:number,i:number)=>{
     const mark=options.decorate?.(index,i);
-    if(!mark||!mark.changed&&!mark.sources.length)return content;
+    if(!mark||!mark.changed&&!mark.sources.length&&!mark.evidence?.length)return content;
     const wrap=el('span');wrap.className='grid-decorated';if(mark.evidence?.length)wrap.title=mark.evidence.join('\n');
     if(mark.changed){const dot=el('span');dot.className='grid-changed';dot.title='Changed by the last edit';dot.setAttribute('role','img');dot.setAttribute('aria-label','Changed by the last edit');wrap.append(dot);}
     for(const source of mark.sources){const tag=el('span',source);tag.className='grid-source';wrap.append(tag);}

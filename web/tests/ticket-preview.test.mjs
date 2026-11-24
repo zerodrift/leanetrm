@@ -73,3 +73,13 @@ test('nonempty composition accepts an explicit null absence reason from normal b
  assert.deepEqual(previewed(empty,{preview:result},{sideGroupsRequired:true,retained:false}).sideGroups,sideGroups);
  assert.throws(()=>previewed(empty,{preview:{...result,sideGroupsReason:'No instrument'}},{sideGroupsRequired:true,retained:false}),/Side memberships/);
 });
+
+test('a refused replacement keeps the displayed exercise schedule and its original currency',()=>{
+ const schedule={...view('1'),groups:[{right:0,from:'2026-11-01',to:'2026-11-02',state:'exercised',forwardSum:'1',counted:'1',inputs:null}]};
+ const first=previewed(empty,{preview:{schedule,summaries,scheduleRefusal:null,quantityUnit:'MMBtu',currency:'USD',links:[]}});
+ const refused=previewed(first,{preview:{schedule:null,summaries:null,scheduleRefusal:{code:'schedule_view',message:'This schedule is unavailable.'},
+  quantityUnit:'GJ',currency:'EUR',links:[]}});
+ assert.equal(refused.schedule,schedule);
+ assert.equal(refused.status.kind,'stale');
+ assert.equal(refused.currency,'USD');
+});

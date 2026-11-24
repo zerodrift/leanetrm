@@ -339,7 +339,13 @@ public sealed class GasCompositionStore(PreviewDatabase database)
  }
  // A preview and a booking are held to the gas setup their context resolves (GasTicket.RequireSetup).
  async Task RequireSetup(NpgsqlConnection c,PreviewData data,GasCompositionRequest body,CancellationToken ct)=>GasTicket.RequireSetup(body.GasSetupId,(await gas.CurrentSetup(c,data,ct)).Id);
- public async Task<object> Preview(NpgsqlConnection c,PreviewData data,InputFrame frame,GasCompositionRequest body,CancellationToken ct)
+ public Task<object> Preview(NpgsqlConnection c,PreviewData data,InputFrame frame,GasCompositionRequest body,CancellationToken ct)=>
+  Preview(c,data,frame,body,ct,ticket:false);
+
+ internal Task<object> TicketPreview(NpgsqlConnection c,PreviewData data,InputFrame frame,GasCompositionRequest body,CancellationToken ct)=>
+  Preview(c,data,frame,body,ct,ticket:true);
+
+ async Task<object> Preview(NpgsqlConnection c,PreviewData data,InputFrame frame,GasCompositionRequest body,CancellationToken ct,bool ticket)
  {
   if(body.PreviewTradeId is {} trade)
   {
@@ -355,7 +361,16 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   if(body.PreviewContextId is not null)throw Invalid("A preview cutoff requires an explicit saved trade.");
   if(body.TradeId is not null)await GasAmendments.Require(c,database.Manifest.CatalogId,body,frame.At,ct);
   await RequireSetup(c,data,body,ct);var d=await Resolve(c,data,body,ct);
-  return await Value(c,data,frame,d.Members,d.Instrument.BaseQuantity,d.Instrument,body.GasSetupId,null,true,ct);
+  try{return await Value(c,data,frame,d.Members,d.Instrument.BaseQuantity,d.Instrument,body.GasSetupId,null,true,ct);}
+  catch(MarketDataException error)when(ticket&&!d.Instrument.Rights.IsEmpty&&error.Code=="exercise_marks")
+  {
+   // The valuation reaches marks after it builds the retained Instrument. The
+   // ticket can review those structural terms with the valuation explicitly unavailable.
+   return new{source=new CatalogueSource(data.DefinitionRevision.RevisionId,data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId),
+    quantityUnit=QuantityUnit(data,d.Members.Select(m=>m.Assignment.Quote.Quantity)),currency=d.Members[0].Assignment.Quote.Currency.Code,
+    presentValue=(string?)null,schedule=(ScheduleView?)null,summaries=(object[]?)null,groups=(ExerciseGroupReport[]?)null,links=Array.Empty<object>(),
+    scheduleRefusal=new GasScheduleRefusal(error.Code,error.Message)};
+  }
  }
  // The single market price a physical side's schedule shows over its delivery term, evaluated from a price probe (GasTicket.PriceProbe).
  internal async Task<string> MarketPrice(NpgsqlConnection c,PreviewData data,InputFrame frame,GasCompositionRequest probe,CancellationToken ct)

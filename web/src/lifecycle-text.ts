@@ -1,7 +1,16 @@
 import {displayPaymentDate} from './payment-date.js';
-import {numberText} from './schedule-grid.js';
+import type {ExercisePeriod} from './ticket-types.js';
+import {numberText} from './exact-number.js';
 // How started-delivery gas is worded. The backend decides every state, amount and basis; this module only words what it reports.
 export type GasMeasures={unrealized:string;realizedUnsettled:string;total:string;label:string;discounting:string;expectedCash:{dueAt:string;amount:string}[]};
+export type ExerciseState='exercised'|'abandoned'|'undecided'|'undecided_forecast';
+const exerciseStates:Readonly<Record<ExerciseState,string>>={exercised:'exercised',abandoned:'abandoned',undecided:'not yet exercised',undecided_forecast:'awaiting published price'};
+export function exerciseStateText(state:ExerciseState){
+ if(!Object.hasOwn(exerciseStates,state))throw Error('The schedule returned an unknown exercise state.');
+ return exerciseStates[state];
+}
+export const exercisePeriodText=(period:ExercisePeriod)=>`Exercise right ${period.right+1} · ${period.from} to ${period.to} (exclusive) · ${period.status==='contingent'?'contingent':exerciseStateText(period.status)}`;
+
 export type MeasureLine={label:string;value:string};
 // The P&L explain measures: days not yet ended are unrealized; delivered days fixed and not yet paid are realized but unsettled.
 const measureTexts:Readonly<Record<string,string>>={Unrealized:'Unrealized (remaining delivery)',RealizedUnsettled:'Realized, unsettled (delivered, not paid)'};

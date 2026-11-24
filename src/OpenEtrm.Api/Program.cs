@@ -2524,7 +2524,7 @@ api.MapPost("/tickets/preview",(HttpContext c,TicketPreviewRequest body)=>Ticket
  var context=TicketContext(body.Context);RequireGasBooking(session,context.KnowledgeMode,context.ContextId);RequireConvention(context,PhysicalGasStore.Convention);
  return Results.Ok(await transportTicket.Preview(Profile(session),Frame(session,context.SnapshotId),body,c.RequestAborted));
 }):FuturesRead(c,TicketContext(body.Context),
- (connection,data,frame,ct)=>GasParkCustodyTicket.IsSelected(body.Draft)?parkCustodyTicket.Preview(connection,data,frame,body,ct):TicketDraft.Require(body.Draft).Product==GasParkLoanTicket.Product?parkLoanTicket.Preview(connection,data,frame,body,ct):gasComposition.Preview(connection,data,frame,TicketRequest(body.Draft,body.Context,Guid.Empty,data.DefinitionRevision.RevisionId),ct),expectedConvention:PhysicalGasStore.Convention));
+ (connection,data,frame,ct)=>GasParkCustodyTicket.IsSelected(body.Draft)?parkCustodyTicket.Preview(connection,data,frame,body,ct):TicketDraft.Require(body.Draft).Product==GasParkLoanTicket.Product?parkLoanTicket.Preview(connection,data,frame,body,ct):gasComposition.TicketPreview(connection,data,frame,TicketRequest(body.Draft,body.Context,Guid.Empty,data.DefinitionRevision.RevisionId),ct),expectedConvention:PhysicalGasStore.Convention));
 // A booked trade offers day entries by the record operation's own rule, on the read's working or historical selection.
 api.MapPost("/tickets/trade",(HttpContext c,TicketTradeRequest body)=>
 {

@@ -1152,7 +1152,10 @@ def main():
                         subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-pricing'],cwd=ROOT,env=env,check=True,timeout=300)
                 if args.gas_exercise_check:
                     from check_gas_exercise import run_checks as check_gas_exercise
-                    check_gas_exercise(url,query,manifest,run_worker)
+                    def browse_exercise(fixture):
+                        target=temporary/'browser-target.json';target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,'facility':fixture}))
+                        subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-exercise'],cwd=ROOT,env=env,check=True,timeout=300)
+                    check_gas_exercise(url,query,manifest,run_worker,browse_exercise if args.browser_check else None)
             elif args.gas_indexed_check:
                 from check_gas_indexed import run_checks as check_gas_indexed
                 indexed_fixture=check_gas_indexed(url,query,manifest,risk_worker_runner())

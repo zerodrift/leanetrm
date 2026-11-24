@@ -10,7 +10,7 @@ from preview_client import PreviewClient
 from synthetic_side_calendars import side_calendar_policy
 
 
-def run_checks(url,query,manifest,run_worker):
+def run_checks(url,query,manifest,run_worker,browse=None):
     c=PreviewClient(url)
     c.bootstrap()
     c.call('profile',dict(profile='trader'))
@@ -110,7 +110,7 @@ def run_checks(url,query,manifest,run_worker):
     book(fixed)
     reject(fixed,[{**cash_right,'entries':['fixed']}])
     election_checks(c,query,manifest,context,fixed,cash,plain,run_worker)
-    curve_marks(c,query,manifest,context,fixed,base,plain,run_worker)
+    curve_marks(c,query,manifest,context,fixed,base,plain,run_worker,browse)
     explicit_empty={**fixed,'operationId':str(uuid4()),'exerciseRights':[]}
     original=book(explicit_empty)
     ticket=c.call('tickets/trade',dict(context=context,tradeId=original['tradeId'],bindingId=original['instrumentId'],revision=1))
@@ -120,7 +120,7 @@ def run_checks(url,query,manifest,run_worker):
     print('PASS no-right ticket replays the original explicit empty-array command',flush=True)
     print('PASS gas exercise: API and SQL admission, exact physical and latest fixing times, immutable terms, replay and unpriced valuation',flush=True)
 
-def curve_marks(c,query,manifest,context,fixed,base,plain,run_worker):
+def curve_marks(c,query,manifest,context,fixed,base,plain,run_worker,browse):
     point='synthetic_exercise_location'
     other='synthetic_entry_daily'
     definition=fixed['definitionRevisionId']
@@ -249,8 +249,31 @@ def curve_marks(c,query,manifest,context,fixed,base,plain,run_worker):
         else:raise AssertionError('A mark read requires an authorized transaction and a bound context')
     for curve in ('synthetic_worked_location','synthetic_entry_worked_daily'):
         writer.call('volatility-marks/record',{**mark,'operationId':str(uuid4()),'curve':curve})
-    worked_routes(c,query,manifest,context,call,base,run_worker)
+    worked_routes(c,query,manifest,context,call,base,run_worker,browse)
+    check_unpriced_ticket(c,context,call)
     print('PASS curve marks: current authority, replay, revision history, pinned absence, symmetric gas pair and held 2947.4419 call',flush=True)
+
+
+
+def check_unpriced_ticket(c,context,call):
+    unpriced=deepcopy(call)
+    unpriced.update(operationId=str(uuid4()))
+    path=next(p for p in c.call('gas/catalog',context)['locations'] if p['deliveryPoint']=='synthetic_quantity_point')
+    unpriced['physicalSides'][0].update({k:path[k] for k in ('pipeline','zone','deliveryPoint','product')})
+    assert c.call('gas/composition/preview',unpriced,expected=422)['code']=='exercise_marks'
+    structurally_booked=c.call('gas/composition/book',unpriced)
+    def read(saved):
+        return c.call('tickets/trade',dict(context=context,tradeId=saved['tradeId'],bindingId=saved['instrumentId'],revision=1))
+    draft=read(structurally_booked)['draft']
+    preview=c.call('tickets/preview',dict(context=context,draft=draft))
+    assert preview['presentValue'] is None and preview['groups'] is None and preview['schedule'] is None,preview
+    assert preview['scheduleRefusal']['code']=='exercise_marks' and preview['source']['definitionRevisionId']==call['definitionRevisionId'],preview
+    request=dict(context=context,draft=draft,operationId=str(uuid4()),definitionRevisionId=preview['source']['definitionRevisionId'])
+    saved=c.call('tickets/book',request)
+    assert c.call('tickets/book',request)==saved
+    result=read(saved)
+    assert result['scheduleRefusal']['code']=='exercise_marks' and result['groups'] is None and result['actions']['recordExercise']['allowed']
+    print('PASS structurally admitted exercise ticket books while its exact mark is unavailable',flush=True)
 
 
 def election_checks(c,query,manifest,context,fixed,cash,plain,run_worker):
@@ -509,11 +532,12 @@ def publish_daily_point(c,context,source):
     return published
 
 
-def worked_routes(c,query,manifest,context,call,base,run_worker):
+def worked_routes(c,query,manifest,context,call,base,run_worker,browse):
     from check_booked_side_programs import runtime_query
     from preview_client import initial_frame
     source='synthetic_entry_worked_daily'
     published=publish_daily_point(c,context,source)
+    if browse: browse(dict(curveId=published['id']))
     body=deepcopy(call)
     book=str(uuid4())
     query(f"INSERT INTO trading.books SELECT catalog_id,'{book}',portfolio_id,'Synthetic exercise routes',publication_order,effective_at FROM trading.books LIMIT 1;")
@@ -706,9 +730,16 @@ def check_volatility_scenarios(risk,query,cat,req,value):
     joint_request=joint(scenarios)
     samples=risk.call('portfolio/risk',joint_request)['joint']['samples']
     assert Fraction(samples[0]['positions'][0]['values']['value'])>Fraction(value['presentValue'])>Fraction(samples[1]['positions'][0]['values']['value'])
-    for sample,volatility in zip(samples,['0.51','0.49']):
+    for sample,volatility,scenario in zip(samples,['0.51','0.49'],scenarios):
+        assert sample.get('volatility')==scenario['volatility'],sample.keys()
         assert sample['positions'][0]['groups']['base']==groups
         assert sample['positions'][0]['groups']['value'][2]['inputs']['receivesVolatility']==volatility
+    price=dict(factor=req['bumps'][0]['factor'],size='0.0001',convention=cat['joint']['shiftConvention'])
+    [price_only,mixed]=risk.call('portfolio/risk',joint([
+        dict(id='price',label='Price alone',shifts=[price]),
+        dict(**{**scenarios[0],'id':'mixed','shifts':[price]})]))['joint']['samples']
+    assert 'volatility' not in price_only and len(price_only['shifts'])==1,price_only
+    assert mixed['shifts']==price_only['shifts'] and mixed['volatility']==scenarios[0]['volatility'],mixed
     vol_job=risk.call('portfolio/risk/jobs',dict(requestId=str(uuid4()),request=joint_request))
     def native_sample(sample,allowed):
         command=json.dumps(joint([sample])).replace("'","''")

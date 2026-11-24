@@ -183,3 +183,21 @@ test('conditional fields are visible and sent only for the backend-declared choi
  s=setValue(s,leg,'part','band');
  assert.deepEqual(draftOf(s).sides[0].values,{part:'band',level:'8000'});
 });
+
+test('shared gas ticket serialization omits empty rights and preserves exact saved rows',()=>{
+ const gas={...description,product:'physical_gas',repeatableTerms:[{id:'exerciseRights',label:'Exercise right',fields:[
+  f('right_sides','Sides covered',{type:'multiple_choice'}),f('right_period','Exercise period'),f('right_holder','Held by'),
+  f('right_settlement','Settlement'),f('right_lead_hours','Exercise lead in hours',{type:'integer',visibleWhen:{field:'right_settlement',values:['physical']}})
+ ]}]};
+ const plain=draftOf(addSide(addSide(newTicket(gas),'cash'),'fee'));
+ assert.equal(Object.hasOwn(plain,'exerciseRights'),false);
+ const retained={...plain,exerciseRights:[
+  {right_sides:['cash-1','leg-1'],right_period:'delivery_day',right_holder:'us',right_settlement:'physical',right_lead_hours:'8'},
+  {right_sides:['fee-1'],right_period:'delivery_month',right_holder:'counterparty',right_settlement:'cash_automatic'}
+ ]};
+ const reopened=ticketOf(gas,retained);
+ assert.deepEqual(draftOf(reopened),retained);
+ assert.deepEqual(draftOf(removeSide(reopened,'cash-1')).exerciseRights,retained.exerciseRights);
+ const {repeatableTerms,...withoutTerms}=gas;
+ assert.throws(()=>ticketOf(withoutTerms,retained),/exercise right/i);
+});

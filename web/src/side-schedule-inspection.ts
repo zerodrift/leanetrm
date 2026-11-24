@@ -1,14 +1,14 @@
-import type {DeliveryQuantityEvidence} from './ticket-types.js';
+import type {DeliveryQuantityEvidence,ExercisePeriod} from './ticket-types.js';
 import {retainedKnowledge} from './read-references.js';
 import {displayPaymentDate} from './payment-date.js';
 import {numberText,sourceLabels} from './schedule-grid.js';
-import {lifecycleLines,quantityBasisText,words as text} from './lifecycle-text.js';
+import {exercisePeriodText,lifecycleLines,quantityBasisText,words as text} from './lifecycle-text.js';
 import {clearTabs,setupTabs} from './side-panel.js';
 type Api=<T>(path:string,body:unknown,signal?:AbortSignal)=>Promise<T>;
 export type SchedulePosition={context:Record<string,unknown>;tradeId:string;bindingId:string;revision:number;instrumentType:string};
 type Lifecycle={delivery:string;due:string|null;cash:string|null;economicClass:string|null;coverage:string|null;unavailableReason:string|null;fulfillment:string|null};
 export type InspectedScheduleRow={key:string;kind:string;deliveryFrom:string|null;deliveryTo:string|null;start:string|null;end:string|null;valueAt:string|null;paymentAt:string|null;paymentTiming?:'instant'|'utc_payment_day'|null;
- sourceQuantity?:string|null;sourceQuantityStates?:string[];quantityAdjustment?:{contract:string;ratio:string};quantityEvidence?:DeliveryQuantityEvidence[];quantity:string|null;price:string|null;amount:string|null;discountFactor:string|null;presentValue:string|null;quantityState:string|null;priceStates:string[];lifecycle:Lifecycle;paid:string|null;outstanding:string|null;accrued?:string|null;paidAt?:string|null;finalDetermination?:string|null;quantitySpecification:{code:string}|null;currency:{code:string}|null;priceUnit?:{currency:unknown;quantity:unknown;multiplier:string}|null;priceUnitLabel?:string|null;currencyLabel?:string|null;quantityLabel?:string|null;quoteMultiplier:string|null;operatingDate:string|null};
+ sourceQuantity?:string|null;sourceQuantityStates?:string[];quantityAdjustment?:{contract:string;ratio:string};quantityEvidence?:DeliveryQuantityEvidence[];quantity:string|null;price:string|null;amount:string|null;discountFactor:string|null;presentValue:string|null;quantityState:string|null;priceStates:string[];lifecycle:Lifecycle;exercisePeriods?:ExercisePeriod[];paid:string|null;outstanding:string|null;accrued?:string|null;paidAt?:string|null;finalDetermination?:string|null;quantitySpecification:{code:string}|null;currency:{code:string}|null;priceUnit?:{currency:unknown;quantity:unknown;multiplier:string}|null;priceUnitLabel?:string|null;currencyLabel?:string|null;quantityLabel?:string|null;quoteMultiplier:string|null;operatingDate:string|null};
 type Step={unit?:unknown;currency?:unknown;quoteMultiplier?:string|null;valueUnitLabel?:string|null;key:string;role:string;operation:string;kind:string;value:string|null;presence:string;deliveryFrom:string|null;deliveryTo:string|null;start:string|null;end:string|null;observationFrom:string|null;observationTo:string|null;valueAt:string|null;
  paymentDate:string|null;contractFrom:string|null;contractTo:string|null;fixingAt:string|null;priceStates:string[];inputs:{port:string;key:string}[];bindings:{kind:string;market?:{curve:{code:string}}|null;code?:string|null}[];lineage:{id:string}[];actualBatch?:string|null;actualRevision?:number|null;actualKnownAt?:string|null;parameters?:Record<string,string>};
 type Page={side:string;manifest:string;valuationAt:string;knownAt:string;offset:number;total:number;rows:InspectedScheduleRow[]};
@@ -137,7 +137,7 @@ export function mountSideScheduleInspection(host:HTMLElement,o:{api:Api;position
    row.end===null?row.deliveryTo??'—':instant(row.end),paymentCell(row),
    quantity,
    lines(number(row.price),[row.priceUnitLabel??'',row.priceStates.length?'Inputs: '+row.priceStates.map(text).join(', '):'',row.quoteMultiplier?`Quote multiplier: ${row.quoteMultiplier}`:'']),
-   number(row.discountFactor),lines(number(row.amount),[currency]),lines(number(row.presentValue),[currency]),lines(text(state.delivery),lifecycleLines(row,instant)),inspect];
+   number(row.discountFactor),lines(number(row.amount),[currency]),lines(number(row.presentValue),[currency]),lines(text(state.delivery),[...lifecycleLines(row,instant),...(row.exercisePeriods??[]).map(exercisePeriodText)]),inspect];
  }
  // A window's heading, and under the rows of a window that has more, what reads them.
  function frame(part:Part){
