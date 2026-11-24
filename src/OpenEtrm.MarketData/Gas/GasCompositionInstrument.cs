@@ -44,7 +44,7 @@ public sealed record GasCompositionInstrument:SidedInstrument
  internal override bool SupportsSettlement=>false;
  public GasCompositionInstrument(Guid id,ImmutableArray<GasPhysicalComponent> physical,ImmutableArray<GasCashComponent> cash,
   ImmutableArray<GasExerciseRight> rights=default)
-  :this(id,physical,cash,rights,Resolve(physical,cash)) { }
+  :this(id,physical,cash,rights,AdmitComposition(physical,cash,!rights.IsDefaultOrEmpty)) { }
  private GasCompositionInstrument(Guid id,ImmutableArray<GasPhysicalComponent> physical,ImmutableArray<GasCashComponent> cash,
   ImmutableArray<GasExerciseRight> rights,Composition c):base(id,c.Members)
  {
@@ -170,6 +170,11 @@ public sealed record GasCompositionInstrument:SidedInstrument
 
  public ExactRatio StageRatio(int physical,GasQuantityStage stage)=>Stage(ReceiptRatios[physical],Sides[physical].QuantityRatio!,stage);
  private sealed record Composition(ImmutableArray<SideMembership> Members,ImmutableArray<ExactRatio> Receipts,ExactDecimal Base);
+ private static Composition AdmitComposition(ImmutableArray<GasPhysicalComponent> physical,ImmutableArray<GasCashComponent> cash,bool hasRights)
+ {
+  try { return Resolve(physical,cash); }
+  catch(MarketDataException error) when(hasRights&&error.Code=="gas_day_boundary") { throw MissingExerciseDayStart(); }
+ }
  private static Composition Resolve(ImmutableArray<GasPhysicalComponent> physical,ImmutableArray<GasCashComponent> cash)
  {
   if(physical.IsDefault||physical.Length is <MinPhysicalSides or >MaxPhysicalSides||cash.IsDefault||cash.Length>MaxCashSides||physical.Length+cash.Length>MaxSides||physical.Any(p=>p is null||p.Side is null)||cash.Any(p=>p is null||p.Side is null))

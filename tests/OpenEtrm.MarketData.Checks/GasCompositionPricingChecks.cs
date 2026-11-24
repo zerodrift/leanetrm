@@ -9,10 +9,10 @@ internal static class GasCompositionPricingChecks
 {
     static ExactDecimal N(string value) => ExactDecimal.Parse(value);
     static void Require(bool condition, string message) { if(!condition) throw new Exception(message); }
-    static void Refused(Action action)
+    static void Refused(Action action, string code = "gas_composition_input")
     {
-        try { action(); } catch(MarketDataException e) when(e.Code == "gas_composition_input") { return; }
-        throw new Exception("Expected gas_composition_input.");
+        try { action(); } catch(MarketDataException e) when(e.Code == code) { return; }
+        throw new Exception($"Expected {code}.");
     }
     internal static void Run()
     {
@@ -116,8 +116,12 @@ internal static class GasCompositionPricingChecks
             TimeZoneInfo.TransitionTime.CreateFixedDateRule(new DateTime(1, 1, 1, 6, 0, 0), 1, 6));
         var gapZone = TimeZoneInfo.CreateCustomTimeZone("synthetic_gap", TimeSpan.Zero, "Synthetic gap", "Synthetic standard", "Synthetic summer", [gap]);
         var gapClock = GasDayClock.Capture(f.Clock.Key with { Code = "synthetic_gap_clock" }, gapZone, 360);
-        Refused(() => new GasCompositionInstrument(Guid.NewGuid(), [physical with { Side = f.Physical(gapClock) }], [],
-            [daily with { Entries = ["delivery"] }]).ResolveRights());
+        GasPhysicalComponent GapPhysical() => physical with { Side = f.Physical(gapClock) };
+        var gapPayment = payment with { Side = f.Cash(f.From, f.To, clock: gapClock) };
+        Refused(() => new GasCompositionInstrument(Guid.NewGuid(), [GapPhysical()], [], [daily with { Entries = ["delivery"] }]));
+        Refused(() => new GasCompositionInstrument(Guid.NewGuid(), [GapPhysical()], [gapPayment]), "gas_day_boundary");
+        Refused(() => new GasCompositionInstrument(Guid.NewGuid(), [GapPhysical()], [gapPayment], []), "gas_day_boundary");
+        Refused(() => new GasCompositionInstrument(Guid.NewGuid(), [GapPhysical()], [gapPayment], [daily]));
 
         var automatic = new GasExerciseRight(["indexed", "payment"], ExercisePeriod.DeliveryDay, ExerciseHolder.Us, ExerciseSettlement.CashAutomatic, null);
         var index = payment with { Code = "indexed", Role = "indexed_consideration", Direction = N("1"), Side = f.IndexedCash() };
