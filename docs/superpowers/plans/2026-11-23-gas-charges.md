@@ -1,6 +1,6 @@
 # Charges on Gas Trades Implementation Plan
 
-Status: implemented locally under D449. Review of the corrections remains pending.
+D449 is implemented, verified locally and independently reviewed.
 
 **Goal:** A gas trade can carry a lump sum and a capacity charge: payment entries that own their quantity, accrue on their own days and take recorded payments as any gas payment does.
 
@@ -346,12 +346,12 @@ All passed with 18 gas, 20 trading and 81 managed workloads. See
   - `docs/plan.md`, `docs/implementation.md`, `docs/verification.md`: status and the actual check counts from Step 1.
   - The spec records D449, exact quote and calendar inputs, UTC date and earned-day rules, and the owning schedule presentation.
 
-- [ ] **Step 3: Obtain one independent adversarial review** of the temporal behavior: the lump sum's day, own-day states under a clock that does not start at UTC midnight, due dates, and payment visibility under a knowledge cutoff. Resolve findings and rerun Step 1.
+- [x] **Step 3: Obtain one independent adversarial review** of the temporal behavior: the lump sum's day, own-day states under a clock that does not start at UTC midnight, due dates, and payment visibility under a knowledge cutoff. Resolve findings and rerun Step 1.
 
-The whole-branch review is complete. The corrections to future replacement,
-the native UTC boundary, retained Terms and schedule wording passed the
-three full groups and the full frontend suite at `e8580a79`. Independent
-review of those corrections is pending.
+The whole-branch review is complete. The independent review of the
+corrections passed. The corrections to future replacement and payment visibility,
+the native UTC boundary, retained Terms and schedule wording passed the focused preview,
+three full groups and full frontend suite at `e8580a79`.
 
 - [x] **Step 4: Commit the local implementation and qualification records.**
 

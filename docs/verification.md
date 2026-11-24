@@ -92,7 +92,11 @@ npm run build
 node --test --test-concurrency=2 tests/*.test.mjs
 ```
 
-Independent review of the corrections and integrated CI remain pending.
+Independent review confirmed the corrected UTC boundary, amendment and payment
+visibility checks, retained denomination and unrealized present value display.
+The reviewed correction passed the focused preview, three full groups and full
+frontend suite above. Optimizing the bounded repeated calendar reads remains
+deferred. Integrated CI remains a separate gate.
 
 ## Exercise rights on a gas Instrument (D448)
 

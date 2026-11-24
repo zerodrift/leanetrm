@@ -8,8 +8,8 @@ Lump sums can serve as premiums for exercise rights over other memberships.
 Final gas billing retains its ordinary fixed consideration profile. Tariffs,
 balance-based charges, and charges on transport need separate contracts. Local
 verification passed 18 gas, 20 trading and 81 managed runner workloads.
-Independent review of the corrections to charge admission, amendments and
-presentation is pending. See
+Independent review passed for the corrections to charge admission, amendments
+and presentation. See
 [gas charges](physical-gas-side.md#independent-gas-charges-d449) and
 [local qualification](verification.md#independent-gas-charges-d449).
 

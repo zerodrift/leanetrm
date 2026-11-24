@@ -27,8 +27,9 @@ and counts completions at each native row's end. Each Side inspector
 shows exact retained intervals and cash states. Local verification passed
 18 gas, 20 trading and 81 managed runner workloads. Gas and trading reported
 208 and 489 owned browser checks, and managed reported 804 core checks.
-See the [verification record](verification.md#independent-gas-charges-d449)
-for counting conventions and the remaining review gate.
+Independent review of the corrections passed. See the
+[verification record](verification.md#independent-gas-charges-d449) for the
+full qualification results.
 
 ## Exercise rights on a gas Instrument (D448)
 
