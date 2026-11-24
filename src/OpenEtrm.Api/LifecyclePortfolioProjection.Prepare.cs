@@ -96,7 +96,7 @@ internal static partial class LifecyclePortfolioProjection
                 var calibrated=ImmutableDictionary.CreateBuilder<Guid,FuturesOptionMarketBinding>();
                 if(!setup.OptionBindings.IsEmpty)
                 {
-                    var options=setup.OptionBindings.Values.Select(b=>b.Instrument).DistinctBy(i=>i.Id).OrderBy(i=>i.Id).ToArray();
+                    var options=ProjectedOptions(setup.OptionBindings.Values);
                     var retainedOptions=source.Portfolio.Positions.Where(p=>setup.PhysicalOptionValueBindings.ContainsKey(new(p.Owner,p.BindingId))||
                         setup.CashOptionValueBindings.ContainsKey(new(p.Owner,p.BindingId))).Select(p=>p.ValuationId).ToHashSet();
                     var p=opening.Policy.FuturesOptions??throw Error("option_policy","Select the exact option calibration and fallback policy.");

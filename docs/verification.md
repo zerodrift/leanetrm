@@ -82,8 +82,20 @@ product through HTTP and the worker, end to end; the Gas delivery operations rol
 and a direct call of the option event primitive, whose refusal the new tool reads
 from the installed function because every authorized path passes the proposal first.
 
-Migrations 0391 and 0392 and these changes have not been published or applied to
-any database.
+One independent adversarial review read the whole change on 2026-11-23 and ran the
+managed option checks. It found that migration 0392 spliced an unparenthesized CASE
+into two PL/pgSQL IF conditions, which would not have compiled; the CASE is now
+parenthesized and `tests/test_migration_spliced_conditions.py` checks it. It found
+that the lifecycle projection refused a European holding only after calibrating it
+and reading its profile; the projection now refuses it where it names its options,
+with a check. Still open from that review: the option event primitive's refusal is
+read from its installed definition and has no executed check, and the review's
+minor findings are not acted on. It found no path that prices a series on the wrong
+model and no change to American values.
+
+Migrations 0391 and 0392 have never been applied to any database, so European
+exercise is built and not yet shown to install or run end to end. These changes have
+not been published.
 
 ## Selected gas delivery quantities (D445)
 

@@ -15,6 +15,19 @@ internal static class EuropeanOptionApiChecks
             Equal(FuturesOptionStore.EventRefusal("option_exercise_style"),"A European option is exercised only at expiry."));
         Check("exercise and assignment are never offered on a European holding, whatever else is true of it",HoldingActions);
         Check("a volatility surface fit names the numerical policy of its product's exercise style, and no other",SurfaceSolverPolicy);
+        Check("the lifecycle projection refuses a European holding by its style before it calibrates or reads anything for it",ProjectionRefusesFirst);
+    }
+
+    // The projection is qualified for American exercise only. The options it is about to calibrate are named first, and a
+    // European one among them is refused there with the projection's own code.
+    private static void ProjectionRefusesFirst()
+    {
+        var (american,european)=OptionPolicySelectionChecks.Mixed.Bindings(FuturesOptionValuationPolicy.Release2);
+        var projected=LifecyclePortfolioProjection.ProjectedOptions([american,american]);
+        if(projected.Length!=1||projected[0].Id!=american.Instrument.Id)throw new Exception("An American holding is projected once per series.");
+        try{LifecyclePortfolioProjection.ProjectedOptions([american,european]);}
+        catch(MarketDataException error)when(error.Code=="projection_option_style"){return;}
+        throw new Exception("Expected projection_option_style.");
     }
 
     private static void SurfaceSolverPolicy()

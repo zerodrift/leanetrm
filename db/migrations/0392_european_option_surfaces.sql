@@ -21,8 +21,9 @@ END$$;
 
 -- Each patch replaces the one occurrence of the text it expects, or stops.
 DO $$DECLARE signature regprocedure; definition text; anchor text; replacement text;
- style_policy text='CASE p.exercise_style WHEN ''american'' THEN ''american_futures_option_crr_v1'''
-  ||' WHEN ''european'' THEN ''european_futures_option_black76_v1'' END';
+ -- Parenthesized: PL/pgSQL ends an IF condition at the first THEN outside parentheses.
+ style_policy text='(CASE p.exercise_style WHEN ''american'' THEN ''american_futures_option_crr_v1'''
+  ||' WHEN ''european'' THEN ''european_futures_option_black76_v1'' END)';
 BEGIN
  FOR signature,anchor,replacement IN SELECT * FROM (VALUES
   -- A revision is recorded under exactly the policy of its product's exercise style.

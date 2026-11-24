@@ -149,7 +149,7 @@ internal static class OptionPolicySelectionChecks
         Reject("risk_option_calibration",()=>RiskJobs.RequireOptionCalibrations(new JsonObject(),receipts));
     }
 
-    private static class Mixed
+    internal static class Mixed
     {
         private static Guid G(int n)=>Guid.Parse($"00000000-0000-0000-0000-{n:000000000000}");
         private static readonly DefinitionRevision Revision=new(G(901),G(902));

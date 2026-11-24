@@ -79,6 +79,8 @@ public sealed class FuturesOptionLifecycleProjection:ILifecycleProjection
     private readonly ImmutableDictionary<Guid,(FuturesLifecycleProjection Child,LifecycleProjectionEvent Event)> childEvents;
     private readonly ImmutableArray<FuturesLifecycleProjection> children;
     public ImmutableArray<FuturesLifecycleProjection> ExternalNativeFutures{get;}=[];
+    // The exercise styles this projection is qualified for; a caller refuses another one before it prepares anything.
+    public static void RequireQualifiedStyle(FuturesOptionTerms terms)=>ReferenceFuturesOptionStrategy.RequireQualifiedStyle(terms);
     public FuturesOptionLifecycleProjection(Trade trade,Guid bindingId,ValuationSetup setup,FuturesMarketBinding future,
         FuturesMarginPolicy margin,FuturesOptionAutomaticRule rule,KnownFuturesOptionInstruction? instruction,
         CurveRequest expiryMarket,CurveRequest marginMarket,CurveModel model,MarketSnapshot source,FuturesOptionKnownHistory? known=null,
@@ -87,7 +89,7 @@ public sealed class FuturesOptionLifecycleProjection:ILifecycleProjection
     {
         holding=trade.Instruments.SingleOrDefault(h=>h.Id==bindingId)??throw Error("Retain the exact native option holding.");
         option=holding.Instrument as FuturesOptionInstrument??throw Error("Select a listed futures option.");
-        ReferenceFuturesOptionStrategy.RequireQualifiedStyle(option.Series.Terms);
+        RequireQualifiedStyle(option.Series.Terms);
         Owner=new(trade.Id,bindingId,trade.BookId);this.trade=trade;this.future=future;this.margin=margin;this.rule=rule;
         this.instruction=instruction;this.expiryMarket=expiryMarket;this.marginMarket=marginMarket;
         this.setup=setup=setup.ForPosition(Owner,option.Id);

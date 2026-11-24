@@ -21,6 +21,15 @@ internal static partial class LifecyclePortfolioProjection
         }
         return projected;
     }
+    // The options a projection calibrates, one per series in identity order. The projection is qualified for American
+    // exercise only: a series of another style is refused by name here, before it is calibrated at the projection's
+    // discounting or its profile and history are read.
+    internal static FuturesOptionInstrument[] ProjectedOptions(IEnumerable<FuturesOptionMarketBinding> bindings)
+    {
+        var options=bindings.Select(b=>b.Instrument).DistinctBy(i=>i.Id).OrderBy(i=>i.Id).ToArray();
+        foreach(var option in options)FuturesOptionLifecycleProjection.RequireQualifiedStyle(option.Series.Terms);
+        return options;
+    }
     internal static void RequireFullOptionValue(FuturesMarketBinding underlying,PortfolioValuationPolicy pricing,FuturesOptionPhysicalValueBinding? physical=null,
         FuturesOptionCashValueBinding? cash=null)
     {

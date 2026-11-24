@@ -7119,12 +7119,13 @@ also shows contract quantity and the exact selected ratio. Nonlinear pricing,
 fuel links, changed delivery locations, final indexed billing, keep-whole and
 imbalance positions, and adoption by other commodities remain separate work.
 
-## D446 — Listed futures options admit European exercise, an expiry on the underlying's last day and a margined premium (European exercise implemented; the other two designed)
+## D446 — Listed futures options admit European exercise, an expiry on the underlying's last day and a margined premium (European exercise built, its migrations not yet applied to a database; the other two designed)
 
 Decided by the owner on 2026-11-23 with the
 [design](superpowers/specs/2026-11-23-futures-option-styles-design.md). European
-exercise is implemented by migrations 0391 and 0392; its managed, Python and web
-checks pass, and its database, HTTP and real-browser checks have not yet been run
+exercise is built, with migrations 0391 and 0392 written and never applied; its
+managed, Python and web checks pass, and its database, HTTP and real-browser checks
+have not yet been run
 ([verification](verification.md#european-futures-options-d446)). An expiry on the
 underlying's last day and a margined premium are designed and not built. D288 stands
 for American options with premium paid up front that expire before their underlying.
