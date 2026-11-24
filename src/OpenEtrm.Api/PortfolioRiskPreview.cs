@@ -36,7 +36,7 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
     private static readonly AmountFormat Display=new(12,CashTieRule.ToEven,false,true);
     private static PortfolioValuationPolicy PricingPolicy=>new(CurveModel.NumericalPolicy,RiskEngine.ExactNumericalPolicy,
         FuturesRisk.Implementation,SwapStore.Convention,RateCurveMath.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1,"estimate_until_actual_v1",
-        FuturesOptionValuationPolicy.Release1);
+        FuturesOptionValuationPolicy.Release2);
     internal static PortfolioValuationPolicy AccountingPricingPolicy=>PricingPolicy;
     // Whether a retained run was valued under the pricing policy the catalog states now. A page opens a retained run as a
     // scope's current report only then. A result that states no pricing policy is not.
@@ -271,7 +271,7 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
             // Options: each series' calibration receipt, the policy that holds it in every scenario, and how many held positions are in the intrinsic mode.
             scenarioPolicy=prepared.Portfolio.Options is null?null:prepared.Portfolio.Policy.FuturesOptions!.ScenarioPolicy,
             optionCalibrations=prepared.Portfolio.OptionCalibrations,optionWork,
-            fallbackPositions=prepared.Portfolio.OptionModes.Values.Count(mode=>mode==OpenEtrm.MarketData.Options.ImpliedVolatility.FallbackMode),
+            fallbackPositions=prepared.Portfolio.OptionModes.Values.Count(OpenEtrm.MarketData.Options.ImpliedVolatility.IsFallback),
             projectionPolicies=ProjectionPolicyReceipts.For(run.ModelContracts),
             ppaMeasures=run.PpaMeasures,inputs=new{pricingPolicy=run.Policy,ppaReceipts=run.PpaReceipts.Select(PpaPortfolio.Receipt),markets=prepared.Portfolio.Markets.Select(m=>new{definitions=m.Snapshot.Definitions,
                 snapshotId=m.Snapshot.Id,m.Snapshot.ValuationAt,m.Snapshot.MarketCutoff,curveNumericalPolicy=CurveModel.NumericalPolicy,

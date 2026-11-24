@@ -9,9 +9,15 @@ using OpenEtrm.Rates;
 
 namespace OpenEtrm.Api;
 
+// The model a calculation selects for European series: the formula's numerical policy, and whether the fallback at
+// discounted intrinsic is declared ("none" makes those series structured errors).
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record FuturesOptionEuropeanPolicy([property:JsonRequired]string NumericalPolicy,[property:JsonRequired]string CalibrationFallback);
+
 // The futures-option valuation a calculation selects: the observation role options are calibrated and valued at, the
 // tree and solver's numerical policy, the scenario policy that holds each series' calibration under futures shocks, and
-// whether the intrinsic fallback is declared ("none" makes those series structured errors).
+// whether the intrinsic fallback is declared ("none" makes those series structured errors). The numerical policy and
+// the fallback govern American series; a European series is valued under the European member, and refused without it.
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record FuturesOptionValuationPolicy(string ObservationRole,string NumericalPolicy,string ScenarioPolicy,string CalibrationFallback)
 {
@@ -19,11 +25,15 @@ public sealed record FuturesOptionValuationPolicy(string ObservationRole,string 
     public FuturesOptionPhysicalValuationPolicy? Physical{get;init;}
     [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]
     public FuturesOptionCashValuationPolicy? CashFunding{get;init;}
+    [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]
+    public FuturesOptionEuropeanPolicy? European{get;init;}
     public const string NoFallback="none";
-    // The policy the Blotter's trading_workspace_v1 convention and the portfolio risk catalog state.
+    // The policy stated before European series were admitted (D446). Retained runs and the checks pinned to it keep its bytes.
     public static FuturesOptionValuationPolicy Release1=>new(FuturesOptionPricing.DailySettlement,OptionNumericalPolicies.CoxRossRubinstein,
         FuturesOptionPricing.ScenarioPolicy,ImpliedVolatility.FallbackMode);
-    internal bool FallbackDeclared=>CalibrationFallback==ImpliedVolatility.FallbackMode;
+    // The policy the Blotter's trading_workspace_v1 convention, the portfolio risk catalog and the trading P&L state.
+    public static FuturesOptionValuationPolicy Release2=>Release1 with{European=new(OptionNumericalPolicies.Black76,ImpliedVolatility.DiscountedFallbackMode)};
+    // The American members' numerical policy.
     internal OptionNumericalPolicy Validate()
     {
         Physical?.Validate();
@@ -32,12 +42,27 @@ public sealed record FuturesOptionValuationPolicy(string ObservationRole,string 
             CalibrationFallback is not(ImpliedVolatility.FallbackMode or NoFallback))
             throw new MarketDataException("option_policy",$"Select the {FuturesOptionPricing.DailySettlement} role, the {FuturesOptionPricing.ScenarioPolicy} "+
                 $"scenario policy and an explicit calibration fallback ({ImpliedVolatility.FallbackMode} or {NoFallback}).");
-        return OptionNumericalPolicies.Require(NumericalPolicy);
+        if(European is {} european&&(european.NumericalPolicy!=OptionNumericalPolicies.Black76||
+            european.CalibrationFallback is not(ImpliedVolatility.DiscountedFallbackMode or NoFallback)))
+            throw new MarketDataException("option_policy",$"For European series select the {OptionNumericalPolicies.Black76} numerical policy and an explicit "+
+                $"calibration fallback ({ImpliedVolatility.DiscountedFallbackMode} or {NoFallback}).");
+        var american=OptionNumericalPolicies.Require(NumericalPolicy);
+        if(american.Lattice==OptionLattice.ClosedForm)
+            throw new MarketDataException("option_policy",$"The numerical policy '{NumericalPolicy}' prices European series: select it in the European member, and a tree for American series.");
+        return american;
     }
+    // The numerical policy of the model that prices a series' stated exercise style, and whether that model's fallback is declared.
+    internal OptionNumericalPolicy NumericalFor(FuturesOptionSeriesSpecification series)=>
+        OptionNumericalPolicies.Require(IsEuropean(series)?EuropeanFor(series).NumericalPolicy:NumericalPolicy);
+    internal bool FallbackDeclaredFor(FuturesOptionSeriesSpecification series)=>IsEuropean(series)?
+        EuropeanFor(series).CalibrationFallback==ImpliedVolatility.DiscountedFallbackMode:CalibrationFallback==ImpliedVolatility.FallbackMode;
+    private static bool IsEuropean(FuturesOptionSeriesSpecification series)=>series.Terms.ExerciseStyle==FuturesOptionTerms.European;
+    private FuturesOptionEuropeanPolicy EuropeanFor(FuturesOptionSeriesSpecification series)=>European??throw new MarketDataException("option_policy",
+        $"Option series {series.Key.Code} states European exercise and the option valuation policy names no European model.");
 }
 
 // The option work of one valuation: held option positions, distinct series, the tree prices their calibration evaluated and
-// the tree prices the scenario valuations evaluated at the held calibrations.
+// the tree prices the scenario valuations evaluated at the held calibrations. A series valued by the formula has no tree.
 public sealed record FuturesOptionWork(int Positions,int UniqueSeries,int SolvedSeries,int FallbackSeries,int CalibrationTreePrices)
 {
     public int ScenarioTreePrices{get;init;}
@@ -140,10 +165,12 @@ internal sealed class FuturesOptionMarket
     {
         var receipts=Receipts;
         return new(positions.Count(p=>p.OpenLots!=default&&Reason(p) is null),receipts.Length+OptionFailures.Count,
-            receipts.Count(r=>r.Mode==FuturesOptionPricing.SolvedMode),receipts.Count(r=>r.Mode==ImpliedVolatility.FallbackMode),CalibrationTreePrices(receipts));
+            receipts.Count(r=>r.Mode==FuturesOptionPricing.SolvedMode),receipts.Count(r=>ImpliedVolatility.IsFallback(r.Mode)),CalibrationTreePrices(receipts));
     }
     // A solved series prices the tree at both bracket ends and once per halving; the fallback once at the bracket's foot.
-    internal static int CalibrationTreePrices(IEnumerable<FuturesOptionCalibrationReceipt> receipts)=>receipts.Sum(r=>r.Mode==FuturesOptionPricing.SolvedMode?r.Iterations!.Value+2:1);
+    // A series calibrated by the formula prices no tree.
+    internal static int CalibrationTreePrices(IEnumerable<FuturesOptionCalibrationReceipt> receipts)=>receipts.Sum(r=>
+        OptionNumericalPolicies.Require(r.NumericalPolicy).Lattice==OptionLattice.ClosedForm?0:r.Mode==FuturesOptionPricing.SolvedMode?r.Iterations!.Value+2:1);
 }
 
 // The calibration of a set of option series from one snapshot's unshocked base: the bindings of the series that
@@ -199,9 +226,11 @@ internal static class FuturesOptionPortfolio
         IReadOnlyCollection<FuturesOptionInstrument> options,ImmutableArray<SidePaymentKey> coDiscountedPayments,FuturesOptionValuationPolicy policy,CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        var numerical=policy.Validate();
+        policy.Validate();
         var failures=new Dictionary<Guid,string>();var uncoveredPayments=ImmutableArray.CreateBuilder<Guid>();
         var series=options.DistinctBy(o=>o.Id).OrderBy(o=>o.Id).ToArray();
+        // A held series whose exercise style the policy names no model for fails the calculation, whatever else the series lacks.
+        foreach(var option in series)_=policy.NumericalFor(option.Series);
         foreach(var expired in series.Where(o=>snapshot.ValuationAt>=o.Series.Terms.ExpiryAt))failures[expired.Id]="option_expired";
         var live=series.Where(o=>!failures.ContainsKey(o.Id)).ToArray();
         var discounting=ImmutableDictionary.CreateBuilder<ReferenceKey,CurrencyDefaultDiscounting>();
@@ -238,7 +267,7 @@ internal static class FuturesOptionPortfolio
         // calibration, exactly as a sequential pass in that order would, and never as a parallel AggregateException.
         var outcomes=calibrated.AsParallel().AsOrdered().Select(option=>
         {
-            try{return(Option:option,Binding:FuturesOptionPricing.Prepare(option,basis!,snapshot,discounting[option.Currency],policy.ObservationRole,numerical,policy.FallbackDeclared,ct),Error:(Exception?)null);}
+            try{return(Option:option,Binding:Bind(option,basis!,snapshot,discounting[option.Currency],policy,ct),Error:(Exception?)null);}
             catch(Exception error){return(Option:option,Binding:(FuturesOptionMarketBinding?)null,Error:error);}
         }).ToArray();
         if(outcomes.FirstOrDefault(o=>o.Error is {} error&&!(error is MarketDataException known&&FuturesOptionMarket.Excludable(known.Code))).Error is {} failure)
@@ -255,15 +284,20 @@ internal static class FuturesOptionPortfolio
             basis,requests.ToImmutableDictionary());
     }
 
+    // Calibrates one series under the model the policy selects for its stated exercise style.
+    internal static FuturesOptionMarketBinding Bind(FuturesOptionInstrument option,CurveBuild basis,MarketSnapshot snapshot,ISideDiscounting discounting,
+        FuturesOptionValuationPolicy policy,CancellationToken ct)=>FuturesOptionPricing.Prepare(option,basis,snapshot,discounting,policy.ObservationRole,
+            policy.NumericalFor(option.Series),policy.FallbackDeclaredFor(option.Series),ct);
+
     // The Blotter's base values of the held option and premium bindings, by trade and binding, through the same connected
-    // valuation a portfolio risk run uses, under the release-1 option policy its convention states.
+    // valuation a portfolio risk run uses, under the option policy its convention states.
     internal static async Task<(FuturesOptionMarket Market,ImmutableDictionary<(Guid Trade,Guid Binding),ExactMoney> Values)> Values(NpgsqlConnection connection,
         PreviewDatabase database,PreviewData data,InputFrame frame,ImmutableArray<FuturesOptionPosition> positions,CancellationToken ct)
     {
         if(frame.ContextId is not {} contextId)throw new MarketDataException("option_market_context","Option values require the certified calculation context.");
         var context=PinnedContext.Exact((await new KnowledgeResolver(database.Manifest.CatalogId).Read(connection,contextId,ct)).Context);
         var snapshot=MarketSnapshotBinding.Bind(data.Snapshot(frame),contextId,SchedulePreview.ParseAt(context.KnownAt));
-        var market=await Prepare(connection,database.Manifest.CatalogId,data,frame,snapshot,positions,FuturesOptionValuationPolicy.Release1,ct);
+        var market=await Prepare(connection,database.Manifest.CatalogId,data,frame,snapshot,positions,FuturesOptionValuationPolicy.Release2,ct);
         if(market.Portfolio(positions) is not {} portfolio)return(market,ImmutableDictionary<(Guid,Guid),ExactMoney>.Empty);
         var dependencies=portfolio.Declare(snapshot).SelectMany(c=>c.Dependencies).Distinct().ToImmutableArray();
         var prepared=await CustomCurves.PrepareMarket(connection,database,data,frame,snapshot,context,portfolio.Instruments,dependencies,

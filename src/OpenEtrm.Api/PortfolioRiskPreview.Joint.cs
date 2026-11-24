@@ -38,7 +38,7 @@ public sealed partial class PortfolioRiskPreview
             excludedPositions=prepared.Portfolio.Excluded,scenarioPolicy=prepared.Portfolio.Options is null?null:prepared.Portfolio.Policy.FuturesOptions!.ScenarioPolicy,
             optionCalibrations=prepared.Portfolio.OptionCalibrations,
             optionWork=prepared.Portfolio.OptionWork is {} work?work with{ScenarioTreePrices=prepared.Portfolio.Options!.TreePrices-before}:null,
-            fallbackPositions=prepared.Portfolio.OptionModes.Values.Count(mode=>mode==OpenEtrm.MarketData.Options.ImpliedVolatility.FallbackMode),
+            fallbackPositions=prepared.Portfolio.OptionModes.Values.Count(OpenEtrm.MarketData.Options.ImpliedVolatility.IsFallback),
             projectionPolicies=ProjectionPolicyReceipts.For(contracts),ppaMeasures=run.Partitions.SelectMany(p=>p.Run.Groups.Where((g,n)=>p.Market.Measures[n]==PortfolioValuation.PpaMeasure).SelectMany(g=>g.Measures)),
             inputs=new{pricingPolicy=prepared.Portfolio.Policy,ppaReceipts=prepared.Portfolio.Ppas.Select(p=>PpaPortfolio.Receipt(p.Receipt)),
                 markets=prepared.Portfolio.Markets.Select(m=>new{definitions=m.Snapshot.Definitions,snapshotId=m.Snapshot.Id,m.Snapshot.ValuationAt,m.Snapshot.MarketCutoff,

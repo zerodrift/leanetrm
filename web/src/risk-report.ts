@@ -20,7 +20,9 @@ export type RiskPosition={tradeId:string;bindingId:string;bookId:string;book:str
   measure:string;measureLabel:string;values:RiskValues};
 
 /** The option valuation a run's request selected, as the run states it among its inputs. */
-export type OptionValuationPolicy={observationRole:string;numericalPolicy:string;scenarioPolicy:string;calibrationFallback:string};
+export type OptionValuationPolicy={observationRole:string;numericalPolicy:string;scenarioPolicy:string;calibrationFallback:string;
+  /** The model of European series, where the policy names one; the other model members govern American series. */
+  european?:{numericalPolicy:string;calibrationFallback:string}|null};
 export type RiskWorkReport={heldInstruments:number;work:{positionCount:number;uniqueValuations:number;scenarioCount:number;preparationScenarioCount:number;unitPricerCalls:number;rebuiltCurveNodes:number;reusedCurveNodes:number;repeatedInstrumentReferences:number;quantityApplications:number};connectedScenarios:{definitions:{revisionId:string};work:{evaluatedNodes:number;reusedReads:number;affectedNodes:number;traversedAffectedEdges:number};preparation:{sourceCompilations:number;declaredSourceNodes:number}}[]};
 /**
  * A portfolio risk report: each factor's results by book and by holding, and the positions the run leaves out. An earlier job's

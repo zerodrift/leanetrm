@@ -40,6 +40,8 @@ public static class ImpliedVolatility
     // The fallback a valuation policy declares for a series of this style.
     public static string FallbackModeFor(FuturesOptionTerms terms) =>
         terms.ExerciseStyle == FuturesOptionTerms.European ? DiscountedFallbackMode : FallbackMode;
+    // Whether a calibration receipt's mode is a fallback of either style, rather than a solved volatility.
+    public static bool IsFallback(string? mode) => mode is FallbackMode or DiscountedFallbackMode;
 
     private static readonly LatticeDecimal Zero = LatticeDecimal.Parse("0");
     private static readonly LatticeDecimal Two = LatticeDecimal.Parse("2");
