@@ -158,9 +158,26 @@ def checks(query,manifest):
     primitive=query.raw("SELECT pg_get_functiondef('security.apply_futures_option_event(uuid,uuid,uuid,text,numeric,timestamptz,uuid,uuid[],jsonb)'::regprocedure);")
     refusal="IF product.exercise_style='european' THEN RAISE EXCEPTION 'option_exercise_style' USING ERRCODE='P0001';END IF;"
     window='PERFORM ref_data.require_option_notice(product,series_row,event_kind,event_at);\n  IF event_at<r.execution_at OR security.futures_option_market_date'
-    # No path reaches the primitive without passing the proposal first, so its refusal is read from its installed definition.
     check('the event primitive states the same refusal once, ahead of its notice and exercise-window tests',
         primitive.count(refusal)==1 and primitive.count(window)==1 and primitive.index(refusal)<primitive.index(window))
+    # No authorized path reaches the primitive without passing the proposal first. So the proposal's own refusal is set
+    # aside inside one transaction that is never committed: the same request then passes the proposal, the executed
+    # action reaches the primitive, and the primitive refuses it.
+    proposal_refusal="IF kind IN('exercise','assignment') AND product.exercise_style='european' THEN RAISE EXCEPTION 'option_exercise_style';END IF;"
+    body=request(long_call,'option.exercise',lots='1')
+    token=query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('{issuer}','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
+    probe=("BEGIN;DO $probe$DECLARE d text=pg_get_functiondef('lifecycle.option_proposal_base(uuid,jsonb)'::regprocedure);"
+        f"r text=$r${proposal_refusal}$r$;BEGIN IF length(d)-length(replace(d,r,''))<>length(r) THEN RAISE EXCEPTION 'synthetic_probe_definition';END IF;"
+        "EXECUTE replace(d,r,'');END$probe$;"
+        f"SET SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{token}');"
+        f"SELECT lifecycle.option_proposal('{catalog}',{literal(body)})->>'hash' AS hash \\gset\n"
+        f"SELECT lifecycle.execute_option_action('{catalog}',jsonb_set({literal(body)},'{{previewHash}}',to_jsonb(:'hash'::text)));ROLLBACK;")
+    try:query(probe)
+    except RuntimeError as error:assert 'option_exercise_style' in str(error) and 'apply_futures_option_event' in str(error),str(error)
+    else:raise AssertionError('The event primitive recorded an exercise of a European option.')
+    check('with the proposal\'s refusal set aside for one uncommitted transaction, the event primitive itself refuses the exercise and nothing is written',
+        query(f"SELECT count(*) FROM trading.futures_option_events WHERE catalog_id='{catalog}';")=='0' and
+        query.raw("SELECT pg_get_functiondef('lifecycle.option_proposal_base(uuid,jsonb)'::regprocedure);").count(proposal_refusal)==1)
 
     # Expiry is unchanged: once the expiry instant has passed and the underlying's final daily settlement of that day is
     # known, the automatic rule decides. A settlement of 3.5 exercises the call struck at 3.10 and abandons the put.
