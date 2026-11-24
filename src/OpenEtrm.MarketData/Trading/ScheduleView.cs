@@ -88,7 +88,8 @@ public static class ScheduleViews
         SignedRatio Quantity,SignedRatio? Price,SignedRatio? Amount,int QuantityTags,int PriceTags,int AmountTags,DateTimeOffset? Payment,ReferenceKey? Currency,
         ImmutableArray<DeliveryQuantityEvidence> QuantityEvidence,SignedRatio? SourceQuantity,ImmutableArray<ExerciseSchedulePeriod> Periods);
 
-    public static ScheduleView Build(ImmutableArray<SideViewInput> sides,ImmutableArray<string> levels,Func<DateOnly,DateTimeOffset> boundary)
+    public static ScheduleView Build(ImmutableArray<SideViewInput> sides,ImmutableArray<string> levels,Func<DateOnly,DateTimeOffset> boundary,
+        bool envelopeMonthlyIntervals=false)
     {
         if(sides.IsDefaultOrEmpty||sides.Any(side=>side?.Evaluation is null)||levels.IsDefaultOrEmpty||boundary is null)
             throw Error("Select the evaluated sides, row levels and operating-day boundary of the schedule view.");
@@ -111,9 +112,10 @@ public static class ScheduleViews
                 var finer=group.Where(piece=>piece.Level!=level).ToArray();
                 var spans=group.Where(piece=>piece.Level==level).Select(piece=>(piece.Start,piece.End));
                 if(finer.Length>0)spans=spans.Append((finer.Min(piece=>piece.Start),finer.Max(piece=>piece.End)));
-                // A whole-term row aggregates the union of its actual intervals.
-                // Scalar term amounts stay here; nothing allocates them to months.
-                var span=level=="term"?[(group.Min(piece=>piece.Start),group.Max(piece=>piece.End))]:spans.Distinct().ToArray();
+                // A coarse envelope covers only the extent of the contributing windows.
+                // Each scalar amount stays at its own level.
+                var envelope=level=="term"||(level=="month"&&envelopeMonthlyIntervals);
+                var span=envelope?[(group.Min(piece=>piece.Start),group.Max(piece=>piece.End))]:spans.Distinct().ToArray();
                 if(span.Length!=1)throw Error($"Values on schedule row {group.Key} disagree on its clock interval or are finer than its level.");
                 var delivered=span[0].End<=valuationAt;
                 rows.Add(new(group.Key,parent,level,span[0].Start,span[0].End,level=="day"?group.Key:null,Cells(sides,group.ToArray()),delivered));

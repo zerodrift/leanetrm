@@ -203,8 +203,6 @@ def main():
             if enabled and name.endswith('_check') and name not in compatible:
                 parser.error(f"--gas-charges-check and --{name.replace('_','-')} use different fixtures; run them separately")
         if args.example!='standard': parser.error('--gas-charges-check requires the standard fixture')
-        if args.browser_check and not (args.gas_pricing_check or args.gas_exercise_check):
-            parser.error('--gas-charges-check has no browser scenarios; omit --browser-check')
     if args.gas_setup_check or args.gas_composition_check or args.gas_amendments_check or args.gas_indexed_check or args.gas_in_term_check or args.deal_ticket_check or args.gas_daily_quantity_check or args.gas_delivery_quantity_check or args.gas_charges_check or args.gas_pricing_check or args.gas_exercise_check or args.facility_quantity_check: args.physical_gas_check=True
     if args.demo_instruments_check or args.gas_indexed_check or args.gas_in_term_check: args.check=True
 
@@ -1169,6 +1167,9 @@ def main():
                 if args.gas_charges_check:
                     from check_gas_charges import run_checks as check_gas_charges
                     check_gas_charges(url,query,manifest,run_worker,admin_load_in_term)
+                    if args.browser_check:
+                        target=temporary/'browser-target.json';target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                        subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-charges'],cwd=ROOT,env=env,check=True,timeout=300)
                 if args.gas_pricing_check:
                     from check_gas_pricing import run_checks as check_gas_pricing
                     pricing_fixture=check_gas_pricing(url,query,manifest,run_worker,admin_load_in_term)

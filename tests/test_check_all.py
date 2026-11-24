@@ -88,6 +88,7 @@ class CheckAllTests(unittest.TestCase):
         self.assertTrue({'--gas-pricing-check','--browser-check'}.issubset(exercise[0]))
         charge = [command for command in previews if '--gas-charges-check' in command]
         self.assertEqual(len(charge), 1)
+        self.assertIn('--browser-check', charge[0])
         self.assertNotIn('--gas-exercise-check', charge[0])
         quantity=next(command for command in previews if '--gas-delivery-quantity-check' in command)
         self.assertIn('--browser-check',quantity)

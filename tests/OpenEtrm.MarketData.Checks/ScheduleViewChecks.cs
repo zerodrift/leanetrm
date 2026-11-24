@@ -232,8 +232,8 @@ internal static class ScheduleViewChecks
         var location=new GasDeliveryLocation(G("pipeline"),G("zone"),G("delivery_point"));
         var assignment=new GasValuationAssignment(G("gas_value"),location,G("gas_product"),from,to,lookup.Settlement,lookup.Quote,
             new(lookup.Market,lookup.Contract),lookup.Fixing,new UnitPrice(default,f.Quote));
-        var physical=new PhysicalGasSide(Guid.NewGuid(),location,G("gas_product"),
-            new(clock,from,to,GasQuantityBasis.PerOperatingDay,new(D("1"),f.Quote.Quantity),GasFuelConvention.None,default),[assignment],SyntheticSideCalendars.Physical());
+        PhysicalGasSide Physical(DateOnly start,DateOnly end)=>new(Guid.NewGuid(),location,G("gas_product"),
+            new(clock,start,end,GasQuantityBasis.PerOperatingDay,new(D("1"),f.Quote.Quantity),GasFuelConvention.None,default),[assignment],SyntheticSideCalendars.Physical());
         FixedSide Fixed(string price)=>new(Guid.NewGuid(),new FlatPrice(new UnitPrice(D(price),f.Quote)),f.Quote,new(D("1"),f.Quote.Quantity),
             [new(from,to,clock.Boundary(to).AddDays(2),new(to.DayNumber-from.DayNumber,1),null)],SyntheticSideCalendars.FixedPeriods([new(from,to,clock.Boundary(to).AddDays(2),new(to.DayNumber-from.DayNumber,1),null)]));
         var before=clock.Boundary(from).AddDays(-1);
@@ -244,7 +244,7 @@ internal static class ScheduleViewChecks
                 (N("3.412"),new(null,SchedulePriceFacts.Projected)):(N("1"),default)));
             return new(code,evaluation,program,D("10000"),S(coefficient),Columns);
         }
-        ImmutableArray<SideViewInput> sides=[Side("physical",physical,1),Side("cash",Fixed("3.412"),-1),Side("fee",Fixed("0.045"),-1)];
+        ImmutableArray<SideViewInput> sides=[Side("physical",Physical(from,to),1),Side("cash",Fixed("3.412"),-1),Side("fee",Fixed("0.045"),-1)];
         var view=ScheduleViews.Build(sides,Levels,clock.Boundary);
         var month=Row(view,from.ToString("yyyy-MM",System.Globalization.CultureInfo.InvariantCulture));
         var days=view.Rows.Where(row=>row.Parent==month.Key).ToArray();
@@ -257,6 +257,28 @@ internal static class ScheduleViewChecks
         Equal(month.Cells["trade.net_cash"].Value,"-1071670");Equal(days[0].Cells["physical.price"].Value,"3.412");
         Reject("schedule_view",()=>ScheduleViews.Build(sides,Levels,Utc));
         Pass("a 09:00 gas composition anchors days and its cash month on the gas-day boundary");
+
+        var partialPhysical=Side("physical",Physical(from.AddDays(3),from.AddDays(20)),1);
+        var capacity=GasChargeSides.Capacity(Guid.NewGuid(),new(D("0.02"),f.Quote),new(D("1"),f.Quote.Quantity),clock,
+            from.AddDays(13),from.AddDays(25),2,SyntheticSideCalendars.Dated(false),f.Quote);
+        var charge=Side("charge",capacity,-1);
+        ImmutableArray<SideViewInput> independent=[partialPhysical,charge];
+        var chargeView=ScheduleViews.Build(independent,Levels,clock.Boundary,envelopeMonthlyIntervals:true);
+        Reject("schedule_view",()=>ScheduleViews.Build(independent,Levels,clock.Boundary));
+        Reject("schedule_view",()=>ScheduleViews.Build(independent,Levels,Utc,envelopeMonthlyIntervals:true));
+        var chargeMonth=Row(chargeView,month.Key);
+        if(chargeMonth.Start!=clock.Boundary(from.AddDays(3))||chargeMonth.End!=clock.Boundary(from.AddDays(25)))
+            throw new Exception("The month spans both exact gas-day intervals.");
+        foreach(var cells in new[]{chargeMonth.Cells,chargeView.Totals})
+        {
+            Equal(cells["physical.quantity"].Value,"170000");Equal(cells["physical.amount"].Value,"580040");
+            Equal(cells["charge.quantity"].Value,"-120000");Equal(cells["charge.amount"].Value,"-2400");
+            Equal(cells["trade.net_cash"].Value,"-2400");
+        }
+        var chargeDays=chargeView.Rows.Where(row=>row.Level=="day").ToArray();
+        if(chargeDays.Length!=17||chargeDays.Any(row=>Columns.Any(column=>row.Cells["charge."+column.Item1].Value is not null)))
+            throw new Exception("The partial capacity amount stays on its monthly row.");
+        Pass("an independent gas charge keeps its exact monthly values beside a different partial physical term");
     }
 
     private static SideViewInput Daily(int days,DateTimeOffset valuation,Func<int,(ScheduleNumber,VolumeState)> quantity,Func<int,(ScheduleNumber,SchedulePriceFacts)> price,

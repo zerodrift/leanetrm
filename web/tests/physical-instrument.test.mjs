@@ -29,3 +29,17 @@ test('indexed gas overview keeps native index, spread and payment terms without 
  assert.equal(rows.some(([label])=>['Fixed unit price','Payment'].includes(label)),false);
  assert.throws(()=>gasInstrumentSections({...f,indexedCash:[]},'UTC'),/indexed.*terms/i);
 });
+
+test('retained independent gas charges show the authored amount or rate and their own payment coordinates',()=>{
+ const daily={slot:2,code:'capacity',role:'charge',direction:-1,clock_slot:0,source_slot:null,stage:null,charge_basis:'capacity',price:'0.02',
+  charge_quantity_n:'20001',charge_quantity_d:'2',delivery_from:'2021-04-01',delivery_to:'2021-06-11',payment_at:null,payment_day:2,payment_convention:'next_month_day_utc_v1'};
+ const lump={...daily,slot:1,code:'premium',charge_basis:'lump_sum',price:'5000',charge_quantity_n:'1',charge_quantity_d:'1',
+  payment_at:'2021-04-01T00:00:00Z',payment_day:null,payment_convention:null};
+ const sections=gasInstrumentSections({head:{},physical:[{slot:0,unit:'MMBtu'}],components:[
+  {slot:0,code:'delivery',role:'physical',direction:1,independent_quantity:'10000'},lump,daily]},'America/Chicago');
+ const premium=Object.fromEntries(sections.find(section=>section.title==='premium').rows);
+ const capacity=Object.fromEntries(sections.find(section=>section.title==='capacity').rows);
+ assert.deepEqual(premium,{'Side':'Charge','Direction':'Pay','Gas day of':'delivery','Charged on':'A lump sum','Amount':'5000','Payment date':'Apr 1, 2021'});
+ assert.deepEqual(capacity,{'Side':'Charge','Direction':'Pay','Gas day of':'delivery','Charged on':'A daily capacity','Rate per unit per day':'0.02',
+  'Daily quantity':'20001/2','From':'2021-04-01','To · exclusive':'2021-06-11','Payment day':'2','Payment convention':'next_month_day_utc_v1'});
+});

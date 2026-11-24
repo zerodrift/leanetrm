@@ -107,16 +107,19 @@ const choiceText=(value:string,unit:string|null,choices:TicketChoice[]|undefined
 
 function fieldRow(o:TicketView,f:TicketField,side:string|null,v:FieldValue|undefined){
  const key=side===null?f.id:`${side}.${f.id}`,value=v?.value??'',entry=o.mode!=='booked',unit=resolvedUnit(f.unit,o.quantityUnit);
+ const labels=f.labelByChoice;
+ const selected=labels&&side!==null?o.state.sides.find(s=>s.code===side)?.values[labels.field]?.value:undefined;
+ const labelText=labels&&selected!==undefined&&Object.hasOwn(labels.labels,selected)?labels.labels[selected]:f.label;
  const row=el('div',`ticket-field ticket-${f.state}`);row.dataset.field=f.id;row.dataset.state=f.state;
- const label=el('span','ticket-label',f.label);label.title=f.meaning;
+ const label=el('span','ticket-label',labelText);label.title=f.meaning;
  const body=el('div','ticket-body');row.append(label,body);
  const chip=()=>{if(entry&&v?.looked){row.classList.add('ticket-looked');body.append(el('span','ticket-chip',v.looked.label));}};
  if(f.state==='soon'){
   // Coming soon: it cannot be entered, holds no value and is never sent; its hover text says what it will do.
-  const control=el('input','ticket-control');control.disabled=true;control.setAttribute('aria-disabled','true');control.setAttribute('aria-label',f.label);control.title=f.soon??'';
+  const control=el('input','ticket-control');control.disabled=true;control.setAttribute('aria-disabled','true');control.setAttribute('aria-label',labelText);control.title=f.soon??'';
   row.title=f.soon??'';body.append(control,soonTag());
  }else if(f.state==='editable'&&entry){
-  chip();body.append(editor(f,value,o.choices[key],next=>o.on.edit(side,f.id,next),o.zone,local=>o.on.editLocal(side,f.id,local)));
+  chip();body.append(editor({...f,label:labelText},value,o.choices[key],next=>o.on.edit(side,f.id,next),o.zone,local=>o.on.editLocal(side,f.id,local)));
   if(unit)body.append(el('span','ticket-unit',unit));
   if(v?.offered)body.append(button('ticket-offer',`Use ${f.type==='payment_date'?displayPaymentDate(v.offered.value):v.offered.value} (${v.offered.label})`,()=>o.on.accept(side,f.id)));
  }else{
@@ -166,8 +169,17 @@ function card(o:TicketView,side:TicketSide,rows:string[]){
  const own=el('div','ticket-own');
  for(const f of dependencyOrder(kind.fields.filter(x=>x.band===null&&x.state!=='soon'&&fieldVisible(x,side.values))))own.append(fieldRow(o,f,side.code,side.values[f.id]));
  if(kind.calendarPurposes){
-  const calendar=sideCalendar({id:'ticket-calendar-'+side.code,choices:()=>referenceCalendarChoices(d.sideCalendars??[]),purposes:()=>kind.calendarPurposes!,changed:()=>o.on.calendar?.(side.code,calendar.draft())});
-  calendar.restore(side.calendarPolicy);calendar.sync(o.mode==='booked');own.append(calendar.element);
+  const id='ticket-calendar-'+side.code;
+  const calendar=sideCalendar({id,choices:()=>referenceCalendarChoices(d.sideCalendars??[]),purposes:()=>kind.calendarPurposes!,changed:()=>o.on.calendar?.(side.code,calendar.draft())});
+  calendar.restore(side.calendarPolicy);calendar.sync(o.mode==='booked');
+  const refusal=o.fieldErrors[`${side.code}.calendar_policy`];
+  if(refusal){
+   const error=el('p','ticket-error',refusal);error.id=id+'-error';error.setAttribute('role','alert');
+   calendar.element.dataset.field='calendar_policy';
+   calendar.element.setAttribute('aria-describedby',error.id);
+   calendar.element.append(error);
+  }
+  own.append(calendar.element);
  }
  const reported=o.summaries.find(s=>s.side===side.code);if(reported)own.append(summary(reported));
  const allocations=o.facilityAllocations?.filter(a=>a.sideCode===side.code)??[];

@@ -56,11 +56,11 @@ internal static class RetainedInstrumentSidePresentation
             foreach(var program in programs)
             {
                 var member=GasComponent(components,program.Slot);var role=member.Text("role");
-                if(role is not("physical" or "consideration" or "indexed_consideration" or "fee"))throw Invalid();
+                if(role is not("physical" or "consideration" or "indexed_consideration" or "fee" or "charge"))throw Invalid();
                 var physical=role=="physical";
                 memberships.Add(new(program.Slot,ExactDecimal.Parse(member.Text("direction")),new(BigInteger.Parse(member.Text("ratio_n"),System.Globalization.CultureInfo.InvariantCulture),BigInteger.Parse(member.Text("ratio_d"),System.Globalization.CultureInfo.InvariantCulture))));
                 if(program.Program.Document.Family!=(physical?"gas":role=="indexed_consideration"?"floating":"fixed"))throw Invalid();
-                labels.Add(Label(program.Slot,member.Text("code"),role switch{"physical"=>"Contractual gas delivery","fee"=>"Contractual usage fee",_=>"Contractual gas consideration"},
+                labels.Add(Label(program.Slot,member.Text("code"),role switch{"physical"=>"Contractual gas delivery","fee"=>"Contractual usage fee","charge"=>"Contractual gas charge",_=>"Contractual gas consideration"},
                     Sign(member.Text("direction")),physical,position.Quantity,position.Currency));
             }
         }

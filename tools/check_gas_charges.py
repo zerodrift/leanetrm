@@ -1,7 +1,9 @@
 """Synthetic gas charges booked with explicit fixed payment terms and calendar pins."""
 from copy import deepcopy
+from datetime import datetime, timezone
 from fractions import Fraction
 import json
+import re
 from uuid import uuid4
 
 from check_booked_side_programs import capture_context, runtime_query
@@ -17,6 +19,14 @@ from synthetic_side_calendars import side_calendar_policy
 
 REFERENCE_DATES = ('2021-04-01T08:00:00Z', '2021-04-11T15:00:00Z', '2021-05-02T15:00:00Z')
 REFERENCE_POINT = 'synthetic_charge_reference'
+
+
+def utc_instant(value):
+    # Retain all fractional digits, including ticks finer than a Python microsecond.
+    parts = re.fullmatch(r'(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(\.\d+)?(Z|[+-]\d{2}:\d{2})', value)
+    assert parts, value
+    seconds, fraction, offset = parts.groups()
+    return datetime.fromisoformat(seconds + offset).astimezone(timezone.utc), Fraction(fraction or '0')
 
 
 def add_quote_fixture(reference,market,security,manifest):
@@ -58,7 +68,7 @@ def add_reference_fixture(reference, market, security, manifest):
 def reference_routes(c, query, manifest, body, run_worker, admin_load):
     workspace = c.call('workspace')
     frames = [initial_frame(workspace, at[:10]) for at in REFERENCE_DATES]
-    assert [(f['at'][:19], f['originCloseId']) for f in frames] == [(at[:19], f['id']) for at, f in zip(REFERENCE_DATES, frames)]
+    assert [(utc_instant(f['at']), f['originCloseId']) for f in frames] == [(utc_instant(at), f['id']) for at, f in zip(REFERENCE_DATES, frames)]
     contexts = [dict(snapshotId=f['id'], convention=body['convention'], knowledgeMode='current') for f in frames]
     point = next(p for p in c.call('gas/catalog', contexts[0])['locations'] if p['deliveryPoint'] == REFERENCE_POINT + '_point')
     physical = {**body['physicalSides'][0], **{k: point[k] for k in ('pipeline', 'zone', 'deliveryPoint', 'product')},
@@ -167,21 +177,24 @@ def reference_routes(c, query, manifest, body, run_worker, admin_load):
                     assert Fraction(position['values'][lane]) == sum(sides) + change, position
                     assert tuple(Fraction(position['components'][k][lane]) for k in money) == (split[0], split[1] + change), position
 
-    def inspect(holdings, context, amounts, paid, deliveries, states):
+    def inspect(holdings, context, amounts, paid, deliveries, states, *, paid_at=None):
         term_dates = [('2021-03-30', '2021-03-31', '2021-04-01'), ('2021-04-06', '2021-04-07', '2021-04-08'),
                       ('2021-04-01', '2021-05-01', '2021-05-02')]
         for held, _ in holdings[-2:]:
             position = dict(context={**context, 'convention': 'trading_workspace_v1'}, tradeId=held['tradeId'],
                             bindingId=held['instrumentId'], revision=1, instrumentType='physical_gas')
+            [physical_row] = c.call('trading/side-schedules', dict(position=position, sideSlot=0, contribution=None, offset=0, limit=1))['page']['rows']
+            assert physical_row['lifecycle']['cash'] == 'NotApplicable' and 'remaining' not in physical_row, physical_row
             for i, (owed, remaining) in enumerate(amounts):
                 page = c.call('trading/side-schedules', dict(position=position, sideSlot=i + 2, contribution=None, offset=0, limit=8))['page']
                 [row] = page['rows']
                 first, last, due = term_dates[i]
-                assert (row['deliveryFrom'], row['deliveryTo'], row['valueAt'][:10]) == (first, last, due), row
-                assert (row['start'][:19], row['end'][:19]) == (first + 'T15:00:00', last + 'T15:00:00'), row
+                assert (row['deliveryFrom'], row['deliveryTo']) == (first, last), row
+                assert tuple(utc_instant(row[k]) for k in ('valueAt', 'paymentAt', 'start', 'end')) == tuple(
+                    utc_instant(at) for at in (due + 'T00:00:00Z', due + 'T00:00:00Z', first + 'T15:00:00Z', last + 'T15:00:00Z')), row
                 assert Fraction(row['quantity']) == (-1 if i < 2 else -300000), row
                 assert (row['lifecycle']['delivery'], row['lifecycle']['cash']) == (deliveries[i], states[i]), row
-                assert (row['paidAt'] and row['paidAt'][:19]) == (page['valuationAt'][:19] if paid[i] else None), row
+                assert (utc_instant(row['paidAt']) if row['paidAt'] else None) == (utc_instant(paid_at) if paid[i] else None), row
                 assert [Fraction(row[k]) for k in ('accrued', 'paid', 'outstanding', 'remaining', 'presentValue')] == [
                     owed + paid[i], paid[i], owed, remaining, owed + remaining], row
 
@@ -210,7 +223,7 @@ def reference_routes(c, query, manifest, body, run_worker, admin_load):
         assert payment(ten[i][0]['tradeId'], slot, -1000, REFERENCE_DATES[1], REFERENCE_DATES[1], 'reference_partial')['revision'] == 1
     partial = [*reference[1][:2], (-1000, -4000)]
     routes(ten, contexts[1], baseline[1], partial, marks[1], queued=True)
-    inspect(ten, contexts[1], partial, [0, 0, -1000], ['Ended', 'Ended', 'InProgress'], ['AccruedUnpaid', 'AccruedUnpaid', 'PartPaid'])
+    inspect(ten, contexts[1], partial, [0, 0, -1000], ['Ended', 'Ended', 'InProgress'], ['AccruedUnpaid', 'AccruedUnpaid', 'PartPaid'], paid_at=REFERENCE_DATES[1])
     for client in (c, risk):
         select_captured_inputs(client, query, cutoff)
     historical = {**contexts[1], 'knowledgeMode': 'retained', 'contextId': cutoff}
@@ -227,7 +240,7 @@ def reference_routes(c, query, manifest, body, run_worker, admin_load):
             assert payment(held['tradeId'], slot, paid[i], REFERENCE_DATES[2], REFERENCE_DATES[2], f'reference_paid_{i}')['revision'] == 1
     settled = [(0, 0)] * 3
     routes(last, contexts[2], baseline[2], settled, marks[2], queued=True)
-    inspect(last, contexts[2], settled, paid, ['Ended'] * 3, ['Paid'] * 3)
+    inspect(last, contexts[2], settled, paid, ['Ended'] * 3, ['Paid'] * 3, paid_at=REFERENCE_DATES[2])
     print('PASS gas charge reference matrix: three closes, full and partial payment, prior cutoff, twice the size, and unchanged charge PV under risk bumps', flush=True)
 
 
@@ -295,6 +308,15 @@ def run_checks(url, query, manifest, run_worker, admin_load):
     assert payments == [['2021-01-20','2021-02-01','2021-02-02T00:00:00'],['2021-02-01','2021-03-01','2021-03-02T00:00:00'],
                         ['2021-03-01','2021-03-11','2021-04-02T00:00:00']], payments
     assert loaded['terms']['chargeSides'] == body['chargeSides']
+    overview = c.call('trading/gas', dict(context={**context, 'convention': 'trading_workspace_v1'},
+        tradeId=booked['tradeId'], bindingId=booked['instrumentId'], revision=1, instrumentType='physical_gas'))
+    [group] = overview['sideGroups']
+    assert group['bindingId'] == group['instrumentId'] == booked['instrumentId'], group
+    native = json.loads(query(f"""SELECT jsonb_agg(jsonb_build_array(slot,side_id) ORDER BY slot)
+        FROM trading.gas_memberships WHERE instrument_id='{booked['instrumentId']}';"""))
+    assert [[s['slot'], s['sideId']] for s in group['sides']] == native, group
+    assert [(s['label'], s['roleLabel'], s['directionLabel']) for s in group['sides'][1:]] == [
+        ('premium', 'Contractual gas charge', 'Company pays'), ('capacity', 'Contractual gas charge', 'Company pays')], group
     assert query(f"SELECT payment_convention FROM trading.gas_component_terms WHERE instrument_id='{booked['instrumentId']}' AND slot=2;") == 'next_month_day_utc_v1'
     ratios=query(f"SELECT string_agg(ratio_n::text||'/'||ratio_d::text,',' ORDER BY slot) FROM trading.gas_component_terms WHERE instrument_id='{booked['instrumentId']}' AND role='charge';")
     assert ratios=='1/10000,1/1',ratios
