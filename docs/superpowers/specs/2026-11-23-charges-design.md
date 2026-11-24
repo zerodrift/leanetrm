@@ -1,6 +1,6 @@
 # Charges on gas trades: design
 
-Status: built locally, D449. Migration 0397. The baseline below describes the
+Status: built locally, D449. Migrations 0397 and 0398. The baseline below describes the
 pre-change implementation. This build uses the
 [Instrument schedule and gas pricing contract](2026-11-23-instrument-schedule-and-gas-pricing-design.md).
 See the [gas contract](../../physical-gas-side.md#independent-gas-charges-d449)
@@ -13,7 +13,12 @@ another is what it is charged on.
 
 Before D449, gas payments used the quantity of a physical Side. The
 owning entry lets a gas composition carry a lump sum or a capacity charge.
-It uses the existing fixed payment Side.
+It uses the existing fixed payment Side. For either basis, the first gas day
+must have a representable UTC start. Fresh booking admits a charge that has
+already started. A future-only amendment requires every original and
+proposed charge to start strictly after the amendment instant. A recorded
+payment on an original charge prevents replacement even when the payment
+has a later effective instant.
 
 ## Where this sits
 

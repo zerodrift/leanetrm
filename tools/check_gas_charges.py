@@ -56,6 +56,12 @@ def add_quote_fixture(reference,market,security,manifest):
 
 
 def add_reference_fixture(reference, market, security, manifest):
+    clock = 'synthetic_charge_east'
+    refs = f"""INSERT INTO ref_data.clock_rules VALUES({R},'{clock}','fixed_offset',50400,NULL,NULL);
+        INSERT INTO ref_data.calendars VALUES({R},'synthetic_charge_year_one','{clock}',0,'0001-01-01','0001-03-01');"""
+    market = market.replace('UPDATE ref_data.revisions SET', refs + '\nUPDATE ref_data.revisions SET', 1)
+    reference, market, security, manifest = add_location(reference, market, security, manifest,
+        prefix='synthetic_charge_east', number=94800, curve_name='Synthetic eastern gas day', clock=clock)
     template = next(f for f in manifest['frames'] if f['at'] == '2021-01-15T08:00:00Z')
     manifest['frames'].extend({**deepcopy(template), 'at': at} for at in REFERENCE_DATES)
     # The physical purchase runs through May 4, so the May mark still moves
@@ -274,7 +280,7 @@ def billing_refusal(c, query, manifest, held, context):
     print('PASS final billing admits ordinary fixed consideration and structurally refuses charge slots', flush=True)
 
 
-def run_checks(url, query, manifest, run_worker, admin_load):
+def run_checks(url, query, manifest, run_worker, admin_load, check_boundary):
     c = PreviewClient(url)
     c.bootstrap()
     c.call('profile', dict(profile='trader'))
@@ -351,6 +357,12 @@ def run_checks(url, query, manifest, run_worker, admin_load):
     boolean['operationId']=str(uuid4())
     boolean['chargeSides'][0]['clockSide']=True
     staged_booking(query,manifest,named,boolean,'gas_composition_input')
+    point = next(p for p in c.call('gas/catalog',context)['locations'] if p['deliveryPoint']=='synthetic_charge_east_point')
+    year_one = {**calendar, 'code':'synthetic_charge_year_one'}
+    east = {**body, 'physicalSides':[{**body['physicalSides'][0], **{key:point[key] for key in ('pipeline','zone','deliveryPoint','product')}}],
+            'chargeSides':[{**lump, 'calendarPolicy':side_calendar_policy(year_one,delivery=True,observation=False,payment=True)}]}
+    amendment_checks(c, query, manifest, context, body)
+    check_boundary(east)
     non_unit_quote_checks(c,query,manifest,context,body)
     payment_checks(c,query,manifest,body,booked,context,draft['currency'])
     rejection_checks(c,query,manifest,body)
@@ -529,3 +541,101 @@ def exercise_premium(c,url,context,body,calendar_policy):
     without_premium=valuation(exercise_without)
     assert with_premium['groups']==without_premium['groups'] and with_premium['groups']
     assert Fraction(with_premium['presentValue'])-Fraction(without_premium['presentValue'])==-5000
+
+
+def amendment_checks(c, query, manifest, context, body):
+    # At this close the selected 15:00 gas day starts exactly at the amendment instant.
+    at = REFERENCE_DATES[1]
+    context = {**context, 'snapshotId':initial_frame(c.call('workspace'),at[:10])['id']}
+    point = next(p for p in c.call('gas/catalog',context)['locations'] if p['deliveryPoint']==REFERENCE_POINT+'_point')
+    physical = {**body['physicalSides'][0], **{key:point[key] for key in ('pipeline','zone','deliveryPoint','product')},
+                'deliveryFrom':'2021-04-12', 'deliveryTo':'2021-05-05'}
+    policy = 'future_gas_composition_replace_v1'
+    lump, capacity = body['chargeSides']
+    lump = {**lump, 'paymentAt':'2021-04-11T00:00:00Z'}
+    future = {**lump, 'paymentAt':'2021-04-22T00:00:00Z'}
+    started = {**capacity, 'from':'2021-04-11', 'to':'2021-04-21'}
+
+    def book(entry, quantity='10000'):
+        terms = {**body, **context, 'operationId':str(uuid4()), 'chargeSides':[entry],
+                 'physicalSides':[{**physical, 'quantity':quantity}]}
+        return c.call('gas/composition/book', terms), terms
+
+    def pay(held, paid_at, recorded_at):
+        capture_context(query, manifest, recorded_at[:10])
+        wire = json.dumps(dict(operationId=str(uuid4()), tradeId=held['tradeId'], expectedRevision=held['revision'], slot=1,
+            businessKey='synthetic_premium', paidAt=paid_at, currency=CURRENCY, amount='-5000',
+            allocations=[dict(occurrence=0, amount='-5000')]))
+        receipt = runtime_query(query, manifest, f"SELECT security.record_gas_cash_payment('{manifest['catalogId']}','{wire}'::jsonb,'{recorded_at}');")
+        assert json.loads(receipt.splitlines()[-1])['revision'] == 1
+
+    def state(trade):
+        return query(f"""SELECT jsonb_build_array(
+            (SELECT jsonb_agg(to_jsonb(r) ORDER BY revision) FROM trading.gas_trade_revisions r WHERE trade_id='{trade}'),
+            (SELECT jsonb_agg(jsonb_build_array(to_jsonb(p),to_jsonb(a)) ORDER BY p.id,a.occurrence)
+             FROM trading.gas_cash_payments p JOIN trading.gas_cash_payment_allocations a ON(a.catalog_id,a.payment_id)=(p.catalog_id,p.id)
+             WHERE p.trade_id='{trade}'),
+            (SELECT count(*) FROM trading.gas_amendment_commands WHERE trade_id='{trade}'));""")
+
+    def ticket(held):
+        return c.call('tickets/trade', dict(context=context, tradeId=held['tradeId'], bindingId=held['instrumentId'], revision=held['revision']))
+
+    def change(held, draft):
+        return dict(context=context, draft=draft, tradeId=held['tradeId'], bindingId=held['instrumentId'], expectedRevision=held['revision'],
+                    definitionRevisionId=body['definitionRevisionId'], reason='Synthetic replacement', policy=policy)
+
+    cases = [
+        ('settled upfront premium', lump, lump, (lump['paymentAt'], at), 'gas_amendment_started', False),
+        ('original capacity in its first day', started, {**started, 'from':'2021-04-12'}, None, 'gas_amendment_started', False),
+        ('proposed capacity in its first day', {**started,'from':'2021-04-12'}, started, None, 'gas_amendment_started', True),
+        ('known later-effective payment', future, {**future, 'price':'4999'}, (future['paymentAt'], '2021-04-23T16:00:00Z'), 'gas_amendment_payment', False),
+    ]
+    for name, original, proposed, payment, refusal, available in cases:
+        held, _ = book(original)
+        if payment:
+            cutoff = capture_context(query, manifest, at[:10]).splitlines()[-1]
+            pay(held, *payment)
+            if refusal=='gas_amendment_payment':
+                catalog = manifest['catalogId']
+                earlier = runtime_query(query, manifest, f'''SELECT security.use_market_context('{catalog}','{cutoff}');
+                    SELECT security.use_trading_context('{catalog}','{at}');
+                    SELECT security.gas_amendment_refusal('{catalog}','{held['tradeId']}',1,'{held['instrumentId']}','{at}') IS NULL;''')
+                assert earlier.splitlines()[-1]=='t', 'The earlier knowledge view must exclude the later payment'
+        quantity = '20000' if name=='settled upfront premium' else '10000'
+        _, candidate = book(proposed, quantity)  # The replacement programs are valid for a fresh booking.
+        opened = ticket(held)
+        assert opened['actions']['amend']['allowed']==available, (name, opened['actions']['amend'])
+        if name=='settled upfront premium':
+            assert Fraction(c.call('gas/composition/editor', dict(context=context, tradeId=held['tradeId']))['valuation']['sides'][1]['presentValue'])==0
+        draft = deepcopy(opened['draft'])
+        next(s for s in draft['sides'] if s['code']=='gas')['values']['quantity']=quantity
+        values = next(s for s in draft['sides'] if s['code']==original['code'])['values']
+        for term, field in [('from','charge_start'), ('paymentAt','charge_payment_at'), ('price','charge_price')]:
+            if original[term]!=proposed[term]:
+                values[field]=proposed[term]
+        request = change(held, draft)
+        before = state(held['tradeId'])
+        for path in ('tickets/amend-preview','tickets/amend'):
+            args = request if path.endswith('preview') else {**request,'operationId':str(uuid4())}
+            assert c.call(path, args, expected=422)['code']==refusal, name
+        native = {**candidate, 'tradeId':held['tradeId'], 'expectedRevision':1, 'bindingId':held['instrumentId'],
+                  'reason':request['reason'], 'amendmentPolicy':policy, 'operationId':str(uuid4())}
+        staged_booking(query, manifest, candidate, native, refusal, at=at)
+        assert state(held['tradeId'])==before, name
+        print('PASS future gas replacement refuses '+name+' and retains the original revision, binding and cash',flush=True)
+
+    held, _ = book(future)
+    opened = ticket(held)
+    assert opened['actions']['amend']['allowed']
+    draft = deepcopy(opened['draft'])
+    next(s for s in draft['sides'] if s['code']==future['code'])['values']['charge_payment_at']='2021-04-23T00:00:00Z'
+    request = change(held, draft)
+    c.call('tickets/amend-preview', request)
+    command = {**request, 'operationId':str(uuid4())}
+    amended = c.call('tickets/amend', command)
+    assert amended['revision']==2 and amended['instrumentId']!=held['instrumentId'] and amended['tradeId']==held['tradeId']
+    pay(amended, '2021-04-23T00:00:00Z', '2021-04-23T16:00:00Z')
+    assert not ticket(amended)['actions']['amend']['allowed']
+    before = state(held['tradeId'])
+    assert c.call('tickets/amend', command)==amended and state(held['tradeId'])==before
+    print('PASS wholly future unpaid gas charge replacement and completed replay after a payment on its successor',flush=True)

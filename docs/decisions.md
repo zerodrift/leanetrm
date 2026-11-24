@@ -7355,6 +7355,14 @@ effective instant, and the resolved knowledge cutoff governs its visibility.
 Remittances against a signed lump sum follow the signed membership amount.
 A zero lump sum admits no remittance.
 
+Migration 0398 requires the first owned UTC boundary to be representable
+under the admitted fixed clock. Future-only gas replacement requires the
+first day of every original and proposed charge to start strictly after
+the amendment instant. A recorded payment on any original charge prevents
+replacement, including a known payment effective later. Its receipt and
+allocation stay on their exact instrument binding. A completed request
+replays its first outcome.
+
 Charges count within seven payment Sides and eight total Sides. A lump sum can
 serve as an independent premium on an exercise composition. A right naming a
 charge refuses. Fixed charges have no price dependencies. The gas final

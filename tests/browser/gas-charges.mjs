@@ -117,13 +117,13 @@ export async function run(actions){
  const term=name=>at(`#position-details-view .physical-instrument .side-term[data-field="${name}"] dd`);
  await wait(term('Rate per unit per day')+'?.checkVisibility()&&'+idle,30000);
  await check('the booked Terms show both stated prices without converting the capacity rate',
-  `${term('Amount')}?.textContent==='5000'&&${term('Rate per unit per day')}?.textContent==='0.02'`);
+  `${term('Amount')}?.textContent==='5000 USD'&&${term('Rate per unit per day')}?.textContent==='0.02 USD/MMBtu (IT)/day'&&${term('Daily quantity')}?.textContent==='10000 MMBtu (IT)'`);
  await openBookedSchedules(actions);
  const inspector=bookedTicket+' .inspection-rows';
  const rows=inspector+' tbody tr:has(.inspection-calculation)';
  const rowValues=`[...document.querySelectorAll(${q(rows)})].map(row=>[
   row.cells[2].textContent,row.cells[6].querySelector('span').textContent,
-  ...[...row.cells[8].querySelectorAll('small')].map(line=>line.textContent).filter(text=>/^(Accrued|Outstanding|To come):/.test(text))
+  ...[...row.cells[8].querySelectorAll('small')].map(line=>line.textContent).filter(text=>/^(Accrued|Outstanding|To come[^:]*):/.test(text))
  ])`;
  const inspect=async(side,expected,label)=>{
   const tab=bookedTicket+` [data-tab="${side}"]`;
@@ -132,11 +132,11 @@ export async function run(actions){
   await wait(`document.querySelectorAll(${q(rows)}).length===${expected.length}&&!${at(inspector)}.hasAttribute('aria-busy')`,30000);
   await check(label,`JSON.stringify(${rowValues})===${q(JSON.stringify(expected))}`,rowValues);
  };
- await inspect('charge-1',[['Apr 1, 2021','-5,000','Accrued: -5,000','Outstanding: -5,000','To come: 0']],
+ await inspect('charge-1',[['Apr 1, 2021','-5,000','Accrued: -5,000','Outstanding: -5,000','To come (unrealized present value): 0']],
   'the booked lump sum has one row with 5,000 accrued and zero to come');
  await inspect('charge-2',[
-  ['May 2, 2021','-6,000','Accrued: -2,000','Outstanding: -2,000','To come: -4,000'],
-  ['Jun 2, 2021','-6,200','Accrued: 0','Outstanding: 0','To come: -6,200'],
-  ['Jul 2, 2021','-2,000','Accrued: 0','Outstanding: 0','To come: -2,000']
+  ['May 2, 2021','-6,000','Accrued: -2,000','Outstanding: -2,000','To come (unrealized present value): -4,000'],
+  ['Jun 2, 2021','-6,200','Accrued: 0','Outstanding: 0','To come (unrealized present value): -6,200'],
+  ['Jul 2, 2021','-2,000','Accrued: 0','Outstanding: 0','To come (unrealized present value): -2,000']
  ],'the booked capacity charge has one row per month with exact accrued and to-come cash');
 }

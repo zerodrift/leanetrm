@@ -158,7 +158,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
  static ExercisePeriod Period(string value)=>value switch{"delivery_day"=>ExercisePeriod.DeliveryDay,"delivery_month"=>ExercisePeriod.DeliveryMonth,_=>throw Invalid("Select a supported exercise period.")};
  static ExerciseHolder Holder(string value)=>value switch{"us"=>ExerciseHolder.Us,"counterparty"=>ExerciseHolder.Counterparty,_=>throw Invalid("Select an explicit exercise holder.")};
  static ExerciseSettlement Settlement(string value)=>value switch{"physical"=>ExerciseSettlement.Physical,"cash_automatic"=>ExerciseSettlement.CashAutomatic,_=>throw Invalid("Select a supported exercise settlement.")};
- async Task<GasCompositionDraft> Resolve(NpgsqlConnection c,PreviewData data,GasCompositionRequest body,CancellationToken ct)
+ async Task<GasCompositionDraft> Resolve(NpgsqlConnection c,PreviewData data,GasCompositionRequest body,DateTimeOffset at,CancellationToken ct)
  {
   var charges=body.ChargeSides??[];
   if(charges.IsDefault||charges.Any(p=>p is null)||body.PhysicalSides.IsDefault||body.CashSides.IsDefault||body.PhysicalSides.Any(s=>s is null)||body.CashSides.Any(s=>s is null))throw Invalid("Supply each physical and payment Side explicitly.");
@@ -217,8 +217,11 @@ public sealed class GasCompositionStore(PreviewDatabase database)
    var matches=body.PhysicalSides.Select((v,i)=>(v,i)).Where(x=>x.v.Code==p.ClockSide).ToArray();
    if(matches.Length!=1)throw ChargeField(p,"charge_clock_side",Invalid("Select one physical Side of this trade for the charge clock."));
    var slot=matches[0].i;clockSlots.Add(slot);
-   owning.Add(ResolveCharge(p,assignments[slot][0].Quote,physical[slot].Side.UnitQuantity,clocks[slot],
-    ()=>SideCalendarPolicies.Resolve(data,p.CalendarPolicy)));
+   var charge=ResolveCharge(p,assignments[slot][0].Quote,physical[slot].Side.UnitQuantity,clocks[slot],
+    ()=>SideCalendarPolicies.Resolve(data,p.CalendarPolicy));
+   if(body.TradeId is not null&&clocks[slot].Boundary(charge.Side.DeliveryFrom)<=at)
+    throw new MarketDataException("gas_amendment_started",GasAmendments.Message("gas_amendment_started")!);
+   owning.Add(charge);
   }
   var rights=(body.ExerciseRights??[]).Select(r=>r is null?throw Invalid("Supply each exercise right explicitly."):
    new GasExerciseRight(r.Entries,Period(r.Period),Holder(r.Holder),Settlement(r.Settlement),r.LeadHours)).ToImmutableArray();
@@ -485,7 +488,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   }
   if(body.PreviewContextId is not null)throw Invalid("A preview cutoff requires an explicit saved trade.");
   if(body.TradeId is not null)await GasAmendments.Require(c,database.Manifest.CatalogId,body,frame.At,ct);
-  await RequireSetup(c,data,body,ct);var d=await Resolve(c,data,body,ct);
+  await RequireSetup(c,data,body,ct);var d=await Resolve(c,data,body,frame.At,ct);
   try{return await Value(c,data,frame,d.Members,d.Instrument.BaseQuantity,d.Instrument,body.GasSetupId,null,true,ct);}
   catch(MarketDataException error)when(ticket&&!d.Instrument.Rights.IsEmpty&&error.Code=="exercise_marks")
   {
@@ -501,14 +504,14 @@ public sealed class GasCompositionStore(PreviewDatabase database)
  internal async Task<string> MarketPrice(NpgsqlConnection c,PreviewData data,InputFrame frame,GasCompositionRequest probe,CancellationToken ct)
  {
   GasCompositionValue value;
-  try{var d=await Resolve(c,data,probe,ct);value=await Value(c,data,frame,d.Members,d.Instrument.BaseQuantity,d.Instrument,probe.GasSetupId,null,true,ct);}
+  try{var d=await Resolve(c,data,probe,frame.At,ct);value=await Value(c,data,frame,d.Members,d.Instrument.BaseQuantity,d.Instrument,probe.GasSetupId,null,true,ct);}
   catch(MarketDataException error)when(error.Code is "gas_input" or "gas_composition_input"){throw new MarketDataException("ticket_lookup",error.Message);}
   var code=probe.PhysicalSides.Single().Code;
   if(value.Schedule is null)throw new MarketDataException("ticket_lookup",$"The side's schedule cannot be shown, so its market price is not read: {value.ScheduleRefusal!.Message}");
   return value.Schedule.Totals[$"{code}.market_price"].Value??throw new MarketDataException("ticket_lookup","The side's delivery term has no single market price.");
  }
  // An in-term load (inTerm) values its draft with no recorded cash: there is no trade yet, so the operation that books it keys that state.
- internal Task<RetainedScheduleTerms> Prepare(NpgsqlConnection c,InputFrame frame,GasCompositionRequest body,bool inTerm,CancellationToken ct)=>TradingBookingRead.Run(database,c,frame,async(data,pinned)=>{if(body.TradeId is not null)await GasAmendments.Require(c,database.Manifest.CatalogId,body,pinned.At,ct);await RequireSetup(c,data,body,ct);var d=await Resolve(c,data,body,ct);
+ internal Task<RetainedScheduleTerms> Prepare(NpgsqlConnection c,InputFrame frame,GasCompositionRequest body,bool inTerm,CancellationToken ct)=>TradingBookingRead.Run(database,c,frame,async(data,pinned)=>{if(body.TradeId is not null)await GasAmendments.Require(c,database.Manifest.CatalogId,body,pinned.At,ct);await RequireSetup(c,data,body,ct);var d=await Resolve(c,data,body,pinned.At,ct);
   if(d.Instrument.Rights.IsEmpty)
   {
    var unrecorded=inTerm?new PhysicalCashState(body.OperationId,d.Instrument.Id,new(d.Instrument.BaseQuantity,d.Members[0].Assignment.Quote.Quantity),null,[],PhysicalCashState.Policy):null;

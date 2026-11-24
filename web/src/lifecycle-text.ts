@@ -48,7 +48,7 @@ export function lifecycleLines(row:LifecycleRow,instant:(at:string|null)=>string
  const due=cash!==null&&(unpaid.has(cash)||cash==='PartPaid')&&row.paymentAt!==null?`Due date: ${displayPaymentDate(row.paymentAt)}`:'';
  return [state.due&&`Payment: ${words(state.due)}`,cash&&(physical?'Settlement: not applicable (physical delivery)':`Cash: ${words(cash)}`),
   row.accrued!=null&&`Accrued: ${numberText(row.accrued)}`,row.paid!==null&&`Paid: ${numberText(row.paid)}`,row.outstanding!==null&&`Outstanding: ${numberText(row.outstanding)}`,
-  row.remaining!=null&&`To come: ${numberText(row.remaining)}`,paidOn,due,
+  row.remaining!=null&&`To come (unrealized present value): ${numberText(row.remaining)}`,paidOn,due,
   row.finalDetermination!=null&&`Final determination: ${numberText(row.finalDetermination)} · accrual unchanged`,
   state.fulfillment&&`Fulfillment: ${words(state.fulfillment)}`,state.economicClass&&words(state.economicClass),state.coverage&&(measureTexts[state.coverage]??words(state.coverage))].filter((v):v is string=>!!v);
 }

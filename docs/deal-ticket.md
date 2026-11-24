@@ -38,9 +38,11 @@ Exercise choices omit charges. A right explicitly naming one refuses on
 
 Booked Terms show the exact retained charge memberships, directions, stated
 prices, physical clock witnesses and payment coordinates. Capacity Terms
-include the payment day and convention. Each Side inspector shows its exact
+show the rate in currency per quantity unit per day and the exact daily
+quantity in its unit, along with the payment day and convention. Lump sums
+show the stated amount in trade currency. Each Side inspector shows its exact
 row dates and the accrued, paid, outstanding and unrealized values, including
-**To come** for unrealized cash in the undiscounted gas profile.
+**To come (unrealized present value)** beside the nominal cash figures.
 
 On a shared clock the combined Instrument schedule for a composition with
 charges spans the earliest actual start through the latest actual end among

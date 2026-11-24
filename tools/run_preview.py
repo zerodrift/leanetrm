@@ -389,6 +389,12 @@ def main():
             if migration.name=='0216_in_term_gas_lifecycle.sql':
                 from check_gas_in_term import upgrade_checks as check_in_term_upgrade
                 check_in_term_upgrade(query,migration)
+            if migration.name=='0398_gas_charge_boundaries.sql' and args.gas_charges_check:
+                from check_fact_anchor_upgrade import run_checks as check_boundary_upgrade
+                check_boundary_upgrade(query,migration,number='0398',guard='gas_charge_boundary_upgrade',signatures=(
+                    'security.gas_amendment_refusal(uuid,uuid,integer,uuid,timestamptz)',
+                    'security.write_gas_composition(uuid,jsonb,timestamptz,boolean)',
+                    'trading.save_gas_charge(uuid,uuid,uuid,integer,numeric,jsonb)'))
             if migration.name=='0397_gas_charge_entries.sql' and args.gas_charges_check:
                 from check_fact_anchor_upgrade import run_checks as check_charge_upgrade
                 check_charge_upgrade(query,migration,number='0397',guard='gas_charge_upgrade',signatures=(
@@ -1166,7 +1172,12 @@ def main():
                     check_gas_composition(url,query,manifest,run_worker=run_worker)
                 if args.gas_charges_check:
                     from check_gas_charges import run_checks as check_gas_charges
-                    check_gas_charges(url,query,manifest,run_worker,admin_load_in_term)
+                    def check_charge_boundary(terms):
+                        fixture = temporary/'charge-clock-boundary.json'
+                        fixture.write_text(json.dumps(terms))
+                        subprocess.run([str(dotnet),'run','--project','tests/OpenEtrm.Api.Checks','--','--gas-charge-clock-boundary',str(fixture)],
+                                       cwd=ROOT,env=app_env,check=True,timeout=120)
+                    check_gas_charges(url,query,manifest,run_worker,admin_load_in_term,check_charge_boundary)
                     if args.browser_check:
                         target=temporary/'browser-target.json';target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                         subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-charges'],cwd=ROOT,env=env,check=True,timeout=300)

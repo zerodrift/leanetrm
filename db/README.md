@@ -24,8 +24,11 @@ Recent schema groups and their contracts:
 - Gas compositions may retain independent lump sums and daily capacity charges.
   Each selects a physical membership for its clock and owns its payment quantities
   and dates. Capacity payments use the selected day of the next UTC month.
-  A recorded payment requires an ended day in its own occurrence.
-  [0397](migrations/0397_gas_charge_entries.sql)
+  A recorded payment requires an ended day in its own occurrence. Both charge
+  bases require a representable first UTC start. Future replacement requires
+  unstarted original and proposed charges and no recorded payment on an
+  original charge. [0397](migrations/0397_gas_charge_entries.sql),
+  [0398](migrations/0398_gas_charge_boundaries.sql)
 - A physical exercise action compares each saved period with the latest revision
   known when the ticket opened, including future-effective instructions and
   withdrawals. Preparing a range requires current amendment authority on the

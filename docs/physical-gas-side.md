@@ -24,12 +24,14 @@ and eight Sides in all.
 
 Both bases use the gas composition's explicit no-discounting selection and
 require explicit delivery and payment calendar bindings. The contractual
-amount or rate is in trade currency, with the rate per quantity unit per day. The fixed Side retains the exact versioned quote
+amount or rate is in trade currency, with the rate per quantity unit per day.
+The fixed Side retains the exact versioned quote
 and normalizes the raw amount or rate by its multiplier using exact division.
 The absolute stated price must be below 10^12. A price literal that cannot
 be represented exactly at the supported 18-place decimal scale refuses.
-Exact ratios on the holding base let the Trade apply quantity once and
-preserve the same stated charge at different delivery sizes.
+Migration 0398 also checks the first owned UTC instant under the admitted
+fixed-offset clock before retaining either charge basis. Exact ratios on the
+holding base let the Trade apply quantity once and preserve the same stated charge at different delivery sizes.
 
 Accrual uses each charge's own ended gas days, even outside the physical
 term. Equal daily capacity makes accrual proportional to the number of ended
@@ -41,10 +43,12 @@ valuation instant and the resolved knowledge cutoff govern visibility.
 Accrual, part payment, full payment and overpaid balances use the existing
 cash lifecycle. The sign of a lump-sum remittance follows the membership
 direction multiplied by the stated amount's sign. Zero nominal admits no
-remittance. The managed lifecycle uses `payment_state` when an occurrence
-has no earned day at remittance. Native payment admission uses
-`gas_payment_occurrence` for that case and `gas_payment_amount` for a
-contradictory sign or zero nominal. A right naming a charge refuses with
+remittance. Native payment admission checks earning at the actual paid instant
+and refuses with `gas_payment_occurrence` if no day has ended by then. It uses
+`gas_payment_amount` for a contradictory sign or zero nominal. The managed
+lifecycle checks the earned state at the valuation instant and uses
+`payment_state` if visible cash is applied to an occurrence with no ended day.
+A right naming a charge refuses with
 `gas_composition_input` during booking and `exercise_right` during retained
 admission.
 
@@ -340,7 +344,11 @@ risk include supported gas compositions; generated gas closes still refuse.
 The main-window Blotter's **Amend** action opens the ordinary ticket under
 `future_gas_composition_replace_v1`. Original and replacement delivery must remain
 future, with the latest exact binding/revision, retained definition and explicit
-reason. A changed command appends a revision with new owned physical occurrences;
+reason. Each original and proposed charge must also have its first gas-day
+start strictly after the amendment instant. Any recorded payment on an
+original charge blocks replacement, including a payment known now with a
+later effective instant. Its payment and allocations retain the original
+binding. A changed command appends a revision with new owned physical occurrences;
 unchanged typed terms return the existing revision. Retries retain their first
 outcome, including after a successor. Legacy single-point trades and trades with
 daily quantity, service or facility relationships refuse until operational
