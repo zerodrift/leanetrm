@@ -24,13 +24,16 @@ public sealed record TicketSideKind(string Kind,string Pill,string Colour,int Mi
 public sealed record TicketSideLimit(ImmutableArray<string> Kinds,int Max);
 public sealed record TicketTab(string Id,string Label,string? Soon=null);
 public sealed record TicketFieldGroup(string Id,string Label,string Kind,ImmutableArray<string> Fields);
+public sealed record TicketTermSection(string Id,string Label,ImmutableArray<TicketField> Fields);
 public sealed record TicketDescription(string Product,int Version,string RowShape,ImmutableArray<TicketField> TradeFields,ImmutableArray<TicketSideKind> Sides,ImmutableArray<TicketSideLimit> SideLimits,ImmutableArray<TicketColumn> TradeColumns,ImmutableArray<string> Levels,ImmutableArray<TicketTab> Tabs,ImmutableArray<string> Modes)
-{public ImmutableArray<SideCalendarChoice> SideCalendars{get;init;}=[];[JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public ImmutableDictionary<string,string>? Selection{get;init;}[JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)]public bool SideGroupsRequired{get;init;}[JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public ImmutableArray<TicketFieldGroup>? FieldGroups{get;init;}}
+{[JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public ImmutableArray<TicketTermSection>? RepeatableTerms{get;init;}
+ public ImmutableArray<SideCalendarChoice> SideCalendars{get;init;}=[];[JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public ImmutableDictionary<string,string>? Selection{get;init;}[JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)]public bool SideGroupsRequired{get;init;}[JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public ImmutableArray<TicketFieldGroup>? FieldGroups{get;init;}}
 // A refusal of one draft value, naming its side (null for a trade field) and field, so the ticket shows the reason on that field.
 public sealed class TicketFieldException(string code,string message,string? side,string field):MarketDataException(code,message)
 {
  public string? Side{get;}=side;
  public string Field{get;}=field;
+ public int? TermRow{get;init;}
 }
 
 public static class TicketDescriptions
@@ -58,15 +61,19 @@ public static class TicketDescriptions
    if(columns.GroupBy(c=>c.Id).FirstOrDefault(g=>g.Count()>1) is {} column)Fail(d,$"{owner} declares column '{column.Key}' more than once");
   // Every ticket draws its instrument tab, so a declared tab is another one, once.
   if(d.Tabs.GroupBy(t=>t.Id).FirstOrDefault(g=>g.Count()>1||g.Key=="instrument") is {} declared)Fail(d,$"tab '{declared.Key}' is declared more than once or is the instrument tab every ticket draws");
-  var all=d.TradeFields.Concat(d.Sides.SelectMany(s=>s.Fields)).ToArray();
+  var sections=d.RepeatableTerms??[];
+  if(sections.Any(s=>s is null||string.IsNullOrWhiteSpace(s.Id)||string.IsNullOrWhiteSpace(s.Label)||s.Fields.IsDefaultOrEmpty)||
+   sections.DistinctBy(s=>s.Id).Count()!=sections.Length)Fail(d,"repeatable term sections need distinct identities, labels and fields");
+  var owners=d.Sides.Select(s=>s.Fields).Concat(sections.Select(s=>s.Fields)).ToArray();
+  var all=d.TradeFields.Concat(owners.SelectMany(fields=>fields)).ToArray();
   var ids=new HashSet<string>();
   foreach(var field in all)
   {
    if(!ids.Add(field.Id))Fail(d,$"field '{field.Id}' is declared more than once");
    CheckField(d,field);
    if(field.VisibleWhen is {} condition&&(condition.Values.IsDefaultOrEmpty||condition.Values.Distinct().Count()!=condition.Values.Length||
-    !d.Sides.Any(side=>side.Fields.Contains(field)&&side.Fields.Any(f=>f.Id==condition.Field&&f.Type=="choice"&&f.State=="editable"))))
-    Fail(d,$"field '{field.Id}' needs a condition on a choice in the same Side");
+    !owners.Any(fields=>fields.Contains(field)&&fields.Any(f=>f.Id==condition.Field&&f.Type=="choice"&&f.State=="editable"))))
+    Fail(d,$"field '{field.Id}' needs a condition on a choice in the same Side or term section");
   }
   var selectors=d.TradeFields.Where(field=>field.RefreshDescription).Select(field=>field.Id).ToHashSet();
   if(selectors.Count>0&&d.Selection is null)Fail(d,"a refreshing description must attest its selected values, including an empty selection");

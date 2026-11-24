@@ -53,7 +53,7 @@ public static class GasParkCustodyTicket
 
     public static TicketDescription Describe(TicketDraft? draft)
     {
-        if(draft is not null&&(draft.Product!=TicketProduct||draft.Version!=1||draft.Trade is null||draft.Sides.IsDefault||!draft.Sides.IsEmpty))
+        if(draft is not null&&(draft.Product!=TicketProduct||draft.Version!=1||draft.Trade is null||draft.Sides.IsDefault||!draft.Sides.IsEmpty||draft.ExerciseRights is {Length:>0}))
             throw Invalid("profile","Supply the installed custody ticket.");
         return draft?.Trade.GetValueOrDefault("profile") switch
         {
@@ -82,7 +82,7 @@ public static class GasParkCustodyTicket
     sealed record Parsed(GasParkCustodyTerms Terms,ExactDecimal Quantity,Guid? Account,Guid Book,Guid Entity,int EntityRevision,Guid Party,int PartyRevision,string FeeDirection);
     static Parsed Parse(TicketDraft draft)
     {
-        if(draft is null||draft.Product!=TicketProduct||draft.Version!=1||draft.Trade is null||draft.Sides.IsDefault||!draft.Sides.IsEmpty)
+        if(draft is null||draft.Product!=TicketProduct||draft.Version!=1||draft.Trade is null||draft.Sides.IsDefault||!draft.Sides.IsEmpty||draft.ExerciseRights is {Length:>0})
             throw Invalid("profile","Supply the installed custody ticket and its explicit terms.");
         var v=draft.Trade;
         if(!v.TryGetValue("profile",out var profile)||string.IsNullOrWhiteSpace(profile))throw Invalid("profile","Select a custody profile explicitly.");

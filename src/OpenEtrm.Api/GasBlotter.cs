@@ -29,7 +29,7 @@ internal static class GasBlotter
     {
      if(!sources.TryGetValue(position.Definition,out var source))
      {source=await PhysicalMarketSelection.Gas.Read(database,connection,frame,ct,position.Trade);sources.Add(position.Definition,source);}
-     // A single-point trade is valued as the composition it is, from its own retained programs (GasCompositionStore.ReadSinglePoint).
+     // A single-point trade is valued as the composition it is, from its own retained programs.
      var execution=position.Head.GetProperty("composition").GetBoolean()
       ?await composition.Load(connection,source.Data,source.Frame,position.Trade,ct)
       :await composition.LoadSinglePoint(connection,source.Data,source.Frame,position.Trade,ct);

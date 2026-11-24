@@ -123,6 +123,17 @@ internal static class GasCompositionPricingChecks
         Refused(() => new GasCompositionInstrument(Guid.NewGuid(), [GapPhysical()], [gapPayment], []), "gas_day_boundary");
         Refused(() => new GasCompositionInstrument(Guid.NewGuid(), [GapPhysical()], [gapPayment], [daily]));
 
+        try
+        {
+            _ = new GasCompositionInstrument(Guid.NewGuid(), [GapPhysical(), early], [gapPayment], [daily with { Entries = ["other"] }]);
+            throw new Exception("An independent source with a missing boundary must refuse.");
+        }
+        catch (MarketDataException error) when (error.Code == "gas_composition_input")
+        {
+            Require(error.Message.Contains("delivery", StringComparison.Ordinal) && !error.Message.Contains("selected entry", StringComparison.Ordinal),
+                "A clock gap on the independent delivery must identify that source.");
+        }
+
         var automatic = new GasExerciseRight(["indexed", "payment"], ExercisePeriod.DeliveryDay, ExerciseHolder.Us, ExerciseSettlement.CashAutomatic, null);
         var index = payment with { Code = "indexed", Role = "indexed_consideration", Direction = N("1"), Side = f.IndexedCash() };
         var cap = new GasCompositionInstrument(Guid.NewGuid(), [physical], [payment, index], [automatic, daily with { Entries = ["delivery"] }]);

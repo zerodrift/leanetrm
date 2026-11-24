@@ -14,6 +14,7 @@ public sealed record TicketSideDraft(string Kind,string Code,ImmutableDictionary
 }
 public sealed record TicketDraft(string Product,int Version,ImmutableDictionary<string,string> Trade,ImmutableArray<TicketSideDraft> Sides)
 {
+ [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public ImmutableArray<TicketExerciseRightDraft>? ExerciseRights{get;init;}
  internal static TicketDraft Require(TicketDraft? draft)=>draft??throw new MarketDataException("ticket_input","Supply the complete ticket draft.");
 }
 
@@ -74,7 +75,7 @@ public static class GasTicket
   [new(["cash","fee","floating"],GasCompositionInstrument.MaxCashSides),new([Physical,"cash","fee","floating"],GasCompositionInstrument.MaxSides)],
   [new("net_cash","Net cash",null,"money",[]),new("payment_at","Payment date",null,"payment_date",[])],
   ["term","month","day"],[new("links","Quantity links"),
-   new("imbalance","Imbalance","Will compare each gas day's nominated and actual quantities, with the imbalance, its cash-out price and its amount.")],["new","booked","amend"])));
+   new("imbalance","Imbalance","Will compare each gas day's nominated and actual quantities, with the imbalance, its cash-out price and its amount.")],["new","booked","amend"]){RepeatableTerms=[GasExerciseTicket.Section]}));
 
  static TicketDescription WithCalendars(TicketDescription description)=>description with{Sides=[..description.Sides.Select(kind=>kind with
   {CalendarPurposes=new(true,kind.Kind=="floating",kind.Kind!=Physical)})]};
@@ -147,6 +148,7 @@ public static class GasTicket
    var count=draft.Sides.Count(s=>limit.Kinds.Contains(s.Kind));
    if(count>limit.Max)throw Bad($"Use at most {limit.Max} {string.Join(" and ",limit.Kinds)} sides together, not {count}.");
   }
+  var rights=GasExerciseTicket.Request(draft);
   var physical=draft.Sides.Where(s=>s.Kind==Physical).ToArray();
   if(physical.Any(s=>s.Values.ContainsKey("link_source")))
    foreach(var side in physical.Where(s=>s.Values["quantity_policy"]==GasDeliveryQuantityStore.Policy))
@@ -157,7 +159,7 @@ public static class GasTicket
   var (entity,entityRevision)=Versioned(t,"legal_entity");var (party,partyRevision)=Versioned(t,"counterparty");
   return new(snapshotId,PhysicalGasStore.Convention,knowledgeMode,draft.Sides.Any(s=>s.Kind=="floating")?GasCompositionStore.IndexedProfile:GasCompositionStore.Profile,operationId,Id(t,"book")!.Value,definitionRevisionId,Id(t,"gas_setup"),false,entity,entityRevision,party,partyRevision,
    [..physical.Select(s=>PhysicalRequest(s,Source))],
-   [..draft.Sides.Where(s=>s.Kind!=Physical).Select(s=>CashRequest(s,physical,Source,retained))]);
+   [..draft.Sides.Where(s=>s.Kind!=Physical).Select(s=>CashRequest(s,physical,Source,retained))]){ExerciseRights=rights};
  }
 
  static GasCashRequest CashRequest(TicketSideDraft side,TicketSideDraft[] physical,Func<TicketSideDraft,string,string> source,bool retained)
@@ -282,7 +284,7 @@ public static class GasTicket
     ($"{kind}_start",s.DeliveryFrom??owner.DeliveryFrom),($"{kind}_end",s.DeliveryTo??owner.DeliveryTo),
     ("floating_pricing",s.Indexed?.ObservationConvention switch{GasIndexedCash.Point=>"point_publications",GasIndexedCash.Observation=>"named_daily",GasIndexedCash.Monthly=>"named_monthly","daily_published_index_v1"=>"retained_daily",null=>null,_=>throw Bad("The retained index convention is unsupported.")}),
     ("floating_index",s.Indexed?.Index),("floating_forecast_curve",s.Indexed is {} index?index.ForecastCurve is {} forecast?ForecastValue(forecast):"assigned":null),("floating_payment_day",s.Indexed?.PaymentDay.ToString(CultureInfo.InvariantCulture)),("floating_spread",s.Indexed?.Spread))){CalendarPolicy=s.CalendarPolicy};});
-  return new(Description.Product,Description.Version,trade.ToImmutableDictionary(),[..physical,..cash]);
+  return new(Description.Product,Description.Version,trade.ToImmutableDictionary(),[..physical,..cash]){ExerciseRights=GasExerciseTicket.Draft(terms.ExerciseRights)};
  }
 
  // The draft a booked request reopens as. The draft must map back to exactly the stored terms;
@@ -295,11 +297,11 @@ public static class GasTicket
   return SameTerms(mapped,terms)?draft:throw Bad("The booked terms hold values the deal ticket cannot express, so the trade does not open in it.");
  }
 
- // Normalize only the presentation of predecessor whole-quantity/full-term terms.
+ // Absence and an empty rights list have the same economics, as do predecessor whole-quantity/full-term terms.
  // A completed retry returns its original command bytes, never this normalized view.
  internal static bool SameTerms(GasCompositionRequest a,GasCompositionRequest b)
  {
-  GasCompositionRequest Normalize(GasCompositionRequest request)=>request with{CashSides=[..request.CashSides.Select(c=>{
+  GasCompositionRequest Normalize(GasCompositionRequest request)=>request with{ExerciseRights=request.ExerciseRights is {Length:0}?null:request.ExerciseRights,CashSides=[..request.CashSides.Select(c=>{
    var source=request.PhysicalSides.Single(p=>p.Code==c.Source);
    return c with{Share=c.Share??"1",DeliveryFrom=c.DeliveryFrom??source.DeliveryFrom,DeliveryTo=c.DeliveryTo??source.DeliveryTo,
     Part=c.Part is {Kind:"band",Upper:not null} part&&ExactDecimal.Parse(part.Lower).CompareTo(default)==0?part with{Lower="0"}:c.Part};})]};
@@ -368,6 +370,7 @@ public static class GasTicket
  public static TicketChoices ChoiceSet(TicketDraft draft,string? side,string field,ImmutableArray<TicketChoice> choices,JsonElement? catalog=null)
  {
   var (target,f)=Field(draft,side,field);
+  if(GasExerciseTicket.Section.Fields.Contains(f))return new(choices,null);
   string? value=f.Choices!="pricing_indices"&&choices.Length==1&&(f.Required||side is null||f.Id=="forecast_curve")?choices[0].Value:null;
   value??=f.Choices switch{
    "quantity_parts"=>"whole",
@@ -385,6 +388,7 @@ public static class GasTicket
  internal static ImmutableArray<TicketChoice>? LocalChoices(TicketDraft draft,string? side,string field)
  {
   var(target,f)=Field(draft,side,field);
+  if(GasExerciseTicket.Section.Fields.Contains(f))return GasExerciseTicket.Choices(draft,f.Id);
   if(f.Choices=="index_pricing"&&target?.Values.GetValueOrDefault("floating_pricing")=="retained_daily")return [..Fixed["index_pricing"],new("retained_daily","Retained daily index · read-only")];
   if(Fixed.TryGetValue(f.Choices??throw Bad($"Field '{field}' has no choice list."),out var fixedChoices))return fixedChoices;
   return f.Choices=="physical_sides"?[..draft.Sides.Where(s=>s.Kind==Physical&&!(f.Id=="link_source"&&s==target)).Select(s=>new TicketChoice(s.Code,s.Code))]:null;
@@ -495,7 +499,7 @@ public static class GasTicket
  static (TicketSideDraft? Side,TicketField Field) Field(TicketDraft draft,string? side,string field)
  {
   RequireShape(draft);
-  if(side is null)return(null,Description.TradeFields.SingleOrDefault(f=>f.Id==field)??throw Bad($"The trade has no field '{field}'."));
+  if(side is null)return(null,Description.TradeFields.Concat(GasExerciseTicket.Section.Fields).SingleOrDefault(f=>f.Id==field)??throw Bad($"The trade has no field '{field}'."));
   var target=draft.Sides.Where(s=>s.Code==side).ToArray() is [var one]?one:throw Bad($"The draft has no single side '{side}'.");
   var kind=Description.Sides.SingleOrDefault(k=>k.Kind==target.Kind)??throw Bad($"Unknown side kind '{target.Kind}'.");
   return(target,kind.Fields.SingleOrDefault(f=>f.Id==field)??throw Bad($"The {target.Kind} side has no field '{field}'."));

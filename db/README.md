@@ -21,6 +21,10 @@ application. See [current implementation](../docs/implementation.md) and
 
 Recent schema groups and their contracts:
 
+- A physical exercise action compares each saved period with the latest revision
+  known when the ticket opened, including future-effective instructions and
+  withdrawals. Preparing a range requires current amendment authority on the
+  selected trade. [0396](migrations/0396_gas_exercise_action_periods.sql)
 - [0395](migrations/0395_joint_volatility_shifts.sql) admits named scenarios
   with explicit additive shifts to exact volatility input IDs. A sample has
   at most 16 price and volatility shifts combined. A volatility-only job

@@ -15,13 +15,36 @@ public sealed record GasCashComponent(string Code,Side Side,string Role,string S
 public sealed record GasCompositionRole([property:IdentityField]string Code,[property:IdentityField]string Role,[property:IdentityField]string? Source,[property:IdentityField]GasQuantityStage? Stage,[property:IdentityField]GasCompositionLink? Link,
  [property:IdentityField]ExactDecimal? Share=null,[property:IdentityField]QuantityPart? Part=null,[property:IdentityField]string? QuantityPolicy=null);
 
+public sealed class GasExerciseTermException(int ordinal,string message,bool leadHours=false):MarketDataException("gas_composition_input",message)
+{
+ public int Ordinal{get;}=ordinal;
+ public bool LeadHours{get;}=leadHours;
+}
+
 [EconomicDefinition("gas_exercise_right_v1")]
 public sealed record GasExerciseRight(
  [property:IdentityField]ImmutableArray<string> Entries,
  [property:IdentityField]ExercisePeriod Period,
  [property:IdentityField]ExerciseHolder Holder,
  [property:IdentityField]ExerciseSettlement Settlement,
- [property:IdentityField]int? LeadHours);
+ [property:IdentityField]int? LeadHours)
+{
+ public static ImmutableArray<int> ClaimEntries(int ordinal,ImmutableArray<string> entries,bool physical,
+  IReadOnlyDictionary<string,int> slotsByCode,int physicalCount,ISet<int> claimed)
+ {
+  if(entries.IsDefaultOrEmpty)throw new GasExerciseTermException(ordinal,"Select the sides covered by this exercise right.");
+  var slots=ImmutableArray.CreateBuilder<int>(entries.Length);
+  foreach(var code in entries)
+  {
+   if(code is null||!slotsByCode.TryGetValue(code,out var slot)||!claimed.Add(slot))
+    throw new GasExerciseTermException(ordinal,"Every exercise right must name existing entries claimed exactly once.");
+   slots.Add(slot);
+  }
+  if(physical!=slots.Any(slot=>slot<physicalCount))
+   throw new GasExerciseTermException(ordinal,"Physical exercise requires a physical entry and cash automatic exercise requires payment entries.");
+  return slots.MoveToImmutable();
+ }
+}
 
 // Contractual physical and payment sides. Exact native-unit membership ratios retain
 // quantity normalization separately from direction; no operational selection or
@@ -44,7 +67,7 @@ public sealed record GasCompositionInstrument:SidedInstrument
  internal override bool SupportsSettlement=>false;
  public GasCompositionInstrument(Guid id,ImmutableArray<GasPhysicalComponent> physical,ImmutableArray<GasCashComponent> cash,
   ImmutableArray<GasExerciseRight> rights=default)
-  :this(id,physical,cash,rights,AdmitComposition(physical,cash,!rights.IsDefaultOrEmpty)) { }
+  :this(id,physical,cash,rights,Resolve(physical,cash,!rights.IsDefaultOrEmpty)) { }
  private GasCompositionInstrument(Guid id,ImmutableArray<GasPhysicalComponent> physical,ImmutableArray<GasCashComponent> cash,
   ImmutableArray<GasExerciseRight> rights,Composition c):base(id,c.Members)
  {
@@ -87,16 +110,17 @@ public sealed record GasCompositionInstrument:SidedInstrument
    if(physical?right.LeadHours is null or <0:right.LeadHours is not null)
     throw Invalid("Physical exercise needs a nonnegative lead in hours and cash automatic exercise needs fixing times.");
 
-   var slots=ImmutableArray.CreateBuilder<int>(right.Entries.Length);
-   foreach(var code in right.Entries)
-   {
-    if(code is null||!slotsByCode.TryGetValue(code,out var slot)||!claimed.Add(slot))
-     throw Invalid("Every exercise right must name existing entries claimed exactly once.");
-    slots.Add(slot);
-   }
-   if(physical!=slots.Any(slot=>slot<Physical.Length))
-    throw Invalid("Physical exercise requires a physical entry and cash automatic exercise requires payment entries.");
+   var ordinal=saved.Count;
+   var slots=GasExerciseRight.ClaimEntries(ordinal,right.Entries,physical,slotsByCode,Physical.Length,claimed);
+   try{saved.Add(ResolveGroups(ordinal,right,slots));}
+   catch(MarketDataException error)when(error.Code=="gas_composition_input"&&error is not GasExerciseTermException)
+   {throw new GasExerciseTermException(ordinal,error.Message);}
+  }
+  return saved.MoveToImmutable();
+ }
 
+ private ExerciseRight ResolveGroups(int ordinal,GasExerciseRight right,ImmutableArray<int> slots)
+ {
    var entries=slots.Select(slot=>ExerciseEntry.Read(Sides[slot].Side)).ToArray();
    var (from,to)=entries[0].DeliveryRange;
    if(entries.Any(entry=>entry.DeliveryRange!=(from,to)))
@@ -106,14 +130,12 @@ public sealed record GasCompositionInstrument:SidedInstrument
    {
     var end=right.Period==ExercisePeriod.DeliveryDay?day.AddDays(1):new DateOnly(day.Year,day.Month,1).AddMonths(1);
     if(end>to)end=to;
-    var at=right.LeadHours is {} lead?PhysicalExerciseAt(entries,day,lead):CashExerciseAt(entries,from,day,end);
+    var at=right.LeadHours is {} lead?PhysicalExerciseAt(entries,day,lead,ordinal):CashExerciseAt(entries,from,day,end);
     groups.Add(new(day,end,at));
     day=end;
    }
-   saved.Add(new(saved.Count,slots.MoveToImmutable(),right.Period,right.Holder,right.Settlement,
-    KirkSpreadCall.Implementation,OptionNumericalPolicies.ActualOver365FixedInstant,groups.ToImmutable()));
-  }
-  return saved.MoveToImmutable();
+   return new(ordinal,slots,right.Period,right.Holder,right.Settlement,
+    KirkSpreadCall.Implementation,OptionNumericalPolicies.ActualOver365FixedInstant,groups.ToImmutable());
  }
 
  private sealed record ExerciseEntry(Side Side,SideSchedule Schedule)
@@ -134,14 +156,14 @@ public sealed record GasCompositionInstrument:SidedInstrument
     ??throw MissingExerciseDayStart();
  }
 
- private static DateTimeOffset PhysicalExerciseAt(ExerciseEntry[] entries,DateOnly firstDay,int lead)
+ private static DateTimeOffset PhysicalExerciseAt(ExerciseEntry[] entries,DateOnly firstDay,int lead,int ordinal)
  {
   // A lead applies before every selected member's first day in the group.
   try { return entries.Min(entry=>entry.Start(firstDay)).AddHours(-lead); }
   catch(MarketDataException error) when(error.Code=="gas_day_boundary")
   { throw MissingExerciseDayStart(); }
   catch(ArgumentOutOfRangeException)
-  { throw Invalid("The lead must produce a supported physical exercise instant."); }
+  { throw new GasExerciseTermException(ordinal,"The lead must produce a supported physical exercise instant.",leadHours:true); }
  }
 
  private static MarketDataException MissingExerciseDayStart()=>Invalid("Physical exercise requires each selected entry's exact retained gas-day start.");
@@ -170,12 +192,7 @@ public sealed record GasCompositionInstrument:SidedInstrument
 
  public ExactRatio StageRatio(int physical,GasQuantityStage stage)=>Stage(ReceiptRatios[physical],Sides[physical].QuantityRatio!,stage);
  private sealed record Composition(ImmutableArray<SideMembership> Members,ImmutableArray<ExactRatio> Receipts,ExactDecimal Base);
- private static Composition AdmitComposition(ImmutableArray<GasPhysicalComponent> physical,ImmutableArray<GasCashComponent> cash,bool hasRights)
- {
-  try { return Resolve(physical,cash); }
-  catch(MarketDataException error) when(hasRights&&error.Code=="gas_day_boundary") { throw MissingExerciseDayStart(); }
- }
- private static Composition Resolve(ImmutableArray<GasPhysicalComponent> physical,ImmutableArray<GasCashComponent> cash)
+ private static Composition Resolve(ImmutableArray<GasPhysicalComponent> physical,ImmutableArray<GasCashComponent> cash,bool hasRights)
  {
   if(physical.IsDefault||physical.Length is <MinPhysicalSides or >MaxPhysicalSides||cash.IsDefault||cash.Length>MaxCashSides||physical.Length+cash.Length>MaxSides||physical.Any(p=>p is null||p.Side is null)||cash.Any(p=>p is null||p.Side is null))
    throw Invalid($"Select {MinPhysicalSides} to {MaxPhysicalSides} physical sides, up to {MaxCashSides} cash sides and at most {MaxSides} in all.");
@@ -230,7 +247,7 @@ public sealed record GasCompositionInstrument:SidedInstrument
     p.Side.GenerateSchedule() is not SidePaymentSchedule schedule||schedule.Currency!=native.Currency||schedule.UnitQuantity!=native.UnitQuantity||schedule.Rows.Count<1||!indexed&&schedule.Rows.Count!=1)
     throw Invalid("Cash sides require their declared fixed or indexed price, independent direction and explicit physical quantity stage in the same native quote.");
    var rows=schedule.Rows;
-   var delivery=a.GenerateSchedule().Quantities.Rows;
+   var delivery=SourceDays(a,p,hasRights);
    if(rows[0].DeliveryFrom<a.Quantities.From||rows[^1].DeliveryTo>a.Quantities.To||rows.Where((row,n)=>n>0&&rows[n-1].DeliveryTo!=row.DeliveryFrom).Any())
     throw Invalid("Payment dates must cover a contiguous range within the source's gas days.");
    foreach(var row in rows)
@@ -243,6 +260,12 @@ public sealed record GasCompositionInstrument:SidedInstrument
    members.Add(new(p.Side,p.Direction,Ratio(p.Share!.Value).Times(Stage(inputs[source],outputs[source]!,p.Stage))));
   }
   return new(members.ToImmutable(),[..inputs],amount);
+ }
+ private static ImmutableArray<GasQuantityRow> SourceDays(PhysicalGasSide source,GasCashComponent payment,bool hasRights)
+ {
+  try{return source.GenerateSchedule().Quantities.Rows;}
+  catch(MarketDataException error)when(hasRights&&error.Code=="gas_day_boundary")
+  {throw Invalid($"Physical source '{payment.Source}' needs its exact retained gas-day boundaries for payment '{payment.Code}'.");}
  }
  private static ExactRatio Stage(ExactRatio input,ExactRatio output,GasQuantityStage stage)=>stage switch{
   GasQuantityStage.Receipt=>input,GasQuantityStage.Delivery=>output,

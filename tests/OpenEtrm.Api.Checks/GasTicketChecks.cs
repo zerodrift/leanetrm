@@ -49,6 +49,57 @@ internal static class GasTicketChecks
             Equal("PAY,RCT",string.Join(",",right.Entries),"entry order");
             Equal(("delivery_day","us","physical",(int?)6),(right.Period,right.Holder,right.Settlement,right.LeadHours),"saved terms");
         });
+        var jsonOptions=new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var dailyRight=new {right_sides=new[]{"PAY","RCT"},right_period="delivery_day",right_holder="us",right_settlement="physical",right_lead_hours="6"};
+        TicketDraft Rights(TicketDraft draft,params object[] rights)
+        {
+            var wire=JsonSerializer.SerializeToNode(draft,jsonOptions)!;
+            wire["exerciseRights"]=JsonSerializer.SerializeToNode(rights,jsonOptions);
+            return wire.Deserialize<TicketDraft>(jsonOptions)!;
+        }
+        Check("the exercise ticket maps selected sides in order and reopens the exact explicit choices",()=>{
+            var draft=Rights(Draft(Receipt,Cash),dailyRight);
+            var mapped=Map(draft);
+            if(mapped.ExerciseRights is not {} rights)throw new Exception("The right_sides selection was lost in ticket mapping.");
+            var right=rights.Single();
+            Equal(("PAY,RCT","delivery_day","us","physical",(int?)6),(string.Join(",",right.Entries),right.Period,right.Holder,right.Settlement,right.LeadHours),"right");
+            var reopened=JsonSerializer.SerializeToElement(GasTicket.Reopen(mapped),jsonOptions).GetProperty("exerciseRights")[0];
+            Equal(JsonSerializer.Serialize(dailyRight),reopened.GetRawText(),"reopened choices");
+            Equal(false,JsonSerializer.SerializeToElement(Map(Rights(draft)),jsonOptions).TryGetProperty("exerciseRights",out _),"empty section");
+        });
+        void RejectRight(string name,TicketDraft draft,int row,string field)
+        {
+            Check(name,()=>{
+                try{Map(draft);}
+                catch(TicketFieldException e)when(e.Code=="gas_composition_input"&&e.Field==field&&
+                    e.TermRow==row){return;}
+                throw new Exception($"Expected exercise row {row}, field {field}.");
+            });
+        }
+        RejectRight("a second right claiming the same side identifies its own row",Rights(Draft(Receipt,Cash),dailyRight,dailyRight),1,"right_sides");
+        RejectRight("cash exercise refuses a hidden lead",Rights(Draft(Receipt,Cash),dailyRight with{right_settlement="cash_automatic"}),0,"right_lead_hours");
+        RejectRight("a zero-fuel link anywhere refuses the exercise selection",Rights(Draft(Receipt,Linked with{Values=Linked.Values.SetItem("link_formula","none").SetItem("link_fraction","0")},Cash),dailyRight),0,"right_sides");
+        RejectRight("a missing holder is an explicit field refusal",Rights(Draft(Receipt,Cash),dailyRight with{right_holder=""}),0,"right_holder");
+        Check("one three-day exercise action carries the exact saved periods, head tokens and chosen terms",()=>{
+            var context=new FuturesReadRequest(Snapshot,PhysicalGasStore.Convention,"current");
+            var selection=new GasExercisePrepareRequest(context,Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),2,Operation,0,
+                new(2027,1,1),new(2027,1,3),"abandoned","Synthetic instruction","2026-12-25T12:00:00Z");
+            var head=Guid.NewGuid();
+            GasExerciseActionPeriod Period(int day,Guid? prior=null)=>new(0,new(2027,1,day),new(2027,1,day+1),
+                new(2026,12,31,0,0,0,TimeSpan.Zero),prior,prior.HasValue?"exercised":null,prior.HasValue?new(2026,12,24,0,0,0,TimeSpan.Zero):null);
+            var command=GasExerciseAction.Build(selection,[Period(1),Period(2,head),Period(3),Period(4)]);
+            Equal((selection.TradeId,selection.InstrumentId,2,Operation,context),(command.TradeId,command.InstrumentId,command.ExpectedRevision,command.OperationId,command.Context),"command identity");
+            Equal("2027-01-01,2027-01-02,2027-01-03",string.Join(",",command.Elections.Select(e=>e.FromDate)),"range");
+            if(!command.Elections.Select(e=>e.ExpectedPreviousId).SequenceEqual([null,head,null])||
+                command.Elections.Any(e=>e.Right!=0||e.Outcome!="abandoned"||e.EffectiveAt!=selection.EffectiveAt||e.Evidence!=selection.Evidence))
+                throw new Exception("Every selected period requires its exact causal predecessor and explicit instruction.");
+        });
+        Check("a singleton side choice does not start an exercise selection",()=>{
+            var draft=Draft(Receipt);
+            var choices=GasTicket.Choices(draft,null,"right_sides",default);
+            Equal("RCT",choices.Single().Value,"eligible side");
+            Equal(null,GasTicket.ChoiceSet(draft,null,"right_sides",choices).StartingValue,"starting selection");
+        });
         var full = Draft(Receipt, Linked, Cash, Fee);
         Check("payment entry terms round trip without changing absent legacy keys",()=>{
             var json=new JsonSerializerOptions(JsonSerializerDefaults.Web);

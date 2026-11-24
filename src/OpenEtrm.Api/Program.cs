@@ -472,7 +472,9 @@ app.Use(async (context,next)=>
             body=new{code,message,agreementSelection=JsonSerializer.Deserialize<JsonElement>(selection)};
         if(e is GasBookingAgreementException agreement)
             body=new{code,message,confirmation=agreement.Confirmation,agreementSelection=agreement.Selection};
-        if(e is TicketFieldException ticket)body=new{code,message,side=ticket.Side,field=ticket.Field};
+        if(e is TicketFieldException ticket)body=ticket.TermRow is {} row?new{code,message,termRow=row,field=ticket.Field}:new{code,message,side=ticket.Side,field=ticket.Field};
+        if(e is OpenEtrm.MarketData.Gas.GasExerciseTermException term&&apiPath.StartsWithSegments("/api/tickets"))
+            body=new{code,message,termRow=term.Ordinal,field=term.LeadHours?"right_lead_hours":"right_sides"};
         if(e is RiskRunTieException tie)body=new{code,message,definition=tie.Definition,runs=tie.Runs};
         await context.Response.WriteAsJsonAsync(body,CancellationToken.None);
     }
@@ -2442,6 +2444,13 @@ api.MapPost("/gas/quantities/record",(HttpContext c,GasDailyWriteRequest body)=>
 api.MapPost("/gas/exercise/read",(HttpContext c,GasExerciseReadRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("exercise_election","Select a financial context."),
  (connection,view,ct)=>tradeReads.ReadBound(connection,view,async()=>await GasExerciseStore.Read(connection,database.Manifest.CatalogId,body.TradeId,body.InstrumentId,ct),ct),
  expectedConvention:PhysicalGasStore.Convention));
+api.MapPost("/gas/exercise/prepare",(HttpContext c,GasExercisePrepareRequest body)=>TradingRead(c,body.RetainedContext(),
+ (connection,view,ct)=>tradeReads.ReadBound(connection,view,async()=>{
+  if(!TradingReadSelection.IsWorking(Session(c),body.Context))throw new MarketDataException("historical_read_only","Return to working data to prepare an exercise election.");
+  var periods=await GasExerciseAction.ReadPeriods(connection,database.Manifest.CatalogId,body.TradeId,body.InstrumentId,body.ExpectedRevision,ct);
+  return new{command=GasExerciseAction.Build(body,periods)};
+ },ct),expectedConvention:PhysicalGasStore.Convention,publicationCheck:(connection,_,ct)=>
+  GasExerciseAction.RequireAuthority(connection,database.Manifest.CatalogId,body.TradeId,body.InstrumentId,ct)));
 api.MapPost("/gas/exercise/record",(HttpContext c,GasExerciseRecordRequest body)=>Locked(c,session=>
 {
  if(!TradingReadSelection.IsWorking(session,body.Context))throw new MarketDataException("historical_read_only","Return to working data before recording exercise elections.");

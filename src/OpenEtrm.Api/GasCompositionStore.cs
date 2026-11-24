@@ -403,7 +403,11 @@ public sealed class GasCompositionStore(PreviewDatabase database)
  }
  internal async Task<JsonElement> Save(NpgsqlConnection c,InputFrame frame,GasCompositionRequest body,bool inTerm,CancellationToken ct)
  {var operation=inTerm?"load_gas_composition_in_term":body.TradeId is null?"book_gas_composition":"amend_gas_composition";await using var q=ScheduleStore.Command(c,$"SELECT security.{operation}($1,$2::jsonb,$3)::text",database.Manifest.CatalogId,JsonSerializer.Serialize(body,Json),frame.At);return JsonSerializer.Deserialize<JsonElement>((string)(await q.ExecuteScalarAsync(ct))!);}
- public async Task<object> Editor(NpgsqlConnection c,PreviewData data,InputFrame frame,Guid trade,CancellationToken ct)=>await Read(c,data,frame,trade,ct);
+ public async Task<object> Editor(NpgsqlConnection c,PreviewData data,InputFrame frame,Guid trade,CancellationToken ct)
+ {
+  var execution=await Load(c,data,frame,trade,ct);
+  return new GasCompositionRead(execution.Terms,await Value(c,data,frame,execution,ct));
+ }
  internal async Task<SideScheduleSnapshot> InspectSchedule(NpgsqlConnection c,PreviewData data,InputFrame frame,GasCompositionExecution execution,int slot,CancellationToken ct)
  {
   var member=execution.Members.SingleOrDefault(m=>m.Slot==slot)??throw new MarketDataException("side_schedule_inspection","Select one visible Side slot.");
@@ -436,11 +440,6 @@ public sealed class GasCompositionStore(PreviewDatabase database)
  }
  // A single-point trade read as the composition it is (GasTicket.SinglePoint): every side a whole membership of the booked quantity on the
  // one physical side's path, valued from the trade's own retained programs, whose slots are the composition's: gas, payment, then fee.
- internal async Task<GasCompositionRead> ReadSinglePoint(NpgsqlConnection c,PreviewData data,InputFrame frame,Guid trade,CancellationToken ct)
- {
-  var execution=await LoadSinglePoint(c,data,frame,trade,ct);
-  return new(execution.Terms,await Value(c,data,frame,execution,ct));
- }
  internal async Task<GasCompositionExecution> LoadSinglePoint(NpgsqlConnection c,PreviewData data,InputFrame frame,Guid trade,CancellationToken ct)
  {
   var(terms,instrument)=await gas.Retained(c,frame,trade,ct);var body=GasTicket.SinglePoint(terms);
@@ -455,12 +454,6 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   IReadOnlyDictionary<string,ImmutableDictionary<DateOnly,(ExactQuantity Quantity,string Kind)>>? recorded=null,CustomCurves.SavedVersions? savedVersions=null)=>
   Value(c,data,frame,execution.Members,execution.Quantity,null,execution.Terms.GasSetupId,execution.Programs,true,ct,recorded,held:execution,savedVersions:savedVersions);
  // programs, when the caller already loaded the trade's retained programs under this frame, are used in place of loading them again.
- internal async Task<GasCompositionRead> Read(NpgsqlConnection c,PreviewData data,InputFrame frame,Guid trade,CancellationToken ct,
-  IReadOnlyDictionary<string,ImmutableDictionary<DateOnly,(ExactQuantity Quantity,string Kind)>>? recorded=null,ImmutableArray<RetainedSideProgram>? programs=null)
- {
-  var execution=await Load(c,data,frame,trade,ct,programs);
-  return new(execution.Terms,await Value(c,data,frame,execution,ct,recorded));
- }
  internal async Task<GasCompositionExecution> Load(NpgsqlConnection c,PreviewData data,InputFrame frame,Guid trade,CancellationToken ct,
   ImmutableArray<RetainedSideProgram>? programs=null)
  {

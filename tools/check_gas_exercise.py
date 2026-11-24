@@ -109,6 +109,13 @@ def run_checks(url,query,manifest,run_worker):
     reject(fixed,[{**cash_right,'entries':['fixed']}])
     election_checks(c,query,manifest,context,fixed,cash,plain,run_worker)
     curve_marks(c,query,manifest,context,fixed,base,plain,run_worker)
+    explicit_empty={**fixed,'operationId':str(uuid4()),'exerciseRights':[]}
+    original=book(explicit_empty)
+    ticket=c.call('tickets/trade',dict(context=context,tradeId=original['tradeId'],bindingId=original['instrumentId'],revision=1))
+    assert 'exerciseRights' not in ticket['draft'] and 'recordExercise' not in ticket['actions']
+    assert c.call('tickets/book',dict(context=context,draft=ticket['draft'],definitionRevisionId=ticket['definitionRevisionId'],
+                                     operationId=explicit_empty['operationId']))==original
+    print('PASS no-right ticket replays the original explicit empty-array command',flush=True)
     print('PASS gas exercise: API and SQL admission, exact physical and latest fixing times, immutable terms, replay and unpriced valuation',flush=True)
 
 def curve_marks(c,query,manifest,context,fixed,base,plain,run_worker):
@@ -272,6 +279,34 @@ def election_checks(c,query,manifest,context,fixed,cash,plain,run_worker):
     batch=command(first,second)
     recorded=record(batch)
     d1,d2=[r['revisionId'] for r in recorded['elections']]
+    def ticket(ctx):
+        return c.call('tickets/trade',dict(context=ctx,tradeId=saved['tradeId'],bindingId=saved['instrumentId'],revision=1))
+    unpriced=ticket(prior)
+    assert unpriced['schedule'] is None and unpriced['scheduleRefusal']['code']=='exercise_marks'
+    assert not unpriced['actions']['recordExercise']['allowed']
+    priced=ticket(context)
+    action=priced['actions']['recordExercise']
+    assert action['allowed'] and action['label']=='Record exercise' and action['readContextId']==priced['context']['contextId']
+    assert priced['groups'][0]['state']=='exercised'
+    invalid=deepcopy(priced['draft'])
+    invalid['exerciseRights'][0].update(right_sides=['fixed'],right_settlement='cash_automatic')
+    invalid['exerciseRights'][0].pop('right_lead_hours')
+    error=c.call('tickets/preview',dict(context=context,draft=invalid),expected=422)
+    assert (error['code'],error.get('termRow'),error.get('field'))==('gas_composition_input',0,'right_sides'),error
+    selection=dict(context=context,readContextId=pin['contextId'],**selected,expectedRevision=1,
+                   operationId=str(uuid4()),right=0,firstPeriod=first_day,lastPeriod=second_day,
+                   outcome='abandoned',evidence='Synthetic range decision',effectiveAt=at)
+    def prepare(selection,**options):
+        return c.call('gas/exercise/prepare',selection,**options)
+    stale=prepare(selection)['command']
+    assert [e['expectedPreviousId'] for e in stale['elections']]==[None,None],stale
+    assert record(stale,expected=409)['code']=='exercise_election_conflict'
+    now=read()
+    fresh=prepare({**selection,'readContextId':now['context']['contextId']})['command']
+    assert [e['expectedPreviousId'] for e in fresh['elections']]==[d1,d2]
+    assert [e['fromDate'] for e in fresh['elections']]==[first_day,second_day]
+    assert prepare({**selection,'readContextId':None},expected=422)['code']=='exercise_election'
+    assert prepare({**selection,'instrumentId':cash['instrumentId'],'tradeId':cash['tradeId']},expected=422)['code']=='exercise_election'
     assert record(batch)==recorded
     assert all(r['unchanged'] for r in record(command(first,second))['elections'])
     assert [r['outcome'] for r in read()['elections']]==['exercised','abandoned']
@@ -290,6 +325,9 @@ def election_checks(c,query,manifest,context,fixed,cash,plain,run_worker):
     risk.bootstrap()
     risk.call('profile',dict(profile='risk'))
     risk.call('gas/exercise/record',batch,expected=403)
+    read_only=risk.call('tickets/trade',dict(context=context,tradeId=saved['tradeId'],bindingId=saved['instrumentId'],revision=1))
+    assert not read_only['actions']['recordExercise']['allowed']
+    risk.call('gas/exercise/prepare',{**selection,'readContextId':read_only['context']['contextId']},expected=403)
     wire=json.dumps({k:v for k,v in batch.items() if k!='context'})
     runtime_query(query,manifest,f"""DO $probe$ BEGIN BEGIN PERFORM security.record_gas_exercise_elections('{cat}','{wire}','{at}');
       RAISE EXCEPTION 'AmendTrade was bypassed';EXCEPTION WHEN insufficient_privilege THEN NULL;END;END$probe$;""",profile='risk')
@@ -342,12 +380,20 @@ def election_checks(c,query,manifest,context,fixed,cash,plain,run_worker):
     assert completed['state']=='completed' and completed['result']['factors']==report['factors'],completed
     withdrawn=record(command(row(first_day,None,changed['revisionId'])))['elections'][0]
     assert read()['elections'][0]['outcome'] is None and editor(context,422)['code']=='exercise_marks'
+    unavailable=ticket(context)
+    assert unavailable['scheduleRefusal']['code']=='exercise_marks' and unavailable['actions']['recordExercise']['allowed']
+    after_withdrawal=prepare({**selection,'readContextId':unavailable['actions']['recordExercise']['readContextId'],'lastPeriod':first_day})['command']
+    assert after_withdrawal['elections'][0]['expectedPreviousId']==withdrawn['revisionId']
     reinstated={**row(first_day,'exercised',withdrawn['revisionId']),'evidence':'Synthetic subsequent instruction'}
     active=record(command(reinstated))['elections'][0]
     future='2020-12-18T16:01:00Z'
-    record(command(row(first_day,'abandoned',active['revisionId'],future),row(second_day,None,d2,'2020-12-18T16:02:00Z')))
+    pending=record(command(row(first_day,'abandoned',active['revisionId'],future),row(second_day,None,d2,'2020-12-18T16:02:00Z')))
     now=read()
     assert [r['outcome'] for r in now['elections']]==['exercised','abandoned'] and now['nextElectionEffectiveAt'].startswith(future[:-1]),now
+    correction={**selection,'readContextId':now['context']['contextId'],'effectiveAt':'2020-12-18T16:03:00Z'}
+    command_at_future=prepare(correction)['command']
+    assert [e['expectedPreviousId'] for e in command_at_future['elections']]==[e['revisionId'] for e in pending['elections']]
+    assert prepare({**correction,'effectiveAt':at},expected=422)['code']=='exercise_election'
     assert Fraction(editor()['valuation']['presentValue'])==present
     # Rebind a certified read at each exact effective instant on the same business day.
     for minute,expected,next_at in [('01',['abandoned','abandoned'],'16:02'),('02',['abandoned',None],None)]:
@@ -544,6 +590,12 @@ def worked_routes(c,query,manifest,context,call,base,run_worker):
     expired=blotter(deadline)
     assert expired[held['tradeId']]['unavailableReason']=='exercise_determination' and expired[held['tradeId']]['presentValue'] is None
     assert Fraction(expired[cap_trade['tradeId']]['presentValue'])==-35000
+    expired_ticket=c.call('tickets/trade',dict(context=deadline,tradeId=held['tradeId'],bindingId=held['instrumentId'],revision=1))
+    assert expired_ticket['scheduleRefusal']['code']=='exercise_determination' and expired_ticket['actions']['recordExercise']['allowed']
+    prepared=c.call('gas/exercise/prepare',dict(context=deadline,readContextId=expired_ticket['actions']['recordExercise']['readContextId'],
+        tradeId=held['tradeId'],instrumentId=held['instrumentId'],expectedRevision=1,operationId=str(uuid4()),right=0,
+        firstPeriod='2021-01-18',lastPeriod='2021-01-18',outcome='exercised',effectiveAt='2020-12-18T16:00:00Z',evidence='Synthetic dated instruction'))
+    assert prepared['command']['elections'][0]['fromDate']=='2021-01-18'
     catalog=risk.call('portfolio/risk/catalog',dict(context=shared(deadline),bookIds=[],portfolioIds=[],tradeIds=[held['tradeId'],cap_trade['tradeId']]))
     assert [(r['tradeId'],r['reason']) for r in catalog['excludedPositions']]==[(held['tradeId'],'exercise_determination')]
     decided=projections(cap,cap_trade,deadline)
@@ -575,6 +627,10 @@ def worked_routes(c,query,manifest,context,call,base,run_worker):
         for lane in ['base','up','down']:
             assert unchanged['groups'][lane]==expected['groups']
             assert sum(Fraction(e[lane]) for e in unchanged['entries'])+sum(Fraction(g[lane]) for g in unchanged.get('exerciseContributions',[]))==Fraction(expected['presentValue'])
+    receipt=c.call('gas/exercise/record',prepared['command'])
+    assert c.call('gas/exercise/record',prepared['command'])==receipt
+    assert receipt['elections'][0]['revision']==1 and not receipt['elections'][0]['unchanged']
+    print('PASS exercise ticket: a backdated instruction prepared at the elapsed deadline records once and replays',flush=True)
     print('PASS worked gas exercise: held groups, contingent schedule provenance, signed scenarios, payment reconciliation, temporal elections and leased risk',flush=True)
 
 

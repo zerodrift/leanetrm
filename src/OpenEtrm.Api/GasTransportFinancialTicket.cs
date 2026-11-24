@@ -57,7 +57,7 @@ public static class GasTransportFinancialTicket
     };
     static void Identity(TicketDraft draft)
     {
-        if(draft is null||draft.Product!=Product||draft.Version!=1||draft.Trade is null||draft.Sides.IsDefault||!draft.Sides.IsEmpty)
+        if(draft is null||draft.Product!=Product||draft.Version!=1||draft.Trade is null||draft.Sides.IsDefault||!draft.Sides.IsEmpty||draft.ExerciseRights is {Length:>0})
             throw Invalid("profile","Supply the installed Transport ticket and its explicit terms.");
     }
     static Guid Id(string value,string field)=>Guid.TryParse(value,out var id)&&id!=Guid.Empty?id:throw Invalid(field,"Select an exact identity.");
