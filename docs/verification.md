@@ -98,6 +98,17 @@ The reviewed correction passed the focused preview, three full groups and full
 frontend suite above. Optimizing the bounded repeated calendar reads remains
 deferred. Integrated CI remains a separate gate.
 
+Before publication, merge `75ca8b7e` incorporated the European-option changes
+from master and assigned the unchanged charge migrations 0399 and 0400 and
+the charge decision D450. Independent integration review found no lost
+implementation, check registration or migration predecessor conflict.
+On that combined tree, all 186 repository tests and 81 managed workloads
+passed; the managed run printed 2,857 PASS checkpoints. The charge preview
+passed 118 checkpoints, all 15 owned browser checks and three retained risk
+jobs, then removed its disposable database. This run also qualified both
+renumbered migration predecessor guards. The complete frontend build and
+two-worker suite passed all 2,356 tests with zero failures or skips.
+
 ## European futures options (D449)
 
 Qualified on synthetic data in two places on 2026-11-24. A workstation (macOS arm64,
