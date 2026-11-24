@@ -5,7 +5,7 @@ import {isCatalogueSource,type CatalogueSource} from './market-navigation.js';
 import {renderTicket,type TicketEntry,type TicketEvents,type TicketView} from './deal-ticket.js';
 import {quantityRecord,quantityRecordChoices,quantityRecordFields,recordedBy,type GasQuantityReceipt,type GasQuantityView} from './gas-daily-quantities.js';
 import {actorTransport,PendingCommand,restoreTradeRequest,type RequestCommand} from './pending-command.js';
-import {acceptOffer,acceptPreview,addSide,applyLookup,draftOf,dropLookup,newTicket,nextPreview,removeSide,resolveChoice,setValue,setCalendarPolicy,ticketOf,type FieldValue,type TicketState,type TicketSide} from './ticket-model.js';
+import {fieldVisible,acceptOffer,acceptPreview,addSide,applyLookup,draftOf,dropLookup,newTicket,nextPreview,removeSide,resolveChoice,setValue,setCalendarPolicy,ticketOf,type FieldValue,type TicketState,type TicketSide} from './ticket-model.js';
 import {previewed,reasonOf,type SchedulePanel} from './ticket-preview.js';
 import type {GasMeasures} from './lifecycle-text.js';
 import type {LifecycleTarget} from './lifecycle-model.js';
@@ -224,16 +224,16 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  function fieldsOf(side:string|null){return side===null?d!.tradeFields:d!.sides.find(k=>k.kind===state!.sides.find(s=>s.code===side)!.kind)!.fields;}
  function valuesOf(side:string|null){return side===null?state!.trade:state!.sides.find(s=>s.code===side)!.values;}
  function everyField(pick:(f:TicketField,side:string|null)=>boolean):[string|null,TicketField][]{
-  return [null,...state!.sides.map(s=>s.code)].flatMap(side=>fieldsOf(side).filter(f=>pick(f,side)).map(f=>[side,f] as [string|null,TicketField]));
+  return [null,...state!.sides.map(s=>s.code)].flatMap(side=>fieldsOf(side).filter(f=>fieldVisible(f,valuesOf(side))&&pick(f,side)).map(f=>[side,f] as [string|null,TicketField]));
  }
  function hasUnresolvedFields(){return everyField((field,side)=>unresolved.has(keyOf(side,field.id))).length>0;}
  const listed=()=>everyField((f,side)=>f.choices!==null&&(entry?f.state==='editable':!!valuesOf(side)[f.id]?.value));
  // The fields that depend on a field of the same side, however indirectly: their lists change with it.
  function dependents(side:string|null,field:string):[string|null,TicketField][]{
-  const found=new Map<string,[string|null,TicketField]>(),all=everyField(()=>true);
+  const found=new Map<string,[string|null,TicketField]>(),all=[null,...state!.sides.map(s=>s.code)].flatMap(at=>fieldsOf(at).map(f=>[at,f] as [string|null,TicketField]));
   for(const parents:[string|null,string][]=[[side,field]];parents.length;){
    const [scope,parent]=parents.shift()!;
-   for(const [at,child] of all.filter(([at,f])=>[...f.dependsOn,...f.refreshOn??[]].includes(parent)&&(!fieldsOf(at).some(f=>f.id===parent)||at===scope))){
+   for(const [at,child] of all.filter(([at,f])=>[...f.dependsOn,...f.refreshOn??[],...f.visibleWhen?[f.visibleWhen.field]:[]].includes(parent)&&(!fieldsOf(at).some(f=>f.id===parent)||at===scope))){
     const key=keyOf(at,child.id);if(found.has(key))continue;found.set(key,[at,child]);parents.push([at,child.id]);
    }
   }
@@ -248,7 +248,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
    const key=keyOf(side,f.id),n=(asked.get(key)??0)+1;asked.set(key,n);
    choiceReads.get(key)?.abort();choiceReads.delete(key);
    // A list whose parent has no value yet lists nothing and is not asked for.
-   if(f.dependsOn.some(parent=>!dependencyFilled(side,parent))){delete choices[key];delete choiceErrors[key];return;}
+   if(!fieldVisible(f,valuesOf(side))||f.dependsOn.some(parent=>!dependencyFilled(side,parent))){delete choices[key];delete choiceErrors[key];return;}
    const controller=new AbortController(),signal=AbortSignal.any([lifetime.signal,controller.signal]),edit=choiceEdits.get(key);choiceReads.set(key,controller);
    try{
     const r=await readField<{choices:TicketChoice[];startingValue?:TicketLookup|null}>('tickets/choices',{context:o.context(),draft:draft(),side,field:f.id},signal);

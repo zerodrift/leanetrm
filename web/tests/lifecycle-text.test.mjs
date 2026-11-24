@@ -69,3 +69,8 @@ test('selected quantities name their saved basis without an internal version ide
  assert.equal(quantityBasisText('scheduled_v1'),'scheduled');
  assert.equal(quantityBasisText('contractual_quantity_v1'),'contract quantity');
 });
+
+test('quantity parts use plain labels on the native schedule',()=>{
+ assert.equal(quantityBasisText('band_v1'),'part of the day quantity');
+ assert.equal(quantityBasisText('shortfall_v1'),'shortfall of the day quantity');
+});

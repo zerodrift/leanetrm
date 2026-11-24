@@ -169,3 +169,17 @@ test('per-Side calendar terms survive reopening and draft serialization without 
  draft.sides[0].calendarPolicy=policy;
  assert.deepEqual(draftOf(ticketOf(description,draft)).sides[0].calendarPolicy,policy);
 });
+
+test('conditional fields are visible and sent only for the backend-declared choice',async()=>{
+ const {fieldVisible}=await import('../dist/ticket-model.js');
+ const level=f('level','Level',{type:'decimal',required:true,visibleWhen:{field:'part',values:['band']}});
+ const d={...description,sides:[{...description.sides[0],fields:[f('part','Part',{choices:'parts'}),level]}]};
+ let s=newTicket(d);s=setValue(s,leg,'part','band');s=setValue(s,leg,'level','8000');
+ assert.equal(fieldVisible(level,s.sides[0].values),true);
+ assert.deepEqual(draftOf(s).sides[0].values,{part:'band',level:'8000'});
+ s=setValue(s,leg,'part','whole');
+ assert.equal(fieldVisible(level,s.sides[0].values),false);
+ assert.deepEqual(draftOf(s).sides[0].values,{part:'whole'});
+ s=setValue(s,leg,'part','band');
+ assert.deepEqual(draftOf(s).sides[0].values,{part:'band',level:'8000'});
+});

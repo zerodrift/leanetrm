@@ -1131,6 +1131,9 @@ def main():
             elif args.gas_pricing_check:
                 from check_gas_pricing import run_checks as check_gas_pricing
                 pricing_fixture=check_gas_pricing(url,query,manifest,risk_worker_runner(),admin_load_in_term)
+                if args.browser_check:
+                    target=temporary/'browser-target.json';target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,'facility':pricing_fixture}))
+                    subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-pricing'],cwd=ROOT,env=env,check=True,timeout=300)
             elif args.gas_indexed_check:
                 from check_gas_indexed import run_checks as check_gas_indexed
                 indexed_fixture=check_gas_indexed(url,query,manifest,risk_worker_runner())

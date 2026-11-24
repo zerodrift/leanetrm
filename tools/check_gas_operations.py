@@ -77,7 +77,7 @@ def run_checks(url, query, manifest):
                     side['values'].update(pipeline=location['pipeline'],zone=location['zone'],delivery_point=location['deliveryPoint'],
                         product=location['product'],delivery_from='2021-01-10',delivery_to='2021-01-12',quantity_basis='per_operating_day',quantity='25')
                 else:
-                    side['values'].update(cash_stage='delivery',cash_price='3',cash_payment_at='2021-02-02T00:00:00Z')
+                    side['values'].update(cash_share='1',cash_part='whole',cash_start='2021-01-10',cash_end='2021-01-12',cash_stage='delivery',cash_price='3',cash_payment_at='2021-02-02T00:00:00Z')
         legs=[{'draft':d,'definitionRevisionId':c.call('tickets/preview',{'context':before,'draft':d})['source']['definitionRevisionId']} for d in drafts]
         command={'context':before,'operationId':str(uuid4()),'tickets':legs,**selection}
         if agreements=='separate_confirmations':

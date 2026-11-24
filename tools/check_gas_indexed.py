@@ -123,9 +123,10 @@ def check_location_purchase_and_sale(c,query,context,catalog,sale_point,calendar
         sides[code]['values'].update(pipeline=point['pipeline'],zone=point['zone'],delivery_point=point['deliveryPoint'],
             product=point['product'],delivery_from='2021-01-01',delivery_to='2021-01-03',quantity_basis='per_operating_day',quantity=quantity)
         sides[code]['calendarPolicy']=side_calendar_policy(calendar,delivery=True,observation=False,payment=False)
-    sides['purchase_payment']['values'].update(cash_stage='delivery',cash_price='2.75',cash_payment_at='2021-02-02T00:00:00Z')
+    sides['purchase_payment']['values'].update(cash_share='1',cash_part='whole',cash_start='2021-01-01',cash_end='2021-01-03',cash_stage='delivery',cash_price='2.75',cash_payment_at='2021-02-02T00:00:00Z')
     sides['purchase_payment']['calendarPolicy']=side_calendar_policy(calendar,delivery=True,observation=False,payment=True)
     sides['sale_payment']['values']={**indexed_ticket['sides'][1]['values'],**sides['sale_payment']['values']}
+    sides['sale_payment']['values'].update(floating_start='2021-01-01',floating_end='2021-01-03')
     sides['sale_payment']['calendarPolicy']=side_calendar_policy(calendar,delivery=True,observation=True,payment=True)
     preview=c.call('tickets/preview',dict(context=context,draft=draft))
     values={s['code']:Fraction(s['presentValue']) for s in preview['sides']}

@@ -119,7 +119,7 @@ public static class GasTicket
   return cash with{Fields=[..cash.Fields.Where(f=>f.Id is not("floating_price" or "floating_payment_at")),
    Field("floating_pricing","Pricing","How the payment selects its index publications.","choice",choices:"index_pricing",dependsOn:"floating_source"),
    Field("floating_index","Pricing index","Named index that determines the payment price.","choice",choices:"pricing_indices",dependsOn:"floating_source") with{VisibleWhen=new("floating_pricing",["named_daily","named_monthly","retained_daily"])},
-   Field("floating_forecast_curve","Forecast curve","Published curve used for unfixed daily index prices.","choice",choices:"forecast_curves") with{DependsOn=["floating_source","delivery_from","delivery_to","delivery_point","product"],RefreshOn=["forecast_curve"]},
+   Field("floating_forecast_curve","Forecast curve","Published curve used for unfixed daily index prices.","choice",choices:"forecast_curves") with{DependsOn=["floating_source","floating_start","floating_end","delivery_from","delivery_to","delivery_point","product"],RefreshOn=["forecast_curve","floating_pricing"]},
    Field("floating_spread","Index spread","Contractual adder to the index in the source quote units.","decimal","price") with{Lookup="entry_spread"},
    Field("floating_payment_day","Payment day","Contractual calendar date in the following month, without a holiday adjustment.","choice","payment",choices:"payment_days")]};
  }
@@ -364,7 +364,7 @@ public static class GasTicket
  public static TicketChoices ChoiceSet(TicketDraft draft,string? side,string field,ImmutableArray<TicketChoice> choices,JsonElement? catalog=null)
  {
   var (target,f)=Field(draft,side,field);
-  string? value=choices.Length==1&&(f.Required||side is null||f.Id=="forecast_curve")?choices[0].Value:null;
+  string? value=f.Choices!="pricing_indices"&&choices.Length==1&&(f.Required||side is null||f.Id=="forecast_curve")?choices[0].Value:null;
   value??=f.Choices switch{
    "quantity_parts"=>"whole",
    "index_pricing" when catalog is {} data=>PointPublications(draft,target!,data)?"point_publications":"named_daily",
@@ -466,14 +466,17 @@ public static class GasTicket
   }
  }
 
- // The request that evaluates one physical side's market price: its own path and delivery term, one unit received per operating day, no cash.
+ // A physical market-price probe uses its own path and term. An indexed forecast-choice probe
+ // uses that path over the payment's own dates, one unit received per operating day, no cash.
  // Price does not depend on the quantity, direction or basis, so the probe states them only to make a complete side.
  public static GasCompositionRequest PriceProbe(TicketDraft draft,string side,JsonElement catalog,Guid snapshot,Guid definition)
  {
-  var target=QuantitySource(draft,draft.Sides.SingleOrDefault(s=>s.Code==side)??throw Bad("Choose an existing Side."));
+  var entry=draft.Sides.SingleOrDefault(s=>s.Code==side)??throw Bad("Choose an existing Side.");
+  var target=QuantitySource(draft,entry);
   _=Field(draft,target.Code,"price");
   RequireSetup(draft,catalog);
-  var (from,to)=(Term(target!,"delivery_from",Unresolved),Term(target!,"delivery_to",Unresolved));var path=Path(target!,catalog,Unresolved);
+  var (from,to)=entry.Kind=="floating"?(Term(entry,"floating_start",Unresolved),Term(entry,"floating_end",Unresolved)):
+   (Term(target,"delivery_from",Unresolved),Term(target,"delivery_to",Unresolved));var path=Path(target,catalog,Unresolved);
   return new(snapshot,PhysicalGasStore.Convention,"current",GasCompositionStore.Profile,Guid.Empty,Guid.Empty,definition,Id(draft.Trade,"gas_setup"),false,null,null,null,null,
    [new(target!.Code,path.Text("pipeline"),path.Text("zone"),path.Text("deliveryPoint"),path.Text("product"),"receive",from,to,"per_operating_day","1",null,Forecast(target.Values.GetValueOrDefault("forecast_curve"))){CalendarPolicy=Calendar(target)}],[]);
  }

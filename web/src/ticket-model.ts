@@ -135,9 +135,12 @@ export function removeSide(s:TicketState,code:string):TicketState{
  return next;
 }
 
+/** Visibility is a backend-declared presentation condition, shared by rendering and serialization. */
+export const fieldVisible=(field:TicketField,values:Record<string,FieldValue>)=>!field.visibleWhen||field.visibleWhen.values.includes(values[field.visibleWhen.field]?.value??'');
+
 // Editable fields with a value only: soon, info and derived fields never reach the backend.
 function editable(fields:TicketField[],values:Record<string,FieldValue>){
- return Object.fromEntries(fields.filter(f=>f.state==='editable'&&values[f.id]?.value).map(f=>[f.id,values[f.id].value]));
+ return Object.fromEntries(fields.filter(f=>f.state==='editable'&&fieldVisible(f,values)&&values[f.id]?.value).map(f=>[f.id,values[f.id].value]));
 }
 
 export function draftOf(s:TicketState):TicketDraft{

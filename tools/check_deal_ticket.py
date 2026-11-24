@@ -223,7 +223,7 @@ def check_ticket_operations(c,context,cat,description,body,view,query,manifest):
     physical={'quantity_policy':'contract','direction':'deliver','delivery_from':'2021-01-01','delivery_to':'2021-02-01','product':p['product'],'quantity':'10000','quantity_basis':'per_operating_day',
               'pipeline':p['pipeline'],'zone':p['zone'],'delivery_point':p['deliveryPoint']}
     def charge(kind,direction,price):
-        return {f'{kind}_direction':direction,f'{kind}_source':'physical',f'{kind}_stage':'delivery',f'{kind}_price':price,f'{kind}_payment_at':'2021-02-05T00:00:00Z'}
+        return {f'{kind}_share':'1',f'{kind}_part':'whole',f'{kind}_start':physical['delivery_from'],f'{kind}_end':physical['delivery_to'],f'{kind}_direction':direction,f'{kind}_source':'physical',f'{kind}_stage':'delivery',f'{kind}_price':price,f'{kind}_payment_at':'2021-02-05T00:00:00Z'}
     draft={'product':'physical_gas','version':1,'trade':trade,'sides':[{'kind':'physical','code':'physical','values':physical,'calendarPolicy':body['physicalSides'][0]['calendarPolicy']},
            {'kind':'cash','code':'cash','values':charge('cash','receive','3.412'),'calendarPolicy':body['cashSides'][0]['calendarPolicy']},{'kind':'fee','code':'fee','values':charge('fee','pay','0.045'),'calendarPolicy':body['cashSides'][1]['calendarPolicy']}]}
 
@@ -332,7 +332,7 @@ def check_ticket_operations(c,context,cat,description,body,view,query,manifest):
     point=c.call('tickets/trade',{'context':context,'tradeId':single_fact['tradeId'],'bindingId':single_fact['bindingId'],'revision':single_fact['revision']})
     sides=point['draft']['sides'];paid=sides[1]['values']['cash_payment_at']
     assert datetime.fromisoformat(paid)==datetime.fromisoformat('2021-02-02T00:00:00+00:00') and sides[2]['values']['fee_payment_at']==paid,sides
-    charged=lambda kind,direction,price:{f'{kind}_direction':direction,f'{kind}_source':'physical-1',f'{kind}_stage':'delivery',f'{kind}_price':price,f'{kind}_payment_at':paid}
+    charged=lambda kind,direction,price:{f'{kind}_share':'1',f'{kind}_part':'whole',f'{kind}_start':physical['delivery_from'],f'{kind}_end':physical['delivery_to'],f'{kind}_direction':direction,f'{kind}_source':'physical-1',f'{kind}_stage':'delivery',f'{kind}_price':price,f'{kind}_payment_at':paid}
     assert point['draft']=={'product':'physical_gas','version':1,'trade':trade,'sides':[
         {'kind':'physical','code':'physical-1','values':{**physical,'direction':'receive','quantity':'1000','quantity_basis':'period_total_equal_days'},'calendarPolicy':single['deliveryCalendarPolicy']},
         {'kind':'cash','code':'cash-1','values':charged('cash','pay','3'),'calendarPolicy':single['considerationCalendarPolicy']},{'kind':'fee','code':'fee-1','values':charged('fee','pay','0.045'),'calendarPolicy':single['feeCalendarPolicy']}]},point['draft']

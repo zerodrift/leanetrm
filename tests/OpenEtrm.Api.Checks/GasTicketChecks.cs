@@ -543,6 +543,17 @@ internal static class GasTicketChecks
             Equal("point_publications",GasTicket.ChoiceSet(draft,"IDX","floating_pricing",choices,point).StartingValue!.Value,"point proposal");
             Equal("I,J",string.Join(",",GasTicket.Choices(draft,"IDX","floating_index",point).Select(c=>c.Value)),"named pricing on publication point");
         });
+        Check("an unavailable assigned index does not become the only other eligible index",()=>{
+            var draft=Open(A(Receipt),Indexed);
+            Equal(null,GasTicket.ChoiceSet(draft,"IDX","floating_index",[new("J","Other eligible index")],catalog).StartingValue,"missing assigned proposal");
+        });
+        Check("an indexed forecast is qualified on the payment's own term",()=>{
+            var indexed=With(With(Indexed,"floating_start","2027-01-15"),"floating_end","2027-01-17");
+            var probe=GasTicket.PriceProbe(Open(A(Receipt),indexed),"IDX",catalog,Snapshot,Definition);
+            Equal(("2027-01-15","2027-01-17"),(probe.PhysicalSides[0].DeliveryFrom,probe.PhysicalSides[0].DeliveryTo),"payment forecast coverage");
+            var field=GasTicket.Description.Sides.Single(s=>s.Kind=="floating").Fields.Single(f=>f.Id=="floating_forecast_curve");
+            Equal(true,field.DependsOn.Contains("floating_start")&&field.DependsOn.Contains("floating_end")&&field.RefreshOn.Contains("floating_pricing"),"forecast refresh inputs");
+        });
         Refuses("ticket_lookup","an unpriced path cannot propose index pricing",()=>{
             var unpriced=Receipt with{Values=Receipt.Values.SetItems(V(("pipeline","PC"),("zone","ZC1"),("delivery_point","P5"),("product","interruptible")))};
             var draft=Open(unpriced,Indexed);

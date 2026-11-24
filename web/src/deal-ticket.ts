@@ -1,3 +1,4 @@
+import {fieldVisible} from './ticket-model.js';
 import {sideNavigation} from './side-navigation.js';
 import {sideCalendar,referenceCalendarChoices,type SideCalendarPolicy} from './side-calendar.js';
 import {paymentDateInput,displayPaymentDate} from './payment-date.js';
@@ -156,13 +157,13 @@ function card(o:TicketView,side:TicketSide,rows:string[]){
  }
  node.append(head,el('div','ticket-band-title','Common to all sides'));
  for(const row of rows){
-  const f=kind.fields.find(x=>x.band===row&&x.state!=='soon');
+  const f=kind.fields.find(x=>x.band===row&&x.state!=='soon'&&fieldVisible(x,side.values));
   // A kind without this term keeps its slot, so the row lines up with the other cards.
   const slot=f?fieldRow(o,f,side.code,side.values[f.id]):el('div','ticket-slot-empty');
   slot.dataset.band=row;node.append(slot);
  }
  const own=el('div','ticket-own');
- for(const f of dependencyOrder(kind.fields.filter(x=>x.band===null&&x.state!=='soon')))own.append(fieldRow(o,f,side.code,side.values[f.id]));
+ for(const f of dependencyOrder(kind.fields.filter(x=>x.band===null&&x.state!=='soon'&&fieldVisible(x,side.values))))own.append(fieldRow(o,f,side.code,side.values[f.id]));
  if(kind.calendarPurposes){
   const calendar=sideCalendar({id:'ticket-calendar-'+side.code,choices:()=>referenceCalendarChoices(d.sideCalendars??[]),purposes:()=>kind.calendarPurposes!,changed:()=>o.on.calendar?.(side.code,calendar.draft())});
   calendar.restore(side.calendarPolicy);calendar.sync(o.mode==='booked');own.append(calendar.element);
