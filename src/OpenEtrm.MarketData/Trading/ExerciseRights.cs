@@ -37,7 +37,15 @@ public sealed record ExerciseElection(int Right, DateOnly From, string Outcome, 
             throw Invalid();
     }
 
-    internal static MarketDataException Invalid() => new("exercise_election",
+    internal static void RequireRetainedGroups(ImmutableArray<ExerciseRight> rights, ImmutableArray<ExerciseElection> elections)
+    {
+        foreach (var election in elections)
+            if (election.Right >= rights.Length || rights[election.Right].Settlement != ExerciseSettlement.Physical ||
+                !rights[election.Right].Groups.Any(group => group.From == election.From))
+                throw Invalid();
+    }
+
+    private static MarketDataException Invalid() => new("exercise_election",
         "Each election requires a distinct retained physical exercise group, an outcome, an effective instant and identified evidence.");
 }
 
@@ -59,12 +67,7 @@ internal sealed class ExerciseDecisions
     private ExerciseDecisions(ImmutableArray<ExerciseRight> rights, ImmutableArray<ExerciseElection> elections, DateTimeOffset at)
     {
         foreach (var election in elections)
-        {
-            if (election.Right >= rights.Length || rights[election.Right].Settlement != ExerciseSettlement.Physical ||
-                !rights[election.Right].Groups.Any(group => group.From == election.From))
-                throw ExerciseElection.Invalid();
             if (election.EffectiveAt <= at) outcomes.Add((election.Right, election.From), election.Outcome);
-        }
         foreach (var right in rights)
         {
             var days = new Dictionary<DateOnly, string>();

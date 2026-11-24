@@ -146,7 +146,6 @@ internal sealed class RetainedExerciseValuation
         var rights = instrument.Rights;
         if (context.BindingState is not PhysicalCashState held)
             throw PhysicalDeliveryQuantities.Invalid("An exercise right requires its complete held day quantities.");
-        instrument.ValidateValuationState(held);
         var decisions = ExerciseDecisions.Resolve(rights, instrument.Members, held, context.Snapshot, context.CalculationAt);
         DateTimeOffset? firstEvent = null;
         void Boundary(DateTimeOffset at)
@@ -195,8 +194,7 @@ internal sealed class RetainedExerciseValuation
                 }
             }
         }
-        if (context.Snapshot.Knowledge is {} knowledge)
-            foreach (var payment in held.Payments.Where(p => p.KnownAt <= knowledge.KnownAt)) Boundary(payment.PaidAt);
+        foreach (var payment in held.KnownPayments(context.Snapshot)) Boundary(payment.PaidAt);
         if (firstEvent <= context.CalculationAt)
             throw new MarketDataException("valuation_time_coverage", "The calculation clock crosses a retained valuation event.");
         return contract with

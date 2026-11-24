@@ -52,8 +52,15 @@ public sealed class PhysicalCashState:IBindingValuationState
         }
         return (total,last);
     }
-    internal IEnumerable<CashOccurrencePayment> VisiblePayments(MarketSnapshot snapshot) => snapshot.Knowledge is {} knowledge
-        ? Payments.Where(payment => payment.PaidAt <= snapshot.ValuationAt && payment.KnownAt <= knowledge.KnownAt) : [];
+    internal IEnumerable<CashOccurrencePayment> KnownPayments(MarketSnapshot snapshot)
+    {
+        if (Payments.IsEmpty) return [];
+        var knownAt = PhysicalLifecycle.RequirePaymentKnowledge(snapshot).KnownAt;
+        return Payments.Where(payment => payment.KnownAt <= knownAt);
+    }
+
+    internal IEnumerable<CashOccurrencePayment> VisiblePayments(MarketSnapshot snapshot) =>
+        KnownPayments(snapshot).Where(payment => payment.PaidAt <= snapshot.ValuationAt);
 
     private static bool Supported(DateTimeOffset at)=>at!=default&&TradingInstant.IsSupported(at);
 }
@@ -106,6 +113,9 @@ public static class PhysicalLifecycle
 
     // Missing lifecycle wiring is a system defect, not a trade's refusal: it fails the read (TradeRefusal excludes it).
     public const string ContextRefusal="physical_lifecycle_context";
+
+    internal static MarketKnowledge RequirePaymentKnowledge(MarketSnapshot snapshot) => snapshot.Knowledge ??
+        throw new MarketDataException(ContextRefusal, "Payment visibility requires an explicit resolved knowledge cutoff.");
 
     // Owner decision (D360): a whole gas-day physical program prices each gas day not yet ended at its location curve's own mark.
     // A published fixing locks only the payment price, so it neither prices nor backs up the physical leg.
@@ -210,7 +220,7 @@ public static class PhysicalLifecycle
     private static PhysicalLifecycleValue EvaluateConnected(ImmutableArray<LifecycleMember> members,PhysicalCashState state,MarketSnapshot snapshot,
         ReferenceKey currency,PhysicalLifecycleGeometry geometry,int firstSlot,ImmutableArray<EntryDayQuantity> entryDays)
     {
-        if(snapshot.Knowledge is null)throw new MarketDataException(ContextRefusal,"Payment visibility requires an explicit resolved knowledge cutoff.");
+        _=RequirePaymentKnowledge(snapshot);
         var at=snapshot.ValuationAt;var zero=ExactMoney.Parse("0",currency);
         var days=geometry.Days;var quantities=geometry.Quantities;
         DeliveryState Delivery(DateTimeOffset start,DateTimeOffset end)=>end<=at?DeliveryState.Ended:start<=at?DeliveryState.InProgress:DeliveryState.NotStarted;

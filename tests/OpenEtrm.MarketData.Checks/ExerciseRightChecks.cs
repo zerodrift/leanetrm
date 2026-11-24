@@ -38,6 +38,7 @@ internal static class ExerciseRightChecks
         Check("election effective time bounds the undecided value and the frozen clock", ElectionTiming);
         Check("invalid elections and conflicting delivery or payment facts refuse", ElectionRefusals);
         Check("an outside physical source remains available to a contingent cash member", CashElectionSource);
+        Check("state admission and pricing declaration validate election groups and payment knowledge", ElectionAdmission);
     }
 
     private sealed class GroupFixture
@@ -502,6 +503,47 @@ internal static class ExerciseRightChecks
         if (value.Groups[0].State != "undecided" || value.Groups[0].Counted.Ratio != R("27000") ||
             value.Sides[0].Contribution.Ratio != R("8.94"))
             throw new Exception("A payment-only right uses its outside physical source without owning its schedule records.");
+    }
+
+    private static void ElectionAdmission()
+    {
+        var f = new GroupFixture(3, dailyPoint: true, scheduled: true);
+        var at = f.ExerciseAt.AddDays(-28);
+        var (risk, context) = f.Prepare(at: at);
+        var snapshot = risk.Market.Snapshot;
+        var rightless = f.Market.Instrument;
+        var future = ElectedState(f, [Election(f, 0, "exercised", at.AddDays(1))]);
+        f.Instrument.ValidateValuationState(future);
+        var failures = new List<string>();
+        void Refuses(string label, string code, Action action)
+        {
+            try { action(); }
+            catch (MarketDataException error)
+            {
+                if (error.Code != code) failures.Add($"{label} raised {error.Code} instead of {code}.");
+                return;
+            }
+            failures.Add($"{label} succeeded instead of raising {code}.");
+        }
+
+        Refuses("State admission with a future election on a rightless instrument", "exercise_election",
+            () => rightless.ValidateValuationState(future));
+        Refuses("Declaration with a future election on a rightless instrument", "exercise_election",
+            () => rightless.Declare(new UnitValuationContext(snapshot, context.Setup, bindingState: future)));
+
+        var abandoned = ImmutableArray.Create(Election(f, 0, "abandoned", at), Election(f, 1, "abandoned", at),
+            Election(f, 2, "abandoned", at));
+        var payment = new CashOccurrencePayment(Guid.NewGuid(), 1, 0, at, at, ExactMoney.Parse("-30000", f.Instrument.Currency));
+        var held = ElectedState(f, abandoned, payments: [payment]);
+        var unresolved = new MarketSnapshot(snapshot.Id, snapshot.Definitions, snapshot.ValuationAt, snapshot.MarketCutoff,
+            snapshot.SelectionPolicy, snapshot.Selections);
+        UnitPricingContract Declare(MarketSnapshot market) =>
+            f.Instrument.Declare(new UnitValuationContext(market, context.Setup, bindingState: held));
+
+        Refuses("Payment-bearing declaration without a knowledge cutoff", PhysicalLifecycle.ContextRefusal, () => Declare(unresolved));
+        Refuses("Payment-bearing declaration at the current cutoff", "exercise_conflict", () => Declare(snapshot));
+        _ = Declare(unresolved.WithKnowledge(Guid.NewGuid(), at.AddMinutes(-1)));
+        if (failures.Count != 0) throw new Exception(string.Join(" ", failures));
     }
 
     private static void RejectElection(string code, Action action)

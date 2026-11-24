@@ -210,6 +210,8 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
     // and original whole-day delivery-mark policy in its explicit model version.
     public override UnitPricingContract Declare(UnitValuationContext context)
     {
+        if (!Rights.IsEmpty || context.BindingState is PhysicalCashState { Elections.IsEmpty: false })
+            ValidateValuationState(context.BindingState);
         var declaration = RetainedDeclaration(new(Id,
             (context.BindingState is PhysicalCashState ? PhysicalCashState.Policy + "/" : "") +
             (Members.Select(m => m.QuantityPolicy).FirstOrDefault(p => p is not null) is {} policy ? policy + "/" : "") +
@@ -280,6 +282,7 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
                 throw PhysicalDeliveryQuantities.Invalid("An instrument with quantity terms requires its complete held owner-day inputs.");
             base.ValidateValuationState(state); return;
         }
+        ExerciseElection.RequireRetainedGroups(Rights, cash.Elections);
         if (cash.Quantity.Specification != UnitQuantity.Specification || cash.Payments.Any(p => p.Slot >= Members.Length ||
                 Members[p.Slot].Program.Document.Family == "gas" || p.Amount.Currency != Currency ||
                 !Members[p.Slot].Program.Document.Instructions.Any(i => i.Output is { Operation: "output_guard", Grid: null } && i.Output.PaymentOrdinal == p.Occurrence)))
