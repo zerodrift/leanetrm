@@ -72,7 +72,117 @@ internal static class GasTicketChecks
             Refuses("gas_composition_input","a lump sum supplying a quantity",()=> (lump with{DailyQuantity="1"}).RequireBasis());
             Refuses("gas_composition_input","capacity supplying a payment instant",()=> (capacity with{PaymentAt=lump.PaymentAt}).RequireBasis());
         });
+        Check("resolved charge refusals preserve the precise booking field and refusal code", () =>
+        {
+            var key=Policy("charge").Delivery.Calendar!.Value;
+            var quote=new QuoteSpecification(key,QuoteKind.Outright,key,key,ExactDecimal.Parse("2"),
+                ExactDecimal.Parse("0.01"),ExactDecimal.Parse("0.01"),ExactDecimal.Parse("-1000"),ExactDecimal.Parse("1000"));
+            var clock=GasDayClock.Capture(new(key.Revision,"synthetic_afternoon_clock"),TimeZoneInfo.Utc,15*60);
+            var calendar=new CalendarDefinition(key,new(2027,1,1),new(2027,2,1),0,[],CalendarDefinition.Implementation);
+            var calendars=SideCalendarPolicy.UseOne(calendar,true,false,true);
+            var exact=new GasChargeRequest("PREM","lump_sum","pay","1",null,null,null,"2027-01-10T00:00:00Z",null,"RCT");
+            var capacity=new GasChargeRequest("CAP","capacity","pay","0.02","100","2027-01-20","2027-02-01",null,2,"RCT");
+            void NamesResolved(GasChargeRequest terms, QuoteSpecification native, string code, string field, GasDayClock? selectedClock=null)
+            {
+                try{GasCompositionStore.ResolveCharge(terms,native,new(ExactDecimal.Parse("1"),native.Quantity),selectedClock??clock,()=>calendars);}
+                catch(TicketFieldException error)when(error.Code==code&&error.Side==terms.Code&&error.Field==field){return;}
+                throw new Exception($"Expected {code} on {terms.Code}.{field} after native resolution.");
+            }
+            NamesResolved(exact,quote with{Multiplier=ExactDecimal.Parse("3")},"gas_composition_input","charge_price");
+            NamesResolved(exact with{PaymentAt="0001-01-01T00:00:00Z"},quote,"gas_composition_input","charge_payment_at");
+            NamesResolved(capacity,quote,"calendar_coverage","calendar_policy");
+            NamesResolved(capacity with{To="9999-12-02"},quote,"gas_composition_input","charge_end");
+            var transitionTime=new DateTime(1,1,1,2,0,0);
+            var rule=TimeZoneInfo.AdjustmentRule.CreateAdjustmentRule(new(2027,1,1),new(2027,12,31),TimeSpan.FromHours(1),
+                TimeZoneInfo.TransitionTime.CreateFixedDateRule(transitionTime,1,25),
+                TimeZoneInfo.TransitionTime.CreateFixedDateRule(transitionTime,10,25));
+            var seasonal=TimeZoneInfo.CreateCustomTimeZone("synthetic_seasonal",TimeSpan.Zero,"Synthetic seasonal","Synthetic standard","Synthetic seasonal",[rule]);
+            var missingBoundary=GasDayClock.Capture(new(key.Revision,"synthetic_seasonal_clock"),seasonal,150);
+            NamesResolved(capacity with{To="2027-01-25"},quote,"gas_day_boundary","charge_clock_side",missingBoundary);
+        });
+        var lumpSum = Side("charge", "PREM", ("charge_basis", "lump_sum"), ("charge_direction", "pay"),
+            ("charge_price", "5000.00"), ("charge_payment_at", "2026-12-18T00:00:00+00:00"), ("charge_clock_side", "RCT"));
+        var capacityCharge = Side("charge", "CAP", ("charge_basis", "capacity"), ("charge_direction", "receive"),
+            ("charge_price", "0.020"), ("charge_daily_quantity", "10000"), ("charge_start", "2027-01-20"),
+            ("charge_end", "2027-03-11"), ("charge_payment_day", "2"), ("charge_clock_side", "RCT"));
         var jsonOptions=new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        Check("each charge basis books its exact stated terms and reopens the same draft", () =>
+        {
+            var draft = Draft(Receipt, Cash, lumpSum, capacityCharge);
+            var terms = Map(draft);
+            var charges = terms.ChargeSides!.Value;
+            Equal(new GasChargeRequest("PREM", "lump_sum", "pay", "5000.00", null, null, null, "2026-12-18T00:00:00+00:00", null, "RCT"){CalendarPolicy=Policy("charge")}, charges[0], "lump sum");
+            Equal(new GasChargeRequest("CAP", "capacity", "receive", "0.020", "10000", "2027-01-20", "2027-03-11", null, 2, "RCT"){CalendarPolicy=Policy("charge")}, charges[1], "capacity");
+            Equal("PAY", terms.CashSides.Single().Code, "following payment");
+            var reopened = GasTicket.Reopen(terms);
+            Equal(Values(draft), Values(reopened), "reopened draft");
+            foreach(var side in reopened.Sides.Where(s=>s.Kind=="charge"))
+                Equal(Policy("charge"), side.CalendarPolicy, "reopened calendar");
+            Equal(Json(terms), Json(Map(reopened)), "complete remapped request");
+        });
+        Check("no-charge request bytes stay absent and an explicit empty predecessor can reopen", () =>
+        {
+            var original=Map(Draft(Receipt,Cash));
+            Equal(false, JsonSerializer.SerializeToElement(original,jsonOptions).TryGetProperty("chargeSides",out _), "absent optional charge key");
+            Equal(Json(original), Json(Map(GasTicket.Reopen(original with{ChargeSides=[]}))), "empty list reopens as no charge");
+            var legacy=original with{CashSides=[original.CashSides[0] with{Share=null!}]};
+            var charge=lumpSum with{Code=legacy.CashSides[0].Code};
+            Equal(Values(Draft(Receipt,charge)), Values(GasTicket.RetryDraft(Draft(Receipt,charge),legacy)), "no charge fields restored from a predecessor payment");
+        });
+        Check("a charge uses only the sole physical clock proposal and has no other starting values", () =>
+        {
+            var emptyCharge = Side("charge", "NEW");
+            var draft = Draft(Receipt, emptyCharge);
+            var clock = GasTicket.Choices(draft, "NEW", "charge_clock_side", default);
+            Equal(new TicketChoice("RCT", "RCT"), clock.Single(), "clock choice");
+            Equal(new TicketLookup("RCT", new("suggestion", "Only eligible choice")), GasTicket.ChoiceSet(draft, "NEW", "charge_clock_side", clock).StartingValue, "visible clock proposal");
+            var multi = Draft(Receipt, Linked, emptyCharge);
+            var clocks = GasTicket.Choices(multi, "NEW", "charge_clock_side", default);
+            Equal("RCT,DLV", string.Join(",", clocks.Select(c=>c.Value)), "physical clocks only");
+            Equal(null, GasTicket.ChoiceSet(multi, "NEW", "charge_clock_side", clocks).StartingValue, "no clock proposal among several");
+            Equal("A lump sum,A daily capacity", string.Join(",", GasTicket.Choices(draft, "NEW", "charge_basis", default).Select(c=>c.Label)), "basis labels");
+            foreach(var field in new[]{"charge_basis","charge_direction","charge_payment_day"})
+                Equal(null, GasTicket.ChoiceSet(draft, "NEW", field, GasTicket.Choices(draft, "NEW", field, default)).StartingValue, field);
+        });
+        Check("the Charge card describes individual rows and basis-specific requirements", () =>
+        {
+            var kind = GasTicket.SideKind("charge");
+            Equal(("charge","Charge",0,0,new TicketCalendarPurposes(true,false,true)), (kind.Kind,kind.Pill,kind.Min,kind.Initial,kind.CalendarPurposes), "charge card and calendar purposes");
+            var fields = kind.Fields;
+            Equal("charge_basis,charge_direction,charge_price,charge_daily_quantity,charge_start,charge_end,charge_payment_day,charge_payment_at,charge_clock_side",
+                string.Join(",", fields.Select(f=>f.Id)), "charge field order");
+            Equal("quantity", fields.Single(f=>f.Id=="charge_daily_quantity").Unit, "daily quantity unit");
+            if(fields.Any(f=>f.Band is not null||!f.Required||f.State!="editable"||f.Lookup is not null))
+                throw new Exception("Every charge field needs its own explicit editable row.");
+            foreach(var (side, ids) in new[]{
+                (lumpSum,"charge_basis,charge_direction,charge_price,charge_payment_at,charge_clock_side"),
+                (capacityCharge,"charge_basis,charge_direction,charge_price,charge_daily_quantity,charge_start,charge_end,charge_payment_day,charge_clock_side")})
+                Equal(ids, string.Join(",", fields.Where(f=>f.VisibleWhen?.Matches(side.Values)!=false).Select(f=>f.Id)), "required fields for "+side.Code);
+            var priceField=fields.Single(f=>f.Id=="charge_price");
+            Equal("charge_basis",priceField.DependsOn.Single(),"basis edits clear the previous amount or rate");
+            var price=JsonSerializer.SerializeToElement(priceField,jsonOptions).GetProperty("labelByChoice");
+            Equal("charge_basis", price.GetProperty("field").GetString(), "label selector");
+            Equal("Amount", price.GetProperty("labels").GetProperty("lump_sum").GetString(), "lump sum label");
+            Equal("Rate per unit per day", price.GetProperty("labels").GetProperty("capacity").GetString(), "capacity label");
+            Equal(false, JsonSerializer.SerializeToElement(fields[0],jsonOptions).TryGetProperty("labelByChoice",out _), "ordinary field wire shape");
+            var description = GasTicket.Description;
+            void RejectLabelMap(string selector, params (string Id,string Value)[] labels)
+            {
+                var wire = JsonSerializer.SerializeToNode(description,jsonOptions)!;
+                var charge = wire["sides"]!.AsArray().Single(s=>s!["kind"]!.GetValue<string>()=="charge")!;
+                var item = charge["fields"]!.AsArray().Single(f=>f!["id"]!.GetValue<string>()=="charge_price")!;
+                item["labelByChoice"] = JsonSerializer.SerializeToNode(new {field=selector,labels=V(labels)},jsonOptions);
+                Refuses("ticket_description","malformed conditional label map",()=>
+                    TicketDescriptions.Validate(wire.Deserialize<TicketDescription>(jsonOptions)!));
+            }
+            RejectLabelMap("direction",("receive","Receipt"));
+            RejectLabelMap("charge_daily_quantity",("1","Some amount"));
+            RejectLabelMap("charge_price",("1","The amount"));
+            RejectLabelMap("charge_basis",("capacity"," "));
+            RejectLabelMap("charge_basis",("","Amount"));
+            RejectLabelMap("charge_basis");
+
+        });
         var dailyRight=new {right_sides=new[]{"PAY","RCT"},right_period="delivery_day",right_holder="us",right_settlement="physical",right_lead_hours="6"};
         TicketDraft Rights(TicketDraft draft,params object[] rights)
         {
@@ -99,6 +209,17 @@ internal static class GasTicketChecks
                 throw new Exception($"Expected exercise row {row}, field {field}.");
             });
         }
+        Check("an independent premium and an exercise right reopen together", ()=>{
+            var draft = Rights(Draft(Receipt, Cash, lumpSum), dailyRight);
+            var terms = Map(draft);
+            Equal("PREM", terms.ChargeSides!.Value.Single().Code, "independent premium");
+            Equal("PAY,RCT", string.Join(",", terms.ExerciseRights!.Value.Single().Entries), "right membership");
+            Equal("PAY,RCT", string.Join(",", GasTicket.Choices(draft, null, "right_sides", default)
+                .Select(c=>c.Value).Order()), "eligible right sides");
+            Equal(Json(terms), Json(Map(GasTicket.Reopen(terms))), "reopened right and premium");
+        });
+        RejectRight("an exercise right cannot claim a charge", Rights(Draft(Receipt,Cash,lumpSum),
+            dailyRight with{right_sides=["PAY","RCT","PREM"]}),0,"right_sides");
         RejectRight("a second right claiming the same side identifies its own row",Rights(Draft(Receipt,Cash),dailyRight,dailyRight),1,"right_sides");
         RejectRight("cash exercise refuses a hidden lead",Rights(Draft(Receipt,Cash),dailyRight with{right_settlement="cash_automatic"}),0,"right_lead_hours");
         RejectRight("a zero-fuel link anywhere refuses the exercise selection",Rights(Draft(Receipt,Linked with{Values=Linked.Values.SetItem("link_formula","none").SetItem("link_fraction","0")},Cash),dailyRight),0,"right_sides");
@@ -370,8 +491,8 @@ internal static class GasTicketChecks
             string[] structural = ["GasPhysicalRequest.Code", "GasPhysicalRequest.Link", "GasCashRequest.Code", "GasCashRequest.Role", "GasCompositionRequest.SnapshotId", "GasCompositionRequest.Convention", "GasCompositionRequest.KnowledgeMode",
                 "GasCompositionRequest.Profile", "GasCompositionRequest.OperationId", "GasCompositionRequest.DefinitionRevisionId", "GasCompositionRequest.Discounting", "GasCompositionRequest.PhysicalSides", "GasCompositionRequest.CashSides",
                 "GasCompositionRequest.TradeId", "GasCompositionRequest.BindingId", "GasCompositionRequest.ExpectedRevision", "GasCompositionRequest.Reason", "GasCompositionRequest.AmendmentPolicy", "GasCompositionRequest.PreviewTradeId", "GasCompositionRequest.PreviewContextId",
-                "GasCashRequest.Indexed", "GasIndexedCashRequest.PaymentConvention"];
-            var parameters = new[] { typeof(GasPhysicalRequest), typeof(GasCashRequest), typeof(GasQuantityLinkRequest), typeof(GasCompositionRequest), typeof(GasIndexedCashRequest) }
+                "GasCashRequest.Indexed", "GasIndexedCashRequest.PaymentConvention", "GasChargeRequest.Code"];
+            var parameters = new[] { typeof(GasPhysicalRequest), typeof(GasCashRequest), typeof(GasQuantityLinkRequest), typeof(GasCompositionRequest), typeof(GasIndexedCashRequest), typeof(GasChargeRequest) }
                 .SelectMany(t => t.GetConstructors().Single().GetParameters().Select(x => $"{t.Name}.{x.Name}")).Where(x => !structural.Contains(x)).Concat(new[]{"GasPhysicalRequest.QuantityPolicy","GasCashRequest.Share","GasCashRequest.Part","GasCashRequest.DeliveryFrom","GasCashRequest.DeliveryTo"}).Order().ToArray();
             string[] reached = ["GasPhysicalRequest.Pipeline:pipeline", "GasPhysicalRequest.Zone:zone", "GasPhysicalRequest.DeliveryPoint:delivery_point", "GasPhysicalRequest.Product:product", "GasPhysicalRequest.Direction:direction",
                 "GasPhysicalRequest.DeliveryFrom:delivery_from", "GasPhysicalRequest.DeliveryTo:delivery_to", "GasPhysicalRequest.QuantityBasis:quantity_basis", "GasPhysicalRequest.QuantityPolicy:quantity_policy", "GasPhysicalRequest.Quantity:quantity",
@@ -382,6 +503,8 @@ internal static class GasTicketChecks
                 "GasIndexedCashRequest.ObservationConvention:floating_pricing", "GasCashRequest.TariffCode:fee_tariff", "GasCashRequest.PaymentAt:cash_payment_at|fee_payment_at",
                 "GasCompositionRequest.BookId:book", "GasCompositionRequest.GasSetupId:gas_setup", "GasCompositionRequest.LegalEntityId:legal_entity", "GasCompositionRequest.LegalEntityRevision:legal_entity",
                 "GasPhysicalRequest.ForecastCurve:forecast_curve", "GasCompositionRequest.CounterpartyId:counterparty", "GasCompositionRequest.CounterpartyRevision:counterparty",
+                "GasChargeRequest.Basis:charge_basis", "GasChargeRequest.Direction:charge_direction", "GasChargeRequest.Price:charge_price", "GasChargeRequest.DailyQuantity:charge_daily_quantity",
+                "GasChargeRequest.From:charge_start", "GasChargeRequest.To:charge_end", "GasChargeRequest.PaymentAt:charge_payment_at", "GasChargeRequest.PaymentDay:charge_payment_day", "GasChargeRequest.ClockSide:charge_clock_side",
                 "GasIndexedCashRequest.Index:floating_index", "GasIndexedCashRequest.ForecastCurve:floating_forecast_curve", "GasIndexedCashRequest.Spread:floating_spread", "GasIndexedCashRequest.PaymentDay:floating_payment_day"];
             var names = reached.Select(x => x.Split(':')[0]).Order().ToArray();
             if (!parameters.SequenceEqual(names)) throw new Exception($"Request properties and the field map differ: {string.Join(", ", parameters.Except(names).Concat(names.Except(parameters)))}.");
@@ -401,14 +524,14 @@ internal static class GasTicketChecks
         Check("the side caps are the composition contract's", () =>
         {
             Equal((GasCompositionInstrument.MinPhysicalSides, GasCompositionInstrument.MaxPhysicalSides), (GasTicket.SideKind("physical").Min, GasTicket.SideKind("physical").Max), "physical sides");
-            Equal(GasCompositionInstrument.MaxCashSides, GasTicket.Description.SideLimits.Single(l => l.Kinds.SequenceEqual(["cash", "fee", "floating"])).Max, "cash and fee sides");
+            Equal(GasCompositionInstrument.MaxCashSides, GasTicket.Description.SideLimits.Single(l => l.Kinds.Where(k=>k!="charge").SequenceEqual(["cash", "fee", "floating"])).Max, "cash and fee sides");
             foreach (var role in new[] { "consideration", "fee", "indexed_consideration" }) Equal(GasCompositionInstrument.MaxCashSides, GasTicket.SideKind(role).Max, role + " sides");
         });
         Check("a new gas ticket opens with one physical and one payment side", () =>
-            Equal("physical:1,cash:1,fee:0,floating:0", string.Join(",", GasTicket.Description.Sides.Select(k => $"{k.Kind}:{k.Initial}")), "initial sides"));
+            Equal("physical:1,cash:1,fee:0,floating:0", string.Join(",", GasTicket.Description.Sides.Where(k=>k.Kind!="charge").Select(k => $"{k.Kind}:{k.Initial}")), "initial sides"));
         Check("quantities are in the trade's resolved quantity unit, never a unit symbol", () =>
         {
-            var fields = GasTicket.Description.TradeFields.Concat(GasTicket.Description.Sides.SelectMany(k => k.Fields)).Where(f => f.Unit is not null).Select(f => $"{f.Id}:{f.Unit}");
+            var fields = GasTicket.Description.TradeFields.Concat(GasTicket.Description.Sides.SelectMany(k => k.Fields)).Where(f => f.Unit is not null&&f.Id!="charge_daily_quantity").Select(f => $"{f.Id}:{f.Unit}");
             Equal("quantity:quantity", string.Join(",", fields), "fields with a unit");
             var columns = GasTicket.Description.Sides.SelectMany(k => k.Columns).Concat(GasTicket.Description.TradeColumns).Where(c => c.Soon is null);
             if (columns.Any(c => c.Unit != (c.Measure == "quantity" ? "quantity" : null))) throw new Exception("Only quantity columns are in the resolved quantity unit.");
@@ -469,6 +592,24 @@ internal static class GasTicketChecks
             try { Map(draft); } catch (TicketFieldException error) when (error.Code == code && error.Side == side && error.Field == field) { passed++; Console.WriteLine($"PASS names the field of {name}"); return; }
             throw new Exception($"Expected {code} on {side}.{field} for {name}.");
         }
+        Names("a capacity payment day of 29", Draft(Receipt, With(capacityCharge,"charge_payment_day","29")), "gas_composition_input", "CAP", "charge_payment_day");
+        Names("a capacity payment day not written as an offered choice", Draft(Receipt, With(capacityCharge,"charge_payment_day","02")), "gas_composition_input", "CAP", "charge_payment_day");
+        Names("a capacity end equal to its start", Draft(Receipt, With(capacityCharge,"charge_end","2027-01-20")), "gas_composition_input", "CAP", "charge_end");
+        Names("a missing capacity start", Draft(Receipt, With(capacityCharge,"charge_start",null)), "gas_composition_input", "CAP", "charge_start");
+        Names("an unrecognized charge basis", Draft(Receipt, With(lumpSum,"charge_basis","quantity")), "gas_composition_input", "PREM", "charge_basis");
+        Names("an unrecognized charge direction", Draft(Receipt, With(lumpSum,"charge_direction","deliver")), "gas_composition_input", "PREM", "charge_direction");
+        Names("a charge that names a payment as its clock", Draft(Receipt, Cash, With(lumpSum,"charge_clock_side","PAY")), "gas_composition_input", "PREM", "charge_clock_side");
+        Names("a charge without its clock even on a trade with one physical side", Draft(Receipt, With(lumpSum,"charge_clock_side",null)), "gas_composition_input", "PREM", "charge_clock_side");
+        Names("a lump sum with a capacity field", Draft(Receipt, With(lumpSum,"charge_daily_quantity","1")), "gas_composition_input", "PREM", "charge_daily_quantity");
+        Names("a lump sum payment date outside exact UTC syntax", Draft(Receipt, With(lumpSum,"charge_payment_at","2027-01-01T00:00:00.0000001Z")), "gas_composition_input", "PREM", "charge_payment_at");
+        Names("a capacity charge with zero daily quantity", Draft(Receipt, With(capacityCharge,"charge_daily_quantity","0")), "gas_composition_input", "CAP", "charge_daily_quantity");
+        Names("a capacity charge with a nonpositive rate", Draft(Receipt, With(capacityCharge,"charge_price","-0.02")), "gas_composition_input", "CAP", "charge_price");
+        Names("a charge with an unsupported decimal", Draft(Receipt, With(lumpSum,"charge_price","5,000")), "gas_composition_input", "PREM", "charge_price");
+        var sevenPayments = Enumerable.Range(0,7).Select(n=>Cash with{Code=$"C{n}"}).ToArray();
+        Check("a charge can be the seventh payment side", ()=>Equal(1,
+            Map(Draft([Receipt,..sevenPayments.Take(6),lumpSum])).ChargeSides!.Value.Length, "admitted charge"));
+        Names("a charge as the eighth payment side", Draft([Receipt,..sevenPayments,lumpSum]), "gas_composition_input", "PREM", "charge_basis");
+        Names("a charge as the ninth side in total", Draft([Receipt,Linked,..sevenPayments.Take(6),lumpSum]), "gas_composition_input", "PREM", "charge_basis");
         Names("a quantity that is not a plain decimal", Draft(With(Receipt, "quantity", "10,000")), "numeric_format", "RCT", "quantity");
         Names("a fee price that is not a plain decimal", Draft(Receipt, Linked, With(With(Fee, "fee_tariff", null), "fee_price", "0.1x")), "numeric_format", "FEE", "fee_price");
         Names("a missing required side value", Draft(With(Receipt, "product", null)), "ticket_input", "RCT", "product");
@@ -716,7 +857,7 @@ internal static class GasTicketChecks
         Refuses("ticket_input", "usage tariffs on a receipt-stage fee refuse", () => GasTicket.Choices(Open(A(Receipt), With(fee, "fee_stage", "receipt")), "FEE", "fee_tariff", catalog));
         Check("every choice field of the description is answered", () =>
         {
-            var draft = Open(A(Receipt), A(Linked), Cash, fee, Indexed);
+            var draft = Open(A(Receipt), A(Linked), Cash, fee, Indexed, capacityCharge);
             foreach (var kind in GasTicket.Description.Sides)
                 foreach (var field in kind.Fields.Where(f => f.Choices is not null))
                     if (GasTicket.Choices(draft, draft.Sides.First(s => s.Kind == kind.Kind).Code, field.Id, catalog).IsEmpty) throw new Exception($"No choices for {field.Id}.");

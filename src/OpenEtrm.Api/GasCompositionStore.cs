@@ -166,9 +166,15 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   if(body.PhysicalSides.Any(p=>p.QuantityPolicy is not(null or GasDeliveryQuantityStore.Policy))||
    body.PhysicalSides.Any(p=>p.QuantityPolicy is not null)&&body.PhysicalSides.Any(p=>p.Link is not null))
    throw new MarketDataException("gas_quantity_policy","Delivery schedule quantities require independent physical sides and the saved delivery schedule policy.");
-  data=await SideCalendarPolicies.Prepare(c,data,body.PhysicalSides.Select(s=>s.CalendarPolicy).Concat(body.CashSides.Select(s=>s.CalendarPolicy)).Concat(charges.Select(s=>s.CalendarPolicy)),ct);
+  data=await SideCalendarPolicies.Prepare(c,data,body.PhysicalSides.Select(s=>s.CalendarPolicy).Concat(body.CashSides.Select(s=>s.CalendarPolicy)),ct);
   if(body.Profile!=(body.CashSides.Any(s=>s.Indexed is not null)?IndexedProfile:Profile)||body.Discounting!=false||body.KnowledgeMode!="current"||body.PhysicalSides.IsDefault||body.PhysicalSides.Length is <GasCompositionInstrument.MinPhysicalSides or >GasCompositionInstrument.MaxPhysicalSides||body.CashSides.IsDefault||body.CashSides.Length+charges.Length>GasCompositionInstrument.MaxCashSides||body.PhysicalSides.Length+body.CashSides.Length+charges.Length>GasCompositionInstrument.MaxSides)
    throw Invalid($"Select the bounded fixed-quantity gas composition profile, explicit no discounting, {GasCompositionInstrument.MinPhysicalSides} to {GasCompositionInstrument.MaxPhysicalSides} physical sides and up to {GasCompositionInstrument.MaxCashSides} cash sides.");
+  foreach(var charge in charges)
+  {
+   try{data=await SideCalendarPolicies.Prepare(c,data,[charge.CalendarPolicy],ct);}
+   catch(MarketDataException error)when(error.Code=="calendar_reference")
+   {throw ChargeField(charge,"calendar_policy",error);}
+  }
   var physical=ImmutableArray.CreateBuilder<GasPhysicalComponent>();var assignments=new List<ImmutableArray<GasValuationAssignment>>();var clocks=new List<GasDayClock>();var mappings=new List<JsonElement>();
   foreach(var p in body.PhysicalSides)
   {
@@ -209,25 +215,10 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   foreach(var p in charges)
   {
    var matches=body.PhysicalSides.Select((v,i)=>(v,i)).Where(x=>x.v.Code==p.ClockSide).ToArray();
-   if(matches.Length!=1)throw Invalid("Select one physical Side of this trade for the charge clock.");
+   if(matches.Length!=1)throw ChargeField(p,"charge_clock_side",Invalid("Select one physical Side of this trade for the charge clock."));
    var slot=matches[0].i;clockSlots.Add(slot);
-   var basis=p.RequireBasis();var quote=assignments[slot][0].Quote;
-   var price=ChargePrice(p.Price,quote);var unit=physical[slot].Side.UnitQuantity;
-   var calendars=SideCalendarPolicies.Resolve(data,p.CalendarPolicy);
-   FixedSide side;
-   if(basis==ChargeBasis.LumpSum)
-   {
-    var payment=TradingInstant.Parse(p.PaymentAt,"gas_composition_input");
-    side=GasChargeSides.LumpSum(Guid.NewGuid(),price,unit,clocks[slot],payment,calendars,quote);
-   }
-   else
-   {
-    if(!DateOnly.TryParseExact(p.From,"yyyy-MM-dd",CultureInfo.InvariantCulture,DateTimeStyles.None,out var from)||
-       !DateOnly.TryParseExact(p.To,"yyyy-MM-dd",CultureInfo.InvariantCulture,DateTimeStyles.None,out var to))
-     throw Invalid("Supply the first and exclusive end gas dates in year-month-day form.");
-    side=GasChargeSides.Capacity(Guid.NewGuid(),price,unit,clocks[slot],from,to,p.PaymentDay!.Value,calendars,quote);
-   }
-   owning.Add(new(p.Code,side,basis,p.ClockSide,basis==ChargeBasis.LumpSum?Number("1"):EntryNumber(p.DailyQuantity!),Number(Sign(p.Direction,false).ToString(CultureInfo.InvariantCulture))));
+   owning.Add(ResolveCharge(p,assignments[slot][0].Quote,physical[slot].Side.UnitQuantity,clocks[slot],
+    ()=>SideCalendarPolicies.Resolve(data,p.CalendarPolicy)));
   }
   var rights=(body.ExerciseRights??[]).Select(r=>r is null?throw Invalid("Supply each exercise right explicitly."):
    new GasExerciseRight(r.Entries,Period(r.Period),Holder(r.Holder),Settlement(r.Settlement),r.LeadHours)).ToImmutableArray();
@@ -242,13 +233,85 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   }
   return new(instrument,members.ToImmutable());
  }
- // Contractual cash is stated in the trade currency per unit. Preserve that amount
- // when the captured quote unit carries a multiplier.
- internal static UnitPrice ChargePrice(string? text,QuoteSpecification quote)
+ static TicketFieldException ChargeField(GasChargeRequest charge,string field,MarketDataException error)=>
+  new(error.Code,error.Message,charge.Code,field);
+
+ internal static (ChargeBasis Basis,ExactDecimal Nominal,ExactDecimal DailyQuantity,ExactDecimal Direction,DateOnly? From,DateOnly? To,DateTimeOffset? PaymentAt)
+  ReadChargeTerms(GasChargeRequest charge)
+ {
+  ChargeBasis basis;
+  try{basis=charge.RequireBasis();}
+  catch(MarketDataException error)when(error.Code=="gas_composition_input"){throw ChargeField(charge,"charge_basis",error);}
+  var capacity=basis==ChargeBasis.Capacity;
+  ExactDecimal nominal;
+  try
+  {
+   nominal=ChargeNominal(charge.Price);
+   if(capacity&&nominal.CompareTo(default)<=0)throw Invalid("Enter a positive capacity rate.");
+  }
+  catch(MarketDataException error)when(error.Code=="gas_composition_input"){throw ChargeField(charge,"charge_price",error);}
+  ExactDecimal direction;
+  try{direction=Sign(charge.Direction,false)==1?Number("1"):Number("-1");}
+  catch(MarketDataException error)when(error.Code=="gas_composition_input"){throw ChargeField(charge,"charge_direction",error);}
+  if(!capacity)
+  {
+   try{return (basis,nominal,Number("1"),direction,null,null,TradingInstant.Parse(charge.PaymentAt,"gas_composition_input"));}
+   catch(MarketDataException error)when(error.Code=="gas_composition_input"){throw ChargeField(charge,"charge_payment_at",error);}
+  }
+  ExactDecimal quantity;
+  try
+  {
+   quantity=EntryNumber(charge.DailyQuantity!);
+   if(quantity.CompareTo(default)<=0)throw Invalid("Enter a positive daily quantity.");
+  }
+  catch(MarketDataException error)when(error.Code=="gas_composition_input"){throw ChargeField(charge,"charge_daily_quantity",error);}
+  if(!DateOnly.TryParseExact(charge.From,"yyyy-MM-dd",CultureInfo.InvariantCulture,DateTimeStyles.None,out var from))
+   throw ChargeField(charge,"charge_start",Invalid("Enter the first gas day as YYYY-MM-DD."));
+  if(!DateOnly.TryParseExact(charge.To,"yyyy-MM-dd",CultureInfo.InvariantCulture,DateTimeStyles.None,out var to)||to<=from)
+   throw ChargeField(charge,"charge_end",Invalid("Enter an exclusive gas day as YYYY-MM-DD after the first day."));
+  return (basis,nominal,quantity,direction,from,to,null);
+ }
+
+ internal static GasChargeComponent ResolveCharge(GasChargeRequest charge,QuoteSpecification quote,Quantity unit,GasDayClock clock,Func<SideCalendarPolicy> resolveCalendars)
+ {
+  var terms=ReadChargeTerms(charge);
+  UnitPrice price;
+  try{price=ChargePrice(terms.Nominal,quote);}
+  catch(MarketDataException error)when(error.Code=="gas_composition_input"){throw ChargeField(charge,"charge_price",error);}
+  SideCalendarPolicy calendars;
+  try{calendars=resolveCalendars();}
+  catch(MarketDataException error)when(error.Code is "side_calendar_policy" or "side_calendar_conflict" or "calendar_reference")
+  {throw ChargeField(charge,"calendar_policy",error);}
+  var lump=terms.Basis==ChargeBasis.LumpSum;
+  FixedSide side;
+  try
+  {
+   side=lump?GasChargeSides.LumpSum(Guid.NewGuid(),price,unit,clock,terms.PaymentAt!.Value,calendars,quote):
+    GasChargeSides.Capacity(Guid.NewGuid(),price,unit,clock,terms.From!.Value,terms.To!.Value,charge.PaymentDay!.Value,calendars,quote);
+  }
+  catch(MarketDataException error)when(error.Code is "calendar_coverage" or "side_calendar_applicability")
+  {throw ChargeField(charge,"calendar_policy",error);}
+  catch(MarketDataException error)when(error.Code=="gas_day_boundary")
+  {throw ChargeField(charge,"charge_clock_side",error);}
+  // The entered terms already passed syntax, ordering, rate and payment-day checks.
+  // These remaining domain refusals bound the date or dated period count.
+  catch(MarketDataException error)when(error.Code is "gas_composition_input" or "swap_side_periods")
+  {throw ChargeField(charge,lump?"charge_payment_at":"charge_end",error);}
+  return new(charge.Code,side,terms.Basis,charge.ClockSide,terms.DailyQuantity,terms.Direction);
+ }
+
+ static ExactDecimal ChargeNominal(string? text)
  {
   if(text is null)throw Invalid("Supply a stated charge amount or rate.");
   var nominal=EntryNumber(text);var limit=Number("1000000000000");
   if(nominal.CompareTo(limit)>=0||nominal.CompareTo(-limit)<=0)throw Invalid("The absolute stated charge must be below 10^12.");
+  return nominal;
+ }
+ // Contractual cash is stated in the trade currency per unit. Preserve that amount
+ // when the captured quote unit carries a multiplier.
+ internal static UnitPrice ChargePrice(string? text,QuoteSpecification quote)=>ChargePrice(ChargeNominal(text),quote);
+ static UnitPrice ChargePrice(ExactDecimal nominal,QuoteSpecification quote)
+ {
   try{return new(nominal.DivideExact(quote.Multiplier),PriceUnit.FromQuote(quote));}
   catch(MarketDataException error)when(error.Code is "precision_loss" or "numeric_range")
   {throw Invalid("The stated charge must be exactly representable in the selected quote unit.");}
@@ -346,7 +409,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
    var p=programs.Single(x=>x.Slot==member.Slot);
    var contribution=valuation.Sides[member.Slot];var sideValue=(RetainedProgramValuation)contribution.Value;
    var amount=contribution.Contribution.Scale(quantity);
-   var sideView=sideValue.ViewInput(member.Code,quantity,new(member.Ratio.Numerator*member.Direction,member.Ratio.Denominator),TicketDescriptions.ViewColumns(GasTicket.SideKind(member.Owned is null?member.Role:"consideration")));
+   var sideView=sideValue.ViewInput(member.Code,quantity,new(member.Ratio.Numerator*member.Direction,member.Ratio.Denominator),TicketDescriptions.ViewColumns(GasTicket.SideKind(member.Role)));
    // Contract-policy operational overlays remain display-only. Selected-policy
    // rows already carry their exact entry quantities from the Instrument.
    if(sideView.FollowedDays is null&&recorded?.GetValueOrDefault(member.Code) is {} recordedDays)
