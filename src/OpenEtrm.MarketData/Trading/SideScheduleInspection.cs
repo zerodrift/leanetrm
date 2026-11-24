@@ -39,6 +39,9 @@ public sealed record ScheduleInspectionRow(string Key,string Operation,string Ki
  // Started-delivery cash: accrued so far, the latest visible payment instant, and a separately recorded
  // final determination shown beside the accrual, never in place of it.
  public string? Accrued{get;init;}
+ // Unrealized value still to come. Accrued unpaid cash is reported in Outstanding.
+ [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+ public string? Remaining{get;init;}
  public DateTimeOffset? PaidAt{get;init;}
  public string? FinalDetermination{get;init;}
 }

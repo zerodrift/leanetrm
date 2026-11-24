@@ -196,8 +196,16 @@ def main():
     if args.gas_quantity_benchmark: args.gas_daily_quantity_check=True
     if args.with_gas_operations_demo: args.with_gas_basis_demo=True
     if args.gas_billing_check or args.gas_operations_check: args.physical_gas_check=True
-    if args.gas_setup_check or args.gas_composition_check or args.gas_amendments_check or args.gas_indexed_check or args.gas_in_term_check or args.deal_ticket_check or args.gas_daily_quantity_check or args.gas_delivery_quantity_check or args.gas_charges_check or args.gas_pricing_check or args.gas_exercise_check or args.facility_quantity_check: args.physical_gas_check=True
     if args.gas_in_term_check and args.gas_indexed_check: parser.error('--gas-in-term-check and --gas-indexed-check use different fixtures; run them separately')
+    if args.gas_charges_check:
+        compatible = {'gas_charges_check', 'gas_composition_check', 'gas_pricing_check', 'gas_exercise_check', 'browser_check'}
+        for name, enabled in vars(args).items():
+            if enabled and name.endswith('_check') and name not in compatible:
+                parser.error(f"--gas-charges-check and --{name.replace('_','-')} use different fixtures; run them separately")
+        if args.example!='standard': parser.error('--gas-charges-check requires the standard fixture')
+        if args.browser_check and not (args.gas_pricing_check or args.gas_exercise_check):
+            parser.error('--gas-charges-check has no browser scenarios; omit --browser-check')
+    if args.gas_setup_check or args.gas_composition_check or args.gas_amendments_check or args.gas_indexed_check or args.gas_in_term_check or args.deal_ticket_check or args.gas_daily_quantity_check or args.gas_delivery_quantity_check or args.gas_charges_check or args.gas_pricing_check or args.gas_exercise_check or args.facility_quantity_check: args.physical_gas_check=True
     if args.demo_instruments_check or args.gas_indexed_check or args.gas_in_term_check: args.check=True
 
     if args.retained_schedule_check or args.physical_gas_check or args.physical_crude_check or args.lng_cargo_check: args.check=True
@@ -332,8 +340,9 @@ def main():
                 from gas_pricing_fixture import add_fixture as add_pricing_fixture
                 reference,market,security,manifest=add_pricing_fixture(reference,market,security,manifest,exercise_months=args.gas_exercise_check)
             if args.gas_charges_check:
-                from check_gas_charges import add_quote_fixture
+                from check_gas_charges import add_quote_fixture, add_reference_fixture
                 reference,market,security,manifest=add_quote_fixture(reference,market,security,manifest)
+                reference,market,security,manifest=add_reference_fixture(reference,market,security,manifest)
             if args.gas_delivery_quantity_check:
                 from delivery_quantity_fixture import add_fixture as add_delivery_quantity_fixture
                 reference,market,security,manifest=add_delivery_quantity_fixture(reference,market,security,manifest)
@@ -1152,12 +1161,14 @@ def main():
                 check_point_in_term(url,query,manifest,admin_load_in_term)
             elif args.gas_charges_check or args.gas_pricing_check or args.gas_exercise_check:
                 run_worker=risk_worker_runner()
+                if args.gas_charges_check or args.gas_pricing_check:
+                    query("CREATE ROLE preview_gas_in_term_loader LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS INHERIT IN ROLE openetrm_runtime,openetrm_gas_in_term_loader;")
                 if args.gas_composition_check:
                     from check_gas_composition import run_checks as check_gas_composition
                     check_gas_composition(url,query,manifest,run_worker=run_worker)
                 if args.gas_charges_check:
                     from check_gas_charges import run_checks as check_gas_charges
-                    check_gas_charges(url,query,manifest)
+                    check_gas_charges(url,query,manifest,run_worker,admin_load_in_term)
                 if args.gas_pricing_check:
                     from check_gas_pricing import run_checks as check_gas_pricing
                     pricing_fixture=check_gas_pricing(url,query,manifest,run_worker,admin_load_in_term)

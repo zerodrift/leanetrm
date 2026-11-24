@@ -226,9 +226,12 @@ internal static class GasChargeChecks
         RetainedGasMember Lump(DateTimeOffset dueAt) =>
             Pay(GasChargeSides.LumpSum(Guid.NewGuid(), new(Number("5000"), chargeQuote), unit, clock, dueAt, calendars, chargeQuote),
                 new(ChargeBasis.LumpSum, clock, ExactRatio.One), new(1, 10000));
-        RetainedGasMember Capacity(DateOnly start, DateOnly end, int paymentDay = 2) =>
-            Pay(GasChargeSides.Capacity(Guid.NewGuid(), new(Number("0.02"), chargeQuote), unit, clock, start, end, paymentDay, calendars, chargeQuote),
-                new(ChargeBasis.Capacity, clock, new(10000, 1)));
+        RetainedGasMember Capacity(DateOnly start, DateOnly end, int paymentDay = 2, GasDayClock? selectedClock = null)
+        {
+            var boundary = selectedClock ?? clock;
+            return Pay(GasChargeSides.Capacity(Guid.NewGuid(), new(Number("0.02"), chargeQuote), unit, boundary, start, end, paymentDay, calendars, chargeQuote),
+                new(ChargeBasis.Capacity, boundary, new(10000, 1)));
+        }
 
         UnitValuationContext Context(RetainedGasInstrument instrument, DateTimeOffset at, CashOccurrencePayment? payment = null,
             DateTimeOffset? knownAt = null, bool held = true, ImmutableArray<HeldDayQuantity> ownerDays = default)
@@ -253,6 +256,24 @@ internal static class GasChargeChecks
         var ordinaryValues = at.Select(instant => Value(baseline, instant)).ToArray();
         Require(ordinaryValues[0].Total.ToExactString() == "3000" && ordinaryValues[1].Total.ToExactString() == "-90000",
             "The ordinary position has 93000 of delivery less 90000 of future payment at booking, and owes 90000 after delivery.");
+
+        var laterClock = GasDayClock.Capture(new(clock.Key.Revision, "synthetic_later_gas_clock"), TimeZoneInfo.Utc, 17 * 60);
+        var assignment = original.Assignments[0];
+        var laterPhysical = new PhysicalGasSide(Guid.NewGuid(), assignment.Location, assignment.Product,
+            new(laterClock, from, fixture.To, GasQuantityBasis.PerOperatingDay, unit, GasFuelConvention.None, default),
+            original.Assignments, SyntheticSideCalendars.Physical());
+        var laterMember = new RetainedGasMember(laterPhysical.Id, Number("1"), ExactRatio.One,
+            BookedSideProgram.Compile(ScheduleDefinitionCompiler.Generate(laterPhysical, lifecycle: ScheduleLifecycleSelection.StartedPhysicalDelivery)));
+        var twoClocks = new RetainedGasInstrument(original.Id,
+            [physical, laterMember, Capacity(from, from.AddDays(1)), Capacity(from, from.AddDays(1), selectedClock: laterClock)],
+            original.Assignments, physicalSources: [0, 1, null, null]);
+        var simultaneous = Value(twoClocks, At(4, 2, 16)).Rows.Where(r => r.Slot >= 2).ToArray();
+        Require(simultaneous.Length == 2 && simultaneous.All(r => r.DeliveryFrom == from && r.DeliveryTo == from.AddDays(1)) &&
+            simultaneous[0].Slot == 2 && simultaneous[0].Delivery == DeliveryState.Ended &&
+            simultaneous[1].Slot == 3 && simultaneous[1].Delivery == DeliveryState.InProgress,
+            "Identical charge dates end at different instants on their respective physical clocks.");
+        Amounts(simultaneous[0], "-200", "0");
+        Amounts(simultaneous[1], "0", "-200");
 
         void ReferenceTable(RetainedGasMember charge, string payment, params (string Owed, string ToCome)[] expected)
         {

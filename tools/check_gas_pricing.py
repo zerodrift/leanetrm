@@ -58,7 +58,7 @@ def run_checks(url,query,manifest,run_worker,admin_load):
                            deliveryFrom='2021-01-14',deliveryTo='2021-01-16',calendarPolicy=side_calendar_policy(body['cashSides'][0]['calendarPolicy']['payment']['calendar'],delivery=True,observation=False,payment=True))]
     partial=c.call('gas/composition/book',plain)
     assert Fraction(c.call('gas/composition/editor',dict(context=context,tradeId=partial['tradeId']))['valuation']['sides'][1]['presentValue'])==-20000
-    route_checks(c,context,body,booked,run_worker,query,admin_load)
+    route_checks(c,context,body,booked,run_worker,admin_load)
     modern_ticket_replay(c,context,body)
     native_admission(query,manifest,body)
     billing_checks(c,query,manifest,body,booked,plain)
@@ -145,7 +145,7 @@ def billing_checks(c,query,manifest,body,booked,plain):
     print('PASS API and native billing refuse pricing entries while full-term, whole fixed cash remains supported',flush=True)
 
 
-def route_checks(c,context,body,booked,run_worker,query,admin_load):
+def route_checks(c,context,body,booked,run_worker,admin_load):
     from check_portfolio_risk import VIEW,financial
     trade=booked['tradeId']
     shared={**context,'convention':'trading_workspace_v1'}
@@ -244,7 +244,6 @@ def route_checks(c,context,body,booked,run_worker,query,admin_load):
 
     # The dedicated administrator loads a started trade; ordinary booking stays closed.
     from gas_pricing_fixture import ADMINISTRATOR
-    query("CREATE ROLE preview_gas_in_term_loader LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS INHERIT IN ROLE openetrm_runtime,openetrm_gas_in_term_loader;")
     context={**before,'snapshotId':next(f['id'] for f in c.call('workspace')['frames'] if f['at'].startswith('2021-01-15T08:'))}
     shared={**context,'convention':'trading_workspace_v1'}
     body={**original,**context,'operationId':str(uuid4())}

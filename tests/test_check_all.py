@@ -55,6 +55,16 @@ def gas_helpers(group, helpers):
 
 
 class CheckAllTests(unittest.TestCase):
+    def test_charge_preview_rejects_other_fixture_suites_before_startup(self):
+        for flag in ('--gas-in-term-check', '--gas-delivery-quantity-check', '--gas-indexed-check'):
+            with self.subTest(flag=flag):
+                result = subprocess.run(
+                    [sys.executable, 'tools/run_preview.py', '--pg-bin', '/unused-pg',
+                     '--dotnet', '/unused-dotnet', '--check', '--gas-charges-check', flag],
+                    cwd=ROOT, capture_output=True, text=True, check=False)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn(f'--gas-charges-check and {flag} use different fixtures', result.stderr)
+
     def test_gas_jobs_separate_native_browser_and_preview_workloads(self):
         self.assertTrue({'gas', 'gas-native', 'gas-browser'}.issubset(GROUPS))
         workloads = {}

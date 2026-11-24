@@ -4,12 +4,19 @@ from fractions import Fraction
 import json
 from uuid import uuid4
 
-from check_booked_side_programs import runtime_query
+from check_booked_side_programs import capture_context, runtime_query
+from check_gas_in_term import select_captured_inputs
 from check_gas_pricing import request, staged_booking
+from check_portfolio_risk import VIEW, financial
 from delivery_quantity_fixture import add_fixture as add_location
+from gas_pricing_fixture import ADMINISTRATOR
 from preview_fixture import CURRENCY, M, R, RCAT, RREV, identity
-from preview_client import PreviewClient
+from preview_client import PreviewClient, initial_frame
 from synthetic_side_calendars import side_calendar_policy
+
+
+REFERENCE_DATES = ('2021-04-01T08:00:00Z', '2021-04-11T15:00:00Z', '2021-05-02T15:00:00Z')
+REFERENCE_POINT = 'synthetic_charge_reference'
 
 
 def add_quote_fixture(reference,market,security,manifest):
@@ -38,7 +45,223 @@ def add_quote_fixture(reference,market,security,manifest):
     return reference,market,security,manifest
 
 
-def run_checks(url, query, manifest):
+def add_reference_fixture(reference, market, security, manifest):
+    template = next(f for f in manifest['frames'] if f['at'] == '2021-01-15T08:00:00Z')
+    manifest['frames'].extend({**deepcopy(template), 'at': at} for at in REFERENCE_DATES)
+    # The physical purchase runs through May 4, so the May mark still moves
+    # its value after the April capacity row has fully accrued.
+    return add_location(reference, market, security, manifest, price='3.10', prefix=REFERENCE_POINT,
+                        number=94700, curve_name='Synthetic charge reference location', start_minute=900,
+                        months=(('2021-04-01', '2021-05-01'), ('2021-05-01', '2021-06-01')))
+
+
+def reference_routes(c, query, manifest, body, run_worker, admin_load):
+    workspace = c.call('workspace')
+    frames = [initial_frame(workspace, at[:10]) for at in REFERENCE_DATES]
+    assert [(f['at'][:19], f['originCloseId']) for f in frames] == [(at[:19], f['id']) for at, f in zip(REFERENCE_DATES, frames)]
+    contexts = [dict(snapshotId=f['id'], convention=body['convention'], knowledgeMode='current') for f in frames]
+    point = next(p for p in c.call('gas/catalog', contexts[0])['locations'] if p['deliveryPoint'] == REFERENCE_POINT + '_point')
+    physical = {**body['physicalSides'][0], **{k: point[k] for k in ('pipeline', 'zone', 'deliveryPoint', 'product')},
+                'deliveryFrom': '2021-04-01', 'deliveryTo': '2021-05-05'}
+    lump, capacity = body['chargeSides']
+    charges = [
+        {**lump, 'code': 'same_day', 'paymentAt': '2021-04-01T00:00:00Z'},
+        {**lump, 'code': 'one_week', 'paymentAt': '2021-04-08T00:00:00Z'},
+        {**capacity, 'from': '2021-04-01', 'to': '2021-05-01'},
+    ]
+    cash = dict(code='price', role='consideration', direction='pay', source='gas', stage='delivery',
+                share='1', price='3', tariffCode=None, paymentAt='2021-05-10T00:00:00Z', calendarPolicy=lump['calendarPolicy'])
+    template = {**body, 'physicalSides': [physical], 'cashSides': [cash]}
+    variants = [(1, []), (1, [0]), (1, [1]), (1, [2]), (1, [0, 1, 2]), (2, [0, 1, 2])]
+    def book(context, started):
+        holdings = []
+        for size, entries in variants:
+            terms = {**template, **context, 'operationId': str(uuid4()),
+                     'physicalSides': [{**physical, 'quantity': str(10000 * size)}],
+                     'chargeSides': [charges[i] for i in entries]}
+            if started:
+                if size == 1 and len(entries) == len(charges):
+                    refused = c.call('gas/composition/book', terms, expected=422)
+                    assert refused['code'] == 'gas_delivery_lifecycle', refused
+                result = admin_load(dict(administrator=ADMINISTRATOR[0], composition=terms))
+                assert result.returncode == 0, result.stderr
+                held = json.loads(result.stdout)
+            else:
+                draft = c.call('gas/composition/preview', terms)
+                assert_valuation('draft preview', draft, size, entries, baseline[0], reference[0], components=bool(entries))
+                held = c.call('gas/composition/book', terms)
+            holdings.append((held, terms))
+        return holdings
+
+    # Fixed-price physical purchase at 3.10 less ordinary consideration at
+    # 3.00. The active April and May gas days are known from the fixture.
+    # Physical PV, fixed consideration PV, position owed, position to come.
+    baseline = [(1054000, -1020000, 0, 34000),
+                (744000, -1020000, -300000, 24000),
+                (93000, -1020000, -930000, 3000)]
+    # Each pair is (realized unsettled, unrealized) for one charge.
+    # Keeping each charge alone with the same purchase exposes its split even
+    # on routes that publish the split only at trade level.
+    reference = [
+        [(-5000, 0), (0, -5000), (0, -6000)],
+        [(-5000, 0), (-5000, 0), (-2000, -4000)],
+        [(-5000, 0), (-5000, 0), (-6000, 0)],
+    ]
+    marks = [{'2021-04-01': 30, '2021-05-01': 4}, {'2021-04-01': 20, '2021-05-01': 4}, {'2021-05-01': 3}]
+    money = ('realizedUnsettled', 'unrealized')
+
+    def expected(size, entries, purchase, charges):
+        physical, cash, owed, remaining = [x * size for x in purchase]
+        sides = [physical, cash, *(sum(charges[i]) for i in entries)]
+        split = (owed + sum(charges[i][0] for i in entries), remaining + sum(charges[i][1] for i in entries))
+        return sides, split
+
+    def assert_valuation(route, value, size, entries, purchase, charges, *, components=True):
+        sides, split = expected(size, entries, purchase, charges)
+        actual_sides = [Fraction(s['presentValue']) for s in value['sides']]
+        assert actual_sides == sides, (route, entries, actual_sides, sides)
+        assert Fraction(value['presentValue']) == sum(sides), (route, entries, value['presentValue'])
+        if components:
+            assert tuple(Fraction(value['measures'][k]) for k in money) == split, (route, entries, value['measures'])
+
+    risk = PreviewClient(c.url)
+    risk.bootstrap()
+    risk.call('profile', dict(profile='risk'))
+
+    def routes(holdings, context, purchase, amounts, active_months, *, queued=False):
+        shared = {**context, 'convention': 'trading_workspace_v1'}
+        scope = dict(context=shared, bookIds=[], portfolioIds=[], tradeIds=[held['tradeId'] for held, _ in holdings])
+        catalog = risk.call('portfolio/risk/catalog', scope)
+        assert not catalog['excludedPositions'], catalog['excludedPositions']
+        factors = {f['deliveryFrom']: f for f in catalog['factors'] if f['curves'] == [REFERENCE_POINT + '_location']}
+        assert factors.keys() == active_months.keys() and len(catalog['factors']) == len(factors), catalog['factors']
+        risk_request = {**scope, 'context': {**shared, 'knowledgeMode': 'retained', 'contextId': catalog['context']['contextId']},
+                        'detail': 'holdings', 'convention': catalog['convention'], 'numericalPolicy': catalog['numericalPolicy'],
+                        'pricingPolicy': catalog['pricingPolicy'], 'stress': [],
+                        'bumps': [dict(factor=f['factor'], size='1', convention=catalog['bumpConvention']) for f in factors.values()]}
+        report = risk.call('portfolio/risk', risk_request)
+        assert [f['factor']['deliveryFrom'] for f in report['factors']] == list(factors), report['factors']
+        assert not report['excludedPositions'], report['excludedPositions']
+        if queued:
+            job = risk.call('portfolio/risk/jobs', dict(requestId=str(uuid4()), request=risk_request))
+            run_worker()
+            finished = risk.call('portfolio/risk/jobs/' + job['id'])
+            assert finished['state'] == 'completed' and financial(finished['result']) == financial(report), finished
+        blotter = {h['tradeId']: h for h in c.call('trading/blotter', dict(context=shared, view=VIEW))['holdings']}
+        for (held, terms), (size, entries) in zip(holdings, variants):
+            trade = held['tradeId']
+            editor = c.call('gas/composition/editor', dict(context=context, tradeId=trade))['valuation']
+            preview = c.call('gas/composition/preview', {**terms, 'snapshotId': context['snapshotId'], 'knowledgeMode': context['knowledgeMode'],
+                                                        'previewTradeId': trade, 'previewContextId': context.get('contextId')})
+            assert_valuation('editor', editor, size, entries, purchase, amounts)
+            assert_valuation('held preview', preview, size, entries, purchase, amounts)
+            assert_valuation('Blotter', {**blotter[trade], 'measures': blotter[trade]}, size, entries, purchase, amounts)
+            sides, split = expected(size, entries, purchase, amounts)
+            for factor in report['factors']:
+                month = factor['factor']['deliveryFrom']
+                move = size * 10000 * active_months[month]
+                position = next(p for p in factor['positions'] if p['tradeId'] == trade)
+                assert [e['slot'] for e in position['entries']] == list(range(len(sides))), position
+                for lane, change in [('base', 0), ('up', move), ('down', -move)]:
+                    assert [Fraction(e[lane]) for e in position['entries']] == [sides[0] + change, *sides[1:]], (month, trade, lane, position)
+                    assert Fraction(position['values'][lane]) == sum(sides) + change, position
+                    assert tuple(Fraction(position['components'][k][lane]) for k in money) == (split[0], split[1] + change), position
+
+    def inspect(holdings, context, amounts, paid, deliveries, states):
+        term_dates = [('2021-03-30', '2021-03-31', '2021-04-01'), ('2021-04-06', '2021-04-07', '2021-04-08'),
+                      ('2021-04-01', '2021-05-01', '2021-05-02')]
+        for held, _ in holdings[-2:]:
+            position = dict(context={**context, 'convention': 'trading_workspace_v1'}, tradeId=held['tradeId'],
+                            bindingId=held['instrumentId'], revision=1, instrumentType='physical_gas')
+            for i, (owed, remaining) in enumerate(amounts):
+                page = c.call('trading/side-schedules', dict(position=position, sideSlot=i + 2, contribution=None, offset=0, limit=8))['page']
+                [row] = page['rows']
+                first, last, due = term_dates[i]
+                assert (row['deliveryFrom'], row['deliveryTo'], row['valueAt'][:10]) == (first, last, due), row
+                assert (row['start'][:19], row['end'][:19]) == (first + 'T15:00:00', last + 'T15:00:00'), row
+                assert Fraction(row['quantity']) == (-1 if i < 2 else -300000), row
+                assert (row['lifecycle']['delivery'], row['lifecycle']['cash']) == (deliveries[i], states[i]), row
+                assert (row['paidAt'] and row['paidAt'][:19]) == (page['valuationAt'][:19] if paid[i] else None), row
+                assert [Fraction(row[k]) for k in ('accrued', 'paid', 'outstanding', 'remaining', 'presentValue')] == [
+                    owed + paid[i], paid[i], owed, remaining, owed + remaining], row
+
+    def payment(trade, slot, amount, paid_at, as_of, key):
+        wire = json.dumps(dict(operationId=str(uuid4()), tradeId=trade, expectedRevision=1, slot=slot, businessKey=key,
+                               paidAt=paid_at, currency=CURRENCY, amount=str(amount), allocations=[dict(occurrence=0, amount=str(amount))]))
+        statement = f"SELECT security.record_gas_cash_payment('{manifest['catalogId']}','{wire}'::jsonb,'{as_of}');"
+        return json.loads(runtime_query(query, manifest, statement).splitlines()[-1])
+
+    first = book(contexts[0], started=False)
+    routes(first, contexts[0], baseline[0], reference[0], marks[0])
+    inspect(first, contexts[0], reference[0], [0, 0, 0], ['Ended', 'NotStarted', 'NotStarted'], ['AccruedUnpaid', 'Remaining', 'Remaining'])
+
+    ten = book(contexts[1], started=True)
+    routes(ten, contexts[1], baseline[1], reference[1], marks[1])
+    inspect(ten, contexts[1], reference[1], [0, 0, 0], ['Ended', 'Ended', 'InProgress'], ['AccruedUnpaid'] * 3)
+    cutoff = capture_context(query, manifest, '2021-04-11').splitlines()[-1]
+    trade = ten[-2][0]['tradeId']
+    try:
+        payment(trade, 4, -1000, '2021-04-02T14:59:59.999999Z', REFERENCE_DATES[1], 'reference_early')
+    except RuntimeError as error:
+        assert 'gas_payment_occurrence' in str(error), error
+    else:
+        raise AssertionError('Payment applied before the first 15:00 gas-day end')
+    for i, slot in [(3, 2), (4, 4), (5, 4)]:
+        assert payment(ten[i][0]['tradeId'], slot, -1000, REFERENCE_DATES[1], REFERENCE_DATES[1], 'reference_partial')['revision'] == 1
+    partial = [*reference[1][:2], (-1000, -4000)]
+    routes(ten, contexts[1], baseline[1], partial, marks[1], queued=True)
+    inspect(ten, contexts[1], partial, [0, 0, -1000], ['Ended', 'Ended', 'InProgress'], ['AccruedUnpaid', 'AccruedUnpaid', 'PartPaid'])
+    for client in (c, risk):
+        select_captured_inputs(client, query, cutoff)
+    historical = {**contexts[1], 'knowledgeMode': 'retained', 'contextId': cutoff}
+    routes(ten, historical, baseline[1], reference[1], marks[1], queued=True)
+    inspect(ten, historical, reference[1], [0, 0, 0], ['Ended', 'Ended', 'InProgress'], ['AccruedUnpaid'] * 3)
+
+    last = book(contexts[2], started=True)
+    routes(last, contexts[2], baseline[2], reference[2], marks[2])
+    inspect(last, contexts[2], reference[2], [0, 0, 0], ['Ended'] * 3, ['AccruedUnpaid'] * 3)
+    billing_refusal(c, query, manifest, last[-2][0], contexts[2])
+    paid = [-5000, -5000, -6000]
+    for ((held, _), (_, entries)) in zip(last, variants):
+        for slot, i in enumerate(entries, start=2):
+            assert payment(held['tradeId'], slot, paid[i], REFERENCE_DATES[2], REFERENCE_DATES[2], f'reference_paid_{i}')['revision'] == 1
+    settled = [(0, 0)] * 3
+    routes(last, contexts[2], baseline[2], settled, marks[2], queued=True)
+    inspect(last, contexts[2], settled, paid, ['Ended'] * 3, ['Paid'] * 3)
+    print('PASS gas charge reference matrix: three closes, full and partial payment, prior cutoff, twice the size, and unchanged charge PV under risk bumps', flush=True)
+
+
+def billing_refusal(c, query, manifest, held, context):
+    trade = held['tradeId']
+    day = '2021-04-01'
+    selection = c.call('gas/quantities/read', dict(context=context, tradeId=trade, selectionPolicy='operational_projection_v1'))
+    obligation = next(r['obligationId'] for r in selection['rows'] if r['day'] == day)
+    c.call('gas/quantities/record', dict(context=context, tradeId=trade, expectedRevision=1, operationId=str(uuid4()),
+        obligationId=obligation, kind='allocated', status='final', day=day, quantity='9000', evidence='Synthetic charge billing boundary', expectedPreviousId=None))
+    request = dict(context=context, tradeId=trade, expectedRevision=1, cashSlot=1, day=day,
+                   selectionPolicy='final_allocated_billing_v1', profile='gas_final_daily_fixed_cash_v1',
+                   decimalPlaces=2, roundingPolicy='currency_minor_units_to_even_v1')
+    accepted = c.call('gas/billing/preview', request)
+    assert Fraction(accepted['amount']) == -27000, accepted
+    calculation = json.dumps(dict(sourceId=accepted['sourceId'], amount='-27000', numerator='-27000', denominator='1'))
+    for slot in (2, 3, 4):
+        preview = {**request, 'cashSlot': slot}
+        refused = c.call('gas/billing/preview', preview, expected=422)
+        assert refused['code'] == 'gas_billing_profile', refused
+        wire = json.dumps(dict(preview=preview, operationId=str(uuid4()), previewHash=accepted['previewHash'],
+                               sourceId=accepted['sourceId'], expectedPreviousId=None, correctionDueAt=None,
+                               reason=None, evidence='Synthetic charge billing boundary'))
+        try:
+            runtime_query(query, manifest, f"SELECT security.record_gas_billing('{manifest['catalogId']}','{wire}'::jsonb,"
+                          f"'{REFERENCE_DATES[2]}','{accepted['context']['contextId']}','{calculation}'::jsonb);")
+        except RuntimeError as error:
+            assert 'gas_billing_profile' in str(error), error
+        else:
+            raise AssertionError('Native final billing accepted a charge')
+    print('PASS final billing admits ordinary fixed consideration and structurally refuses charge slots', flush=True)
+
+
+def run_checks(url, query, manifest, run_worker, admin_load):
     c = PreviewClient(url)
     c.bootstrap()
     c.call('profile', dict(profile='trader'))
@@ -103,6 +326,7 @@ def run_checks(url, query, manifest):
     lifecycle_admission(c,query,manifest,context,body,calendar_policy)
     exercise_premium(c,url,context,body,calendar_policy)
     print('PASS gas charges: independent terms, own clock, monthly payments, booked values, replay and native refusals',flush=True)
+    reference_routes(c, query, manifest, body, run_worker, admin_load)
 
 
 def non_unit_quote_checks(c,query,manifest,context,body):
