@@ -389,15 +389,15 @@ def main():
             if migration.name=='0216_in_term_gas_lifecycle.sql':
                 from check_gas_in_term import upgrade_checks as check_in_term_upgrade
                 check_in_term_upgrade(query,migration)
-            if migration.name=='0398_gas_charge_boundaries.sql' and args.gas_charges_check:
+            if migration.name=='0400_gas_charge_boundaries.sql' and args.gas_charges_check:
                 from check_fact_anchor_upgrade import run_checks as check_boundary_upgrade
-                check_boundary_upgrade(query,migration,number='0398',guard='gas_charge_boundary_upgrade',signatures=(
+                check_boundary_upgrade(query,migration,number='0400',guard='gas_charge_boundary_upgrade',signatures=(
                     'security.gas_amendment_refusal(uuid,uuid,integer,uuid,timestamptz)',
                     'security.write_gas_composition(uuid,jsonb,timestamptz,boolean)',
                     'trading.save_gas_charge(uuid,uuid,uuid,integer,numeric,jsonb)'))
-            if migration.name=='0397_gas_charge_entries.sql' and args.gas_charges_check:
+            if migration.name=='0399_gas_charge_entries.sql' and args.gas_charges_check:
                 from check_fact_anchor_upgrade import run_checks as check_charge_upgrade
-                check_charge_upgrade(query,migration,number='0397',guard='gas_charge_upgrade',signatures=(
+                check_charge_upgrade(query,migration,number='0399',guard='gas_charge_upgrade',signatures=(
                     'security.write_gas_composition(uuid,jsonb,timestamptz,boolean)',
                     'trading.require_gas_program_shape(uuid,uuid,integer,date,date,timestamptz,numeric,numeric,market_data.gas_valuation_assignments,ref_data.gas_delivery_conventions,timestamptz,jsonb,numeric)',
                     'security.record_gas_cash_payment(uuid,jsonb,timestamptz)',

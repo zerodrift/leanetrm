@@ -83,9 +83,13 @@ export function optionValuation(run:RunView):string[]{
  return [...new Set(run.parts.flatMap(p=>{
   const report=p.report;
   if(!report||report.scenarioPolicy==null&&!report.optionCalibrations?.length)return [];
-  const {numericalPolicy,scenarioPolicy,calibrationFallback,observationRole}=report.inputs?.pricingPolicy?.futuresOptions??{};
-  if([numericalPolicy,scenarioPolicy,calibrationFallback,observationRole].some(member=>typeof member!=='string'||!member))return ['Option valuation policy not recorded'];
-  return [`Option valuation · numerical policy ${numericalPolicy} · scenario policy ${scenarioPolicy} · calibration fallback ${calibrationFallback} · observation role ${observationRole}`];
+  const {numericalPolicy,scenarioPolicy,calibrationFallback,observationRole,european}=report.inputs?.pricingPolicy?.futuresOptions??{};
+  const stated=(...members:unknown[])=>members.every(member=>typeof member==='string'&&member);
+  // A policy may also name the model of European series. Where it does, that member is stated in full or the policy is not recorded.
+  if(!stated(numericalPolicy,scenarioPolicy,calibrationFallback,observationRole)||european!=null&&!stated(european.numericalPolicy,european.calibrationFallback))
+   return ['Option valuation policy not recorded'];
+  return [`Option valuation · numerical policy ${numericalPolicy} · scenario policy ${scenarioPolicy} · calibration fallback ${calibrationFallback} · observation role ${observationRole}`+
+   (european==null?'':` · European series: numerical policy ${european.numericalPolicy} · calibration fallback ${european.calibrationFallback}`)];
  }))];
 }
 

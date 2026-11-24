@@ -1,6 +1,6 @@
 # Current implementation record
 
-## Independent gas charges (D449)
+## Independent gas charges (D450)
 
 Gas composition uses the existing fixed Side for both lump-sum and
 constant daily capacity charges. The immutable owning term retains its
@@ -11,12 +11,12 @@ slot and applies recorded remittances by exact saved occurrence.
 Legacy no-charge canonical identity and following-payment coverage are
 preserved.
 
-Migration 0397 extends gas component terms, native booking and payment
+Migration 0399 extends gas component terms, native booking and payment
 admission. It keeps the raw stated price, quantity, clock selector and
 payment terms with the exact authorized versioned references. The native
 writer checks the shape, quote arithmetic and calendars; cash admission
 checks the earned-day boundary and nominal sign. Charges remain independent
-of exercise decisions and outside final daily billing. Migration 0398 checks
+of exercise decisions and outside final daily billing. Migration 0400 checks
 the first owned UTC start for both bases. Future-only replacement requires
 unstarted original and proposed charges, and refuses a recorded payment on
 an original charge regardless of its paid instant.
@@ -28,8 +28,28 @@ shows exact retained intervals and cash states. Local verification passed
 18 gas, 20 trading and 81 managed runner workloads. Gas and trading reported
 208 and 489 owned browser checks, and managed reported 804 core checks.
 Independent review of the corrections passed. See the
-[verification record](verification.md#independent-gas-charges-d449) for the
+[verification record](verification.md#independent-gas-charges-d450) for the
 full qualification results.
+
+## European listed futures options (D449)
+
+A listed futures option product may state European exercise. Its series are valued
+by `european_futures_option_black76_v1`, the Black-76 formula in the project's
+30-digit decimal, calibrated so the base value equals the option's daily settlement
+and held under futures shocks; it declares no price step. The option valuation
+policy names the model in an optional `european` member, and the Blotter, the risk
+catalog, the trading P&L and strategy analysis state the policy that carries it. A
+European series under a policy without the member, on the American tree, or in the
+lifecycle projection and its reference strategies is refused by name.
+
+Migration 0397 admits the style and refuses exercise and assignment before expiry;
+migration 0398 lets a stored volatility surface name the formula's policy for a
+European product. The ticket states Exercise and Settlement, and the lifecycle list
+says why a European option cannot be exercised early. Existing products, bookings,
+events, fits and retained results are unchanged. An expiry on the underlying's last
+trading day and a margined premium are designed and not built. The real-browser
+checks of this increment have not been run; see
+[verification](verification.md#european-futures-options-d449).
 
 ## Exercise rights on a gas Instrument (D448)
 
@@ -251,7 +271,7 @@ foundation with runnable market-data, trading and operational workflows. No
 existing application or production resource is used by its checks.
 
 Current product scope includes futures execution P&L,
-[listed American futures options](futures-options.md), single-period and
+[listed American and European futures options](futures-options.md), single-period and
 [scheduled financial swaps](financial-swap-quantities.md), opt-in
 [swap settlement and P&L](swap-settlement.md), and common
 [PPA/heat-rate portfolio consumers](demo-instruments.md). Bounded physical
@@ -523,7 +543,7 @@ Swap definitions mark Discounting, and common/specialized PV reject conflicting
 policies. Existing market series, observations, explicit derived dependencies and
 immutable scenario risk already separate market inputs from contractual cashflows.
 Physical profiles beyond the bounded gas, crude and LNG contracts, and option
-products other than listed American futures options ([D288](futures-options.md)),
+products other than listed futures options ([D288, D449](futures-options.md)),
 remain unimplemented.
 [Parametric risk](parametric-risk.md) implements native sample covariance and
 one-session delta-normal VaR/ES. D307 adds [full-PV Monte Carlo](monte-carlo-risk.md), with explicit seeded joint

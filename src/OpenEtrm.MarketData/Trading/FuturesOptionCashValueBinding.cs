@@ -13,6 +13,7 @@ public sealed partial record FuturesOptionInstrument
 {
     private void RequireCashBinding(UnitValuationContext context,FuturesOptionMarketBinding reference,FuturesOptionCashValueBinding selected)
     {
+        ReferenceFuturesOptionStrategy.RequireQualifiedStyle(Series.Terms);
         CashFuturesOptionModel.RequirePolicy(selected.Policy);
         if(selected.Margin is not{Implementation:FuturesMarginPolicy.Version or FuturesMarginPolicy.DeliveryVersion,Delivery:null}||selected.Margin.Contract!=reference.Underlying.Contract||
             selected.Margin.SettlementCurve!=reference.Underlying.Curve||selected.MarginDiscounting is null||selected.Underlying is null||

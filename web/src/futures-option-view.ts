@@ -1,7 +1,7 @@
 import {isCashStatus,cashStatusLabels} from './cash-status.js';
 import type {Holding} from './desk-model.js';
 import {trackEdits} from './edit-tracking.js';
-import {catalogForSeries,keepOffered,noOptionPick,optionChoices,optionLevels,optionTicketStatus,pickOption,pickSeries,underlyingLabel,type OptionCatalog,type OptionLevel,type OptionPick} from './futures-option-model.js';
+import {catalogForSeries,keepOffered,noOptionPick,optionChoices,optionExerciseLabel,optionLevels,optionTermFacts,optionTicketStatus,pickOption,pickSeries,underlyingLabel,type OptionCatalog,type OptionLevel,type OptionPick} from './futures-option-model.js';
 import {displayInstant,publicText} from './market-view.js';
 import {bookingAllowed} from './new-trade.js';
 import {actorTransport,PendingCommand,restoreTradeRequest,type RequestCommand} from './pending-command.js';
@@ -55,8 +55,8 @@ export function setupOptionTicket(o:{api:Api;source:()=>{snapshotId:string};hist
  const trade=section('Trade'),terms=el('div');terms.id='option-trade-terms';trade.append(terms,soon('Custom trade fields','Custom trade fields are coming soon.'));
  const contract=section('Contract'),selects=Object.fromEntries(optionLevels.map(level=>[level,el('select')])) as Record<OptionLevel,HTMLSelectElement>;
  for(const level of optionLevels)contract.append(row(`option-${level}`,levelLabels[level],selects[level]));
- const expiry=fact('Expiry'),lastTrade=fact('Last trade'),code=fact('Exchange contract'),series=fact('Series'),surface=el('button','secondary','Volatility surface');
- surface.type='button';surface.id='option-ticket-vol-surface';surface.hidden=true;contract.append(lastTrade.line,expiry.line,code.line,series.line,surface);
+ const expiry=fact('Expiry'),lastTrade=fact('Last trade'),exercise=fact('Exercise'),method=fact('Settlement'),code=fact('Exchange contract'),series=fact('Series'),surface=el('button','secondary','Volatility surface');
+ surface.type='button';surface.id='option-ticket-vol-surface';surface.hidden=true;contract.append(lastTrade.line,expiry.line,exercise.line,method.line,code.line,series.line,surface);
  const execution=section('Execution'),side=el('select'),lots=el('input'),premium=el('input'),paid=el('input'),style=el('select');
  side.append(new Option('Choose…',''),new Option('Buy','buy'),new Option('Sell','sell'));lots.inputMode='numeric';premium.inputMode='decimal';paid.type='date';
  style.append(new Option('Choose…',''),new Option('Paid up front','premium_paid_up_front'));
@@ -65,8 +65,8 @@ export function setupOptionTicket(o:{api:Api;source:()=>{snapshotId:string};hist
   row('option-premium-style','Premium style',style));
  const executed=el('div');execution.append(executed,soon('Executing broker','Executing brokers are coming soon.'));
  const backend=section('From the backend'),settlement=fact('Settlement at this close'),multiplier=fact('Multiplier'),tick=fact('Premium tick'),range=fact('Premium range'),
-  lot=fact('Delivery per lot'),lotPremium=fact('One-lot premium at settlement'),exercise=fact('Exercise style'),instructions=fact('Contrary instructions');
- backend.append(settlement.line,lot.line,lotPremium.line,multiplier.line,tick.line,range.line,exercise.line,instructions.line);
+  lot=fact('Delivery per lot'),lotPremium=fact('One-lot premium at settlement'),instructions=fact('Contrary instructions');
+ backend.append(settlement.line,lot.line,lotPremium.line,multiplier.line,tick.line,range.line,instructions.line);
  const more=section('More'),later=el('div','option-soon-actions');
  for(const label of ['Comments','Broker fees','Settlement instructions','Credit check','Risk-limit check','Compare versions','Import / export','Print'])later.append(soonButton(label,`${label} is coming soon.`));
  more.append(later);
@@ -95,7 +95,8 @@ export function setupOptionTicket(o:{api:Api;source:()=>{snapshotId:string};hist
   settlement.value.textContent=s?`${s.settlementPrice} ${priceUnit}`:'—';multiplier.value.textContent=s?s.multiplier:'—';tick.value.textContent=s?s.premiumTick:'—';
   lot.line.hidden=!s?.deliveryLot;lot.value.textContent=s?.deliveryLot?`${s.deliveryLot} ${s.quoteUnit}`:'—';
   lotPremium.line.hidden=!s?.settlementPremiumPerLot;lotPremium.value.textContent=s?.settlementPremiumPerLot?`${s.settlementPremiumPerLot} ${s.currency}`:'—';
-  range.value.textContent=s?`${s.minimumPremium} to ${s.maximumPremium} ${priceUnit}`:'—';exercise.value.textContent=s?publicText(s.exerciseStyle):'—';
+  range.value.textContent=s?`${s.minimumPremium} to ${s.maximumPremium} ${priceUnit}`:'—';
+  const termFacts=s?optionTermFacts(s):null;exercise.value.textContent=termFacts?.exercise??'—';method.value.textContent=termFacts?.settlement??'—';
   instructions.value.textContent=s?(s.contraryInstructionsAllowed?'Accepted':'Not accepted'):'—';
   surface.hidden=!s;surface.onclick=s?()=>o.surface(s.product,s.definitionRevisionId):null;
   sync();
@@ -203,6 +204,7 @@ export async function readOptionView(api:Api,context:Record<string,unknown>&{sna
  return {amend:{allowed:false,reason:'Option trades are not amended; exercise, assignment and expiry are recorded as their own events.'},updatesBlocked:()=>!!widget?.blocked(),view:zone=>{
   const terms:TermSection[]=[{title:'Futures option trade',rows:[['Trade',h.tradeReference],['Instrument',h.instrumentReference],['Book',h.book],['Exchange',h.exchange?.name??''],
     ['Product',h.productName??''],['Call / put',h.right??''],['Strike',h.strike??''],['Expiry',h.expiryAt?displayInstant(h.expiryAt,zone):''],
+    ['Exercise',h.exerciseStyle?optionExerciseLabel(h.exerciseStyle):''],
     ['Underlying future',h.underlyingName&&h.deliveryFrom&&h.deliveryTo?underlyingLabel(h.deliveryFrom,h.deliveryTo,h.underlyingName):'']]},
    {title:'Lots and lifecycle',rows:[['Booked lots',held.lots],['Open lots',held.openLots],['Lifecycle',publicText(h.lifecycleState??'')],
     ['Linked futures trades',h.linkedFuturesTrades?.length?h.linkedFuturesTrades.join(', '):'None']]},

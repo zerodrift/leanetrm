@@ -17,6 +17,7 @@ public sealed partial record FuturesOptionInstrument
 {
     private GasPhysicalDeliveryTerms PhysicalTerms(UnitValuationContext context,FuturesOptionMarketBinding reference,FuturesOptionPhysicalValueBinding selected)
     {
+        ReferenceFuturesOptionStrategy.RequireQualifiedStyle(Series.Terms);
         PhysicalFuturesOptionModel.RequirePolicy(selected.Policy);
         if(selected.Margin is not{Implementation:FuturesMarginPolicy.DeliveryVersion,Delivery:{} delivery}||
             delivery.ProfileId==Guid.Empty||delivery.ProfileRevision<1||delivery.Terms is not GasPhysicalDeliveryTerms gas||

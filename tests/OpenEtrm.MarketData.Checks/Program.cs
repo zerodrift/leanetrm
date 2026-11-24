@@ -103,6 +103,7 @@ if(args is ["--schedule-view"]){ScheduleViewChecks.Run();return;}
 
 if(args is ["--side-block-checks"]){SideBlockExperiment.Check();return;}
 if(args is ["--futures-options"]){FuturesOptionChecks.Run();return;}
+if(args is ["--european-options"]){EuropeanFuturesOptionChecks.Run();return;}
 if(args is ["--spread-options"]){SpreadOptionChecks.Run();HeatRateCallChecks.Run();HeatRateCallScheduleChecks.Run();return;}
 if(args is ["--exercise-mark-pair"]){ExerciseRightChecks.MarkBindings();return;}
 if(args is ["--exercise-rights"]){ExerciseRightChecks.Run();return;}
@@ -669,6 +670,7 @@ ConnectedPortfolioChecks.Run();
 ValuationEnvironmentChecks.Run();passed++;
 OptionSensitivityChecks.Run();passed++;
 OptionStrategyChecks.Run();passed++;
+EuropeanFuturesOptionChecks.Run();passed++;
 JointScenarioRiskChecks.Run();
 AlignedFactorHistoryChecks.Run();
 ParametricRiskChecks.Run();

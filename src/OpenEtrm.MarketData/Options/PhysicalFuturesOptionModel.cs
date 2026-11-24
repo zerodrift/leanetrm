@@ -54,6 +54,7 @@ public static class PhysicalFuturesOptionModel
             margin?.Implementation!=FuturesMarginPolicy.DeliveryVersion||margin.Delivery?.Terms is null||margin.Delivery.Terms.From!=carrying.DeliveryAt)
             throw Error();
         ct.ThrowIfCancellationRequested();
+        ReferenceFuturesOptionStrategy.RequireQualifiedStyle(terms);
         _=AmericanFuturesOptionModel.ValidateInputs(terms,futures,referenceExpiryDiscount,at,numerical);
         _=rule.Decide(terms.Right,terms.Strike,terms.Strike);
         var nodeMargins=ReferenceFuturesOptionStrategy.NodeMargins(terms,margin,at,numerical);var required=nodeMargins.DistinctBy(o=>o.Id).ToArray();

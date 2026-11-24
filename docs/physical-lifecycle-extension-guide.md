@@ -42,7 +42,7 @@ not a Side container or a second valuation engine.
    the Trade binding, unit economics on Instrument/Side and peer connections on
    Instrument. Every non-exchange Instrument requires genuine Sides owning its
    schedules and PV; only futures and futures options are exempt (D417).
-   The D449 gas composition books an independent lump sum or capacity charge
+   The D450 gas composition books an independent lump sum or capacity charge
    as a fixed payment Side membership with its own quantity and days. Fees
    booked independently in other profiles have their own cash Instruments
    and Sides. A booked physical membership has a DeliverySchedule over retained

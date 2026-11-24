@@ -86,6 +86,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
    return facts.Series===${q(chosen.series)}&&facts['Exchange contract'].endsWith(${q(chosen.product)})&&facts.Expiry&&facts.Expiry!=='—'&&
     facts['Settlement at this close']===${q(chosen.settlementPrice+' '+chosen.priceUnit)}&&
     facts['One-lot premium at settlement']===${q(chosen.settlementPremiumPerLot+' '+chosen.currency)}&&
+    facts.Exercise==='American · on any business day'&&facts.Settlement==='Exercises into the future at the strike'&&!('Exercise style' in facts)&&
     facts['Contrary instructions']==='Not accepted'&&!document.querySelector('#option-page .option-fact input');})()`,ticketFacts);
  await set('#option-commodity',[...new Set(catalog.options.map(o=>o.commodity.code))].find(c=>c!==chosen.commodity.code));
  await check('changing the commodity clears the underlying future, call or put and strike below it',

@@ -1,6 +1,6 @@
 # Charges on Gas Trades Implementation Plan
 
-D449 is implemented, verified locally and independently reviewed.
+D450 is implemented, verified locally and independently reviewed.
 
 **Goal:** A gas trade can carry a lump sum and a capacity charge: payment entries that own their quantity, accrue on their own days and take recorded payments as any gas payment does.
 
@@ -192,7 +192,7 @@ git commit -s -m "Accrue an owning payment entry on its own days"
 The API passes the request to the database writer, which independently validates admission. Both contracts change together.
 
 **Files:**
-- Create: `db/migrations/0397_gas_charge_entries.sql`; modify `db/README.md`
+- Create: `db/migrations/0399_gas_charge_entries.sql`; modify `db/README.md`
 - Modify: `src/OpenEtrm.Api/GasCompositionStore.cs` (`GasCompositionRequest`, `Resolve`, `GasCompositionExecution.BuildInstrument`, `Load`)
 - Create: `tools/check_gas_charges.py`
 - Modify: `tools/run_preview.py` (flag `--gas-charges-check`), `tools/check_all.py` (the gas suite)
@@ -317,7 +317,7 @@ git commit -s -m "Enter a lump sum or a capacity charge on the gas ticket"
 - [x] **Step 2: Run to verify failure, implement, then pass**
 
 Build and run the full frontend suite with two Node test workers as shown
-in [verification](../../verification.md#independent-gas-charges-d449). Then run
+in [verification](../../verification.md#independent-gas-charges-d450). Then run
 `python3 tools/run_preview.py --pg-bin "$PG_BIN" --dotnet "$DOTNET" --check --gas-charges-check --browser-check --browser "$BROWSER"`.
 The full web suite passed. The owned browser covered both bases, field refusals, booking, exact terms, accrued and unrealized cash, and completed schedule-row progress.
 
@@ -337,14 +337,14 @@ git commit -s -m "Check the Charge side of the gas ticket in the browser"
 
 Run `python3 tools/check_all.py --pg-bin "$PG_BIN" --dotnet "$DOTNET" --browser "$BROWSER" --group gas`, then `--group trading` and `--group managed` sequentially.
 All passed with 18 gas, 20 trading and 81 managed workloads. See
-[verification](../../verification.md#independent-gas-charges-d449).
+[verification](../../verification.md#independent-gas-charges-d450).
 
 - [x] **Step 2: Update the records.**
   - `docs/decisions.md`: one new decision under the next free number. It states the owning entry, its two bases, the lump sum's day rule, the capacity charge's rows and payment day, accrual on its own days, the new admitted shape, and the seven calls confirmed in the spec. It notes that transport's charges are left to transport's redesign.
   - `docs/physical-gas-side.md`: replace the statement that fixed nominal and capacity charges are outside the profile.
   - `docs/deal-ticket.md`: the Charge side and its refusals.
   - `docs/plan.md`, `docs/implementation.md`, `docs/verification.md`: status and the actual check counts from Step 1.
-  - The spec records D449, exact quote and calendar inputs, UTC date and earned-day rules, and the owning schedule presentation.
+  - The spec records D450, exact quote and calendar inputs, UTC date and earned-day rules, and the owning schedule presentation.
 
 - [x] **Step 3: Obtain one independent adversarial review** of the temporal behavior: the lump sum's day, own-day states under a clock that does not start at UTC midnight, due dates, and payment visibility under a knowledge cutoff. Resolve findings and rerun Step 1.
 

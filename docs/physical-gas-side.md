@@ -1,6 +1,6 @@
 # Physical gas booking and pre-delivery valuation
 
-## Independent gas charges (D449)
+## Independent gas charges (D450)
 
 A standalone gas composition can include a fixed contractual `charge`
 membership alongside physical, consideration and fee Sides. It uses the
@@ -29,7 +29,7 @@ The fixed Side retains the exact versioned quote
 and normalizes the raw amount or rate by its multiplier using exact division.
 The absolute stated price must be below 10^12. A price literal that cannot
 be represented exactly at the supported 18-place decimal scale refuses.
-Migration 0398 also checks the first owned UTC instant under the admitted
+Migration 0400 also checks the first owned UTC instant under the admitted
 fixed-offset clock before retaining either charge basis. Exact ratios on the
 holding base let the Trade apply quantity once and preserve the same stated charge at different delivery sizes.
 
@@ -57,8 +57,8 @@ Side programs. Charges have no market-price dependencies and contribute no
 price-factor exposure. Final billing refuses charge slots with
 `gas_billing_profile`. Ordinary fixed consideration keeps its existing
 billing and physical coverage rules. See the
-[ticket contract](deal-ticket.md#gas-charge-side-d449) and
-[decision](decisions.md#d449--gas-compositions-admit-fixed-payments-that-own-their-quantity).
+[ticket contract](deal-ticket.md#gas-charge-side-d450) and
+[decision](decisions.md#d450--gas-compositions-admit-fixed-payments-that-own-their-quantity).
 
 ## Exercise rights (D448)
 
@@ -147,7 +147,7 @@ scenario refuses the run. Native futures keep their all-valued requirement.
 | `holder_choice_inputs` | Invalid model inputs |
 
 This build covers gas exercise over ordinary physical and payment Sides.
-D449 permits an independent lump-sum premium while refusing a right that names
+D450 permits an independent lump-sum premium while refusing a right that names
 a charge. Strip exercise across delivery months, discounting, negative modeled
 prices, path-dependent and constrained rights, transport/storage optionality,
 and a marks editor are outside the profile. D288 listed futures options and
@@ -294,8 +294,8 @@ configured usage tariff can supply a delivery-based fee price. A tariff cannot
 silently price a receipt/fuel stage or overwrite a manual price. Selecting the
 fuel stage bills a separately declared charge on that reduction; it does not
 change in-kind fuel into cash-paid fuel. Whole-term fixed cash retains its explicit
-payment instant without inferred monthly allocation. D449 adds independent
-fixed [lump sums and capacity charges](#independent-gas-charges-d449) with
+payment instant without inferred monthly allocation. D450 adds independent
+fixed [lump sums and capacity charges](#independent-gas-charges-d450) with
 their own quantities and days.
 
 **Index payment** uses the existing `FloatingSide` under

@@ -156,6 +156,11 @@ internal static class VolSurfaceChecks
             Expect(!SurfaceAxes.TryDeclare(partial, out _), "A partial stored revision requires an explicit refit.");
             Refuses("vol_axis_inputs_missing", () => SurfaceAxes.Project(partial, request));
         }
+        // A European product's surface is fitted under the formula's policy and declares the same three axes.
+        Expect(SurfaceAxes.TryDeclare(surface with { PlotInputs = policies with { OptionPolicy = OptionNumericalPolicies.Black76 } }, out var formulaAxes) &&
+            formulaAxes.Select(a => a.Id).SequenceEqual(SurfaceAxes.Declare(surface).Select(a => a.Id)), "A surface fitted by the Black-76 formula declares its axes.");
+        Expect(!SurfaceAxes.TryDeclare(surface with { PlotInputs = policies with { OptionPolicy = OptionNumericalPolicies.LeisenReimer } }, out _),
+            "A surface under a policy no fit states requires an explicit refit.");
         var expired = expiry with { Status = "option_expired", YearFraction = null, Futures = null, Parameters = null, Grid = default };
         var result = SurfaceAxes.Project(surface with { StrikeAxis = [], Expiries = [expired] }, request);
         Expect(result.Expiries.Single().Nodes.IsEmpty && result.Series.All(s => s.AxisValue is null), "An expired row needs no live fit inputs.");

@@ -1,17 +1,17 @@
 # Charges on gas trades: design
 
-Status: built locally, D449. Migrations 0397 and 0398. The baseline below describes the
+Status: built locally, D450. Migrations 0399 and 0400. The baseline below describes the
 pre-change implementation. This build uses the
 [Instrument schedule and gas pricing contract](2026-11-23-instrument-schedule-and-gas-pricing-design.md).
-See the [gas contract](../../physical-gas-side.md#independent-gas-charges-d449)
-and [local verification](../../verification.md#independent-gas-charges-d449).
+See the [gas contract](../../physical-gas-side.md#independent-gas-charges-d450)
+and [local verification](../../verification.md#independent-gas-charges-d450).
 
 ## Intent
 
 A charge is an ordinary fixed payment. What distinguishes one charge from
 another is what it is charged on.
 
-Before D449, gas payments used the quantity of a physical Side. The
+Before D450, gas payments used the quantity of a physical Side. The
 owning entry lets a gas composition carry a lump sum or a capacity charge.
 It uses the existing fixed payment Side. For either basis, the first gas day
 must have a representable UTC start. Fresh booking admits a charge that has
@@ -66,14 +66,14 @@ Transport charges belong to a separate redesign. See [Transport](#transport).
 
 These references identify the starting implementation.
 
-| Piece | Pre-D449 behavior | Where |
+| Piece | Pre-D450 behavior | Where |
 | --- | --- | --- |
 | Gas payment entry | Names a physical source and stage. Quantity follows that source under the selected share and part | [D447](../../decisions.md#d447--gas-pricing-is-a-composition-of-independent-payment-sides) |
 | Fixed payment Side | The managed Side accepts several contiguous periods, each with its own quantity | `SwapSidePeriods.cs:40-66` |
 | Admitted fixed payment | One row over its selected term within the physical source | migrations 0326 and 0391 |
 | Payment date | The UTC payment date is on or after the UTC completion date | `PaymentDatePolicy.cs:14-18`, `SwapSidePeriods.cs:58`, migration `0326:69` |
 | Due and paid | A row cannot be due while a day it covers has not ended, and no payment can be recorded before one of its days has ended | `PhysicalLifecycle.cs:54`, `:249`, migration `0216:197-204` |
-| Lifecycle days | Day states come from the selected physical program and cover every day of a following payment row | Pre-D449 `PhysicalLifecycle` and `RetainedGasInstrument` |
+| Lifecycle days | Day states come from the selected physical program and cover every day of a following payment row | Pre-D450 `PhysicalLifecycle` and `RetainedGasInstrument` |
 | Accrual without a policy | A payment row accrues by its count of ended days, and requires equal physical quantities on the days it covers | `PhysicalLifecycle.cs:237-241` |
 | Held quantities | Every payment must name a physical source | `PhysicalDeliveryQuantities.cs:25-42`, `:63-64` |
 | In-term lifecycle | Admitted only on gas memberships | migration `0216:51-52` |
@@ -191,7 +191,7 @@ basis. A lump sum supplies `paymentAt`. Capacity supplies `dailyQuantity`,
 `from`, `to` and `paymentDay`. With no charges, the ticket omits the array.
 
 The standalone ticket's Add side offers **Charge** with the controls in the
-[deal ticket contract](../../deal-ticket.md#gas-charge-side-d449). In the
+[deal ticket contract](../../deal-ticket.md#gas-charge-side-d450). In the
 joint schedule each month spans its actual contribution intervals while
 each Side keeps its grain. A one-day capacity stub is monthly. The combined
 view counts native contributions completed by their own interval ends
@@ -280,7 +280,7 @@ Each stage leaves every check passing.
 
 ## Contract decisions
 
-[D449](../../decisions.md#d449--gas-compositions-admit-fixed-payments-that-own-their-quantity)
+[D450](../../decisions.md#d450--gas-compositions-admit-fixed-payments-that-own-their-quantity)
 records the following seven calls and links the exercise premium to D448.
 
 1. A lump sum's day is the latest gas day that has ended when its payment
