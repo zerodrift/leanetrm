@@ -1,6 +1,10 @@
+using System.Collections.Immutable;
 using System.Text.Json.Nodes;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Options;
+using OpenEtrm.MarketData.Risk;
+using OpenEtrm.MarketData.Trading;
+using Market = FuturesOptionChecks.OptionMarket;
 
 // A listed European option on a future (D446): the Black-76 formula against the independent 60-digit oracle and
 // hand arithmetic. Every expected figure comes from the oracle fixture or from a value worked in the comment beside it.
@@ -38,6 +42,15 @@ internal static class EuropeanFuturesOptionChecks
         Check("a settlement above the price at volatility three is refused", AboveBound);
         Check("a European calibration refuses invalid inputs and a policy without a discount tolerance", CalibrationRefusals);
         Check("the American solver's outcomes are unchanged", AmericanSolverUnchanged);
+        Check("a European option's base unit PV equals its settlement times the multiplier", BasePvEqualsSettlement);
+        Check("a European option declares its underlying, one discount input at expiry, its held volatility and no price step", DeclaredInputs);
+        Check("a European option's time dependency runs from the calculation instant to expiry", TimeDependencyEndsAtExpiry);
+        Check("one-tick revaluations give the oracle's delta within 0.000001 and gamma within 0.01 percent", OneTickSensitivities);
+        Check("a European risk run's one-tick delta and gamma are the oracle's within its calibration tolerance", RiskRunSensitivities);
+        Check("a European fallback values each scenario at the discount times scenario intrinsic plus the base residual, floored at zero", FallbackScenarios);
+        Check("an out-of-the-money European series settling at zero is worth nothing in every scenario and needs the fallback declared", ZeroSettlementScenarios);
+        Check("a European binding counts no tree price", NoTreePrice);
+        Check("preparing a series with the other style's policy is refused", PreparedUnderOtherPolicy);
     }
 
     private static void TermsAdmitTwoStyles()
@@ -358,6 +371,205 @@ internal static class EuropeanFuturesOptionChecks
         Equal(fallback.Residual.ToString(), "-0.0005");
         Reject("option_settlement_below_intrinsic", () => American(OptionRight.Put, "2", "3", twoDays, "0.9998", "0.998999"));
         Reject("option_settlement_above_bound", () => American(OptionRight.Call, "80", "80", "2", "0.9", "79"));
+    }
+
+    // The option fixture's market with a series restated as European: the same keys, prices and curves. A European
+    // product accepts no contrary instructions; a cutoff may still be stated.
+    private static FuturesOptionInstrument EuropeanOption(Market market, int contract, DateTimeOffset? cutoff = null)
+    {
+        var series = market.Series(contract);
+        return new(series with
+        {
+            Terms = new(series.Terms.Right, series.Terms.Strike, series.Terms.ExpiryAt, FuturesOptionTerms.European, series.Terms.SettlementMethod),
+            ContraryInstructionsAllowed = false, InstructionCutoffAt = cutoff,
+        });
+    }
+
+    private static readonly ExplicitDiscounting Undiscounted = new(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted);
+    private static ExactDecimal D(string value) => ExactDecimal.Parse(value);
+    private static RiskPositionResult Position(RiskRun run, int trade) => run.Factors[0].Positions.Single(p => p.TradeId == Market.G(1000 + trade));
+    private static FuturesOptionCalibrationReceipt Receipt(RiskRun run, int contract) =>
+        run.OptionCalibrations.Single(r => r.Series.Code == Market.SeriesCode(contract));
+    private static void Same(ExactDecimal actual, ExactDecimal expected, string label)
+    { if (actual != expected) throw new Exception($"{label}: expected {expected}; got {actual}."); }
+
+    // The fixture at its discount of 0.999 and a futures price of 3. The call struck at 2 settling at 1 lies above its
+    // discounted intrinsic of 0.999, so it has a volatility; settling at 0.999 it has none.
+    private static void BasePvEqualsSettlement()
+    {
+        var market = new Market();
+        var run = market.Calculate(
+            [Market.Holding(1, 1, EuropeanOption(market, 11), "2"), Market.Holding(2, 1, EuropeanOption(market, 12), "1"),
+             Market.Holding(3, 1, EuropeanOption(market, 13), "3"), Market.Holding(4, 1, EuropeanOption(market, 14), "1"),
+             Market.Holding(5, 2, EuropeanOption(market, 15), "-2")], [market.FuturesBump], policy: Policy);
+        foreach (var (trade, contract, settlement, lots, mode) in new[]
+                 {
+                     (1, 11, "0.08", "2", FuturesOptionPricing.SolvedMode), (2, 12, "0.08", "1", FuturesOptionPricing.SolvedMode),
+                     (3, 13, "1", "3", FuturesOptionPricing.SolvedMode), (4, 14, "0", "1", ImpliedVolatility.DiscountedFallbackMode),
+                     (5, 15, "0.999", "-2", ImpliedVolatility.DiscountedFallbackMode),
+                 })
+        {
+            var receipt = Receipt(run, contract);
+            Equal(receipt.Mode, mode);
+            Equal(receipt.NumericalPolicy, OptionNumericalPolicies.Black76);
+            // Calibration reprices the settlement within half an increment: 10,000 × 0.0005 = 5 a lot. A fallback is exact.
+            var expected = D(settlement) * Market.Multiplier * D(lots);
+            var bound = mode == FuturesOptionPricing.SolvedMode ? D("5") * D(lots) : default;
+            var difference = Position(run, trade).Base.Amount - expected;
+            if (difference.CompareTo(bound) > 0 || (default(ExactDecimal) - difference).CompareTo(bound) > 0)
+                throw new Exception($"Trade {trade}: base {Position(run, trade).Base.Amount} is not settlement value {expected} within {bound}.");
+        }
+        // The zero-volatility value recorded for the fallback at 0.999 is 0.999 × (3 − 2), not the undiscounted 1.
+        Equal(Receipt(run, 15).Intrinsic ?? "none", "0.999");
+        Equal(Receipt(run, 15).Residual, "0");
+    }
+
+    private static void DeclaredInputs()
+    {
+        var market = new Market();
+        var run = market.Calculate([Market.Holding(1, 1, EuropeanOption(market, 11), "1"), Market.Holding(2, 1, EuropeanOption(market, 14), "1")],
+            [market.FuturesBump], policy: Policy);
+        if (run.Contracts.Length != 2) throw new Exception($"Expected two option contracts; found {run.Contracts.Length}.");
+        foreach (var contract in run.Contracts)
+        {
+            var receipt = run.OptionCalibrations.Single(r => r.InstrumentId == contract.Id);
+            Equal(contract.ModelVersion, OptionNumericalPolicies.Black76);
+            if (contract.Dependencies is not [var dependency] || dependency != market.UnderlyingRequest)
+                throw new Exception("A European option declares exactly its underlying futures request.");
+            if (contract.DiscountInputs is not [{ Payment: { PaymentAt: var paid, Timing: ValueTimingKind.Instant } }] || paid != Market.Expiry)
+                throw new Exception("A European option declares one discount input at its expiry instant.");
+            if (!contract.PriceSteps.IsEmpty) throw new Exception("The formula declares no price step.");
+            var solved = receipt.Mode == FuturesOptionPricing.SolvedMode;
+            if (solved ? contract.Volatility is not [{ Convention: VolatilityInput.Annualized } held] || held.Value != receipt.Volatility
+                    : !contract.Volatility.IsEmpty)
+                throw new Exception("A solved option declares its held volatility; a fallback declares none.");
+        }
+    }
+
+    // An American series' value can change at its instruction cutoff, so its interval ends there. A European series
+    // is exercised only at expiry: a stated cutoff does not end its interval.
+    private static void TimeDependencyEndsAtExpiry()
+    {
+        var market = new Market();
+        var cutoff = Market.Expiry.AddHours(-2);
+        ValuationTimeDependency Time(FuturesOptionInstrument option, OptionNumericalPolicy policy) =>
+            market.Calculate([Market.Holding(1, 1, option, "1")], [market.FuturesBump], policy: policy).Contracts.Single().Time;
+        foreach (var stated in new DateTimeOffset?[] { null, cutoff })
+        {
+            var time = Time(EuropeanOption(market, 11, stated), Policy);
+            if (time.Use != ValuationTimeDependency.TimeUse.Interval || time.From != Market.At || time.To != Market.Expiry)
+                throw new Exception($"A European option's interval must run from {Market.At:O} to {Market.Expiry:O}; got {time.From:O} to {time.To:O}.");
+        }
+        if (Time(market.Option(11), Tree).To != cutoff) throw new Exception("An American option's interval still ends at its instruction cutoff.");
+        // A fallback has no model time: it stays pinned to its source instant.
+        if (Time(EuropeanOption(market, 14), Policy).Use != ValuationTimeDependency.TimeUse.Pinned)
+            throw new Exception("A European fallback is pinned to its source instant.");
+    }
+
+    private sealed record Greeks(LatticeDecimal Volatility, LatticeDecimal Delta, LatticeDecimal Gamma);
+
+    // The oracle's sensitivity case is the fixture's at-the-money call at a unit discount.
+    private static Greeks OracleGreeks()
+    {
+        var row = Oracle["black76_greeks"]!.AsArray().Single()!;
+        LatticeDecimal Field(string name) => L(row[name]!.GetValue<string>());
+        if (row["futures"]!.GetValue<string>() != Market.Futures || row["strike"]!.GetValue<string>() != "3" || row["call"]!.GetValue<string>() != "0.08" ||
+            row["seconds"]!.GetValue<long>() != (long)(Market.Expiry - Market.At).TotalSeconds)
+            throw new Exception("The oracle's sensitivity case is not the fixture's at-the-money call.");
+        return new(Field("volatility"), Field("delta_call"), Field("gamma"));
+    }
+
+    private static FuturesOptionMarketBinding Prepare(Market market, FuturesOptionInstrument option, ISideDiscounting discounting,
+        OptionNumericalPolicy policy, bool fallbackDeclared = true)
+    {
+        var source = market.Snapshot(); var model = market.Model();
+        var requests = FuturesOptionPricing.Requests(model, option.Series, FuturesOptionPricing.DailySettlement);
+        return FuturesOptionPricing.Prepare(option, model.Build(source, [requests.Underlying, requests.Settlement]), source, discounting,
+            FuturesOptionPricing.DailySettlement, policy, fallbackDeclared, CancellationToken.None);
+    }
+
+    // The binding's value at the oracle's own volatility, one tick of 0.001 either side of the futures price.
+    private static void OneTickSensitivities()
+    {
+        var oracle = OracleGreeks(); var market = new Market();
+        var binding = Prepare(market, EuropeanOption(market, 11), Undiscounted, Policy);
+        LatticeDecimal At(string futures) => binding.UnitPrice(L(futures), Market.At, CancellationToken.None, L("1"), oracle.Volatility);
+        var (down, centre, up, tick) = (At("2.999"), At("3"), At("3.001"), L("0.001"));
+        Within(centre, L("0.08"), L("0.00000000000000000001"), "value at the oracle's volatility");
+        Within((up - down) / (tick + tick), oracle.Delta, L("0.000001"), "delta");
+        Within((up + down - centre - centre) / (tick * tick), oracle.Gamma, oracle.Gamma * L("0.0001"), "gamma");
+    }
+
+    // The same through the shared base, up and down scenarios, at the volatility the calibration holds. That one
+    // reprices 0.08 within half an increment of 0.001, so it lies within 0.0005 ÷ vega (0.163) = 0.0031 of the oracle's:
+    // a delta within 0.001 and a gamma within 1%. One lot is 10,000 units.
+    private static void RiskRunSensitivities()
+    {
+        var oracle = OracleGreeks(); var market = new Market();
+        var run = market.Calculate([Market.Holding(1, 1, EuropeanOption(market, 11), "1")], [market.FuturesBump], discounting: Undiscounted, policy: Policy);
+        Within(L(Receipt(run, 11).Volatility!), oracle.Volatility, L("0.0031"), "held volatility");
+        var position = Position(run, 1);
+        Within(LatticeDecimal.From(position.Delta.Value) / L("10000"), oracle.Delta, L("0.001"), "delta");
+        Within(LatticeDecimal.From(position.Gamma.Value) / L("10000"), oracle.Gamma, oracle.Gamma * L("0.01"), "gamma");
+    }
+
+    // The call struck at 2 settles at 0.999 with F = 3. At a discount of 0.9995 its zero-volatility value is 0.9995, so
+    // the residual is −0.0005. A shock of 1.25 either way, one lot of 10,000:
+    //   base  0.9995 × 1 − 0.0005 = 0.999        ->  9,990
+    //   up    0.9995 × 2.25 − 0.0005 = 2.248375  -> 22,483.75
+    //   down  0.9995 × 0 − 0.0005 < 0            ->      0
+    private static void FallbackScenarios()
+    {
+        var market = new Market();
+        var run = market.Calculate([Market.Holding(1, 1, EuropeanOption(market, 15), "1")], [market.FuturesBumpOf("1.25")],
+            discounting: new ExplicitDiscounting(D("0.9995"), DiscountFactorSource.Explicit), policy: Policy);
+        var receipt = run.OptionCalibrations.Single();
+        Equal(receipt.Mode, ImpliedVolatility.DiscountedFallbackMode);
+        Equal(receipt.Intrinsic ?? "none", "0.9995");
+        Equal(receipt.Residual, "-0.0005");
+        Same(Position(run, 1).Base.Amount, D("9990"), "base");
+        Same(Position(run, 1).Up.Amount, D("22483.75"), "up");
+        Same(Position(run, 1).Down.Amount, D("0"), "floored down");
+    }
+
+    private static void ZeroSettlementScenarios()
+    {
+        var market = new Market();
+        ImmutableArray<Trade> trades = [Market.Holding(1, 1, EuropeanOption(market, 14), "3")];
+        var run = market.Calculate(trades, [market.FuturesBumpOf("1.25")], policy: Policy);
+        Equal(run.OptionCalibrations.Single().Mode, ImpliedVolatility.DiscountedFallbackMode);
+        foreach (var value in new[] { Position(run, 1).Base.Amount, Position(run, 1).Up.Amount, Position(run, 1).Down.Amount })
+            Same(value, D("0"), "a zero settlement out of the money");
+        try { market.Calculate(trades, [market.FuturesBump], fallbackDeclared: false, policy: Policy); }
+        catch (MarketDataException error) when (error.Code == "option_calibration_fallback_undeclared")
+        {
+            if (!error.Message.Contains(Market.SeriesCode(14), StringComparison.Ordinal) || !error.Message.Contains(ImpliedVolatility.DiscountedFallbackMode, StringComparison.Ordinal))
+                throw new Exception("The refusal must name the series and the fallback it needs declared.");
+            return;
+        }
+        throw new Exception("Expected option_calibration_fallback_undeclared.");
+    }
+
+    private static void NoTreePrice()
+    {
+        var market = new Market();
+        var european = Prepare(market, EuropeanOption(market, 11), Undiscounted, Policy);
+        var american = Prepare(market, market.Option(11), Undiscounted, Tree);
+        foreach (var binding in new[] { european, american })
+            _ = binding.UnitPrice(L("3.001"), Market.At, CancellationToken.None, L("1"), ((SolvedVolatility)binding.Calibration).Volatility);
+        Equal(european.TreePrices.ToString(System.Globalization.CultureInfo.InvariantCulture), "0");
+        Equal(american.TreePrices.ToString(System.Globalization.CultureInfo.InvariantCulture), "1");
+    }
+
+    private static void PreparedUnderOtherPolicy()
+    {
+        var market = new Market();
+        foreach (var (option, policy) in new[] { (EuropeanOption(market, 11), Tree), (market.Option(11), Policy) })
+            try { Prepare(market, option, Undiscounted, policy); throw new Exception("Expected option_terms."); }
+            catch (MarketDataException error) when (error.Code == "option_terms")
+            {
+                if (!error.Message.Contains(Market.SeriesCode(11), StringComparison.Ordinal)) throw new Exception("The refusal must name the series.");
+            }
     }
 
     private static JsonNode Oracle => JsonNode.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "fixtures", "futures-option-oracle.json")))!;
