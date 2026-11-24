@@ -138,6 +138,15 @@ internal static class GasCompositionPricingChecks
         Require(monthlyCap.ResolveRights().Single().Groups.SequenceEqual([new(new(2041, 1, 1), new(2041, 1, 4), Utc(2041, 1, 2, 12))]),
             "An automatic monthly group exercises at its latest actual row fixing.");
 
+        var earlier = index with { Code = "earlier", Side = crossing.IndexedCash() };
+        var later = index with { Code = "later", Side = crossing.IndexedCash(laterFixingHours: 3) };
+        var crossCash = new GasCompositionInstrument(Guid.NewGuid(), [crossPhysical], [earlier, later],
+            [automatic with { Period = ExercisePeriod.DeliveryMonth, Entries = ["earlier", "later"] }]);
+        Require(crossCash.ResolveRights().Single().Groups.SequenceEqual([
+            new(new(2041, 1, 30), new(2041, 2, 1), Utc(2041, 1, 30, 15)),
+            new(new(2041, 2, 1), new(2041, 2, 2), Utc(2041, 1, 31, 15))]),
+            "Each partial month takes its own latest fixing across both indexed payments.");
+
         GasExerciseRight[] malformed = [null!, daily with { Entries = default }, daily with { Entries = [] },
             daily with { Entries = ["delivery", "missing"] }, daily with { Entries = ["delivery", "delivery"] },
             daily with { Entries = ["delivery", null!] }, daily with { Entries = ["payment"] },
@@ -186,12 +195,14 @@ internal static class GasCompositionPricingChecks
         internal PhysicalGasSide Physical(GasDayClock? clock = null) => new(Guid.NewGuid(), location, assignments[0].Product,
             new(clock ?? Clock, From, To, GasQuantityBasis.PerOperatingDay, new(N("1"), f.Quote.Quantity), GasFuelConvention.None, default),
             assignments, SyntheticSideCalendars.Physical());
-        internal FloatingSide IndexedCash()
+        internal FloatingSide IndexedCash(int laterFixingHours = 0)
         {
-            ImmutableArray<FloatingSidePeriod> periods = [..assignments.Select(a => new FloatingSidePeriod(a.From, a.To,
-                a.Fixing!.FixingAt, Clock.Boundary(To).AddDays(2), FloatingAveraging.CalendarDayArithmetic, [a.Projection], [a.Fixing],
+            ImmutableArray<FloatingSidePeriod> periods = [..assignments.Select(a => {
+                var fixing = a.Fixing! with { FixingAt = a.Fixing!.FixingAt.AddHours(laterFixingHours) };
+                return new FloatingSidePeriod(a.From, a.To,
+                fixing.FixingAt, Clock.Boundary(To).AddDays(2), FloatingAveraging.CalendarDayArithmetic, [a.Projection], [fixing],
                 null, new(default, f.Quote), null, null, ExactRatio.One, FloatingSide.DeliveryIndexImplementation)
-                { DeliveryCompletionAt = Clock.Boundary(a.To) })];
+                { DeliveryCompletionAt = Clock.Boundary(a.To) }; })];
             return new(Guid.NewGuid(), f.Quote, Physical().UnitQuantity, periods, FloatingSide.DeliveryIndexImplementation,
                 SyntheticSideCalendars.FloatingPeriods(periods), gasDeliveryClock: Clock);
         }

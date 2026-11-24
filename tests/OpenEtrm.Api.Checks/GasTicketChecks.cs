@@ -39,6 +39,16 @@ internal static class GasTicketChecks
             throw new Exception($"Expected ticket_input for {name}.");
         }
         void Equal(object? expected, object? actual, string what) { if (!Equals(expected, actual)) throw new Exception($"{what}: expected '{expected}', got '{actual}'."); }
+        Check("exercise terms round trip and an absent right preserves the wire request",()=>{
+            var json=new JsonSerializerOptions(JsonSerializerDefaults.Web);
+            var plain=Map(Draft(Receipt,Cash));
+            Equal(false,JsonSerializer.SerializeToElement(plain,json).TryGetProperty("exerciseRights",out _),"absent right");
+            var terms=plain with{ExerciseRights=[new(["PAY","RCT"],"delivery_day","us","physical",6)]};
+            var wire=JsonSerializer.Serialize(terms,json);
+            var right=JsonSerializer.Deserialize<GasCompositionRequest>(wire,json)!.ExerciseRights!.Value.Single();
+            Equal("PAY,RCT",string.Join(",",right.Entries),"entry order");
+            Equal(("delivery_day","us","physical",(int?)6),(right.Period,right.Holder,right.Settlement,right.LeadHours),"saved terms");
+        });
         var full = Draft(Receipt, Linked, Cash, Fee);
         Check("payment entry terms round trip without changing absent legacy keys",()=>{
             var json=new JsonSerializerOptions(JsonSerializerDefaults.Web);

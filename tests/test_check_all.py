@@ -70,9 +70,12 @@ class CheckAllTests(unittest.TestCase):
         preview_flags = {
             '--gas-basis-demo-check', '--gas-operations-check', '--gas-billing-check',
             '--gas-daily-quantity-check', '--gas-amendments-check', '--gas-indexed-check',
-            '--gas-in-term-check', '--gas-delivery-quantity-check', '--gas-pricing-check'}
+            '--gas-in-term-check', '--gas-delivery-quantity-check', '--gas-pricing-check', '--gas-exercise-check'}
         self.assertEqual({part for command in previews for part in command if part in preview_flags},
                          preview_flags)
+        exercise=[command for command in previews if '--gas-exercise-check' in command]
+        self.assertEqual(len(exercise),1)
+        self.assertTrue({'--gas-pricing-check','--browser-check'}.issubset(exercise[0]))
         quantity=next(command for command in previews if '--gas-delivery-quantity-check' in command)
         self.assertIn('--browser-check',quantity)
         self.assertNotIn('--gas-composition-check',quantity)

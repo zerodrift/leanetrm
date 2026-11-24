@@ -20,9 +20,9 @@ internal static class GasDeliveryQuantityStore
  internal const string Policy=GasHeldQuantities.DeliverySchedulePolicy;
  internal static async Task<GasDeliveryQuantityInputs?> Read(NpgsqlConnection connection,Guid catalog,GasCompositionExecution held,DateTimeOffset at,CancellationToken ct)
  {
-  if(!held.Members.Any(m=>m.QuantityPolicy is not null||m.Part is not null))return null;
+  if(held.Rights.IsEmpty&&!held.Members.Any(m=>m.QuantityPolicy is not null||m.Part is not null))return null;
   if(!held.Started)throw new MarketDataException("gas_quantity_policy","Delivery schedule quantities require the in-term physical lifecycle.");
-  return Build(held.Members,held.Programs,held.Quantity,at,held.Members.Any(m=>m.QuantityPolicy is not null)?await ReadHeads(connection,catalog,held.TradeId,held.InstrumentId,ct):[]);
+  return Build(held.Members,held.Programs,held.Quantity,at,held.Members.Any(m=>m.QuantityPolicy is not null)?await ReadHeads(connection,catalog,held.TradeId,held.InstrumentId,ct):[],held.Rights);
  }
  internal static async Task<ImmutableArray<JsonElement>> ReadHeads(NpgsqlConnection connection,Guid catalog,Guid trade,Guid binding,CancellationToken ct)
  {
@@ -31,12 +31,14 @@ internal static class GasDeliveryQuantityStore
   return [..rows.EnumerateArray()];
  }
  internal static GasDeliveryQuantityInputs? Build(ImmutableArray<GasCompositionRow> members,ImmutableArray<RetainedSideProgram> programs,
-  ExactDecimal quantity,DateTimeOffset at,ImmutableArray<JsonElement> rows)
+  ExactDecimal quantity,DateTimeOffset at,ImmutableArray<JsonElement> rows,ImmutableArray<ExerciseRight> rights=default)
  {
-  if(!members.Any(m=>m.QuantityPolicy is not null||m.Part is not null))return null;
+  if(rights.IsDefaultOrEmpty&&!members.Any(m=>m.QuantityPolicy is not null||m.Part is not null))return null;
   if(members.Any(m=>m.QuantityPolicy is not(null or Policy)||m.Role=="physical"&&m.Source is not null))
    throw new MarketDataException("gas_quantity_policy","Delivery schedule quantities require independent physical memberships and a supported saved policy.");
-  var followed=members.Where(m=>m.Role=="physical"&&(m.QuantityPolicy==Policy||members.Any(p=>p.Source==m.Code&&p.Part is not null))).Select(m=>{
+  var sources=rights.IsDefaultOrEmpty?[]:rights.SelectMany(r=>r.Slots).Select(slot=>members.Single(m=>m.Slot==slot))
+   .Select(m=>m.Role=="physical"?m.Code:m.Source!).ToHashSet(StringComparer.Ordinal);
+  var followed=members.Where(m=>m.Role=="physical"&&(sources.Contains(m.Code)||m.QuantityPolicy==Policy||members.Any(p=>p.Source==m.Code&&p.Part is not null))).Select(m=>{
    var scale=HeldScale(m.Ratio,quantity);
    return new GasFollowedMember(m.Slot,GasDailyQuantitySelection.ReadContract(programs.Single(p=>p.Slot==m.Slot).Program,scale),scale,
     m.QuantityPolicy);

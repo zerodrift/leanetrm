@@ -21,6 +21,10 @@ application. See [current implementation](../docs/implementation.md) and
 
 Recent schema groups and their contracts:
 
+- [0392](migrations/0392_gas_exercise_rights.sql) stores gas exercise rights with
+  ordered membership slots and half-open delivery groups. Admission derives physical
+  exercise times from the selected sources' first gas-day boundaries and the agreed
+  lead. Automatic cash groups use the latest bound index fixing in the group.
 - [0391](migrations/0391_gas_pricing_entries.sql) stores exact gas payment shares,
   quantity parts and delivery dates, admits named daily and monthly index payments,
   and restricts daily fixed billing to whole, full-term payments with share one.

@@ -83,23 +83,28 @@ def upgrade_checks(query,migration):
     print('PASS gas pricing upgrade: four predecessor definitions, owners, grants and configuration are pinned; caller search path is independent',flush=True)
 
 
-def native_admission(query,manifest,body):
+def staged_booking(query,manifest,original,invalid,code):
+    """Replay the original sealed programs with a new authenticated command in a rollback-only transaction."""
     from check_booked_side_programs import runtime_query
-    cat=manifest['catalogId']
+    cat=manifest['catalogId'];operation=invalid['operationId']
+    wire=json.dumps(invalid).replace("'","''")
+    prefix=f"""INSERT INTO trading.side_schedule_requests SELECT(jsonb_populate_record(NULL::trading.side_schedule_requests,
+      to_jsonb(s)||jsonb_build_object('request_id','{operation}','command_hash',encode(sha256(convert_to('{wire}'::jsonb::text,'UTF8')),'hex')))).*
+      FROM trading.side_schedule_requests s WHERE(catalog_id,request_id)=('{cat}','{original['operationId']}');"""
+    # bytea JSON uses PostgreSQL's explicit hex representation.
+    prefix=prefix.replace("'command_hash',encode(","'command_hash','\\x'||encode(")
+    for table in ['side_schedule_request_items','side_schedule_request_seals']:
+        prefix+=f"INSERT INTO trading.{table} SELECT(jsonb_populate_record(NULL::trading.{table},to_jsonb(s)||jsonb_build_object('request_id','{operation}'))).* FROM trading.{table} s WHERE(catalog_id,request_id)=('{cat}','{original['operationId']}');"
+    runtime_query(query,manifest,f"DO $test$ BEGIN BEGIN PERFORM security.book_gas_composition('{cat}','{wire}'::jsonb,'2020-12-18T16:00:00Z');RAISE EXCEPTION 'malformed_entry_accepted';EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'{code}' THEN RAISE;END IF;END;END$test$;",prefix=prefix,commit=False)
+
+
+def native_admission(query,manifest,body):
     mutations=[('share',None),('share','0'),('part',dict(kind='band',lower='8000',upper='8000')),('deliveryFrom','2021-01-12')]
     for key,value in mutations:
         invalid=deepcopy(body);operation=str(uuid4());invalid['operationId']=operation
         if value is None:invalid['cashSides'][0].pop(key)
         else:invalid['cashSides'][0][key]=value
-        wire=json.dumps(invalid).replace("'","''")
-        prefix=f"""INSERT INTO trading.side_schedule_requests SELECT(jsonb_populate_record(NULL::trading.side_schedule_requests,
-          to_jsonb(s)||jsonb_build_object('request_id','{operation}','command_hash',encode(sha256(convert_to('{wire}'::jsonb::text,'UTF8')),'hex')))).*
-          FROM trading.side_schedule_requests s WHERE(catalog_id,request_id)=('{cat}','{body['operationId']}');"""
-        # bytea JSON uses PostgreSQL's explicit hex representation.
-        prefix=prefix.replace("'command_hash',encode(","'command_hash','\\x'||encode(")
-        for table in ['side_schedule_request_items','side_schedule_request_seals']:
-            prefix+=f"INSERT INTO trading.{table} SELECT(jsonb_populate_record(NULL::trading.{table},to_jsonb(s)||jsonb_build_object('request_id','{operation}'))).* FROM trading.{table} s WHERE(catalog_id,request_id)=('{cat}','{body['operationId']}');"
-        runtime_query(query,manifest,f"DO $test$ BEGIN BEGIN PERFORM security.book_gas_composition('{cat}','{wire}'::jsonb,'2020-12-18T16:00:00Z');RAISE EXCEPTION 'malformed_entry_accepted';EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'gas_composition_input' THEN RAISE;END IF;END;END$test$;",prefix=prefix,commit=False)
+        staged_booking(query,manifest,body,invalid,'gas_composition_input')
     print('PASS native entry admission independently refuses missing/zero share, equal band levels and dates outside the source',flush=True)
 
 
