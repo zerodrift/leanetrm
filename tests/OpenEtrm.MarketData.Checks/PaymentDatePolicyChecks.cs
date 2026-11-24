@@ -108,7 +108,7 @@ internal static class PaymentDatePolicyChecks
                             (ScheduleNumber.Parse(price),ScheduleCellState.From(null,kind))));
                     return new LifecycleMember(program,result,n==0,value=>value);
                 }).ToImmutableArray();
-                return PhysicalLifecycle.Evaluate(members,state,snapshot,cash.Currency);
+                return PhysicalLifecycleChecks.ConstructedSideRows(members,state,snapshot,cash.Currency);
             }
             var projected=Evaluate(8,"11",RowPriceState.Projected);
             Require(projected.Total.ToExactString()==projectedPv&&projected.Unrealized.ToExactString()==projectedPv&&projected.RealizedUnsettled.ToExactString()=="0");

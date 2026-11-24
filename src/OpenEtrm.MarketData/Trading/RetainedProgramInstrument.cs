@@ -109,6 +109,9 @@ internal class RetainedInstrumentSchedule<TMember> : InstrumentSchedule where TM
         retained.RequireBeforeValuation(context);
         retained.RequireRetainedSides();
         if(context is null) throw new MarketDataException("side_context", "Supply the exact retained Side valuation context.");
+        var hasQuantityTerms = retained.Members.Any(m => m.ValuationQuantityPolicy is not null || m.ValuationPart is not null);
+        if(hasQuantityTerms && context.BindingState is not PhysicalCashState)
+            throw PhysicalDeliveryQuantities.Invalid("An instrument with quantity terms requires its complete held owner-day inputs.");
         if(context.BindingState is PhysicalCashState state)
         {
             if(context.RetainedPrograms is not { Geometry: not null, Cash: {} cash, Owner: {} owner } inputs ||
@@ -124,8 +127,9 @@ internal class RetainedInstrumentSchedule<TMember> : InstrumentSchedule where TM
                     (member.ValuationRatio is {} ratio ? new SignedRatio(ratio.Numerator, ratio.Denominator) : new SignedRatio(1, 1));
                 if(inputs.HeldFactors[slot] != factor) throw LifecycleContext();
             }
+            var entryDays = hasQuantityTerms ? EntryDays(state) : default;
             var value = new InstrumentValuation(retained, context, [..retained.Sides.Select((member, slot) =>
-                context.ForRetainedOccurrence(slot, (RetainedProgramSide)member.Side).Evaluate(member.Side))]);
+                context.ForRetainedOccurrence(slot, (RetainedProgramSide)member.Side, entryDays).Evaluate(member.Side))]);
             retained.RequireAfterValuation(value);
             return value;
         }
@@ -140,4 +144,18 @@ internal class RetainedInstrumentSchedule<TMember> : InstrumentSchedule where TM
     }
     private static MarketDataException LifecycleContext() => new(PhysicalLifecycle.ContextRefusal,
         "Retain this instrument's exact held cash state, connected geometry and ordered membership normalization.");
+    private ImmutableArray<ImmutableArray<EntryDayQuantity>> EntryDays(PhysicalCashState state)
+    {
+        PhysicalDeliveryQuantities.RequireSchedules(retained.Members, state);
+        var owners = state.OwnerDays.ToLookup(d => d.Slot);
+        var basis = new SignedRatio(System.Numerics.BigInteger.Abs(state.Quantity.Amount.ScaledValue), ExactDecimal.WorkingScale);
+        return [..retained.Members.Select(member =>
+        {
+            if(member.ValuationSourceSlot is not {} source || !owners.Contains(source)) return default(ImmutableArray<EntryDayQuantity>);
+            var rows = member.Program.Document.Instructions.Where(i => i.Output.Operation == "output_guard").Select(i => i.Output).ToArray();
+            var from = rows.Min(row => row.Grid is {} grid ? member.Program.Document.Grids[grid].Interval(0).OperatingDate : row.DeliveryFrom!.Value);
+            var to = rows.Max(row => row.Grid is {} grid ? member.Program.Document.Grids[grid].Interval(member.Program.Document.Grids[grid].CellCount - 1).OperatingDate.AddDays(1) : row.DeliveryTo!.Value);
+            return EntryQuantities.For(owners[source], member.ValuationPart, basis, from, to);
+        })];
+    }
 }

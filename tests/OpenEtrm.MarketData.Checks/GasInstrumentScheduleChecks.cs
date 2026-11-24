@@ -30,6 +30,62 @@ internal static class GasInstrumentScheduleChecks
         Reject(() => With(Member(physical, 0, PhysicalLifecycle.SelectedQuantityPolicy), Member(payment, 1)));
         Reject(() => With(Member(physical, 0, PhysicalLifecycle.SelectedQuantityPolicy), payment));
         Console.WriteLine("PASS gas instrument identity: legacy bytes, explicit policy, part and physical source; invalid membership terms refuse");
+        WorkedExamples();
+    }
+
+    static void WorkedExamples()
+    {
+        static void Equal(ExactMoney actual, string expected) => Require(actual.ToExactString() == expected, $"Expected {expected}, received {actual.ToExactString()}.");
+        static void Refused(Action action)
+        {
+            try { action(); } catch(MarketDataException e) when(e.Code == "physical_lifecycle_quantity") { return; }
+            throw new Exception("Missing or mismatched entry quantities must refuse.");
+        }
+        var f = new GasPricingScheduleFixture();
+        var aDays = f.Days((10000, PhysicalLifecycle.ContractQuantity), (9000, PhysicalLifecycle.ScheduledQuantity), (7000, PhysicalLifecycle.AllocatedProvisionalQuantity));
+        var a = f.Value(f.State(aDays));
+        string[][] amounts = [["31000", "-24000", "-6500", "0", "0"], ["27900", "-24000", "-3250", "3200", "-3000"], ["21700", "-21000", "0", "9600", "-9000"]];
+        for(var day = 0; day < 3; day++) for(var slot = 0; slot < 5; slot++)
+            Equal(a.Rows.Single(r => r.Slot == slot && r.DeliveryFrom == f.From.AddDays(day)).Unrealized, amounts[day][slot]);
+        string[] sums = ["80600", "-69000", "-9750", "12800", "-12000"];
+        for(var slot = 0; slot < 5; slot++) Equal(a.Rows.Where(r => r.Slot == slot).Select(r => r.Unrealized).Aggregate((x, y) => x.Add(y)), sums[slot]);
+        Equal(a.Total, "2650");
+        var bDays = f.Days((9000, PhysicalLifecycle.AllocatedFinalQuantity), (7000, PhysicalLifecycle.AllocatedFinalQuantity), (10000, PhysicalLifecycle.ContractQuantity));
+        var b = f.Value(f.State(bDays), ended: true);
+        string[][] accrued = [["0", "-24000", "-3350", "3300", "-3000"], ["0", "-21000", "0", "9300", "-9000"]];
+        for(var day = 0; day < 2; day++) for(var slot = 0; slot < 5; slot++)
+            Equal(b.Rows.Single(r => r.Slot == slot && r.DeliveryFrom == f.From.AddDays(day)).Accrued, accrued[day][slot]);
+        for(var slot = 0; slot < 5; slot++) Equal(b.Rows.Single(r => r.Slot == slot && r.DeliveryFrom == f.From.AddDays(2)).Unrealized, amounts[0][slot]);
+        Equal(b.RealizedUnsettled, "-47750"); Equal(b.Unrealized, "500"); Equal(b.Total, "-47250");
+        var unpublished = f.Value(f.State(bDays), ended: true, publishedMonth: false);
+        Equal(unpublished.RealizedUnsettled, "9250"); Equal(unpublished.Unrealized, "-56500"); Equal(unpublished.Total, "-47250");
+        Require(unpublished.Rows.Where(r => r.Slot is 1 or 4 && r.DeliveryFrom < f.From.AddDays(2)).All(r =>
+            r.Settlement == SettlementState.Projected && r.Accrued.ToExactString() == "0"), "An unpublished month remains forecast after delivery ends.");
+        Refused(() => f.Instrument.Value(f.Context(null)));
+        Refused(() => f.Value(f.State([aDays[0], aDays[2]])));
+        var contractual = new GasPricingScheduleFixture(follows: false);
+        var contract = contractual.Value(contractual.State(contractual.Days((10000, PhysicalLifecycle.ContractQuantity), (10000, PhysicalLifecycle.ContractQuantity), (10000, PhysicalLifecycle.ContractQuantity))));
+        foreach(var row in contract.Rows) Equal(row.Unrealized, amounts[0][row.Slot]);
+        Refused(() => contractual.Value(contractual.State(contractual.Days((10000, PhysicalLifecycle.ContractQuantity), (9000, PhysicalLifecycle.ScheduledQuantity), (10000, PhysicalLifecycle.ContractQuantity)))));
+        var partial = new GasPricingScheduleFixture(partial: true);
+        var p1 = partial.Value(partial.State(partial.Days((500, PhysicalLifecycle.ScheduledQuantity), (9000, PhysicalLifecycle.ScheduledQuantity), (7000, PhysicalLifecycle.AllocatedProvisionalQuantity))));
+        var p2 = partial.Value(partial.State(partial.Days((10000, PhysicalLifecycle.ContractQuantity), (9000, PhysicalLifecycle.ScheduledQuantity), (7000, PhysicalLifecycle.AllocatedProvisionalQuantity))));
+        Require(p1.Rows.Where(r => r.Slot > 0).SequenceEqual(p2.Rows.Where(r => r.Slot > 0)), "A payment ignores records outside its own term.");
+        var paid = new CashOccurrencePayment(Guid.NewGuid(), 2, 1, f.Clock.Boundary(f.From.AddDays(2)), f.Clock.Boundary(f.From.AddDays(2)), ExactMoney.Parse("-3250", f.Quote.Currency));
+        var corrected = f.Value(f.State(bDays.SetItem(1, bDays[1] with { Selected = ExactQuantity.FromQuantity(new(ExactDecimal.Parse("8000"), f.Quote.Quantity)) }), [paid]), ended: true);
+        var overpaid = corrected.Rows.Single(r => r.Slot == 2 && r.DeliveryFrom == f.From.AddDays(1));
+        Equal(overpaid.Accrued, "0"); Equal(overpaid.Paid, "-3250"); Equal(overpaid.Outstanding, "3250");
+        Require(overpaid.Settlement == SettlementState.Overpaid, "A part reduced to zero keeps its recorded overpayment.");
+        var doubled = new GasPricingScheduleFixture(size: 20000);
+        var twice = doubled.Value(doubled.State(doubled.Days((20000, PhysicalLifecycle.ContractQuantity), (18000, PhysicalLifecycle.ScheduledQuantity), (14000, PhysicalLifecycle.AllocatedProvisionalQuantity))));
+        Require(twice.Rows.Zip(a.Rows).All(p => p.First.Unrealized.ToExactString() == p.Second.Unrealized.Scale(ExactDecimal.Parse("2")).ToExactString()), "Doubling the base and records doubles every amount exactly.");
+        var share = new GasPricingScheduleFixture(sharedPayment: true);
+        var sharedState = share.State(share.Days((10000, PhysicalLifecycle.ContractQuantity), (10000, PhysicalLifecycle.ContractQuantity), (10000, PhysicalLifecycle.ContractQuantity)));
+        Equal(share.Value(sharedState).Rows.Single(r => r.Slot == 1).Unrealized, "33600");
+        var side = share.Sides(sharedState).Sides[1];
+        var inspected = side.Value.InspectSchedule(share.Instrument.Members[1].Program.Document.ScheduleManifest, ExactDecimal.Parse("10000"), new(21, 20), share.Clock.Boundary).Read(0, 20);
+        Require(inspected.Rows.Single().Quantity == "10500", "The payment's displayed quantity includes its share once.");
+        Console.WriteLine("PASS gas entry schedules: both worked examples, unpublished month, exact share, parts, source dates, missing state, overpayment and size scaling");
     }
 
     private static void Require(bool condition, string message) { if(!condition) throw new Exception(message); }

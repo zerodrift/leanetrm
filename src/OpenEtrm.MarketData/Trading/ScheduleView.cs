@@ -28,7 +28,7 @@ public sealed record ScheduleViewQuantity(SignedRatio Quantity,string Source);
 // Recorded replaces the shown quantity of the days it names; their amounts stay the evaluated contract's.
 public sealed record SideViewInput(string Code,BookedSideEvaluation Evaluation,BookedSideProgram Program,ExactDecimal Scale,SignedRatio Coefficient,
     ImmutableArray<(string Column,ScheduleViewMeasure Measure)> Columns,ImmutableDictionary<DateOnly,ScheduleViewQuantity>? Recorded=null,
-    ImmutableDictionary<DateOnly,ScheduleFollowedDay>? FollowedDays=null);
+    ImmutableDictionary<DateOnly,EntryDayQuantity>? FollowedDays=null);
 
 // Every value comes from an evaluated contribution: its amount, and the quantity
 // and price operands of its amount instruction, on the contribution's own grid
@@ -138,8 +138,7 @@ public static class ScheduleViews
                     if(!literals.TryGetValue((quantityRow,cell),out var contract))throw Error("Every shown cell requires its resolved quantity, price and amount; evaluate the side's complete term.");
                     var ended=Interval(document,guard.Output,cell,boundary);
                     var(held,heldTags)=Shown(ended.Day,new SignedRatio(contract.NumeratorValue,contract.DenominatorValue)*scale,ContractTag);
-                    if(selected is not null&&selected.Contract!=held)throw Error("Selected day contract quantities must match the displayed retained schedule.");
-                    pieces.Add(new(side,ended.Level,ended.Month,ended.Day,ended.Start,ended.End,selected?.Selected??held,null,null,
+                    pieces.Add(new(side,ended.Level,ended.Month,ended.Day,ended.Start,ended.End,held*(selected?.Fraction??new SignedRatio(1,1)),null,null,
                         (selectionTags??heldTags)|DeliveredTag,DeliveredTag,DeliveredTag,null,null,selected?.Evidence??default));
                     continue;
                 }
@@ -152,9 +151,8 @@ public static class ScheduleViews
                 var interval=Interval(document,guard.Output,cell,boundary);
                 var payment=contribution.States[cell].Kind==ComponentKind.Payment?guard.Output.ValueAt??throw Error("A payment requires its value date."):(DateTimeOffset?)null;
                 var(shown,tags)=Shown(interval.Day,Ratio(quantity.Values[q])*scale,VolumeTag(volume));
-                if(selected is not null&&selected.Contract!=shown)throw Error("Selected contract quantities must match the displayed retained contribution.");
                 var priceTags=PriceTag(price.States[p].Prices);
-                pieces.Add(new(side,interval.Level,interval.Month,interval.Day,interval.Start,interval.End,selected?.Selected??shown,Ratio(price.Values[p]),
+                pieces.Add(new(side,interval.Level,interval.Month,interval.Day,interval.Start,interval.End,shown*(selected?.Fraction??new SignedRatio(1,1)),Ratio(price.Values[p]),
                     Ratio(cash.Values[cell])*scale*(selected?.Fraction??new SignedRatio(1,1)),selectionTags??tags,priceTags,(selectionTags??VolumeTag(volume))|priceTags,
                     payment,cash.Currency,selected?.Evidence??default));
             }

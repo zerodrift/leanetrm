@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using OpenEtrm.Shared.Numerics;
+using OpenEtrm.MarketData.Physical;
 
 namespace OpenEtrm.MarketData.Trading;
 
@@ -31,17 +32,24 @@ public static partial class SideScheduleInspection
    var discount=Column(evaluation.Values[Operand(program,Operand(program,guard,"discounted"),"discount").Output.Ordinal],0);
    var geometry=Geometry(program,guard.Output,0,boundary);var one=new SignedRatio(1,1);var cash=row.Settlement is not null;
    var selected=ScheduleSelectedQuantity.Read(side,guard.Output,0);
+   SignedRatio? contract = quantity.Column.Presence[quantity.Cell] == ScheduleCellPresence.Resolved
+    ? new SignedRatio(quantity.Column.Values[quantity.Cell].Numerator, quantity.Column.Values[quantity.Cell].Denominator) * scale : null;
+   if(selected is not null && contract is null)
+   {
+    var literal = PhysicalDeliverySchedule.ReadLiteralQuantities(side.Program, ExactRatio.One).Single(d => d.OperatingDate == row.DeliveryFrom);
+    contract = new SignedRatio(literal.Quantity.NumeratorValue, literal.Quantity.DenominatorValue) * scale;
+   }
    var prices=price.Column.Presence[price.Cell]!=ScheduleCellPresence.Resolved?[]:
     Enum.GetValues<SchedulePriceFacts>().Where(f=>f!=SchedulePriceFacts.None&&(price.Column.States[price.Cell].Prices&f)!=0).Select(f=>f.ToString()).ToImmutableArray();
    var due=state.Kind==ComponentKind.Payment?PaymentDatePolicy.IsDue(guard.Output.ValueAt!.Value,evaluation.Context.ValuationAt)?"Due":"NotDue":null;
    var measures=row.Measures.IsEmpty?null:string.Join(",",row.Measures);
    rows.Add(new($"{guard.Output.Ordinal}:0",guard.Output.Operation,state.Kind.ToString(),geometry.From,geometry.To,geometry.Start,geometry.End,
-    guard.Output.ObservationFrom,guard.Output.ObservationTo,guard.Output.ValueAt,selected is null?Value(quantity.Column,quantity.Cell,scale):ExactNumberText.Format(selected.Selected),Value(price.Column,price.Cell,one),
+    guard.Output.ObservationFrom,guard.Output.ObservationTo,guard.Output.ValueAt,selected is null?Value(quantity.Column,quantity.Cell,scale):ExactNumberText.Format(contract!.Value*selected.Fraction),Value(price.Column,price.Cell,one),
     Value(contribution.Amount,0,scale*(selected?.Fraction??one)),Value(discount.Column,discount.Cell,one),row.Unrealized.Add(row.RealizedUnsettled).ToExactString(),row.QuantityBasis,prices,
     new ScheduleInspectionLifecycle(row.Delivery.ToString(),due,row.Settlement?.ToString()??"NotApplicable",state.Class?.ToString(),measures,null))
     {PaymentTiming=RetainedTiming(guard.Output,state.Kind),QuantitySpecification=quantity.Column.Unit,Currency=contribution.Amount.Currency,QuoteMultiplier=price.Column.QuoteMultiplier,OperatingDate=geometry.OperatingDate,
      Accrued=cash?row.Accrued.ToExactString():null,Paid=cash?row.Paid.ToExactString():null,Outstanding=cash?row.Outstanding.ToExactString():null,PaidAt=row.PaidAt,
-     FinalDetermination=determinations.TryGetValue(row.Occurrence,out var final)?final.ToExactString():null,QuantityEvidence=selected?.Evidence??default,QuantityAdjustment=selected is null?null:new(ExactNumberText.Format(selected.Contract),ExactNumberText.Format(selected.Fraction))});
+     FinalDetermination=determinations.TryGetValue(row.Occurrence,out var final)?final.ToExactString():null,QuantityEvidence=selected?.Evidence??default,QuantityAdjustment=selected is null?null:new(ExactNumberText.Format(contract!.Value),ExactNumberText.Format(selected.Fraction))});
   }
   return new(side.Code,program.ScheduleManifest,evaluation.Context.ValuationAt,evaluation.Context.KnownAt,offset,lifecycle.Length,rows.ToImmutable());
  }

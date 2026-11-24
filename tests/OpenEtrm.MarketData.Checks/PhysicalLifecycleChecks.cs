@@ -13,6 +13,22 @@ using OpenEtrm.Shared.Numerics;
 // valued at the Friday Nov 6 close. Expected values are the spec's table, recomputed by hand.
 internal static class PhysicalLifecycleChecks
 {
+    // Test-only access for fabricated price states and deliberately malformed
+    // contribution columns. Real economic examples use the retained Instrument.
+    internal static PhysicalLifecycleValue ConstructedSideRows(ImmutableArray<LifecycleMember> members, PhysicalCashState state,
+        MarketSnapshot snapshot, ReferenceKey currency)
+    {
+        var geometry = PhysicalLifecycle.PrepareGeometry(members.Where(m => m.Physical).Select(m => m.Program), snapshot);
+        var one = ExactMoney.Parse("1", currency); var zero = ExactMoney.Parse("0", currency);
+        var parts = members.Select((member, slot) =>
+        {
+            var factor = member.Held(one).Over(one);
+            return PhysicalLifecycle.Scale(PhysicalLifecycle.EvaluateSide(member.Program, member.Evaluation, member.Physical,
+                slot, factor, geometry, state, snapshot, currency, default), factor);
+        }).ToArray();
+        return new(parts.Aggregate(zero, (sum, p) => sum.Add(p.Unrealized)), parts.Aggregate(zero, (sum, p) => sum.Add(p.RealizedUnsettled)),
+            parts.Aggregate(zero, (sum, p) => sum.Add(p.Total)), [..parts.SelectMany(p => p.Rows)]);
+    }
     internal static void InspectScheduleRefusals(Action<string, Action> inspect)
     {
         var demo = new Demo();
@@ -400,6 +416,7 @@ internal static class PhysicalLifecycleChecks
         // The lifecycle of every member's own evaluation, unpaid, after an optional change to contribution n of a slot.
         internal PhysicalLifecycleValue Constructed(DateTimeOffset at,Func<int,int,ScheduleContribution,ScheduleContribution>? change,bool knowledge=true)
         {
+            if(change is null && knowledge) return Value(at, [], Undiscounted);
             var snapshot=Snapshot(at,null);var market=model.Build(snapshot,Instrument.Declare(new(snapshot,new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,Undiscounted))).Dependencies);
             var sources=new ScheduleMarketSources(market.Graph.Plan.Context,market,null,null,IntervalKnowledgePolicy.ResolvedCutoff,PendingActualsPolicy.RequireActuals,Instrument.PriceLookups,[],assignments);
             var members=Instrument.Members.Select((m,slot)=>
@@ -409,7 +426,7 @@ internal static class PhysicalLifecycleChecks
                 return new LifecycleMember(m.Program,evaluation,slot<Months,v=>v.Scale(m.Direction).Scale(Held.Amount));
             });
             var valued=knowledge?snapshot:new MarketSnapshot(snapshot.Id,f.Revision,at,at,InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering,snapshot.Selections);
-            return PhysicalLifecycle.Evaluate([..members],State([]),valued,quote.Currency);
+            return ConstructedSideRows([..members],State([]),valued,quote.Currency);
         }
         // The holding's headline is the ordinary unit value scaled by the booked quantity.
         internal string Headline(DateTimeOffset at,ImmutableArray<CashOccurrencePayment>? paid,ISideDiscounting discount,(DateOnly,string?)? marked=null)

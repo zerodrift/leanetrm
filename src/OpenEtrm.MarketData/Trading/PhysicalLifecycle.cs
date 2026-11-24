@@ -18,17 +18,10 @@ public sealed class PhysicalCashState:IBindingValuationState
     public Guid? BookId { get; }
     public Quantity Quantity { get; }
     public ImmutableArray<CashOccurrencePayment> Payments { get; }
-    readonly PhysicalDeliveryQuantities? delivery;
-    public string? QuantityPolicy { get; }
-    public ImmutableArray<HeldDayQuantity> Quantities=>delivery?.Days??[];
-    public ImmutableArray<HeldQuantityMembership> QuantityMemberships=>delivery?.Memberships??[];
-    public bool Follows(int slot)=>delivery?.Follows(slot)??false;
-    public HeldDayQuantity Day(int slot,DateOnly day)=>delivery?.Day(slot,day)??
-        throw PhysicalDeliveryQuantities.Invalid("This binding has no selected delivery quantity policy.");
-    public void ValidateQuantitySchedules(IReadOnlyList<(BookedSideProgram Program,bool Physical,ExactRatio Scale)> programs)=>delivery?.ValidateSchedules(programs);
+    public ImmutableArray<HeldDayQuantity> OwnerDays { get; }
 
     public PhysicalCashState(Guid tradeId,Guid bindingId,Quantity quantity,Guid? bookId,ImmutableArray<CashOccurrencePayment> payments,string policy,
-        ImmutableArray<HeldDayQuantity> quantities=default,string? quantityPolicy=null,ImmutableArray<HeldQuantityMembership> quantityMemberships=default)
+        ImmutableArray<HeldDayQuantity> ownerDays=default)
     {
         if(bookId==Guid.Empty||policy!=Policy||tradeId==Guid.Empty||bindingId==Guid.Empty||quantity is null||quantity.Amount==default||payments.IsDefault||
             payments.Any(p=>p is null||p.Id==Guid.Empty||p.Slot<0||p.Occurrence<0||p.Amount is null||!Supported(p.PaidAt)||!Supported(p.KnownAt))||
@@ -36,17 +29,12 @@ public sealed class PhysicalCashState:IBindingValuationState
             payments.GroupBy(p=>p.Id).Any(g=>g.Select(p=>(p.Slot,p.PaidAt,p.KnownAt)).Distinct().Count()!=1))
             throw new MarketDataException("payment_state","Select the whole-day accrual policy, an exact held binding and quantity, and distinct identified payment allocations.");
         TradeId=tradeId;BindingId=bindingId;BookId=bookId;Quantity=quantity;Payments=payments;
-        if(quantityPolicy is null)
-        {
-            if(!quantities.IsDefaultOrEmpty||!quantityMemberships.IsDefaultOrEmpty)
-                throw PhysicalDeliveryQuantities.Invalid("Selected quantities require their explicit saved membership policy.");
-        }
-        else delivery=new(quantities,quantityMemberships,quantity.Specification,quantityPolicy);
-        QuantityPolicy=quantityPolicy;
+        OwnerDays = ownerDays.IsDefault ? [] : ownerDays;
+        PhysicalDeliveryQuantities.RequireFacts(OwnerDays, quantity.Specification);
     }
     // Paid is only ever recorded against cash that has started to accrue: there is no prepayment.
     // Returns the visible paid total and the latest visible payment instant.
-    internal (ExactMoney Total,DateTimeOffset? Last) Paid(int slot,int occurrence,MarketSnapshot snapshot,ExactMoney accrued,bool accruing,ExactMoney? contractAmount=null)
+    internal (ExactMoney Total,DateTimeOffset? Last) Paid(int slot,int occurrence,MarketSnapshot snapshot,ExactMoney accrued,bool accruing,ExactMoney? contractAmount=null,bool selectedQuantity=false)
     {
         var total=ExactMoney.Parse("0",accrued.Currency);DateTimeOffset? last=null;
         foreach(var payment in Payments.Where(p=>p.Slot==slot&&p.Occurrence==occurrence&&p.PaidAt<=snapshot.ValuationAt&&p.KnownAt<=snapshot.Knowledge!.KnownAt))
@@ -54,7 +42,7 @@ public sealed class PhysicalCashState:IBindingValuationState
             if(!accruing)throw new MarketDataException("payment_state","A payment requires at least one ended gas day of its cash occurrence.");
             // A selected quantity can correct accrued cash to zero. Its retained price and
             // contractual amount still establish payment direction; cash is never rescaled.
-            var basis=Follows(slot)&&accrued.CompareTo(ExactMoney.Parse("0",accrued.Currency))==0?contractAmount??accrued:accrued;
+            var basis=selectedQuantity&&accrued.CompareTo(ExactMoney.Parse("0",accrued.Currency))==0?contractAmount??accrued:accrued;
             CashAllocationBalance.RequireDirection(basis,payment.Amount);total=total.Add(payment.Amount);
             if(last is null||payment.PaidAt>last)last=payment.PaidAt;
         }
@@ -159,7 +147,7 @@ public static class PhysicalLifecycle
     public static PhysicalLifecycleValue Evaluate(ImmutableArray<LifecycleMember> members,PhysicalCashState state,MarketSnapshot snapshot,ReferenceKey currency)
     {
         var geometry=PrepareGeometry(members.Where(m=>m.Physical).Select(m=>m.Program),snapshot);
-        return EvaluateConnected(members,state,snapshot,currency,geometry,0);
+        return EvaluateConnected(members,state,snapshot,currency,geometry,0,default);
     }
     internal static PhysicalLifecycleGeometry PrepareGeometry(IEnumerable<BookedSideProgram> programs,MarketSnapshot snapshot)
     {
@@ -182,10 +170,10 @@ public static class PhysicalLifecycle
         return new(days.ToImmutableDictionary(),quantities.ToImmutableDictionary());
     }
     internal static PhysicalLifecycleValue EvaluateSide(BookedSideProgram program,BookedSideEvaluation evaluation,bool physical,int slot,
-        SignedRatio heldFactor,PhysicalLifecycleGeometry geometry,PhysicalCashState state,MarketSnapshot snapshot,ReferenceKey currency)
+        SignedRatio heldFactor,PhysicalLifecycleGeometry geometry,PhysicalCashState state,MarketSnapshot snapshot,ReferenceKey currency,ImmutableArray<EntryDayQuantity> entryDays)
     {
         if(heldFactor.Numerator.IsZero)throw new MarketDataException(ContextRefusal,"A held Side requires nonzero exact quantity normalization.");
-        var held=EvaluateConnected([new(program,evaluation,physical,value=>value.Scale(heldFactor))],state,snapshot,currency,geometry,slot);
+        var held=EvaluateConnected([new(program,evaluation,physical,value=>value.Scale(heldFactor))],state,snapshot,currency,geometry,slot,entryDays);
         return Scale(held,new SignedRatio(heldFactor.Numerator.Sign*heldFactor.Denominator,System.Numerics.BigInteger.Abs(heldFactor.Numerator)));
     }
     internal static PhysicalLifecycleValue Scale(PhysicalLifecycleValue value,SignedRatio factor)=>new(
@@ -193,7 +181,7 @@ public static class PhysicalLifecycle
         [..value.Rows.Select(row=>row with{Accrued=row.Accrued.Scale(factor),Paid=row.Paid.Scale(factor),Outstanding=row.Outstanding.Scale(factor),
             Unrealized=row.Unrealized.Scale(factor),RealizedUnsettled=row.RealizedUnsettled.Scale(factor),Expected=row.Expected?.Scale(factor)})]);
     private static PhysicalLifecycleValue EvaluateConnected(ImmutableArray<LifecycleMember> members,PhysicalCashState state,MarketSnapshot snapshot,
-        ReferenceKey currency,PhysicalLifecycleGeometry geometry,int firstSlot)
+        ReferenceKey currency,PhysicalLifecycleGeometry geometry,int firstSlot,ImmutableArray<EntryDayQuantity> entryDays)
     {
         if(snapshot.Knowledge is null)throw new MarketDataException(ContextRefusal,"Payment visibility requires an explicit resolved knowledge cutoff.");
         var at=snapshot.ValuationAt;var zero=ExactMoney.Parse("0",currency);
@@ -220,7 +208,7 @@ public static class PhysicalLifecycle
                 {
                     if(row.Grid is not {} grid||document.Grids[grid].CellCount!=1)throw Unsupported("Physical lifecycle rows require whole gas days.");
                     var interval=document.Grids[grid].Interval(0);var delivery=Delivery(interval.Start,interval.End);
-                    var selected=state.Follows(slot)?state.Day(slot,interval.OperatingDate):null;
+                    var selected=entryDays.IsDefault?null:entryDays.Single(d=>d.Day==interval.OperatingDate);
                     var fraction=selected is null?new SignedRatio(1,1):DeliveryQuantityFractions.For([selected],_=>false).Total;
                     if(delivery==DeliveryState.Ended)RequireOutside(contribution);
                     rows.Add(new(slot,occurrence,interval.OperatingDate,interval.OperatingDate.AddDays(1),delivery,null,
@@ -233,11 +221,11 @@ public static class PhysicalLifecycle
                 var covered=Enumerable.Range(0,to.DayNumber-from.DayNumber).Select(from.AddDays).ToArray();
                 if(covered.Any(day=>!days.ContainsKey(day)))throw Unsupported("Every cash day requires its retained physical gas day.");
                 // Pro rata by day is exact only when the total physical quantity of every covered day is equal.
-                var follows=state.Follows(slot);
+                var follows=!entryDays.IsDefault;
                 if(!follows&&covered.Select(day=>quantities[day]).Distinct().Count()!=1)
                     throw new MarketDataException("physical_lifecycle_quantity","Whole-day accrual of a multi-day payment requires equal daily contract quantities.");
                 var ended=covered.Count(day=>days[day]==DeliveryState.Ended);var started=covered.Any(day=>days[day]!=DeliveryState.NotStarted);
-                var fractions=follows?DeliveryQuantityFractions.For(covered.Select(day=>state.Day(slot,day)),day=>days[day]==DeliveryState.Ended):
+                var fractions=follows?DeliveryQuantityFractions.For(entryDays.Where(d=>d.Day>=from&&d.Day<to),day=>days[day]==DeliveryState.Ended):
                     new DeliveryQuantityFractions(new(1,1),new(ended,covered.Length));
                 var due=PaymentDatePolicy.IsOverdue(valueAt,at);
                 var prices=contribution.Amount.States[0].Prices;
@@ -259,7 +247,7 @@ public static class PhysicalLifecycle
                     continue;
                 }
                 var accrued=contractAmount.Scale(fractions.Ended);
-                var(paid,paidAt)=state.Paid(slot,occurrence,snapshot,accrued,ended>0,contractAmount);var outstanding=accrued.Subtract(paid);
+                var(paid,paidAt)=state.Paid(slot,occurrence,snapshot,accrued,ended>0,contractAmount,follows);var outstanding=accrued.Subtract(paid);
                 if(due)RequireOutside(contribution);
                 // Not yet due: the row's own discount factor, PV over amount from this one evaluation.
                 var value=due?zero:Held(member,contribution.PresentValue);

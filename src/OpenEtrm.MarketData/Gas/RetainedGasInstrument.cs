@@ -109,6 +109,7 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
     {
         if(context.BindingState is not PhysicalCashState)
         {
+            ValidateValuationState(context.BindingState);
             PhysicalLifecycle.RequireUnstarted(Members.Select(m=>m.Program),context.Snapshot.ValuationAt);
             return base.Value(context);
         }
@@ -121,19 +122,17 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
 
     public override void ValidateValuationState(IBindingValuationState? state)
     {
-        if (state is not PhysicalCashState cash) { base.ValidateValuationState(state); return; }
+        if (state is not PhysicalCashState cash)
+        {
+            if(Members.Any(m => m.QuantityPolicy is not null || m.Part is not null))
+                throw PhysicalDeliveryQuantities.Invalid("An instrument with quantity terms requires its complete held owner-day inputs.");
+            base.ValidateValuationState(state); return;
+        }
         if (cash.Quantity.Specification != UnitQuantity.Specification || cash.Payments.Any(p => p.Slot >= Members.Length ||
                 Members[p.Slot].Program.Document.Family == "gas" || p.Amount.Currency != Currency ||
                 !Members[p.Slot].Program.Document.Instructions.Any(i => i.Output is { Operation: "output_guard", Grid: null } && i.Output.PaymentOrdinal == p.Occurrence)))
             throw new MarketDataException("payment_state", "Each payment allocation must name a retained cash occurrence of this instrument in its currency and quantity.");
-        // These retained gas/fixed/floating programs are the admitted price-times-quantity
-        // profile. Selected quantities remain held inputs, outside economic Side identity.
-        if(cash.QuantityPolicy is not null)
-        {
-            var quantity=System.Numerics.BigInteger.Abs(cash.Quantity.Amount.ScaledValue);
-            cash.ValidateQuantitySchedules([..Members.Select(m=>(m.Program,m.Program.Document.Family=="gas",
-                new ExactRatio(quantity*m.Ratio.Numerator,ExactDecimal.WorkingScale*m.Ratio.Denominator)))]);
-        }
+        PhysicalDeliveryQuantities.RequireSchedules(Members, cash);
     }
 
     protected override ScheduleMarketSources Sources(CurveBuild basis) => new(basis.Graph.Plan.Context, basis, null, null,
