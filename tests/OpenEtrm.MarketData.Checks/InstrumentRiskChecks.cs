@@ -113,10 +113,14 @@ internal static class InstrumentRiskChecks
         public PvModel(Guid id,ReferenceKey currency,ReferenceKey quantity,ImmutableArray<CurveRequest> dependencies,Func<SideValuationContext,ExactMoney> price):base(id,SyntheticValueSide.One(id,currency,quantity,dependencies,price,"synthetic_nonlinear_pv_v1"))
         {Currency=currency;UnitQuantity=new(ExactDecimal.Parse("1"),quantity);this.dependencies=dependencies;}
         public override UnitPricingContract Declare(UnitValuationContext context)=>new(Id,"synthetic_nonlinear_pv_v1",dependencies,UnitQuantity.Specification,Currency) { Time = ValuationTimeDependency.Independent };
-        public override InstrumentValuation PV(SideValuationContext context)
+        public override InstrumentSchedule GenerateSchedule() => new ReusingSchedule(this);
+        private sealed class ReusingSchedule(PvModel owner) : InstrumentSchedule(owner)
         {
-            if(ReuseResult&&previous is not null)return previous;
-            return previous=base.PV(context);
+            public override InstrumentValuation Evaluate(SideValuationContext context)
+            {
+                if(owner.ReuseResult&&owner.previous is not null)return owner.previous;
+                return owner.previous=base.Evaluate(context);
+            }
         }
     }
 }

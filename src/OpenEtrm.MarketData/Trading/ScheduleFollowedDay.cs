@@ -3,15 +3,7 @@ using OpenEtrm.Shared.Numerics;
 
 namespace OpenEtrm.MarketData.Trading;
 
-// Quantities are in the same signed held basis as the view's other amounts.
-public sealed record ScheduleFollowedDay(SignedRatio Contract,SignedRatio Selected,string Source,ImmutableArray<DeliveryQuantityEvidence> Evidence)
-{
-    public static ScheduleFollowedDay FromHeld(HeldDayQuantity day,SignedRatio factor)=>new(
-        new SignedRatio(day.Contract.NumeratorValue,day.Contract.DenominatorValue)*factor,
-        new SignedRatio(day.Selected.NumeratorValue,day.Selected.DenominatorValue)*factor,day.Source,day.Evidence);
-}
-
-internal sealed record ScheduleSelectedQuantity(SignedRatio Contract,SignedRatio Selected,SignedRatio Fraction,
+internal sealed record ScheduleSelectedQuantity(SignedRatio Contract,SignedRatio Selected,SignedRatio Taken,SignedRatio Fraction,
     ImmutableArray<DateOnly> Days,ImmutableArray<string> Tags,ImmutableArray<DeliveryQuantityEvidence> Evidence)
 {
     internal static ScheduleSelectedQuantity? Read(SideViewInput side,ScheduleDefinitionRow row,int cell)
@@ -23,11 +15,11 @@ internal sealed record ScheduleSelectedQuantity(SignedRatio Contract,SignedRatio
         var to=day?.AddDays(1)??row.DeliveryTo??throw Invalid("A followed contribution requires its retained delivery days.");
         var days=Enumerable.Range(0,to.DayNumber-from.DayNumber).Select(from.AddDays).ToImmutableArray();
         var values=days.Select(d=>selected.TryGetValue(d,out var value)?value:throw Invalid("A followed schedule is missing a selected delivery day.")).ToArray();
-        if(values.Any(v=>v is null||v.Contract.Denominator<=0||v.Selected.Denominator<=0||v.Contract.Numerator.IsZero||
-            v.Selected.Numerator.Sign!=0&&v.Contract.Numerator.Sign!=v.Selected.Numerator.Sign||v.Evidence.IsDefault))
-            throw Invalid("A followed schedule requires signed contractual and selected quantities with their evidence.");
-        var contract=SignedRatio.Sum(values.Select(v=>v.Contract));var quantity=SignedRatio.Sum(values.Select(v=>v.Selected));
-        return new(contract,quantity,DeliveryQuantityFractions.Ratio(quantity,contract),days,[..values.Select(v=>v.Source switch
+        if(values.Any(v=>v is null||v.Contract.Denominator<=0||v.Selected.Denominator<=0||v.Taken.Denominator<=0||v.Contract.Numerator<=0||
+            v.Selected.Numerator<0||v.Taken.Numerator<0||v.Evidence.IsDefault))
+            throw Invalid("A followed schedule requires positive contractual and nonnegative selected and taken quantities with their evidence.");
+        var contract=SignedRatio.Sum(values.Select(v=>v.Contract));var quantity=SignedRatio.Sum(values.Select(v=>v.Taken));
+        return new(contract,SignedRatio.Sum(values.Select(v=>v.Selected)),quantity,DeliveryQuantityFractions.Ratio(quantity,contract),days,[..values.Select(v=>v.Source switch
         {
             PhysicalLifecycle.ContractQuantity=>"contract",PhysicalLifecycle.ScheduledQuantity=>"scheduled",
             PhysicalLifecycle.AllocatedFinalQuantity=>"allocated_final",PhysicalLifecycle.AllocatedProvisionalQuantity=>"allocated_provisional",

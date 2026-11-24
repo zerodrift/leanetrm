@@ -23,6 +23,7 @@ public sealed record ScheduleInputDemand(int Instruction,ImmutableArray<Schedule
 // addresses, grids, operands and consumers remain the published program's.
 public sealed class ScheduleInputDemandSet
 {
+    internal bool CashAutomatic { get; init; }
     internal BookedSideProgram Program { get; }
     public ResolvedCalculationContext Context { get; }
     public DeliveryCoverage? Coverage { get; }
@@ -50,8 +51,11 @@ public sealed partial class BookedSideProgram
     public ScheduleInputDemandSet Inputs(ResolvedCalculationContext context,CancellationToken cancellation=default,DeliveryCoverage? coverage=null)
         =>InputsCore(context,cancellation,coverage,null);
 
+    internal ScheduleInputDemandSet CashExerciseInputs(ResolvedCalculationContext context,CancellationToken cancellation)
+        =>InputsCore(context,cancellation,null,null,cashAutomatic:true);
+
     private ScheduleInputDemandSet InputsCore(ResolvedCalculationContext context,CancellationToken cancellation,DeliveryCoverage? coverage,
-        ImmutableArray<ScheduleQuantityDemand>? quantities)
+        ImmutableArray<ScheduleQuantityDemand>? quantities,bool cashAutomatic=false)
     {
         if(context is null)throw Error("Select one resolved context before binding dynamic input values.");
         cancellation.ThrowIfCancellationRequested();
@@ -119,7 +123,7 @@ public sealed partial class BookedSideProgram
                 if(!selected[cell])continue;
                 var holding=guard.Parameters["lifecycle"]=="certificate_holding_v1"&&Document.Grids[guard.Grid!.Value].EndTicks(cell)<=context.ValuationAt.Ticks;
                 var future=ScheduleLifecycles.IsFutureValue(guard,context.ValuationAt);
-                var lane=holding||future||ScheduleLifecycles.IsPaymentDay(guard,context.ValuationAt)?ScheduleInputLanes.Scenario:ScheduleInputLanes.Base;
+                var lane=cashAutomatic||holding||future||ScheduleLifecycles.IsPaymentDay(guard,context.ValuationAt)?ScheduleInputLanes.Scenario:ScheduleInputLanes.Base;
                 var amount=instruction.Inputs["amount"][0];var discounted=instruction.Inputs["discounted"][0];
                 Add(amount,needed[amount].Length==1?0:cell,lane);
                 if(!holding&&future)Add(discounted,needed[discounted].Length==1?0:cell,ScheduleInputLanes.Scenario);
@@ -154,7 +158,7 @@ public sealed partial class BookedSideProgram
             {
                 result.Add(new(instruction.Output.Ordinal,frozen[instruction.Output.Ordinal]));
             }
-        return new(this,context,result.ToImmutable(),coverage,quantities is null?["pv"]:[..quantities.Value.Select(output=>output.Output)],quantities??[],frozen,contributions.ToImmutable());
+        return new(this,context,result.ToImmutable(),coverage,quantities is null?["pv"]:[..quantities.Value.Select(output=>output.Output)],quantities??[],frozen,contributions.ToImmutable()){CashAutomatic=cashAutomatic};
     }
 
     // Whether this contribution cell is a gas day the whole-gas-day lifecycle has taken out of the measure at the instant.

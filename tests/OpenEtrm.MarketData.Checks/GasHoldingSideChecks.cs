@@ -8,7 +8,7 @@ using OpenEtrm.Shared.Numerics;
 
 internal static class GasHoldingSideChecks
 {
-    internal static void Run()
+    internal static void Run(Action<SidedInstrument, SideValuationContext>? inspect = null)
     {
         var f=new GasTransportDirectRightsChecks.MarkFixture("20");var price=(ConnectedSource)f.Gas.Expression;
         Instrument stock=new GasCommodityHoldingInstrument(Guid.NewGuid(),price.Request,f.Gas.Unit.Quantity,f.Terms.Currency,null,GasHoldingCarrying.Nominal);
@@ -25,6 +25,7 @@ internal static class GasHoldingSideChecks
             throw new Exception("The gas Side must value 100 real units at 3, with price-only shocks applied once.");
         var context=new UnitValuationContext(f.Snapshot,setup,prepared.Market,prepared.Contracts[0][0]);
         var value=sided.PV(context.SideContext()).Sides.Single().Value;
+        inspect?.Invoke(sided, context.SideContext());
         var row=value.InspectSchedule("synthetic_gas_claim",ExactDecimal.Parse("100"),new SignedRatio(1,1),
             day=>new(day.ToDateTime(TimeOnly.MinValue),TimeSpan.Zero)).Read(0,4).Rows.Single();
         if(row.Kind!="Holding"||row.Quantity!="100"||row.Price!="3"||row.PresentValue!="300"||

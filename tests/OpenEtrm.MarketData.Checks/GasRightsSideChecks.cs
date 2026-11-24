@@ -8,7 +8,7 @@ using OpenEtrm.Shared.Numerics;
 
 internal static class GasRightsSideChecks
 {
-    internal static void Run()
+    internal static void Run(Action<SidedInstrument, SideValuationContext>? inspect = null)
     {
         var f=new GasTransportDirectRightsChecks.MarkFixture("20");var source=(ConnectedSource)f.Service.Expression;
         var captured=new CapturedPriceSource(source.Request,ConnectedValuation.Prepare(f.Base,f.Snapshot),f.Service.Key);
@@ -31,6 +31,7 @@ internal static class GasRightsSideChecks
         try{definition.PV(context);throw new Exception("An unpriced rights Side returned a value.");}
         catch(MarketDataException error)when(error.Code=="gas_transport_rights_mark"){}
         var actual=sided.PV(context).Sides.Single().Value;
+        inspect?.Invoke(sided, context);
         var row=actual.InspectSchedule("synthetic_rights_side",ExactDecimal.Parse("1"),new SignedRatio(1,1),
             date=>new(date.ToDateTime(TimeOnly.MinValue),TimeSpan.Zero)).Read(0,4).Rows.Single();
         if(actual.PresentValue.ToExactString()!="20"||row.Kind!="Holding"||row.PresentValue!="20"||row.PaymentAt is not null||

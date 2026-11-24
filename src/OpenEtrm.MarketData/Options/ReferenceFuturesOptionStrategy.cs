@@ -13,7 +13,7 @@ internal static class ReferenceFuturesOptionStrategy
 {
     private static readonly LatticeDecimal Zero=LatticeDecimal.Parse("0"),One=LatticeDecimal.Parse("1");
     // The lifecycle projection (D401) and its cash and physical reference strategies are qualified for American
-    // exercise. A series of another style is refused by name until it is qualified on its own (D446).
+    // exercise. A series of another style is refused by name until it is qualified on its own (D449).
     internal static void RequireQualifiedStyle(FuturesOptionTerms terms)
     {
         if(terms.ExerciseStyle!=FuturesOptionTerms.American)

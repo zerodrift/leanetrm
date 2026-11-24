@@ -9,6 +9,7 @@ test('a future without its exact close source has an explicit status, without wi
 });
 
 test('each position-specific status reads in plain words for the instrument it concerns',()=>{
+ assert.match(valuationReason('exercise_conflict','physical_gas'),/delivery or payment/);
  assert.equal(valuationReason('source_expired','future'),'Contract expired · awaiting settlement');
  assert.equal(valuationReason('source_expired','financial_swap'),'Past marking cutoff');
  assert.equal(valuationReason('source_expired','heat_rate'),'Past marking cutoff');

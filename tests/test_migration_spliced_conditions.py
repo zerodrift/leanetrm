@@ -45,7 +45,7 @@ class SplicedConditionChecks(unittest.TestCase):
         self.assertEqual(condition_of("IF note='THEN' AND(a OR b) THEN x=1;END IF;"), "note='THEN' AND(a OR b)")
 
     def test_the_surface_solver_policy_of_a_product_is_one_whole_condition(self):
-        migration = (ROOT / 'db/migrations/0392_european_option_surfaces.sql').read_text()
+        migration = (ROOT / 'db/migrations/0398_european_option_surfaces.sql').read_text()
         style_policy = sql_text(re.search(r'style_policy text=(.*?);\nBEGIN', migration, re.S).group(1))
         self.assertIn("WHEN 'american' THEN 'american_futures_option_crr_v1'", style_policy)
         self.assertIn("WHEN 'european' THEN 'european_futures_option_black76_v1'", style_policy)

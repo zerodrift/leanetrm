@@ -1,4 +1,4 @@
-"""A European listed futures option on an owned synthetic source (D446): the stored exercise style, booking,
+"""A European listed futures option on an owned synthetic source (D449): the stored exercise style, booking,
 value beside an American series on the same future, refused early exercise and expiry by the product's rule."""
 from decimal import Decimal
 import json

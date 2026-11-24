@@ -13,6 +13,9 @@ public sealed record RetainedCrudeMember : IRetainedProgramMember
     [IdentityField] public string ProgramDigest { get; }
     ExactDecimal IRetainedProgramMember.ValuationCoefficient => Coefficient;
     OpenEtrm.Shared.Numerics.ExactRatio? IRetainedProgramMember.ValuationRatio => null;
+    int? IRetainedProgramMember.ValuationSourceSlot => null;
+    string? IRetainedProgramMember.ValuationQuantityPolicy => null;
+    QuantityPart? IRetainedProgramMember.ValuationPart => null;
 
     public RetainedCrudeMember(Guid sideId, ExactDecimal coefficient, BookedSideProgram program)
     {

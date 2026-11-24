@@ -1,5 +1,7 @@
 import {displayPaymentDate,paymentDateValue} from './payment-date.js';
-import {exactNumber} from './exact-number.js';
+import {exercisePeriodText} from './lifecycle-text.js';
+import {numberText} from './exact-number.js';
+export {numberText} from './exact-number.js';
 import type {ScheduleView,ScheduleViewCell,TicketColumn,TicketDescription} from './ticket-types.js';
 
 // Draws a backend schedule view as grid data. Every value, aggregate and total is the backend's; the browser only picks the rows and columns
@@ -8,7 +10,7 @@ export type ScheduleTab={id:string;label:string;colour:string;soon:string|null};
 export type ScheduleSide={kind:string;code:string;name:string};
 export type CellDecoration={sources:string[];changed:boolean;delivered:boolean;evidence?:string[]};
 export type HeaderGroup={title:string;colour:string;columns:number[]};
-export const sourceLabels:Readonly<Record<string,string>>=Object.freeze({contract:'Contract',fwd:'Fwd',fixed:'Fixed',actual:'Actual',meter:'Meter',forecast:'Forecast',estimated:'Estimated',modeled:'Modeled',
+export const sourceLabels:Readonly<Record<string,string>>=Object.freeze({contract:'Contract',fwd:'Fwd',fixed:'Fixed',actual:'Actual',meter:'Meter',forecast:'Forecast',estimated:'Estimated',modeled:'Modeled',contingent:'contingent',
  nominated:'Nominated',confirmed:'Confirmed',scheduled:'Scheduled',allocated:'Allocated',allocated_final:'Allocated, final',allocated_provisional:'Allocated, provisional',delivered:'Delivered'});
 const neutral='neutral',numericMeasures=['quantity','price','money'];
 
@@ -27,13 +29,6 @@ export function scheduleTabs(d:TicketDescription,sides:ScheduleSide[]):ScheduleT
   ...d.tabs.map(t=>({id:t.id,label:t.label,colour:neutral,soon:t.soon||null}))];
 }
 
-// Groups the digits of an exact decimal, or of each part of an exact a/b ratio, without rounding it.
-const grouped=(digits:string)=>digits.replace(/\B(?=(\d{3})+$)/g,',');
-export function numberText(value:string){
- const n=exactNumber(value);
- if(!n)throw Error(`A schedule value is not an exact number: ${value}`);
- return n.sign+grouped(n.integer)+(n.fraction===null?'':'.'+n.fraction)+(n.denominator===null?'':'/'+grouped(n.denominator));
-}
 // What the page shows a schedule with: the quantity unit its preview resolved and the page's instant formatter.
 export type ScheduleDisplay={quantityUnit:string;instant:(at:string)=>string};
 const displayText=(column:TicketColumn,value:string,display:ScheduleDisplay)=>value===''?'':column.measure==='time'?display.instant(value):column.measure==='payment_date'?displayPaymentDate(value):numberText(value);
@@ -65,7 +60,10 @@ export function scheduleGridData(view:ScheduleView,d:TicketDescription,sides:Sch
   const values=found.map((c,i)=>c.value&&columns[i].column.measure==='payment_date'?paymentDateValue(c.value):c.value??'');
   rows.push([r.key,...values]);
   displayRows.push([r.level==='term'?'Whole term':r.key,...values.map((v,i)=>displayText(columns[i].column,v,display))]);
-  decorations.push([null,...found.map((c,i)=>({sources:c.sources.map(s=>sourceLabels[s]),...(c.quantityEvidence?.length?{evidence:c.quantityEvidence.map(e=>`${e.reference} · ${e.revisionId}`)}:{}),changed:previous!==undefined&&(prior?.[columns[i].key]?.value??null)!==c.value,delivered:r.delivered}))]);
+  decorations.push([null,...found.map((c,i)=>{
+   const evidence=[...(c.quantityEvidence??[]).map(e=>`${e.reference} · ${e.revisionId}`),...(c.exercisePeriods??[]).map(exercisePeriodText)];
+   return {sources:c.sources.map(s=>sourceLabels[s]),...evidence.length?{evidence}:{},changed:previous!==undefined&&(prior?.[columns[i].key]?.value??null)!==c.value,delivered:r.delivered};
+  })]);
  }
  // In delivery the backend splits its totals into delivered and remaining; the grid pins them above the total, in that order.
  if((view.delivered===null)!==(view.remaining===null))throw Error('The schedule view reports delivered and remaining together or not at all.');

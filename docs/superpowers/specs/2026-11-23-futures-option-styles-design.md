@@ -2,10 +2,9 @@
 
 Status: design dated 2026-11-23, approved by the owner on 2026-11-23. Piece 1,
 European exercise, is implemented and recorded in
-[verification](../../verification.md#european-futures-options-d446); pieces 2 and 3
-are not. The decision is D446 in [decisions](../../decisions.md); its number
-is provisional until the branch merges. Each piece has its own task plan in
-[plans](../plans/).
+[verification](../../verification.md#european-futures-options-d449); pieces 2 and 3
+are not. The decision is D449 in [decisions](../../decisions.md). Each piece has
+its own task plan in [plans](../plans/).
 
 ## Intent
 

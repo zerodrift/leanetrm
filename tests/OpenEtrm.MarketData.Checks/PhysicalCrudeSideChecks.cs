@@ -7,7 +7,7 @@ using OpenEtrm.MarketData.Risk;
 
 internal static class PhysicalCrudeSideChecks
 {
-    internal static void Run()
+    internal static void Run(Action<SidedInstrument, SideValuationContext>? inspect = null)
     {
         var fixture = new CommodityLookupFixture(31, monthly: true, volume: true);
         var lookup = fixture.Swap(true, 0).Floating.GenerateSchedule().Rows[0].Prices[0].Lookup!;
@@ -49,6 +49,7 @@ internal static class PhysicalCrudeSideChecks
         var purchase = new PhysicalCrudeInstrument(Guid.NewGuid(), physical, Cash("78"), Cash("0.5"), one, negative, negative);
         Equal(physical.PV(context).PresentValue.Scale(thousand), "80000");
         Equal(purchase.PV(context).PresentValue.Scale(thousand), "1500");
+        inspect?.Invoke(purchase, context);
         Equal(new PhysicalCrudeInstrument(Guid.NewGuid(), physical, Cash("78"), Cash("0.5"), negative, one, negative).PV(context).PresentValue.Scale(thousand), "-2500");
         var definition = ScheduleDefinitionCompiler.Generate(physical);
         if (definition.Family != "crude" || definition.Roots.Any(r => r.Measure == "contractual_amount") ||
@@ -71,6 +72,7 @@ internal static class PhysicalCrudeSideChecks
         Equal(purchase.PV(Context(shock.Up, assignment)).PresentValue.Scale(thousand), "2500");
         Equal(purchase.PV(Context(shock.Down, assignment)).PresentValue.Scale(thousand), "500");
         Equal(purchase.PV(context).PresentValue.Scale(thousand), "1500");
+        inspect?.Invoke(purchase, context);
         Reject("crude_tolerance", () => Delivery(from,to,ExactDecimal.Parse("0.02")));
         Reject("crude_delivery_window", () => Delivery(to,from));
         Reject("crude_delivery_window", () => Delivery(from,from.AddMonths(1)));
@@ -95,7 +97,7 @@ internal static class PhysicalCrudeSideChecks
         SeparateDeliveryMasters(fixture,assignment,from,to,market,discount);
         QuotedVolumeMultiplier();
         IndependentGrades(assignment,from,to);
-        PortfolioRisk(fixture, purchase, market);
+        PortfolioRisk(fixture, purchase, market, inspect);
         Console.WriteLine("PASS physical crude: exact total-volume retained delivery, independent cash and fees, assignment pins, lifecycle refusal and symmetric shocks");
     }
     private static void SeparateDeliveryMasters(CommodityLookupFixture fixture,CrudeValuationAssignment pricing, DateTimeOffset from, DateTimeOffset to,
@@ -176,7 +178,7 @@ internal static class PhysicalCrudeSideChecks
         var shock=fixture.Model.Scenarios(market,[new QuoteBump(factor.Input,factor.Quote,factor.Unit,ExactDecimal.Parse("1"),QuoteBump.Convention)]).Single();
         Equal(Value(shock.Up),"3");Equal(Value(shock.Down),"1");
     }
-    private static void PortfolioRisk(CommodityLookupFixture fixture, PhysicalCrudeInstrument purchase, CurveBuild market)
+    private static void PortfolioRisk(CommodityLookupFixture fixture, PhysicalCrudeInstrument purchase, CurveBuild market, Action<SidedInstrument, SideValuationContext>? inspect = null)
     {
         var members = purchase.Sides.Select(m => {
             var program = BookedSideProgram.Compile(ScheduleDefinitionCompiler.Generate(m.Side));
@@ -187,6 +189,8 @@ internal static class PhysicalCrudeSideChecks
         }).ToImmutableArray();
         var retained = new RetainedCrudeInstrument(purchase.Id, purchase.Delivery.Assignment, members);
         RetainedInstrumentContractChecks.Crude(retained);
+        inspect?.Invoke(retained, new SideValuationContext(market, new ExplicitDiscounting(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted))
+            .WithUnitEvaluation(market.Snapshot.ValuationAt, false, ValuationMeasure.PresentValue, default).WithRetainedPrograms(new(ScheduleMarketSources.ForPhysicalCrude(market, [purchase.Delivery.Assignment]), market)));
         var financial = fixture.Swap(true, 0);
         var book = Guid.NewGuid();
         Trade Holding(Instrument instrument, string quantity) => new(Guid.NewGuid(), book,

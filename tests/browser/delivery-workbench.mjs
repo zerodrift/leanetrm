@@ -33,7 +33,7 @@ async function run(a){
    definitionRevisionId:location.definitionRevisionId,gasSetupId:catalog.gasSetupId,discounting:false,profile:'fixed_gas_composition_v1',
    physicalSides:[{code:'delivery',pipeline:location.pipeline,zone:location.zone,deliveryPoint:location.deliveryPoint,product:location.product,
     direction,deliveryFrom:'2021-01-01',deliveryTo:'2021-01-02',quantityBasis:'per_operating_day',quantity:'100',link:null,calendarPolicy:f.physicalCalendar}],
-   cashSides:[{code:'consideration',role:'consideration',direction:direction==='receive'?'pay':'receive',source:'delivery',stage:'delivery',price:'3',tariffCode:null,paymentAt:'2021-02-02T00:00:00Z',calendarPolicy:f.cashCalendar}]});
+   cashSides:[{code:'consideration',role:'consideration',share:'1',direction:direction==='receive'?'pay':'receive',source:'delivery',stage:'delivery',price:'3',tariffCode:null,paymentAt:'2021-02-02T00:00:00Z',calendarPolicy:f.cashCalendar}]});
   const quantity=await api('gas/quantities/read',{context:operational,tradeId:booked.tradeId,selectionPolicy:'operational_projection_v1'});
   assert.equal(quantity.rows.length,1);const obligation=quantity.rows[0];
   assert.equal(obligation.day,'2021-01-01');assert.equal(new Date(obligation.start).toISOString(),'2021-01-01T00:00:00.000Z');assert.equal(new Date(obligation.end).toISOString(),'2021-01-02T00:00:00.000Z');

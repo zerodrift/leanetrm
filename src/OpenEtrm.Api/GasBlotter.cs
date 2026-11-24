@@ -29,7 +29,7 @@ internal static class GasBlotter
     {
      if(!sources.TryGetValue(position.Definition,out var source))
      {source=await PhysicalMarketSelection.Gas.Read(database,connection,frame,ct,position.Trade);sources.Add(position.Definition,source);}
-     // A single-point trade is valued as the composition it is, from its own retained programs (GasCompositionStore.ReadSinglePoint).
+     // A single-point trade is valued as the composition it is, from its own retained programs.
      var execution=position.Head.GetProperty("composition").GetBoolean()
       ?await composition.Load(connection,source.Data,source.Frame,position.Trade,ct)
       :await composition.LoadSinglePoint(connection,source.Data,source.Frame,position.Trade,ct);
@@ -38,6 +38,8 @@ internal static class GasBlotter
      if(execution.Started){row["measure"]=GasPositions.LifecycleMeasure;row["measureLabel"]=GasPositions.LifecycleLabel;if(execution.Terms.Discounting==false)row["discounting"]="undiscounted";}
      var valuation=await composition.Value(connection,source.Data,source.Frame,execution,ct,savedVersions:savedVersions);
      row["presentValue"]=valuation.PresentValue;
+     if(!valuation.Groups.IsEmpty)row["groups"]=System.Text.Json.JsonSerializer.SerializeToNode(valuation.Groups,RiskJobs.Json);
+     row["sides"]=System.Text.Json.JsonSerializer.SerializeToNode(valuation.EntryValues.Select(e=>new{e.Slot,presentValue=e.Value.ToExactString()}),RiskJobs.Json);
      // A started-delivery trade's headline is its labelled sum, with both components shown.
      if(valuation.Measures is {} measures)
      {row["unrealized"]=measures.Unrealized;row["realizedUnsettled"]=measures.RealizedUnsettled;}

@@ -28,7 +28,7 @@ public sealed record FuturesOptionValuationPolicy(string ObservationRole,string 
     [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]
     public FuturesOptionEuropeanPolicy? European{get;init;}
     public const string NoFallback="none";
-    // The policy stated before European series were admitted (D446). Retained runs and the checks pinned to it keep its bytes.
+    // The policy stated before European series were admitted (D449). Retained runs and the checks pinned to it keep its bytes.
     public static FuturesOptionValuationPolicy Release1=>new(FuturesOptionPricing.DailySettlement,OptionNumericalPolicies.CoxRossRubinstein,
         FuturesOptionPricing.ScenarioPolicy,ImpliedVolatility.FallbackMode);
     // The policy the Blotter's trading_workspace_v1 convention, the portfolio risk catalog and the trading P&L state.

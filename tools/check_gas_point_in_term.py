@@ -12,8 +12,8 @@ def run_checks(url,query,manifest,admin_load):
  curves=c.call('custom-curves')['recipes'];curve=next(p for p in curves if p['definition']['code']=='synthetic_hub_location_mixed')
  setup=c.call('gas-setup/catalog');configuration=deepcopy(setup['configuration']);point=next(p for p in configuration['paths'] if p['point']==POINT)
  point['pricing']={'source':'published_custom_v1','curveId':curve['id'],'version':curve['version'],'outputNode':'output','selection':'containing_delivery_interval_v1','implementation':'published_custom_curve_projection_v1'}
- point['settlementPeriods']=[{'from':'2026-09-01','to':'2026-12-01','curve':LOCATION,'index':'test_price','observationConvention':'daily_published_index_v1'},
-  {'from':'2026-12-01','to':'2027-01-01','curve':LOCATION,'index':'test_price','observationConvention':'monthly_published_index_v1'}]
+ point['settlementPeriods']=[{'from':'2026-09-01','to':'2026-12-01','curve':LOCATION,'index':'synthetic_in_term_index','observationConvention':'daily_published_index_v1'},
+  {'from':'2026-12-01','to':'2027-01-01','curve':LOCATION,'index':'synthetic_in_term_index','observationConvention':'monthly_published_index_v1'}]
  draft=c.call('gas-setup/save',{'operationId':str(uuid4()),'baseSetupId':setup['activeSetupId'],'configuration':configuration})
  c.call('profile',{'profile':'approver'});c.call('gas-setup/publish',{'operationId':str(uuid4()),'setupId':draft['setupId']})
  c.call('profile',{'profile':'trader'});catalog=c.call('gas/catalog',context);location=next(p for p in catalog['locations'] if p['deliveryPoint']==POINT)

@@ -7,7 +7,7 @@ using OpenEtrm.MarketData.Options;
 using OpenEtrm.MarketData.Trading;
 
 // A calculation selects its option valuation in its pricing policy. The catalog states the rebuilt tree for American
-// series and the Black-76 formula for European ones (D446); a request may name the strike-centred tree instead (D396),
+// series and the Black-76 formula for European ones (D449); a request may name the strike-centred tree instead (D396),
 // and nothing else.
 internal static class OptionPolicySelectionChecks
 {

@@ -3,6 +3,9 @@ using System.Numerics;
 using OpenEtrm.MarketData;
 using OpenEtrm.Security;
 
+if(args is ["--instrument-schedule"]){InstrumentScheduleChecks.Run();return;}
+if(args is ["--gas-composition-pricing"]){GasCompositionPricingChecks.Run();return;}
+if(args is ["--gas-instrument-schedule"]){GasInstrumentScheduleChecks.Run();return;}
 if(args is ["--instrument-sides"]){InstrumentSideAlignmentChecks.Run();return;}
 if(args is ["--cash-sides"]){CashSideAlignmentChecks.Run();return;}
 if(args is ["--gas-holding-side"]){GasHoldingSideChecks.Run();return;}
@@ -101,6 +104,7 @@ if(args is ["--side-block-checks"]){SideBlockExperiment.Check();return;}
 if(args is ["--futures-options"]){FuturesOptionChecks.Run();return;}
 if(args is ["--european-options"]){EuropeanFuturesOptionChecks.Run();return;}
 if(args is ["--spread-options"]){SpreadOptionChecks.Run();HeatRateCallChecks.Run();HeatRateCallScheduleChecks.Run();return;}
+if(args is ["--exercise-mark-pair"]){ExerciseRightChecks.MarkBindings();return;}
 if(args is ["--exercise-rights"]){ExerciseRightChecks.Run();return;}
 if(args is ["--option-calibration-workload"]){FuturesOptionChecks.CalibrationWorkload();return;}
 if(args is ["--vol-surface"]){VolSurfaceChecks.Run();return;}
@@ -693,6 +697,9 @@ GasParkCustodyChecks.Run();passed++;
 GasTransportCapacityChecks.Run();passed++;
 GasTransportRouteChecks.Run();passed++;
 InstrumentSideAlignmentChecks.Run();passed++;
+InstrumentScheduleChecks.Run();passed++;
+GasInstrumentScheduleChecks.Run();passed++;
+GasCompositionPricingChecks.Run();passed++;
 CashSideAlignmentChecks.Run();passed++;
 GasHoldingSideChecks.Run();passed++;
 GasRightsSideChecks.Run();passed++;

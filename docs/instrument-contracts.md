@@ -1,5 +1,66 @@
 # Unit instruments and trade bindings
 
+## Instrument schedule (D446)
+
+Every `SidedInstrument` exposes one cached `InstrumentSchedule` per instance.
+Entries retain membership order, Side reference, coefficient and quantity ratio;
+rows pair each Side row with its entry slot. Reading entries or evaluating the
+plain schedule does not eagerly generate Side schedules. `PV(SideValuationContext)`
+is sealed and delegates to `GenerateSchedule().Evaluate(context)`.
+`RequireBeforeValuation` and `RequireAfterValuation` preserve product admission
+and result checks. The plain evaluation preserves shared-Side context reuse.
+Futures and exchange-traded futures options remain unchanged leaves (D181).
+
+The retained-program schedule prepares occurrence inputs, then invokes each
+concrete Side. It never executes a Side's program itself. Gas memberships may
+carry an immutable quantity policy, source slot and exact quantity part in
+Instrument identity. Absent terms are omitted from canonical identity, preserving
+the exact earlier identity for an Instrument without policy or part. Physical
+owner days remain trade facts outside identity. The schedule validates them,
+computes each entry's own-date quantities once and supplies them through the
+occurrence context; the Side owns row pricing, lifecycle and inspection.
+
+Gas draft and stored compositions also retain each entry's physical owner in
+the schedule execution identity, including entries without quantity terms.
+Each payment uses only that owner's day quantities and clock. The prepared
+context and reuse fence include this exact source map; legacy economic canonical
+bytes remain unchanged. Direct managed callers with quantity terms can derive
+the complete map from their declared membership source slots. With a right and
+without a complete map, each physical entry uses its own native geometry and
+connected cash uses its declared source slot. Pooled geometry is the compatibility
+path for direct calls without a map, quantity terms or rights, and for unsourced
+cash outside that explicit connection in a direct rights call. A covered payment
+still needs an explicit source for its held day quantities.
+
+## Exercise rights (D448)
+
+An optional right is an immutable Instrument term over ordered, disjoint
+memberships. Its period is `delivery_day` or `delivery_month`, its holder `us`
+or `counterparty`, and its settlement `physical` or `cash_automatic`. Its
+saved group dates, exercise instants, model and day count enter identity. Empty
+rights leave the earlier economic canonical bytes intact. Exact mark revisions
+belong to the pricing binding. Elections and delivery and payment facts belong
+to the exact held trade binding.
+
+The schedule prepares the entry's own held day quantity for exercised days and
+zero for abandoned or undecided days. Each Side computes its ordinary rows and
+keeps payment state. For an undecided group the schedule also values only that
+group's hypothetical days through the same concrete Sides and contributes one
+signed holder-choice amount. The Trade applies its external typed quantity once.
+Ordinary signed entry contributions plus undecided contributions reconcile to
+Instrument PV. The exercised group's Forward sum and Counted amounts show
+gross selected rows. A recorded payment changes ordinary remaining PV without
+changing those gross amounts. Abandoned groups count zero.
+
+A physical decision requires a visible recorded election. A covered physical
+day with a scheduled or allocated delivery must have an exercised election. A payment on an original covered cash row requires at
+least one exercised day on that row. A known future change to the applicable
+election bounds prepared-context reuse. Cash groups require publication of
+every covered index, including a row with zero taken quantity. The available projection continues to price an undecided cash group
+after its last fixing instant and payment due date. Gas is the supported
+consumer. See
+[gas admission, faults and scope](physical-gas-side.md#exercise-rights-d448).
+
 ## Mandatory composition boundary (D417)
 
 Every financial instrument derives from `Instrument`. The only products allowed
@@ -103,7 +164,7 @@ dependency: the [trading P&L bump](trading-pnl.md#price-bump) is sized from
 them, and the [portfolio risk bump report](risk-workspace.md) refuses a shock
 under two of them (D395). The
 [listed American futures option](futures-options.md) declares its lattice's
-step; a European one, priced by a formula, declares none (D446).
+step; a European one, priced by a formula, declares none (D449).
 
 `MarketFactors(context)` returns the canonical shared market factors resolved
 from those declarations. The portfolio unions them by exact factor identity,

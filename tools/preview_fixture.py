@@ -504,7 +504,7 @@ def gas_purchase(context, catalog, point='synthetic_gas_point_a', fee='0.1'):
     physical_policy = side_calendar_policy(reference, delivery=True, observation=False, payment=False)
     cash_policy = side_calendar_policy(reference, delivery=True, observation=False, payment=True)
     p = next(p for p in catalog['locations'] if p['deliveryPoint'] == point)
-    charge = lambda code, role, price: {'code': code, 'role': role, 'direction': 'pay', 'source': 'gas', 'stage': 'delivery', 'price': price,
+    charge = lambda code, role, price: {'code': code, 'role': role, 'share':'1', 'direction': 'pay', 'source': 'gas', 'stage': 'delivery', 'price': price,
                                         'tariffCode': None, 'paymentAt': '2021-02-02T00:00:00Z', 'calendarPolicy': cash_policy}
     return {**context, **trade_booking(), 'operationId': str(uuid4()), 'bookId': catalog['books'][0]['id'], 'definitionRevisionId': p['definitionRevisionId'],
             'gasSetupId': catalog['gasSetupId'], 'discounting': False, 'profile': 'fixed_gas_composition_v1',

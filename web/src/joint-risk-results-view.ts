@@ -29,7 +29,11 @@ export function renderJointResults(host:HTMLElement,joint:JointReport,state:Join
   host.append(table(['Scenario','Book','Measure','Base','Stressed value',jointLabels[state.metric],'Currency'],joint.samples.flatMap(s=>s.totals.map(t=>[
    choose(s.id,s.label),t.book,t.measureLabel,amount(t.values.base,t.values.display.base),amount(t.values.value,t.values.display.value),amount(t.values[state.metric==='pnl'?'pnl':'loss'],t.values.display[state.metric==='pnl'?'pnl':'loss']),t.values.currency]))));
   const selected=joint.samples.find(s=>s.id===state.selected)??joint.samples[0];state.selected=selected?.id;
-  if(selected){detail.append(node('h3',selected.label),table(['Target','Coordinate','Signed shift','Native price unit'],selected.shifts.map(s=>[s.factor.label,s.factor.coordinate==='market_quote'?'Shared market factor':'Computed output',s.size,s.factor.unit])));
+  if(selected){
+   const volatility=selected.volatility??[];
+   const shifts=[...selected.shifts.map(s=>[s.factor.label,s.factor.coordinate==='market_quote'?'Shared market factor':'Computed output',s.size,s.factor.unit]),
+    ...volatility.map(s=>[s.inputId,'Declared volatility input',s.size,'Annualized volatility'])];
+   detail.append(node('h3',selected.label),table(['Target','Coordinate','Signed shift',volatility.length?'Native unit':'Native price unit'],shifts));
    const positions=node('details');positions.append(node('summary',`Trades and instruments · ${selected.positions.length}`),table(['Trade','Instrument','Book','Measure','Base','Stressed value','P&L','Loss','Currency'],selected.positions.map(p=>[p.tradeReference,p.instrumentReference,p.book,p.measureLabel,amount(p.values.base,p.values.display.base),amount(p.values.value,p.values.display.value),amount(p.values.pnl,p.values.display.pnl),amount(p.values.loss,p.values.display.loss),p.values.currency])));detail.append(positions);}
  }else{
   const derivatives=joint.derivatives.filter(d=>d.formula===formulas[state.metric as keyof typeof formulas]);

@@ -51,7 +51,7 @@ public sealed record IndexedPhysicalGasPurchase:SidedInstrument
         // discounting. Ordinary instrument membership supplies the pay sign.
         return context.SideContext().Evaluate(Consideration).PresentValue.Scale(Sides[1].Coefficient);
     }
-    public override InstrumentValuation PV(SideValuationContext context)=>
+    protected internal override void RequireBeforeValuation(SideValuationContext context)=>
         throw new MarketDataException("valuation_measure","Use the normal unit PV context with the selected cash measure and held payment state.");
     private static MarketDataException Invalid(string message)=>new("indexed_physical_gas",message);
 }

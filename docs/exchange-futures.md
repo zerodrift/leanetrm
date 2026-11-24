@@ -93,7 +93,7 @@ facts only and no document text or prices.
   - the lot quantity is one option contract;
   - premium is paid up front;
   - the exercise style is `american`. The column also admits `european` (migration
-    0391, D446), with a check that a European product accepts no contrary
+    0397, D449), with a check that a European product accepts no contrary
     instructions; the example lists no European product;
   - contrary instructions are not accepted;
   - near-the-money strikes are listed every $0.05 for ON and every $0.50 for LO.

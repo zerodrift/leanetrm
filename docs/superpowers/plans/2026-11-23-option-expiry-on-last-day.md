@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Not started. Plan of 2026-11-23 for piece 2 of D446.
+**Status:** Not started. Plan of 2026-11-23 for piece 2 of D449.
 
 **Goal:** A listed futures option may expire at the instant its cash-settled underlying stops trading, be judged by that future's final settlement, and exercise into a future at the strike that its own final margin then settles.
 
@@ -25,7 +25,7 @@ This plan does not need the European plan. Its example product is American in st
 - Migrations use the header and anchored patch pattern of `db/migrations/0382_dated_option_lots.sql`; the reference backfill uses the trigger pattern of `db/migrations/0361_commodity_icons.sql:9-17`.
 - No commodity or exchange switch. TypeScript presents backend values only. Synthetic data only.
 - Write the failing check first in every task. Commit with `git commit -s`. Do not push and do not open a pull request without the owner's word.
-- Migration number 0393 is provisional: take the next free number when building.
+- Migration number 0399 is provisional: take the next free number when building.
 - Database, HTTP and real-browser checks run in CI or on the owner's preview host, on the owner's word. Do not install or start PostgreSQL on the workstation.
 - One combined independent adversarial review at the end (Task 8), covering temporal behaviour and authorization. No per-task review rounds.
 
@@ -43,7 +43,7 @@ This plan does not need the European plan. Its example product is American in st
 
 | File | Responsibility |
 | --- | --- |
-| `db/migrations/0393_option_expiry_on_last_day.sql` (new) | Relation column and backfill; series trigger; deciding price; booking a future at its close |
+| `db/migrations/0399_option_expiry_on_last_day.sql` (new) | Relation column and backfill; series trigger; deciding price; booking a future at its close |
 | `src/OpenEtrm.MarketData/Trading/FuturesOptionLifecycleProjection.cs:10-37` | The rule record admits the second evaluation and names its observation role |
 | `src/OpenEtrm.MarketData/Model.cs:67-74` | The series specification carries the relation |
 | `src/OpenEtrm.MarketData/CurveModel.cs:132` | The definition check reads the relation |
@@ -165,7 +165,7 @@ git commit -s -m "Admit a future booked by an option event at its last-trading i
 ### Task 3: Reference rows and series admission
 
 **Files:**
-- Create: `db/migrations/0393_option_expiry_on_last_day.sql`
+- Create: `db/migrations/0399_option_expiry_on_last_day.sql`
 - Create: `tools/check_option_last_day_expiry.py`
 - Modify: `tools/exchange_fixture.py:175` (the rule insert states the relation for expiry rules), `tools/check_all.py:131-132` (register the new tool)
 
@@ -202,14 +202,14 @@ Expected: the tool's storage lines `PASS`; the group passes, including `tools/ch
 - [ ] **Step 5: Commit**
 
 ```bash
-git add db/migrations/0393_option_expiry_on_last_day.sql tools
+git add db/migrations/0399_option_expiry_on_last_day.sql tools
 git commit -s -m "Admit an option series that expires when its cash-settled future stops trading"
 ```
 
 ### Task 4: Expiry is judged by the price the rule names
 
 **Files:**
-- Modify: `db/migrations/0393_option_expiry_on_last_day.sql`
+- Modify: `db/migrations/0399_option_expiry_on_last_day.sql`
 - Modify: `src/OpenEtrm.Api/FuturesOptionKnownHistoryStore.cs:56`, `src/OpenEtrm.Api/FuturesOptionStore.cs:208-209`
 - Test: `tools/check_option_last_day_expiry.py`, `tests/OpenEtrm.Api.Checks` (`--lifecycle-option-expiry-read`)
 
@@ -260,14 +260,14 @@ Expected: all `PASS`; the existing option expiry tools pass unedited.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add db/migrations/0393_option_expiry_on_last_day.sql src/OpenEtrm.Api tools tests
+git add db/migrations/0399_option_expiry_on_last_day.sql src/OpenEtrm.Api tools tests
 git commit -s -m "Judge a last-day option by its future's final settlement"
 ```
 
 ### Task 5: The linked future is booked at the close and finally margined
 
 **Files:**
-- Modify: `db/migrations/0393_option_expiry_on_last_day.sql`
+- Modify: `db/migrations/0399_option_expiry_on_last_day.sql`
 - Modify: the query behind `FuturesStore.MaterializeHolding` (`src/OpenEtrm.Api/FuturesStore.cs:310-316`) to return the origin
 - Test: `tools/check_option_last_day_expiry.py`
 
@@ -308,7 +308,7 @@ Expected: all `PASS`.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add db/migrations/0393_option_expiry_on_last_day.sql src/OpenEtrm.Api tools
+git add db/migrations/0399_option_expiry_on_last_day.sql src/OpenEtrm.Api tools
 git commit -s -m "Book an exercised last-day option's future at the close and settle it by its final margin"
 ```
 
@@ -356,7 +356,7 @@ git commit -s -m "Show when an option expires relative to its future"
 ### Task 7: Documents and the verification record
 
 **Files:**
-- Modify: `docs/futures-options.md` (Instrument, Lifecycle, Remaining work), `docs/exchange-futures.md:97-160` (rules, option lifecycle; name the lifecycle entry points now in use), `docs/lifecycle-actions.md` (listed futures options), `docs/decisions.md` (D446: piece 2 implemented), `docs/verification.md` (new section "Option expiry on the underlying's last trading day (D446)")
+- Modify: `docs/futures-options.md` (Instrument, Lifecycle, Remaining work), `docs/exchange-futures.md:97-160` (rules, option lifecycle; name the lifecycle entry points now in use), `docs/lifecycle-actions.md` (listed futures options), `docs/decisions.md` (D449: piece 2 implemented), `docs/verification.md` (new section "Option expiry on the underlying's last trading day (D449)")
 
 - [ ] **Step 1: State what is implemented and what is not**
 

@@ -1,5 +1,133 @@
 # Physical gas booking and pre-delivery valuation
 
+## Exercise rights (D448)
+
+A gas composition can include disjoint rights over named existing entries. Every
+right saves its ordered entries, period (`delivery_day` or `delivery_month`),
+holder (`us` or `counterparty`), settlement (`physical` or `cash_automatic`),
+exact group dates and exercise instants, model `spread_call_kirk_lognormal_v1`
+and day count `OptionNumericalPolicies.ActualOver365FixedInstant`. Rights belong
+to Instrument identity. The existing Side programs and booked schedules still
+own the delivery and cash rows they evaluate.
+
+- Physical groups must cover a physical Side. The selected nonnegative
+  whole-hour lead saves `lead_before_first_gas_day_v1`. The deadline is at or
+  before the first retained gas-day boundary of each selected entry represented
+  in the group. Physical exercise requires an eligible recorded election, even
+  when the forward sum is positive.
+- Cash automatic groups cover payments only and need an actual retained fixing
+  instant. The latest fixing instant belongs to each group independently. They
+  save no physical lead rule. All required index fixings must be published
+  in the selected view for a decision, including when the row takes zero quantity.
+  A positive exact holder sum exercises and an exact zero or negative sum
+  abandons. Unpublished prices at or after the last fixing instant give an `undecided_forecast` group at zero model time
+  while the projection is available, including after the payment due date.
+- Admission requires explicitly undiscounted valuation and independent physical
+  quantity sources. Every explicit physical quantity link is excluded, including
+  a link with zero fuel. Physical day quantities and connected payment quantities
+  follow their exact sources. During ordinary valuation an exercised day uses
+  the entry's own selected quantity, share and part. Abandoned or undecided days
+  contribute zero. A whole-term row accrues only on its exercised days.
+
+An undecided group prices the hypothetical rows for its own dates through the
+retained Sides. An undecided physical group uses contract quantities. Fixed
+prices and published index fixings are certain. Other prices remain market marks
+regardless of the Side's pricing label. A group takes at most one uncertain curve
+per holder leg, with distinct curves for two legs. Pricing selects exact-version
+volatility per curve and symmetric correlation per qualifying pair, by the
+group's delivery month. The convention is `curve_marks_log_return_held_v1`.
+A single uncertain leg needs only its volatility. No volatility or correlation
+is inferred. Shared price scenarios hold marks, and correlation has no shock.
+Interactive and retained joint samples can apply parent-additive volatility
+shifts to explicit declared input IDs, alone or with price shifts. The two
+shift kinds share the existing limit of 16 per sample. The numerical boundary
+and full model table are in [D448](decisions.md#d448--exercise-rights-are-terms-of-an-instrument).
+
+An election is a revisable or withdrawable fact on a physical group of the exact
+trade binding. It records `exercised` or `abandoned`, an effective instant and
+evidence. The effective instant must be at or before the saved deadline.
+Valuation selects the highest revision known at its resolved cutoff
+and effective by its valuation instant. A known future-effective change limits
+reuse across that boundary. Amendments retain their existing eligibility rules.
+A rights-only change creates a separate binding with its own elections. The
+prior binding retains its terms, facts and authorized historical values. A leased
+risk worker reads rights on a binding held by a selected trade at its retained
+cutoff, including when another holding shares that binding.
+
+The curve-mark read and both mark record routes bind the exact selected
+definition and curves. Reads select revisions by effective and knowledge
+eligibility. Mark recording requires working data with current
+`ReadMarketData` and `ImportObservations` authority and exact visible sources.
+Mark command replay requires the original effective instant as well as the
+original payload. The selected correlation revision belongs to the pricing
+binding even when another revision has the same coefficient. Authorized mark
+and election commands use expected predecessors and atomic publication. See [recording elections](deal-ticket.md#gas-exercise-rights-d448).
+
+The schedule shows each group's state, exact Forward sum and Counted amount,
+plus model inputs for undecided groups. The first two amounts for an exercised
+group are gross selected row economics before payment. Abandoned Counted is
+zero. Paid, Outstanding and Realized unsettled amounts and settlement-adjusted
+PV belong to ordinary Side rows. After payment, group Counted totals need
+not equal PV. Ordinary entry contributions plus undecided values reconcile
+exactly. Draft and held previews, exact trade reads, the Blotter, interactive
+scenarios and retained risk use the same evaluation. The ordinary gas portfolio
+policy isolates base holdings with missing marks, an elapsed determination,
+conflicting facts or model-input refusals. A failure caused by a requested
+scenario refuses the run. Native futures keep their all-valued requirement.
+
+| Refusal | Meaning |
+| --- | --- |
+| `exercise_right` | Malformed right, overlapping memberships or invalid retained group terms |
+| `exercise_model_scope` | Group outside the selected model's geometry, price or discounting scope |
+| `exercise_marks` | A required explicit mark is missing or unusable |
+| `exercise_determination` | A physical group reached its exercise instant without an eligible decision |
+| `exercise_election` | Malformed or inapplicable election |
+| `exercise_election_conflict` | The expected election head is stale |
+| `exercise_conflict` | A covered physical day has a scheduled or allocated delivery without exercise, or a payment's original covered cash row has no exercised day |
+| `holder_choice_inputs` | Invalid model inputs |
+
+This build covers gas exercise over ordinary physical and payment Sides.
+Premium, strip exercise across delivery months, discounting, negative modeled
+prices, path-dependent and constrained rights, transport/storage optionality,
+and a marks editor are outside the profile. D288 listed futures options and
+the D431 heat-rate call keep their own contracts.
+
+## Independent pricing entries (D446–D447)
+
+Every valuation route uses the retained Instrument schedule: draft and held
+preview, single-trade read, Blotter, interactive risk and queued risk. Each Side
+still owns its saved program and lifecycle rows. Physical selected quantities
+are prepared once per entry under the explicit business instant and knowledge
+cutoff; policy and source relationships are immutable entry terms in identity.
+Every entry also retains its exact physical owner in the schedule execution
+identity. Its lifecycle quantities and clock come only from that owner, including
+contract-quantity payments beside physical entries with different terms.
+
+Payments and fees state a positive `share` and may choose their own inclusive
+start/exclusive end within the source's gas-day boundaries. Whole quantity is
+the absent part; `band` takes quantity between a lower daily level and an optional
+upper level; `shortfall` takes the deficit below its daily level. Levels are
+entered in native units and retained as exact ratios of the holding base.
+A part needs an independent physical source and no fuel link anywhere in the
+composition. Contract-policy sources still require complete contract-labelled
+owner days when a payment has a part. Missing facts refuse; no implicit whole
+quantity is substituted. Zero after payment retains the overpaid balance.
+
+New floating payments choose point publications, a named daily index or a named
+monthly index. Named terms require exactly one eligible curve with that index as
+settlement target and exactly one contract/fixing for each payment gas day. The
+fixing's series must name that exact contract. A published monthly price can
+earn ended days while later days stay unrealized;
+before publication those rows are forecasts and accrue nothing. The retired
+strict daily convention refuses new booking and remains readable on saved trades.
+Final daily billing accepts only whole, share-one, full-source-term fixed cash.
+
+Schedule rows expose taken quantity, `band_v1`/`shortfall_v1` when present,
+source quantity, rank and evidence. Entry amounts and any undecided exercise
+contributions partition Instrument value on every route. A held preview supplies
+explicit `previewTradeId` and `previewContextId`, requires exact saved terms and
+current authority, and is not a booking or amendment request.
+
 Physical gas is entered in the [deal ticket](deal-ticket.md) (D281). Its booking is
 the independent-side composition below: one to four physical sides with payment and
 fee sides. A purchase or sale at one point is the composition of one physical side.
@@ -77,8 +205,8 @@ context resolves: a request naming another setup, or none where the context reso
 one, refuses with `ticket_input` on the `gas_setup` field; a retried booking still
 receives its first outcome.
 
-Admit one to four physical memberships and up to four cash/fee memberships,
-including the separately qualified indexed consideration. Receive/deliver belongs
+Admit one to four physical memberships and up to seven cash/fee memberships,
+with at most eight memberships in all, including indexed consideration. Receive/deliver belongs
 on each physical membership; pay/receive
 belongs on each cash membership. There is no trade-wide direction. Each physical
 side selects its own PZL/product and future delivery term of 1–1200 operating
@@ -109,13 +237,13 @@ payment instant without inferred monthly allocation. Fixed nominal/capacity
 charges remain outside this profile.
 
 **Index payment** uses the existing `FloatingSide` under
-`indexed_gas_composition_v1`. Each source physical day has one exact daily index
-contract and published-fixing definition, an explicit forecast selection and
-additional spread. Payments use an explicit next-month UTC day from 1–28 without
+`indexed_gas_composition_v1`. Named pricing has one exact daily or containing-month
+index contract and fixing definition per payment gas day, an explicit forecast
+selection and additional spread. Point publications retain their own periods. Payments use an explicit next-month UTC day from 1–28 without
 holiday adjustment. Physical and payment Sides keep independent prices and signed
-contributions. This is contractual net MTM before delivery, not a lifecycle-aware
-unpaid-cash measure; started-delivery determinations, paid realization and broader
-cash settlement remain outside this admission.
+contributions. D360 supplies in-term unrealized and accrued-unsettled measures; D447
+uses published-as-available pricing for the new named forms. Final indexed
+billing and broader cash settlement remain outside this admission.
 
 The first independent physical amount defines the external holding quantity.
 Every side retains a normalized one-unit executable schedule; exact positive
@@ -131,9 +259,9 @@ Fixed links are materialized at booking. Reopening directly loads the retained
 unit programs, multiplies each quantity and PV by its stored membership ratio
 and the holding amount once, and reports receipt/delivery/fuel reconciliation.
 It does not regenerate a Side or recompute link ratios from current setup. Dated
-meter attribution uses each booked physical point and setup version. Exported
-quantities remain contractual, not readings or allocations. Linking operational
-actuals or future elections requires a separately admitted input-port profile.
+meter attribution uses each booked physical point and setup version. The saved
+programs keep contractual quantities. D445/D447 may apply selected owner facts and parts through the shared lifecycle without changing those
+programs; fuel-linked profiles keep contract quantities.
 
 Synthetic period-total oracle, with no discounting: receipt 1,000 at mark 3.20,
 delivery 980 at mark 3.10 after 2% gross-based fuel, and a payable fee of 0.10 on

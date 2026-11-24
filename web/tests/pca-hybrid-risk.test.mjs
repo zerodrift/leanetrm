@@ -46,3 +46,9 @@ test('no-fallback reports reject unavailable analysis, portfolio fallback and un
   const r=fixture();edit(r.monteCarlo.analysis);assert.throws(()=>validateMonteCarlo(r),/PCA/i);
  }
 });
+
+test('PCA qualification refuses a partially stated preparation work receipt',()=>{
+ const report=fixture();
+ report.monteCarlo.analysis.cost.reference.preparationUnitPricerCalls=1;
+ assert.throws(()=>validateMonteCarlo(report),/PCA|coverage/i);
+});

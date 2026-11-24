@@ -32,5 +32,5 @@ public sealed record CrossCommodityScheduledSwap:SidedInstrument
             throw new MarketDataException("quantity_mapping","A constant factor requires the same delivery periods and proportional quantities in every period. Payment and observation rules remain independent.");
         Factor=factor;Discounting=discounting;
     }
-    public override InstrumentValuation PV(SideValuationContext context)=>FinancialSwapInstrument.RequireDiscounting(base.PV(context),Discounting);
+    protected internal override void RequireAfterValuation(InstrumentValuation value)=>FinancialSwapInstrument.RequireDiscounting(value,Discounting);
 }

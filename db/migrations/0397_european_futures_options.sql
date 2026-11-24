@@ -3,7 +3,7 @@ SET LOCAL search_path=pg_catalog;
 SET LOCAL lock_timeout='5s';
 SELECT pg_advisory_xact_lock(730849102);
 
--- A listed futures option product states American or European exercise (D446).
+-- A listed futures option product states American or European exercise (D449).
 -- A European option is exercised only at expiry, by its product's automatic
 -- rule, so its product accepts no contrary instructions. No row is rewritten:
 -- every existing product states american.

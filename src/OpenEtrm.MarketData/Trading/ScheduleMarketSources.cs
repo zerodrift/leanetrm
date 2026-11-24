@@ -61,6 +61,11 @@ public sealed partial class ScheduleMarketSources
         =>Evaluate((program??throw Invalid("Select an explicit stored Side program.")).Inputs(context,cancellation,coverage),sideId,scenario,discounting,
             ImmutableDictionary<ScheduleInputAddress,ScheduleInputValue<ScheduleValueColumn>>.Empty,cancellation,nativePriceAttribute);
 
+    internal BookedSideEvaluation EvaluateCashExercise(BookedSideProgram program,Guid sideId,CurveBuild scenario,
+        ISideDiscounting discounting,CancellationToken cancellation) =>
+        Evaluate(program.CashExerciseInputs(context,cancellation),sideId,scenario,discounting,
+            ImmutableDictionary<ScheduleInputAddress,ScheduleInputValue<ScheduleValueColumn>>.Empty,cancellation);
+
     // Input ports receive values only. This adapter never resolves another Side.
     public BookedSideEvaluation Evaluate(ScheduleInputDemandSet demand,Guid sideId,CurveBuild scenario,
         ISideDiscounting discounting,IReadOnlyDictionary<ScheduleInputAddress,ScheduleInputValue<ScheduleValueColumn>> ports,

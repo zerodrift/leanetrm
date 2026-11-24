@@ -6,7 +6,7 @@ using OpenEtrm.MarketData.Risk;
 using OpenEtrm.MarketData.Trading;
 using Market = FuturesOptionChecks.OptionMarket;
 
-// A listed European option on a future (D446): the Black-76 formula against the independent 60-digit oracle and
+// A listed European option on a future (D449): the Black-76 formula against the independent 60-digit oracle and
 // hand arithmetic. Every expected figure comes from the oracle fixture or from a value worked in the comment beside it.
 internal static class EuropeanFuturesOptionChecks
 {

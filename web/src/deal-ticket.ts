@@ -1,13 +1,14 @@
+import {exerciseFieldKey,fieldVisible,termFieldVisible,termValue} from './ticket-model.js';
 import {sideNavigation} from './side-navigation.js';
 import {sideCalendar,referenceCalendarChoices,type SideCalendarPolicy} from './side-calendar.js';
 import {paymentDateInput,displayPaymentDate} from './payment-date.js';
 import {facilityAllocationTrack} from './facility-allocation-track.js';
-import type {FacilityAllocationTrack,ScheduleView,TicketChoice,TicketDescription,TicketField,TicketLink,TicketSummary,TradeActions} from './ticket-types.js';
+import type {ExerciseGroup,FacilityAllocationTrack,ScheduleView,TicketChoice,TicketDescription,TicketField,TicketLink,TicketSummary,TradeActions} from './ticket-types.js';
 import {addSide,removeSide,type FieldValue,type TicketSide,type TicketState} from './ticket-model.js';
 import {numberText,resolvedUnit,scheduleGridData,scheduleTabs,sideKind,type ScheduleSide} from './schedule-grid.js';
 import {emptyGridLayout,renderDataGrid,sideColour,type GridHandle} from './data-grid.js';
 import {reasonOf} from './ticket-preview.js';
-import {measureLines,type GasMeasures} from './lifecycle-text.js';
+import {exerciseStateText,measureLines,type GasMeasures} from './lifecycle-text.js';
 import {sideCardHeader} from './side-card.js';
 import {localTimeValue} from './user-time.js';
 import {renderInstrumentSides,requireInstrumentSideGroups,type InstrumentSideGroup} from './instrument-sides.js';
@@ -19,6 +20,7 @@ import {ticketFieldGroups,requireSideGroupMappings,type TicketFieldGroup} from '
 export type TicketStatus={kind:'current'|'updating'|'stale'|'refused';text:string};
 export type TicketEvents={calendar?(side:string,policy:SideCalendarPolicy):void;edit(side:string|null,field:string,value:string):void;editLocal(side:string|null,field:string,local:string):void;accept(side:string|null,field:string):void;selectSide(code:string):void;tab(id:string):void;
  level(l:string):void;toggle(row:string,open:boolean):void;addSide(kind:string):void;removeSide(code:string):void;preview():void;book():void;
+ addTerm?():void;editTerm?(row:number,id:string,value:string|string[]):void;removeTerm?(row:number):void;
  enter(side:string,day:string,value:string):void;entryValue(field:string,value:string):void;record():void;cancelEntry():void;checkEntry():void;retryEntry():void;amend?():void};
 // A day's entry in a side's tab, as the person fills in its record: the fields the record takes, their values and choices, whether a record
 // awaits its outcome (then only Check and Retry are offered) or is being sent, and what the last attempt said.
@@ -26,10 +28,10 @@ export type TicketEntry={side:string;day:string;fields:TicketField[];values:Reco
 // fieldErrors and choices are keyed by the field id for a trade field and by "<side code>.<field id>" for a side field. Under the chosen
 // level every schedule row is open but those in `closed`, the rows the person closed. quantityUnit is the unit the schedule's preview resolved,
 // and instant the page's formatter for the instants the ticket shows. links are the schedule's quantity links, and entry the day entry open, if any.
-export type TicketView={state:TicketState;sideLabels?:Readonly<Record<string,string>>;mode:'new'|'booked'|'amend';presentation?:'schedules'|'terms';actions:TradeActions|null;schedule:ScheduleView|null;quantityUnit:string|null;instant:(at:string)=>string;zone:string;previous:ScheduleView|null;summaries:TicketSummary[];
+export type TicketView={state:TicketState;sideLabels?:Readonly<Record<string,string>>;groupedEntry?:boolean;mode:'new'|'booked'|'amend';presentation?:'schedules'|'terms';actions:TradeActions|null;schedule:ScheduleView|null;quantityUnit:string|null;instant:(at:string)=>string;zone:string;previous:ScheduleView|null;summaries:TicketSummary[];
  links:TicketLink[];entry:TicketEntry|null;sideSchedule?:(host:HTMLElement,side:TicketSide)=>()=>void;facilityAllocations?:FacilityAllocationTrack[];sideGroups?:InstrumentSideGroup[];sideGroupsReason?:string|null;
  // A booked started-delivery gas trade's measures, with the currency its figures are in; none for any other trade.
- measures?:GasMeasures|null;currency?:string;
+ measures?:GasMeasures|null;currency?:string;groups?:ExerciseGroup[];exerciseAction?:(host:HTMLElement)=>void;
 
  status:TicketStatus;fieldErrors:Record<string,string>;choices:Record<string,TicketChoice[]>;selectedSide:string|null;tab:string;level:string;closed:ReadonlySet<string>;on:TicketEvents};
 
@@ -156,13 +158,13 @@ function card(o:TicketView,side:TicketSide,rows:string[]){
  }
  node.append(head,el('div','ticket-band-title','Common to all sides'));
  for(const row of rows){
-  const f=kind.fields.find(x=>x.band===row&&x.state!=='soon');
+  const f=kind.fields.find(x=>x.band===row&&x.state!=='soon'&&fieldVisible(x,side.values));
   // A kind without this term keeps its slot, so the row lines up with the other cards.
   const slot=f?fieldRow(o,f,side.code,side.values[f.id]):el('div','ticket-slot-empty');
   slot.dataset.band=row;node.append(slot);
  }
  const own=el('div','ticket-own');
- for(const f of dependencyOrder(kind.fields.filter(x=>x.band===null&&x.state!=='soon')))own.append(fieldRow(o,f,side.code,side.values[f.id]));
+ for(const f of dependencyOrder(kind.fields.filter(x=>x.band===null&&x.state!=='soon'&&fieldVisible(x,side.values))))own.append(fieldRow(o,f,side.code,side.values[f.id]));
  if(kind.calendarPurposes){
   const calendar=sideCalendar({id:'ticket-calendar-'+side.code,choices:()=>referenceCalendarChoices(d.sideCalendars??[]),purposes:()=>kind.calendarPurposes!,changed:()=>o.on.calendar?.(side.code,calendar.draft())});
   calendar.restore(side.calendarPolicy);calendar.sync(o.mode==='booked');own.append(calendar.element);
@@ -312,6 +314,78 @@ function groupedFields(o:TicketView,groups:TicketFieldGroup[],actual:InstrumentS
  return root;
 }
 
+
+function exerciseTerms(o:TicketView){
+ const spec=o.state.description.repeatableTerms?.find(section=>section.id==='exerciseRights'),rights=o.state.exerciseRights??[];
+ const entry=o.mode!=='booked'&&!o.groupedEntry;
+ if(!spec||!entry&&!rights.length)return null;
+ const section=el('section','ticket-exercise-terms');section.dataset.termSection=spec.id;
+ section.append(el('h3',undefined,spec.label));
+ rights.forEach((values,index)=>{
+  const group=el('fieldset','ticket-field-group');group.dataset.termRow=String(index);
+  group.append(el('legend',undefined,`${spec.label} ${index+1}`));
+  const fields=el('div','ticket-trade-fields');group.append(fields);
+  for(const f of spec.fields.filter(f=>termFieldVisible(f,values))){
+   const row=el('label','ticket-field ticket-editable');row.dataset.field=f.id;
+   const label=el('span','ticket-label',f.label);label.title=f.meaning;row.append(label);
+   const saved=termValue(values,f.id),listed=o.choices[f.id];
+   if(!entry){
+    const current=Array.isArray(saved)?saved:saved?[saved]:[];
+    current.forEach((value,n)=>{
+     const text=el('span','ticket-value',choiceText(value,null,listed));
+     if(f.choices!==null){text.dataset.choiceKey=f.id;text.dataset.choiceValue=value;}
+     if(n)row.append(document.createTextNode(', '));row.append(text);
+    });
+   }else if(f.type==='multiple_choice'){
+    const select=el('select','ticket-control');select.multiple=true;select.setAttribute('aria-label',f.label);
+    const selected=Array.isArray(saved)?saved:[];
+    const options=[...listed??[],...selected.filter(value=>!listed?.some(option=>option.value===value)).map(value=>({value,label:value}))];
+    for(const {value,label} of options){const option=new Option(label,value);option.selected=selected.includes(value);select.append(option);}
+    select.onchange=()=>{
+     const next=[...select.selectedOptions].map(option=>option.value);
+     o.on.editTerm?.(index,f.id,[...selected.filter(value=>next.includes(value)),...next.filter(value=>!selected.includes(value))]);
+    };
+    row.append(select);
+   }else{
+    row.append(editor(f,typeof saved==='string'?saved:'',listed,value=>o.on.editTerm?.(index,f.id,value)));
+   }
+   const issue=o.fieldErrors[exerciseFieldKey(index,f.id)]??o.fieldErrors[f.id];
+   if(issue){const error=el('span','ticket-error',issue);error.setAttribute('role','alert');row.append(error);}
+   fields.append(row);
+  }
+  if(entry)group.append(button('ticket-remove-term secondary',`Remove ${spec.label.toLowerCase()} ${index+1}`,()=>o.on.removeTerm?.(index)));
+  section.append(group);
+ });
+ if(entry)section.append(button('ticket-add-term secondary',`Add ${spec.label.toLowerCase()}`,()=>o.on.addTerm?.()));
+ return section;
+}
+
+function exerciseGroups(groups:readonly ExerciseGroup[],currency?:string){
+ const section=el('section','ticket-exercise-groups');
+ section.append(el('h3',undefined,'Exercise groups'));
+ const wrap=el('div','table-wrap'),table=el('table'),head=el('thead'),headers=el('tr'),body=el('tbody');
+ const money=(label:string)=>currency?`${label} (${currency})`:label;
+ for(const label of ['Right','From','To · exclusive','State',money('Forward sum'),money('Gross counted'),'Model inputs']){
+  const th=el('th',undefined,label);th.scope='col';headers.append(th);
+ }
+ head.append(headers);table.append(head,body);wrap.append(table);section.append(wrap);
+ for(const group of groups){
+  const row=el('tr');row.dataset.from=group.from;row.dataset.state=group.state;
+  for(const value of [String(group.right+1),group.from,group.to,exerciseStateText(group.state),numberText(group.forwardSum),numberText(group.counted)])row.append(el('td',undefined,value));
+  const inputs=el('td');row.append(inputs);body.append(row);
+  if(!group.inputs)continue;
+  const detail=el('details');detail.append(el('summary',undefined,'View inputs'));
+  const labels={receives:'Receives',pays:'Pays',certain:'Certain',receivesVolatility:'Receives volatility',paysVolatility:'Pays volatility',correlation:'Correlation',years:'Years'} as const;
+  const list=el('dl');
+  for(const key of Object.keys(labels) as (keyof typeof labels)[]){
+   const value=group.inputs[key];
+   if(value!==null)list.append(el('dt',undefined,labels[key]),el('dd',undefined,numberText(value)));
+  }
+  detail.append(list);inputs.append(detail);
+ }
+ return section;
+}
+
 export function renderTicket(host:HTMLElement,o:TicketView){
  const d=o.state.description,sides=o.state.sides,rows=bandRows(d,[...new Set(sides.map(s=>s.kind))]);
  if(d.sideGroupsRequired!==undefined&&typeof d.sideGroupsRequired!=='boolean')throw Error('Reread the ticket Side composition requirement.');
@@ -343,6 +417,10 @@ export function renderTicket(host:HTMLElement,o:TicketView){
   }
  }
  if(o.presentation==='schedules')root.append(statusLine(o.status));
+ const terms=exerciseTerms(o);if(terms)root.append(terms);
+ const pricedGroups=o.groups??o.schedule?.groups;
+ if(pricedGroups?.length)root.append(exerciseGroups(pricedGroups,o.currency));
+ o.exerciseAction?.(root);
  if(o.measures){if(!o.currency)throw Error('The trade measures require their currency.');root.append(measures(o.measures,o.currency,o.instant));}
  if(o.presentation!=='terms')root.append(panel);
  const planned=upcoming(o);

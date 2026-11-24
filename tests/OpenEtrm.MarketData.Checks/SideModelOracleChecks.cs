@@ -38,6 +38,13 @@ internal static class SideModelOracleChecks
         return 1;
     }
 
+    internal static void InspectSchedules(Action<SidedInstrument, SideValuationContext> inspect, Action<string, Action>? refusal = null)
+    {
+        SwapCases((_, _, _) => { }, inspect, refusal);
+        HeatRateCases((_, _, _) => { }, inspect, refusal);
+        PpaCases((_, _, _) => { }, inspect);
+    }
+
     private static string Capture()
     {
         var output = new StringBuilder();
@@ -92,7 +99,7 @@ internal static class SideModelOracleChecks
             yield return ("only-" + group.Key, model.WithShifts(basis, [..group.Select(f => new QuoteShift(f.Input, f.Quote, f.Unit, D("0.1"), QuoteShift.Convention))]));
     }
 
-    private static void SwapCases(Action<string, string, InstrumentValuation> record)
+    private static void SwapCases(Action<string, string, InstrumentValuation> record, Action<SidedInstrument, SideValuationContext>? inspect = null, Action<string, Action>? refusal = null)
     {
         var f = new CommodityLookupFixture(3, monthly: true);
         var periods = Enumerable.Range(0, 3).Select(n => f.Swap(monthly: true, monthOrdinal: n)).ToArray();
@@ -114,7 +121,14 @@ internal static class SideModelOracleChecks
         var build = f.Model.Build(f.Snapshot, [..cases.SelectMany(c => c.Instrument.DependenciesAt(f.Snapshot)).Distinct()]);
         var discount = new ExplicitDiscounting(D("1"), DiscountFactorSource.Undiscounted);
         foreach (var (scenario, market) in Scenarios(f.Model, build))
-            foreach (var (name, instrument) in cases) record(name, scenario, instrument.PV(new SideValuationContext(market, discount)));
+            foreach (var (name, instrument) in cases)
+            {
+                var context = new SideValuationContext(market, discount);
+                inspect?.Invoke(instrument, context);
+                if (scenario == "base") refusal?.Invoke(instrument.GetType().Name, () => instrument.PV(
+                    new SideValuationContext(market, new ExplicitDiscounting(D("0.9"), DiscountFactorSource.Explicit))));
+                record(name, scenario, instrument.PV(context));
+            }
         var discounted = new ScheduledFinancialSwap(Guid.NewGuid(), cases[^1].Instrument.Sides, true, ScheduledFinancialSwap.Implementation);
         foreach (var (scenario, market) in Scenarios(f.Model, build))
             record("scheduled-dated-discounts", scenario, discounted.PV(new SideValuationContext(market, new DatedDiscounting())));
@@ -129,7 +143,7 @@ internal static class SideModelOracleChecks
         }
     }
 
-    private static void HeatRateCases(Action<string, string, InstrumentValuation> record)
+    private static void HeatRateCases(Action<string, string, InstrumentValuation> record, Action<SidedInstrument, SideValuationContext>? inspect = null, Action<string, Action>? refusal = null)
     {
         var f = new Fixture(); var one = D("1");
         var powerQuote = f.Quotes[2]; var gasQuote = f.Quotes[0];
@@ -148,7 +162,13 @@ internal static class SideModelOracleChecks
         var instrument = new CrossCommodityScheduledSwap(Guid.NewGuid(), [new(power, one, new(1, 1)), new(gas, D("-1"), new(7, 1))], factor, converter, false, CrossCommodityScheduledSwap.Implementation);
         var build = model.Build(snapshot, instrument.DependenciesAt(snapshot));
         foreach (var (scenario, market) in Scenarios(model, build))
-            record("heat-rate-independent-power-gas", scenario, instrument.PV(new SideValuationContext(market, new ExplicitDiscounting(one, DiscountFactorSource.Undiscounted))));
+        {
+            var context = new SideValuationContext(market, new ExplicitDiscounting(one, DiscountFactorSource.Undiscounted));
+            inspect?.Invoke(instrument, context);
+            if (scenario == "base") refusal?.Invoke(instrument.GetType().Name, () => instrument.PV(
+                new SideValuationContext(market, new ExplicitDiscounting(D("0.9"), DiscountFactorSource.Explicit))));
+            record("heat-rate-independent-power-gas", scenario, instrument.PV(context));
+        }
     }
 
     private static void ObservationCases(Action<string, string, InstrumentValuation> record)
@@ -204,7 +224,7 @@ internal static class SideModelOracleChecks
             [..keys.Select(key => new SidePaymentFactor(key, D(key.PaymentAt.Day <= 10 && key.PaymentAt.Month % 2 == 0 ? "0.9" : "0.8"), snapshot, DiscountFactorSource.Explicit))];
     }
 
-    private static void PpaCases(Action<string, string, InstrumentValuation> record)
+    private static void PpaCases(Action<string, string, InstrumentValuation> record, Action<SidedInstrument, SideValuationContext>? inspect = null)
     {
         var f = new PpaAcceptanceFixture();
         PpaInstrument Instrument(params PpaMembership[] members) => new(Guid.NewGuid(), f.Definitions, f.Reference, [..members], false, "ppa_instrument_v2");
@@ -243,7 +263,12 @@ internal static class SideModelOracleChecks
         foreach (var (scenario, build) in Scenarios(market.Model, market.Build))
         {
             var session = inputs.Session(build);
-            foreach (var (name, instrument) in cases) record(name, scenario, session.Value(instrument, inputs.FullCoverage(instrument), instrument.Discounting ? new DatedDiscounting() : discount));
+            foreach (var (name, instrument) in cases)
+            {
+                var value = session.Value(instrument, inputs.FullCoverage(instrument), instrument.Discounting ? new DatedDiscounting() : discount);
+                inspect?.Invoke(instrument, value.Context);
+                record(name, scenario, value);
+            }
         }
         // Overdue means the UTC date after the contractual payment day.
         var at = PpaAcceptanceFixture.At("2031-12-11T00:00:00Z");

@@ -30,7 +30,8 @@ test('reload recovery opens an already-completed original job as a report',{skip
  await evaluate(`(async()=>{
   const context={contextId:'synthetic-context',knownAt:'2026-01-01T00:00:00Z',knownThrough:1,effectiveOn:'2026-01-01'},request={context:{...context,snapshotId:'synthetic-snapshot'},bookIds:[],portfolioIds:[],tradeIds:null,bumps:[],stress:[]};
   const operationId='00000000-0000-4000-8000-000000000001',id='00000000-0000-4000-8000-000000000002';
-  const report={context,snapshotId:'synthetic-snapshot',asOf:'2026-01-01T00:00:00Z',scenario:{id:'base',depth:0,isBase:true},factors:[],excludedPositions:[],projectionPolicies:[],work:{},connectedScenarios:[],graph:{},preparation:{}};
+  const report={context,snapshotId:'synthetic-snapshot',asOf:'2026-01-01T00:00:00Z',scenario:{id:'base',depth:0,isBase:true},factors:[],excludedPositions:[],projectionPolicies:[],
+   heldInstruments:0,work:{positionCount:0,uniqueValuations:0,scenarioCount:1,preparationScenarioCount:0,unitPricerCalls:0,rebuiltCurveNodes:0,reusedCurveNodes:0,repeatedInstrumentReferences:0,quantityApplications:0},connectedScenarios:[],graph:{},preparation:{}};
   const job={id,requestId:operationId,state:'completed',kind:'sensitivities',run:null,context,asOf:report.asOf,result:report};
   window.recovery=JSON.stringify({version:1,queued:true,context,asOf:report.asOf,scope:{bookIds:[],portfolioIds:[],tradeIds:null},parts:[{request,job:null,failure:null,command:{path:'portfolio/risk/jobs',operationId,body:{request},uncertain:true}}]});
   sessionStorage.setItem('openetrm.risk.workspace.submission.synthetic-reader',recovery);

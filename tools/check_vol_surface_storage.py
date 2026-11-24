@@ -88,7 +88,7 @@ def run_checks(query, manifest):
 
     before = counts()
 
-    # A revision is recorded under the numerical policy of its product's exercise style, and under no other (D446). The
+    # A revision is recorded under the numerical policy of its product's exercise style, and under no other (D449). The
     # example's products are American and its reference rows are sealed, so the second product is stated as European for
     # one rolled-back transaction, with the sealed rows' guards set aside for that one change only.
     def as_european(statement):

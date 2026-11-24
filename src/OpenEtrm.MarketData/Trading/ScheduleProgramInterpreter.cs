@@ -79,11 +79,11 @@ public sealed partial class BookedSideProgram
                     var holding=row.Parameters["lifecycle"]=="certificate_holding_v1"&&Document.Grids[row.Grid!.Value].EndTicks(cell)<=context.ValuationAt.Ticks;
                     var future=ScheduleLifecycles.IsFutureValue(row,context.ValuationAt);
                     var paymentDay=ScheduleLifecycles.IsPaymentDay(row,context.ValuationAt);
-                    var lane=holding||future||paymentDay?ScheduleInputLanes.Scenario:ScheduleInputLanes.Base;
+                    var lane=demand.CashAutomatic||holding||future||paymentDay?ScheduleInputLanes.Scenario:ScheduleInputLanes.Base;
                     var amount=Arg("amount",lane);var index=Index(amount,cell);
                     if(amount.Presence[index]!=ScheduleCellPresence.Resolved)throw Error("A contribution is missing its demanded cash amount.");
                     var state=amount.States[index];cash.Add(amount.Values[index]);states.Add(state);
-                    classifications.Add(Classify(row,cell,state,context.ValuationAt,holding));
+                    classifications.Add(Classify(row,cell,state,context.ValuationAt,holding,demand.CashAutomatic));
                     if(holding||paymentDay){pv.Add(amount.Values[index]);presence.Add(ScheduleCellPresence.Resolved);}
                     else if(future)
                     {
@@ -189,11 +189,14 @@ public sealed partial class BookedSideProgram
     }
 
     private static int Index(ScheduleValueColumn column,int cell)=>column.Values.Length==1?0:cell;
-    private ScheduleContributionState Classify(ScheduleDefinitionRow row,int cell,ScheduleCellState state,DateTimeOffset valuation,bool holding)
+    private ScheduleContributionState Classify(ScheduleDefinitionRow row,int cell,ScheduleCellState state,DateTimeOffset valuation,bool holding,bool cashAutomatic)
     {
         var modeled=(state.Prices&SchedulePriceFacts.Modeled)!=0;
         if(row.Parameters["lifecycle"]==ScheduleLifecycles.AccruedPayment&&PaymentDatePolicy.IsOverdue(row.ValueAt!.Value,valuation))
         {
+            if(cashAutomatic && (state.Prices & SchedulePriceFacts.Projected) != 0 &&
+                (state.Prices & ~(SchedulePriceFacts.Projected | SchedulePriceFacts.Fixed | SchedulePriceFacts.PublishedFixing)) == 0)
+                return new(ComponentKind.Payment,EconomicClass.Unrealised,null,ValueCoverage.OverdueEstimate,false,null);
             if((state.Prices&~(SchedulePriceFacts.Fixed|SchedulePriceFacts.Actual|SchedulePriceFacts.PublishedFixing))!=0)
                 throw new MarketDataException("side_due_leg_unresolved","Due accrued cash requires its fixed, actual or published price.");
             return new(ComponentKind.Payment,null,null,ValueCoverage.OverdueBalance,false,null);

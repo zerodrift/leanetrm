@@ -27,5 +27,5 @@ public sealed record MonthlyFinancialSwap:SidedInstrument
             throw new MarketDataException("monthly_swap_instrument","Pair whole-term fixed and floating sides with the same monthly delivery, exact allocations, currency/unit and opposite directions.");
         SwapSidePeriods.Monthly(a);SwapSidePeriods.Monthly(b);Discounting=discounting;
     }
-    public override InstrumentValuation PV(SideValuationContext context)=>FinancialSwapInstrument.RequireDiscounting(base.PV(context),Discounting);
+    protected internal override void RequireAfterValuation(InstrumentValuation value)=>FinancialSwapInstrument.RequireDiscounting(value,Discounting);
 }

@@ -5559,7 +5559,11 @@ classified ordinary operations. The page response transport refuses them before
 session resolution, so detachment cannot discard delegated authority guards.
 
 Bound active work, queued requests, identities, serialized responses and channel
-lifetimes. Identical request-ID retries cannot execute twice; conflicting reuse
+lifetimes. The opening receipt advertises the admission window after reserving
+the configured submission deadline, the read budget and both serial publication
+budgets. At that boundary the browser drains submitted reads before opening
+another channel for unsent queued work.
+Identical request-ID retries cannot execute twice; conflicting reuse
 is refused. Cancellation invalidates the consumer immediately while transport
 capacity is released only after server termination or an exact non-admission
 receipt. A cancellation that precedes admission atomically reserves its request
@@ -7091,10 +7095,12 @@ both qualify. Unequal quantities at the winning rank refuse the trade's valuatio
 and the complete risk request; equal quantities retain both evidence references.
 Explicit zero remains a quantity.
 
-The shared held state contains complete contract and selected native quantities,
-source ranks and revision evidence, with an independent map of physical and cash
-memberships. Payments and usage fees inherit their physical source's days. The
-shared lifecycle scales retained linear rows once. For a multi-day contractual
+D446 and D447 move the immutable policy and source relationship into the saved
+Instrument's entry terms and identity. The shared held state contains physical
+owner facts only: complete contract and selected native quantities, source ranks
+and revision evidence. The Instrument schedule derives payment and usage-fee
+days from their physical source. The shared lifecycle scales retained linear
+rows once. For a multi-day contractual
 amount A and total contract quantity Q, the selected amount is A times selected
 quantity divided by Q; accrued and remaining amounts use the selected quantities
 of ended and unended days respectively. This supersedes D360's contract-estimate
@@ -7115,17 +7121,202 @@ when the current actor owns an existing retained command with current write
 authority. Native staging and publication still compare the original complete
 request; fresh commands and previews require the field.
 Schedules expose selected quantities, ranks and evidence; common Side inspection
-also shows contract quantity and the exact selected ratio. Nonlinear pricing,
-fuel links, changed delivery locations, final indexed billing, keep-whole and
-imbalance positions, and adoption by other commodities remain separate work.
+also shows contract quantity and the exact selected ratio. D447 adds exact daily
+band/shortfall entries; broader nonlinear pricing, fuel links, changed delivery
+locations, final indexed billing, independent keep-whole/imbalance positions and
+adoption by other commodities remain separate work.
 
-## D446 — Listed futures options admit European exercise, an expiry on the underlying's last day and a margined premium (European exercise built; the other two designed)
+## D446 — Every sided Instrument values through its schedule
+
+`SidedInstrument.GenerateSchedule()` returns a cached ordered Instrument schedule.
+Its sealed `PV(SideValuationContext)` evaluates that schedule. The plain schedule
+preserves the prior exact sum and context reuse, with explicit before/after
+conditions retaining product refusals. Row inspection remains lazy and belongs
+to the resulting valuation. Futures and exchange-traded futures options receive
+no schedule method; D181 stands.
+
+The saved-program base supplies the overriding schedule. It prepares per-entry
+occurrence inputs, invokes concrete Sides and combines their signed results.
+Each Side computes and inspects its own saved rows; a Side never reads a sibling,
+and the Instrument never runs a Side's program. Only gas changes its quantity
+behavior in this increment. Other product pricing and the audit boundaries in
+the [design](superpowers/specs/2026-11-23-instrument-schedule-and-gas-pricing-design.md#recorded-not-changed-here)
+remain unchanged.
+
+## D447 — Gas pricing is a composition of independent payment Sides
+
+A gas composition admits one to four physical entries, up to seven payment/fee
+entries and at most eight entries in all. Every new payment states a positive
+share. It may cover its own gas-day-aligned subset of its source's term and take
+whole quantity, a band, or a shortfall below a daily level. Levels entered in
+native units are saved as exact reduced ratios of the holding's base quantity;
+share is folded into the membership ratio. A part needs an independent physical
+source and a composition without fuel links. No intermediate rounding is added.
+
+The D445 policy is an immutable physical entry term in Instrument identity.
+Source slots and parts enter identity only when a policy or part is present;
+absent terms preserve legacy canonical bytes. Physical owner facts carry the
+contract and selected quantity under the pinned business/knowledge context.
+An Instrument with a policy or part refuses missing, incomplete or mismatched
+days. A source without a policy supplies contract-labelled days. The Instrument
+schedule applies the part once over the payment's own dates and passes the
+result to its Side. Explicit zero remains valid, including after a payment:
+paid cash is retained as an overpaid balance.
+
+Every gas draft and stored composition supplies its existing physical owner
+relationships to the retained schedule, including contract-quantity payments.
+Lifecycle geometry is per source: another physical entry cannot change its
+quantities or day boundaries. This execution map enters retained schedule
+identity and prepared-context admission while legacy economic bytes stay intact.
+Direct managed callers with quantity terms derive a complete map from their
+declared membership source slots when the map is absent. D448 uses each
+physical entry's native geometry and the declared source of connected cash in
+direct rights calls without a map. Pooled geometry remains for compatible direct
+calls without a map, quantity terms or rights, and in compatible direct rights
+calls for cash without a source slot. Covered payments require a source.
+Dates never imply a source relationship.
+
+New indexed payments choose `point_publications_v1`, `named_index_daily_v1` or
+`named_index_monthly_v1`. Named indexes resolve exactly one curve by index
+settlement target, commodity and quote, and one contract/fixing per gas day.
+Daily contracts cover that day; monthly contracts cover its containing month.
+The fixing series must name that exact projection contract, not merely another
+contract covering the same dates. This gas qualification leaves generic index
+override behavior unchanged.
+Both use the existing delivery-index Side: a known published fixing prices its
+covered days immediately; otherwise rows are labelled forecasts. Ended days
+accrue only on an earned price; unended days remain unrealized. New
+`daily_published_index_v1` bookings refuse. Retained strict bookings keep their
+saved programs and reopen read-only.
+
+Fixed and indexed pricing, fees and physical value share the retained Instrument
+route for draft preview, held preview, trade reads, Blotter and portfolio risk.
+A held preview names an authorized trade/context and must match its saved terms;
+it cannot book or amend. Per-entry report values come from existing signed Side
+contributions, with no extra repricing. Risk still shocks shared scenarios and
+uses deterministic base/up/down PV. Quantity movement stays in P&L residual.
+
+Final daily billing refuses non-unit share, a part or shortened payment dates
+(`gas_billing_input` at the API, `gas_billing_profile` natively). Whole, full-term
+fixed cash remains supported. Native admission independently checks share,
+levels, source, dates, index coverage and exact schedule rows. Original requests
+and completed replay outcomes are not rewritten. A current actor may recover an
+owned predecessor command only under current write authority; changed complete
+commands still meet native hash conflict checks.
+Modern retries must state their required financial fields. Compatibility may
+restore new payment fields only when the retained predecessor request proves
+they were absent; an interrupted request without retained terms must meet current
+payment admission. The earlier contract-only quantity-policy replay remains.
+
+The twelve design calls are adopted: published-as-available pricing; schedule
+reach limited to sided Instruments; saved-program-base ownership; D445 policy
+identity; mandatory day facts for parts; independent/no-fuel parts; exact base
+ratios for daily levels; share in membership and dates on the payment Side;
+eight total entries; unique index-target curve resolution; bounded billing
+refusal; and preservation of the design's read-only audit list. This implements
+the second shared gas pricing building block. D448 adds the supported exercise
+model separately. General formula pricing, transport/storage optionality and
+automated gas closes remain separate work.
+
+## D448 — Exercise rights are terms of an Instrument
+
+The gas exercise right settles architecture section 5.4. A right governs
+explicit, disjoint existing Instrument memberships. Its period, holder,
+settlement (`physical` or `cash_automatic`), exact group dates and exercise
+instants, model and day count belong to Instrument identity. Omit absent rights
+from canonical identity. The Instrument schedule prepares each entry's own held
+quantity on exercised days and zero on abandoned or undecided days. Each Side
+values its own rows and retains its own payment state. Exercise creates no
+option Side, separate option Instrument or trade. D288 and D431 stand.
+
+| Group state | Contribution |
+| --- | --- |
+| `exercised` | Ordinary selected Side rows, with the existing accrual and payment rules |
+| `abandoned` | Zero |
+| `undecided` before exercise | Holder-choice value added to unrealized PV, positive for `us` and negative for `counterparty` |
+| Undecided physical at or after exercise | Refuse with `exercise_determination` |
+| `undecided_forecast` for cash at or after the last fixing instant | Zero-time holder choice on the available prices until every required index price has published |
+
+The installed model is `spread_call_kirk_lognormal_v1` with
+`OptionNumericalPolicies.ActualOver365FixedInstant`
+(`act_365_fixed_instant_v1`). From the holder's perspective,
+A is uncertain receipts, B is uncertain payments, and c is net certain receipts.
+Each group gives the holder the choice between A − B + c and zero. The positive-time
+model uses this table. At zero time it uses intrinsic value.
+
+| Amounts | Holder-choice value |
+| --- | --- |
+| c ≤ 0, A > 0, B > 0 | Call with long A, short B, strike −c |
+| c < 0, A > 0, B = 0 | Call with long A, short −c at zero volatility, strike 0 |
+| c = 0, A > 0, B = 0 | A |
+| c ≤ 0, A = 0 | 0 |
+| c > 0, A > 0, B > 0 | Call with long B, short A, strike c, plus A − B + c |
+| c > 0, A = 0, B > 0 | Call with long B, short c at zero volatility, strike 0, plus c − B |
+| c > 0, B = 0 | A + c |
+
+The call is the installed `KirkSpreadCall.UnitPrice` in `LatticeDecimal`,
+rounded half-even once by `ToExact()`, with parity terms added exactly. The
+thirteen design calls define the supported profile.
+
+1. A right groups by `delivery_day` or `delivery_month`. One exercise across
+   multiple delivery months needs a separately specified strip model and marks.
+2. D431's heat-rate call keeps its existing Side and mark contract.
+3. A premium is outside this build. It belongs to future lump-sum charges work.
+4. Contract-fixed prices and published index fixings are certain. A market mark
+   remains uncertain for exercise pricing regardless of its schedule label.
+5. Physical exercise uses an `exercised` or `abandoned` election. Save the
+   deadline under `lead_before_first_gas_day_v1`. An election must take effect
+   by that deadline. At or after it, an undecided physical group refuses.
+6. Cash automatic exercise waits for every covered index price to publish,
+   including prices on rows with zero taken quantity. From the last fixing
+   instant, the available projection supplies a zero-time forecast until
+   publication, including after the payment due date.
+7. A cash automatic group's exact holder sum must be positive to exercise.
+   An exact zero is abandoned.
+8. Apply the decision to the day quantity. Whole-term payments thus accrue by
+   exercised days while the Side retains the original row and payment facts.
+9. Use one holder-oriented payoff for all admitted groups. Reverse the sign of
+   its contribution when the counterparty holds the right.
+10. At most one uncertain curve per holder leg is admitted. Two uncertain legs
+    must use different curves. An out-of-model group refuses.
+11. Use revisable per-curve volatility and unordered per-pair correlation by
+    delivery month under `curve_marks_log_return_held_v1`. These are pricing
+    bindings outside economic identity. A single uncertain leg needs only its
+    own volatility. Missing required marks refuse. Generic volatility shocks
+    target exact input IDs. The selected correlation revision belongs to the
+    pricing binding and stays held without a shock.
+12. A visible scheduled or allocated delivery on a covered physical membership
+    requires exercise for that day, including when valuation uses contract
+    quantity. A payment on an original covered cash row requires at least one
+    exercised day in that row.
+13. Round each aggregated held A, B and c half-even to 18 decimal places before
+    `HolderChoice` under `exact_rational_half_even_18_v1`. Day quantities, row
+    allocation, forward sums and decided row economics remain exact.
+
+Election revisions keep an exact binding, group, outcome, evidence, effective
+instant, predecessor and knowledge time. Value uses the highest eligible
+revision under both time coordinates. A known future-effective head can limit
+the reuse interval. Authoring reads the latest known head at the retained
+cutoff, including future-effective and withdrawn revisions. The authorized
+writer validates the exact current binding and expected revisions and commits
+the batch atomically. Identical facts and original command retries return their
+recorded outcome under current authority. A rights-only replacement uses a new
+binding and the old facts remain available to its earlier authorized views.
+
+Admission requires explicitly undiscounted valuation and excludes every
+physical quantity link. Group reporting shows gross exercised Forward sum and
+Counted alongside settlement-adjusted Side PV. The admitted gas scope, refusals
+and authorized ticket operations are recorded in the [design](superpowers/specs/2026-11-23-exercise-rights-design.md),
+[physical gas](physical-gas-side.md#exercise-rights-d448) and
+[the deal ticket](deal-ticket.md#gas-exercise-rights-d448).
+
+## D449 — Listed futures options admit European exercise, an expiry on the underlying's last day and a margined premium (European exercise built; the other two designed)
 
 Decided by the owner on 2026-11-23 with the
 [design](superpowers/specs/2026-11-23-futures-option-styles-design.md). European
-exercise is built as migrations 0391 and 0392; its managed, Python, web, database
+exercise is built as migrations 0397 and 0398; its managed, Python, web, database
 and HTTP checks pass, and its real-browser checks have not yet been run
-([verification](verification.md#european-futures-options-d446)). An expiry on the
+([verification](verification.md#european-futures-options-d449)). An expiry on the
 underlying's last day and a margined premium are designed and not built. D288 stands
 for American options with premium paid up front that expire before their underlying.
 

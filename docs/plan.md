@@ -1,12 +1,33 @@
 # Delivery plan and acceptance criteria
 
-D446 admits European exercise on a listed futures option: a product row states
+D449 admits European exercise on a listed futures option: a product row states
 the style, its series are valued by a Black-76 formula named in the option
 valuation policy, and exercise before expiry is refused. The managed, Python, web,
 database and HTTP checks pass; the real-browser checks have not been run. See
 [futures options](futures-options.md#european-exercise) and
-[verification](verification.md#european-futures-options-d446). An expiry on the
+[verification](verification.md#european-futures-options-d449). An expiry on the
 underlying's last trading day and a margined premium remain designed, not built.
+
+D448 implements exercise rights for explicitly undiscounted gas compositions
+with independent physical sources. Daily and monthly rights use physical
+elections or automatic cash determination.
+Standalone gas booking and eligible amendments, exact held reads, the main
+Blotter, shared scenarios and retained risk implement the same schedule
+contract. See [gas exercise rights](physical-gas-side.md#exercise-rights-d448).
+
+The full gas, trading and managed groups pass 17, 20 and 81 local runner
+workloads respectively. Integrated CI is a separate merge gate. Premium,
+strip exercise, constrained and path-dependent
+rights, transport/storage optionality and a marks editor need separate
+work. See [local qualification](verification.md#exercise-rights-on-a-gas-instrument-d448).
+
+D446 and D447 implement the Instrument schedule and independent gas pricing
+entries: exact share, daily band/shortfall and partial-term payments, with point,
+named daily or named monthly index pricing. All gas routes use the retained
+Instrument. Existing plain Instrument sums and shared-Side reuse stay unchanged;
+new final-billing profiles, broader formulas, transport/storage optionality and
+the other gas building blocks remain separate work. The local qualification
+and benchmark are recorded in [verification](verification.md).
 
 D445 implements the first [shared gas pricing building block](superpowers/specs/2026-11-23-delivery-quantity-input-design.md):
 selected delivery quantities in the shared physical lifecycle. New independent
@@ -14,9 +35,9 @@ physical memberships can opt in; payment and usage-fee quantities follow their
 source. Existing trades and two-location entry keep contract quantity. Temporal
 selection, ordinary queued risk, provenance and zero-after-payment balances have
 explicit contracts. Local qualification is recorded in [verification](verification.md).
-Several weighted price terms, option strips, charge bases, balance positions and
-constrained rights remain separate designs; this increment does not complete the
-physical gas product catalog.
+D447 replaces the weighted-price-term design with independent payment entries.
+Strip exercise across delivery months, charge bases, balance positions and
+constrained rights remain separate work.
 
 D443 adds **New trade → Gas & LNG → Two-location gas** and **Facilities →
 Pipeline outlook**. Independent purchase and sale tickets can have different
@@ -1181,7 +1202,7 @@ and distinct base/final valuation modes; the exercise-control accounting choice
 in O13 is still open for options embedded in an instrument. Listed American options
 on NYMEX futures are standalone instruments with their own model and lifecycle
 (D288, [futures options](futures-options.md)). A listed product may instead state
-European exercise, valued by a Black-76 formula under its own policy member (D446).
+European exercise, valued by a Black-76 formula under its own policy member (D449).
 The D210 entry refinement places visual instrument cards between trade details
 and side forms. A selected versioned template populates empty side terms;
 commodity and market selections remain explicit. Each floating side owns its
@@ -2154,7 +2175,7 @@ Extend only after the baseline contracts are demonstrated:
   nonlinear model diagnostics beyond the listed futures and heat-rate call profiles.
   For listed futures options, European exercise is built and its real-browser
   checks are still to be run; an expiry on the underlying's last trading day
-  and a margined premium are designed and not built (D446,
+  and a margined premium are designed and not built (D449,
   [design](superpowers/specs/2026-11-23-futures-option-styles-design.md)).
 - Option strategies beyond one expiry (D409 analyses and draws legs of one
   expiry on one underlying future). Strategies across expiries need a declared

@@ -5,7 +5,7 @@ SELECT pg_advisory_xact_lock(730849102);
 
 -- A stored volatility surface names the numerical policy of the model that
 -- calibrated its series: the rebuilt tree for an American product and the
--- Black-76 formula for a European one (D446). The table admits both ids; which
+-- Black-76 formula for a European one (D449). The table admits both ids; which
 -- of them a product takes is decided where a fit is admitted and where its
 -- revision is recorded. No row is rewritten: every stored revision names the tree.
 DO $$DECLARE names name[];

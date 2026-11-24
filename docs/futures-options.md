@@ -2,9 +2,9 @@
 
 Status: local implementation, verified as recorded in
 [verification](verification.md#listed-american-futures-options-d288) and, for European
-exercise, in [verification](verification.md#european-futures-options-d446), which also
+exercise, in [verification](verification.md#european-futures-options-d449), which also
 lists the checks that have not yet been run. This is not a production activation
-record. The decisions are [D288 and D446](decisions.md).
+record. The decisions are [D288 and D449](decisions.md).
 
 The first release covers two NYMEX products in the
 [exchange futures example](exchange-futures.md#nymex-cl-and-listed-options):
@@ -25,7 +25,7 @@ specifications and calendars, NYMEX rulebook chapters
 [strike listing and exercise procedures table](https://www.cmegroup.com/trading/files/strike-price/strike-price-listing-and-exercise-procedures-table.xlsx)
 dated 2026-08-24. Only facts are stored; every price is synthetic.
 
-A product row states its exercise style, `american` or `european` (D446). Both example
+A product row states its exercise style, `american` or `european` (D449). Both example
 products are American and the example lists no European product: the checks of
 [European exercise](#european-exercise) use a synthetic product on a synthetic
 cash-settled future.
@@ -261,7 +261,7 @@ tree at two of its own steps reads every gamma within 2.3% and every delta withi
 
 ### European exercise
 
-A product whose row states `european` is exercised only at expiry (D446). Its series
+A product whose row states `european` is exercised only at expiry (D449). Its series
 are valued by `european_futures_option_black76_v1`, the Black-76 formula per unit of
 quote:
 
@@ -534,7 +534,7 @@ The sensitivities are the option model's own; Risk reports keep theirs.
   exercised early. It is selectable and is not the stated policy; stating it
   needs a decision, a schema release for the volatility-surface tables and new
   pinned values.
-- **Margined premium.** Designed, not built: D446 and its
+- **Margined premium.** Designed, not built: D449 and its
   [design](superpowers/specs/2026-11-23-futures-option-styles-design.md) keep a
   margined option's variation margin in the futures margin records. Booking still
   refuses a margined premium.
@@ -542,7 +542,7 @@ The sensitivities are the option model's own; Risk reports keep theirs.
   designed, not built (the same decision). Cash-settled, weekly, calendar spread,
   crack spread and average-price options remain.
 - **European exercise, not yet done.** Its real-browser checks have not been run
-  (see [verification](verification.md#european-futures-options-d446)).
+  (see [verification](verification.md#european-futures-options-d449)).
   European series are refused in the lifecycle projection and its reference
   strategies. The example lists no European product. A European product whose
   holders may file contrary instructions is not supported. No check values a

@@ -70,10 +70,9 @@ public sealed record GasStorageInstrument : SidedInstrument
         base.ValidateBinding(quantity, coverage);
     }
     // Once the first gas day begins, planned flows become measured ones this profile does not own.
-    public override InstrumentValuation PV(SideValuationContext context)
+    protected internal override void RequireBeforeValuation(SideValuationContext context)
     {
         if (Plan.Opening.At <= context.Snapshot.ValuationAt)
             throw new MarketDataException("gas_storage_started", "A started storage term needs recorded flows and inventory, which this profile does not own.");
-        return base.PV(context);
     }
 }

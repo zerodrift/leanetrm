@@ -13,6 +13,9 @@ public sealed record RetainedOperatingMember:IRetainedProgramMember
     [IdentityField]public ExactDecimal Coefficient {get;}
     ExactDecimal IRetainedProgramMember.ValuationCoefficient=>Coefficient;
     OpenEtrm.Shared.Numerics.ExactRatio? IRetainedProgramMember.ValuationRatio=>null;
+    int? IRetainedProgramMember.ValuationSourceSlot => null;
+    string? IRetainedProgramMember.ValuationQuantityPolicy => null;
+    QuantityPart? IRetainedProgramMember.ValuationPart => null;
     public RetainedOperatingMember(Guid sideId,ExactDecimal coefficient,BookedSideProgram program)
     {
         if(sideId==Guid.Empty||program is null||program.Document.Family!="operating"||
@@ -49,8 +52,7 @@ public sealed record RetainedOperatingInstrument:RetainedProgramInstrument<Retai
         RequireUnstarted(context.Snapshot);
         return base.Value(context);
     }
-    public override InstrumentValuation PV(SideValuationContext context)
-    {RequireUnstarted(context.Snapshot);return base.PV(context);}
+    protected internal override void RequireBeforeValuation(SideValuationContext context) => RequireUnstarted(context.Snapshot);
     private void RequireUnstarted(MarketSnapshot snapshot)
     {
         if(Members.SelectMany(m=>m.Program.Document.Instructions).Where(i=>i.Output.Operation=="output_guard").Any(i=>i.Output.Interval!.Start<=snapshot.ValuationAt))

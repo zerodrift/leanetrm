@@ -65,6 +65,10 @@ def run_checks(url, query, psql, environment, manifest):
     c = PreviewClient(url); boot = c.bootstrap(); c.call('profile', {'profile': 'risk'})
     client_id=str(uuid4())
     opened = c.call('async-reads/channels', {'clientId':client_id})
+    # The owned preview installs the explicit 15-second request setting.
+    # Reserve it, the 60-second worker limit and both 10-second deliveries.
+    check('channel opening advertises 205 seconds after reserving submission, evaluation and both deliveries',
+          opened.get('admissionWindowMs') == 205000, opened.get('admissionWindowMs'))
     working=c.call('workspace/catalog')
     frame = initial_frame(working, '2020-12-18')
     current = {'snapshotId': frame['id'], 'convention': 'trading_workspace_v1', 'knowledgeMode': 'current'}

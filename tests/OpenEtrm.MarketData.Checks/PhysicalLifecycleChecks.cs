@@ -13,6 +13,27 @@ using OpenEtrm.Shared.Numerics;
 // valued at the Friday Nov 6 close. Expected values are the spec's table, recomputed by hand.
 internal static class PhysicalLifecycleChecks
 {
+    // Test-only access for fabricated price states and deliberately malformed
+    // contribution columns. Real economic examples use the retained Instrument.
+    internal static PhysicalLifecycleValue ConstructedSideRows(ImmutableArray<LifecycleMember> members, PhysicalCashState state,
+        MarketSnapshot snapshot, ReferenceKey currency)
+    {
+        var geometry = PhysicalLifecycle.PrepareGeometry(members.Where(m => m.Physical).Select(m => m.Program), snapshot);
+        var one = ExactMoney.Parse("1", currency); var zero = ExactMoney.Parse("0", currency);
+        var parts = members.Select((member, slot) =>
+        {
+            var factor = member.Held(one).Over(one);
+            return PhysicalLifecycle.Scale(PhysicalLifecycle.EvaluateSide(member.Program, member.Evaluation, member.Physical,
+                slot, factor, geometry, state, snapshot, currency, default), factor);
+        }).ToArray();
+        return new(parts.Aggregate(zero, (sum, p) => sum.Add(p.Unrealized)), parts.Aggregate(zero, (sum, p) => sum.Add(p.RealizedUnsettled)),
+            parts.Aggregate(zero, (sum, p) => sum.Add(p.Total)), [..parts.SelectMany(p => p.Rows)]);
+    }
+    internal static void InspectScheduleRefusals(Action<string, Action> inspect)
+    {
+        var demo = new Demo();
+        demo.OccurrenceContexts(demo.SeptemberPaid(Demo.Close), inspect);
+    }
     internal static void Run()
     {
         var demo=new Demo();var paid=demo.SeptemberPaid(Demo.Close);
@@ -286,7 +307,7 @@ internal static class PhysicalLifecycleChecks
             [..Enumerable.Range(0,30).Select(n=>Payment(Months,n,Fixture.Utc("2026-10-10T00:00:00Z"),knownAt,"-290"))];
         internal PhysicalCashState State(ImmutableArray<CashOccurrencePayment> paid)=>new(Trade.Id,Binding,Held,Trade.BookId,paid,PhysicalCashState.Policy);
 
-        internal void OccurrenceContexts(ImmutableArray<CashOccurrencePayment> paid)
+        internal void OccurrenceContexts(ImmutableArray<CashOccurrencePayment> paid, Action<string, Action>? inspect = null)
         {
             // The same September cash Side is paid under its original payable
             // membership and independently unpaid under an added receivable one.
@@ -301,13 +322,15 @@ internal static class PhysicalLifecycleChecks
             var quantity=new SignedRatio(Held.Amount.ScaledValue,ExactDecimal.WorkingScale);
             var input=new RetainedProgramContext(sources,market)
             {
-                Cash=state,Owner=new(repeated.Id,repeated.EconomicIdentity),
-                Geometry=PhysicalLifecycle.PrepareGeometry(repeated.Members.Where(m=>m.Program.Document.Family=="gas").Select(m=>m.Program),snapshot),
+                Cash=state,Owner=new(repeated.Id,repeated.EconomicIdentity,repeated.RetainedScheduleIdentity),
+                Geometries=[..Enumerable.Repeat(PhysicalLifecycle.PrepareGeometry(repeated.Members.Where(m=>m.Program.Document.Family=="gas").Select(m=>m.Program),snapshot),repeated.Members.Length)],
                 HeldFactors=[..repeated.Members.Select(m=>quantity*new SignedRatio(m.Direction.ScaledValue,ExactDecimal.WorkingScale)*new SignedRatio(m.Ratio.Numerator,m.Ratio.Denominator))]
             };
             SideValuationContext Context(RetainedProgramContext selected,PhysicalCashState cash,ISideDiscounting discount)=>new SideValuationContext(market,discount)
                 .WithUnitEvaluation(Close,false,ValuationMeasure.PresentValue,default).WithBindingState(cash).WithRetainedPrograms(selected);
             var context=Context(input,state,Undiscounted);
+            inspect?.Invoke("RetainedGasInstrument/held-factors", () => repeated.PV(Context(input with { HeldFactors = input.HeldFactors.SetItem(Months, new SignedRatio(1, 1)) }, state, Undiscounted)));
+            inspect?.Invoke("RetainedGasInstrument/no-state", () => repeated.PV(new SideValuationContext(snapshot, Undiscounted)));
             var value=repeated.PV(context);
             Equal(value.PresentValue,"-21.55");
             Equal(value.Sides[Months].Contribution,"0");Equal(value.Sides[^1].Contribution,"87");
@@ -323,7 +346,7 @@ internal static class PhysicalLifecycleChecks
             Require(noDemand.Requested.Count==0,"Missing occurrence wiring refuses before any discount or price execution demand.");
             Reject(PhysicalLifecycle.ContextRefusal,()=>first.PV(child.WithRetainedPrograms(child.RetainedPrograms with{Occurrence=occurrence with{SideId=Guid.NewGuid()}})));
             Reject(PhysicalLifecycle.ContextRefusal,()=>first.PV(child.WithRetainedPrograms(child.RetainedPrograms with{Occurrence=occurrence with{ProgramDigest="wrong"}})));
-            Reject(PhysicalLifecycle.ContextRefusal,()=>repeated.PV(Context(input with{Owner=new(Guid.NewGuid(),repeated.EconomicIdentity)},state,Undiscounted)));
+            Reject(PhysicalLifecycle.ContextRefusal,()=>repeated.PV(Context(input with{Owner=new(Guid.NewGuid(),repeated.EconomicIdentity,repeated.RetainedScheduleIdentity)},state,Undiscounted)));
             Reject(PhysicalLifecycle.ContextRefusal,()=>repeated.PV(Context(input with{HeldFactors=input.HeldFactors.SetItem(Months,new SignedRatio(1,1))},state,Undiscounted)));
             var absentFactors=Context(input with{HeldFactors=default},state,Undiscounted);
             Reject(PhysicalLifecycle.ContextRefusal,()=>repeated.PV(absentFactors));
@@ -393,6 +416,7 @@ internal static class PhysicalLifecycleChecks
         // The lifecycle of every member's own evaluation, unpaid, after an optional change to contribution n of a slot.
         internal PhysicalLifecycleValue Constructed(DateTimeOffset at,Func<int,int,ScheduleContribution,ScheduleContribution>? change,bool knowledge=true)
         {
+            if(change is null && knowledge) return Value(at, [], Undiscounted);
             var snapshot=Snapshot(at,null);var market=model.Build(snapshot,Instrument.Declare(new(snapshot,new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,Undiscounted))).Dependencies);
             var sources=new ScheduleMarketSources(market.Graph.Plan.Context,market,null,null,IntervalKnowledgePolicy.ResolvedCutoff,PendingActualsPolicy.RequireActuals,Instrument.PriceLookups,[],assignments);
             var members=Instrument.Members.Select((m,slot)=>
@@ -402,7 +426,7 @@ internal static class PhysicalLifecycleChecks
                 return new LifecycleMember(m.Program,evaluation,slot<Months,v=>v.Scale(m.Direction).Scale(Held.Amount));
             });
             var valued=knowledge?snapshot:new MarketSnapshot(snapshot.Id,f.Revision,at,at,InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering,snapshot.Selections);
-            return PhysicalLifecycle.Evaluate([..members],State([]),valued,quote.Currency);
+            return ConstructedSideRows([..members],State([]),valued,quote.Currency);
         }
         // The holding's headline is the ordinary unit value scaled by the booked quantity.
         internal string Headline(DateTimeOffset at,ImmutableArray<CashOccurrencePayment>? paid,ISideDiscounting discount,(DateOnly,string?)? marked=null)

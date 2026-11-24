@@ -1,44 +1,44 @@
 # Local verification and continuous integration
 
-## European futures options (D446)
+## European futures options (D449)
 
-Qualified on synthetic data in two places. A workstation (macOS arm64, .NET SDK
-10.0.402, Node 24.22.0) ran the checks that need no database on 2026-11-23 and
-2026-11-24. A Linux x86_64 container (Ubuntu 24.04.5, PostgreSQL 18.7, .NET SDK
-10.0.402, Python 3.12.3) ran the database and HTTP checks on 2026-11-24, each on a
-disposable database built from the whole migration sequence. No real-browser suite
-has run against a preview: the browser's sandbox does not start under the
-container's default security profile, which was left as it was. The capability is
-described in [futures options](futures-options.md#european-exercise).
+Qualified on synthetic data in two places on 2026-11-24. A workstation (macOS arm64,
+.NET SDK 10.0.402, Node 24.22.0) ran the checks that need no database. A Linux
+x86_64 container (Ubuntu 24.04.5, PostgreSQL 18.7, .NET SDK 10.0.402, Python 3.12.3)
+ran the database and HTTP checks, each on a disposable database built from the whole
+migration sequence. No real-browser suite has run against a preview: the browser's
+sandbox does not start under the container's default security profile, which was
+left as it was. The capability is described in
+[futures options](futures-options.md#european-exercise).
 
-Master was merged into the branch on 2026-11-24, after the container runs; the merge
-brought one managed check and no database change. The MarketData default pass,
-`--european-options` and `--futures-options`, the API `--schedules`, `--option-policy`
-and `--european-options` checks and the Python suite were rerun on the merged tree
-with the results below. The other rows predate the merge.
+Every row below ran on the branch with master merged in. Master then held the
+Instrument schedule, gas pricing entries and exercise rights (D446 to D448) and
+their migrations 0391 to 0396; this increment's migrations follow them as 0397 and
+0398.
 
 | Run | Where | Result |
 | --- | --- | --- |
-| MarketData checks, default | workstation | 801 managed core checks passed |
+| `tools/check_all.py --group managed` | workstation | passed, 81 workloads; the rows below marked "in the group" are among them |
+| MarketData checks, default | workstation, in the group | 804 managed core checks passed |
 | MarketData checks `--european-options` | workstation, container | 31 PASS |
-| MarketData checks `--futures-options` | workstation, container | 70 PASS; the pinned risk digests pass with their expected values unedited on both |
+| MarketData checks `--futures-options` | workstation in the group, container | 70 PASS; the pinned risk digests pass with their expected values unedited on both |
 | MarketData checks `--option-sensitivities`, `--option-strategies`, `--vol-surface` | workstation, container | 8, 25 and 22 PASS |
 | MarketData checks `--option-lifecycle-projection`, `--cash-option-model`, `--physical-option`, `--cash-option-binding`, `--physical-option-binding` | workstation | pass, each with its European refusal |
-| MarketData checks `--spread-options`, `--calendar-policy`, `--payment-date-policy`, `--hybrid-monte-carlo-risk` | workstation | pass |
-| API checks `--schedules` | workstation, container | 514 PASS |
+| MarketData checks `--spread-options`, `--exercise-rights`, `--calendar-policy`, `--payment-date-policy`, `--hybrid-monte-carlo-risk` | workstation, in the group | pass |
+| API checks `--schedules` | workstation in the group, container | 565 PASS |
 | API checks `--option-policy`, `--european-options` | workstation, container | 8 and 4 PASS |
-| API checks `--cash-option-value-policy`, `--physical-option-policy`, `--option-strategy-request`, `--risk-pricing-policy`, `--historical-risk`, `--monte-carlo-risk` | workstation | pass |
-| API checks `--context-resolution`, `--read-references`, `--power-hedge`, `--async-reads`, `--assistant-prompts`, `--published-clock`, `--calendar-authoring`, `--gas-ticket`, `--position-adjustment` | workstation | pass |
-| API checks `--lifecycle-actions`, `--economic-risk-contract`, `--lifecycle-schedule-contract`, `--gas-owned-setup`, `--shared-native-markets`, `--derivative-methods`, `--gas-accepted-order`, `--lifecycle-residual-currencies`, `--gas-operator-contract` | workstation | pass |
-| Rates and Shared checks | workstation | 88 and 51 passed |
-| `python3 -m unittest discover -s tests -p 'test_*.py'` | workstation | 185 OK, with migrations 0391 and 0392 in the numbering check |
-| `npm test --prefix web` | workstation | 2,329 pass. An earlier run under a load average of 70 had one browser test fail to start its browser; that file alone, and this run, pass |
-| Migrations 0391 and 0392 applied to a database | container | applied at the end of the whole sequence in every run below |
+| API checks `--cash-option-value-policy`, `--physical-option-policy`, `--option-strategy-request`, `--risk-pricing-policy` | workstation | pass |
+| API checks `--historical-risk`, `--monte-carlo-risk`, `--context-resolution`, `--read-references`, `--power-hedge`, `--async-reads`, `--assistant-prompts`, `--published-clock`, `--calendar-authoring`, `--gas-ticket`, `--position-adjustment` | workstation, in the group | pass |
+| API checks `--lifecycle-actions`, `--economic-risk-contract`, `--lifecycle-schedule-contract`, `--gas-owned-setup`, `--shared-native-markets`, `--derivative-methods`, `--gas-accepted-order`, `--lifecycle-residual-currencies`, `--gas-operator-contract` | workstation, in the group | pass |
+| Rates and Shared checks | workstation, in the group | 88 and 51 passed |
+| `python3 -m unittest discover -s tests -p 'test_*.py'` | workstation | 185 OK, with migrations 0397 and 0398 in the numbering check |
+| `npm test --prefix web` | workstation | 2,354 pass |
+| Migrations 0397 and 0398 applied to a database | container | applied at the end of the whole sequence in every run below |
 | `tools/check_european_option.py` and its managed read `--european-option-read` | container | 7 checks pass, alone and as a step of the `lifecycle` group |
-| The same tool on a throwaway copy whose migration 0391 leaves the option event primitive unpatched | container | fails as intended: the primitive records the exercise of a European option |
+| The same tool on a throwaway copy whose migration 0397 leaves the option event primitive unpatched | container | fails as intended: the primitive records the exercise of a European option |
 | `tools/check_all.py --group database` | container | passed, 434 PASS lines |
-| `tools/run_preview.py --check --exchange-check` without `--browser-check` | container | passed, 426 PASS lines, with the three new assertions of `tools/check_futures_option_storage.py` and the five of `tools/check_vol_surface_storage.py` |
-| `tools/check_all.py --group lifecycle` | container | its 38 steps that need no browser passed, 1,676 PASS lines; its four browser steps did not run |
+| `tools/run_preview.py --check --exchange-check` without `--browser-check` | container | passed, 427 PASS lines, with the three new assertions of `tools/check_futures_option_storage.py` and the five of `tools/check_vol_surface_storage.py` |
+| `tools/check_all.py --group lifecycle` | container | its 38 steps that need no browser passed, 1,634 PASS lines; the first of its four browser steps stopped when its browser did not start, and the other three did not start |
 | `tests/browser/futures-options.mjs`, the browser part of the `exchange` group and the four browser steps of the `lifecycle` group | nowhere | not run |
 | The other groups of `tools/check_all.py`, as groups | nowhere | not run; the `repository` group's Python suite and the `frontend` group's `npm test` are the workstation rows above |
 | The risk worker's replay of a retained job that holds a European series | nowhere | no check exists |
@@ -114,7 +114,7 @@ holds a European series; and the Gas delivery operations role. Not run: every
 real-browser check of the ticket, the Details panel and the lifecycle list.
 
 One independent adversarial review read the whole change on 2026-11-23 and ran the
-managed option checks. It found that migration 0392 spliced an unparenthesized CASE
+managed option checks. It found that migration 0398 spliced an unparenthesized CASE
 into two PL/pgSQL IF conditions, which would not have compiled; the CASE is now
 parenthesized, `tests/test_migration_spliced_conditions.py` checks it, and the
 migration has since applied. It found that the lifecycle projection refused a
@@ -123,7 +123,151 @@ now refuses it where it names its options, with a check. It found that the optio
 event primitive's refusal was read from its installed definition and never executed;
 the tool now executes it, as described above. The review's minor findings are not
 acted on. It found no path that prices a series on the wrong model and no change to
-American values.
+American values. Merging master afterwards changed this increment's migration and
+decision numbers and none of its behaviour; the merge was not reviewed separately.
+
+## Exercise rights on a gas Instrument (D448)
+
+Local verification on 2026-11-24 uses the application tree at `f777479d`,
+Python 3.13, stock PostgreSQL 18.7, .NET SDK 10.0.402, Node 24.22.0 and Chrome
+on macOS arm64. The integration groups build and run this checkout's assets
+sequentially with isolated disposable synthetic databases. The three full
+`tools/check_all.py` groups exited 0.
+
+| Group | Runner `CHECK` workloads | Printed `PASS` checkpoints | Owned browser checks | Completed workers | Databases removed |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Gas | 17 | 1,102 | 193 | 24 | 9 |
+| Trading | 20 | 1,588 | 489 | 20 | 10 |
+| Managed | 81 | 2,734 | — | — | — |
+
+Runner workloads include locked restores and builds. Printed checkpoints
+include repeated setup and migration checks and are counted separately from
+the runner's browser and managed summaries. Gas and trading each ran the
+altered-manifest worker case that must terminate with `risk_graph_manifest`.
+The completed-worker column counts successful jobs. The managed core reported
+803 checks. The exercise-right selection emitted 36 PASS checkpoints, the gas
+ticket reported 177 checks, and the listed-option and spread/heat-rate
+selections emitted 70 and 21 PASS checkpoints.
+
+The managed checks exercise every holder-choice case, both holders, put-call
+parity, zero-time value, exact rounding and model refusals. They pin legacy
+no-right identity and trade scaling and check daily and monthly grouping,
+including staggered gas-day boundaries, an exact repeating quantity, and the
+allocation of whole-term cash across groups. They also check retained fixing
+and election deadlines, delivery conflicts on contract-quantity holdings,
+publication on zero-volume rows and a still-live cash forecast after payment
+falls due. Moving the supplied fixing together with the group deadline refuses
+when the booked Side retains the earlier fixing. A three-day monthly group
+uses the monthly observation on each day and a later daily fixing on one day.
+Pricing-binding tests distinguish correlation revisions and preserve pair
+symmetry. Settlement and reuse tests cover paid cash and known election changes. Independent held-value oracles include
+2,947.4419 for the daily fixed-price purchase, −947.4419 when the counterparty
+holds the right and 2,163.3174 for the indexed strike. The worked three-day result preserves the
+exact elected and abandoned amounts alongside the modeled contribution.
+
+The gas integration checks cover native and managed admission, exact physical
+and cash exercise instants, both temporal coordinates, immutable revisions and
+withdrawals, atomic and idempotent batches, current authority and retained
+worker scope. Direct rights-table reads and the terms projection use the
+selected holding and retained cutoff, including for a shared binding. A
+booked-ticket read refuses to publish a pending head after its AmendTrade
+grant expires. In the two-holding Blotter, the ordinary holding keeps its
+price and the conflicting holding keeps its authorized correction action.
+An exclusion at a retained cutoff survives later withdrawal of the delivery fact. Mark receipt replay
+checks the effective instant for both volatility and correlation, including a
+receipt for an identical historical fact. Interactive and retained risk reconcile
+price, volatility and combined scenarios and preserve gross group economics when
+ordinary Side cash is paid. Owned browser checks exercise the standalone
+ticket, absent marks, schedule provenance, the main-window action, read-only
+trade windows and exact retry after losing the response. The combined exercise
+and pricing workload emitted 138 PASS checkpoints, completed 12 retained worker
+runs and reported 24 owned browser checks, five for pricing and 19 for exercise.
+
+The frontend build passed. The full frontend suite ran serially from `web`
+with `node --test --test-concurrency=1 tests/*.test.mjs`. All 2,344 tests
+passed with zero skips. They include a priced multi-clock ticket with an
+unavailable combined schedule, an editable refusal that preserves the last grid
+and its units, an initially unpriced amendment with a visible quantity unit,
+a successful reread after a stale predecessor, and exact recovery when session
+storage is unavailable. The table counts the owned integration browsers
+separately. Integrated CI is a separate merge gate.
+
+## Instrument schedule and independent gas pricing (D446–D447)
+
+Local qualification on 2026-11-23 uses synthetic inputs, disposable stock
+PostgreSQL 18.7, .NET SDK 10.0.402, Node 24.22.0 and Chrome on macOS arm64.
+Each integration group uses a frozen checkout's own API/worker assets and owned database. No production
+resources are used and no publication or deployment is implied.
+
+The managed schedule oracle covers all 27 concrete sided Instrument families,
+ordered memberships and rows, schedule instance reuse, exact independent Side
+sums and shared-Side context reuse. Legacy refusal codes/messages and canonical
+identity literals are pinned. Exact quantity checks include boundaries, explicit
+zero, a repeating daily quantity, incomplete/mismatched held state, partial-term
+exclusion, source-policy labels and a part reduced to zero after paid cash.
+
+The three-day synthetic pricing oracle independently checks every entry in
+Example A (total 2,650) and Example B (accrued unsettled −47,750, unrealized 500,
+total −47,250). With the monthly price unpublished, Example B instead has accrued
+9,250 and unrealized −56,500, retaining the total. Share 1.05 prices 10,500 units
+at 3.20 for 33,600. Doubled holdings/records double each amount exactly.
+
+The pricing HTTP/native suite checks reduced storage, request replay, independent
+native refusals, monthly/daily index qualification, exact partial period totals
+and billing boundaries. Preview, trade, Blotter and queued risk agree by entry;
+earlier-cutoff reads retain prior quantities. Held-preview mismatched terms and
+current-authority failures refuse. Migration checks pin predecessor definition,
+owner, grants and configuration, test an independent caller search path and
+preserve populated predecessor requests.
+
+Review regression checks reject missing modern retry fields and a fixing on a
+different same-date contract. Independent physical sources with overlapping
+terms and different gas clocks accrue only their own payments; both contract and
+delivery-schedule policies pass. Changed source maps refuse prepared-context and
+definition reuse while preserving legacy economic canonical bytes. The HTTP
+suite also verifies the partial-payment case through reads and queued risk.
+
+The full managed group passes 80 runner checks, including 803 managed core
+checks. The full gas group passes 17 runner checks and 173 browser checks;
+the full trading group passes 20 runner checks and 489 browser checks. All three
+groups passed again on application commit `26324396` after the review fixes.
+The ticket suite passes 169 checks and the shared description suite 67. All
+2,328 frontend tests pass with Node test concurrency explicitly bounded at two;
+unbounded attempts hit browser/process-startup timeouts, with no assertions or
+timeouts relaxed. Five pricing browser checks cover conditional levels, fuel-link
+refusal, named monthly booking and signed taken/source quantities. Nine indexed
+browser checks retain the original 59-day amounts and inspection paging.
+
+### Fixed synthetic benchmark
+
+Base `aab2c3e6` and application tip `26324396` ran the same
+`--risk-benchmark` workload in Release on .NET 10.0.13, macOS 26.6.2 arm64,
+14 logical processors. Every workload has 50,000 bindings. Each gets one warm-up
+and five sequential samples with fresh within-run caches. Construction is
+excluded except the portfolio/holding preparation stated by the benchmark;
+the first three timings include per-position reconciliation against an
+independent full-repricing reference. The basis and futures expected-value
+checks run outside their timed sections.
+
+Side work and unit calls below are equal at base and tip. Time and allocation
+columns are base / tip. Allocations are current-thread bytes, including timed
+validation; peak/resident/native memory is not measured.
+
+| Workload | Unique held contracts | Scenarios | Side evaluations, both | Unit calls, both | Median ms, base / tip | Allocated bytes, base / tip |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| repeated | 1 | 3 | 3 | 3 | 457.90 / 468.61 | 502,509,232 / 559,709,776 |
+| shared fanout | 128 | 7 | 388 | 388 | 820.82 / 845.53 | 884,424,448 / 1,024,876,880 |
+| distinct | 5,000 | 3 | 15,000 | 15,000 | 800.26 / 904.39 | 946,337,784 / 1,005,019,504 |
+| multilevel basis books (9) | 9 | 19 | 106 | 53 | 3.08 / 3.98 | 4,481,016 / 4,488,856 |
+| multilevel basis books (216) | 216 | 433 | 2,544 | 1,272 | 257.63 / 349.71 | 1,021,487,104 / 1,023,918,672 |
+| futures books | 1 | 3 | 0 | 3 | 153.01 / 172.47 | 228,780,792 / 228,782,080 |
+
+Exact output parity and unchanged evaluated Side work pass. Timing was measured
+on a shared development host, with isolated integration groups also running;
+these medians do not establish a throughput improvement or regression. This is
+managed calculation work, without database, serialization, authorization or
+service throughput. Shared fan-out uses three factors; the basis cases use nine
+and 216; the other workloads use one.
 
 ## Selected gas delivery quantities (D445)
 

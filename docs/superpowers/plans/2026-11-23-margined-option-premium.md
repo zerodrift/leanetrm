@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Not started. Plan of 2026-11-23 for piece 3 of D446.
+**Status:** Not started. Plan of 2026-11-23 for piece 3 of D449.
 
 **Goal:** An option whose product states a margined premium is booked with no premium cash, carries its own variation margin in the futures margin records, and is valued at the variation not yet margined.
 
@@ -27,7 +27,7 @@ This plan needs neither of the other two. Where it names "the stated policy" it 
 - Migrations use the header and anchored patch pattern of `db/migrations/0382_dated_option_lots.sql`. Writes are idempotent (D238).
 - TypeScript presents backend values only. Synthetic data only.
 - Write the failing check first in every task. Commit with `git commit -s`. Do not push and do not open a pull request without the owner's word.
-- Migration numbers 0394 to 0396 are provisional: take the next free numbers when building.
+- Migration numbers 0400 to 0402 are provisional: take the next free numbers when building.
 - Database, HTTP and real-browser checks run in CI or on the owner's preview host, on the owner's word. Do not install or start PostgreSQL on the workstation.
 - One combined independent adversarial review at the end (Task 13). No per-task review rounds.
 
@@ -45,9 +45,9 @@ This plan needs neither of the other two. Where it names "the stated policy" it 
 
 | File | Responsibility |
 | --- | --- |
-| `db/migrations/0394_option_margin_records.sql` (new) | Widens the shared margin tables; changes no function |
-| `db/migrations/0395_margined_option_booking.sql` (new) | Trade revision terms and the booking function |
-| `db/migrations/0396_option_margin.sql` (new) | Option margin entry functions, the closing step in option events, the `option.margin` kind |
+| `db/migrations/0400_option_margin_records.sql` (new) | Widens the shared margin tables; changes no function |
+| `db/migrations/0401_margined_option_booking.sql` (new) | Trade revision terms and the booking function |
+| `db/migrations/0402_option_margin.sql` (new) | Option margin entry functions, the closing step in option events, the `option.margin` kind |
 | `src/OpenEtrm.MarketData/Trading/FuturesOptionMargin.cs` (new) | The planner, its records and the holding's margin state |
 | `src/OpenEtrm.MarketData/Trading/FuturesOptions.cs` | The instrument values a margined series from binding state |
 | `src/OpenEtrm.Api/FuturesOptionMarginStore.cs` (new) | Reads native policy and state |
@@ -77,7 +77,7 @@ The database tool uses the same shapes on a 2,500 MMBtu underlying with prices a
 ### Task 1: Widen the shared margin records (gate)
 
 **Files:**
-- Create: `db/migrations/0394_option_margin_records.sql`
+- Create: `db/migrations/0400_option_margin_records.sql`
 - Create: `tools/check_option_margin_records.py`
 - Modify: `tools/check_all.py:120-121` (register beside `check_futures_margin_adoption`)
 
@@ -112,7 +112,7 @@ If any of them needs an edit to pass, stop here and return to the owner.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add db/migrations/0394_option_margin_records.sql tools
+git add db/migrations/0400_option_margin_records.sql tools
 git commit -s -m "Widen the margin records to hold an option holding, with futures rows unchanged"
 ```
 
@@ -248,7 +248,7 @@ git commit -s -m "Value a margined option at its unsettled variation"
 ### Task 4: Booking without premium cash
 
 **Files:**
-- Create: `db/migrations/0395_margined_option_booking.sql`
+- Create: `db/migrations/0401_margined_option_booking.sql`
 - Create: `tools/check_margined_option.py`; modify `tools/check_all.py` (register), `tools/check_futures_option_lifecycle.py:100-102,139-143`
 - Modify: `src/OpenEtrm.Api/FuturesOptionStore.cs:12-15,35,133-152`, `src/OpenEtrm.Api/Program.cs:308-309`
 - Modify (readers that assume a premium): `src/OpenEtrm.Api/FuturesOptionPositions.cs:18,39-55,75-97,117-143,183`, `FuturesOptionPortfolio.cs:76-90,104-135,182-185`, `FuturesOptionBlotter.cs:20,29,38-40,59`, `PortfolioValuation.cs:537,620`, `TradePositionFacts.cs:126`, `OptionListings.cs:54`
@@ -289,14 +289,14 @@ Expected: all `PASS`.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add db/migrations/0395_margined_option_booking.sql src/OpenEtrm.Api tools
+git add db/migrations/0401_margined_option_booking.sql src/OpenEtrm.Api tools
 git commit -s -m "Book an option with a margined premium and no premium cash"
 ```
 
 ### Task 5: The option margin policy and adoption
 
 **Files:**
-- Create: `db/migrations/0396_option_margin.sql`
+- Create: `db/migrations/0402_option_margin.sql`
 - Create: `src/OpenEtrm.Api/FuturesOptionMarginStore.cs`, `src/OpenEtrm.Api/LifecycleOptionMarginSettings.cs`
 - Modify: `src/OpenEtrm.Api/LifecycleEndpoints.cs:85,92` (two routes), `src/OpenEtrm.Api/LifecycleOperations.cs:118-123,158-161` (option contracts in the policy list)
 - Test: `tools/check_margined_option.py`
@@ -330,14 +330,14 @@ Expected: all `PASS`.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add db/migrations/0396_option_margin.sql src/OpenEtrm.Api tools
+git add db/migrations/0402_option_margin.sql src/OpenEtrm.Api tools
 git commit -s -m "Save an option margin policy and adopt it for a holding"
 ```
 
 ### Task 6: Daily determination, state and cash
 
 **Files:**
-- Modify: `db/migrations/0396_option_margin.sql`
+- Modify: `db/migrations/0402_option_margin.sql`
 - Create: `src/OpenEtrm.Api/FuturesOptionMarginCoordinator.cs`; modify `FuturesOptionMarginStore.cs`
 - Modify: `src/OpenEtrm.Api/FuturesOptionPortfolio.cs:111-137,172-190` (supply each margined holding's state)
 - Test: `tools/check_margined_option.py`
@@ -374,14 +374,14 @@ Expected: all `PASS`; the futures journal tools unedited.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add db/migrations/0396_option_margin.sql src/OpenEtrm.Api tools
+git add db/migrations/0402_option_margin.sql src/OpenEtrm.Api tools
 git commit -s -m "Determine a margined option's daily variation margin and read its state"
 ```
 
 ### Task 7: The closing determination
 
 **Files:**
-- Modify: `db/migrations/0396_option_margin.sql`
+- Modify: `db/migrations/0402_option_margin.sql`
 - Modify: `src/OpenEtrm.Api/OptionLifecycleActions.cs:36-56` (plan and send the close)
 - Test: `tools/check_margined_option.py`
 
@@ -416,14 +416,14 @@ Expected: all `PASS`; the existing option lifecycle tools unedited.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add db/migrations/0396_option_margin.sql src/OpenEtrm.Api tools
+git add db/migrations/0402_option_margin.sql src/OpenEtrm.Api tools
 git commit -s -m "Strike a margined option's closing margin with its exercise, assignment or expiry"
 ```
 
 ### Task 8: A close recorded late restates
 
 **Files:**
-- Modify: `db/migrations/0396_option_margin.sql`, `src/OpenEtrm.Api/OptionLifecycleActions.cs`
+- Modify: `db/migrations/0402_option_margin.sql`, `src/OpenEtrm.Api/OptionLifecycleActions.cs`
 - Test: `tools/check_margined_option.py`, `tests/OpenEtrm.MarketData.Checks/FuturesOptionMarginChecks.cs`
 
 **Interfaces:**
@@ -453,14 +453,14 @@ Expected: all `PASS`.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add db/migrations/0396_option_margin.sql src tools tests
+git add db/migrations/0402_option_margin.sql src tools tests
 git commit -s -m "Restate a margined option's later margin when a close is recorded late"
 ```
 
 ### Task 9: The `option.margin` action
 
 **Files:**
-- Modify: `db/migrations/0396_option_margin.sql`
+- Modify: `db/migrations/0402_option_margin.sql`
 - Create: `src/OpenEtrm.Api/OptionMarginLifecycleActions.cs`; modify `src/OpenEtrm.Api/LifecycleOperations.cs:41` (registry)
 - Modify: `web/src/lifecycle-model.ts:14,27`, `web/src/lifecycle-settings.ts:17,78-101`
 - Test: `tools/check_margined_option.py`, `web/tests/lifecycle-model.test.mjs`
@@ -492,7 +492,7 @@ Expected: all `PASS`.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add db/migrations/0396_option_margin.sql src/OpenEtrm.Api web tools
+git add db/migrations/0402_option_margin.sql src/OpenEtrm.Api web tools
 git commit -s -m "Run a margined option's margin as a lifecycle action"
 ```
 
@@ -581,7 +581,7 @@ git commit -s -m "Fit margined option products at a unit discount and refuse the
 ### Task 12: Documents and the verification record
 
 **Files:**
-- Modify: `docs/futures-options.md` (Booking, Valuation, Lifecycle, Reads, Remaining work), `docs/lifecycle-actions.md` (listed futures options, futures setup), `docs/architecture.md:2278-2296`, `docs/plan.md:2146-2150`, `docs/decisions.md` (D446: piece 3 implemented), `docs/verification.md` (new section "Margined option premium (D446)")
+- Modify: `docs/futures-options.md` (Booking, Valuation, Lifecycle, Reads, Remaining work), `docs/lifecycle-actions.md` (listed futures options, futures setup), `docs/architecture.md:2278-2296`, `docs/plan.md:2146-2150`, `docs/decisions.md` (D449: piece 3 implemented), `docs/verification.md` (new section "Margined option premium (D449)")
 
 - [ ] **Step 1: State what is implemented and what is not**
 

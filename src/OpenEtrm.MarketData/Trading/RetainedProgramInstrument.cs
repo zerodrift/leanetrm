@@ -11,6 +11,9 @@ public interface IRetainedProgramMember
     string ProgramDigest { get; }
     ExactDecimal ValuationCoefficient { get; }
     ExactRatio? ValuationRatio { get; }
+    int? ValuationSourceSlot { get; }
+    string? ValuationQuantityPolicy { get; }
+    QuantityPart? ValuationPart { get; }
 }
 
 // Published Members remain the canonical contract. Sides are a checked,
@@ -23,6 +26,8 @@ internal interface IRetainedSideComposition
 public abstract record RetainedProgramInstrument<TMember> : SidedInstrument, IRetainedSideComposition where TMember : IRetainedProgramMember
 {
     public abstract ImmutableArray<TMember> Members { get; }
+    public virtual ImmutableArray<ExerciseRight> Rights => [];
+    public virtual ExerciseMarks? Marks => null;
     internal override bool SupportsSettlement => false;
     internal override bool RequiresNativeProgramMarket => true;
     public override string RetainedScheduleIdentity => "retained_side_programs_v1/" + string.Join('/', Members.Select(m => m.ProgramDigest));
@@ -70,46 +75,37 @@ public abstract record RetainedProgramInstrument<TMember> : SidedInstrument, IRe
     {RequireRetainedSides();return declaration;}
     protected abstract ScheduleMarketSources Sources(CurveBuild basis);
     private protected virtual RetainedProgramContext PrepareSides(UnitValuationContext context, CurveBuild basis, CurveBuild scenario) => new(Sources(basis), scenario);
+    // The direct read route prepares the same Side occurrence inputs as risk.
+    // It exposes a context, never a second evaluation or a program executor.
+    public SideValuationContext PrepareValuation(CurveBuild basis, CurveBuild scenario, ISideDiscounting discounting,
+        IBindingValuationState? state = null, CancellationToken cancellation = default)
+    {
+        if(basis is null || scenario is null || !basis.Snapshot.HasSameInputs(scenario.Snapshot))
+            throw new MarketDataException("native_program_context", "Retain the exact base and scenario source snapshot.");
+        ValidateValuationState(state);
+        var context = new UnitValuationContext(scenario.Snapshot,
+            new(ValuationMeasure.PresentValue, ImmutableDictionary<Guid,FuturesMarketBinding>.Empty, discounting),
+            cancellation: cancellation, bindingState: state);
+        return new SideValuationContext(scenario, discounting).WithBindingState(state)
+            .WithUnitEvaluation(scenario.Snapshot.ValuationAt, false, ValuationMeasure.PresentValue, cancellation)
+            .WithRetainedPrograms(PrepareInputs(context, basis, scenario));
+    }
+    private RetainedProgramContext PrepareInputs(UnitValuationContext context, CurveBuild basis, CurveBuild scenario)
+    {
+        var prepared = PrepareSides(context, basis, scenario);
+        return prepared.Cash is null ? prepared : prepared with { Owner = new(Id, EconomicIdentity, RetainedScheduleIdentity) };
+    }
     protected InstrumentValuation EvaluateSides(UnitValuationContext context)
     {
         RequireRetainedSides();
         if(context.Measure != ValuationMeasure.PresentValue)
             throw new MarketDataException("valuation_measure", "This retained instrument implements contractual present value only.");
         var (basis, scenario) = context.RetainedProgramMarkets(Declare(context).Dependencies);
-        var prepared = PrepareSides(context, basis, scenario);
-        if(prepared.Cash is not null) prepared = prepared with { Owner = new(Id, EconomicIdentity) };
+        var prepared = PrepareInputs(context, basis, scenario);
         return PV(context.SideContextRetained(prepared));
     }
-    public override InstrumentValuation PV(SideValuationContext context)
-    {
-        RequireRetainedSides();
-        if(context is null) throw new MarketDataException("side_context", "Supply the exact retained Side valuation context.");
-        if(context.BindingState is PhysicalCashState state)
-        {
-            if(context.RetainedPrograms is not { Geometry: not null, Cash: {} cash, Owner: {} owner } inputs ||
-                !ReferenceEquals(cash, state) || owner.InstrumentId != Id || owner.Definition != EconomicIdentity ||
-                inputs.Occurrence is not null || inputs.HeldFactors.IsDefault || inputs.HeldFactors.Length != Members.Length)
-                throw LifecycleContext();
-            ValidateValuationState(state);
-            var quantity = new SignedRatio(state.Quantity.Amount.ScaledValue, ExactDecimal.WorkingScale);
-            for(var slot = 0; slot < Members.Length; slot++)
-            {
-                var member = Members[slot];
-                var factor = quantity * new SignedRatio(member.ValuationCoefficient.ScaledValue, ExactDecimal.WorkingScale) *
-                    (member.ValuationRatio is {} ratio ? new SignedRatio(ratio.Numerator, ratio.Denominator) : new SignedRatio(1, 1));
-                if(inputs.HeldFactors[slot] != factor) throw LifecycleContext();
-            }
-            return new(this, context, [..Sides.Select((member, slot) =>
-                context.ForRetainedOccurrence(slot, (RetainedProgramSide)member.Side).Evaluate(member.Side))]);
-        }
-        ValidateValuationState(context.BindingState);
-        if(context.RetainedPrograms is { Cash: not null } or { Occurrence: not null }) throw LifecycleContext();
-        if(Members.Any(m => m.Program.Document.Family == "gas"))
-            PhysicalLifecycle.RequireUnstarted(Members.Select(m => m.Program), context.Snapshot.ValuationAt);
-        return base.PV(context);
-    }
-    private static MarketDataException LifecycleContext() => new(PhysicalLifecycle.ContextRefusal,
-        "Retain this instrument's exact held cash state, connected geometry and ordered membership normalization.");
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<RetainedProgramInstrument<TMember>, InstrumentSchedule> Schedules = new();
+    public override InstrumentSchedule GenerateSchedule() => Schedules.GetValue(this, static instrument => new RetainedInstrumentSchedule<TMember>(instrument));
     public override ExactMoney Value(UnitValuationContext context) => EvaluateSides(context).PresentValue;
     internal override UnitPricingContract DeclareScope(UnitValuationContext context, bool lifecycle)
     {
@@ -123,4 +119,87 @@ public abstract record RetainedProgramInstrument<TMember> : SidedInstrument, IRe
         if(state is not null)
             throw new MarketDataException("settlement_scope", "This retained instrument does not accept an unrelated settlement state.");
     }
+}
+
+internal class RetainedInstrumentSchedule<TMember> : InstrumentSchedule where TMember : IRetainedProgramMember
+{
+    private readonly RetainedProgramInstrument<TMember> retained;
+    internal RetainedInstrumentSchedule(RetainedProgramInstrument<TMember> instrument) : base(instrument) => retained = instrument;
+    public override InstrumentValuation Evaluate(SideValuationContext context)
+    {
+        retained.RequireBeforeValuation(context);
+        retained.RequireRetainedSides();
+        if(context is null) throw new MarketDataException("side_context", "Supply the exact retained Side valuation context.");
+        var hasQuantityTerms = retained.Members.Any(m => m.ValuationQuantityPolicy is not null || m.ValuationPart is not null);
+        if((hasQuantityTerms || !retained.Rights.IsEmpty) && context.BindingState is not PhysicalCashState)
+            throw PhysicalDeliveryQuantities.Invalid("An instrument with quantity terms requires its complete held owner-day inputs.");
+        if(context.BindingState is PhysicalCashState state)
+        {
+            if(context.RetainedPrograms is not { Cash: {} cash, Owner: {} owner } inputs ||
+                !ReferenceEquals(cash, state) || owner.InstrumentId != retained.Id || owner.Definition != retained.EconomicIdentity ||
+                owner.ScheduleIdentity != retained.RetainedScheduleIdentity || inputs.Geometries.IsDefault ||
+                inputs.Geometries.Length != retained.Members.Length || inputs.Geometries.Any(g=>g is null) ||
+                inputs.Occurrence is not null || inputs.HeldFactors.IsDefault || inputs.HeldFactors.Length != retained.Members.Length)
+                throw LifecycleContext();
+            retained.ValidateValuationState(state);
+            var quantity = new SignedRatio(state.Quantity.Amount.ScaledValue, ExactDecimal.WorkingScale);
+            for(var slot = 0; slot < retained.Members.Length; slot++)
+            {
+                var member = retained.Members[slot];
+                var factor = quantity * new SignedRatio(member.ValuationCoefficient.ScaledValue, ExactDecimal.WorkingScale) *
+                    (member.ValuationRatio is {} ratio ? new SignedRatio(ratio.Numerator, ratio.Denominator) : new SignedRatio(1, 1));
+                if(inputs.HeldFactors[slot] != factor) throw LifecycleContext();
+            }
+            var rights = retained.Rights;
+            var decisions = rights.IsEmpty && state.Elections.IsEmpty ? null :
+                ExerciseDecisions.Resolve(rights, retained.Members, state, context.Snapshot, context.UnitEvaluation.CalculationAt);
+            var cashAutomaticSlots = rights.Where(r => r.Settlement == ExerciseSettlement.CashAutomatic)
+                .SelectMany(r => r.Slots).ToHashSet();
+            RetainedProgramValuation EvaluateOccurrence(SideValuationContext parent, int slot,
+                ImmutableArray<ImmutableArray<EntryDayQuantity>> days)
+            {
+                var side = (RetainedProgramSide)retained.Sides[slot].Side;
+                return (RetainedProgramValuation)parent.ForRetainedOccurrence(slot, side, days,
+                    retained.Members[slot].ValuationPart, cashAutomaticSlots.Contains(slot)).Evaluate(side);
+            }
+
+            ImmutableArray<ExerciseGroupValue> groups = [];
+            if (decisions is not null)
+            {
+                var forwardDays = EntryQuantities.ForMembers(retained.Members, state);
+                var exercises = new List<RetainedExerciseValuation>(rights.Length);
+                foreach (var right in rights)
+                {
+                    var exercise = new RetainedExerciseValuation(right, decisions);
+                    var allExercised = right.Groups.All(group => decisions.Outcome(right, group) == ExerciseElection.Exercised);
+                    var parent = allExercised ? context : context.ExercisedOccurrences();
+                    foreach (var slot in right.Slots)
+                    {
+                        var forward = EvaluateOccurrence(parent, slot, forwardDays);
+                        exercise.Add(forward, forwardDays[slot], inputs.HeldFactors[slot] * new SignedRatio(quantity.Numerator.Sign, 1));
+                    }
+                    exercise.DecideAutomatic();
+                    exercises.Add(exercise);
+                }
+                decisions.RequireCompatiblePayments(retained.Members, state, context.Snapshot, ExerciseSettlement.CashAutomatic);
+                groups = [..exercises.SelectMany(exercise => exercise.Values(context, retained.Marks, retained.Currency, quantity.Numerator.Sign))];
+            }
+            var entryDays = hasQuantityTerms || !rights.IsEmpty ? EntryQuantities.ForMembers(retained.Members, state,
+                decisions is null ? null : decisions.Counted) : default;
+            ImmutableArray<SideValuation> sides = [..retained.Sides.Select((_, slot) => EvaluateOccurrence(context, slot, entryDays))];
+            var value = new InstrumentValuation(retained, context, sides, groups);
+            retained.RequireAfterValuation(value);
+            return value;
+        }
+        retained.ValidateValuationState(context.BindingState);
+        if(context.RetainedPrograms is { Cash: not null } or { Occurrence: not null }) throw LifecycleContext();
+        if(retained.Members.Any(m => m.Program.Document.Family == "gas"))
+            PhysicalLifecycle.RequireUnstarted(retained.Members.Select(m => m.Program), context.Snapshot.ValuationAt);
+        retained.RequireSideComposition();
+        var result = new InstrumentValuation(retained, context, [..retained.Sides.Select(member => context.Evaluate(member.Side))]);
+        retained.RequireAfterValuation(result);
+        return result;
+    }
+    private static MarketDataException LifecycleContext() => new(PhysicalLifecycle.ContextRefusal,
+        "Retain this instrument's exact held cash state, connected geometry and ordered membership normalization.");
 }

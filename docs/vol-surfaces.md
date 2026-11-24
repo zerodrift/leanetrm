@@ -223,7 +223,7 @@ of affected consumers is recorded in [fixture impact](vol-surface-fixture-impact
 Each listed series is calibrated by the same calibration option valuation uses, under
 the stated option policy and so by the model of the product's exercise style:
 `american_futures_option_crr_v1` for an American product and
-`european_futures_option_black76_v1` for a European one (D446). It reads the frame's
+`european_futures_option_black76_v1` for a European one (D449). It reads the frame's
 `daily_settlement` option and underlying observations and the currency's
 payment-discount selection. A series'
 outcome is `solved`, `at_intrinsic` (the intrinsic fallback, so no volatility) or the
@@ -315,7 +315,7 @@ A surface is stored as an immutable, bitemporal revision (migration
   (`trading.vol_surface_inputs`), the solver policy, the surface as JSON and a
   digest. The solver policy is the one of the product's exercise style: the table
   admits the two ids, and the recording accepts for a product only its own
-  (migration 0392). The `market_data.guard_knowledge_receipt()` trigger refuses updates and
+  (migration 0398). The `market_data.guard_knowledge_receipt()` trigger refuses updates and
   deletes.
   - The pinned observations are every observation the calibration read: each
     series' option settlement, its underlying futures settlement, and the

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Built locally on 2026-11-23 as migrations 0391 and 0392. The managed, Python, web, database and HTTP checks pass; the real-browser checks have not been run. See [verification](../../verification.md#european-futures-options-d446). Plan of 2026-11-23 for piece 1 of D446.
+**Status:** Built on 2026-11-23; migrations 0397 and 0398 and decision D449 since master was merged on 2026-11-24. The managed, Python, web, database and HTTP checks pass; the real-browser checks have not been run. See [verification](../../verification.md#european-futures-options-d449). Plan of 2026-11-23 for piece 1 of D449.
 
 **Goal:** A listed futures option product may state European exercise; such a series is booked, valued by a Black-76 formula, calibrated to its settlement, repriced under shared scenarios and expired by its automatic rule, and is never valued on the American tree.
 
@@ -24,7 +24,7 @@
 - TypeScript presents backend values only.
 - Synthetic data only. No customer, vendor or competing product names in code, fixtures, documents or commit messages.
 - Write the failing check first in every task. Commit with `git commit -s`. Do not push and do not open a pull request without the owner's word.
-- Migration numbers 0391 and 0392 and decision D446 are provisional: take the next free numbers when building.
+- The migration and decision numbers were provisional. The build took the next free on master when it merged: migrations 0397 and 0398 and decision D449.
 - Database, HTTP and real-browser checks need a disposable PostgreSQL environment. They run in CI or on the owner's preview host, on the owner's word. Do not install or start PostgreSQL on the workstation.
 - One combined independent adversarial review at the end (Task 10), covering numerical and temporal behaviour. No per-task review rounds.
 
@@ -48,8 +48,8 @@
 | `src/OpenEtrm.MarketData/Options/ImpliedVolatility.cs` | Solves through the dispatcher; European floor, tolerance and fallback |
 | `src/OpenEtrm.MarketData/Trading/FuturesOptions.cs` | Binding and instrument use the dispatcher; no price step for the formula |
 | `src/OpenEtrm.Api/FuturesOptionPortfolio.cs` | `european` policy member, `Release2`, per-series policy choice |
-| `db/migrations/0391_european_futures_options.sql` (new) | Style and instruction checks; early-exercise refusal |
-| `db/migrations/0392_european_option_surfaces.sql` (new) | Surface tables and functions accept the formula's policy for a European product |
+| `db/migrations/0397_european_futures_options.sql` (new) | Style and instruction checks; early-exercise refusal |
+| `db/migrations/0398_european_option_surfaces.sql` (new) | Surface tables and functions accept the formula's policy for a European product |
 | `tools/check_european_option.py` (new) | Database and HTTP checks over a layered synthetic product |
 | `tests/OpenEtrm.MarketData.Checks/EuropeanFuturesOptionChecks.cs` (new) | Managed checks, flag `--european-options` |
 
@@ -323,7 +323,7 @@ git commit -s -m "Refuse European options in the lifecycle projection and refere
 ### Task 6: Reference data and lifecycle admit the style
 
 **Files:**
-- Create: `db/migrations/0391_european_futures_options.sql`
+- Create: `db/migrations/0397_european_futures_options.sql`
 - Create: `tools/check_european_option.py`
 - Modify: `tools/check_all.py:131-132` (register beside `check_lifecycle_option_expiries`), `tools/check_futures_option_storage.py:89-92`
 - Modify: `src/OpenEtrm.Api/FuturesOptionStore.cs:190-214` (`EventRefusal`)
@@ -373,7 +373,7 @@ Expected: the tool's lines all `PASS`; both groups pass with no other edit.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add db/migrations/0391_european_futures_options.sql tools src/OpenEtrm.Api/FuturesOptionStore.cs
+git add db/migrations/0397_european_futures_options.sql tools src/OpenEtrm.Api/FuturesOptionStore.cs
 git commit -s -m "Admit European exercise in option reference data and refuse early exercise"
 ```
 
@@ -429,7 +429,7 @@ git commit -s -m "Show an option's exercise style and settlement, and why a Euro
 ### Task 8: Stored surfaces and strategies
 
 **Files:**
-- Create: `db/migrations/0392_european_option_surfaces.sql`
+- Create: `db/migrations/0398_european_option_surfaces.sql`
 - Modify: `src/OpenEtrm.Api/VolSurfaceStore.cs:47,62,100,138,236`, `src/OpenEtrm.Api/VolSurfaceFit.cs:29-58`, `src/OpenEtrm.MarketData/Options/SurfaceAxes.cs:34`
 - Test: `tests/OpenEtrm.Api.Checks/VolSurfaceFitChecks.cs:88,112`, `tools/check_vol_surface_storage.py:11`, `tools/check_vol_surface_api.py:14,113`, `web/tests/options-view-browser.test.mjs:36`
 
@@ -461,14 +461,14 @@ Expected: all `PASS`; the American surface pins unedited.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add db/migrations/0392_european_option_surfaces.sql src tests tools web
+git add db/migrations/0398_european_option_surfaces.sql src tests tools web
 git commit -s -m "Fit and store volatility surfaces for European option products"
 ```
 
 ### Task 9: Documents and the verification record
 
 **Files:**
-- Modify: `docs/futures-options.md` (title, product table, Instrument, Valuation, Lifecycle, Reads, Remaining work), `docs/exchange-futures.md:78-122`, `docs/architecture.md:2278-2296`, `docs/plan.md:1173,2146-2150`, `docs/vol-surfaces.md` (policy statements), `docs/decisions.md` (D446: piece 1 implemented), `docs/verification.md` (new section "European futures options (D446)")
+- Modify: `docs/futures-options.md` (title, product table, Instrument, Valuation, Lifecycle, Reads, Remaining work), `docs/exchange-futures.md:78-122`, `docs/architecture.md:2278-2296`, `docs/plan.md:1173,2146-2150`, `docs/vol-surfaces.md` (policy statements), `docs/decisions.md` (D449: piece 1 implemented), `docs/verification.md` (new section "European futures options (D449)")
 
 - [ ] **Step 1: State what is implemented and what is not**
 
