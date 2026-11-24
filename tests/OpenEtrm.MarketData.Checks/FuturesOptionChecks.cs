@@ -653,7 +653,7 @@ internal static partial class FuturesOptionChecks
             L(settlement), L(futures), L(discount), L(increment), ValuationAt, policy ?? Policy, fallbackDeclared, CancellationToken.None);
 
     // An exchange publishes settlements on the clearing increment.
-    private static string RoundToIncrement(LatticeDecimal price, string increment) =>
+    internal static string RoundToIncrement(LatticeDecimal price, string increment) =>
         decimal.Round(decimal.Parse(price.ToString(), CultureInfo.InvariantCulture), increment.Length - 2, MidpointRounding.ToEven)
             .ToString(CultureInfo.InvariantCulture);
 

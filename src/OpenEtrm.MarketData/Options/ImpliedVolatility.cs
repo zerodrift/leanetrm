@@ -9,17 +9,22 @@ public abstract record OptionCalibration;
 public sealed record SolvedVolatility(LatticeDecimal Volatility, LatticeDecimal Residual, int Iterations, LatticeDecimal UpperBound)
     : OptionCalibration;
 
-// Residual = settlement - intrinsic, at most one clearing increment below zero.
-// Scenarios value the option as exercised: max(0, intrinsic at the scenario
-// futures price + Residual), so a negative residual never makes a negative value.
+// Intrinsic is the model's value at zero volatility at the base futures price: intrinsic
+// for an American series, the discount factor times intrinsic for a European one.
+// Residual = settlement - Intrinsic. For an American series it is at most one clearing
+// increment below zero; for a European one it also takes up the policy's discount
+// tolerance. Scenarios value the option as exercised: max(0, the zero-volatility value
+// at the scenario futures price + Residual), so a negative residual never makes a
+// negative value.
 public sealed record IntrinsicFallback(LatticeDecimal Intrinsic, LatticeDecimal Residual) : OptionCalibration;
 
-// Finds the volatility at which the pinned tree reproduces an option's settlement
-// price within half its clearing increment. Each input maps to one outcome, tested
-// in this order:
-//   1. invalid inputs or policy, before any price         -> option_input / option_numerical_policy / option_expired
+// Finds the volatility at which the series' model, the tree or the formula its
+// numerical policy names, reproduces an option's settlement price within half its
+// clearing increment. Each input maps to one outcome, tested in this order:
+//   1. invalid inputs or policy, before any price         -> option_input / option_terms / option_numerical_policy / option_expired
 //      (settlement and increment, the model's own input checks, then the bracket and iteration limit);
-//   2. settlement < intrinsic - increment                 -> option_settlement_below_intrinsic;
+//   2. settlement < the least the model admits            -> option_settlement_below_intrinsic
+//      (FuturesOptionModels.LeastSettlement);
 //   3. settlement <= price at VolatilityMin               -> IntrinsicFallback when declared,
 //                                                            else option_calibration_fallback_undeclared;
 //   4. settlement > price at the effective upper bound    -> option_settlement_above_bound;
@@ -30,6 +35,11 @@ public sealed record IntrinsicFallback(LatticeDecimal Intrinsic, LatticeDecimal 
 public static class ImpliedVolatility
 {
     public const string FallbackMode = "option_settlement_at_intrinsic_v1";
+    public const string DiscountedFallbackMode = "option_settlement_at_discounted_intrinsic_v1";
+
+    // The fallback a valuation policy declares for a series of this style.
+    public static string FallbackModeFor(FuturesOptionTerms terms) =>
+        terms.ExerciseStyle == FuturesOptionTerms.European ? DiscountedFallbackMode : FallbackMode;
 
     private static readonly LatticeDecimal Zero = LatticeDecimal.Parse("0");
     private static readonly LatticeDecimal Two = LatticeDecimal.Parse("2");
@@ -44,14 +54,16 @@ public static class ImpliedVolatility
             throw new MarketDataException("option_input", $"The settlement price must not be negative; got {settlement}.");
         if (clearingIncrement.CompareTo(Zero) <= 0)
             throw new MarketDataException("option_input", $"The clearing increment must be positive; got {clearingIncrement}.");
-        var years = AmericanFuturesOptionModel.ValidateInputs(terms, futures, discountToExpiry, valuationAt, policy);
+        var years = FuturesOptionModels.ValidateInputs(terms, futures, discountToExpiry, valuationAt, policy);
         if (policy.MaxIterations < 1 || policy.VolatilityMin.CompareTo(Zero) <= 0 || policy.VolatilityMin.CompareTo(policy.VolatilityMax) >= 0)
             throw new MarketDataException("option_numerical_policy",
                 $"Policy '{policy.Id}' needs at least one iteration and 0 < VolatilityMin < VolatilityMax.");
 
         var strike = LatticeDecimal.From(terms.Strike);
         var centred = policy.Lattice == OptionLattice.CentredOnStrike;
-        var upperBound = centred ? CentredUpperBound(futures, strike, years, policy) : UpperBound(futures, years, policy);
+        // The formula has no range, so its bracket's top is the policy's.
+        var upperBound = policy.Lattice == OptionLattice.ClosedForm ? policy.VolatilityMax
+            : centred ? CentredUpperBound(futures, strike, years, policy) : UpperBound(futures, years, policy);
         // A tree centred on the strike reaches as far beyond the strike as the futures price lies from it, so its range
         // depends on both prices.
         if (upperBound.CompareTo(policy.VolatilityMin) <= 0)
@@ -60,19 +72,21 @@ public static class ImpliedVolatility
                 : $"At futures {futures} the tree's range admits no volatility above VolatilityMin {policy.VolatilityMin}.");
 
         LatticeDecimal Price(LatticeDecimal volatility) =>
-            AmericanFuturesOptionModel.UnitPrice(terms, futures, volatility, discountToExpiry, valuationAt, policy, ct);
+            FuturesOptionModels.UnitPrice(terms, futures, volatility, discountToExpiry, valuationAt, policy, ct);
         var series = $"{terms.Right} strike {terms.Strike} expiring {terms.ExpiryAt:O}";
 
-        var intrinsic = LatticeDecimal.Max(terms.Right == OptionRight.Call ? futures - strike : strike - futures, Zero);
-        if (settlement.CompareTo(intrinsic - clearingIncrement) < 0)
-            throw new MarketDataException("option_settlement_below_intrinsic",
-                $"{series}: settlement {settlement} is more than one increment ({clearingIncrement}) below intrinsic {intrinsic}.");
+        var floor = FuturesOptionModels.Floor(terms, futures, discountToExpiry);
+        var least = FuturesOptionModels.LeastSettlement(terms, futures, discountToExpiry, clearingIncrement, policy);
+        if (settlement.CompareTo(least) < 0)
+            throw new MarketDataException("option_settlement_below_intrinsic", policy.DiscountTolerance is { } allowed
+                ? $"{series}: settlement {settlement} is below {least}: intrinsic {terms.Intrinsic(futures)} at a discount factor {allowed} under {discountToExpiry}, less one increment ({clearingIncrement})."
+                : $"{series}: settlement {settlement} is more than one increment ({clearingIncrement}) below intrinsic {floor}.");
 
         var low = policy.VolatilityMin;
         if (settlement.CompareTo(Price(low)) <= 0)
-            return fallbackDeclared ? new IntrinsicFallback(intrinsic, settlement - intrinsic)
+            return fallbackDeclared ? new IntrinsicFallback(floor, settlement - floor)
                 : throw new MarketDataException("option_calibration_fallback_undeclared",
-                    $"{series}: settlement {settlement} is at or below the price at VolatilityMin {low}, and the valuation policy does not declare {FallbackMode}.");
+                    $"{series}: settlement {settlement} is at or below the price at VolatilityMin {low}, and the valuation policy does not declare {FallbackModeFor(terms)}.");
 
         var high = upperBound;
         var highPrice = Price(high);

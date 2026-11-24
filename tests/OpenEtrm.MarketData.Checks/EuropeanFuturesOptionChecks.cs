@@ -27,6 +27,17 @@ internal static class EuropeanFuturesOptionChecks
         Check("the formula refuses an American series, nonpositive inputs, a discount above one and an expired valuation", FormulaRefusals);
         Check("the tree refuses a European series and the formula's policy", TreeRefusesEuropean);
         Check("the wide oracle cases price without a range error, to 26 decimal places", WideCases);
+        Check("each exercise style is priced by its own model and by no other", ModelFollowsStyle);
+        Check("European implied volatility reprices each oracle settlement within half an increment", ImpliedVolatilityRepricesOracleSettlements);
+        Check("a European bracket's top is the policy's, where the tree's range would lower it", BracketIsNeverLowered);
+        Check("a settlement at discounted intrinsic falls back only when declared", FallbackAtDiscountedIntrinsic);
+        Check("a deep in-the-money settlement struck at a slightly higher rate falls back with a negative residual", FallbackBelowDiscountedIntrinsic);
+        Check("a settlement beyond the discount tolerance is refused", BeyondDiscountTolerance);
+        Check("the discount tolerance admits a settlement struck half a point of rate above the curve for a year and refuses a full point", DiscountToleranceInRates);
+        Check("an out-of-the-money zero settlement falls back to zero, and is refused when no fallback is declared", OutOfTheMoneyZero);
+        Check("a settlement above the price at volatility three is refused", AboveBound);
+        Check("a European calibration refuses invalid inputs and a policy without a discount tolerance", CalibrationRefusals);
+        Check("the American solver's outcomes are unchanged", AmericanSolverUnchanged);
     }
 
     private static void TermsAdmitTwoStyles()
@@ -169,6 +180,184 @@ internal static class EuropeanFuturesOptionChecks
             Within(Price(OptionRight.Call, Field("futures"), Field("strike"), Field("volatility"), Field("years"), "1"),
                 L(Field("undiscounted_call")), WideBound, $"wide call K={Field("strike")}");
         }
+    }
+
+    private static void ModelFollowsStyle()
+    {
+        var expiry = FuturesOptionChecks.ExpiryAfter("0.25");
+        var european = Terms(OptionRight.Call, "3", expiry);
+        var american = Terms(OptionRight.Call, "3", expiry, FuturesOptionTerms.American);
+        LatticeDecimal At(FuturesOptionTerms terms, OptionNumericalPolicy policy) =>
+            FuturesOptionModels.UnitPrice(terms, L("5"), L("0.5"), L("0.99"), ValuationAt, policy, CancellationToken.None);
+        Equal(At(european, Policy).ToString(), EuropeanFuturesOptionModel.UnitPrice(european, L("5"), L("0.5"), L("0.99"), ValuationAt, Policy).ToString());
+        Equal(At(american, Tree).ToString(),
+            AmericanFuturesOptionModel.UnitPrice(american, L("5"), L("0.5"), L("0.99"), ValuationAt, Tree, CancellationToken.None).ToString());
+        // An American call can be exercised at once for F − K = 2, so it is worth at least that. The European one is
+        // paid at expiry and is worth less.
+        if (At(american, Tree).CompareTo(L("2")) < 0 || At(european, Policy).CompareTo(L("2")) >= 0)
+            throw new Exception($"Expected the American value {At(american, Tree)} at or above 2 and the European value {At(european, Policy)} below it.");
+        foreach (var (terms, policy) in new[] { (european, Tree), (american, Policy) })
+        {
+            Reject("option_terms", () => FuturesOptionModels.RequireStyle(terms, policy));
+            Reject("option_terms", () => At(terms, policy));
+            Reject("option_terms", () => FuturesOptionModels.PriceStep(terms, L("5"), L("0.5"), L("0.99"), ValuationAt, policy));
+            Reject("option_terms", () => ImpliedVolatility.Solve(terms, L("2.1"), L("5"), L("0.99"), L("0.001"), ValuationAt, policy, true, CancellationToken.None));
+        }
+        FuturesOptionModels.RequireStyle(european, Policy);
+        FuturesOptionModels.RequireStyle(american, Tree);
+        if (FuturesOptionModels.PriceStep(european, L("5"), L("0.5"), L("0.99"), ValuationAt, Policy) is not null)
+            throw new Exception("The formula has no price step.");
+        Equal(FuturesOptionModels.PriceStep(american, L("5"), L("0.5"), L("0.99"), ValuationAt, Tree)?.ToString() ?? "none",
+            AmericanFuturesOptionModel.PriceStep(american, L("5"), L("0.5"), L("0.99"), ValuationAt, Tree)!.Value.ToString());
+        // The value at zero volatility: intrinsic 5 − 3 on the tree, 0.99 times it in the formula.
+        Equal(FuturesOptionModels.Floor(american, L("5"), L("0.99")).ToString(), "2");
+        Equal(FuturesOptionModels.Floor(european, L("5"), L("0.99")).ToString(), "1.98");
+        Equal(ImpliedVolatility.FallbackModeFor(american), "option_settlement_at_intrinsic_v1");
+        Equal(ImpliedVolatility.FallbackModeFor(european), "option_settlement_at_discounted_intrinsic_v1");
+        Equal(ImpliedVolatility.DiscountedFallbackMode, "option_settlement_at_discounted_intrinsic_v1");
+    }
+
+    private const string Increment = "0.001";
+
+    private static OptionCalibration Calibrate(OptionRight right, string futures, string strike, string years, string discount,
+        string settlement, bool fallbackDeclared, OptionNumericalPolicy? policy = null) =>
+        ImpliedVolatility.Solve(Terms(right, strike, FuturesOptionChecks.ExpiryAfter(years)), L(settlement), L(futures), L(discount),
+            L(Increment), ValuationAt, policy ?? Policy, fallbackDeclared, CancellationToken.None);
+
+    // Each settlement is the oracle's own Black-76 value, rounded to the clearing increment as an exchange publishes
+    // it. The solver must find the oracle's volatility again: the rounding moves it by at most half an increment over
+    // the option's vega, which is under 0.005 on these eight series.
+    private static void ImpliedVolatilityRepricesOracleSettlements()
+    {
+        (OptionRight Right, int Case)[] series =
+        [
+            (OptionRight.Call, 0), (OptionRight.Put, 1), (OptionRight.Call, 2), (OptionRight.Put, 5),
+            (OptionRight.Put, 6), (OptionRight.Call, 7), (OptionRight.Call, 9), (OptionRight.Put, 11),
+        ];
+        var cases = FuturesOptionChecks.Black76Cases();
+        foreach (var (right, index) in series)
+        {
+            var c = cases[index];
+            var settlement = FuturesOptionChecks.RoundToIncrement(L(right == OptionRight.Call ? c.Call : c.Put), Increment);
+            var label = $"{right} F={c.Futures} K={c.Strike} T={c.Years} sigma={c.Volatility} settlement {settlement}";
+            var solved = Calibrate(right, c.Futures, c.Strike, c.Years, c.Discount, settlement, fallbackDeclared: false) as SolvedVolatility
+                ?? throw new Exception($"{label}: expected a solved volatility.");
+            Within(solved.Residual, L("0"), L("0.0005"), $"{label} residual");
+            Equal(solved.Residual.ToString(), (Price(right, c.Futures, c.Strike, solved.Volatility.ToString(), c.Years, c.Discount) - L(settlement)).ToString());
+            Within(solved.Volatility, L(c.Volatility), L("0.005"), $"{label} volatility");
+            Equal(solved.UpperBound.ToString(), "3");
+            if (solved.Iterations < 1 || solved.Iterations > Policy.MaxIterations)
+                throw new Exception($"{label}: {solved.Iterations} iterations is outside 1..{Policy.MaxIterations}.");
+        }
+    }
+
+    // F = 80 over two years: the rebuilt tree's range ends at a volatility of about 1.72 (FuturesOptionChecks). The
+    // formula has no range, so a settlement priced at 2.5 solves under a bracket whose top is still 3.
+    private static void BracketIsNeverLowered()
+    {
+        var settlement = FuturesOptionChecks.RoundToIncrement(Price(OptionRight.Call, "80", "80", "2.5", "2", "0.9"), Increment);
+        var solved = (SolvedVolatility)Calibrate(OptionRight.Call, "80", "80", "2", "0.9", settlement, fallbackDeclared: false);
+        Equal(solved.UpperBound.ToString(), "3");
+        Within(solved.Volatility, L("2.5"), L("0.001"), "volatility above the tree's range");
+    }
+
+    // The hand case of the next three checks: a call with F = 5, K = 3 and D = 0.99, a quarter of a year out. At the
+    // bracket's lowest volatility it is worth its discounted intrinsic value, 0.99 × 2 = 1.98.
+    private static OptionCalibration DeepCall(string settlement, bool fallbackDeclared) =>
+        Calibrate(OptionRight.Call, "5", "3", "0.25", "0.99", settlement, fallbackDeclared);
+
+    private static void FallbackAtDiscountedIntrinsic()
+    {
+        var fallback = DeepCall("1.98", true) as IntrinsicFallback ?? throw new Exception("Expected the fallback at discounted intrinsic.");
+        Equal(fallback.Intrinsic.ToString(), "1.98");
+        Equal(fallback.Residual.ToString(), "0");
+        Reject("option_calibration_fallback_undeclared", () => DeepCall("1.98", false));
+    }
+
+    // A market discount factor of 0.9875 against the curve's 0.99 strikes the settlement at 0.9875 × 2 = 1.975: it is
+    // 0.005 below the curve's discounted intrinsic and inside the tolerance.
+    private static void FallbackBelowDiscountedIntrinsic()
+    {
+        var fallback = DeepCall("1.975", true) as IntrinsicFallback ?? throw new Exception("Expected the fallback below discounted intrinsic.");
+        Equal(fallback.Intrinsic.ToString(), "1.98");
+        Equal(fallback.Residual.ToString(), "-0.005");
+        Reject("option_calibration_fallback_undeclared", () => DeepCall("1.975", false));
+    }
+
+    // The least settlement admitted is (0.99 − 0.005) × 2 less one increment: 1.97 − 0.001 = 1.969.
+    private static void BeyondDiscountTolerance()
+    {
+        Equal(((IntrinsicFallback)DeepCall("1.969", true)).Residual.ToString(), "-0.011");
+        Reject("option_settlement_below_intrinsic", () => DeepCall("1.968999", true));
+        Reject("option_settlement_below_intrinsic", () => DeepCall("1.96", true));
+        Reject("option_settlement_below_intrinsic", () => DeepCall("1.96", false));
+    }
+
+    // The evidence for the tolerance of 0.005, as rates. A call with F = 150 and K = 75 is worth its intrinsic 75
+    // discounted. Each settlement is 75 × exp(−market rate × T) rounded to the increment, against a curve at 4%:
+    //   one year, curve factor exp(−0.04) = 0.960789: least admitted (0.960789 − 0.005) × 75 − 0.001 = 71.683175;
+    //     a market rate of 4.5% settles at 75 × 0.955997 = 71.700 and falls back, 5% at 71.342 and is refused;
+    //   a quarter, curve factor exp(−0.01) = 0.990050: least admitted 0.985050 × 75 − 0.001 = 73.877750;
+    //     a market rate of 6% settles at 75 × 0.985112 = 73.883 and falls back, 6.5% at 73.791 and is refused.
+    private static void DiscountToleranceInRates()
+    {
+        OptionCalibration Deep(string years, string discount, string settlement) =>
+            Calibrate(OptionRight.Call, "150", "75", years, discount, settlement, fallbackDeclared: true);
+        // 71.700 − 0.960789 × 75 and 73.883 − 0.990050 × 75.
+        Equal(((IntrinsicFallback)Deep("1", "0.960789", "71.7")).Residual.ToString(), "-0.359175");
+        Reject("option_settlement_below_intrinsic", () => Deep("1", "0.960789", "71.342"));
+        Equal(((IntrinsicFallback)Deep("0.25", "0.99005", "73.883")).Residual.ToString(), "-0.37075");
+        Reject("option_settlement_below_intrinsic", () => Deep("0.25", "0.99005", "73.791"));
+    }
+
+    private static void OutOfTheMoneyZero()
+    {
+        var fallback = Calibrate(OptionRight.Call, "3", "4", "0.1", "0.995", "0", fallbackDeclared: true) as IntrinsicFallback
+            ?? throw new Exception("Expected the fallback for an out-of-the-money zero settlement.");
+        Equal(fallback.Intrinsic.ToString(), "0");
+        Equal(fallback.Residual.ToString(), "0");
+        Reject("option_calibration_fallback_undeclared", () => Calibrate(OptionRight.Call, "3", "4", "0.1", "0.995", "0", fallbackDeclared: false));
+    }
+
+    // A European call is worth less than the discounted futures price, a put less than the discounted strike; at a
+    // volatility of 3 the at-the-money pair is worth about 1.62.
+    private static void AboveBound()
+    {
+        Reject("option_settlement_above_bound", () => Calibrate(OptionRight.Call, "3", "3", "0.25", "0.99", "2.9", fallbackDeclared: true));
+        Reject("option_settlement_above_bound", () => Calibrate(OptionRight.Put, "3", "3", "0.25", "0.99", "2.9", fallbackDeclared: true));
+        _ = (SolvedVolatility)Calibrate(OptionRight.Call, "3", "3", "0.25", "0.99", "1.6", fallbackDeclared: false);
+    }
+
+    private static void CalibrationRefusals()
+    {
+        Reject("option_input", () => Calibrate(OptionRight.Call, "3", "3", "0.25", "0.99", "-0.001", true));
+        Reject("option_input", () => Calibrate(OptionRight.Call, "0", "3", "0.25", "0.99", "0.3", true));
+        Reject("option_input", () => Calibrate(OptionRight.Call, "3", "3", "0.25", "1.01", "0.3", true));
+        Reject("option_expired", () => Calibrate(OptionRight.Call, "3", "3", "0", "0.99", "0.3", true));
+        Reject("option_numerical_policy", () => Calibrate(OptionRight.Call, "3", "3", "0.25", "0.99", "0.3", true, Policy with { MaxIterations = 0 }));
+        Reject("option_numerical_policy", () => Calibrate(OptionRight.Call, "3", "3", "0.25", "0.99", "0.3", true, Policy with { DiscountTolerance = null }));
+        Reject("option_numerical_policy", () => Calibrate(OptionRight.Call, "3", "3", "0.25", "0.99", "0.3", true, Policy with { DiscountTolerance = L("-0.001") }));
+        Reject("option_calibration_nonconvergent", () => Calibrate(OptionRight.Call, "3", "3", "0.25", "0.99", "0.295", true, Policy with { MaxIterations = 1 }));
+    }
+
+    // Outcomes FuturesOptionChecks pins for the tree, read again through the shared solver: the solved at-the-money gas
+    // call, the fallback and the refusal against undiscounted intrinsic, and the bracket lowered to the tree's range.
+    private static void AmericanSolverUnchanged()
+    {
+        OptionCalibration American(OptionRight right, string futures, string strike, string years, string discount, string settlement) =>
+            ImpliedVolatility.Solve(Terms(right, strike, FuturesOptionChecks.ExpiryAfter(years), FuturesOptionTerms.American), L(settlement), L(futures),
+                L(discount), L(Increment), ValuationAt, Tree, true, CancellationToken.None);
+        var solved = (SolvedVolatility)American(OptionRight.Call, "3", "3", "0.25", "0.99", "0.295");
+        Equal(solved.Volatility.ToString(), "0.4990869140625");
+        Equal(solved.Residual.ToString(), "0.00022824699970030074018428749");
+        Equal(solved.UpperBound.ToString(), "3");
+        Equal(solved.Iterations.ToString(System.Globalization.CultureInfo.InvariantCulture), "11");
+        const string twoDays = "0.005479452054794520547945205479";
+        var fallback = (IntrinsicFallback)American(OptionRight.Put, "2", "3", twoDays, "0.9998", "0.9995");
+        Equal(fallback.Intrinsic.ToString(), "1");
+        Equal(fallback.Residual.ToString(), "-0.0005");
+        Reject("option_settlement_below_intrinsic", () => American(OptionRight.Put, "2", "3", twoDays, "0.9998", "0.998999"));
+        Reject("option_settlement_above_bound", () => American(OptionRight.Call, "80", "80", "2", "0.9", "79"));
     }
 
     private static JsonNode Oracle => JsonNode.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "fixtures", "futures-option-oracle.json")))!;

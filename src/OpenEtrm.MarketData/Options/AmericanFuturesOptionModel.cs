@@ -19,6 +19,13 @@ public sealed record FuturesOptionTerms(OptionRight Right, ExactDecimal Strike, 
         : throw new MarketDataException("option_terms", $"Unsupported exercise style '{ExerciseStyle}'; only {American} and {European} are supported.");
     public string SettlementMethod { get; } = SettlementMethod == "exercise_into_future" ? SettlementMethod
         : throw new MarketDataException("option_terms", $"Unsupported settlement method '{SettlementMethod}'; only exercise_into_future is supported.");
+
+    // What exercise at this futures price pays per unit of quote, undiscounted.
+    public LatticeDecimal Intrinsic(LatticeDecimal futures)
+    {
+        var strike = LatticeDecimal.From(Strike);
+        return LatticeDecimal.Max(Right == OptionRight.Call ? futures - strike : strike - futures, default);
+    }
 }
 
 // How a tree is laid out against the futures price and the strike, or that the policy's model has none.

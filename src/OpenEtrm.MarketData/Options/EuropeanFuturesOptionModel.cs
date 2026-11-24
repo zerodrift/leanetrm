@@ -22,7 +22,7 @@ public static class EuropeanFuturesOptionModel
         var years = ValidateInputs(terms, futures, discountToExpiry, valuationAt, policy);
         AmericanFuturesOptionModel.RequirePositive(volatility, "volatility");
         var strike = LatticeDecimal.From(terms.Strike);
-        var floor = DiscountedIntrinsic(terms.Right, futures, strike, discountToExpiry);
+        var floor = discountToExpiry * terms.Intrinsic(futures);
         var width = volatility * years.Sqrt();
         var moneyness = futures.Ln() - strike.Ln();
         // With d1 and d2 both twelve deviations out on one side, each probability is exactly 0 or 1 and the formula is
@@ -43,7 +43,7 @@ public static class EuropeanFuturesOptionModel
     {
         RequireEuropean(terms);
         AmericanFuturesOptionModel.RequireMarketInputs(terms, futures, discountToExpiry);
-        return DiscountedIntrinsic(terms.Right, futures, LatticeDecimal.From(terms.Strike), discountToExpiry);
+        return discountToExpiry * terms.Intrinsic(futures);
     }
 
     // The checks on everything but volatility, shared with the implied-volatility solver so that both reject the same
@@ -63,7 +63,4 @@ public static class EuropeanFuturesOptionModel
         if (terms.ExerciseStyle != FuturesOptionTerms.European)
             throw new MarketDataException("option_terms", $"The Black-76 formula prices European exercise only; the series states '{terms.ExerciseStyle}'.");
     }
-
-    private static LatticeDecimal DiscountedIntrinsic(OptionRight right, LatticeDecimal futures, LatticeDecimal strike, LatticeDecimal discountToExpiry) =>
-        discountToExpiry * LatticeDecimal.Max(right == OptionRight.Call ? futures - strike : strike - futures, Zero);
 }
