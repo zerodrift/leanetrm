@@ -16,8 +16,8 @@ migration 0392 lets a stored volatility surface name the formula's policy for a
 European product. The ticket states Exercise and Settlement, and the lifecycle list
 says why a European option cannot be exercised early. Existing products, bookings,
 events, fits and retained results are unchanged. An expiry on the underlying's last
-trading day and a margined premium are designed and not built. The database, HTTP
-and real-browser checks of this increment have not been run; see
+trading day and a margined premium are designed and not built. The real-browser
+checks of this increment have not been run; see
 [verification](verification.md#european-futures-options-d446).
 
 ## Selected gas delivery quantities (D445)

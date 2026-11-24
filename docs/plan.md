@@ -2,9 +2,9 @@
 
 D446 admits European exercise on a listed futures option: a product row states
 the style, its series are valued by a Black-76 formula named in the option
-valuation policy, and exercise before expiry is refused. The managed, Python and
-web checks pass locally; the database, HTTP and real-browser checks have not been
-run. See [futures options](futures-options.md#european-exercise) and
+valuation policy, and exercise before expiry is refused. The managed, Python, web,
+database and HTTP checks pass; the real-browser checks have not been run. See
+[futures options](futures-options.md#european-exercise) and
 [verification](verification.md#european-futures-options-d446). An expiry on the
 underlying's last trading day and a margined premium remain designed, not built.
 
@@ -2152,8 +2152,8 @@ Extend only after the baseline contracts are demonstrated:
 - Broader calendars, delivery shapes and schedule authoring.
 - Additional option exercise and settlement styles, volatility shocks and
   nonlinear model diagnostics beyond the listed futures and heat-rate call profiles.
-  For listed futures options, European exercise is built and its database, HTTP and
-  browser checks are still to be run; an expiry on the underlying's last trading day
+  For listed futures options, European exercise is built and its real-browser
+  checks are still to be run; an expiry on the underlying's last trading day
   and a margined premium are designed and not built (D446,
   [design](superpowers/specs/2026-11-23-futures-option-styles-design.md)).
 - Option strategies beyond one expiry (D409 analyses and draws legs of one

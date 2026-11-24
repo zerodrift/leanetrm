@@ -2,34 +2,40 @@
 
 ## European futures options (D446)
 
-Local qualification on 2026-11-23 on macOS arm64 with .NET SDK 10.0.402 and Node
-24.22.0, on synthetic data. No PostgreSQL was installed or started on the
-workstation, so every check that needs a database, an HTTP server or a real browser
-against a preview is listed below as not run. The capability is described in
-[futures options](futures-options.md#european-exercise).
+Qualified on synthetic data in two places. A workstation (macOS arm64, .NET SDK
+10.0.402, Node 24.22.0) ran the checks that need no database on 2026-11-23 and
+2026-11-24. A Linux x86_64 container (Ubuntu 24.04.5, PostgreSQL 18.7, .NET SDK
+10.0.402, Python 3.12.3) ran the database and HTTP checks on 2026-11-24, each on a
+disposable database built from the whole migration sequence. No real-browser suite
+has run against a preview: the browser's sandbox does not start under the
+container's default security profile, which was left as it was. The capability is
+described in [futures options](futures-options.md#european-exercise).
 
 | Run | Where | Result |
 | --- | --- | --- |
 | MarketData checks, default | workstation | 801 managed core checks passed |
-| MarketData checks `--european-options` | workstation | 31 PASS |
-| MarketData checks `--futures-options` | workstation | 70 PASS; the pinned risk digests pass with their expected values unedited |
-| MarketData checks `--option-sensitivities`, `--option-strategies`, `--vol-surface` | workstation | 8, 25 and 22 PASS |
+| MarketData checks `--european-options` | workstation, container | 31 PASS |
+| MarketData checks `--futures-options` | workstation, container | 70 PASS; the pinned risk digests pass with their expected values unedited on both |
+| MarketData checks `--option-sensitivities`, `--option-strategies`, `--vol-surface` | workstation, container | 8, 25 and 22 PASS |
 | MarketData checks `--option-lifecycle-projection`, `--cash-option-model`, `--physical-option`, `--cash-option-binding`, `--physical-option-binding` | workstation | pass, each with its European refusal |
 | MarketData checks `--spread-options`, `--calendar-policy`, `--payment-date-policy`, `--hybrid-monte-carlo-risk` | workstation | pass |
-| API checks `--schedules` | workstation | 513 PASS |
-| API checks `--option-policy`, `--european-options` | workstation | 8 and 3 PASS |
+| API checks `--schedules` | workstation, container | 514 PASS |
+| API checks `--option-policy`, `--european-options` | workstation, container | 8 and 4 PASS |
 | API checks `--cash-option-value-policy`, `--physical-option-policy`, `--option-strategy-request`, `--risk-pricing-policy`, `--historical-risk`, `--monte-carlo-risk` | workstation | pass |
 | API checks `--context-resolution`, `--read-references`, `--power-hedge`, `--async-reads`, `--assistant-prompts`, `--published-clock`, `--calendar-authoring`, `--gas-ticket`, `--position-adjustment` | workstation | pass |
+| API checks `--lifecycle-actions`, `--economic-risk-contract`, `--lifecycle-schedule-contract`, `--gas-owned-setup`, `--shared-native-markets`, `--derivative-methods`, `--gas-accepted-order`, `--lifecycle-residual-currencies`, `--gas-operator-contract` | workstation | pass |
 | Rates and Shared checks | workstation | 88 and 51 passed |
-| `python3 -m unittest discover -s tests -p 'test_*.py'` | workstation | 182 OK, with migrations 0391 and 0392 in the numbering check |
+| `python3 -m unittest discover -s tests -p 'test_*.py'` | workstation | 184 OK, with migrations 0391 and 0392 in the numbering check |
 | `npm test --prefix web` | workstation | 2,329 pass. An earlier run under a load average of 70 had one browser test fail to start its browser; that file alone, and this run, pass |
-| Migrations 0391 and 0392 applied to a database | nowhere | not run |
-| `tools/check_european_option.py` and its managed read `--european-option-read` | nowhere | not run |
-| The new assertions of `tools/check_futures_option_storage.py` and `tools/check_vol_surface_storage.py` | nowhere | not run |
-| `tools/check_all.py` groups `exchange`, `lifecycle`, `database`, `frontend` and `repository` | nowhere | not run |
-| `tests/browser/futures-options.mjs` against a preview | nowhere | not run |
-| The risk worker's replay of a retained job that holds a European series | nowhere | not run |
-| Any run on Linux | nowhere | not run |
+| Migrations 0391 and 0392 applied to a database | container | applied at the end of the whole sequence in every run below |
+| `tools/check_european_option.py` and its managed read `--european-option-read` | container | 7 checks pass, alone and as a step of the `lifecycle` group |
+| The same tool on a throwaway copy whose migration 0391 leaves the option event primitive unpatched | container | fails as intended: the primitive records the exercise of a European option |
+| `tools/check_all.py --group database` | container | passed, 434 PASS lines |
+| `tools/run_preview.py --check --exchange-check` without `--browser-check` | container | passed, 426 PASS lines, with the three new assertions of `tools/check_futures_option_storage.py` and the five of `tools/check_vol_surface_storage.py` |
+| `tools/check_all.py --group lifecycle` | container | its 38 steps that need no browser passed, 1,676 PASS lines; its four browser steps did not run |
+| `tests/browser/futures-options.mjs`, the browser part of the `exchange` group and the four browser steps of the `lifecycle` group | nowhere | not run |
+| The other groups of `tools/check_all.py`, as groups | nowhere | not run; the `repository` group's Python suite and the `frontend` group's `npm test` are the workstation rows above |
+| The risk worker's replay of a retained job that holds a European series | nowhere | no check exists |
 
 What the checks that ran establish:
 
@@ -38,7 +44,7 @@ What the checks that ran establish:
   10⁻²⁷ on its 17 cases, discounted and undiscounted, calls and puts (largest observed
   difference 1.5 × 10⁻²⁸), and within 10⁻²⁶ on its two wide cases (1.2 × 10⁻²⁷, at
   a strike of 3,276). Put-call parity holds to the same bound. The arithmetic is
-  integer, so another host gives the same digits; that has not been observed on Linux.
+  integer, and the same checks pass with the same expected values on Linux x86_64.
   Sixty seconds, and one clock tick, from expiry the value is the discounted intrinsic
   value or zero with no range error. The value rises with volatility and is never
   negative; without its floor a call far out of the money read −4 × 10⁻³⁰.
@@ -74,28 +80,46 @@ What the checks that ran establish:
   calls.
 - **Presentation.** The web tests cover the ticket's Exercise and Settlement facts,
   the lifecycle reason and the Risk heading's European member.
+- **Installed and end to end.** On a database built from the whole migration
+  sequence, `tools/check_european_option.py` lists a synthetic European product, a
+  call and a put at one strike, on a synthetic cash-settled future that also has an
+  American call. The product is stored with no contrary instructions; a trader books
+  it and a settings editor and a principal holding only Trade supervisor cannot.
+  Exercise and assignment before expiry are refused in the proposal with
+  `option_exercise_style` and write nothing. With the proposal's refusal set aside
+  inside one rolled-back transaction, the option event primitive refuses the same
+  exercise itself; on a copy whose primitive is left unpatched that check fails.
+  After the expiry instant the automatic rule exercises the call into its future at
+  the strike under its margin policy and abandons the put. The managed read shows
+  the catalog's style and settlement, the two styles on one future each calibrated
+  by their own model, the European holding worth its settlement, the lifecycle list
+  refusing its exercise by style, a fit of the product naming the formula's policy,
+  and a policy without the European member refusing the book.
+- **Stored rows.** The product table refuses a style other than `american` or
+  `european` and a European product that accepts contrary instructions. A surface
+  revision is recorded only under the policy of its product's style, in both
+  directions, and the table admits the two policy ids and no other.
 
-Not covered by any check, run or not: a European series whose expiry lies outside
-the rate curve's pillars (the `discount_coverage` exclusion is the code American
-series use, and no fixture lists a future beyond the curve); a fit of a European
-product through HTTP and the worker, end to end; the Gas delivery operations role;
-and a direct call of the option event primitive, whose refusal the new tool reads
-from the installed function because every authorized path passes the proposal first.
+Not covered by any check: a European series whose expiry lies outside the rate
+curve's pillars (the `discount_coverage` exclusion is the code American series use,
+and no fixture lists a future beyond the curve); a fit of a European product through
+HTTP and the worker, end to end; the risk worker's replay of a retained job that
+holds a European series; and the Gas delivery operations role. Not run: every
+real-browser check of the ticket, the Details panel and the lifecycle list.
 
 One independent adversarial review read the whole change on 2026-11-23 and ran the
 managed option checks. It found that migration 0392 spliced an unparenthesized CASE
 into two PL/pgSQL IF conditions, which would not have compiled; the CASE is now
-parenthesized and `tests/test_migration_spliced_conditions.py` checks it. It found
-that the lifecycle projection refused a European holding only after calibrating it
-and reading its profile; the projection now refuses it where it names its options,
-with a check. Still open from that review: the option event primitive's refusal is
-read from its installed definition and has no executed check, and the review's
-minor findings are not acted on. It found no path that prices a series on the wrong
-model and no change to American values.
+parenthesized, `tests/test_migration_spliced_conditions.py` checks it, and the
+migration has since applied. It found that the lifecycle projection refused a
+European holding only after calibrating it and reading its profile; the projection
+now refuses it where it names its options, with a check. It found that the option
+event primitive's refusal was read from its installed definition and never executed;
+the tool now executes it, as described above. The review's minor findings are not
+acted on. It found no path that prices a series on the wrong model and no change to
+American values.
 
-Migrations 0391 and 0392 have never been applied to any database, so European
-exercise is built and not yet shown to install or run end to end. These changes have
-not been published.
+These changes have not been published.
 
 ## Selected gas delivery quantities (D445)
 

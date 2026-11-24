@@ -541,8 +541,8 @@ The sensitivities are the option model's own; Risk reports keep theirs.
 - **Other option types.** An expiry on the underlying's last trading day is
   designed, not built (the same decision). Cash-settled, weekly, calendar spread,
   crack spread and average-price options remain.
-- **European exercise, not yet done.** Its database, HTTP and real-browser checks
-  have not been run (see [verification](verification.md#european-futures-options-d446)).
+- **European exercise, not yet done.** Its real-browser checks have not been run
+  (see [verification](verification.md#european-futures-options-d446)).
   European series are refused in the lifecycle projection and its reference
   strategies. The example lists no European product. A European product whose
   holders may file contrary instructions is not supported. No check values a
