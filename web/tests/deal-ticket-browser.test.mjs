@@ -64,8 +64,9 @@ test('a ticket in delivery shows the delivered count and the delivered, remainin
     totals:cells('-2000','6500'),delivered:cells('-1000','3250'),remaining:cells('-1000','3250'),
     rows:[row('2026-11',null,'month',cells('-2000','6500'),false),row('2026-11-01','2026-11','day',cells('-1000','3250'),true),row('2026-11-02','2026-11','day',cells('-1000','3250'),false)]};
    const on=new Proxy({},{get:()=>()=>{}});
-   window.ticket=renderTicket(document.querySelector('#host'),{state:newTicket(d),mode:'booked',actions:{amend:{allowed:false,reason:'No amendment.'},closeOut:{allowed:false,reason:'No close-out.'},record:{allowed:true,reason:'Recorded.'}},
-    schedule,quantityUnit:'MMBtu',instant:at=>'at '+at,previous:null,summaries:[],links:[],entry:null,status:{kind:'current',text:'Up to date'},fieldErrors:{},choices:{},selectedSide:null,tab:'instrument',level:'day',closed:new Set(),on});
+   window.drawProgress=(progress)=>{window.ticket?.destroy();window.ticket=renderTicket(document.querySelector('#host'),{state:newTicket(d),mode:'booked',actions:{amend:{allowed:false,reason:'No amendment.'},closeOut:{allowed:false,reason:'No close-out.'},record:{allowed:true,reason:'Recorded.'}},
+    schedule:{...schedule,...progress},quantityUnit:'MMBtu',instant:at=>'at '+at,previous:null,summaries:[],links:[],entry:null,status:{kind:'current',text:'Up to date'},fieldErrors:{},choices:{},selectedSide:null,tab:'instrument',level:'day',closed:new Set(),on});};
+   drawProgress({});
    for(let i=0;i<250&&!document.querySelector('.tabulator-calcs-holder .tabulator-cell');i++)await new Promise(r=>setTimeout(r,20));
    await new Promise(r=>setTimeout(r,100));
   })()`);
@@ -75,6 +76,10 @@ test('a ticket in delivery shows the delivered count and the delivered, remainin
   assert.deepEqual(await evaluate("[...document.querySelectorAll('.tabulator-calcs-holder .tabulator-cell')].map(c=>[...c.querySelectorAll('.grid-total-line')].map(l=>l.textContent))"),
    [['Delivered','Remaining','Total'],['-1,000','-1,000','-2,000'],['3,250','3,250','6,500']]);
   assert.deepEqual(await evaluate("[...document.querySelectorAll('.tabulator-tableholder .delivered-row')].map(r=>r.dataset.rowKey)"),['2026-11-01']);
+  await evaluate("drawProgress({progressBasis:'native_schedule_rows_v1',deliveredLeaves:4,leaves:5})");
+  assert.equal(await evaluate("document.querySelector('.ticket-state').textContent"),'Booked · started');
+  assert.equal(await evaluate("document.querySelector('.ticket-progress-text').textContent"),'4 of 5 schedule rows completed');
+  assert.deepEqual(await evaluate("(()=>{const bar=document.querySelector('.ticket-progress progress');return [bar.value,bar.max,bar.getAttribute('aria-label')];})()"),[4,5,'Completed schedule rows']);
   await evaluate('ticket.destroy()');
   assert.equal(await evaluate("document.querySelector('#host').children.length"),0);
  });

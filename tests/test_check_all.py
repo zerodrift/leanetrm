@@ -55,6 +55,16 @@ def gas_helpers(group, helpers):
 
 
 class CheckAllTests(unittest.TestCase):
+    def test_charge_preview_rejects_other_fixture_suites_before_startup(self):
+        for flag in ('--gas-in-term-check', '--gas-delivery-quantity-check', '--gas-indexed-check'):
+            with self.subTest(flag=flag):
+                result = subprocess.run(
+                    [sys.executable, 'tools/run_preview.py', '--pg-bin', '/unused-pg',
+                     '--dotnet', '/unused-dotnet', '--check', '--gas-charges-check', flag],
+                    cwd=ROOT, capture_output=True, text=True, check=False)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn(f'--gas-charges-check and {flag} use different fixtures', result.stderr)
+
     def test_gas_jobs_separate_native_browser_and_preview_workloads(self):
         self.assertTrue({'gas', 'gas-native', 'gas-browser'}.issubset(GROUPS))
         workloads = {}
@@ -65,17 +75,21 @@ class CheckAllTests(unittest.TestCase):
             workloads[group] = [command for command in commands
                                 if command[0] == sys.executable and command[1].startswith('tools/')]
         previews = workloads['gas']
-        self.assertEqual(len(previews), 9)
+        self.assertEqual(len(previews), 10)
         self.assertTrue(all(command[1] == 'tools/run_preview.py' for command in previews))
         preview_flags = {
             '--gas-basis-demo-check', '--gas-operations-check', '--gas-billing-check',
             '--gas-daily-quantity-check', '--gas-amendments-check', '--gas-indexed-check',
-            '--gas-in-term-check', '--gas-delivery-quantity-check', '--gas-pricing-check', '--gas-exercise-check'}
+            '--gas-in-term-check', '--gas-delivery-quantity-check', '--gas-pricing-check', '--gas-exercise-check', '--gas-charges-check'}
         self.assertEqual({part for command in previews for part in command if part in preview_flags},
                          preview_flags)
         exercise=[command for command in previews if '--gas-exercise-check' in command]
         self.assertEqual(len(exercise),1)
         self.assertTrue({'--gas-pricing-check','--browser-check'}.issubset(exercise[0]))
+        charge = [command for command in previews if '--gas-charges-check' in command]
+        self.assertEqual(len(charge), 1)
+        self.assertIn('--browser-check', charge[0])
+        self.assertNotIn('--gas-exercise-check', charge[0])
         quantity=next(command for command in previews if '--gas-delivery-quantity-check' in command)
         self.assertIn('--browser-check',quantity)
         self.assertNotIn('--gas-composition-check',quantity)

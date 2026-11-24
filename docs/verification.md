@@ -1,5 +1,125 @@
 # Local verification and continuous integration
 
+## Independent gas charges (D450)
+
+Local verification on 2026-11-24 at `e8580a79` uses synthetic trades with
+stock PostgreSQL 18.7 and the checkout's own API and worker. The pinned
+tools are .NET SDK 10.0.402, Python 3.14.2, Node 24.22.0 and Chrome on macOS
+arm64. The gas, trading and managed groups run sequentially through
+`tools/check_all.py`. Integration fixtures provision and remove their own
+databases. With the pinned tools selected, run the groups from the
+repository root.
+
+```bash
+for group in gas trading managed; do
+  python3 tools/check_all.py --pg-bin "$PG_BIN" --dotnet "$DOTNET" --browser "$BROWSER" --group "$group" || exit
+done
+```
+
+All three groups passed. The first trading run stopped at the swap draft's
+curve-read-count assertion and removed its disposable database. The full
+trading rerun at the same commit with the same command and timeouts passed
+both executions of that assertion. The cause of the initial failure is
+unknown.
+
+| Group | Runner `CHECK` workloads | Printed `PASS` checkpoints | Owned browser checks | Completed workers | Databases removed |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Gas | 18 | 1,220 | 208 | 27 | 10 |
+| Trading | 20 | 1,588 | 489 | 20 | 10 |
+| Managed | 81 | 2,809 | — | — | — |
+
+Runner workloads include locked restores and builds. Printed checkpoints
+include repeated setup and migration checks. Browser counts come from the
+owned runner summaries. Each integration group also qualified one worker
+refusal for an altered retained manifest (`risk_graph_manifest`). Managed
+reported 804 core checks and 211 gas ticket checks.
+
+The managed charge checks pin the no-charge identities and unchanged
+following payment values. They exercise exact row shapes and charge
+quantities, a second physical clock, distinct resolved day states across two
+clocks, a term outside physical delivery, partial and overpaid cash, and
+earlier knowledge. The lump sum refuses remittance one microsecond before
+its derived earned day ends and admits it at that boundary, before its
+payment date begins. Capacity payable on day 1 uses the exact completion
+instant later the same day.
+
+The gas charge integration workload reported 118 PASS checkpoints, 15 owned
+browser checks and three completed retained workers. It compares independent
+entry values and position components in previews, exact trades, the Blotter
+and shared scenarios. The held schedule's reference example checks a
+capacity charge of 10,000 units per day at 0.02. After ten days it has −2,000 accrued
+and −4,000 unrealized. A −1,000 remittance leaves −1,000 outstanding then.
+An earlier knowledge view of the same close excludes that remittance.
+Changing delivery size leaves the charge amounts fixed. The workload also
+covers retained workers, a multiplier-two typed price, remittance sign and
+zero-amount refusals, request replay, invalid native shapes, an
+exercise premium with unchanged group value and final billing refusals.
+
+Migration 0400 extends migration 0399's native charge admission to refuse
+the unrepresentable first UTC instant of a local 0001-01-01 day under a
+midnight UTC+14 clock. Native lump-sum and capacity checks stage their
+matching programs with the exact calendar and physical clock. Each accepts
+the adjacent representable day.
+
+Future replacement checks cover a fully paid upfront premium, original and
+proposed capacity starting at the amendment instant, and a known payment
+effective after the amendment. The ticket disables amendment for ineligible
+holdings. Preview, booking preparation and the locked writer also reject a
+started candidate. The checks compare the original revision, binding,
+payment and allocations before and after refusal. A wholly future unpaid
+replacement succeeds and its completed command replays after a payment on
+the new binding.
+
+The browser exercises explicit calendars, cleared basis-dependent price,
+payment day 1–28, booking and exact retained charge Terms. It checks both
+basis-specific labels, blank daily capacity cells, and the accrued,
+outstanding and unrealized amounts through the exact Side inspectors. Saved
+charge Terms show the stated currency, rate unit and capacity unit. The
+inspector identifies the amount to come as unrealized present value.
+The combined schedule includes independent monthly intervals and preserves
+the monthly grain of a one-day capacity stub. Its progress uses the number
+of native rows completed at their own ends. The ordinary projection still
+uses its leaf-based progress, with no native-row basis marker.
+
+The complete frontend suite passed all 2,353 tests with zero skips. It ran
+the frontend build and the following two-worker test invocation from `web`.
+The denomination test uses a multiplier-two quote, an exact 18-decimal-place
+amount and a fractional capacity. A separate presentation test supplies
+−3,925.75 unrealized PV against −4,000 nominal future cash.
+
+```bash
+npm run build
+node --test --test-concurrency=2 tests/*.test.mjs
+```
+
+Independent review confirmed the corrected UTC boundary, amendment and payment
+visibility checks, retained denomination and unrealized present value display.
+The reviewed correction passed the focused preview, three full groups and full
+frontend suite above. Optimizing the bounded repeated calendar reads remains
+deferred. Integrated CI remains a separate gate.
+
+Before publication, merge `75ca8b7e` incorporated the European-option changes
+from master and assigned the unchanged charge migrations 0399 and 0400 and
+the charge decision D450. Independent integration review found no lost
+implementation, check registration or migration predecessor conflict.
+On that combined tree, all 186 repository tests and 81 managed workloads
+passed; the managed run printed 2,857 PASS checkpoints. The charge preview
+passed 118 checkpoints, all 15 owned browser checks and three retained risk
+jobs, then removed its disposable database. This run also qualified both
+renumbered migration predecessor guards. The complete frontend build and
+two-worker suite passed all 2,356 tests with zero failures or skips.
+
+CI exposed a populated operating-upgrade fixture that reconstructed migration
+0356's calendar predecessor from the current helper, retaining migration 0399's
+later charge branch. The fixture now captures the actual four predecessors
+before 0356, verifies legacy quantities, programs and retries under both the
+predecessor and candidate, and atomically restores all current helper definitions.
+This preserves later facility-booking and charge-calendar extensions. Both the
+original guard failure and a current-helper preservation regression were observed
+before their corrections. Independent review passed. The final structured-power
+preview passed 156 checkpoints and all 35 owned browser checks, removed its
+disposable database, and the full repository Python suite passed all 186 tests.
+
 ## European futures options (D449)
 
 Qualified on synthetic data in two places on 2026-11-24. A workstation (macOS arm64,

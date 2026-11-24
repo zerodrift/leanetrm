@@ -7261,7 +7261,8 @@ thirteen design calls define the supported profile.
 1. A right groups by `delivery_day` or `delivery_month`. One exercise across
    multiple delivery months needs a separately specified strip model and marks.
 2. D431's heat-rate call keeps its existing Side and mark contract.
-3. A premium is outside this build. It belongs to future lump-sum charges work.
+3. D450 adds a premium as an independent lump-sum charge on the same trade.
+   A right cannot cover the charge.
 4. Contract-fixed prices and published index fixings are certain. A market mark
    remains uncertain for exercise pricing regardless of its schedule label.
 5. Physical exercise uses an `exercised` or `abandoned` election. Save the
@@ -7400,3 +7401,64 @@ to the builder:
 - A stored volatility surface names the numerical policy of its product's exercise
   style. The fit admission checks it once the caller is known to read the product.
 - A European fallback is pinned to its source instant, as the American fallback is.
+
+## D450 — Gas compositions admit fixed payments that own their quantity
+
+A `charge` membership uses the existing fixed payment Side. Its immutable
+`owned_quantity_v1` term binds its basis, stated daily quantity as an exact
+ratio, and gas-day clock to the Instrument. The booked membership retains
+the matching physical clock slot on the same trade. A charge has no source or stage. Each following
+payment still names its physical owner and stage and covers only that owner's
+days. An Instrument without charges retains its canonical identity.
+
+The seven design calls are adopted.
+
+1. A `lump_sum` has one row of quantity one. Its day is the latest gas day that
+   has ended at the start of the specified UTC payment date.
+2. A `capacity` charge has a row for each calendar month it covers. The
+   quantity is daily capacity times that month's covered day count. Payment is
+   at midnight UTC on the stated day 1–28 of the next month under
+   `next_month_day_utc_v1`, with no holiday adjustment.
+3. Capacity uses one positive daily quantity for the entire stated
+   inclusive-start, exclusive-end term.
+4. The charge takes its exact clock and unit from a named physical Side on
+   the same trade and uses the composition's currency. Both delivery and
+   payment calendar bindings are explicit.
+5. The stated lump sum and daily capacity are independent of trade delivery
+   size. Membership ratios normalize them to the holding base and the Trade
+   scales once.
+6. The stated price is a fixed contractual amount or rate. Booking divides it
+   exactly by the retained quote multiplier to obtain the Side's price
+   literal, keeping the quote, unit and multiplier. An unrepresentable
+   literal refuses. The quote's market price range does not bound contractual
+   charges. Capacity rates are positive. A lump sum can be signed or zero.
+7. The existing fee profiles of other products stand. Transport charges
+   belong to transport's redesign.
+
+Migration 0399 admits the own-day fixed payment shape and its repeated monthly
+occurrences only for charge memberships. Each row accrues by the number of its
+own days ended under its own clock, including days outside all physical
+terms. The shared UTC payment-date rule still requires the payment date to
+be on or after the completion date. If completion falls later on payment day
+1, the last day accrues at the completion instant. The row becomes overdue
+on the following UTC date. Remittance requires at least one earned day at its
+effective instant, and the resolved knowledge cutoff governs its visibility.
+Remittances against a signed lump sum follow the signed membership amount.
+A zero lump sum admits no remittance.
+
+Migration 0400 requires the first owned UTC boundary to be representable
+under the admitted fixed clock. Future-only gas replacement requires the
+first day of every original and proposed charge to start strictly after
+the amendment instant. A recorded payment on any original charge prevents
+replacement, including a known payment effective later. Its receipt and
+allocation stay on their exact instrument binding. A completed request
+replays its first outcome.
+
+Charges count within seven payment Sides and eight total Sides. A lump sum can
+serve as an independent premium on an exercise composition. A right naming a
+charge refuses. Fixed charges have no price dependencies. The gas final
+billing profile refuses charge slots. The deal ticket and retained reads use
+the same exact row and payment terms. See the
+[gas contract](physical-gas-side.md#independent-gas-charges-d450),
+[design](superpowers/specs/2026-11-23-charges-design.md) and
+[local verification](verification.md#independent-gas-charges-d450).

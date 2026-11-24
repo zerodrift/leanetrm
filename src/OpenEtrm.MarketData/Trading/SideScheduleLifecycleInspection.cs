@@ -50,6 +50,7 @@ public static partial class SideScheduleInspection
     {ExercisePeriods=side.ExerciseGroups.IsEmpty?default:side.Periods(row.DeliveryFrom,row.DeliveryTo),
      SourceQuantity=selected is null?null:ExactNumberText.Format(selected.Selected),SourceQuantityStates=selected?.Tags??default,PaymentTiming=RetainedTiming(guard.Output,state.Kind),QuantitySpecification=quantity.Column.Unit,Currency=contribution.Amount.Currency,QuoteMultiplier=price.Column.QuoteMultiplier,OperatingDate=geometry.OperatingDate,
      Accrued=cash?row.Accrued.ToExactString():null,Paid=cash?row.Paid.ToExactString():null,Outstanding=cash?row.Outstanding.ToExactString():null,PaidAt=row.PaidAt,
+     Remaining=cash?row.Unrealized.ToExactString():null,
      FinalDetermination=determinations.TryGetValue(row.Occurrence,out var final)?final.ToExactString():null,QuantityEvidence=selected?.Evidence??default,QuantityAdjustment=selected is null?null:new(ExactNumberText.Format(contract!.Value),ExactNumberText.Format(selected.Fraction))});
   }
   return new(side.Code,program.ScheduleManifest,evaluation.Context.ValuationAt,evaluation.Context.KnownAt,offset,lifecycle.Length,rows.ToImmutable()){Groups=side.ExerciseGroups.IsEmpty?default:side.ExerciseGroups};

@@ -10,8 +10,10 @@ public static class TicketBand { public static readonly ImmutableArray<string> R
 // which the product's preview and booked read return.
 public sealed record TicketFieldCondition(string Field,ImmutableArray<string> Values)
 {public bool Matches(IReadOnlyDictionary<string,string> values)=>values.TryGetValue(Field,out var value)&&Values.Contains(value);}
+public sealed record TicketFieldLabels(string Field,ImmutableDictionary<string,string> Labels);
 public sealed record TicketField(string Id,string Label,string Meaning,string Type,string? Unit,string State,bool Required,string? Band,string? Choices,ImmutableArray<string> DependsOn,string? Lookup,string? Soon,string? Rule)
 {[JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public TicketFieldCondition? VisibleWhen{get;init;}
+ [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public TicketFieldLabels? LabelByChoice{get;init;}
  public ImmutableArray<string> RefreshOn{get;init;}=[];public bool AllowNotApplicable{get;init;}[JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)]public bool RefreshDescription{get;init;}}
 // Input names the modes in which a side column's day cells are entered in the side's tab, each recorded by the product's own operation.
 // Soon, on a field, side kind, column or tab, is the hover text of an item drawn as coming soon: it holds no value, is never sent and reads nothing.
@@ -74,6 +76,11 @@ public static class TicketDescriptions
    if(field.VisibleWhen is {} condition&&(condition.Values.IsDefaultOrEmpty||condition.Values.Distinct().Count()!=condition.Values.Length||
     !owners.Any(fields=>fields.Contains(field)&&fields.Any(f=>f.Id==condition.Field&&f.Type=="choice"&&f.State=="editable"))))
     Fail(d,$"field '{field.Id}' needs a condition on a choice in the same Side or term section");
+   if(field.LabelByChoice is {} labels&&(labels.Labels is null||labels.Labels.IsEmpty||
+    labels.Labels.Any(pair=>string.IsNullOrWhiteSpace(pair.Key)||string.IsNullOrWhiteSpace(pair.Value))||
+    !d.Sides.Any(side=>side.Fields.Contains(field)&&side.Fields.Any(selector=>selector.Id==labels.Field&&selector.Id!=field.Id&&
+     selector.Type=="choice"&&selector.State=="editable"&&!string.IsNullOrWhiteSpace(selector.Choices)))))
+    Fail(d,$"field '{field.Id}' needs nonblank labels keyed by a separate editable choice on the same Side");
   }
   var selectors=d.TradeFields.Where(field=>field.RefreshDescription).Select(field=>field.Id).ToHashSet();
   if(selectors.Count>0&&d.Selection is null)Fail(d,"a refreshing description must attest its selected values, including an empty selection");

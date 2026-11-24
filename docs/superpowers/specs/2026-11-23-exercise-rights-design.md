@@ -50,7 +50,7 @@ their own right (D288). They are not changed.
   whole strip, which no mark holds.
 - Moving the heat-rate call onto this mechanism. See
   [The heat-rate call](#the-heat-rate-call).
-- A premium. It belongs to future lump-sum charges work.
+- Conditional premiums. An independent premium uses a D450 lump-sum charge.
 - Firm transport, where scheduling gas is the exercise.
 - Rights with limits across periods such as swing counts, storage or ratchets.
 - Early exercise inside a period, and any path-dependent payoff.
@@ -378,7 +378,8 @@ over its own memberships. D288 and D431 stand.
 1. One exercise over several delivery months is left out, because it needs a
    strip volatility.
 2. The heat-rate call is not moved in this build.
-3. A premium is outside this build and belongs to future lump-sum charges work.
+3. D450 supports a premium as an independent lump-sum charge on the same
+   trade. A right naming the charge refuses.
 4. A market mark is uncertain until exercise, whatever its label. Only a
    contract-fixed price or a published index fixing is certain.
 5. A physical period needs a recorded election. There is no deemed exercise,
