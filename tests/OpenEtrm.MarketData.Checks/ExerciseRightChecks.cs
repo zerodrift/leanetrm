@@ -30,6 +30,7 @@ internal static class ExerciseRightChecks
         Check("whole-term payments allocate by day and repeating quantities round only at model input", GroupAllocation);
         Check("group admission requires explicit sources, marks, scope and determination", GroupRefusals);
         Check("exercise values reprice under forward and volatility scenarios", GroupScenarios);
+        Check("a published payment survives contract expiry and negative effective prices refuse", PublishedPaymentScope);
         Check("ordinary entries and exercise groups partition exact risk and survive unit reuse", GroupPartition);
     }
 
@@ -42,7 +43,8 @@ internal static class ExerciseRightChecks
         internal readonly ExerciseMarks Marks;
         internal GroupFixture(int days = 1, bool monthly = false, bool index = false, bool reverse = false,
             ExerciseHolder holder = ExerciseHolder.Us, bool periodTotal = false, bool negative = false,
-            bool sameCurve = false, bool sameSign = false, bool earlierPhysical = false, bool earlierFixing = false, GasPricingScheduleFixture? market = null)
+            bool sameCurve = false, bool sameSign = false, bool earlierPhysical = false, bool earlierFixing = false, GasPricingScheduleFixture? market = null,
+            string fixedPrice = "3")
         {
             var f = Market = market ?? new();
             var from = days == 1 ? f.From.AddDays(2) : f.From;
@@ -58,7 +60,7 @@ internal static class ExerciseRightChecks
             var payAt = f.Clock.Boundary(to).AddDays(2);
             var period = new FixedSidePeriod(from, to, payAt, new(periodTotal ? 1 : days, 1), null)
                 { DeliveryCompletionAt = f.Clock.Boundary(to) };
-            Side payment = new FixedSide(Guid.NewGuid(), new FlatPrice(new UnitPrice(E("3"), f.Quote)), f.Quote,
+            Side payment = new FixedSide(Guid.NewGuid(), new FlatPrice(new UnitPrice(E(fixedPrice), f.Quote)), f.Quote,
                 gas.UnitQuantity, [period], SyntheticSideCalendars.Dated(false), gasDeliveryClock: f.Clock);
             if(index)
             {
@@ -245,6 +247,38 @@ internal static class ExerciseRightChecks
         var once = Difference("0.0001");
         if(twice.CompareTo(once * R("1.999999")) < 0 || twice.CompareTo(once * R("2.000001")) > 0)
             throw new Exception("The symmetric forward difference must scale with the shock.");
+    }
+
+    private static void PublishedPaymentScope()
+    {
+        var valuationAt = Fixture.Utc("2040-12-04T05:00:00Z");
+        var expiry = valuationAt.AddDays(1);
+        var afterExpiry = expiry.AddDays(1);
+        var market = new GasPricingScheduleFixture(thirdDailyIndex: (valuationAt.AddDays(-1), expiry));
+        var group = new GroupFixture(index: true, market: market);
+        PreparedConnectedPortfolioRisk Published(string price) =>
+            market.Prepare(group.Instrument, group.State, valuationAt, "3.20", publishedThirdDailyIndex: price).Prepared;
+
+        var live = market.Prepare(group.Instrument, group.State, valuationAt, "3.20").Prepared;
+        if (live.UnitContracts.Single().Time.To != expiry) throw new Exception("A projected payment must retain its expiry boundary.");
+        var basis = Published("3.00");
+        Equal("positive published price, negative certain payment", HolderChoice.Value(ReceivesOnly("-30000")),
+            TradeValue(basis).ToMoney().Amount);
+        if (basis.UnitContracts.Single().Time.To != group.ExerciseAt)
+            throw new Exception("Expiry of the published payment truncated the time interval.");
+        var rolled = RiskEngine.WithClock(basis, new(afterExpiry, ClockChange.FrozenInputs));
+        if (!basis.Market.Snapshot.HasSameInputs(rolled.Market.Snapshot))
+            throw new Exception("A frozen roll must retain the source snapshot and knowledge cutoff.");
+        Equal("published price after expiry", HolderChoice.Value(ReceivesOnly("-30000") with { Years = L("28") / L("365") }),
+            TradeValue(rolled).ToMoney().Amount);
+
+        void RequirePriceRefusal(string label, Action value)
+        {
+            try { value(); } catch (MarketDataException e) when (e.Code == "exercise_model_scope") { return; }
+            throw new Exception($"The negative {label} price produced an exercise value.");
+        }
+        RequirePriceRefusal("fixed", () => new GroupFixture(market: market, fixedPrice: "-3").Direct());
+        RequirePriceRefusal("published", () => TradeValue(Published("-3")));
     }
 
     private static void GroupPartition()

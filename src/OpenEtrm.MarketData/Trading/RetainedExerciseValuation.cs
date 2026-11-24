@@ -53,8 +53,8 @@ internal sealed class RetainedExerciseValuation
             var row = byOccurrence[output.PaymentOrdinal!.Value];
             var amount = (row.Expected?.Add(row.Paid) ?? row.Unrealized).Ratio;
             if (amount.Numerator.IsZero) continue;
+            if (amount.Numerator.Sign < 0) throw OutsideModel();
             var certain = IsCertain(contribution.Amount.States[0].Prices);
-            if (!certain && amount.Numerator.Sign < 0) throw OutsideModel();
             CurveKey? curve = null;
             if (!certain)
             {
@@ -105,7 +105,7 @@ internal sealed class RetainedExerciseValuation
         selected = curve;
     }
     private static MarketDataException OutsideModel() => new("exercise_model_scope",
-        "A holder's choice requires nonnegative uncertain prices on one curve per side and distinct curves across sides.");
+        "A holder's choice requires nonnegative prices, one curve per uncertain side and distinct curves across sides.");
 
     internal IEnumerable<ExerciseGroupValue> Values(SideValuationContext context, ExerciseMarks? marks, ReferenceKey currency, int sign)
     {
@@ -173,9 +173,10 @@ internal sealed class RetainedExerciseValuation
             }
             foreach (var (instruction, lookup) in PhysicalLifecycle.DatedInputs(program, lookupIndex))
             {
+                if (!physical && PeriodPriceSelector.ProjectionAt(lookup, context.Snapshot) is null) continue;
                 Boundary(lookup.Contract.Expiry);
                 if (!physical && lookup.Fixing is {} fixing) Boundary(fixing.FixingAt);
-                if (selectedDays is null || !physical && PeriodPriceSelector.ProjectionAt(lookup, context.Snapshot) is null) continue;
+                if (selectedDays is null) continue;
                 foreach (var output in instruction.Consumers)
                 {
                     var guard = instructions[output].Output;

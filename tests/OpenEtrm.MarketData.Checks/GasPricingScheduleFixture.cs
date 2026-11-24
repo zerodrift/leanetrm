@@ -23,13 +23,14 @@ internal sealed class GasPricingScheduleFixture
     internal RetainedGasInstrument Instrument { get; }
     internal QuoteSpecification Quote => reference.Quotes[0];
     internal int Size { get; }
-    internal GasPricingScheduleFixture(bool follows = true, int size = 10000, bool sharedPayment = false, bool partial = false)
+    internal GasPricingScheduleFixture(bool follows = true, int size = 10000, bool sharedPayment = false, bool partial = false,
+        (DateTimeOffset FixingAt, DateTimeOffset Expiry)? thirdDailyIndex = null)
     {
         Size = size;
         Clock = GasDayClock.Capture(reference.R("synthetic_schedule_clock"), TimeZoneInfo.Utc, 360);
         var contracts = Enumerable.Range(0, 7).Select(n => new MarketContract(reference.K(100 + n), ContractKind.Forward,
             n == 6 ? From : From.AddDays(n % 3), n == 6 ? From.AddMonths(1) : From.AddDays(n % 3 + 1),
-            Clock.Boundary(From.AddMonths(1)).AddDays(2), null)).ToImmutableArray();
+            n == 5 && thirdDailyIndex is {} strike ? strike.Expiry : Clock.Boundary(From.AddMonths(1)).AddDays(2), null)).ToImmutableArray();
         series = [..contracts.Select((c, n) => new MarketSeries(reference.S(100 + n), c.Key, Quote.Key, null))];
         Curve Curve(string name, IEnumerable<MarketContract> members) => new(reference.C(name), Quote.Key,
             reference.R("location"), reference.R("uniform"), new(SettlementKind.Index, reference.R(name), null),
@@ -40,7 +41,8 @@ internal sealed class GasPricingScheduleFixture
         model = new(reference.Revision, reference.Reference, [reference.Quantities[0]], [Quote], contracts,
             [point, daily, monthly], [], [], series);
         fixings = [..contracts.Select((c, n) => new IndexFixing(reference.R(n < 3 ? "synthetic_point" : n < 6 ? "synthetic_daily" : "synthetic_monthly"),
-            Quote.Key, c.DeliveryFrom, c.DeliveryTo, n == 6 ? Clock.Boundary(From.AddDays(2)).AddHours(-1) : Clock.Boundary(c.DeliveryTo),
+            Quote.Key, c.DeliveryFrom, c.DeliveryTo, n == 5 && thirdDailyIndex is {} strike ? strike.FixingAt :
+                n == 6 ? Clock.Boundary(From.AddDays(2)).AddHours(-1) : Clock.Boundary(c.DeliveryTo),
             series[n].Key, reference.R("publisher"), IndexFixing.SupportedImplementation))];
         var location = new GasDeliveryLocation(reference.R("pipeline"), reference.R("zone"), reference.R("synthetic_point"));
         assignments = [..contracts.Take(3).Select((c, n) => new GasValuationAssignment(reference.R("assignment_" + n), location,
@@ -97,7 +99,7 @@ internal sealed class GasPricingScheduleFixture
 
     internal (PreparedConnectedPortfolioRisk Prepared, ValuationSetup Setup) Prepare(RetainedGasInstrument instrument,
         PhysicalCashState? state, DateTimeOffset? calculationAt = null, string? point = null, bool ended = false, bool publishedMonth = true,
-        ISideDiscounting? discounting = null)
+        ISideDiscounting? discounting = null, string? publishedThirdDailyIndex = null)
     {
         var at = Clock.Boundary(ended ? From.AddDays(2) : From).AddHours(-0.5);
         if(ended) at = Clock.Boundary(From.AddDays(2)).AddHours(1);
@@ -106,6 +108,8 @@ internal sealed class GasPricingScheduleFixture
             new(new(reference.Revision.CatalogId, Guid.NewGuid()), series[n].Key, reference.R(use == InputUse.Variable ? "source" : "publisher"),
                 use == InputUse.Variable ? ObservationRole.TraderMark : ObservationRole.IndexFixing, PublicationState.Final, time, ExactDecimal.Parse(price)));
         var observations = Enumerable.Range(0, 7).Select(n => Observation(n, InputUse.Variable, point is null ? (n < 3 ? "3.10" : n < 6 ? "3.20" : "3.00") : (n == 6 ? point : "3.00"), calculationAt?.AddHours(-1) ?? Clock.Boundary(From).AddDays(-1))).ToList();
+        if (publishedThirdDailyIndex is {} fixingPrice)
+            observations.Add(Observation(5, InputUse.FrozenFact, fixingPrice, fixings[5].FixingAt));
         if(ended)
         {
             observations.Add(Observation(3, InputUse.FrozenFact, "3.30", fixings[3].FixingAt));
