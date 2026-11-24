@@ -227,26 +227,8 @@ def run_checks(Client, check, run_worker, query=None):
           all(item['convention'] == catalog['convention'] for item in risk.call('portfolio/risk/jobs')))
 
 
-def run_supplemental_scope(Client, check, query, manifest, run_worker):
-    """One held supplemental partition must not require an unheld primary graph."""
+def book_supplemental_swap(client, frame, book_id, manifest):
     from preview_fixture import trade_booking
-
-    book_id = str(uuid4())
-    catalog_id = manifest['catalogId']
-    query(f"""BEGIN;
-        SELECT 1 FROM security.epoch FOR UPDATE;
-        WITH publication AS (
-          INSERT INTO trading.publications
-          SELECT '{catalog_id}',coalesce(max(publication_order),0)+1,pg_current_xact_id()
-          FROM trading.publications WHERE catalog_id='{catalog_id}'
-          RETURNING publication_order
-        )
-        INSERT INTO trading.books
-          SELECT '{catalog_id}','{book_id}','d0000000-0000-0000-0000-000000000001',
-            'Supplemental scope',publication_order,'2020-01-01T00:00:00Z' FROM publication;
-        COMMIT;""")
-    client = Client(); client.bootstrap(); client.call('profile', {'profile': 'trader'})
-    frame = initial_frame(client.call('workspace'), '2020-12-18')
     swap_context = {'snapshotId': frame['id'], 'convention': 'independent_side_financial_swap_v2',
                     'knowledgeMode': 'current'}
     swap_catalog = client.call('swaps/catalog', swap_context)
@@ -264,8 +246,31 @@ def run_supplemental_scope(Client, check, query, manifest, run_worker):
              'floating': {'calendarPolicy': all_dates_policy(observation=True), 'spread': '0', 'settlement': {'mode': 'curve_target', 'index': None, 'projectionPolicy': None}, 'curve': index['curve'], 'index': index['index'], 'currency': index['currencyCode'],
                           **delivery, 'paymentSchedule': payment, 'resetFrequency': 'daily', 'averagingMethod': 'arithmetic'}}
     booked = client.call('swaps/book', terms)
+    return index, booked
+
+
+def run_supplemental_scope(Client, check, query, manifest, run_worker):
+    """One held supplemental partition must not require an unheld primary graph."""
+
+    book_id = str(uuid4())
+    catalog_id = manifest['catalogId']
+    query(f"""BEGIN;
+        SELECT 1 FROM security.epoch FOR UPDATE;
+        WITH publication AS (
+          INSERT INTO trading.publications
+          SELECT '{catalog_id}',coalesce(max(publication_order),0)+1,pg_current_xact_id()
+          FROM trading.publications WHERE catalog_id='{catalog_id}'
+          RETURNING publication_order
+        )
+        INSERT INTO trading.books
+          SELECT '{catalog_id}','{book_id}','d0000000-0000-0000-0000-000000000001',
+            'Supplemental scope',publication_order,'2020-01-01T00:00:00Z' FROM publication;
+        COMMIT;""")
+    client = Client(); client.bootstrap(); client.call('profile', {'profile': 'trader'})
+    frame = initial_frame(client.call('workspace'), '2020-12-18')
+    index, booked = book_supplemental_swap(client, frame, book_id, manifest)
     client.call('profile', {'profile': 'risk'})
-    context = {**swap_context, 'convention': 'trading_workspace_v1'}
+    context = dict(snapshotId=frame['id'], convention='trading_workspace_v1', knowledgeMode='current')
     holdings = client.call('trading/blotter', {'context': context, 'view': {**VIEW, 'bookIds': [book_id]}})
     assert len(holdings['holdings']) == 1 and holdings['holdings'][0]['tradeId'] == booked['tradeId']
     retained = {**context, 'knowledgeMode': 'retained', 'contextId': holdings['context']['contextId']}

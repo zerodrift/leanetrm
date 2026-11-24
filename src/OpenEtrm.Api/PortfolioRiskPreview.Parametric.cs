@@ -163,8 +163,9 @@ public sealed partial class PortfolioRiskPreview
             throw new MarketDataException("risk_result_limit","Reduce the explicit statistical scope or window: the complete report exceeds 30 MB.");
         return report;
     }
-    private static RiskWork StatisticalWork(PortfolioValuation.Prepared preparation,RiskWork basis,ImmutableArray<RiskWork> passes,bool repeatedPreparation=true)=>basis with{
+    internal static RiskWork StatisticalWork(PortfolioValuation.Prepared preparation,RiskWork basis,ImmutableArray<RiskWork> passes,bool repeatedPreparation=true)=>basis with{
                 ScenarioCount=passes.Sum(w=>w.ScenarioCount),UnitPricerCalls=passes.Sum(w=>w.UnitPricerCalls),
+                PreparationUnitPricerCalls=passes.Sum(w=>w.PreparationUnitPricerCalls)-(repeatedPreparation?passes.Length-1:0)*preparation.MaterializationWork.UnitPricerCalls,
                 RebuiltCurveNodes=passes.Sum(w=>w.RebuiltCurveNodes)-(repeatedPreparation?passes.Length-1:0)*preparation.MaterializationWork.RebuiltCurveNodes,
                 ReusedCurveNodes=passes.Sum(w=>w.ReusedCurveNodes)-(repeatedPreparation?passes.Length-1:0)*preparation.MaterializationWork.ReusedCurveNodes,
                 PreparationScenarioCount=passes.Sum(w=>w.PreparationScenarioCount)-(repeatedPreparation?passes.Length-1:0)*preparation.MaterializationScenarioCount,

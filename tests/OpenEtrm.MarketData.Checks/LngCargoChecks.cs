@@ -6,7 +6,7 @@ using OpenEtrm.MarketData.Risk;
 
 internal static class LngCargoChecks
 {
-    internal static void Run()
+    internal static void Run(Action<SidedInstrument, SideValuationContext>? inspect = null)
     {
         var revision = new ReferenceRevision(Guid.NewGuid(), Guid.NewGuid());
         ReferenceKey R(string code) => new(revision, code);
@@ -37,10 +37,10 @@ internal static class LngCargoChecks
         if (terms.NamedPlace != R("test_named_port")) throw new Exception("Named Incoterms place must be retained independently of custody points.");
         Reject("lng_incoterms", () => new LngIncoterms(R("edition_2010"), rule, R("test_named_port")));
         Reject("lng_incoterms", () => new LngIncotermsRule(new(new ReferenceRevision(Guid.NewGuid(), Guid.NewGuid()), "cif_2020"), R("edition_2020")));
-        Valuation("1"); Valuation("0.001");
+        Valuation("1", inspect); Valuation("0.001", inspect);
         Console.WriteLine("PASS LNG quantities: explicit discharge mass/energy conversion, exact references and separately retained Incoterms");
     }
-    private static void Valuation(string multiplier)
+    private static void Valuation(string multiplier, Action<SidedInstrument, SideValuationContext>? inspect = null)
     {
         var fixture = new CommodityLookupFixture(31, monthly: true, multiplier: multiplier, commodity: "lng", basis: "gross_energy", dimension: "energy");
         var lookup = fixture.Swap(true, 0).Floating.GenerateSchedule().Rows[0].Prices[0].Lookup!;
@@ -124,6 +124,8 @@ internal static class LngCargoChecks
                 BookedSideProgram.Read(data, new(BookedSideProgram.Digest(data), d.Manifest, d.Family, d.EconomicIdentity, d.PricingBindingIdentity)));
         }).ToImmutableArray();
         var retainedInstrument = new RetainedLngInstrument(instrument.Id, assignment, terms, members);
+        inspect?.Invoke(instrument, Context(market));
+        inspect?.Invoke(retainedInstrument, new SideValuationContext(market, discount).WithUnitEvaluation(market.Snapshot.ValuationAt, false, ValuationMeasure.PresentValue, default).WithRetainedPrograms(new(ScheduleMarketSources.ForPhysicalLng(market, [assignment]), market)));
         RetainedInstrumentContractChecks.Sides(retainedInstrument,[..members.Select(m=>(m.SideId,m.Program,m.Coefficient,(OpenEtrm.Shared.Numerics.ExactRatio?)null))]);
         FixedSide OtherCash(QuoteSpecification quote, int allocation, DateTimeOffset payment, DateOnly? end = null) =>
             new(Guid.NewGuid(), new FlatPrice(new UnitPrice(ExactDecimal.Parse("10"), quote)), quote,

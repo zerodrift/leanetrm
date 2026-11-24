@@ -145,6 +145,10 @@ internal static class ConnectedScenarioChecks
         public CurvePv(Guid id,PriceUnit unit,ImmutableArray<CurveRequest> dependencies,Func<SideValuationContext,ExactMoney> calculate):base(id,SyntheticValueSide.One(id,unit.Currency,unit.Quantity,dependencies,calculate,"synthetic_connected_curve_pv_v1"))
         {Currency=unit.Currency;UnitQuantity=new(ExactDecimal.Parse("1"),unit.Quantity);this.dependencies=dependencies;}
         public override UnitPricingContract Declare(UnitValuationContext context)=>new(Id,"synthetic_connected_curve_pv_v1",dependencies,UnitQuantity.Specification,Currency) { Time = ValuationTimeDependency.Independent };
-        public override InstrumentValuation PV(SideValuationContext context)=>Saved??base.PV(context);
+        public override InstrumentSchedule GenerateSchedule() => new SavedSchedule(this);
+        private sealed class SavedSchedule(CurvePv owner) : InstrumentSchedule(owner)
+        {
+            public override InstrumentValuation Evaluate(SideValuationContext context) => owner.Saved ?? base.Evaluate(context);
+        }
     }
 }

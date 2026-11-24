@@ -75,7 +75,7 @@ public static class GasParkLoanTicket
     public static TicketDescription Describe(TicketDraft? draft)
     {
         if(GasParkCustodyTicket.IsSelected(draft))return GasParkCustodyTicket.Describe(draft);
-        if(draft is not null&&(draft.Product!=Product||draft.Version!=1||draft.Trade is null||draft.Sides.IsDefault||!draft.Sides.IsEmpty))
+        if(draft is not null&&(draft.Product!=Product||draft.Version!=1||draft.Trade is null||draft.Sides.IsDefault||!draft.Sides.IsEmpty||draft.ExerciseRights is {Length:>0}))
             throw Invalid("profile","Supply the installed Park and Loan ticket.");
         return draft?.Trade.GetValueOrDefault("profile") switch
         {
@@ -111,7 +111,7 @@ public static class GasParkLoanTicket
 
     public static GasParkLoanBooking Request(TicketDraft draft,Guid snapshot,Guid context,string knowledgeMode,Guid operation,Guid definition)
     {
-        if(draft is null||draft.Product!=Product||draft.Version!=1||draft.Trade is null||draft.Sides.IsDefault||!draft.Sides.IsEmpty)
+        if(draft is null||draft.Product!=Product||draft.Version!=1||draft.Trade is null||draft.Sides.IsDefault||!draft.Sides.IsEmpty||draft.ExerciseRights is {Length:>0})
             throw Invalid("profile","Supply the installed Park and Loan ticket and its explicit agreement terms.");
         var v=draft.Trade;
         if(!v.TryGetValue("profile",out var selectedProfile)||string.IsNullOrWhiteSpace(selectedProfile))throw Invalid("profile","Select an agreement profile explicitly.");

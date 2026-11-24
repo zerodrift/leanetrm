@@ -784,6 +784,15 @@ body .tabulator-popup-container{border:1px solid var(--border-strong);background
 .ticket-record-fields{display:flex;flex-wrap:wrap;gap:4px 12px;flex:1 1 100%}
 .ticket-record .ticket-field{padding:0;min-width:150px}
 .ticket-record p{flex-basis:100%;margin:0}
+.ticket-exercise-terms{display:grid;gap:10px}
+.ticket-exercise-terms>button{justify-self:start}
+.ticket-exercise-terms .ticket-field-group>button{margin-top:8px}
+.ticket-exercise-terms .ticket-control[multiple]{height:auto;min-height:70px;padding:6px 10px}
+.ticket-exercise-groups td{vertical-align:top}
+.ticket-exercise-groups td:nth-child(n+5){font-variant-numeric:tabular-nums}
+.ticket-exercise-action .ticket-field{flex:1 1 170px}
+.ticket-exercise-action select{width:100%}
+
 .ticket-foot{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:10px}
 .ticket-note{margin-right:auto;color:var(--text-3);font-size:11px}
 @container (max-width:640px){

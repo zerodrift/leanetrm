@@ -20,7 +20,7 @@ function harness(hosted=false){
  let stream,request,invalidations=0;
  const client=createAsyncReadClient({getIdentity:()=>({profile:'synthetic-reader',context:null}),
   post:async(path,body)=>{
-   if(path.endsWith('/channels'))return {protocol,channelId,profile:'synthetic-reader',context:null};
+   if(path.endsWith('/channels'))return {protocol,channelId,profile:'synthetic-reader',context:null,admissionWindowMs:230000};
    if(path.endsWith('/cancel'))return {...body,state:'cancellation_requested'};
    request=body;return {channelId,requestId:body.requestId,state:'accepted'};
   },createEventSource:()=>stream=new Source()});

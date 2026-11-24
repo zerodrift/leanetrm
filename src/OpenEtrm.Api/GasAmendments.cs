@@ -9,8 +9,6 @@ public sealed record TicketAmendRequest([property:JsonRequired]FuturesReadReques
  [property:JsonRequired]Guid TradeId,[property:JsonRequired]Guid BindingId,[property:JsonRequired]int ExpectedRevision,[property:JsonRequired]Guid DefinitionRevisionId,
  [property:JsonRequired]string Reason,[property:JsonRequired]string Policy,Guid? OperationId=null);
 
-internal sealed record GasAmendmentAction(bool Allowed,string? Reason);
-
 // One explicit amendment profile: replace an unstarted composition, retaining
 // the original booking and every earlier owned physical occurrence.
 internal static class GasAmendments
@@ -34,7 +32,7 @@ internal static class GasAmendments
   await using var q=ScheduleStore.Command(c,"SELECT security.gas_amendment_refusal($1,$2,$3,$4,$5)",catalog,trade,revision,binding,at);
   return await q.ExecuteScalarAsync(ct) as string;
  }
- internal static async Task<GasAmendmentAction> Action(NpgsqlConnection c,Guid catalog,Guid trade,Guid binding,int revision,DateTimeOffset at,bool working,CancellationToken ct)
+ internal static async Task<GasTicketAvailability> Action(NpgsqlConnection c,Guid catalog,Guid trade,Guid binding,int revision,DateTimeOffset at,bool working,CancellationToken ct)
  {
   if(!working)return new(false,"Return to working data to amend this trade.");
   var code=await Refusal(c,catalog,trade,binding,revision,at,ct);
@@ -47,7 +45,7 @@ internal static class GasAmendments
    throw new MarketDataException("gas_amendment_input",Message("gas_amendment_input")!);
   if(await Refusal(c,catalog,trade,binding,revision,at,ct) is {} code)throw new MarketDataException(code,Message(code)??"The gas amendment is unavailable.");
  }
- internal static GasCompositionRequest Terms(TicketAmendRequest body,Guid operation)=>GasTicket.Request(body.Draft,body.Context.SnapshotId,
-  body.Context.KnowledgeMode??throw new MarketDataException("ticket_input","Supply the amendment knowledge mode."),operation,body.DefinitionRevisionId) with
+ internal static GasCompositionRequest Terms(TicketAmendRequest body,Guid operation,bool retained=false)=>GasTicket.Request(body.Draft,body.Context.SnapshotId,
+  body.Context.KnowledgeMode??throw new MarketDataException("ticket_input","Supply the amendment knowledge mode."),operation,body.DefinitionRevisionId,retained) with
   {TradeId=body.TradeId,BindingId=body.BindingId,ExpectedRevision=body.ExpectedRevision,Reason=body.Reason,AmendmentPolicy=body.Policy};
 }

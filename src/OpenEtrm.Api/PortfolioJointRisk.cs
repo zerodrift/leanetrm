@@ -7,7 +7,10 @@ using OpenEtrm.MarketData.Risk;
 namespace OpenEtrm.Api;
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record PortfolioScenarioRequest(string Id,string Label,ImmutableArray<CurveShiftRequest> Shifts);
+public sealed record PortfolioVolatilityShiftRequest(Guid InputId,string Size,string Convention);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record PortfolioScenarioRequest(string Id,string Label,ImmutableArray<CurveShiftRequest> Shifts,
+    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)] ImmutableArray<PortfolioVolatilityShiftRequest> Volatility=default);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record PortfolioScenarioSetRequest(string Id,string Version,string Convention,ImmutableArray<PortfolioScenarioRequest> Scenarios);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
@@ -34,7 +37,10 @@ internal static class PortfolioJointRisk
         return RiskEngine.AssessFiniteDifference(values.Select(v=>v.Half).Aggregate((a,b)=>a.Add(b)),
             values.Select(v=>v.Nominal).Aggregate((a,b)=>a.Add(b)),values.Select(v=>v.Double).Aggregate((a,b)=>a.Add(b)),tolerance);
     }
-    internal sealed record Sample(string Id,string Label,ImmutableArray<PortfolioCurveShift> Shifts);
+    internal sealed record Sample(string Id,string Label,ImmutableArray<PortfolioCurveShift> Shifts)
+    {
+        internal ImmutableArray<VolatilityShift> Volatility{get;init;}=[];
+    }
     internal sealed record Axis(string Id,PortfolioCurveBump Bump,FiniteDifferenceTolerance DeltaTolerance,FiniteDifferenceTolerance GammaTolerance);
     internal sealed record Resolved(PortfolioJointRiskRequest Request,ImmutableArray<Sample> Samples,ImmutableArray<Axis> Axes,
         ImmutableArray<ConnectedMixedSensitivity> Mixed)
@@ -64,7 +70,10 @@ internal static class PortfolioJointRisk
         {
             if(!Name(set.Id)||!Name(set.Version)||set.Convention!=ConnectedRiskScenarioSet.Independent||set.Scenarios.IsDefaultOrEmpty||
                 set.Scenarios.Length>MaxScenarios||set.Scenarios.Any(s=>s is null||!Name(s.Id)||string.IsNullOrWhiteSpace(s.Label)||s.Label.Length>160||
-                    s.Shifts.IsDefaultOrEmpty||s.Shifts.Length>MaxShifts)||set.Scenarios.Select(s=>s.Id).Distinct(StringComparer.Ordinal).Count()!=set.Scenarios.Length)throw Invalid();
+                    s.Shifts.IsDefault||s.Shifts.Length+(s.Volatility.IsDefault?0:s.Volatility.Length) is <1 or >MaxShifts)||set.Scenarios.Select(s=>s.Id).Distinct(StringComparer.Ordinal).Count()!=set.Scenarios.Length)throw Invalid();
+            foreach(var sample in set.Scenarios.Where(s=>!s.Volatility.IsDefault))
+                if(sample.Volatility.Any(v=>v is null||v.InputId==Guid.Empty||v.Convention!=VolatilityShift.ParentAdditive||Number(v.Size)==default)||
+                    sample.Volatility.DistinctBy(v=>v.InputId).Count()!=sample.Volatility.Length)throw Invalid();
             foreach(var shift in set.Scenarios.SelectMany(s=>s.Shifts))
                 if(shift?.Factor?.Target is null||shift.Convention!=CurveShift.ParentAdditive||Number(shift.Size)==default)throw Invalid();
         }
@@ -105,10 +114,17 @@ internal static class PortfolioJointRisk
         RiskToleranceRequest Wire(FiniteDifferenceTolerance tolerance)=>new(tolerance.Absolute.ToString(),tolerance.Relative.ToString());
         if(request.Scenarios is {} set)
         {
-            var samples=set.Scenarios.Select(s=>new Sample(s.Id,s.Label,[..s.Shifts.Select(Shift)])).ToImmutableArray();
+            var inputs=portfolio.Markets.SelectMany(m=>m.Connected.UnitContracts).SelectMany(c=>c.Volatility).ToLookup(v=>v.Id);
+            var samples=set.Scenarios.Select(s=>new Sample(s.Id,s.Label,[..s.Shifts.Select(Shift)])
+                {Volatility=s.Volatility.IsDefault?[]:[..s.Volatility.Select(v=>new VolatilityShift(v.InputId,Number(v.Size),v.Convention))]}).ToImmutableArray();
+            foreach(var shift in samples.SelectMany(s=>s.Volatility))
+            {
+                if(inputs[shift.InputId].Distinct().ToArray() is not [var declared])throw Invalid();
+                declared.RequireOffset(shift.Size);
+            }
             foreach(var sample in samples)RequireDisjoint(portfolio,sample.Shifts.Select(x=>x.Axis));
             var canonical=set with{Scenarios=[..samples.Select(s=>new PortfolioScenarioRequest(s.Id,s.Label,
-                [..s.Shifts.Select(x=>new CurveShiftRequest(x.Axis.Request,x.Size.ToString(),CurveShift.ParentAdditive))]))]};
+                [..s.Shifts.Select(x=>new CurveShiftRequest(x.Axis.Request,x.Size.ToString(),CurveShift.ParentAdditive))],s.Volatility.IsEmpty?default:[..s.Volatility.Select(v=>new PortfolioVolatilityShiftRequest(v.InputId,v.Size.ToString(),v.Convention))]))]};
             return new(request with{Scenarios=canonical},samples,[],[]);
         }
         var input=request.Derivatives!;

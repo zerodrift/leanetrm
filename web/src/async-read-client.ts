@@ -71,7 +71,7 @@ type Pending={
 };
 type Retired={operation:AsyncReadOperation;snapshotId:string|null;abandoned:boolean;timer?:ReturnType<typeof setTimeout>};
 type Channel={
-  id?:string;identity:string;ready:boolean;alive:boolean;count:number;controller:AbortController;
+  id?:string;identity:string;ready:boolean;alive:boolean;count:number;renewAt:number;controller:AbortController;
   source?:AsyncReadEventSource;detach?:()=>void;timer?:ReturnType<typeof setTimeout>;
   pending:Map<string,Pending>;active:Set<string>;retired:Map<string,Retired>;
 };
@@ -89,6 +89,7 @@ export function createAsyncReadClient(options:AsyncReadClientOptions){
   function setState(next:AsyncReadConnectionState){if(state!==next){state=next;observe(()=>options.onState?.(next));}}
   function cancelTransports(){for(const [controller,timer] of cancellations){clearTimeout(timer);controller.abort();}cancellations.clear();}
   function active(current:Channel){return current.alive&&channel===current;}
+  function admissionEnded(current:Channel){return performance.now()>=current.renewAt;}
   function currentIdentity(){try{return identityKey(options.getIdentity());}catch{throw identityError();}}
   function requireIdentity(current:Channel){if(current.identity!==currentIdentity())throw identityError();}
   function settle(current:Channel,pending:Pending,result:unknown,error:Error|undefined,abandoned=false,waitForServer=false){
@@ -130,7 +131,7 @@ export function createAsyncReadClient(options:AsyncReadClientOptions){
     settle(current,pending,undefined,error,true,pending.sent);cancelServer(current,pending);pump(current);
   }
   function makeChannel(identity:string,pending=new Map<string,Pending>()):Channel{
-    const current:Channel={identity,ready:false,alive:true,count:0,controller:new AbortController(),pending,active:new Set(),retired:new Map()};
+    const current:Channel={identity,ready:false,alive:true,count:0,renewAt:0,controller:new AbortController(),pending,active:new Set(),retired:new Map()};
     channel=current;return current;
   }
   function renew(current:Channel){
@@ -142,7 +143,10 @@ export function createAsyncReadClient(options:AsyncReadClientOptions){
   function pump(current:Channel){
     if(!active(current)||!current.ready)return;
     try{requireIdentity(current);}catch(error){stop(current,error as Error,'disconnected');return;}
-    if(current.count>=maximumRequests){if(!current.active.size&&current.pending.size)renew(current);return;}
+    if(current.count>=maximumRequests||admissionEnded(current)){
+      if(!current.active.size&&current.pending.size)renew(current);
+      return;
+    }
     for(const pending of current.pending.values()){
       if(current.active.size>=maxActive||current.count>=maximumRequests)break;
       if(pending.reserved)continue;
@@ -152,9 +156,15 @@ export function createAsyncReadClient(options:AsyncReadClientOptions){
         requireIdentity(current);
         const request={channelId:current.id,requestId:pending.id,operation:pending.operation,body:pending.body};
         if(new TextEncoder().encode(JSON.stringify(request)).length>maximumRequestBytes)throw new AsyncReadError('async_read_request','The read exceeds the supported request size.');
+        // A reservation can age before its deferred POST. The unsent request
+        // keeps its queue position, identity and original deadline.
+        if(admissionEnded(current)){
+          pending.reserved=false;current.active.delete(pending.id);current.count--;
+          pump(current);return;
+        }
         pending.sent=true;return options.post(root+'async-reads',request,pending.controller.signal);
       }).then(ack=>{
-        if(!active(current)||!current.pending.has(pending.id))return;
+        if(!active(current)||!pending.sent||!current.pending.has(pending.id))return;
         if(!record(ack)||ack.channelId!==current.id||ack.requestId!==pending.id||ack.state!=='accepted'){stop(current,protocolError(),'disconnected');return;}
         observe(pending.onAccepted);
       }).catch(error=>{
@@ -194,15 +204,22 @@ export function createAsyncReadClient(options:AsyncReadClientOptions){
     }catch(error){stop(current,error instanceof AsyncReadError?error:protocolError(),'disconnected');}
   }
   async function connect(current:Channel){
-    current.timer=setTimeout(()=>stop(current,new AsyncReadError('async_read_connection_timeout','The response stream did not become ready in time.'),'disconnected'),connectionTimeoutMs);
+    const timedOut=()=>stop(current,new AsyncReadError('async_read_connection_timeout','The response stream did not become ready in time.'),'disconnected');
+    current.timer=setTimeout(timedOut,connectionTimeoutMs);
     try{
       requireIdentity(current);
+      // The server starts its lifetime during the open request. Starting the
+      // browser clock before sending keeps its admission window conservative.
+      const opening=performance.now();
       const created=await options.post(root+'async-reads/channels',{clientId},current.controller.signal);
       if(!active(current))return;
       requireIdentity(current);
       if(!record(created)||created.protocol!==protocol||!uuid(created.channelId))throw protocolError();
       if(identityKey(created)!==current.identity)throw identityError();
-      current.id=created.channelId;
+      if(typeof created.admissionWindowMs!=='number'||!Number.isSafeInteger(created.admissionWindowMs)||
+        created.admissionWindowMs<=0)throw protocolError();
+      current.renewAt=opening+created.admissionWindowMs;current.id=created.channelId;
+      if(admissionEnded(current)){timedOut();return;}
       const source=options.createEventSource(root+'async-reads/events?channelId='+encodeURIComponent(current.id));current.source=source;
       const ready=(event:Event)=>{
         if(!active(current))return;
@@ -211,6 +228,7 @@ export function createAsyncReadClient(options:AsyncReadClientOptions){
           if(typeof raw!=='string'||raw.length>2048)throw protocolError();
           const value:unknown=JSON.parse(raw);
           if(current.ready||!record(value)||value.protocol!==protocol||value.channelId!==current.id)throw protocolError();
+          if(admissionEnded(current)){timedOut();return;}
           current.ready=true;clearTimeout(current.timer);setState('connected');pump(current);
         }catch(error){stop(current,error instanceof AsyncReadError?error:protocolError(),'disconnected');}
       };

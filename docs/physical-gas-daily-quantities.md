@@ -107,11 +107,13 @@ Missing source authority is a refusal, not empty evidence. Facility quantities
 follow the existing adoption-to-target-to-allocation links; no rows are copied.
 
 `GasHeldQuantities` builds complete days, including labelled contract fallback, for
-`PhysicalCashState`. Independent membership terms establish which slots follow a
-source even when no operational records exist. The shared lifecycle validates the
-contract quantities against retained schedules and applies exact selected/contract
-ratios. Ended-day cash uses selected quantity, known payment prices and unchanged
-recorded payments. A reduction to zero accrual can therefore leave an overpaid
+`PhysicalCashState`, containing physical owner facts only. D446/D447 retain
+policy, source and part on the Instrument entries. Its schedule validates owner
+days against retained schedules, restricts each payment to its own dates and
+computes taken quantities once. Contract-policy sources with following parts
+supply complete contract-labelled days even without operational records. The
+shared lifecycle applies exact taken/contract ratios. Ended-day cash uses selected
+quantity, known payment prices and unchanged recorded payments. A reduction to zero accrual can therefore leave an overpaid
 balance. Blotter, single-trade reads and retained risk share this behavior.
 
 The quantities response names the saved policy on each row and reports

@@ -175,7 +175,7 @@ internal static class GasForwardSettlementExampleChecks
         var e=new Example();var p=e.Prepare();
         GasCompositionInstrument Composition(FloatingSide cash)=>new(Guid.NewGuid(),
             [new("delivery",e.Instrument.Delivery,ExactDecimal.Parse("1"),ExactDecimal.Parse("100"),null)],
-            [new("payment",cash,"indexed_consideration","delivery",GasQuantityStage.Delivery,ExactDecimal.Parse("-1"))]);
+            [new("payment",cash,"indexed_consideration","delivery",GasQuantityStage.Delivery,ExactDecimal.Parse("-1"),ExactDecimal.Parse("1"))]);
         _=Composition(e.Cash);
         var redistributed=e.Cash.Periods.SetItem(0,e.Cash.Periods[0] with{Allocation=new(3,2)}).SetItem(1,e.Cash.Periods[1] with{Allocation=new(1,2)});
         try{_=Composition(new(Guid.NewGuid(),e.Cash.Settlement,e.Quote,e.Cash.UnitQuantity,redistributed,SyntheticSideCalendars.FloatingPeriods(redistributed),gasDeliveryClock:e.Cash.GasDeliveryClock));throw new Exception("Redistributed indexed quantities were accepted.");}

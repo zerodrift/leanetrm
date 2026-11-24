@@ -96,13 +96,3 @@ public abstract partial class SideScheduleSnapshot
 }
 
 public sealed record SideScheduleIdentity(Guid SideId,string Manifest);
-public static class InstrumentScheduleInspection
-{
- public static ImmutableArray<SideScheduleSnapshot> InspectSchedules(this InstrumentValuation value,ImmutableArray<SideScheduleIdentity> schedules,ExactDecimal scale,Func<DateOnly,DateTimeOffset> boundary)
- {
-  if(value is null||schedules.IsDefault||value.Sides.Length!=schedules.Length||!value.Sides.Select(s=>s.SideId).SequenceEqual(schedules.Select(s=>s.SideId)))
-   throw new MarketDataException("side_schedule_inspection","Inspect the exact valued instrument's complete Side memberships and retained schedules.");
-  return [..value.Sides.Select((side,slot)=>side.Value.InspectSchedule(schedules[slot].Manifest,scale,
-   new SignedRatio(side.QuantityRatio.Numerator,side.QuantityRatio.Denominator)*new SignedRatio(side.Coefficient.ScaledValue,ExactDecimal.WorkingScale),boundary))];
- }
-}

@@ -592,6 +592,14 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             var connected=await CustomCurves.PrepareMarket(connection,database,first.Data,first.Frame,first.Snapshot,exact,instruments,dependencies,CustomCurves.MarketPreparation.ScenarioUniverse,ct,retained,activePrices,operation?.Histories,
                 calculationContext:policy.NativeFutures?.Economic is null&&policy.FuturesOptions?.Physical is null?null:CustomCurves.CompleteContext(first.Frame,first.Snapshot,exact),
                 linkedMarkets:[..inputMarkets.Where(m=>m.Snapshot.Definitions!=first.Snapshot.Definitions).Select(m=>m.Market)]);
+            var exerciseMarkets=gas.Where(g=>g.Snapshot.Definitions==first.Snapshot.Definitions&&!g.ExerciseHoldings.IsEmpty).ToArray();
+            if(exerciseMarkets.Length!=0)
+            {
+                var basis=connected.Valuation.ProgramMarket(connected.Bindings,connected.Authority,ct);
+                var calls=exerciseMarkets.Sum(g=>g.QualifyExercise(basis,ct));
+                materializationWork=materializationWork with{UnitPricerCalls=materializationWork.UnitPricerCalls+calls};
+                materializationScenarios++;
+            }
             markets.Add(new(first.Data,first.Frame,first.Snapshot,
                 RiskEngine.PrepareConnected(connected.Valuation,connected.Bindings,portfolios,connected.Authority,ct),
                 group.Select(m=>m.Measure).ToImmutableArray(),connected.Evidence,connected.Preparation){InputMarket=connected});
@@ -700,7 +708,10 @@ public sealed class PortfolioValuation(PreviewDatabase database)
                     contributions.AddRange(group.BaseValues.Select(v=>(measure,v.BookId,Unchanged(v.Value,bump))));
                     holdingRisk.AddRange(group.BasePositions.Select(p=>new PortfolioHoldingRisk(measure,bump.Axis.Id,
                         new(p.TradeId,p.BindingId,p.BookId,p.ValuationId,Unchanged(p.Value,bump))
-                        {Owner=p.Owner,Components=[..p.Components.Select(c=>new ComponentRiskValues(c.Name,c.Value,c.Value,c.Value))]})));
+                        {Owner=p.Owner,Components=[..p.Components.Select(c=>new ComponentRiskValues(c.Name,c.Value,c.Value,c.Value))],
+                         Entries=[..p.Entries.Select(e=>new EntryRiskValues(e.Slot,e.Value,e.Value,e.Value))],
+                         ExerciseGroups=[..p.ExerciseGroups.Select(g=>new ExerciseGroupRiskValues(g.Group,g.Value,g.Value,g.Value))],
+                         GroupValues=p.GroupValues.IsEmpty?null:new(p.GroupValues,p.GroupValues,p.GroupValues)})));
                 }
                 else
                 {
@@ -731,7 +742,8 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         return new RiskWork(work.Sum(w=>w.PositionCount),work.Sum(w=>w.UniqueValuations),work.Sum(w=>w.UniqueMarketContracts),scenarios,
             work.Sum(w=>w.UnitPricerCalls),work.Sum(w=>w.RebuiltCurveNodes)+prepared.MaterializationWork.RebuiltCurveNodes,
             work.Sum(w=>w.ReusedCurveNodes)+prepared.MaterializationWork.ReusedCurveNodes)
-            {CurveGraphEvaluatedNodes=work.Sum(w=>w.CurveGraphEvaluatedNodes),CurveGraphReusedReads=work.Sum(w=>w.CurveGraphReusedReads),
+            {PreparationUnitPricerCalls=work.Sum(w=>w.PreparationUnitPricerCalls)+prepared.MaterializationWork.UnitPricerCalls,
+             CurveGraphEvaluatedNodes=work.Sum(w=>w.CurveGraphEvaluatedNodes),CurveGraphReusedReads=work.Sum(w=>w.CurveGraphReusedReads),
              UniqueInstruments=work.Sum(w=>w.UniqueInstruments),VolumeComputations=work.Sum(w=>w.VolumeComputations),
              UniqueSideCalculations=work.Sum(w=>w.UniqueSideCalculations),ResolvedCurveMonths=work.Sum(w=>w.ResolvedCurveMonths),
              ReusedCurveMonths=work.Sum(w=>w.ReusedCurveMonths),CalibratedBlocks=work.Sum(w=>w.CalibratedBlocks),ReusedBlocks=work.Sum(w=>w.ReusedBlocks),

@@ -21,7 +21,22 @@ export type RiskPosition={tradeId:string;bindingId:string;bookId:string;book:str
 
 /** The option valuation a run's request selected, as the run states it among its inputs. */
 export type OptionValuationPolicy={observationRole:string;numericalPolicy:string;scenarioPolicy:string;calibrationFallback:string};
-export type RiskWorkReport={heldInstruments:number;work:{positionCount:number;uniqueValuations:number;scenarioCount:number;preparationScenarioCount:number;unitPricerCalls:number;rebuiltCurveNodes:number;reusedCurveNodes:number;repeatedInstrumentReferences:number;quantityApplications:number};connectedScenarios:{definitions:{revisionId:string};work:{evaluatedNodes:number;reusedReads:number;affectedNodes:number;traversedAffectedEdges:number};preparation:{sourceCompilations:number;declaredSourceNodes:number}}[]};
+export type PricerCallWork={unitPricerCalls:number;preparationUnitPricerCalls?:number;totalUnitPricerCalls?:number};
+export function validPricerCalls(work:PricerCallWork){
+ const count=(n:unknown)=>typeof n==='number'&&Number.isSafeInteger(n)&&n>=0;
+ return !!work&&count(work.unitPricerCalls)&&(
+  !('totalUnitPricerCalls' in work)&&!('preparationUnitPricerCalls' in work)||
+  count(work.totalUnitPricerCalls)&&count(work.preparationUnitPricerCalls));
+}
+export function requirePricerCalls(work:PricerCallWork){
+ if(!validPricerCalls(work))throw Error('The risk work receipt has incomplete pricer call counts.');
+}
+export function pricerCallText(work:PricerCallWork,label=''){
+ requirePricerCalls(work);
+ const calls=work.totalUnitPricerCalls??work.unitPricerCalls;
+ return `${calls}${label?' '+label:''}${work.preparationUnitPricerCalls?' ('+work.preparationUnitPricerCalls+' in preparation)':''}`;
+}
+export type RiskWorkReport={heldInstruments:number;work:PricerCallWork&{positionCount:number;uniqueValuations:number;scenarioCount:number;preparationScenarioCount:number;rebuiltCurveNodes:number;reusedCurveNodes:number;repeatedInstrumentReferences:number;quantityApplications:number};connectedScenarios:{definitions:{revisionId:string};work:{evaluatedNodes:number;reusedReads:number;affectedNodes:number;traversedAffectedEdges:number};preparation:{sourceCompilations:number;declaredSourceNodes:number}}[]};
 /**
  * A portfolio risk report: each factor's results by book and by holding, and the positions the run leaves out. An earlier job's
  * result can lack its list of those positions, which is refused when it is shown, never read as leaving out none.

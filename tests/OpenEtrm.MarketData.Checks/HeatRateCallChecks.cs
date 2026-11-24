@@ -26,7 +26,7 @@ internal static class HeatRateCallChecks
 
     private static readonly ExactDecimal One = ExactDecimal.Parse("1");
 
-    private sealed class Strip
+    internal sealed class Strip
     {
         public Fixture F { get; } = new();
         public CurveModel Model { get; }

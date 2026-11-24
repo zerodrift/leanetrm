@@ -31,11 +31,10 @@ public sealed record RecForwardInstrument:SidedInstrument
  {if(state is not null)throw new MarketDataException("rec_lifecycle","Certificate forwards currently require an unstarted contractual valuation without cash or inventory fulfillment state.");}
  public override void ValidateBinding(Quantity quantity,DeliveryCoverage? coverage)
  {RecForwardRules.Quantity(quantity,UnitQuantity);base.ValidateBinding(quantity,coverage);}
- public override InstrumentValuation PV(SideValuationContext context)
+ protected internal override void RequireBeforeValuation(SideValuationContext context)
  {
   if(OperatingSchedules.Terms(Sides[0].Side).Periods[0].Interval.Start<=context.Snapshot.ValuationAt)
    throw new MarketDataException("rec_delivery_lifecycle","A started certificate delivery requires a separately selected fulfillment lifecycle.");
-  return base.PV(context);
  }
 }
 
@@ -68,8 +67,7 @@ public sealed record RetainedRecForwardInstrument:RetainedProgramInstrument<Reta
         RequireUnstarted(context.Snapshot);
   return base.Value(context);
  }
-    public override InstrumentValuation PV(SideValuationContext context)
-    {RequireUnstarted(context.Snapshot);return base.PV(context);}
+    protected internal override void RequireBeforeValuation(SideValuationContext context) => RequireUnstarted(context.Snapshot);
     private void RequireUnstarted(MarketSnapshot snapshot)
     {
         if(Members[0].Program.Document.Instructions.Any(i=>i.Output.Operation=="output_guard"&&i.Output.Interval!.Start<=snapshot.ValuationAt))

@@ -6,7 +6,7 @@ using OpenEtrm.Shared.Temporal;
 
 internal static class RecForwardChecks
 {
- internal static int Run()
+ internal static int Run(Action<SidedInstrument, SideValuationContext>? inspect = null)
  {
   var f=new Fixture();var one=ExactDecimal.Parse("1");var q=new QuantitySpecification(f.R("cert_count"),f.R("cert"),f.R("issued"),f.R("rec"),f.R("number"));
   var quote=new QuoteSpecification(f.R("cert_price"),QuoteKind.Outright,f.R("currency"),q.Key,one,ExactDecimal.Parse("0.01"),ExactDecimal.Parse("0.001"),ExactDecimal.Parse("-1000"),ExactDecimal.Parse("1000"));
@@ -41,6 +41,8 @@ internal static class RecForwardChecks
   var mismatched=cash.OperatingDefinition! with{Periods=[new(nextDay,monthly,monthly.AddMonths(1),new(null,unit),null)]};
   Refuse(physical,new FixedSide(Guid.NewGuid(),mismatched,new FlatPrice(new(ExactDecimal.Parse("40"),quote))));
   var physicalProgram=retained.Members[0].Program;var market=model.Build(snapshot,instrument.Dependencies);
+  inspect?.Invoke(instrument, new SideValuationContext(market, setup.Discounting!));
+  inspect?.Invoke(retained, SideValuationContext.ForRetainedPrograms(market, market, setup.Discounting!));
   var execution=ScheduleMarketSources.ForOperating(market).Evaluate(physicalProgram,physical.Id,market,new ExplicitDiscounting(one,DiscountFactorSource.Undiscounted));
   var inspection=SideScheduleSnapshot.FromProgram(physical.Id,snapshot.Id,new("physical_delivery",execution,physicalProgram,ExactDecimal.Parse("100"),new(-1,1),[]),d=>new(d.ToDateTime(TimeOnly.MinValue),TimeSpan.Zero));
   var detail=inspection.Read(0,8).Rows.Single();

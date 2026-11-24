@@ -21,7 +21,7 @@ def run_checks(url,query=None,manifest=None,run_worker=None):
     body={**context,**trade_booking(),'operationId':str(uuid4()),'bookId':cat['books'][0]['id'],'definitionRevisionId':cat['locations'][0]['definitionRevisionId'],
           'gasSetupId':cat['gasSetupId'],'discounting':False,'profile':'fixed_gas_composition_v1',
           'physicalSides':[physical('receipt','synthetic_gas_point_a','receive','1000',None),physical('delivery','synthetic_gas_point_b','deliver',None,{'source':'receipt','formula':'gross_less_fraction','fraction':'0.02'})],
-          'cashSides':[{'code':'usage','role':'fee','direction':'pay','source':'delivery','stage':'delivery','price':'0.1','tariffCode':None,'paymentAt':'2021-02-02T00:00:00Z','calendarPolicy':side_calendar_policy(reference,delivery=True,observation=False,payment=True)}]}
+          'cashSides':[{'code':'usage','role':'fee','share':'1','direction':'pay','source':'delivery','stage':'delivery','price':'0.1','tariffCode':None,'paymentAt':'2021-02-02T00:00:00Z','calendarPolicy':side_calendar_policy(reference,delivery=True,observation=False,payment=True)}]}
     value=c.call('gas/composition/preview',body)
     assert Decimal(value['presentValue'])==64
     assert value['sides'][0]['deliveryRows'][0]['meter']['identifier']=='SYN-METER-A-JAN'

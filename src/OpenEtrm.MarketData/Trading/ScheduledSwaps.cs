@@ -26,7 +26,7 @@ public sealed record ScheduledFinancialSwap:SidedInstrument
             throw new MarketDataException("scheduled_swap_instrument","Scheduled side allocations must sum exactly to one in a common native unit and currency.");
         SwapSidePeriods.Monthly(sides[0].Side);SwapSidePeriods.Monthly(b);Discounting=discounting;
     }
-    public override InstrumentValuation PV(SideValuationContext context)=>FinancialSwapInstrument.RequireDiscounting(base.PV(context),Discounting);
+    protected internal override void RequireAfterValuation(InstrumentValuation value)=>FinancialSwapInstrument.RequireDiscounting(value,Discounting);
 }
 [EconomicDefinition("scheduled_projection_bindings_v2")]
 internal sealed record ScheduledProjectionBindings([property:IdentityField]ImmutableArray<string> Sides);

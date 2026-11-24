@@ -128,7 +128,7 @@ def run_checks(url,query,manifest):
     c.call('tickets/description',{'context':context,'product':'power'},expected=422)
     p=next(p for p in cat['locations'] if p['deliveryPoint']=='synthetic_gas_point_a')
     reference=dict(revision=dict(catalogId=RCAT,revisionId=RREV),code='test_utc_every_day')
-    cash=lambda code,role,direction,price:{'code':code,'role':role,'direction':direction,'source':'physical','stage':'delivery','price':price,'tariffCode':None,'paymentAt':'2021-02-05T00:00:00Z','calendarPolicy':side_calendar_policy(reference,delivery=True,observation=False,payment=True)}
+    cash=lambda code,role,direction,price:{'code':code,'role':role,'share':'1','direction':direction,'source':'physical','stage':'delivery','price':price,'tariffCode':None,'paymentAt':'2021-02-05T00:00:00Z','calendarPolicy':side_calendar_policy(reference,delivery=True,observation=False,payment=True)}
     body={**context,**trade_booking(),'operationId':str(uuid4()),'bookId':cat['books'][0]['id'],'definitionRevisionId':p['definitionRevisionId'],
           'gasSetupId':cat['gasSetupId'],'discounting':False,'profile':'fixed_gas_composition_v1',
           'physicalSides':[{'code':'physical','pipeline':p['pipeline'],'zone':p['zone'],'deliveryPoint':p['deliveryPoint'],'product':p['product'],'direction':'deliver',
@@ -223,7 +223,7 @@ def check_ticket_operations(c,context,cat,description,body,view,query,manifest):
     physical={'quantity_policy':'contract','direction':'deliver','delivery_from':'2021-01-01','delivery_to':'2021-02-01','product':p['product'],'quantity':'10000','quantity_basis':'per_operating_day',
               'pipeline':p['pipeline'],'zone':p['zone'],'delivery_point':p['deliveryPoint']}
     def charge(kind,direction,price):
-        return {f'{kind}_direction':direction,f'{kind}_source':'physical',f'{kind}_stage':'delivery',f'{kind}_price':price,f'{kind}_payment_at':'2021-02-05T00:00:00Z'}
+        return {f'{kind}_share':'1',f'{kind}_part':'whole',f'{kind}_start':physical['delivery_from'],f'{kind}_end':physical['delivery_to'],f'{kind}_direction':direction,f'{kind}_source':'physical',f'{kind}_stage':'delivery',f'{kind}_price':price,f'{kind}_payment_at':'2021-02-05T00:00:00Z'}
     draft={'product':'physical_gas','version':1,'trade':trade,'sides':[{'kind':'physical','code':'physical','values':physical,'calendarPolicy':body['physicalSides'][0]['calendarPolicy']},
            {'kind':'cash','code':'cash','values':charge('cash','receive','3.412'),'calendarPolicy':body['cashSides'][0]['calendarPolicy']},{'kind':'fee','code':'fee','values':charge('fee','pay','0.045'),'calendarPolicy':body['cashSides'][1]['calendarPolicy']}]}
 
@@ -314,11 +314,13 @@ def check_ticket_operations(c,context,cat,description,body,view,query,manifest):
     refused('tickets/trade',{'context':context,'tradeId':fact['tradeId'],'bindingId':str(uuid4()),'revision':fact['revision']},'position_unavailable')
     assert opened['actions']['record']['allowed'] is True,opened['actions']
     # Day entries are offered only where the record operation takes them: on working data, to a role that may amend trades.
-    recording=lambda at:c.call('tickets/trade',{'context':at,'tradeId':fact['tradeId'],'bindingId':fact['bindingId'],'revision':fact['revision']})['actions']['record']
+    recording=lambda at,reader=c:reader.call('tickets/trade',{'context':at,'tradeId':fact['tradeId'],'bindingId':fact['bindingId'],'revision':fact['revision']})['actions']['record']
     captured_after={**context,'knowledgeMode':'retained','contextId':c.call('gas/catalog',context)['context']['contextId']}
     assert recording(captured_after)=={'allowed':False,'reason':'Return to working data before recording daily quantities.'},recording(captured_after)
     refused('gas/quantities/record',{**record,'context':captured_after,'operationId':str(uuid4()),'quantity':'9100','expectedPreviousId':receipt['revisionId']},'historical_read_only')
-    c.call('profile',{'profile':'risk'});unpermitted=recording(context);c.call('profile',{'profile':'trader'})
+    # Keep the trader's read proofs while other roles inspect the trade and publish subsequent revisions.
+    other=PreviewClient(c.url);other.bootstrap();other.call('profile',{'profile':'risk'})
+    unpermitted=recording(context,other)
     assert unpermitted=={'allowed':False,'reason':'Your current role does not have Amend Trade permission.'},unpermitted
     # A stored single-point gas booking opens read-only as the composition it is: one physical side, its payment and its fee, each charged on the
     # side's delivered quantity and paid at the booking's one payment instant. Its schedule, from its own retained programs, is exactly the
@@ -332,7 +334,7 @@ def check_ticket_operations(c,context,cat,description,body,view,query,manifest):
     point=c.call('tickets/trade',{'context':context,'tradeId':single_fact['tradeId'],'bindingId':single_fact['bindingId'],'revision':single_fact['revision']})
     sides=point['draft']['sides'];paid=sides[1]['values']['cash_payment_at']
     assert datetime.fromisoformat(paid)==datetime.fromisoformat('2021-02-02T00:00:00+00:00') and sides[2]['values']['fee_payment_at']==paid,sides
-    charged=lambda kind,direction,price:{f'{kind}_direction':direction,f'{kind}_source':'physical-1',f'{kind}_stage':'delivery',f'{kind}_price':price,f'{kind}_payment_at':paid}
+    charged=lambda kind,direction,price:{f'{kind}_share':'1',f'{kind}_part':'whole',f'{kind}_start':physical['delivery_from'],f'{kind}_end':physical['delivery_to'],f'{kind}_direction':direction,f'{kind}_source':'physical-1',f'{kind}_stage':'delivery',f'{kind}_price':price,f'{kind}_payment_at':paid}
     assert point['draft']=={'product':'physical_gas','version':1,'trade':trade,'sides':[
         {'kind':'physical','code':'physical-1','values':{**physical,'direction':'receive','quantity':'1000','quantity_basis':'period_total_equal_days'},'calendarPolicy':single['deliveryCalendarPolicy']},
         {'kind':'cash','code':'cash-1','values':charged('cash','pay','3'),'calendarPolicy':single['considerationCalendarPolicy']},{'kind':'fee','code':'fee-1','values':charged('fee','pay','0.045'),'calendarPolicy':single['feeCalendarPolicy']}]},point['draft']
@@ -344,16 +346,15 @@ def check_ticket_operations(c,context,cat,description,body,view,query,manifest):
 
     # Historical choices: a point retired by a later gas setup stays listed, and priced, in the earlier context.
     # Publication is append-only, so the check leaves the setup as it found it by publishing the found configuration again.
-    c.call('profile',{'profile':'editor'})
-    authored=c.call('gas-setup/catalog');original=authored['configuration'];retired='synthetic_gas_point_d'
+    other.call('profile',{'profile':'editor'})
+    authored=other.call('gas-setup/catalog');original=authored['configuration'];retired='synthetic_gas_point_d'
     without={**original,'paths':[x for x in original['paths'] if x['point']!=retired],'meters':[m for m in original['meters'] if m['point']!=retired]}
     def publish(configuration,base):
-        saved=c.call('gas-setup/save',{'operationId':str(uuid4()),'baseSetupId':base,'configuration':configuration})
-        c.call('profile',{'profile':'approver'});c.call('gas-setup/publish',{'operationId':str(uuid4()),'setupId':saved['setupId']});c.call('profile',{'profile':'editor'})
+        saved=other.call('gas-setup/save',{'operationId':str(uuid4()),'baseSetupId':base,'configuration':configuration})
+        other.call('profile',{'profile':'approver'});other.call('gas-setup/publish',{'operationId':str(uuid4()),'setupId':saved['setupId']});other.call('profile',{'profile':'editor'})
         return saved['setupId']
     later=publish(without,authored['activeSetupId'])
-    order=next(v['publication_order'] for v in c.call('gas-setup/catalog')['versions'] if v['id']==later)
-    c.call('profile',{'profile':'trader'})
+    order=next(v['publication_order'] for v in other.call('gas-setup/catalog')['versions'] if v['id']==later)
     # A gas setup is named by its publication order.
     named=c.call('tickets/choices',{'context':context,'draft':{'product':'physical_gas','version':1,'trade':{},'sides':[]},'side':None,'field':'gas_setup'})['choices']
     assert named==[{'value':later,'label':f'Published setup {order}'}],named
@@ -383,17 +384,14 @@ def check_ticket_operations(c,context,cat,description,body,view,query,manifest):
     assert retired in choices(context,at_d(cat['gasSetupId']),'physical','delivery_point'), 'Physical choices do not select a pricing setup'
     then=lookup(retained,at_d(cat['gasSetupId']),'physical','price')
     assert then['value'] and then['source']['label']==f"{d['deliveryPointName']} · close 2020-12-18",then
-    c.call('profile',{'profile':'editor'});publish(original,later)
-    assert c.call('gas-setup/catalog')['configuration']==original,'The deal ticket check must leave the gas setup configuration it found.'
+    publish(original,later)
+    assert other.call('gas-setup/catalog')['configuration']==original,'The deal ticket check must leave the gas setup configuration it found.'
 
     # Historical party choices: a counterparty revised after a context was captured lists its earlier revision there.
     party={'kind':'counterparty','id':None,'expectedRevision':None,'code':'ticket_counterparty','name':'Synthetic ticket counterparty','effectiveAt':'2020-12-01T00:00:00Z'}
-    first=c.call('parties/save',{**party,'operationId':str(uuid4())})
-    c.call('profile',{'profile':'trader'})
+    first=other.call('parties/save',{**party,'operationId':str(uuid4())})
     captured={**context,'knowledgeMode':'retained','contextId':c.call('gas/catalog',context)['context']['contextId']}
-    c.call('profile',{'profile':'editor'})
-    second=c.call('parties/save',{**party,'operationId':str(uuid4()),'id':first['id'],'expectedRevision':1,'name':'Revised synthetic ticket counterparty','effectiveAt':'2020-12-02T00:00:00Z'})
-    c.call('profile',{'profile':'trader'})
+    second=other.call('parties/save',{**party,'operationId':str(uuid4()),'id':first['id'],'expectedRevision':1,'name':'Revised synthetic ticket counterparty','effectiveAt':'2020-12-02T00:00:00Z'})
     listed=lambda at:[v for v in choices(at,{'product':'physical_gas','version':1,'trade':{},'sides':[]},None,'counterparty') if v.startswith(first['id']+'@')]
     assert second['revision']==2 and listed(captured)==[f"{first['id']}@1"] and listed(context)==[f"{first['id']}@2"],(listed(captured),listed(context))
     print('PASS deal ticket operations: description, catalog and party choices by parent and context, exact tariff references and labelled market prices at the pinned close, mapped drafts preview and book idempotently with payment and fee sides, working-data-only booking, and a booked trade reopens as its draft',flush=True)

@@ -29,6 +29,7 @@ public sealed record ExactQuantity
  internal static void RequireRange(BigInteger numerator,BigInteger denominator)
  {if(numerator.GetBitLength()>4096||denominator.GetBitLength()>4096)throw new MarketDataException("numeric_range","The exact quantity exceeds its supported bound.");}
  public static ExactQuantity FromQuantity(Quantity value)=>new(value.Amount.ScaledValue,ExactDecimal.WorkingScale,value.Specification);
+ public static ExactQuantity FromRatio(SignedRatio value,ReferenceKey specification)=>new(value.Numerator,value.Denominator,specification);
  public ExactQuantity Scale(OpenEtrm.Shared.Numerics.ExactRatio ratio)=>new(value * new SignedRatio(ratio.Numerator,ratio.Denominator),Specification);
  public ExactQuantity Scale(ExactDecimal factor)=>ScaleFraction(factor.ScaledValue,ExactDecimal.WorkingScale);
  public ExactQuantity Times(QuantityFactor factor,ReferenceKey target,UnitConverter converter)=>factor.Apply(this,target,converter);

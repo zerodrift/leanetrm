@@ -65,14 +65,17 @@ class CheckAllTests(unittest.TestCase):
             workloads[group] = [command for command in commands
                                 if command[0] == sys.executable and command[1].startswith('tools/')]
         previews = workloads['gas']
-        self.assertEqual(len(previews), 8)
+        self.assertEqual(len(previews), 9)
         self.assertTrue(all(command[1] == 'tools/run_preview.py' for command in previews))
         preview_flags = {
             '--gas-basis-demo-check', '--gas-operations-check', '--gas-billing-check',
             '--gas-daily-quantity-check', '--gas-amendments-check', '--gas-indexed-check',
-            '--gas-in-term-check', '--gas-delivery-quantity-check'}
+            '--gas-in-term-check', '--gas-delivery-quantity-check', '--gas-pricing-check', '--gas-exercise-check'}
         self.assertEqual({part for command in previews for part in command if part in preview_flags},
                          preview_flags)
+        exercise=[command for command in previews if '--gas-exercise-check' in command]
+        self.assertEqual(len(exercise),1)
+        self.assertTrue({'--gas-pricing-check','--browser-check'}.issubset(exercise[0]))
         quantity=next(command for command in previews if '--gas-delivery-quantity-check' in command)
         self.assertIn('--browser-check',quantity)
         self.assertNotIn('--gas-composition-check',quantity)

@@ -1,5 +1,14 @@
 # Final daily gas cash determinations
 
+## Pricing-entry boundary (D447)
+
+Final daily billing requires share one, no quantity part and the full source
+term. A non-unit share, band/shortfall or shorter payment period refuses with
+`gas_billing_input` at the API and `gas_billing_profile` in the native writer.
+This check applies independently of whether the entry's current taken quantity
+happens to equal its source. New named indexed payments remain outside this
+fixed-price determination profile. Valuation accrual is not a final bill.
+
 D338 implements a bounded commercial consumer, `gas_final_daily_fixed_cash_v1`.
 It consumes one completed native gas day and one fixed-price payment or fee
 membership from a retained composed booking. It determines original/correcting

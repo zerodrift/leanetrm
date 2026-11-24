@@ -50,6 +50,8 @@ export async function checkGasEntryOutlook(actions){
  const pick=async(name,value)=>click(root+' input[name="'+name+'"][value="'+value+'"]');
  await pick('gas-location-agreements','separate_confirmations');await pick('gas-location-purchase-price','fixed');await pick('gas-location-sale-price','indexed');await click('#gas-location-assemble');
  await wait("document.querySelectorAll('#gas-locations-page .ticket-card').length===4&&"+idle);
+ await check('grouped two-location entry keeps its existing Side controls',
+  "!document.querySelector('#gas-locations-page [data-term-section=exerciseRights]')");
  const card=code=>root+' .ticket-card[data-side="'+code+'"]';
  await check('purchase shows its two editable Sides',`document.querySelector('${card('purchase')}').checkVisibility()&&document.querySelector('${card('purchase_payment')}').checkVisibility()&&!document.querySelector('${card('sale')}').checkVisibility()`);
  await set(card('purchase')+' [data-field=quantity] input','137');

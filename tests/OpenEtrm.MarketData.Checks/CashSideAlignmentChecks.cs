@@ -6,7 +6,7 @@ using OpenEtrm.Shared.Numerics;
 
 internal static class CashSideAlignmentChecks
 {
-    internal static void Run()
+    internal static void Run(Action<SidedInstrument, SideValuationContext>? inspect = null)
     {
         var f=new Fixture();var at=f.Snapshot().ValuationAt;var due=at.AddHours(13);
         Instrument cash=new TimedCashPayment(f.R("currency"),due);
@@ -56,6 +56,7 @@ internal static class CashSideAlignmentChecks
             if(run.Groups.Single().BaseValues.Single().Value.ToExactString()!=expected)throw new Exception("The Side path changed genuine cash remaining PV.");
             var context=new UnitValuationContext(snapshot,setup,prepared.Market.Pricing,prepared.Contracts[0][0],bindingState:state);
             var value=sided.PV(context.SideContext());
+            inspect?.Invoke(sided, context.SideContext());
             var side=value.Sides.Single().Value;
             var inspected=side.InspectSchedule("synthetic_cash_side",ExactDecimal.Parse("16"),new SignedRatio(1,1),
                 day=>new(day.ToDateTime(TimeOnly.MinValue),TimeSpan.Zero)).Read(0,4).Rows.Single();

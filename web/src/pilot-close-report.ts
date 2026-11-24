@@ -1,3 +1,4 @@
+import {pricerCallText,validPricerCalls,type PricerCallWork} from './risk-report.js';
 import {amountText,prepareAmountDisplay} from './amount-display.js';
 import {renderRegularTable} from './regular-table.js';
 
@@ -5,14 +6,14 @@ type Cash={numerator:string;denominator:string;currency:unknown};
 type Report={reportId:string;runId:string;close:{id:string;name:string;at:string;kind:string};
  totals:{measure:string;bookId:string;book:string;currencyLabel:string;value:Cash}[];
  risk:{measure:string;bookId:string;book:string;currencyLabel:string;factor:{label:string;unit:string;bumpSize:string};up:Cash;down:Cash;upPnl:Cash;downPnl:Cash;delta:{value:Cash};gamma:{value:Cash}}[];
- work:{positionCount:number;uniqueValuations:number;scenarioCount:number;unitPricerCalls:number;quantityApplications:number;reusedUnitScenarioValues:number}};
+ work:PricerCallWork&{positionCount:number;uniqueValuations:number;scenarioCount:number;quantityApplications:number;reusedUnitScenarioValues:number}};
 function exact(value:Cash){
  if(!value||!/^[-]?\d+$/.test(value.numerator)||!/^\d+$/.test(value.denominator)||/^0+$/.test(value.denominator))throw Error('The report contains an incomplete exact amount.');
  return value.denominator==='1'?value.numerator:`${value.numerator}/${value.denominator}`;
 }
 const measure=(value:string)=>value==='futures_execution_pnl'?'Futures execution P&L':value==='swap_present_value'?'Swap PV':value;
 export function validatePilotReport(result:Report,runId:string){
- if(!result||result.runId!==runId||result.reportId!==runId||result.close?.id!==runId||!Array.isArray(result.totals)||!Array.isArray(result.risk))throw Error('The requested close report is incomplete. Refresh its run status.');
+ if(!result||result.runId!==runId||result.reportId!==runId||result.close?.id!==runId||!Array.isArray(result.totals)||!Array.isArray(result.risk)||result.work&&!validPricerCalls(result.work))throw Error('The requested close report is incomplete. Refresh its run status.');
  return result;
 }
 
@@ -23,7 +24,7 @@ export function setupPilotCloseReport(options:{api:<T>(path:string,body?:unknown
   if(!current)return;
   const report=current;
   get('pilot-report-title').textContent=`${report.close.name} · ${options.instant(report.close.at)}`;
-  get('pilot-report-work').textContent=`${report.work.positionCount} holdings · ${report.work.uniqueValuations} unique instruments · ${report.work.scenarioCount} scenarios · ${report.work.unitPricerCalls} unit valuations · ${report.work.quantityApplications} quantity applications · ${report.work.reusedUnitScenarioValues} reused unit values.`;
+  get('pilot-report-work').textContent=`${report.work.positionCount} holdings · ${report.work.uniqueValuations} unique instruments · ${report.work.scenarioCount} scenarios · ${pricerCallText(report.work,'unit valuations')} · ${report.work.quantityApplications} quantity applications · ${report.work.reusedUnitScenarioValues} reused unit values.`;
   renderRegularTable(get('pilot-report-totals'),'pilot-report-totals',options.identity(),['Book','Measure','Currency','Base value'],report.totals.map(t=>[
    t.book,measure(t.measure),t.currencyLabel,amountText(exact(t.value),'money')]),[3],options.busy);
   renderRegularTable(get('pilot-report-risk'),'pilot-report-risk',options.identity(),['Book','Measure','Market factor','Currency','Quote unit','Bump','Up change','Down change','Delta','Gamma'],report.risk.map(r=>[

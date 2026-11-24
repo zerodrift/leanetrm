@@ -3,14 +3,15 @@ import type {RiskFactor,RiskReport} from './risk-report.js';
 import type {ScenarioShift} from './risk-scenarios.js';
 
 export type RiskTolerance={absolute:string;relative:string};
-export type JointRequest={convention:string;scenarios:{id:string;version:string;convention:string;scenarios:{id:string;label:string;shifts:ScenarioShift[]}[]}|null;
+export type JointVolatilityShift={inputId:string;size:string;convention:string};
+export type JointRequest={convention:string;scenarios:{id:string;version:string;convention:string;scenarios:{id:string;label:string;shifts:ScenarioShift[];volatility?:JointVolatilityShift[]}[]}|null;
  derivatives:{convention:string;axes:{id:string;bump:ScenarioShift;deltaTolerance:RiskTolerance;gammaTolerance:RiskTolerance}[];mixed:{id:string;firstAxis:string;secondAxis:string;tolerance:RiskTolerance}[]}|null};
 export type JointCapabilities={convention:string;scenarioConvention:string;derivativeConvention:string;bumpConvention:string;shiftConvention:string;maxScenarios:number;maxShifts:number;maxAxes:number;maxMixed:number};
 type RowIdentity={bookId:string;book:string;measure:string;measureLabel:string};
 type Position=RowIdentity&{tradeId:string;bindingId:string;tradeReference:string;instrumentReference:string;instrumentType:string};
 export type JointValues={base:string;value:string;pnl:string;loss:string;currency:string;currencyReference:unknown;display:{base:string;value:string;pnl:string;loss:string}};
 export type JointEstimate={half:string;nominal:string;double:string;stable:boolean;currency:string;currencyReference:unknown;unit:string;tolerance:RiskTolerance;display:{half:string;nominal:string;double:string}};
-export type JointSample={id:string;label:string;shifts:{factor:RiskFactor;size:string}[];totals:(RowIdentity&{values:JointValues})[];positions:(Position&{values:JointValues})[]};
+export type JointSample={id:string;label:string;shifts:{factor:RiskFactor;size:string}[];volatility?:JointVolatilityShift[];totals:(RowIdentity&{values:JointValues})[];positions:(Position&{values:JointValues})[]};
 export type JointDerivative={id:string;formula:string;axes:string[];factorUnits:{unit:string;priceUnit:unknown}[];totals:(RowIdentity&{values:JointEstimate})[];positions:(Position&{values:JointEstimate})[]};
 export type JointReport={kind:'scenarios'|'derivatives';request:JointRequest;baseTotals:(RowIdentity&{value:string;display:string;currency:string;currencyReference:unknown})[];
  axes:{id:string;factor:RiskFactor;bump:string}[];samples:JointSample[];derivatives:JointDerivative[];

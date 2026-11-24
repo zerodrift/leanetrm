@@ -6,8 +6,11 @@ namespace OpenEtrm.Api;
 
 // The workbench multiplexes named managed reads; authorization is freshly
 // checked at execution and fenced publication. Writes keep their ordinary routes.
-internal sealed class AsyncReads(PreviewDatabase database,CancellationToken stopping,bool hosted,ILogger logger):IAsyncDisposable
+internal sealed class AsyncReads(PreviewDatabase database,CancellationToken stopping,bool hosted,ILogger logger,TimeSpan submissionLimit):IAsyncDisposable
 {
+    // Both active slots may finish together and publish in sequence.
+    readonly int admissionWindowMs=(int)(AsyncReadChannel.Lifetime-submissionLimit-AsyncReadChannel.ReadLimit-
+        AsyncReadChannel.DeliveryLimit*AsyncReadChannel.MaximumActive).TotalMilliseconds;
     readonly object registryGate=new();
     readonly Dictionary<Guid,Owner> channels=[];
     sealed record Owner(AsyncReadChannel Channel,PreviewSession Session,Guid ClientId,string Profile,ScheduleContext? Context,LiveSelection? Live,string? HostedDigest)
@@ -53,7 +56,7 @@ internal sealed class AsyncReads(PreviewDatabase database,CancellationToken stop
                         "Asynchronous read failed: operation={Operation} request={RequestId} type={ExceptionType} method={Method} sqlstate={SqlState}",
                         failure.Operation,failure.RequestId,failure.ExceptionType,failure.Method,failure.SqlState));
                     channels.Add(channel.Id,new(channel,current,body.ClientId,profile,current.MarketContext,current.Live,hosted?current.Digest:null));
-                    return Results.Ok(new {protocol=AsyncReadChannel.Protocol,channelId=channel.Id,profile,context=current.MarketContext});
+                    return Results.Ok(new {protocol=AsyncReadChannel.Protocol,channelId=channel.Id,profile,context=current.MarketContext,admissionWindowMs});
                 }
             }
             finally{current.Gate.Release();}
@@ -148,7 +151,7 @@ internal sealed class AsyncReads(PreviewDatabase database,CancellationToken stop
                     // Reauthorize the exact references and observations at delivery,
                     // not merely the role used when this read entered the queue.
                     using var delivery=CancellationTokenSource.CreateLinkedTokenSource(ct);
-                    delivery.CancelAfter(TimeSpan.FromSeconds(10));
+                    delivery.CancelAfter(AsyncReadChannel.DeliveryLimit);
                     // Keep the same gate-before-database order as ordinary handlers.
                     // Both fences cover only this bounded publication, never evaluation
                     // or stream idle time; a waiting revocation cannot race disclosure.

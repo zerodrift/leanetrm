@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using OpenEtrm.Shared.Numerics;
 using OpenEtrm.MarketData.CustomCurves;
 using OpenEtrm.MarketData.Calculation;
 using OpenEtrm.MarketData.Power;
@@ -91,6 +92,7 @@ public sealed class ExplicitDiscounting : ISideDiscounting
 {
     private readonly ExactDecimal factor;
     private readonly DiscountFactorSource source;
+    internal bool Undiscounted => source == DiscountFactorSource.Undiscounted;
     public ExplicitDiscounting(ExactDecimal factor, DiscountFactorSource source)
     {
         if (factor.CompareTo(default) <= 0 || source is not (DiscountFactorSource.Explicit or DiscountFactorSource.Undiscounted) ||
@@ -126,6 +128,9 @@ public sealed class ExplicitDiscounting : ISideDiscounting
 public sealed record SchedulePriceTerm
 {
     public static SchedulePriceTerm FromLookup(IndexPriceLookup lookup)=>new(ExactDecimal.Parse("1"),null,lookup);
+    // Preparation preserves the consumer's explicit delivery-mark contract. A
+    // published payment fixing is not required to qualify its physical mark.
+    public bool UsesDeliveryMark { get; init; }
     public ExactDecimal Weight { get; }
     public FixedPriceTerm? FixedPrice { get; }
     public DateOnly? FixedPriceDate { get; }
@@ -251,6 +256,7 @@ public sealed record ResolvedSchedulePrice
 public sealed partial class SideValuationContext
 {
     private readonly PricingInputs? pricingInputs;
+    internal SignedRatio ExerciseVolatility(VolatilityInput input) => pricingInputs is null ? input.Ratio : pricingInputs.Volatility(input.Id);
     public PricingInputs Inputs=>pricingInputs??throw new MarketDataException("risk_dependency","This Side requires its declared unit valuation inputs.");
     private Dictionary<Side,SideValuation> sideValues=new(ReferenceEqualityComparer.Instance);
     internal int EvaluatedSides=>sideValues.Count+RetainedOccurrenceCalculations;
@@ -545,6 +551,14 @@ public sealed record SideContribution
 
 public sealed record InstrumentValuation
 {
+ public ImmutableArray<SideScheduleSnapshot> InspectSchedules(ImmutableArray<SideScheduleIdentity> schedules,ExactDecimal scale,Func<DateOnly,DateTimeOffset> boundary)
+ {
+  if(schedules.IsDefault||Sides.Length!=schedules.Length||!Sides.Select(s=>s.SideId).SequenceEqual(schedules.Select(s=>s.SideId)))
+   throw new MarketDataException("side_schedule_inspection","Inspect the exact valued instrument's complete Side memberships and retained schedules.");
+  return [..Sides.Select((side,slot)=>side.Value.InspectSchedule(schedules[slot].Manifest,scale,
+   new SignedRatio(side.QuantityRatio.Numerator,side.QuantityRatio.Denominator)*new SignedRatio(side.Coefficient.ScaledValue,ExactDecimal.WorkingScale),boundary))];
+ }
+
     public const string Policy = "signed_exact_side_pv_sum_v1";
     public Guid InstrumentId { get; }
     public ReferenceKey Currency { get; }
@@ -554,6 +568,9 @@ public sealed record InstrumentValuation
     public string? ScenarioId => Context.ScenarioId;
     public string CurveNumericalPolicy => Context.CurveNumericalPolicy;
     public ImmutableArray<SideContribution> Sides { get; }
+    public ImmutableArray<ExerciseGroupValue> Groups { get; } = [];
+    internal ImmutableArray<ExerciseGroupContribution> UnitExerciseGroups { get; } = [];
+    internal ExactMoney UndecidedUnitValue { get; }
     public ExactMoney PresentValue { get; }
     public string NumericalPolicy { get; }
     public InstrumentValuation(Instrument instrument,SideValuationContext context,ExactMoney presentValue,string numericalPolicy)
@@ -568,10 +585,12 @@ public sealed record InstrumentValuation
         if(instrument is null||context is null||string.IsNullOrWhiteSpace(numericalPolicy))
             throw new MarketDataException("instrument_context","A unit PV requires an exact instrument, valuation context and numerical policy.");
         InstrumentId=instrument.Id;Currency=instrument.Currency;UnitQuantity=instrument.UnitQuantity;Context=context;Snapshot=context.Snapshot;
-        NumericalPolicy=numericalPolicy;Sides=[];PresentValue=null!;
+        NumericalPolicy=numericalPolicy;Sides=[];PresentValue=null!;UndecidedUnitValue=ExactMoney.Parse("0", Currency);
     }
-    internal InstrumentValuation(SidedInstrument instrument, SideValuationContext context, ImmutableArray<SideValuation> values)
-        :this(instrument,context,Policy)
+    internal InstrumentValuation(SidedInstrument instrument, SideValuationContext context, ImmutableArray<SideValuation> values,
+        ImmutableArray<ExerciseGroupValue> groups = default)
+        :this(instrument,context,!groups.IsDefaultOrEmpty && groups.Any(group => group.Inputs is not null)
+            ? Policy + "/" + RetainedExerciseValuation.ModelPolicy : Policy)
     {
         if (values.IsDefault || values.Length != instrument.Sides.Length || values.Where((v, n) => v is null ||
             v.SideId != instrument.Sides[n].Side.Id || v.Currency != instrument.Currency ||
@@ -581,6 +600,17 @@ public sealed record InstrumentValuation
                 !(instrument is IRetainedSideComposition && context.OwnsRetainedOccurrence(v.Context, slot, instrument.Sides[slot].Side))).Any())
             throw new MarketDataException("instrument_context", "All side PVs must belong to this valuation operation, including its exact scenario and discount inputs.");
         Sides = values.Select((v, n) => new SideContribution(instrument.Sides[n], v)).ToImmutableArray();
-        PresentValue = Sides.Select(s => s.Contribution).Aggregate((a, b) => a.Add(b));
+        var sideTotal = Sides.Select(s => s.Contribution).Aggregate((a, b) => a.Add(b));
+        Groups = groups.IsDefault ? [] : groups;
+        if (!Groups.IsEmpty)
+        {
+            var held = ((PhysicalCashState)context.BindingState!).Quantity.Amount.ScaledValue;
+            var perUnit = new SignedRatio(held.Sign * ExactDecimal.WorkingScale, System.Numerics.BigInteger.Abs(held));
+            // Decided obligations are already present in their ordinary membership rows.
+            UnitExerciseGroups = [..Groups.Where(g => g.State is "undecided" or "undecided_forecast")
+                .Select(g => new ExerciseGroupContribution(new(g.Right, g.From, g.To), g.Counted.Scale(perUnit)))];
+            UndecidedUnitValue = UnitExerciseGroups.Aggregate(UndecidedUnitValue, (total, group) => total.Add(group.Value));
+        }
+        PresentValue = Groups.IsEmpty ? sideTotal : sideTotal.Add(UndecidedUnitValue);
     }
 }
