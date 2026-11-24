@@ -31,7 +31,7 @@ export type ExerciseGroup={right:number;from:string;to:string;state:ExerciseStat
  inputs:{receives:string;pays:string;certain:string;receivesVolatility:string|null;paysVolatility:string|null;correlation:string|null;years:string}|null};
 export type ScheduleViewCell={value:string|null;sources:string[];quantityPart?:string;sourceQuantity?:string;quantityEvidence?:DeliveryQuantityEvidence[];exercisePeriods?:ExercisePeriod[]};
 export type ScheduleViewRow={key:string;parent:string|null;level:string;start:string;end:string;operatingDate:string|null;cells:Record<string,ScheduleViewCell>;delivered:boolean};
-export type ScheduleView={levels:string[];rows:ScheduleViewRow[];totals:Record<string,ScheduleViewCell>;delivered:Record<string,ScheduleViewCell>|null;remaining:Record<string,ScheduleViewCell>|null;deliveredLeaves:number;leaves:number;valuationAt:string;groups?:ExerciseGroup[]};
+export type ScheduleView={levels:string[];rows:ScheduleViewRow[];totals:Record<string,ScheduleViewCell>;delivered:Record<string,ScheduleViewCell>|null;remaining:Record<string,ScheduleViewCell>|null;deliveredLeaves:number;leaves:number;valuationAt:string;progressBasis?:'native_schedule_rows_v1';groups?:ExerciseGroup[]};
 export type ScheduleRefusal={code:string;message:string};
 export type TicketSummary={side:string;billedQuantity:string|null;amount:string|null;againstMarket:string|null};
 export type TradeAction={allowed:boolean;reason:string};

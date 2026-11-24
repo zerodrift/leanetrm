@@ -415,6 +415,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
    var contribution=valuation.Sides[member.Slot];var sideValue=(RetainedProgramValuation)contribution.Value;
    var amount=contribution.Contribution.Scale(quantity);
    var sideView=sideValue.ViewInput(member.Code,quantity,new(member.Ratio.Numerator*member.Direction,member.Ratio.Denominator),TicketDescriptions.ViewColumns(GasTicket.SideKind(member.Role)));
+   if(member.Owned?.Basis==ChargeBasis.Capacity)sideView=sideView with{MonthlyScalarRows=true};
    // Contract-policy operational overlays remain display-only. Selected-policy
    // rows already carry their exact entry quantities from the Instrument.
    if(sideView.FollowedDays is null&&recorded?.GetValueOrDefault(member.Code) is {} recordedDays)
@@ -453,7 +454,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
     var clock=members.Where(m=>m.Role=="physical").Select(m=>m.Clock).Distinct().ToArray();
     if(clock.Length!=1)throw new MarketDataException("schedule_view","A gas schedule view requires every physical side to share one gas-day clock.");
     schedule=ScheduleViews.Build(views.ToImmutable(),GasTicket.Description.Levels,clock[0].Boundary,
-     envelopeMonthlyIntervals:members.Any(m=>m.Owned is not null));
+     independentIntervals:members.Any(m=>m.Owned is not null));
    }
    catch(MarketDataException error)when(error.Code is "schedule_view" or "gas_day_boundary"){refusal=new(error.Code,error.Message);}
   // No contract-against-market measure is defined for these sides yet, so none is reported.

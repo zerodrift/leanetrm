@@ -65,6 +65,8 @@ export async function run(actions){
  await until(t.current());
  await check('each charge gets the label for its own selected basis',
   priceLabel('charge-1','Amount')+'&&'+priceLabel('charge-2','Rate per unit per day'));
+ await check('owning charges count completed native schedule rows in the draft',
+  `${at(ticket+' .ticket-progress-text')}?.textContent==='1 of 37 schedule rows completed'`);
 
  await evaluate(`{const send=window.fetch;window.chargeReplies={};window.fetch=async(input,init)=>{
   const response=await send(input,init),path=String(input);

@@ -29,6 +29,8 @@ public sealed record ScheduleView(ImmutableArray<string> Levels,ImmutableArray<S
 {
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
     public ImmutableArray<ExerciseGroupReport> Groups { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? ProgressBasis { get; init; }
 }
 // An operational quantity recorded for one operating day, as the view shows it (signed and scaled like the side's
 // quantities), and the kind of record it is: nominated, confirmed, scheduled or allocated.
@@ -40,6 +42,8 @@ public sealed record SideViewInput(string Code,BookedSideEvaluation Evaluation,B
     ImmutableArray<(string Column,ScheduleViewMeasure Measure)> Columns,ImmutableDictionary<DateOnly,ScheduleViewQuantity>? Recorded=null,
     ImmutableDictionary<DateOnly,EntryDayQuantity>? FollowedDays=null,QuantityPart? Part=null)
 {
+    // A monthly payment keeps its display grain even when its retained interval is one operating day.
+    public bool MonthlyScalarRows { get; init; }
     public ImmutableArray<ExerciseGroupReport> ExerciseGroups { get; init; } = [];
     // A controlled membership has one right and its contiguous, ordered periods.
     internal ImmutableArray<ExerciseSchedulePeriod> Periods(DateOnly from,DateOnly to)
@@ -89,7 +93,7 @@ public static class ScheduleViews
         ImmutableArray<DeliveryQuantityEvidence> QuantityEvidence,SignedRatio? SourceQuantity,ImmutableArray<ExerciseSchedulePeriod> Periods);
 
     public static ScheduleView Build(ImmutableArray<SideViewInput> sides,ImmutableArray<string> levels,Func<DateOnly,DateTimeOffset> boundary,
-        bool envelopeMonthlyIntervals=false)
+        bool independentIntervals=false)
     {
         if(sides.IsDefaultOrEmpty||sides.Any(side=>side?.Evaluation is null)||levels.IsDefaultOrEmpty||boundary is null)
             throw Error("Select the evaluated sides, row levels and operating-day boundary of the schedule view.");
@@ -114,7 +118,7 @@ public static class ScheduleViews
                 if(finer.Length>0)spans=spans.Append((finer.Min(piece=>piece.Start),finer.Max(piece=>piece.End)));
                 // A coarse envelope covers only the extent of the contributing windows.
                 // Each scalar amount stays at its own level.
-                var envelope=level=="term"||(level=="month"&&envelopeMonthlyIntervals);
+                var envelope=level=="term"||(level=="month"&&independentIntervals);
                 var span=envelope?[(group.Min(piece=>piece.Start),group.Max(piece=>piece.End))]:spans.Distinct().ToArray();
                 if(span.Length!=1)throw Error($"Values on schedule row {group.Key} disagree on its clock interval or are finer than its level.");
                 var delivered=span[0].End<=valuationAt;
@@ -124,10 +128,18 @@ public static class ScheduleViews
             }
         }
         Add(pieces,0,null);
+        // An independent native row can share a visual parent with finer rows and end at another instant.
+        // Count the same whole contributions that are used for the split totals.
+        if(independentIntervals)
+        {
+            leaves=pieces.Length;
+            deliveredLeaves=pieces.Count(piece=>piece.End<=valuationAt);
+        }
         var split=deliveredLeaves>0;
         return new(levels,rows.ToImmutable(),Cells(sides,pieces),split?Cells(sides,[..pieces.Where(piece=>piece.End<=valuationAt)]):null,
             split?Cells(sides,[..pieces.Where(piece=>piece.End>valuationAt)]):null,deliveredLeaves,leaves,valuationAt)
-            {Groups=sides.All(s=>s.ExerciseGroups.IsEmpty)?default:[..sides.SelectMany(s=>s.ExerciseGroups).Distinct().OrderBy(g=>g.Right).ThenBy(g=>g.From)]};
+            {ProgressBasis=independentIntervals?"native_schedule_rows_v1":null,
+             Groups=sides.All(s=>s.ExerciseGroups.IsEmpty)?default:[..sides.SelectMany(s=>s.ExerciseGroups).Distinct().OrderBy(g=>g.Right).ThenBy(g=>g.From)]};
     }
 
     private static IEnumerable<Piece> Pieces(SideViewInput side,Func<DateOnly,DateTimeOffset> boundary)
@@ -177,7 +189,7 @@ public static class ScheduleViews
                 {
                     literals??=PhysicalDeliverySchedule.ReadLiteralQuantities(side.Program,ExactRatio.One).ToImmutableDictionary(row=>(row.Instruction,row.Cell),row=>row.Quantity);
                     if(!literals.TryGetValue((quantityRow,cell),out var contract))throw Error("Every shown cell requires its resolved quantity, price and amount; evaluate the side's complete term.");
-                    var ended=Interval(document,guard.Output,cell,boundary);
+                    var ended=Interval(document,guard.Output,cell,boundary,side.MonthlyScalarRows);
                     var(held,heldTags)=Shown(ended.Day,new SignedRatio(contract.NumeratorValue,contract.DenominatorValue)*scale,ContractTag);
                     pieces.Add(new(side,ended.Level,ended.Month,ended.Day,ended.Start,ended.End,held*(selected?.Fraction??new SignedRatio(1,1)),null,null,
                         (selectionTags??heldTags)|DeliveredTag|contingent,DeliveredTag|contingent,DeliveredTag|contingent,null,null,selected?.Evidence??default,selected?.Selected,periods));
@@ -189,7 +201,7 @@ public static class ScheduleViews
                 if(quantity.Kind!="quantity"||price.Kind!="price"||(units??=(quantity.Unit,price.Unit,price.Currency,price.QuoteMultiplier,cash.Currency))!=
                     (quantity.Unit,price.Unit,price.Currency,price.QuoteMultiplier,cash.Currency))
                     throw Error("A side's shown quantities, prices and amounts must keep one exact unit, quote scale and currency.");
-                var interval=Interval(document,guard.Output,cell,boundary);
+                var interval=Interval(document,guard.Output,cell,boundary,side.MonthlyScalarRows);
                 var payment=contribution.States[cell].Kind==ComponentKind.Payment?guard.Output.ValueAt??throw Error("A payment requires its value date."):(DateTimeOffset?)null;
                 var(shown,tags)=Shown(interval.Day,Ratio(quantity.Values[q])*scale,VolumeTag(volume));
                 var priceTags=PriceTag(price.States[p].Prices);
@@ -220,17 +232,21 @@ public static class ScheduleViews
         }
         throw Error("Every shown cell requires its resolved quantity, price and amount; evaluate the side's complete term.");
     }
-    private static (string Level,string Month,string? Day,DateTimeOffset Start,DateTimeOffset End) Interval(BookedSideProgramDocument document,ScheduleDefinitionRow row,int cell,Func<DateOnly,DateTimeOffset> boundary)
+    private static (string Level,string Month,string? Day,DateTimeOffset Start,DateTimeOffset End) Interval(BookedSideProgramDocument document,ScheduleDefinitionRow row,int cell,Func<DateOnly,DateTimeOffset> boundary,
+        bool monthlyScalarRows)
     {
         if(row.Grid is {} grid)
         {
+            if(monthlyScalarRows)throw Error("A monthly scalar projection requires a scalar window.");
             var interval=document.Grids[grid].Interval(cell);var day=interval.OperatingDate;
             if(interval.Start!=boundary(day)||interval.End!=boundary(day.AddDays(1)))
                 throw Error("A shown grid cell must cover exactly one operating day on the selected boundary.");
             return("day",Month(day),day.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),interval.Start,interval.End);
         }
         if(row.DeliveryFrom is not {} from||row.DeliveryTo is not {} to)throw Error("A scalar contribution requires its delivery window.");
-        var level=to==from.AddDays(1)?"day":Month(from)==Month(to.AddDays(-1))?"month":"term";
+        var oneMonth=Month(from)==Month(to.AddDays(-1));
+        if(monthlyScalarRows&&!oneMonth)throw Error("A monthly scalar window must stay within one operating month.");
+        var level=!monthlyScalarRows&&to==from.AddDays(1)?"day":oneMonth?"month":"term";
         return(level,Month(from),level=="day"?from.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture):null,boundary(from),boundary(to));
     }
     private static ImmutableDictionary<string,ScheduleViewCell> Cells(ImmutableArray<SideViewInput> sides,IReadOnlyCollection<Piece> scope)

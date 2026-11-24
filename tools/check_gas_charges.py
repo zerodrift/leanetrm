@@ -283,12 +283,21 @@ def run_checks(url, query, manifest, run_worker, admin_load):
     calendar_policy = side_calendar_policy(calendar, delivery=True, observation=False, payment=True)
     body.update(profile='fixed_gas_composition_v1', cashSides=[])
     body['physicalSides'][0].pop('quantityPolicy')
+    plain_schedule = c.call('gas/composition/preview', body)['schedule']
+    assert (plain_schedule['deliveredLeaves'], plain_schedule['leaves']) == (0, 3) and 'progressBasis' not in plain_schedule, plain_schedule
     plain = c.call('gas/composition/book', body)
     assert query(f"SELECT count(*) FROM trading.gas_component_terms WHERE instrument_id='{plain['instrumentId']}' AND role='charge';") == '0'
     lump = dict(code='premium', basis='lump_sum', direction='pay', price='5000', clockSide='gas',
                 dailyQuantity=None, paymentAt='2020-12-18T00:00:00Z', paymentDay=None, **{'from': None, 'to': None}, calendarPolicy=calendar_policy)
     capacity = dict(code='capacity', basis='capacity', direction='pay', price='0.02', clockSide='gas',
                     dailyQuantity='10000', paymentAt=None, paymentDay=2, **{'from': '2021-01-20', 'to': '2021-03-11'}, calendarPolicy=calendar_policy)
+    stub = {**body, 'physicalSides': [{**body['physicalSides'][0], 'deliveryFrom': '2021-01-31', 'deliveryTo': '2021-02-01'}],
+            'chargeSides': [{**capacity, 'from': '2021-01-31', 'to': '2021-02-03'}]}
+    stub_schedule = c.call('gas/composition/preview', stub)['schedule']
+    assert (stub_schedule['progressBasis'], stub_schedule['deliveredLeaves'], stub_schedule['leaves']) == ('native_schedule_rows_v1', 0, 3), stub_schedule
+    cells = {row['key']: row['cells'] for row in stub_schedule['rows']}
+    assert [(key, Fraction(cells[key]['capacity.amount']['value'])) for key in ('2021-01', '2021-02')] == [('2021-01', -200), ('2021-02', -400)], cells
+    assert all(cells['2021-01-31']['capacity.' + field]['value'] is None for field in ('quantity', 'price', 'amount')), cells
     body.update(operationId=str(uuid4()), chargeSides=[lump,capacity])
     draft = c.call('gas/composition/preview', body)
     booked = c.call('gas/composition/book', body)

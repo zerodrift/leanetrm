@@ -212,11 +212,16 @@ function strip(o:TicketView,fields:TicketField[]){
  const view=o.schedule,node=el('header','ticket-strip');
  const title=el('div','ticket-title');
  // The panel heading names the product; the strip names only the trade's state.
- title.append(el('strong','ticket-state',o.mode==='amend'?'Amendment':o.mode==='new'?'Draft':!view?'Booked':view.delivered?'Booked · in delivery':'Booked · forward'));
+ const nativeRows=view?.progressBasis==='native_schedule_rows_v1';
+ const started=nativeRows?'Booked · started':'Booked · in delivery';
+ const booked=!view?'Booked':view.delivered?started:'Booked · forward';
+ title.append(el('strong','ticket-state',o.mode==='amend'?'Amendment':o.mode==='new'?'Draft':booked));
  node.append(title,tradeFields(o,fields));
  if(view?.delivered){
   const progress=el('div','ticket-progress'),bar=el('progress');bar.max=view.leaves;bar.value=view.deliveredLeaves;
-  progress.append(bar,el('span','ticket-progress-text',`${view.deliveredLeaves} of ${view.leaves} delivered`),el('span','ticket-valuation',`Valued at ${o.instant(view.valuationAt)}`));
+  if(nativeRows)bar.setAttribute('aria-label','Completed schedule rows');
+  const unit=nativeRows?'schedule rows completed':'delivered';
+  progress.append(bar,el('span','ticket-progress-text',`${view.deliveredLeaves} of ${view.leaves} ${unit}`),el('span','ticket-valuation',`Valued at ${o.instant(view.valuationAt)}`));
   node.append(progress);
  }
  node.append(statusLine(o.status));
