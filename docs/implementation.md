@@ -1,5 +1,32 @@
 # Current implementation record
 
+## Independent gas charges (D449)
+
+Gas composition uses the existing fixed Side for both lump-sum and
+constant daily capacity charges. The immutable owning term retains its
+physical clock and stated daily quantity. The membership represents that
+quantity as an exact ratio of the holding base. Quote multiplier normalization
+preserves the stated cash without rounding. The shared lifecycle builds day states per owning
+slot and applies recorded remittances by exact saved occurrence.
+Legacy no-charge canonical identity and following-payment coverage are
+preserved.
+
+Migration 0397 extends gas component terms, native booking and payment
+admission. It keeps the raw stated price, quantity, clock selector and
+payment terms with the exact authorized versioned references. The native
+writer checks the shape, quote arithmetic and calendars; cash admission
+checks the earned-day boundary and nominal sign. Charges remain independent
+of exercise decisions and outside final daily billing.
+
+The shared ticket uses explicit calendar controls, basis-specific labels
+and field refusals. The combined schedule preserves monthly capacity rows
+and counts completions at each native row's end. Each Side inspector
+shows exact retained intervals and cash states. Local verification passed
+18 gas, 20 trading and 81 managed runner workloads. Gas and trading reported
+208 and 489 owned browser checks, and managed reported 804 core checks.
+See the [verification record](verification.md#independent-gas-charges-d449)
+for counting conventions and the remaining review gate.
+
 ## Exercise rights on a gas Instrument (D448)
 
 The retained gas schedule accepts optional rights over disjoint entry sets.
@@ -21,9 +48,9 @@ groups even when multiple delivery clocks prevent a combined grid.
 The main working Blotter can prepare and record physical elections under
 current authority. Historical and secondary windows remain read-only.
 
-The full local gas, trading and managed groups pass 17, 20 and 81 runner
-workloads respectively. Gas and trading report 193 and 489 owned browser checks,
-and managed reports 803 core checks. The complete frontend run and the counting
+The earlier D448 qualification passed 17 gas, 20 trading and 81 managed
+runner workloads. Gas and trading reported 193 and 489 owned browser checks,
+and managed reported 803 core checks. The complete frontend run and the counting
 conventions are recorded in [verification](verification.md#exercise-rights-on-a-gas-instrument-d448).
 Integrated CI is a separate merge gate.
 

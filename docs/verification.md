@@ -1,5 +1,79 @@
 # Local verification and continuous integration
 
+## Independent gas charges (D449)
+
+Local verification on 2026-11-24 at `8447da1b` uses synthetic trades with
+stock PostgreSQL 18.7 and the checkout's own API and worker. The pinned
+tools are .NET SDK 10.0.402, Python 3.14.2, Node 24.22.0 and Chrome on
+macOS arm64. The gas, trading and
+managed groups run sequentially through `tools/check_all.py`. Integration
+fixtures provision and remove their own databases. With the pinned tools
+selected, run the groups from the repository root.
+
+```bash
+for group in gas trading managed; do
+  python3 tools/check_all.py --pg-bin "$PG_BIN" --dotnet "$DOTNET" --browser "$BROWSER" --group "$group" || exit
+done
+```
+
+All three groups exited 0.
+
+| Group | Runner `CHECK` workloads | Printed `PASS` checkpoints | Owned browser checks | Completed workers | Databases removed |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Gas | 18 | 1,212 | 208 | 27 | 10 |
+| Trading | 20 | 1,588 | 489 | 20 | 10 |
+| Managed | 81 | 2,809 | — | — | — |
+
+Runner workloads include locked restores and builds. Printed checkpoints
+include repeated setup and migration checks. Browser counts come from the
+owned runner summaries. Each integration group also qualified one worker
+refusal for an altered retained manifest (`risk_graph_manifest`). Managed
+reported 804 core checks and 211 gas ticket checks.
+
+The managed charge checks pin the no-charge identities and unchanged
+following payment values. They exercise exact row shapes and charge
+quantities, a second physical clock, distinct resolved day states across two
+clocks, a term outside physical delivery, partial and overpaid cash, and
+earlier knowledge. The lump sum refuses remittance one microsecond before
+its derived earned day ends and admits it at that boundary, before its
+payment date begins. Capacity payable on day 1 uses the exact completion
+instant later the same day. Independent task review examined these temporal
+boundaries and the separate own-day and physical day geometry. The final
+whole-branch review and verification after its findings remain pending.
+
+The gas charge integration workload reported 110 PASS checkpoints, 15 owned
+browser checks and three completed retained workers. It compares independent
+entry values and position components in previews, exact trades, the Blotter
+and shared scenarios. The held schedule's reference example checks a
+capacity charge of 10,000 units per day at 0.02. After ten days it has −2,000 accrued
+and −4,000 unrealized. A −1,000 remittance leaves −1,000 outstanding then.
+An earlier knowledge view of the same close excludes that remittance.
+Changing delivery size leaves the charge amounts fixed. The workload also
+covers retained workers, a multiplier-two typed price, remittance sign and
+zero-amount refusals, request replay, invalid native shapes, an
+exercise premium with unchanged group value and final billing refusals.
+
+The browser exercises explicit calendars, cleared basis-dependent price,
+payment day 1–28, booking and exact retained charge Terms. It checks both
+basis-specific labels, blank daily capacity cells, and the accrued,
+outstanding and unrealized amounts through the exact Side inspectors.
+The combined schedule includes independent monthly intervals and preserves
+the monthly grain of a one-day capacity stub. Its progress uses the number
+of native rows completed at their own ends. The ordinary projection still
+uses its leaf-based progress, with no native-row basis marker.
+
+The complete frontend suite passed 2,353 tests with zero failures and
+skips. That task verification ran the frontend build and the following
+two-worker test invocation from `web`. The focused managed schedule check
+reported 20 checks, and the ticket description check reported 68.
+
+```bash
+npm run build
+node --test --test-concurrency=2 tests/*.test.mjs
+```
+
+Integrated CI is a separate merge gate.
+
 ## Exercise rights on a gas Instrument (D448)
 
 Local verification on 2026-11-24 uses the application tree at `f777479d`,

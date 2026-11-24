@@ -1,5 +1,61 @@
 # Deal ticket
 
+## Gas charge Side (D449)
+
+**Add side** offers **Charge** on standalone Physical gas tickets. Choose
+**A lump sum** or **A daily capacity** under **Charged on**. Both use an
+explicit **Direction**, **Gas day of**, and **Schedule calendars** with
+delivery and payment bindings. **Gas day of** lists physical Sides from the
+same trade. A sole physical Side is visibly proposed. The charge counts
+toward seven payment Sides and eight total Sides.
+
+| Basis | Entered terms |
+| --- | --- |
+| A lump sum | **Amount** in trade currency and **Payment date** in UTC |
+| A daily capacity | **Rate per unit per day**, **Daily quantity**, **From**, **To · exclusive**, and **Payment day** from 1 through 28 of the following month |
+
+Changing basis clears the amount or rate and uses the selected basis's
+price label. The ticket sends only applicable terms and uses the shared
+calendar control. The API's optional `chargeSides` array contains the
+entry code, basis, direction, price, clock-side code, calendar policy and
+the selected basis's quantity and date fields. When no charges are present
+the ticket omits the array.
+
+Charge booking input refusals carry `gas_composition_input` with the
+responsible Side and field. The basis field identifies an invalid basis
+and charge Side limits. A term entered for the wrong basis identifies its
+own field. Invalid direction, amount/rate, quantity, dates or clock choice
+identify their corresponding fields. A capacity payment day before
+completion's UTC date targets `charge_payment_day`. Exact quote
+representation failures target `charge_price`. A gas-day boundary failure
+keeps `gas_day_boundary` on `charge_clock_side`. Calendar failures target
+`calendar_policy` with their original code
+(`calendar_reference`, `side_calendar_policy`, `side_calendar_conflict`,
+`side_calendar_applicability` or `calendar_coverage`). The shared calendar
+control shows the field error.
+Exercise choices omit charges. A right explicitly naming one refuses on
+`right_sides` with `gas_composition_input`.
+
+Booked Terms show the exact retained charge memberships, directions, stated
+prices, physical clock witnesses and payment coordinates. Capacity Terms
+include the payment day and convention. Each Side inspector shows its exact
+row dates and the accrued, paid, outstanding and unrealized values, including
+**To come** for unrealized cash in the undiscounted gas profile.
+
+On a shared clock the combined Instrument schedule for a composition with
+charges spans the earliest actual start through the latest actual end among
+that month's contributions. Each Side keeps its own grain and exact cells.
+A one-day capacity stub stays monthly and leaves its daily cells blank.
+The Side inspectors keep the exact individual intervals and payment dates.
+Different clocks still prevent a combined grid. The backend supplies
+`progressBasis: "native_schedule_rows_v1"` for the combined charge view.
+Each native contribution counts once and completes at its own interval end.
+**Booked · started** shows **X of Y schedule rows completed** and the
+backend's Delivered and Remaining whole-row figures. For cash earned
+partway through a row, use that Side's lifecycle inspection. A composition
+without charges keeps the existing equal-window month projection and
+leaf-based delivery progress.
+
 ## Gas exercise rights (D448)
 
 The standalone Physical gas ticket and its eligible amendment flow offer an
