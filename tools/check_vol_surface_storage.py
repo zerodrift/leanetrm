@@ -9,6 +9,7 @@ from uuid import uuid4
 
 MODEL = 'smile_quadratic_log_moneyness_v1'
 POLICY = 'american_futures_option_crr_v1'
+FORMULA = 'european_futures_option_black76_v1'
 RECORD = 'trading.record_vol_surface_revision(uuid,uuid,uuid,jsonb,date,text,text,uuid,uuid,timestamptz,uuid[],jsonb,text)'
 
 
@@ -35,11 +36,11 @@ def run_checks(query, manifest):
     def digest(surface):
         return hashlib.sha256(json.dumps(surface, sort_keys=True).encode()).hexdigest()
 
-    def record(request, inputs, surface, sha=None, frame=first_frame, close=None, valuation=frame_at, model=MODEL, null=None):
+    def record(request, inputs, surface, sha=None, frame=first_frame, close=None, valuation=frame_at, model=MODEL, null=None, policy=POLICY, key=None):
         """The internal recording a risk worker's finish path makes, run here as the owning connection, at a working
         snapshot unless a close is named; `null` names one argument passed as SQL NULL."""
-        arguments = {'catalog': f"'{catalog}'", 'actor': f"'{actor}'", 'request': f"'{request}'", 'product': f"'{product}'::jsonb",
-                     'business_date': f"'{day}'", 'model': f"'{model}'", 'policy': f"'{POLICY}'", 'frame': f"'{frame}'",
+        arguments = {'catalog': f"'{catalog}'", 'actor': f"'{actor}'", 'request': f"'{request}'", 'product': f"'{key or product}'::jsonb",
+                     'business_date': f"'{day}'", 'model': f"'{model}'", 'policy': f"'{policy}'", 'frame': f"'{frame}'",
                      'close': f"'{close}'" if close else 'NULL',
                      'valuation_at': f"'{valuation}'::timestamptz",
                      'inputs': 'ARRAY[' + ','.join(f"'{o}'" for o in inputs) + ']::uuid[]', 'surface': f"'{json.dumps(surface)}'::jsonb",
@@ -86,6 +87,24 @@ def run_checks(query, manifest):
         return trader(bound(context) + setup + rejection('PERFORM ' + reading(**key), code, state), 'ROLLBACK') is not None
 
     before = counts()
+
+    # A revision is recorded under the numerical policy of its product's exercise style, and under no other (D449). The
+    # example's products are American and its reference rows are sealed, so the second product is stated as European for
+    # one rolled-back transaction, with the sealed rows' guards set aside for that one change only.
+    def as_european(statement):
+        return ("SET LOCAL session_replication_role=replica;UPDATE ref_data.futures_option_products SET exercise_style='european' "
+                f"WHERE(catalog_id,revision_id,code)=('{manifest['referenceCatalogId']}','{manifest['referenceRevisionId']}','nymex_lo');"
+                f"SET LOCAL session_replication_role=origin;{statement}")
+    check('an American product\'s revision is refused under the formula\'s policy',
+          refused(record(str(uuid4()), first_inputs, first_surface, policy=FORMULA), 'vol_surface_input'))
+    european = query('BEGIN;' + as_european(record(str(uuid4()), first_inputs, first_surface, policy=FORMULA, key=other_product)) + ';ROLLBACK;')
+    check('a European product\'s revision is recorded under the formula\'s policy', json.loads(european.splitlines()[0]).get('revision'), european)
+    check('a European product\'s revision is refused under the tree\'s policy', query('BEGIN;' + as_european(rejection(
+        'PERFORM ' + record(str(uuid4()), first_inputs, first_surface, key=other_product).removeprefix('SELECT '), 'vol_surface_input')) + 'ROLLBACK;') is not None)
+    check('the stored table admits the two solver policies and no other', query(
+        "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='trading.vol_surface_revisions'::regclass AND conname='vol_surface_revisions_solver_policy_check';")
+        .count('_futures_option_') == 2)
+    check('the rolled-back probes stored nothing', counts() == before, counts())
 
     # Two connections fit the same key from the same pinned inputs: the publication lock serializes them on the key.
     results = {}

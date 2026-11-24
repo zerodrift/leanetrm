@@ -87,9 +87,16 @@ ROLLBACK;""") is not None
           rejected(copy + f"INSERT INTO ref_data.futures_option_series SELECT (jsonb_populate_record(NULL::ref_data.futures_option_series,'{option}'::jsonb||jsonb_build_object('revision_id','{draft}'))).*;",
                    'P0001', message='option_reference_unreadable'))
     product = query(f"SELECT row_to_json(p) FROM ref_data.futures_option_products p WHERE {in_revision} AND code='nymex_on';")
-    check('a european exercise style is rejected by the check constraint',
-          rejected(copy + f"INSERT INTO ref_data.futures_option_products SELECT (jsonb_populate_record(NULL::ref_data.futures_option_products,'{product}'::jsonb||jsonb_build_object('revision_id','{draft}','code','european_on','exercise_style','european'))).*;",
-                   '23514', 'futures_option_products_exercise_style_check'))
+    def styled(code, changes):
+        return f"INSERT INTO ref_data.futures_option_products SELECT (jsonb_populate_record(NULL::ref_data.futures_option_products,'{product}'::jsonb||jsonb_build_object('revision_id','{draft}','code','{code}',{changes}))).*;"
+    check('an exercise style other than american or european is rejected by the check constraint',
+          rejected(copy + styled('bermudan_on', "'exercise_style','bermudan'"), '23514', 'futures_option_products_exercise_style_check'))
+    check('a european product that accepts contrary instructions is rejected by the check constraint',
+          rejected(copy + styled('european_on', "'exercise_style','european','contrary_instructions_allowed',true"),
+                   '23514', 'futures_option_products_european_instructions_check'))
+    check('a european product that accepts no contrary instructions is stored',
+          query('BEGIN;' + copy + styled('european_on', "'exercise_style','european'") +
+                f"SELECT exercise_style FROM ref_data.futures_option_products WHERE (catalog_id,revision_id,code)=({D},'european_on');ROLLBACK;") == 'european')
     milestone = query(f"SELECT row_to_json(m) FROM ref_data.futures_milestones m WHERE {in_revision} AND milestone='last_trading' AND series_code='nymex_cl_20261201';")
     # An ON series: its strike moved by one NG futures tick stays on the tick but leaves the 0.05 strike grid.
     on_option = query(f"SELECT row_to_json(o) FROM ref_data.futures_option_series o WHERE {in_revision} AND product_code='nymex_on' AND last_trading_date='2026-11-24' ORDER BY code LIMIT 1;")

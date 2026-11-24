@@ -70,6 +70,14 @@ internal static class PhysicalOptionBindingChecks
         if(System.Text.Json.JsonSerializer.SerializeToElement(legacy.Scopes.Single()).TryGetProperty(nameof(UnitValuationScope.PricingBinding),out _))
             throw new Exception("The legacy scope JSON gained a pricing selection.");
         ForeignAsset();
+        // The same selection on the series stated as European and calibrated by the formula is refused by name.
+        var european=f.EuropeanOption(11);var held=FuturesOptionChecks.OptionMarket.Holding(74,1,european,"1");
+        var europeanSetup=setup with{OptionBindings=ImmutableDictionary<Guid,FuturesOptionMarketBinding>.Empty.Add(european.Id,FuturesOptionPricing.Prepare(european,basis,source,
+            new ExplicitDiscounting(ExactDecimal.Parse("0.999"),DiscountFactorSource.Explicit),FuturesOptionPricing.DailySettlement,
+            OptionNumericalPolicies.Require(OptionNumericalPolicies.Black76),false,default)),
+            PhysicalOptionValueBindings=ImmutableDictionary<MeasureBinding,FuturesOptionPhysicalValueBinding>.Empty.Add(Key(held),selected)};
+        Reject("projection_option_style",()=>RiskEngine.PrepareConnected(basis.Connected,basis.PricingBindings,[ValuationPortfolio.FromTrades([held],europeanSetup)],basis));
+        Console.WriteLine("PASS a European series is refused with projection_option_style");
         Console.WriteLine("PASS selected physical option bindings: distinct held policies, ordinary PV and independent next-due funding oracle");
 
         void ForeignAsset()

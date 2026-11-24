@@ -64,6 +64,13 @@ internal static class CashOptionBindingChecks
         var missingMargin=setup with{CashOptionValueBindings=ImmutableDictionary<MeasureBinding,FuturesOptionCashValueBinding>.Empty.Add(Key(first),selected with{Margin=null!})};
         Reject("projection_option_state",()=>new FuturesOptionLifecycleProjection(first,first.Instruments.Single().Id,missingMargin,future,margin,rule,null,a,a,model,source));
         Reject("cash_option_binding",()=>ValuationPortfolio.FromTrades([vanilla],setup));
+        // The same selection on the series stated as European and calibrated by the formula is refused by name.
+        var european=f.EuropeanOption(13);var held=FuturesOptionChecks.OptionMarket.Holding(94,1,european,"2");
+        var europeanSetup=setup with{OptionBindings=ImmutableDictionary<Guid,FuturesOptionMarketBinding>.Empty.Add(european.Id,FuturesOptionPricing.Prepare(european,build,source,one,
+            FuturesOptionPricing.DailySettlement,OptionNumericalPolicies.Require(OptionNumericalPolicies.Black76),true,default)),
+            CashOptionValueBindings=ImmutableDictionary<MeasureBinding,FuturesOptionCashValueBinding>.Empty.Add(Key(held),selected)};
+        Reject("projection_option_style",()=>RiskEngine.Prepare(model,source,[ValuationPortfolio.FromTrades([held],europeanSetup)]));
+        Console.WriteLine("PASS a European series is refused with projection_option_style");
         Solved();Economic();HeldRightDailyBoundary();
         Console.WriteLine("PASS selected cash option binding: exact real scopes, signed nonunit funded PV, named shocks and explicit static restrictions");
         void Equal(ExactMoney actual,string expected){if(actual!=ExactMoney.Parse(expected,option.Currency))throw new Exception($"Expected {expected}, got {actual.ToExactString()}.");}

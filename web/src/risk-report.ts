@@ -20,7 +20,9 @@ export type RiskPosition={tradeId:string;bindingId:string;bookId:string;book:str
   measure:string;measureLabel:string;values:RiskValues};
 
 /** The option valuation a run's request selected, as the run states it among its inputs. */
-export type OptionValuationPolicy={observationRole:string;numericalPolicy:string;scenarioPolicy:string;calibrationFallback:string};
+export type OptionValuationPolicy={observationRole:string;numericalPolicy:string;scenarioPolicy:string;calibrationFallback:string;
+  /** The model of European series, where the policy names one; the other model members govern American series. */
+  european?:{numericalPolicy:string;calibrationFallback:string}|null};
 export type PricerCallWork={unitPricerCalls:number;preparationUnitPricerCalls?:number;totalUnitPricerCalls?:number};
 export function validPricerCalls(work:PricerCallWork){
  const count=(n:unknown)=>typeof n==='number'&&Number.isSafeInteger(n)&&n>=0;

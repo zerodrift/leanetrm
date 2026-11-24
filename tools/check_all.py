@@ -131,6 +131,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
         ('check_physical_margin_qualification','new physical futures require qualified delivery terms'),
         ('check_lifecycle_option_scheduling','actual option expiry scheduling and linked futures'),
         ('check_lifecycle_option_expiries','historical option expiry and immutable instruction review'),
+        ('check_european_option','European option style, value beside an American series, refused early exercise and expiry'),
         ('check_lifecycle_scheduling','lifecycle scheduler source admission and replay'),
         ('check_lifecycle_scheduled_bookings','scheduled native bookings retain exact lifecycle policies'),
         ('check_gas_source_ancestors','applied gas corrections, pending financial writes and captured source ancestry'),

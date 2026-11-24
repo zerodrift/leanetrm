@@ -19,7 +19,7 @@ internal static class OptionStrategyRequestChecks
     private static ExactDecimal D(string value)=>ExactDecimal.Parse(value);
     private static OptionStrategyLegRequest Leg(string series,string side="buy",int lots=1,string entry="0.08")=>new(series,side,lots,D(entry));
     internal static OptionStrategyAnalyzeRequest Request()=>new(Context,"synthetic_on",Expiry,[Leg("c3"),Leg("p3","sell",2)],new(D("2.5"),D("3.5"),21),[At,At.AddDays(1)],D("5"),
-        FuturesOptionValuationPolicy.Release1,new(FuturesOptionSensitivities.Policy,TradingPnlReport.Offered,OptionSurfaceAnalytics.VolatilityBump,Utc),OptionStrategies.ExerciseRule);
+        FuturesOptionValuationPolicy.Release2,new(FuturesOptionSensitivities.Policy,TradingPnlReport.Offered,OptionSurfaceAnalytics.VolatilityBump,Utc),OptionStrategies.ExerciseRule);
 
     internal static void Run()
     {
@@ -40,8 +40,10 @@ internal static class OptionStrategyRequestChecks
             ("strategy_curve_instant",request with{Instants=default}),("strategy_curve_instant",request with{Instants=[At.AddDays(1),At]}),("strategy_curve_instant",request with{Instants=[At,At]}),
             ("strategy_volatility_shift",request with{VolatilityShiftPoints=D("100.01")}),("strategy_volatility_shift",request with{VolatilityShiftPoints=D("-101")}),
             ("strategy_volatility_shift",request with{VolatilityShiftPoints=D("0.005")}),
-            ("option_policy",request with{Valuation=FuturesOptionValuationPolicy.Release1 with{CalibrationFallback=FuturesOptionValuationPolicy.NoFallback}}),
-            ("option_policy",request with{Valuation=FuturesOptionValuationPolicy.Release1 with{NumericalPolicy="synthetic_other_policy"}}),("option_policy",request with{Valuation=null!}),
+            ("option_policy",request with{Valuation=FuturesOptionValuationPolicy.Release2 with{CalibrationFallback=FuturesOptionValuationPolicy.NoFallback}}),
+            ("option_policy",request with{Valuation=FuturesOptionValuationPolicy.Release2 with{NumericalPolicy="synthetic_other_policy"}}),("option_policy",request with{Valuation=null!}),
+            // The policy offered before European series were admitted is no longer the offered one.
+            ("option_policy",request with{Valuation=FuturesOptionValuationPolicy.Release1}),
             ("strategy_expiry_rule",request with{ExpiryRule="synthetic_other_rule"}),("option_sensitivity_policy",request with{Sensitivities=null!}),
             ("option_sensitivity_policy",request with{Sensitivities=request.Sensitivities with{VolatilityBump="0.02"}}),
             ("option_sensitivity_policy",request with{Sensitivities=request.Sensitivities with{Bump=TradingPnlReport.Offered with{Ticks=0}}})

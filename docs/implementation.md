@@ -1,5 +1,25 @@
 # Current implementation record
 
+## European listed futures options (D449)
+
+A listed futures option product may state European exercise. Its series are valued
+by `european_futures_option_black76_v1`, the Black-76 formula in the project's
+30-digit decimal, calibrated so the base value equals the option's daily settlement
+and held under futures shocks; it declares no price step. The option valuation
+policy names the model in an optional `european` member, and the Blotter, the risk
+catalog, the trading P&L and strategy analysis state the policy that carries it. A
+European series under a policy without the member, on the American tree, or in the
+lifecycle projection and its reference strategies is refused by name.
+
+Migration 0397 admits the style and refuses exercise and assignment before expiry;
+migration 0398 lets a stored volatility surface name the formula's policy for a
+European product. The ticket states Exercise and Settlement, and the lifecycle list
+says why a European option cannot be exercised early. Existing products, bookings,
+events, fits and retained results are unchanged. An expiry on the underlying's last
+trading day and a margined premium are designed and not built. The real-browser
+checks of this increment have not been run; see
+[verification](verification.md#european-futures-options-d449).
+
 ## Exercise rights on a gas Instrument (D448)
 
 The retained gas schedule accepts optional rights over disjoint entry sets.
@@ -220,7 +240,7 @@ foundation with runnable market-data, trading and operational workflows. No
 existing application or production resource is used by its checks.
 
 Current product scope includes futures execution P&L,
-[listed American futures options](futures-options.md), single-period and
+[listed American and European futures options](futures-options.md), single-period and
 [scheduled financial swaps](financial-swap-quantities.md), opt-in
 [swap settlement and P&L](swap-settlement.md), and common
 [PPA/heat-rate portfolio consumers](demo-instruments.md). Bounded physical
@@ -492,7 +512,7 @@ Swap definitions mark Discounting, and common/specialized PV reject conflicting
 policies. Existing market series, observations, explicit derived dependencies and
 immutable scenario risk already separate market inputs from contractual cashflows.
 Physical profiles beyond the bounded gas, crude and LNG contracts, and option
-products other than listed American futures options ([D288](futures-options.md)),
+products other than listed futures options ([D288, D449](futures-options.md)),
 remain unimplemented.
 [Parametric risk](parametric-risk.md) implements native sample covariance and
 one-session delta-normal VaR/ES. D307 adds [full-PV Monte Carlo](monte-carlo-risk.md), with explicit seeded joint

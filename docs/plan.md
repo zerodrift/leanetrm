@@ -1,5 +1,13 @@
 # Delivery plan and acceptance criteria
 
+D449 admits European exercise on a listed futures option: a product row states
+the style, its series are valued by a Black-76 formula named in the option
+valuation policy, and exercise before expiry is refused. The managed, Python, web,
+database and HTTP checks pass; the real-browser checks have not been run. See
+[futures options](futures-options.md#european-exercise) and
+[verification](verification.md#european-futures-options-d449). An expiry on the
+underlying's last trading day and a margined premium remain designed, not built.
+
 D448 implements exercise rights for explicitly undiscounted gas compositions
 with independent physical sources. Daily and monthly rights use physical
 elections or automatic cash determination.
@@ -1193,7 +1201,8 @@ retain explicit sibling references
 and distinct base/final valuation modes; the exercise-control accounting choice
 in O13 is still open for options embedded in an instrument. Listed American options
 on NYMEX futures are standalone instruments with their own model and lifecycle
-(D288, [futures options](futures-options.md)).
+(D288, [futures options](futures-options.md)). A listed product may instead state
+European exercise, valued by a Black-76 formula under its own policy member (D449).
 The D210 entry refinement places visual instrument cards between trade details
 and side forms. A selected versioned template populates empty side terms;
 commodity and market selections remain explicit. Each floating side owns its
@@ -2164,6 +2173,10 @@ Extend only after the baseline contracts are demonstrated:
 - Broader calendars, delivery shapes and schedule authoring.
 - Additional option exercise and settlement styles, volatility shocks and
   nonlinear model diagnostics beyond the listed futures and heat-rate call profiles.
+  For listed futures options, European exercise is built and its real-browser
+  checks are still to be run; an expiry on the underlying's last trading day
+  and a margined premium are designed and not built (D449,
+  [design](superpowers/specs/2026-11-23-futures-option-styles-design.md)).
 - Option strategies beyond one expiry (D409 analyses and draws legs of one
   expiry on one underlying future). Strategies across expiries need a declared
   relationship between futures months first; futures legs, saved strategies and

@@ -220,9 +220,12 @@ of affected consumers is recorded in [fixture impact](vol-surface-fixture-impact
 
 ## Market volatilities and rich/cheap
 
-Each listed series is calibrated by the same calibration option valuation uses:
-`american_futures_option_crr_v1`, from the frame's `daily_settlement` option and
-underlying observations and the currency's payment-discount selection. A series'
+Each listed series is calibrated by the same calibration option valuation uses, under
+the stated option policy and so by the model of the product's exercise style:
+`american_futures_option_crr_v1` for an American product and
+`european_futures_option_black76_v1` for a European one (D449). It reads the frame's
+`daily_settlement` option and underlying observations and the currency's
+payment-discount selection. A series'
 outcome is `solved`, `at_intrinsic` (the intrinsic fallback, so no volatility) or the
 calibration's error code, such as `option_settlement_missing` or `option_expired`.
 Every listed series of the product is shown, a series at or past its expiry with
@@ -310,7 +313,9 @@ A surface is stored as an immutable, bitemporal revision (migration
 - **Contents.** The resolved frame identity, the frame's valuation instant
   (`valuation_at`), the exact observation revisions the calibration consumed
   (`trading.vol_surface_inputs`), the solver policy, the surface as JSON and a
-  digest. The `market_data.guard_knowledge_receipt()` trigger refuses updates and
+  digest. The solver policy is the one of the product's exercise style: the table
+  admits the two ids, and the recording accepts for a product only its own
+  (migration 0398). The `market_data.guard_knowledge_receipt()` trigger refuses updates and
   deletes.
   - The pinned observations are every observation the calibration read: each
     series' option settlement, its underlying futures settlement, and the
@@ -361,7 +366,8 @@ There is no separate queue, service or cache.
   holds a share lock on the catalog's knowledge clock, so a later certification
   waits for the submit to commit rather than superseding its context first.
   Admission pins the frame, the exact product version, the business date, the
-  model, the solver policy, the engine version and the actor.
+  model, the solver policy, the engine version and the actor. A request that names
+  another style's solver policy than its product's is refused with `risk_job_input`.
 - The same request identity returns its first job. A queued or running job of the
   same person for the same key and pinned frame is returned instead of a second one.
   Native admission rechecks all three required authorities before returning,

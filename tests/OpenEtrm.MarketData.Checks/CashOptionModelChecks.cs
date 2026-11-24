@@ -69,6 +69,16 @@ internal static class CashOptionModelChecks
         using var cancelled=new CancellationTokenSource();cancelled.Cancel();
         try{CashFuturesOptionModel.Price(terms,L("3"),solved,L("0.9"),at,numerical,policy,rule,PhysicalOptionTerminal.Automatic,margin,discounts,cancelled.Token);
             throw new Exception("Cancellation was ignored.");}catch(OperationCanceledException){}
+        // The same case with the series stated as European: the reference strategy is qualified for American exercise only.
+        var european=new FuturesOptionTerms(terms.Right,terms.Strike,terms.ExpiryAt,FuturesOptionTerms.European,terms.SettlementMethod);
+        foreach(var tree in new[]{numerical,OptionNumericalPolicies.Require(OptionNumericalPolicies.Black76)})
+        {
+            try{Price(L("3"),solved,contract:european,tree:tree);throw new Exception("A European series was priced by the cash reference strategy.");}
+            catch(MarketDataException e)when(e.Code=="projection_option_style"){}
+            try{CashFuturesOptionModel.RequiredMarginOccurrences(european,margin,at,tree);throw new Exception("A European series was given the cash reference strategy's margin dues.");}
+            catch(MarketDataException e)when(e.Code=="projection_option_style"){}
+        }
+        Console.WriteLine("PASS a European series is refused with projection_option_style");
         Console.WriteLine("PASS funded cash option: independent saved-due 19,000 oracle, signed contrary payoff, exact CRR/LR reference stopping and explicit policy");
     }
     private static LatticeDecimal L(string s)=>LatticeDecimal.Parse(s);

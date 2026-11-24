@@ -34,7 +34,7 @@ export type Holding={priceUnitReference?:import('./financial-provenance.js').Pri
  * unit cash. `settlement` is the option's settlement price at the close; `actions` are the lifecycle actions open to the holding, each
  * with the backend's reason when it is not; `closableLots` the unsigned open lots an exercise or assignment may close.
  */
-export type OptionFacts={component:'option'|'premium';series:string;product:string;exchange:{code:string;name:string};right:string;strike:string;expiryAt:string;
+export type OptionFacts={component:'option'|'premium';series:string;product:string;exchange:{code:string;name:string};right:string;strike:string;expiryAt:string;exerciseStyle:string;
   underlyingSeries:string;underlyingName:string;productName:string;openLots:string;lifecycleState:string;linkedFuturesTradeIds:string[];linkedFuturesTrades:string[];premium:string;premiumAmount:string;premiumPaymentDate:string;
   cashState:CashStatus|null;impliedVolatility:string|null;calibrationMode:string|null;numericalPolicy:string|null;
   actions:Record<'exercise'|'assignment'|'instruction',{allowed:boolean;reason:string|null}>|null;closableLots:string|null;unitPresentValue:string|null};

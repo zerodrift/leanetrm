@@ -7309,3 +7309,94 @@ Counted alongside settlement-adjusted Side PV. The admitted gas scope, refusals
 and authorized ticket operations are recorded in the [design](superpowers/specs/2026-11-23-exercise-rights-design.md),
 [physical gas](physical-gas-side.md#exercise-rights-d448) and
 [the deal ticket](deal-ticket.md#gas-exercise-rights-d448).
+
+## D449 — Listed futures options admit European exercise, an expiry on the underlying's last day and a margined premium (European exercise built; the other two designed)
+
+Decided by the owner on 2026-11-23 with the
+[design](superpowers/specs/2026-11-23-futures-option-styles-design.md). European
+exercise is built as migrations 0397 and 0398; its managed, Python, web, database
+and HTTP checks pass, and its real-browser checks have not yet been run
+([verification](verification.md#european-futures-options-d449)). An expiry on the
+underlying's last day and a margined premium are designed and not built. D288 stands
+for American options with premium paid up front that expire before their underlying.
+
+A listed futures option remains one leaf instrument keyed by its exact series
+(D417). Three terms that D288 fixed become stated terms of the versioned reference
+rows. None has a default and none is inferred from another term, the commodity or
+the exchange. Each is admitted by its own migration and can be taken without the
+others.
+
+European exercise. A product row states `american` or `european`. A European
+series is exercised only at expiry, by its product's automatic exercise rule, into
+one underlying future per option at the strike; exercise or assignment before
+expiry is refused with `option_exercise_style`, and a European product does not
+accept contrary instructions. It is valued by
+`european_futures_option_black76_v1`: the Black-76 formula on the underlying
+future's price in the project's fixed-point decimal, calibrated so the base value
+equals the option's daily settlement and held under futures shocks, with no price
+step. The valuation policy names that model in its own member; a scope holding a
+European series under a policy without it is refused with `option_policy`. A
+European series is never valued on the American tree, and the American pricer does
+not change.
+
+Expiry on the underlying's last trading day. The product's expiry rule states its
+relation to the underlying, `before_last_trading` or `on_last_trading_day`, and the
+automatic exercise rule names the price it judges by: the underlying's daily
+settlement on the option's last trading date, or its final contract settlement.
+The second relation and the second price go together, on a cash-settled underlying
+only, and such an option expires at the instant its future stops trading. The
+deciding price is read from the settlement source of the linked future's margin
+policy. Expiry still books a linked future at the strike (D288). A future booked
+by an option event may be executed at the instant its market closes, adopts its
+margin policy in the same transaction and is settled by its own final margin.
+Every existing expiry rule states `before_last_trading`, which is what the earlier
+series check enforced.
+
+Margined premium. A product whose premium is margined is booked with no premium
+cash; the trade price is the execution basis. Its variation margin is kept in the
+futures margin records under a saved option margin policy on the option contract:
+daily determinations against the option's own settlement, and a closing
+determination at zero for the lots an exercise, assignment or expiry closes. The
+journal reads as if recorded in business-time order: a close needs margin
+determined up to it, and a close recorded late restates the margin struck after
+it under a new knowledge time. A holding that has not adopted a policy cannot be
+closed. Under the declared
+`margined_option_open_variation_v1` valuation the option is valued at a unit
+discount and a holding's value is the model value less its settled basis.
+Determined margin, cash due, cash paid and that outstanding variation stay
+separate facts.
+
+No role or permission is added. On a cash-settled underlying a market data editor
+saves margin policies, a trader books and records exercise and expiry, and the
+holders of `AmendTrade` set up actions and determine margin.
+
+Compatibility. No existing row is rewritten. Existing products, series, bookings,
+events, futures margin records, policy hashes and retained results keep their
+meaning. Stating new members in the Blotter's and the risk catalog's pricing
+policy means runs retained under the earlier stated policy remain readable but are
+no longer a scope's current report (D396).
+
+Still refused: options that settle straight to cash, average-price, strip, spread
+and weekly options, an expiry on the last day of a physically delivered future,
+initial margin, and European or margined options in the D401 lifecycle projection
+and its reference strategies.
+
+Settled while building European exercise (2026-11-23), within what the design left
+to the builder:
+
+- The formula's numerical policy states no lattice, a volatility bracket of 0.01 to
+  3 that is never lowered, at most 30 halvings and a discount tolerance of 0.005.
+  The tolerance admits a market rate half a point above the selected curve's for a
+  year, or two points for a quarter. It is a first value and has not been measured
+  against real settlements.
+- The policy's existing model members govern American series only: a policy that
+  names the formula there, or the tree in the European member, is refused with
+  `option_policy`.
+- The style is refused ahead of the exercise-notice test in the proposal and the
+  event primitive, so a European exercise is answered with `option_exercise_style`
+  whatever the product's notice rule states. In the lifecycle list that reason
+  outranks a missing configuration, and the row is shown with the other inactive
+  actions.
+- A stored volatility surface names the numerical policy of its product's exercise
+  style. The fit admission checks it once the caller is known to read the product.
+- A European fallback is pinned to its source instant, as the American fallback is.

@@ -55,16 +55,17 @@ internal sealed record FuturesOptionPosition(JsonElement Head,JsonElement Book,J
             Series.Text("curve_name"),Series.Text("delivery_from"),Series.Text("delivery_to"),Head.Text("premium_quantity"),Series.Text("currency"))];
 
     // The lifecycle actions open to this holding, each with the refusal its operation would give when it is not: exercise and
-    // instructions for a long holding with open lots, assignment for a short one, and instructions only where the product accepts them.
+    // instructions for a long holding with open lots, assignment for a short one, instructions only where the product accepts them,
+    // and neither exercise nor assignment for a European option before its expiry.
     // The operations still decide; this states their answer before the person asks.
-    private object Actions
+    internal object Actions
     {
         get
         {
             var closed=OpenLots==default?(Head.GetProperty("expired").GetBoolean()?"option_expired":"option_holding_closed"):null;
             object Action(string? refusal)=>new{allowed=refusal is null,reason=refusal is null?null:FuturesOptionStore.EventRefusal(refusal)};
-            var side="option_event_side";
-            return new{exercise=Action(closed??(Long?null:side)),assignment=Action(closed??(Long?side:null)),
+            var side="option_event_side";var style=FuturesOptionStore.EarlyExerciseRefusal("option.exercise",Series.Text("exercise_style"));
+            return new{exercise=Action(closed??style??(Long?null:side)),assignment=Action(closed??style??(Long?side:null)),
                 instruction=Action(Series.GetProperty("contrary_instructions_allowed").GetBoolean()?closed??(Long?null:side):"option_contrary_instructions_not_accepted")};
         }
     }
@@ -84,7 +85,7 @@ internal sealed record FuturesOptionPosition(JsonElement Head,JsonElement Book,J
         marketKey=JsonSerializer.Serialize(new[]{Series.Text("curve_code")}),marketLabel=Series.Text("curve_name"),
         commodity=new{code=Series.Text("commodity_code"),name=Series.Text("commodity_name")},exchange=new{code=Series.Text("exchange_code"),name=Series.Text("exchange_name")},
         product=Series.Text("product_code"),productName=Series.Text("product_name"),series=SeriesKey.Code,right=Series.Text("option_right"),strike=Series.Text("strike"),
-        expiryAt=Series.Instant("expiry_at").ToString("O",CultureInfo.InvariantCulture),underlyingSeries=Series.Text("underlying_series_code"),underlyingName=Series.Text("underlying_product_name"),
+        expiryAt=Series.Instant("expiry_at").ToString("O",CultureInfo.InvariantCulture),exerciseStyle=Series.Text("exercise_style"),underlyingSeries=Series.Text("underlying_series_code"),underlyingName=Series.Text("underlying_product_name"),
         deliveryFrom=Series.Text("delivery_from"),deliveryTo=Series.Text("delivery_to"),
         lots=Head.Text("lots"),openLots=OpenLots.ToString(),lifecycleState=LifecycleState,linkedFuturesTradeIds=LinkedFutures,linkedFuturesTrades=LinkedFuturesReferences,actions=option?Actions:null,closableLots=option?ClosableLots:null,
         quantity=option?OpenLots.ToString():Head.Text("premium_quantity"),unit=Series.Text(option?"unit":"currency"),quantitySpecification=option?LotQuantity:Currency,
@@ -148,7 +149,7 @@ internal static class FuturesOptionPositions
               s.option_right,trim_scale(s.strike)::text strike,s.underlying_series_code,s.expiry_at,pr.code product_code,pr.name product_name,fp.name underlying_product_name,
               trim_scale(ref_data.futures_option_multiplier(s.catalog_id,s.revision_id,s.code))::text multiplier,
               pr.lot_quantity_code,ex.code exchange_code,ex.name exchange_name,co.code commodity_code,co.name commodity_name,q.currency_code,q.quantity_code quote_quantity_code,trim_scale(q.multiplier)::text quote_multiplier,cu.display_code currency,
-              pr.contrary_instructions_allowed,u.symbol unit,qu.symbol quote_unit,us.delivery_from,us.delivery_to,c.code curve_code,c.name curve_name
+              pr.contrary_instructions_allowed,pr.exercise_style,u.symbol unit,qu.symbol quote_unit,us.delivery_from,us.delivery_to,c.code curve_code,c.name curve_name
              FROM market_data.contracts k
              JOIN ref_data.futures_option_series s ON(s.catalog_id,s.revision_id,s.code)=(k.reference_catalog_id,k.reference_revision_id,k.futures_option_series_code)
              JOIN ref_data.futures_option_products pr ON(pr.catalog_id,pr.revision_id,pr.code)=(s.catalog_id,s.revision_id,s.product_code)

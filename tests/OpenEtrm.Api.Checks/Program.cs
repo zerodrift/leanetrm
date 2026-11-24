@@ -62,6 +62,7 @@ if(args is ["--option-sensitivity-request"]){OptionSensitivityRequestChecks.Run(
 if(args is ["--option-position-analytics"]){OptionPositionAnalyticsChecks.Run();return;}
 if(args is ["--option-strategy-request"]){OptionStrategyRequestChecks.Run();return;}
 if(args is ["--cash-option-value",var cashOptionPath]){await CashOptionValueChecks.Run(cashOptionPath);return;}
+if(args is ["--european-option-read",var europeanOptionPath]){await EuropeanOptionReadChecks.Run(europeanOptionPath);return;}
 if(args is ["--physical-option-economic",var physicalEconomicPath]){await PhysicalOptionValueChecks.Run(physicalEconomicPath,true);return;}
 if(args is ["--gas-physical-completion-fixture",var completionPath]){await GasPhysicalCompletionFixture.Run(completionPath);return;}
 if(args is ["--gas-physical-projection",var physicalProjectionPath]){await GasPhysicalProjectionChecks.Run(physicalProjectionPath);return;}
@@ -137,6 +138,7 @@ if(args is ["--pnl-factors"]){PnlFactorSelectionChecks.Run();return;}
 if(args is ["--pnl-time"]){PnlTimeSelectionChecks.Run();return;}
 if(args is ["--risk-bump-price-steps"]){RiskBumpPriceStepChecks.Run();return;}
 if(args is ["--option-policy"]){OptionPolicySelectionChecks.Run();return;}
+if(args is ["--european-options"]){EuropeanOptionApiChecks.Run();return;}
 if(args is ["--risk-pricing-policy"]){RiskPricingPolicyChecks.Run();return;}
 if(args is ["--power-close-context",var powerContext]){await PowerCloseContextChecks.Run(powerContext);return;}
 if(args is ["--catalogue-trading",var catalogueFixture]){await CatalogueTradingChecks.Run(catalogueFixture);return;}
@@ -295,6 +297,7 @@ if (args is ["--schedules"])
     PnlTimeSelectionChecks.Run();
     RiskBumpPriceStepChecks.Run();
     OptionPolicySelectionChecks.Run();
+    EuropeanOptionApiChecks.Run();
     RiskPricingPolicyChecks.Run();
     CashOptionPolicyChecks.Run();
     SelectedOptionInputChecks.Run();
