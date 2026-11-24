@@ -12,6 +12,15 @@ namespace OpenEtrm.Api;
 internal sealed record GasPortfolioInput(PreviewData Data,InputFrame Frame,MarketSnapshot Snapshot,
  ValuationPortfolio Portfolio,ImmutableArray<PortfolioPositionEvidence> Evidence,string Measure)
 {
+ internal ImmutableArray<(RetainedGasInstrument Instrument,PhysicalCashState State)> MissingCandidates{get;init;}=[];
+
+ // Only ordinary base PV can determine whether a candidate volatility or correlation is actually required.
+ internal int QualifyMarks(CurveBuild market,CancellationToken ct)
+ {
+  foreach(var (instrument,state) in MissingCandidates)
+   _=instrument.PV(instrument.PrepareValuation(market,market,Portfolio.Setup.Discounting!,state,ct));
+  return MissingCandidates.Length;
+ }
  internal ImmutableArray<SchedulePriceTerm> ActivePrices=>[..Portfolio.Instruments.Cast<RetainedGasInstrument>().SelectMany(i=>i.ActivePrices).Distinct()];
 }
 
@@ -33,6 +42,7 @@ internal static class GasPortfolio
        [..group.Select(p => p.Reference)], supplied, requirePinnedSources, ct);
    var snapshot=MarketSnapshotBinding.Bind(source.Data.Snapshot(source.Frame),contextId,SchedulePreview.ParseAt(context.KnownAt));
    var held=new List<(string Measure,Trade Trade,PortfolioPositionEvidence Evidence)>();
+   var missing=new Dictionary<Guid,(RetainedGasInstrument Instrument,PhysicalCashState State)>();
    var states=ImmutableDictionary.CreateBuilder<MeasureBinding,IBindingValuationState>();
    foreach(var position in group)
    {
@@ -45,7 +55,17 @@ internal static class GasPortfolio
      throw Invalid("Held quantity, currency and instrument must match the retained gas programs.");
     var quantity=new Quantity(execution.Quantity,position.Quantity);var book=position.Book.Id("id");
     // A started-delivery trade is valued with its recorded cash; older programs keep their own refusals.
-    if(execution.Started)states.Add(new(position.Trade,position.Binding),await GasCashPaymentStore.Read(connection,database.Manifest.CatalogId,position.Trade,position.Binding,book,quantity,GasCashPaymentStore.LatestKnownRevision,ct,await GasDeliveryQuantityStore.Read(connection,database.Manifest.CatalogId,execution,snapshot.ValuationAt,ct)));
+    if(execution.Started)
+    {
+     var state=await GasCashPaymentStore.Read(connection,database.Manifest.CatalogId,position.Trade,position.Binding,book,quantity,GasCashPaymentStore.LatestKnownRevision,ct,await GasDeliveryQuantityStore.Read(connection,database.Manifest.CatalogId,execution,snapshot.ValuationAt,ct));
+     states.Add(new(position.Trade,position.Binding),state);
+     if(!execution.Rights.IsEmpty)
+     {
+      var binding=await new CurveMarkStore(database.Manifest.CatalogId).Bind(connection,instrument,snapshot,state,ct);
+      instrument=binding.Instrument;
+      if(binding.MissingCandidates)missing.Add(position.Trade,(instrument,state));
+     }
+    }
     var measure=execution.Started?GasPositions.LifecycleMeasure:GasPositions.Measure;
     held.Add((measure,new(position.Trade,book,[new(position.Binding,instrument,quantity)]),new(position.Trade,int.Parse(position.Head.Text("revision"),CultureInfo.InvariantCulture),position.Binding,
      instrument.Id,instrument.Id,book,measure,group.Key,int.Parse(position.Head.Text("publication_order"),CultureInfo.InvariantCulture),quantity)
@@ -56,7 +76,8 @@ internal static class GasPortfolio
    {
     var portfolio=ValuationPortfolio.FromTrades([..measured.Select(h=>h.Trade)],new(ValuationMeasure.PresentValue,
      ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)){BindingStates=states.Where(s=>measured.Any(h=>h.Trade.Id==s.Key.TradeId)).ToImmutableDictionary()});
-    result.Add(new(source.Data,source.Frame,snapshot,portfolio,[..measured.Select(h=>h.Evidence)],measured.Key));
+    result.Add(new(source.Data,source.Frame,snapshot,portfolio,[..measured.Select(h=>h.Evidence)],measured.Key)
+     {MissingCandidates=[..measured.Where(h=>missing.ContainsKey(h.Trade.Id)).Select(h=>missing[h.Trade.Id])]});
    }
   }
   return result.ToImmutable();

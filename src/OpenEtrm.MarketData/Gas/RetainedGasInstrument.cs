@@ -81,6 +81,9 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
         Marks = marks;
     }
 
+    public ImmutableArray<(ExerciseGroupKey Group, CurveKey Curve, DateOnly Month)> ExerciseMarkInputs(MarketSnapshot snapshot, PhysicalCashState held) =>
+        RetainedExerciseValuation.Scope(this, snapshot, snapshot.ValuationAt, held).Inputs;
+
     private void RequireRights()
     {
         var claimedSlots = new HashSet<int>();

@@ -98,6 +98,15 @@ const string malformed="The request is incomplete or malformed.";
     PostgresException p when p.MessageText.StartsWith("gas_storage_",StringComparison.Ordinal)
         =>(p.SqlState=="42501"?403:p.MessageText.Contains("conflict",StringComparison.Ordinal)||p.MessageText.Contains("stale",StringComparison.Ordinal)?409:422,
             p.MessageText,GasStorageStore.Refusal(p.MessageText)),
+    PostgresException p when p.MessageText.StartsWith("curve_mark_",StringComparison.Ordinal)
+        =>(p.SqlState=="42501"?403:p.MessageText is "curve_mark_stale" or "curve_mark_request_conflict"?409:422,
+            p.MessageText,p.MessageText switch {
+                "curve_mark_source"=>"Select visible outright curves under their exact definition revision.",
+                "curve_mark_pair"=>"Select distinct curves with a common reference revision and quote currency.",
+                "curve_mark_time"=>"A revision cannot take effect before the mark it replaces.",
+                "curve_mark_request_conflict"=>"This request identity already recorded another command.",
+                "curve_mark_stale"=>"Reload the current mark revision before recording a different value.",
+                _=>"Supply exact delivery months, volatilities from 0 to 10 and correlations from -1 to 1."}),
     PostgresException p when p.MessageText.StartsWith("heat_rate_call_",StringComparison.Ordinal)||p.MessageText.StartsWith("spread_mark_",StringComparison.Ordinal)
         =>(p.SqlState=="42501"?403:p.MessageText.Contains("conflict",StringComparison.Ordinal)||p.MessageText.Contains("stale",StringComparison.Ordinal)?409:422,
             p.MessageText,HeatRateCallStore.Refusal(p.MessageText)),
@@ -2111,6 +2120,22 @@ api.MapPost("/spread-marks/record",(HttpContext c,SpreadMarksRecordRequest body)
     var frame=Pin(session,body.Context.SnapshotId).RequireFrame();
     return Results.Ok(await database.WithIdentity(Profile(session),null,(connection,ct)=>heatRateCalls.RecordMarks(connection,frame,body,ct),c.RequestAborted));
 }));
+var curveMarks=new CurveMarkStore(database.Manifest.CatalogId);
+Task<IResult> RecordCurveMarks(HttpContext c,FuturesReadRequest context,Func<NpgsqlConnection,InputFrame,CancellationToken,Task<JsonElement>> write)=>
+    Locked(c,async session=>{
+        if(context is null||Pin(session).Context is not null||context.KnowledgeMode!="current"||context.ContextId is not null)
+            throw new MarketDataException("historical_read_only","Return to working data before marking.");
+        if(context.Convention!=PhysicalGasStore.Convention)throw new MarketDataException("curve_mark_input","Select the gas valuation context.");
+        var frame=Pin(session,context.SnapshotId).RequireFrame();
+        return Results.Ok(await database.WithIdentity(Profile(session),null,(connection,ct)=>write(connection,frame,ct),c.RequestAborted));
+    });
+api.MapPost("/volatility-marks/record",(HttpContext c,VolatilityMarksRecordRequest body)=>RecordCurveMarks(c,body.Context,
+    (connection,frame,ct)=>curveMarks.RecordVolatility(connection,frame,body,ct)));
+api.MapPost("/correlation-marks/record",(HttpContext c,CorrelationMarksRecordRequest body)=>RecordCurveMarks(c,body.Context,
+    (connection,frame,ct)=>curveMarks.RecordCorrelation(connection,frame,body,ct)));
+api.MapPost("/curve-marks/read",(HttpContext c,CurveMarksReadRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("curve_mark_input","Select a financial context."),
+    (connection,view,ct)=>tradeReads.ReadBound(connection,view,async()=>await curveMarks.Read(connection,body,ct),ct),
+    expectedConvention:PhysicalGasStore.Convention));
 Task<IResult> HeatRateCallRead(HttpContext c,FuturesReadRequest context,Func<NpgsqlConnection,TradingView,CancellationToken,Task<object>> work)=>TradingRead(c,
     context??throw new MarketDataException("heat_rate_call_terms","Select the shared financial context."),async(connection,view,ct)=>
     {

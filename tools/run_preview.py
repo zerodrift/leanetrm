@@ -1134,7 +1134,7 @@ def main():
                 from check_gas_point_in_term import run_checks as check_point_in_term
                 check_point_in_term(url,query,manifest,admin_load_in_term)
             elif args.gas_pricing_check or args.gas_exercise_check:
-                run_worker=risk_worker_runner() if args.gas_composition_check or args.gas_pricing_check else None
+                run_worker=risk_worker_runner()
                 if args.gas_composition_check:
                     from check_gas_composition import run_checks as check_gas_composition
                     check_gas_composition(url,query,manifest,run_worker=run_worker)
@@ -1146,7 +1146,7 @@ def main():
                         subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-pricing'],cwd=ROOT,env=env,check=True,timeout=300)
                 if args.gas_exercise_check:
                     from check_gas_exercise import run_checks as check_gas_exercise
-                    check_gas_exercise(url,query,manifest)
+                    check_gas_exercise(url,query,manifest,run_worker)
             elif args.gas_indexed_check:
                 from check_gas_indexed import run_checks as check_gas_indexed
                 indexed_fixture=check_gas_indexed(url,query,manifest,risk_worker_runner())

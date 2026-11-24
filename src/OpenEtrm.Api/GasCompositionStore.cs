@@ -276,6 +276,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
     selected.Days);
   }
   var instrument=GasCompositionExecution.BuildInstrument(held?.InstrumentId??draft!.Id,members,programs,dated,rights);
+  if(!rights.IsEmpty)(instrument,_)=await new CurveMarkStore(database.Manifest.CatalogId).Bind(c,instrument,snapshot,state,ct);
   var valuation=instrument.PV(instrument.PrepareValuation(market,market,discount,state,ct));
   var total=valuation.PresentValue.Scale(quantity);
   if(state is not null)lifecycle=PhysicalLifecycle.FromValuation(valuation);

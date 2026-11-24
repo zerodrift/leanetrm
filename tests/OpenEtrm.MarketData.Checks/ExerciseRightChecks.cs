@@ -21,6 +21,7 @@ internal static class ExerciseRightChecks
         Check("the 30th input digit can change half-even rounding at the call output", CallRounding);
         Check("unrepresentable call inputs and exact results raise their contracted codes", ExactBoundaries);
         Check("malformed inputs are refused even if the payoff is determined", RejectsMalformedInputs);
+        MarkBindings();
         Check("saved rights retain their terms in identity and preserve the legacy canonical bytes", SavedIdentity);
         Check("saved gas rights require distinct members, complete group geometry and installed terms", RejectsMalformedRights);
         Check("monthly rights retain one group in each represented month", MonthBoundaries);
@@ -44,6 +45,25 @@ internal static class ExerciseRightChecks
         Check("a cash keep-whole takes its outside scheduled shortfall", AutomaticShortfall);
         Check("an outside physical source remains available to a contingent cash member", CashElectionSource);
         Check("state admission and pricing declaration validate election groups and payment knowledge", ElectionAdmission);
+    }
+
+    public static void MarkBindings()
+    {
+        var fixture = new GroupFixture(index: true);
+        var pair = fixture.Marks.Correlations.Single();
+        var reversed = fixture.WithMarks(fixture.Marks with { Correlations = [pair with { First = pair.Second, Second = pair.First }] });
+        if (fixture.Instrument.PricingBindingIdentity != reversed.PricingBindingIdentity)
+            throw new Exception("Reversing the same held correlation must preserve the pricing binding.");
+        Console.WriteLine("PASS exercise marks: symmetric pricing binding identity");
+        var market = fixture.Prepare().Context.Snapshot;
+        var curves = fixture.Instrument.ExerciseMarkInputs(market, fixture.State);
+        if (!curves.Select(i => i.Curve).ToHashSet().SetEquals(fixture.Marks.Volatilities.Select(m => m.Curve)) ||
+            curves.Any(i => i.Month != pair.Month || i.Group.Right != 0))
+            throw new Exception("Only the two uncertain curves in this exact group and month need candidate marks.");
+        var elected = ElectedState(fixture, [Election(fixture, 0, "exercised", market.ValuationAt)]);
+        if (!fixture.Instrument.ExerciseMarkInputs(market, elected).IsEmpty)
+            throw new Exception("A decided physical group has no exercise mark inputs.");
+        Console.WriteLine("PASS exercise marks: undecided group selects both exact curves; elected group selects none");
     }
 
     private sealed class GroupFixture

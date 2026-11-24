@@ -164,7 +164,7 @@ public sealed partial class PortfolioRiskPreview
         return report;
     }
     private static RiskWork StatisticalWork(PortfolioValuation.Prepared preparation,RiskWork basis,ImmutableArray<RiskWork> passes,bool repeatedPreparation=true)=>basis with{
-                ScenarioCount=passes.Sum(w=>w.ScenarioCount),UnitPricerCalls=passes.Sum(w=>w.UnitPricerCalls),
+                ScenarioCount=passes.Sum(w=>w.ScenarioCount),UnitPricerCalls=passes.Sum(w=>w.UnitPricerCalls)-(repeatedPreparation?passes.Length-1:0)*preparation.MaterializationWork.UnitPricerCalls,
                 RebuiltCurveNodes=passes.Sum(w=>w.RebuiltCurveNodes)-(repeatedPreparation?passes.Length-1:0)*preparation.MaterializationWork.RebuiltCurveNodes,
                 ReusedCurveNodes=passes.Sum(w=>w.ReusedCurveNodes)-(repeatedPreparation?passes.Length-1:0)*preparation.MaterializationWork.ReusedCurveNodes,
                 PreparationScenarioCount=passes.Sum(w=>w.PreparationScenarioCount)-(repeatedPreparation?passes.Length-1:0)*preparation.MaterializationScenarioCount,

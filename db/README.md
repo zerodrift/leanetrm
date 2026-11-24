@@ -21,6 +21,13 @@ application. See [current implementation](../docs/implementation.md) and
 
 Recent schema groups and their contracts:
 
+- [0393](migrations/0393_curve_marks.sql) stores revisable curve volatility and
+  curve-pair correlation by exact market definition and delivery month. Curve
+  code order identifies each pair. Recording a matching fact at its original
+  effective instant returns its revision. Gas valuation reads the latest
+  eligible revision under its valuation instant and trading knowledge cutoff.
+  The runtime records marks with market import authority. A leased risk worker
+  reads them under its bound job.
 - [0392](migrations/0392_gas_exercise_rights.sql) stores gas exercise rights with
   ordered membership slots and half-open delivery groups. Admission derives physical
   exercise times from the selected sources' first gas-day boundaries and the agreed

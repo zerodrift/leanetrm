@@ -133,6 +133,12 @@ public sealed record ExerciseMarks(ImmutableArray<CurveVolatilityMark> Volatilit
     [IdentityField] public ImmutableArray<CurveVolatilityMark> OrderedVolatilities => [..Volatilities
         .OrderBy(v => DefinitionIdentity.CanonicalTerm(v.Curve), StringComparer.Ordinal).ThenBy(v => v.Month)];
     [IdentityField] public ImmutableArray<CurveCorrelationMark> OrderedCorrelations => [..Correlations
+        .Select(c => string.CompareOrdinal(c.First.Code, c.Second.Code) switch
+        {
+            < 0 => c,
+            0 when string.CompareOrdinal(DefinitionIdentity.CanonicalTerm(c.First), DefinitionIdentity.CanonicalTerm(c.Second)) <= 0 => c,
+            _ => c with { First = c.Second, Second = c.First }
+        })
         .OrderBy(c => DefinitionIdentity.CanonicalTerm(c.First), StringComparer.Ordinal)
         .ThenBy(c => DefinitionIdentity.CanonicalTerm(c.Second), StringComparer.Ordinal).ThenBy(c => c.Month)];
 

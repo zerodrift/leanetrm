@@ -155,26 +155,28 @@ internal sealed class RetainedExerciseValuation
         }
     }
 
-    internal static UnitPricingContract Declare(UnitPricingContract contract, RetainedGasInstrument instrument, UnitValuationContext context)
+    internal sealed record MarkScope(ImmutableArray<(ExerciseGroupKey Group, CurveKey Curve, DateOnly Month)> Inputs,
+        bool HasModel, DateTimeOffset? NextEvent);
+
+    internal static MarkScope Scope(RetainedGasInstrument instrument, MarketSnapshot snapshot, DateTimeOffset at, PhysicalCashState held)
     {
         var rights = instrument.Rights;
-        if (context.BindingState is not PhysicalCashState held)
-            throw PhysicalDeliveryQuantities.Invalid("An exercise right requires its complete held day quantities.");
-        var decisions = ExerciseDecisions.Resolve(rights, instrument.Members, held, context.Snapshot, context.CalculationAt);
+        var decisions = ExerciseDecisions.Resolve(rights, instrument.Members, held, snapshot, at);
         DateTimeOffset? firstEvent = null;
-        void Boundary(DateTimeOffset at)
+        void Boundary(DateTimeOffset boundary)
         {
-            if (at > context.Snapshot.ValuationAt && (firstEvent is null || at < firstEvent)) firstEvent = at;
+            if (boundary > snapshot.ValuationAt && (firstEvent is null || boundary < firstEvent)) firstEvent = boundary;
         }
         var modeled = rights.Where(right => right.Settlement == ExerciseSettlement.Physical)
             .SelectMany(right => right.Groups.Where(group => decisions.Outcome(right, group) == ExerciseDecisions.Undecided)).ToHashSet();
         foreach (var election in held.Elections) Boundary(election.EffectiveAt);
         var entryDays = EntryQuantities.ForMembers(instrument.Members, held);
-        var used = new HashSet<(CurveKey Curve, DateOnly Month)>();
+        var used = new HashSet<(ExerciseGroupKey Group, CurveKey Curve, DateOnly Month)>();
         var lookupIndex = instrument.PriceLookups.ToLookup(l => (l.Market, l.Contract.DeliveryFrom, l.Contract.DeliveryTo));
         for (var slot = 0; slot < instrument.Members.Length; slot++)
         {
             var program = instrument.Members[slot].Program;
+            var right = rights.SingleOrDefault(r => r.Slots.Contains(slot));
             var selectedDays = entryDays[slot].IsDefault ? null : entryDays[slot].Where(d => d.Taken.Numerator.Sign > 0)
                 .Select(d => (d.Day, Group: decisions.UndecidedGroup(slot, d.Day))).Where(d => d.Group is not null)
                 .ToDictionary(d => d.Day, d => d.Group!);
@@ -195,7 +197,7 @@ internal sealed class RetainedExerciseValuation
             }
             foreach (var (instruction, lookup) in PhysicalLifecycle.DatedInputs(program, lookupIndex))
             {
-                if (!physical && PeriodPriceSelector.ProjectionAt(lookup, context.Snapshot) is null) continue;
+                if (!physical && PeriodPriceSelector.ProjectionAt(lookup, snapshot) is null) continue;
                 Boundary(lookup.Contract.Expiry);
                 if (!physical && lookup.Fixing is {} fixing) Boundary(fixing.FixingAt);
                 if (selectedDays is null) continue;
@@ -207,20 +209,29 @@ internal sealed class RetainedExerciseValuation
                     for (var day = from; day < to; day = day.AddDays(1))
                         if (selectedDays.TryGetValue(day, out var group))
                         {
-                            used.Add((lookup.Market.Curve, new(day.Year, day.Month, 1)));
+                            used.Add((new(right!.Ordinal, group.From, group.To), lookup.Market.Curve, new(day.Year, day.Month, 1)));
                             modeled.Add(group);
                         }
                 }
             }
         }
         foreach (var group in modeled) Boundary(group.ExerciseAt);
-        foreach (var payment in held.KnownPayments(context.Snapshot)) Boundary(payment.PaidAt);
-        if (firstEvent <= context.CalculationAt)
+        foreach (var payment in held.KnownPayments(snapshot)) Boundary(payment.PaidAt);
+        if (firstEvent <= at)
             throw new MarketDataException("valuation_time_coverage", "The calculation clock crosses a retained valuation event.");
+        return new([..used], modeled.Count > 0, firstEvent);
+    }
+
+    internal static UnitPricingContract Declare(UnitPricingContract contract, RetainedGasInstrument instrument, UnitValuationContext context)
+    {
+        if (context.BindingState is not PhysicalCashState held)
+            throw PhysicalDeliveryQuantities.Invalid("An exercise right requires its complete held day quantities.");
+        var scope = Scope(instrument, context.Snapshot, context.CalculationAt, held);
+        var used = scope.Inputs.Select(i => (i.Curve, i.Month)).ToHashSet();
         return contract with
         {
-            ModelVersion = modeled.Count == 0 ? contract.ModelVersion : contract.ModelVersion + "/" + ModelPolicy,
-            Time = firstEvent is {} boundary ? ValuationTimeDependency.Between(context.CalculationAt, boundary) : contract.Time,
+            ModelVersion = !scope.HasModel ? contract.ModelVersion : contract.ModelVersion + "/" + ModelPolicy,
+            Time = scope.NextEvent is {} boundary ? ValuationTimeDependency.Between(context.CalculationAt, boundary) : contract.Time,
             Volatility = instrument.Marks is {} marks ? [..marks.OrderedVolatilities.Where(v => used.Contains((v.Curve, v.Month))).Select(v => v.Volatility)] : []
         };
     }

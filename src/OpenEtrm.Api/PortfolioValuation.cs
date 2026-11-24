@@ -592,6 +592,14 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             var connected=await CustomCurves.PrepareMarket(connection,database,first.Data,first.Frame,first.Snapshot,exact,instruments,dependencies,CustomCurves.MarketPreparation.ScenarioUniverse,ct,retained,activePrices,operation?.Histories,
                 calculationContext:policy.NativeFutures?.Economic is null&&policy.FuturesOptions?.Physical is null?null:CustomCurves.CompleteContext(first.Frame,first.Snapshot,exact),
                 linkedMarkets:[..inputMarkets.Where(m=>m.Snapshot.Definitions!=first.Snapshot.Definitions).Select(m=>m.Market)]);
+            var incomplete=gas.Where(g=>g.Snapshot.Definitions==first.Snapshot.Definitions&&!g.MissingCandidates.IsEmpty).ToArray();
+            if(incomplete.Length!=0)
+            {
+                var basis=connected.Valuation.ProgramMarket(connected.Bindings,connected.Authority,ct);
+                var calls=incomplete.Sum(g=>g.QualifyMarks(basis,ct));
+                materializationWork=materializationWork with{UnitPricerCalls=materializationWork.UnitPricerCalls+calls};
+                materializationScenarios++;
+            }
             markets.Add(new(first.Data,first.Frame,first.Snapshot,
                 RiskEngine.PrepareConnected(connected.Valuation,connected.Bindings,portfolios,connected.Authority,ct),
                 group.Select(m=>m.Measure).ToImmutableArray(),connected.Evidence,connected.Preparation){InputMarket=connected});
@@ -729,7 +737,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
     {
         var work=parts.ToArray();
         return new RiskWork(work.Sum(w=>w.PositionCount),work.Sum(w=>w.UniqueValuations),work.Sum(w=>w.UniqueMarketContracts),scenarios,
-            work.Sum(w=>w.UnitPricerCalls),work.Sum(w=>w.RebuiltCurveNodes)+prepared.MaterializationWork.RebuiltCurveNodes,
+            work.Sum(w=>w.UnitPricerCalls)+prepared.MaterializationWork.UnitPricerCalls,work.Sum(w=>w.RebuiltCurveNodes)+prepared.MaterializationWork.RebuiltCurveNodes,
             work.Sum(w=>w.ReusedCurveNodes)+prepared.MaterializationWork.ReusedCurveNodes)
             {CurveGraphEvaluatedNodes=work.Sum(w=>w.CurveGraphEvaluatedNodes),CurveGraphReusedReads=work.Sum(w=>w.CurveGraphReusedReads),
              UniqueInstruments=work.Sum(w=>w.UniqueInstruments),VolumeComputations=work.Sum(w=>w.VolumeComputations),

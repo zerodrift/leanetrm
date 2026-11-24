@@ -8,6 +8,9 @@ ADMINISTRATOR=('pricing_administrator',identity('c',94690))
 
 def add_fixture(reference,market,security,manifest,*,exercise_months=False):
     reference,market,security,manifest=location_fixture(reference,market,security,manifest,price='3.10')
+    if exercise_months:
+        reference,market,security,manifest=location_fixture(reference,market,security,manifest,price='3.20',
+            prefix='synthetic_exercise',number=94890,curve_name='Synthetic exercise location')
     refs=[];definitions=[];observations=[]
     for kind in ['daily','monthly']:
         code='synthetic_entry_'+kind
