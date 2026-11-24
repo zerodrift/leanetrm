@@ -38,7 +38,7 @@ export function previewed(panel:SchedulePanel,outcome:{preview:TicketPreview}|{r
  if(schedule)return {schedule,...pricedGroups,quantityUnit,...currency===undefined?{}:{currency},previous:panel.schedule,summaries:summaries??[],links,...composition,status:{kind:'current',text:'Up to date · previewed after your last change'},errors:{}};
  if(!scheduleRefusal)throw Error('The preview returned neither a schedule nor why it has none.');
  const status={kind:'refused',text:`Schedule refused: ${scheduleRefusal.message}`} as const;
- if(!options.retained && outcome.preview.groups!==undefined && !outcome.preview.groups?.length)
+ if(!options.retained && panel.schedule && outcome.preview.groups!==undefined && !outcome.preview.groups?.length)
   return {...kept(status.text,{}),groups:[],...composition};
  if(pricedGroups.groups)return {schedule:null,previous:null,...pricedGroups,quantityUnit,...currency===undefined?{}:{currency},summaries:summaries??[],links,...composition,status,errors:{}};
  if(outcome.preview.groups===null)return {schedule:null,previous:null,quantityUnit,summaries:[],links,...composition,status,errors:{}};

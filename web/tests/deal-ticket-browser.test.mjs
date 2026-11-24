@@ -560,3 +560,28 @@ test('a native booked Side renderer replaces the old Side grid and keeps the ord
   await evaluate('ticket.destroy()');assert.equal(await evaluate('disposed'),1);
  });
 });
+
+test('opening an unpriced amendment still labels the editable gas quantity with its resolved unit',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+ await withBrowserPage('<div id="host"></div>',async evaluate=>{
+  await evaluate(`(async()=>{
+   const {setupTicket}=await import('/ticket-controller.js');
+   const product='physical_gas',field={id:'quantity',label:'Quantity',meaning:'Contract quantity',type:'decimal',unit:'quantity',state:'editable',
+    required:false,band:'quantity',choices:null,dependsOn:[],lookup:null,soon:null,rule:null};
+   const d={product,version:1,rowShape:'flow',tradeFields:[],sideLimits:[],levels:['month'],modes:['amend'],tabs:[],tradeColumns:[],
+    sides:[{kind:'physical',pill:'Physical',colour:'gas',min:1,initial:1,max:1,fields:[field],columns:[]}]};
+   const api=async path=>{
+    if(path==='tickets/description')return d;
+    if(path==='tickets/trade')return {draft:{product,version:1,trade:{},sides:[{kind:'physical',code:'gas',values:{quantity:'100'}}]},
+     actions:{amend:{allowed:true},record:{allowed:false},closeOut:{allowed:false}},definitionRevisionId:'synthetic-definition',
+     schedule:null,groups:null,summaries:null,scheduleRefusal:{code:'exercise_marks',message:'Missing exercise marks.'},quantityUnit:'MMBtu',links:[]};
+    throw Error('Unexpected request '+path);
+   };
+   setupTicket(document.querySelector('#host'),{api,product,context:()=>({}),actor:()=>'synthetic',instant:at=>at,zone:()=>'UTC',booked:()=>{},
+    amending:{tradeId:'synthetic-trade',bindingId:'synthetic-binding',revision:1}});
+   for(let i=0;i<100&&!document.querySelector('[data-field=quantity] input');i++)await new Promise(r=>setTimeout(r,10));
+  })()`);
+  assert.equal(await evaluate("document.querySelector('[data-field=quantity] input')?.value"),'100');
+  assert.equal(await evaluate("document.querySelector('.ticket-status')?.dataset.kind"),'refused');
+  assert.equal(await evaluate("document.querySelector('[data-field=quantity] .ticket-unit')?.textContent??null"),'MMBtu');
+ });
+});
