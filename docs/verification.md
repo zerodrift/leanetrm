@@ -2,13 +2,13 @@
 
 ## Independent gas charges (D449)
 
-Local verification on 2026-11-24 at `8447da1b` uses synthetic trades with
+Local verification on 2026-11-24 at `e8580a79` uses synthetic trades with
 stock PostgreSQL 18.7 and the checkout's own API and worker. The pinned
-tools are .NET SDK 10.0.402, Python 3.14.2, Node 24.22.0 and Chrome on
-macOS arm64. The gas, trading and
-managed groups run sequentially through `tools/check_all.py`. Integration
-fixtures provision and remove their own databases. With the pinned tools
-selected, run the groups from the repository root.
+tools are .NET SDK 10.0.402, Python 3.14.2, Node 24.22.0 and Chrome on macOS
+arm64. The gas, trading and managed groups run sequentially through
+`tools/check_all.py`. Integration fixtures provision and remove their own
+databases. With the pinned tools selected, run the groups from the
+repository root.
 
 ```bash
 for group in gas trading managed; do
@@ -16,11 +16,15 @@ for group in gas trading managed; do
 done
 ```
 
-All three groups exited 0.
+All three groups passed. The first trading run stopped at the swap draft's
+curve-read-count assertion and removed its disposable database. The full
+trading rerun at the same commit with the same command and timeouts passed
+both executions of that assertion. The cause of the initial failure is
+unknown.
 
 | Group | Runner `CHECK` workloads | Printed `PASS` checkpoints | Owned browser checks | Completed workers | Databases removed |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Gas | 18 | 1,212 | 208 | 27 | 10 |
+| Gas | 18 | 1,220 | 208 | 27 | 10 |
 | Trading | 20 | 1,588 | 489 | 20 | 10 |
 | Managed | 81 | 2,809 | — | — | — |
 
@@ -37,11 +41,9 @@ clocks, a term outside physical delivery, partial and overpaid cash, and
 earlier knowledge. The lump sum refuses remittance one microsecond before
 its derived earned day ends and admits it at that boundary, before its
 payment date begins. Capacity payable on day 1 uses the exact completion
-instant later the same day. Independent task review examined these temporal
-boundaries and the separate own-day and physical day geometry. The final
-whole-branch review and verification after its findings remain pending.
+instant later the same day.
 
-The gas charge integration workload reported 110 PASS checkpoints, 15 owned
+The gas charge integration workload reported 118 PASS checkpoints, 15 owned
 browser checks and three completed retained workers. It compares independent
 entry values and position components in previews, exact trades, the Blotter
 and shared scenarios. The held schedule's reference example checks a
@@ -53,26 +55,44 @@ covers retained workers, a multiplier-two typed price, remittance sign and
 zero-amount refusals, request replay, invalid native shapes, an
 exercise premium with unchanged group value and final billing refusals.
 
+Migration 0398 extends migration 0397's native charge admission to refuse
+the unrepresentable first UTC instant of a local 0001-01-01 day under a
+midnight UTC+14 clock. Native lump-sum and capacity checks stage their
+matching programs with the exact calendar and physical clock. Each accepts
+the adjacent representable day.
+
+Future replacement checks cover a fully paid upfront premium, original and
+proposed capacity starting at the amendment instant, and a known payment
+effective after the amendment. The ticket disables amendment for ineligible
+holdings. Preview, booking preparation and the locked writer also reject a
+started candidate. The checks compare the original revision, binding,
+payment and allocations before and after refusal. A wholly future unpaid
+replacement succeeds and its completed command replays after a payment on
+the new binding.
+
 The browser exercises explicit calendars, cleared basis-dependent price,
 payment day 1–28, booking and exact retained charge Terms. It checks both
 basis-specific labels, blank daily capacity cells, and the accrued,
-outstanding and unrealized amounts through the exact Side inspectors.
+outstanding and unrealized amounts through the exact Side inspectors. Saved
+charge Terms show the stated currency, rate unit and capacity unit. The
+inspector identifies the amount to come as unrealized present value.
 The combined schedule includes independent monthly intervals and preserves
 the monthly grain of a one-day capacity stub. Its progress uses the number
 of native rows completed at their own ends. The ordinary projection still
 uses its leaf-based progress, with no native-row basis marker.
 
-The complete frontend suite passed 2,353 tests with zero failures and
-skips. That task verification ran the frontend build and the following
-two-worker test invocation from `web`. The focused managed schedule check
-reported 20 checks, and the ticket description check reported 68.
+The complete frontend suite passed all 2,353 tests with zero skips. It ran
+the frontend build and the following two-worker test invocation from `web`.
+The denomination test uses a multiplier-two quote, an exact 18-decimal-place
+amount and a fractional capacity. A separate presentation test supplies
+−3,925.75 unrealized PV against −4,000 nominal future cash.
 
 ```bash
 npm run build
 node --test --test-concurrency=2 tests/*.test.mjs
 ```
 
-Integrated CI is a separate merge gate.
+Independent review of the corrections and integrated CI remain pending.
 
 ## Exercise rights on a gas Instrument (D448)
 

@@ -16,7 +16,10 @@ admission. It keeps the raw stated price, quantity, clock selector and
 payment terms with the exact authorized versioned references. The native
 writer checks the shape, quote arithmetic and calendars; cash admission
 checks the earned-day boundary and nominal sign. Charges remain independent
-of exercise decisions and outside final daily billing.
+of exercise decisions and outside final daily billing. Migration 0398 checks
+the first owned UTC start for both bases. Future-only replacement requires
+unstarted original and proposed charges, and refuses a recorded payment on
+an original charge regardless of its paid instant.
 
 The shared ticket uses explicit calendar controls, basis-specific labels
 and field refusals. The combined schedule preserves monthly capacity rows
