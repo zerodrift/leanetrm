@@ -428,10 +428,13 @@ The sensitivities are the option model's own; Risk reports keep theirs.
   exercised early. It is selectable and is not the stated policy; stating it
   needs a decision, a schema release for the volatility-surface tables and new
   pinned values.
-- **Margined premium.** Futures-style margined premium needs futures variation
-  margin first.
-- **Other option types.** European, cash-settled, weekly, calendar spread, crack
-  spread and average-price options.
+- **Margined premium.** Designed, not built: draft D446 and its
+  [design](superpowers/specs/2026-11-23-futures-option-styles-design.md) keep a
+  margined option's variation margin in the futures margin records. Booking still
+  refuses a margined premium.
+- **Other option types.** European exercise and an expiry on the underlying's last
+  trading day are designed, not built (the same draft). Cash-settled, weekly,
+  calendar spread, crack spread and average-price options remain.
 - **Settlement ingestion.** Option and futures daily settlements are synthetic
   example rows; no ingestion exists.
 - **Agent booking authority.** Agent booking or lifecycle writes need their own
