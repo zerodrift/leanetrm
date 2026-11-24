@@ -299,9 +299,18 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
         }
     }
 
+    // A report selects no gas valuation policy, so books that hold independently owned gas are reported only by trade.
+    private async Task<Endpoint> Read(NpgsqlConnection connection,TradingView view,TradingPnlRequest request,CancellationToken ct)
+    {
+        try{return await ReadView(connection,view,request,ct);}
+        catch(MarketDataException e)when(e.Code=="gas_owned_policy_required")
+        {
+            throw new MarketDataException(e.Code,"These books hold independently owned gas, which a P&L report does not value. Name the trades to report instead.",e);
+        }
+    }
     // Each date is read in a view of its own. A whole-book date admits its exact source there, and the request's one
     // source slot is free again for the other date once that source has been required.
-    private Task<Endpoint> Read(NpgsqlConnection connection,TradingView view,TradingPnlRequest request,CancellationToken ct)=>
+    private Task<Endpoint> ReadView(NpgsqlConnection connection,TradingView view,TradingPnlRequest request,CancellationToken ct)=>
         database.TemporaryView(connection,"pnl_endpoint",async()=>
         {
             await view.Bind(connection,database.Manifest.CatalogId,ct);
@@ -316,7 +325,13 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
             var frame=view.CalculationFrame;var data=await MarketInputSelection.Root(database,connection,frame,ct,referenceScope:ReferenceReadScope.TradeValuation);
             PortfolioValuation.Prepared? prepared=null;
             PnlAccountingPoint? point=null;
-            if(available.Trades.IsEmpty)point=new(view.Context.ContextId!.Value,frame.Id,frame.At,SchedulePreview.ParseAt(view.Context.KnownAt),[],[],PnlAccountingCoverage.Complete);
+            if(available.Trades.IsEmpty)
+            {
+                // An empty point attests complete coverage of its books. A whole-book date proves that they hold no
+                // independently owned gas here, as preparation proves it for a date that holds trades.
+                if(request.TradeIds is null)await GasOwnedPortfolio.RequireScope(connection,database,frame,chosen,configured:false,ct);
+                point=new(view.Context.ContextId!.Value,frame.Id,frame.At,SchedulePreview.ParseAt(view.Context.KnownAt),[],[],PnlAccountingCoverage.Complete);
+            }
             else
             {
                 prepared=await new PortfolioValuation(database).Prepare(connection,data,frame,data.Snapshot(frame),view.Context,chosen,

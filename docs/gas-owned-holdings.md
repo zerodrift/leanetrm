@@ -73,7 +73,9 @@ acknowledging an older fact does not reactivate it or rewind the current state.
 Whole-book valuation selects `gas_owned_mark_to_market_v1` explicitly and loads
 independent owners by the selected books. A book with owned gas cannot return a
 complete valuation without that policy. A selected-trades request has its own
-scope and cannot also select whole-book gas ownership. The loader retains exact
+scope and cannot also select whole-book gas ownership. A two-date P&L run over
+whole books selects no such policy and proves the absence at each date,
+including a date that holds no trades (D451). The loader retains exact
 native owner/binding identities, source bundles and surviving cash; it never
 finds inventory through an originating trade. Future cash and currency-carried
 claims consume the selected currency discount mapping and pinned rate inputs.
