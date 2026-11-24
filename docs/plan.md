@@ -1,5 +1,13 @@
 # Delivery plan and acceptance criteria
 
+D446 admits European exercise on a listed futures option: a product row states
+the style, its series are valued by a Black-76 formula named in the option
+valuation policy, and exercise before expiry is refused. The managed, Python and
+web checks pass locally; the database, HTTP and real-browser checks have not been
+run. See [futures options](futures-options.md#european-exercise) and
+[verification](verification.md#european-futures-options-d446). An expiry on the
+underlying's last trading day and a margined premium remain designed, not built.
+
 D445 implements the first [shared gas pricing building block](superpowers/specs/2026-11-23-delivery-quantity-input-design.md):
 selected delivery quantities in the shared physical lifecycle. New independent
 physical memberships can opt in; payment and usage-fee quantities follow their
@@ -1172,7 +1180,8 @@ retain explicit sibling references
 and distinct base/final valuation modes; the exercise-control accounting choice
 in O13 is still open for options embedded in an instrument. Listed American options
 on NYMEX futures are standalone instruments with their own model and lifecycle
-(D288, [futures options](futures-options.md)).
+(D288, [futures options](futures-options.md)). A listed product may instead state
+European exercise, valued by a Black-76 formula under its own policy member (D446).
 The D210 entry refinement places visual instrument cards between trade details
 and side forms. A selected versioned template populates empty side terms;
 commodity and market selections remain explicit. Each floating side owns its
@@ -2143,8 +2152,9 @@ Extend only after the baseline contracts are demonstrated:
 - Broader calendars, delivery shapes and schedule authoring.
 - Additional option exercise and settlement styles, volatility shocks and
   nonlinear model diagnostics beyond the listed futures and heat-rate call profiles.
-  For listed futures options, European exercise, an expiry on the underlying's last
-  trading day and a margined premium are designed and not built (D446,
+  For listed futures options, European exercise is built and its database, HTTP and
+  browser checks are still to be run; an expiry on the underlying's last trading day
+  and a margined premium are designed and not built (D446,
   [design](superpowers/specs/2026-11-23-futures-option-styles-design.md)).
 - Option strategies beyond one expiry (D409 analyses and draws legs of one
   expiry on one underlying future). Strategies across expiries need a declared

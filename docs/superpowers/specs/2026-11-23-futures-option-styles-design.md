@@ -1,7 +1,9 @@
 # Futures option styles: European exercise, expiry on the underlying's last day, margined premium
 
-Status: design dated 2026-11-23, approved by the owner on 2026-11-23. Nothing here
-is implemented. The decision is D446 in [decisions](../../decisions.md); its number
+Status: design dated 2026-11-23, approved by the owner on 2026-11-23. Piece 1,
+European exercise, is implemented and recorded in
+[verification](../../verification.md#european-futures-options-d446); pieces 2 and 3
+are not. The decision is D446 in [decisions](../../decisions.md); its number
 is provisional until the branch merges. Each piece has its own task plan in
 [plans](../plans/).
 

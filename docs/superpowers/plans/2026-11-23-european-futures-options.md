@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Not started. Plan of 2026-11-23 for piece 1 of D446.
+**Status:** Built locally on 2026-11-23 as migrations 0391 and 0392. The managed, Python and web checks pass; the database, HTTP and real-browser checks have not been run. See [verification](../../verification.md#european-futures-options-d446). Plan of 2026-11-23 for piece 1 of D446.
 
 **Goal:** A listed futures option product may state European exercise; such a series is booked, valued by a Black-76 formula, calibrated to its settlement, repriced under shared scenarios and expired by its automatic rule, and is never valued on the American tree.
 

@@ -1,8 +1,10 @@
-# Listed American options on futures
+# Listed options on futures
 
 Status: local implementation, verified as recorded in
-[verification](verification.md#listed-american-futures-options-d288). This is not a
-production activation record. The decision is [D288](decisions.md).
+[verification](verification.md#listed-american-futures-options-d288) and, for European
+exercise, in [verification](verification.md#european-futures-options-d446), which also
+lists the checks that have not yet been run. This is not a production activation
+record. The decisions are [D288 and D446](decisions.md).
 
 The first release covers two NYMEX products in the
 [exchange futures example](exchange-futures.md#nymex-cl-and-listed-options):
@@ -23,12 +25,17 @@ specifications and calendars, NYMEX rulebook chapters
 [strike listing and exercise procedures table](https://www.cmegroup.com/trading/files/strike-price/strike-price-listing-and-exercise-procedures-table.xlsx)
 dated 2026-08-24. Only facts are stored; every price is synthetic.
 
+A product row states its exercise style, `american` or `european` (D446). Both example
+products are American and the example lists no European product: the checks of
+[European exercise](#european-exercise) use a synthetic product on a synthetic
+cash-settled future.
+
 ## Instrument
 
 A listed option is its own immutable instrument. It references its exact underlying
 `ref_data.futures_series` key and states its right, strike, expiry instant, exercise
-style `american`, settlement method `exercise_into_future` and the versioned rules of
-its product. The exact `ref_data.futures_option_series` key is the identity; each
+style (`american` or `european`), settlement method `exercise_into_future` and the
+versioned rules of its product. The exact `ref_data.futures_option_series` key is the identity; each
 strike and right is a different instrument. Series exist only as explicit catalog
 rows: the exchange's strike listing ranges and intervals are not modeled, so no
 series is generated from them, and the example catalog's products and series carry
@@ -49,7 +56,8 @@ Exchange specifics are reference data, never code:
 - **Contrary instructions.** The product row states whether they are accepted. ON
   and LO do not accept them, so exercise and abandon instructions are refused with
   `option_contrary_instructions_not_accepted`. The instruction path exists for
-  products whose row accepts them, and such a row must state a cutoff.
+  products whose row accepts them, and such a row must state a cutoff. A European
+  product accepts none: a check on the product row refuses one that does.
 - **Close and expiry time.** A versioned setting gives a product's close-of-trading
   time of day, clock and source. NYMEX NG, CL, ON and LO use 14:30 New York under the
   operator qualification `operator:nymex-close-1430-new-york-v1`, which is not an
@@ -95,7 +103,12 @@ retry does; otherwise it is refused as an unseen series.
 
 ## Valuation
 
-An option is valued on a binomial tree of its underlying futures price, with zero
+The series' stated exercise style selects its model, and a series is never valued as
+a style it is not. A European series is valued by a formula, described under
+[European exercise](#european-exercise). The rest of this section is the American
+model.
+
+An American option is valued on a binomial tree of its underlying futures price, with zero
 drift, by a project-owned backward-induction core that chooses hold or exercise
 at every node. All arithmetic is fixed-point decimal with 30 fractional digits
 and half-even rounding, with project-owned `exp`, `ln` and `sqrt`, so results do
@@ -246,6 +259,86 @@ tree at two of its own steps reads every gamma within 2.3% and every delta withi
 0.34 points, and at one tick reads 46 of 48 gammas over 10% off and deltas up to
 1.4 points off while its three delta estimates agree within 0.0001.
 
+### European exercise
+
+A product whose row states `european` is exercised only at expiry (D446). Its series
+are valued by `european_futures_option_black76_v1`, the Black-76 formula per unit of
+quote:
+
+```text
+T  = years from the valuation instant to the expiry instant (act_365_fixed_instant_v1)
+s  = volatility × √T
+d1 = (ln(F ÷ K) + s² ÷ 2) ÷ s        d2 = d1 − s
+call = D × (F × N(d1) − K × N(d2))
+put  = D × (K × N(−d2) − F × N(−d1))
+```
+
+`F` is the underlying future's price on its direct daily-settlement curve, `K` the
+strike and `D` the discount factor to the expiry instant from the currency's
+payment-discount selection. The arithmetic is the tree's 30-digit decimal with the
+project's `ln`, `sqrt` and `normal_decimal_taylor_bisection_v1`, and the unit price is
+rounded once, half-even, to 18 digits before the multiplier. From twelve deviations
+out that normal distribution is exactly 0 or 1, so close to expiry the value is the
+discounted intrinsic value exactly; the result is never below that value.
+
+| Setting | `european_futures_option_black76_v1` |
+| --- | --- |
+| Lattice | none: a formula in closed form |
+| Day count | `act_365_fixed_instant_v1` |
+| Volatility bracket | 0.01 to 3. The formula has no range, so the top is never lowered |
+| Bisection iterations | at most 30 |
+| Discount tolerance | 0.005 |
+| Price step | none: the value is smooth in the futures price |
+| Accuracy | within 10⁻²⁷ of an independent 60-digit Black-76 evaluation on the oracle's 17 cases, discounted and undiscounted, and within 10⁻²⁶ on its two wide cases |
+
+**Calibration.** The base value equals the option's daily settlement, as for an
+American series, within half the series' clearing increment. The value at zero
+volatility is discounted: `D × intrinsic`. A settlement is struck with the market's
+discounting, not the selected curve's, so far in the money it can lie below that
+value without being wrong. A settlement below `(D − 0.005) × intrinsic` less one
+clearing increment raises `option_settlement_below_intrinsic`. The tolerance of 0.005
+admits a market rate half a point above the curve's for a year, or two points for a
+quarter, and refuses a full point for a year; it is a first value, not a measured one.
+A settlement at or below the formula's price at a volatility of 0.01 has no
+volatility. Under the declared `option_settlement_at_discounted_intrinsic_v1` the
+base value is then the settlement, and each scenario value is
+max(0, D × scenario intrinsic + base residual) × multiplier, where D is the scenario's
+discount factor and the residual, the settlement less the discounted base intrinsic,
+may be negative. Undeclared, it raises `option_calibration_fallback_undeclared`. A
+settlement above the price at a volatility of 3 raises
+`option_settlement_above_bound`.
+
+**Policy.** The valuation policy names the model in a member of its own:
+
+```json
+"european": {
+  "numericalPolicy": "european_futures_option_black76_v1",
+  "calibrationFallback": "option_settlement_at_discounted_intrinsic_v1"
+}
+```
+
+`calibrationFallback` is that name or `none`. The policy's other model members
+govern American series only. The Blotter, the risk catalog, the trading P&L and
+strategy analysis state the policy that carries the member. A scope holding a
+European series under a policy without it is refused with `option_policy`, naming
+the series. A serialized policy without the member keeps its bytes, so a retained job
+replays unchanged. A run retained under the earlier stated policy stays readable and
+is no longer a scope's current report (D396). A numerical policy that does not price
+a series' style is refused with `option_terms`.
+
+**Risk.** Nothing is new. The solved volatility is held while the underlying's
+factor is shocked, and base, up and down values come from the formula at the scenario
+price and discount. The option declares its underlying, one discount input at its
+expiry instant, its held volatility and no price step, so the trading P&L bump is not
+sized from it and the bump report's two-step rule does not apply to it. Its
+event-free interval runs to expiry. At the oracle's volatility a one-tick revaluation
+gives the oracle's delta within 10⁻⁶ and its gamma within 0.01%. A fallback is
+pinned to its source instant, as the American fallback is.
+
+**Where it is refused.** A European series is refused with `projection_option_style`
+in the lifecycle projection (D401) and in its cash and physical reference
+strategies, which are qualified for American exercise only.
+
 ## Lifecycle
 
 Each event is one authorized operation with a request identity. A retry returns its
@@ -270,13 +363,20 @@ assignment or instruction dated after the moment it is recorded is refused with
   nothing.
 - **`options/holding`.** Reads a holding's open lots and events at the read's
   knowledge. `options/status` reads a booking operation's first outcome.
+- **European series.** Exercise and assignment are refused with
+  `option_exercise_style`, in the lifecycle proposal and in the event primitive,
+  ahead of their notice and exercise-window tests. The lifecycle list and a holding's
+  Details give that reason for the two actions whatever is configured. Expiry is
+  unchanged: once the expiry instant has passed, the product's automatic rule decides
+  on the underlying's final daily settlement of that day, and each exercised lot books
+  one future at the strike.
 
 See [the lifecycle contract](exchange-futures.md#option-lifecycle) for the full rules.
 
 ## Reads and entry points
 
 - **Blotter.** An option trade has two rows: the option (right, strike, expiry,
-  underlying, booked and open lots, settlement, implied volatility, calibration
+  exercise style, underlying, booked and open lots, settlement, implied volatility, calibration
   mode, value and value per contract, lifecycle state, linked futures) and the
   premium (cash state, signed amount, payment date). Each row states which lifecycle
   actions are available and why not.
@@ -286,8 +386,9 @@ See [the lifecycle contract](exchange-futures.md#option-lifecycle) for the full 
   A bump report's shock of a solved option's underlying spans at least two of
   its price steps, or the request is refused naming the smallest shock that
   does (D395). A report that values options states its option valuation policy
-  in its heading, and the Risk page opens a retained run as a scope's current
-  report only when it was valued under the stated pricing policy (D396).
+  in its heading, with the European member where the policy carries one, and the
+  Risk page opens a retained run as a scope's current report only when it was valued
+  under the stated pricing policy (D396).
 - **Options.** A Trading page for readers of market data and trades (D408). Its
   product directory groups by commodity and searches product names, codes,
   exchanges and underlying futures. **Chain** shows calls and puts by strike
@@ -329,7 +430,9 @@ See [the lifecycle contract](exchange-futures.md#option-lifecycle) for the full 
   store nothing. See [strategies](#strategies).
 - **New trade.** The option ticket selects exchange, commodity, underlying future,
   call or put, then strike; each list comes from the backend catalog and resets
-  those below it. Once a series is chosen, the ticket links to its product's
+  those below it. Its Contract section states **Exercise** and **Settlement** from
+  the catalog's `exerciseStyle` and `settlementMethod`; a code the page does not know
+  is shown as stated. Once a series is chosen, the ticket links to its product's
   [volatility surface](vol-surfaces.md), as an option trade's Details do in the
   Blotter. Lifecycle actions in the Blotter and the position window are
   offered only on working data with booking authority.
@@ -397,6 +500,9 @@ the reads are [OptionStrategyRead.cs](../src/OpenEtrm.Api/OptionStrategyRead.cs)
 `option_expired`, and for a template `strategy_template_strike`,
 `strategy_template_series` or `strategy_template_money`.
 
+Each leg is priced by its product's model: a European leg by the formula, with no
+price step and no tree price counted in `work`.
+
 **What it is not.** The payoff at expiry is an exercise value under a stated
 rule, not a model price, and implies no lifecycle event. The dated curves hold
 each leg's calibrated volatility under the price and clock scenarios
@@ -432,16 +538,28 @@ The sensitivities are the option model's own; Risk reports keep theirs.
   [design](superpowers/specs/2026-11-23-futures-option-styles-design.md) keep a
   margined option's variation margin in the futures margin records. Booking still
   refuses a margined premium.
-- **Other option types.** European exercise and an expiry on the underlying's last
-  trading day are designed, not built (the same decision). Cash-settled, weekly,
-  calendar spread, crack spread and average-price options remain.
+- **Other option types.** An expiry on the underlying's last trading day is
+  designed, not built (the same decision). Cash-settled, weekly, calendar spread,
+  crack spread and average-price options remain.
+- **European exercise, not yet done.** Its database, HTTP and real-browser checks
+  have not been run (see [verification](verification.md#european-futures-options-d446)).
+  European series are refused in the lifecycle projection and its reference
+  strategies. The example lists no European product. A European product whose
+  holders may file contrary instructions is not supported. No check values a
+  European series whose expiry lies outside the rate curve's pillars; that exclusion
+  is the code American series use.
 - **Settlement ingestion.** Option and futures daily settlements are synthetic
   example rows; no ingestion exists.
 - **Agent booking authority.** Agent booking or lifecycle writes need their own
   design and review.
-- **Recording expiry.** Expiry is recorded only through the `options/expiry` HTTP
-  operation. No UI action or scheduled job records it yet, so a held series past
-  expiry stays visibly unprocessed (`option_expired`) until someone calls it.
+- **Recording expiry.** Nothing records an expiry without configuration: a person
+  saves the trade's action policy and option profile
+  ([lifecycle actions](lifecycle-actions.md)). Under a `manual` policy a person
+  determines the expiry in Scheduling › Lifecycle; under `review` the scheduled job
+  stores a proposal for a person to execute; under `automatic` the scheduled job
+  records the expiry and the linked future
+  ([lifecycle delivery](lifecycle-delivery.md)). Until then a held series past expiry
+  stays visibly unprocessed (`option_expired`).
 - **Intraday notice cutoffs.** Not enforced until the source states a time zone; a
   same-day late notice is accepted.
 - **Close operations.** Pilot close and close-book policies do not yet state an

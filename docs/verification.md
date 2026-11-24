@@ -1,5 +1,90 @@
 # Local verification and continuous integration
 
+## European futures options (D446)
+
+Local qualification on 2026-11-23 on macOS arm64 with .NET SDK 10.0.402 and Node
+24.22.0, on synthetic data. No PostgreSQL was installed or started on the
+workstation, so every check that needs a database, an HTTP server or a real browser
+against a preview is listed below as not run. The capability is described in
+[futures options](futures-options.md#european-exercise).
+
+| Run | Where | Result |
+| --- | --- | --- |
+| MarketData checks, default | workstation | 801 managed core checks passed |
+| MarketData checks `--european-options` | workstation | 31 PASS |
+| MarketData checks `--futures-options` | workstation | 70 PASS; the pinned risk digests pass with their expected values unedited |
+| MarketData checks `--option-sensitivities`, `--option-strategies`, `--vol-surface` | workstation | 8, 25 and 22 PASS |
+| MarketData checks `--option-lifecycle-projection`, `--cash-option-model`, `--physical-option`, `--cash-option-binding`, `--physical-option-binding` | workstation | pass, each with its European refusal |
+| MarketData checks `--spread-options`, `--calendar-policy`, `--payment-date-policy`, `--hybrid-monte-carlo-risk` | workstation | pass |
+| API checks `--schedules` | workstation | 513 PASS |
+| API checks `--option-policy`, `--european-options` | workstation | 8 and 3 PASS |
+| API checks `--cash-option-value-policy`, `--physical-option-policy`, `--option-strategy-request`, `--risk-pricing-policy`, `--historical-risk`, `--monte-carlo-risk` | workstation | pass |
+| API checks `--context-resolution`, `--read-references`, `--power-hedge`, `--async-reads`, `--assistant-prompts`, `--published-clock`, `--calendar-authoring`, `--gas-ticket`, `--position-adjustment` | workstation | pass |
+| Rates and Shared checks | workstation | 88 and 51 passed |
+| `python3 -m unittest discover -s tests -p 'test_*.py'` | workstation | 182 OK, with migrations 0391 and 0392 in the numbering check |
+| `npm test --prefix web` | workstation | 2,329 pass. An earlier run under a load average of 70 had one browser test fail to start its browser; that file alone, and this run, pass |
+| Migrations 0391 and 0392 applied to a database | nowhere | not run |
+| `tools/check_european_option.py` and its managed read `--european-option-read` | nowhere | not run |
+| The new assertions of `tools/check_futures_option_storage.py` and `tools/check_vol_surface_storage.py` | nowhere | not run |
+| `tools/check_all.py` groups `exchange`, `lifecycle`, `database`, `frontend` and `repository` | nowhere | not run |
+| `tests/browser/futures-options.mjs` against a preview | nowhere | not run |
+| The risk worker's replay of a retained job that holds a European series | nowhere | not run |
+| Any run on Linux | nowhere | not run |
+
+What the checks that ran establish:
+
+- **The formula.** `EuropeanFuturesOptionChecks` compares the Black-76 formula with the
+  independent 60-digit values of `tests/fixtures/futures-option-oracle.json`: within
+  10⁻²⁷ on its 17 cases, discounted and undiscounted, calls and puts (largest observed
+  difference 1.5 × 10⁻²⁸), and within 10⁻²⁶ on its two wide cases (1.2 × 10⁻²⁷, at
+  a strike of 3,276). Put-call parity holds to the same bound. The arithmetic is
+  integer, so another host gives the same digits; that has not been observed on Linux.
+  Sixty seconds, and one clock tick, from expiry the value is the discounted intrinsic
+  value or zero with no range error. The value rises with volatility and is never
+  negative; without its floor a call far out of the money read −4 × 10⁻³⁰.
+- **Calibration.** A settlement rounded from each of eight oracle values is repriced
+  within half an increment at a volatility within 0.005 of the oracle's, under a
+  bracket whose top stays 3 where the tree's range would lower it to 1.72. Hand cases
+  with F = 5, K = 3 and D = 0.99: 1.98 and 1.975 fall back with residuals 0 and
+  −0.005, 1.969 is the least admitted and 1.968999 is refused. A market rate of 4.5%
+  against a 4% curve for a year falls back and 5% is refused; for a quarter 6% falls
+  back and 6.5% is refused. An out-of-the-money zero settlement falls back to zero
+  and is refused when the fallback is not declared.
+- **Scenarios.** Through the shared base, up and down valuation a European holding's
+  base value is its settlement within half an increment, its fallback values a shock
+  of 1.25 at 22,483.75 up and zero down by hand arithmetic, and a zero settlement is
+  worth nothing in every scenario. At the oracle's volatility a one-tick revaluation
+  gives the oracle's delta within 10⁻⁶ and gamma within 0.01%; at the calibrated
+  volatility the risk run and the sensitivity layers give delta within 0.001 and
+  gamma and vega within 1%.
+- **No series on the wrong model.** The tree refuses a European series and the
+  formula's policy; the formula refuses an American series and a tree policy; the
+  dispatcher, the solver and the binding refuse a policy that does not price the
+  style with `option_terms`. The five projection and reference-strategy entry points
+  refuse a European series with `projection_option_style`.
+- **Unchanged American values.** The 70 `--futures-options` checks, the sensitivity
+  and strategy checks and four solver outcomes re-read through the shared solver
+  pass with no expected value edited. `Release1` serializes to its earlier bytes.
+- **Policy.** The stated policy is `Release1` plus the `european` member, byte for
+  byte. A European series under `Release1` is refused with `option_policy` and named.
+  On one synthetic future an American and a European call under one policy are
+  calibrated by the tree and the formula, and each receipt names its numerical
+  policy. A retained calibration that recomputes differently, or under the other
+  model, is refused with `risk_option_calibration` by the comparison the worker
+  calls.
+- **Presentation.** The web tests cover the ticket's Exercise and Settlement facts,
+  the lifecycle reason and the Risk heading's European member.
+
+Not covered by any check, run or not: a European series whose expiry lies outside
+the rate curve's pillars (the `discount_coverage` exclusion is the code American
+series use, and no fixture lists a future beyond the curve); a fit of a European
+product through HTTP and the worker, end to end; the Gas delivery operations role;
+and a direct call of the option event primitive, whose refusal the new tool reads
+from the installed function because every authorized path passes the proposal first.
+
+Migrations 0391 and 0392 and these changes have not been published or applied to
+any database.
+
 ## Selected gas delivery quantities (D445)
 
 Local qualification on 2026-11-23 uses .NET SDK 10.0.402, stock PostgreSQL 18.7,

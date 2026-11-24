@@ -7119,12 +7119,15 @@ also shows contract quantity and the exact selected ratio. Nonlinear pricing,
 fuel links, changed delivery locations, final indexed billing, keep-whole and
 imbalance positions, and adoption by other commodities remain separate work.
 
-## D446 — Listed futures options admit European exercise, an expiry on the underlying's last day and a margined premium (designed; not implemented)
+## D446 — Listed futures options admit European exercise, an expiry on the underlying's last day and a margined premium (European exercise implemented; the other two designed)
 
 Decided by the owner on 2026-11-23 with the
-[design](superpowers/specs/2026-11-23-futures-option-styles-design.md). Nothing is
-implemented and no migration is written. D288 stands for American options with
-premium paid up front that expire before their underlying.
+[design](superpowers/specs/2026-11-23-futures-option-styles-design.md). European
+exercise is implemented by migrations 0391 and 0392; its managed, Python and web
+checks pass, and its database, HTTP and real-browser checks have not yet been run
+([verification](verification.md#european-futures-options-d446)). An expiry on the
+underlying's last day and a margined premium are designed and not built. D288 stands
+for American options with premium paid up front that expire before their underlying.
 
 A listed futures option remains one leaf instrument keyed by its exact series
 (D417). Three terms that D288 fixed become stated terms of the versioned reference
@@ -7186,3 +7189,23 @@ Still refused: options that settle straight to cash, average-price, strip, sprea
 and weekly options, an expiry on the last day of a physically delivered future,
 initial margin, and European or margined options in the D401 lifecycle projection
 and its reference strategies.
+
+Settled while building European exercise (2026-11-23), within what the design left
+to the builder:
+
+- The formula's numerical policy states no lattice, a volatility bracket of 0.01 to
+  3 that is never lowered, at most 30 halvings and a discount tolerance of 0.005.
+  The tolerance admits a market rate half a point above the selected curve's for a
+  year, or two points for a quarter. It is a first value and has not been measured
+  against real settlements.
+- The policy's existing model members govern American series only: a policy that
+  names the formula there, or the tree in the European member, is refused with
+  `option_policy`.
+- The style is refused ahead of the exercise-notice test in the proposal and the
+  event primitive, so a European exercise is answered with `option_exercise_style`
+  whatever the product's notice rule states. In the lifecycle list that reason
+  outranks a missing configuration, and the row is shown with the other inactive
+  actions.
+- A stored volatility surface names the numerical policy of its product's exercise
+  style. The fit admission checks it once the caller is known to read the product.
+- A European fallback is pinned to its source instant, as the American fallback is.

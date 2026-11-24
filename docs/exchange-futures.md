@@ -92,6 +92,9 @@ facts only and no document text or prices.
     and settlement clearing increment;
   - the lot quantity is one option contract;
   - premium is paid up front;
+  - the exercise style is `american`. The column also admits `european` (migration
+    0391, D446), with a check that a European product accepts no contrary
+    instructions; the example lists no European product;
   - contrary instructions are not accepted;
   - near-the-money strikes are listed every $0.05 for ON and every $0.50 for LO.
 - **Option rules (`ref_data.futures_option_rules`):** versioned and sourced.
@@ -167,6 +170,11 @@ knowledge and a request identity (D238):
 - **Reads.** Open lots are never negative. `options/holding` reads a holding's open lots
   and events at the read's knowledge, so a read before an event shows the holding as it
   was.
+
+Exercise and assignment of a European series are refused with `option_exercise_style`
+before its expiry, in the lifecycle proposal and in the event primitive, ahead of the
+notice and exercise-window tests. Its expiry follows the same rules as an American
+series'.
 
 The exercise-notice times of day are not enforced, because the rule states no time zone.
 No agent tool records lifecycle events.

@@ -2275,9 +2275,10 @@ Current primitive input histories use exact `market_data.series` keys, shared by
 curve consumers within the selected versioned context. Covariance axes must use
 explicit selected factor identities/units; dependency membership alone supplies
 no exposure amount. VaR, covariance estimation and independent cross-revision forward
-observable normalization are not implemented. Listed American options on NYMEX
-futures are executable (D288, [futures options](futures-options.md)); other option
-products are not.
+observable normalization are not implemented. Listed options on futures are
+executable, with American exercise (D288) or European exercise (D446) into the
+underlying future ([futures options](futures-options.md)); other option products are
+not.
 
 Pricing measure/numeraire, model versions, market-input mode and calibration belong
 to the selected valuation contract/context. An outright option mark has no inferred
@@ -2285,14 +2286,19 @@ underlying exposure. Model-based option valuation declares its underlying,
 volatility, rates and any other inputs explicitly and reprices under shared
 scenarios. Premium-style versus daily-margin settlement is contractual; it cannot
 be inferred from the underlying being a future. The implemented listed-option
-pricer and lifecycle are limited to premium paid up front, American exercise into
-the underlying future and an implied volatility held under futures shocks. D401's
+pricers and lifecycle are limited to premium paid up front, American or European
+exercise into the underlying future and an implied volatility held under futures
+shocks. The series' stated style selects its model, a tree for American exercise and
+the Black-76 formula for European, each under a named numerical policy; a series is
+never valued as a style it is not. D401's
 selected cash and physical reference-strategy models additionally value that
 future's explicit funding and delivery terms. They preserve the original source
 calibration and premium carrying; a separate held-right policy projects accepted
 native events and contractual expiry, not the pricing tree's early stopping
-decisions. Volatility as a shockable factor, margined premium and other exercise
-or settlement styles are not implemented.
+decisions. European series are refused in that projection and its reference
+strategies. Volatility as a shockable factor, margined premium, an expiry on the
+underlying's last trading day and other exercise or settlement styles are not
+implemented.
 
 ### 5.4 Future option sides with instrument-supplied inputs
 

@@ -103,7 +103,7 @@ dependency: the [trading P&L bump](trading-pnl.md#price-bump) is sized from
 them, and the [portfolio risk bump report](risk-workspace.md) refuses a shock
 under two of them (D395). The
 [listed American futures option](futures-options.md) declares its lattice's
-step.
+step; a European one, priced by a formula, declares none (D446).
 
 `MarketFactors(context)` returns the canonical shared market factors resolved
 from those declarations. The portfolio unions them by exact factor identity,
