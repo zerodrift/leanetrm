@@ -46,7 +46,7 @@ test('permission refresh retires pending reads before temporarily clearing accou
  const protocol='async_reads_v1',channelId='10000000-0000-4000-8000-000000000001';
  context.readClient=createAsyncReadClient({getIdentity:()=>({profile:context.currentProfile,context:context.navigation?.context??null}),
   post:async(path,body)=>{
-   if(path.endsWith('/channels'))return {protocol,channelId,profile:context.currentProfile,context:context.navigation.context};
+   if(path.endsWith('/channels'))return {protocol,channelId,profile:context.currentProfile,context:context.navigation.context,admissionWindowMs:230000};
    if(path.endsWith('/cancel'))return {...body,state:'cancellation_requested'};
    submitted=body;return {channelId,requestId:body.requestId,state:'accepted'};
   },createEventSource:()=>stream=new Source()});

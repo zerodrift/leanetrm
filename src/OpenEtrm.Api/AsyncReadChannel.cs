@@ -20,7 +20,7 @@ internal sealed class AsyncReadChannel:IAsyncDisposable
 {
     internal const string Protocol="async_reads_v1";
     internal const int MaximumActive=2,MaximumRequests=128,MaximumRequestBytes=32*1024,MaximumResultBytes=16*1024*1024;
-    internal static readonly TimeSpan Lifetime=TimeSpan.FromMinutes(5),ReadLimit=TimeSpan.FromSeconds(60);
+    internal static readonly TimeSpan Lifetime=TimeSpan.FromMinutes(5),ReadLimit=TimeSpan.FromSeconds(60),DeliveryLimit=TimeSpan.FromSeconds(10);
     static readonly JsonSerializerOptions ResultJson=new(AsyncReadContract.Json){MaxDepth=64,Converters={new ResultStringConverter()}};
     readonly object gate=new();
     readonly CancellationTokenSource lifetime;

@@ -3409,7 +3409,7 @@ api.MapGet("/portfolio/risk/parametric/archive",(Func<HttpContext,Task<IResult>>
 api.MapGet("/portfolio/risk/monte-carlo/archive",(Func<HttpContext,Task<IResult>>)(c=>StatisticalArchive(c,"monte_carlo")));
 api.MapGet("/portfolio/risk/historical/archive",(Func<HttpContext,Task<IResult>>)(c=>StatisticalArchive(c,"historical")));
 api.MapGet("/portfolio/risk/statistical/archive",(Func<HttpContext,Task<IResult>>)(c=>StatisticalArchive(c,"statistical")));
-var asyncReads=new AsyncReads(database,app.Lifetime.ApplicationStopping,hosted is not null,app.Logger);
+var asyncReads=new AsyncReads(database,app.Lifetime.ApplicationStopping,hosted is not null,app.Logger,TimeSpan.FromSeconds(processLimits.RequestSeconds));
 asyncReadServices.Add(asyncReads);asyncReads.Map(api,Session,PrepareRead);
 }
 var files=new PhysicalFileProvider(webRoot);

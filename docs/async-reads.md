@@ -26,7 +26,7 @@ so a later filtered page cannot authorize an older, broader response.
 
 | Endpoint | Behavior |
 | --- | --- |
-| `POST /api/async-reads/channels` | Open with `{clientId}` and return `async_reads_v1`, channel ID and bound profile/context. An explicit new opening replaces and drains that client's previous channel. |
+| `POST /api/async-reads/channels` | Open with `{clientId}` and return `async_reads_v1`, channel ID, bound profile/context and `admissionWindowMs`. An explicit new opening replaces and drains that client's previous channel. |
 | `GET /api/async-reads/events?channelId=…` | Emit `ready` then correlated terminal `response` events. Same-page admission and session cookies are required. |
 | `POST /api/async-reads` | Submit `{channelId, requestId, operation, body}`. HTTP 202 acknowledges admission; only SSE delivers the read result. |
 | `POST /api/async-reads/cancel` | Submit `{channelId, requestId}`. The receipt repeats both IDs and reports `cancellation_requested` for admitted work or `not_admitted` after fencing an unadmitted ID against future submission. |
@@ -93,9 +93,14 @@ identities per channel, including admitted requests and cancellations received
 before admission; the client renews a drained channel before
 submitting further requests. Request and serialized-result caps are 32 KiB and
 16 MiB. A channel lasts five minutes and uses periodic authorization checks and
-heartbeat writes. Work cancellation is cooperative: synchronous graph evaluation
-cannot be forcibly preempted by a cancellation token. The result is serialized
-once into an owned UTF-8 buffer, with its byte budget checked at writer commits
+heartbeat writes. The opening receipt gives the admission window in milliseconds,
+reserving the configured ordinary HTTP submission deadline, 60 seconds for
+evaluation and two successive 10-second publications. The browser measures the
+window from the start of the opening request. When the window ends, it lets
+admitted work settle and opens a fresh channel for unsent queued reads. Work
+cancellation is cooperative: synchronous graph evaluation cannot be forcibly
+preempted by a cancellation token. The result is serialized once into an owned
+UTF-8 buffer, with its byte budget checked at writer commits
 before publication, including DOM values. Publication writes that buffer in 16
 KiB chunks inside the existing authorization callback; one write deadline covers
 the complete event and its final flush. The existing 64-level result nesting

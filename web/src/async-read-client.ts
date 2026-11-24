@@ -71,7 +71,7 @@ type Pending={
 };
 type Retired={operation:AsyncReadOperation;snapshotId:string|null;abandoned:boolean;timer?:ReturnType<typeof setTimeout>};
 type Channel={
-  id?:string;identity:string;ready:boolean;alive:boolean;count:number;controller:AbortController;
+  id?:string;identity:string;ready:boolean;alive:boolean;count:number;renewAt:number;controller:AbortController;
   source?:AsyncReadEventSource;detach?:()=>void;timer?:ReturnType<typeof setTimeout>;
   pending:Map<string,Pending>;active:Set<string>;retired:Map<string,Retired>;
 };
@@ -130,7 +130,7 @@ export function createAsyncReadClient(options:AsyncReadClientOptions){
     settle(current,pending,undefined,error,true,pending.sent);cancelServer(current,pending);pump(current);
   }
   function makeChannel(identity:string,pending=new Map<string,Pending>()):Channel{
-    const current:Channel={identity,ready:false,alive:true,count:0,controller:new AbortController(),pending,active:new Set(),retired:new Map()};
+    const current:Channel={identity,ready:false,alive:true,count:0,renewAt:0,controller:new AbortController(),pending,active:new Set(),retired:new Map()};
     channel=current;return current;
   }
   function renew(current:Channel){
@@ -142,7 +142,10 @@ export function createAsyncReadClient(options:AsyncReadClientOptions){
   function pump(current:Channel){
     if(!active(current)||!current.ready)return;
     try{requireIdentity(current);}catch(error){stop(current,error as Error,'disconnected');return;}
-    if(current.count>=maximumRequests){if(!current.active.size&&current.pending.size)renew(current);return;}
+    if(current.count>=maximumRequests||performance.now()>=current.renewAt){
+      if(!current.active.size&&current.pending.size)renew(current);
+      return;
+    }
     for(const pending of current.pending.values()){
       if(current.active.size>=maxActive||current.count>=maximumRequests)break;
       if(pending.reserved)continue;
@@ -197,12 +200,17 @@ export function createAsyncReadClient(options:AsyncReadClientOptions){
     current.timer=setTimeout(()=>stop(current,new AsyncReadError('async_read_connection_timeout','The response stream did not become ready in time.'),'disconnected'),connectionTimeoutMs);
     try{
       requireIdentity(current);
+      // The server starts its lifetime during the open request. Starting the
+      // browser clock before sending keeps its admission window conservative.
+      const opening=performance.now();
       const created=await options.post(root+'async-reads/channels',{clientId},current.controller.signal);
       if(!active(current))return;
       requireIdentity(current);
       if(!record(created)||created.protocol!==protocol||!uuid(created.channelId))throw protocolError();
       if(identityKey(created)!==current.identity)throw identityError();
-      current.id=created.channelId;
+      if(typeof created.admissionWindowMs!=='number'||!Number.isSafeInteger(created.admissionWindowMs)||
+        created.admissionWindowMs<=connectionTimeoutMs)throw protocolError();
+      current.renewAt=opening+created.admissionWindowMs;current.id=created.channelId;
       const source=options.createEventSource(root+'async-reads/events?channelId='+encodeURIComponent(current.id));current.source=source;
       const ready=(event:Event)=>{
         if(!active(current))return;

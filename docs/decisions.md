@@ -5559,7 +5559,11 @@ classified ordinary operations. The page response transport refuses them before
 session resolution, so detachment cannot discard delegated authority guards.
 
 Bound active work, queued requests, identities, serialized responses and channel
-lifetimes. Identical request-ID retries cannot execute twice; conflicting reuse
+lifetimes. The opening receipt advertises the admission window after reserving
+the configured submission deadline, the read budget and both serial publication
+budgets. At that boundary the browser drains submitted reads before opening
+another channel for unsent queued work.
+Identical request-ID retries cannot execute twice; conflicting reuse
 is refused. Cancellation invalidates the consumer immediately while transport
 capacity is released only after server termination or an exact non-admission
 receipt. A cancellation that precedes admission atomically reserves its request

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {asyncReadRequest,createAsyncReadClient} from '../dist/async-read-client.js';
 
-const protocol='async_reads_v1',snapshotId='20000000-0000-4000-8000-000000000001';
+const protocol='async_reads_v1',admissionWindowMs=190000,snapshotId='20000000-0000-4000-8000-000000000001';
 const curveBody=()=>({snapshotId,curve:'synthetic_curve',includeWorkspace:false});
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
 function deferred(){let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};}
@@ -20,7 +20,7 @@ function harness(options={}){
     post:async(path,request,signal)=>{
       if(path===root+'async-reads/channels'){
         const channelId=`10000000-0000-4000-8000-${String(channels.length+1).padStart(12,'0')}`;
-        channels.push({channelId,signal,request});return {protocol,channelId,...identity};
+        channels.push({channelId,signal,request});return {protocol,channelId,...identity,admissionWindowMs};
       }
       if(path===root+'async-reads/cancel'){cancellations.push(request);cancellationSignals.push(signal);return cancelReply?cancelReply.promise:{...request,state:'cancellation_requested'};}
       assert.equal(path,root+'async-reads');
@@ -288,6 +288,59 @@ test('channel identity history renews after 128 submissions without replaying an
   replacement.emit('response',h.result(h.requests[128]));await next;h.client.close();
 });
 
+test('at the admission boundary a queued read waits for accepted work before using a new channel',async t=>{
+  let now=1000;t.mock.method(performance,'now',()=>now);
+  const h=harness(),received=[];
+  const read=()=>{
+    const result=h.client.read('curve.evaluate.v1',curveBody());
+    result.catch(()=>{});return result;
+  };
+  try{
+    const first=read(),source=await h.ready();
+    now=1000+admissionWindowMs-1;
+    const second=read();await flush();assert.equal(h.requests.length,2);
+    const accept=request=>request.ack.resolve({channelId:request.body.channelId,requestId:request.body.requestId,state:'accepted'});
+    h.requests.forEach(accept);await flush();
+    now++;
+    const queued=read(),abort=new AbortController();
+    const abandoned=h.client.read('curve.evaluate.v1',curveBody(),{signal:abort.signal});
+    const cancelled=assert.rejects(abandoned,{name:'AbortError'});abort.abort();await cancelled;
+    assert.equal(h.cancellations.length,0,'an unsent read requires no server cancellation');
+    source.emit('response',h.result(h.requests[0]));received.push(await first);await flush();
+    assert.equal(h.requests.length,2,'an aged channel must drain without submitting the queued read');
+    assert.equal(h.channels.length,1);assert.equal(source.closed,false);
+    source.emit('response',h.result(h.requests[1]));received.push(await second);
+    const fresh=await h.ready();assert.equal(h.channels.length,2);assert.equal(source.closed,true);
+    assert.equal(h.requests.length,3);assert.equal(h.requests[2].body.channelId,h.channels[1].channelId);
+    fresh.emit('response',h.result(h.requests[2]));received.push(await queued);
+    assert.equal(new Set(received.map(result=>result.synthetic)).size,3);
+    assert.equal(h.channels[0].request.clientId,h.channels[1].request.clientId);
+  }finally{h.client.close();}
+});
+
+test('an explicit read renews an aged idle channel even before its disconnect event arrives',async t=>{
+  let now=1000;t.mock.method(performance,'now',()=>now);
+  const h=harness();
+  try{
+    const first=h.client.read('curve.evaluate.v1',curveBody());
+    await flush();now=1500;
+    const source=await h.ready();source.emit('response',h.result(h.requests[0]));await first;
+    now=1000+admissionWindowMs;
+    const next=h.client.read('curve.evaluate.v1',curveBody());next.catch(()=>{});
+    const fresh=await h.ready();assert.equal(h.channels.length,2);assert.equal(source.closed,true);
+    assert.equal(h.requests.length,2);assert.equal(h.requests[1].body.channelId,h.channels[1].channelId);
+    fresh.emit('response',h.result(h.requests[1]));await next;
+  }finally{h.client.close();}
+});
+
+test('a channel opening requires an explicit usable admission window',async()=>{
+  for(const window of [undefined,null,'230000',-1,0,1000,1000.5]){
+    const h=harness({post:async()=>({protocol,channelId:snapshotId,profile:'synthetic_viewer',context:null,admissionWindowMs:window})});
+    await assert.rejects(h.client.read('curve.evaluate.v1',curveBody()),{code:'async_read_protocol'});
+    assert.equal(h.sources.length,0);h.client.close();
+  }
+});
+
 test('structured HTTP refusal frees its slot, while lost acceptance terminates without automatic replay',async()=>{
   const h=harness(),first=h.client.read('curve.evaluate.v1',curveBody()),second=h.client.read('curve.evaluate.v1',curveBody()),third=h.client.read('curve.evaluate.v1',curveBody());
   const refused=assert.rejects(first,{code:'async_busy'}),source=await h.ready();h.requests[0].ack.reject(Object.assign(Error('Synthetic admission refusal.'),{code:'async_busy',status:429}));
@@ -305,7 +358,7 @@ test('malformed acceptance and readiness fail closed, and late channel creation 
   await flush();ready.sources[0].emit('ready',{channelId:ready.channels[0].channelId});await failed;ready.client.close();
   const opening=deferred(),late=harness({post:()=>opening.promise,connectionTimeoutMs:15});
   await assert.rejects(late.client.read('curve.evaluate.v1',curveBody()),{code:'async_read_connection_timeout'});late.client.close();
-  opening.resolve({protocol,channelId:snapshotId,profile:'synthetic_viewer',context:null});await flush();assert.equal(late.sources.length,0);
+  opening.resolve({protocol,channelId:snapshotId,profile:'synthetic_viewer',context:null,admissionWindowMs});await flush();assert.equal(late.sources.length,0);
 });
 
 test('wire requests and complete response events have explicit size limits',async()=>{
