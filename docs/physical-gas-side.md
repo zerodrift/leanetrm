@@ -1,5 +1,90 @@
 # Physical gas booking and pre-delivery valuation
 
+## Exercise rights (D448)
+
+A gas composition can include disjoint rights over named existing entries. Every
+right saves its ordered entries, period (`delivery_day` or `delivery_month`),
+holder (`us` or `counterparty`), settlement (`physical` or `cash_automatic`),
+exact group dates and exercise instants, model `spread_call_kirk_lognormal_v1`
+and day count `OptionNumericalPolicies.ActualOver365FixedInstant`. Rights belong
+to Instrument identity. The existing Side programs and booked schedules still
+own the delivery and cash rows they evaluate.
+
+- Physical groups must cover a physical Side. The selected nonnegative
+  whole-hour lead saves `lead_before_first_gas_day_v1`. The deadline is at or
+  before the first retained gas-day boundary of each selected entry represented
+  in the group. Physical exercise requires an eligible recorded election, even
+  when the forward sum is positive.
+- Cash automatic groups cover payments only and need an actual retained fixing
+  instant. The latest fixing instant belongs to each group independently. They
+  save no physical lead rule. All required index fixings must be published
+  in the selected view for a decision. A positive exact holder sum exercises
+  and an exact zero or negative sum abandons. Unpublished prices at or after
+  the last fixing instant give an `undecided_forecast` group at zero model time.
+- Admission requires explicitly undiscounted valuation and independent physical
+  quantity sources. Every explicit physical quantity link is excluded, including
+  a link with zero fuel. Physical day quantities and connected payment quantities
+  follow their exact sources. During ordinary valuation an exercised day uses
+  the entry's own selected quantity, share and part. Abandoned or undecided days
+  contribute zero. A whole-term row accrues only on its exercised days.
+
+An undecided group prices the hypothetical rows for its own dates through the
+retained Sides. An undecided physical group uses contract quantities. Fixed
+prices and published index fixings are certain. Other prices remain market marks
+regardless of the Side's pricing label. A group takes at most one uncertain curve
+per holder leg, with distinct curves for two legs. Pricing selects exact-version
+volatility per curve and symmetric correlation per qualifying pair, by the
+group's delivery month. The convention is `curve_marks_log_return_held_v1`.
+A single uncertain leg needs only its volatility. No volatility or correlation
+is inferred. Shared price scenarios hold marks, and correlation has no shock.
+Interactive and retained joint samples can apply parent-additive volatility
+shifts to explicit declared input IDs, alone or with price shifts. The two
+shift kinds share the existing limit of 16 per sample. The numerical boundary
+and full model table are in [D448](decisions.md#d448--exercise-rights-are-terms-of-an-instrument).
+
+An election is a revisable or withdrawable fact on a physical group of the exact
+trade binding. It records `exercised` or `abandoned`, an effective instant and
+evidence. Valuation selects the highest revision known at its resolved cutoff
+and effective by its valuation instant. A known future-effective change limits
+reuse across that boundary. Amendments retain their existing eligibility rules.
+A rights-only change creates a separate binding with its own elections. The
+prior binding retains its terms, facts and authorized historical values.
+
+The curve-mark read and both mark record routes bind the exact selected
+definition and curves. Reads select revisions by effective and knowledge
+eligibility. Mark recording requires working data with current
+`ReadMarketData` and `ImportObservations` authority and exact visible sources.
+Authorized mark and election commands use expected predecessors, idempotent
+replay and atomic publication. See [recording elections](deal-ticket.md#gas-exercise-rights-d448).
+
+The schedule shows each group's state, exact Forward sum and Counted amount,
+plus model inputs for undecided groups. The first two amounts for an exercised
+group are gross selected row economics before payment. Abandoned Counted is
+zero. Paid, Outstanding and Realized unsettled amounts and settlement-adjusted
+PV belong to ordinary Side rows. After payment, group Counted totals need
+not equal PV. Ordinary entry contributions plus undecided values reconcile
+exactly. Draft and held previews, exact trade reads, the Blotter, interactive
+scenarios and retained risk use the same evaluation. The ordinary gas portfolio
+policy can isolate an `exercise_marks` refusal. The separate native-futures
+completeness policy keeps its existing all-valued requirement.
+
+| Refusal | Meaning |
+| --- | --- |
+| `exercise_right` | Malformed right, overlapping memberships or invalid retained group terms |
+| `exercise_model_scope` | Group outside the selected model's geometry, price or discounting scope |
+| `exercise_marks` | A required explicit mark is missing or unusable |
+| `exercise_determination` | A physical group reached its exercise instant without an eligible decision |
+| `exercise_election` | Malformed or inapplicable election |
+| `exercise_election_conflict` | The expected election head is stale |
+| `exercise_conflict` | A delivery or payment record applies to a day that is abandoned or undecided |
+| `holder_choice_inputs` | Invalid model inputs |
+
+This build covers gas exercise over ordinary physical and payment Sides.
+Premium, strip exercise across delivery months, discounting, negative modeled
+prices, path-dependent and constrained rights, transport/storage optionality,
+and a marks editor are outside the profile. D288 listed futures options and
+the D431 heat-rate call keep their own contracts.
+
 ## Independent pricing entries (D446–D447)
 
 Every valuation route uses the retained Instrument schedule: draft and held
@@ -31,8 +116,8 @@ strict daily convention refuses new booking and remains readable on saved trades
 Final daily billing accepts only whole, share-one, full-source-term fixed cash.
 
 Schedule rows expose taken quantity, `band_v1`/`shortfall_v1` when present,
-source quantity, rank and evidence. Entry amounts partition Instrument value and
-are reported from that same calculation on every route. A held preview supplies
+source quantity, rank and evidence. Entry amounts and any undecided exercise
+contributions partition Instrument value on every route. A held preview supplies
 explicit `previewTradeId` and `previewContextId`, requires exact saved terms and
 current authority, and is not a booking or amendment request.
 

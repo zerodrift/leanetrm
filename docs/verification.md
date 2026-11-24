@@ -1,5 +1,57 @@
 # Local verification and continuous integration
 
+## Exercise rights on a gas Instrument (D448)
+
+Local verification on 2026-11-24 uses the application tree at `aed7732a`,
+Python 3.13, stock PostgreSQL 18.7, .NET SDK 10.0.402, Node 24.22.0 and Chrome
+on macOS arm64. The integration groups build and run this checkout's assets
+sequentially with isolated disposable synthetic databases. The three full
+`tools/check_all.py` groups exited 0.
+
+| Group | Runner `CHECK` workloads | Printed `PASS` checkpoints | Owned browser checks | Reported managed core checks |
+| --- | ---: | ---: | ---: | ---: |
+| Gas | 17 | 1,098 | 192 | — |
+| Trading | 20 | 1,588 | 489 | — |
+| Managed | 81 | 2,729 | — | 803 |
+
+Runner workloads include locked restores and builds. Printed checkpoints
+include repeated setup and migration checks and are counted separately from
+the runner's browser and managed summaries. The managed exercise-right
+selection emitted 31 PASS checkpoints, the gas ticket reported 177 checks,
+and the existing listed-option and spread/heat-rate selections emitted 70
+and 21 PASS checkpoints. Gas and trading cleaned up all 19 owned preview
+databases.
+
+The managed checks exercise every holder-choice case, both holders, put-call
+parity, zero-time value, exact rounding and model refusals. They pin legacy
+no-right identity and trade scaling and check daily and monthly grouping,
+including staggered gas-day boundaries, an exact repeating quantity, and the
+allocation of whole-term cash across groups. They also check mark orientation
+and scope, settlement after payment, and reuse boundaries for known election
+changes. The independent held-value oracles include 2,947.4419 for the daily
+fixed-price purchase, −947.4419 when the counterparty holds the right and
+2,163.3174 for the indexed strike. The worked three-day result preserves the
+exact elected and abandoned amounts alongside the modeled contribution.
+
+The gas integration checks cover native and managed admission, exact physical
+and cash exercise instants, both temporal coordinates, immutable revisions and
+withdrawals, atomic and idempotent batches, current authority and retained
+worker scope. A booked-ticket read refuses to publish a pending head after
+its AmendTrade grant expires. Interactive and retained risk reconcile price,
+volatility and combined scenarios and preserve gross group economics when
+ordinary Side cash is paid. Owned browser checks exercise the standalone
+ticket, absent marks, schedule provenance, the main-window action, read-only
+trade windows and exact retry after losing the response. The combined exercise
+and pricing workload emitted 134 PASS checkpoints, completed 12 retained worker
+runs and reported 23 owned browser checks, five for pricing and 18 for exercise.
+
+Earlier frontend qualification built the frontend and ran the entire Node
+test glob serially, with 2,335 passing and zero skipped. The final ticket
+review fix separately passed 35 focused frontend tests and an owned exercise
+and pricing run with 5 pricing and 18 exercise browser checks. Those frontend
+test runs are separate from the browser counts in the table. Final independent
+review and integrated CI remain release gates.
+
 ## Instrument schedule and independent gas pricing (D446–D447)
 
 Local qualification on 2026-11-23 uses synthetic inputs, disposable stock

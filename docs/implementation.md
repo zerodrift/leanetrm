@@ -1,5 +1,30 @@
 # Current implementation record
 
+## Exercise rights on a gas Instrument (D448)
+
+The retained gas schedule accepts optional rights over disjoint entry sets.
+It gates the ordinary Side rows by each day's decision and adds only undecided
+holder-choice amounts. The existing inherited PV is used by previews, reads,
+the Blotter and interactive and retained risk. Exact scenario reports carry
+group metadata through normal unit valuation reuse. Ordinary Side balances own
+paid cash, and gross exercised group values remain available separately.
+
+Migrations 0392–0396 persist exact right terms and groups, curve/month
+volatility and pair/month correlation marks, and immutable election revisions
+and command receipts. They also admit exact-input volatility shifts in retained
+joint requests and add an authorized read of election authoring predecessors.
+The standalone gas ticket supports new and eligible amended terms. A structurally
+valid missing-mark draft remains bookable or amendable through that ticket
+with an explicit valuation refusal. The main working Blotter can prepare and
+record physical elections under current authority. Historical and secondary
+windows remain read-only.
+
+The full local gas, trading and managed groups pass 17, 20 and 81 runner
+workloads respectively. Gas and trading report 192 and 489 owned browser checks,
+and managed reports 803 core checks. The underlying counts and earlier frontend
+evidence are recorded in [verification](verification.md#exercise-rights-on-a-gas-instrument-d448).
+Final independent review and integrated CI remain release gates.
+
 ## Instrument schedules and gas pricing entries (D446–D447)
 
 Every sided Instrument now exposes a cached schedule and its sealed PV delegates

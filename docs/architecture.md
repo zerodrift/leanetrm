@@ -1,5 +1,12 @@
 # Architecture and domain contracts
 
+D448 adds exercise rights on a gas Instrument. A right governs explicit
+existing memberships by gas day or delivery month. The schedule applies the
+decision to daily quantities and counts the holder's choice while undecided.
+Election revisions, retained clocks and explicit market marks govern valuation
+under the selected context. See
+[physical gas exercise rights](physical-gas-side.md#exercise-rights-d448).
+
 D443 records a two-location gas purchase and sale as four reusable commodity
 and payment Sides. One bilateral agreement owns all four. Separate purchase and
 sale confirmations own their respective Sides and book atomically with an
@@ -2283,8 +2290,10 @@ curve consumers within the selected versioned context. Covariance axes must use
 explicit selected factor identities/units; dependency membership alone supplies
 no exposure amount. VaR, covariance estimation and independent cross-revision forward
 observable normalization are not implemented. Listed American options on NYMEX
-futures are executable (D288, [futures options](futures-options.md)); other option
-products are not.
+futures are executable (D288, [futures options](futures-options.md)). The
+[heat-rate call](heat-rate-call-option.md) and
+[gas exercise rights](physical-gas-side.md#exercise-rights-d448) have their own
+explicit model and settlement contracts.
 
 Pricing measure/numeraire, model versions, market-input mode and calibration belong
 to the selected valuation contract/context. An outright option mark has no inferred
@@ -2298,63 +2307,26 @@ selected cash and physical reference-strategy models additionally value that
 future's explicit funding and delivery terms. They preserve the original source
 calibration and premium carrying; a separate held-right policy projects accepted
 native events and contractual expiry, not the pricing tree's early stopping
-decisions. Volatility as a shockable factor, margined premium and other exercise
-or settlement styles are not implemented.
+decisions. The listed-option contract has no volatility shock, margined premium
+or other exercise or settlement style.
 
-### 5.4 Future option sides with instrument-supplied inputs
+### 5.4 Exercise rights on Instrument memberships (D448)
 
-This is a proposed extension boundary, not an implemented option product or a
-settled accounting choice. It concerns options embedded in an instrument. A listed
-futures option is a standalone instrument whose exercise books a separate future,
-so it does not use this boundary (D288). Preserve the instrument-owned connections in section 3.4.
+The Instrument owns an exercise right over a disjoint set of its existing
+memberships. For the admitted gas compositions, the retained Instrument
+schedule identifies the applicable group for each gas day and prepares each
+entry's quantities from that group's decision. An exercised day keeps the
+entry's own quantity. An abandoned or undecided day contributes zero to its
+ordinary rows. Each Side prices its own retained rows and retains its own
+delivery and payment state.
 
-The instrument retains explicit target-member connections. An option side retains payoff/strike terms,
-exercise opportunities, settlement rules and model requirements. Its event plan
-includes contingent obligations and their exercise group. It consumes permitted typed inputs supplied by the instrument without turning
-the underlying obligations into a duplicate set
-of active instrument cashflows.
-
-Distinguish at least two meanings:
-
-- An additional option payoff over sibling observables, while the siblings remain
-  independent contractual obligations. The side contributes that extra payoff's
-  PV, and the instrument sums all contributions.
-- An exercise right controlling whether/how selected sibling obligations occur.
-  Value the controlled group jointly; do not add a full option-on-group PV on top
-  of the same underlying group's unconditional PV.
-
-One proposed representation for the second meaning is an adjustment contribution:
-
-```text
-OptionContribution = PV(group with exercise rights)
-                     - PV(the same unconditional target group)
-
-InstrumentPV = sum(target-side base contributions) + OptionContribution
-               + sum(other independent contributions)
-```
-
-Both group valuations use the same resolved weights, quantity basis, market
-context, currency and model conventions. In this representation the target-side
-base contributions are valuation attribution components; their event plans still
-show the actual contractual exercise contingency. They must not be presented as
-unconditional deliveries/payments merely because the attribution uses a base PV.
-
-A joint group evaluator with an explicit allocation back to side contributions is
-another possible representation. Settle and test this choice before enabling
-options. Do not combine overlapping control groups by summing independent
-adjustments unless that decomposition is proven valid.
-
-The contract must also define the option membership's own coefficient and the
-fraction/quantity of target obligations it controls. A coefficient on an
-adjustment is not permission to silently scale the controlled group a second
-time. This mapping belongs in the resolved valuation identity and tests.
-
-Shared versus independent exercise is a contractual distinction. An option over
-one net group differs from separate options on each component. Its pre-exercise
-PV uses a suitable model of future outcomes, not a maximum applied to today's
-aggregate PV. Automatic market shocks still operate on primitive inputs and all
-affected pricers consume the same scenario, including volatility/correlation
-inputs where required by a supported model.
+The Instrument schedule adds only the holder-choice contributions of undecided
+groups. It evaluates each group jointly from the Side's rows and adds the result
+to unrealized value with the holder's sign. It creates no option Side, option
+Instrument or follow-on trade. The decision and model use the selected held
+facts, market scenario and calculation instant. Risk applies shared price and
+volatility shifts and reevaluates the inherited PV contracts. D288 and D431
+retain their existing contracts. See [the decision](decisions.md#d448--exercise-rights-are-terms-of-an-instrument).
 
 ## 6. Numerical values, units and rounding
 

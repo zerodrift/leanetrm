@@ -1,5 +1,65 @@
 # Deal ticket
 
+## Gas exercise rights (D448)
+
+The standalone Physical gas ticket and its eligible amendment flow offer an
+initially empty **Exercise right** section. Each optional `exerciseRights` row
+contains **Sides covered** (`right_sides`), **Exercise period** (`right_period`),
+**Held by** (`right_holder`) and **Settlement** (`right_settlement`). Physical
+settlement also requires **Exercise lead in hours** (`right_lead_hours`), an
+explicit nonnegative whole number. Cash automatic omits that field. The backend
+provides ordered Side choices and admissible values and saves the group instants.
+A term refusal returns `gas_composition_input` with the zero-based `termRow`
+and `field`. Two-location authoring keeps its existing controls. Retained
+nonempty terms remain visible. A shared adapter refuses a saved right if its
+descriptor cannot preserve the terms when reopening the draft.
+
+New and eligible amendment ticket previews can present structurally admitted
+rights without marks. For the specific `exercise_marks` refusal they retain the
+exact source and quantity unit, supply `scheduleRefusal`, and leave PV, schedule
+and groups null. The ordinary writer still admits the exact terms. Invalid
+fields, stale amendment selections and contextual or authority refusals retain
+their normal errors. Direct gas composition preview and editor return the
+valuation refusal. The exact booked `GasTerms` marks the presence of rights
+with `hasExerciseRights`, so the schedule detail can open the ticket when PV
+is unavailable. The ticket keeps its terms and the applicable exercise action.
+An elapsed undecided physical group can be recorded even when its valuation is
+unavailable.
+
+An authorized user in the main Blotter with working data can use
+**Record exercise** on a booked physical right when
+`actions.recordExercise.allowed` is true.
+A retained or secondary trade window is read-only, and a trader with read
+authority alone can inspect the trade. The schedule detail keeps quantity
+recording read-only. A disabled action exposes neither authoring periods nor
+its read pin. Cash automatic groups use their fixing evidence and offer no
+election action of their own.
+
+Choose one right and an inclusive range of saved group starts, an outcome
+(`exercised` or `abandoned`), evidence and an explicit UTC effective instant.
+The form shows saved deadlines and the last known authoring predecessor and
+its effective instant, including a future-effective head or a withdrawal.
+When the predecessor is a withdrawal, its revision ID and effective instant
+remain visible and its outcome is null.
+The original working context, the action's retained `readContextId` and the
+same-session read proof travel to `POST /api/gas/exercise/prepare`. This read
+resolves exact predecessors at the retained cutoff under current AmendTrade.
+The effective instant must be at or after each predecessor and at or before
+each selected deadline. The API rechecks current authority before disclosing
+authoring heads and returns a batch command. `POST /api/gas/exercise/record`
+rechecks the exact current trade, binding, revision and expected election heads
+before writing.
+
+After an unknown response the client sends the same prepared command and
+operation ID. The pending command is scoped to the actor, trade, Instrument
+binding, trade revision and original working context. A writable remount in the
+same tab preserves the pending or cleared state even when a storage write or
+removal fails. A matching receipt clears the pending command. A stale election
+head prompts an explicit refresh and reselection.
+
+Group states, quantity selection, market inputs and valuation refusals are
+recorded in [the gas contract](physical-gas-side.md#exercise-rights-d448).
+
 ## Gas payment entry (D447)
 
 Gas admits one to four physical Sides, up to seven payments/fees and eight Sides
