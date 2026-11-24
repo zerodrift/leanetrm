@@ -165,8 +165,9 @@ public static class PhysicalLifecycle
         var parts = value.Sides.Select(side => Scale(((RetainedProgramValuation)side.Value).Lifecycle!, quantity *
             new SignedRatio(side.Coefficient.ScaledValue, ExactDecimal.WorkingScale) *
             new SignedRatio(side.QuantityRatio.Numerator, side.QuantityRatio.Denominator))).ToArray();
-        return new(parts.Aggregate(zero, (sum, p) => sum.Add(p.Unrealized)), parts.Aggregate(zero, (sum, p) => sum.Add(p.RealizedUnsettled)),
-            parts.Aggregate(zero, (sum, p) => sum.Add(p.Total)), [..parts.SelectMany(p => p.Rows)]);
+        var choice = value.UndecidedUnitValue.Scale(quantity);
+        return new(parts.Aggregate(choice, (sum, p) => sum.Add(p.Unrealized)), parts.Aggregate(zero, (sum, p) => sum.Add(p.RealizedUnsettled)),
+            parts.Aggregate(choice, (sum, p) => sum.Add(p.Total)), [..parts.SelectMany(p => p.Rows)]);
     }
     internal static PhysicalLifecycleGeometry PrepareGeometry(IEnumerable<BookedSideProgram> programs,MarketSnapshot snapshot)
     {

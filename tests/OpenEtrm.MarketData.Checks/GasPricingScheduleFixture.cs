@@ -91,12 +91,21 @@ internal sealed class GasPricingScheduleFixture
             book, paid.IsDefault ? [] : paid, PhysicalCashState.Policy, ownerDays: days);
     internal UnitValuationContext Context(PhysicalCashState? state, bool ended = false, bool publishedMonth = true)
     {
+        var (prepared, setup) = Prepare(Instrument, state, ended: ended, publishedMonth: publishedMonth);
+        return new UnitValuationContext(prepared.Market.Snapshot, setup, prepared.Market).For(prepared.Contracts[0][0], null, state);
+    }
+
+    internal (PreparedConnectedPortfolioRisk Prepared, ValuationSetup Setup) Prepare(RetainedGasInstrument instrument,
+        PhysicalCashState? state, DateTimeOffset? calculationAt = null, string? point = null, bool ended = false, bool publishedMonth = true,
+        ISideDiscounting? discounting = null)
+    {
         var at = Clock.Boundary(ended ? From.AddDays(2) : From).AddHours(-0.5);
         if(ended) at = Clock.Boundary(From.AddDays(2)).AddHours(1);
+        at = calculationAt ?? at;
         SelectedObservation Observation(int n, InputUse use, string price, DateTimeOffset time) => new(new(series[n].Key, use),
             new(new(reference.Revision.CatalogId, Guid.NewGuid()), series[n].Key, reference.R(use == InputUse.Variable ? "source" : "publisher"),
                 use == InputUse.Variable ? ObservationRole.TraderMark : ObservationRole.IndexFixing, PublicationState.Final, time, ExactDecimal.Parse(price)));
-        var observations = Enumerable.Range(0, 7).Select(n => Observation(n, InputUse.Variable, n < 3 ? "3.10" : n < 6 ? "3.20" : "3.00", Clock.Boundary(From).AddDays(-1))).ToList();
+        var observations = Enumerable.Range(0, 7).Select(n => Observation(n, InputUse.Variable, point is null ? (n < 3 ? "3.10" : n < 6 ? "3.20" : "3.00") : (n == 6 ? point : "3.00"), calculationAt?.AddHours(-1) ?? Clock.Boundary(From).AddDays(-1))).ToList();
         if(ended)
         {
             observations.Add(Observation(3, InputUse.FrozenFact, "3.30", fixings[3].FixingAt));
@@ -106,17 +115,17 @@ internal sealed class GasPricingScheduleFixture
         var snapshot = new MarketSnapshot(Guid.NewGuid(), reference.Revision, at, at, InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering,
             [..observations]).WithKnowledge(Guid.NewGuid(), at);
         var setup = new ValuationSetup(ValuationMeasure.PresentValue, ImmutableDictionary<Guid, FuturesMarketBinding>.Empty,
-            new ExplicitDiscounting(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted));
+            discounting ?? new ExplicitDiscounting(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted));
         if(state is not null) setup = setup with { BindingStates = ImmutableDictionary<MeasureBinding, IBindingValuationState>.Empty.Add(new(state.TradeId, state.BindingId), state) };
-        var trade = new Trade(state?.TradeId ?? Guid.NewGuid(), book, [new(Instrument.Id, Instrument,
-            new(ExactDecimal.Parse(Size.ToString(System.Globalization.CultureInfo.InvariantCulture)), Quote.Quantity))]);
+        var trade = new Trade(state?.TradeId ?? Guid.NewGuid(), book, [new(instrument.Id, instrument,
+            state?.Quantity ?? new(ExactDecimal.Parse(Size.ToString(System.Globalization.CultureInfo.InvariantCulture)), Quote.Quantity))]);
         var portfolio = ValuationPortfolio.FromTrades([trade], setup);
         var dependencies = portfolio.Declare(snapshot).SelectMany(c => c.Dependencies).Distinct().ToImmutableArray();
         var market = model.Build(snapshot, dependencies);
         var exported = model.Compile(snapshot, dependencies, false, market.Graph.Plan.Context);
         var bindings = dependencies.ToImmutableDictionary(r => r, r => exported.Points[(r, InputUse.Variable)]);
         var prepared = RiskEngine.PrepareConnected(ConnectedValuation.Prepare(market.Graph, market.Snapshot), bindings, [portfolio], market);
-        return new UnitValuationContext(prepared.Market.Snapshot, setup, prepared.Market).For(prepared.Contracts[0][0], null, state);
+        return (prepared, setup);
     }
     internal PhysicalLifecycleValue Value(PhysicalCashState state, bool ended = false, bool publishedMonth = true) =>
         Instrument.EvaluateLifecycle(Context(state, ended, publishedMonth));

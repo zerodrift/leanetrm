@@ -47,6 +47,8 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
     [IdentityField] public override ImmutableArray<RetainedGasMember> Members { get; }
     [IdentityField] public ImmutableArray<GasValuationAssignment> Assignments { get; }
     [IdentityField] public override ImmutableArray<ExerciseRight> Rights { get; }
+    public override ExerciseMarks? Marks { get; }
+    public override DefinitionIdentity? PricingBindingIdentity => Marks is null ? null : DefinitionIdentity.For(Marks);
     public ImmutableArray<IndexPriceLookup> PriceLookups { get; }
     public ImmutableArray<SchedulePriceTerm> ActivePrices => PhysicalLifecycle.ActivePrices(Members.Select(m=>m.Program),PriceLookups);
     public override ReferenceKey Currency => Assignments[0].Quote.Currency;
@@ -54,7 +56,7 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
 
     public RetainedGasInstrument(Guid id, ImmutableArray<RetainedGasMember> members,
         ImmutableArray<GasValuationAssignment> assignments, ImmutableArray<IndexPriceLookup> priceLookups = default,
-        ImmutableArray<ExerciseRight> rights = default)
+        ImmutableArray<ExerciseRight> rights = default, ExerciseMarks? marks = null)
         : base(id, members, new(ExactDecimal.Parse("1"), First(assignments).Quote.Quantity), First(assignments).Quote.Currency)
     {
         if (members.IsDefaultOrEmpty || members.Any(m => m is null) || assignments.IsDefaultOrEmpty || assignments.Any(a => a is null) ||
@@ -68,12 +70,15 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
         if(members.Where((m, slot) => hasQuantityTerms
             ? m.SourceSlot is not {} source || source >= members.Length || members[source].Program.Document.Family != "gas" ||
                 m.Program.Document.Family == "gas" && source != slot
-            : m.SourceSlot is not null).Any())
+            : m.SourceSlot is {} selected && (rights.IsDefaultOrEmpty || selected >= members.Length ||
+                members[selected].Program.Document.Family != "gas" || m.Program.Document.Family == "gas" && selected != slot)).Any())
             throw new MarketDataException("gas_membership", "Quantity terms require every member's exact physical source; legacy members omit these terms.");
         Members = members; Assignments = assignments.Distinct().ToImmutableArray();
         PriceLookups=priceLookups.IsDefault?[..Assignments.Select(a=>a.Lookup).Distinct()]:priceLookups.Distinct().ToImmutableArray();
         Rights = rights.IsDefault ? [] : rights;
         if (!Rights.IsEmpty) RequireRights();
+        marks?.Validate();
+        Marks = marks;
     }
 
     private void RequireRights()
@@ -203,12 +208,36 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
 
     // Runtime Side execution retains the selected started-delivery measure
     // and original whole-day delivery-mark policy in its explicit model version.
-    public override UnitPricingContract Declare(UnitValuationContext context) => RetainedDeclaration(new(Id,
+    public override UnitPricingContract Declare(UnitValuationContext context)
+    {
+        var declaration = RetainedDeclaration(new(Id,
         (context.BindingState is PhysicalCashState ? PhysicalCashState.Policy + "/" : "") +
         (Members.Select(m => m.QuantityPolicy).FirstOrDefault(p => p is not null) is {} policy ? policy + "/" : "") +
         (Members.Any(m => PhysicalLifecycle.ReadsDeliveryMarks(m.Program)) ? PeriodPriceSelector.DeliveryMarkPolicy + "/" : "")+"retained_gas_side_pv_v3",
         PhysicalLifecycle.PriceDependencies(Members.Select(member => member.Program), PriceLookups, context.Snapshot),
         UnitQuantity.Specification, Currency) { Time = ValuationTimeDependency.Pinned,  ScheduleIdentity = RetainedScheduleIdentity });
+        if (Rights.IsEmpty) return declaration;
+        return RetainedExerciseValuation.Declare(declaration, this, context);
+    }
+
+    protected internal override void RequireBeforeValuation(SideValuationContext context)
+    {
+        if (Rights.IsEmpty || context is null) return;
+        if (context.Discounting is ExplicitDiscounting scalar)
+        {
+            if (scalar.Undiscounted) return;
+        }
+        else
+        {
+            var keys = Sides.SelectMany(member => member.Side.GenerateSchedule().Rows.Select(row => row.Key))
+                .Where(key => !key.ReachedValuationBoundary(context.Snapshot.ValuationAt)).Distinct().ToImmutableArray();
+            var factors = context.Discounting.Resolve(keys, context.Snapshot);
+            if (!keys.IsEmpty && !factors.IsDefault && factors.Length == keys.Length &&
+                keys.ToHashSet().SetEquals(factors.Select(f => f.Payment)) && factors.All(f => f.Source == DiscountFactorSource.Undiscounted &&
+                    f.DiscountFactor == ExactDecimal.Parse("1") && f.Snapshot.HasSameInputs(context.Snapshot))) return;
+        }
+        throw new MarketDataException("exercise_model_scope", "The exercise model requires explicitly undiscounted valuation.");
+    }
 
     private protected override RetainedProgramContext PrepareSides(UnitValuationContext context,CurveBuild basis,CurveBuild scenario)
     {
@@ -238,7 +267,7 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
         var value=EvaluateSides(context);context.RecordEntries(value);var zero=ExactMoney.Parse("0",Currency);
         ExactMoney Component(Func<PhysicalLifecycleValue,ExactMoney> select)=>value.Sides.Aggregate(zero,(sum,side)=>
             sum.Add(select(((RetainedProgramValuation)side.Value).Lifecycle!).Scale(side.QuantityRatio).Scale(side.Coefficient)));
-        context.RecordComponents([new(PhysicalLifecycle.UnrealizedComponent,Component(p=>p.Unrealized)),new(PhysicalLifecycle.RealizedUnsettledComponent,Component(p=>p.RealizedUnsettled))]);
+        context.RecordComponents([new(PhysicalLifecycle.UnrealizedComponent,Component(p=>p.Unrealized).Add(value.UndecidedUnitValue)),new(PhysicalLifecycle.RealizedUnsettledComponent,Component(p=>p.RealizedUnsettled))]);
         return value.PresentValue;
     }
 
@@ -246,7 +275,7 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
     {
         if (state is not PhysicalCashState cash)
         {
-            if(Members.Any(m => m.QuantityPolicy is not null || m.Part is not null))
+            if(!Rights.IsEmpty || Members.Any(m => m.QuantityPolicy is not null || m.Part is not null))
                 throw PhysicalDeliveryQuantities.Invalid("An instrument with quantity terms requires its complete held owner-day inputs.");
             base.ValidateValuationState(state); return;
         }
@@ -254,7 +283,7 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
                 Members[p.Slot].Program.Document.Family == "gas" || p.Amount.Currency != Currency ||
                 !Members[p.Slot].Program.Document.Instructions.Any(i => i.Output is { Operation: "output_guard", Grid: null } && i.Output.PaymentOrdinal == p.Occurrence)))
             throw new MarketDataException("payment_state", "Each payment allocation must name a retained cash occurrence of this instrument in its currency and quantity.");
-        PhysicalDeliveryQuantities.RequireSchedules(Members, cash);
+        PhysicalDeliveryQuantities.RequireSchedules(Members, cash, Rights);
     }
 
     protected override ScheduleMarketSources Sources(CurveBuild basis) => new(basis.Graph.Plan.Context, basis, null, null,

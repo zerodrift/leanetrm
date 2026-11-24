@@ -50,7 +50,7 @@ public sealed record EntryDayQuantity(DateOnly Day, SignedRatio Contract, Signed
 public static class EntryQuantities
 {
     public static ImmutableArray<EntryDayQuantity> For(IEnumerable<HeldDayQuantity> sourceDays, QuantityPart? part,
-        SignedRatio baseQuantity, DateOnly from, DateOnly to)
+        SignedRatio baseQuantity, DateOnly from, DateOnly to, Func<DateOnly, bool>? counted = null)
     {
         if (sourceDays is null || from == default || from >= to || baseQuantity.Denominator <= 0 || baseQuantity.Numerator <= 0)
             throw PhysicalDeliveryQuantities.Invalid("An entry requires its explicit delivery term, source days and positive held base quantity.");
@@ -69,7 +69,21 @@ public static class EntryQuantities
         {
             var contract = new SignedRatio(day.Contract.NumeratorValue, day.Contract.DenominatorValue);
             var selected = new SignedRatio(day.Selected.NumeratorValue, day.Selected.DenominatorValue);
-            return new EntryDayQuantity(day.Day, contract, selected, part?.Take(selected, baseQuantity) ?? selected, day.Source, day.Evidence);
+            return new EntryDayQuantity(day.Day, contract, selected, counted?.Invoke(day.Day) == false ? SignedRatio.Zero : part?.Take(selected, baseQuantity) ?? selected, day.Source, day.Evidence);
+        })];
+    }
+
+    internal static ImmutableArray<ImmutableArray<EntryDayQuantity>> ForMembers<TMember>(ImmutableArray<TMember> members, PhysicalCashState state, HashSet<int>? suppressed = null) where TMember : IRetainedProgramMember
+    {
+        var owners = state.OwnerDays.ToLookup(d => d.Slot);
+        var basis = new SignedRatio(System.Numerics.BigInteger.Abs(state.Quantity.Amount.ScaledValue), ExactDecimal.WorkingScale);
+        return [..members.Select((member, slot) =>
+        {
+            if(member.ValuationSourceSlot is not {} source || !owners.Contains(source)) return default(ImmutableArray<EntryDayQuantity>);
+            var rows = member.Program.Document.Instructions.Where(i => i.Output.Operation == "output_guard").Select(i => i.Output).ToArray();
+            var from = rows.Min(row => row.Grid is {} grid ? member.Program.Document.Grids[grid].Interval(0).OperatingDate : row.DeliveryFrom!.Value);
+            var to = rows.Max(row => row.Grid is {} grid ? member.Program.Document.Grids[grid].Interval(member.Program.Document.Grids[grid].CellCount - 1).OperatingDate.AddDays(1) : row.DeliveryTo!.Value);
+            return EntryQuantities.For(owners[source], member.ValuationPart, basis, from, to, suppressed?.Contains(slot) == true ? _ => false : null);
         })];
     }
 }

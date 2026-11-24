@@ -27,6 +27,7 @@ public abstract record RetainedProgramInstrument<TMember> : SidedInstrument, IRe
 {
     public abstract ImmutableArray<TMember> Members { get; }
     public virtual ImmutableArray<ExerciseRight> Rights => [];
+    public virtual ExerciseMarks? Marks => null;
     internal override bool SupportsSettlement => false;
     internal override bool RequiresNativeProgramMarket => true;
     public override string RetainedScheduleIdentity => "retained_side_programs_v1/" + string.Join('/', Members.Select(m => m.ProgramDigest));
@@ -130,7 +131,7 @@ internal class RetainedInstrumentSchedule<TMember> : InstrumentSchedule where TM
         retained.RequireRetainedSides();
         if(context is null) throw new MarketDataException("side_context", "Supply the exact retained Side valuation context.");
         var hasQuantityTerms = retained.Members.Any(m => m.ValuationQuantityPolicy is not null || m.ValuationPart is not null);
-        if(hasQuantityTerms && context.BindingState is not PhysicalCashState)
+        if((hasQuantityTerms || !retained.Rights.IsEmpty) && context.BindingState is not PhysicalCashState)
             throw PhysicalDeliveryQuantities.Invalid("An instrument with quantity terms requires its complete held owner-day inputs.");
         if(context.BindingState is PhysicalCashState state)
         {
@@ -147,9 +148,33 @@ internal class RetainedInstrumentSchedule<TMember> : InstrumentSchedule where TM
                     (member.ValuationRatio is {} ratio ? new SignedRatio(ratio.Numerator, ratio.Denominator) : new SignedRatio(1, 1));
                 if(inputs.HeldFactors[slot] != factor) throw LifecycleContext();
             }
-            var entryDays = hasQuantityTerms ? EntryDays(state) : default;
-            var value = new InstrumentValuation(retained, context, [..retained.Sides.Select((member, slot) =>
-                context.ForRetainedOccurrence(slot, (RetainedProgramSide)member.Side, entryDays, retained.Members[slot].ValuationPart).Evaluate(member.Side))]);
+            var rights = retained.Rights;
+            var selected = rights.SelectMany(right => right.Slots).ToHashSet();
+            if (!rights.IsEmpty) RetainedExerciseValuation.RequireUndecided(rights, context.UnitEvaluation.CalculationAt);
+            var entryDays = hasQuantityTerms || !rights.IsEmpty ? EntryQuantities.ForMembers(retained.Members, state, selected) : default;
+            var sides = retained.Sides.Select((member, slot) =>
+                context.ForRetainedOccurrence(slot, (RetainedProgramSide)member.Side, entryDays, retained.Members[slot].ValuationPart).Evaluate(member.Side)).ToImmutableArray();
+            ImmutableArray<ExerciseGroupValue> groups = [];
+            if (!rights.IsEmpty)
+            {
+                var hypothetical = context.ExercisedOccurrences();
+                var exercisedDays = EntryQuantities.ForMembers(retained.Members, state);
+                var choices = ImmutableArray.CreateBuilder<ExerciseGroupValue>();
+                foreach (var right in rights)
+                {
+                    var exercise = new RetainedExerciseValuation(right);
+                    foreach (var slot in right.Slots)
+                    {
+                        var side = (RetainedProgramSide)retained.Sides[slot].Side;
+                        var occurrence = hypothetical.ForRetainedOccurrence(slot, side, exercisedDays, retained.Members[slot].ValuationPart);
+                        exercise.Add((RetainedProgramValuation)occurrence.Evaluate(side), exercisedDays[slot],
+                            inputs.HeldFactors[slot] * new SignedRatio(quantity.Numerator.Sign, 1));
+                    }
+                    choices.AddRange(exercise.Values(context, retained.Marks, retained.Currency, quantity.Numerator.Sign));
+                }
+                groups = choices.ToImmutable();
+            }
+            var value = new InstrumentValuation(retained, context, sides, groups);
             retained.RequireAfterValuation(value);
             return value;
         }
@@ -164,18 +189,4 @@ internal class RetainedInstrumentSchedule<TMember> : InstrumentSchedule where TM
     }
     private static MarketDataException LifecycleContext() => new(PhysicalLifecycle.ContextRefusal,
         "Retain this instrument's exact held cash state, connected geometry and ordered membership normalization.");
-    private ImmutableArray<ImmutableArray<EntryDayQuantity>> EntryDays(PhysicalCashState state)
-    {
-        PhysicalDeliveryQuantities.RequireSchedules(retained.Members, state);
-        var owners = state.OwnerDays.ToLookup(d => d.Slot);
-        var basis = new SignedRatio(System.Numerics.BigInteger.Abs(state.Quantity.Amount.ScaledValue), ExactDecimal.WorkingScale);
-        return [..retained.Members.Select(member =>
-        {
-            if(member.ValuationSourceSlot is not {} source || !owners.Contains(source)) return default(ImmutableArray<EntryDayQuantity>);
-            var rows = member.Program.Document.Instructions.Where(i => i.Output.Operation == "output_guard").Select(i => i.Output).ToArray();
-            var from = rows.Min(row => row.Grid is {} grid ? member.Program.Document.Grids[grid].Interval(0).OperatingDate : row.DeliveryFrom!.Value);
-            var to = rows.Max(row => row.Grid is {} grid ? member.Program.Document.Grids[grid].Interval(member.Program.Document.Grids[grid].CellCount - 1).OperatingDate.AddDays(1) : row.DeliveryTo!.Value);
-            return EntryQuantities.For(owners[source], member.ValuationPart, basis, from, to);
-        })];
-    }
 }

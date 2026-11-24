@@ -24,10 +24,14 @@ internal static class PhysicalDeliveryQuantities
             quantities.Select(q => (q.Slot, q.Day)).Distinct().Count() != quantities.Length)
             throw Invalid("Physical owner days require distinct, nonnegative native quantities and complete evidence; contract fallback equals its contract.");
     }
-    internal static void RequireSchedules<TMember>(ImmutableArray<TMember> members, PhysicalCashState state) where TMember : IRetainedProgramMember
+    internal static void RequireSchedules<TMember>(ImmutableArray<TMember> members, PhysicalCashState state, ImmutableArray<ExerciseRight> rights = default) where TMember : IRetainedProgramMember
     {
+        var rightSources = rights.IsDefaultOrEmpty ? [] : rights.SelectMany(right => right.Slots)
+            .Select(slot => members[slot].ValuationSourceSlot ?? throw Invalid("An exercised entry requires its explicit physical quantity source.")).ToHashSet();
+        if (rightSources.Any(source => members[source].ValuationSourceSlot != source))
+            throw Invalid("An exercise quantity source requires its own retained physical day schedule.");
         var required = members.Select((m, slot) => (m, slot)).Where(p => p.m.ValuationSourceSlot == p.slot &&
-            (p.m.ValuationQuantityPolicy is not null || members.Any(m => m.ValuationSourceSlot == p.slot && m.ValuationPart is not null))).ToArray();
+            (rightSources.Contains(p.slot) || p.m.ValuationQuantityPolicy is not null || members.Any(m => m.ValuationSourceSlot == p.slot && m.ValuationPart is not null))).ToArray();
         if(!required.Select(p => p.slot).ToHashSet().SetEquals(state.OwnerDays.Select(d => d.Slot)))
             throw Invalid("Held quantities cover exactly the physical owners required by the instrument's quantity terms.");
         foreach(var (member, slot) in required)

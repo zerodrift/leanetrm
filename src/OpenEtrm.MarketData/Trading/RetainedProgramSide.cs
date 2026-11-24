@@ -26,11 +26,12 @@ public sealed partial class SideValuationContext
     {
         internal SideValuationContext Owner { get; } = owner;
         internal Dictionary<int,SideValuationContext> Children { get; } = [];
+        internal SideValuationContext? Exercised { get; set; }
     }
     private RetainedOccurrenceContexts? retainedOccurrences;
     private SideValuationContext? retainedOccurrenceParent;
     internal int RetainedOccurrenceCalculations => retainedOccurrences is {} scopes && ReferenceEquals(scopes.Owner, this)
-        ? scopes.Children.Values.Sum(child => child.EvaluatedSides) : 0;
+        ? scopes.Children.Values.Sum(child => child.EvaluatedSides) + (scopes.Exercised?.EvaluatedSides ?? 0) : 0;
     public static SideValuationContext ForRetainedPrograms(CurveBuild basis,CurveBuild scenario,ISideDiscounting discounting,CancellationToken cancellation=default)
     {
         if(basis is null || scenario is null || !basis.Snapshot.HasSameInputs(scenario.Snapshot))
@@ -49,17 +50,25 @@ public sealed partial class SideValuationContext
         copy.retainedOccurrenceParent=null;
         return copy;
     }
+    private RetainedOccurrenceContexts Occurrences()
+    {
+        if (retainedOccurrences is null || !ReferenceEquals(retainedOccurrences.Owner, this)) retainedOccurrences = new(this);
+        return retainedOccurrences;
+    }
+
+    internal SideValuationContext ExercisedOccurrences() => Occurrences().Exercised ??= WithRetainedPrograms(RetainedPrograms!);
+
     internal SideValuationContext ForRetainedOccurrence(int slot, RetainedProgramSide side, ImmutableArray<ImmutableArray<EntryDayQuantity>> entryDays = default, QuantityPart? part = null)
     {
         if(RetainedPrograms is not { Cash: not null, Owner: not null, Occurrence: null } inputs ||
             inputs.HeldFactors.IsDefault || slot < 0 || slot >= inputs.HeldFactors.Length)
             throw new MarketDataException(PhysicalLifecycle.ContextRefusal, "Select the exact prepared retained membership occurrence.");
-        if(retainedOccurrences is null || !ReferenceEquals(retainedOccurrences.Owner, this)) retainedOccurrences=new(this);
-        if(!retainedOccurrences.Children.TryGetValue(slot, out var child))
+        var scopes = Occurrences();
+        if(!scopes.Children.TryGetValue(slot, out var child))
         {
             child=WithRetainedPrograms(inputs with { Occurrence=new(slot, side.Id, side.ProgramDigest), EntryDays=entryDays, EntryPart=part });
             child.retainedOccurrenceParent=this;
-            retainedOccurrences.Children.Add(slot, child);
+            scopes.Children.Add(slot, child);
         }
         if(child.RetainedPrograms!.Occurrence != new RetainedProgramOccurrence(slot, side.Id, side.ProgramDigest) || child.RetainedPrograms.EntryPart != part)
             throw new MarketDataException(PhysicalLifecycle.ContextRefusal, "A retained occurrence cannot change its exact Side program.");
