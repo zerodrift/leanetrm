@@ -343,8 +343,8 @@ internal static class GasTicketChecks
         Reject("a cash source naming no physical side", Draft(Receipt, With(Cash, "cash_source", "NOPE")));
         Reject("no physical side", Draft(Cash));
         Reject("five physical sides", Draft(Enumerable.Range(0, 5).Select(n => With(Receipt, "quantity", "1") with { Code = $"S{n}" }).ToArray()));
-        Reject("five cash sides", Draft([Receipt, ..Enumerable.Range(0, 5).Select(n => Cash with { Code = $"C{n}" })]));
-        Reject("five cash and fee sides together", Draft([Receipt, ..Enumerable.Range(0, 3).Select(n => Cash with { Code = $"C{n}" }), ..Enumerable.Range(0, 2).Select(n => Fee with { Code = $"F{n}", Values = Fee.Values.SetItem("fee_source", "RCT") })]));
+        Reject("eight cash sides", Draft([Receipt, ..Enumerable.Range(0, 8).Select(n => Cash with { Code = $"C{n}" })]));
+        Reject("eight cash and fee sides together", Draft([Receipt, ..Enumerable.Range(0, 6).Select(n => Cash with { Code = $"C{n}" }), ..Enumerable.Range(0, 2).Select(n => Fee with { Code = $"F{n}", Values = Fee.Values.SetItem("fee_source", "RCT") })]));
         Reject("an unknown side kind", Draft(Receipt, Side("swap", "X")));
         Reject("a value for a coming-soon field", Draft(With(Receipt, "heat_content", "1037")));
         Reject("a value for a coming-soon trade field", full with { Trade = Trade.Add("credit_terms", "net 30") });

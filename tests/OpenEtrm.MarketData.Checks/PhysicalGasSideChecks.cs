@@ -31,7 +31,7 @@ internal static class PhysicalGasSideChecks
         Reject("gas_instrument",()=>new PhysicalGasInstrument(Guid.NewGuid(),physical,unboundCash,[],ExactDecimal.Parse("1"),null));
         Reject("gas_composition_input",()=>new GasCompositionInstrument(Guid.NewGuid(),
             [new("delivery",physical,ExactDecimal.Parse("1"),ExactDecimal.Parse("1"),null)],
-            [new("cash",unboundCash,"consideration","delivery",GasQuantityStage.Delivery,ExactDecimal.Parse("-1"))]));
+            [new("cash",unboundCash,"consideration","delivery",GasQuantityStage.Delivery,ExactDecimal.Parse("-1"),ExactDecimal.Parse("1"))]));
         var selectedCurve=new CustomCurveProjectionBinding(lookup.Market.Curve.Revision.CatalogId,Guid.NewGuid(),1,"output",null,
             CustomCurveProjectionBinding.ContainingDeliverySelection,CustomCurveProjectionBinding.SupportedImplementation);
         var bound=new PhysicalGasSide(Guid.NewGuid(),physical.Location,physical.Product,quantity,[assignment],SyntheticSideCalendars.Physical(),selectedCurve);
@@ -78,7 +78,7 @@ internal static class PhysicalGasSideChecks
         Reject("gas_instrument",()=>new PhysicalGasInstrument(Guid.NewGuid(),physical,differentClockCash,[],ExactDecimal.Parse("1"),null));
         Reject("gas_composition_input",()=>new GasCompositionInstrument(Guid.NewGuid(),
             [new("delivery",physical,ExactDecimal.Parse("1"),ExactDecimal.Parse("1"),null)],
-            [new("cash",differentClockCash,"consideration","delivery",GasQuantityStage.Delivery,ExactDecimal.Parse("-1"))]));
+            [new("cash",differentClockCash,"consideration","delivery",GasQuantityStage.Delivery,ExactDecimal.Parse("-1"),ExactDecimal.Parse("1"))]));
         var purchase = new PhysicalGasInstrument(Guid.NewGuid(), physical, Cash("3"), [Cash("0.1")], ExactDecimal.Parse("1"), ExactDecimal.Parse("-1"));
         Equal(purchase.PV(context).PresentValue.Scale(ExactDecimal.Parse("1000")), "100");
         inspect?.Invoke(purchase, context);
@@ -89,7 +89,7 @@ internal static class PhysicalGasSideChecks
         var physicalB=new PhysicalGasSide(Guid.NewGuid(),pointB,assignment.Product,quantity,[assignmentB],SyntheticSideCalendars.Physical());
         var receipts=new GasPhysicalComponent("receipt",physical,ExactDecimal.Parse("1"),ExactDecimal.Parse("1000"),null);
         var deliveries=new GasPhysicalComponent("delivery",physicalB,ExactDecimal.Parse("-1"),null,new("receipt",GasFuelConvention.NetEqualsGrossTimesOneMinusFuel,ExactDecimal.Parse("0.02")));
-        var linkedFee=new GasCashComponent("usage",Cash("0.1"),"fee","delivery",GasQuantityStage.Delivery,ExactDecimal.Parse("-1"));
+        var linkedFee=new GasCashComponent("usage",Cash("0.1"),"fee","delivery",GasQuantityStage.Delivery,ExactDecimal.Parse("-1"),ExactDecimal.Parse("1"));
         var composition=new GasCompositionInstrument(Guid.NewGuid(),[receipts,deliveries],[linkedFee]);
         var composedContext=Context(market,[assignment,assignmentB]);
         Equal(composition.PV(composedContext).PresentValue.Scale(composition.BaseQuantity),"64");
@@ -100,7 +100,7 @@ internal static class PhysicalGasSideChecks
                 [new(lookup.Market,lookup.Contract)],[lookup.Fixing],null,null,null,null,OpenEtrm.Shared.Numerics.ExactRatio.One,FloatingSide.IndexedImplementation)
                 {DeliveryCompletionAt=clock.Boundary(to)}],SyntheticSideCalendars.Dated(true),gasDeliveryClock:clock);
         var indexedPurchase=new GasCompositionInstrument(Guid.NewGuid(),[receipts],
-            [new("index_payment",indexedCash,"indexed_consideration","receipt",GasQuantityStage.Delivery,ExactDecimal.Parse("-1"))]);
+            [new("index_payment",indexedCash,"indexed_consideration","receipt",GasQuantityStage.Delivery,ExactDecimal.Parse("-1"),ExactDecimal.Parse("1"))]);
         Equal(indexedPurchase.PV(context).PresentValue.Scale(indexedPurchase.BaseQuantity),"0");
         Equal(new GasCompositionInstrument(Guid.NewGuid(),[receipts,deliveries with{Link=new("receipt",GasFuelConvention.NetEqualsGrossDividedByOnePlusFuel,ExactDecimal.Parse("0.02"))}],[linkedFee]).PV(composedContext).PresentValue.Scale(composition.BaseQuantity),"3200/51");
         var thirdRatio=new GasCompositionInstrument(Guid.NewGuid(),[receipts with{Quantity=ExactDecimal.Parse("3")},deliveries with{Quantity=ExactDecimal.Parse("1"),Link=null}],[]);

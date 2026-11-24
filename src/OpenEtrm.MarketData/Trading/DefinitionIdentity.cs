@@ -76,6 +76,8 @@ public sealed record DefinitionIdentity(string Version, string Digest, string Ca
                 var selected=field.GetValue(value);
                 if(selected is null && value is Gas.RetainedGasMember &&
                     field.Name is nameof(Gas.RetainedGasMember.SourceSlot) or nameof(Gas.RetainedGasMember.QuantityPolicy) or nameof(Gas.RetainedGasMember.Part)) continue;
+                if(selected is null && value is Gas.GasCompositionRole &&
+                    field.Name is nameof(Gas.GasCompositionRole.Share) or nameof(Gas.GasCompositionRole.Part) or nameof(Gas.GasCompositionRole.QuantityPolicy)) continue;
                 if(field.Name==nameof(FixedSide.OperatingDefinition)&&selected is null&&value is FixedSide or FloatingSide)continue;
                 writer.WritePropertyName(field.Name);Write(writer,selected);
             }

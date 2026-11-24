@@ -141,13 +141,13 @@ public sealed class GasCompositionStore(PreviewDatabase database)
    var basis=p.QuantityBasis switch{"per_operating_day"=>GasQuantityBasis.PerOperatingDay,"period_total_equal_days"=>GasQuantityBasis.PeriodTotalEqualOperatingDays,_=>throw Invalid("Choose each physical quantity basis explicitly.")};
    var side=new PhysicalGasSide(Guid.NewGuid(),m.Assignments[0].Location,m.Assignments[0].Product,new(m.Clock,DateWorkspace.Date(p.DeliveryFrom),DateWorkspace.Date(p.DeliveryTo),basis,new(Number("1"),m.Assignments[0].Quote.Quantity),GasFuelConvention.None,default),m.Assignments,SideCalendarPolicies.Resolve(data,p.CalendarPolicy),GasPointPricing.Resolve(database.Manifest.CatalogId,m.Mapping,p.ForecastCurve)?.ToBinding());
    var link=p.Link is null?null:new GasCompositionLink(p.Link.Source,p.Link.Formula switch{"none"=>GasFuelConvention.None,"gross_less_fraction"=>GasFuelConvention.NetEqualsGrossTimesOneMinusFuel,"gross_divided_by_one_plus_fraction"=>GasFuelConvention.NetEqualsGrossDividedByOnePlusFuel,_=>throw Invalid("Select an installed fuel rule.")},Number(p.Link.Fraction));
-   physical.Add(new(p.Code,side,Number(Sign(p.Direction,true).ToString(CultureInfo.InvariantCulture)),p.Quantity is null?null:Number(p.Quantity),link));
+   physical.Add(new(p.Code,side,Number(Sign(p.Direction,true).ToString(CultureInfo.InvariantCulture)),p.Quantity is null?null:Number(p.Quantity),link,p.QuantityPolicy));
   }
   var cash=ImmutableArray.CreateBuilder<GasCashComponent>();
   foreach(var p in body.CashSides)
   {
    var indices=body.PhysicalSides.Select((v,n)=>(v,n)).Where(x=>x.v.Code==p.Source).ToArray();if(indices.Length!=1)throw Invalid("Cash quantity sources must name one physical side.");var n=indices[0].n;var source=physical[n].Side;
-   if(p.Indexed is not null){cash.Add(new(p.Code,GasIndexedCash.Resolve(data,source,p,mappings[n]),p.Role,p.Source,Stage(p.Stage),Number(Sign(p.Direction,false).ToString(CultureInfo.InvariantCulture))));continue;}
+   if(p.Indexed is not null){cash.Add(new(p.Code,GasIndexedCash.Resolve(data,source,p,mappings[n]),p.Role,p.Source,Stage(p.Stage),Number(Sign(p.Direction,false).ToString(CultureInfo.InvariantCulture)),Number("1")));continue;}
    if(p.Role=="indexed_consideration")throw Invalid("An indexed cash Side requires its explicit index terms.");
    string? price=p.Price;
    if(p.TariffCode is not null)
@@ -161,7 +161,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
    PaymentDatePolicy.RequireCompletion(payment,source.Quantities.Clock.Boundary(source.Quantities.To));
    var total=source.GenerateSchedule().Quantities.TotalDelivery;
    var side=new FixedSide(Guid.NewGuid(),new FlatPrice(new UnitPrice(Number(price),assignments[n][0].Quote)),assignments[n][0].Quote,source.UnitQuantity,[new(source.Quantities.From,source.Quantities.To,payment,new(BigInteger.Parse(total.Numerator),BigInteger.Parse(total.Denominator)),null){DeliveryCompletionAt=source.Quantities.Clock.Boundary(source.Quantities.To)}],SideCalendarPolicies.Resolve(data,p.CalendarPolicy),gasDeliveryClock:source.Quantities.Clock);
-   cash.Add(new(p.Code,side,p.Role,p.Source,Stage(p.Stage),Number(Sign(p.Direction,false).ToString(CultureInfo.InvariantCulture))));
+   cash.Add(new(p.Code,side,p.Role,p.Source,Stage(p.Stage),Number(Sign(p.Direction,false).ToString(CultureInfo.InvariantCulture)),Number("1")));
   }
   var instrument=new GasCompositionInstrument(Guid.NewGuid(),physical.ToImmutable(),cash.ToImmutable());var members=ImmutableArray.CreateBuilder<GasCompositionRow>();
   for(var n=0;n<physical.Count;n++){var p=body.PhysicalSides[n];members.Add(new(n,p.Code,"physical",Sign(p.Direction,true),instrument.Sides[n].QuantityRatio!,instrument.ReceiptRatios[n],p.Link?.Source,null,p.Link?.Formula,p.Link?.Fraction,p,null,assignments[n],clocks[n],p.QuantityPolicy));}

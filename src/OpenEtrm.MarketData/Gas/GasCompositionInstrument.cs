@@ -7,10 +7,11 @@ namespace OpenEtrm.MarketData.Gas;
 public enum GasQuantityStage { Receipt=1,Delivery,Fuel }
 [EconomicDefinition("gas_composition_link_v1")]
 public sealed record GasCompositionLink([property:IdentityField]string Source,[property:IdentityField]GasFuelConvention Formula,[property:IdentityField]ExactDecimal Fraction);
-public sealed record GasPhysicalComponent(string Code,PhysicalGasSide Side,ExactDecimal Direction,ExactDecimal? Quantity,GasCompositionLink? Link);
-public sealed record GasCashComponent(string Code,Side Side,string Role,string Source,GasQuantityStage Stage,ExactDecimal Direction);
+public sealed record GasPhysicalComponent(string Code,PhysicalGasSide Side,ExactDecimal Direction,ExactDecimal? Quantity,GasCompositionLink? Link,string? QuantityPolicy=null);
+public sealed record GasCashComponent(string Code,Side Side,string Role,string Source,GasQuantityStage Stage,ExactDecimal Direction,ExactDecimal? Share=null,QuantityPart? Part=null);
 [EconomicDefinition("gas_composition_role_v1")]
-public sealed record GasCompositionRole([property:IdentityField]string Code,[property:IdentityField]string Role,[property:IdentityField]string? Source,[property:IdentityField]GasQuantityStage? Stage,[property:IdentityField]GasCompositionLink? Link);
+public sealed record GasCompositionRole([property:IdentityField]string Code,[property:IdentityField]string Role,[property:IdentityField]string? Source,[property:IdentityField]GasQuantityStage? Stage,[property:IdentityField]GasCompositionLink? Link,
+ [property:IdentityField]ExactDecimal? Share=null,[property:IdentityField]QuantityPart? Part=null,[property:IdentityField]string? QuantityPolicy=null);
 
 // Contractual physical and payment sides. Exact native-unit membership ratios retain
 // quantity normalization separately from direction; no operational selection or
@@ -19,7 +20,7 @@ public sealed record GasCompositionRole([property:IdentityField]string Code,[pro
 public sealed record GasCompositionInstrument:SidedInstrument
 {
  // The fixed profile's side bounds. Cash sides include fees.
- public const int MinPhysicalSides=1,MaxPhysicalSides=4,MaxCashSides=4;
+ public const int MinPhysicalSides=1,MaxPhysicalSides=4,MaxCashSides=7,MaxSides=8;
  [IdentityField]public ImmutableArray<GasCompositionRole> Roles { get; }
  public ImmutableArray<GasPhysicalComponent> Physical { get; }
  public ImmutableArray<GasCashComponent> Cash { get; }
@@ -34,14 +35,26 @@ public sealed record GasCompositionInstrument:SidedInstrument
  private GasCompositionInstrument(Guid id,ImmutableArray<GasPhysicalComponent> physical,ImmutableArray<GasCashComponent> cash,Composition c):base(id,c.Members)
  {
   Physical=physical;Cash=cash;BaseQuantity=c.Base;ReceiptRatios=c.Receipts;
-  Roles=[..physical.Select(p=>new GasCompositionRole(p.Code,"physical",p.Link?.Source,null,p.Link)),..cash.Select(p=>new GasCompositionRole(p.Code,p.Role,p.Source,p.Stage,null))];
+  var entryTerms=physical.Any(p=>p.QuantityPolicy is not null)||cash.Any(p=>p.Part is not null);
+  Roles=[..physical.Select(p=>new GasCompositionRole(p.Code,"physical",p.Link?.Source,null,p.Link,QuantityPolicy:p.QuantityPolicy)),
+   ..cash.Select(p=>new GasCompositionRole(p.Code,p.Role,p.Source,p.Stage,null,entryTerms||p.Share!=ExactDecimal.Parse("1")?p.Share:null,p.Part))];
+ }
+ protected internal override void RequireBeforeValuation(SideValuationContext context)
+ {
+  if(Physical.Any(p=>p.QuantityPolicy is not null)||Cash.Any(p=>p.Part is not null))
+   throw Invalid("Value quantity policies and parts through the saved Instrument with its held day quantities.");
  }
  public ExactRatio StageRatio(int physical,GasQuantityStage stage)=>Stage(ReceiptRatios[physical],Sides[physical].QuantityRatio!,stage);
  private sealed record Composition(ImmutableArray<SideMembership> Members,ImmutableArray<ExactRatio> Receipts,ExactDecimal Base);
  private static Composition Resolve(ImmutableArray<GasPhysicalComponent> physical,ImmutableArray<GasCashComponent> cash)
  {
-  if(physical.IsDefault||physical.Length is <MinPhysicalSides or >MaxPhysicalSides||cash.IsDefault||cash.Length>MaxCashSides||physical.Any(p=>p is null||p.Side is null)||cash.Any(p=>p is null||p.Side is null))
-   throw Invalid($"Select {MinPhysicalSides} to {MaxPhysicalSides} physical sides and up to {MaxCashSides} cash sides.");
+  if(physical.IsDefault||physical.Length is <MinPhysicalSides or >MaxPhysicalSides||cash.IsDefault||cash.Length>MaxCashSides||physical.Length+cash.Length>MaxSides||physical.Any(p=>p is null||p.Side is null)||cash.Any(p=>p is null||p.Side is null))
+   throw Invalid($"Select {MinPhysicalSides} to {MaxPhysicalSides} physical sides, up to {MaxCashSides} cash sides and at most {MaxSides} in all.");
+  if(physical.Any(p=>p.QuantityPolicy is not(null or GasHeldQuantities.DeliverySchedulePolicy))||
+   physical.Any(p=>p.Link is not null)&&(physical.Any(p=>p.QuantityPolicy is not null)||cash.Any(p=>p.Part is not null)))
+   throw Invalid("Quantity policies and parts require independent physical sources and no quantity links.");
+  if(cash.Any(p=>p.Share is not {} share||share.CompareTo(default)<=0))
+   throw Invalid("Every payment requires an explicit positive share of its source quantity.");
   var codes=physical.Select(p=>p.Code).Concat(cash.Select(p=>p.Code)).ToArray();
   if(codes.Any(code=>string.IsNullOrWhiteSpace(code)||!System.Text.RegularExpressions.Regex.IsMatch(code,"^[a-z][a-z0-9_.-]{0,63}$"))||codes.Distinct(StringComparer.Ordinal).Count()!=codes.Length)throw Invalid("Every side requires its own unique code.");
   var root=physical.FirstOrDefault(p=>p.Link is null);
@@ -89,12 +102,16 @@ public sealed record GasCompositionInstrument:SidedInstrument
     throw Invalid("Cash sides require their declared fixed or indexed price, independent direction and explicit physical quantity stage in the same native quote.");
    var rows=schedule.Rows;
    var delivery=a.GenerateSchedule().Quantities.Rows;
-   if(indexed&&(rows.Count!=delivery.Length||rows.Where((row,n)=>row.DeliveryFrom!=delivery[n].OperatingDay||row.DeliveryTo!=delivery[n].OperatingDay.AddDays(1)||row.AllocatedQuantity!=delivery[n].Delivery).Any()))
-    throw Invalid("Indexed consideration requires each source gas day's exact delivery interval and quantity.");
-   if(rows[0].DeliveryFrom!=a.Quantities.From||rows[^1].DeliveryTo!=a.Quantities.To||rows.Where((row,n)=>n>0&&rows[n-1].DeliveryTo!=row.DeliveryFrom).Any()||
-    rows.Select(row=>row.AllocatedQuantity).Aggregate((x,y)=>x.Add(y))!=a.GenerateSchedule().Quantities.TotalDelivery)
-    throw Invalid("Cash coverage must match its selected physical quantity profile.");
-   members.Add(new(p.Side,p.Direction,Stage(inputs[source],outputs[source]!,p.Stage)));
+   if(rows[0].DeliveryFrom<a.Quantities.From||rows[^1].DeliveryTo>a.Quantities.To||rows.Where((row,n)=>n>0&&rows[n-1].DeliveryTo!=row.DeliveryFrom).Any())
+    throw Invalid("Payment dates must cover a contiguous range within the source's gas days.");
+   foreach(var row in rows)
+   {
+    var days=delivery.Where(d=>d.OperatingDay>=row.DeliveryFrom&&d.OperatingDay<row.DeliveryTo).ToArray();
+    if(days.Length!=row.DeliveryTo.DayNumber-row.DeliveryFrom.DayNumber||days.Length==0||indexed&&days.Length!=1||
+     row.AllocatedQuantity!=days.Select(d=>d.Delivery).Aggregate((x,y)=>x.Add(y)))
+     throw Invalid("Every payment row requires the source's exact contract quantity over its own gas days.");
+   }
+   members.Add(new(p.Side,p.Direction,Ratio(p.Share!.Value).Times(Stage(inputs[source],outputs[source]!,p.Stage))));
   }
   return new(members.ToImmutable(),[..inputs],amount);
  }

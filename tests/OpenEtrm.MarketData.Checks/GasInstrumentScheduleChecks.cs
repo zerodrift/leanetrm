@@ -107,6 +107,8 @@ internal static class GasInstrumentScheduleChecks
     internal sealed class IdentityFixture
     {
         internal readonly RetainedGasInstrument Instrument;
+        internal PhysicalGasSide Physical { get; }
+        internal FixedSide Cash { get; }
         internal IdentityFixture()
         {
             var f = new CommodityLookupFixture(31);
@@ -123,6 +125,7 @@ internal static class GasInstrumentScheduleChecks
             var cash = new FixedSide(Guid.Parse("c01cb550-df60-4cd6-b601-524026b00002"), new FlatPrice(new UnitPrice(ExactDecimal.Parse("3"), f.Quote)),
                 f.Quote, gas.UnitQuantity, [new(from, to, clock.Boundary(to).AddDays(2), new(1, 1), null)
                     { DeliveryCompletionAt = clock.Boundary(to) }], SyntheticSideCalendars.Dated(false), gasDeliveryClock: clock);
+            Physical = gas; Cash = cash;
             BookedSideProgram Book(Side side) => BookedSideProgram.Compile(ScheduleDefinitionCompiler.Generate(side,
                 lifecycle: ScheduleLifecycleSelection.StartedPhysicalDelivery));
             Instrument = new(Guid.Parse("c01cb550-df60-4cd6-b601-524026b00003"),
