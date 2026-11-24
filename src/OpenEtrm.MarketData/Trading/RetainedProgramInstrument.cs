@@ -150,7 +150,8 @@ internal class RetainedInstrumentSchedule<TMember> : InstrumentSchedule where TM
                 var member = retained.Members[slot];
                 var factor = quantity * new SignedRatio(member.ValuationCoefficient.ScaledValue, ExactDecimal.WorkingScale) *
                     (member.ValuationRatio is {} ratio ? new SignedRatio(ratio.Numerator, ratio.Denominator) : new SignedRatio(1, 1));
-                if(inputs.HeldFactors[slot] != factor) throw LifecycleContext();
+                if(inputs.HeldFactors[slot] != factor ||
+                    inputs.Geometries[slot].OwnedDays.ContainsKey(slot) != (member.ValuationOwned is not null)) throw LifecycleContext();
             }
             var rights = retained.Rights;
             var decisions = rights.IsEmpty && state.Elections.IsEmpty ? null :

@@ -354,12 +354,17 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
         var quantity=new SignedRatio(cash.Quantity.Amount.ScaledValue,ExactDecimal.WorkingScale);
         var owners = new Dictionary<int, PhysicalLifecycleGeometry>();
         PhysicalLifecycleGeometry? pooled = null;
+        PhysicalLifecycleGeometry? owned = null;
         PhysicalLifecycleGeometry Geometry(int slot)
         {
+            if (Members[slot].Owned is not null)
+                return owned ??= PhysicalLifecycle.PrepareGeometry([], Members.Select((member, index) => (member, index))
+                    .Where(entry => entry.member.Owned is not null)
+                    .Select(entry => (entry.index, entry.member.Program, entry.member.Owned!)), context.Snapshot);
             if (GeometrySource(slot) is not {} owner)
-                return pooled ??= PhysicalLifecycle.PrepareGeometry(Members.Where(m => m.Program.Document.Family == "gas").Select(m => m.Program), context.Snapshot);
+                return pooled ??= PhysicalLifecycle.PrepareGeometry(Members.Where(m => m.Program.Document.Family == "gas").Select(m => m.Program), [], context.Snapshot);
             if (!owners.TryGetValue(owner, out var geometry))
-                owners.Add(owner, geometry = PhysicalLifecycle.PrepareGeometry([Members[owner].Program], context.Snapshot));
+                owners.Add(owner, geometry = PhysicalLifecycle.PrepareGeometry([Members[owner].Program], [], context.Snapshot));
             return geometry;
         }
         return input with{Cash=cash,Geometries=[..Enumerable.Range(0, Members.Length).Select(Geometry)],
@@ -401,6 +406,8 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
     {
         if (state is not PhysicalCashState cash)
         {
+            if (Members.Any(m => m.Owned is not null))
+                throw new MarketDataException("gas_delivery_lifecycle", "A gas instrument with owned charges requires its held cash state from booking.");
             if(!Rights.IsEmpty || Members.Any(m => m.QuantityPolicy is not null || m.Part is not null))
                 throw PhysicalDeliveryQuantities.Invalid("An instrument with quantity terms requires its complete held owner-day inputs.");
             base.ValidateValuationState(state); return;

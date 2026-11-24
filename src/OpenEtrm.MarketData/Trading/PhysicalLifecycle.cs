@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using OpenEtrm.MarketData.Gas;
 using OpenEtrm.MarketData.Physical;
 using OpenEtrm.Shared.Numerics;
 
@@ -98,10 +99,11 @@ public sealed record PhysicalLifecycleValue(ExactMoney Unrealized,ExactMoney Rea
 // A member's evaluation and the map from its unscaled amounts to signed held amounts.
 public sealed record LifecycleMember(BookedSideProgram Program,BookedSideEvaluation Evaluation,bool Physical,Func<ExactMoney,ExactMoney> Held);
 
-// Instrument-owned connections carry only exact physical day states and
-// quantities. They contain no price, cash value, Side or Instrument callback.
+// Instrument-owned connections carry day states and physical quantities.
+// Owned cash days are scoped to their occurrence slot.
 internal sealed record PhysicalLifecycleGeometry(ImmutableDictionary<DateOnly,DeliveryState> Days,
-    ImmutableDictionary<DateOnly,ExactQuantity> Quantities);
+    ImmutableDictionary<DateOnly,ExactQuantity> Quantities,
+    ImmutableDictionary<int,ImmutableDictionary<DateOnly,DeliveryState>> OwnedDays);
 
 // Started delivery, whole gas days: ended days leave the unrealized measure; their cash accrues on contract quantity
 // and stays realized unsettled until paid, discounted to its payment date until due.
@@ -192,10 +194,10 @@ public static class PhysicalLifecycle
         return new(parts.Aggregate(choice, (sum, p) => sum.Add(p.Unrealized)), parts.Aggregate(zero, (sum, p) => sum.Add(p.RealizedUnsettled)),
             parts.Aggregate(choice, (sum, p) => sum.Add(p.Total)), [..parts.SelectMany(p => p.Rows)]);
     }
-    internal static PhysicalLifecycleGeometry PrepareGeometry(IEnumerable<BookedSideProgram> programs,MarketSnapshot snapshot)
+    internal static PhysicalLifecycleGeometry PrepareGeometry(IEnumerable<BookedSideProgram> programs,
+        IEnumerable<(int Slot, BookedSideProgram Program, OwnedQuantity Quantity)> owningEntries, MarketSnapshot snapshot)
     {
         var at=snapshot.ValuationAt;
-        DeliveryState Delivery(DateTimeOffset start,DateTimeOffset end)=>end<=at?DeliveryState.Ended:start<=at?DeliveryState.InProgress:DeliveryState.NotStarted;
         var days=new Dictionary<DateOnly,DeliveryState>();
         var quantities=new Dictionary<DateOnly,ExactQuantity>();
         foreach(var program in programs)
@@ -203,15 +205,39 @@ public static class PhysicalLifecycle
             var seen=new HashSet<DateOnly>();
             foreach(var day in PhysicalDeliverySchedule.ReadLiteralQuantities(program,ExactRatio.One))
             {
-                var delivered=Delivery(day.Start,day.End);
+                var delivered=DeliveryAt(day.Start,day.End,at);
                 if(days.TryGetValue(day.OperatingDate,out var known)&&known!=delivered||!seen.Add(day.OperatingDate))
                     throw Unsupported("Every physical member must agree whether each operating day has started or ended at the valuation instant.");
                 days[day.OperatingDate]=delivered;
                 quantities[day.OperatingDate]=quantities.TryGetValue(day.OperatingDate,out var sum)?sum.Add(day.Quantity):day.Quantity;
             }
         }
-        return new(days.ToImmutableDictionary(),quantities.ToImmutableDictionary());
+        var ownedDays = ImmutableDictionary.CreateBuilder<int,ImmutableDictionary<DateOnly,DeliveryState>>();
+        foreach (var (slot, program, owned) in owningEntries)
+        {
+            var entryDays = ImmutableDictionary.CreateBuilder<DateOnly,DeliveryState>();
+            foreach (var instruction in program.Document.Instructions.Where(i => i.Output.Operation == "output_guard"))
+            {
+                var (from, to, _) = CashTerm(instruction.Output);
+                var start = owned.Clock.Boundary(from);
+                for (var day = from; day < to; day = day.AddDays(1))
+                {
+                    var end = owned.Clock.Boundary(day.AddDays(1));
+                    entryDays[day] = DeliveryAt(start, end, at);
+                    start = end;
+                }
+            }
+            ownedDays.Add(slot, entryDays.ToImmutable());
+        }
+        return new(days.ToImmutableDictionary(),quantities.ToImmutableDictionary(),ownedDays.ToImmutable());
     }
+    private static DeliveryState DeliveryAt(DateTimeOffset start, DateTimeOffset end, DateTimeOffset at) =>
+        end <= at ? DeliveryState.Ended : start <= at ? DeliveryState.InProgress : DeliveryState.NotStarted;
+
+    private static (DateOnly From, DateOnly To, DateTimeOffset ValueAt) CashTerm(ScheduleDefinitionRow row) =>
+        row.Grid is null && row.DeliveryFrom is {} from && row.DeliveryTo is {} to && row.ValueAt is {} valueAt && from < to
+            ? (from, to, valueAt)
+            : throw Unsupported("Cash lifecycle rows require their retained dated delivery term.");
     internal static PhysicalLifecycleValue EvaluateSide(BookedSideProgram program,BookedSideEvaluation evaluation,bool physical,int slot,
         SignedRatio heldFactor,PhysicalLifecycleGeometry geometry,PhysicalCashState state,MarketSnapshot snapshot,ReferenceKey currency,ImmutableArray<EntryDayQuantity> entryDays,bool cashAutomatic=false)
     {
@@ -228,8 +254,6 @@ public static class PhysicalLifecycle
     {
         _=RequirePaymentKnowledge(snapshot);
         var at=snapshot.ValuationAt;var zero=ExactMoney.Parse("0",currency);
-        var days=geometry.Days;var quantities=geometry.Quantities;
-        DeliveryState Delivery(DateTimeOffset start,DateTimeOffset end)=>end<=at?DeliveryState.Ended:start<=at?DeliveryState.InProgress:DeliveryState.NotStarted;
         ExactMoney Held(LifecycleMember member,ScheduleValueColumn column)=>column.Presence[0]==ScheduleCellPresence.Resolved?
             member.Held(ExactMoney.FromFraction(column.Values[0].Numerator,column.Values[0].Denominator,currency)):
             throw Unsupported("A lifecycle amount requires its resolved evaluated value.");
@@ -242,6 +266,8 @@ public static class PhysicalLifecycle
         for(var index=0;index<members.Length;index++)
         {
             var slot=index+firstSlot;var member=members[index];var document=member.Program.Document;
+            var ownsDays=geometry.OwnedDays.TryGetValue(slot,out var ownedDays);
+            var days=ownedDays??geometry.Days;
             foreach(var contribution in member.Evaluation.Contributions)
             {
                 var row=document.Instructions[contribution.Instruction].Output;
@@ -250,7 +276,7 @@ public static class PhysicalLifecycle
                 if(member.Physical)
                 {
                     if(row.Grid is not {} grid||document.Grids[grid].CellCount!=1)throw Unsupported("Physical lifecycle rows require whole gas days.");
-                    var interval=document.Grids[grid].Interval(0);var delivery=Delivery(interval.Start,interval.End);
+                    var interval=document.Grids[grid].Interval(0);var delivery=DeliveryAt(interval.Start,interval.End,at);
                     var selected=entryDays.IsDefault?null:entryDays.Single(d=>d.Day==interval.OperatingDate);
                     var fraction=selected is null?new SignedRatio(1,1):DeliveryQuantityFractions.For([selected],_=>false).Total;
                     if(delivery==DeliveryState.Ended)RequireOutside(contribution);
@@ -259,17 +285,17 @@ public static class PhysicalLifecycle
                         selected?.Source??(delivery==DeliveryState.Ended?EstimatedQuantity:ContractQuantity)));
                     continue;
                 }
-                if(row.Grid is not null||row.DeliveryFrom is not {} from||row.DeliveryTo is not {} to||row.ValueAt is not {} valueAt||from>=to)
-                    throw Unsupported("Cash lifecycle rows require their retained dated delivery term.");
+                var (from,to,valueAt)=CashTerm(row);
                 var covered=Enumerable.Range(0,to.DayNumber-from.DayNumber).Select(from.AddDays).ToArray();
-                if(covered.Any(day=>!days.ContainsKey(day)))throw Unsupported("Every cash day requires its retained physical gas day.");
-                // Pro rata by day is exact only when the total physical quantity of every covered day is equal.
-                var follows=!entryDays.IsDefault;
-                if(!follows&&covered.Select(day=>quantities[day]).Distinct().Count()!=1)
+                if(!ownsDays&&covered.Any(day=>!days.ContainsKey(day)))throw Unsupported("Every cash day requires its retained physical gas day.");
+                // A charge owns one constant daily quantity. Pooled physical quantities must agree before using the same fraction.
+                var follows=!ownsDays&&!entryDays.IsDefault;
+                if(!ownsDays&&!follows&&covered.Select(day=>geometry.Quantities[day]).Distinct().Count()!=1)
                     throw new MarketDataException("physical_lifecycle_quantity","Whole-day accrual of a multi-day payment requires equal daily contract quantities.");
                 var ended=covered.Count(day=>days[day]==DeliveryState.Ended);var started=covered.Any(day=>days[day]!=DeliveryState.NotStarted);
                 var fractions=follows?DeliveryQuantityFractions.For(entryDays.Where(d=>d.Day>=from&&d.Day<to),day=>days[day]==DeliveryState.Ended):
-                    new DeliveryQuantityFractions(new(1,1),new(ended,covered.Length));
+                    DeliveryQuantityFractions.EqualDays(ended,covered.Length);
+                var quantityBasis=follows?SelectedQuantityPolicy:!ownsDays&&ended>0?EstimatedQuantity:ContractQuantity;
                 var due=PaymentDatePolicy.IsOverdue(valueAt,at);
                 var prices=contribution.Amount.States[0].Prices;
                 const SchedulePriceFacts finalPrices=SchedulePriceFacts.Fixed|SchedulePriceFacts.Actual|SchedulePriceFacts.PublishedFixing;
@@ -286,7 +312,7 @@ public static class PhysicalLifecycle
                     _=state.Paid(slot,occurrence,snapshot,zero,false);
                     rows.Add(new(slot,occurrence,from,to,ended==covered.Length?DeliveryState.Ended:DeliveryState.InProgress,
                         SettlementState.Projected,zero,zero,amount,due?amount:Held(member,contribution.PresentValue).Scale(fractions.Total),zero,
-                        follows?SelectedQuantityPolicy:EstimatedQuantity,valueAt,amount));
+                        quantityBasis,valueAt,amount));
                     continue;
                 }
                 var accrued=contractAmount.Scale(fractions.Ended);
@@ -297,7 +323,7 @@ public static class PhysicalLifecycle
                 var outstandingPv=due?outstanding:contractAmount.CompareTo(zero)==0?zero:outstanding.Scale(value.Over(contractAmount));
                 rows.Add(new(slot,occurrence,from,to,ended==covered.Length?DeliveryState.Ended:started?DeliveryState.InProgress:DeliveryState.NotStarted,
                     Settle(ended>0,accrued,paid),accrued,paid,outstanding,value.Scale(fractions.Total-fractions.Ended),outstandingPv,
-                    follows?SelectedQuantityPolicy:ended>0?EstimatedQuantity:ContractQuantity,valueAt,amount.Subtract(paid),paidAt));
+                    quantityBasis,valueAt,amount.Subtract(paid),paidAt));
             }
         }
         var result=rows.ToImmutable();

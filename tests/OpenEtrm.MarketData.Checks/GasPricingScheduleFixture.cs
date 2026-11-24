@@ -24,11 +24,11 @@ internal sealed class GasPricingScheduleFixture
     internal QuoteSpecification Quote => reference.Quotes[0];
     internal int Size { get; }
     internal GasPricingScheduleFixture(bool follows = true, int size = 10000, bool sharedPayment = false, bool partial = false,
-        (DateTimeOffset FixingAt, DateTimeOffset Expiry)? thirdDailyIndex = null, DateTimeOffset? monthlyFixingAt = null, DateOnly? dailyPaymentStart = null)
+        (DateTimeOffset FixingAt, DateTimeOffset Expiry)? thirdDailyIndex = null, DateTimeOffset? monthlyFixingAt = null, DateOnly? dailyPaymentStart = null, int clockStartMinute = 360)
     {
         From = dailyPaymentStart ?? new DateOnly(2041, 1, 1);
         Size = size;
-        Clock = GasDayClock.Capture(reference.R("synthetic_schedule_clock"), TimeZoneInfo.Utc, 360);
+        Clock = GasDayClock.Capture(reference.R("synthetic_schedule_clock"), TimeZoneInfo.Utc, clockStartMinute);
         var contracts = Enumerable.Range(0, 7).Select(n => new MarketContract(reference.K(100 + n), ContractKind.Forward,
             n == 6 ? From : From.AddDays(n % 3), n == 6 ? From.AddMonths(1) : From.AddDays(n % 3 + 1),
             n == 5 && thirdDailyIndex is {} strike ? strike.Expiry : Clock.Boundary(From.AddMonths(1)).AddDays(2), null)).ToImmutableArray();
@@ -102,7 +102,7 @@ internal sealed class GasPricingScheduleFixture
     internal (PreparedConnectedPortfolioRisk Prepared, ValuationSetup Setup) Prepare(RetainedGasInstrument instrument,
         PhysicalCashState? state, DateTimeOffset? calculationAt = null, string? point = null, bool ended = false, bool publishedMonth = true,
         ISideDiscounting? discounting = null, string? publishedThirdDailyIndex = null, ImmutableArray<string> dailyPoints = default,
-        string? thirdDailyForward = null, string? publishedMonthlyIndex = null)
+        string? thirdDailyForward = null, string? publishedMonthlyIndex = null, DateTimeOffset? knownAt = null)
     {
         var at = Clock.Boundary(ended ? From.AddDays(2) : From).AddHours(-0.5);
         if(ended) at = Clock.Boundary(From.AddDays(2)).AddHours(1);
@@ -133,7 +133,7 @@ internal sealed class GasPricingScheduleFixture
             if(publishedMonth && publishedMonthlyIndex is null) observations.Add(Observation(6, InputUse.FrozenFact, "3.00", fixings[6].FixingAt));
         }
         var snapshot = new MarketSnapshot(Guid.NewGuid(), reference.Revision, at, at, InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering,
-            [..observations]).WithKnowledge(Guid.NewGuid(), at);
+            [..observations]).WithKnowledge(Guid.NewGuid(), knownAt ?? at);
         var setup = new ValuationSetup(ValuationMeasure.PresentValue, ImmutableDictionary<Guid, FuturesMarketBinding>.Empty,
             discounting ?? new ExplicitDiscounting(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted));
         if(state is not null) setup = setup with { BindingStates = ImmutableDictionary<MeasureBinding, IBindingValuationState>.Empty.Add(new(state.TradeId, state.BindingId), state) };
