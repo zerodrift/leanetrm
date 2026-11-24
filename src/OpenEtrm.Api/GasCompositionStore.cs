@@ -288,7 +288,12 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   {
    side=lump?GasChargeSides.LumpSum(Guid.NewGuid(),price,unit,clock,terms.PaymentAt!.Value,calendars,quote):
     GasChargeSides.Capacity(Guid.NewGuid(),price,unit,clock,terms.From!.Value,terms.To!.Value,charge.PaymentDay!.Value,calendars,quote);
+   // Fixed payment rows validated their completion boundaries. Owned-day valuation
+   // also needs each day's start, including the first and the days inside a row.
+   for(var day=side.DeliveryFrom;day<side.DeliveryTo;day=day.AddDays(1))clock.Boundary(day);
   }
+  catch(MarketDataException error)when(!lump&&error.Code=="payment_before_completion")
+  {throw ChargeField(charge,"charge_payment_day",Invalid(error.Message));}
   catch(MarketDataException error)when(error.Code is "calendar_coverage" or "side_calendar_applicability")
   {throw ChargeField(charge,"calendar_policy",error);}
   catch(MarketDataException error)when(error.Code=="gas_day_boundary")

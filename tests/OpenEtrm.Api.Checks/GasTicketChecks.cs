@@ -82,9 +82,9 @@ internal static class GasTicketChecks
             var calendars=SideCalendarPolicy.UseOne(calendar,true,false,true);
             var exact=new GasChargeRequest("PREM","lump_sum","pay","1",null,null,null,"2027-01-10T00:00:00Z",null,"RCT");
             var capacity=new GasChargeRequest("CAP","capacity","pay","0.02","100","2027-01-20","2027-02-01",null,2,"RCT");
-            void NamesResolved(GasChargeRequest terms, QuoteSpecification native, string code, string field, GasDayClock? selectedClock=null)
+            void NamesResolved(GasChargeRequest terms, QuoteSpecification native, string code, string field)
             {
-                try{GasCompositionStore.ResolveCharge(terms,native,new(ExactDecimal.Parse("1"),native.Quantity),selectedClock??clock,()=>calendars);}
+                try{GasCompositionStore.ResolveCharge(terms,native,new(ExactDecimal.Parse("1"),native.Quantity),clock,()=>calendars);}
                 catch(TicketFieldException error)when(error.Code==code&&error.Side==terms.Code&&error.Field==field){return;}
                 throw new Exception($"Expected {code} on {terms.Code}.{field} after native resolution.");
             }
@@ -92,13 +92,63 @@ internal static class GasTicketChecks
             NamesResolved(exact with{PaymentAt="0001-01-01T00:00:00Z"},quote,"gas_composition_input","charge_payment_at");
             NamesResolved(capacity,quote,"calendar_coverage","calendar_policy");
             NamesResolved(capacity with{To="9999-12-02"},quote,"gas_composition_input","charge_end");
+
+        });
+        Check("charge admission reports exact payment and gas-day boundary refusals", () =>
+        {
+            var key=Policy("charge").Delivery.Calendar!.Value;
+            var quote=new QuoteSpecification(key,QuoteKind.Outright,key,key,ExactDecimal.Parse("1"),
+                ExactDecimal.Parse("0.01"),ExactDecimal.Parse("0.01"),ExactDecimal.Parse("-1000"),ExactDecimal.Parse("1000"));
+            var unit=new Quantity(ExactDecimal.Parse("1"),key);
+            SideCalendarPolicy Calendar(DateOnly from,DateOnly to)=>SideCalendarPolicy.UseOne(
+                new(key,from,to,0,[],CalendarDefinition.Implementation),true,false,true);
+            GasDayClock Clock(string code,int offset,int start)=>GasDayClock.Capture(new(key.Revision,code),
+                TimeZoneInfo.CreateCustomTimeZone(code,TimeSpan.FromHours(offset),code,code),start);
+            var calendar=Calendar(new(2027,1,1),new(2027,3,1));
+            var sameDate=Clock("synthetic_utc_afternoon",0,15*60);
+            var nextDate=Clock("synthetic_west_afternoon",-10,15*60);
+            var capacity=new GasChargeRequest("CAP","capacity","pay","0.02","100","2027-01-20","2027-02-01",null,1,"RCT");
+            var row=GasCompositionStore.ResolveCharge(capacity,quote,unit,sameDate,()=>calendar).Side.Periods.Single();
+            Equal(new DateTimeOffset(2027,2,1,0,0,0,TimeSpan.Zero),row.PaymentAt,"same-date payment");
+            Equal(new DateTimeOffset(2027,2,1,15,0,0,TimeSpan.Zero),row.DeliveryCompletionAt,"same-date completion");
+
+            var failures=new List<string>();
+            void NamesResolved(GasChargeRequest terms,GasDayClock clock,SideCalendarPolicy calendars,string code,string field)
+            {
+                try
+                {
+                    _=GasCompositionStore.ResolveCharge(terms,quote,unit,clock,()=>calendars);
+                    failures.Add($"{terms.Code}.{field} reached successful admission.");
+                }
+                catch(TicketFieldException error)when(error.Code==code&&error.Side==terms.Code&&error.Field==field)
+                {
+                    if(field=="charge_payment_day"&&!error.Message.Contains("precedes required delivery completion",StringComparison.Ordinal))
+                        failures.Add($"{terms.Code}.{field} lost the payment-completion reason.");
+                }
+                catch(MarketDataException error)
+                {
+                    failures.Add($"{terms.Code}.{field} received {error.GetType().Name} {error.Code}: {error.Message}");
+                }
+            }
+            Equal(new DateTimeOffset(2027,2,2,1,0,0,TimeSpan.Zero),nextDate.Boundary(new(2027,2,1)),"next-date completion");
+            NamesResolved(capacity,nextDate,calendar,"gas_composition_input","charge_payment_day");
+
+            var earliest=Calendar(new(1,1,1),new(1,3,1));
+            var east=Clock("synthetic_east_midnight",14,0);
+            var firstDay=capacity with{From="0001-01-01",To="0001-01-02",PaymentDay=2};
+            var lump=new GasChargeRequest("LUMP","lump_sum","pay","1",null,null,null,"0001-01-02T00:00:00Z",null,"RCT");
+            NamesResolved(firstDay,east,earliest,"gas_day_boundary","charge_clock_side");
+            NamesResolved(lump,east,earliest,"gas_day_boundary","charge_clock_side");
+
             var transitionTime=new DateTime(1,1,1,2,0,0);
             var rule=TimeZoneInfo.AdjustmentRule.CreateAdjustmentRule(new(2027,1,1),new(2027,12,31),TimeSpan.FromHours(1),
                 TimeZoneInfo.TransitionTime.CreateFixedDateRule(transitionTime,1,25),
                 TimeZoneInfo.TransitionTime.CreateFixedDateRule(transitionTime,10,25));
             var seasonal=TimeZoneInfo.CreateCustomTimeZone("synthetic_seasonal",TimeSpan.Zero,"Synthetic seasonal","Synthetic standard","Synthetic seasonal",[rule]);
-            var missingBoundary=GasDayClock.Capture(new(key.Revision,"synthetic_seasonal_clock"),seasonal,150);
-            NamesResolved(capacity with{To="2027-01-25"},quote,"gas_day_boundary","charge_clock_side",missingBoundary);
+            var interior=GasDayClock.Capture(new(key.Revision,"synthetic_seasonal_clock"),seasonal,150);
+            NamesResolved(capacity with{To="2027-01-25"},interior,calendar,"gas_day_boundary","charge_clock_side");
+            NamesResolved(capacity,interior,calendar,"gas_day_boundary","charge_clock_side");
+            if(failures.Count>0)throw new Exception(string.Join(Environment.NewLine,failures));
         });
         var lumpSum = Side("charge", "PREM", ("charge_basis", "lump_sum"), ("charge_direction", "pay"),
             ("charge_price", "5000.00"), ("charge_payment_at", "2026-12-18T00:00:00+00:00"), ("charge_clock_side", "RCT"));
