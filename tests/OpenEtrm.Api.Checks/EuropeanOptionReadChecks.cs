@@ -39,8 +39,8 @@ internal static class EuropeanOptionReadChecks
             var european=fixture.GetProperty("european");var american=fixture.GetProperty("american");
             var listed=JsonSerializer.SerializeToElement(FuturesOptionStore.Series(data,frame),RiskJobs.Json).EnumerateArray().ToDictionary(s=>s.Text("series"));
             if(listed[european.Text("series")].Text("exerciseStyle")!=FuturesOptionTerms.European||listed[american.Text("series")].Text("exerciseStyle")!=FuturesOptionTerms.American||
-                listed[european.Text("series")].GetProperty("contraryInstructionsAllowed").GetBoolean())
-                throw new Exception("The catalog must state each series' own exercise style from its product row.");
+                listed[european.Text("series")].Text("settlementMethod")!="exercise_into_future"||listed[european.Text("series")].GetProperty("contraryInstructionsAllowed").GetBoolean())
+                throw new Exception("The catalog must state each series' own exercise style and settlement method from its product row.");
 
             var books=ImmutableArray.Create(fixture.Id("bookId"));var trades=ImmutableArray.Create(european.Id("tradeId"),american.Id("tradeId"));
             var scope=await RiskTradeScope.Resolve(connection,manifest.CatalogId,books,trades,ct);
@@ -65,6 +65,16 @@ internal static class EuropeanOptionReadChecks
             if(report.ModelContracts.Single(c=>c.Id==formula.InstrumentId) is not {ModelVersion:OptionNumericalPolicies.Black76,PriceSteps.IsEmpty:true})
                 throw new Exception("A European option names the formula as its model and declares no price step.");
 
+            // The lifecycle list refuses the European holding's exercise by its style before anything is configured for it;
+            // its expiry, and the American holding's exercise, wait for configuration like any other action.
+            var actions=new OptionLifecycleActions(database,_=>{});var read=new LifecycleReadContext(context.ContextId!.Value,fixture.Instant("at"),PublishedSchedules.ContextDate(context));
+            async Task<ImmutableDictionary<string,LifecycleActionOffer>> Offers(JsonElement held)=>(await actions.Discover(connection,read,
+                new("listed_option",held.Id("tradeId"),held.Id("bindingId")),new(ImmutableHashSet<string>.Empty),ct)).ToImmutableDictionary(o=>o.Action);
+            var (offered,control)=(await Offers(european),await Offers(american));
+            if(offered["option.exercise"] is not {Eligible:false,Reason:"option_exercise_style"}||offered["option.expiry"].Reason!="lifecycle_configuration_required"||
+                control["option.exercise"].Reason!="lifecycle_configuration_required")
+                throw new Exception("The lifecycle list must give a European holding's exercise its own reason, and no other action that reason.");
+
             // The policy stated before European series were admitted names no model for one: the book is refused, by series.
             var earlier=stated with{FuturesOptions=FuturesOptionValuationPolicy.Release1};
             try{_=await new PortfolioValuation(database).Prepare(connection,data,frame,snapshot,context,books,earlier,[],[],ct,selection:scope);
@@ -72,6 +82,6 @@ internal static class EuropeanOptionReadChecks
             catch(MarketDataException error)when(error.Code=="option_policy"&&error.Message.Contains(european.Text("series"),StringComparison.Ordinal)){}
             return 0;
         },default);
-        Console.WriteLine("PASS European option read: the catalog states the style, a European and an American series on one future are each calibrated by their own model, the European holding is worth its settlement and a policy without the European member refuses the book");
+        Console.WriteLine("PASS European option read: the catalog states the style and settlement, a European and an American series on one future are each calibrated by their own model, the European holding is worth its settlement, the lifecycle list refuses its exercise by style and a policy without the European member refuses the book");
     }
 }

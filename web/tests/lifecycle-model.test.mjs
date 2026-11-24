@@ -96,3 +96,6 @@ test('financial Transport recovery retains its exact canonical source command an
  assert.deepEqual(restoreLifecycleRequest(saved),saved);assert.equal(lifecycleChangesFinancialSource(saved),true);
  assert.equal(restoreLifecycleRequest({...saved,path:'gas/transport/financial/status'}),undefined);
 });
+
+test('the European exercise reason has its own text',()=>
+ assert.equal(lifecycleReason('option_exercise_style'),'A European option is exercised only at expiry.'));

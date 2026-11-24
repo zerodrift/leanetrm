@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {noOptionPick,optionChoices,pickOption,pickSeries,keepOffered,lifecycleWrites,optionTicketStatus} from '../dist/futures-option-model.js';
+import {noOptionPick,optionChoices,pickOption,pickSeries,keepOffered,lifecycleWrites,optionTicketStatus,optionTermFacts,optionExerciseLabel} from '../dist/futures-option-model.js';
 
 // A synthetic catalog: two exchanges, two commodities on the first, the series in the backend's order.
 const named=(code,name)=>({code,name});
@@ -136,4 +136,18 @@ test('a booked option opens its exact dated series from the Blotter',async()=>{
   {chain:(...args)=>opened.push(args),surface:null});
  details.view('UTC').actions.find(a=>a.id==='option-trade-chain').run();
  assert.deepEqual(opened,[['gas-option','2030-11-27T12:00:00Z','call-3','saved-definition']]);
+});
+
+test('term facts state the exercise style and settlement from the catalog',()=>{
+ const listed=catalog.options[0];
+ assert.deepEqual(optionTermFacts({...listed,exerciseStyle:'european',settlementMethod:'exercise_into_future'}),
+  {exercise:'European · at expiry only',settlement:'Exercises into the future at the strike'});
+ assert.deepEqual(optionTermFacts({...listed,exerciseStyle:'american',settlementMethod:'exercise_into_future'}),
+  {exercise:'American · on any business day',settlement:'Exercises into the future at the strike'});
+});
+test('an unknown style or settlement is shown as its code, never as another style',()=>{
+ const listed=catalog.options[0];
+ assert.deepEqual(optionTermFacts({...listed,exerciseStyle:'bermudan',settlementMethod:'cash'}),{exercise:'bermudan',settlement:'cash'});
+ assert.equal(optionExerciseLabel('European'),'European','a style is matched by its exact code');
+ assert.equal(optionExerciseLabel('european'),'European · at expiry only');
 });

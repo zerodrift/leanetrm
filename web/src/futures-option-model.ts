@@ -8,7 +8,7 @@ import {bookingAllowed,unappliedContext} from './new-trade.js';
 type Named={code:string;name:string};
 /** One listed series as options/catalog returns it. */
 export type OptionSeries={definitionRevisionId:string;series:string;instrumentId:string;contractId:string;product:string;name:string;exchange:Named;commodity:Named;underlyingSeries:string;
- right:string;strike:string;expiryAt:string;lastTradingAt?:string|null;exerciseStyle:string;premiumStyle:string;contraryInstructionsAllowed:boolean;multiplier:string;currency:string;
+ right:string;strike:string;expiryAt:string;lastTradingAt?:string|null;exerciseStyle:string;settlementMethod:string;premiumStyle:string;contraryInstructionsAllowed:boolean;multiplier:string;currency:string;
  quoteUnit?:string;priceUnit?:string;deliveryLot?:string|null;settlementPremiumPerLot?:string;
  premiumTick:string;minimumPremium:string;maximumPremium:string;curve:string;settlementPrice:string};
 /** An underlying future the catalog's series exercise into, with its product's name and delivery period. */
@@ -20,6 +20,15 @@ export type OptionPick=Record<OptionLevel,string>;
 export type OptionChoice={value:string;label:string};
 export type OptionChoices=Record<OptionLevel,OptionChoice[]>&{series:OptionSeries|null};
 export const noOptionPick:OptionPick=Object.freeze({exchange:'',commodity:'',underlying:'',right:'',strike:''});
+
+// What the catalog's exercise style and settlement method say to a person. A code this page does not know is shown as it is stated,
+// never as another style.
+const exerciseLabels:Record<string,string>={american:'American · on any business day',european:'European · at expiry only'};
+const settlementLabels:Record<string,string>={exercise_into_future:'Exercises into the future at the strike'};
+export const optionExerciseLabel=(style:string)=>exerciseLabels[style]??style;
+/** The Exercise and Settlement facts of a listed series, from the catalog's own terms. */
+export const optionTermFacts=(series:Pick<OptionSeries,'exerciseStyle'|'settlementMethod'>)=>
+ ({exercise:optionExerciseLabel(series.exerciseStyle),settlement:settlementLabels[series.settlementMethod]??series.settlementMethod});
 
 const valueOf:Record<OptionLevel,(s:OptionSeries)=>string>={exchange:s=>s.exchange.code,commodity:s=>s.commodity.code,underlying:s=>s.underlyingSeries,right:s=>s.right,strike:s=>s.strike};
 const rightLabel=(right:string)=>right.charAt(0).toUpperCase()+right.slice(1);
