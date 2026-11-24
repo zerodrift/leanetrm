@@ -148,7 +148,7 @@ internal class RetainedInstrumentSchedule<TMember> : InstrumentSchedule where TM
             }
             var entryDays = hasQuantityTerms ? EntryDays(state) : default;
             var value = new InstrumentValuation(retained, context, [..retained.Sides.Select((member, slot) =>
-                context.ForRetainedOccurrence(slot, (RetainedProgramSide)member.Side, entryDays).Evaluate(member.Side))]);
+                context.ForRetainedOccurrence(slot, (RetainedProgramSide)member.Side, entryDays, retained.Members[slot].ValuationPart).Evaluate(member.Side))]);
             retained.RequireAfterValuation(value);
             return value;
         }

@@ -75,7 +75,7 @@ public static partial class RiskEngine
         }
     }
     private static ImmutableArray<ExactRiskPositionValue> BasePositions(ValuationPortfolio portfolio,PortfolioValue value,RiskDetail detail)=>
-        detail==RiskDetail.Books?[]:portfolio.Positions.Select((position,n)=>new ExactRiskPositionValue(position.TradeId,position.BindingId,position.BookId,position.ValuationId,value.Positions[n]){Owner=position.Owner,Components=value.PositionComponents[n]}).ToImmutableArray();
+        detail==RiskDetail.Books?[]:portfolio.Positions.Select((position,n)=>new ExactRiskPositionValue(position.TradeId,position.BindingId,position.BookId,position.ValuationId,value.Positions[n]){Owner=position.Owner,Components=value.PositionComponents[n],Entries=value.PositionEntries[n]}).ToImmutableArray();
     // A position's components under the base and both scenarios, paired by name; the scenarios must name exactly the base's parts.
     private static ImmutableArray<ComponentRiskValues> Paired(ImmutableArray<ValueComponent> basis,ImmutableArray<ValueComponent> up,ImmutableArray<ValueComponent> down)
     {
@@ -84,6 +84,12 @@ public static partial class RiskEngine
         if(up.Length!=basis.Length||down.Length!=basis.Length)
             throw new MarketDataException("valuation_components","Every scenario must state the same named value components as the base.");
         return [..basis.Select(c=>new ComponentRiskValues(c.Name,c.Value,Named(up,c.Name),Named(down,c.Name)))];
+    }
+    private static ImmutableArray<EntryRiskValues> PairedEntries(ImmutableArray<InstrumentEntryValue> basis,ImmutableArray<InstrumentEntryValue> up,ImmutableArray<InstrumentEntryValue> down)
+    {
+        if(!basis.Select(e=>e.Slot).SequenceEqual(up.Select(e=>e.Slot)) || !basis.Select(e=>e.Slot).SequenceEqual(down.Select(e=>e.Slot)))
+            throw new MarketDataException("valuation_entries","Every scenario must retain the same ordered Instrument entries.");
+        return [..basis.Select((entry,n)=>new EntryRiskValues(entry.Slot,entry.Value,up[n].Value,down[n].Value))];
     }
     private static (ImmutableArray<ExactRiskBookTotal> Totals,ImmutableArray<ExactRiskPositionResult> Positions) MeasurePortfolio(
         ValuationPortfolio portfolio,PortfolioValue basis,PortfolioValue up,PortfolioValue down,ExactDecimal size,PriceUnit unit,RiskDetail detail,CancellationToken cancellation)
@@ -100,7 +106,7 @@ public static partial class RiskEngine
             cancellation.ThrowIfCancellationRequested();var position=portfolio.Positions[n];
             positions.Add(new(position.TradeId,position.BindingId,position.BookId,position.ValuationId,
                 ExactRepricing.Measure(basis.Positions[n],up.Positions[n],down.Positions[n],size,unit))
-                {Owner=position.Owner,Components=Paired(basis.PositionComponents[n],up.PositionComponents[n],down.PositionComponents[n])});
+                {Owner=position.Owner,Components=Paired(basis.PositionComponents[n],up.PositionComponents[n],down.PositionComponents[n]),Entries=PairedEntries(basis.PositionEntries[n],up.PositionEntries[n],down.PositionEntries[n])});
         }
         return(totals.MoveToImmutable(),positions.MoveToImmutable());
     }

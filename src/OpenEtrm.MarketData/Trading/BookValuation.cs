@@ -118,6 +118,14 @@ public sealed class UnitValuationContext
             throw new MarketDataException("valuation_components","Value components require one exact declared unit valuation and distinct names.");
         Components=components;
     }
+    // An independent partition by signed Instrument membership, from the same evaluation.
+    internal ImmutableArray<InstrumentEntryValue> Entries{get;private set;}=[];
+    internal void RecordEntries(InstrumentValuation value)
+    {
+        if(!Entries.IsEmpty || value is null || declaration is not null && value.InstrumentId != declaration.Id)
+            throw new MarketDataException("valuation_entries","Retain one entry partition from this exact unit Instrument valuation.");
+        Entries=[..value.Sides.Select((side,slot)=>new InstrumentEntryValue(slot,side.Contribution))];
+    }
     internal void RecordMeasures(ValueMeasureSet measures)
     {
         if(Measures is not null || declaration is null || measures.Currency!=declaration.Currency)
@@ -191,6 +199,7 @@ public sealed record BookRiskFactors(Guid BookId,ImmutableArray<QuoteFactor> Fac
 
 public sealed record BookCurrencyValue(Guid BookId,ReferenceKey Currency,ExactMoney Value);
 public sealed record ValueComponent(string Name,ExactMoney Value);
+public sealed record InstrumentEntryValue(int Slot,ExactMoney Value);
 [method:System.Text.Json.Serialization.JsonConstructor]
 public sealed record MeasureBinding(Guid TradeId,Guid BindingId)
 {
@@ -209,6 +218,8 @@ public sealed class PortfolioValue
     // Per unit and per position (holdings detail), the named components of each value; empty where an instrument has none.
     internal ImmutableArray<ImmutableArray<ValueComponent>> UnitComponents{get;init;}=[];
     internal ImmutableArray<ImmutableArray<ValueComponent>> PositionComponents{get;init;}=[];
+    internal ImmutableArray<ImmutableArray<InstrumentEntryValue>> UnitEntries{get;init;}=[];
+    internal ImmutableArray<ImmutableArray<InstrumentEntryValue>> PositionEntries{get;init;}=[];
     public int UnitValuations{get;}
     public int QuantityApplications{get;}
     public int SideCalculations{get;}
@@ -500,7 +511,7 @@ public sealed class ValuationPortfolio
             throw Error("ppa_context","This interval consumer requires its exact native quote scenario; connected output overlays are unsupported.");
         var session=Setup.Interval?.Session(market.NativeIntervalScenario??throw Error("ppa_context","Interval valuation requires an exact native market scenario."),baseValue?.IntervalSession);
         var context=new UnitValuationContext(market.Snapshot,Setup,market,cancellation:ct,intervalSession:session);
-        var unit=ImmutableArray.CreateBuilder<ExactMoney>(Scopes.Length);var calls=0;var parts=new ImmutableArray<ValueComponent>[Scopes.Length];
+        var unit=ImmutableArray.CreateBuilder<ExactMoney>(Scopes.Length);var calls=0;var parts=new ImmutableArray<ValueComponent>[Scopes.Length];var entries=new ImmutableArray<InstrumentEntryValue>[Scopes.Length];
         var measures=new Dictionary<(Guid,DeliveryCoverage?),ValueMeasureSet>();
         for(var n=0;n<Scopes.Length;n++)
         {
@@ -521,11 +532,13 @@ public sealed class ValuationPortfolio
                     throw Error("instrument_context","A unit PV must belong to this exact instrument/scenario valuation context.");
                 if(result.Money is null||result.Quantity!=contract.Quantity)
                     throw Error("risk_quantity","A unit PV must retain its declared quantity denominator.");
-                value=result.Money;parts[n]=unitContext.Components;
+                value=result.Money;parts[n]=unitContext.Components;entries[n]=unitContext.Entries;
                 if(!parts[n].IsEmpty&&parts[n].Aggregate(ExactMoney.FromMoney(new(default,value.Currency)),(sum,c)=>sum.Add(c.Value))!=value)
                     throw Error("valuation_components","Value components must sum exactly to their unit value.");
             }
-            else{value=baseValue!.UnitValues[n];parts[n]=baseValue.UnitComponents[n];}
+            else{value=baseValue!.UnitValues[n];parts[n]=baseValue.UnitComponents[n];entries[n]=baseValue.UnitEntries[n];}
+            if(!entries[n].IsEmpty && entries[n].Aggregate(ExactMoney.Parse("0",value.Currency),(sum,e)=>sum.Add(e.Value))!=value)
+                throw Error("valuation_entries","Signed entry contributions must sum exactly to their unit value.");
             if(baseValue is null && unitContext.Measures is {} companion)
                 measures.Add((contract.Id,Scopes[n].Coverage),companion);
             if(value.Currency!=contract.Currency)throw Error("risk_currency","An instrument must retain its declared output currency.");
@@ -546,9 +559,14 @@ public sealed class ValuationPortfolio
                 throw Error("valuation_components","Position components must sum exactly to the position value.");
             return scaled;
         }).ToImmutableArray();
+        var positionEntries=results.Select((value,index)=>
+        {
+            var position=Positions[index];
+            return entries[scopeIndexes[ScopeKey(position)]].Select(e=>new InstrumentEntryValue(e.Slot,e.Value.Scale(position.Quantity.Amount))).ToImmutableArray();
+        }).ToImmutableArray();
         return new(this,market,declarations,results.ToImmutableArray(),totals.OrderBy(p=>p.Key.Item1).ThenBy(p=>p.Key.Item2.Code,StringComparer.Ordinal)
             .Select(p=>new BookCurrencyValue(p.Key.Item1,p.Key.Item2,p.Value)).ToImmutableArray(),units,calls,applications,session,baseMeasures,context.SideCalculations)
-            {UnitComponents=[..parts],PositionComponents=positionParts};
+            {UnitComponents=[..parts],PositionComponents=positionParts,UnitEntries=[..entries],PositionEntries=positionEntries};
     }
     private ImmutableArray<BookValueMeasures> AggregateMeasures(Dictionary<(Guid,DeliveryCoverage?),ValueMeasureSet> units)
     {

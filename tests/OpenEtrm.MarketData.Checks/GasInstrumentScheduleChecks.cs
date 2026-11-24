@@ -51,6 +51,16 @@ internal static class GasInstrumentScheduleChecks
         string[] sums = ["80600", "-69000", "-9750", "12800", "-12000"];
         for(var slot = 0; slot < 5; slot++) Equal(a.Rows.Where(r => r.Slot == slot).Select(r => r.Unrealized).Aggregate((x, y) => x.Add(y)), sums[slot]);
         Equal(a.Total, "2650");
+        var evidenceContext = f.Context(f.State(aDays));
+        Equal(f.Instrument.Value(evidenceContext).Scale(ExactDecimal.Parse("10000")), "2650");
+        Require(evidenceContext.Entries.Select(e=>e.Value.Scale(ExactDecimal.Parse("10000")).ToExactString()).SequenceEqual(sums),
+            "The unit valuation retains every signed entry from the same Side evaluations for risk reports.");
+        var entry = f.Sides(f.State(aDays)).Sides[2];
+        var shown = entry.Value.InspectSchedule(f.Instrument.Members[2].Program.Document.ScheduleManifest,
+            ExactDecimal.Parse("10000"), new(-1, 1), f.Clock.Boundary).Read(0, 20).Rows[1];
+        Require(shown.Quantity == "-1000" && shown.QuantityState == "band_v1" && shown.SourceQuantity == "9000" &&
+            shown.SourceQuantityStates.SequenceEqual(["scheduled"]), "A payment part shows its signed taken quantity and unsigned source evidence.");
+
         var bDays = f.Days((9000, PhysicalLifecycle.AllocatedFinalQuantity), (7000, PhysicalLifecycle.AllocatedFinalQuantity), (10000, PhysicalLifecycle.ContractQuantity));
         var b = f.Value(f.State(bDays), ended: true);
         string[][] accrued = [["0", "-24000", "-3350", "3300", "-3000"], ["0", "-21000", "0", "9300", "-9000"]];

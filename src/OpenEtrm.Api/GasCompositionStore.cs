@@ -40,7 +40,9 @@ public sealed record GasCashRequest(string Code,string Role,string Direction,str
 public sealed record GasCompositionRequest(Guid SnapshotId,string Convention,string KnowledgeMode,string Profile,Guid OperationId,Guid BookId,Guid DefinitionRevisionId,[property:JsonRequired]Guid? GasSetupId,bool? Discounting,Guid? LegalEntityId,int? LegalEntityRevision,Guid? CounterpartyId,int? CounterpartyRevision,ImmutableArray<GasPhysicalRequest> PhysicalSides,ImmutableArray<GasCashRequest> CashSides,
  [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]Guid? TradeId=null,[property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]int? ExpectedRevision=null,
  [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]Guid? BindingId=null,[property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]string? Reason=null,
- [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]string? AmendmentPolicy=null);
+ [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]string? AmendmentPolicy=null,
+ [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]Guid? PreviewTradeId=null,
+ [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]Guid? PreviewContextId=null);
 internal sealed record GasCompositionRow(int Slot,string Code,string Role,int Direction,ExactRatio Ratio,ExactRatio Receipt,string? Source,string? Stage,string? Formula,string? Fraction,GasPhysicalRequest? Physical,GasCashRequest? Cash,ImmutableArray<GasValuationAssignment> Assignments,GasDayClock Clock,string? QuantityPolicy=null,ExactDecimal? Share=null,QuantityPart? Part=null)
 {
  // Quote and location are common to every period of the one exact mapping.
@@ -52,6 +54,7 @@ internal sealed record GasCompositionValue(string PresentValue,string Currency,s
 {
  public CatalogueSource? Source{get;init;}
  [JsonIgnore]internal PhysicalLifecycleValue? Lifecycle{get;init;}
+ [JsonIgnore]internal ImmutableArray<InstrumentEntryValue> EntryValues{get;init;}=[];
 }
 // A started-delivery trade's P&L explain measures: unrealized (remaining delivery MTM, days not yet ended) and realized
 // unsettled (ended, fixed and not yet paid). Expected cash is undiscounted, by due date, and is not part of the total.
@@ -233,7 +236,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
    await CustomCurves.RequireProjection(c,database,data,frame,CustomCurveProjectionInput.FromBinding(group.Key),PriceUnit.FromQuote(group.First().Quote),[..group.Select(lookup=>lookup.ForecastDelivery)],ct,savedVersions);
   var deps=PhysicalLifecycle.PriceDependencies(programs.Select(p=>p.Program),dated,snapshot);
   var prepared=await CustomCurves.PrepareMarket(c,database,data,frame,snapshot,knowledge,[],deps,CustomCurves.MarketPreparation.ValuationDependencies,ct,
-   activePrices:[..dated.Select(lookup=>SchedulePriceTerm.FromLookup(lookup))],savedVersions:savedVersions);
+   activePrices:PhysicalLifecycle.ActivePrices(programs.Select(p=>p.Program),dated),savedVersions:savedVersions);
   var market=prepared.Valuation.ProgramMarket(prepared.Bindings,prepared.Authority,ct);
   // Both composition profiles admit only an explicit no-discounting selection (Resolve, and the held terms below).
   const DiscountFactorSource discounting=DiscountFactorSource.Undiscounted;
@@ -304,12 +307,28 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   // No contract-against-market measure is defined for these sides yet, so none is reported.
   var summaries=schedule is null?null:views!.Select(v=>(object)new{side=v.Code,billedQuantity=schedule.Totals[v.Code+".quantity"].Value,amount=schedule.Totals[v.Code+".amount"].Value,againstMarket=(string?)null}).ToArray();
   return new(total!.ToExactString(),members[0].Assignment.Quote.Currency.Code,unit,sides,links,schedule,summaries,refusal,members.ToImmutableDictionary(m=>m.Code,m=>m.Slot),
-   lifecycle is null?null:GasLifecycleMeasures.From(lifecycle,discounting)){Lifecycle=lifecycle,Source=new(data.DefinitionRevision.RevisionId,data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId)};
+   lifecycle is null?null:GasLifecycleMeasures.From(lifecycle,discounting)){Lifecycle=lifecycle,EntryValues=[..valued.Select(v=>new InstrumentEntryValue(v.Member.Slot,v.Amount))],Source=new(data.DefinitionRevision.RevisionId,data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId)};
  }
  // A preview and a booking are held to the gas setup their context resolves (GasTicket.RequireSetup).
  async Task RequireSetup(NpgsqlConnection c,PreviewData data,GasCompositionRequest body,CancellationToken ct)=>GasTicket.RequireSetup(body.GasSetupId,(await gas.CurrentSetup(c,data,ct)).Id);
  public async Task<object> Preview(NpgsqlConnection c,PreviewData data,InputFrame frame,GasCompositionRequest body,CancellationToken ct)
- {if(body.TradeId is not null)await GasAmendments.Require(c,database.Manifest.CatalogId,body,frame.At,ct);await RequireSetup(c,data,body,ct);var d=await Resolve(c,data,body,ct);return await Value(c,data,frame,d.Members,d.Instrument.BaseQuantity,d.Instrument,body.GasSetupId,null,true,ct);}
+ {
+  if(body.PreviewTradeId is {} trade)
+  {
+   if(body.TradeId is not null || body.ExpectedRevision is not null || body.BindingId is not null || body.Reason is not null || body.AmendmentPolicy is not null)
+    throw Invalid("A held preview selects its saved composition without amendment terms.");
+   var execution=await Load(c,data,frame,trade,ct);
+   static GasCompositionRequest Terms(GasCompositionRequest request)=>request with{SnapshotId=Guid.Empty,OperationId=Guid.Empty,Convention="",KnowledgeMode="",
+    TradeId=null,ExpectedRevision=null,BindingId=null,Reason=null,AmendmentPolicy=null,PreviewTradeId=null,PreviewContextId=null};
+   if(JsonSerializer.Serialize(Terms(body),Json)!=JsonSerializer.Serialize(Terms(execution.Terms),Json))
+    throw Invalid("A held preview requires the exact saved terms; operational records cannot price a changed draft.");
+   return await Value(c,data,frame,execution,ct);
+  }
+  if(body.PreviewContextId is not null)throw Invalid("A preview cutoff requires an explicit saved trade.");
+  if(body.TradeId is not null)await GasAmendments.Require(c,database.Manifest.CatalogId,body,frame.At,ct);
+  await RequireSetup(c,data,body,ct);var d=await Resolve(c,data,body,ct);
+  return await Value(c,data,frame,d.Members,d.Instrument.BaseQuantity,d.Instrument,body.GasSetupId,null,true,ct);
+ }
  // The single market price a physical side's schedule shows over its delivery term, evaluated from a price probe (GasTicket.PriceProbe).
  internal async Task<string> MarketPrice(NpgsqlConnection c,PreviewData data,InputFrame frame,GasCompositionRequest probe,CancellationToken ct)
  {
@@ -326,11 +345,12 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   _=await Value(c,data,pinned,d.Members,d.Instrument.BaseQuantity,d.Instrument,body.GasSetupId,null,false,ct,unrecorded:unrecorded);return new RetainedScheduleTerms(data.DefinitionRevision,data.ReferenceRevision,d.Instrument);},ct,physicalMarket:PhysicalMarketSelection.Gas,physicalTrade:body.TradeId);
  // A new trade names no amended trade; the ticket and the administrator in-term load both book new trades only.
  internal static void RequireNewTrade(GasCompositionRequest body)
- {if(body.TradeId is not null||body.ExpectedRevision is not null||body.BindingId is not null||body.Reason is not null||body.AmendmentPolicy is not null)throw Invalid("Use the explicit gas amendment operation to amend a trade.");}
+ {if(body.TradeId is not null||body.ExpectedRevision is not null||body.BindingId is not null||body.Reason is not null||body.AmendmentPolicy is not null||body.PreviewTradeId is not null||body.PreviewContextId is not null)throw Invalid("Use the explicit gas amendment operation to amend a trade.");}
  // Books, amends or (inTerm) loads one composition as the profile's identity: staging, locking and publication are
  // idempotent by operation id (D238), so a retried operation receives its first outcome.
  internal async Task<JsonElement> Book(string profile,InputFrame frame,GasCompositionRequest body,bool inTerm,CancellationToken ct)
  {
+  if(body.PreviewTradeId is not null||body.PreviewContextId is not null)throw Invalid("A held preview is read-only and cannot book or amend a trade.");
   var retained=new RetainedScheduleStore(database);var permission=body.TradeId is null?"BookTrade":"AmendTrade";
   var terms=await database.WithIdentity(profile,permission,async(connection,ct)=>{
    var status=await gas.Status(connection,body.OperationId,ct);

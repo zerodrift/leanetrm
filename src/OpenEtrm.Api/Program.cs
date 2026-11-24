@@ -2411,8 +2411,8 @@ api.MapPost("/gas/quantities/record",(HttpContext c,GasDailyWriteRequest body)=>
 },c.RequestAborted)));
 
 var gasComposition=new GasCompositionStore(database);
-api.MapPost("/gas/composition/preview",(HttpContext c,GasCompositionRequest body)=>FuturesRead(c,new(body.SnapshotId,body.Convention,body.KnowledgeMode),
- (connection,data,frame,ct)=>gasComposition.Preview(connection,data,frame,body,ct),expectedConvention:PhysicalGasStore.Convention));
+api.MapPost("/gas/composition/preview",(HttpContext c,GasCompositionRequest body)=>FuturesRead(c,new(body.SnapshotId,body.Convention,body.KnowledgeMode,body.PreviewContextId),
+ (connection,data,frame,ct)=>gasComposition.Preview(connection,data,frame,body,ct),expectedConvention:PhysicalGasStore.Convention,gasTrade:body.PreviewTradeId));
 api.MapPost("/gas/composition/editor",(HttpContext c,PhysicalGasEditorRequest body)=>FuturesRead(c,body.Context,
  (connection,data,frame,ct)=>gasComposition.Editor(connection,data,frame,body.TradeId,ct),expectedConvention:PhysicalGasStore.Convention,gasTrade:body.TradeId));
 // A gas booking's outcome by its operation id, for the person who sent it; the composition and ticket bookings share it.

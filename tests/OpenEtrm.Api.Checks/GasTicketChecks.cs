@@ -277,7 +277,7 @@ internal static class GasTicketChecks
         {
             string[] structural = ["GasPhysicalRequest.Code", "GasPhysicalRequest.Link", "GasCashRequest.Code", "GasCashRequest.Role", "GasCompositionRequest.SnapshotId", "GasCompositionRequest.Convention", "GasCompositionRequest.KnowledgeMode",
                 "GasCompositionRequest.Profile", "GasCompositionRequest.OperationId", "GasCompositionRequest.DefinitionRevisionId", "GasCompositionRequest.Discounting", "GasCompositionRequest.PhysicalSides", "GasCompositionRequest.CashSides",
-                "GasCompositionRequest.TradeId", "GasCompositionRequest.BindingId", "GasCompositionRequest.ExpectedRevision", "GasCompositionRequest.Reason", "GasCompositionRequest.AmendmentPolicy",
+                "GasCompositionRequest.TradeId", "GasCompositionRequest.BindingId", "GasCompositionRequest.ExpectedRevision", "GasCompositionRequest.Reason", "GasCompositionRequest.AmendmentPolicy", "GasCompositionRequest.PreviewTradeId", "GasCompositionRequest.PreviewContextId",
                 "GasCashRequest.Indexed", "GasIndexedCashRequest.ObservationConvention", "GasIndexedCashRequest.PaymentConvention"];
             var parameters = new[] { typeof(GasPhysicalRequest), typeof(GasCashRequest), typeof(GasQuantityLinkRequest), typeof(GasCompositionRequest), typeof(GasIndexedCashRequest) }
                 .SelectMany(t => t.GetConstructors().Single().GetParameters().Select(x => $"{t.Name}.{x.Name}")).Where(x => !structural.Contains(x)).Append("GasPhysicalRequest.QuantityPolicy").Order().ToArray();
@@ -396,6 +396,14 @@ internal static class GasTicketChecks
         Reject("a draft without a product", full with { Product = null! });
         Reject("no draft", null!);
 
+        Check("held preview retains its explicit historical context independently of booking terms",()=>
+        {
+            var request=Map(Draft(Receipt,Cash)) with{PreviewTradeId=Guid.NewGuid(),PreviewContextId=Guid.NewGuid(),KnowledgeMode="retained"};
+            var options=new JsonSerializerOptions(JsonSerializerDefaults.Web);
+            var decoded=JsonSerializer.Deserialize<GasCompositionRequest>(JsonSerializer.Serialize(request,options),options)!;
+            Equal(request.PreviewTradeId,decoded.PreviewTradeId,"held preview owner");
+            Equal(request.PreviewContextId,decoded.PreviewContextId,"held preview cutoff");
+        });
         string Json(GasCompositionRequest request) => JsonSerializer.Serialize(request);
         string Values(TicketDraft draft) => JsonSerializer.Serialize(new { draft.Product, draft.Version, Trade = draft.Trade.OrderBy(v => v.Key), Sides = draft.Sides.Select(s => new { s.Kind, s.Code, Values = s.Values.OrderBy(v => v.Key) }) });
         Check("indexed payment terms and their independent forecast round trip",()=>

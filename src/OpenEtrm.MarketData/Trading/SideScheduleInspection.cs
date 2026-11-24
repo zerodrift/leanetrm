@@ -27,6 +27,10 @@ public sealed record ScheduleInspectionRow(string Key,string Operation,string Ki
  public ImmutableArray<DeliveryQuantityEvidence> QuantityEvidence{get;init;}
  [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
  public ScheduleQuantityAdjustment? QuantityAdjustment{get;init;}
+ [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+ public string? SourceQuantity{get;init;}
+ [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+ public ImmutableArray<string> SourceQuantityStates{get;init;}
  public DateOnly? OperatingDate{get;init;}
  public string? Paid{get;init;}
  public string? Outstanding{get;init;}

@@ -118,8 +118,8 @@ def run_checks(url,query,manifest,saved):
     # Named daily cash keeps a labelled forecast until an index is published;
     # ended physical days leave value while the payment forecast remains unrealized.
     plan=c.call('trading/side-schedules',in_term)['page']
-    assert plan['rows'][0]['lifecycle']['delivery']=='Elapsed' and plan['rows'][0]['lifecycle']['fulfillment']=='NotTracked'
-    assert all(r['lifecycle']['unavailableReason'] is None for r in plan['rows'])
+    assert plan['rows'][0]['lifecycle']['delivery']=='Ended' and Fraction(plan['rows'][0]['presentValue'])==0,plan['rows'][0]
+    assert all(r['lifecycle']['unavailableReason'] is None for r in plan['rows']),plan
     cash_plan=c.call('trading/side-schedules',{**in_term,'sideSlot':1})['page']
     assert all('Projected' in r['priceStates'] and r['lifecycle']['unavailableReason'] is None for r in cash_plan['rows']),cash_plan
     assert Fraction(c.call('trading/side-schedules',body)['page']['rows'][0]['presentValue'])==-302

@@ -13,6 +13,10 @@ public enum ScheduleViewMeasure { Quantity,Price,Amount }
 // level has no value there, never zero; delivered and remaining split whole pieces.
 public sealed record ScheduleViewCell(string? Value,ImmutableArray<string> Sources)
 {
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? QuantityPart { get;init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? SourceQuantity { get;init; }
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
     public ImmutableArray<DeliveryQuantityEvidence> QuantityEvidence { get;init; }
 }
@@ -28,7 +32,7 @@ public sealed record ScheduleViewQuantity(SignedRatio Quantity,string Source);
 // Recorded replaces the shown quantity of the days it names; their amounts stay the evaluated contract's.
 public sealed record SideViewInput(string Code,BookedSideEvaluation Evaluation,BookedSideProgram Program,ExactDecimal Scale,SignedRatio Coefficient,
     ImmutableArray<(string Column,ScheduleViewMeasure Measure)> Columns,ImmutableDictionary<DateOnly,ScheduleViewQuantity>? Recorded=null,
-    ImmutableDictionary<DateOnly,EntryDayQuantity>? FollowedDays=null);
+    ImmutableDictionary<DateOnly,EntryDayQuantity>? FollowedDays=null,QuantityPart? Part=null);
 
 // Every value comes from an evaluated contribution: its amount, and the quantity
 // and price operands of its amount instruction, on the contribution's own grid
@@ -57,7 +61,7 @@ public static class ScheduleViews
         (SchedulePriceFacts.Actual,4),(SchedulePriceFacts.Modeled,5),(SchedulePriceFacts.PublishedFixing,6),(SchedulePriceFacts.Estimated,7)];
     private sealed record Piece(SideViewInput Side,string Level,string Month,string? Day,DateTimeOffset Start,DateTimeOffset End,
         SignedRatio Quantity,SignedRatio? Price,SignedRatio? Amount,int QuantityTags,int PriceTags,int AmountTags,DateTimeOffset? Payment,ReferenceKey? Currency,
-        ImmutableArray<DeliveryQuantityEvidence> QuantityEvidence=default);
+        ImmutableArray<DeliveryQuantityEvidence> QuantityEvidence=default,SignedRatio? SourceQuantity=null);
 
     public static ScheduleView Build(ImmutableArray<SideViewInput> sides,ImmutableArray<string> levels,Func<DateOnly,DateTimeOffset> boundary)
     {
@@ -144,7 +148,7 @@ public static class ScheduleViews
                     var ended=Interval(document,guard.Output,cell,boundary);
                     var(held,heldTags)=Shown(ended.Day,new SignedRatio(contract.NumeratorValue,contract.DenominatorValue)*scale,ContractTag);
                     pieces.Add(new(side,ended.Level,ended.Month,ended.Day,ended.Start,ended.End,held*(selected?.Fraction??new SignedRatio(1,1)),null,null,
-                        (selectionTags??heldTags)|DeliveredTag,DeliveredTag,DeliveredTag,null,null,selected?.Evidence??default));
+                        (selectionTags??heldTags)|DeliveredTag,DeliveredTag,DeliveredTag,null,null,selected?.Evidence??default,selected?.Selected));
                     continue;
                 }
                 var(quantity,q)=Resolved(quantities,cell,cash.Values.Length);var(price,p)=Resolved(prices,cell,cash.Values.Length);
@@ -159,7 +163,7 @@ public static class ScheduleViews
                 var priceTags=PriceTag(price.States[p].Prices);
                 pieces.Add(new(side,interval.Level,interval.Month,interval.Day,interval.Start,interval.End,shown*(selected?.Fraction??new SignedRatio(1,1)),Ratio(price.Values[p]),
                     Ratio(cash.Values[cell])*scale*(selected?.Fraction??new SignedRatio(1,1)),selectionTags??tags,priceTags,(selectionTags??VolumeTag(volume))|priceTags,
-                    payment,cash.Currency,selected?.Evidence??default));
+                    payment,cash.Currency,selected?.Evidence??default,selected?.Selected));
             }
         }
         if(side.Recorded is {} all&&all.Count!=recorded.Count)throw Error("Each recorded quantity must name a day the side shows.");
@@ -217,6 +221,8 @@ public static class ScheduleViews
                 };
                 if(own.Any(p=>!p.QuantityEvidence.IsDefault)&&measure!=ScheduleViewMeasure.Price)
                     cell=cell with{QuantityEvidence=[..own.SelectMany(p=>p.QuantityEvidence.IsDefault?[]:p.QuantityEvidence).Distinct()]};
+                if(measure==ScheduleViewMeasure.Quantity && own.All(p=>p.SourceQuantity is not null))
+                    cell=cell with{QuantityPart=side.Part?.QuantityBasis,SourceQuantity=ExactNumberText.Format(Sum(own,p=>p.SourceQuantity!.Value))};
                 cells.Add(key,cell);
             }
         }

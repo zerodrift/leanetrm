@@ -15,6 +15,7 @@ internal sealed record RetainedProgramContext(ScheduleMarketSources Sources, Cur
     internal RetainedProgramOccurrence? Occurrence { get; init; }
     internal ImmutableArray<SignedRatio> HeldFactors { get; init; } = [];
     internal ImmutableArray<ImmutableArray<EntryDayQuantity>> EntryDays { get; init; }
+    internal QuantityPart? EntryPart { get; init; }
 }
 internal sealed record RetainedProgramOwner(Guid InstrumentId, DefinitionIdentity Definition);
 internal sealed record RetainedProgramOccurrence(int Slot, Guid SideId, string ProgramDigest);
@@ -48,7 +49,7 @@ public sealed partial class SideValuationContext
         copy.retainedOccurrenceParent=null;
         return copy;
     }
-    internal SideValuationContext ForRetainedOccurrence(int slot, RetainedProgramSide side, ImmutableArray<ImmutableArray<EntryDayQuantity>> entryDays = default)
+    internal SideValuationContext ForRetainedOccurrence(int slot, RetainedProgramSide side, ImmutableArray<ImmutableArray<EntryDayQuantity>> entryDays = default, QuantityPart? part = null)
     {
         if(RetainedPrograms is not { Cash: not null, Owner: not null, Occurrence: null } inputs ||
             inputs.HeldFactors.IsDefault || slot < 0 || slot >= inputs.HeldFactors.Length)
@@ -56,11 +57,11 @@ public sealed partial class SideValuationContext
         if(retainedOccurrences is null || !ReferenceEquals(retainedOccurrences.Owner, this)) retainedOccurrences=new(this);
         if(!retainedOccurrences.Children.TryGetValue(slot, out var child))
         {
-            child=WithRetainedPrograms(inputs with { Occurrence=new(slot, side.Id, side.ProgramDigest), EntryDays=entryDays });
+            child=WithRetainedPrograms(inputs with { Occurrence=new(slot, side.Id, side.ProgramDigest), EntryDays=entryDays, EntryPart=part });
             child.retainedOccurrenceParent=this;
             retainedOccurrences.Children.Add(slot, child);
         }
-        if(child.RetainedPrograms!.Occurrence != new RetainedProgramOccurrence(slot, side.Id, side.ProgramDigest))
+        if(child.RetainedPrograms!.Occurrence != new RetainedProgramOccurrence(slot, side.Id, side.ProgramDigest) || child.RetainedPrograms.EntryPart != part)
             throw new MarketDataException(PhysicalLifecycle.ContextRefusal, "A retained occurrence cannot change its exact Side program.");
         var previous = child.RetainedPrograms.EntryDays;
         if(previous.IsDefault != entryDays.IsDefault || !previous.IsDefault &&
@@ -182,7 +183,7 @@ public sealed record RetainedProgramValuation : SideValuation
         ImmutableDictionary<DateOnly,EntryDayQuantity>? selected = null;
         if(Context.RetainedPrograms is { Occurrence: {} occurrence, EntryDays.IsDefault: false } inputs && !inputs.EntryDays[occurrence.Slot].IsDefault)
             selected = inputs.EntryDays[occurrence.Slot].ToImmutableDictionary(d => d.Day);
-        return new(code, Execution, ((RetainedProgramSchedule)Schedule).Program, scale, coefficient, columns, FollowedDays: selected);
+        return new(code, Execution, ((RetainedProgramSchedule)Schedule).Program, scale, coefficient, columns, FollowedDays: selected, Part: Context.RetainedPrograms?.EntryPart);
     }
     public override SideScheduleSnapshot InspectSchedule(string manifest, ExactDecimal scale, SignedRatio coefficient, Func<DateOnly, DateTimeOffset> boundary)
     {

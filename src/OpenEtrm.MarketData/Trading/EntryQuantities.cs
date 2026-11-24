@@ -23,6 +23,8 @@ public sealed record QuantityPart
         Kind = kind; Lower = lower; Upper = upper;
     }
 
+    public string QuantityBasis => Kind == QuantityPartKind.Band ? "band_v1" : "shortfall_v1";
+
     public static QuantityPart Band(SignedRatio lower, SignedRatio? upper) => new(QuantityPartKind.Band, lower, upper);
     public static QuantityPart Shortfall(SignedRatio below) => new(QuantityPartKind.Shortfall, below, null);
 

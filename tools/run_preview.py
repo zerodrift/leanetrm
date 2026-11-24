@@ -905,6 +905,16 @@ def main():
             config.write_text(json.dumps({'connectionFile':str(connection),'leaseSeconds':30,'pollSeconds':1,'timeoutSeconds':timeout}))
             config.chmod(0o600)
             return {**env,'OPENETRM_RISK_WORKER_CONFIG':str(config)}
+        # The private administrator command, run with the authenticator and the dedicated loader login (D360).
+        def admin_load_in_term(request):
+            def private(name,value):
+                path=temporary/name;path.write_text(value);path.chmod(0o600);return str(path)
+            login=lambda user:f'Host={temporary};Port=55439;Database=postgres;Username={user};SSL Mode=Disable;Timeout=5;Command Timeout=30;Maximum Pool Size=2'
+            config=private('gas-in-term-load.json',json.dumps({'manifestFile':str(temporary/'manifest.json'),
+                'authenticatorConnectionFile':private('gas-in-term-authenticator.connection',login('preview_authenticator')),
+                'loaderConnectionFile':private('gas-in-term-loader.connection',login('preview_gas_in_term_loader'))}))
+            return subprocess.run([str(dotnet),str(frozen_dll),'--admin-load-gas-in-term',config,private('gas-in-term-request.json',json.dumps(request))],
+                                  cwd=ROOT,env=env,text=True,capture_output=True,timeout=300)
         def risk_worker_runner(selected=None,login='preview_risk_worker',timeout=60,worker_env=None):
             worker_env=worker_env or prepare_risk_worker(selected,login,timeout)
             def run(measure=False):
@@ -1115,22 +1125,12 @@ def main():
                 def browse_in_term(fixture):
                     target=temporary/'browser-target.json';target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,'facility':fixture}))
                     subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-in-term'],cwd=ROOT,env=env,check=True,timeout=300)
-                # The private administrator command, run with the authenticator and the dedicated loader login (D360).
-                def admin_load_in_term(request):
-                    def private(name,value):
-                        path=temporary/name;path.write_text(value);path.chmod(0o600);return str(path)
-                    login=lambda user:f'Host={temporary};Port=55439;Database=postgres;Username={user};SSL Mode=Disable;Timeout=5;Command Timeout=30;Maximum Pool Size=2'
-                    config=private('gas-in-term-load.json',json.dumps({'manifestFile':str(temporary/'manifest.json'),
-                        'authenticatorConnectionFile':private('gas-in-term-authenticator.connection',login('preview_authenticator')),
-                        'loaderConnectionFile':private('gas-in-term-loader.connection',login('preview_gas_in_term_loader'))}))
-                    return subprocess.run([str(dotnet),str(frozen_dll),'--admin-load-gas-in-term',config,private('gas-in-term-request.json',json.dumps(request))],
-                                          cwd=ROOT,env=env,text=True,capture_output=True,timeout=300)
                 check_gas_in_term(url,query,manifest,risk_worker_runner(),admin_load_in_term,browse_in_term if args.browser_check else None)
                 from check_gas_point_in_term import run_checks as check_point_in_term
                 check_point_in_term(url,query,manifest,admin_load_in_term)
             elif args.gas_pricing_check:
                 from check_gas_pricing import run_checks as check_gas_pricing
-                pricing_fixture=check_gas_pricing(url,query,manifest,risk_worker_runner())
+                pricing_fixture=check_gas_pricing(url,query,manifest,risk_worker_runner(),admin_load_in_term)
             elif args.gas_indexed_check:
                 from check_gas_indexed import run_checks as check_gas_indexed
                 indexed_fixture=check_gas_indexed(url,query,manifest,risk_worker_runner())

@@ -45,7 +45,7 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
     [IdentityField] public override ImmutableArray<RetainedGasMember> Members { get; }
     [IdentityField] public ImmutableArray<GasValuationAssignment> Assignments { get; }
     public ImmutableArray<IndexPriceLookup> PriceLookups { get; }
-    public ImmutableArray<SchedulePriceTerm> ActivePrices => [..PriceLookups.Select(lookup => new SchedulePriceTerm(ExactDecimal.Parse("1"), null, lookup))];
+    public ImmutableArray<SchedulePriceTerm> ActivePrices => PhysicalLifecycle.ActivePrices(Members.Select(m=>m.Program),PriceLookups);
     public override ReferenceKey Currency => Assignments[0].Quote.Currency;
     public override Quantity UnitQuantity => new(ExactDecimal.Parse("1"), Assignments[0].Quote.Quantity);
 
@@ -105,9 +105,9 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
         {
             ValidateValuationState(context.BindingState);
             PhysicalLifecycle.RequireUnstarted(Members.Select(m=>m.Program),context.Snapshot.ValuationAt);
-            return base.Value(context);
+            var unstarted=EvaluateSides(context);context.RecordEntries(unstarted);return unstarted.PresentValue;
         }
-        var value=EvaluateSides(context);var zero=ExactMoney.Parse("0",Currency);
+        var value=EvaluateSides(context);context.RecordEntries(value);var zero=ExactMoney.Parse("0",Currency);
         ExactMoney Component(Func<PhysicalLifecycleValue,ExactMoney> select)=>value.Sides.Aggregate(zero,(sum,side)=>
             sum.Add(select(((RetainedProgramValuation)side.Value).Lifecycle!).Scale(side.QuantityRatio).Scale(side.Coefficient)));
         context.RecordComponents([new(PhysicalLifecycle.UnrealizedComponent,Component(p=>p.Unrealized)),new(PhysicalLifecycle.RealizedUnsettledComponent,Component(p=>p.RealizedUnsettled))]);

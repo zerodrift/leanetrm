@@ -127,6 +127,9 @@ public sealed class ExplicitDiscounting : ISideDiscounting
 public sealed record SchedulePriceTerm
 {
     public static SchedulePriceTerm FromLookup(IndexPriceLookup lookup)=>new(ExactDecimal.Parse("1"),null,lookup);
+    // Preparation preserves the consumer's explicit delivery-mark contract. A
+    // published payment fixing is not required to qualify its physical mark.
+    public bool UsesDeliveryMark { get; init; }
     public ExactDecimal Weight { get; }
     public FixedPriceTerm? FixedPrice { get; }
     public DateOnly? FixedPriceDate { get; }

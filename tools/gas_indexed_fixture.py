@@ -31,9 +31,11 @@ def add_fixture(reference, market, security, manifest):
     observations=[]
     periods=[(date(2021,1,1),date(2021,2,1),Decimal('3.2')),(date(2021,2,1),date(2021,3,1),Decimal('3.3'))]
     periods.extend((date(2021,1,1)+timedelta(days=n),date(2021,1,2)+timedelta(days=n),Decimal(3)+Decimal(n)/1000) for n in range(59))
+    # This unpublished-index example retains explicitly live forecasts during delivery.
     for ordinal,(start,end,price) in enumerate(periods):
         cid=identity('5',80000+ordinal);sid=identity('9',80000+ordinal)
-        definitions.extend([f"INSERT INTO market_data.contracts VALUES({M},'{cid}',{R},'forward','{start}','{end}','{end}T00:00:00Z',NULL);",
+        expiry=end if ordinal<2 else date(2021,3,1)
+        definitions.extend([f"INSERT INTO market_data.contracts VALUES({M},'{cid}',{R},'forward','{start}','{end}','{expiry}T00:00:00Z',NULL);",
                             f"INSERT INTO market_data.curve_members VALUES({M},'{curve}','{cid}',{ordinal});",
                             f"INSERT INTO market_data.series VALUES({M},'{sid}','synthetic_index_{ordinal}',{R},'{cid}','test_gas_outright',NULL);"])
         definitions.append(f"INSERT INTO market_data.index_fixing_observations(catalog_id,revision_id,index_code,observation_from,observation_to,reference_catalog_id,reference_revision_id,quote_code,series_id,source_code,fixing_at,implementation) VALUES({M},'synthetic_daily_index','{start}','{end}',{R},'test_gas_outright','{sid}','fixture','{start}T12:00:00Z','published_index_observations_v1');")
