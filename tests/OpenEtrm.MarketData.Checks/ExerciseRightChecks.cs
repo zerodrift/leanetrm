@@ -30,6 +30,7 @@ internal static class ExerciseRightChecks
         Check("whole-term payments allocate by day and repeating quantities round only at model input", GroupAllocation);
         Check("group admission requires explicit sources, marks, scope and determination", GroupRefusals);
         Check("exercise values reprice under forward and volatility scenarios", GroupScenarios);
+        Check("ordinary entries and exercise groups partition exact risk and survive unit reuse", GroupPartition);
     }
 
     private sealed class GroupFixture
@@ -76,7 +77,7 @@ internal static class ExerciseRightChecks
             var month = new DateOnly(from.Year, from.Month, 1);
             CurveVolatilityMark Vol(CurveKey curve, string value) => new(curve, month, new(Guid.NewGuid(), value, VolatilityInput.Annualized));
             Marks = new(index && !sameCurve ? [Vol(point.Market.Curve, "0.5"), Vol(strike.Market.Curve, "0.4")] : [Vol(point.Market.Curve, "0.5")],
-                index && !sameCurve ? [new(point.Market.Curve, strike.Market.Curve, month, "0.9")] : [], "curve_marks_log_return_held_v1");
+                index && !sameCurve ? [new(point.Market.Curve, strike.Market.Curve, month, "0.90")] : [], "curve_marks_log_return_held_v1");
             ImmutableArray<RetainedGasMember> members = [Member(gas, !reverse), Member(payment, sameSign || reverse)];
             if(earlierPhysical)
             {
@@ -199,6 +200,10 @@ internal static class ExerciseRightChecks
             risk.UnitContracts.Single().Time != ValuationTimeDependency.Between(f.ExerciseAt.AddDays(-30), f.ExerciseAt))
             throw new Exception("The group must declare its volatility and time interval.");
         var direct = f.Direct();
+        if (!direct.NumericalPolicy.Contains(KirkSpreadCall.Implementation, StringComparison.Ordinal) ||
+            !direct.NumericalPolicy.Contains(HalfEven18.Policy, StringComparison.Ordinal) ||
+            !risk.UnitContracts.Single().ModelVersion.Contains(KirkSpreadCall.Implementation, StringComparison.Ordinal))
+            throw new Exception("The retained calculation must identify its holder model and amount rounding policy.");
         if (direct.Context.EvaluatedSides != 4) throw new Exception("Two ordinary and two hypothetical Side occurrences must be counted.");
         _ = f.Instrument.PV(direct.Context);
         if (direct.Context.EvaluatedSides != 4) throw new Exception("Revaluing one context must reuse both sets of Side occurrences.");
@@ -217,6 +222,17 @@ internal static class ExerciseRightChecks
             catch(MarketDataException error) when(error.Code == "valuation_time_coverage") { continue; }
             throw new Exception("A frozen clock cannot cross a retained valuation event.");
         }
+        var sourceAt = f.ExerciseAt.AddDays(-30);
+        var paidAt = sourceAt.AddDays(2);
+        DateTimeOffset? PaymentBoundary(DateTimeOffset knownAt)
+        {
+            var fact = new CashOccurrencePayment(Guid.NewGuid(), 1, 0, paidAt, knownAt, ExactMoney.Parse("-1", f.Instrument.Currency));
+            var held = new PhysicalCashState(f.State.TradeId, f.State.BindingId, f.State.Quantity, f.State.BookId, [fact],
+                PhysicalCashState.Policy, f.State.OwnerDays);
+            return f.Market.Prepare(f.Instrument, held, sourceAt, "3.20").Prepared.UnitContracts.Single().Time.To;
+        }
+        if (PaymentBoundary(sourceAt) != paidAt || PaymentBoundary(sourceAt.AddDays(1)) != f.ExerciseAt)
+            throw new Exception("Only a payment known at the source cutoff may introduce a future effective boundary.");
         var point = f.Instrument.Assignments.Single().Projection.Market;
         SignedRatio Difference(string size)
         {
@@ -229,6 +245,36 @@ internal static class ExerciseRightChecks
         var once = Difference("0.0001");
         if(twice.CompareTo(once * R("1.999999")) < 0 || twice.CompareTo(once * R("2.000001")) > 0)
             throw new Exception("The symmetric forward difference must scale with the shock.");
+    }
+
+    private static void GroupPartition()
+    {
+        var f = new GroupFixture(earlierPhysical: true, negative: true);
+        var (risk, _) = f.Prepare();
+        var portfolio = risk.Portfolios.Single();
+        var basis = portfolio.PV(risk.Market, risk.UnitContracts);
+        var reused = portfolio.PV(risk.Market, risk.UnitContracts, risk.Market, basis);
+        if (reused.UnitValuations != 0 || !reused.UnitExerciseGroups.Single().SequenceEqual(basis.UnitExerciseGroups.Single()) ||
+            !reused.PositionExerciseGroups.Single().SequenceEqual(basis.PositionExerciseGroups.Single()))
+            throw new Exception("Reused units must retain their exact group contributions at both quantity boundaries.");
+        var point = f.Instrument.Assignments.Single().Projection.Market;
+        var bump = new ConnectedRiskBump(CurveShockCoordinate.MarketQuote, new ContractCurveTarget(point.Curve, point.Contract),
+            PriceUnit.FromQuote(f.Market.Quote), E("0.10"), ConnectedRiskBump.Convention);
+        var run = RiskEngine.CalculateExact(risk, [bump], RiskEngine.ExactNumericalPolicy).Groups.Single();
+        var position = run.BasePositions.Single();
+        var group = position.ExerciseGroups.Single();
+        var saved = f.Instrument.Rights.Single().Groups.Single();
+        if (group.Group != new ExerciseGroupKey(0, saved.From, saved.To) || group.Value != f.Direct().Groups.Single().Counted ||
+            !position.Entries.Select(e => e.Slot).SequenceEqual([0, 1, 2]) || position.Entries[2].Value.Ratio != R("-32000") ||
+            position.Entries.Aggregate(group.Value, (sum, entry) => sum.Add(entry.Value)) != position.Value)
+            throw new Exception("Position entry slots and the distinct held exercise group must reconcile to base PV.");
+        var pair = run.Factors.Single().Positions.Single();
+        var choice = pair.ExerciseGroups.Single();
+        if (pair.Entries[0].Up.Ratio != SignedRatio.Zero || pair.Entries[1].Down.Ratio != SignedRatio.Zero ||
+            choice.Group != group.Group || choice.Base != group.Value ||
+            pair.Entries.Aggregate(choice.Up, (sum, entry) => sum.Add(entry.Up)) != pair.Values.Up ||
+            pair.Entries.Aggregate(choice.Down, (sum, entry) => sum.Add(entry.Down)) != pair.Values.Down)
+            throw new Exception("Each shocked group and the ordinary entries must reconcile to that scenario's held PV.");
     }
 
     private static void SavedIdentity()

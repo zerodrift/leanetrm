@@ -69,11 +69,13 @@ public static class EntryQuantities
         {
             var contract = new SignedRatio(day.Contract.NumeratorValue, day.Contract.DenominatorValue);
             var selected = new SignedRatio(day.Selected.NumeratorValue, day.Selected.DenominatorValue);
-            return new EntryDayQuantity(day.Day, contract, selected, counted?.Invoke(day.Day) == false ? SignedRatio.Zero : part?.Take(selected, baseQuantity) ?? selected, day.Source, day.Evidence);
+            var taken = counted?.Invoke(day.Day) == false ? SignedRatio.Zero : part?.Take(selected, baseQuantity) ?? selected;
+            return new EntryDayQuantity(day.Day, contract, selected, taken, day.Source, day.Evidence);
         })];
     }
 
-    internal static ImmutableArray<ImmutableArray<EntryDayQuantity>> ForMembers<TMember>(ImmutableArray<TMember> members, PhysicalCashState state, HashSet<int>? suppressed = null) where TMember : IRetainedProgramMember
+    internal static ImmutableArray<ImmutableArray<EntryDayQuantity>> ForMembers<TMember>(
+        ImmutableArray<TMember> members, PhysicalCashState state, HashSet<int>? suppressed = null) where TMember : IRetainedProgramMember
     {
         var owners = state.OwnerDays.ToLookup(d => d.Slot);
         var basis = new SignedRatio(System.Numerics.BigInteger.Abs(state.Quantity.Amount.ScaledValue), ExactDecimal.WorkingScale);

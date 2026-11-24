@@ -10,6 +10,7 @@ namespace OpenEtrm.MarketData.Trading;
 // Consumes already evaluated Side occurrences in their held quantity basis.
 internal sealed class RetainedExerciseValuation
 {
+    internal const string ModelPolicy = KirkSpreadCall.Implementation + "/" + HalfEven18.Policy;
     private const SchedulePriceFacts CertainFacts = SchedulePriceFacts.Fixed | SchedulePriceFacts.PublishedFixing;
     private readonly ExerciseRight right;
     private readonly Dictionary<DateOnly, Amounts> byDay = [];
@@ -113,8 +114,8 @@ internal sealed class RetainedExerciseValuation
             var group = right.Groups[i];
             var amounts = groups[i];
             var month = new DateOnly(group.From.Year, group.From.Month, 1);
-            var a = amounts.Receives.Round(18, MidpointRounding.ToEven);
-            var b = amounts.Pays.Round(18, MidpointRounding.ToEven);
+            var a = HalfEven18.Round(amounts.Receives);
+            var b = HalfEven18.Round(amounts.Pays);
             if (amounts.ReceiveCurve is {} first && first == amounts.PayCurve) throw OutsideModel();
             var ticks = (group.ExerciseAt - context.UnitEvaluation.CalculationAt).Ticks;
             var years = LatticeDecimal.Parse(ticks.ToString(CultureInfo.InvariantCulture)) /
@@ -122,7 +123,7 @@ internal sealed class RetainedExerciseValuation
             LatticeDecimal? Volatility(CurveKey? curve, SignedRatio amount) => amount.Numerator.IsZero ? null :
                 LatticeDecimal.Parse(context.ExerciseVolatility((marks ?? throw ExerciseMarks.Missing()).Volatility(curve!.Value, month))
                     .Format(30, MidpointRounding.ToEven));
-            var inputs = new HolderChoiceInputs(a, b, amounts.Certain.Round(18, MidpointRounding.ToEven),
+            var inputs = new HolderChoiceInputs(a, b, HalfEven18.Round(amounts.Certain),
                 Volatility(amounts.ReceiveCurve, a), Volatility(amounts.PayCurve, b),
                 !a.Numerator.IsZero && !b.Numerator.IsZero ? marks!.Correlation(amounts.ReceiveCurve!.Value, amounts.PayCurve!.Value, month) : null, years);
             var choice = HolderChoice.Value(inputs);
@@ -148,6 +149,7 @@ internal sealed class RetainedExerciseValuation
         instrument.ValidateValuationState(held);
         var entryDays = EntryQuantities.ForMembers(instrument.Members, held);
         var used = new HashSet<(CurveKey Curve, DateOnly Month)>();
+        var lookupIndex = instrument.PriceLookups.ToLookup(l => (l.Market, l.Contract.DeliveryFrom, l.Contract.DeliveryTo));
         var selectedSlots = rights.SelectMany(right => right.Slots).ToHashSet();
         for (var slot = 0; slot < instrument.Members.Length; slot++)
         {
@@ -156,28 +158,21 @@ internal sealed class RetainedExerciseValuation
                 .Select(d => d.Day).ToHashSet() : null;
             var physical = PhysicalLifecycle.ReadsDeliveryMarks(program);
             var instructions = program.Document.Instructions;
-            var availability = instructions.Where(i => i.Output.Operation == "price_application" &&
-                i.Output.Parameters.GetValueOrDefault("mapping") == FloatingSide.DeliveryIndexImplementation).Select(i => i.Output.PaymentOrdinal).ToHashSet();
-            foreach (var instruction in instructions)
+            foreach (var row in instrument.Sides[slot].Side.GenerateSchedule().Rows)
             {
-                var row = instruction.Output;
-                if (row.Operation == "output_guard")
+                if (row.DeliveryWindow is IntervalScheduleWindow { Interval: var interval })
                 {
-                    if (row.Grid is {} grid)
-                    {
-                        var interval = program.Document.Grids[grid].Interval(0);
-                        Boundary(interval.Start); Boundary(interval.End);
-                    }
-                    else if (row.ValueAt is {} payment)
-                    {
-                        Boundary(PaymentDatePolicy.Start(PaymentDatePolicy.Date(payment)));
-                        Boundary(PaymentDatePolicy.OverdueBoundary(payment));
-                    }
+                    Boundary(interval.Start);
+                    Boundary(interval.End);
                 }
-                if (!CurvePriceScheduleSource.IsLookup(row.Operation)) continue;
-                var matches = ScheduleMarketSources.DatedCandidates(instruction, instrument.PriceLookups, availability.Contains(row.PaymentOrdinal));
-                if (matches.Length != 1) throw new MarketDataException("side_market_sources", "Select the exact retained market binding for this exercise composition.");
-                var lookup = matches[0];
+                else
+                {
+                    Boundary(PaymentDatePolicy.Start(row.PaymentDate));
+                    Boundary(PaymentDatePolicy.OverdueBoundary(row.PaymentAt));
+                }
+            }
+            foreach (var (instruction, lookup) in PhysicalLifecycle.DatedInputs(program, lookupIndex))
+            {
                 Boundary(lookup.Contract.Expiry);
                 if (!physical && lookup.Fixing is {} fixing) Boundary(fixing.FixingAt);
                 if (selectedDays is null || !physical && PeriodPriceSelector.ProjectionAt(lookup, context.Snapshot) is null) continue;
@@ -195,7 +190,7 @@ internal sealed class RetainedExerciseValuation
             foreach (var payment in held.Payments.Where(p => p.KnownAt <= knowledge.KnownAt)) Boundary(payment.PaidAt);
         if (firstEvent <= context.CalculationAt)
             throw new MarketDataException("valuation_time_coverage", "The calculation clock crosses a retained valuation event.");
-        return contract with { Time = ValuationTimeDependency.Between(context.CalculationAt, firstEvent),
+        return contract with { ModelVersion = contract.ModelVersion + "/" + ModelPolicy, Time = ValuationTimeDependency.Between(context.CalculationAt, firstEvent),
             Volatility = instrument.Marks is {} marks ? [..marks.OrderedVolatilities.Where(v => used.Contains((v.Curve, v.Month))).Select(v => v.Volatility)] : [] };
     }
 }

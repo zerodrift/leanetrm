@@ -113,7 +113,7 @@ public static class PhysicalLifecycle
         if(!held.Any(ReadsDeliveryMarks))return [..lookups.Select(lookup=>PeriodPriceSelector.ProjectionAt(lookup,snapshot)).OfType<CurveRequest>().Distinct()];
         // Each price row matches only the lookups of its own market and observation period.
         var index=lookups.ToLookup(l=>(l.Market,l.Contract.DeliveryFrom,l.Contract.DeliveryTo));
-        IEnumerable<IndexPriceLookup> Read(BookedSideProgram program)=>DatedLookups(program,index);
+        IEnumerable<IndexPriceLookup> Read(BookedSideProgram program)=>DatedInputs(program,index).Select(input => input.Lookup);
         var marked=held.Where(ReadsDeliveryMarks).SelectMany(Read).ToHashSet();
         var ordinary=held.Where(p=>!ReadsDeliveryMarks(p)).SelectMany(Read).ToHashSet();
         return [..lookups.Where(lookup=>!marked.Contains(lookup)||ordinary.Contains(lookup)).Select(lookup=>PeriodPriceSelector.ProjectionAt(lookup,snapshot)).OfType<CurveRequest>()
@@ -128,10 +128,10 @@ public static class PhysicalLifecycle
     public static ImmutableArray<SchedulePriceTerm> ActivePrices(IEnumerable<BookedSideProgram> programs,IReadOnlyCollection<IndexPriceLookup> lookups)
     {
         var index=lookups.ToLookup(l=>(l.Market,l.Contract.DeliveryFrom,l.Contract.DeliveryTo));
-        return [..programs.SelectMany(program=>DatedLookups(program,index)
-            .Select(lookup=>SchedulePriceTerm.FromLookup(lookup) with{UsesDeliveryMark=ReadsDeliveryMarks(program)})).Distinct()];
+        return [..programs.SelectMany(program=>DatedInputs(program,index)
+            .Select(input=>SchedulePriceTerm.FromLookup(input.Lookup) with{UsesDeliveryMark=ReadsDeliveryMarks(program)})).Distinct()];
     }
-    private static IEnumerable<IndexPriceLookup> DatedLookups(BookedSideProgram program,
+    internal static IEnumerable<(BookedSideInstruction Instruction, IndexPriceLookup Lookup)> DatedInputs(BookedSideProgram program,
         ILookup<(CurveRequest,DateOnly,DateOnly),IndexPriceLookup> index)
     {
         var availabilityPayments=program.Document.Instructions.Where(i=>i.Output.Operation=="price_application"&&
@@ -139,7 +139,7 @@ public static class PhysicalLifecycle
         return program.Document.Instructions
             .Where(i=>i.Output.Grid is null&&CurvePriceScheduleSource.IsLookup(i.Output.Operation))
             .SelectMany(i=>ScheduleMarketSources.DatedCandidates(i,i.Bindings.Where(b=>b.Port=="market").Select(b=>b.Market).FirstOrDefault() is {} market&&
-                i.Output.ObservationFrom is {} from&&i.Output.ObservationTo is {} to?index[(market,from,to)]:[],availabilityPayments.Contains(i.Output.PaymentOrdinal)));
+                i.Output.ObservationFrom is {} from&&i.Output.ObservationTo is {} to?index[(market,from,to)]:[],availabilityPayments.Contains(i.Output.PaymentOrdinal)).Select(lookup => (i, lookup)));
     }
 
     // Valued without its lifecycle state, a started-delivery program would drop its ended gas days and due cash.

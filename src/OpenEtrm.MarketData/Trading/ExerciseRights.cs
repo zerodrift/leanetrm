@@ -58,10 +58,19 @@ public sealed record ExerciseMarks(ImmutableArray<CurveVolatilityMark> Volatilit
             Volatilities.DistinctBy(v => (v.Curve, v.Month)).Count() != Volatilities.Length ||
             Volatilities.DistinctBy(v => v.Volatility.Id).Count() != Volatilities.Length ||
             Correlations.Any(c => c is null || !ValidCurve(c.First) || !ValidCurve(c.Second) || c.First == c.Second ||
-                c.Month == default || c.Month.Day != 1 || c.Correlation is null || c.Correlation.Length > 60 || !SignedRatio.TryParse(c.Correlation, out var rho) ||
-                rho.Format(30, MidpointRounding.ToEven) != c.Correlation || System.Numerics.BigInteger.Abs(rho.Numerator) > rho.Denominator) ||
+                c.Month == default || c.Month.Day != 1 || !ValidCorrelation(c.Correlation)) ||
             Correlations.Any(c => Correlations.Count(other => Matches(other, c.First, c.Second, c.Month)) != 1))
             throw Missing();
+    }
+    private static bool ValidCorrelation(string? text)
+    {
+        if (text is null) return false;
+        try
+        {
+            var value = LatticeDecimal.Parse(text);
+            return value.CompareTo(LatticeDecimal.Parse("-1")) >= 0 && value.CompareTo(LatticeDecimal.Parse("1")) <= 0;
+        }
+        catch (MarketDataException) { return false; }
     }
     internal VolatilityInput Volatility(CurveKey curve, DateOnly month) =>
         Volatilities.SingleOrDefault(v => v.Month == month && v.Curve == curve)?.Volatility ?? throw Missing();
@@ -75,3 +84,6 @@ public sealed record ExerciseMarks(ImmutableArray<CurveVolatilityMark> Volatilit
 
 public sealed record ExerciseGroupValue(int Right, DateOnly From, DateOnly To, string State,
     ExactMoney ForwardSum, ExactMoney Counted, HolderChoiceInputs? Inputs);
+
+public readonly record struct ExerciseGroupKey(int Right, DateOnly From, DateOnly To);
+public sealed record ExerciseGroupContribution(ExerciseGroupKey Group, ExactMoney Value);

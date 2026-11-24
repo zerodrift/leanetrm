@@ -67,12 +67,12 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
         if(priceLookups.IsDefault&&members.Any(m=>m.Program.Document.Instructions.Any(i=>i.Output.Operation==CurvePriceScheduleSource.Operation)))
             throw new MarketDataException("side_market_sources","Bound programs require their exact authorized retained price lookups.");
         var hasQuantityTerms = members.Any(m => m.QuantityPolicy is not null || m.Part is not null);
-        if(members.Where((m, slot) => hasQuantityTerms
-            ? m.SourceSlot is not {} source || source >= members.Length || members[source].Program.Document.Family != "gas" ||
-                m.Program.Document.Family == "gas" && source != slot
-            : m.SourceSlot is {} selected && (rights.IsDefaultOrEmpty || selected >= members.Length ||
-                members[selected].Program.Document.Family != "gas" || m.Program.Document.Family == "gas" && selected != slot)).Any())
-            throw new MarketDataException("gas_membership", "Quantity terms require every member's exact physical source; legacy members omit these terms.");
+        var allowSources = hasQuantityTerms || !rights.IsDefaultOrEmpty;
+        if (members.Where((m, slot) => m.SourceSlot is {} source
+                ? !allowSources || source >= members.Length || members[source].Program.Document.Family != "gas" ||
+                    m.Program.Document.Family == "gas" && source != slot
+                : hasQuantityTerms).Any())
+            throw new MarketDataException("gas_membership", "Retain each required physical source and its exact membership slot.");
         Members = members; Assignments = assignments.Distinct().ToImmutableArray();
         PriceLookups=priceLookups.IsDefault?[..Assignments.Select(a=>a.Lookup).Distinct()]:priceLookups.Distinct().ToImmutableArray();
         Rights = rights.IsDefault ? [] : rights;
@@ -211,11 +211,11 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
     public override UnitPricingContract Declare(UnitValuationContext context)
     {
         var declaration = RetainedDeclaration(new(Id,
-        (context.BindingState is PhysicalCashState ? PhysicalCashState.Policy + "/" : "") +
-        (Members.Select(m => m.QuantityPolicy).FirstOrDefault(p => p is not null) is {} policy ? policy + "/" : "") +
-        (Members.Any(m => PhysicalLifecycle.ReadsDeliveryMarks(m.Program)) ? PeriodPriceSelector.DeliveryMarkPolicy + "/" : "")+"retained_gas_side_pv_v3",
-        PhysicalLifecycle.PriceDependencies(Members.Select(member => member.Program), PriceLookups, context.Snapshot),
-        UnitQuantity.Specification, Currency) { Time = ValuationTimeDependency.Pinned,  ScheduleIdentity = RetainedScheduleIdentity });
+            (context.BindingState is PhysicalCashState ? PhysicalCashState.Policy + "/" : "") +
+            (Members.Select(m => m.QuantityPolicy).FirstOrDefault(p => p is not null) is {} policy ? policy + "/" : "") +
+            (Members.Any(m => PhysicalLifecycle.ReadsDeliveryMarks(m.Program)) ? PeriodPriceSelector.DeliveryMarkPolicy + "/" : "")+"retained_gas_side_pv_v3",
+            PhysicalLifecycle.PriceDependencies(Members.Select(member => member.Program), PriceLookups, context.Snapshot),
+            UnitQuantity.Specification, Currency) { Time = ValuationTimeDependency.Pinned, ScheduleIdentity = RetainedScheduleIdentity });
         if (Rights.IsEmpty) return declaration;
         return RetainedExerciseValuation.Declare(declaration, this, context);
     }
@@ -233,8 +233,9 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
                 .Where(key => !key.ReachedValuationBoundary(context.Snapshot.ValuationAt)).Distinct().ToImmutableArray();
             var factors = context.Discounting.Resolve(keys, context.Snapshot);
             if (!keys.IsEmpty && !factors.IsDefault && factors.Length == keys.Length &&
-                keys.ToHashSet().SetEquals(factors.Select(f => f.Payment)) && factors.All(f => f.Source == DiscountFactorSource.Undiscounted &&
-                    f.DiscountFactor == ExactDecimal.Parse("1") && f.Snapshot.HasSameInputs(context.Snapshot))) return;
+                factors.All(f => f is not null && f.Source == DiscountFactorSource.Undiscounted &&
+                    f.DiscountFactor == ExactDecimal.Parse("1") && f.Snapshot is not null && f.Snapshot.HasSameInputs(context.Snapshot)) &&
+                keys.ToHashSet().SetEquals(factors.Select(f => f.Payment))) return;
         }
         throw new MarketDataException("exercise_model_scope", "The exercise model requires explicitly undiscounted valuation.");
     }

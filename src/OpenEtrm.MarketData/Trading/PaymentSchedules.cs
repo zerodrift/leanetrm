@@ -569,6 +569,7 @@ public sealed record InstrumentValuation
     public string CurveNumericalPolicy => Context.CurveNumericalPolicy;
     public ImmutableArray<SideContribution> Sides { get; }
     public ImmutableArray<ExerciseGroupValue> Groups { get; } = [];
+    internal ImmutableArray<ExerciseGroupContribution> UnitExerciseGroups { get; } = [];
     internal ExactMoney UndecidedUnitValue { get; }
     public ExactMoney PresentValue { get; }
     public string NumericalPolicy { get; }
@@ -588,7 +589,7 @@ public sealed record InstrumentValuation
     }
     internal InstrumentValuation(SidedInstrument instrument, SideValuationContext context, ImmutableArray<SideValuation> values,
         ImmutableArray<ExerciseGroupValue> groups = default)
-        :this(instrument,context,Policy)
+        :this(instrument,context,groups.IsDefaultOrEmpty ? Policy : Policy + "/" + RetainedExerciseValuation.ModelPolicy)
     {
         if (values.IsDefault || values.Length != instrument.Sides.Length || values.Where((v, n) => v is null ||
             v.SideId != instrument.Sides[n].Side.Id || v.Currency != instrument.Currency ||
@@ -604,8 +605,10 @@ public sealed record InstrumentValuation
         {
             var held = ((PhysicalCashState)context.BindingState!).Quantity.Amount.ScaledValue;
             var perUnit = new SignedRatio(held.Sign * ExactDecimal.WorkingScale, System.Numerics.BigInteger.Abs(held));
-            UndecidedUnitValue = Groups.Where(g => g.State is "undecided" or "undecided_forecast")
-                .Aggregate(UndecidedUnitValue, (total, group) => total.Add(group.Counted)).Scale(perUnit);
+            // Decided obligations are already present in their ordinary membership rows.
+            UnitExerciseGroups = [..Groups.Where(g => g.State is "undecided" or "undecided_forecast")
+                .Select(g => new ExerciseGroupContribution(new(g.Right, g.From, g.To), g.Counted.Scale(perUnit)))];
+            UndecidedUnitValue = UnitExerciseGroups.Aggregate(UndecidedUnitValue, (total, group) => total.Add(group.Value));
         }
         PresentValue = Groups.IsEmpty ? sideTotal : sideTotal.Add(UndecidedUnitValue);
     }
