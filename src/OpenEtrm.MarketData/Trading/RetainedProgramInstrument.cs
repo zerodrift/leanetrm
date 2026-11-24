@@ -73,14 +73,33 @@ public abstract record RetainedProgramInstrument<TMember> : SidedInstrument, IRe
     {RequireRetainedSides();return declaration;}
     protected abstract ScheduleMarketSources Sources(CurveBuild basis);
     private protected virtual RetainedProgramContext PrepareSides(UnitValuationContext context, CurveBuild basis, CurveBuild scenario) => new(Sources(basis), scenario);
+    // The direct read route prepares the same Side occurrence inputs as risk.
+    // It exposes a context, never a second evaluation or a program executor.
+    public SideValuationContext PrepareValuation(CurveBuild basis, CurveBuild scenario, ISideDiscounting discounting,
+        IBindingValuationState? state = null, CancellationToken cancellation = default)
+    {
+        if(basis is null || scenario is null || !basis.Snapshot.HasSameInputs(scenario.Snapshot))
+            throw new MarketDataException("native_program_context", "Retain the exact base and scenario source snapshot.");
+        ValidateValuationState(state);
+        var context = new UnitValuationContext(scenario.Snapshot,
+            new(ValuationMeasure.PresentValue, ImmutableDictionary<Guid,FuturesMarketBinding>.Empty, discounting),
+            cancellation: cancellation, bindingState: state);
+        return new SideValuationContext(scenario, discounting).WithBindingState(state)
+            .WithUnitEvaluation(scenario.Snapshot.ValuationAt, false, ValuationMeasure.PresentValue, cancellation)
+            .WithRetainedPrograms(PrepareInputs(context, basis, scenario));
+    }
+    private RetainedProgramContext PrepareInputs(UnitValuationContext context, CurveBuild basis, CurveBuild scenario)
+    {
+        var prepared = PrepareSides(context, basis, scenario);
+        return prepared.Cash is null ? prepared : prepared with { Owner = new(Id, EconomicIdentity) };
+    }
     protected InstrumentValuation EvaluateSides(UnitValuationContext context)
     {
         RequireRetainedSides();
         if(context.Measure != ValuationMeasure.PresentValue)
             throw new MarketDataException("valuation_measure", "This retained instrument implements contractual present value only.");
         var (basis, scenario) = context.RetainedProgramMarkets(Declare(context).Dependencies);
-        var prepared = PrepareSides(context, basis, scenario);
-        if(prepared.Cash is not null) prepared = prepared with { Owner = new(Id, EconomicIdentity) };
+        var prepared = PrepareInputs(context, basis, scenario);
         return PV(context.SideContextRetained(prepared));
     }
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<RetainedProgramInstrument<TMember>, InstrumentSchedule> Schedules = new();

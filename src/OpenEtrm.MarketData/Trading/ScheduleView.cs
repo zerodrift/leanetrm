@@ -42,6 +42,11 @@ public sealed record SideViewInput(string Code,BookedSideEvaluation Evaluation,B
 // marks the rows already delivered.
 public static class ScheduleViews
 {
+    // The exact quantity projection does not depend on UI column names or on
+    // whether the chosen side code can be represented in a combined grid.
+    public static SignedRatio TotalQuantity(SideViewInput side, Func<DateOnly,DateTimeOffset> boundary) =>
+        SignedRatio.Sum(Pieces(side with { Code = "quantity", Columns = [("quantity", ScheduleViewMeasure.Quantity)] }, boundary)
+            .Select(piece => piece.Quantity));
     public const string NetCash="trade.net_cash",PaymentAt="trade.payment_at";
     private static readonly string[] Supported=["term","month","day"];
     // One canonical tag order; a set of tags is a bit mask over it.

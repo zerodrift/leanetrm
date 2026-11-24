@@ -11,10 +11,11 @@ public sealed record GasQuantityHead(int Slot,DateOnly Day,GasQuantityObservatio
 // selected days; the shared lifecycle owns quantity scaling and accrual.
 public static class GasHeldQuantities
 {
+    public const string DeliverySchedulePolicy = "delivery_schedule_v1";
     public static ImmutableArray<HeldDayQuantity> Build(ImmutableArray<GasFollowedMember> members,ImmutableArray<GasQuantityHead> heads,DateTimeOffset at)
     {
         if(members.IsDefault||heads.IsDefault||members.Any(m=>m is null||m.Slot<0||m.Scale is null||m.Scale.Numerator<=0||
-            m.Days.IsDefaultOrEmpty||m.QuantityPolicy is not(null or PhysicalLifecycle.SelectedQuantityPolicy)||
+            m.Days.IsDefaultOrEmpty||m.QuantityPolicy is not(null or DeliverySchedulePolicy)||
             m.Days.Any(d=>d is null||d.Quantity is null||d.Quantity.NumeratorValue<=0)||m.Days.Select(d=>d.Day).Distinct().Count()!=m.Days.Length))
             throw Invalid("Select physical owners, their complete retained native days and explicit quantity policies.");
         var slots=members.Select(m=>m.Slot).ToArray();

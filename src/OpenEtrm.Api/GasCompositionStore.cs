@@ -83,10 +83,19 @@ internal sealed record GasCompositionExecution
    !programs.Select(p=>p.Slot).Order().SequenceEqual(Enumerable.Range(0,programs.Length)))
    throw new MarketDataException("gas_program_membership","Every retained gas program requires its exact visible member slot and side family.");
  }
- internal RetainedGasInstrument Instrument(ImmutableArray<IndexPriceLookup> lookups)=>new(InstrumentId,[..Members.OrderBy(m=>m.Slot).Select(m=>{
-  var p=Programs.Single(p=>p.Slot==m.Slot);
-  return new RetainedGasMember(p.SideId,ExactDecimal.Parse(m.Direction.ToString(CultureInfo.InvariantCulture)),m.Ratio,p.Program);
- })],[..Members.SelectMany(m=>m.Assignments).Distinct()],lookups);
+ internal RetainedGasInstrument Instrument(ImmutableArray<IndexPriceLookup> lookups)=>BuildInstrument(InstrumentId,Members,Programs,lookups);
+ internal static RetainedGasInstrument BuildInstrument(Guid id,ImmutableArray<GasCompositionRow> members,
+  ImmutableArray<RetainedSideProgram> programs,ImmutableArray<IndexPriceLookup> lookups)
+ {
+  RequireSlots(members.Select(m=>m.Slot),programs);
+  var quantityTerms=members.Any(m=>m.QuantityPolicy is not null);var byCode=members.ToDictionary(m=>m.Code,StringComparer.Ordinal);
+  return new(id,[..members.OrderBy(m=>m.Slot).Select(m=>{
+   var p=programs.Single(p=>p.Slot==m.Slot);
+   return new RetainedGasMember(p.SideId,ExactDecimal.Parse(m.Direction.ToString(CultureInfo.InvariantCulture)),m.Ratio,p.Program,
+    quantityTerms?m.Role=="physical"?m.Slot:byCode[m.Source!].Slot:null,m.QuantityPolicy);
+  })],[..members.SelectMany(m=>m.Assignments).Distinct()],lookups);
+ }
+
 }
 
 public sealed class GasCompositionStore(PreviewDatabase database)
@@ -171,17 +180,16 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   var knowledge=(await new KnowledgeResolver(database.Manifest.CatalogId).Read(c,contextId,ct)).Context;
   var snapshot=MarketSnapshotBinding.Bind(data.Snapshot(frame),contextId,SchedulePreview.ParseAt(knowledge.KnownAt));
   if(held is not {Started:true}&&unrecorded is null)PhysicalLifecycle.RequireUnstarted(programs.Select(p=>p.Program),snapshot.ValuationAt);
-  var assignments=members.SelectMany(m=>m.Assignments).Distinct().ToImmutableArray();
   var dated=programs.SelectMany(p=>BookedScheduleLookups.Dated(data,p.Program)).Distinct().ToImmutableArray();
   foreach(var group in dated.Where(lookup=>lookup.CustomProjection is not null).GroupBy(lookup=>lookup.CustomProjection!))
    await CustomCurves.RequireProjection(c,database,data,frame,CustomCurveProjectionInput.FromBinding(group.Key),PriceUnit.FromQuote(group.First().Quote),[..group.Select(lookup=>lookup.ForecastDelivery)],ct,savedVersions);
   var deps=PhysicalLifecycle.PriceDependencies(programs.Select(p=>p.Program),dated,snapshot);
   var prepared=await CustomCurves.PrepareMarket(c,database,data,frame,snapshot,knowledge,[],deps,CustomCurves.MarketPreparation.ValuationDependencies,ct,
    activePrices:[..dated.Select(lookup=>SchedulePriceTerm.FromLookup(lookup))],savedVersions:savedVersions);
-  var market=prepared.Valuation.ProgramMarket(prepared.Bindings,prepared.Authority,ct);var sources=new ScheduleMarketSources(market.Graph.Plan.Context,market,null,null,IntervalKnowledgePolicy.ResolvedCutoff,PendingActualsPolicy.RequireActuals,dated,[],assignments);
+  var market=prepared.Valuation.ProgramMarket(prepared.Bindings,prepared.Authority,ct);
   // Both composition profiles admit only an explicit no-discounting selection (Resolve, and the held terms below).
   const DiscountFactorSource discounting=DiscountFactorSource.Undiscounted;
-  var discount=new ExplicitDiscounting(Number("1"),discounting);ExactMoney? total=null;var views=view?ImmutableArray.CreateBuilder<SideViewInput>():null;var quantities=new Dictionary<string,ExactQuantity>(StringComparer.Ordinal);
+  var discount=new ExplicitDiscounting(Number("1"),discounting);var views=view?ImmutableArray.CreateBuilder<SideViewInput>():null;var quantities=new Dictionary<string,ExactQuantity>(StringComparer.Ordinal);
   // Started delivery: the trade's value is unrealized plus realized unsettled, with its recorded cash.
   PhysicalLifecycleValue? lifecycle=null;var state=unrecorded;
   if(held is {Started:true})
@@ -189,54 +197,50 @@ public sealed class GasCompositionStore(PreviewDatabase database)
    if(held.Members.Length!=members.Length)throw Invalid("Started-delivery valuation requires every member of the held trade.");
    if(held.Terms.Discounting!=false)throw Invalid("A held gas composition requires its explicit no-discounting selection.");
    state=await GasCashPaymentStore.Read(c,database.Manifest.CatalogId,held.TradeId,held.InstrumentId,held.Terms.BookId,new(quantity,members[0].Assignment.Quote.Quantity),GasCashPaymentStore.LatestKnownRevision,ct,await GasDeliveryQuantityStore.Read(c,database.Manifest.CatalogId,held,snapshot.ValuationAt,ct));
-   // The same admission of the recorded cash as the retained instrument's risk valuation.
-   held.Instrument(dated).ValidateValuationState(state);
   }
   else if(members.Any(m=>m.QuantityPolicy is not null))
   {
    var selected=GasDeliveryQuantityStore.Build(members,programs,quantity,snapshot.ValuationAt,[])!;
    state=new(unrecorded?.TradeId??Guid.NewGuid(),unrecorded?.BindingId??draft!.Id,new(quantity,members[0].Assignment.Quote.Quantity),null,[],PhysicalCashState.Policy,
-    selected.Days,PhysicalLifecycle.SelectedQuantityPolicy,selected.Memberships);
-   state.ValidateQuantitySchedules(programs.OrderBy(p=>p.Slot).Select(p=>(p.Program,members.Single(m=>m.Slot==p.Slot).Role=="physical",
-    GasDeliveryQuantityStore.HeldScale(members.Single(m=>m.Slot==p.Slot).Ratio,quantity))).ToArray());
+    selected.Days);
   }
-  var valued=new List<(GasCompositionRow Member,ExactMoney Amount,ExactQuantity Quantity,List<object> Rows)>();var evaluations=ImmutableArray.CreateBuilder<LifecycleMember>();
+  var instrument=GasCompositionExecution.BuildInstrument(held?.InstrumentId??draft!.Id,members,programs,dated);
+  var valuation=instrument.PV(instrument.PrepareValuation(market,market,discount,state,ct));
+  var total=valuation.PresentValue.Scale(quantity);
+  if(state is not null)lifecycle=PhysicalLifecycle.FromValuation(valuation);
+  var valued=new List<(GasCompositionRow Member,ExactMoney Amount,ExactQuantity Quantity,List<object> Rows)>();
   foreach(var member in members.OrderBy(x=>x.Slot))
   {
-   var p=programs.Single(x=>x.Slot==member.Slot);var result=sources.Evaluate(p.Program,p.SideId,market,discount,ct);
-   var direction=Number(member.Direction.ToString(CultureInfo.InvariantCulture));
-   var amount=result.PresentValue.Scale(member.Ratio).Scale(quantity).Scale(direction);total=total is null?amount:total.Add(amount);
-   evaluations.Add(new(p.Program,result,member.Role=="physical",v=>v.Scale(member.Ratio).Scale(quantity).Scale(direction)));
-   // The view applies the same booked quantity and signed membership as the present value.
-   // A recorded quantity is shown with the side's direction, like the side's other quantities.
-   var days=state?.Follows(member.Slot)==true?null:recorded?.GetValueOrDefault(member.Code)?.ToImmutableDictionary(d=>d.Key,d=>new ScheduleViewQuantity(new(BigInteger.Parse(d.Value.Quantity.Numerator)*member.Direction,BigInteger.Parse(d.Value.Quantity.Denominator)),d.Value.Kind));
-   if(views is not null||inspect is not null)
-   {
-    var sideView=new SideViewInput(member.Code,result,p.Program,quantity,new(member.Ratio.Numerator*member.Direction,member.Ratio.Denominator),TicketDescriptions.ViewColumns(GasTicket.SideKind(member.Role)),days,
-     state?.Follows(member.Slot)==true?state.Quantities.Where(d=>d.Slot==member.Slot).ToImmutableDictionary(d=>d.Day,d=>ScheduleFollowedDay.FromHeld(d,new(member.Direction,1))):null);
-    views?.Add(sideView);inspect?.Invoke(sideView,member.Clock);
-   }
+   var p=programs.Single(x=>x.Slot==member.Slot);
+   var contribution=valuation.Sides[member.Slot];var sideValue=(RetainedProgramValuation)contribution.Value;
+   var amount=contribution.Contribution.Scale(quantity);
+   var sideView=sideValue.ViewInput(member.Code,quantity,new(member.Ratio.Numerator*member.Direction,member.Ratio.Denominator),TicketDescriptions.ViewColumns(GasTicket.SideKind(member.Role)));
+   // Contract-policy operational overlays remain display-only. Selected-policy
+   // rows already carry their exact entry quantities from the Instrument.
+   if(sideView.FollowedDays is null&&recorded?.GetValueOrDefault(member.Code) is {} recordedDays)
+    sideView=sideView with{Recorded=recordedDays.ToImmutableDictionary(d=>d.Key,d=>new ScheduleViewQuantity(new(BigInteger.Parse(d.Value.Quantity.Numerator)*member.Direction,BigInteger.Parse(d.Value.Quantity.Denominator)),d.Value.Kind))};
+   views?.Add(sideView);inspect?.Invoke(sideView,member.Clock);
    var rows=new List<object>();ExactQuantity? qtotal=null;
    if(member.Role=="physical")
    {
     var meters=await gas.Meters(c,data,member.Assignment,setup,ct);
     // Contractual rows come from the retained quantities, so an ended gas day outside the measure keeps its row.
     foreach(var day in OpenEtrm.MarketData.Physical.PhysicalDeliverySchedule.ReadLiteralQuantities(p.Program,ExactRatio.One))
-    {var selected=state?.Follows(member.Slot)==true?state.Day(member.Slot,day.OperatingDate):null;
-     var q=selected?.Selected??day.Quantity.Scale(quantity).Scale(member.Ratio);qtotal=qtotal is null?q:qtotal.Add(q);
+    {var selected=sideView.FollowedDays?.GetValueOrDefault(day.OperatingDate);
+     var q=selected is null?day.Quantity.Scale(quantity).Scale(member.Ratio):ExactQuantity.FromRatio(selected.Taken,day.Quantity.Specification);qtotal=qtotal is null?q:qtotal.Add(q);
      rows.Add(new{day=day.OperatingDate.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),day.Start,day.End,quantity=Ratio(q),quantitySource=selected?.Source??"contractual",meter=PhysicalGasStore.Meter(data,meters,day.OperatingDate,setup)});}
     quantities.Add(member.Code,qtotal!);
    }
    else
    {
-    qtotal=state?.Follows(member.Slot)==true?state.Quantities.Where(d=>d.Slot==member.Slot).Select(d=>d.Selected).Aggregate((a,b)=>a.Add(b)):p.Program.Document.Instructions.Where(i=>i.Output.Operation=="quantity_literal").SelectMany(i=>result.QuantityColumn(i.Output.Ordinal,quantity)).Aggregate((a,b)=>a.Add(b)).Scale(member.Ratio);
+    var q=ScheduleViews.TotalQuantity(sideView with{Recorded=null},member.Clock.Boundary);
+    qtotal=ExactQuantity.FromRatio(new(BigInteger.Abs(q.Numerator),q.Denominator),member.Assignment.Quote.Quantity);
    }
    valued.Add((member,amount,qtotal!,rows));
   }
-  if(state is not null){lifecycle=PhysicalLifecycle.Evaluate(evaluations.ToImmutable(),state,snapshot,members[0].Assignment.Quote.Currency);total=lifecycle.Total;}
   var sides=valued.Select(v=>(object)new{v.Member.Code,v.Member.Role,source=v.Member.Source,stage=v.Member.Stage,pipeline=v.Member.Role=="physical"?v.Member.Assignment.Location.Pipeline.Code:null,zone=v.Member.Role=="physical"?v.Member.Assignment.Location.Zone.Code:null,deliveryPoint=v.Member.Role=="physical"?v.Member.Assignment.Point.Code:null,
    direction=v.Member.Direction==1?"receive":v.Member.Role=="physical"?"deliver":"pay",
-   presentValue=(lifecycle is null?v.Amount:lifecycle.Rows.Where(r=>r.Slot==v.Member.Slot).Aggregate(ExactMoney.Parse("0",v.Amount.Currency),(sum,r)=>sum.Add(r.Unrealized).Add(r.RealizedUnsettled))).ToExactString(),
+   presentValue=v.Amount.ToExactString(),
    quantity=Ratio(v.Quantity),deliveryRows=v.Rows}).ToList();
   var links=!view?Array.Empty<object>():members.Where(m=>m.Role=="physical"&&m.Source is not null).Select(m=>{var receipt=quantities[m.Source!];var delivery=quantities[m.Code];var fuel=receipt.Add(delivery.Scale(Number("-1")));return(object)new{source=m.Source,target=m.Code,m.Formula,m.Fraction,receipt=receipt.ToExactString(),delivery=delivery.ToExactString(),fuel=fuel.ToExactString()};}).ToArray();
   // The schedule is a display projection: a trade it cannot show keeps its valuation and reports why.
@@ -315,8 +319,8 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   }
   try
   {
-   await Value(c,data,frame,[member],execution.Quantity,null,execution.Terms.GasSetupId,[program],false,ct,
-    inspect:(side,clock)=>result=SideScheduleSnapshot.FromProgram(program.SideId,frame.Id,side,clock.Boundary));
+   await Value(c,data,frame,execution.Members,execution.Quantity,null,execution.Terms.GasSetupId,execution.Programs,false,ct,
+    inspect:(side,clock)=>{if(side.Code==member.Code)result=SideScheduleSnapshot.FromProgram(program.SideId,frame.Id,side,clock.Boundary);},held:execution);
   }
   catch(MarketDataException error)when(ValuationStatus.PositionSpecific(error)||error.Code is "gas_delivery_lifecycle" or "side_payment_due")
   {

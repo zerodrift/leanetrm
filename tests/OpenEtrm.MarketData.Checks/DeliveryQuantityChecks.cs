@@ -111,15 +111,15 @@ internal static class DeliveryQuantityChecks
         var same=final with{Id=Guid.NewGuid(),Source="facility_allocation_adoption_v1",Evidence="Synthetic facility adoption"};
         ImmutableArray<GasQuantityHead> heads=[new(0,f.From,final),new(0,f.From,same),new(0,f.From.AddDays(1),Observation("scheduled","provisional","1050")),
             new(0,f.From.AddDays(2),Observation("scheduled","provisional","900")),new(0,f.From.AddDays(2),Observation("nominated","provisional","880"))];
-        var built=GasHeldQuantities.Build([new(0,contract,scale,PhysicalLifecycle.SelectedQuantityPolicy)],heads,at);
+        var built=GasHeldQuantities.Build([new(0,contract,scale,"delivery_schedule_v1")],heads,at);
         Require(built.Length==4&&built.All(q=>q.Slot==0),"Only the physical owner carries complete days.");
         Require(built.Select(q=>q.Selected.ToExactString()).SequenceEqual(["980","1050","900","1000"]),"The owner carries the selected quantities once for every following entry.");
         Require(built.Single(q=>q.Slot==0&&q.Day==f.From).Evidence.Length==2,"Equal winners keep both evidence references.");
         Require(built.Single(q=>q.Slot==0&&q.Day==f.To.AddDays(-1)) is {Evidence.IsEmpty:true,Source:PhysicalLifecycle.ContractQuantity},"No record is a labelled contract fallback.");
         Require(GasHeldQuantities.Build([],[],at).IsEmpty,"No opted-in members requires no inputs.");
-        Reject("gas_quantity_selection",()=>GasHeldQuantities.Build([new(0,contract,scale,PhysicalLifecycle.SelectedQuantityPolicy)],[new(0,f.To,final)],at));
-        Reject("gas_quantity_selection",()=>GasHeldQuantities.Build([new(0,contract,scale,PhysicalLifecycle.SelectedQuantityPolicy)],[new(3,f.From,final)],at));
-        Reject("gas_quantity_selection",()=>GasHeldQuantities.Build([new(0,contract,scale,PhysicalLifecycle.SelectedQuantityPolicy),new(0,contract,scale,PhysicalLifecycle.SelectedQuantityPolicy)],[],at));
+        Reject("gas_quantity_selection",()=>GasHeldQuantities.Build([new(0,contract,scale,"delivery_schedule_v1")],[new(0,f.To,final)],at));
+        Reject("gas_quantity_selection",()=>GasHeldQuantities.Build([new(0,contract,scale,"delivery_schedule_v1")],[new(3,f.From,final)],at));
+        Reject("gas_quantity_selection",()=>GasHeldQuantities.Build([new(0,contract,scale,"delivery_schedule_v1"),new(0,contract,scale,"delivery_schedule_v1")],[],at));
         Reject("gas_quantity_selection",()=>GasHeldQuantities.Build([new(0,contract,scale,"unknown_v1")],[],at));
         var contractual=GasHeldQuantities.Build([new(0,contract,scale,null)],heads,at);
         Require(contractual.All(d=>d.Source==PhysicalLifecycle.ContractQuantity&&d.Selected==d.Contract&&d.Evidence.IsEmpty),"A contract-policy source supplies contract days even when operational records exist.");
@@ -134,8 +134,8 @@ internal static class DeliveryQuantityChecks
         var state=f.State(days);var (prepared,portfolio)=f.Prepare(at,state);
         var context=new UnitValuationContext(prepared.Market.Snapshot,portfolio.Setup,prepared.Market).For(prepared.Contracts[0][0],null,state);
         var value=f.Instrument.EvaluateLifecycle(context);Equal(value.Total,"-5710");Equal(value.RealizedUnsettled,"-6090");Equal(value.Unrealized,"380");
-        Require(f.Instrument.Declare(context).ModelVersion.StartsWith(PhysicalCashState.Policy+"/"+PhysicalLifecycle.SelectedQuantityPolicy+"/"),"The retained model names the selected quantity policy.");
-        Require(!new DeliveryFixture(follows:false).Instrument.Declare(context.ForCoverage(null,f.State())).ModelVersion.Contains(PhysicalLifecycle.SelectedQuantityPolicy),"Legacy model identity stays unchanged.");
+        Require(f.Instrument.Declare(context).ModelVersion.StartsWith(PhysicalCashState.Policy+"/"+"delivery_schedule_v1"+"/"),"The retained model names the selected quantity policy.");
+        Require(!new DeliveryFixture(follows:false).Instrument.Declare(context.ForCoverage(null,f.State())).ModelVersion.Contains("delivery_schedule_v1"),"Legacy model identity stays unchanged.");
         Reject("physical_lifecycle_quantity",()=>f.Instrument.ValidateValuationState(f.State([..days.Select(d=>d with{Contract=f.Q("999"),
             Selected=d.Source==PhysicalLifecycle.ContractQuantity?f.Q("999"):d.Selected})])));
         Reject("physical_lifecycle_quantity",()=>f.Instrument.ValidateValuationState(f.State([..days.Select(d=>d with{Day=d.Day.AddDays(40)})])));
@@ -243,7 +243,7 @@ internal static class DeliveryQuantityChecks
                 return BookedSideProgram.Compile(d);
             }
             Programs=[Book(gas),Book(cash)];
-            Instrument=new(Guid.NewGuid(),[new(gas.Id,ExactDecimal.Parse("1"),ExactRatio.One,Programs[0],follows?0:null,follows?PhysicalLifecycle.SelectedQuantityPolicy:null),
+            Instrument=new(Guid.NewGuid(),[new(gas.Id,ExactDecimal.Parse("1"),ExactRatio.One,Programs[0],follows?0:null,follows?"delivery_schedule_v1":null),
                 new(cash.Id,ExactDecimal.Parse("-1"),ExactRatio.One,Programs[1],follows?0:null)],Assignments);
             legacy=new(Instrument.Id,[..Instrument.Members.Select(m=>new RetainedGasMember(m.SideId,m.Direction,m.Ratio,m.Program))],Assignments);
         }

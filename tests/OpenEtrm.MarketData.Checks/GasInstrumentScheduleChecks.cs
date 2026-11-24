@@ -14,7 +14,7 @@ internal static class GasInstrumentScheduleChecks
         RetainedGasMember Member(RetainedGasMember m, int? source = null, string? policy = null, QuantityPart? part = null) =>
             new(m.SideId, m.Direction, m.Ratio, m.Program, source, policy, part);
         RetainedGasInstrument With(params RetainedGasMember[] members) => new(original.Id, [..members], original.Assignments);
-        var followed = With(Member(physical, 0, PhysicalLifecycle.SelectedQuantityPolicy), Member(payment, 0));
+        var followed = With(Member(physical, 0, "delivery_schedule_v1"), Member(payment, 0));
         var band = QuantityPart.Band(new(0, 1), new(4, 5));
         var parted = With(followed.Members[0], Member(payment, 0, part: band));
         Require(original.EconomicIdentity != followed.EconomicIdentity, "The selected quantity policy belongs to the instrument's economics.");
@@ -22,13 +22,14 @@ internal static class GasInstrumentScheduleChecks
         var anotherPhysical = new RetainedGasMember(physical.SideId, physical.Direction, new(2, 1), physical.Program, 1);
         Require(With(followed.Members[0], anotherPhysical, Member(payment, 0)).EconomicIdentity !=
             With(followed.Members[0], anotherPhysical, Member(payment, 1)).EconomicIdentity, "A payment names its physical source in identity.");
-        Reject(() => Member(payment, 0, PhysicalLifecycle.SelectedQuantityPolicy));
+        Reject(() => Member(payment, 0, "delivery_schedule_v1"));
         Reject(() => Member(physical, 0, part: band));
         Reject(() => Member(payment, part: band));
         Reject(() => Member(physical, 0, "unknown_policy_v1"));
+        Reject(() => Member(physical, 0, "selected_delivery_quantity_v1"));
         Reject(() => With(Member(physical, 0), Member(payment, 0)));
-        Reject(() => With(Member(physical, 0, PhysicalLifecycle.SelectedQuantityPolicy), Member(payment, 1)));
-        Reject(() => With(Member(physical, 0, PhysicalLifecycle.SelectedQuantityPolicy), payment));
+        Reject(() => With(Member(physical, 0, "delivery_schedule_v1"), Member(payment, 1)));
+        Reject(() => With(Member(physical, 0, "delivery_schedule_v1"), payment));
         Console.WriteLine("PASS gas instrument identity: legacy bytes, explicit policy, part and physical source; invalid membership terms refuse");
         WorkedExamples();
     }
@@ -85,6 +86,9 @@ internal static class GasInstrumentScheduleChecks
         var side = share.Sides(sharedState).Sides[1];
         var inspected = side.Value.InspectSchedule(share.Instrument.Members[1].Program.Document.ScheduleManifest, ExactDecimal.Parse("10000"), new(21, 20), share.Clock.Boundary).Read(0, 20);
         Require(inspected.Rows.Single().Quantity == "10500", "The payment's displayed quantity includes its share once.");
+        var presentationOnlyCode = ((RetainedProgramValuation)side.Value).ViewInput("payment.with.dots", ExactDecimal.Parse("10000"), new(21, 20), []);
+        Require(ScheduleViews.TotalQuantity(presentationOnlyCode, share.Clock.Boundary) == new SignedRatio(10500, 1),
+            "A presentation-only code limitation cannot refuse a valid payment's quantity total.");
         Console.WriteLine("PASS gas entry schedules: both worked examples, unpublished month, exact share, parts, source dates, missing state, overpayment and size scaling");
     }
 

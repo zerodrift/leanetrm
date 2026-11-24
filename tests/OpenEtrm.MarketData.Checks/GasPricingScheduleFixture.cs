@@ -65,7 +65,7 @@ internal sealed class GasPricingScheduleFixture
         BookedSideProgram Book(Side side) => BookedSideProgram.Compile(ScheduleDefinitionCompiler.Generate(side,
             lifecycle: ScheduleLifecycleSelection.StartedPhysicalDelivery));
         var members = ImmutableArray.CreateBuilder<RetainedGasMember>();
-        members.Add(new(gas.Id, ExactDecimal.Parse("1"), ExactRatio.One, Book(gas), 0, follows ? PhysicalLifecycle.SelectedQuantityPolicy : null));
+        members.Add(new(gas.Id, ExactDecimal.Parse("1"), ExactRatio.One, Book(gas), 0, follows ? "delivery_schedule_v1" : null));
         void Add(FloatingSide side, string sign, QuantityPart? part, ExactRatio? share = null) =>
             members.Add(new(side.Id, ExactDecimal.Parse(sign), share ?? ExactRatio.One, Book(side), 0, part: part));
         if(sharedPayment) Add(Payment(false, "0", 0, 1), "1", null, new(21, 20));
@@ -123,11 +123,7 @@ internal sealed class GasPricingScheduleFixture
     internal InstrumentValuation Sides(PhysicalCashState state)
     {
         var context = Context(state); var (basis, scenario) = context.RetainedProgramMarkets(Instrument.Declare(context).Dependencies);
-        var sources = new ScheduleMarketSources(basis.Graph.Plan.Context, basis, null, null, IntervalKnowledgePolicy.ResolvedCutoff,
-            PendingActualsPolicy.RequireActuals, Instrument.PriceLookups, [], assignments);
-        var inputs = new RetainedProgramContext(sources, scenario) { Cash = state, Owner = new(Instrument.Id, Instrument.EconomicIdentity),
-            Geometry = PhysicalLifecycle.PrepareGeometry([Instrument.Members[0].Program], context.Snapshot),
-            HeldFactors = [..Instrument.Members.Select(m => new SignedRatio(Size, 1) * new SignedRatio(m.Direction.ScaledValue, ExactDecimal.WorkingScale) * new SignedRatio(m.Ratio.Numerator, m.Ratio.Denominator))] };
-        return Instrument.PV(context.SideContextRetained(inputs));
+        return Instrument.PV(Instrument.PrepareValuation(basis, scenario,
+            new ExplicitDiscounting(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted), state));
     }
 }

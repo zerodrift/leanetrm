@@ -144,10 +144,20 @@ public static class PhysicalLifecycle
                     throw new MarketDataException("gas_delivery_lifecycle","A started gas delivery is valued only with its held lifecycle state.");
     }
 
-    public static PhysicalLifecycleValue Evaluate(ImmutableArray<LifecycleMember> members,PhysicalCashState state,MarketSnapshot snapshot,ReferenceKey currency)
+    // Project already-valued Side rows to the exact held quantity. No program
+    // or price is evaluated here; the Instrument's schedule owns that work.
+    public static PhysicalLifecycleValue FromValuation(InstrumentValuation value)
     {
-        var geometry=PrepareGeometry(members.Where(m=>m.Physical).Select(m=>m.Program),snapshot);
-        return EvaluateConnected(members,state,snapshot,currency,geometry,0,default);
+        if(value?.Context.BindingState is not PhysicalCashState state || value.Sides.IsDefaultOrEmpty ||
+            value.Sides.Any(s => s.Value is not RetainedProgramValuation { Lifecycle: not null }))
+            throw new MarketDataException(ContextRefusal, "Project a complete held Instrument valuation with its Side-owned lifecycle rows.");
+        var quantity = new SignedRatio(state.Quantity.Amount.ScaledValue, ExactDecimal.WorkingScale);
+        var zero = ExactMoney.Parse("0", value.Currency);
+        var parts = value.Sides.Select(side => Scale(((RetainedProgramValuation)side.Value).Lifecycle!, quantity *
+            new SignedRatio(side.Coefficient.ScaledValue, ExactDecimal.WorkingScale) *
+            new SignedRatio(side.QuantityRatio.Numerator, side.QuantityRatio.Denominator))).ToArray();
+        return new(parts.Aggregate(zero, (sum, p) => sum.Add(p.Unrealized)), parts.Aggregate(zero, (sum, p) => sum.Add(p.RealizedUnsettled)),
+            parts.Aggregate(zero, (sum, p) => sum.Add(p.Total)), [..parts.SelectMany(p => p.Rows)]);
     }
     internal static PhysicalLifecycleGeometry PrepareGeometry(IEnumerable<BookedSideProgram> programs,MarketSnapshot snapshot)
     {

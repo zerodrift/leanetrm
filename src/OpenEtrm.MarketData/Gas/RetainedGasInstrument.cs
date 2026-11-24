@@ -29,7 +29,7 @@ public sealed record RetainedGasMember : IRetainedProgramMember
         if (sideId == Guid.Empty || program is null || ratio is null || ratio.Numerator <= 0 ||
             (direction != ExactDecimal.Parse("1") && direction != ExactDecimal.Parse("-1")))
             throw new MarketDataException("gas_membership", "Retained gas members require a program, positive quantity ratio and explicit direction.");
-        if(sourceSlot is < 0 || quantityPolicy is not null && (quantityPolicy != PhysicalLifecycle.SelectedQuantityPolicy || program.Document.Family != "gas") ||
+        if(sourceSlot is < 0 || quantityPolicy is not null && (quantityPolicy != GasHeldQuantities.DeliverySchedulePolicy || program.Document.Family != "gas") ||
             part is not null && (program.Document.Family == "gas" || sourceSlot is null))
             throw new MarketDataException("gas_membership", "A delivery policy belongs to a physical member; a quantity part requires a payment with an explicit physical source.");
         SideId = sideId; Direction = direction; Ratio = ratio; Program = program;
@@ -77,7 +77,7 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
     // and original whole-day delivery-mark policy in its explicit model version.
     public override UnitPricingContract Declare(UnitValuationContext context) => RetainedDeclaration(new(Id,
         (context.BindingState is PhysicalCashState ? PhysicalCashState.Policy + "/" : "") +
-        (Members.Any(m => m.QuantityPolicy is not null) ? PhysicalLifecycle.SelectedQuantityPolicy + "/" : "") +
+        (Members.Select(m => m.QuantityPolicy).FirstOrDefault(p => p is not null) is {} policy ? policy + "/" : "") +
         (Members.Any(m => PhysicalLifecycle.ReadsDeliveryMarks(m.Program)) ? PeriodPriceSelector.DeliveryMarkPolicy + "/" : "")+"retained_gas_side_pv_v3",
         PhysicalLifecycle.PriceDependencies(Members.Select(member => member.Program), PriceLookups, context.Snapshot),
         UnitQuantity.Specification, Currency) { Time = ValuationTimeDependency.Pinned,  ScheduleIdentity = RetainedScheduleIdentity });
@@ -97,13 +97,7 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
         if(context?.BindingState is not PhysicalCashState state)
             throw new MarketDataException(PhysicalLifecycle.ContextRefusal,"Lifecycle valuation requires the held binding's explicit physical cash state.");
         ValidateValuationState(state);
-        var value=EvaluateSides(context);var zero=ExactMoney.Parse("0",Currency);
-        var parts=value.Sides.Select((side,slot)=>PhysicalLifecycle.Scale(((RetainedProgramValuation)side.Value).Lifecycle??
-            throw new MarketDataException(PhysicalLifecycle.ContextRefusal,"Each retained Side must own its lifecycle values."),
-            new SignedRatio(state.Quantity.Amount.ScaledValue,ExactDecimal.WorkingScale)*new SignedRatio(side.Coefficient.ScaledValue,ExactDecimal.WorkingScale)*
-            new SignedRatio(side.QuantityRatio.Numerator,side.QuantityRatio.Denominator))).ToArray();
-        return new(parts.Aggregate(zero,(sum,p)=>sum.Add(p.Unrealized)),parts.Aggregate(zero,(sum,p)=>sum.Add(p.RealizedUnsettled)),
-            parts.Aggregate(zero,(sum,p)=>sum.Add(p.Total)),[..parts.SelectMany(p=>p.Rows)]);
+        return PhysicalLifecycle.FromValuation(EvaluateSides(context));
     }
     public override ExactMoney Value(UnitValuationContext context)
     {

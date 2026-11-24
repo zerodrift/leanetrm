@@ -24,8 +24,10 @@ def run_checks(url,query,manifest,run_worker):
               'quantityPolicy':'delivery_schedule_v1','calendarPolicy':side_calendar_policy(calendar,delivery=True,observation=False,payment=False)}],
           'cashSides':[{'code':'payment','role':'consideration','direction':'pay','source':'delivery','stage':'delivery','price':'3','tariffCode':None,
               'paymentAt':'2021-02-02T00:00:00Z','calendarPolicy':side_calendar_policy(calendar,delivery=True,observation=False,payment=True)}]}
+    preview=c.call('gas/composition/preview',body)
     booked=c.call('gas/composition/book',body)
     assert c.call('gas/composition/book',body)==booked
+    initial_route_checks(c,before,booked,preview)
     cat=manifest['catalogId'];trade=booked['tradeId'];instrument=booked['instrumentId']
     terms=json.loads(query(f"SELECT jsonb_agg(jsonb_build_object('slot',slot,'policy',quantity_policy) ORDER BY slot) FROM trading.gas_component_terms WHERE instrument_id='{instrument}';"))
     assert terms==[{'slot':0,'policy':'delivery_schedule_v1'},{'slot':1,'policy':None}],terms
@@ -65,6 +67,30 @@ def run_checks(url,query,manifest,run_worker):
     print('PASS delivery quantity storage: explicit booking policy, replay, linked refusal, native heads and earlier knowledge cutoff',flush=True)
     usage_fee_checks(c,body,after)
     return dict(tradeId=trade,instrumentId=instrument,snapshotId=after['snapshotId'],tradeReference=query(f"SELECT reference_number FROM trading.trade_references WHERE trade_id='{trade}';"))
+
+
+def initial_route_checks(c,context,booked,preview):
+    from check_portfolio_risk import VIEW
+    trade=booked['tradeId']
+    read=c.call('gas/composition/editor',dict(context=context,tradeId=trade))['valuation']
+    expected=[Fraction(12800),Fraction(-12000)]
+    assert [Fraction(s['presentValue']) for s in preview['sides']]==expected
+    assert [Fraction(s['presentValue']) for s in read['sides']]==expected
+    assert Fraction(preview['presentValue'])==Fraction(read['presentValue'])==800
+    shared={**context,'convention':'trading_workspace_v1'}
+    blotter=c.call('trading/blotter',dict(context=shared,view=VIEW))
+    assert Fraction(next(h for h in blotter['holdings'] if h['tradeId']==trade)['presentValue'])==800
+    c.call('profile',{'profile':'risk'})
+    scope=dict(context=shared,bookIds=[],portfolioIds=[],tradeIds=[trade])
+    catalog=c.call('portfolio/risk/catalog',scope)
+    result=c.call('portfolio/risk',{**scope,'context':{**shared,'knowledgeMode':'retained','contextId':catalog['context']['contextId']},
+        'detail':'holdings','convention':catalog['convention'],'numericalPolicy':catalog['numericalPolicy'],
+        'pricingPolicy':catalog['pricingPolicy'],'stress':[],
+        'bumps':[dict(factor=f['factor'],size='0.1',convention=catalog['bumpConvention']) for f in catalog['factors'][:16]]})
+    assert result['factors']
+    assert all(Fraction(p['values']['base'])==800 for f in result['factors'] for p in f['positions'])
+    c.call('profile',{'profile':'trader'})
+    print('PASS gas route baseline: preview and retained Side amounts, editor, Blotter and risk agree before operational records',flush=True)
 
 
 def legacy_ticket_replay(c,query,manifest,context,body,booked):

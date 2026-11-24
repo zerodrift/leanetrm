@@ -176,6 +176,14 @@ public sealed record RetainedProgramValuation : SideValuation
         BookedSideEvaluation execution, PhysicalLifecycleValue? lifecycle)
         : base(schedule, context, lifecycle?.Total ?? execution.PresentValue)
     { Execution = execution; Lifecycle = lifecycle; }
+    public SideViewInput ViewInput(string code, ExactDecimal scale, SignedRatio coefficient,
+        ImmutableArray<(string Column,ScheduleViewMeasure Measure)> columns)
+    {
+        ImmutableDictionary<DateOnly,EntryDayQuantity>? selected = null;
+        if(Context.RetainedPrograms is { Occurrence: {} occurrence, EntryDays.IsDefault: false } inputs && !inputs.EntryDays[occurrence.Slot].IsDefault)
+            selected = inputs.EntryDays[occurrence.Slot].ToImmutableDictionary(d => d.Day);
+        return new(code, Execution, ((RetainedProgramSchedule)Schedule).Program, scale, coefficient, columns, FollowedDays: selected);
+    }
     public override SideScheduleSnapshot InspectSchedule(string manifest, ExactDecimal scale, SignedRatio coefficient, Func<DateOnly, DateTimeOffset> boundary)
     {
         var program = ((RetainedProgramSchedule)Schedule).Program;
@@ -184,10 +192,7 @@ public sealed record RetainedProgramValuation : SideValuation
         if(Lifecycle is null) return SideScheduleSnapshot.FromProgramValue(this, Execution, program, manifest, scale, coefficient, boundary);
         var factor = new SignedRatio(scale.ScaledValue, ExactDecimal.WorkingScale) * coefficient;
         var rows = PhysicalLifecycle.Scale(Lifecycle, factor).Rows;
-        ImmutableDictionary<DateOnly,EntryDayQuantity>? selected = null;
-        if(Context.RetainedPrograms is { Occurrence: {} occurrence, EntryDays.IsDefault: false } inputs && !inputs.EntryDays[occurrence.Slot].IsDefault)
-            selected = inputs.EntryDays[occurrence.Slot].ToImmutableDictionary(d => d.Day);
-        return SideScheduleSnapshot.FromLifecycle(SideId, Snapshot.Id, new(SideId.ToString(), Execution, program, scale, coefficient, [],FollowedDays:selected),
+        return SideScheduleSnapshot.FromLifecycle(SideId, Snapshot.Id, ViewInput(SideId.ToString(), scale, coefficient, []),
             rows, ImmutableDictionary<int, ExactMoney>.Empty, boundary);
     }
 }
