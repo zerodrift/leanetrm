@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Gas;
+using OpenEtrm.MarketData.Options;
 using OpenEtrm.MarketData.Trading;
 using OpenEtrm.Shared.Numerics;
 
@@ -64,19 +65,108 @@ internal static class GasCompositionPricingChecks
         Refused(() => Compose(physical, payment with { Share = null }));
         Refused(() => Compose(physical with { QuantityPolicy = "unknown_v1" }, payment));
         Refused(() => new GasCompositionInstrument(Guid.NewGuid(), [physical with { QuantityPolicy = "delivery_schedule_v1" }, linked], [payment]));
-        Console.WriteLine("PASS gas composition pricing: legacy identity, explicit share, partial dates, exact stage scaling, policy/part valuation refusal and side limits");
+        ExerciseRights(f, physical, payment, plain, legacy);
+        Console.WriteLine("PASS gas composition pricing: legacy identity, explicit share, partial dates, exact stage scaling, policy/part valuation refusal, side limits and exercise-right booking");
     }
+    static void ExerciseRights(PricingFixture f, GasPhysicalComponent physical, GasCashComponent payment,
+        GasCompositionInstrument plain, GasCompositionInstrument legacy)
+    {
+        GasCompositionInstrument Book(params GasExerciseRight[] rights) => new(plain.Id, [physical], [payment], [..rights]);
+        var daily = new GasExerciseRight(["delivery", "payment"], ExercisePeriod.DeliveryDay, ExerciseHolder.Us, ExerciseSettlement.Physical, 24);
+        var booked = Book(daily);
+        var saved = booked.ResolveRights().Single();
+        Require(saved.Ordinal == 0 && saved.Slots.SequenceEqual([0, 1]) && saved.Period == ExercisePeriod.DeliveryDay &&
+            saved.Holder == ExerciseHolder.Us && saved.Settlement == ExerciseSettlement.Physical &&
+            saved.Model == "spread_call_kirk_lognormal_v1" && saved.DayCount == OptionNumericalPolicies.ActualOver365FixedInstant &&
+            saved.Groups.SequenceEqual([
+                new(new(2041, 1, 1), new(2041, 1, 2), Utc(2040, 12, 31, 6)),
+                new(new(2041, 1, 2), new(2041, 1, 3), Utc(2041, 1, 1, 6)),
+                new(new(2041, 1, 3), new(2041, 1, 4), Utc(2041, 1, 2, 6))]),
+            "A daily purchase right resolves signed memberships to their three own gas-day starts minus the explicit lead.");
+        Refused(() => booked.PV(f.Context));
+        Refused(() => booked.GenerateSchedule().Evaluate(f.Context));
+        Require(Book().ResolveRights().IsEmpty && new GasCompositionInstrument(legacy.Id, legacy.Physical, legacy.Cash, []).EconomicIdentity.Canonical == LegacyIdentity,
+            "Explicitly empty rights preserve the same canonical fixture as an omitted right.");
+        Require(new[] { plain, booked, Book(daily with { Holder = ExerciseHolder.Counterparty }), Book(daily with { LeadHours = 0 }),
+            Book(daily with { Entries = ["delivery"] }) }.Select(i => i.EconomicIdentity).Distinct().Count() == 5,
+            "Booking identity distinguishes the right, its holder, lead and selected entries.");
+
+        var crossing = new PricingFixture(initialDay: 29);
+        var crossPhysical = physical with { Side = crossing.Physical() };
+        var crossPayment = payment with { Side = crossing.Cash(crossing.From, crossing.To) };
+        var month = daily with { Period = ExercisePeriod.DeliveryMonth, LeadHours = 0 };
+        var monthly = new GasCompositionInstrument(Guid.NewGuid(), [crossPhysical], [crossPayment], [month]);
+        Require(monthly.ResolveRights().Single().Groups.SequenceEqual([
+            new(new(2041, 1, 30), new(2041, 2, 1), Utc(2041, 1, 30, 6)),
+            new(new(2041, 2, 1), new(2041, 2, 2), Utc(2041, 2, 1, 6))]),
+            "A monthly right has one group in each represented calendar month, including partial months.");
+
+        var earlyClock = GasDayClock.Capture(f.Clock.Key with { Code = "synthetic_early_clock" }, TimeZoneInfo.Utc, 300);
+        var early = physical with { Code = "other", Side = f.Physical(earlyClock) };
+        var earlyCash = payment with { Side = f.Cash(f.From, f.To, clock: earlyClock), Source = early.Code };
+        var twoClocks = new GasCompositionInstrument(Guid.NewGuid(), [physical, early], [earlyCash], [daily]);
+        Require(twoClocks.ResolveRights().Single().Groups[0].ExerciseAt == Utc(2040, 12, 31, 5),
+            "The payment's earlier retained start controls the lead even if its physical source is outside the right.");
+        var twoPhysical = new GasCompositionInstrument(Guid.NewGuid(), [physical, early], [], [daily with { Entries = ["delivery", "other"] }]);
+        Require(twoPhysical.ResolveRights().Single().Groups[0].ExerciseAt == Utc(2040, 12, 31, 5),
+            "Independent equal-quantity physical members are admitted and retain their own boundaries.");
+
+        var gap = TimeZoneInfo.AdjustmentRule.CreateAdjustmentRule(new(2041, 1, 1), new(2041, 12, 31), TimeSpan.FromHours(1),
+            TimeZoneInfo.TransitionTime.CreateFixedDateRule(new DateTime(1, 1, 1, 6, 0, 0), 1, 2),
+            TimeZoneInfo.TransitionTime.CreateFixedDateRule(new DateTime(1, 1, 1, 6, 0, 0), 1, 6));
+        var gapZone = TimeZoneInfo.CreateCustomTimeZone("synthetic_gap", TimeSpan.Zero, "Synthetic gap", "Synthetic standard", "Synthetic summer", [gap]);
+        var gapClock = GasDayClock.Capture(f.Clock.Key with { Code = "synthetic_gap_clock" }, gapZone, 360);
+        Refused(() => new GasCompositionInstrument(Guid.NewGuid(), [physical with { Side = f.Physical(gapClock) }], [],
+            [daily with { Entries = ["delivery"] }]).ResolveRights());
+
+        var automatic = new GasExerciseRight(["indexed", "payment"], ExercisePeriod.DeliveryDay, ExerciseHolder.Us, ExerciseSettlement.CashAutomatic, null);
+        var index = payment with { Code = "indexed", Role = "indexed_consideration", Direction = N("1"), Side = f.IndexedCash() };
+        var cap = new GasCompositionInstrument(Guid.NewGuid(), [physical], [payment, index], [automatic, daily with { Entries = ["delivery"] }]);
+        var rights = cap.ResolveRights();
+        Require(rights[0].Ordinal == 0 && rights[0].Slots.SequenceEqual([2, 1]) && rights[0].Groups.SequenceEqual([
+            new(new(2041, 1, 1), new(2041, 1, 2), Utc(2040, 12, 31, 12)),
+            new(new(2041, 1, 2), new(2041, 1, 3), Utc(2041, 1, 1, 12)),
+            new(new(2041, 1, 3), new(2041, 1, 4), Utc(2041, 1, 2, 12))]) && rights[1].Ordinal == 1,
+            "Cash automatic groups use each day's index fixing and independently claim ordered member slots.");
+        Refused(() => new GasCompositionInstrument(Guid.NewGuid(), [physical], [payment, index],
+            [automatic with { LeadHours = 0 }]).ResolveRights());
+        var monthlyCap = new GasCompositionInstrument(Guid.NewGuid(), [physical], [payment, index], [automatic with { Period = ExercisePeriod.DeliveryMonth }]);
+        Require(monthlyCap.ResolveRights().Single().Groups.SequenceEqual([new(new(2041, 1, 1), new(2041, 1, 4), Utc(2041, 1, 2, 12))]),
+            "An automatic monthly group exercises at its latest actual row fixing.");
+
+        GasExerciseRight[] malformed = [null!, daily with { Entries = default }, daily with { Entries = [] },
+            daily with { Entries = ["delivery", "missing"] }, daily with { Entries = ["delivery", "delivery"] },
+            daily with { Entries = ["delivery", null!] }, daily with { Entries = ["payment"] },
+            daily with { Period = default }, daily with { Holder = default }, daily with { Settlement = default },
+            daily with { LeadHours = null }, daily with { LeadHours = -1 }, daily with { LeadHours = int.MaxValue },
+            daily with { Settlement = ExerciseSettlement.CashAutomatic, LeadHours = null },
+            automatic with { Entries = ["payment"] }];
+        foreach (var right in malformed)
+            Refused(() => Book(right).ResolveRights());
+        Refused(() => Book(daily, daily with { Entries = ["delivery"] }).ResolveRights());
+        Refused(() => new GasCompositionInstrument(Guid.NewGuid(), [physical],
+            [payment with { Side = f.Cash(f.From.AddDays(1), f.To) }], [daily]).ResolveRights());
+        foreach (var (convention, fraction) in new[] { (GasFuelConvention.None, "0"), (GasFuelConvention.NetEqualsGrossTimesOneMinusFuel, "0.02") })
+        {
+            var link = physical with { Code = "linked", Direction = N("-1"), Quantity = null, Link = new("delivery", convention, N(fraction)) };
+            Refused(() => new GasCompositionInstrument(Guid.NewGuid(), [physical, link], [payment], [daily]).ResolveRights());
+        }
+    }
+
+    static DateTimeOffset Utc(int year, int month, int day, int hour) => new(year, month, day, hour, 0, 0, TimeSpan.Zero);
+
     sealed class PricingFixture
     {
-        readonly CommodityLookupFixture f = new(31);
+        readonly CommodityLookupFixture f;
         readonly ImmutableArray<GasValuationAssignment> assignments;
         readonly GasDeliveryLocation location;
         internal DateOnly From { get; }
         internal DateOnly To => From.AddDays(3);
         internal GasDayClock Clock { get; }
         internal SideValuationContext Context { get; }
-        internal PricingFixture()
+        internal PricingFixture(int initialDay = 0)
         {
+            f = new(31 + initialDay);
             var lookups = f.Swap().Floating.GenerateSchedule().Rows[0].Prices.Take(3).Select(p => p.Lookup!).ToArray();
             From = lookups[0].Contract.DeliveryFrom;
             ReferenceKey R(string code) => new(f.Quote.Key.Revision, code);
@@ -89,9 +179,18 @@ internal static class GasCompositionPricingChecks
             var market = f.Model.Build(snapshot, Physical().DependenciesAt(snapshot));
             Context = SideValuationContext.ForPhysicalGas(market, market, new ExplicitDiscounting(N("1"), DiscountFactorSource.Undiscounted), assignments);
         }
-        internal PhysicalGasSide Physical() => new(Guid.NewGuid(), location, assignments[0].Product,
-            new(Clock, From, To, GasQuantityBasis.PerOperatingDay, new(N("1"), f.Quote.Quantity), GasFuelConvention.None, default),
+        internal PhysicalGasSide Physical(GasDayClock? clock = null) => new(Guid.NewGuid(), location, assignments[0].Product,
+            new(clock ?? Clock, From, To, GasQuantityBasis.PerOperatingDay, new(N("1"), f.Quote.Quantity), GasFuelConvention.None, default),
             assignments, SyntheticSideCalendars.Physical());
+        internal FloatingSide IndexedCash()
+        {
+            ImmutableArray<FloatingSidePeriod> periods = [..assignments.Select(a => new FloatingSidePeriod(a.From, a.To,
+                a.Fixing!.FixingAt, Clock.Boundary(To).AddDays(2), FloatingAveraging.CalendarDayArithmetic, [a.Projection], [a.Fixing],
+                null, new(default, f.Quote), null, null, ExactRatio.One, FloatingSide.DeliveryIndexImplementation)
+                { DeliveryCompletionAt = Clock.Boundary(a.To) })];
+            return new(Guid.NewGuid(), f.Quote, Physical().UnitQuantity, periods, FloatingSide.DeliveryIndexImplementation,
+                SyntheticSideCalendars.FloatingPeriods(periods), gasDeliveryClock: Clock);
+        }
         internal FixedSide Cash(DateOnly from, DateOnly to, int? allocation = null, GasDayClock? clock = null)
         {
             clock ??= Clock;
