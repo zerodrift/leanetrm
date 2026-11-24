@@ -31,7 +31,7 @@ internal static class GasTicketChecks
 
     public static void Run()
     {
-        var passed = 0;
+        var passed = GasIndexCashChecks.Run();
         void Check(string name, Action check) { check(); passed++; Console.WriteLine($"PASS {name}"); }
         void Reject(string name, TicketDraft draft)
         {
