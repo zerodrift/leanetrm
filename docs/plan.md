@@ -2144,7 +2144,7 @@ Extend only after the baseline contracts are demonstrated:
 - Additional option exercise and settlement styles, volatility shocks and
   nonlinear model diagnostics beyond the listed futures and heat-rate call profiles.
   For listed futures options, European exercise, an expiry on the underlying's last
-  trading day and a margined premium are designed and not built (draft D446,
+  trading day and a margined premium are designed and not built (D446,
   [design](superpowers/specs/2026-11-23-futures-option-styles-design.md)).
 - Option strategies beyond one expiry (D409 analyses and draws legs of one
   expiry on one underlying future). Strategies across expiries need a declared

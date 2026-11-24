@@ -1,9 +1,9 @@
 # Futures option styles: European exercise, expiry on the underlying's last day, margined premium
 
-Status: design dated 2026-11-23. The owner chose the scope and the approaches on
-2026-11-23; this document awaits the owner's approval. Nothing here is implemented.
-The draft decision is D446 in [decisions](../../decisions.md); its number is
-provisional until the branch merges.
+Status: design dated 2026-11-23, approved by the owner on 2026-11-23. Nothing here
+is implemented. The decision is D446 in [decisions](../../decisions.md); its number
+is provisional until the branch merges. Each piece has its own task plan in
+[plans](../plans/).
 
 ## Intent
 
@@ -155,7 +155,8 @@ Calls made by the designer and shown to the owner with the approaches:
   confirmed against a clearing house's own description before a real product
   cites it.
 
-Calls made after an independent read of this document, for the owner to check:
+Calls made after an independent read of this document, accepted by the owner with
+the document:
 
 - A margined option's journal always reads as if recorded in business-time order.
   A close recorded late restates the margin struck after it, instead of closing
