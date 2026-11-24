@@ -5,7 +5,7 @@ POINT='synthetic_quantity_point'
 CURVE='synthetic_quantity_location'
 
 
-def add_fixture(reference,market,security,manifest):
+def add_fixture(reference,market,security,manifest,*,price='3.20'):
     guarded=lambda table,sql:f"DO $fixture$ BEGIN IF to_regclass('{table}') IS NOT NULL THEN {sql} END IF;END$fixture$;"
     refs=[f"INSERT INTO ref_data.locations VALUES({R},'{POINT}','Synthetic quantity delivery point','test_delivery_point','test_utc');",
           f"INSERT INTO ref_data.commodity_locations VALUES({R},'test_gas','{POINT}');",
@@ -22,7 +22,7 @@ def add_fixture(reference,market,security,manifest):
     for index,frame in enumerate(manifest['frames']):
         frame['observationIds']=list(frame['observationIds']);frame['curveContracts']={**frame['curveContracts'],CURVE:[cid]}
         oid=identity('7',9450000+index*10);frame['observationIds'].append(oid)
-        observations.append(f"INSERT INTO market_data.observations VALUES('{CAT}','{oid}','{REV}','{sid}',{R},'fixture','synthetic_quantity_{index}_0','1','trader_mark','final','{frame['at']}',CURRENT_TIMESTAMP,3.20,NULL);")
+        observations.append(f"INSERT INTO market_data.observations VALUES('{CAT}','{oid}','{REV}','{sid}',{R},'fixture','synthetic_quantity_{index}_0','1','trader_mark','final','{frame['at']}',CURRENT_TIMESTAMP,{price},NULL);")
     market=market.replace('UPDATE ref_data.revisions SET','\n'.join(refs)+'\nUPDATE ref_data.revisions SET',1)
     market=market.replace('UPDATE market_data.revisions SET','\n'.join(definitions)+'\nUPDATE market_data.revisions SET',1)
     market=market.rsplit('COMMIT;',1)[0]+'\n'.join(observations)+'\nCOMMIT;\n'

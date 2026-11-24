@@ -40,6 +40,24 @@ internal static class GasTicketChecks
         }
         void Equal(object? expected, object? actual, string what) { if (!Equals(expected, actual)) throw new Exception($"{what}: expected '{expected}', got '{actual}'."); }
         var full = Draft(Receipt, Linked, Cash, Fee);
+        Check("payment entry terms round trip without changing absent legacy keys",()=>{
+            var json=new JsonSerializerOptions(JsonSerializerDefaults.Web);
+            var original=Map(Draft(Receipt,Cash)).CashSides[0];
+            var terms=original with{Share="1.05",Part=new GasQuantityPartRequest("band","8000",null),DeliveryFrom="2027-01-02",DeliveryTo="2027-01-04"};
+            Equal(terms,JsonSerializer.Deserialize<GasCashRequest>(JsonSerializer.Serialize(terms,json),json),"entry round trip");
+            var plain=JsonDocument.Parse(JsonSerializer.Serialize(original with{Share="1",Part=null,DeliveryFrom=null,DeliveryTo=null},json)).RootElement;
+            Equal("1",plain.GetProperty("share").GetString(),"explicit share");
+            foreach(var key in new[]{"part","deliveryFrom","deliveryTo"})Equal(false,plain.TryGetProperty(key,out _),"absent "+key);
+        });
+        Check("entry decimal input refuses unsupported precision with the booking code",()=>{
+            foreach(var text in new[]{"0","-1","0.1234567890123456789","not-a-number"})
+            {
+                try{GasCompositionStore.PaymentShare(text);}
+                catch(MarketDataException error)when(error.Code=="gas_composition_input"){continue;}
+                throw new Exception("Invalid share must refuse with gas_composition_input.");
+            }
+            Equal(ExactDecimal.Parse("1.000000000000000001"),GasCompositionStore.PaymentShare("1.000000000000000001"),"exact share precision");
+        });
         Check("delivery quantity policy is explicit, proposed visibly, and reopened unchanged",()=>{
             ImmutableArray<TicketChoice> choices=[new("contract","Contract quantity"),new("delivery_schedule_v1","Delivery schedule")];
             Equal("delivery_schedule_v1",GasTicket.ChoiceSet(Draft(Receipt),Receipt.Code,"quantity_policy",choices).StartingValue!.Value,"visible suggestion");
@@ -243,8 +261,8 @@ internal static class GasTicketChecks
             Equal(new GasPhysicalRequest("RCT", "PIPE", "Z1", "P1", "firm", "receive", "2027-01-01", "2027-02-01", "per_operating_day", "10000", null){CalendarPolicy=Policy("physical")}, p, "receipt side");
             var l = r.PhysicalSides[1];
             Equal(new GasQuantityLinkRequest("RCT", "gross_less_fraction", "0.02"), l.Link, "link"); Equal(null, l.Quantity, "linked quantity");
-            Equal(new GasCashRequest("PAY", "consideration", "pay", "RCT", "receipt", "2.5", null, "2027-03-01T00:00:00Z"){CalendarPolicy=Policy("cash")}, r.CashSides[0], "cash side");
-            Equal(new GasCashRequest("FEE", "fee", "pay", "DLV", "delivery", null, "TARIFF", "2027-03-01T00:00:00Z"){CalendarPolicy=Policy("fee")}, r.CashSides[1], "fee side");
+            Equal(new GasCashRequest("PAY", "consideration", "pay", "RCT", "receipt", "2.5", null, "2027-03-01T00:00:00Z"){CalendarPolicy=Policy("cash"),Share="1"}, r.CashSides[0], "cash side");
+            Equal(new GasCashRequest("FEE", "fee", "pay", "DLV", "delivery", null, "TARIFF", "2027-03-01T00:00:00Z"){CalendarPolicy=Policy("fee"),Share="1"}, r.CashSides[1], "fee side");
         });
         Check("an exact forecast source survives ticket mapping and reopening",()=>
         {

@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Numerics;
+using OpenEtrm.Shared.Numerics;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -42,10 +44,13 @@ public sealed class GasCashBillingStore(PreviewDatabase database)
         return await PreviewDatabase.Rows(c, """
             SELECT row_to_json(x)::text FROM(
             SELECT r.revision,r.instrument_id,m.slot,m.code,m.role,m.stage,m.direction,m.price::text,m.payment_at,o.id obligation_id,
+            m.share_n::text,m.share_d::text,m.part_kind,m.delivery_from,m.delivery_to,source.delivery_from source_from,source.delivery_to source_to,
             q.catalog_id reference_catalog_id,q.revision_id reference_revision_id,q.quantity_code,q.currency_code,q.multiplier::text,cur.display_minor_units
             FROM(SELECT * FROM trading.gas_trade_revisions WHERE(catalog_id,trade_id)=($1,$2) OFFSET 0)r
             CROSS JOIN LATERAL(SELECT * FROM trading.gas_component_terms
-                WHERE(catalog_id,instrument_id)=(r.catalog_id,r.instrument_id) AND role IN('consideration','fee') OFFSET 0)m
+                WHERE(catalog_id,instrument_id)=(r.catalog_id,r.instrument_id) AND role IN('consideration','fee','indexed_consideration') OFFSET 0)m
+            CROSS JOIN LATERAL(SELECT * FROM trading.gas_component_terms
+                WHERE(catalog_id,instrument_id,slot)=(m.catalog_id,m.instrument_id,m.source_slot) OFFSET 0)source
             CROSS JOIN LATERAL(SELECT * FROM trading.gas_delivery_obligations
                 WHERE(catalog_id,instrument_id,slot)=(m.catalog_id,m.instrument_id,m.source_slot) OFFSET 0)o
             CROSS JOIN LATERAL(SELECT * FROM market_data.gas_valuation_assignments
@@ -59,6 +64,10 @@ public sealed class GasCashBillingStore(PreviewDatabase database)
             ORDER BY m.slot)x
             """, [database.Manifest.CatalogId, trade], ct);
     }
+    static bool SupportedEntry(JsonElement row)=>GasCashBilling.SupportsEntry(
+        new ExactRatio(BigInteger.Parse(row.Text("share_n")),BigInteger.Parse(row.Text("share_d"))),row.OptionalText("part_kind") is not null,
+        DateWorkspace.Date(row.Text("delivery_from")),DateWorkspace.Date(row.Text("delivery_to")),DateWorkspace.Date(row.Text("source_from")),DateWorkspace.Date(row.Text("source_to")));
+
     async Task<ImmutableArray<JsonElement>> History(NpgsqlConnection c, Guid trade, CancellationToken ct) =>
         await PreviewDatabase.Rows(c, """
             SELECT (to_jsonb(d)||jsonb_build_object('rounded_total',trim_scale(d.rounded_total)::text,
@@ -74,9 +83,9 @@ public sealed class GasCashBillingStore(PreviewDatabase database)
         {
             cashSlot = Int(m, "slot"), code = m.Text("code"), role = m.Text("role"), stage = m.Text("stage"),
             sideCode = d.SideCode, day = d.Contract.Day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-            d.Contract.Start, d.Contract.End, price = m.Text("price"), currency = m.Text("currency_code"),
+            d.Contract.Start, d.Contract.End, price = m.OptionalText("price"), currency = m.Text("currency_code"),
             decimalPlaces = Int(m, "display_minor_units"), direction = Int(m, "direction"),
-            supported = m.Text("stage") == "delivery", completed = frame.At >= d.Contract.End
+            supported = m.Text("stage") == "delivery" && m.Text("role")!="indexed_consideration" && SupportedEntry(m), completed = frame.At >= d.Contract.End
         })).ToArray();
         return new { body.TradeId, expectedRevision = Int(selection.Header, "revision"), claims,
             determinations = await History(c, body.TradeId, ct),
@@ -93,7 +102,9 @@ public sealed class GasCashBillingStore(PreviewDatabase database)
             request.SelectionPolicy is not (GasDailyQuantitySelection.BillingPolicy or GasDailyQuantitySelection.FacilityBillingPolicy))
             throw Error("gas_billing_policy", "Select explicit final quantity, daily fixed cash and currency-rounding policies.");
         var component = (await Components(c, request.TradeId, ct)).SingleOrDefault(m => Int(m, "slot") == request.CashSlot);
-        if (component.ValueKind != JsonValueKind.Object || component.Text("stage") != "delivery")
+        if(component.ValueKind==JsonValueKind.Object&&!SupportedEntry(component))
+            throw Error("gas_billing_input","This billing profile requires a whole, full-term payment with share one.");
+        if (component.ValueKind != JsonValueKind.Object || component.Text("stage") != "delivery" || component.Text("role")=="indexed_consideration")
             throw Error("gas_billing_profile", "This profile bills a retained fixed-price delivery component. Receipt and fuel stages require another qualified profile.");
         if (Int(component, "revision") != request.ExpectedRevision)
             throw Error("gas_billing_conflict", "Refresh the current booked revision.");

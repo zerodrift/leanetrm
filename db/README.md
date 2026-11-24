@@ -21,6 +21,10 @@ application. See [current implementation](../docs/implementation.md) and
 
 Recent schema groups and their contracts:
 
+- [0391](migrations/0391_gas_pricing_entries.sql) stores exact gas payment shares,
+  quantity parts and delivery dates, admits named daily and monthly index payments,
+  and restricts daily fixed billing to whole, full-term payments with share one.
+  Predecessor function definitions and privileges are pinned before patching.
 - [0390](migrations/0390_gas_delivery_quantity_valuation.sql) adds the optional
   `delivery_schedule_v1` quantity policy to independent physical gas component
   terms; composition booking accepts it and refuses it beside any quantity link.

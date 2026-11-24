@@ -19,7 +19,7 @@ def run_checks(url,query,manifest,run_worker):
         'gasSetupId':catalog['gasSetupId'],'discounting':False,'profile':'fixed_gas_composition_v1',
         'physicalSides':[dict(code='gas',pipeline=path['pipeline'],zone=path['zone'],deliveryPoint=path['deliveryPoint'],product=path['product'],direction='receive',
             deliveryFrom='2021-01-01',deliveryTo='2021-03-01',quantityBasis='per_operating_day',quantity='100',link=None,calendarPolicy=side_calendar_policy(reference,delivery=True,observation=False,payment=False))],
-        'cashSides':[dict(code='payment',role='consideration',direction='pay',source='gas',stage='delivery',price='3',tariffCode=None,paymentAt='2021-03-02T00:00:00Z',calendarPolicy=side_calendar_policy(reference,delivery=True,observation=False,payment=True))]}
+        'cashSides':[dict(code='payment',role='consideration',share='1',direction='pay',source='gas',stage='delivery',price='3',tariffCode=None,paymentAt='2021-03-02T00:00:00Z',calendarPolicy=side_calendar_policy(reference,delivery=True,observation=False,payment=True))]}
     saved=c.call('gas/composition/book',terms)
     trade=saved['tradeId']
     original=query(f"SELECT jsonb_build_array(to_jsonb(t),to_jsonb(f),to_jsonb(r))::text FROM trading.trades t JOIN trading.booking_facts f ON(f.catalog_id,f.trade_id)=(t.catalog_id,t.id) JOIN trading.gas_trade_revisions r ON(r.catalog_id,r.trade_id,r.revision)=(t.catalog_id,t.id,1) WHERE t.id='{trade}';")

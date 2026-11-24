@@ -115,7 +115,7 @@ def run_checks(url, query, manifest):
             check_confirmation_agreements(c,query,manifest,command)
     terms={**before,**trade_booking(),'operationId':str(uuid4()),'bookId':catalog['books'][0]['id'],'definitionRevisionId':point['definitionRevisionId'],'gasSetupId':catalog['gasSetupId'],'discounting':False,'profile':'fixed_gas_composition_v1',
       'physicalSides':[{'code':'receipt','pipeline':point['pipeline'],'zone':point['zone'],'deliveryPoint':point['deliveryPoint'],'product':point['product'],'direction':'receive','deliveryFrom':'2021-01-01','deliveryTo':'2021-01-03','quantityBasis':'per_operating_day','quantity':'100','link':None,'calendarPolicy':side_calendar_policy(reference,delivery=True,observation=False,payment=False)}],
-      'cashSides':[{'code':'payment','role':'consideration','direction':'pay','source':'receipt','stage':'delivery','price':'3','tariffCode':None,'paymentAt':'2021-02-02T00:00:00Z','calendarPolicy':side_calendar_policy(reference,delivery=True,observation=False,payment=True)}]}
+      'cashSides':[{'code':'payment','role':'consideration','share':'1','direction':'pay','source':'receipt','stage':'delivery','price':'3','tariffCode':None,'paymentAt':'2021-02-02T00:00:00Z','calendarPolicy':side_calendar_policy(reference,delivery=True,observation=False,payment=True)}]}
     booked=[c.call('gas/composition/book',{**terms,'operationId':str(uuid4())}) for _ in range(2)]
     trades=[b['tradeId'] for b in booked];day='2021-01-01'
     obligations=[c.call('gas/quantities/read',dict(context=after,tradeId=t,selectionPolicy='operational_projection_v1'))['rows'][0]['obligationId'] for t in trades]

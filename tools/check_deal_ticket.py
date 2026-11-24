@@ -128,7 +128,7 @@ def run_checks(url,query,manifest):
     c.call('tickets/description',{'context':context,'product':'power'},expected=422)
     p=next(p for p in cat['locations'] if p['deliveryPoint']=='synthetic_gas_point_a')
     reference=dict(revision=dict(catalogId=RCAT,revisionId=RREV),code='test_utc_every_day')
-    cash=lambda code,role,direction,price:{'code':code,'role':role,'direction':direction,'source':'physical','stage':'delivery','price':price,'tariffCode':None,'paymentAt':'2021-02-05T00:00:00Z','calendarPolicy':side_calendar_policy(reference,delivery=True,observation=False,payment=True)}
+    cash=lambda code,role,direction,price:{'code':code,'role':role,'share':'1','direction':direction,'source':'physical','stage':'delivery','price':price,'tariffCode':None,'paymentAt':'2021-02-05T00:00:00Z','calendarPolicy':side_calendar_policy(reference,delivery=True,observation=False,payment=True)}
     body={**context,**trade_booking(),'operationId':str(uuid4()),'bookId':cat['books'][0]['id'],'definitionRevisionId':p['definitionRevisionId'],
           'gasSetupId':cat['gasSetupId'],'discounting':False,'profile':'fixed_gas_composition_v1',
           'physicalSides':[{'code':'physical','pipeline':p['pipeline'],'zone':p['zone'],'deliveryPoint':p['deliveryPoint'],'product':p['product'],'direction':'deliver',

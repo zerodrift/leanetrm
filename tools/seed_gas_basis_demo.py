@@ -32,7 +32,7 @@ def seed(url, run_id, owned_root):
              'gasSetupId': catalog['gasSetupId'], 'discounting': False, 'profile': 'fixed_gas_composition_v1',
              'physicalSides': [dict(code='gas', pipeline=point['pipeline'], zone=point['zone'], deliveryPoint=point['deliveryPoint'], product=point['product'],
                                     direction='receive', deliveryFrom='2021-01-01', deliveryTo='2021-01-02', quantityBasis='per_operating_day', quantity='100', link=None, calendarPolicy=side_calendar_policy(reference,delivery=True,observation=False,payment=False))],
-             'cashSides': [dict(code='payment', role='consideration', direction='pay', source='gas', stage='delivery', price='3', tariffCode=None, paymentAt='2021-02-02T00:00:00Z', calendarPolicy=side_calendar_policy(reference,delivery=True,observation=False,payment=True))]}
+             'cashSides': [dict(code='payment', role='consideration',share='1', direction='pay', source='gas', stage='delivery', price='3', tariffCode=None, paymentAt='2021-02-02T00:00:00Z', calendarPolicy=side_calendar_policy(reference,delivery=True,observation=False,payment=True))]}
     books=(BOOKS[0],BOOKS[1],BOOKS[0])
     parties=('d5000000-0000-0000-0000-000000000001','d5000000-0000-0000-0000-000000000002','d5000000-0000-0000-0000-000000000002')
     if not set(books)<={b['id'] for b in catalog['books']} or not set(parties)<={p['id'] for p in catalog['counterparties'] if p['revision']==1}:

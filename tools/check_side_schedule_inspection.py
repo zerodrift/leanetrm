@@ -115,11 +115,13 @@ def run_checks(url,query,manifest,saved):
     assert pinned_directory['contextId']==ticket['context']['contextId'] and ticket['snapshotId']==frame['id']
     later=next(f for f in c.call('workspace')['frames'] if f['at'].startswith('2021-01-15T08:'))
     in_term=deepcopy(body);in_term.update(sideSlot=0);in_term['position']['context']=dict(snapshotId=later['id'],convention='trading_workspace_v1',knowledgeMode='current')
-    # In its term the fixture's ended days have no visible published fixing: the valuation refuses and the
-    # retained plan is shown with the refusal, never a zero or an earlier market.
+    # Named daily cash keeps a labelled forecast until an index is published;
+    # ended physical days leave value while the payment forecast remains unrealized.
     plan=c.call('trading/side-schedules',in_term)['page']
     assert plan['rows'][0]['lifecycle']['delivery']=='Elapsed' and plan['rows'][0]['lifecycle']['fulfillment']=='NotTracked'
-    assert all(r['presentValue'] is None and r['lifecycle']['unavailableReason']=='index_fixing_missing' for r in plan['rows'])
+    assert all(r['lifecycle']['unavailableReason'] is None for r in plan['rows'])
+    cash_plan=c.call('trading/side-schedules',{**in_term,'sideSlot':1})['page']
+    assert all('Projected' in r['priceStates'] and r['lifecycle']['unavailableReason'] is None for r in cash_plan['rows']),cash_plan
     assert Fraction(c.call('trading/side-schedules',body)['page']['rows'][0]['presentValue'])==-302
     for bad in [{**body,'sideSlot':99},{**body,'limit':129},{**body,'contribution':'0:0'},
                 {**body,'position':{**position,'revision':1}},{**body,'position':{**position,'bindingId':str(uuid4())}}]:

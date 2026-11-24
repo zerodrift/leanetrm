@@ -7,6 +7,12 @@ internal static class GasCashBillingChecks
 {
     internal static void Run()
     {
+        var from=new DateOnly(2021,1,1);var to=from.AddDays(3);
+        if(!GasCashBilling.SupportsEntry(ExactRatio.One,false,from,to,from,to)||
+           GasCashBilling.SupportsEntry(new(21,20),false,from,to,from,to)||
+           GasCashBilling.SupportsEntry(ExactRatio.One,true,from,to,from,to)||
+           GasCashBilling.SupportsEntry(ExactRatio.One,false,from.AddDays(1),to,from,to))
+            throw new Exception("Daily fixed billing admits only whole, full-term, share-one payments.");
         var f = new CommodityLookupFixture(1);
         var start = new DateTimeOffset(2021, 1, 1, 6, 0, 0, TimeSpan.Zero);
         ExactQuantity Q(string value) => ExactQuantity.FromQuantity(new(ExactDecimal.Parse(value), f.Quote.Quantity));

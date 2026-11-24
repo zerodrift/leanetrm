@@ -26,7 +26,7 @@ def run_checks(url, query, manifest, run_worker):
                     'gasSetupId':catalog['gasSetupId'],'discounting':False,'profile':'fixed_gas_composition_v1',
                     'physicalSides':[dict(code='gas',pipeline=path['pipeline'],zone=path['zone'],deliveryPoint=path['deliveryPoint'],product=path['product'],direction=direction,
                         deliveryFrom=start,deliveryTo=end,quantityBasis=basis,quantity=quantity,link=None,calendarPolicy=side_calendar_policy(calendar,delivery=True,observation=False,payment=False))],
-                    'cashSides':[dict(code='payment',role='consideration',direction=cash_direction,source='gas',stage='delivery',price='3',tariffCode=None,paymentAt='2021-03-02T00:00:00Z',calendarPolicy=side_calendar_policy(calendar,delivery=True,observation=False,payment=True))]}
+                    'cashSides':[dict(code='payment',role='consideration',share='1',direction=cash_direction,source='gas',stage='delivery',price='3',tariffCode=None,paymentAt='2021-03-02T00:00:00Z',calendarPolicy=side_calendar_policy(calendar,delivery=True,observation=False,payment=True))]}
                 expected=sign*daily*(jan*Fraction('0.2')+feb*Fraction('0.265'))
                 value=c.call('gas/composition/preview',terms)
                 assert Fraction(value['presentValue'])==expected,(start,end,basis,direction,value)

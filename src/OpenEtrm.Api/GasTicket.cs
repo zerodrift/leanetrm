@@ -153,7 +153,7 @@ public static class GasTicket
   return new(snapshotId,PhysicalGasStore.Convention,knowledgeMode,draft.Sides.Any(s=>s.Kind=="floating")?GasCompositionStore.IndexedProfile:GasCompositionStore.Profile,operationId,Id(t,"book")!.Value,definitionRevisionId,Id(t,"gas_setup"),false,entity,entityRevision,party,partyRevision,
    [..physical.Select(s=>PhysicalRequest(s,Source))],
    [..draft.Sides.Where(s=>s.Kind!=Physical).Select(s=>new GasCashRequest(s.Code,Roles[s.Kind],s.Values[$"{s.Kind}_direction"],Source(s,$"{s.Kind}_source"),s.Values[$"{s.Kind}_stage"],s.Values.GetValueOrDefault($"{s.Kind}_price"),s.Values.GetValueOrDefault($"{s.Kind}_tariff"),s.Values.GetValueOrDefault($"{s.Kind}_payment_at"),
-    s.Kind=="floating"?new(s.Values["floating_index"]=="@location_publications_v1"?null:s.Values["floating_index"],s.Values["floating_index"]=="@location_publications_v1"?"point_publications_v1":GasIndexedCash.Observation,GasIndexedCash.Payment,PaymentDay(s),s.Values["floating_spread"],Forecast(s.Values["floating_forecast_curve"])):null){CalendarPolicy=Calendar(s)})]);
+    s.Kind=="floating"?new(s.Values["floating_index"]=="@location_publications_v1"?null:s.Values["floating_index"],s.Values["floating_index"]=="@location_publications_v1"?"point_publications_v1":GasIndexedCash.Observation,GasIndexedCash.Payment,PaymentDay(s),s.Values["floating_spread"],Forecast(s.Values["floating_forecast_curve"])):null){CalendarPolicy=Calendar(s),Share="1"})]);
  }
 
  static int PaymentDay(TicketSideDraft side)=>int.TryParse(side.Values["floating_payment_day"],NumberStyles.None,CultureInfo.InvariantCulture,out var day)&&day is >=1 and <=28?day:
@@ -254,7 +254,7 @@ public static class GasTicket
   var payment=t.Direction switch{"receive"=>"pay","deliver"=>"receive",_=>throw Bad($"The booked gas direction '{t.Direction}' is neither receive nor deliver.")};
   var fee=t.UsageFee is not null||t.UsageTariffCode is not null;
   if(fee!=(t.UsageFeeDirection is not null)||t.UsageFee is not null&&t.UsageTariffCode is not null)throw Bad("The booked fee needs its direction and exactly one of a price or a tariff.");
-  GasCashRequest Charge(string kind,string direction,string? price,string? tariff)=>new(Code(kind),Roles[kind],direction,Code(Physical),"delivery",price,tariff,t.PaymentAt!){CalendarPolicy=(kind=="fee"?t.FeeCalendarPolicy:t.ConsiderationCalendarPolicy)??throw new MarketDataException("side_calendar_policy","The stored cash Side requires explicit calendar terms.")};
+  GasCashRequest Charge(string kind,string direction,string? price,string? tariff)=>new(Code(kind),Roles[kind],direction,Code(Physical),"delivery",price,tariff,t.PaymentAt!){Share="1",CalendarPolicy=(kind=="fee"?t.FeeCalendarPolicy:t.ConsiderationCalendarPolicy)??throw new MarketDataException("side_calendar_policy","The stored cash Side requires explicit calendar terms.")};
   return new(t.SnapshotId,t.Convention!,t.KnowledgeMode!,GasCompositionStore.Profile,t.OperationId,t.BookId,t.DefinitionRevisionId,t.GasSetupId,t.Discounting,t.LegalEntityId,t.LegalEntityRevision,t.CounterpartyId,t.CounterpartyRevision,
    [new(Code(Physical),t.Pipeline!,t.Zone!,t.DeliveryPoint!,t.Product!,t.Direction,t.DeliveryFrom!,t.DeliveryTo!,t.QuantityBasis!,t.Quantity,null){CalendarPolicy=t.DeliveryCalendarPolicy??throw new MarketDataException("side_calendar_policy","The stored delivery Side requires explicit calendar terms.")}],
    [Charge("cash",payment,t.FixedPrice,null),..fee?[Charge("fee",t.UsageFeeDirection!,t.UsageFee,t.UsageTariffCode)]:Array.Empty<GasCashRequest>()]);

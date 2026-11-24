@@ -44,7 +44,7 @@ def run_checks(url, query, manifest):
                                     deliveryPoint=point['deliveryPoint'], product=point['product'],
                                     direction='receive', deliveryFrom='2021-01-01', deliveryTo='2021-01-02',
                                     quantityBasis='period_total_equal_days', quantity='1000', link=None, calendarPolicy=side_calendar_policy(reference,delivery=True,observation=False,payment=False))],
-             'cashSides': [dict(code='payment', role='consideration', direction='pay', source='receipt',
+             'cashSides': [dict(code='payment', role='consideration',share='1', direction='pay', source='receipt',
                                 stage='delivery', price='3', tariffCode=None, paymentAt='2021-02-02T00:00:00Z',calendarPolicy=side_calendar_policy(reference,delivery=True,observation=False,payment=True))]}
     targets, trades = [], []
     for _ in range(3):

@@ -22,7 +22,7 @@ def run_checks(url,query,manifest,run_worker):
           'physicalSides':[{'code':'delivery','pipeline':point['pipeline'],'zone':point['zone'],'deliveryPoint':point['deliveryPoint'],'product':point['product'],
               'direction':'receive','deliveryFrom':'2021-01-13','deliveryTo':'2021-01-17','quantityBasis':'per_operating_day','quantity':'1000','link':None,
               'quantityPolicy':'delivery_schedule_v1','calendarPolicy':side_calendar_policy(calendar,delivery=True,observation=False,payment=False)}],
-          'cashSides':[{'code':'payment','role':'consideration','direction':'pay','source':'delivery','stage':'delivery','price':'3','tariffCode':None,
+          'cashSides':[{'code':'payment','role':'consideration','share':'1','direction':'pay','source':'delivery','stage':'delivery','price':'3','tariffCode':None,
               'paymentAt':'2021-02-02T00:00:00Z','calendarPolicy':side_calendar_policy(calendar,delivery=True,observation=False,payment=True)}]}
     preview=c.call('gas/composition/preview',body)
     booked=c.call('gas/composition/book',body)
@@ -284,7 +284,7 @@ def worker_scope_checks(c,query,manifest,request,booked,legacy):
 
 
 def usage_fee_checks(c,body,context):
-    fee=deepcopy(body);fee['operationId']=str(uuid4());fee['cashSides'].append({**fee['cashSides'][0],'code':'usage','role':'fee','price':None,'tariffCode':'synthetic_gas_usage_a'})
+    fee=deepcopy(body);fee['operationId']=str(uuid4());fee['cashSides'].append({**fee['cashSides'][0],'code':'usage','role':'fee','share':'1','price':None,'tariffCode':'synthetic_gas_usage_a'})
     booked=c.call('gas/composition/book',fee);trade=booked['tradeId']
     obligation=c.call('gas/quantities/read',dict(context=context,tradeId=trade,selectionPolicy='operational_projection_v1'))['rows'][0]['obligationId']
     for day,kind,status,quantity in [('2021-01-13','allocated','final','980'),('2021-01-14','scheduled','provisional','1050'),('2021-01-15','scheduled','provisional','900')]:
