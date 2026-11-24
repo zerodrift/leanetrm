@@ -14,15 +14,26 @@ public sealed record RetainedGasMember : IRetainedProgramMember
     [IdentityField] public ExactDecimal Direction { get; }
     [IdentityField] public ExactRatio Ratio { get; }
     [IdentityField] public string ProgramDigest { get; }
+    [IdentityField] public int? SourceSlot { get; }
+    [IdentityField] public string? QuantityPolicy { get; }
+    [IdentityField] public QuantityPart? Part { get; }
     ExactDecimal IRetainedProgramMember.ValuationCoefficient => Direction;
     ExactRatio? IRetainedProgramMember.ValuationRatio => Ratio;
+    int? IRetainedProgramMember.ValuationSourceSlot => SourceSlot;
+    string? IRetainedProgramMember.ValuationQuantityPolicy => QuantityPolicy;
+    QuantityPart? IRetainedProgramMember.ValuationPart => Part;
 
-    public RetainedGasMember(Guid sideId, ExactDecimal direction, ExactRatio ratio, BookedSideProgram program)
+    public RetainedGasMember(Guid sideId, ExactDecimal direction, ExactRatio ratio, BookedSideProgram program,
+        int? sourceSlot = null, string? quantityPolicy = null, QuantityPart? part = null)
     {
         if (sideId == Guid.Empty || program is null || ratio is null || ratio.Numerator <= 0 ||
             (direction != ExactDecimal.Parse("1") && direction != ExactDecimal.Parse("-1")))
             throw new MarketDataException("gas_membership", "Retained gas members require a program, positive quantity ratio and explicit direction.");
+        if(sourceSlot is < 0 || quantityPolicy is not null && (quantityPolicy != PhysicalLifecycle.SelectedQuantityPolicy || program.Document.Family != "gas") ||
+            part is not null && (program.Document.Family == "gas" || sourceSlot is null))
+            throw new MarketDataException("gas_membership", "A delivery policy belongs to a physical member; a quantity part requires a payment with an explicit physical source.");
         SideId = sideId; Direction = direction; Ratio = ratio; Program = program;
+        SourceSlot = sourceSlot; QuantityPolicy = quantityPolicy; Part = part;
         ProgramDigest = BookedSideProgram.Digest(program.Write());
     }
 }
@@ -48,6 +59,12 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
             throw new MarketDataException("gas_membership", "Select complete retained physical, fixed or indexed cash programs with their exact compatible assignments.");
         if(priceLookups.IsDefault&&members.Any(m=>m.Program.Document.Instructions.Any(i=>i.Output.Operation==CurvePriceScheduleSource.Operation)))
             throw new MarketDataException("side_market_sources","Bound programs require their exact authorized retained price lookups.");
+        var hasQuantityTerms = members.Any(m => m.QuantityPolicy is not null || m.Part is not null);
+        if(members.Where((m, slot) => hasQuantityTerms
+            ? m.SourceSlot is not {} source || source >= members.Length || members[source].Program.Document.Family != "gas" ||
+                m.Program.Document.Family == "gas" && source != slot
+            : m.SourceSlot is not null).Any())
+            throw new MarketDataException("gas_membership", "Quantity terms require every member's exact physical source; legacy members omit these terms.");
         Members = members; Assignments = assignments.Distinct().ToImmutableArray();
         PriceLookups=priceLookups.IsDefault?[..Assignments.Select(a=>a.Lookup).Distinct()]:priceLookups.Distinct().ToImmutableArray();
     }
@@ -60,7 +77,7 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
     // and original whole-day delivery-mark policy in its explicit model version.
     public override UnitPricingContract Declare(UnitValuationContext context) => RetainedDeclaration(new(Id,
         (context.BindingState is PhysicalCashState ? PhysicalCashState.Policy + "/" : "") +
-        (context.BindingState is PhysicalCashState {QuantityPolicy: {} quantityPolicy}?quantityPolicy+"/":"") +
+        (Members.Any(m => m.QuantityPolicy is not null) ? PhysicalLifecycle.SelectedQuantityPolicy + "/" : "") +
         (Members.Any(m => PhysicalLifecycle.ReadsDeliveryMarks(m.Program)) ? PeriodPriceSelector.DeliveryMarkPolicy + "/" : "")+"retained_gas_side_pv_v3",
         PhysicalLifecycle.PriceDependencies(Members.Select(member => member.Program), PriceLookups, context.Snapshot),
         UnitQuantity.Specification, Currency) { Time = ValuationTimeDependency.Pinned,  ScheduleIdentity = RetainedScheduleIdentity });

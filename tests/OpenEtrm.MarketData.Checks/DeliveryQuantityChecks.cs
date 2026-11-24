@@ -127,14 +127,14 @@ internal static class DeliveryQuantityChecks
 
     static void RetainedRoute()
     {
-        var f=new DeliveryFixture();var at=f.Clock.Boundary(f.From.AddDays(2)).AddHours(1);
+        var f=new DeliveryFixture(follows:true);var at=f.Clock.Boundary(f.From.AddDays(2)).AddHours(1);
         var days=f.Days(("980",PhysicalLifecycle.AllocatedFinalQuantity),("1050",PhysicalLifecycle.ScheduledQuantity),
             ("900",PhysicalLifecycle.ScheduledQuantity),(null,PhysicalLifecycle.ContractQuantity));
         var state=f.State(days);var (prepared,portfolio)=f.Prepare(at,state);
         var context=new UnitValuationContext(prepared.Market.Snapshot,portfolio.Setup,prepared.Market).For(prepared.Contracts[0][0],null,state);
         var value=f.Instrument.EvaluateLifecycle(context);Equal(value.Total,"-5710");Equal(value.RealizedUnsettled,"-6090");Equal(value.Unrealized,"380");
         Require(f.Instrument.Declare(context).ModelVersion.StartsWith(PhysicalCashState.Policy+"/"+PhysicalLifecycle.SelectedQuantityPolicy+"/"),"The retained model names the selected quantity policy.");
-        Require(!f.Instrument.Declare(context.ForCoverage(null,f.State())).ModelVersion.Contains(PhysicalLifecycle.SelectedQuantityPolicy),"Legacy model identity stays unchanged.");
+        Require(!new DeliveryFixture().Instrument.Declare(context.ForCoverage(null,f.State())).ModelVersion.Contains(PhysicalLifecycle.SelectedQuantityPolicy),"Legacy model identity stays unchanged.");
         Reject("physical_lifecycle_quantity",()=>f.Instrument.ValidateValuationState(f.State([..days.Select(d=>d with{Contract=f.Q("999"),
             Selected=d.Source==PhysicalLifecycle.ContractQuantity?f.Q("999"):d.Selected})])));
         Reject("physical_lifecycle_quantity",()=>f.Instrument.ValidateValuationState(f.State([..days.Select(d=>d with{Day=d.Day.AddDays(40)})])));
@@ -216,7 +216,7 @@ internal static class DeliveryQuantityChecks
         internal ReferenceKey Unit=>fixture.Quote.Quantity;
         internal readonly GasQuantityBasis Basis;
         readonly int[]? weights;
-        internal DeliveryFixture(int count=4,GasQuantityBasis basis=GasQuantityBasis.PerOperatingDay,int[]? weights=null)
+        internal DeliveryFixture(int count=4,GasQuantityBasis basis=GasQuantityBasis.PerOperatingDay,int[]? weights=null,bool follows=false)
         {
             Basis=basis;this.weights=weights;
             var lookups=fixture.Swap().Floating.GenerateSchedule().Rows[0].Prices.Take(count).Select(p=>p.Lookup!).ToArray();
@@ -242,8 +242,8 @@ internal static class DeliveryQuantityChecks
                 return BookedSideProgram.Compile(d);
             }
             Programs=[Book(gas),Book(cash)];
-            Instrument=new(Guid.NewGuid(),[new(gas.Id,ExactDecimal.Parse("1"),ExactRatio.One,Programs[0]),
-                new(cash.Id,ExactDecimal.Parse("-1"),ExactRatio.One,Programs[1])],Assignments);
+            Instrument=new(Guid.NewGuid(),[new(gas.Id,ExactDecimal.Parse("1"),ExactRatio.One,Programs[0],follows?0:null,follows?PhysicalLifecycle.SelectedQuantityPolicy:null),
+                new(cash.Id,ExactDecimal.Parse("-1"),ExactRatio.One,Programs[1],follows?0:null)],Assignments);
         }
         internal ExactQuantity Q(string amount)=>ExactQuantity.FromQuantity(new(ExactDecimal.Parse(amount),Unit));
         internal ImmutableArray<HeldDayQuantity> Days(params (string? Selected,string Source)[] values)

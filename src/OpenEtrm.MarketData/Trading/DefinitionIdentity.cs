@@ -74,6 +74,8 @@ public sealed record DefinitionIdentity(string Version, string Digest, string Ca
                     value is Crude.CrudeValuationAssignment { QuantityEquivalence: null }) continue;
                 if(field.Name==nameof(ProfileQuantity.HourlyFactors)&&value is ProfileQuantity profileIdentity&&profileIdentity.HourlyFactors.IsDefaultOrEmpty)continue;
                 var selected=field.GetValue(value);
+                if(selected is null && value is Gas.RetainedGasMember &&
+                    field.Name is nameof(Gas.RetainedGasMember.SourceSlot) or nameof(Gas.RetainedGasMember.QuantityPolicy) or nameof(Gas.RetainedGasMember.Part)) continue;
                 if(field.Name==nameof(FixedSide.OperatingDefinition)&&selected is null&&value is FixedSide or FloatingSide)continue;
                 writer.WritePropertyName(field.Name);Write(writer,selected);
             }

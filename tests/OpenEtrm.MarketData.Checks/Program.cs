@@ -4,6 +4,7 @@ using OpenEtrm.MarketData;
 using OpenEtrm.Security;
 
 if(args is ["--instrument-schedule"]){InstrumentScheduleChecks.Run();return;}
+if(args is ["--gas-instrument-schedule"]){GasInstrumentScheduleChecks.Run();return;}
 if(args is ["--instrument-sides"]){InstrumentSideAlignmentChecks.Run();return;}
 if(args is ["--cash-sides"]){CashSideAlignmentChecks.Run();return;}
 if(args is ["--gas-holding-side"]){GasHoldingSideChecks.Run();return;}
@@ -692,6 +693,7 @@ GasTransportCapacityChecks.Run();passed++;
 GasTransportRouteChecks.Run();passed++;
 InstrumentSideAlignmentChecks.Run();passed++;
 InstrumentScheduleChecks.Run();passed++;
+GasInstrumentScheduleChecks.Run();passed++;
 CashSideAlignmentChecks.Run();passed++;
 GasHoldingSideChecks.Run();passed++;
 GasRightsSideChecks.Run();passed++;

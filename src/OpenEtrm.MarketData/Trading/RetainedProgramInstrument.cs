@@ -11,6 +11,9 @@ public interface IRetainedProgramMember
     string ProgramDigest { get; }
     ExactDecimal ValuationCoefficient { get; }
     ExactRatio? ValuationRatio { get; }
+    int? ValuationSourceSlot { get; }
+    string? ValuationQuantityPolicy { get; }
+    QuantityPart? ValuationPart { get; }
 }
 
 // Published Members remain the canonical contract. Sides are a checked,
