@@ -312,13 +312,17 @@ public static class GasTicket
    var values=side.Values;var old=prior?.Sides.SingleOrDefault(s=>s.Code==side.Code&&s.Kind==side.Kind)?.Values;
    void Restore(string field,string? fallback=null)
    {if(!values.ContainsKey(field)&&(old?.GetValueOrDefault(field)??fallback) is {} value)values=values.Add(field,value);}
-   if(side.Kind==Physical)Restore("quantity_policy","contract");
-   else if(Roles.ContainsKey(side.Kind))
+   if(side.Kind==Physical)
+   {
+    // Contract quantity was absent on the predecessor wire. An explicit saved
+    // delivery policy is a financial choice and must still be stated on retry.
+    if(original is null||original.PhysicalSides.Any(p=>p.Code==side.Code&&p.QuantityPolicy is null))Restore("quantity_policy","contract");
+   }
+   else if(Roles.ContainsKey(side.Kind)&&original?.CashSides.SingleOrDefault(c=>c.Code==side.Code) is {Share:null,Part:null,DeliveryFrom:null,DeliveryTo:null})
    {
     var owner=draft.Sides.SingleOrDefault(s=>s.Kind==Physical&&s.Code==values.GetValueOrDefault($"{side.Kind}_source"));
     Restore($"{side.Kind}_share","1");Restore($"{side.Kind}_part","whole");
     Restore($"{side.Kind}_start",owner?.Values.GetValueOrDefault("delivery_from"));Restore($"{side.Kind}_end",owner?.Values.GetValueOrDefault("delivery_to"));
-    Restore($"{side.Kind}_part_lower");Restore($"{side.Kind}_part_upper");
     if(side.Kind=="floating")
     {
      Restore("floating_pricing");

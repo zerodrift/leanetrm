@@ -282,8 +282,8 @@ internal static class DeliveryQuantityChecks
             var (basis,scenario)=context.RetainedProgramMarkets(prepared.Contracts[0][0].Dependencies);
             var sources=new ScheduleMarketSources(basis.Graph.Plan.Context,basis,null,null,IntervalKnowledgePolicy.ResolvedCutoff,PendingActualsPolicy.RequireActuals,
                 Instrument.PriceLookups,[],Assignments);
-            var inputs=new RetainedProgramContext(sources,scenario){Cash=state,Owner=new(Instrument.Id,Instrument.EconomicIdentity),
-                Geometry=PhysicalLifecycle.PrepareGeometry([Programs[0]],context.Snapshot),HeldFactors=[new(1000,1),new(-1000,1)]};
+            var inputs=new RetainedProgramContext(sources,scenario){Cash=state,Owner=new(Instrument.Id,Instrument.EconomicIdentity,Instrument.RetainedScheduleIdentity),
+                Geometries=[..Enumerable.Repeat(PhysicalLifecycle.PrepareGeometry([Programs[0]],context.Snapshot),2)],HeldFactors=[new(1000,1),new(-1000,1)]};
             return Instrument.PV(context.SideContextRetained(inputs));
         }
         internal ImmutableArray<SideViewInput> Views(DateTimeOffset at)=>[..Members(at,"3.2",false).Select((m,n)=>new SideViewInput(

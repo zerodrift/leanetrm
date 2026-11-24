@@ -20,6 +20,13 @@ owner days remain trade facts outside identity. The schedule validates them,
 computes each entry's own-date quantities once and supplies them through the
 occurrence context; the Side owns row pricing, lifecycle and inspection.
 
+Gas draft and stored compositions also retain each entry's physical owner in
+the schedule execution identity, including entries without quantity terms.
+Each payment uses only that owner's day quantities and clock. The prepared
+context and reuse fence include this exact source map; legacy economic canonical
+bytes remain unchanged. Older direct managed callers without a source map retain
+the prior pooled geometry and its compatibility refusals.
+
 ## Mandatory composition boundary (D417)
 
 Every financial instrument derives from `Instrument`. The only products allowed

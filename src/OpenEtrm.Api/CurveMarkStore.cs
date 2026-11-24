@@ -92,7 +92,7 @@ internal sealed class CurveMarkStore(Guid catalog)
             }
         }
         if(volatilities.Count==0&&correlations.Count==0)return (instrument,missing);
-        return (new(instrument.Id,instrument.Members,instrument.Assignments,instrument.PriceLookups,instrument.Rights,
-            new([..volatilities],[..correlations],ExerciseMarks.HeldLogReturn)),missing);
+        return (new(instrument.Id,instrument.Members,instrument.Assignments,instrument.PriceLookups,rights:instrument.Rights,
+            marks:new([..volatilities],[..correlations],ExerciseMarks.HeldLogReturn),physicalSources:instrument.PhysicalSources),missing);
     }
 }

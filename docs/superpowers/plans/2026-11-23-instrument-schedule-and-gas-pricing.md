@@ -2,6 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+Status: implemented locally; D446–D447 and migration 0391. All 13 tasks are
+complete. Full verification and benchmark results are in [verification](../../verification.md).
+
 **Goal:** Every sided Instrument gives a schedule and derives its value from it; a gas trade is valued through that schedule on every route; and a gas payment can take a share, a date range or a part of each day's delivered quantity, priced on any named index.
 
 **Architecture:** `SidedInstrument` gains `GenerateSchedule()` and its combining step is sealed to evaluate that schedule. The plain schedule reproduces today's sum, so only gas changes behavior. The saved-program Instrument base overrides the schedule: it works out each entry's day quantities once, hands them to each Side through the existing occurrence context, and each Side still computes its own rows. Gas pricing adds terms to the Instrument's entries and uses existing fixed and floating Sides.
@@ -609,14 +612,14 @@ git commit -s -m "Show a gas payment's part and check the pricing ticket in the 
 - Modify: `docs/decisions.md`, `docs/architecture.md`, `docs/instrument-contracts.md`, `docs/physical-gas-side.md`, `docs/physical-gas-daily-quantities.md`, `docs/gas-cash-billing.md`, `docs/deal-ticket.md`, `docs/plan.md`, `docs/implementation.md`, `docs/verification.md`
 - Modify: the spec's status line
 
-- [ ] **Step 1: Run the full groups**
+- [x] **Step 1: Run the full groups**
 
 Run: `python3 tools/check_all.py --pg-bin "$PG_BIN" --dotnet "$DOTNET" --browser "$BROWSER" --group gas`, then `--group trading` and `--group managed`
 Expected: every group passes.
 
 - [x] **Step 2: Run the benchmark.** Value one fixed synthetic portfolio on the base of this branch and on its tip. Record the workload, unique contracts, scenarios, evaluated Side work, memory and environment for both. The evaluated Side work of plain Instruments must be equal.
 
-- [ ] **Step 3: Update the records.**
+- [x] **Step 3: Update the records.**
   - `docs/decisions.md`: two new decisions under the next free numbers. The first states the Instrument schedule, the sealed combining step, conditions, the line, and that D181 stands. The second states share, part and partial-term entries, the three index payment forms and their one fixing rule, the retired strict form, the billing refusal, and the twelve calls confirmed in the spec. Note in D445 that its policy is now an entry term in identity.
   - `docs/architecture.md`: replace the note that an Instrument-level `GenerateSchedule()` is not implemented.
   - `docs/instrument-contracts.md`: the schedule contract and the conditions.
@@ -624,9 +627,9 @@ Expected: every group passes.
   - `docs/plan.md`, `docs/implementation.md`, `docs/verification.md`: status, the actual check counts from Step 1 and the benchmark from Step 2.
   - The spec's status line: built, with the decision numbers.
 
-- [ ] **Step 4: Obtain one independent adversarial review** of the numerical behavior (exact parts, both worked examples, the paid-cash cases), the temporal behavior (knowledge cutoff of quantity records on every route) and scenario reuse (shared Sides, unchanged work for plain Instruments). Resolve findings and rerun Step 1.
+- [x] **Step 4: Obtain one independent adversarial review** of the numerical behavior (exact parts, both worked examples, the paid-cash cases), the temporal behavior (knowledge cutoff of quantity records on every route) and scenario reuse (shared Sides, unchanged work for plain Instruments). Resolve findings and rerun Step 1.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs

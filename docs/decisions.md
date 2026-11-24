@@ -7159,10 +7159,21 @@ schedule applies the part once over the payment's own dates and passes the
 result to its Side. Explicit zero remains valid, including after a payment:
 paid cash is retained as an overpaid balance.
 
+Every gas draft and stored composition supplies its existing physical owner
+relationships to the retained schedule, including contract-quantity payments.
+Lifecycle geometry is per source: another physical entry cannot change its
+quantities or day boundaries. This execution map enters retained schedule
+identity and prepared-context admission while legacy economic bytes stay intact.
+Older direct managed callers without a map keep their prior compatible pooled
+geometry; source relationships are never inferred from matching dates.
+
 New indexed payments choose `point_publications_v1`, `named_index_daily_v1` or
 `named_index_monthly_v1`. Named indexes resolve exactly one curve by index
 settlement target, commodity and quote, and one contract/fixing per gas day.
 Daily contracts cover that day; monthly contracts cover its containing month.
+The fixing series must name that exact projection contract, not merely another
+contract covering the same dates. This gas qualification leaves generic index
+override behavior unchanged.
 Both use the existing delivery-index Side: a known published fixing prices its
 covered days immediately; otherwise rows are labelled forecasts. Ended days
 accrue only on an earned price; unended days remain unrealized. New
@@ -7183,6 +7194,10 @@ levels, source, dates, index coverage and exact schedule rows. Original requests
 and completed replay outcomes are not rewritten. A current actor may recover an
 owned predecessor command only under current write authority; changed complete
 commands still meet native hash conflict checks.
+Modern retries must state their required financial fields. Compatibility may
+restore new payment fields only when the retained predecessor request proves
+they were absent; an interrupted request without retained terms must meet current
+payment admission. The earlier contract-only quantity-policy replay remains.
 
 The twelve design calls are adopted: published-as-available pricing; schedule
 reach limited to sided Instruments; saved-program-base ownership; D445 policy

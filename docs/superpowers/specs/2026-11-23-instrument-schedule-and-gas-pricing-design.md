@@ -551,6 +551,12 @@ points depart from it. None is changed here.
 
 ## Implemented interfaces
 
+The retained gas schedule also carries an explicit physical owner map for every
+entry, sourced from existing component relationships even when no policy or
+part is present. The map is in retained schedule identity and prepared-context
+admission, preserving legacy economic canonical bytes. Lifecycle geometry is
+per owner; unrelated physical quantities and gas clocks cannot affect a payment.
+
 The managed quantity-part levels use nonnegative validated `SignedRatio`, because
 `ExactRatio` represents strictly positive ratios and cannot express a band from
 zero. Stored levels remain exact reduced numerator/denominator pairs. Saved

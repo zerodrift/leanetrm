@@ -462,6 +462,27 @@ internal static class GasTicketChecks
             Equal(false,GasTicket.SameTerms(mapped with{SnapshotId=Guid.NewGuid()},original),"snapshot identity");
             Equal(false,GasTicket.SameTerms(mapped with{CashSides=[mapped.CashSides[0] with{Share="1.1"}]},original),"changed share");
         });
+        Check("modern retries require explicit financial fields even when the command already completed",()=>{
+            var physical=Receipt with{Values=Receipt.Values.SetItem("quantity_policy","delivery_schedule_v1")};
+            var payment=Cash with{Values=Cash.Values.SetItem("cash_share","1.5").SetItem("cash_part","between")
+                .SetItem("cash_part_lower","2000").SetItem("cash_part_upper","8000")
+                .SetItem("cash_start","2027-01-02").SetItem("cash_end","2027-01-04")};
+            var draft=Draft(physical,payment);var original=Map(draft);
+            Equal(true,GasTicket.SameTerms(Map(GasTicket.RetryDraft(draft,original)),original),"explicit retry");
+            foreach(var field in new[]{"quantity_policy","cash_share","cash_part","cash_part_lower","cash_part_upper","cash_start","cash_end"})
+            {
+                var omitted=draft with{Sides=[..draft.Sides.Select(s=>s with{Values=s.Values.Remove(field)})]};
+                Reject("omitted modern retry "+field,GasTicket.RetryDraft(omitted,original));
+            }
+        });
+        Check("only proven predecessor fields are restored and pending retries require current payment terms",()=>{
+            var original=Map(Draft(Receipt,Cash));
+            original=original with{CashSides=[original.CashSides[0] with{Share=null!,DeliveryFrom=null,DeliveryTo=null}]};
+            var draft=GasTicket.Reopen(original) with{Sides=[Receipt with{Values=Receipt.Values.Remove("quantity_policy")},
+                Cash with{Values=Cash.Values.RemoveRange(["cash_share","cash_part","cash_start","cash_end"])}]};
+            Equal(true,GasTicket.SameTerms(Map(GasTicket.RetryDraft(draft,original)),original),"predecessor replay");
+            Reject("pending retry missing current payment fields",GasTicket.RetryDraft(draft,null));
+        });
         Check("held preview retains its explicit historical context independently of booking terms",()=>
         {
             var request=Map(Draft(Receipt,Cash)) with{PreviewTradeId=Guid.NewGuid(),PreviewContextId=Guid.NewGuid(),KnowledgeMode="retained"};

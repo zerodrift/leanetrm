@@ -32,6 +32,7 @@ internal static class GasInstrumentScheduleChecks
         Reject(() => With(Member(physical, 0, "delivery_schedule_v1"), payment));
         Console.WriteLine("PASS gas instrument identity: legacy bytes, explicit policy, part and physical source; invalid membership terms refuse");
         WorkedExamples();
+        GasSourceGeometryChecks.Run();
     }
 
     static void WorkedExamples()

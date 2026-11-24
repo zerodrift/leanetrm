@@ -104,12 +104,15 @@ internal sealed record GasCompositionExecution
   ImmutableArray<RetainedSideProgram> programs,ImmutableArray<IndexPriceLookup> lookups,ImmutableArray<ExerciseRight> rights=default)
  {
   RequireSlots(members.Select(m=>m.Slot),programs);
-  var quantityTerms=!rights.IsDefaultOrEmpty||members.Any(m=>m.QuantityPolicy is not null||m.Part is not null);var byCode=members.ToDictionary(m=>m.Code,StringComparer.Ordinal);
-  return new(id,[..members.OrderBy(m=>m.Slot).Select(m=>{
+  var quantityTerms=!rights.IsDefaultOrEmpty||members.Any(m=>m.QuantityPolicy is not null||m.Part is not null);
+  var byCode=members.ToDictionary(m=>m.Code,StringComparer.Ordinal);
+  var ordered=members.OrderBy(m=>m.Slot).ToImmutableArray();
+  var sources=ordered.Select(m=>m.Role=="physical"?m.Slot:byCode[m.Source!].Slot).ToImmutableArray();
+  return new(id,[..ordered.Select(m=>{
    var p=programs.Single(p=>p.Slot==m.Slot);
    return new RetainedGasMember(p.SideId,ExactDecimal.Parse(m.Direction.ToString(CultureInfo.InvariantCulture)),m.Ratio,p.Program,
-    quantityTerms?m.Role=="physical"?m.Slot:byCode[m.Source!].Slot:null,m.QuantityPolicy,m.Part);
-  })],[..members.SelectMany(m=>m.Assignments).Distinct()],lookups,rights);
+    quantityTerms?sources[m.Slot]:null,m.QuantityPolicy,m.Part);
+  })],[..members.SelectMany(m=>m.Assignments).Distinct()],lookups,rights:rights,physicalSources:sources);
  }
 
 }

@@ -93,7 +93,7 @@ public abstract record RetainedProgramInstrument<TMember> : SidedInstrument, IRe
     private RetainedProgramContext PrepareInputs(UnitValuationContext context, CurveBuild basis, CurveBuild scenario)
     {
         var prepared = PrepareSides(context, basis, scenario);
-        return prepared.Cash is null ? prepared : prepared with { Owner = new(Id, EconomicIdentity) };
+        return prepared.Cash is null ? prepared : prepared with { Owner = new(Id, EconomicIdentity, RetainedScheduleIdentity) };
     }
     protected InstrumentValuation EvaluateSides(UnitValuationContext context)
     {
@@ -135,8 +135,10 @@ internal class RetainedInstrumentSchedule<TMember> : InstrumentSchedule where TM
             throw PhysicalDeliveryQuantities.Invalid("An instrument with quantity terms requires its complete held owner-day inputs.");
         if(context.BindingState is PhysicalCashState state)
         {
-            if(context.RetainedPrograms is not { Geometry: not null, Cash: {} cash, Owner: {} owner } inputs ||
+            if(context.RetainedPrograms is not { Cash: {} cash, Owner: {} owner } inputs ||
                 !ReferenceEquals(cash, state) || owner.InstrumentId != retained.Id || owner.Definition != retained.EconomicIdentity ||
+                owner.ScheduleIdentity != retained.RetainedScheduleIdentity || inputs.Geometries.IsDefault ||
+                inputs.Geometries.Length != retained.Members.Length || inputs.Geometries.Any(g=>g is null) ||
                 inputs.Occurrence is not null || inputs.HeldFactors.IsDefault || inputs.HeldFactors.Length != retained.Members.Length)
                 throw LifecycleContext();
             retained.ValidateValuationState(state);

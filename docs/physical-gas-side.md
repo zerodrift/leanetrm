@@ -7,6 +7,9 @@ preview, single-trade read, Blotter, interactive risk and queued risk. Each Side
 still owns its saved program and lifecycle rows. Physical selected quantities
 are prepared once per entry under the explicit business instant and knowledge
 cutoff; policy and source relationships are immutable entry terms in identity.
+Every entry also retains its exact physical owner in the schedule execution
+identity. Its lifecycle quantities and clock come only from that owner, including
+contract-quantity payments beside physical entries with different terms.
 
 Payments and fees state a positive `share` and may choose their own inclusive
 start/exclusive end within the source's gas-day boundaries. Whole quantity is
@@ -20,8 +23,9 @@ quantity is substituted. Zero after payment retains the overpaid balance.
 
 New floating payments choose point publications, a named daily index or a named
 monthly index. Named terms require exactly one eligible curve with that index as
-settlement target and exactly one contract/fixing for each payment gas day. A
-published monthly price can earn ended days while later days stay unrealized;
+settlement target and exactly one contract/fixing for each payment gas day. The
+fixing's series must name that exact contract. A published monthly price can
+earn ended days while later days stay unrealized;
 before publication those rows are forecasts and accrue nothing. The retired
 strict daily convention refuses new booking and remains readable on saved trades.
 Final daily billing accepts only whole, share-one, full-source-term fixed cash.
