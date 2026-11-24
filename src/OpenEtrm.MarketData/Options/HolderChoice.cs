@@ -13,6 +13,7 @@ public static class HolderChoice
     private static readonly LatticeDecimal One = LatticeDecimal.Parse("1");
     private static readonly LatticeDecimal NegativeOne = LatticeDecimal.Parse("-1");
     private static readonly BigInteger LatticeScale = BigInteger.Pow(10, LatticeDecimal.FractionDigits);
+    private static readonly BigInteger LatticeLimit = BigInteger.Pow(10, 24) * LatticeScale;
 
     public static ExactDecimal Value(HolderChoiceInputs inputs)
     {
@@ -73,8 +74,9 @@ public static class HolderChoice
 
     private static LatticeDecimal ToLatticeAmount(SignedRatio nonnegative)
     {
-        if (!nonnegative.TryScaleToInteger(LatticeScale, out var scaled))
-            throw new MarketDataException("precision_loss", "The spread call amount must be exact at 30 fractional digits.");
+        if (!nonnegative.TryScaleToInteger(LatticeScale, out var scaled) || scaled >= LatticeLimit)
+            throw new MarketDataException("holder_choice_inputs",
+                "A spread call amount must be exact at 30 fractional digits and below 10^24.");
         var places = LatticeDecimal.FractionDigits;
         var digits = scaled.ToString(CultureInfo.InvariantCulture).PadLeft(places + 1, '0');
         return LatticeDecimal.Parse(digits.Insert(digits.Length - places, "."));
