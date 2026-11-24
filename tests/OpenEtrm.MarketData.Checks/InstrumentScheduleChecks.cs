@@ -10,8 +10,10 @@ internal static class InstrumentScheduleChecks
     internal static void Run()
     {
         var covered = new HashSet<Type>();
+        var conditions = new HashSet<Type>();
         void Inspect(SidedInstrument instrument, SideValuationContext context)
         {
+            if (conditions.Add(instrument.GetType())) Conditions(instrument, context);
             Structure(instrument);
             var expected = ExactMoney.Parse("0", instrument.Currency);
             foreach (var membership in instrument.Sides)
@@ -26,7 +28,7 @@ internal static class InstrumentScheduleChecks
             covered.Add(instrument.GetType());
         }
 
-        SideModelOracleChecks.InspectSchedules(Inspect);
+        SideModelOracleChecks.InspectSchedules(Inspect, Capture);
         PhysicalGasSideChecks.Run(Inspect);
         PhysicalCrudeSideChecks.Run(Inspect);
         LngCargoChecks.Run(Inspect);
@@ -43,6 +45,9 @@ internal static class InstrumentScheduleChecks
         // route. Its schedule still has the same membership and row contract.
         var legacy = new GasForwardSettlementExampleChecks.Example().Instrument;
         Structure(legacy);
+        Capture("IndexedPhysicalGasPurchase", () => legacy.PV(new SideValuationContext(new Fixture().Snapshot(),
+            new ExplicitDiscounting(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted))));
+        PhysicalLifecycleChecks.InspectScheduleRefusals(Capture);
         covered.Add(legacy.GetType());
         var missing = typeof(SidedInstrument).Assembly.GetTypes()
             .Where(t => !t.IsAbstract && typeof(SidedInstrument).IsAssignableFrom(t) && !covered.Contains(t))
@@ -50,6 +55,47 @@ internal static class InstrumentScheduleChecks
         if (missing.Length != 0) throw new Exception("Missing Instrument schedule fixtures: " + string.Join(", ", missing));
         SharedSide();
         Console.WriteLine($"PASS Instrument schedule: {covered.Count} concrete families, exact independent Side sums, ordered rows and cached schedules");
+    }
+
+    private static void Conditions(SidedInstrument instrument, SideValuationContext context)
+    {
+        if (instrument is RecForwardInstrument or RetainedRecForwardInstrument or RetainedOperatingInstrument or GasStorageInstrument)
+        {
+            var started = new SideValuationContext(context.Snapshot with { ValuationAt = new(2100, 1, 1, 0, 0, 0, TimeSpan.Zero) }, context.Discounting);
+            Capture(instrument.GetType().Name, () => instrument.PV(started));
+        }
+    }
+
+    private static void Capture(string name, Action action)
+    {
+        // Captured from the existing overrides before moving their conditions.
+        var expected = name switch
+        {
+            nameof(FinancialSwapInstrument) or nameof(ForwardContract) or nameof(MonthlyFinancialSwap) or
+                nameof(ScheduledFinancialSwap) or nameof(CrossCommodityScheduledSwap) =>
+                ("swap_valuation", "Payment discounting must match the immutable instrument definition."),
+            nameof(RecForwardInstrument) or nameof(RetainedRecForwardInstrument) =>
+                ("rec_delivery_lifecycle", "A started certificate delivery requires a separately selected fulfillment lifecycle."),
+            nameof(RetainedOperatingInstrument) =>
+                ("operating_delivery_lifecycle", "A started operating plan requires a separately qualified operational lifecycle."),
+            nameof(GasStorageInstrument) =>
+                ("gas_storage_started", "A started storage term needs recorded flows and inventory, which this profile does not own."),
+            nameof(IndexedPhysicalGasPurchase) =>
+                ("valuation_measure", "Use the normal unit PV context with the selected cash measure and held payment state."),
+            "RetainedGasInstrument/held-factors" =>
+                ("physical_lifecycle_context", "Retain this instrument's exact held cash state, connected geometry and ordered membership normalization."),
+            "RetainedGasInstrument/no-state" =>
+                ("gas_delivery_lifecycle", "A started gas delivery is valued only with its held lifecycle state."),
+            _ => throw new Exception("Missing refusal baseline for " + name)
+        };
+        try { action(); }
+        catch (MarketDataException error)
+        {
+            if ((error.Code, error.Message) != expected)
+                throw new Exception($"{name}: expected {expected}; received {(error.Code, error.Message)}.");
+            return;
+        }
+        throw new Exception("Expected the existing refusal for " + name);
     }
 
     private static void Structure(SidedInstrument instrument)

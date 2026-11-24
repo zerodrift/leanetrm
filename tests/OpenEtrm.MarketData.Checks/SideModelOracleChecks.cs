@@ -38,10 +38,10 @@ internal static class SideModelOracleChecks
         return 1;
     }
 
-    internal static void InspectSchedules(Action<SidedInstrument, SideValuationContext> inspect)
+    internal static void InspectSchedules(Action<SidedInstrument, SideValuationContext> inspect, Action<string, Action>? refusal = null)
     {
-        SwapCases((_, _, _) => { }, inspect);
-        HeatRateCases((_, _, _) => { }, inspect);
+        SwapCases((_, _, _) => { }, inspect, refusal);
+        HeatRateCases((_, _, _) => { }, inspect, refusal);
         PpaCases((_, _, _) => { }, inspect);
     }
 
@@ -99,7 +99,7 @@ internal static class SideModelOracleChecks
             yield return ("only-" + group.Key, model.WithShifts(basis, [..group.Select(f => new QuoteShift(f.Input, f.Quote, f.Unit, D("0.1"), QuoteShift.Convention))]));
     }
 
-    private static void SwapCases(Action<string, string, InstrumentValuation> record, Action<SidedInstrument, SideValuationContext>? inspect = null)
+    private static void SwapCases(Action<string, string, InstrumentValuation> record, Action<SidedInstrument, SideValuationContext>? inspect = null, Action<string, Action>? refusal = null)
     {
         var f = new CommodityLookupFixture(3, monthly: true);
         var periods = Enumerable.Range(0, 3).Select(n => f.Swap(monthly: true, monthOrdinal: n)).ToArray();
@@ -125,6 +125,8 @@ internal static class SideModelOracleChecks
             {
                 var context = new SideValuationContext(market, discount);
                 inspect?.Invoke(instrument, context);
+                if (scenario == "base") refusal?.Invoke(instrument.GetType().Name, () => instrument.PV(
+                    new SideValuationContext(market, new ExplicitDiscounting(D("0.9"), DiscountFactorSource.Explicit))));
                 record(name, scenario, instrument.PV(context));
             }
         var discounted = new ScheduledFinancialSwap(Guid.NewGuid(), cases[^1].Instrument.Sides, true, ScheduledFinancialSwap.Implementation);
@@ -141,7 +143,7 @@ internal static class SideModelOracleChecks
         }
     }
 
-    private static void HeatRateCases(Action<string, string, InstrumentValuation> record, Action<SidedInstrument, SideValuationContext>? inspect = null)
+    private static void HeatRateCases(Action<string, string, InstrumentValuation> record, Action<SidedInstrument, SideValuationContext>? inspect = null, Action<string, Action>? refusal = null)
     {
         var f = new Fixture(); var one = D("1");
         var powerQuote = f.Quotes[2]; var gasQuote = f.Quotes[0];
@@ -163,6 +165,8 @@ internal static class SideModelOracleChecks
         {
             var context = new SideValuationContext(market, new ExplicitDiscounting(one, DiscountFactorSource.Undiscounted));
             inspect?.Invoke(instrument, context);
+            if (scenario == "base") refusal?.Invoke(instrument.GetType().Name, () => instrument.PV(
+                new SideValuationContext(market, new ExplicitDiscounting(D("0.9"), DiscountFactorSource.Explicit))));
             record("heat-rate-independent-power-gas", scenario, instrument.PV(context));
         }
     }

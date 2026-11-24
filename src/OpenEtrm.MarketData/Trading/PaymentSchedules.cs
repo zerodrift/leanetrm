@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using OpenEtrm.Shared.Numerics;
 using OpenEtrm.MarketData.CustomCurves;
 using OpenEtrm.MarketData.Calculation;
 using OpenEtrm.MarketData.Power;
@@ -545,6 +546,14 @@ public sealed record SideContribution
 
 public sealed record InstrumentValuation
 {
+ public ImmutableArray<SideScheduleSnapshot> InspectSchedules(ImmutableArray<SideScheduleIdentity> schedules,ExactDecimal scale,Func<DateOnly,DateTimeOffset> boundary)
+ {
+  if(schedules.IsDefault||Sides.Length!=schedules.Length||!Sides.Select(s=>s.SideId).SequenceEqual(schedules.Select(s=>s.SideId)))
+   throw new MarketDataException("side_schedule_inspection","Inspect the exact valued instrument's complete Side memberships and retained schedules.");
+  return [..Sides.Select((side,slot)=>side.Value.InspectSchedule(schedules[slot].Manifest,scale,
+   new SignedRatio(side.QuantityRatio.Numerator,side.QuantityRatio.Denominator)*new SignedRatio(side.Coefficient.ScaledValue,ExactDecimal.WorkingScale),boundary))];
+ }
+
     public const string Policy = "signed_exact_side_pv_sum_v1";
     public Guid InstrumentId { get; }
     public ReferenceKey Currency { get; }

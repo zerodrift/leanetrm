@@ -13,6 +13,11 @@ using OpenEtrm.Shared.Numerics;
 // valued at the Friday Nov 6 close. Expected values are the spec's table, recomputed by hand.
 internal static class PhysicalLifecycleChecks
 {
+    internal static void InspectScheduleRefusals(Action<string, Action> inspect)
+    {
+        var demo = new Demo();
+        demo.OccurrenceContexts(demo.SeptemberPaid(Demo.Close), inspect);
+    }
     internal static void Run()
     {
         var demo=new Demo();var paid=demo.SeptemberPaid(Demo.Close);
@@ -286,7 +291,7 @@ internal static class PhysicalLifecycleChecks
             [..Enumerable.Range(0,30).Select(n=>Payment(Months,n,Fixture.Utc("2026-10-10T00:00:00Z"),knownAt,"-290"))];
         internal PhysicalCashState State(ImmutableArray<CashOccurrencePayment> paid)=>new(Trade.Id,Binding,Held,Trade.BookId,paid,PhysicalCashState.Policy);
 
-        internal void OccurrenceContexts(ImmutableArray<CashOccurrencePayment> paid)
+        internal void OccurrenceContexts(ImmutableArray<CashOccurrencePayment> paid, Action<string, Action>? inspect = null)
         {
             // The same September cash Side is paid under its original payable
             // membership and independently unpaid under an added receivable one.
@@ -308,6 +313,8 @@ internal static class PhysicalLifecycleChecks
             SideValuationContext Context(RetainedProgramContext selected,PhysicalCashState cash,ISideDiscounting discount)=>new SideValuationContext(market,discount)
                 .WithUnitEvaluation(Close,false,ValuationMeasure.PresentValue,default).WithBindingState(cash).WithRetainedPrograms(selected);
             var context=Context(input,state,Undiscounted);
+            inspect?.Invoke("RetainedGasInstrument/held-factors", () => repeated.PV(Context(input with { HeldFactors = input.HeldFactors.SetItem(Months, new SignedRatio(1, 1)) }, state, Undiscounted)));
+            inspect?.Invoke("RetainedGasInstrument/no-state", () => repeated.PV(new SideValuationContext(snapshot, Undiscounted)));
             var value=repeated.PV(context);
             Equal(value.PresentValue,"-21.55");
             Equal(value.Sides[Months].Contribution,"0");Equal(value.Sides[^1].Contribution,"87");

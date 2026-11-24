@@ -80,36 +80,8 @@ public abstract record RetainedProgramInstrument<TMember> : SidedInstrument, IRe
         if(prepared.Cash is not null) prepared = prepared with { Owner = new(Id, EconomicIdentity) };
         return PV(context.SideContextRetained(prepared));
     }
-    public override InstrumentValuation PV(SideValuationContext context)
-    {
-        RequireRetainedSides();
-        if(context is null) throw new MarketDataException("side_context", "Supply the exact retained Side valuation context.");
-        if(context.BindingState is PhysicalCashState state)
-        {
-            if(context.RetainedPrograms is not { Geometry: not null, Cash: {} cash, Owner: {} owner } inputs ||
-                !ReferenceEquals(cash, state) || owner.InstrumentId != Id || owner.Definition != EconomicIdentity ||
-                inputs.Occurrence is not null || inputs.HeldFactors.IsDefault || inputs.HeldFactors.Length != Members.Length)
-                throw LifecycleContext();
-            ValidateValuationState(state);
-            var quantity = new SignedRatio(state.Quantity.Amount.ScaledValue, ExactDecimal.WorkingScale);
-            for(var slot = 0; slot < Members.Length; slot++)
-            {
-                var member = Members[slot];
-                var factor = quantity * new SignedRatio(member.ValuationCoefficient.ScaledValue, ExactDecimal.WorkingScale) *
-                    (member.ValuationRatio is {} ratio ? new SignedRatio(ratio.Numerator, ratio.Denominator) : new SignedRatio(1, 1));
-                if(inputs.HeldFactors[slot] != factor) throw LifecycleContext();
-            }
-            return new(this, context, [..Sides.Select((member, slot) =>
-                context.ForRetainedOccurrence(slot, (RetainedProgramSide)member.Side).Evaluate(member.Side))]);
-        }
-        ValidateValuationState(context.BindingState);
-        if(context.RetainedPrograms is { Cash: not null } or { Occurrence: not null }) throw LifecycleContext();
-        if(Members.Any(m => m.Program.Document.Family == "gas"))
-            PhysicalLifecycle.RequireUnstarted(Members.Select(m => m.Program), context.Snapshot.ValuationAt);
-        return base.PV(context);
-    }
-    private static MarketDataException LifecycleContext() => new(PhysicalLifecycle.ContextRefusal,
-        "Retain this instrument's exact held cash state, connected geometry and ordered membership normalization.");
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<RetainedProgramInstrument<TMember>, InstrumentSchedule> Schedules = new();
+    public override InstrumentSchedule GenerateSchedule() => Schedules.GetValue(this, static instrument => new RetainedInstrumentSchedule<TMember>(instrument));
     public override ExactMoney Value(UnitValuationContext context) => EvaluateSides(context).PresentValue;
     internal override UnitPricingContract DeclareScope(UnitValuationContext context, bool lifecycle)
     {
@@ -123,4 +95,46 @@ public abstract record RetainedProgramInstrument<TMember> : SidedInstrument, IRe
         if(state is not null)
             throw new MarketDataException("settlement_scope", "This retained instrument does not accept an unrelated settlement state.");
     }
+}
+
+internal class RetainedInstrumentSchedule<TMember> : InstrumentSchedule where TMember : IRetainedProgramMember
+{
+    private readonly RetainedProgramInstrument<TMember> retained;
+    internal RetainedInstrumentSchedule(RetainedProgramInstrument<TMember> instrument) : base(instrument) => retained = instrument;
+    public override InstrumentValuation Evaluate(SideValuationContext context)
+    {
+        retained.RequireBeforeValuation(context);
+        retained.RequireRetainedSides();
+        if(context is null) throw new MarketDataException("side_context", "Supply the exact retained Side valuation context.");
+        if(context.BindingState is PhysicalCashState state)
+        {
+            if(context.RetainedPrograms is not { Geometry: not null, Cash: {} cash, Owner: {} owner } inputs ||
+                !ReferenceEquals(cash, state) || owner.InstrumentId != retained.Id || owner.Definition != retained.EconomicIdentity ||
+                inputs.Occurrence is not null || inputs.HeldFactors.IsDefault || inputs.HeldFactors.Length != retained.Members.Length)
+                throw LifecycleContext();
+            retained.ValidateValuationState(state);
+            var quantity = new SignedRatio(state.Quantity.Amount.ScaledValue, ExactDecimal.WorkingScale);
+            for(var slot = 0; slot < retained.Members.Length; slot++)
+            {
+                var member = retained.Members[slot];
+                var factor = quantity * new SignedRatio(member.ValuationCoefficient.ScaledValue, ExactDecimal.WorkingScale) *
+                    (member.ValuationRatio is {} ratio ? new SignedRatio(ratio.Numerator, ratio.Denominator) : new SignedRatio(1, 1));
+                if(inputs.HeldFactors[slot] != factor) throw LifecycleContext();
+            }
+            var value = new InstrumentValuation(retained, context, [..retained.Sides.Select((member, slot) =>
+                context.ForRetainedOccurrence(slot, (RetainedProgramSide)member.Side).Evaluate(member.Side))]);
+            retained.RequireAfterValuation(value);
+            return value;
+        }
+        retained.ValidateValuationState(context.BindingState);
+        if(context.RetainedPrograms is { Cash: not null } or { Occurrence: not null }) throw LifecycleContext();
+        if(retained.Members.Any(m => m.Program.Document.Family == "gas"))
+            PhysicalLifecycle.RequireUnstarted(retained.Members.Select(m => m.Program), context.Snapshot.ValuationAt);
+        retained.RequireSideComposition();
+        var result = new InstrumentValuation(retained, context, [..retained.Sides.Select(member => context.Evaluate(member.Side))]);
+        retained.RequireAfterValuation(result);
+        return result;
+    }
+    private static MarketDataException LifecycleContext() => new(PhysicalLifecycle.ContextRefusal,
+        "Retain this instrument's exact held cash state, connected geometry and ordered membership normalization.");
 }

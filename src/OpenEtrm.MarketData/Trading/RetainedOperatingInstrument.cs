@@ -49,8 +49,7 @@ public sealed record RetainedOperatingInstrument:RetainedProgramInstrument<Retai
         RequireUnstarted(context.Snapshot);
         return base.Value(context);
     }
-    public override InstrumentValuation PV(SideValuationContext context)
-    {RequireUnstarted(context.Snapshot);return base.PV(context);}
+    protected internal override void RequireBeforeValuation(SideValuationContext context) => RequireUnstarted(context.Snapshot);
     private void RequireUnstarted(MarketSnapshot snapshot)
     {
         if(Members.SelectMany(m=>m.Program.Document.Instructions).Where(i=>i.Output.Operation=="output_guard").Any(i=>i.Output.Interval!.Start<=snapshot.ValuationAt))

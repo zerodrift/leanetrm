@@ -691,6 +691,7 @@ GasParkCustodyChecks.Run();passed++;
 GasTransportCapacityChecks.Run();passed++;
 GasTransportRouteChecks.Run();passed++;
 InstrumentSideAlignmentChecks.Run();passed++;
+InstrumentScheduleChecks.Run();passed++;
 CashSideAlignmentChecks.Run();passed++;
 GasHoldingSideChecks.Run();passed++;
 GasRightsSideChecks.Run();passed++;

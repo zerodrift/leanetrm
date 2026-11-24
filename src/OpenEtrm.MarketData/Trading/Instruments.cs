@@ -207,6 +207,8 @@ public abstract record SidedInstrument : Instrument
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SidedInstrument, InstrumentSchedule> Schedules = new();
     public virtual InstrumentSchedule GenerateSchedule() => Schedules.GetValue(this, static instrument => new(instrument));
 
-    public override InstrumentValuation PV(SideValuationContext context) => GenerateSchedule().Evaluate(context);
+    public sealed override InstrumentValuation PV(SideValuationContext context) => GenerateSchedule().Evaluate(context);
+    protected internal virtual void RequireBeforeValuation(SideValuationContext context) { }
+    protected internal virtual void RequireAfterValuation(InstrumentValuation value) { }
 
 }

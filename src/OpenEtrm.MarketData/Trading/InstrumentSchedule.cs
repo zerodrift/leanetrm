@@ -28,6 +28,9 @@ public class InstrumentSchedule
     {
         if (context is null) throw new MarketDataException("side_context", "An explicit valuation context is required.");
         Instrument.RequireSideComposition();
-        return new(Instrument, context, [..Instrument.Sides.Select(m => context.Evaluate(m.Side))]);
+        Instrument.RequireBeforeValuation(context);
+        var value = new InstrumentValuation(Instrument, context, [..Instrument.Sides.Select(m => context.Evaluate(m.Side))]);
+        Instrument.RequireAfterValuation(value);
+        return value;
     }
 }
