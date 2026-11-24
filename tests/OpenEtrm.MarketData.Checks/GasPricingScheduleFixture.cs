@@ -99,7 +99,7 @@ internal sealed class GasPricingScheduleFixture
 
     internal (PreparedConnectedPortfolioRisk Prepared, ValuationSetup Setup) Prepare(RetainedGasInstrument instrument,
         PhysicalCashState? state, DateTimeOffset? calculationAt = null, string? point = null, bool ended = false, bool publishedMonth = true,
-        ISideDiscounting? discounting = null, string? publishedThirdDailyIndex = null)
+        ISideDiscounting? discounting = null, string? publishedThirdDailyIndex = null, ImmutableArray<string> dailyPoints = default)
     {
         var at = Clock.Boundary(ended ? From.AddDays(2) : From).AddHours(-0.5);
         if(ended) at = Clock.Boundary(From.AddDays(2)).AddHours(1);
@@ -107,7 +107,17 @@ internal sealed class GasPricingScheduleFixture
         SelectedObservation Observation(int n, InputUse use, string price, DateTimeOffset time) => new(new(series[n].Key, use),
             new(new(reference.Revision.CatalogId, Guid.NewGuid()), series[n].Key, reference.R(use == InputUse.Variable ? "source" : "publisher"),
                 use == InputUse.Variable ? ObservationRole.TraderMark : ObservationRole.IndexFixing, PublicationState.Final, time, ExactDecimal.Parse(price)));
-        var observations = Enumerable.Range(0, 7).Select(n => Observation(n, InputUse.Variable, point is null ? (n < 3 ? "3.10" : n < 6 ? "3.20" : "3.00") : (n == 6 ? point : "3.00"), calculationAt?.AddHours(-1) ?? Clock.Boundary(From).AddDays(-1))).ToList();
+        string VariablePrice(int n) => n switch
+        {
+            < 3 when !dailyPoints.IsDefault => dailyPoints[n],
+            6 when point is not null => point,
+            _ when point is not null => "3.00",
+            < 3 => "3.10",
+            < 6 => "3.20",
+            _ => "3.00",
+        };
+        var observations = Enumerable.Range(0, 7).Select(n => Observation(n, InputUse.Variable, VariablePrice(n),
+            calculationAt?.AddHours(-1) ?? Clock.Boundary(From).AddDays(-1))).ToList();
         if (publishedThirdDailyIndex is {} fixingPrice)
             observations.Add(Observation(5, InputUse.FrozenFact, fixingPrice, fixings[5].FixingAt));
         if(ended)

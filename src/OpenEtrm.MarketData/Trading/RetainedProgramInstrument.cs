@@ -149,26 +149,36 @@ internal class RetainedInstrumentSchedule<TMember> : InstrumentSchedule where TM
                 if(inputs.HeldFactors[slot] != factor) throw LifecycleContext();
             }
             var rights = retained.Rights;
-            var selected = rights.SelectMany(right => right.Slots).ToHashSet();
-            if (!rights.IsEmpty) RetainedExerciseValuation.RequireUndecided(rights, context.UnitEvaluation.CalculationAt);
-            var entryDays = hasQuantityTerms || !rights.IsEmpty ? EntryQuantities.ForMembers(retained.Members, state, selected) : default;
+            var decisions = rights.IsEmpty && state.Elections.IsEmpty ? null :
+                ExerciseDecisions.Resolve(rights, retained.Members, state, context.Snapshot, context.UnitEvaluation.CalculationAt);
+            var entryDays = hasQuantityTerms || !rights.IsEmpty ? EntryQuantities.ForMembers(retained.Members, state,
+                decisions is null ? null : decisions.Counted) : default;
             var sides = retained.Sides.Select((member, slot) =>
                 context.ForRetainedOccurrence(slot, (RetainedProgramSide)member.Side, entryDays, retained.Members[slot].ValuationPart).Evaluate(member.Side)).ToImmutableArray();
             ImmutableArray<ExerciseGroupValue> groups = [];
-            if (!rights.IsEmpty)
+            if (decisions is not null)
             {
-                var hypothetical = context.ExercisedOccurrences();
-                var exercisedDays = EntryQuantities.ForMembers(retained.Members, state);
                 var choices = ImmutableArray.CreateBuilder<ExerciseGroupValue>();
+                ImmutableArray<ImmutableArray<EntryDayQuantity>> hypotheticalDays = default;
                 foreach (var right in rights)
                 {
-                    var exercise = new RetainedExerciseValuation(right);
+                    var exercise = new RetainedExerciseValuation(right, decisions);
+                    var allExercised = right.Groups.All(group => decisions.Outcome(right, group) == ExerciseElection.Exercised);
+                    if (!allExercised && hypotheticalDays.IsDefault)
+                        hypotheticalDays = EntryQuantities.ForMembers(retained.Members, state);
+                    var forwardDays = allExercised ? entryDays : hypotheticalDays;
                     foreach (var slot in right.Slots)
                     {
-                        var side = (RetainedProgramSide)retained.Sides[slot].Side;
-                        var occurrence = hypothetical.ForRetainedOccurrence(slot, side, exercisedDays, retained.Members[slot].ValuationPart);
-                        exercise.Add((RetainedProgramValuation)occurrence.Evaluate(side), exercisedDays[slot],
-                            inputs.HeldFactors[slot] * new SignedRatio(quantity.Numerator.Sign, 1));
+                        var ordinary = (RetainedProgramValuation)sides[slot];
+                        var forward = ordinary;
+                        if (!allExercised)
+                        {
+                            var side = (RetainedProgramSide)retained.Sides[slot].Side;
+                            var occurrence = context.ExercisedOccurrences().ForRetainedOccurrence(slot, side, forwardDays, retained.Members[slot].ValuationPart);
+                            forward = (RetainedProgramValuation)occurrence.Evaluate(side);
+                        }
+                        var membership = inputs.HeldFactors[slot];
+                        exercise.Add(forward, forwardDays[slot], membership * new SignedRatio(quantity.Numerator.Sign, 1));
                     }
                     choices.AddRange(exercise.Values(context, retained.Marks, retained.Currency, quantity.Numerator.Sign));
                 }

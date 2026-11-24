@@ -32,6 +32,12 @@ internal static class ExerciseRightChecks
         Check("exercise values reprice under forward and volatility scenarios", GroupScenarios);
         Check("a published payment survives contract expiry and negative effective prices refuse", PublishedPaymentScope);
         Check("ordinary entries and exercise groups partition exact risk and survive unit reuse", GroupPartition);
+        Check("recorded elections select each day's ordinary or contingent obligation", RecordedElections);
+        Check("exercised days use selected quantity and exact payment share", ElectedQuantities);
+        Check("a whole-term payment accrues and pays only the exercised day", ElectedAccrual);
+        Check("election effective time bounds the undecided value and the frozen clock", ElectionTiming);
+        Check("invalid elections and conflicting delivery or payment facts refuse", ElectionRefusals);
+        Check("an outside physical source remains available to a contingent cash member", CashElectionSource);
     }
 
     private sealed class GroupFixture
@@ -44,7 +50,7 @@ internal static class ExerciseRightChecks
         internal GroupFixture(int days = 1, bool monthly = false, bool index = false, bool reverse = false,
             ExerciseHolder holder = ExerciseHolder.Us, bool periodTotal = false, bool negative = false,
             bool sameCurve = false, bool sameSign = false, bool earlierPhysical = false, bool earlierFixing = false, GasPricingScheduleFixture? market = null,
-            string fixedPrice = "3")
+            string fixedPrice = "3", bool dailyPoint = false, bool scheduled = false, ExactRatio? paymentShare = null)
         {
             var f = Market = market ?? new();
             var from = days == 1 ? f.From.AddDays(2) : f.From;
@@ -54,9 +60,10 @@ internal static class ExerciseRightChecks
             var native = f.Instrument.Assignments[0];
             var assignment = new GasValuationAssignment(native.Key, native.Location, native.Product, point.Contract.DeliveryFrom,
                 point.Contract.DeliveryTo, point.Settlement, f.Quote, new(point.Market, point.Contract), point.Fixing, native.Adjustment);
+            ImmutableArray<GasValuationAssignment> assignments = dailyPoint ? f.Instrument.Assignments : [assignment];
             var gas = new PhysicalGasSide(Guid.NewGuid(), native.Location, native.Product, new(f.Clock, from, to,
                 periodTotal ? GasQuantityBasis.PeriodTotalEqualOperatingDays : GasQuantityBasis.PerOperatingDay,
-                new(E("1"), f.Quote.Quantity), GasFuelConvention.None, default), [assignment], SyntheticSideCalendars.Physical());
+                new(E("1"), f.Quote.Quantity), GasFuelConvention.None, default), assignments, SyntheticSideCalendars.Physical());
             var payAt = f.Clock.Boundary(to).AddDays(2);
             var period = new FixedSidePeriod(from, to, payAt, new(periodTotal ? 1 : days, 1), null)
                 { DeliveryCompletionAt = f.Clock.Boundary(to) };
@@ -70,15 +77,17 @@ internal static class ExerciseRightChecks
                 payment = new FloatingSide(Guid.NewGuid(), f.Quote, gas.UnitQuantity, [indexed], FloatingSide.DeliveryIndexImplementation,
                     SyntheticSideCalendars.FloatingPeriods([indexed]), gasDeliveryClock: f.Clock);
             }
-            RetainedGasMember Member(Side side, bool receive) => new(side.Id, E(receive ? "1" : "-1"), ExactRatio.One,
-                BookedSideProgram.Compile(ScheduleDefinitionCompiler.Generate(side, lifecycle: ScheduleLifecycleSelection.StartedPhysicalDelivery)), 0);
+            RetainedGasMember Member(Side side, bool receive) => new(side.Id, E(receive ? "1" : "-1"),
+                side == payment ? paymentShare ?? ExactRatio.One : ExactRatio.One,
+                BookedSideProgram.Compile(ScheduleDefinitionCompiler.Generate(side, lifecycle: ScheduleLifecycleSelection.StartedPhysicalDelivery)), 0,
+                scheduled && side == gas ? "delivery_schedule_v1" : null);
             ExerciseAt = f.Clock.Boundary(from).AddHours(earlierFixing ? 0 : -1);
             var right = PhysicalRight(monthly ? [new(from, to, ExerciseAt)] : [..DayGroups(from, days, f.Clock)
                 .Select(g => g with { ExerciseAt = g.ExerciseAt.AddHours(earlierFixing ? 0 : -1) })]) with
                 { Holder = holder, Period = monthly ? ExercisePeriod.DeliveryMonth : ExercisePeriod.DeliveryDay };
             var month = new DateOnly(from.Year, from.Month, 1);
             CurveVolatilityMark Vol(CurveKey curve, string value) => new(curve, month, new(Guid.NewGuid(), value, VolatilityInput.Annualized));
-            Marks = new(index && !sameCurve ? [Vol(point.Market.Curve, "0.5"), Vol(strike.Market.Curve, "0.4")] : [Vol(point.Market.Curve, "0.5")],
+            Marks = new(index && !sameCurve ? [Vol(assignments[0].Projection.Market.Curve, "0.5"), Vol(strike.Market.Curve, "0.4")] : [Vol(assignments[0].Projection.Market.Curve, "0.5")],
                 index && !sameCurve ? [new(point.Market.Curve, strike.Market.Curve, month, "0.90")] : [], "curve_marks_log_return_held_v1");
             ImmutableArray<RetainedGasMember> members = [Member(gas, !reverse), Member(payment, sameSign || reverse)];
             if(earlierPhysical)
@@ -88,8 +97,8 @@ internal static class ExerciseRightChecks
                 members = members.Add(new(early.Id, E("1"), ExactRatio.One, BookedSideProgram.Compile(
                     ScheduleDefinitionCompiler.Generate(early, lifecycle: ScheduleLifecycleSelection.StartedPhysicalDelivery))));
             }
-            Instrument = new(f.Instrument.Id, members, [assignment],
-                index ? [assignment.Lookup, strike] : [assignment.Lookup], [right], Marks);
+            var lookups = assignments.Select(a => a.Lookup).ToImmutableArray();
+            Instrument = new(f.Instrument.Id, members, assignments, index ? lookups.Add(strike) : lookups, [right], Marks);
             var size = periodTotal ? 100000 : 10000;
             var q = ExactQuantity.FromRatio(new(size, periodTotal ? days : 1), f.Quote.Quantity);
             var state = f.State([..Enumerable.Range(0, days).Select(d => new HeldDayQuantity(0, from.AddDays(d), q, q,
@@ -110,7 +119,7 @@ internal static class ExerciseRightChecks
             var (basis, scenario) = context.RetainedProgramMarkets(instrument.Declare(context).Dependencies);
             return instrument.PV(instrument.PrepareValuation(basis, scenario, new ExplicitDiscounting(E("1"), discount), State));
         }
-        internal RetainedGasInstrument WithMarks(ExerciseMarks marks) =>
+        internal RetainedGasInstrument WithMarks(ExerciseMarks? marks) =>
             new(Instrument.Id, Instrument.Members, Instrument.Assignments, Instrument.PriceLookups, Instrument.Rights, marks);
     }
 
@@ -309,6 +318,196 @@ internal static class ExerciseRightChecks
             pair.Entries.Aggregate(choice.Up, (sum, entry) => sum.Add(entry.Up)) != pair.Values.Up ||
             pair.Entries.Aggregate(choice.Down, (sum, entry) => sum.Add(entry.Down)) != pair.Values.Down)
             throw new Exception("Each shocked group and the ordinary entries must reconcile to that scenario's held PV.");
+    }
+
+    private static ExerciseElection Election(GroupFixture f, int day, string outcome, DateTimeOffset at) =>
+        new(0, f.Instrument.Rights.Single().Groups[day].From, outcome, at, Guid.NewGuid(), "Synthetic holder notice");
+
+    private static PhysicalCashState ElectedState(GroupFixture f, ImmutableArray<ExerciseElection> elections,
+        ImmutableArray<HeldDayQuantity> days = default, ImmutableArray<CashOccurrencePayment> payments = default) =>
+        new(f.State.TradeId, f.State.BindingId, f.State.Quantity, f.State.BookId,
+            payments.IsDefault ? [] : payments, PhysicalCashState.Policy, days.IsDefault ? f.State.OwnerDays : days, elections);
+
+    private static (PreparedConnectedPortfolioRisk Risk, UnitValuationContext Context, InstrumentValuation Value)
+        EvaluateElections(GroupFixture f, PhysicalCashState state, DateTimeOffset at, RetainedGasInstrument? instrument = null)
+    {
+        instrument ??= f.Instrument;
+        var (risk, setup) = f.Market.Prepare(instrument, state, at, "3.20", dailyPoints: ["3.10", "2.95", "3.20"]);
+        var context = new UnitValuationContext(risk.Market.Snapshot, setup, risk.Market).For(risk.UnitContracts.Single(), null, state);
+        var (basis, scenario) = context.RetainedProgramMarkets(instrument.Declare(context).Dependencies);
+        var value = instrument.PV(instrument.PrepareValuation(basis, scenario,
+            new ExplicitDiscounting(E("1"), DiscountFactorSource.Undiscounted), state));
+        return (risk, context, value);
+    }
+
+    private static void RecordedElections()
+    {
+        var f = new GroupFixture(3, dailyPoint: true);
+        var at = f.ExerciseAt.AddDays(-28);
+        var held = ElectedState(f, [Election(f, 0, "exercised", at), Election(f, 1, "abandoned", at)]);
+        var (risk, context, value) = EvaluateElections(f, held, at);
+        var groups = value.Groups;
+        if (!groups.Select(g => g.State).SequenceEqual(["exercised", "abandoned", "undecided"]) ||
+            !groups.Select(g => g.ForwardSum.Ratio).SequenceEqual([R("1000"), R("-500"), R("2000")]) ||
+            groups[0].Counted.Ratio != R("1000") || groups[1].Counted.Ratio != R("0") ||
+            groups[0].Inputs is not null || groups[1].Inputs is not null ||
+            groups[2].Counted.Ratio.Format(4, MidpointRounding.ToEven) != "2947.4419")
+            throw new Exception("Each group must report its exact forward and its own elected or modeled value.");
+        var expected = groups[0].Counted.Add(groups[2].Counted);
+        var position = RiskEngine.CalculateExact(risk, [], RiskEngine.ExactNumericalPolicy).Groups.Single().BasePositions.Single();
+        if (expected.Ratio.Format(4, MidpointRounding.ToEven) != "3947.4419" ||
+            position.Value != expected || f.Instrument.EvaluateLifecycle(context).Total != expected ||
+            position.ExerciseGroups.Single().Group.From != groups[2].From ||
+            position.ExerciseGroups.Single().Value != groups[2].Counted ||
+            position.Entries.Select(e => e.Value.Ratio).SequenceEqual([R("31000"), R("-30000")]) is false)
+            throw new Exception("Only the undecided model value is added to the two exercised Side entry contributions.");
+    }
+
+    private static void ElectedQuantities()
+    {
+        var scheduled = new GroupFixture(3, dailyPoint: true, scheduled: true);
+        var at = scheduled.ExerciseAt.AddDays(-28);
+        var quantities = scheduled.Market.Days((9000, PhysicalLifecycle.ScheduledQuantity), (10000, PhysicalLifecycle.ContractQuantity),
+            (10000, PhysicalLifecycle.ContractQuantity));
+        var held = ElectedState(scheduled, [Election(scheduled, 0, "exercised", at), Election(scheduled, 1, "abandoned", at)], quantities);
+        if (EvaluateElections(scheduled, held, at).Value.Groups[0].Counted.Ratio != R("900"))
+            throw new Exception("The exercised day must count its scheduled 9,000 units.");
+        var instrument = scheduled.Instrument;
+        var cash = instrument.Members[1];
+        var shortfall = new RetainedGasMember(cash.SideId, cash.Direction, cash.Ratio, cash.Program, 0,
+            part: QuantityPart.Shortfall(R("1")));
+        var keptWhole = new RetainedGasInstrument(instrument.Id, instrument.Members.SetItem(1, shortfall), instrument.Assignments,
+            instrument.PriceLookups, instrument.Rights, instrument.Marks);
+        var part = EvaluateElections(scheduled, held, at, keptWhole);
+        if (part.Value.Groups[0].Counted.Ratio != R("24900") || TradeValue(part.Risk).Ratio != R("56900"))
+            throw new Exception("The exercised day pays for its 1,000-unit shortfall and masking creates no shortfall on other days.");
+        var shared = new GroupFixture(3, dailyPoint: true, paymentShare: new(21, 20));
+        var signed = ElectedState(shared, [Election(shared, 0, "exercised", at), Election(shared, 1, "abandoned", at)]);
+        if (EvaluateElections(shared, signed, at).Value.Groups[0].Counted.Ratio != R("-500"))
+            throw new Exception("An exercise election keeps the exact 31,000 receipt and 31,500 shared payment.");
+    }
+
+    private static void ElectedAccrual()
+    {
+        var f = new GroupFixture(3, dailyPoint: true, scheduled: true);
+        var at = f.Market.Clock.Boundary(f.Market.From.AddDays(1)).AddMinutes(30);
+        var elections = ImmutableArray.Create(Election(f, 0, "exercised", f.ExerciseAt), Election(f, 1, "abandoned", f.ExerciseAt),
+            Election(f, 2, "abandoned", f.ExerciseAt));
+        var days = f.Market.Days((10000, PhysicalLifecycle.AllocatedFinalQuantity), (10000, PhysicalLifecycle.ContractQuantity),
+            (10000, PhysicalLifecycle.ContractQuantity));
+        var withoutMarks = f.WithMarks(null);
+        PhysicalLifecycleRow Row(PhysicalCashState held) =>
+            withoutMarks.EvaluateLifecycle(EvaluateElections(f, held, at, withoutMarks).Context).Rows.Single(r => r.Slot == 1);
+        var accrued = Row(ElectedState(f, elections, days));
+        if (accrued.Accrued.Ratio != R("-30000") || accrued.Expected?.Ratio != R("-30000") ||
+            accrued.Unrealized.Ratio != R("0") || accrued.Settlement != SettlementState.AccruedUnpaid)
+            throw new Exception("Only the ended and exercised day accrues, with no future payment for the abandoned days.");
+        var payment = new CashOccurrencePayment(Guid.NewGuid(), 1, 0, at, at, ExactMoney.Parse("-30000", f.Instrument.Currency));
+        var paid = Row(ElectedState(f, elections, days, [payment]));
+        if (paid.Accrued.Ratio != R("-30000") || paid.Paid.Ratio != R("-30000") || paid.Outstanding.Ratio != R("0") ||
+            paid.Expected?.Ratio != R("0") || paid.Settlement != SettlementState.Paid)
+            throw new Exception("The exact whole-row payment clears cash without being apportioned to the exercised day.");
+        var mixed = ElectedState(f, elections.SetItem(2, elections[2] with { Outcome = "exercised" }), days, [payment]);
+        var (risk, mixedContext, value) = EvaluateElections(f, mixed, at, withoutMarks);
+        var mixedCash = withoutMarks.EvaluateLifecycle(mixedContext).Rows.Single(r => r.Slot == 1);
+        if (value.Groups[0].ForwardSum.Ratio != R("-30000") || value.Groups[0].Counted.Ratio != R("-30000") ||
+            value.Groups[2].ForwardSum.Ratio != R("2000") || value.Groups[2].Counted.Ratio != R("2000") ||
+            mixedCash.Paid.Ratio != R("-30000") || mixedCash.Outstanding.Ratio != R("0") ||
+            mixedCash.RealizedUnsettled.Ratio != R("0") || mixedCash.Unrealized.Ratio != R("-30000") ||
+            TradeValue(risk).Ratio != R("2000"))
+            throw new Exception("The group reports gross economics and the Side preserves paid, outstanding and future cash.");
+        var corrected = days.SetItem(0, f.Market.Days((0, PhysicalLifecycle.AllocatedFinalQuantity))[0]);
+        var overpaid = Row(ElectedState(f, elections, corrected, [payment]));
+        if (overpaid.Accrued.Ratio != R("0") || overpaid.Paid.Ratio != R("-30000") ||
+            overpaid.Outstanding.Ratio != R("30000") || overpaid.Settlement != SettlementState.Overpaid)
+            throw new Exception("A correction to zero selected quantity retains its original payment and exact overpayment.");
+    }
+
+    private static void ElectionTiming()
+    {
+        var f = new GroupFixture(3, dailyPoint: true);
+        var at = f.ExerciseAt.AddDays(-28);
+        var future = at.AddDays(1);
+        var first = Election(f, 0, "exercised", future);
+        var abandoned = Election(f, 1, "abandoned", at);
+        var held = ElectedState(f, [first, abandoned]);
+        var before = EvaluateElections(f, held, at);
+        if (before.Value.Groups[0].State != "undecided" || before.Risk.UnitContracts.Single().Time.To != future)
+            throw new Exception("A future effective election stays undecided and bounds the event-free interval.");
+        RejectElection("valuation_time_coverage", () => TradeValue(RiskEngine.WithClock(before.Risk, new(future, ClockChange.FrozenInputs))));
+        if (EvaluateElections(f, held, future).Value.Groups[0].State != "exercised")
+            throw new Exception("The election becomes effective at its exact instant.");
+        var third = f.Instrument.Rights.Single().Groups[2].ExerciseAt;
+        RejectElection("exercise_determination", () => EvaluateElections(f, held, third));
+        var decided = ElectedState(f, [first, abandoned, Election(f, 2, "exercised", third)]);
+        var final = EvaluateElections(f, decided, third, f.WithMarks(null));
+        if (final.Value.Groups[2].Counted.Ratio != R("2000") || !final.Risk.UnitContracts.Single().Volatility.IsEmpty)
+            throw new Exception("An effective election at exercise permits valuation without option marks.");
+
+        var negative = new GroupFixture(fixedPrice: "-3");
+        var negativeAt = negative.ExerciseAt.AddDays(-3);
+        var unmarked = negative.WithMarks(null);
+        var noModel = EvaluateElections(negative, ElectedState(negative, [Election(negative, 0, "exercised", negativeAt)]),
+            negativeAt, unmarked);
+        if (TradeValue(noModel.Risk).Ratio != R("62000") || noModel.Value.Groups[0].Counted.Ratio != R("62000") ||
+            noModel.Value.Groups[0].Inputs is not null || !noModel.Risk.UnitContracts.Single().Volatility.IsEmpty ||
+            noModel.Value.NumericalPolicy.Contains(KirkSpreadCall.Implementation, StringComparison.Ordinal) ||
+            noModel.Risk.UnitContracts.Single().ModelVersion.Contains(KirkSpreadCall.Implementation, StringComparison.Ordinal) ||
+            noModel.Value.Context.EvaluatedSides != 2)
+            throw new Exception("A fully exercised right uses only ordinary rows, even outside the holder model's price scope.");
+    }
+
+    private static void ElectionRefusals()
+    {
+        var f = new GroupFixture(3, dailyPoint: true, scheduled: true);
+        var at = f.ExerciseAt.AddDays(-28);
+        var future = at.AddDays(1);
+        var valid = Election(f, 0, "exercised", at);
+        foreach (var invalid in new[]
+        {
+            valid with { Right = 1 }, valid with { From = f.Market.To }, valid with { Outcome = "deemed" },
+            valid with { EffectiveAt = default }, valid with { RevisionId = Guid.Empty }, valid with { Evidence = " " },
+            valid with { From = f.Market.To, EffectiveAt = future }, null!,
+        })
+            RejectElection("exercise_election", () => EvaluateElections(f, ElectedState(f, [invalid]), at));
+        RejectElection("exercise_election", () => EvaluateElections(f, ElectedState(f,
+            [valid, valid with { EffectiveAt = future, RevisionId = Guid.NewGuid() }]), at));
+        var cash = f.Instrument.Rights[0] with { Slots = [1], Settlement = ExerciseSettlement.CashAutomatic };
+        RejectElection("exercise_election", () => EvaluateElections(f, ElectedState(f, [valid]), at, Save(f.Instrument, [cash])));
+        RejectElection("exercise_election", () => EvaluateElections(f, ElectedState(f, [valid]), at, f.Market.Instrument));
+
+        var elected = ImmutableArray.Create(valid, Election(f, 1, "abandoned", at));
+        var scheduled = f.Market.Days((10000, PhysicalLifecycle.ContractQuantity), (9000, PhysicalLifecycle.ScheduledQuantity),
+            (10000, PhysicalLifecycle.ContractQuantity));
+        RejectElection("exercise_conflict", () => EvaluateElections(f, ElectedState(f, elected, scheduled), at));
+        RejectElection("exercise_conflict", () => EvaluateElections(f, ElectedState(f, [valid], scheduled), at));
+
+        var payment = new CashOccurrencePayment(Guid.NewGuid(), 1, 0, at, at, ExactMoney.Parse("-100", f.Instrument.Currency));
+        var allAbandoned = ImmutableArray.Create(Election(f, 0, "abandoned", at), Election(f, 1, "abandoned", at),
+            Election(f, 2, "abandoned", at));
+        RejectElection("exercise_conflict", () => EvaluateElections(f, ElectedState(f, allAbandoned, payments: [payment]), at));
+        RejectElection("exercise_conflict", () => EvaluateElections(f, ElectedState(f, [], payments: [payment]), at));
+        _ = EvaluateElections(f, ElectedState(f, allAbandoned, payments: [payment with { PaidAt = future }]), at);
+        _ = EvaluateElections(f, ElectedState(f, allAbandoned, payments: [payment with { KnownAt = future }]), at);
+    }
+
+    private static void CashElectionSource()
+    {
+        var f = new GroupFixture(3, dailyPoint: true, sameSign: true, scheduled: true);
+        var at = f.ExerciseAt.AddDays(-28);
+        var cash = f.Instrument.Rights[0] with { Slots = [1], Settlement = ExerciseSettlement.CashAutomatic };
+        var held = ElectedState(f, [], f.Market.Days((9000, PhysicalLifecycle.ScheduledQuantity), (10000, PhysicalLifecycle.ContractQuantity),
+            (10000, PhysicalLifecycle.ContractQuantity)));
+        var (_, _, value) = EvaluateElections(f, held, at, Save(f.Instrument, [cash]));
+        if (value.Groups[0].State != "undecided" || value.Groups[0].Counted.Ratio != R("27000") ||
+            value.Sides[0].Contribution.Ratio != R("8.94"))
+            throw new Exception("A payment-only right uses its outside physical source without owning its schedule records.");
+    }
+
+    private static void RejectElection(string code, Action action)
+    {
+        try { action(); } catch (MarketDataException error) when (error.Code == code) { return; }
+        throw new Exception($"Expected {code}.");
     }
 
     private static void SavedIdentity()

@@ -8,8 +8,9 @@ namespace OpenEtrm.MarketData.Trading;
 // in the held binding's signed cash terms. A payment and an occurrence identify one allocation.
 public sealed record CashOccurrencePayment(Guid Id,int Slot,int Occurrence,DateTimeOffset PaidAt,DateTimeOffset KnownAt,ExactMoney Amount);
 
-// Operation-owned payment facts for one held physical binding. Visibility is resolved per
-// valuation from paid and knowledge time; nothing here is part of economic identity.
+// Operation-owned lifecycle facts for one held physical binding. Payment visibility uses
+// paid and knowledge time. Supplied elections are already selected at the knowledge cutoff.
+// These facts are independent of the instrument's economic definition.
 public sealed class PhysicalCashState:IBindingValuationState
 {
     public const string Policy="physical_whole_day_accrual_v1";
@@ -19,9 +20,10 @@ public sealed class PhysicalCashState:IBindingValuationState
     public Quantity Quantity { get; }
     public ImmutableArray<CashOccurrencePayment> Payments { get; }
     public ImmutableArray<HeldDayQuantity> OwnerDays { get; }
+    public ImmutableArray<ExerciseElection> Elections { get; }
 
     public PhysicalCashState(Guid tradeId,Guid bindingId,Quantity quantity,Guid? bookId,ImmutableArray<CashOccurrencePayment> payments,string policy,
-        ImmutableArray<HeldDayQuantity> ownerDays=default)
+        ImmutableArray<HeldDayQuantity> ownerDays=default,ImmutableArray<ExerciseElection> elections=default)
     {
         if(bookId==Guid.Empty||policy!=Policy||tradeId==Guid.Empty||bindingId==Guid.Empty||quantity is null||quantity.Amount==default||payments.IsDefault||
             payments.Any(p=>p is null||p.Id==Guid.Empty||p.Slot<0||p.Occurrence<0||p.Amount is null||!Supported(p.PaidAt)||!Supported(p.KnownAt))||
@@ -31,13 +33,15 @@ public sealed class PhysicalCashState:IBindingValuationState
         TradeId=tradeId;BindingId=bindingId;BookId=bookId;Quantity=quantity;Payments=payments;
         OwnerDays = ownerDays.IsDefault ? [] : ownerDays;
         PhysicalDeliveryQuantities.RequireFacts(OwnerDays, quantity.Specification);
+        Elections = elections.IsDefault ? [] : elections;
+        ExerciseElection.RequireFacts(Elections);
     }
     // Paid is only ever recorded against cash that has started to accrue: there is no prepayment.
     // Returns the visible paid total and the latest visible payment instant.
     internal (ExactMoney Total,DateTimeOffset? Last) Paid(int slot,int occurrence,MarketSnapshot snapshot,ExactMoney accrued,bool accruing,ExactMoney? contractAmount=null,bool selectedQuantity=false)
     {
         var total=ExactMoney.Parse("0",accrued.Currency);DateTimeOffset? last=null;
-        foreach(var payment in Payments.Where(p=>p.Slot==slot&&p.Occurrence==occurrence&&p.PaidAt<=snapshot.ValuationAt&&p.KnownAt<=snapshot.Knowledge!.KnownAt))
+        foreach(var payment in VisiblePayments(snapshot).Where(p=>p.Slot==slot&&p.Occurrence==occurrence))
         {
             if(!accruing)throw new MarketDataException("payment_state","A payment requires at least one ended gas day of its cash occurrence.");
             // A selected quantity can correct accrued cash to zero. Its retained price and
@@ -48,6 +52,9 @@ public sealed class PhysicalCashState:IBindingValuationState
         }
         return (total,last);
     }
+    internal IEnumerable<CashOccurrencePayment> VisiblePayments(MarketSnapshot snapshot) => snapshot.Knowledge is {} knowledge
+        ? Payments.Where(payment => payment.PaidAt <= snapshot.ValuationAt && payment.KnownAt <= knowledge.KnownAt) : [];
+
     private static bool Supported(DateTimeOffset at)=>at!=default&&TradingInstant.IsSupported(at);
 }
 

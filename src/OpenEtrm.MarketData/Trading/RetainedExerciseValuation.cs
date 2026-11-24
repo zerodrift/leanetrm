@@ -16,48 +16,56 @@ internal sealed class RetainedExerciseValuation
     private readonly Dictionary<DateOnly, Amounts> byDay = [];
     private readonly Amounts[] groups;
 
-    private sealed class Amounts
+    private sealed class Amounts(string outcome)
     {
+        internal string Outcome { get; } = outcome;
         internal SignedRatio Forward = SignedRatio.Zero, Certain = SignedRatio.Zero;
         internal SignedRatio Receives = SignedRatio.Zero, Pays = SignedRatio.Zero;
         internal CurveKey? ReceiveCurve, PayCurve;
     }
 
-    internal RetainedExerciseValuation(ExerciseRight right)
+    internal RetainedExerciseValuation(ExerciseRight right, ExerciseDecisions decisions)
     {
         this.right = right;
         groups = right.Groups.Select(group =>
         {
-            var amounts = new Amounts();
+            var amounts = new Amounts(decisions.Outcome(right, group));
             for (var day = group.From; day < group.To; day = day.AddDays(1)) byDay.Add(day, amounts);
             return amounts;
         }).ToArray();
-    }
-
-    internal static void RequireUndecided(ImmutableArray<ExerciseRight> rights, DateTimeOffset at)
-    {
-        if (rights.Any(right => right.Groups.Any(g => g.ExerciseAt <= at)))
-            throw new MarketDataException("exercise_determination", "An elapsed exercise group requires its determination.");
     }
 
     internal void Add(RetainedProgramValuation side, ImmutableArray<EntryDayQuantity> days, SignedRatio membership)
     {
         var program = ((RetainedProgramSchedule)side.Schedule).Program;
         var byOccurrence = side.Lifecycle!.Rows.ToDictionary(row => row.Occurrence);
-        var sources = program.Document.Instructions.SelectMany((source, i) =>
-            source.Consumers.Select(output => (output, source: i))).ToLookup(pair => pair.output, pair => pair.source);
-        var quantities = days.ToDictionary(day => day.Day, day => day.Taken);
+        ILookup<int, int>? sources = null;
+        var quantities = days.ToDictionary(day => day.Day);
         foreach (var contribution in side.Execution.Contributions)
         {
             var output = program.Document.Instructions[contribution.Instruction].Output;
             var row = byOccurrence[output.PaymentOrdinal!.Value];
             var amount = (row.Expected?.Add(row.Paid) ?? row.Unrealized).Ratio;
             if (amount.Numerator.IsZero) continue;
-            if (amount.Numerator.Sign < 0) throw OutsideModel();
+            var shares = new Dictionary<Amounts, SignedRatio>();
+            var total = SignedRatio.Zero;
+            for (var day = row.DeliveryFrom; day < row.DeliveryTo; day = day.AddDays(1))
+            {
+                var taken = quantities[day].Taken;
+                if (taken.Numerator.IsZero) continue;
+                var group = byDay[day];
+                shares[group] = shares.GetValueOrDefault(group, SignedRatio.Zero) + taken;
+                total += taken;
+            }
+            if (shares.Count == 0) continue;
+            var modeled = shares.Keys.Any(group => group.Outcome == ExerciseDecisions.Undecided);
+            if (modeled && amount.Numerator.Sign < 0) throw OutsideModel();
             var certain = IsCertain(contribution.Amount.States[0].Prices);
             CurveKey? curve = null;
-            if (!certain)
+            if (modeled && !certain)
             {
+                sources ??= program.Document.Instructions.SelectMany((source, i) =>
+                    source.Consumers.Select(output => (output, source: i))).ToLookup(pair => pair.output, pair => pair.source);
                 foreach (var address in sources[contribution.Instruction])
                 {
                     var source = program.Document.Instructions[address];
@@ -68,20 +76,11 @@ internal sealed class RetainedExerciseValuation
                 }
                 if (curve is null) throw OutsideModel();
             }
-            var shares = new Dictionary<Amounts, SignedRatio>();
-            var total = SignedRatio.Zero;
-            for (var day = row.DeliveryFrom; day < row.DeliveryTo; day = day.AddDays(1))
-            {
-                var taken = quantities[day];
-                if (taken.Numerator.IsZero) continue;
-                var group = byDay[day];
-                shares[group] = shares.GetValueOrDefault(group, SignedRatio.Zero) + taken;
-                total += taken;
-            }
             foreach (var (group, share) in shares)
             {
                 var forward = amount * membership * share * new SignedRatio(total.Denominator, total.Numerator);
                 group.Forward += forward;
+                if (group.Outcome != ExerciseDecisions.Undecided) continue;
                 var holder = right.Holder == ExerciseHolder.Us ? forward : SignedRatio.Zero - forward;
                 if (certain) group.Certain += holder;
                 else if (holder.Numerator.Sign > 0)
@@ -113,6 +112,14 @@ internal sealed class RetainedExerciseValuation
         {
             var group = right.Groups[i];
             var amounts = groups[i];
+            var forward = ExactMoney.FromFraction(sign * amounts.Forward.Numerator, amounts.Forward.Denominator, currency);
+            if (amounts.Outcome != ExerciseDecisions.Undecided)
+            {
+                // Group reports show selected gross economics. The Side owns paid and outstanding cash.
+                var decided = amounts.Outcome == ExerciseElection.Exercised ? forward : ExactMoney.Parse("0", currency);
+                yield return new(right.Ordinal, group.From, group.To, amounts.Outcome, forward, decided, null);
+                continue;
+            }
             var month = new DateOnly(group.From.Year, group.From.Month, 1);
             var a = HalfEven18.Round(amounts.Receives);
             var b = HalfEven18.Round(amounts.Pays);
@@ -129,8 +136,7 @@ internal sealed class RetainedExerciseValuation
             var choice = HolderChoice.Value(inputs);
             var receiveChoice = (right.Holder == ExerciseHolder.Us) == (sign > 0);
             var counted = receiveChoice ? choice : default(ExactDecimal) - choice;
-            yield return new(right.Ordinal, group.From, group.To, "undecided",
-                ExactMoney.FromFraction(sign * amounts.Forward.Numerator, amounts.Forward.Denominator, currency),
+            yield return new(right.Ordinal, group.From, group.To, amounts.Outcome, forward,
                 ExactMoney.FromMoney(new(counted, currency)), inputs);
         }
     }
@@ -138,24 +144,26 @@ internal sealed class RetainedExerciseValuation
     internal static UnitPricingContract Declare(UnitPricingContract contract, RetainedGasInstrument instrument, UnitValuationContext context)
     {
         var rights = instrument.Rights;
-        RequireUndecided(rights, context.CalculationAt);
-        var firstEvent = rights.SelectMany(r => r.Groups).Min(g => g.ExerciseAt);
-        void Boundary(DateTimeOffset at)
-        {
-            if (at > context.Snapshot.ValuationAt && at < firstEvent) firstEvent = at;
-        }
         if (context.BindingState is not PhysicalCashState held)
             throw PhysicalDeliveryQuantities.Invalid("An exercise right requires its complete held day quantities.");
         instrument.ValidateValuationState(held);
-        var entryDays = EntryQuantities.ForMembers(instrument.Members, held);
+        var decisions = ExerciseDecisions.Resolve(rights, instrument.Members, held, context.Snapshot, context.CalculationAt);
+        DateTimeOffset? firstEvent = null;
+        void Boundary(DateTimeOffset at)
+        {
+            if (at > context.Snapshot.ValuationAt && (firstEvent is null || at < firstEvent)) firstEvent = at;
+        }
+        var undecided = rights.SelectMany(right => right.Groups.Where(group => decisions.Outcome(right, group) == ExerciseDecisions.Undecided)).ToArray();
+        foreach (var group in undecided) Boundary(group.ExerciseAt);
+        foreach (var election in held.Elections) Boundary(election.EffectiveAt);
+        var entryDays = undecided.Length == 0 ? default : EntryQuantities.ForMembers(instrument.Members, held);
         var used = new HashSet<(CurveKey Curve, DateOnly Month)>();
         var lookupIndex = instrument.PriceLookups.ToLookup(l => (l.Market, l.Contract.DeliveryFrom, l.Contract.DeliveryTo));
-        var selectedSlots = rights.SelectMany(right => right.Slots).ToHashSet();
         for (var slot = 0; slot < instrument.Members.Length; slot++)
         {
             var program = instrument.Members[slot].Program;
-            var selectedDays = selectedSlots.Contains(slot) ? entryDays[slot].Where(d => d.Taken.Numerator.Sign > 0)
-                .Select(d => d.Day).ToHashSet() : null;
+            var selectedDays = !entryDays.IsDefault && !entryDays[slot].IsDefault ? entryDays[slot]
+                .Where(d => d.Taken.Numerator.Sign > 0 && decisions.IsUndecided(slot, d.Day)).Select(d => d.Day).ToHashSet() : null;
             var physical = PhysicalLifecycle.ReadsDeliveryMarks(program);
             var instructions = program.Document.Instructions;
             foreach (var row in instrument.Sides[slot].Side.GenerateSchedule().Rows)
@@ -191,7 +199,11 @@ internal sealed class RetainedExerciseValuation
             foreach (var payment in held.Payments.Where(p => p.KnownAt <= knowledge.KnownAt)) Boundary(payment.PaidAt);
         if (firstEvent <= context.CalculationAt)
             throw new MarketDataException("valuation_time_coverage", "The calculation clock crosses a retained valuation event.");
-        return contract with { ModelVersion = contract.ModelVersion + "/" + ModelPolicy, Time = ValuationTimeDependency.Between(context.CalculationAt, firstEvent),
-            Volatility = instrument.Marks is {} marks ? [..marks.OrderedVolatilities.Where(v => used.Contains((v.Curve, v.Month))).Select(v => v.Volatility)] : [] };
+        return contract with
+        {
+            ModelVersion = undecided.Length == 0 ? contract.ModelVersion : contract.ModelVersion + "/" + ModelPolicy,
+            Time = firstEvent is {} boundary ? ValuationTimeDependency.Between(context.CalculationAt, boundary) : contract.Time,
+            Volatility = instrument.Marks is {} marks ? [..marks.OrderedVolatilities.Where(v => used.Contains((v.Curve, v.Month))).Select(v => v.Volatility)] : []
+        };
     }
 }

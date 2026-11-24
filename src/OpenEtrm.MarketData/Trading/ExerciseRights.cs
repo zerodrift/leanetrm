@@ -25,6 +25,88 @@ public sealed record ExerciseRight(
     [property: IdentityField] string DayCount,
     [property: IdentityField] ImmutableArray<ExerciseGroup> Groups);
 
+public sealed record ExerciseElection(int Right, DateOnly From, string Outcome, DateTimeOffset EffectiveAt, Guid RevisionId, string Evidence)
+{
+    internal const string Exercised = "exercised", Abandoned = "abandoned";
+
+    internal static void RequireFacts(ImmutableArray<ExerciseElection> elections)
+    {
+        if (elections.Any(e => e is null || e.Right < 0 || e.From == default || e.Outcome is not (Exercised or Abandoned) ||
+            e.EffectiveAt == default || !TradingInstant.IsSupported(e.EffectiveAt) || e.RevisionId == Guid.Empty ||
+            string.IsNullOrWhiteSpace(e.Evidence)) || elections.DistinctBy(e => (e.Right, e.From)).Count() != elections.Length)
+            throw Invalid();
+    }
+
+    internal static MarketDataException Invalid() => new("exercise_election",
+        "Each election requires a distinct retained physical exercise group, an outcome, an effective instant and identified evidence.");
+}
+
+internal sealed class ExerciseDecisions
+{
+    internal const string Undecided = "undecided";
+    private readonly Dictionary<(int Right, DateOnly From), string> outcomes = [];
+    private readonly Dictionary<int, Dictionary<DateOnly, string>> memberDays = [];
+
+    internal static ExerciseDecisions Resolve<TMember>(ImmutableArray<ExerciseRight> rights, ImmutableArray<TMember> members,
+        PhysicalCashState state, MarketSnapshot snapshot, DateTimeOffset at) where TMember : IRetainedProgramMember
+    {
+        var decisions = new ExerciseDecisions(rights, state.Elections, at);
+        decisions.RequireCompatibleFacts(members, state, snapshot);
+        decisions.RequireDetermined(rights, at);
+        return decisions;
+    }
+
+    private ExerciseDecisions(ImmutableArray<ExerciseRight> rights, ImmutableArray<ExerciseElection> elections, DateTimeOffset at)
+    {
+        foreach (var election in elections)
+        {
+            if (election.Right >= rights.Length || rights[election.Right].Settlement != ExerciseSettlement.Physical ||
+                !rights[election.Right].Groups.Any(group => group.From == election.From))
+                throw ExerciseElection.Invalid();
+            if (election.EffectiveAt <= at) outcomes.Add((election.Right, election.From), election.Outcome);
+        }
+        foreach (var right in rights)
+        {
+            var days = new Dictionary<DateOnly, string>();
+            foreach (var group in right.Groups)
+            {
+                var outcome = Outcome(right, group);
+                for (var day = group.From; day < group.To; day = day.AddDays(1)) days.Add(day, outcome);
+            }
+            foreach (var slot in right.Slots) memberDays.Add(slot, days);
+        }
+    }
+
+    internal string Outcome(ExerciseRight right, ExerciseGroup group) => outcomes.GetValueOrDefault((right.Ordinal, group.From), Undecided);
+    internal bool Counted(int slot, DateOnly day) => DayOutcome(slot, day) is null or ExerciseElection.Exercised;
+    internal bool IsUndecided(int slot, DateOnly day) => DayOutcome(slot, day) == Undecided;
+    private string? DayOutcome(int slot, DateOnly day) => memberDays.TryGetValue(slot, out var days) ? days.GetValueOrDefault(day) : null;
+
+    private void RequireDetermined(ImmutableArray<ExerciseRight> rights, DateTimeOffset at)
+    {
+        if (rights.Any(right => right.Groups.Any(group => group.ExerciseAt <= at && Outcome(right, group) == Undecided)))
+            throw new MarketDataException("exercise_determination", "An elapsed exercise group requires its determination.");
+    }
+
+    private void RequireCompatibleFacts<TMember>(ImmutableArray<TMember> members, PhysicalCashState state, MarketSnapshot snapshot)
+        where TMember : IRetainedProgramMember
+    {
+        // Owner-day slots are physical memberships. Cash source links do not move these facts inside a right.
+        if (state.OwnerDays.Any(day => day.Source != PhysicalLifecycle.ContractQuantity && !Counted(day.Slot, day.Day)))
+            throw new MarketDataException("exercise_conflict", "Delivery records require an exercised day on the covered physical member.");
+        foreach (var payment in state.VisiblePayments(snapshot))
+        {
+            if (!memberDays.ContainsKey(payment.Slot)) continue;
+            var row = members[payment.Slot].Program.Document.Instructions.Single(i =>
+                i.Output.Operation == "output_guard" && i.Output.PaymentOrdinal == payment.Occurrence).Output;
+            var from = row.DeliveryFrom!.Value;
+            var to = row.DeliveryTo!.Value;
+            if (!Enumerable.Range(0, to.DayNumber - from.DayNumber).Select(from.AddDays).Any(day => DayOutcome(payment.Slot, day) == ExerciseElection.Exercised))
+                throw new MarketDataException("exercise_conflict", "A covered cash row requires an exercised day before it can carry a recorded payment.");
+        }
+    }
+}
+
 [EconomicDefinition("exercise_curve_volatility_v1")]
 public sealed record CurveVolatilityMark([property: IdentityField] CurveKey Curve, [property: IdentityField] DateOnly Month,
     VolatilityInput Volatility)

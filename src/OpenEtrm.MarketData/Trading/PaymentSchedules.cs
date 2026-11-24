@@ -589,7 +589,8 @@ public sealed record InstrumentValuation
     }
     internal InstrumentValuation(SidedInstrument instrument, SideValuationContext context, ImmutableArray<SideValuation> values,
         ImmutableArray<ExerciseGroupValue> groups = default)
-        :this(instrument,context,groups.IsDefaultOrEmpty ? Policy : Policy + "/" + RetainedExerciseValuation.ModelPolicy)
+        :this(instrument,context,!groups.IsDefaultOrEmpty && groups.Any(group => group.Inputs is not null)
+            ? Policy + "/" + RetainedExerciseValuation.ModelPolicy : Policy)
     {
         if (values.IsDefault || values.Length != instrument.Sides.Length || values.Where((v, n) => v is null ||
             v.SideId != instrument.Sides[n].Side.Id || v.Currency != instrument.Currency ||
