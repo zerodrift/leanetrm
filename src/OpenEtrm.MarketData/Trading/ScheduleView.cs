@@ -15,6 +15,8 @@ public sealed record ScheduleViewCell(string? Value,ImmutableArray<string> Sourc
 {
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? QuantityPart { get;init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public ImmutableArray<ExerciseSchedulePeriod> ExercisePeriods { get;init; }
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? SourceQuantity { get;init; }
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
@@ -23,7 +25,11 @@ public sealed record ScheduleViewCell(string? Value,ImmutableArray<string> Sourc
 public sealed record ScheduleViewRow(string Key,string? Parent,string Level,DateTimeOffset Start,DateTimeOffset End,string? OperatingDate,
     ImmutableDictionary<string,ScheduleViewCell> Cells,bool Delivered);
 public sealed record ScheduleView(ImmutableArray<string> Levels,ImmutableArray<ScheduleViewRow> Rows,ImmutableDictionary<string,ScheduleViewCell> Totals,
-    ImmutableDictionary<string,ScheduleViewCell>? Delivered,ImmutableDictionary<string,ScheduleViewCell>? Remaining,int DeliveredLeaves,int Leaves,DateTimeOffset ValuationAt);
+    ImmutableDictionary<string,ScheduleViewCell>? Delivered,ImmutableDictionary<string,ScheduleViewCell>? Remaining,int DeliveredLeaves,int Leaves,DateTimeOffset ValuationAt)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public ImmutableArray<ExerciseGroupReport> Groups { get; init; }
+}
 // An operational quantity recorded for one operating day, as the view shows it (signed and scaled like the side's
 // quantities), and the kind of record it is: nominated, confirmed, scheduled or allocated.
 public sealed record ScheduleViewQuantity(SignedRatio Quantity,string Source);
@@ -32,7 +38,26 @@ public sealed record ScheduleViewQuantity(SignedRatio Quantity,string Source);
 // Recorded replaces the shown quantity of the days it names; their amounts stay the evaluated contract's.
 public sealed record SideViewInput(string Code,BookedSideEvaluation Evaluation,BookedSideProgram Program,ExactDecimal Scale,SignedRatio Coefficient,
     ImmutableArray<(string Column,ScheduleViewMeasure Measure)> Columns,ImmutableDictionary<DateOnly,ScheduleViewQuantity>? Recorded=null,
-    ImmutableDictionary<DateOnly,EntryDayQuantity>? FollowedDays=null,QuantityPart? Part=null);
+    ImmutableDictionary<DateOnly,EntryDayQuantity>? FollowedDays=null,QuantityPart? Part=null)
+{
+    public ImmutableArray<ExerciseGroupReport> ExerciseGroups { get; init; } = [];
+    // A controlled membership has one right and its contiguous, ordered periods.
+    internal ImmutableArray<ExerciseSchedulePeriod> Periods(DateOnly from,DateOnly to)
+    {
+        if(ExerciseGroups.IsEmpty)return [];
+        int first=0,end=ExerciseGroups.Length;
+        while(first<end)
+        {
+            int middle=first+(end-first)/2;
+            if(ExerciseGroups[middle].To<=from)first=middle+1;
+            else end=middle;
+        }
+        var periods=ImmutableArray.CreateBuilder<ExerciseSchedulePeriod>();
+        for(int n=first;n<ExerciseGroups.Length && ExerciseGroups[n].From<to;n++)
+            periods.Add(ExerciseGroups[n].SchedulePeriod());
+        return periods.ToImmutable();
+    }
+}
 
 // Every value comes from an evaluated contribution: its amount, and the quantity
 // and price operands of its amount instruction, on the contribution's own grid
@@ -54,14 +79,14 @@ public static class ScheduleViews
     public const string NetCash="trade.net_cash",PaymentAt="trade.payment_at";
     private static readonly string[] Supported=["term","month","day"];
     // One canonical tag order; a set of tags is a bit mask over it.
-    private static readonly string[] Tags=["contract","forecast","meter","fwd","actual","modeled","fixed","estimated","nominated","confirmed","scheduled","allocated","delivered","allocated_final","allocated_provisional"];
+    private static readonly string[] Tags=["contract","forecast","meter","fwd","actual","modeled","fixed","estimated","nominated","confirmed","scheduled","allocated","delivered","allocated_final","allocated_provisional","contingent"];
     private static readonly string[] RecordedTags=["nominated","confirmed","scheduled","allocated"];
-    private const int ContractTag=1<<0,DeliveredTag=1<<12;
+    private const int ContractTag=1<<0,DeliveredTag=1<<12,ContingentTag=1<<15;
     private static readonly (SchedulePriceFacts Fact,int Tag)[] PriceTags=[(SchedulePriceFacts.Fixed,0),(SchedulePriceFacts.Projected,3),
         (SchedulePriceFacts.Actual,4),(SchedulePriceFacts.Modeled,5),(SchedulePriceFacts.PublishedFixing,6),(SchedulePriceFacts.Estimated,7)];
     private sealed record Piece(SideViewInput Side,string Level,string Month,string? Day,DateTimeOffset Start,DateTimeOffset End,
         SignedRatio Quantity,SignedRatio? Price,SignedRatio? Amount,int QuantityTags,int PriceTags,int AmountTags,DateTimeOffset? Payment,ReferenceKey? Currency,
-        ImmutableArray<DeliveryQuantityEvidence> QuantityEvidence=default,SignedRatio? SourceQuantity=null);
+        ImmutableArray<DeliveryQuantityEvidence> QuantityEvidence,SignedRatio? SourceQuantity,ImmutableArray<ExerciseSchedulePeriod> Periods);
 
     public static ScheduleView Build(ImmutableArray<SideViewInput> sides,ImmutableArray<string> levels,Func<DateOnly,DateTimeOffset> boundary)
     {
@@ -99,7 +124,8 @@ public static class ScheduleViews
         Add(pieces,0,null);
         var split=deliveredLeaves>0;
         return new(levels,rows.ToImmutable(),Cells(sides,pieces),split?Cells(sides,[..pieces.Where(piece=>piece.End<=valuationAt)]):null,
-            split?Cells(sides,[..pieces.Where(piece=>piece.End>valuationAt)]):null,deliveredLeaves,leaves,valuationAt);
+            split?Cells(sides,[..pieces.Where(piece=>piece.End>valuationAt)]):null,deliveredLeaves,leaves,valuationAt)
+            {Groups=sides.All(s=>s.ExerciseGroups.IsEmpty)?default:[..sides.SelectMany(s=>s.ExerciseGroups).Distinct().OrderBy(g=>g.Right).ThenBy(g=>g.From)]};
     }
 
     private static IEnumerable<Piece> Pieces(SideViewInput side,Func<DateOnly,DateTimeOffset> boundary)
@@ -138,6 +164,10 @@ public static class ScheduleViews
                 throw Error("Each contribution requires one amount and state per cell.");
             for(var cell=0;cell<cash.Values.Length;cell++)
             {
+                var period=guard.Output.Grid is {} grid?document.Grids[grid].Interval(cell).OperatingDate:(DateOnly?)null;
+                var periods=side.ExerciseGroups.IsEmpty?[]:side.Periods(period??guard.Output.DeliveryFrom!.Value,
+                    period?.AddDays(1)??guard.Output.DeliveryTo!.Value);
+                var contingent=periods.Any(p=>p.Status=="contingent")?ContingentTag:0;
                 var selected=ScheduleSelectedQuantity.Read(side,guard.Output,cell);
                 if(selected is not null)foreach(var day in selected.Days)if(!selectedDays.Add(day))throw Error("Each selected day must name one shown contribution.");
                 var selectionTags=selected?.Tags.Aggregate(0,(mask,tag)=>mask|1<<Array.IndexOf(Tags,tag));
@@ -148,7 +178,7 @@ public static class ScheduleViews
                     var ended=Interval(document,guard.Output,cell,boundary);
                     var(held,heldTags)=Shown(ended.Day,new SignedRatio(contract.NumeratorValue,contract.DenominatorValue)*scale,ContractTag);
                     pieces.Add(new(side,ended.Level,ended.Month,ended.Day,ended.Start,ended.End,held*(selected?.Fraction??new SignedRatio(1,1)),null,null,
-                        (selectionTags??heldTags)|DeliveredTag,DeliveredTag,DeliveredTag,null,null,selected?.Evidence??default,selected?.Selected));
+                        (selectionTags??heldTags)|DeliveredTag|contingent,DeliveredTag|contingent,DeliveredTag|contingent,null,null,selected?.Evidence??default,selected?.Selected,periods));
                     continue;
                 }
                 var(quantity,q)=Resolved(quantities,cell,cash.Values.Length);var(price,p)=Resolved(prices,cell,cash.Values.Length);
@@ -162,8 +192,8 @@ public static class ScheduleViews
                 var(shown,tags)=Shown(interval.Day,Ratio(quantity.Values[q])*scale,VolumeTag(volume));
                 var priceTags=PriceTag(price.States[p].Prices);
                 pieces.Add(new(side,interval.Level,interval.Month,interval.Day,interval.Start,interval.End,shown*(selected?.Fraction??new SignedRatio(1,1)),Ratio(price.Values[p]),
-                    Ratio(cash.Values[cell])*scale*(selected?.Fraction??new SignedRatio(1,1)),selectionTags??tags,priceTags,(selectionTags??VolumeTag(volume))|priceTags,
-                    payment,cash.Currency,selected?.Evidence??default,selected?.Selected));
+                    Ratio(cash.Values[cell])*scale*(selected?.Fraction??new SignedRatio(1,1)),(selectionTags??tags)|contingent,priceTags|contingent,(selectionTags??VolumeTag(volume))|priceTags|contingent,
+                    payment,cash.Currency,selected?.Evidence??default,selected?.Selected,periods));
             }
         }
         if(side.Recorded is {} all&&all.Count!=recorded.Count)throw Error("Each recorded quantity must name a day the side shows.");
@@ -223,15 +253,17 @@ public static class ScheduleViews
                     cell=cell with{QuantityEvidence=[..own.SelectMany(p=>p.QuantityEvidence.IsDefault?[]:p.QuantityEvidence).Distinct()]};
                 if(measure==ScheduleViewMeasure.Quantity && own.All(p=>p.SourceQuantity is not null))
                     cell=cell with{QuantityPart=side.Part?.QuantityBasis,SourceQuantity=ExactNumberText.Format(Sum(own,p=>p.SourceQuantity!.Value))};
-                cells.Add(key,cell);
+                cells.Add(key,WithPeriods(cell,measure==ScheduleViewMeasure.Quantity?own:tagged));
             }
         }
         var cash=scope.Where(piece=>piece.Payment is not null).ToArray();
         var payments=cash.Select(piece=>piece.Payment!.Value).Distinct().ToArray();
-        cells.Add(NetCash,cash.Length==0?new(null,[]):new(ExactNumberText.Format(Sum(cash,piece=>piece.Amount!.Value)),Names(cash,piece=>piece.AmountTags)));
+        cells.Add(NetCash,cash.Length==0?new(null,[]):WithPeriods(new(ExactNumberText.Format(Sum(cash,piece=>piece.Amount!.Value)),Names(cash,piece=>piece.AmountTags)),cash));
         cells.Add(PaymentAt,new(payments.Length==1?payments[0].ToString("O",CultureInfo.InvariantCulture):null,[]));
         return cells.ToImmutable();
     }
+    private static ScheduleViewCell WithPeriods(ScheduleViewCell cell,Piece[] pieces) =>
+        pieces.All(p=>p.Periods.IsEmpty)?cell:cell with{ExercisePeriods=[..pieces.SelectMany(p=>p.Periods).Distinct().OrderBy(p=>p.Right).ThenBy(p=>p.From)]};
     private static SignedRatio Sum(IEnumerable<Piece> pieces,Func<Piece,SignedRatio> value)=>SignedRatio.Sum(pieces.Select(value));
     private static ImmutableArray<string> Names(IEnumerable<Piece> pieces,Func<Piece,int> tags)
     {var mask=pieces.Aggregate(0,(all,piece)=>all|tags(piece));return[..Tags.Where((_,n)=>(mask&1<<n)!=0)];}

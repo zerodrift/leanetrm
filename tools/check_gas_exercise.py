@@ -238,6 +238,9 @@ def curve_marks(c,query,manifest,context,fixed,base,plain,run_worker):
         try:query(f"SET SESSION AUTHORIZATION {login};SELECT security.read_curve_marks('{cat}','{definition}',ARRAY['{point}'],ARRAY[DATE '2021-01-01']);")
         except RuntimeError as error:assert 'denied' in str(error),error
         else:raise AssertionError('A mark read requires an authorized transaction and a bound context')
+    for curve in ('synthetic_worked_location','synthetic_entry_worked_daily'):
+        writer.call('volatility-marks/record',{**mark,'operationId':str(uuid4()),'curve':curve})
+    worked_routes(c,query,manifest,context,call,base,run_worker)
     print('PASS curve marks: current authority, replay, revision history, pinned absence, symmetric gas pair and held 2947.4419 call',flush=True)
 
 
@@ -398,3 +401,232 @@ def amend_rights(query,manifest,saved,rights,at):
       SELECT result FROM amended WHERE CASE WHEN (result->>'unchanged')::boolean THEN true
        ELSE security.publish_operation_side_schedules('{cat}','{op}')=(result->>'instrumentId')::uuid END;""")
     return json.loads(result.splitlines()[-1])
+
+
+def publish_daily_point(c,context,source):
+    c.call('profile',dict(profile='editor'))
+    inputs=next(s for s in c.call('custom-curves')['sources'] if s['code']==source)
+    contracts=[r for r in inputs['contracts'] if '2021-01-16'<=r['deliveryFrom']<='2021-01-18']
+    assert len(contracts)==3
+    graph=dict(code='worked_point_daily',name='Synthetic daily point forecast',output='output',nodes=[
+        dict(id='source',kind='source',parameters=dict(curve=source),inputs={}),
+        dict(id='daily',kind='weighted_contracts',parameters=dict(aggregation='signed_sum_v1'),inputs=dict(price='source'),
+             contractWeights=[dict(outputPosition=i,sourcePort='price',contractId=r['id'],weight='1') for i,r in enumerate(contracts,1)]),
+        dict(id='dates',kind='dates',parameters=dict(mode='context',sampling='context_utc_time',corrections='exact_context_frame_history_latest_visible'),inputs={}),
+        dict(id='sample',kind='sample',parameters={},inputs=dict(selection='daily',dates='dates')),
+        dict(id='output',kind='output',parameters={},inputs=dict(values='sample'))])
+    saved=c.call('custom-curves/save',dict(requestId=str(uuid4()),snapshotId=context['snapshotId'],definition=graph,layout={}))
+    c.call('profile',dict(profile='approver'))
+    published=c.call('custom-curves/publish',dict(requestId=str(uuid4()),snapshotId=context['snapshotId'],id=saved['id'],version=saved['version'],generation=saved['generation']))
+    c.call('profile',dict(profile='trader'))
+    return published
+
+
+def worked_routes(c,query,manifest,context,call,base,run_worker):
+    from check_booked_side_programs import runtime_query
+    from preview_client import initial_frame
+    source='synthetic_entry_worked_daily'
+    published=publish_daily_point(c,context,source)
+    body=deepcopy(call)
+    book=str(uuid4())
+    query(f"INSERT INTO trading.books SELECT catalog_id,'{book}',portfolio_id,'Synthetic exercise routes',publication_order,effective_at FROM trading.books LIMIT 1;")
+    body.update(operationId=str(uuid4()),bookId=book)
+    body['physicalSides'][0]['deliveryPoint']='synthetic_worked_point'
+    body['physicalSides'][0]['forecastCurve']=dict(catalogId=manifest['catalogId'],curveId=published['id'],version=published['version'],
+        outputNode='output',position=None,selection='containing_delivery_interval_v1',implementation='published_custom_curve_projection_v1')
+    def book_trade(terms):
+        return c.call('gas/composition/book',terms)
+    held=book_trade(body)
+    sold=deepcopy(body)
+    sold.update(operationId=str(uuid4()))
+    sold['exerciseRights'][0]['holder']='counterparty'
+    written=book_trade(sold)
+    pin=c.call('gas/exercise/read',dict(context=context,tradeId=held['tradeId'],instrumentId=held['instrumentId']))['context']
+    prior={**context,'knowledgeMode':'retained','contextId':pin['contextId']}
+    def elect(trade,day,outcome,at,previous=None):
+        return c.call('gas/exercise/record',dict(context=context,tradeId=trade['tradeId'],instrumentId=trade['instrumentId'],expectedRevision=1,
+            operationId=str(uuid4()),elections=[dict(right=0,fromDate=day,outcome=outcome,effectiveAt=at,expectedPreviousId=previous,evidence='Synthetic worked election')]))['elections'][0]
+    def initial_elections(trade):
+        first=elect(trade,'2021-01-16','exercised','2020-12-18T16:00:00Z')
+        elect(trade,'2021-01-17','abandoned','2020-12-18T16:00:00Z')
+        return first['revisionId']
+    initial_elections(written)
+    first=initial_elections(held)
+    # Known at the opening close, effective at the next one.
+    elect(held,'2021-01-16','abandoned','2021-01-01T08:00:00Z',first)
+    def shared(ctx):
+        return {**ctx,'convention':'trading_workspace_v1'}
+    def blotter(ctx):
+        view=dict(mode='trades',bookIds=[book],portfolioIds=[],groupBy=[],measures=[],pivotConvention=None)
+        return {h['tradeId']:h for h in c.call('trading/blotter',dict(context=shared(ctx),view=view))['holdings']}
+    def projections(terms,trade,ctx):
+        preview=c.call('gas/composition/preview',{**terms,'snapshotId':ctx['snapshotId'],'previewTradeId':trade['tradeId'],'knowledgeMode':ctx['knowledgeMode'],
+            **({'previewContextId':ctx['contextId']} if 'contextId' in ctx else {})})
+        editor=c.call('gas/composition/editor',dict(context=ctx,tradeId=trade['tradeId']))['valuation']
+        holding=blotter(ctx)[trade['tradeId']]
+        assert preview['groups']==editor['groups']==holding['groups']
+        assert preview['presentValue']==editor['presentValue']==holding['presentValue']
+        return editor
+    def at(day):
+        return {**context,'snapshotId':initial_frame(c.call('workspace'),day)['id']}
+    def finite(value):
+        return round(Fraction(value)*10000)
+    value=projections(body,held,context)
+    groups=value['groups']
+    assert [(g['right'],g['from'],g['to'],g['state'],Fraction(g['forwardSum']),finite(g['counted'])) for g in groups]==[
+        (0,'2021-01-16','2021-01-17','exercised',1000,10000000),(0,'2021-01-17','2021-01-18','abandoned',-500,0),
+        (0,'2021-01-18','2021-01-19','undecided',2000,29474419)],groups
+    assert finite(value['presentValue'])==39474419
+    assert groups[0]['inputs'] is None and groups[1]['inputs'] is None
+    assert value['schedule']['groups']==groups
+    model=groups[2]['inputs']
+    assert (Fraction(model['receives']),Fraction(model['pays']),Fraction(model['certain']),Fraction(model['receivesVolatility']))==(32000,0,-30000,Fraction('0.5'))
+    assert model['paysVolatility'] is None and model['correlation'] is None and abs(Fraction(model['years'])-Fraction(30,365))<Fraction(1,10**28)
+    check_worked_schedule(c,shared(context),held,value)
+    assert finite(projections(sold,written,context)['groups'][2]['counted'])==-9474419
+    historical=projections(body,held,prior)
+    assert [g['state'] for g in historical['groups']]==['undecided']*3
+    future=at('2021-01-01')
+    later=projections(body,held,future)
+    assert [g['state'] for g in later['groups']]==['abandoned','abandoned','undecided']
+
+    risk=PreviewClient(c.url);risk.bootstrap();risk.call('profile',dict(profile='risk'))
+    def request_for(trade,ctx,extra=()):
+        scope=dict(context=shared(ctx),bookIds=[],portfolioIds=[],tradeIds=[trade['tradeId'],*extra])
+        cat=risk.call('portfolio/risk/catalog',scope)
+        assert not cat['excludedPositions'],cat['excludedPositions']
+        return cat,{**scope,'context':{**shared(ctx),'contextId':cat['context']['contextId'],'knowledgeMode':'retained'},'detail':'holdings',
+            'convention':cat['convention'],'numericalPolicy':cat['numericalPolicy'],'pricingPolicy':cat['pricingPolicy'],'stress':[]}
+    def factor_result(trade,ctx,expected,custom=False,extra=()):
+        cat,req=request_for(trade,ctx,extra)
+        factor=next(f for f in cat['factors'] if not custom or f['deliveryFrom']=='2021-01-18' and source in f['curves'])
+        req['bumps']=[dict(factor=factor['factor'],size='0.0001',convention=cat['bumpConvention'])]
+        result=risk.call('portfolio/risk',req)
+        row=next(p for p in result['factors'][0]['positions'] if p['tradeId']==trade['tradeId'])
+        assert row['groups']['base']==expected['groups'] and row['values']['base']==expected['presentValue']
+        for lane in ['base','up','down']:
+            assert sum(Fraction(e[lane]) for e in row['entries'])+sum(Fraction(g[lane]) for g in row.get('exerciseContributions',[]))==Fraction(row['values'][lane])
+        return cat,req,result,row
+    cat,req,result,row=factor_result(held,context,value,True)
+    assert Fraction(row['groups']['up'][2]['counted'])>Fraction(groups[2]['counted'])>Fraction(row['groups']['down'][2]['counted'])
+    assert len(row['exerciseContributions'])==1 and row['exerciseContributions'][0]['from']=='2021-01-18'
+    job=risk.call('portfolio/risk/jobs',dict(requestId=str(uuid4()),request=req))
+    vol_job,samples=check_volatility_scenarios(risk,query,cat,req,value)
+    restored=risk.call('date-schedules/context',dict(effectiveOn=pin['effectiveOn'],knownAt=pin['knownAt'],mode='at'))['context']
+    assert restored['contextId']==prior['contextId']
+    factor_result(held,prior,historical,True)
+    factor_result(held,future,later,True)
+    factor_result(written,context,projections(sold,written,context),True)
+    # The worker must recover the submitted input ID and value after a new mark is published.
+    c.call('profile',dict(profile='editor'))
+    c.call('volatility-marks/record',dict(context=context,definitionRevisionId=body['definitionRevisionId'],
+        operationId=str(uuid4()),reason='Synthetic revised point volatility',curve='synthetic_worked_location',
+        marks=[dict(month='2021-01',expectedRevision=1,volatility='0.55')]))
+    c.call('profile',dict(profile='trader'))
+    for queued,expected,key in [(job,result['factors'],'factors'),(vol_job,samples,'joint')]:
+        run_worker()
+        finished=risk.call('portfolio/risk/jobs/'+queued['id'])
+        assert finished['state']=='completed',finished
+        got=finished['result'][key]
+        assert (got['samples'] if key=='joint' else got)==expected
+    # A plain zero-valued physical quantity source leaves the standalone index payment and its cap observable.
+    cap=deepcopy(base);cap.update(bookId=book,operationId=str(uuid4()))
+    cap['physicalSides'][0].update(deliveryPoint='synthetic_cap_point',deliveryFrom='2021-01-18',deliveryTo='2021-01-19')
+    daily=deepcopy(base['cashSides'][1]);daily.update(code='ordinary',direction='pay',part=None)
+    daily['indexed'].update(index=source,spread='0')
+    cap['cashSides']=[daily,{**daily,'code':'receive','direction':'receive'},{**body['cashSides'][0],'price':'3.50'}]
+    cap['exerciseRights']=[dict(entries=['receive','fixed'],period='delivery_day',holder='us',settlement='cash_automatic',leadHours=None)]
+    cap_trade=book_trade(cap)
+    cap_value=projections(cap,cap_trade,context)
+    assert finite(cap_value['groups'][0]['counted'])==7754967 and finite(cap_value['presentValue'])==-312245033
+    factor_result(cap_trade,context,cap_value)
+    deadline=at('2021-01-17')
+    expired=blotter(deadline)
+    assert expired[held['tradeId']]['unavailableReason']=='exercise_determination' and expired[held['tradeId']]['presentValue'] is None
+    assert Fraction(expired[cap_trade['tradeId']]['presentValue'])==-35000
+    catalog=risk.call('portfolio/risk/catalog',dict(context=shared(deadline),bookIds=[],portfolioIds=[],tradeIds=[held['tradeId'],cap_trade['tradeId']]))
+    assert [(r['tradeId'],r['reason']) for r in catalog['excludedPositions']]==[(held['tradeId'],'exercise_determination')]
+    decided=projections(cap,cap_trade,deadline)
+    assert [(g['state'],Fraction(g['counted']),g['inputs']) for g in decided['groups']]==[('exercised',3000,None)]
+    factor_result(cap_trade,deadline,decided)
+    paid=at('2021-01-31')
+    amount=dict(operationId=str(uuid4()),tradeId=cap_trade['tradeId'],expectedRevision=1,slot=3,businessKey='synthetic-cap-remittance',
+        paidAt='2021-01-23T00:00:00Z',currency='usd',amount='-500',allocations=[dict(occurrence=0,amount='-500')])
+    runtime_query(query,manifest,f"SELECT security.record_gas_cash_payment('{manifest['catalogId']}','{json.dumps(amount)}'::jsonb,'2021-01-31T08:00:00Z');")
+    after=projections(cap,cap_trade,paid)
+    assert Fraction(after['groups'][0]['counted'])==3000 and Fraction(after['presentValue'])==-34500
+    assert Fraction(after['sides'][3]['presentValue'])==-34500 and Fraction(after['measures']['realizedUnsettled'])==-34500
+    # A still-live companion supplies the report axis after the cap is entirely fixed and delivered.
+    ordinary=deepcopy(call);ordinary.pop('exerciseRights')
+    ordinary.update(bookId=book,operationId=str(uuid4()));ordinary['physicalSides'][0].update(deliveryPoint='synthetic_gas_point_a',deliveryFrom='2021-03-01',deliveryTo='2021-03-03')
+    ordinary['cashSides'][0]['paymentAt']='2021-04-10T00:00:00Z'
+    companion=book_trade(ordinary)
+    factor_result(cap_trade,paid,after,extra=[companion['tradeId']])
+    from check_portfolio_risk import book_supplemental_swap
+    _,swap=book_supplemental_swap(c,{'id':context['snapshotId']},book,manifest)
+    for selected,ctx,expected in [(held,context,projections(body,held,context)),(cap_trade,at('2021-01-24'),after)]:
+        cat,req=request_for(selected,ctx,[swap['tradeId']])
+        other=next(f for f in cat['factors'] if 'daily_gas' in f['curves'] and f['deliveryFrom']=='2021-01-29')
+        req['bumps']=[dict(factor=other['factor'],size='0.0001',convention=cat['bumpConvention'])]
+        report=risk.call('portfolio/risk',req)
+        work=report['work']
+        assert (work['unitScenarioCandidates'],work['unitPricerCalls'],work['reusedUnitScenarioValues'])==(6,4,2),work
+        unchanged=next(p for p in report['factors'][0]['positions'] if p['tradeId']==selected['tradeId'])
+        for lane in ['base','up','down']:
+            assert unchanged['groups'][lane]==expected['groups']
+            assert sum(Fraction(e[lane]) for e in unchanged['entries'])+sum(Fraction(g[lane]) for g in unchanged.get('exerciseContributions',[]))==Fraction(expected['presentValue'])
+    print('PASS worked gas exercise: held groups, contingent schedule provenance, signed scenarios, payment reconciliation, temporal elections and leased risk',flush=True)
+
+
+def check_worked_schedule(c,position_context,held,value):
+    groups=value['groups']
+    days={r['key']:r for r in value['schedule']['rows'] if r['level']=='day'}
+    for g in groups:
+        assert ('contingent' in days[g['from']]['cells']['gas.amount']['sources'])==(g['state']=='undecided')
+    position=dict(context=position_context,tradeId=held['tradeId'],bindingId=held['instrumentId'],revision=1,instrumentType='physical_gas')
+    for slot in (0,1):
+        page=c.call('trading/side-schedules',dict(position=position,sideSlot=slot,contribution=None,offset=0,limit=8))['page']
+        assert page['groups']==groups
+        if slot==0:
+            for row,g in zip(page['rows'],groups,strict=True):
+                status='contingent' if g['state']=='undecided' else g['state']
+                assert row['exercisePeriods']==[{'right':0,'from':g['from'],'to':g['to'],'status':status}]
+        else:
+            [row]=page['rows']
+            assert [period['status'] for period in row['exercisePeriods']]==['exercised','abandoned','contingent']
+    [month]=[r for r in value['schedule']['rows'] if r['level']=='month']
+    assert [period['status'] for period in month['cells']['fixed.amount']['exercisePeriods']]==['exercised','abandoned','contingent']
+
+
+def check_volatility_scenarios(risk,query,cat,req,value):
+    groups=value['groups']
+    [vol]=cat['volatilityInputs']
+    convention=cat['joint']['volatilityShiftConvention']
+    scenarios=[dict(id=code,label=code,shifts=[],volatility=[dict(inputId=vol['id'],size=size,convention=convention)]) for code,size in [('raised','0.01'),('lowered','-0.01')]]
+    def joint(samples):
+        return {**req,'bumps':[],'joint':dict(convention=cat['joint']['convention'],derivatives=None,
+            scenarios=dict(id='worked-volatility',version='1',convention=cat['joint']['scenarioConvention'],scenarios=samples))}
+    joint_request=joint(scenarios)
+    samples=risk.call('portfolio/risk',joint_request)['joint']['samples']
+    assert Fraction(samples[0]['positions'][0]['values']['value'])>Fraction(value['presentValue'])>Fraction(samples[1]['positions'][0]['values']['value'])
+    for sample,volatility in zip(samples,['0.51','0.49']):
+        assert sample['positions'][0]['groups']['base']==groups
+        assert sample['positions'][0]['groups']['value'][2]['inputs']['receivesVolatility']==volatility
+    vol_job=risk.call('portfolio/risk/jobs',dict(requestId=str(uuid4()),request=joint_request))
+    def native_sample(sample,allowed):
+        command=json.dumps(joint([sample])).replace("'","''")
+        try:query(f"SELECT risk.axis_commands('{command}'::jsonb);")
+        except RuntimeError as error:assert not allowed and 'risk_joint_input' in str(error),error
+        else:assert allowed,sample
+    native_sample(scenarios[0],True)
+    for shifts in [[],[None],{},scenarios[0]['volatility']*2,[{**scenarios[0]['volatility'][0],'inputId':'invalid'}],
+                   [{**scenarios[0]['volatility'][0],'size':'1e-4'}],
+                   [{**scenarios[0]['volatility'][0],'convention':'other'}],
+                   [dict(inputId=str(uuid4()),size='0.01',convention=convention) for _ in range(17)]]:
+        native_sample({**scenarios[0],'volatility':shifts},False)
+    for change in [dict(inputId=str(uuid4())),dict(convention='other'),dict(size='x'),dict(size='-0.51')]:
+        invalid=deepcopy(scenarios[:1]);invalid[0]['volatility'][0].update(change)
+        risk.call('portfolio/risk',joint(invalid),expected=422)
+    duplicate=deepcopy(scenarios[:1]);duplicate[0]['volatility']*=2
+    risk.call('portfolio/risk',joint(duplicate),expected=422)
+    return vol_job,samples

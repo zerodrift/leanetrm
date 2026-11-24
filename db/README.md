@@ -21,6 +21,12 @@ application. See [current implementation](../docs/implementation.md) and
 
 Recent schema groups and their contracts:
 
+- [0395](migrations/0395_joint_volatility_shifts.sql) admits named scenarios
+  with explicit additive shifts to exact volatility input IDs. A sample has
+  at most 16 price and volatility shifts combined. A volatility-only job
+  retains the shifts in its request and uses an empty curve-axis list.
+  Interactive and leased valuation resolve each ID against the declarations
+  of the portfolio prepared at its retained cutoff.
 - [0394](migrations/0394_gas_exercise_elections.sql) records physical exercise
   elections by trade, binding, right and group. A batch compares predecessors
   under the publication lock and retains its actor's first outcome. Repeating a

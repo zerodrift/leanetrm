@@ -57,6 +57,7 @@ internal sealed record GasCompositionDraft(GasCompositionInstrument Instrument,I
 internal sealed record GasCompositionValue(string PresentValue,string Currency,string QuantityUnit,List<object> Sides,object[] Links,ScheduleView? Schedule,object[]? Summaries,GasScheduleRefusal? ScheduleRefusal,ImmutableDictionary<string,int> SideSlots,
  GasLifecycleMeasures? Measures=null)
 {
+ public ImmutableArray<ExerciseGroupReport> Groups{get;init;}=[];
  public CatalogueSource? Source{get;init;}
  [JsonIgnore]internal PhysicalLifecycleValue? Lifecycle{get;init;}
  [JsonIgnore]internal ImmutableArray<InstrumentEntryValue> EntryValues{get;init;}=[];
@@ -281,6 +282,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   var instrument=GasCompositionExecution.BuildInstrument(held?.InstrumentId??draft!.Id,members,programs,dated,rights);
   if(!rights.IsEmpty)(instrument,_)=await new CurveMarkStore(database.Manifest.CatalogId).Bind(c,instrument,snapshot,state,ct);
   var valuation=instrument.PV(instrument.PrepareValuation(market,market,discount,state,ct));
+  var groups=valuation.Groups.Select(ExerciseGroupReport.FromValue).ToImmutableArray();
   var total=valuation.PresentValue.Scale(quantity);
   if(state is not null)lifecycle=PhysicalLifecycle.FromValuation(valuation);
   var valued=new List<(GasCompositionRow Member,ExactMoney Amount,ExactQuantity Quantity,List<object> Rows)>();
@@ -294,6 +296,8 @@ public sealed class GasCompositionStore(PreviewDatabase database)
    // rows already carry their exact entry quantities from the Instrument.
    if(sideView.FollowedDays is null&&recorded?.GetValueOrDefault(member.Code) is {} recordedDays)
     sideView=sideView with{Recorded=recordedDays.ToImmutableDictionary(d=>d.Key,d=>new ScheduleViewQuantity(new(BigInteger.Parse(d.Value.Quantity.Numerator)*member.Direction,BigInteger.Parse(d.Value.Quantity.Denominator)),d.Value.Kind))};
+   if(rights.FirstOrDefault(r=>r.Slots.Contains(member.Slot)) is {} right)
+    sideView=sideView with{ExerciseGroups=[..groups.Where(g=>g.Right==right.Ordinal)]};
    views?.Add(sideView);inspect?.Invoke(sideView,member.Clock);
    var rows=new List<object>();ExactQuantity? qtotal=null;
    if(member.Role=="physical")
@@ -331,7 +335,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   // No contract-against-market measure is defined for these sides yet, so none is reported.
   var summaries=schedule is null?null:views!.Select(v=>(object)new{side=v.Code,billedQuantity=schedule.Totals[v.Code+".quantity"].Value,amount=schedule.Totals[v.Code+".amount"].Value,againstMarket=(string?)null}).ToArray();
   return new(total!.ToExactString(),members[0].Assignment.Quote.Currency.Code,unit,sides,links,schedule,summaries,refusal,members.ToImmutableDictionary(m=>m.Code,m=>m.Slot),
-   lifecycle is null?null:GasLifecycleMeasures.From(lifecycle,discounting)){Lifecycle=lifecycle,EntryValues=[..valued.Select(v=>new InstrumentEntryValue(v.Member.Slot,v.Amount))],Source=new(data.DefinitionRevision.RevisionId,data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId)};
+   lifecycle is null?null:GasLifecycleMeasures.From(lifecycle,discounting)){Groups=groups,Lifecycle=lifecycle,EntryValues=[..valued.Select(v=>new InstrumentEntryValue(v.Member.Slot,v.Amount))],Source=new(data.DefinitionRevision.RevisionId,data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId)};
  }
  // A preview and a booking are held to the gas setup their context resolves (GasTicket.RequireSetup).
  async Task RequireSetup(NpgsqlConnection c,PreviewData data,GasCompositionRequest body,CancellationToken ct)=>GasTicket.RequireSetup(body.GasSetupId,(await gas.CurrentSetup(c,data,ct)).Id);

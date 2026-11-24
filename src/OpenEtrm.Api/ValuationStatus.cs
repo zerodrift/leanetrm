@@ -9,7 +9,7 @@ namespace OpenEtrm.Api;
 static class ValuationStatus
 {
     // A delivery mark whose expired contract lacks its final settlement is missing market data for that one position (D360).
-    public static bool PositionSpecific(string? code)=>code is "source_expired" or "missing_observation" or "index_fixing_missing" or "delivery_mark_final_settlement" or "exercise_marks";
+    public static bool PositionSpecific(string? code)=>code is "source_expired" or "missing_observation" or "index_fixing_missing" or "delivery_mark_final_settlement" or "exercise_marks" or "exercise_determination";
     public static bool PositionSpecific(MarketDataException error)=>PositionSpecific(error.Code);
 
     // Qualifies actual base valuations in blocks; the caller owns their exact

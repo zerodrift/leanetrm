@@ -77,7 +77,8 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
             numericalPolicy=RiskEngine.ExactNumericalPolicy,pricingPolicy=pricing,
             history=HistoryCapabilities(portfolio),limits=Limits,
             parametric=ParametricCapabilities(),historical=HistoricalCapabilities(),monteCarlo=MonteCarloCapabilities(portfolio),
-            joint=new{convention=PortfolioJointRiskRequest.Version1,scenarioConvention=ConnectedRiskScenarioSet.Independent,bumpConvention=ConnectedRiskBump.Convention,shiftConvention=CurveShift.ParentAdditive,
+            volatilityInputs=portfolio.Markets.SelectMany(m=>m.Connected.UnitContracts).SelectMany(c=>c.Volatility).Distinct().OrderBy(v=>v.Id),
+            joint=new{convention=PortfolioJointRiskRequest.Version1,volatilityShiftConvention=VolatilityShift.ParentAdditive,scenarioConvention=ConnectedRiskScenarioSet.Independent,bumpConvention=ConnectedRiskBump.Convention,shiftConvention=CurveShift.ParentAdditive,
                 derivativeConvention=ConnectedFiniteDifferenceRequest.HalfNominalDouble,maxScenarios=PortfolioJointRisk.MaxScenarios,
                 maxShifts=PortfolioJointRisk.MaxShifts,maxAxes=RiskEngine.MaxSensitivityAxes,maxMixed=RiskEngine.MaxMixedSensitivities,
                 maxResultValues=RiskEngine.MaxJointResultValues,maxOptionTreeNodes=PortfolioJointCalculation.MaximumOptionTreeNodes}};
@@ -295,6 +296,12 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
                         @base=c.Base.ToExactString(),up=c.Up.ToExactString(),down=c.Down.ToExactString()}),RiskJobs.Json);
                     if(!p.Entries.IsEmpty)position["entries"]=JsonSerializer.SerializeToNode(p.Entries.Select(e=>new{
                         e.Slot,@base=e.Base.ToExactString(),up=e.Up.ToExactString(),down=e.Down.ToExactString()}),RiskJobs.Json);
+                    if(p.GroupValues is {} groups)
+                        position["groups"]=JsonSerializer.SerializeToNode(new{@base=groups.Base.Select(ExerciseGroupReport.FromValue),
+                            up=groups.Up.Select(ExerciseGroupReport.FromValue),down=groups.Down.Select(ExerciseGroupReport.FromValue)},RiskJobs.Json);
+                    if(!p.ExerciseGroups.IsEmpty)
+                        position["exerciseContributions"]=JsonSerializer.SerializeToNode(p.ExerciseGroups.Select(g=>new{
+                            g.Group.Right,g.Group.From,g.Group.To,@base=g.Base.ToExactString(),up=g.Up.ToExactString(),down=g.Down.ToExactString()}),RiskJobs.Json);
                     // An option position states the calibration mode it was valued in; no other position has one.
                     if(prepared.Portfolio.OptionModes.TryGetValue((p.TradeId,p.BindingId),out var mode))position["calibrationMode"]=mode;
                     return position;

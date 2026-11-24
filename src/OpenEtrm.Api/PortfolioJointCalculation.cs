@@ -37,11 +37,13 @@ internal static class PortfolioJointCalculation
                     parent=RiskEngine.WithShifts(parent,[new(axis.Coordinate,axis.Target,axis.Unit,layer.Size,CurveShift.ParentAdditive)],ct);
             if(joint.Scenarios)
             {
+                var volatilityIds=parent.UnitContracts.SelectMany(c=>c.Volatility).Select(v=>v.Id).ToHashSet();
                 var localSamples=joint.Samples.Select(s=>
                 {
                     var shifts=s.Shifts.Select(x=>CurveRiskAxes.InMarket(x.Axis,market,ct) is {} axis?
                         new CurveShift(axis.Coordinate,axis.Target,axis.Unit,x.Size,CurveShift.ParentAdditive):null).OfType<CurveShift>().ToImmutableArray();
-                    return new ConnectedRiskScenario(s.Id,s.Label,shifts){Unchanged=shifts.IsEmpty};
+                    var volatility=s.Volatility.Where(v=>volatilityIds.Contains(v.InputId)).ToImmutableArray();
+                    return new ConnectedRiskScenario(s.Id,s.Label,shifts){Volatility=volatility,Unchanged=shifts.IsEmpty&&volatility.IsEmpty};
                 }).ToImmutableArray();
                 var set=joint.Request.Scenarios!;
                 var scenarioSet=new ConnectedRiskScenarioSet(set.Id,set.Version,set.Convention,localSamples);

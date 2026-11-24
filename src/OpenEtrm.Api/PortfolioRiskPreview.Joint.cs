@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Risk;
 using OpenEtrm.MarketData.Trading;
@@ -30,6 +31,16 @@ public sealed partial class PortfolioRiskPreview
             return new{owner,tradeId=owner.TradeId,bindingId=binding,bookId=book,book=Book(book),p.ValuationId,p.TradeReference,p.InstrumentReference,p.InstrumentType,
                 measure,measureLabel=MeasureLabel(measure),values};
         }
+        object ScenarioPosition(JointPositionValue holding)
+        {
+            var p=holding.Position;
+            var position=Position(p.Owner,p.BindingId,p.BookId,holding.Measure,Value(p.Values));
+            if(p.Groups.IsEmpty)return position;
+            var row=JsonSerializer.SerializeToNode(position,RiskJobs.Json)!.AsObject();
+            row["groups"]=JsonSerializer.SerializeToNode(new{@base=p.BaseGroups.Select(ExerciseGroupReport.FromValue),
+                value=p.Groups.Select(ExerciseGroupReport.FromValue)},RiskJobs.Json);
+            return row;
+        }
         var connected=run.Partitions.Select(p=>new PortfolioConnectedScenario(p.Market.Snapshot.Definitions,p.Run.BaseScenario.ManifestId,p.Run.BaseScenario.Id,
             p.Run.BaseScenario.ParentId,p.Run.BaseScenario.Depth,p.Run.GraphWork,p.Market.Preparation)).ToImmutableArray();
         return new{detail=prepared.Detail.ToString(),tradeIds=prepared.Request.TradeIds,convention=Convention,numericalPolicy=RiskEngine.ExactNumericalPolicy,
@@ -55,7 +66,7 @@ public sealed partial class PortfolioRiskPreview
                 samples=run.Samples.Select(s=>new{s.Id,s.Label,
                     shifts=request.Samples.Single(x=>x.Id==s.Id).Shifts.Select(x=>new{factor=Factor(markets,x.Axis),size=x.Size.ToString()}),
                     totals=s.Totals.Select(v=>new{v.Measure,measureLabel=MeasureLabel(v.Measure),v.BookId,book=Book(v.BookId),values=Value(v.Values)}),
-                    positions=s.Positions.Select(v=>Position(v.Position.Owner,v.Position.BindingId,v.Position.BookId,v.Measure,Value(v.Position.Values)))}),
+                    positions=s.Positions.Select(ScenarioPosition)}),
                 derivatives=run.Derivatives.Select(d=>new{d.Definition.Id,d.Definition.Formula,d.Definition.Axes,factorUnits=d.Definition.Units.Select(u=>new{unit=Unit(markets,u),priceUnit=PriceUnitReference(u)}),
                     totals=d.Totals.Select(v=>new{v.Measure,measureLabel=MeasureLabel(v.Measure),v.BookId,book=Book(v.BookId),values=Estimate(v.Estimate,d.Definition)}),
                     positions=d.Positions.Select(v=>Position(v.Position.Owner,v.Position.BindingId,v.Position.BookId,v.Measure,Estimate(v.Position.Estimate,d.Definition)))}),

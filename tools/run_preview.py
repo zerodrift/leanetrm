@@ -378,6 +378,10 @@ def main():
             if migration.name=='0216_in_term_gas_lifecycle.sql':
                 from check_gas_in_term import upgrade_checks as check_in_term_upgrade
                 check_in_term_upgrade(query,migration)
+            if migration.name=='0395_joint_volatility_shifts.sql' and args.gas_exercise_check:
+                from check_fact_anchor_upgrade import run_checks as check_volatility_upgrade
+                check_volatility_upgrade(query,migration,number='0395',guard='joint_volatility_upgrade',
+                    signatures=('risk.axis_commands_pre_economic_lifecycle(jsonb)','risk.retain_axes(risk.jobs,jsonb)'))
             if migration.name=='0392_gas_exercise_rights.sql' and args.gas_exercise_check:
                 from check_fact_anchor_upgrade import run_checks as check_exercise_upgrade
                 check_exercise_upgrade(query,migration,number='0392',guard='gas_exercise_upgrade',
@@ -692,7 +696,9 @@ def main():
             from swap_fixture import fixture as swap_fixture
             # The valuation-status check reads the last custom-curve close, at which the daily bundle publishes.
             swap_market,swap_manifest=swap_fixture(fixing_frames=fixing_frames,observation_guards=args.side_calendar_check or args.side_observation_check or args.scheduled_swap_check,
-                scheduled_periods=args.side_calendar_check or args.scheduled_swap_check,closes=['2020-12-31T16:00:00Z'] if args.valuation_status_check else (),
+                scheduled_periods=args.side_calendar_check or args.scheduled_swap_check,
+                closes=[*(['2020-12-31T16:00:00Z'] if args.valuation_status_check else []),
+                        *(['2021-01-24T08:00:00Z'] if args.gas_exercise_check else [])],
                 effective_from='2020-12-16' if args.retained_schedule_check else '2020-01-01')
             if args.index_fixing_check:
                 from check_swap_settlement_selection import prepare_daily

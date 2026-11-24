@@ -195,6 +195,7 @@ public sealed record ExactRiskPositionValue(Guid TradeId,Guid BindingId,Guid Boo
 {
     public AccountingOwnerKey Owner{get;init;}=new(AccountingOwnerKind.Trade,TradeId);
     public ImmutableArray<ValueComponent> Components{get;init;}=[];
+    public ImmutableArray<ExerciseGroupValue> GroupValues { get; init; } = [];
     public ImmutableArray<ExerciseGroupContribution> ExerciseGroups { get; init; } = [];
     public ImmutableArray<InstrumentEntryValue> Entries{get;init;}=[];
 }
@@ -202,11 +203,13 @@ public sealed record ExactRiskPositionResult(Guid TradeId,Guid BindingId,Guid Bo
 {
     public AccountingOwnerKey Owner{get;init;}=new(AccountingOwnerKind.Trade,TradeId);
     public ImmutableArray<ComponentRiskValues> Components{get;init;}=[];
+    public ExerciseScenarioGroupValues? GroupValues { get; init; }
     public ImmutableArray<ExerciseGroupRiskValues> ExerciseGroups { get; init; } = [];
     public ImmutableArray<EntryRiskValues> Entries{get;init;}=[];
 }
 // One named component of a position under the base and the two scenarios of a bump.
 public sealed record ComponentRiskValues(string Name,ExactMoney Base,ExactMoney Up,ExactMoney Down);
+public sealed record ExerciseScenarioGroupValues(ImmutableArray<ExerciseGroupValue> Base, ImmutableArray<ExerciseGroupValue> Up, ImmutableArray<ExerciseGroupValue> Down);
 public sealed record ExerciseGroupRiskValues(ExerciseGroupKey Group, ExactMoney Base, ExactMoney Up, ExactMoney Down);
 public sealed record EntryRiskValues(int Slot,ExactMoney Base,ExactMoney Up,ExactMoney Down);
 public sealed record ExactBookRiskFactor(QuoteBump Bump,ImmutableArray<ExactRiskBookTotal> Totals,ScenarioWork UpWork,ScenarioWork DownWork)

@@ -47,10 +47,11 @@ public static partial class SideScheduleInspection
     guard.Output.ObservationFrom,guard.Output.ObservationTo,guard.Output.ValueAt,selected is null?Value(quantity.Column,quantity.Cell,scale):ExactNumberText.Format(contract!.Value*selected.Fraction),Value(price.Column,price.Cell,one),
     Value(contribution.Amount,0,scale*(selected?.Fraction??one)),Value(discount.Column,discount.Cell,one),row.Unrealized.Add(row.RealizedUnsettled).ToExactString(),side.Part?.QuantityBasis??row.QuantityBasis,prices,
     new ScheduleInspectionLifecycle(row.Delivery.ToString(),due,row.Settlement?.ToString()??"NotApplicable",state.Class?.ToString(),measures,null))
-    {SourceQuantity=selected is null?null:ExactNumberText.Format(selected.Selected),SourceQuantityStates=selected?.Tags??default,PaymentTiming=RetainedTiming(guard.Output,state.Kind),QuantitySpecification=quantity.Column.Unit,Currency=contribution.Amount.Currency,QuoteMultiplier=price.Column.QuoteMultiplier,OperatingDate=geometry.OperatingDate,
+    {ExercisePeriods=side.ExerciseGroups.IsEmpty?default:side.Periods(row.DeliveryFrom,row.DeliveryTo),
+     SourceQuantity=selected is null?null:ExactNumberText.Format(selected.Selected),SourceQuantityStates=selected?.Tags??default,PaymentTiming=RetainedTiming(guard.Output,state.Kind),QuantitySpecification=quantity.Column.Unit,Currency=contribution.Amount.Currency,QuoteMultiplier=price.Column.QuoteMultiplier,OperatingDate=geometry.OperatingDate,
      Accrued=cash?row.Accrued.ToExactString():null,Paid=cash?row.Paid.ToExactString():null,Outstanding=cash?row.Outstanding.ToExactString():null,PaidAt=row.PaidAt,
      FinalDetermination=determinations.TryGetValue(row.Occurrence,out var final)?final.ToExactString():null,QuantityEvidence=selected?.Evidence??default,QuantityAdjustment=selected is null?null:new(ExactNumberText.Format(contract!.Value),ExactNumberText.Format(selected.Fraction))});
   }
-  return new(side.Code,program.ScheduleManifest,evaluation.Context.ValuationAt,evaluation.Context.KnownAt,offset,lifecycle.Length,rows.ToImmutable());
+  return new(side.Code,program.ScheduleManifest,evaluation.Context.ValuationAt,evaluation.Context.KnownAt,offset,lifecycle.Length,rows.ToImmutable()){Groups=side.ExerciseGroups.IsEmpty?default:side.ExerciseGroups};
  }
 }

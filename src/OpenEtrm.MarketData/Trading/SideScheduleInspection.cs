@@ -13,6 +13,8 @@ public sealed record ScheduleInspectionRow(string Key,string Operation,string Ki
  string? Quantity,string? Price,string? Amount,string? DiscountFactor,string? PresentValue,
  string? QuantityState,ImmutableArray<string> PriceStates,ScheduleInspectionLifecycle Lifecycle)
 {
+ [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+ public ImmutableArray<ExerciseSchedulePeriod> ExercisePeriods{get;init;}
  public string? PaymentTiming{get;init;}
  public DateTimeOffset? PaymentAt=>Kind==nameof(ComponentKind.Payment)?ValueAt:null;
  public ReferenceKey? QuantitySpecification{get;init;}
@@ -41,7 +43,11 @@ public sealed record ScheduleInspectionRow(string Key,string Operation,string Ki
  public string? FinalDetermination{get;init;}
 }
 public sealed record ScheduleInspectionPage(string Side,string Manifest,DateTimeOffset ValuationAt,DateTimeOffset KnownAt,
- int Offset,int Total,ImmutableArray<ScheduleInspectionRow> Rows);
+ int Offset,int Total,ImmutableArray<ScheduleInspectionRow> Rows)
+{
+ [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+ public ImmutableArray<ExerciseGroupReport> Groups{get;init;}
+}
 
 // Read evaluated schedules without regenerating dates or performing pricing.
 public static partial class SideScheduleInspection
