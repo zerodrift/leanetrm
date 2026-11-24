@@ -97,8 +97,6 @@ def legacy_ticket_replay(c,query,manifest,context,body,booked):
     draft=c.call('tickets/trade',dict(context=context,tradeId=booked['tradeId'],bindingId=booked['instrumentId'],revision=1))['draft']
     for side in draft['sides']:
         if side['kind']=='physical':del side['values']['quantity_policy']
-        else:
-            for suffix in ('share','part','start','end'):side['values'].pop(side['kind']+'_'+suffix,None)
     request=dict(context=context,draft=draft,definitionRevisionId=body['definitionRevisionId'],operationId=body['operationId'])
     assert c.call('tickets/book',request)==booked, 'A completed legacy ticket must retain its first outcome'
     changed=deepcopy(request);changed['draft']['sides'][0]['values']['quantity']='1100'

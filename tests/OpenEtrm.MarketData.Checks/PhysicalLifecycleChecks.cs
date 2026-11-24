@@ -322,8 +322,8 @@ internal static class PhysicalLifecycleChecks
             var quantity=new SignedRatio(Held.Amount.ScaledValue,ExactDecimal.WorkingScale);
             var input=new RetainedProgramContext(sources,market)
             {
-                Cash=state,Owner=new(repeated.Id,repeated.EconomicIdentity),
-                Geometry=PhysicalLifecycle.PrepareGeometry(repeated.Members.Where(m=>m.Program.Document.Family=="gas").Select(m=>m.Program),snapshot),
+                Cash=state,Owner=new(repeated.Id,repeated.EconomicIdentity,repeated.RetainedScheduleIdentity),
+                Geometries=[..Enumerable.Repeat(PhysicalLifecycle.PrepareGeometry(repeated.Members.Where(m=>m.Program.Document.Family=="gas").Select(m=>m.Program),snapshot),repeated.Members.Length)],
                 HeldFactors=[..repeated.Members.Select(m=>quantity*new SignedRatio(m.Direction.ScaledValue,ExactDecimal.WorkingScale)*new SignedRatio(m.Ratio.Numerator,m.Ratio.Denominator))]
             };
             SideValuationContext Context(RetainedProgramContext selected,PhysicalCashState cash,ISideDiscounting discount)=>new SideValuationContext(market,discount)
@@ -346,7 +346,7 @@ internal static class PhysicalLifecycleChecks
             Require(noDemand.Requested.Count==0,"Missing occurrence wiring refuses before any discount or price execution demand.");
             Reject(PhysicalLifecycle.ContextRefusal,()=>first.PV(child.WithRetainedPrograms(child.RetainedPrograms with{Occurrence=occurrence with{SideId=Guid.NewGuid()}})));
             Reject(PhysicalLifecycle.ContextRefusal,()=>first.PV(child.WithRetainedPrograms(child.RetainedPrograms with{Occurrence=occurrence with{ProgramDigest="wrong"}})));
-            Reject(PhysicalLifecycle.ContextRefusal,()=>repeated.PV(Context(input with{Owner=new(Guid.NewGuid(),repeated.EconomicIdentity)},state,Undiscounted)));
+            Reject(PhysicalLifecycle.ContextRefusal,()=>repeated.PV(Context(input with{Owner=new(Guid.NewGuid(),repeated.EconomicIdentity,repeated.RetainedScheduleIdentity)},state,Undiscounted)));
             Reject(PhysicalLifecycle.ContextRefusal,()=>repeated.PV(Context(input with{HeldFactors=input.HeldFactors.SetItem(Months,new SignedRatio(1,1))},state,Undiscounted)));
             var absentFactors=Context(input with{HeldFactors=default},state,Undiscounted);
             Reject(PhysicalLifecycle.ContextRefusal,()=>repeated.PV(absentFactors));

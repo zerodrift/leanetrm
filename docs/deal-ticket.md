@@ -15,6 +15,10 @@ configuration, otherwise Named index, daily with the assigned index. Named
 choices require the visible Pricing index. Old strict-index trades show their
 saved terms read-only. Older whole payments reopen as share 1 and full source
 term; owned retries preserve the original complete command bytes.
+Modern retries must state share, part, active levels, dates and index choices.
+They cannot recover omitted financial choices from a completed command. Only
+fields proven absent in a retained predecessor format receive compatibility
+reconstruction; pending commands still require current payment fields.
 
 A shared backend `visibleWhen` field condition controls presentation, required
 validation and which editable terms are sent. Hidden level/index controls are

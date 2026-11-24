@@ -44,13 +44,19 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
 {
     [IdentityField] public override ImmutableArray<RetainedGasMember> Members { get; }
     [IdentityField] public ImmutableArray<GasValuationAssignment> Assignments { get; }
+    // Existing component terms already own this connection. Keep legacy economic
+    // bytes, while retaining the connection in the schedule's execution identity.
+    public ImmutableArray<int> PhysicalSources { get; }
+    public override string RetainedScheduleIdentity => PhysicalSources.IsDefault ? base.RetainedScheduleIdentity :
+        base.RetainedScheduleIdentity + "/physical_sources_v1/" + string.Join('/',PhysicalSources.Select(s=>s.ToString(System.Globalization.CultureInfo.InvariantCulture)));
     public ImmutableArray<IndexPriceLookup> PriceLookups { get; }
     public ImmutableArray<SchedulePriceTerm> ActivePrices => PhysicalLifecycle.ActivePrices(Members.Select(m=>m.Program),PriceLookups);
     public override ReferenceKey Currency => Assignments[0].Quote.Currency;
     public override Quantity UnitQuantity => new(ExactDecimal.Parse("1"), Assignments[0].Quote.Quantity);
 
     public RetainedGasInstrument(Guid id, ImmutableArray<RetainedGasMember> members,
-        ImmutableArray<GasValuationAssignment> assignments, ImmutableArray<IndexPriceLookup> priceLookups=default) : base(id,members,new(ExactDecimal.Parse("1"),First(assignments).Quote.Quantity),First(assignments).Quote.Currency)
+        ImmutableArray<GasValuationAssignment> assignments, ImmutableArray<IndexPriceLookup> priceLookups=default,
+        ImmutableArray<int> physicalSources=default) : base(id,members,new(ExactDecimal.Parse("1"),First(assignments).Quote.Quantity),First(assignments).Quote.Currency)
     {
         if (members.IsDefaultOrEmpty || members.Any(m => m is null) || assignments.IsDefaultOrEmpty || assignments.Any(a => a is null) ||
             !members.Any(m => m.Program.Document.Family == "gas") ||
@@ -66,6 +72,12 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
             : m.SourceSlot is not null).Any())
             throw new MarketDataException("gas_membership", "Quantity terms require every member's exact physical source; legacy members omit these terms.");
         Members = members; Assignments = assignments.Distinct().ToImmutableArray();
+        if(physicalSources.IsDefault&&hasQuantityTerms)physicalSources=[..members.Select(m=>m.SourceSlot!.Value)];
+        if(!physicalSources.IsDefault&&(physicalSources.Length!=members.Length||physicalSources.Where((source,slot)=>
+            source<0||source>=members.Length||members[source].Program.Document.Family!="gas"||
+            members[slot].Program.Document.Family=="gas"&&source!=slot||hasQuantityTerms&&members[slot].SourceSlot!=source).Any()))
+            throw new MarketDataException("gas_membership","Every execution entry requires its exact physical source slot, consistent with its quantity terms.");
+        PhysicalSources=physicalSources;
         PriceLookups=priceLookups.IsDefault?[..Assignments.Select(a=>a.Lookup).Distinct()]:priceLookups.Distinct().ToImmutableArray();
     }
 
@@ -87,7 +99,20 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
         var input=new RetainedProgramContext(Sources(basis),scenario);
         if(context.BindingState is not PhysicalCashState cash)return input;
         var quantity=new SignedRatio(cash.Quantity.Amount.ScaledValue,ExactDecimal.WorkingScale);
-        return input with{Cash=cash,Geometry=PhysicalLifecycle.PrepareGeometry(Members.Where(m=>m.Program.Document.Family=="gas").Select(m=>m.Program),context.Snapshot),
+        ImmutableArray<PhysicalLifecycleGeometry> geometries;
+        if(PhysicalSources.IsDefault)
+        {
+            // Older direct callers have only the pooled, mutually compatible
+            // geometry. Persisted and draft compositions supply exact sources.
+            var shared=PhysicalLifecycle.PrepareGeometry(Members.Where(m=>m.Program.Document.Family=="gas").Select(m=>m.Program),context.Snapshot);
+            geometries=[..Enumerable.Repeat(shared,Members.Length)];
+        }
+        else
+        {
+            var owners=PhysicalSources.Distinct().ToDictionary(slot=>slot,slot=>PhysicalLifecycle.PrepareGeometry([Members[slot].Program],context.Snapshot));
+            geometries=[..PhysicalSources.Select(slot=>owners[slot])];
+        }
+        return input with{Cash=cash,Geometries=geometries,
             HeldFactors=[..Members.Select(m=>quantity*new SignedRatio(m.Direction.ScaledValue,ExactDecimal.WorkingScale)*new SignedRatio(m.Ratio.Numerator,m.Ratio.Denominator))]};
     }
     // Each Side owns its own accrued/paid rows. The Instrument only aggregates

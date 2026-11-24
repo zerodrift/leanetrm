@@ -103,7 +103,8 @@ internal sealed record GasCompositionExecution
    var p=programs.Single(p=>p.Slot==m.Slot);
    return new RetainedGasMember(p.SideId,ExactDecimal.Parse(m.Direction.ToString(CultureInfo.InvariantCulture)),m.Ratio,p.Program,
     quantityTerms?m.Role=="physical"?m.Slot:byCode[m.Source!].Slot:null,m.QuantityPolicy,m.Part);
-  })],[..members.SelectMany(m=>m.Assignments).Distinct()],lookups);
+  })],[..members.SelectMany(m=>m.Assignments).Distinct()],lookups,
+   [..members.OrderBy(m=>m.Slot).Select(m=>m.Role=="physical"?m.Slot:byCode[m.Source!].Slot)]);
  }
 
 }

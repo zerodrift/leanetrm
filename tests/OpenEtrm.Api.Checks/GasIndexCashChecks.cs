@@ -60,6 +60,11 @@ internal static class GasIndexCashChecks
             GasNamedIndexCash.Resolve(f.Data(missingFixing: true), f.Physical, f.Cash("daily_index", "named_index_daily_v1"), f.From, f.To));
         Refused("duplicate fixing definitions refuse", "gas_index_coverage", () =>
             GasNamedIndexCash.Resolve(f.Data(duplicateFixing: true), f.Physical, f.Cash("daily_index", "named_index_daily_v1"), f.From, f.To));
+        foreach(var (index,convention) in new[]{("daily_index","named_index_daily_v1"),("monthly_index","named_index_monthly_v1")})
+            Refused("a same-date fixing on a different contract refuses for "+index,"gas_index_coverage",()=>
+                GasNamedIndexCash.Resolve(f.Data(differentFixingContract:index),f.Physical,f.Cash(index,convention),f.From,f.To));
+        Refused("point publications require the exact projection contract too","gas_point_index_terms",()=>
+            GasPointIndexCash.Resolve(f.Data(differentFixingContract:"point_index"),f.Physical,f.Cash(null,"point_publications_v1"),f.Point,f.From,f.To));
         Refused("point-publication term refusals retain their existing code", "gas_point_index_terms", () =>
         {
             var cash = f.Cash(null, "point_publications_v1");
@@ -110,7 +115,7 @@ internal static class GasIndexCashChecks
                 forecast_implementation = CustomCurveProjectionBinding.SupportedImplementation,
                 settlement_periods = new[] { new { valid_from = From, valid_to = From.AddMonths(1), curve_code = "point", index_code = "point_index", observation_convention = "monthly_published_index_v1" } } });
         }
-        internal PreviewData Data(bool duplicateCurve = false, bool missingContract = false, bool missingFixing = false, bool duplicateFixing = false)
+        internal PreviewData Data(bool duplicateCurve = false, bool missingContract = false, bool missingFixing = false, bool duplicateFixing = false,string? differentFixingContract=null)
         {
             var rows = new Dictionary<string, ImmutableArray<JsonElement>>(definitions);
             if(duplicateCurve)
@@ -123,6 +128,17 @@ internal static class GasIndexCashChecks
             if(missingContract) rows["curve_members"] = [..rows["curve_members"].Where(r => r.GetProperty("ordinal").GetInt32() != 2)];
             if(missingFixing) rows["index_fixing_observations"] = [..rows["index_fixing_observations"].Where(r => r.Text("observation_from") != From.AddDays(1).ToString("yyyy-MM-dd"))];
             if(duplicateFixing) rows["index_fixing_observations"] = rows["index_fixing_observations"].Add(rows["index_fixing_observations"][2]);
+            if(differentFixingContract is not null)
+            {
+                var fixing=rows["index_fixing_observations"].First(r=>r.Text("index_code")==differentFixingContract);
+                var series=rows["series"].Single(r=>r.Id("id")==fixing.Id("series_id"));
+                var contract=rows["contracts"].Single(r=>r.Id("id")==series.Id("contract_id"));
+                var replacement=Guid.NewGuid();
+                rows["contracts"]=rows["contracts"].Add(Row(new{id=replacement,kind="forward",delivery_from=contract.Text("delivery_from"),delivery_to=contract.Text("delivery_to"),
+                    expiry_at=contract.Text("expiry_at"),futures_series_code=(string?)null,futures_option_series_code=(string?)null}));
+                rows["series"]=[..rows["series"].Select(r=>r.Id("id")==series.Id("id")?Row(new{id=r.Id("id"),contract_id=replacement,quote_code="price",value_specification_code=(string?)null}):r)];
+                rows["series"]=rows["series"].Add(Row(new{id=Guid.NewGuid(),contract_id=contract.Id("id"),quote_code="price",value_specification_code=(string?)null}));
+            }
             return new(manifest, rows, references, []);
         }
         internal GasCashRequest Cash(string? index, string convention)

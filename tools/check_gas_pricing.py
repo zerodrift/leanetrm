@@ -59,10 +59,28 @@ def run_checks(url,query,manifest,run_worker,admin_load):
     partial=c.call('gas/composition/book',plain)
     assert Fraction(c.call('gas/composition/editor',dict(context=context,tradeId=partial['tradeId']))['valuation']['sides'][1]['presentValue'])==-20000
     route_checks(c,context,body,booked,run_worker,query,admin_load)
+    modern_ticket_replay(c,context,body)
     native_admission(query,manifest,body)
     billing_checks(c,query,manifest,body,booked,plain)
     print('PASS gas pricing admission: reduced shares and parts, monthly index, replay, independent refusals and exact partial period-total payment',flush=True)
     return dict(tradeId=booked['tradeId'],instrumentId=booked['instrumentId'],snapshotId=context['snapshotId'])
+
+
+def modern_ticket_replay(c,context,source):
+    body=deepcopy(source);body['operationId']=str(uuid4())
+    body['cashSides']=[{**body['cashSides'][0],'share':'1.5','part':dict(kind='band',lower='2000',upper='8000'),
+                       'deliveryFrom':'2021-01-14','deliveryTo':'2021-01-16'}]
+    booked=c.call('gas/composition/book',body)
+    draft=c.call('tickets/trade',dict(context=context,tradeId=booked['tradeId'],bindingId=booked['instrumentId'],revision=1))['draft']
+    request=dict(context=context,draft=draft,definitionRevisionId=body['definitionRevisionId'],operationId=body['operationId'])
+    assert c.call('tickets/book',request)==booked
+    for field in ['quantity_policy','floating_share','floating_part','floating_part_lower','floating_part_upper','floating_start','floating_end','floating_pricing','floating_index']:
+        omitted=deepcopy(request)
+        for side in omitted['draft']['sides']:side['values'].pop(field,None)
+        assert c.call('tickets/book',omitted,expected=422)['code']=='ticket_input',field
+    changed=deepcopy(request);changed['draft']['sides'][1]['values']['floating_share']='1.25'
+    assert c.call('tickets/book',changed,expected=409)['code']=='gas_conflict'
+    print('PASS modern ticket retries require explicit policy, share, part, levels, dates and index choices; unchanged commands replay and changed terms conflict',flush=True)
 
 
 def upgrade_checks(query,migration):
@@ -200,6 +218,24 @@ def route_checks(c,context,body,booked,run_worker,query,admin_load):
     record('2021-01-13','scheduled','500')
     routes([63550,-48000])
     print('PASS pricing routes: contract-only parts, exact share and source records outside payment dates',flush=True)
+
+    # An unrelated shorter physical entry cannot alter the first payment's
+    # daily geometry, even though neither source has operational quantity terms.
+    body=deepcopy(original);body.update(operationId=str(uuid4()),profile='fixed_gas_composition_v1')
+    body['physicalSides'][0].pop('quantityPolicy');body['physicalSides'][0]['deliveryTo']='2021-01-17'
+    body['physicalSides'].append({**body['physicalSides'][0],'code':'second','deliveryTo':'2021-01-15'})
+    calendar=side_calendar_policy(body['cashSides'][0]['calendarPolicy']['payment']['calendar'],delivery=True,observation=False,payment=True)
+    body['cashSides']=[dict(code=code,role='consideration',direction='pay',source=source,stage='delivery',share='1',price=price,tariffCode=None,
+                           paymentAt='2021-02-10T00:00:00Z',deliveryFrom='2021-01-13',deliveryTo=to,calendarPolicy=calendar)
+                       for code,source,price,to in [('first_payment','gas','3','2021-01-16'),('second_payment','second','4','2021-01-15')]]
+    held=c.call('gas/composition/book',body);trade=held['tradeId']
+    routes([124000,62000,-90000,-80000])
+    context={**before,'snapshotId':next(f['id'] for f in c.call('workspace')['frames'] if f['at'].startswith('2021-01-15T08:'))}
+    shared={**context,'convention':'trading_workspace_v1'}
+    body={**body,**context}
+    independent=routes([62000,0,-90000,-80000],preview=False)
+    assert [Fraction(independent['measures'][k]) for k in ['realizedUnsettled','unrealized','total']]==[-140000,32000,-108000]
+    print('PASS independent source terms: overlapping physical terms and a partial payment retain source-specific accrual on every read and queued risk route',flush=True)
 
     # The dedicated administrator loads a started trade; ordinary booking stays closed.
     from gas_pricing_fixture import ADMINISTRATOR

@@ -9,7 +9,7 @@ namespace OpenEtrm.MarketData.Trading;
 // or a resolver for another Side. Each Side executes only its own saved program.
 internal sealed record RetainedProgramContext(ScheduleMarketSources Sources, CurveBuild Scenario)
 {
-    internal PhysicalLifecycleGeometry? Geometry { get; init; }
+    internal ImmutableArray<PhysicalLifecycleGeometry> Geometries { get; init; }
     internal PhysicalCashState? Cash { get; init; }
     internal RetainedProgramOwner? Owner { get; init; }
     internal RetainedProgramOccurrence? Occurrence { get; init; }
@@ -17,7 +17,7 @@ internal sealed record RetainedProgramContext(ScheduleMarketSources Sources, Cur
     internal ImmutableArray<ImmutableArray<EntryDayQuantity>> EntryDays { get; init; }
     internal QuantityPart? EntryPart { get; init; }
 }
-internal sealed record RetainedProgramOwner(Guid InstrumentId, DefinitionIdentity Definition);
+internal sealed record RetainedProgramOwner(Guid InstrumentId, DefinitionIdentity Definition, string ScheduleIdentity);
 internal sealed record RetainedProgramOccurrence(int Slot, Guid SideId, string ProgramDigest);
 public sealed partial class SideValuationContext
 {
@@ -153,18 +153,19 @@ public sealed record RetainedProgramSchedule : SideSchedule
             throw new MarketDataException("settlement_scope", "A retained Side cannot consume unrelated settlement state.");
         if(inputs.Cash is {} state)
         {
-            if(!ReferenceEquals(context.BindingState, state) || inputs.Geometry is null || inputs.Owner is not { InstrumentId: var ownerId } || ownerId == Guid.Empty ||
+            if(!ReferenceEquals(context.BindingState, state) || inputs.Geometries.IsDefault || inputs.Geometries.Length!=inputs.HeldFactors.Length ||
+                inputs.Geometries.Any(g=>g is null) || inputs.Owner is not { InstrumentId: var ownerId } || ownerId == Guid.Empty ||
                 inputs.Occurrence is not {} occurrence || occurrence.SideId != SideId || occurrence.ProgramDigest != Side.ProgramDigest ||
                 occurrence.Slot < 0 || occurrence.Slot >= inputs.HeldFactors.Length || inputs.HeldFactors[occurrence.Slot].Numerator.IsZero ||
                 !context.IsRegisteredRetainedOccurrence(Side))
                 throw new MarketDataException(PhysicalLifecycle.ContextRefusal, "The Side requires its exact connected gas-day geometry and held cash normalization.");
         }
-        else if(context.BindingState is not null || inputs.Geometry is not null || inputs.Owner is not null || inputs.Occurrence is not null || !inputs.HeldFactors.IsEmpty)
+        else if(context.BindingState is not null || !inputs.Geometries.IsDefault || inputs.Owner is not null || inputs.Occurrence is not null || !inputs.HeldFactors.IsEmpty)
             throw new MarketDataException(PhysicalLifecycle.ContextRefusal, "A held retained Side requires its complete explicit occurrence inputs.");
         // Admission precedes any program execution or price/discount demand.
         var execution = inputs.Sources.Evaluate(Program, SideId, inputs.Scenario, context.Discounting, context.UnitEvaluation.Cancellation);
         var lifecycle = inputs.Cash is {} cash ? PhysicalLifecycle.EvaluateSide(Program, execution, Program.Document.Family == "gas", inputs.Occurrence!.Slot,
-            inputs.HeldFactors[inputs.Occurrence.Slot], inputs.Geometry!, cash, context.Snapshot, Currency,
+            inputs.HeldFactors[inputs.Occurrence.Slot], inputs.Geometries[inputs.Occurrence.Slot], cash, context.Snapshot, Currency,
             inputs.EntryDays.IsDefault ? default : inputs.EntryDays[inputs.Occurrence.Slot]) : null;
         return new(this, context, execution, lifecycle);
     }

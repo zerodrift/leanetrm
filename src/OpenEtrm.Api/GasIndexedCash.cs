@@ -63,7 +63,9 @@ internal static class GasIndexedCash
   try{fixings=PriceSettlementInputs.Fixings(data,PriceSettlementSelection.CurveTarget(index),quote,[contract]);}
   catch(MarketDataException error)when(error.Code is "index_fixing_convention_missing" or "index_fixing_definition")
   {throw new MarketDataException(code,"Each payment day requires one exact qualified index fixing definition.");}
-  return fixings.Length==1?fixings[0]:throw new MarketDataException(code,"Each payment day requires one exact qualified index fixing definition.");
+  if(fixings.Length!=1||!data.Definitions["series"].Any(row=>row.Id("id")==fixings[0].Series.Id&&row.OptionalId("contract_id")==contract.Key.Id))
+   throw new MarketDataException(code,"Each payment day requires one exact qualified index fixing definition on its projection contract.");
+  return fixings[0];
  }
  internal static MarketDataException Terms()=>new("gas_index_terms","Select point publications or a named daily or monthly index, an explicit spread and a next-month UTC payment day from 1 through 28.");
 }
