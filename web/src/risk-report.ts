@@ -28,8 +28,11 @@ export function validPricerCalls(work:PricerCallWork){
   !('totalUnitPricerCalls' in work)&&!('preparationUnitPricerCalls' in work)||
   count(work.totalUnitPricerCalls)&&count(work.preparationUnitPricerCalls));
 }
-export function pricerCallText(work:PricerCallWork,label=''){
+export function requirePricerCalls(work:PricerCallWork){
  if(!validPricerCalls(work))throw Error('The risk work receipt has incomplete pricer call counts.');
+}
+export function pricerCallText(work:PricerCallWork,label=''){
+ requirePricerCalls(work);
  const calls=work.totalUnitPricerCalls??work.unitPricerCalls;
  return `${calls}${label?' '+label:''}${work.preparationUnitPricerCalls?' ('+work.preparationUnitPricerCalls+' in preparation)':''}`;
 }

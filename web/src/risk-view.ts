@@ -9,7 +9,7 @@ import {projectionPolicyLabels} from './projection-policy.js';
 // is a part of, and shown as one run. Each factor's results are its own, so no arithmetic combines parts, and a part that fails is said to
 // have failed. What the report holds outlives the panel's other modes; a new read of the Blotter clears it.
 import {riskContextLabel} from './risk-time.js';
-import {pricerCallText,riskWorkDetails,type ExcludedPosition,type RiskReport} from './risk-report.js';
+import {pricerCallText,requirePricerCalls,riskWorkDetails,type ExcludedPosition,type RiskReport} from './risk-report.js';
 import {PendingCommand} from './pending-command.js';
 import {publicText,timeLabels} from './market-view.js';
 import {scenarioShift,knownRiskRejection,type ScenarioTarget,type ScenarioShift} from './risk-scenarios.js';
@@ -382,6 +382,14 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   }
 
   // --- running and queueing --------------------------------------------------------------------------------------------------
+  function admitReport(part:Part,report:RiskReport){
+    requirePricerCalls(report.work);
+    projectionPolicyLabels(report.projectionPolicies);
+    if(part.request?.monteCarlo||report.monteCarlo)validateMonteCarlo(report as MonteCarloContainer,part.request?.monteCarlo);
+    if(part.request?.historical||report.historical)validateHistorical(report as HistoricalContainer,part.request?.historical);
+    if(part.request?.parametric||report.parametric)validateParametric(report as ParametricContainer,part.request?.parametric);
+    part.report=report;
+  }
   /** Runs the parts one after another. A part that fails is said to have failed, and the others still run; a single part that fails leaves no run. */
   async function runNow(current:Run,version:number,parentSignal?:AbortSignal){
     const controller=calculationController=new AbortController(),signal=parentSignal?AbortSignal.any([controller.signal,parentSignal]):controller.signal;
@@ -389,7 +397,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     try{
     await runParts(current.parts,stale,async(part,index)=>{
       get('risk-progress').textContent=current.parts.length>1?`Running part ${index+1} of ${current.parts.length}…`:'Calculating the selected risk report…';
-      try{const report=await options.api<RiskReport>('portfolio/risk',part.request,signal);if(stale())return false;projectionPolicyLabels(report.projectionPolicies);if(part.request?.monteCarlo||report.monteCarlo)validateMonteCarlo(report as MonteCarloContainer,part.request?.monteCarlo);if(part.request?.historical||report.historical)validateHistorical(report as HistoricalContainer,part.request?.historical);if(part.request?.parametric||report.parametric)validateParametric(report as ParametricContainer,part.request?.parametric);part.report=report;}
+      try{const report=await options.api<RiskReport>('portfolio/risk',part.request,signal);if(stale())return false;admitReport(part,report);}
       catch(error){if(error instanceof Error&&error.name==='AbortError')controller.abort();if(stale())return false;denied(error);if(stale())throw error;part.failure=failure(error,'The part could not be run.');first??=error;}
       return true;
     });
@@ -579,7 +587,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     if(part.job&&value.id!==part.job.id)throw Error('The risk job receipt does not match its part. Refresh to check its retained outcome.');
     part.job=value;part.report=undefined;part.failure=undefined;
     if(value.state==='completed'){
-      if(value.result){try{projectionPolicyLabels(value.result.projectionPolicies);if(part.request?.monteCarlo||value.result.monteCarlo)validateMonteCarlo(value.result as MonteCarloContainer,part.request?.monteCarlo);if(part.request?.historical||value.result.historical)validateHistorical(value.result as HistoricalContainer,part.request?.historical);if(part.request?.parametric||value.result.parametric)validateParametric(value.result as ParametricContainer,part.request?.parametric);part.report=value.result;}catch(error){part.failure=failure(error,'The completed job result is invalid. Run risk again.');}}
+      if(value.result){try{admitReport(part,value.result);}catch(error){part.failure=failure(error,'The completed job result is invalid. Run risk again.');}}
       else part.failure='The completed job result is unavailable. Refresh its retained outcome.';
     }
     else if(value.state==='failed'||value.state==='cancelled')part.failure=value.error?.message??jobLabels[value.state];
