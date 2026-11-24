@@ -123,7 +123,7 @@ def checks(query,manifest):
     directory=Path(query('SHOW unix_socket_directories;'));packet=directory/'european-option-read.json'
     packet.write_text(json.dumps(dict(manifest=manifest,host=str(directory),contextId=capture(),at=FRAME,bookId=book,pins=pins,futureContracts=[contract],
         americanContracts=[manifest['cashOptionContract']],europeanContracts=list(manifest['europeanOptionContracts'].values()),
-        european=dict(series='synthetic_european_call',tradeId=long_call['tradeId'],bindingId=long_call['optionInstrumentId'],settlement=settlement,multiplier=multiplier,lots='3',
+        european=dict(product=PRODUCT,series='synthetic_european_call',tradeId=long_call['tradeId'],bindingId=long_call['optionInstrumentId'],settlement=settlement,multiplier=multiplier,lots='3',
             clearingIncrement=increment),american=dict(series=AMERICAN,tradeId=american['tradeId'],bindingId=american['optionInstrumentId']))));packet.chmod(0o600)
     read=subprocess.run([os.environ.get('DOTNET','dotnet'),'run','--no-build','--no-restore','--project','tests/OpenEtrm.Api.Checks','--','--european-option-read',str(packet)],
         cwd=Path(__file__).resolve().parents[1],capture_output=True,text=True,timeout=120)

@@ -51,6 +51,7 @@ internal static class EuropeanFuturesOptionChecks
         Check("an out-of-the-money European series settling at zero is worth nothing in every scenario and needs the fallback declared", ZeroSettlementScenarios);
         Check("a European binding counts no tree price", NoTreePrice);
         Check("preparing a series with the other style's policy is refused", PreparedUnderOtherPolicy);
+        Check("a European series' stored value and sensitivities come from the formula: the oracle's delta, gamma and vega within the calibration tolerance", LayerSensitivities);
     }
 
     private static void TermsAdmitTwoStyles()
@@ -558,6 +559,32 @@ internal static class EuropeanFuturesOptionChecks
             {
                 if (!error.Message.Contains(Market.SeriesCode(11), StringComparison.Ordinal)) throw new Exception("The refusal must name the series.");
             }
+    }
+
+    // What a fit stores for a series: its value, delta, gamma and vega from ordinary PV under the price and volatility
+    // layers. The fixture's at-the-money call at a unit discount is the oracle's sensitivity case. The held volatility
+    // lies within 0.0031 of the oracle's, so the delta is within 0.001, the gamma within 1% and the vega, stated per
+    // volatility point, within 1%. A tick-sized bump is used: the formula declares no price step to size it by.
+    private static void LayerSensitivities()
+    {
+        var row = Oracle["black76_greeks"]!.AsArray().Single()!;
+        var (oracle, vega) = (OracleGreeks(), L(row["vega"]!.GetValue<string>()));
+        var market = new Market(); var source = market.Snapshot(); var model = market.Model(); var option = market.EuropeanOption(11);
+        var requests = FuturesOptionPricing.Requests(model, option.Series, FuturesOptionPricing.DailySettlement);
+        var built = model.Build(source, [requests.Underlying, requests.Settlement]);
+        var bindings = ImmutableDictionary<Guid, FuturesOptionMarketBinding>.Empty.Add(option.Id, FuturesOptionPricing.Prepare(option, built, source, Undiscounted,
+            FuturesOptionPricing.DailySettlement, Policy, true, CancellationToken.None));
+        var holdings = ValuationPortfolio.FromTrades(FuturesOptionSensitivities.UnitHoldings([option]), new(ValuationMeasure.PresentValue,
+            ImmutableDictionary<Guid, FuturesMarketBinding>.Empty, null) { OptionBindings = bindings });
+        var prepared = RiskEngine.PrepareConnected(built.Connected, built.PricingBindings, [holdings], built);
+        var selection = new OptionSensitivitySelection(new PnlFactorBump(1, 2), new(D("0.000001"), D("0.15")), new(D("0.000001"), D("0.1")), D("0.01"));
+        var stored = FuturesOptionSensitivities.Calculate(prepared, bindings, selection, null, CancellationToken.None).Single();
+        LatticeDecimal Stated(OptionMeasure measure) => LatticeDecimal.From(measure.Value ?? throw new Exception($"Expected a figure; missing {measure.Missing}."));
+        Within(LatticeDecimal.From(stored.Value), L("0.08"), L("0.0005"), "value");
+        Equal(stored.PriceBump?.ToString() ?? "none", Market.Tick);
+        Within(Stated(stored.Delta), oracle.Delta, L("0.001"), "delta");
+        Within(Stated(stored.Gamma), oracle.Gamma, oracle.Gamma * L("0.01"), "gamma");
+        Within(Stated(stored.Vega), vega * L("0.01"), vega * L("0.01") * L("0.01"), "vega per volatility point");
     }
 
     private static JsonNode Oracle => JsonNode.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "fixtures", "futures-option-oracle.json")))!;

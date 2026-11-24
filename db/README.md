@@ -21,6 +21,12 @@ application. See [current implementation](../docs/implementation.md) and
 
 Recent schema groups and their contracts:
 
+- [0392](migrations/0392_european_option_surfaces.sql) lets a stored volatility
+  surface name `european_futures_option_black76_v1`. The table check admits that
+  id beside the rebuilt tree's; `risk.submit_vol_surface_fit` and
+  `trading.record_vol_surface_revision` accept exactly the policy of the
+  product's exercise style, so an American product still takes only the tree's
+  and a European product only the formula's (D446).
 - [0391](migrations/0391_european_futures_options.sql) admits `european` beside
   `american` in `ref_data.futures_option_products.exercise_style`, and adds the
   check that a European product accepts no contrary instructions. The lifecycle

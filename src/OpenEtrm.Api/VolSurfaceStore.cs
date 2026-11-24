@@ -44,7 +44,25 @@ internal static class VolSurfaceStore
         {Converters={new ExactDecimalJsonConverter(),new LatticeDecimalJsonConverter(),new JsonStringEnumConverter(JsonNamingPolicy.CamelCase)}};
     // Stored projections require the fields the fit recorded, including explicitly zero coefficients and grid coordinates.
     private static readonly JsonSerializerOptions ProjectionJson=new(Json){RespectRequiredConstructorParameters=true};
-    private static string SolverPolicy=>FuturesOptionValuationPolicy.Release1.NumericalPolicy;
+    // The numerical policy a fit of a product names: that of the model the stated option valuation policy selects for
+    // the product's exercise style. The stored tables accept exactly that policy for the product.
+    internal static string SolverPolicy(string exerciseStyle)=>exerciseStyle switch
+    {
+        FuturesOptionTerms.American=>FuturesOptionValuationPolicy.Release2.NumericalPolicy,
+        FuturesOptionTerms.European=>FuturesOptionValuationPolicy.Release2.European!.NumericalPolicy,
+        _=>throw new MarketDataException("option_terms",$"Unsupported exercise style '{exerciseStyle}'."),
+    };
+    internal static void RequireSolverPolicy(string? named,string exerciseStyle)
+    {
+        if(named!=SolverPolicy(exerciseStyle))
+            throw new MarketDataException("risk_job_input","The retained fit must name the solver policy of its product's exercise style.");
+    }
+    private static async Task<string> ExerciseStyle(NpgsqlConnection connection,PreviewManifest manifest,string product,CancellationToken ct)
+    {
+        var rows=await PreviewDatabase.Rows(connection,"SELECT row_to_json(p)::text FROM(SELECT exercise_style FROM ref_data.futures_option_products WHERE(catalog_id,revision_id,code)=($1,$2,$3))p",
+            [manifest.ReferenceCatalogId,manifest.ReferenceRevisionId,product],ct);
+        return rows.Length==1?rows[0].Text("exercise_style"):throw new MarketDataException("vol_surface_product","Select a listed option product.");
+    }
 
     // Admits a fit job at the view's context, captured from current knowledge over the working frame.
     internal static async Task<object> Submit(NpgsqlConnection connection,PreviewDatabase database,TradingView view,VolSurfaceFitRequest body,CancellationToken ct)
@@ -59,7 +77,8 @@ internal static class VolSurfaceStore
         // The sensitivity selection and the clock its one calendar day is counted on are pinned here, with the fit's other inputs.
         var sensitivities=OptionSurfaceAnalytics.Pin(body.Sensitivities,view.Frame.Close is {} recorded?await CloseConventions.Read(connection,manifest.CatalogId,recorded,ct):null);
         var request=new JsonObject{["convention"]=Convention,["engineVersion"]=RiskJobs.EngineVersion,["product"]=Product(manifest,body.Product),
-            ["businessDate"]=BusinessDate(view),["model"]=body.Model,["solverPolicy"]=SolverPolicy,["futuresConvention"]=manifest.FuturesConvention,
+            ["businessDate"]=BusinessDate(view),["model"]=body.Model,["solverPolicy"]=SolverPolicy(await ExerciseStyle(connection,manifest,body.Product,ct)),
+            ["futuresConvention"]=manifest.FuturesConvention,
             ["sensitivities"]=sensitivities};
         var frame=RetainedFrames.Record(selected.Frame with{SwapMarketSelections=null});
         await using var command=ScheduleStore.Command(connection,"SELECT risk.submit_vol_surface_fit($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb)::text",
@@ -97,7 +116,7 @@ SELECT row_to_json(q)::text FROM ref_data.futures_option_products p JOIN ref_dat
         return new JsonObject{["snapshotId"]=view.Frame.Id,["definitionRevisionId"]=manifest.RevisionId,["model"]=body.Model,
             ["referenceRevision"]=JsonSerializer.SerializeToNode(reference,Json),["priceUnit"]=labels.Price(priceUnit),
             ["priceUnitReference"]=JsonSerializer.SerializeToNode(new{priceUnit.Currency,priceUnit.Quantity,multiplier=priceUnit.Multiplier.ToString()},Json),
-            ["solverPolicy"]=stored?["solverPolicy"]?.DeepClone()??SolverPolicy,["state"]=stored is null?"notFitted":"fitted",
+            ["solverPolicy"]=stored?["solverPolicy"]?.DeepClone()??SolverPolicy(await ExerciseStyle(connection,manifest,body.Product,ct)),["state"]=stored is null?"notFitted":"fitted",
             ["revision"]=revision,["job"]=job,["canFit"]=canFit,["surface"]=stored is null?null:ProjectContent(stored["content"],selection),
             // What a fit may select: offered for the page to send back, with the clocks a working snapshot may name.
             ["sensitivities"]=new JsonObject{["offered"]=JsonSerializer.SerializeToNode(OptionSurfaceAnalytics.Offered,RiskJobs.Json),
@@ -135,7 +154,8 @@ SELECT row_to_json(q)::text FROM ref_data.futures_option_products p JOIN ref_dat
             var data=await database.Read(connection,ct,ppaBundle:source,observationIds:[],includeCalendarDays:false);
             if(!data.ReferenceRows("futures_option_products","code",body.Product).Any())
                 throw new MarketDataException("vol_surface_product","Select a listed option product.");
-            axes=SurfaceAxes.Declare(new(body.Model,[],[],[]){PlotInputs=new(VolSurfaceFit.StrikeUnit(data,data.ReferenceRows("futures_option_products","code",body.Product).Single()),SolverPolicy,SurfaceAxes.NumericalPolicy,NormalDistribution.ImplementationId)});
+            var listed=data.ReferenceRows("futures_option_products","code",body.Product).Single();
+            axes=SurfaceAxes.Declare(new(body.Model,[],[],[]){PlotInputs=new(VolSurfaceFit.StrikeUnit(data,listed),SolverPolicy(listed.Text("exercise_style")),SurfaceAxes.NumericalPolicy,NormalDistribution.ImplementationId)});
         }
         var job=await Value(connection,"SELECT risk.vol_surface_fit_job($1,$2,$3::jsonb,$4,$5,$6::uuid,$7,$8)::text",key,ct);
         return new{snapshotId=view.Frame.Id,definitionRevisionId=manifest.RevisionId,model=body.Model,
@@ -233,8 +253,7 @@ SELECT row_to_json(q)::text FROM ref_data.futures_option_products p JOIN ref_dat
         var request=job["request"]!.AsObject();
         if(request["engineVersion"]?.GetValue<string>()!=RiskJobs.EngineVersion)
             throw new MarketDataException("risk_engine_version","The retained job requires its exact managed engine binaries.");
-        if(request["solverPolicy"]?.GetValue<string>()!=SolverPolicy||request["futuresConvention"]?.GetValue<string>() is not {} futuresConvention||
-            !FuturesMarketBinding.Supported(futuresConvention))
+        if(request["futuresConvention"]?.GetValue<string>() is not {} futuresConvention||!FuturesMarketBinding.Supported(futuresConvention))
             throw new MarketDataException("risk_job_input","The retained fit must name the supported solver policy and futures convention.");
         var model=VolModels.Require(request["model"]!.GetValue<string>());
         var product=request["product"]!.AsObject();
@@ -250,6 +269,9 @@ SELECT row_to_json(q)::text FROM ref_data.futures_option_products p JOIN ref_dat
         await using var database=new PreviewDatabase(manifest,source);
         using var admissions=database.OwnReadTransaction(connection,transaction);
         var data=await RetainedFrames.ReadBoundJobInputs(database,connection,frame,revision,ReferenceReadScope.DefinitionClosure,ct);
+        // The policy the job names is the one of its product's exercise style, read from the job's own pinned definitions.
+        if(data.ReferenceRows("futures_option_products","code",product["code"]!.GetValue<string>()).ToArray() is [var listedProduct])
+            RequireSolverPolicy(request["solverPolicy"]?.GetValue<string>(),listedProduct.Text("exercise_style"));
         var plan=OptionSurfaceAnalytics.Plan(request["sensitivities"],frame.At);
         // Calibration and analytics value under the job's one certified context, as a portfolio valuation does.
         var context=PinnedContext.Exact((await new KnowledgeResolver(catalog).Read(connection,frame.ContextId!.Value,ct)).Context);

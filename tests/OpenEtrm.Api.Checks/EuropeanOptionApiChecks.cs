@@ -1,5 +1,7 @@
 using System.Text.Json;
 using OpenEtrm.Api;
+using OpenEtrm.MarketData;
+using OpenEtrm.MarketData.Options;
 
 // What the backend says about a European listed futures option without reading a database (D446).
 internal static class EuropeanOptionApiChecks
@@ -12,6 +14,21 @@ internal static class EuropeanOptionApiChecks
         Check("early exercise of a European option has its own refusal text",()=>
             Equal(FuturesOptionStore.EventRefusal("option_exercise_style"),"A European option is exercised only at expiry."));
         Check("exercise and assignment are never offered on a European holding, whatever else is true of it",HoldingActions);
+        Check("a volatility surface fit names the numerical policy of its product's exercise style, and no other",SurfaceSolverPolicy);
+    }
+
+    private static void SurfaceSolverPolicy()
+    {
+        static void Reject(string code,Action action){try{action();}catch(MarketDataException e)when(e.Code==code){return;}throw new Exception("Expected "+code);}
+        Equal(VolSurfaceStore.SolverPolicy(FuturesOptionTerms.American),OptionNumericalPolicies.CoxRossRubinstein);
+        Equal(VolSurfaceStore.SolverPolicy(FuturesOptionTerms.European),OptionNumericalPolicies.Black76);
+        Reject("option_terms",()=>VolSurfaceStore.SolverPolicy("bermudan"));
+        // A retained fit job is refused when it names the other style's policy, or none.
+        VolSurfaceStore.RequireSolverPolicy(OptionNumericalPolicies.CoxRossRubinstein,FuturesOptionTerms.American);
+        VolSurfaceStore.RequireSolverPolicy(OptionNumericalPolicies.Black76,FuturesOptionTerms.European);
+        foreach(var (named,style) in new (string?,string)[]{(OptionNumericalPolicies.Black76,FuturesOptionTerms.American),(OptionNumericalPolicies.CoxRossRubinstein,FuturesOptionTerms.European),
+            (OptionNumericalPolicies.LeisenReimer,FuturesOptionTerms.American),(null,FuturesOptionTerms.European)})
+            Reject("risk_job_input",()=>VolSurfaceStore.RequireSolverPolicy(named,style));
     }
 
     // The holding's own statement of its actions, from its booked lots and its product's style and instruction terms.

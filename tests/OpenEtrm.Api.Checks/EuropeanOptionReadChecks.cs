@@ -75,6 +75,14 @@ internal static class EuropeanOptionReadChecks
                 control["option.exercise"].Reason!="lifecycle_configuration_required")
                 throw new Exception("The lifecycle list must give a European holding's exercise its own reason, and no other action that reason.");
 
+            // A fit of the European product calibrates every listed series by the formula and names its policy, the one the
+            // stored tables accept for the product.
+            var fit=await VolSurfaceFit.Compute(connection,database,data,frame,snapshot,european.Text("product"),VolModels.Require(VolModels.QuadraticLogMoneyness),ct);
+            if(fit.Result.PlotInputs?.OptionPolicy!=OptionNumericalPolicies.Black76||fit.Calibrations.Bindings.Count!=fit.Listed.Length||
+                fit.Calibrations.Bindings.Values.Any(b=>b.Policy.Id!=OptionNumericalPolicies.Black76||b.TreePrices!=0)||
+                fit.Result.Series.Any(s=>s.Series.Outcome!=FuturesOptionPricing.SolvedMode))
+                throw new Exception("A European product's fit must calibrate its series by the formula and name the formula's policy.");
+
             // The policy stated before European series were admitted names no model for one: the book is refused, by series.
             var earlier=stated with{FuturesOptions=FuturesOptionValuationPolicy.Release1};
             try{_=await new PortfolioValuation(database).Prepare(connection,data,frame,snapshot,context,books,earlier,[],[],ct,selection:scope);
@@ -82,6 +90,6 @@ internal static class EuropeanOptionReadChecks
             catch(MarketDataException error)when(error.Code=="option_policy"&&error.Message.Contains(european.Text("series"),StringComparison.Ordinal)){}
             return 0;
         },default);
-        Console.WriteLine("PASS European option read: the catalog states the style and settlement, a European and an American series on one future are each calibrated by their own model, the European holding is worth its settlement, the lifecycle list refuses its exercise by style and a policy without the European member refuses the book");
+        Console.WriteLine("PASS European option read: the catalog states the style and settlement, a European and an American series on one future are each calibrated by their own model, the European holding is worth its settlement, the lifecycle list refuses its exercise by style, a fit of the product names the formula's policy and a policy without the European member refuses the book");
     }
 }
