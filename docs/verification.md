@@ -11,6 +11,12 @@ has run against a preview: the browser's sandbox does not start under the
 container's default security profile, which was left as it was. The capability is
 described in [futures options](futures-options.md#european-exercise).
 
+Master was merged into the branch on 2026-11-24, after the container runs; the merge
+brought one managed check and no database change. The MarketData default pass,
+`--european-options` and `--futures-options`, the API `--schedules`, `--option-policy`
+and `--european-options` checks and the Python suite were rerun on the merged tree
+with the results below. The other rows predate the merge.
+
 | Run | Where | Result |
 | --- | --- | --- |
 | MarketData checks, default | workstation | 801 managed core checks passed |
@@ -25,7 +31,7 @@ described in [futures options](futures-options.md#european-exercise).
 | API checks `--context-resolution`, `--read-references`, `--power-hedge`, `--async-reads`, `--assistant-prompts`, `--published-clock`, `--calendar-authoring`, `--gas-ticket`, `--position-adjustment` | workstation | pass |
 | API checks `--lifecycle-actions`, `--economic-risk-contract`, `--lifecycle-schedule-contract`, `--gas-owned-setup`, `--shared-native-markets`, `--derivative-methods`, `--gas-accepted-order`, `--lifecycle-residual-currencies`, `--gas-operator-contract` | workstation | pass |
 | Rates and Shared checks | workstation | 88 and 51 passed |
-| `python3 -m unittest discover -s tests -p 'test_*.py'` | workstation | 184 OK, with migrations 0391 and 0392 in the numbering check |
+| `python3 -m unittest discover -s tests -p 'test_*.py'` | workstation | 185 OK, with migrations 0391 and 0392 in the numbering check |
 | `npm test --prefix web` | workstation | 2,329 pass. An earlier run under a load average of 70 had one browser test fail to start its browser; that file alone, and this run, pass |
 | Migrations 0391 and 0392 applied to a database | container | applied at the end of the whole sequence in every run below |
 | `tools/check_european_option.py` and its managed read `--european-option-read` | container | 7 checks pass, alone and as a step of the `lifecycle` group |
@@ -118,8 +124,6 @@ event primitive's refusal was read from its installed definition and never execu
 the tool now executes it, as described above. The review's minor findings are not
 acted on. It found no path that prices a series on the wrong model and no change to
 American values.
-
-These changes have not been published.
 
 ## Selected gas delivery quantities (D445)
 
