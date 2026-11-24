@@ -12,9 +12,18 @@ internal sealed record ReferenceOptionStrategyValue(LatticeDecimal Vanilla,Latti
 internal static class ReferenceFuturesOptionStrategy
 {
     private static readonly LatticeDecimal Zero=LatticeDecimal.Parse("0"),One=LatticeDecimal.Parse("1");
+    // The lifecycle projection (D401) and its cash and physical reference strategies are qualified for American
+    // exercise. A series of another style is refused by name until it is qualified on its own (D446).
+    internal static void RequireQualifiedStyle(FuturesOptionTerms terms)
+    {
+        if(terms.ExerciseStyle!=FuturesOptionTerms.American)
+            throw new MarketDataException("projection_option_style",
+                $"The lifecycle projection and its reference strategies are qualified for American exercise only; the series states '{terms.ExerciseStyle}'.");
+    }
     internal static ImmutableArray<FuturesMarginOccurrence> NodeMargins(FuturesOptionTerms terms,FuturesMarginPolicy margin,
         DateTimeOffset at,OptionNumericalPolicy numerical)
     {
+        if(terms is not null)RequireQualifiedStyle(terms);
         if(terms is null||numerical is null||numerical.Steps<1||!TradingInstant.IsSupported(at)||
             !TradingInstant.IsSupported(terms.ExpiryAt)||at>=terms.ExpiryAt)throw new MarketDataException("option_reference_strategy","Retain exact option clocks, numerical grid and saved margin schedule.");
         var ticks=terms.ExpiryAt.UtcTicks-at.UtcTicks;

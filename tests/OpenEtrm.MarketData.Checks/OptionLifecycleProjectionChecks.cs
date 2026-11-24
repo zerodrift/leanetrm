@@ -35,6 +35,14 @@ internal static class OptionLifecycleProjectionChecks
             FuturesMarginOpening.AfterOpeningInstant,FuturesMarginPolicy.Version);
         var component=new FuturesOptionLifecycleProjection(trade,trade.Instruments[0].Id,setup,future,margin,rule,null,
             f.UnderlyingRequest,f.UnderlyingRequest,model,source);
+        // The same holding with its series stated as European, calibrated by the formula: the projection is qualified
+        // for American exercise only and refuses it by name before it prices anything.
+        var european=f.EuropeanOption(13);var europeanTrade=FuturesOptionChecks.OptionMarket.Holding(21,1,european,"2");
+        var europeanSetup=setup with{OptionBindings=ImmutableDictionary<Guid,FuturesOptionMarketBinding>.Empty.Add(european.Id,FuturesOptionPricing.Prepare(european,basis,source,
+            discount,FuturesOptionPricing.DailySettlement,OptionNumericalPolicies.Require(OptionNumericalPolicies.Black76),true,default))};
+        Reject("projection_option_style",()=>new FuturesOptionLifecycleProjection(europeanTrade,europeanTrade.Instruments[0].Id,europeanSetup,future,margin,rule,null,
+            f.UnderlyingRequest,f.UnderlyingRequest,model,source));
+        Console.WriteLine("PASS a European series is refused with projection_option_style");
         var policy=new LifecycleProjectionPolicy(LifecycleProjectionPolicy.Version,LifecycleProjectionPolicy.Hold,LifecycleProjectionPolicy.PayAtDue,
             LifecycleProjectionPolicy.Nominal,LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry,LifecycleProjectionPolicy.RetainPhysical);
         var h=new LifecycleProjectionHorizon(new(Guid.NewGuid(),"synthetic_close",1),f.R("calendar"),[new(new(2040,12,24),marginAt.AddHours(1),0)]);

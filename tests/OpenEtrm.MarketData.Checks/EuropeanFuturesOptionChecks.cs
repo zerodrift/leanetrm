@@ -373,18 +373,6 @@ internal static class EuropeanFuturesOptionChecks
         Reject("option_settlement_above_bound", () => American(OptionRight.Call, "80", "80", "2", "0.9", "79"));
     }
 
-    // The option fixture's market with a series restated as European: the same keys, prices and curves. A European
-    // product accepts no contrary instructions; a cutoff may still be stated.
-    private static FuturesOptionInstrument EuropeanOption(Market market, int contract, DateTimeOffset? cutoff = null)
-    {
-        var series = market.Series(contract);
-        return new(series with
-        {
-            Terms = new(series.Terms.Right, series.Terms.Strike, series.Terms.ExpiryAt, FuturesOptionTerms.European, series.Terms.SettlementMethod),
-            ContraryInstructionsAllowed = false, InstructionCutoffAt = cutoff,
-        });
-    }
-
     private static readonly ExplicitDiscounting Undiscounted = new(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted);
     private static ExactDecimal D(string value) => ExactDecimal.Parse(value);
     private static RiskPositionResult Position(RiskRun run, int trade) => run.Factors[0].Positions.Single(p => p.TradeId == Market.G(1000 + trade));
@@ -399,9 +387,9 @@ internal static class EuropeanFuturesOptionChecks
     {
         var market = new Market();
         var run = market.Calculate(
-            [Market.Holding(1, 1, EuropeanOption(market, 11), "2"), Market.Holding(2, 1, EuropeanOption(market, 12), "1"),
-             Market.Holding(3, 1, EuropeanOption(market, 13), "3"), Market.Holding(4, 1, EuropeanOption(market, 14), "1"),
-             Market.Holding(5, 2, EuropeanOption(market, 15), "-2")], [market.FuturesBump], policy: Policy);
+            [Market.Holding(1, 1, market.EuropeanOption(11), "2"), Market.Holding(2, 1, market.EuropeanOption(12), "1"),
+             Market.Holding(3, 1, market.EuropeanOption(13), "3"), Market.Holding(4, 1, market.EuropeanOption(14), "1"),
+             Market.Holding(5, 2, market.EuropeanOption(15), "-2")], [market.FuturesBump], policy: Policy);
         foreach (var (trade, contract, settlement, lots, mode) in new[]
                  {
                      (1, 11, "0.08", "2", FuturesOptionPricing.SolvedMode), (2, 12, "0.08", "1", FuturesOptionPricing.SolvedMode),
@@ -427,7 +415,7 @@ internal static class EuropeanFuturesOptionChecks
     private static void DeclaredInputs()
     {
         var market = new Market();
-        var run = market.Calculate([Market.Holding(1, 1, EuropeanOption(market, 11), "1"), Market.Holding(2, 1, EuropeanOption(market, 14), "1")],
+        var run = market.Calculate([Market.Holding(1, 1, market.EuropeanOption(11), "1"), Market.Holding(2, 1, market.EuropeanOption(14), "1")],
             [market.FuturesBump], policy: Policy);
         if (run.Contracts.Length != 2) throw new Exception($"Expected two option contracts; found {run.Contracts.Length}.");
         foreach (var contract in run.Contracts)
@@ -456,13 +444,13 @@ internal static class EuropeanFuturesOptionChecks
             market.Calculate([Market.Holding(1, 1, option, "1")], [market.FuturesBump], policy: policy).Contracts.Single().Time;
         foreach (var stated in new DateTimeOffset?[] { null, cutoff })
         {
-            var time = Time(EuropeanOption(market, 11, stated), Policy);
+            var time = Time(market.EuropeanOption(11, stated), Policy);
             if (time.Use != ValuationTimeDependency.TimeUse.Interval || time.From != Market.At || time.To != Market.Expiry)
                 throw new Exception($"A European option's interval must run from {Market.At:O} to {Market.Expiry:O}; got {time.From:O} to {time.To:O}.");
         }
         if (Time(market.Option(11), Tree).To != cutoff) throw new Exception("An American option's interval still ends at its instruction cutoff.");
         // A fallback has no model time: it stays pinned to its source instant.
-        if (Time(EuropeanOption(market, 14), Policy).Use != ValuationTimeDependency.TimeUse.Pinned)
+        if (Time(market.EuropeanOption(14), Policy).Use != ValuationTimeDependency.TimeUse.Pinned)
             throw new Exception("A European fallback is pinned to its source instant.");
     }
 
@@ -492,7 +480,7 @@ internal static class EuropeanFuturesOptionChecks
     private static void OneTickSensitivities()
     {
         var oracle = OracleGreeks(); var market = new Market();
-        var binding = Prepare(market, EuropeanOption(market, 11), Undiscounted, Policy);
+        var binding = Prepare(market, market.EuropeanOption(11), Undiscounted, Policy);
         LatticeDecimal At(string futures) => binding.UnitPrice(L(futures), Market.At, CancellationToken.None, L("1"), oracle.Volatility);
         var (down, centre, up, tick) = (At("2.999"), At("3"), At("3.001"), L("0.001"));
         Within(centre, L("0.08"), L("0.00000000000000000001"), "value at the oracle's volatility");
@@ -506,7 +494,7 @@ internal static class EuropeanFuturesOptionChecks
     private static void RiskRunSensitivities()
     {
         var oracle = OracleGreeks(); var market = new Market();
-        var run = market.Calculate([Market.Holding(1, 1, EuropeanOption(market, 11), "1")], [market.FuturesBump], discounting: Undiscounted, policy: Policy);
+        var run = market.Calculate([Market.Holding(1, 1, market.EuropeanOption(11), "1")], [market.FuturesBump], discounting: Undiscounted, policy: Policy);
         Within(L(Receipt(run, 11).Volatility!), oracle.Volatility, L("0.0031"), "held volatility");
         var position = Position(run, 1);
         Within(LatticeDecimal.From(position.Delta.Value) / L("10000"), oracle.Delta, L("0.001"), "delta");
@@ -521,7 +509,7 @@ internal static class EuropeanFuturesOptionChecks
     private static void FallbackScenarios()
     {
         var market = new Market();
-        var run = market.Calculate([Market.Holding(1, 1, EuropeanOption(market, 15), "1")], [market.FuturesBumpOf("1.25")],
+        var run = market.Calculate([Market.Holding(1, 1, market.EuropeanOption(15), "1")], [market.FuturesBumpOf("1.25")],
             discounting: new ExplicitDiscounting(D("0.9995"), DiscountFactorSource.Explicit), policy: Policy);
         var receipt = run.OptionCalibrations.Single();
         Equal(receipt.Mode, ImpliedVolatility.DiscountedFallbackMode);
@@ -535,7 +523,7 @@ internal static class EuropeanFuturesOptionChecks
     private static void ZeroSettlementScenarios()
     {
         var market = new Market();
-        ImmutableArray<Trade> trades = [Market.Holding(1, 1, EuropeanOption(market, 14), "3")];
+        ImmutableArray<Trade> trades = [Market.Holding(1, 1, market.EuropeanOption(14), "3")];
         var run = market.Calculate(trades, [market.FuturesBumpOf("1.25")], policy: Policy);
         Equal(run.OptionCalibrations.Single().Mode, ImpliedVolatility.DiscountedFallbackMode);
         foreach (var value in new[] { Position(run, 1).Base.Amount, Position(run, 1).Up.Amount, Position(run, 1).Down.Amount })
@@ -553,7 +541,7 @@ internal static class EuropeanFuturesOptionChecks
     private static void NoTreePrice()
     {
         var market = new Market();
-        var european = Prepare(market, EuropeanOption(market, 11), Undiscounted, Policy);
+        var european = Prepare(market, market.EuropeanOption(11), Undiscounted, Policy);
         var american = Prepare(market, market.Option(11), Undiscounted, Tree);
         foreach (var binding in new[] { european, american })
             _ = binding.UnitPrice(L("3.001"), Market.At, CancellationToken.None, L("1"), ((SolvedVolatility)binding.Calibration).Volatility);
@@ -564,7 +552,7 @@ internal static class EuropeanFuturesOptionChecks
     private static void PreparedUnderOtherPolicy()
     {
         var market = new Market();
-        foreach (var (option, policy) in new[] { (EuropeanOption(market, 11), Tree), (market.Option(11), Policy) })
+        foreach (var (option, policy) in new[] { (market.EuropeanOption(11), Tree), (market.Option(11), Policy) })
             try { Prepare(market, option, Undiscounted, policy); throw new Exception("Expected option_terms."); }
             catch (MarketDataException error) when (error.Code == "option_terms")
             {

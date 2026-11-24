@@ -984,6 +984,17 @@ internal static partial class FuturesOptionChecks
                 Expiry.AddHours(-2), premiumStyle);
         }
         public FuturesOptionInstrument Option(int contract) => new(Series(contract));
+        // The same series restated as European: its key, prices and curves are unchanged. A European product accepts no
+        // contrary instructions; a cutoff may still be stated.
+        public FuturesOptionInstrument EuropeanOption(int contract, DateTimeOffset? cutoff = null)
+        {
+            var series = Series(contract);
+            return new(series with
+            {
+                Terms = new(series.Terms.Right, series.Terms.Strike, series.Terms.ExpiryAt, FuturesOptionTerms.European, series.Terms.SettlementMethod),
+                ContraryInstructionsAllowed = false, InstructionCutoffAt = cutoff,
+            });
+        }
         public CurveModel Model(ObservationRole optionRole = ObservationRole.DailySettlement,
             ObservationRole futuresRole = ObservationRole.DailySettlement, string optionIncrement = Tick,
             ConstituentExpiryRule optionExpiry = ConstituentExpiryRule.RequireLive,FuturesSeriesSpecification? underlying=null)

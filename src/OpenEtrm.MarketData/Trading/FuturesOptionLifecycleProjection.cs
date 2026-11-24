@@ -87,6 +87,7 @@ public sealed class FuturesOptionLifecycleProjection:ILifecycleProjection
     {
         holding=trade.Instruments.SingleOrDefault(h=>h.Id==bindingId)??throw Error("Retain the exact native option holding.");
         option=holding.Instrument as FuturesOptionInstrument??throw Error("Select a listed futures option.");
+        ReferenceFuturesOptionStrategy.RequireQualifiedStyle(option.Series.Terms);
         Owner=new(trade.Id,bindingId,trade.BookId);this.trade=trade;this.future=future;this.margin=margin;this.rule=rule;
         this.instruction=instruction;this.expiryMarket=expiryMarket;this.marginMarket=marginMarket;
         this.setup=setup=setup.ForPosition(Owner,option.Id);
