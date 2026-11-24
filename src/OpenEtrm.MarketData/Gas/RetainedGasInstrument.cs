@@ -115,40 +115,51 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
             previous = group;
         }
 
-        var exerciseTimes = right.Settlement == ExerciseSettlement.Physical
-            ? right.Groups.ToDictionary(group => group.From, group => group.ExerciseAt)
-            : [];
         var deliveryDays = new HashSet<DateOnly>();
         foreach (var slot in right.Slots)
         {
-            GasDayClock? clock = null;
+            var memberDays = new Dictionary<DateOnly, (DateTimeOffset? NativeStart, bool Dated)>();
             foreach (var row in Sides[slot].Side.GenerateSchedule().Rows)
             {
                 switch (row.DeliveryWindow)
                 {
                     case IntervalScheduleWindow { Interval: var interval }:
-                        deliveryDays.Add(interval.OperatingDate);
-                        if (exerciseTimes.TryGetValue(interval.OperatingDate, out var exerciseAt) && exerciseAt > interval.Start)
-                            throw LatePhysicalExercise();
+                        var day = interval.OperatingDate;
+                        var retained = memberDays.GetValueOrDefault(day);
+                        if (retained.NativeStart is not {} start || interval.Start < start)
+                            memberDays[day] = (interval.Start, retained.Dated);
                         break;
                     case DatedScheduleWindow(var from, var to):
-                        for (var day = from; day < to; day = day.AddDays(1))
-                        {
-                            deliveryDays.Add(day);
-                            if (exerciseTimes.TryGetValue(day, out var datedExerciseAt))
-                            {
-                                clock ??= ReadCashDayClock(Members[slot].Program);
-                                if (datedExerciseAt > CashDayStart(clock, day)) throw LatePhysicalExercise();
-                            }
-                        }
+                        for (var covered = from; covered < to; covered = covered.AddDays(1))
+                            memberDays[covered] = (memberDays.GetValueOrDefault(covered).NativeStart, true);
                         break;
                     default:
                         throw InvalidRight("Exercise rights require retained delivery geometry for every selected member.");
                 }
             }
+            deliveryDays.UnionWith(memberDays.Keys);
+            if (right.Settlement == ExerciseSettlement.Physical)
+                RequirePhysicalBoundaries(right.Groups, memberDays, Members[slot].Program);
         }
         if (!groupDays.SetEquals(deliveryDays))
             throw InvalidRight("Exercise groups must cover exactly the selected members' retained delivery days.");
+    }
+
+    private static void RequirePhysicalBoundaries(ImmutableArray<ExerciseGroup> groups,
+        Dictionary<DateOnly, (DateTimeOffset? NativeStart, bool Dated)> memberDays, BookedSideProgram program)
+    {
+        GasDayClock? clock = null;
+        foreach (var group in groups)
+        {
+            for (var day = group.From; day < group.To; day = day.AddDays(1))
+            {
+                if (!memberDays.TryGetValue(day, out var retained)) continue;
+                if (retained.NativeStart is {} start && group.ExerciseAt > start ||
+                    retained.Dated && group.ExerciseAt > CashDayStart(clock ??= ReadCashDayClock(program), day))
+                    throw LatePhysicalExercise();
+                break;
+            }
+        }
     }
 
     private static bool SameMonth(DateOnly left, DateOnly right) => left.Year == right.Year && left.Month == right.Month;
@@ -181,9 +192,9 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
     }
 
     private static MarketDataException MissingCashDayClock() =>
-        InvalidRight("Physical exercise requires an exact retained gas-day boundary for each selected member's first group day.");
+        InvalidRight("Physical exercise requires an exact retained gas-day boundary for each selected member's first day covered by the group.");
     private static MarketDataException LatePhysicalExercise() =>
-        InvalidRight("Physical exercise must occur at or before the start of its group's first retained gas day.");
+        InvalidRight("Physical exercise must occur at or before each selected member's first retained gas-day start within the group.");
     private static MarketDataException InvalidRight(string message) => new("exercise_right", message);
 
     private static GasValuationAssignment First(ImmutableArray<GasValuationAssignment> assignments)=>

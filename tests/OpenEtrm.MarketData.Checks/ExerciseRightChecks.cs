@@ -22,6 +22,7 @@ internal static class ExerciseRightChecks
         Check("saved gas rights require distinct members, complete group geometry and installed terms", RejectsMalformedRights);
         Check("monthly rights retain one group in each represented month", MonthBoundaries);
         Check("physical exercise observes every selected entry's retained first-day boundary", PhysicalBoundaries);
+        Check("monthly physical exercise observes staggered retained gas-day boundaries", StaggeredMonthlyBoundaries);
     }
 
     private static void SavedIdentity()
@@ -130,6 +131,51 @@ internal static class ExerciseRightChecks
             RefusesRight($"an exercise time later than the selected cash boundary on day {day + 1}", () => _ = Save(dated, [invalid]));
         }
         RefusesRight("missing selected cash clock evidence", () => _ = Save(WithCash(null), [right]));
+    }
+
+    private static void StaggeredMonthlyBoundaries()
+    {
+        var fixture = new GasInstrumentScheduleChecks.IdentityFixture();
+        var original = fixture.Instrument;
+        var side = fixture.Physical;
+        var from = side.Quantities.From;
+        var second = from.AddDays(1);
+        var to = from.AddDays(2);
+        var revision = side.Quantities.Clock.Key.Revision;
+        GasDayClock Clock(string name, int utcHours, int startHour) =>
+            GasDayClock.Capture(new(revision, name), TimeZoneInfo.CreateCustomTimeZone(name, TimeSpan.FromHours(utcHours), name, name), startHour * 60);
+        var west = Clock("synthetic_west_clock", -12, 23);
+        var east = Clock("synthetic_east_clock", 14, 0);
+        var earliest = new DateTimeOffset(2041, 1, 1, 10, 0, 0, TimeSpan.Zero);
+        var later = new DateTimeOffset(2041, 1, 2, 11, 0, 0, TimeSpan.Zero);
+        var group = new ExerciseGroup(from, to, earliest);
+        var right = PhysicalRight([group]) with { Period = ExercisePeriod.DeliveryMonth };
+        var lateRight = right with { Groups = [group with { ExerciseAt = later }] };
+
+        RetainedGasInstrument Staggered(DateOnly physicalDay, GasDayClock nativeClock, DateOnly cashDay, GasDayClock? cashClock)
+        {
+            var lookup = new CommodityLookupFixture(31 + physicalDay.DayNumber - from.DayNumber)
+                .Swap().Floating.GenerateSchedule().Rows[0].Prices[0].Lookup!;
+            var assignment = new GasValuationAssignment(original.Assignments[0].Key, side.Location, side.Product,
+                physicalDay, physicalDay.AddDays(1), lookup.Settlement, lookup.Quote, new(lookup.Market, lookup.Contract),
+                lookup.Fixing, original.Assignments[0].Adjustment);
+            var native = new PhysicalGasSide(Guid.NewGuid(), side.Location, side.Product,
+                new(nativeClock, assignment.From, assignment.To, side.Quantities.Basis, side.Quantities.Receipt, GasFuelConvention.None, default),
+                [assignment], side.CalendarPolicy);
+            var program = BookedSideProgram.Compile(ScheduleDefinitionCompiler.Generate(native,
+                lifecycle: ScheduleLifecycleSelection.StartedPhysicalDelivery));
+            return new(original.Id, [new(native.Id, E("1"), ExactRatio.One, program), CashMember(fixture, cashDay, cashDay.AddDays(1), cashClock)],
+                [assignment]);
+        }
+
+        var cashStartsLater = Staggered(from, west, second, east);
+        var physicalStartsLater = Staggered(second, east, from, west);
+        _ = Save(cashStartsLater, [right]);
+        _ = Save(physicalStartsLater, [right]);
+        RefusesRight("exercise after a later-dated cash member's start", () => _ = Save(cashStartsLater, [lateRight]));
+        RefusesRight("exercise after a later-dated physical member's start", () => _ = Save(physicalStartsLater, [lateRight]));
+        var missing = Staggered(from, west, second, null);
+        RefusesRight("missing clock evidence on a later-dated cash member", () => _ = Save(missing, [right]));
     }
 
     private static RetainedGasMember CashMember(GasInstrumentScheduleChecks.IdentityFixture fixture, DateOnly from, DateOnly to, GasDayClock? clock)
