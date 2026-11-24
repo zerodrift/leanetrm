@@ -2,7 +2,7 @@
 
 ## Exercise rights on a gas Instrument (D448)
 
-Local verification on 2026-11-24 uses the application tree at `8d32117f`,
+Local verification on 2026-11-24 uses the application tree at `f777479d`,
 Python 3.13, stock PostgreSQL 18.7, .NET SDK 10.0.402, Node 24.22.0 and Chrome
 on macOS arm64. The integration groups build and run this checkout's assets
 sequentially with isolated disposable synthetic databases. The three full
@@ -30,9 +30,11 @@ including staggered gas-day boundaries, an exact repeating quantity, and the
 allocation of whole-term cash across groups. They also check retained fixing
 and election deadlines, delivery conflicts on contract-quantity holdings,
 publication on zero-volume rows and a still-live cash forecast after payment
-falls due. Pricing-binding tests distinguish correlation revisions and preserve
-pair symmetry. Settlement and reuse tests cover paid
-cash and known election changes. Independent held-value oracles include
+falls due. Moving the supplied fixing together with the group deadline refuses
+when the booked Side retains the earlier fixing. A three-day monthly group
+uses the monthly observation on each day and a later daily fixing on one day.
+Pricing-binding tests distinguish correlation revisions and preserve pair
+symmetry. Settlement and reuse tests cover paid cash and known election changes. Independent held-value oracles include
 2,947.4419 for the daily fixed-price purchase, −947.4419 when the counterparty
 holds the right and 2,163.3174 for the indexed strike. The worked three-day result preserves the
 exact elected and abandoned amounts alongside the modeled contribution.
@@ -56,11 +58,13 @@ and pricing workload emitted 138 PASS checkpoints, completed 12 retained worker
 runs and reported 24 owned browser checks, five for pricing and 19 for exercise.
 
 The frontend build passed. The full frontend suite ran serially from `web`
-with `node --test --test-concurrency=1 tests/*.test.mjs`. All 2,339 tests
+with `node --test --test-concurrency=1 tests/*.test.mjs`. All 2,344 tests
 passed with zero skips. They include a priced multi-clock ticket with an
-unavailable combined schedule, a successful reread after a stale predecessor,
-and exact recovery when session storage is unavailable. The table counts the
-owned integration browsers separately. Integrated CI is a separate merge gate.
+unavailable combined schedule, an editable refusal that preserves the last grid
+and its units, an initially unpriced amendment with a visible quantity unit,
+a successful reread after a stale predecessor, and exact recovery when session
+storage is unavailable. The table counts the owned integration browsers
+separately. Integrated CI is a separate merge gate.
 
 ## Instrument schedule and independent gas pricing (D446–D447)
 
