@@ -37,6 +37,10 @@ internal static class ExerciseRightChecks
         Check("a whole-term payment accrues and pays only the exercised day", ElectedAccrual);
         Check("election effective time bounds the undecided value and the frozen clock", ElectionTiming);
         Check("invalid elections and conflicting delivery or payment facts refuse", ElectionRefusals);
+        Check("published prices decide cash groups and forecasts retain zero-time intrinsic value", AutomaticCash);
+        Check("an automatic exercise selects gross cash and retains the Side payment balance", AutomaticPayments);
+        Check("a counterparty cash spread uses only its remaining uncertain prices", AutomaticSpread);
+        Check("a cash keep-whole takes its outside scheduled shortfall", AutomaticShortfall);
         Check("an outside physical source remains available to a contingent cash member", CashElectionSource);
         Check("state admission and pricing declaration validate election groups and payment knowledge", ElectionAdmission);
     }
@@ -492,17 +496,197 @@ internal static class ExerciseRightChecks
         _ = EvaluateElections(f, ElectedState(f, allAbandoned, payments: [payment with { KnownAt = future }]), at);
     }
 
+    private sealed class CashFixture
+    {
+        internal readonly DateTimeOffset FixingAt = Fixture.Utc("2041-01-03T05:00:00Z");
+        internal readonly GasPricingScheduleFixture Market;
+        internal readonly RetainedGasMember Daily, Monthly, Fixed;
+        internal readonly ExerciseMarks Marks;
+
+        internal CashFixture()
+        {
+            Market = new(thirdDailyIndex: (FixingAt, FixingAt.AddDays(20)), monthlyFixingAt: FixingAt.AddDays(-31));
+            var source = Market.Instrument;
+            var from = Market.From.AddDays(2);
+            var to = from.AddDays(1);
+            var payAt = Market.Clock.Boundary(to).AddDays(2);
+            RetainedGasMember Book(Side side) => new(side.Id, E("1"), ExactRatio.One, BookedSideProgram.Compile(
+                ScheduleDefinitionCompiler.Generate(side, lifecycle: ScheduleLifecycleSelection.StartedPhysicalDelivery)), 0);
+            RetainedGasMember Indexed(IndexPriceLookup lookup)
+            {
+                var period = new FloatingSidePeriod(from, to, lookup.Fixing!.FixingAt, payAt, FloatingAveraging.CalendarDayArithmetic,
+                    [new(lookup.Market, lookup.Contract)], [lookup.Fixing], null, new(default, Market.Quote), null, null,
+                    ExactRatio.One, FloatingSide.DeliveryIndexImplementation) { DeliveryCompletionAt = Market.Clock.Boundary(to) };
+                return Book(new FloatingSide(Guid.NewGuid(), Market.Quote, source.UnitQuantity, [period],
+                    FloatingSide.DeliveryIndexImplementation, SyntheticSideCalendars.FloatingPeriods([period]), gasDeliveryClock: Market.Clock));
+            }
+            var a = source.PriceLookups[5];
+            var b = source.PriceLookups[6];
+            Daily = Indexed(a);
+            Monthly = Indexed(b);
+            Fixed = Book(new FixedSide(Guid.NewGuid(), new FlatPrice(new UnitPrice(E("3.50"), Market.Quote)), Market.Quote,
+                source.UnitQuantity, [new(from, to, payAt, ExactRatio.One, null) { DeliveryCompletionAt = Market.Clock.Boundary(to) }],
+                SyntheticSideCalendars.Dated(false), gasDeliveryClock: Market.Clock));
+            CurveVolatilityMark Vol(IndexPriceLookup lookup, string price) =>
+                new(lookup.Market.Curve, Market.From, new(Guid.NewGuid(), price, VolatilityInput.Annualized));
+            Marks = new([Vol(a, "0.5"), Vol(b, "0.4")], [new(a.Market.Curve, b.Market.Curve, Market.From, "0.90")],
+                ExerciseMarks.HeldLogReturn);
+        }
+
+        internal RetainedGasInstrument Instrument(ExerciseHolder holder, ExerciseMarks? marks, params RetainedGasMember[] payments)
+        {
+            var source = Market.Instrument;
+            var day = Market.From.AddDays(2);
+            var right = PhysicalRight([new(day, day.AddDays(1), FixingAt)]) with
+                { Settlement = ExerciseSettlement.CashAutomatic, Holder = holder, Slots = [payments.Length - 1, payments.Length] };
+            var lookups = source.Assignments.Select(a => a.Lookup).ToList();
+            if (payments.Any(p => p.SideId == Daily.SideId)) lookups.Add(source.PriceLookups[5]);
+            if (payments.Any(p => p.SideId == Monthly.SideId)) lookups.Add(source.PriceLookups[6]);
+            return new(source.Id, [source.Members[0], ..payments], source.Assignments, [..lookups], [right], marks);
+        }
+
+        internal (PreparedConnectedPortfolioRisk Risk, ExerciseGroupValue Group) Value(RetainedGasInstrument instrument,
+            DateTimeOffset at, string forecast = "3.20", string? dailyFixing = null, string? monthlyFixing = null, int selected = 10000,
+            ImmutableArray<CashOccurrencePayment> payments = default)
+        {
+            var state = Market.State(Market.Days((10000, PhysicalLifecycle.ContractQuantity), (10000, PhysicalLifecycle.ContractQuantity),
+                (selected, selected == 10000 ? PhysicalLifecycle.ContractQuantity : PhysicalLifecycle.ScheduledQuantity)), payments);
+            // The required plain physical source has an explicit zero point mark to isolate the cash payments.
+            var (risk, setup) = Market.Prepare(instrument, state, at, dailyPoints: ["0", "0", "0"], thirdDailyForward: forecast,
+                publishedThirdDailyIndex: dailyFixing, publishedMonthlyIndex: monthlyFixing);
+            var context = new UnitValuationContext(risk.Market.Snapshot, setup, risk.Market).For(risk.UnitContracts.Single(), null, state);
+            var (basis, scenario) = context.RetainedProgramMarkets(instrument.Declare(context).Dependencies);
+            var result = instrument.PV(instrument.PrepareValuation(basis, scenario,
+                new ExplicitDiscounting(E("1"), DiscountFactorSource.Undiscounted), state));
+            var position = RiskEngine.CalculateExact(risk, [], RiskEngine.ExactNumericalPolicy).Groups.Single().BasePositions.Single();
+            var group = result.Groups.Single();
+            var summed = position.Entries.Aggregate(ExactMoney.Parse("0", instrument.Currency), (sum, e) => sum.Add(e.Value));
+            if (group.Inputs is not null) summed = summed.Add(position.ExerciseGroups.Single().Value);
+            else if (!position.ExerciseGroups.IsEmpty) throw new Exception("A decided cash group was counted twice.");
+            if (summed != position.Value || position.Value != result.PresentValue.Scale(state.Quantity.Amount))
+                throw new Exception("Cash rights must reconcile in ordinary rows and modeled group contributions.");
+            return (risk, group);
+        }
+    }
+
+    private static RetainedGasMember CashPayment(RetainedGasMember entry, string direction, QuantityPart? part = null) =>
+        new(entry.SideId, E(direction), entry.Ratio, entry.Program, 0, part: part);
+
+    private static void AutomaticCash()
+    {
+        var f = new CashFixture();
+        RetainedGasInstrument Right(ExerciseMarks? marks) => f.Instrument(ExerciseHolder.Us, marks,
+            CashPayment(f.Daily, "-1"), f.Daily, CashPayment(f.Fixed, "-1"));
+        var fixedRight = Right(null);
+        void Published(string fixing, string state, string counted, string total)
+        {
+            var (risk, group) = f.Value(fixedRight, f.FixingAt, dailyFixing: fixing);
+            if (group.State != state || group.Counted.Ratio != R(counted) || TradeValue(risk).Ratio != R(total) ||
+                group.Inputs is not null || !risk.UnitContracts.Single().Volatility.IsEmpty)
+                throw new Exception($"Published {fixing}: expected {state}, counted {counted}, trade {total}.");
+        }
+        Published("3.80", "exercised", "3000", "-35000");
+        Published("3.20", "abandoned", "0", "-32000");
+        Published("3.50", "abandoned", "0", "-35000");
+        // This share leaves a positive held payoff smaller than the model input lattice.
+        var tinyShare = new ExactRatio(1, BigInteger.Pow(10, 24));
+        var tiny = f.Instrument(ExerciseHolder.Us, null,
+            new(f.Daily.SideId, E("1"), tinyShare, f.Daily.Program, 0), new(f.Fixed.SideId, E("-1"), tinyShare, f.Fixed.Program, 0));
+        var (_, exact) = f.Value(tiny, f.FixingAt, dailyFixing: "3.80");
+        if (exact.State != "exercised" || exact.Counted.Ratio != new SignedRatio(3000, tinyShare.Denominator))
+            throw new Exception("A positive certain payoff must exercise at its exact held amount.");
+        var liveRight = Right(f.Marks);
+        var (_, zeroForecast) = f.Value(liveRight, f.FixingAt.AddDays(-30), "0");
+        if (zeroForecast.State != "undecided" || zeroForecast.Counted.Ratio != R("0"))
+            throw new Exception("A zero forward on a positive quantity is still an unpublished price.");
+        RejectElection("exercise_model_scope", () => f.Value(fixedRight, f.FixingAt, dailyFixing: "-3"));
+        RejectElection("exercise_marks", () => f.Value(fixedRight, f.FixingAt, "3.80"));
+        var (before, choice) = f.Value(liveRight, f.FixingAt.AddDays(-30));
+        if (choice.State != "undecided" || choice.Counted.Ratio.Format(4, MidpointRounding.ToEven) != "775.4967" ||
+            TradeValue(before).Ratio.Format(4, MidpointRounding.ToEven) != "-31224.5033")
+            throw new Exception("A cash index call must add 775.4967 to the plain index payment.");
+        foreach (var at in new[] { f.FixingAt, f.FixingAt.AddMinutes(1) })
+        {
+            var (risk, forecast) = f.Value(liveRight, at, "3.80");
+            if (forecast.State != "undecided_forecast" || forecast.Inputs?.Years != L("0") ||
+                forecast.Counted.Ratio != R("3000") || TradeValue(risk).Ratio != R("-35000"))
+                throw new Exception("An unpublished forecast at or after fixing needs the zero-time model.");
+        }
+    }
+
+    private static void AutomaticPayments()
+    {
+        var f = new CashFixture();
+        var right = f.Instrument(ExerciseHolder.Us, f.Marks, CashPayment(f.Daily, "-1"), f.Daily, CashPayment(f.Fixed, "-1"));
+        var at = f.Market.Clock.Boundary(f.Market.To);
+        var payment = new CashOccurrencePayment(Guid.NewGuid(), 2, 0, at, at, ExactMoney.Parse("500", right.Currency));
+        var (risk, group) = f.Value(right, at, dailyFixing: "3.80", payments: [payment]);
+        if (group.State != "exercised" || group.Counted.Ratio != R("3000") || group.ForwardSum != group.Counted ||
+            TradeValue(risk).Ratio != R("-35500"))
+            throw new Exception("The gross exercised group and the outstanding cash must account for the 500 payment once.");
+        RejectElection("exercise_conflict", () => f.Value(right, at, dailyFixing: "3.20", payments: [payment]));
+        RejectElection("exercise_conflict", () => f.Value(right, at, payments: [payment]));
+    }
+
+    private static void AutomaticSpread()
+    {
+        var f = new CashFixture();
+        RetainedGasInstrument Right(ExerciseMarks? marks) => f.Instrument(ExerciseHolder.Counterparty, marks,
+            CashPayment(f.Monthly, "-1"), CashPayment(f.Daily, "-1"), f.Monthly);
+        var at = f.FixingAt.AddDays(-30);
+        var (risk, group) = f.Value(Right(f.Marks), at);
+        if (group.State != "undecided" || group.Counted.Ratio.Format(4, MidpointRounding.ToEven) != "-2163.3174" ||
+            TradeValue(risk).Ratio.Format(4, MidpointRounding.ToEven) != "-32163.3174")
+            throw new Exception("The plain B payment and counterparty spread must count -32163.3174.");
+        var onlyA = f.Marks with { Volatilities = [f.Marks.Volatilities[0]], Correlations = [] };
+        var (partial, fixedB) = f.Value(Right(onlyA), at, monthlyFixing: "3.00");
+        if (!partial.UnitContracts.Single().Volatility.SequenceEqual([onlyA.Volatilities.Single().Volatility]) ||
+            fixedB.Inputs is not { PaysVolatility: null, Correlation: null } || fixedB.Inputs.Certain != R("-30000") ||
+            fixedB.Counted.Ratio.Format(4, MidpointRounding.ToEven) != "-2947.4419")
+            throw new Exception("The published price of B leaves only A's volatility.");
+        RejectElection("exercise_marks", () => f.Value(Right(null), at, monthlyFixing: "3.00"));
+        var (decided, exercise) = f.Value(Right(null), f.FixingAt, dailyFixing: "3.20", monthlyFixing: "3.00");
+        if (exercise.State != "exercised" || exercise.Counted.Ratio != R("-2000") || TradeValue(decided).Ratio != R("-32000"))
+            throw new Exception("A certain gain for the counterparty selects the negative held spread and its ordinary rows.");
+    }
+
+    private static void AutomaticShortfall()
+    {
+        var f = new CashFixture();
+        var part = QuantityPart.Shortfall(R("1"));
+        var right = f.Instrument(ExerciseHolder.Us, f.Marks, CashPayment(f.Daily, "1", part), CashPayment(f.Monthly, "-1", part));
+        var at = f.FixingAt.AddDays(-30);
+        var (_, shortfall) = f.Value(right, at, monthlyFixing: "3.00", selected: 9000);
+        var (full, noShortfall) = f.Value(right, at, monthlyFixing: "3.00");
+        if (shortfall.State != "undecided" || shortfall.Counted.Ratio.Format(4, MidpointRounding.ToEven) != "294.7442" ||
+            noShortfall.State != "abandoned" || noShortfall.Counted.Ratio != SignedRatio.Zero || !full.UnitContracts.Single().Volatility.IsEmpty)
+            throw new Exception("Only the missing 1,000 units carry cash keep-whole value.");
+    }
+
     private static void CashElectionSource()
     {
         var f = new GroupFixture(3, dailyPoint: true, sameSign: true, scheduled: true);
         var at = f.ExerciseAt.AddDays(-28);
-        var cash = f.Instrument.Rights[0] with { Slots = [1], Settlement = ExerciseSettlement.CashAutomatic };
+        var right = f.Instrument.Rights[0];
+        var cash = right with { Slots = [1], Settlement = ExerciseSettlement.CashAutomatic,
+            Groups = [..right.Groups.Select(g => g with { ExerciseAt = f.Market.Clock.Boundary(g.To) })] };
         var held = ElectedState(f, [], f.Market.Days((9000, PhysicalLifecycle.ScheduledQuantity), (10000, PhysicalLifecycle.ContractQuantity),
             (10000, PhysicalLifecycle.ContractQuantity)));
-        var (_, _, value) = EvaluateElections(f, held, at, Save(f.Instrument, [cash]));
+        var daily = f.Market.Instrument.Members[3];
+        var index = CashPayment(daily, "1");
+        var lookup = f.Market.Instrument.PriceLookups[3];
+        var mark = new CurveVolatilityMark(lookup.Market.Curve, f.Market.From, new(Guid.NewGuid(), "0.5", VolatilityInput.Annualized));
+        var instrument = new RetainedGasInstrument(f.Instrument.Id, f.Instrument.Members.SetItem(1, index), f.Instrument.Assignments,
+            [..f.Instrument.PriceLookups, ..f.Market.Instrument.PriceLookups.Skip(3).Take(3)], [cash], new([mark], [], ExerciseMarks.HeldLogReturn));
+        var (_, _, value) = EvaluateElections(f, held, at, instrument);
         if (value.Groups[0].State != "undecided" || value.Groups[0].Counted.Ratio != R("27000") ||
             value.Sides[0].Contribution.Ratio != R("8.94"))
             throw new Exception("A payment-only right uses its outside physical source without owning its schedule records.");
+        var afterFirst = cash.Groups[0].ExerciseAt.AddMinutes(1);
+        var (mixed, _, current) = EvaluateElections(f, held, afterFirst, instrument);
+        if (!current.Groups.Select(g => g.State).SequenceEqual(["undecided_forecast", "undecided", "undecided"]) ||
+            mixed.UnitContracts.Single().Time != ValuationTimeDependency.Between(afterFirst, cash.Groups[1].ExerciseAt))
+            throw new Exception("A past forecast and future exercise groups share the next event-free time interval.");
     }
 
     private static void ElectionAdmission()

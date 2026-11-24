@@ -51,15 +51,19 @@ public sealed record ExerciseElection(int Right, DateOnly From, string Outcome, 
 
 internal sealed class ExerciseDecisions
 {
-    internal const string Undecided = "undecided";
+    internal const string Undecided = "undecided", UndecidedForecast = "undecided_forecast";
     private readonly Dictionary<(int Right, DateOnly From), string> outcomes = [];
-    private readonly Dictionary<int, Dictionary<DateOnly, string>> memberDays = [];
+    private readonly Dictionary<int, ExerciseRight> memberRights = [];
+    private readonly Dictionary<(int Right, DateOnly Day), ExerciseGroup> groups = [];
 
     internal static ExerciseDecisions Resolve<TMember>(ImmutableArray<ExerciseRight> rights, ImmutableArray<TMember> members,
         PhysicalCashState state, MarketSnapshot snapshot, DateTimeOffset at) where TMember : IRetainedProgramMember
     {
         var decisions = new ExerciseDecisions(rights, state.Elections, at);
-        decisions.RequireCompatibleFacts(members, state, snapshot);
+        // Owner-day facts belong to physical memberships. A cash right may use an outside owner's schedule.
+        if (state.OwnerDays.Any(day => day.Source != PhysicalLifecycle.ContractQuantity && !decisions.Counted(day.Slot, day.Day)))
+            throw new MarketDataException("exercise_conflict", "Delivery records require an exercised day on the covered physical member.");
+        decisions.RequireCompatiblePayments(members, state, snapshot, ExerciseSettlement.Physical);
         decisions.RequireDetermined(rights, at);
         return decisions;
     }
@@ -70,36 +74,34 @@ internal sealed class ExerciseDecisions
             if (election.EffectiveAt <= at) outcomes.Add((election.Right, election.From), election.Outcome);
         foreach (var right in rights)
         {
-            var days = new Dictionary<DateOnly, string>();
+            foreach (var slot in right.Slots) memberRights.Add(slot, right);
             foreach (var group in right.Groups)
-            {
-                var outcome = Outcome(right, group);
-                for (var day = group.From; day < group.To; day = day.AddDays(1)) days.Add(day, outcome);
-            }
-            foreach (var slot in right.Slots) memberDays.Add(slot, days);
+                for (var day = group.From; day < group.To; day = day.AddDays(1)) groups.Add((right.Ordinal, day), group);
         }
     }
 
     internal string Outcome(ExerciseRight right, ExerciseGroup group) => outcomes.GetValueOrDefault((right.Ordinal, group.From), Undecided);
+    internal void DecideAutomatic(ExerciseRight right, ExerciseGroup group, bool exercised) =>
+        outcomes.Add((right.Ordinal, group.From), exercised ? ExerciseElection.Exercised : ExerciseElection.Abandoned);
     internal bool Counted(int slot, DateOnly day) => DayOutcome(slot, day) is null or ExerciseElection.Exercised;
-    internal bool IsUndecided(int slot, DateOnly day) => DayOutcome(slot, day) == Undecided;
-    private string? DayOutcome(int slot, DateOnly day) => memberDays.TryGetValue(slot, out var days) ? days.GetValueOrDefault(day) : null;
+    internal ExerciseGroup? UndecidedGroup(int slot, DateOnly day) =>
+        DayOutcome(slot, day) == Undecided ? groups[(memberRights[slot].Ordinal, day)] : null;
+    private string? DayOutcome(int slot, DateOnly day) =>
+        memberRights.TryGetValue(slot, out var right) && groups.TryGetValue((right.Ordinal, day), out var group) ? Outcome(right, group) : null;
 
     private void RequireDetermined(ImmutableArray<ExerciseRight> rights, DateTimeOffset at)
     {
-        if (rights.Any(right => right.Groups.Any(group => group.ExerciseAt <= at && Outcome(right, group) == Undecided)))
-            throw new MarketDataException("exercise_determination", "An elapsed exercise group requires its determination.");
+        if (rights.Any(right => right.Settlement == ExerciseSettlement.Physical &&
+            right.Groups.Any(group => group.ExerciseAt <= at && Outcome(right, group) == Undecided)))
+            throw new MarketDataException("exercise_determination", "An elapsed physical exercise group requires its determination.");
     }
 
-    private void RequireCompatibleFacts<TMember>(ImmutableArray<TMember> members, PhysicalCashState state, MarketSnapshot snapshot)
-        where TMember : IRetainedProgramMember
+    internal void RequireCompatiblePayments<TMember>(ImmutableArray<TMember> members, PhysicalCashState state, MarketSnapshot snapshot,
+        ExerciseSettlement settlement) where TMember : IRetainedProgramMember
     {
-        // Owner-day slots are physical memberships. Cash source links do not move these facts inside a right.
-        if (state.OwnerDays.Any(day => day.Source != PhysicalLifecycle.ContractQuantity && !Counted(day.Slot, day.Day)))
-            throw new MarketDataException("exercise_conflict", "Delivery records require an exercised day on the covered physical member.");
         foreach (var payment in state.VisiblePayments(snapshot))
         {
-            if (!memberDays.ContainsKey(payment.Slot)) continue;
+            if (!memberRights.TryGetValue(payment.Slot, out var right) || right.Settlement != settlement) continue;
             var row = members[payment.Slot].Program.Document.Instructions.Single(i =>
                 i.Output.Operation == "output_guard" && i.Output.PaymentOrdinal == payment.Occurrence).Output;
             var from = row.DeliveryFrom!.Value;

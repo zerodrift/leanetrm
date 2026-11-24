@@ -151,39 +151,38 @@ internal class RetainedInstrumentSchedule<TMember> : InstrumentSchedule where TM
             var rights = retained.Rights;
             var decisions = rights.IsEmpty && state.Elections.IsEmpty ? null :
                 ExerciseDecisions.Resolve(rights, retained.Members, state, context.Snapshot, context.UnitEvaluation.CalculationAt);
-            var entryDays = hasQuantityTerms || !rights.IsEmpty ? EntryQuantities.ForMembers(retained.Members, state,
-                decisions is null ? null : decisions.Counted) : default;
-            var sides = retained.Sides.Select((member, slot) =>
-                context.ForRetainedOccurrence(slot, (RetainedProgramSide)member.Side, entryDays, retained.Members[slot].ValuationPart).Evaluate(member.Side)).ToImmutableArray();
+            RetainedProgramValuation EvaluateOccurrence(SideValuationContext parent, int slot,
+                ImmutableArray<ImmutableArray<EntryDayQuantity>> days)
+            {
+                var side = (RetainedProgramSide)retained.Sides[slot].Side;
+                return (RetainedProgramValuation)parent.ForRetainedOccurrence(slot, side, days,
+                    retained.Members[slot].ValuationPart).Evaluate(side);
+            }
+
             ImmutableArray<ExerciseGroupValue> groups = [];
             if (decisions is not null)
             {
-                var choices = ImmutableArray.CreateBuilder<ExerciseGroupValue>();
-                ImmutableArray<ImmutableArray<EntryDayQuantity>> hypotheticalDays = default;
+                var forwardDays = EntryQuantities.ForMembers(retained.Members, state);
+                var exercises = new List<RetainedExerciseValuation>(rights.Length);
                 foreach (var right in rights)
                 {
                     var exercise = new RetainedExerciseValuation(right, decisions);
                     var allExercised = right.Groups.All(group => decisions.Outcome(right, group) == ExerciseElection.Exercised);
-                    if (!allExercised && hypotheticalDays.IsDefault)
-                        hypotheticalDays = EntryQuantities.ForMembers(retained.Members, state);
-                    var forwardDays = allExercised ? entryDays : hypotheticalDays;
+                    var parent = allExercised ? context : context.ExercisedOccurrences();
                     foreach (var slot in right.Slots)
                     {
-                        var ordinary = (RetainedProgramValuation)sides[slot];
-                        var forward = ordinary;
-                        if (!allExercised)
-                        {
-                            var side = (RetainedProgramSide)retained.Sides[slot].Side;
-                            var occurrence = context.ExercisedOccurrences().ForRetainedOccurrence(slot, side, forwardDays, retained.Members[slot].ValuationPart);
-                            forward = (RetainedProgramValuation)occurrence.Evaluate(side);
-                        }
-                        var membership = inputs.HeldFactors[slot];
-                        exercise.Add(forward, forwardDays[slot], membership * new SignedRatio(quantity.Numerator.Sign, 1));
+                        var forward = EvaluateOccurrence(parent, slot, forwardDays);
+                        exercise.Add(forward, forwardDays[slot], inputs.HeldFactors[slot] * new SignedRatio(quantity.Numerator.Sign, 1));
                     }
-                    choices.AddRange(exercise.Values(context, retained.Marks, retained.Currency, quantity.Numerator.Sign));
+                    exercise.DecideAutomatic();
+                    exercises.Add(exercise);
                 }
-                groups = choices.ToImmutable();
+                decisions.RequireCompatiblePayments(retained.Members, state, context.Snapshot, ExerciseSettlement.CashAutomatic);
+                groups = [..exercises.SelectMany(exercise => exercise.Values(context, retained.Marks, retained.Currency, quantity.Numerator.Sign))];
             }
+            var entryDays = hasQuantityTerms || !rights.IsEmpty ? EntryQuantities.ForMembers(retained.Members, state,
+                decisions is null ? null : decisions.Counted) : default;
+            ImmutableArray<SideValuation> sides = [..retained.Sides.Select((_, slot) => EvaluateOccurrence(context, slot, entryDays))];
             var value = new InstrumentValuation(retained, context, sides, groups);
             retained.RequireAfterValuation(value);
             return value;

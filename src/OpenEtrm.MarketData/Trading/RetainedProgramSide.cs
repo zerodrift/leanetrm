@@ -56,7 +56,20 @@ public sealed partial class SideValuationContext
         return retainedOccurrences;
     }
 
-    internal SideValuationContext ExercisedOccurrences() => Occurrences().Exercised ??= WithRetainedPrograms(RetainedPrograms!);
+    internal SideValuationContext ExercisedOccurrences()
+    {
+        var scopes = Occurrences();
+        if (scopes.Exercised is not null) return scopes.Exercised;
+        var inputs = RetainedPrograms!;
+        // A hypothetical exercise selects gross obligations. Recorded cash belongs only to the ordinary occurrences.
+        if (inputs.Cash is { Payments.IsEmpty: false } cash)
+        {
+            var gross = new PhysicalCashState(cash.TradeId, cash.BindingId, cash.Quantity, cash.BookId, [],
+                PhysicalCashState.Policy, cash.OwnerDays, cash.Elections);
+            return scopes.Exercised = WithRetainedPrograms(inputs with { Cash = gross }).WithBindingState(gross);
+        }
+        return scopes.Exercised = WithRetainedPrograms(inputs);
+    }
 
     internal SideValuationContext ForRetainedOccurrence(int slot, RetainedProgramSide side, ImmutableArray<ImmutableArray<EntryDayQuantity>> entryDays = default, QuantityPart? part = null)
     {
