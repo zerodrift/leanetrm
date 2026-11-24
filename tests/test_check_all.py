@@ -538,13 +538,30 @@ class CheckAllTests(unittest.TestCase):
         self.assertIn('--browser-check',crude[0])
         self.assertIn('--browser',crude[0])
 
+    def test_exercise_right_checks_run_once_in_managed_and_all(self):
+        sdk = Path('/selected sdk/dotnet')
+        market = 'tests/OpenEtrm.MarketData.Checks/OpenEtrm.MarketData.Checks.csproj'
+        expected = [str(sdk), 'run', '--no-restore', '--project', market, '--', '--exercise-rights']
+        for group in ('all', *ALL_GROUPS):
+            with self.subTest(group=group):
+                commands = []
+                run_checks(Path('/pg'), sdk, Path('/browser'), group=group,
+                           run=lambda command, **options: commands.append(command))
+                selected = [command for command in commands if '--exercise-rights' in command]
+                self.assertEqual(selected, [expected] if group in ('managed', 'all') else [])
+
     def test_futures_option_checks_run_in_the_gate(self):
         commands = []
         run_checks(Path('/stock postgres/bin'), Path('/managed sdk/dotnet'), Path('/browser executable'),
                    run=lambda command, **options: commands.append(command))
         market = 'tests/OpenEtrm.MarketData.Checks/OpenEtrm.MarketData.Checks.csproj'
         runs = [c for c in commands if '--project' in c and c[c.index('--project') + 1] == market]
-        self.assertEqual([c[c.index('--project') + 2:] for c in runs], [[], ['--', '--futures-options'], ['--', '--spread-options'], ['--', '--vol-surface'], ['--','--calendar-policy'], ['--','--payment-date-policy'], ['--', '--hybrid-monte-carlo-risk'], *[['--',flag] for flag in ('--power-flat','--power-atc','--power-product-averages','--power-interval-quantities','--ppa-sides')]])
+        self.assertEqual([c[c.index('--project') + 2:] for c in runs],
+                         [[], ['--', '--futures-options'], ['--', '--spread-options'], ['--', '--exercise-rights'],
+                          ['--', '--vol-surface'], ['--', '--calendar-policy'], ['--', '--payment-date-policy'],
+                          ['--', '--hybrid-monte-carlo-risk'],
+                          *[['--', flag] for flag in ('--power-flat', '--power-atc', '--power-product-averages',
+                                                      '--power-interval-quantities', '--ppa-sides')]])
         restores = [c for c in commands if 'restore' in c and c[c.index('restore') + 1] == market]
         self.assertEqual(len(restores), 1)
 

@@ -101,6 +101,7 @@ if(args is ["--side-block-checks"]){SideBlockExperiment.Check();return;}
 if(args is ["--futures-options"]){FuturesOptionChecks.Run();return;}
 if(args is ["--european-options"]){EuropeanFuturesOptionChecks.Run();return;}
 if(args is ["--spread-options"]){SpreadOptionChecks.Run();HeatRateCallChecks.Run();HeatRateCallScheduleChecks.Run();return;}
+if(args is ["--exercise-rights"]){ExerciseRightChecks.Run();return;}
 if(args is ["--option-calibration-workload"]){FuturesOptionChecks.CalibrationWorkload();return;}
 if(args is ["--vol-surface"]){VolSurfaceChecks.Run();return;}
 if(args is ["--compact-retained"]){CompactRetainedChecks.Run();return;}
