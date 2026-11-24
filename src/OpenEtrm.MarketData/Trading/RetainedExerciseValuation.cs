@@ -169,6 +169,12 @@ internal sealed class RetainedExerciseValuation
         }
         var modeled = rights.Where(right => right.Settlement == ExerciseSettlement.Physical)
             .SelectMany(right => right.Groups.Where(group => decisions.Outcome(right, group) == ExerciseDecisions.Undecided)).ToHashSet();
+        if (held.NextElectionEffectiveAt is {} next)
+        {
+            if (next <= snapshot.ValuationAt)
+                throw new MarketDataException("valuation_time_coverage", "Refresh election facts at the selected valuation instant.");
+            Boundary(next);
+        }
         foreach (var election in held.Elections) Boundary(election.EffectiveAt);
         var entryDays = EntryQuantities.ForMembers(instrument.Members, held);
         var used = new HashSet<(ExerciseGroupKey Group, CurveKey Curve, DateOnly Month)>();

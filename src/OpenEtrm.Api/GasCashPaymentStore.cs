@@ -14,9 +14,13 @@ namespace OpenEtrm.Api;
 internal static class GasCashPaymentStore
 {
  internal const string LatestKnownRevision="latest_known_receipt_v1";
- internal static async Task<PhysicalCashState> Read(NpgsqlConnection connection,Guid catalog,Guid trade,Guid binding,Guid book,Quantity quantity,string revisionPolicy,CancellationToken ct,GasDeliveryQuantityInputs? selected=null)
+ internal static async Task<PhysicalCashState> Read(NpgsqlConnection connection,Guid catalog,GasCompositionExecution held,Guid book,Quantity quantity,string revisionPolicy,DateTimeOffset valuationAt,CancellationToken ct)
  {
   if(revisionPolicy!=LatestKnownRevision)throw new MarketDataException(PhysicalLifecycle.ContextRefusal,"Select the latest-known payment revision policy.");
+  var trade=held.TradeId;var binding=held.InstrumentId;
+  var selected=await GasDeliveryQuantityStore.Read(connection,catalog,held,valuationAt,ct);
+  (ImmutableArray<ExerciseElection> elections,DateTimeOffset? next)=held.Rights.IsEmpty?([],null):
+   await GasExerciseStore.Facts(connection,catalog,trade,binding,ct);
   var rows=await PreviewDatabase.Rows(connection,"""
    SELECT json_build_object('id',p.id,'slot',p.slot,'occurrence',a.occurrence,'paid_at',p.paid_at,'known_from',p.known_from,'amount',trim_scale(a.amount)::text,
     'reference_catalog_id',p.reference_catalog_id,'reference_revision_id',p.reference_revision_id,'currency_code',p.currency_code)::text
@@ -27,7 +31,7 @@ internal static class GasCashPaymentStore
    ORDER BY p.slot,a.occurrence,p.id
    """,[catalog,trade,binding],ct);
   return new(trade,binding,quantity,book,[..rows.Select(r=>new CashOccurrencePayment(r.Id("id"),Int(r,"slot"),Int(r,"occurrence"),Instant(r,"paid_at"),Instant(r,"known_from"),
-   ExactMoney.Parse(r.Text("amount"),Currency(r))))],PhysicalCashState.Policy,selected?.Days??default);
+   ExactMoney.Parse(r.Text("amount"),Currency(r))))],PhysicalCashState.Policy,selected?.Days??default,elections,next);
  }
 
  // The latest visible D338 final determination of each cash slot and gas day: separate facts shown beside the accrual.

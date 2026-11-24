@@ -21,6 +21,15 @@ application. See [current implementation](../docs/implementation.md) and
 
 Recent schema groups and their contracts:
 
+- [0394](migrations/0394_gas_exercise_elections.sql) records physical exercise
+  elections by trade, binding, right and group. A batch compares predecessors
+  under the publication lock and retains its actor's first outcome. Repeating a
+  previously recorded fact returns its revision, including after correction.
+  Each trade has the daily quantity profile's limits of 10,000 commands and
+  facts, with up to 1,000 revisions per group. Corrections
+  and withdrawals take effect at their selected instants. Gas valuation and
+  leased risk use the latest effective revision at their certified cutoff.
+  A known future change bounds the period over which valuation inputs can be reused.
 - [0393](migrations/0393_curve_marks.sql) stores revisable curve volatility and
   curve-pair correlation by exact market definition and delivery month. Curve
   code order identifies each pair. Recording a matching fact at its original

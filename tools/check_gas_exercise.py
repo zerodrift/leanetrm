@@ -107,6 +107,7 @@ def run_checks(url,query,manifest,run_worker):
                              calendarPolicy=side_calendar_policy(calendar,delivery=True,observation=False,payment=True))]
     book(fixed)
     reject(fixed,[{**cash_right,'entries':['fixed']}])
+    election_checks(c,query,manifest,context,fixed,cash,plain,run_worker)
     curve_marks(c,query,manifest,context,fixed,base,plain,run_worker)
     print('PASS gas exercise: API and SQL admission, exact physical and latest fixing times, immutable terms, replay and unpriced valuation',flush=True)
 
@@ -179,7 +180,7 @@ def curve_marks(c,query,manifest,context,fixed,base,plain,run_worker):
     assert writer.call('volatility-marks/record',{**mark,'operationId':str(uuid4()),'marks':[dict(month='2021-01',expectedRevision=0,volatility='0.7')]},expected=409)['code']=='curve_mark_stale'
     assert writer.call('volatility-marks/record',mark)==first
     assert writer.call('volatility-marks/record',{**mark,'operationId':str(uuid4())})['marks']==[{**first['marks'][0],'changed':False}]
-    pair=dict(**selected,operationId=str(uuid4()),reason='Synthetic gas curve correlation',firstCurve=point,secondCurve=other,
+    pair=dict(**selected,operationId=mark['operationId'],reason='Synthetic gas curve correlation',firstCurve=point,secondCurve=other,
               marks=[dict(month='2021-01',expectedRevision=0,correlation='0.7')])
     # A zero projected payment still selects its curve. Only PV knows it needs no volatility or correlation.
     def spread(spread_amount):
@@ -238,3 +239,162 @@ def curve_marks(c,query,manifest,context,fixed,base,plain,run_worker):
         except RuntimeError as error:assert 'denied' in str(error),error
         else:raise AssertionError('A mark read requires an authorized transaction and a bound context')
     print('PASS curve marks: current authority, replay, revision history, pinned absence, symmetric gas pair and held 2947.4419 call',flush=True)
+
+
+def election_checks(c,query,manifest,context,fixed,cash,plain,run_worker):
+    from check_booked_side_programs import runtime_query
+    cat=manifest['catalogId']
+    at='2020-12-18T16:00:00Z'
+    call=deepcopy(fixed)
+    path=next(p for p in c.call('gas/catalog',context)['locations'] if p['deliveryPoint']=='synthetic_exercise_point')
+    call['physicalSides'][0].update({k:path[k] for k in ('pipeline','zone','deliveryPoint','product')})
+    call['physicalSides'][0]['deliveryTo']='2021-01-15'
+    call.update(operationId=str(uuid4()),exerciseRights=[dict(entries=['gas','fixed'],period='delivery_day',holder='us',
+                                                              settlement='physical',leadHours=8)])
+    saved=c.call('gas/composition/book',call)
+    selected=dict(tradeId=saved['tradeId'],instrumentId=saved['instrumentId'])
+    pin=c.call('gas/quantities/read',dict(context=context,tradeId=saved['tradeId'],selectionPolicy='operational_projection_v1'))['context']
+    prior={**context,'knowledgeMode':'retained','contextId':pin['contextId']}
+    def read(ctx=context,**kwargs):
+        return c.call('gas/exercise/read',dict(context=ctx,**selected),**kwargs)
+    def row(day,outcome,previous=None,effective=at):
+        return dict(right=0,fromDate=day,outcome=outcome,expectedPreviousId=previous,effectiveAt=effective,evidence='Synthetic group instruction')
+    first_day,second_day='2021-01-13','2021-01-14'
+    first,second=row(first_day,'exercised'),row(second_day,'abandoned')
+    def command(*entries):
+        return dict(context=context,**selected,expectedRevision=1,operationId=str(uuid4()),elections=entries)
+    def record(body,**options):
+        return c.call('gas/exercise/record',body,**options)
+    assert read()['elections']==[]
+    batch=command(first,second)
+    recorded=record(batch)
+    d1,d2=[r['revisionId'] for r in recorded['elections']]
+    assert record(batch)==recorded
+    assert all(r['unchanged'] for r in record(command(first,second))['elections'])
+    assert [r['outcome'] for r in read()['elections']]==['exercised','abandoned']
+    assert read(prior)['elections']==[]
+    def editor(ctx=context,expected=200):
+        return c.call('gas/composition/editor',dict(context=ctx,tradeId=saved['tradeId']),expected=expected)
+    assert editor(prior,422)['code']=='exercise_marks'
+    present=Fraction(editor()['valuation']['presentValue'])
+    assert present==2000,present
+    assert Fraction(c.call('gas/composition/preview',{**call,'previewTradeId':saved['tradeId']})['presentValue'])==present
+    assert c.call('gas/composition/preview',call,expected=422)['code']=='exercise_marks'
+    shared={**context,'convention':'trading_workspace_v1'}
+    position=c.call('trading/position',dict(context=shared,tradeId=saved['tradeId'],bindingId=saved['instrumentId'],revision=1,instrumentType='physical_gas'))
+    assert Fraction(position['holding']['presentValue'])==present
+    risk=PreviewClient(c.url)
+    risk.bootstrap()
+    risk.call('profile',dict(profile='risk'))
+    risk.call('gas/exercise/record',batch,expected=403)
+    wire=json.dumps({k:v for k,v in batch.items() if k!='context'})
+    runtime_query(query,manifest,f"""DO $probe$ BEGIN BEGIN PERFORM security.record_gas_exercise_elections('{cat}','{wire}','{at}');
+      RAISE EXCEPTION 'AmendTrade was bypassed';EXCEPTION WHEN insufficient_privilege THEN NULL;END;END$probe$;""",profile='risk')
+    record({**batch,'context':prior},expected=422)
+    assert record({**batch,'elections':[second]},expected=409)['code']=='exercise_election_conflict'
+    # A native command temporarily reads under a certified cutoff; on return the calling write scope is still current.
+    pending=json.dumps({**json.loads(wire),'operationId':str(uuid4()),'elections':[row(first_day,'abandoned',d1)]})
+    runtime_query(query,manifest,f"""DO $probe$ DECLARE first_receipt jsonb=security.record_gas_exercise_elections('{cat}','{pending}','{at}');BEGIN
+      IF security.record_gas_exercise_elections('{cat}','{pending}','{at}') IS DISTINCT FROM first_receipt
+      THEN RAISE EXCEPTION 'Native replay changed';END IF;END$probe$;""",commit=False)
+    replay_probe=f"""DO $probe$ BEGIN BEGIN PERFORM security.record_gas_exercise_elections('{cat}','{wire}','{at}');
+      RAISE EXCEPTION 'Replay after revocation';EXCEPTION WHEN insufficient_privilege THEN NULL;END;END$probe$;"""
+    runtime_query(query,manifest,replay_probe,commit=False,prefix="DELETE FROM security.role_permissions WHERE permission='AmendTrade';")
+    for invalid in (command({**first,'expectedPreviousId':d1,'evidence':'\t\r\n'}),command(row(first_day,'unknown',d1)),command(row('2021-01-16','exercised')),
+                    command(row(first_day,'exercised',d1,'2021-01-13T01:00:00Z')),command(first,first),
+                    {**command(first),'tradeId':cash['tradeId'],'instrumentId':cash['instrumentId']}):
+        assert record(invalid,expected=422)['code']=='exercise_election'
+    assert record(command(row(first_day,'abandoned',d1),row(second_day,'exercised',str(uuid4()))),expected=409)['code']=='exercise_election_conflict'
+    assert read()['elections'][0]['revisionId']==d1
+    scope=dict(context=shared,bookIds=[],portfolioIds=[],tradeIds=[saved['tradeId']])
+    catalog=risk.call('portfolio/risk/catalog',scope)
+    assert not catalog['excludedPositions']
+    request={**scope,'context':{**shared,'knowledgeMode':'retained','contextId':catalog['context']['contextId']},'detail':'holdings',
+             'convention':catalog['convention'],'numericalPolicy':catalog['numericalPolicy'],'pricingPolicy':catalog['pricingPolicy'],'stress':[],
+             'bumps':[dict(factor=catalog['factors'][0]['factor'],size='0.1',convention=catalog['bumpConvention'])]}
+    report=risk.call('portfolio/risk',request)
+    assert Fraction(report['factors'][0]['positions'][0]['values']['base'])==present
+    job=risk.call('portfolio/risk/jobs',dict(requestId=str(uuid4()),request=request))
+    def worker(sql):
+        return query('SET SESSION AUTHORIZATION preview_risk_worker;'+sql)
+    def native(trade):
+        return f"security.read_gas_exercise_elections('{cat}','{trade['tradeId']}','{trade['instrumentId']}')"
+    def denied(sql):
+        worker(f"DO $probe$ BEGIN BEGIN PERFORM {sql};RAISE EXCEPTION 'Election scope bypassed';EXCEPTION WHEN insufficient_privilege THEN NULL;END;END$probe$;")
+    denied(native(saved))
+    engine=query(f"SELECT request->>'engineVersion' FROM risk.jobs WHERE id='{job['id']}';")
+    # Roll back the probe's claim. The real worker consumes the same queued job below.
+    worker(f"""BEGIN;DO $probe$ DECLARE lease jsonb=risk.claim(30,'{engine}');BEGIN
+      PERFORM risk.bind((lease->>'jobId')::uuid,(lease->>'leaseToken')::uuid);
+      IF {native(saved)}#>>'{{elections,0,revisionId}}' IS DISTINCT FROM '{d1}' THEN RAISE EXCEPTION 'Missing leased election';END IF;
+      BEGIN PERFORM {native(plain)};RAISE EXCEPTION 'Out-of-job trade disclosed';
+      EXCEPTION WHEN insufficient_privilege THEN IF SQLERRM<>'risk_job_scope' THEN RAISE;END IF;END;END$probe$;ROLLBACK;""")
+    changed=record(command(row(first_day,'abandoned',d1)))['elections'][0]
+    assert changed['revisionId']!=d1 and changed['revision']==2 and Fraction(editor()['valuation']['presentValue'])==0
+    assert record(batch)==recorded
+    replayed=record(command(first))['elections'][0]
+    assert replayed['unchanged'] and replayed['revisionId']==d1 and read()['elections'][0]['revisionId']==changed['revisionId']
+    run_worker()
+    completed=risk.call('portfolio/risk/jobs/'+job['id'])
+    assert completed['state']=='completed' and completed['result']['factors']==report['factors'],completed
+    withdrawn=record(command(row(first_day,None,changed['revisionId'])))['elections'][0]
+    assert read()['elections'][0]['outcome'] is None and editor(context,422)['code']=='exercise_marks'
+    reinstated={**row(first_day,'exercised',withdrawn['revisionId']),'evidence':'Synthetic subsequent instruction'}
+    active=record(command(reinstated))['elections'][0]
+    future='2020-12-18T16:01:00Z'
+    record(command(row(first_day,'abandoned',active['revisionId'],future),row(second_day,None,d2,'2020-12-18T16:02:00Z')))
+    now=read()
+    assert [r['outcome'] for r in now['elections']]==['exercised','abandoned'] and now['nextElectionEffectiveAt'].startswith(future[:-1]),now
+    assert Fraction(editor()['valuation']['presentValue'])==present
+    # Rebind a certified read at each exact effective instant on the same business day.
+    for minute,expected,next_at in [('01',['abandoned','abandoned'],'16:02'),('02',['abandoned',None],None)]:
+        runtime_query(query,manifest,f"""DO $probe$ DECLARE ctx uuid=security.resolve_operation_context('{cat}','2020-12-18',NULL);value jsonb;BEGIN
+          PERFORM security.use_market_context('{cat}',ctx);PERFORM security.use_trading_context('{cat}','2020-12-18T16:{minute}:00Z');
+          value={native(saved)};IF value#>>'{{elections,0,outcome}}' IS DISTINCT FROM '{expected[0]}' OR value#>'{{elections,1,outcome}}' IS DISTINCT FROM '{json.dumps(expected[1])}'::jsonb
+          OR (value->>'nextElectionEffectiveAt')::timestamptz IS DISTINCT FROM {("TIMESTAMPTZ '2020-12-18T"+next_at+":00Z'") if next_at else 'NULL::timestamptz'}
+          THEN RAISE EXCEPTION 'Wrong effective election: %',value;END IF;END$probe$;""")
+    before_amend=read()['context']
+    old_context={**context,'contextId':before_amend['contextId'],'knowledgeMode':'retained'}
+    same=amend_rights(query,manifest,saved,call['exerciseRights'],at)
+    assert same['unchanged'] and same['revision']==1 and same['instrumentId']==saved['instrumentId']
+    assert Fraction(editor()['valuation']['presentValue'])==present
+    revised=amend_rights(query,manifest,saved,[{**call['exerciseRights'][0],'holder':'counterparty'}],at)
+    assert not revised['unchanged'] and revised['revision']==2 and revised['instrumentId']!=saved['instrumentId']
+    assert c.call('gas/exercise/read',dict(context=context,tradeId=saved['tradeId'],instrumentId=revised['instrumentId']))['elections']==[]
+    read(expected=403)
+    assert [r['revisionId'] for r in read(old_context)['elections']]==[active['revisionId'],d2]
+    historical=editor(old_context)
+    assert historical['terms']['exerciseRights']==call['exerciseRights'] and Fraction(historical['valuation']['presentValue'])==present
+    assert editor(context,422)['code']=='exercise_marks'
+    assert record(batch)==recorded
+    print('PASS gas elections: atomic revisions, withdrawals, exact effective and knowledge cuts, held PV without marks, worker lease and pinned replay',flush=True)
+
+
+def amend_rights(query,manifest,saved,rights,at):
+    """Stage the unchanged retained Sides through the native API and amend just the right terms."""
+    from check_booked_side_programs import runtime_query
+    cat=manifest['catalogId']
+    trade=saved['tradeId']
+    inst=saved['instrumentId']
+    op=str(uuid4())
+    body=json.loads(query(f"SELECT request FROM trading.trades WHERE(catalog_id,id)=('{cat}','{trade}');"))
+    body.update(operationId=op,tradeId=trade,bindingId=inst,expectedRevision=1,reason='Synthetic exercise terms',
+                amendmentPolicy='future_gas_composition_replace_v1',exerciseRights=rights)
+    headers=json.loads(query(f"""SELECT jsonb_agg(jsonb_build_object('family',s.family,'definitionRevisionId',s.definition_revision_id,
+      'referenceCatalogId',s.reference_catalog_id,'referenceRevisionId',s.reference_revision_id,'economicIdentity',s.economic_identity,
+      'pricingBindingIdentity',s.pricing_binding_identity,'schemaVersion',h.schema_version,'generatorVersion',h.generator_version,
+      'manifest',encode(h.content_hash,'hex'),'rowCount',h.row_count,'edgeCount',h.edge_count,'bindingCount',h.binding_count,
+      'rootCount',h.root_count,'portCount',h.port_count,'gridCount',h.grid_count) ORDER BY m.slot)
+      FROM trading.instrument_side_schedules m JOIN trading.side_schedules h ON(h.catalog_id,h.id)=(m.catalog_id,m.schedule_id)
+      JOIN trading.sides s ON(s.catalog_id,s.id)=(m.catalog_id,m.side_id) WHERE(m.catalog_id,m.instrument_id)=('{cat}','{inst}');"""))
+    def literal(value):
+        return "'"+json.dumps(value).replace("'","''")+"'::jsonb"
+    command=literal(body)
+    stage=''.join(f"SELECT security.begin_side_schedule('{cat}','{op}',{slot},{command},'AmendTrade','{trade}',1,{literal(header)});"
+                  for slot,header in enumerate(headers))
+    result=runtime_query(query,manifest,stage+f"""SELECT security.seal_side_schedule_request('{cat}','{op}','[]');
+      SELECT security.lock_side_schedule_request('{cat}','{op}');
+      WITH amended AS MATERIALIZED(SELECT security.amend_gas_composition('{cat}',{command},'{at}') result)
+      SELECT result FROM amended WHERE CASE WHEN (result->>'unchanged')::boolean THEN true
+       ELSE security.publish_operation_side_schedules('{cat}','{op}')=(result->>'instrumentId')::uuid END;""")
+    return json.loads(result.splitlines()[-1])

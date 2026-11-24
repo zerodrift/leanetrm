@@ -57,7 +57,7 @@ internal static class GasPortfolio
     // A started-delivery trade is valued with its recorded cash; older programs keep their own refusals.
     if(execution.Started)
     {
-     var state=await GasCashPaymentStore.Read(connection,database.Manifest.CatalogId,position.Trade,position.Binding,book,quantity,GasCashPaymentStore.LatestKnownRevision,ct,await GasDeliveryQuantityStore.Read(connection,database.Manifest.CatalogId,execution,snapshot.ValuationAt,ct));
+     var state=await GasCashPaymentStore.Read(connection,database.Manifest.CatalogId,execution,book,quantity,GasCashPaymentStore.LatestKnownRevision,snapshot.ValuationAt,ct);
      states.Add(new(position.Trade,position.Binding),state);
      if(!execution.Rights.IsEmpty)
      {

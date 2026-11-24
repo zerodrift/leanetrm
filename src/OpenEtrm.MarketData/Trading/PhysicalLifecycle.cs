@@ -22,8 +22,11 @@ public sealed class PhysicalCashState:IBindingValuationState
     public ImmutableArray<HeldDayQuantity> OwnerDays { get; }
     public ImmutableArray<ExerciseElection> Elections { get; }
 
+    // Earliest known correction or withdrawal after the business instant used to select Elections.
+    public DateTimeOffset? NextElectionEffectiveAt { get; }
+
     public PhysicalCashState(Guid tradeId,Guid bindingId,Quantity quantity,Guid? bookId,ImmutableArray<CashOccurrencePayment> payments,string policy,
-        ImmutableArray<HeldDayQuantity> ownerDays=default,ImmutableArray<ExerciseElection> elections=default)
+        ImmutableArray<HeldDayQuantity> ownerDays=default,ImmutableArray<ExerciseElection> elections=default,DateTimeOffset? nextElectionEffectiveAt=null)
     {
         if(bookId==Guid.Empty||policy!=Policy||tradeId==Guid.Empty||bindingId==Guid.Empty||quantity is null||quantity.Amount==default||payments.IsDefault||
             payments.Any(p=>p is null||p.Id==Guid.Empty||p.Slot<0||p.Occurrence<0||p.Amount is null||!Supported(p.PaidAt)||!Supported(p.KnownAt))||
@@ -35,6 +38,9 @@ public sealed class PhysicalCashState:IBindingValuationState
         PhysicalDeliveryQuantities.RequireFacts(OwnerDays, quantity.Specification);
         Elections = elections.IsDefault ? [] : elections;
         ExerciseElection.RequireFacts(Elections);
+        if (nextElectionEffectiveAt is {} next && !Supported(next))
+            throw new MarketDataException("exercise_election","Select a supported UTC election transition instant.");
+        NextElectionEffectiveAt = nextElectionEffectiveAt;
     }
     // Paid is only ever recorded against cash that has started to accrue: there is no prepayment.
     // Returns the visible paid total and the latest visible payment instant.

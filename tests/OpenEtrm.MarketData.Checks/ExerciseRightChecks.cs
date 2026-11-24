@@ -463,6 +463,13 @@ internal static class ExerciseRightChecks
         RejectElection("valuation_time_coverage", () => TradeValue(RiskEngine.WithClock(before.Risk, new(future, ClockChange.FrozenInputs))));
         if (EvaluateElections(f, held, future).Value.Groups[0].State != "exercised")
             throw new Exception("The election becomes effective at its exact instant.");
+        // Another known revision (including a withdrawal) can end a current election's validity.
+        var active = new PhysicalCashState(held.TradeId, held.BindingId, held.Quantity, held.BookId, [],
+            PhysicalCashState.Policy, held.OwnerDays, [first with { EffectiveAt = at }, abandoned], nextElectionEffectiveAt: future);
+        var correction = EvaluateElections(f, active, at);
+        if (correction.Value.Groups[0].State != "exercised" || correction.Risk.UnitContracts.Single().Time.To != future)
+            throw new Exception("A future revision bounds reuse without displacing the currently effective election.");
+        RejectElection("valuation_time_coverage", () => TradeValue(RiskEngine.WithClock(correction.Risk, new(future, ClockChange.FrozenInputs))));
         var third = f.Instrument.Rights.Single().Groups[2].ExerciseAt;
         RejectElection("exercise_determination", () => EvaluateElections(f, held, third));
         var decided = ElectedState(f, [first, abandoned, Election(f, 2, "exercised", third)]);

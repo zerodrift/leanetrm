@@ -270,7 +270,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   {
    if(held.Members.Length!=members.Length)throw Invalid("Started-delivery valuation requires every member of the held trade.");
    if(held.Terms.Discounting!=false)throw Invalid("A held gas composition requires its explicit no-discounting selection.");
-   state=await GasCashPaymentStore.Read(c,database.Manifest.CatalogId,held.TradeId,held.InstrumentId,held.Terms.BookId,new(quantity,members[0].Assignment.Quote.Quantity),GasCashPaymentStore.LatestKnownRevision,ct,await GasDeliveryQuantityStore.Read(c,database.Manifest.CatalogId,held,snapshot.ValuationAt,ct));
+   state=await GasCashPaymentStore.Read(c,database.Manifest.CatalogId,held,held.Terms.BookId,new(quantity,members[0].Assignment.Quote.Quantity),GasCashPaymentStore.LatestKnownRevision,snapshot.ValuationAt,ct);
   }
   else if(!rights.IsEmpty||members.Any(m=>m.QuantityPolicy is not null||m.Part is not null))
   {
