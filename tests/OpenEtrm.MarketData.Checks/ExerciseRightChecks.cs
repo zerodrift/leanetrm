@@ -1,6 +1,9 @@
+using System.Collections.Immutable;
 using System.Numerics;
 using OpenEtrm.MarketData;
+using OpenEtrm.MarketData.Gas;
 using OpenEtrm.MarketData.Options;
+using OpenEtrm.MarketData.Trading;
 using OpenEtrm.Shared.Numerics;
 
 internal static class ExerciseRightChecks
@@ -15,6 +18,149 @@ internal static class ExerciseRightChecks
         Check("the 30th input digit can change half-even rounding at the call output", CallRounding);
         Check("unrepresentable call inputs and exact results raise their contracted codes", ExactBoundaries);
         Check("malformed inputs are refused even if the payoff is determined", RejectsMalformedInputs);
+        Check("saved rights retain their terms in identity and preserve the legacy canonical bytes", SavedIdentity);
+        Check("saved gas rights require distinct members, complete group geometry and installed terms", RejectsMalformedRights);
+        Check("monthly rights retain one group in each represented month", MonthBoundaries);
+        Check("physical exercise observes every selected entry's retained first-day boundary", PhysicalBoundaries);
+    }
+
+    private static void SavedIdentity()
+    {
+        var fixture = new GasInstrumentScheduleChecks.IdentityFixture();
+        var original = fixture.Instrument;
+        var empty = Save(original, []);
+        if (!original.Rights.IsEmpty || empty.EconomicIdentity.Canonical != GasInstrumentScheduleChecks.LegacyIdentity ||
+            original.EconomicIdentity.Canonical != GasInstrumentScheduleChecks.LegacyIdentity)
+            throw new Exception("The legacy instrument's canonical bytes must match the captured definition with omitted or empty rights.");
+
+        var clock = fixture.Physical.Quantities.Clock;
+        var groups = DayGroups(fixture.Physical.Quantities.From, 1, clock);
+        var right = PhysicalRight(groups);
+        var withRight = Save(original, [right]);
+        if (withRight.Rights.Single() != right)
+            throw new Exception("The saved instrument must expose the exact selected right.");
+        var counterparty = Save(original, [right with { Holder = ExerciseHolder.Counterparty }]);
+        var earlier = Save(original, [right with { Groups = [groups[0] with { ExerciseAt = groups[0].ExerciseAt.AddHours(-1) }] }]);
+        if (new[] { original, withRight, counterparty, earlier }.Select(i => i.EconomicIdentity).Distinct().Count() != 4)
+            throw new Exception("The right, its holder and the exact exercise instant must each distinguish economic identity.");
+    }
+
+    private static void RejectsMalformedRights()
+    {
+        var fixture = new GasPricingScheduleFixture();
+        var instrument = fixture.Instrument;
+        var groups = DayGroups(fixture.From, 3, fixture.Clock);
+        var right = PhysicalRight(groups);
+        var cash = right with { Ordinal = 1, Slots = [2], Settlement = ExerciseSettlement.CashAutomatic };
+        var monthly = right with { Period = ExercisePeriod.DeliveryMonth, Groups = [groups[0] with { To = fixture.To }] };
+        _ = Save(instrument, [right, cash]);
+        _ = Save(instrument, [monthly]);
+
+        (string Label, ImmutableArray<ExerciseRight> Rights)[] malformed =
+        [
+            ("missing right", [null!]),
+            ("unknown slot", [right with { Slots = [0, instrument.Members.Length] }]),
+            ("negative slot", [right with { Slots = [-1, 0] }]),
+            ("repeated slot", [right with { Slots = [0, 0] }]),
+            ("overlapping slots in separate rights", [right, cash with { Slots = [1] }]),
+            ("no slots", [right with { Slots = [] }]),
+            ("first ordinal is not zero", [right with { Ordinal = 1 }]),
+            ("skipped ordinal", [right, cash with { Ordinal = 2 }]),
+            ("repeated ordinal", [right, cash with { Ordinal = 0 }]),
+            ("no groups", [right with { Groups = [] }]),
+            ("missing group", [right with { Groups = [null!] }]),
+            ("out of order", [right with { Groups = [groups[1], groups[0], groups[2]] }]),
+            ("overlapping groups", [right with { Groups = [groups[0], groups[0], groups[1], groups[2]] }]),
+            ("uncovered delivery day", [right with { Groups = [groups[0], groups[2]] }]),
+            ("extra delivery day", [right with { Groups = groups.Add(new(fixture.To, fixture.To.AddDays(1), groups[0].ExerciseAt)) }]),
+            ("empty group", [right with { Groups = [groups[0] with { To = groups[0].From }, ..groups] }]),
+            ("day grouping combines two days", [right with { Groups = [groups[0] with { To = groups[1].To }, groups[2]] }]),
+            ("month split into multiple groups", [monthly with { Groups = groups }]),
+            ("physical right covers cash only", [right with { Slots = [1] }]),
+            ("cash automatic covers physical", [right with { Settlement = ExerciseSettlement.CashAutomatic }]),
+            ("physical time follows gas-day start", [right with { Groups = groups.SetItem(0, groups[0] with { ExerciseAt = groups[0].ExerciseAt.AddTicks(1) }) }]),
+            ("unknown period", [right with { Period = default }]),
+            ("unknown holder", [right with { Holder = default }]),
+            ("unknown settlement", [right with { Settlement = default }]),
+            ("unknown model", [right with { Model = "synthetic_other_model" }]),
+            ("unknown day count", [right with { DayCount = "synthetic_other_day_count" }]),
+        ];
+        foreach (var (label, rights) in malformed)
+            RefusesRight(label, () => _ = Save(instrument, rights));
+    }
+
+    private static void MonthBoundaries()
+    {
+        var fixture = new GasInstrumentScheduleChecks.IdentityFixture();
+        var original = fixture.Instrument;
+        var clock = fixture.Physical.Quantities.Clock;
+        var from = new DateOnly(2041, 1, 30);
+        var february = new DateOnly(2041, 2, 1);
+        var to = february.AddDays(1);
+        var cashMember = CashMember(fixture, from, to, clock);
+        var instrument = new RetainedGasInstrument(original.Id, original.Members.Add(cashMember), original.Assignments);
+        var january = new ExerciseGroup(from, february, clock.Boundary(from));
+        var next = new ExerciseGroup(february, to, clock.Boundary(february));
+        var right = new ExerciseRight(0, [2], ExercisePeriod.DeliveryMonth, ExerciseHolder.Us, ExerciseSettlement.CashAutomatic,
+            KirkSpreadCall.Implementation, OptionNumericalPolicies.ActualOver365FixedInstant, [january, next]);
+
+        _ = Save(instrument, [right]);
+        RefusesRight("month grouping crosses into February", () => _ = Save(instrument, [right with { Groups = [january with { To = to }] }]));
+    }
+
+    private static void PhysicalBoundaries()
+    {
+        var fixture = new GasInstrumentScheduleChecks.IdentityFixture();
+        var original = fixture.Instrument;
+        var clock = fixture.Physical.Quantities.Clock;
+        var cashClock = GasDayClock.Capture(new(clock.Key.Revision, "synthetic_earlier_clock"), TimeZoneInfo.Utc, 300);
+        var from = fixture.Physical.Quantities.From;
+        var to = from.AddDays(2);
+        RetainedGasInstrument WithCash(GasDayClock? selected) =>
+            new(original.Id, original.Members.SetItem(1, CashMember(fixture, from, to, selected)), original.Assignments);
+
+        var dated = WithCash(cashClock);
+        var groups = DayGroups(from, 2, cashClock);
+        var right = PhysicalRight(groups);
+        _ = Save(dated, [right]);
+        for (var day = 0; day < groups.Length; day++)
+        {
+            var late = groups[day] with { ExerciseAt = clock.Boundary(groups[day].From) };
+            var invalid = right with { Groups = groups.SetItem(day, late) };
+            RefusesRight($"an exercise time later than the selected cash boundary on day {day + 1}", () => _ = Save(dated, [invalid]));
+        }
+        RefusesRight("missing selected cash clock evidence", () => _ = Save(WithCash(null), [right]));
+    }
+
+    private static RetainedGasMember CashMember(GasInstrumentScheduleChecks.IdentityFixture fixture, DateOnly from, DateOnly to, GasDayClock? clock)
+    {
+        var original = fixture.Instrument;
+        var quote = original.Assignments[0].Quote;
+        var payment = fixture.Physical.Quantities.Clock.Boundary(to).AddDays(2);
+        var cash = new FixedSide(Guid.NewGuid(), fixture.Cash.Price, quote, original.UnitQuantity,
+            [new(from, to, payment, ExactRatio.One, null) { DeliveryCompletionAt = clock?.Boundary(to) }],
+            fixture.Cash.CalendarPolicy, gasDeliveryClock: clock);
+        var program = BookedSideProgram.Compile(ScheduleDefinitionCompiler.Generate(cash,
+            lifecycle: ScheduleLifecycleSelection.StartedPhysicalDelivery));
+        return new(cash.Id, E("-1"), ExactRatio.One, program);
+    }
+
+    private static ImmutableArray<ExerciseGroup> DayGroups(DateOnly from, int count, GasDayClock clock) =>
+        [..Enumerable.Range(0, count).Select(offset => new ExerciseGroup(from.AddDays(offset), from.AddDays(offset + 1),
+            clock.Boundary(from.AddDays(offset))))];
+
+    private static ExerciseRight PhysicalRight(ImmutableArray<ExerciseGroup> groups) =>
+        new(0, [0, 1], ExercisePeriod.DeliveryDay, ExerciseHolder.Us, ExerciseSettlement.Physical, KirkSpreadCall.Implementation,
+            OptionNumericalPolicies.ActualOver365FixedInstant, groups);
+
+    private static RetainedGasInstrument Save(RetainedGasInstrument instrument, ImmutableArray<ExerciseRight> rights) =>
+        new(instrument.Id, instrument.Members, instrument.Assignments, instrument.PriceLookups, rights);
+
+    private static void RefusesRight(string label, Action run)
+    {
+        try { run(); }
+        catch (MarketDataException e) when (e.Code == "exercise_right") { return; }
+        throw new Exception($"A saved right with {label} must refuse with exercise_right.");
     }
 
     private static void ReferenceValues()

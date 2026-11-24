@@ -26,6 +26,7 @@ internal interface IRetainedSideComposition
 public abstract record RetainedProgramInstrument<TMember> : SidedInstrument, IRetainedSideComposition where TMember : IRetainedProgramMember
 {
     public abstract ImmutableArray<TMember> Members { get; }
+    public virtual ImmutableArray<ExerciseRight> Rights => [];
     internal override bool SupportsSettlement => false;
     internal override bool RequiresNativeProgramMarket => true;
     public override string RetainedScheduleIdentity => "retained_side_programs_v1/" + string.Join('/', Members.Select(m => m.ProgramDigest));

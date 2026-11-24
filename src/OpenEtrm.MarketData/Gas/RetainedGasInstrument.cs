@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Text.Json;
+using OpenEtrm.MarketData.Options;
 using OpenEtrm.MarketData.Power;
 using OpenEtrm.MarketData.Risk;
 using OpenEtrm.MarketData.Trading;
@@ -44,13 +46,16 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
 {
     [IdentityField] public override ImmutableArray<RetainedGasMember> Members { get; }
     [IdentityField] public ImmutableArray<GasValuationAssignment> Assignments { get; }
+    [IdentityField] public override ImmutableArray<ExerciseRight> Rights { get; }
     public ImmutableArray<IndexPriceLookup> PriceLookups { get; }
     public ImmutableArray<SchedulePriceTerm> ActivePrices => PhysicalLifecycle.ActivePrices(Members.Select(m=>m.Program),PriceLookups);
     public override ReferenceKey Currency => Assignments[0].Quote.Currency;
     public override Quantity UnitQuantity => new(ExactDecimal.Parse("1"), Assignments[0].Quote.Quantity);
 
     public RetainedGasInstrument(Guid id, ImmutableArray<RetainedGasMember> members,
-        ImmutableArray<GasValuationAssignment> assignments, ImmutableArray<IndexPriceLookup> priceLookups=default) : base(id,members,new(ExactDecimal.Parse("1"),First(assignments).Quote.Quantity),First(assignments).Quote.Currency)
+        ImmutableArray<GasValuationAssignment> assignments, ImmutableArray<IndexPriceLookup> priceLookups = default,
+        ImmutableArray<ExerciseRight> rights = default)
+        : base(id, members, new(ExactDecimal.Parse("1"), First(assignments).Quote.Quantity), First(assignments).Quote.Currency)
     {
         if (members.IsDefaultOrEmpty || members.Any(m => m is null) || assignments.IsDefaultOrEmpty || assignments.Any(a => a is null) ||
             !members.Any(m => m.Program.Document.Family == "gas") ||
@@ -67,7 +72,119 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
             throw new MarketDataException("gas_membership", "Quantity terms require every member's exact physical source; legacy members omit these terms.");
         Members = members; Assignments = assignments.Distinct().ToImmutableArray();
         PriceLookups=priceLookups.IsDefault?[..Assignments.Select(a=>a.Lookup).Distinct()]:priceLookups.Distinct().ToImmutableArray();
+        Rights = rights.IsDefault ? [] : rights;
+        if (!Rights.IsEmpty) RequireRights();
     }
+
+    private void RequireRights()
+    {
+        var claimedSlots = new HashSet<int>();
+        for (var ordinal = 0; ordinal < Rights.Length; ordinal++)
+        {
+            var right = Rights[ordinal];
+            if (right is null || right.Ordinal != ordinal || right.Slots.IsDefaultOrEmpty || right.Groups.IsDefaultOrEmpty ||
+                !Enum.IsDefined(right.Period) || !Enum.IsDefined(right.Holder) || !Enum.IsDefined(right.Settlement) ||
+                right.Model != KirkSpreadCall.Implementation || right.DayCount != OptionNumericalPolicies.ActualOver365FixedInstant)
+                throw InvalidRight("Select ordered exercise rights with explicit members, groups and installed exercise terms.");
+            foreach (var slot in right.Slots)
+                if ((uint)slot >= (uint)Members.Length || !claimedSlots.Add(slot))
+                    throw InvalidRight("Every exercise right must name existing membership slots claimed exactly once.");
+
+            var hasPhysical = right.Slots.Any(slot => Members[slot].Program.Document.Family == "gas");
+            if (hasPhysical != (right.Settlement == ExerciseSettlement.Physical))
+                throw InvalidRight("Physical exercise requires a physical member and cash automatic exercise requires payment members.");
+            RequireGroupCoverage(right);
+        }
+    }
+
+    private void RequireGroupCoverage(ExerciseRight right)
+    {
+        var groupDays = new HashSet<DateOnly>();
+        ExerciseGroup? previous = null;
+        foreach (var group in right.Groups)
+        {
+            if (group is null || group.From >= group.To || previous is not null && previous.To > group.From)
+                throw InvalidRight("Exercise groups must be nonempty, ordered and disjoint.");
+            if (right.Period == ExercisePeriod.DeliveryDay && group.To != group.From.AddDays(1))
+                throw InvalidRight("A daily exercise group must cover exactly one gas day.");
+            if (right.Period == ExercisePeriod.DeliveryMonth &&
+                (!SameMonth(group.From, group.To.AddDays(-1)) || previous is not null && SameMonth(previous.From, group.From)))
+                throw InvalidRight("A monthly exercise right must have one group per represented delivery month.");
+            for (var day = group.From; day < group.To; day = day.AddDays(1))
+                groupDays.Add(day);
+            previous = group;
+        }
+
+        var exerciseTimes = right.Settlement == ExerciseSettlement.Physical
+            ? right.Groups.ToDictionary(group => group.From, group => group.ExerciseAt)
+            : [];
+        var deliveryDays = new HashSet<DateOnly>();
+        foreach (var slot in right.Slots)
+        {
+            GasDayClock? clock = null;
+            foreach (var row in Sides[slot].Side.GenerateSchedule().Rows)
+            {
+                switch (row.DeliveryWindow)
+                {
+                    case IntervalScheduleWindow { Interval: var interval }:
+                        deliveryDays.Add(interval.OperatingDate);
+                        if (exerciseTimes.TryGetValue(interval.OperatingDate, out var exerciseAt) && exerciseAt > interval.Start)
+                            throw LatePhysicalExercise();
+                        break;
+                    case DatedScheduleWindow(var from, var to):
+                        for (var day = from; day < to; day = day.AddDays(1))
+                        {
+                            deliveryDays.Add(day);
+                            if (exerciseTimes.TryGetValue(day, out var datedExerciseAt))
+                            {
+                                clock ??= ReadCashDayClock(Members[slot].Program);
+                                if (datedExerciseAt > CashDayStart(clock, day)) throw LatePhysicalExercise();
+                            }
+                        }
+                        break;
+                    default:
+                        throw InvalidRight("Exercise rights require retained delivery geometry for every selected member.");
+                }
+            }
+        }
+        if (!groupDays.SetEquals(deliveryDays))
+            throw InvalidRight("Exercise groups must cover exactly the selected members' retained delivery days.");
+    }
+
+    private static bool SameMonth(DateOnly left, DateOnly right) => left.Year == right.Year && left.Month == right.Month;
+
+    private static GasDayClock ReadCashDayClock(BookedSideProgram program)
+    {
+        try
+        {
+            using var definition = JsonDocument.Parse(program.Document.EconomicIdentity);
+            var clock = definition.RootElement.GetProperty(nameof(FixedSide.GasDeliveryClock));
+            var key = clock.GetProperty(nameof(GasDayClock.Key));
+            if (key.GetArrayLength() != 3 || key[0].GetString() != "reference" ||
+                key[1].GetArrayLength() != 3 || key[1][0].GetString() != "reference_revision")
+                throw MissingCashDayClock();
+            var retained = new GasDayClock(new(new(key[1][1].GetGuid(), key[1][2].GetGuid()), key[2].GetString()!),
+                clock.GetProperty(nameof(GasDayClock.Rules)).GetString()!, clock.GetProperty(nameof(GasDayClock.StartMinute)).GetInt32());
+            return DefinitionIdentity.For(retained).Canonical == clock.GetRawText() ? retained : throw MissingCashDayClock();
+        }
+        catch (Exception error) when (error is JsonException or KeyNotFoundException or InvalidOperationException or FormatException ||
+            error is MarketDataException market && market.Code != "exercise_right")
+        {
+            throw MissingCashDayClock();
+        }
+    }
+
+    private static DateTimeOffset CashDayStart(GasDayClock clock, DateOnly day)
+    {
+        try { return clock.Boundary(day); }
+        catch (MarketDataException error) when (error.Code == "gas_day_boundary") { throw MissingCashDayClock(); }
+    }
+
+    private static MarketDataException MissingCashDayClock() =>
+        InvalidRight("Physical exercise requires an exact retained gas-day boundary for each selected member's first group day.");
+    private static MarketDataException LatePhysicalExercise() =>
+        InvalidRight("Physical exercise must occur at or before the start of its group's first retained gas day.");
+    private static MarketDataException InvalidRight(string message) => new("exercise_right", message);
 
     private static GasValuationAssignment First(ImmutableArray<GasValuationAssignment> assignments)=>
         !assignments.IsDefaultOrEmpty&&assignments[0] is {} first?first:
