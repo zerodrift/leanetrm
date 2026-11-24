@@ -39,8 +39,8 @@ Choose one right and an inclusive range of saved group starts, an outcome
 (`exercised` or `abandoned`), evidence and an explicit UTC effective instant.
 The form shows saved deadlines and the last known authoring predecessor and
 its effective instant, including a future-effective head or a withdrawal.
-When the predecessor is a withdrawal, its revision ID and effective instant
-remain visible and its outcome is null.
+The form labels a withdrawal with its effective instant. The prepared command
+uses the withdrawal's revision ID as the expected predecessor.
 The original working context, the action's retained `readContextId` and the
 same-session read proof travel to `POST /api/gas/exercise/prepare`. This read
 resolves exact predecessors at the retained cutoff under current AmendTrade.

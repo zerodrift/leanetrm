@@ -7261,11 +7261,12 @@ thirteen design calls define the supported profile.
 4. Contract-fixed prices and published index fixings are certain. A market mark
    remains uncertain for exercise pricing regardless of its schedule label.
 5. Physical exercise uses an `exercised` or `abandoned` election. Save the
-   deadline under `lead_before_first_gas_day_v1`. At or after that instant,
-   an undecided physical group refuses.
-6. Cash automatic exercise waits for every required index price to publish.
-   From the last fixing instant while a price remains unpublished, report a
-   forecast at zero time.
+   deadline under `lead_before_first_gas_day_v1`. An election must take effect
+   by that deadline. At or after it, an undecided physical group refuses.
+6. Cash automatic exercise waits for every covered index price to publish,
+   including prices on rows with zero taken quantity. From the last fixing
+   instant, the available projection supplies a zero-time forecast until
+   publication, including after the payment due date.
 7. A cash automatic group's exact holder sum must be positive to exercise.
    An exact zero is abandoned.
 8. Apply the decision to the day quantity. Whole-term payments thus accrue by
@@ -7278,8 +7279,12 @@ thirteen design calls define the supported profile.
     delivery month under `curve_marks_log_return_held_v1`. These are pricing
     bindings outside economic identity. A single uncertain leg needs only its
     own volatility. Missing required marks refuse. Generic volatility shocks
-    target exact input IDs. Correlation stays held without a shock.
-12. A delivery or payment fact on an abandoned or undecided day refuses.
+    target exact input IDs. The selected correlation revision belongs to the
+    pricing binding and stays held without a shock.
+12. A visible scheduled or allocated delivery on a covered physical membership
+    requires exercise for that day, including when valuation uses contract
+    quantity. A payment on an original covered cash row requires at least one
+    exercised day in that row.
 13. Round each aggregated held A, B and c half-even to 18 decimal places before
     `HolderChoice` under `exact_rational_half_even_18_v1`. Day quantities, row
     allocation, forward sums and decided row economics remain exact.

@@ -18,9 +18,10 @@ own the delivery and cash rows they evaluate.
 - Cash automatic groups cover payments only and need an actual retained fixing
   instant. The latest fixing instant belongs to each group independently. They
   save no physical lead rule. All required index fixings must be published
-  in the selected view for a decision. A positive exact holder sum exercises
-  and an exact zero or negative sum abandons. Unpublished prices at or after
-  the last fixing instant give an `undecided_forecast` group at zero model time.
+  in the selected view for a decision, including when the row takes zero quantity.
+  A positive exact holder sum exercises and an exact zero or negative sum
+  abandons. Unpublished prices at or after the last fixing instant give an `undecided_forecast` group at zero model time
+  while the projection is available, including after the payment due date.
 - Admission requires explicitly undiscounted valuation and independent physical
   quantity sources. Every explicit physical quantity link is excluded, including
   a link with zero fuel. Physical day quantities and connected payment quantities
@@ -44,18 +45,23 @@ and full model table are in [D448](decisions.md#d448--exercise-rights-are-terms-
 
 An election is a revisable or withdrawable fact on a physical group of the exact
 trade binding. It records `exercised` or `abandoned`, an effective instant and
-evidence. Valuation selects the highest revision known at its resolved cutoff
+evidence. The effective instant must be at or before the saved deadline.
+Valuation selects the highest revision known at its resolved cutoff
 and effective by its valuation instant. A known future-effective change limits
 reuse across that boundary. Amendments retain their existing eligibility rules.
 A rights-only change creates a separate binding with its own elections. The
-prior binding retains its terms, facts and authorized historical values.
+prior binding retains its terms, facts and authorized historical values. A leased
+risk worker reads rights on a binding held by a selected trade at its retained
+cutoff, including when another holding shares that binding.
 
 The curve-mark read and both mark record routes bind the exact selected
 definition and curves. Reads select revisions by effective and knowledge
 eligibility. Mark recording requires working data with current
 `ReadMarketData` and `ImportObservations` authority and exact visible sources.
-Authorized mark and election commands use expected predecessors, idempotent
-replay and atomic publication. See [recording elections](deal-ticket.md#gas-exercise-rights-d448).
+Mark command replay requires the original effective instant as well as the
+original payload. The selected correlation revision belongs to the pricing
+binding even when another revision has the same coefficient. Authorized mark
+and election commands use expected predecessors and atomic publication. See [recording elections](deal-ticket.md#gas-exercise-rights-d448).
 
 The schedule shows each group's state, exact Forward sum and Counted amount,
 plus model inputs for undecided groups. The first two amounts for an exercised
@@ -65,8 +71,9 @@ PV belong to ordinary Side rows. After payment, group Counted totals need
 not equal PV. Ordinary entry contributions plus undecided values reconcile
 exactly. Draft and held previews, exact trade reads, the Blotter, interactive
 scenarios and retained risk use the same evaluation. The ordinary gas portfolio
-policy can isolate an `exercise_marks` refusal. The separate native-futures
-completeness policy keeps its existing all-valued requirement.
+policy isolates base holdings with missing marks, an elapsed determination,
+conflicting facts or model-input refusals. A failure caused by a requested
+scenario refuses the run. Native futures keep their all-valued requirement.
 
 | Refusal | Meaning |
 | --- | --- |
@@ -76,7 +83,7 @@ completeness policy keeps its existing all-valued requirement.
 | `exercise_determination` | A physical group reached its exercise instant without an eligible decision |
 | `exercise_election` | Malformed or inapplicable election |
 | `exercise_election_conflict` | The expected election head is stale |
-| `exercise_conflict` | A delivery or payment record applies to a day that is abandoned or undecided |
+| `exercise_conflict` | A covered physical day has a scheduled or allocated delivery without exercise, or a payment's original covered cash row has no exercised day |
 | `holder_choice_inputs` | Invalid model inputs |
 
 This build covers gas exercise over ordinary physical and payment Sides.

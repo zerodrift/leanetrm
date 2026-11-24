@@ -8,8 +8,8 @@ Blotter, shared scenarios and retained risk implement the same schedule
 contract. See [gas exercise rights](physical-gas-side.md#exercise-rights-d448).
 
 The full gas, trading and managed groups pass 17, 20 and 81 local runner
-workloads respectively. Final independent review and integrated CI remain
-release gates. Premium, strip exercise, constrained and path-dependent
+workloads respectively. Integrated CI is a separate merge gate. Premium,
+strip exercise, constrained and path-dependent
 rights, transport/storage optionality and a marks editor need separate
 work. See [local qualification](verification.md#exercise-rights-on-a-gas-instrument-d448).
 

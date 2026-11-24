@@ -5,8 +5,7 @@ the pre-change inputs. This build uses the
 [Instrument schedule and gas pricing contract](2026-11-23-instrument-schedule-and-gas-pricing-design.md).
 The implemented [gas contract](../../physical-gas-side.md#exercise-rights-d448)
 and [verification](../../verification.md#exercise-rights-on-a-gas-instrument-d448)
-record the supported scope and local results. Final independent review and
-integrated CI remain release gates.
+record the supported scope and local results. Integrated CI is a separate merge gate.
 
 ## Intent
 
@@ -228,11 +227,15 @@ at that valuation's knowledge cutoff. A later election never enters an earlier
 view. The same facts serve a right the counterparty holds.
 
 A cash automatic group needs no election. It is decided when every index price
-it uses is published. The outcome is exercised when the holder's sum is above
-zero and abandoned otherwise.
+on its covered rows is published, including a row whose taken quantity is zero.
+The outcome is exercised when the holder's sum is above zero and abandoned
+otherwise. At or after its last fixing instant, an available projection supplies
+the zero-time forecast until publication, including after the payment is due.
 
-A delivery record or a payment on a day that is abandoned or undecided refuses
-valuation of that trade.
+An active scheduled or allocated delivery on a covered physical membership
+requires an exercised day even when valuation uses contract quantity. A payment
+on a covered cash row requires at least one exercised day in that original row.
+Either conflict refuses valuation of that holding.
 
 ### Evaluation
 
@@ -380,8 +383,9 @@ over its own memberships. D288 and D431 stand.
    contract-fixed price or a published index fixing is certain.
 5. A physical period needs a recorded election. There is no deemed exercise,
    and an elapsed period without one refuses.
-6. A cash automatic group past its fixing time with a price still unpublished
-   is valued on the forecast, labelled, as index payments are.
+6. A cash automatic group with a covered price still unpublished at or after
+   its latest fixing instant uses an available forecast at zero model time,
+   including after the payment due date.
 7. An exact zero is abandoned.
 8. A decision is applied as a day quantity of zero or the entry's own.
 9. One payoff rule, valued from the holder's side, with no list of option
@@ -389,7 +393,9 @@ over its own memberships. D288 and D431 stand.
 10. One price curve on each side of a group, and different curves on the two
     sides.
 11. Two new mark stores, per curve and per pair, by delivery month.
-12. A delivery record or payment on an abandoned or undecided day refuses.
+12. A covered physical day with a scheduled or allocated delivery requires
+    exercise. A payment on an original covered cash row requires at least one
+    exercised day in that row.
 13. Amounts enter the model rounded half-even to 18 decimal places.
 
 ## Implementation choices from the design

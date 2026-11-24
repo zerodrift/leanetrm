@@ -15,15 +15,17 @@ and command receipts. They also admit exact-input volatility shifts in retained
 joint requests and add an authorized read of election authoring predecessors.
 The standalone gas ticket supports new and eligible amended terms. A structurally
 valid missing-mark draft remains bookable or amendable through that ticket
-with an explicit valuation refusal. The main working Blotter can prepare and
-record physical elections under current authority. Historical and secondary
-windows remain read-only.
+with an explicit valuation refusal. The booked ticket retains the correction
+action for an unpriced physical exercise. A valued ticket can show its exercise
+groups even when multiple delivery clocks prevent a combined grid.
+The main working Blotter can prepare and record physical elections under
+current authority. Historical and secondary windows remain read-only.
 
 The full local gas, trading and managed groups pass 17, 20 and 81 runner
-workloads respectively. Gas and trading report 192 and 489 owned browser checks,
-and managed reports 803 core checks. The underlying counts and earlier frontend
-evidence are recorded in [verification](verification.md#exercise-rights-on-a-gas-instrument-d448).
-Final independent review and integrated CI remain release gates.
+workloads respectively. Gas and trading report 193 and 489 owned browser checks,
+and managed reports 803 core checks. The complete frontend run and the counting
+conventions are recorded in [verification](verification.md#exercise-rights-on-a-gas-instrument-d448).
+Integrated CI is a separate merge gate.
 
 ## Instrument schedules and gas pricing entries (D446–D447)
 

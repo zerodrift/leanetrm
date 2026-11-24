@@ -52,10 +52,13 @@ Instrument PV. The exercised group's Forward sum and Counted amounts show
 gross selected rows. A recorded payment changes ordinary remaining PV without
 changing those gross amounts. Abandoned groups count zero.
 
-A physical decision requires a visible recorded election. A known future
-change to the applicable election bounds prepared-context reuse. Cash groups
-use published fixing evidence to decide and can keep a forecast after the last
-fixing instant. Gas is the supported consumer. See
+A physical decision requires a visible recorded election. A covered physical
+day with a scheduled or allocated delivery must have an exercised election. A payment on an original covered cash row requires at
+least one exercised day on that row. A known future change to the applicable
+election bounds prepared-context reuse. Cash groups require publication of
+every covered index, including a row with zero taken quantity. The available projection continues to price an undecided cash group
+after its last fixing instant and payment due date. Gas is the supported
+consumer. See
 [gas admission, faults and scope](physical-gas-side.md#exercise-rights-d448).
 
 ## Mandatory composition boundary (D417)
