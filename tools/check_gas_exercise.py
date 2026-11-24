@@ -1,7 +1,9 @@
 """Exercise-term booking, independent native admission and retained group times."""
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from fractions import Fraction
 import json
+import time
 from uuid import uuid4
 from check_gas_pricing import request, staged_booking
 from preview_client import PreviewClient
@@ -402,6 +404,7 @@ def election_checks(c,query,manifest,context,fixed,cash,plain,run_worker):
           value={native(saved)};IF value#>>'{{elections,0,outcome}}' IS DISTINCT FROM '{expected[0]}' OR value#>'{{elections,1,outcome}}' IS DISTINCT FROM '{json.dumps(expected[1])}'::jsonb
           OR (value->>'nextElectionEffectiveAt')::timestamptz IS DISTINCT FROM {("TIMESTAMPTZ '2020-12-18T"+next_at+":00Z'") if next_at else 'NULL::timestamptz'}
           THEN RAISE EXCEPTION 'Wrong effective election: %',value;END IF;END$probe$;""")
+    ticket_authority_expiry(risk,query,manifest,context,saved,pending['elections'][0]['revisionId'])
     before_amend=read()['context']
     old_context={**context,'contextId':before_amend['contextId'],'knowledgeMode':'retained'}
     same=amend_rights(query,manifest,saved,call['exerciseRights'],at)
@@ -417,6 +420,44 @@ def election_checks(c,query,manifest,context,fixed,cash,plain,run_worker):
     assert editor(context,422)['code']=='exercise_marks'
     assert record(batch)==recorded
     print('PASS gas elections: atomic revisions, withdrawals, exact effective and knowledge cuts, held PV without marks, worker lease and pinned replay',flush=True)
+
+
+def ticket_authority_expiry(risk,query,manifest,context,saved,pending_head):
+    request=dict(context=context,tradeId=saved['tradeId'],bindingId=saved['instrumentId'],revision=1)
+    role,grant=uuid4(),uuid4()
+    name='exercise_expiry_'+role.hex
+    table='trading.facility_gas_allocations'
+    try:
+        query(f"""BEGIN;INSERT INTO security.roles VALUES('{role}','{name}','Synthetic expiring exercise authority');
+          INSERT INTO security.role_permissions VALUES('{role}','AmendTrade');
+          INSERT INTO security.role_grants SELECT '{grant}',principal_id,'{role}','{manifest['tenantId']}','{manifest['workspaceId']}',
+           clock_timestamp()-interval '1 day',clock_timestamp()+interval '3.5 seconds',false FROM security.identity_bindings
+           WHERE issuer='https://preview.invalid' AND subject='risk';COMMIT;""")
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            # Facility allocations are read after the authoring heads have been materialized.
+            holder=pool.submit(query,f"SET application_name='{name}';BEGIN;LOCK TABLE {table} IN ACCESS EXCLUSIVE MODE;SELECT pg_sleep_until((SELECT granted_to FROM security.role_grants WHERE id='{grant}'));COMMIT;")
+            deadline=time.monotonic()+3
+            while query(f"SELECT EXISTS(SELECT FROM pg_stat_activity WHERE application_name='{name}' AND wait_event='PgSleep');")!='t':
+                assert time.monotonic()<deadline,'Facility lock holder did not start'
+                time.sleep(.03)
+            reading=pool.submit(risk.call,'tickets/trade',request,expected=(200,403))
+            deadline=time.monotonic()+5
+            while query(f"""SELECT EXISTS(SELECT FROM pg_locks l JOIN pg_stat_activity a USING(pid),security.role_grants g
+              WHERE g.id='{grant}' AND clock_timestamp()<g.granted_to AND NOT l.granted AND l.relation='{table}'::regclass
+              AND a.query LIKE '%security.read_trade_facility_allocations%');""")!='t':
+                assert not reading.done() and time.monotonic()<deadline,'Ticket did not reach the facility read with live amendment authority'
+                time.sleep(.03)
+            holder.result(timeout=12)
+            result=reading.result(timeout=10)
+            periods=result.get('actions',{}).get('recordExercise',{}).get('periods',[])
+            assert all(p['previousId']!=pending_head for p in periods),'Booked ticket disclosed a future election head after AmendTrade expired'
+            assert risk.last_status==403 and result['code']=='access_denied' and 'actions' not in result,result
+        action=risk.call('tickets/trade',request)['actions']['recordExercise']
+        assert not action['allowed'] and action['periods']==[] and action['readContextId'] is None,action
+    finally:
+        query(f"""BEGIN;DELETE FROM security.role_grants WHERE id='{grant}';DELETE FROM security.role_permissions WHERE role_id='{role}';
+          DELETE FROM security.roles WHERE id='{role}';COMMIT;""")
+    print('PASS booked exercise ticket rechecks expiring authority before publishing future election heads',flush=True)
 
 
 def amend_rights(query,manifest,saved,rights,at):

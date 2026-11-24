@@ -1816,6 +1816,12 @@ api.MapPost("/physical/power-trades/get",(HttpContext c,StructuredPowerTradeRead
         Results.Ok(await operatingTrades.ReadExact(connection,frame,body.TradeId,ct)));
 });
 
+Task<object> ReadGasMarket(NpgsqlConnection connection,TradingView view,Guid? trade,Func<PreviewData,InputFrame,Task<object>> read,CancellationToken ct)=>
+    tradeReads.ReadBound(connection,view,async()=>{
+        var selected=await PhysicalMarketSelection.Gas.Read(database,connection,view.CalculationFrame,ct,trade);
+        return await read(selected.Data,selected.Frame);
+    },ct);
+
 // Trading pages without a read operation of their own run their store's read on the shared trading read path.
 Task<IResult> FuturesRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConnection,PreviewData,InputFrame,CancellationToken,Task<object>> read,bool scenario=false,Guid? headTrade=null,bool amendmentPreview=false,string? expectedConvention=null,bool dealRisk=false,Guid? gasTrade=null,Guid? crudeTrade=null,Guid? crudeSetup=null,bool gasReferenceChoices=false,Guid? lngTrade=null)
 {
@@ -1838,10 +1844,7 @@ Task<IResult> FuturesRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConne
             return await read(connection,selected.Data,selected.Frame,ct);
         },ct)
         :expectedConvention==PhysicalGasStore.Convention
-        ?tradeReads.ReadBound(connection,view,async()=>{
-            var selected=await PhysicalMarketSelection.Gas.Read(database,connection,view.CalculationFrame,ct,gasTrade);
-            return await read(connection,selected.Data,selected.Frame,ct);
-        },ct)
+        ?ReadGasMarket(connection,view,gasTrade,(data,frame)=>read(connection,data,frame,ct),ct)
         :tradeReads.Read(connection,view,data=>read(connection,data,view.CalculationFrame,ct),ct),scenario,headTrade,amendmentPreview,expectedConvention,dealRisk,
         publicationCheck:expectedConvention==PhysicalLngStore.Convention?(connection,view,ct)=>lngTrade is {} selectedTrade?lngStore.RecheckScope(connection,selectedTrade,ct):lngStore.RecheckReferences(connection,ct):gasReferenceChoices?async(connection,view,ct)=>{
             if(!view.Working)return;
@@ -2523,13 +2526,23 @@ api.MapPost("/tickets/preview",(HttpContext c,TicketPreviewRequest body)=>Ticket
 }):FuturesRead(c,TicketContext(body.Context),
  (connection,data,frame,ct)=>GasParkCustodyTicket.IsSelected(body.Draft)?parkCustodyTicket.Preview(connection,data,frame,body,ct):TicketDraft.Require(body.Draft).Product==GasParkLoanTicket.Product?parkLoanTicket.Preview(connection,data,frame,body,ct):gasComposition.Preview(connection,data,frame,TicketRequest(body.Draft,body.Context,Guid.Empty,data.DefinitionRevision.RevisionId),ct),expectedConvention:PhysicalGasStore.Convention));
 // A booked trade offers day entries by the record operation's own rule, on the read's working or historical selection.
-api.MapPost("/tickets/trade",(HttpContext c,TicketTradeRequest body)=>body.Product==GasTransportFinancialTicket.Product?
- FinancialTicketRead(c,TicketContext(body.Context),(connection,frame,ct)=>transportTicket.Trade(connection,frame,body,ct)):FuturesRead(c,TicketContext(body.Context),
- (connection,data,frame,ct)=>
- {
-  _=GasTicketStore.Description(body.Product==GasParkCustodyTicket.Product?GasParkLoanTicket.Product:body.Product??GasTicket.Description.Product);
-  return body.Product switch{GasParkCustodyTicket.Product=>parkCustodyTicket.Trade(connection,data,frame,body,ct),GasParkLoanTicket.Product=>parkLoanTicket.Trade(connection,data,frame,body,ct),_=>gasTicket.Trade(connection,data,frame,body,TradingReadSelection.IsWorking(Session(c),body.Context),ct)};
- },expectedConvention:PhysicalGasStore.Convention,gasTrade:body.Product is GasParkLoanTicket.Product or GasParkCustodyTicket.Product?null:body.TradeId));
+api.MapPost("/tickets/trade",(HttpContext c,TicketTradeRequest body)=>
+{
+ var context=TicketContext(body.Context);
+ if(body.Product==GasTransportFinancialTicket.Product)
+  return FinancialTicketRead(c,context,(connection,frame,ct)=>transportTicket.Trade(connection,frame,body,ct));
+ var park=body.Product is GasParkLoanTicket.Product or GasParkCustodyTicket.Product;
+ GasExerciseAction? exercise=null;
+ return TradingRead(c,context,(connection,view,ct)=>ReadGasMarket(connection,view,park?null:body.TradeId,async(data,frame)=>{
+  if(body.Product==GasParkCustodyTicket.Product)return await parkCustodyTicket.Trade(connection,data,frame,body,ct);
+  if(body.Product==GasParkLoanTicket.Product)return await parkLoanTicket.Trade(connection,data,frame,body,ct);
+  _=GasTicketStore.Description(body.Product??GasTicket.Description.Product);
+  var result=await gasTicket.Trade(connection,data,frame,body,view.Working,ct);
+  exercise=result.Exercise;
+  return result.Ticket;
+ },ct),expectedConvention:PhysicalGasStore.Convention,publicationCheck:(connection,_,ct)=>exercise is {Allowed:true}
+  ?GasExerciseAction.RequireAuthority(connection,database.Manifest.CatalogId,exercise.TradeId,exercise.InstrumentId,ct):Task.CompletedTask);
+});
 api.MapPost("/tickets/status",(HttpContext c,TicketStatusRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>
 {
  if(body.Product==GasTransportFinancialTicket.Product)

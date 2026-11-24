@@ -137,7 +137,7 @@ public sealed class GasTicketStore(PreviewDatabase database)
 
  // The booked gas trade, selected by its exact binding and revision, as its ticket draft and schedule, with its quantity links. A composed
  // trade's schedule shows its recorded day quantities; a single-point trade opens as the one-physical-side composition it is, and records none.
- public async Task<object> Trade(NpgsqlConnection c,PreviewData data,InputFrame frame,TicketTradeRequest body,bool working,CancellationToken ct)
+ public async Task<(object Ticket,GasExerciseAction? Exercise)> Trade(NpgsqlConnection c,PreviewData data,InputFrame frame,TicketTradeRequest body,bool working,CancellationToken ct)
  {
   var selected=TradePositionSelection.From(new(body.Context,body.TradeId,body.BindingId,body.Revision,GasPositions.Type));
   var position=(await GasPositions.Read(c,database.Manifest,[],[],ct,selected)).Single();
@@ -174,9 +174,9 @@ public sealed class GasTicketStore(PreviewDatabase database)
    scheduleRefusal=unavailable??value?.ScheduleRefusal,quantityUnit=value?.QuantityUnit??position.Physical[0].Text("unit"),measures=value?.Measures,
    currency=value?.Currency??position.Currency.Code,links=value?.Links??[],sideSlots=value?.SideSlots??execution.Members.ToImmutableDictionary(m=>m.Code,m=>m.Slot),
    quantityPolicy=composed?(followed?GasDailyQuantitySelection.ValuationPolicy:QuantityPolicy):null,facilityAllocations,actions};
-  if(execution.Rights.IsEmpty)return ticket;
+  if(execution.Rights.IsEmpty)return (ticket,null);
   var result=JsonSerializer.SerializeToNode(ticket,Json)!.AsObject();
   result["groups"]=JsonSerializer.SerializeToNode(value?.Groups,Json);
-  return result;
+  return (result,exercise);
  }
 }
