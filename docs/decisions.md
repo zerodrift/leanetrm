@@ -7400,3 +7400,49 @@ to the builder:
 - A stored volatility surface names the numerical policy of its product's exercise
   style. The fit admission checks it once the caller is known to read the product.
 - A European fallback is pinned to its source instant, as the American fallback is.
+
+## D450 — A date's source is required before its temporary view is restored
+
+Corrects whole-book P&L runs and states the rule they rely on. Implemented and
+checked on disposable databases
+([verification](verification.md#whole-book-pl-date-sources-d450)).
+
+A request holds one admitted business source at a time (migration 0259), and
+source admission keeps its original read deadline as a commit check (D401,
+[lifecycle projection](lifecycle-projection.md)). A P&L run reads its two dates
+one after the other, each in a temporary view: a savepoint that binds that
+date's context and is restored when the read ends. A run that names no trades
+proves, at each date that holds trades, that its books hold no independently
+owned gas, and that proof admits the date's own exact source inside the view.
+Restoring the view emptied the source slot and left the commit callback of that
+source pending, so every such run was refused at commit with a database denial
+although nothing had been revoked. Runs that name their trades skip the proof
+and were not affected.
+
+The rule, for an admission that declares that its requirement reads state a
+temporary view restores:
+
+- It is required before the restore, while that state exists. A refusal there
+  refuses the request.
+- What outlives the state stays a commit check. The restore leaves no callback
+  to state it removed.
+- A read that fails inside its view returns nothing and leaves no such
+  admission.
+
+The business source is the one admission that declares this. What it keeps for
+commit is its original read deadline with current market and trade access; a
+successor grant does not renew it. Its slot identity and the trading history
+boundary of its context are checked when the view ends. Every other admission
+registered in a view stays pending for commit in full, as before, and so does a
+source admitted outside a view, as lifecycle actions and economic projection
+admit theirs.
+
+The P&L date read is the one consumer. Its final reauthorization binds each date
+again under current authority.
+
+Remaining, read in the code and not reproduced. Other admissions registered in a
+date's view are not declared and are still refused at commit where their
+requirement needs that date's bound context: the service presence proofs at a
+date whose business day is not the UTC date of its instant, and the source read
+of a book that holds a Park and Loan agreement. A whole-book date that holds no
+trades is reported empty without the owned-gas proof.

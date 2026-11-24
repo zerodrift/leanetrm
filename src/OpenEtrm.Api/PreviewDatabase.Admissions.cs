@@ -16,6 +16,37 @@ public sealed partial class PreviewDatabase
         return new(this,connection,transaction,admissions);
     }
 
+    // A temporary view binds request state inside a savepoint and restores it
+    // when its read ends. An admission that reads that state is required while
+    // it exists, and the restore leaves the authority that outlives it, never
+    // a callback to rolled-back state. Every other admission stays pending for
+    // commit. A refused read returns nothing and keeps no view admission.
+    internal async Task<T> TemporaryView<T>(NpgsqlConnection connection,string savepoint,Func<Task<T>> read,CancellationToken ct)
+    {
+        if(!commitAdmissions.TryGetValue(connection,out var pending))
+            throw new InvalidOperationException("A temporary view belongs to this database adapter's live owned transaction.");
+        await using(var save=ScheduleStore.Command(connection,"SAVEPOINT "+savepoint))await save.ExecuteNonQueryAsync(ct);
+        var outer=pending.Count;var required=false;
+        try
+        {
+            var result=await read();
+            foreach(var admission in pending.Skip(outer).OfType<IViewAdmission>().ToArray())await admission.RequireCommit(connection,ct);
+            required=true;
+            return result;
+        }
+        finally
+        {
+            for(var index=pending.Count-1;index>=outer;index--)
+                if(pending[index] is IViewAdmission admission)
+                {
+                    if(required)pending[index]=admission.Retained;
+                    else pending.RemoveAt(index);
+                }
+            await using var restore=ScheduleStore.Command(connection,$"ROLLBACK TO SAVEPOINT {savepoint};RELEASE SAVEPOINT {savepoint}");
+            await restore.ExecuteNonQueryAsync(ct);
+        }
+    }
+
     internal sealed class OwnedReadTransaction(PreviewDatabase database,NpgsqlConnection connection,NpgsqlTransaction transaction,
         List<ICommitAdmission> admissions):IDisposable
     {

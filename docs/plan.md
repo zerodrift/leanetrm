@@ -1,5 +1,12 @@
 # Delivery plan and acceptance criteria
 
+D450 corrects P&L runs over whole books, which were refused at commit. Each
+date's exact source is required before its temporary view is restored, and its
+original read deadline stays a commit check. The database and HTTP checks pass;
+the real-browser checks have not been run. See
+[trading P&L](trading-pnl.md#run-and-save) and
+[verification](verification.md#whole-book-pl-date-sources-d450).
+
 D449 admits European exercise on a listed futures option: a product row states
 the style, its series are valued by a Black-76 formula named in the option
 valuation policy, and exercise before expiry is refused. The managed, Python, web,

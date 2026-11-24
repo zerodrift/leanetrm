@@ -198,7 +198,9 @@ not exclude failed native positions. Scoped portfolio replay is checked against
 independently calculated margin/cash values. Economic horizon projection requires
 the separately qualified complete opening event prefix.
 Owned transaction admission retains read guards through composite report shaping
-and savepoint restoration, then rechecks them before commit. Registrations cannot
+and savepoint restoration, then rechecks them before commit. A business source
+admitted inside a temporary view is required before that view is restored and
+keeps its original deadline for commit (D450). Registrations cannot
 escape their owned connection/transaction. The expired original grant with a fresh
 successor fails even when a review is wrapped in another result object.
 

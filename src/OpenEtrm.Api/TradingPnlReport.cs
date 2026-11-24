@@ -299,10 +299,10 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
         }
     }
 
-    private async Task<Endpoint> Read(NpgsqlConnection connection,TradingView view,TradingPnlRequest request,CancellationToken ct)
-    {
-        await using(var save=ScheduleStore.Command(connection,"SAVEPOINT pnl_endpoint"))await save.ExecuteNonQueryAsync(ct);
-        try
+    // Each date is read in a view of its own. A whole-book date admits its exact source there, and the request's one
+    // source slot is free again for the other date once that source has been required.
+    private Task<Endpoint> Read(NpgsqlConnection connection,TradingView view,TradingPnlRequest request,CancellationToken ct)=>
+        database.TemporaryView(connection,"pnl_endpoint",async()=>
         {
             await view.Bind(connection,database.Manifest.CatalogId,ct);
             await TradingContext.Bind(connection,database.Manifest.CatalogId,view.CalculationFrame,view.Context,ct);
@@ -325,14 +325,8 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
             }
             await RequireBound(connection,view,ct);
             var cash=await CashPaymentStore.Ledger(connection,database.Manifest.CatalogId,view.CalculationFrame,chosen,request.TradeIds,ct);
-            return new(view,convention,point,prepared,available.Trades,chosen,selectedBooks,cash,request.TradeIds);
-        }
-        finally
-        {
-            await using(var rollback=ScheduleStore.Command(connection,"ROLLBACK TO SAVEPOINT pnl_endpoint"))await rollback.ExecuteNonQueryAsync(ct);
-            await using var release=ScheduleStore.Command(connection,"RELEASE SAVEPOINT pnl_endpoint");await release.ExecuteNonQueryAsync(ct);
-        }
-    }
+            return new Endpoint(view,convention,point,prepared,available.Trades,chosen,selectedBooks,cash,request.TradeIds);
+        },ct);
     // An exact amount as the shared amount display reads it; the page asks the backend for its display text.
     private static object Money(ExactMoney m)=>new{amount=m.ToExactString(),currency=m.Currency};
     private static object Greek(PnlGreekEffect effect)=>new{amount=effect.Amount is null?null:Money(effect.Amount),unavailableEstimates=effect.Unavailable};

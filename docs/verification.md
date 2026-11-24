@@ -1,5 +1,55 @@
 # Local verification and continuous integration
 
+## Whole-book P&L date sources (D450)
+
+Checked on synthetic data on 2026-11-24. A Linux x86_64 container (Ubuntu
+24.04.5, stock PostgreSQL 18.7, .NET SDK 10.0.402, Python 3.12.3, Debug API
+build) ran the database and HTTP checks, each on a disposable database built
+from the whole migration sequence. A workstation (macOS arm64) ran the 185
+repository Python unit checks and the standalone dependency check, which pass.
+
+Before the change, with only the new whole-book case added,
+`tools/run_preview.py --check --cash-pnl-check` passed the runs that name their
+trades and stopped at the run that names none: 403 `access_denied`, SQLSTATE
+42501.
+
+| Run, in the container with the change | Result |
+| --- | --- |
+| `--check --cash-pnl-check` | passed, 89 PASS lines |
+| the same with the view's requirement of its admissions removed | fails in the native check: an unadmitted source left its view unrequired |
+| the same with a view also taking the admissions registered before it | fails in the native check: a view required an admission that was not its own |
+| `--check --async-workbench-check` | passed, 139 PASS lines |
+| `--check --exchange-check` | passed, 429 PASS lines |
+| `--check`, the default owned check | passed, 1,586 PASS lines |
+| `tools/check_all.py --group managed` | passed, 81 workloads |
+
+What the new cases establish:
+
+- A book of its own holds one option at both dates. The run that names no
+  trades reports the same totals and positions as the run that names that
+  trade, states its scope as all trades in the selected books, and is offered
+  for saving.
+- In one request, each of a saved report's two dates admits its own exact
+  source in a temporary view, and the request commits.
+- A source that was never admitted is refused with `trading_source_denied` when
+  its view ends. That view leaves its ordinary admission pending and none that
+  reads its state.
+- What a restored source keeps for commit refuses an expired original deadline
+  with `futures_margin_denied`.
+- A source admitted before a view, and admitted again inside it, is still
+  admitted after the restore and is required in full at commit.
+- An admission that reads a view's state is required once before each restore
+  and its retained part once at commit. One registered before the view, and an
+  ordinary one registered inside it, are required at commit only, in full.
+
+Not established here: no real-browser suite ran, because the browser's sandbox
+does not start under the container's default security profile, which was left
+as it was. The Risk page's own whole-book run was therefore not exercised in a
+browser. The other check groups were not run for this change. No check lets an
+original deadline lapse between a date's read and the commit of a real run, and
+none runs a whole book that holds independently owned gas through P&L. The
+limits D450 lists as remaining were read in the code and not reproduced.
+
 ## European futures options (D449)
 
 Qualified on synthetic data in two places on 2026-11-24. A workstation (macOS arm64,

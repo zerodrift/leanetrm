@@ -322,6 +322,24 @@ def run_checks(url,query,manifest,verify_persistence=None):
     assert all(closed['totals'][0]['values'][key]==continuing['totals'][0]['values'][key] for key in ('openingValue','closingValue','economicPnl')),closed['totals']
     print('PASS continuing option P&L: shared price Greeks, one calendar day on a named clock from a working snapshot and on the convention\'s clock from a recorded close, and exact endpoint clock roll with retained opening inputs.',flush=True)
 
+    # A run that names no trades covers its whole books, as the Risk page asks for it. Each date that holds trades then
+    # proves, under that date's own exact source, that the books hold no independently owned gas. One option held at both
+    # dates in a book of its own is reported as the run that names that one trade reports it, and can be saved.
+    c.call('profile',{'profile':'trader'})
+    own_book=str(uuid4())
+    query(f"INSERT INTO trading.books SELECT catalog_id,'{own_book}',portfolio_id,'Synthetic whole-book P&L',publication_order,effective_at FROM trading.books WHERE(catalog_id,id)=('{cat}','{book}');")
+    alone=c.call('options/book',dict(operationId=str(uuid4()),**early_context,bookId=own_book,series=on['series'],definitionRevisionId=on['definitionRevisionId'],
+                                   side='buy',lots='1',premium='1',premiumPaymentDate=earlier['at'][:10],premiumStyle='premium_paid_up_front',**early_parties))
+    c.call('profile',{'profile':'risk'})
+    in_book={**request,'knownAt':c.call('options/catalog',context)['context']['knownAt'],'bookIds':[own_book]}
+    whole_run=c.call('portfolio/pnl/run',{**in_book,'tradeIds':None},timeout=300);whole=whole_run['report']
+    named_trade=c.call('portfolio/pnl/run',{**in_book,'tradeIds':[alone['tradeId']]},timeout=300)['report']
+    assert whole_run['saveRefusal'] is None and whole_run['artifact'],whole_run['saveRefusal']
+    assert whole['scope']['tradeSelection']=='All trades in the selected books' and named_trade['scope']['tradeSelection']=='Selected trades',whole['scope']
+    assert {p['position']['tradeId'] for p in whole['positions']}=={alone['tradeId']} and {p['state'] for p in whole['positions']}=={'continuing'},whole['positions']
+    assert whole['totals']==named_trade['totals'] and whole['positions']==named_trade['positions'],(whole['totals'],named_trade['totals'])
+    print('PASS whole-book P&L: a run naming no trades reports a book\'s holdings as the run naming each of them does.',flush=True)
+
     # One report explains holdings priced on two curves: the centre call of the first product's first two listed underlying
     # months and of the other product's first, booked at the opening close. A run values each held option nine times, at both
     # closes, under six price samples and under one clock sample, all inside one request: the strip is kept to what the
