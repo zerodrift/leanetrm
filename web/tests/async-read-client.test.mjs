@@ -333,8 +333,60 @@ test('an explicit read renews an aged idle channel even before its disconnect ev
   }finally{h.client.close();}
 });
 
+for(const acceptedPeer of [false,true]){
+  test('a reservation that ages before dispatch moves only the unsent read'+(acceptedPeer?' after its accepted peer drains':''),async t=>{
+    let now=1000;t.mock.method(performance,'now',()=>now);
+    const h=harness();
+    try{
+      const first=h.client.read('curve.evaluate.v1',curveBody());first.catch(()=>{});
+      const source=await h.ready(),request=h.requests[0];
+      if(acceptedPeer){
+        request.ack.resolve({channelId:request.body.channelId,requestId:request.body.requestId,state:'accepted'});
+        await flush();
+      }else{
+        source.emit('response',h.result(request));await first;
+      }
+      now=1000+admissionWindowMs-1;
+      const next=h.client.read('curve.evaluate.v1',curveBody());next.catch(()=>{});
+      now++;await flush();
+      assert.equal(h.requests.length,1,'the deferred POST must not send on the aged channel');
+      if(acceptedPeer){
+        assert.equal(h.channels.length,1);assert.equal(source.closed,false);
+        source.emit('response',h.result(request));await first;
+      }
+      const fresh=await h.ready();
+      assert.equal(h.channels.length,2);assert.equal(source.closed,true);
+      assert.equal(h.requests.length,2);assert.equal(h.requests[1].body.channelId,h.channels[1].channelId);
+      fresh.emit('response',h.result(h.requests[1]));await next;
+    }finally{h.client.close();}
+  });
+}
+
+test('a positive admission window is valid with a longer maximum connection timeout',async()=>{
+  const h=harness({connectionTimeoutMs:admissionWindowMs+1});
+  try{
+    const pending=h.client.read('curve.evaluate.v1',curveBody());pending.catch(()=>{});
+    await flush();assert.equal(h.sources.length,1,'an immediately opened channel has its advertised time available');
+    const source=await h.ready();
+    source.emit('response',h.result(h.requests[0]));await pending;
+  }finally{h.client.close();}
+});
+
+test('an opening that has consumed the full admission window fails without retrying',async t=>{
+  let now=1000;t.mock.method(performance,'now',()=>now);
+  const h=harness();
+  try{
+    const pending=h.client.read('curve.evaluate.v1',curveBody());pending.catch(()=>{});
+    await flush();now+=admissionWindowMs;
+    const source=await h.ready();
+    assert.equal(h.channels.length,1,'an expired opening must not loop through channel renewal');
+    assert.equal(h.requests.length,0);assert.equal(source.closed,true);
+    await assert.rejects(pending,{code:'async_read_connection_timeout'});
+  }finally{h.client.close();}
+});
+
 test('a channel opening requires an explicit usable admission window',async()=>{
-  for(const window of [undefined,null,'230000',-1,0,1000,1000.5]){
+  for(const window of [undefined,null,'230000',-1,0,1000.5,Number.MAX_SAFE_INTEGER+1]){
     const h=harness({post:async()=>({protocol,channelId:snapshotId,profile:'synthetic_viewer',context:null,admissionWindowMs:window})});
     await assert.rejects(h.client.read('curve.evaluate.v1',curveBody()),{code:'async_read_protocol'});
     assert.equal(h.sources.length,0);h.client.close();
