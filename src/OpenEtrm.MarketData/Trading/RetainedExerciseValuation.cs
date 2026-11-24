@@ -44,12 +44,12 @@ internal sealed class RetainedExerciseValuation
         var byOccurrence = side.Lifecycle!.Rows.ToDictionary(row => row.Occurrence);
         ILookup<int, int>? sources = null;
         var quantities = days.ToDictionary(day => day.Day);
+        var holderReceives = (membership.Numerator.Sign > 0) == (right.Holder == ExerciseHolder.Us);
         foreach (var contribution in side.Execution.Contributions)
         {
             var output = program.Document.Instructions[contribution.Instruction].Output;
             var row = byOccurrence[output.PaymentOrdinal!.Value];
             var amount = (row.Expected?.Add(row.Paid) ?? row.Unrealized).Ratio;
-            if (amount.Numerator.IsZero && right.Settlement == ExerciseSettlement.Physical) continue;
             var shares = new Dictionary<Amounts, SignedRatio>();
             var total = SignedRatio.Zero;
             for (var day = row.DeliveryFrom; day < row.DeliveryTo; day = day.AddDays(1))
@@ -86,9 +86,8 @@ internal sealed class RetainedExerciseValuation
                 if (group.Outcome != ExerciseDecisions.Undecided) continue;
                 var holder = right.Holder == ExerciseHolder.Us ? forward : SignedRatio.Zero - forward;
                 group.HasUncertainPrice |= !certain;
-                if (holder.Numerator.IsZero) continue;
                 if (certain) group.Certain += holder;
-                else if (holder.Numerator.Sign > 0)
+                else if (holderReceives)
                 {
                     SetCurve(ref group.ReceiveCurve, curve!.Value);
                     group.Receives += holder;

@@ -40,6 +40,7 @@ internal static class ExerciseRightChecks
         Check("published prices decide cash groups and forecasts retain zero-time intrinsic value", AutomaticCash);
         Check("an automatic exercise selects gross cash and retains the Side payment balance", AutomaticPayments);
         Check("a counterparty cash spread uses only its remaining uncertain prices", AutomaticSpread);
+        Check("zero forecasts retain the curve scope of each allocated membership", ZeroForecastScope);
         Check("a cash keep-whole takes its outside scheduled shortfall", AutomaticShortfall);
         Check("an outside physical source remains available to a contingent cash member", CashElectionSource);
         Check("state admission and pricing declaration validate election groups and payment knowledge", ElectionAdmission);
@@ -648,6 +649,32 @@ internal static class ExerciseRightChecks
         var (decided, exercise) = f.Value(Right(null), f.FixingAt, dailyFixing: "3.20", monthlyFixing: "3.00");
         if (exercise.State != "exercised" || exercise.Counted.Ratio != R("-2000") || TradeValue(decided).Ratio != R("-32000"))
             throw new Exception("A certain gain for the counterparty selects the negative held spread and its ordinary rows.");
+    }
+
+    private static void ZeroForecastScope()
+    {
+        var f = new CashFixture();
+        var at = f.FixingAt.AddDays(-30);
+        var monthlyMark = f.Marks with { Volatilities = [f.Marks.Volatilities[1]], Correlations = [] };
+        var validSpread = f.Instrument(ExerciseHolder.Us, monthlyMark, f.Daily, CashPayment(f.Monthly, "-1"));
+        var (_, valid) = f.Value(validSpread, at, forecast: "0");
+        if (valid.Inputs is not { ReceivesVolatility: null, PaysVolatility: not null, Correlation: null })
+            throw new Exception("Only the nonzero monthly holder amount requires a model mark.");
+        var twoReceipts = f.Instrument(ExerciseHolder.Us, f.Marks, f.Daily, f.Monthly);
+        var oppositeMemberships = f.Instrument(ExerciseHolder.Us, f.Marks, f.Daily, CashPayment(f.Daily, "-1"));
+        var physical = new GroupFixture(index: true, sameSign: true);
+        var accepted = new List<string>();
+        void RequireScopeRefusal(string description, Action price)
+        {
+            try { price(); }
+            catch (MarketDataException error) when (error.Code == "exercise_model_scope") { return; }
+            accepted.Add(description);
+        }
+        RequireScopeRefusal("cash receipts on two curves", () => f.Value(twoReceipts, at, forecast: "0"));
+        RequireScopeRefusal("cash receipt and payment on one curve", () => f.Value(oppositeMemberships, at, forecast: "0"));
+        RequireScopeRefusal("physical and cash receipts on two curves", () => TradeValue(physical.Prepare(point: "0").Risk));
+        if (accepted.Count != 0)
+            throw new Exception($"Positive quantities at a zero forecast bypassed exercise_model_scope for {string.Join(", ", accepted)}.");
     }
 
     private static void AutomaticShortfall()
