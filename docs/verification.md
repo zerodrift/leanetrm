@@ -28,8 +28,18 @@ current-authority failures refuse. Migration checks pin predecessor definition,
 owner, grants and configuration, test an independent caller search path and
 preserve populated predecessor requests.
 
+Review regression checks reject missing modern retry fields and a fixing on a
+different same-date contract. Independent physical sources with overlapping
+terms and different gas clocks accrue only their own payments; both contract and
+delivery-schedule policies pass. Changed source maps refuse prepared-context and
+definition reuse while preserving legacy economic canonical bytes. The HTTP
+suite also verifies the partial-payment case through reads and queued risk.
+
 The full managed group passes 80 runner checks, including 803 managed core
-checks. The ticket suite passes 156 checks and the shared description suite 67. All
+checks. The full gas group passes 17 runner checks and 173 browser checks;
+the full trading group passes 20 runner checks and 489 browser checks. All three
+groups passed again on application commit `26324396` after the review fixes.
+The ticket suite passes 169 checks and the shared description suite 67. All
 2,328 frontend tests pass with Node test concurrency explicitly bounded at two;
 unbounded attempts hit browser/process-startup timeouts, with no assertions or
 timeouts relaxed. Five pricing browser checks cover conditional levels, fuel-link
@@ -38,7 +48,7 @@ browser checks retain the original 59-day amounts and inspection paging.
 
 ### Fixed synthetic benchmark
 
-Base `aab2c3e6` and application tip `23e93d81` ran the same
+Base `aab2c3e6` and application tip `26324396` ran the same
 `--risk-benchmark` workload in Release on .NET 10.0.13, macOS 26.6.2 arm64,
 14 logical processors. Every workload has 50,000 bindings. Each gets one warm-up
 and five sequential samples with fresh within-run caches. Construction is
@@ -53,12 +63,12 @@ validation; peak/resident/native memory is not measured.
 
 | Workload | Unique held contracts | Scenarios | Side evaluations, both | Unit calls, both | Median ms, base / tip | Allocated bytes, base / tip |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| repeated | 1 | 3 | 3 | 3 | 457.90 / 533.71 | 502,509,232 / 559,709,896 |
-| shared fanout | 128 | 7 | 388 | 388 | 820.82 / 819.93 | 884,424,448 / 1,024,876,880 |
-| distinct | 5,000 | 3 | 15,000 | 15,000 | 800.26 / 901.25 | 946,337,784 / 1,005,018,784 |
-| multilevel basis books (9) | 9 | 19 | 106 | 53 | 3.08 / 3.61 | 4,481,016 / 4,488,856 |
-| multilevel basis books (216) | 216 | 433 | 2,544 | 1,272 | 257.63 / 307.34 | 1,021,487,104 / 1,023,918,728 |
-| futures books | 1 | 3 | 0 | 3 | 153.01 / 170.54 | 228,780,792 / 228,781,712 |
+| repeated | 1 | 3 | 3 | 3 | 457.90 / 468.61 | 502,509,232 / 559,709,776 |
+| shared fanout | 128 | 7 | 388 | 388 | 820.82 / 845.53 | 884,424,448 / 1,024,876,880 |
+| distinct | 5,000 | 3 | 15,000 | 15,000 | 800.26 / 904.39 | 946,337,784 / 1,005,019,504 |
+| multilevel basis books (9) | 9 | 19 | 106 | 53 | 3.08 / 3.98 | 4,481,016 / 4,488,856 |
+| multilevel basis books (216) | 216 | 433 | 2,544 | 1,272 | 257.63 / 349.71 | 1,021,487,104 / 1,023,918,672 |
+| futures books | 1 | 3 | 0 | 3 | 153.01 / 172.47 | 228,780,792 / 228,782,080 |
 
 Exact output parity and unchanged evaluated Side work pass. Timing was measured
 on a shared development host, with isolated integration groups also running;

@@ -15,6 +15,9 @@ request/program agreement, and predecessor function definitions and privileges
 are pinned. Completed old command replay and old identity bytes remain intact.
 The ticket, shared conditional controls and Side inspection expose the terms and
 provenance. Preview, trade, Blotter and queued risk report the same entry values.
+Local verification passes the full managed (80 runner checks), gas (17) and
+trading (20) groups. The fixed benchmark preserves evaluated Side work across
+all six workloads. Results and limitations are in [verification](verification.md).
 Local verification does not publish or deploy the migration.
 
 ## Selected gas delivery quantities (D445)
