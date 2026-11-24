@@ -144,6 +144,8 @@ public sealed record RiskWork(int PositionCount,int UniqueValuations,int UniqueM
     public int RepeatedScopeReferences=>PositionCount-UniqueValuations;
     public long UnitScenarioCandidates=>(long)UniqueValuations*ScenarioCount;
     public long ReusedUnitScenarioValues=>UnitScenarioCandidates-UnitPricerCalls;
+    public int PreparationUnitPricerCalls{get;init;}
+    public long TotalUnitPricerCalls=>(long)UnitPricerCalls+PreparationUnitPricerCalls;
     public int QuantityApplications{get;init;}
     public int PreparationScenarioCount{get;init;}
     public long CurveGraphEvaluatedNodes{get;init;}

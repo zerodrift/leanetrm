@@ -737,9 +737,10 @@ public sealed class PortfolioValuation(PreviewDatabase database)
     {
         var work=parts.ToArray();
         return new RiskWork(work.Sum(w=>w.PositionCount),work.Sum(w=>w.UniqueValuations),work.Sum(w=>w.UniqueMarketContracts),scenarios,
-            work.Sum(w=>w.UnitPricerCalls)+prepared.MaterializationWork.UnitPricerCalls,work.Sum(w=>w.RebuiltCurveNodes)+prepared.MaterializationWork.RebuiltCurveNodes,
+            work.Sum(w=>w.UnitPricerCalls),work.Sum(w=>w.RebuiltCurveNodes)+prepared.MaterializationWork.RebuiltCurveNodes,
             work.Sum(w=>w.ReusedCurveNodes)+prepared.MaterializationWork.ReusedCurveNodes)
-            {CurveGraphEvaluatedNodes=work.Sum(w=>w.CurveGraphEvaluatedNodes),CurveGraphReusedReads=work.Sum(w=>w.CurveGraphReusedReads),
+            {PreparationUnitPricerCalls=work.Sum(w=>w.PreparationUnitPricerCalls)+prepared.MaterializationWork.UnitPricerCalls,
+             CurveGraphEvaluatedNodes=work.Sum(w=>w.CurveGraphEvaluatedNodes),CurveGraphReusedReads=work.Sum(w=>w.CurveGraphReusedReads),
              UniqueInstruments=work.Sum(w=>w.UniqueInstruments),VolumeComputations=work.Sum(w=>w.VolumeComputations),
              UniqueSideCalculations=work.Sum(w=>w.UniqueSideCalculations),ResolvedCurveMonths=work.Sum(w=>w.ResolvedCurveMonths),
              ReusedCurveMonths=work.Sum(w=>w.ReusedCurveMonths),CalibratedBlocks=work.Sum(w=>w.CalibratedBlocks),ReusedBlocks=work.Sum(w=>w.ReusedBlocks),

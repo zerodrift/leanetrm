@@ -118,6 +118,22 @@ internal static class MonteCarloRiskContractChecks
         if(added.VolumeComputations!=0||added.CurveGraphEvaluatedNodes!=13||added.CurveGraphReusedReads!=10||added.PreparationScenarioCount!=0||
             added.RebuiltCurveNodes!=0||added.ReusedCurveNodes!=0||added.UnitPricerCalls!=13||added.QuantityApplications!=13)
             throw new Exception("Prior shared volume / graph / materialization work was charged again or fitting PV work disappeared.");
+        var qualified=preparation with{MaterializationWork=new(0,0,1,0),MaterializationScenarioCount=1};
+        var baseAndBumps=new RiskWork(1,1,1,3,3,0,0);
+        var inclusive=PortfolioValuation.CombineWork(qualified,[baseAndBumps],3);
+        var incremental=PortfolioRiskPreview.AdditionalPcaWork(qualified,inclusive,new(0,0,0));
+        if(incremental.UnitPricerCalls!=3||incremental.ReusedUnitScenarioValues!=0)
+            throw new Exception($"Three new scenario calls reused zero unit values; incremental receipt reports {incremental.UnitPricerCalls} calls and {incremental.ReusedUnitScenarioValues} reused.");
+        var receipt=JsonSerializer.SerializeToElement(incremental,RiskJobs.Json);
+        if(receipt.GetProperty("preparationUnitPricerCalls").GetInt32()!=0||receipt.GetProperty("totalUnitPricerCalls").GetInt32()!=3)
+            throw new Exception("A later fitting phase charged the same qualification PV again.");
+        var independentPasses=PortfolioRiskPreview.StatisticalWork(qualified,inclusive,[inclusive,inclusive]);
+        var incrementalPasses=PortfolioRiskPreview.StatisticalWork(qualified,inclusive,[inclusive,incremental],repeatedPreparation:false);
+        foreach(var aggregate in new[]{independentPasses,incrementalPasses})
+            if(aggregate.UnitPricerCalls!=6||aggregate.ReusedUnitScenarioValues!=0||
+                aggregate.PreparationUnitPricerCalls!=1||aggregate.TotalUnitPricerCalls!=7)
+                throw new Exception("Two base/up/down phases must report six scenario calls and one shared preparation call.");
+        Console.WriteLine("PASS incremental risk work: three new scenario calls, zero reuse and zero repeated qualification calls");
         // Frozen fitting reuses prepared quantities. Exercise preservation of a
         // subsequently measured increment using a second real volume operation.
         var nextInterval=fixture.Prepare(market,[next],extraSources:[nextSource]);

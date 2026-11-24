@@ -197,6 +197,15 @@ def curve_marks(c,query,manifest,context,fixed,base,plain,run_worker):
         return [(r['tradeId'],r['reason']) for r in risk.call('portfolio/risk/catalog',checked)['excludedPositions']]
     assert exclusions()==[(positive['tradeId'],'exercise_marks')]
     assert Fraction(holding(zero)['presentValue'])==96000
+    zero_scope={**scope,'tradeIds':[zero['tradeId']]}
+    zero_catalog=risk.call('portfolio/risk/catalog',zero_scope)
+    point_factor,=[f for f in zero_catalog['factors'] if f['curves']==[point]]
+    zero_request={**request,**zero_scope,'context':{**shared,'knowledgeMode':'retained','contextId':zero_catalog['context']['contextId']},
+                  'bumps':[dict(factor=point_factor['factor'],size='0.1',convention=zero_catalog['bumpConvention'])]}
+    work=risk.call('portfolio/risk',zero_request)['work']
+    assert (work['scenarioCount'],work['unitScenarioCandidates'],work['unitPricerCalls'],work['reusedUnitScenarioValues'])==(3,3,3,0),work
+    assert (work['preparationUnitPricerCalls'],work['totalUnitPricerCalls'])==(1,4),work
+    print('PASS gas exercise work: 3 scenario calls, 0 reused unit values, 1 preparation call and 4 total calls',flush=True)
     writer.call('volatility-marks/record',{**mark,'operationId':str(uuid4()),'curve':other})
     assert exclusions()==[(positive['tradeId'],'exercise_marks')]
     rho=writer.call('correlation-marks/record',pair)['marks'][0]

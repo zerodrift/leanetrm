@@ -19,7 +19,7 @@ public sealed partial class PortfolioRiskPreview
     internal static RiskWork AdditionalPcaWork(PortfolioValuation.Prepared portfolio,RiskWork work,ConnectedPreparationCounters prior)=>work with{
         RebuiltCurveNodes=work.RebuiltCurveNodes-portfolio.MaterializationWork.RebuiltCurveNodes,
         ReusedCurveNodes=work.ReusedCurveNodes-portfolio.MaterializationWork.ReusedCurveNodes,
-        PreparationScenarioCount=0,
+        PreparationScenarioCount=0,PreparationUnitPricerCalls=0,
         CurveGraphEvaluatedNodes=work.CurveGraphEvaluatedNodes-prior.EvaluatedNodes,
         CurveGraphReusedReads=work.CurveGraphReusedReads-prior.ReusedReads,
         VolumeComputations=work.VolumeComputations-prior.VolumeComputations};

@@ -1,3 +1,4 @@
+import {validPricerCalls,type PricerCallWork} from './risk-report.js';
 import {amountText} from './amount-display.js';
 import {exactNumber} from './exact-number.js';
 import {validateSampleCoverage} from './historical-risk.js';
@@ -6,7 +7,7 @@ import type {ChartSpec} from './chart-view.js';
 
 export type PcaHybridPolicy={convention:string;numericalPolicy:string;scalingPolicy:string;residualPolicy:string;valuationPolicy:string;directionPolicy:string;retainedComponents:number;tradingTicks:number;stabilityRelative:string;lossAbsolute:string;lossRelative:string};
 export type PcaHybridCapabilities={profile:Omit<PcaHybridPolicy,'retainedComponents'|'tradingTicks'|'stabilityRelative'|'lossAbsolute'|'lossRelative'>;defaults:Pick<PcaHybridPolicy,'retainedComponents'|'tradingTicks'|'stabilityRelative'|'lossAbsolute'|'lossRelative'>;fallbackValuationPolicy:string;capacities:{components:number;scopeMaxPaths:number}[]};
-export type PcaWork={unitPricerCalls:number;scenarioCount:number;uniqueValuations:number;uniqueMarketContracts:number;quantityApplications:number;curveGraphEvaluatedNodes:number;rowEvaluations:number;volumeComputations:number};
+export type PcaWork=PricerCallWork&{scenarioCount:number;uniqueValuations:number;uniqueMarketContracts:number;quantityApplications:number;curveGraphEvaluatedNodes:number;rowEvaluations:number;volumeComputations:number};
 export type PcaHybridView={policy:PcaHybridPolicy;available:boolean;fallbackClassifications:{valuationKey:string;exposureIds:string[];method:string;reasons:string[]}[];unavailableReasons:{code:string;message:string}[];
  pca:null|{policy:PcaHybridPolicy;columns:string[];scales:string[];eigenvalues:string[];varianceShares:string[];loadings:string[][];residualCovariance:string[][];retainedResidualCovariance:string[][];matrixNorm:string;sweeps:number;roundoffNegativeEigenvalues:number;reconstructionError:string;orthogonalityError:string;eigenResidual:string;retainedVarianceShare:string;samples:{id:string;scores:string[];residualNorm:string;reconstructionError:string}[]};
  fit:null|{nativeSteps:string[];pcDirections:string[][];projection:string[][];directionError:string;projectionError:string;scenarioCount:number};
@@ -83,7 +84,7 @@ export function validatePcaHybrid(report:MonteCarloContainer,v:MonteCarloView){
  validatePcaPolicy(p,v.factors.length,[pcaHybridProfile.valuationPolicy,pcaHybridFallbackPolicy,pcaHybridLegacyPolicy]);
  if(!v.result.available){if(a!=null)throw bad();return;}
  if(!a||!same(a.policy,p)||typeof a.available!=='boolean'||!Array.isArray(a.unavailableReasons)||!a.cost||a.cost.mode!==p.valuationPolicy||typeof a.cost.attemptUnmetered!=='boolean')throw bad();
- for(const work of [a.cost.reference,a.cost.additional].filter(x=>x!==null))if(!work||Object.values(work).some(n=>typeof n==='number'&&(!Number.isSafeInteger(n)||n<0))||!Number.isSafeInteger(work.unitPricerCalls)||!Number.isSafeInteger(work.scenarioCount))throw bad();
+ for(const work of [a.cost.reference,a.cost.additional].filter(x=>x!==null))if(!work||Object.values(work).some(n=>typeof n==='number'&&(!Number.isSafeInteger(n)||n<0))||!validPricerCalls(work)||!Number.isSafeInteger(work.scenarioCount))throw bad();
  validatePcaCalibration(v,p,a.pca);
  const allowsFallback=p.valuationPolicy!==pcaHybridProfile.valuationPolicy;
  if(!Array.isArray(a.fallbackClassifications)||a.available&&a.fallbackClassifications.length)throw bad();

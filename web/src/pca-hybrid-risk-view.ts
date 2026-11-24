@@ -1,5 +1,6 @@
+import {pricerCallText} from './risk-report.js';
 import {node,table} from './risk-report-elements.js';
-import {pcaCharts,pcaHybridProfile,pcaHybridLegacyPolicy} from './pca-hybrid-risk.js';
+import {pcaCharts,pcaHybridProfile,pcaHybridLegacyPolicy,type PcaWork} from './pca-hybrid-risk.js';
 import type {MonteCarloView} from './monte-carlo-risk.js';
 import {calibrationMatrix} from './parametric-risk.js';
 import {renderChart} from './chart-view.js';
@@ -52,12 +53,13 @@ export function renderPcaHybrid(host:HTMLElement,v:MonteCarloView,partition:numb
   }
   panel.append(matrix);
  }
+ const workCell=(work:PcaWork,key:keyof PcaWork)=>key==='unitPricerCalls'?pricerCallText(work):String(work[key]);
  const cost=node('details');cost.open=true;cost.append(node('summary','Calculation cost'),
   node('p','Full repricing remains required for qualification. The additional column is measured fitting work, not estimated savings.'),
   table(['Work','Full-PV reference','Additional qualification'],([
    ['Unique unit valuations','uniqueValuations'],['Unique market contracts','uniqueMarketContracts'],['Scenarios including base','scenarioCount'],
    ['Unit-pricer calls','unitPricerCalls'],['Quantity applications','quantityApplications'],['Prepared volume computations','volumeComputations'],['Evaluated curve nodes','curveGraphEvaluatedNodes'],['Interval rows','rowEvaluations']
-  ] as const).map(([label,key])=>[label,String(a.cost.reference[key]),a.cost.additional?String(a.cost.additional[key]):a.cost.attemptUnmetered?'Unavailable after failed attempt':'0'])));
+  ] as const).map(([label,key])=>[label,workCell(a.cost.reference,key),a.cost.additional?workCell(a.cost.additional,key):a.cost.attemptUnmetered?'Unavailable after failed attempt':'0'])));
  if(a.cost.attemptUnmetered)cost.append(node('p','The fitting attempt failed before complete work counters were returned. Reference counters exclude that attempt; total work is unavailable.'));
  panel.append(cost);
 }

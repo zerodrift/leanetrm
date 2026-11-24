@@ -9,7 +9,7 @@ import {projectionPolicyLabels} from './projection-policy.js';
 // is a part of, and shown as one run. Each factor's results are its own, so no arithmetic combines parts, and a part that fails is said to
 // have failed. What the report holds outlives the panel's other modes; a new read of the Blotter clears it.
 import {riskContextLabel} from './risk-time.js';
-import {riskWorkDetails,type ExcludedPosition,type RiskReport} from './risk-report.js';
+import {pricerCallText,riskWorkDetails,type ExcludedPosition,type RiskReport} from './risk-report.js';
 import {PendingCommand} from './pending-command.js';
 import {publicText,timeLabels} from './market-view.js';
 import {scenarioShift,knownRiskRejection,type ScenarioTarget,type ScenarioShift} from './risk-scenarios.js';
@@ -709,7 +709,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   }
   function workEvidence(report:RiskReport,prefix:string){
     const w=report.work,wrap=document.createElement('div'),overview=document.createElement('p');
-    overview.textContent=publicText(`${prefix}${w.positionCount} holdings · ${report.heldInstruments} held instruments · ${w.uniqueValuations} unit valuations · ${w.scenarioCount} valuation scenarios · ${w.preparationScenarioCount} preparation scenarios · ${w.unitPricerCalls} pricer calls · ${w.repeatedInstrumentReferences} additional quantity references · ${w.quantityApplications} quantity applications.`);
+    overview.textContent=publicText(`${prefix}${w.positionCount} holdings · ${report.heldInstruments} held instruments · ${w.uniqueValuations} unit valuations · ${w.scenarioCount} valuation scenarios · ${w.preparationScenarioCount} preparation scenarios · ${pricerCallText(w,'pricer calls')} · ${w.repeatedInstrumentReferences} additional quantity references · ${w.quantityApplications} quantity applications.`);
     const evidence=document.createElement('details'),title=document.createElement('summary'),rows=document.createElement('ul');title.textContent='Graph and preparation work';
     for(const line of riskWorkDetails(report)){const item=document.createElement('li');item.textContent=line;rows.append(item);}
     evidence.append(title,rows);wrap.append(overview);for(const label of projectionPolicyLabels(report.projectionPolicies)){const note=document.createElement('p');note.textContent=label;wrap.append(note);}wrap.append(evidence);return wrap;
