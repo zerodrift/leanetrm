@@ -11,6 +11,7 @@ CHECK_PROJECTS = (
     ('tests/OpenEtrm.MarketData.Checks/OpenEtrm.MarketData.Checks.csproj', ()),
     ('tests/OpenEtrm.MarketData.Checks/OpenEtrm.MarketData.Checks.csproj', ('--futures-options',)),
     ('tests/OpenEtrm.MarketData.Checks/OpenEtrm.MarketData.Checks.csproj', ('--spread-options',)),
+    ('tests/OpenEtrm.MarketData.Checks/OpenEtrm.MarketData.Checks.csproj', ('--exercise-rights',)),
     ('tests/OpenEtrm.MarketData.Checks/OpenEtrm.MarketData.Checks.csproj', ('--vol-surface',)),
     ('tests/OpenEtrm.MarketData.Checks/OpenEtrm.MarketData.Checks.csproj', ('--calendar-policy',)),
     ('tests/OpenEtrm.MarketData.Checks/OpenEtrm.MarketData.Checks.csproj', ('--payment-date-policy',)),
