@@ -49,6 +49,29 @@ internal static class GasTicketChecks
             Equal("PAY,RCT",string.Join(",",right.Entries),"entry order");
             Equal(("delivery_day","us","physical",(int?)6),(right.Period,right.Holder,right.Settlement,right.LeadHours),"saved terms");
         });
+        Check("owning charge terms round trip and an absent charge preserves the wire request", () =>
+        {
+            var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+            var plain = Map(Draft(Receipt));
+            Equal(false, JsonSerializer.SerializeToElement(plain,json).TryGetProperty("chargeSides",out _), "absent charges");
+            var lump = new GasChargeRequest("fee","lump_sum","pay","500",null,null,null,"2027-01-10T00:00:00Z",null,"RCT"){ CalendarPolicy=Policy("cash") };
+            var capacity = new GasChargeRequest("capacity","capacity","receive","0.02","10000","2027-01-20","2027-03-11",null,2,"RCT"){ CalendarPolicy=Policy("cash") };
+            var wire = JsonSerializer.Serialize(plain with{ ChargeSides=[lump,capacity] },json);
+            var saved = JsonSerializer.Deserialize<GasCompositionRequest>(wire,json)!.ChargeSides!.Value;
+            Equal(lump,saved[0],"lump sum"); Equal(capacity,saved[1],"capacity");
+            var key=Policy("cash").Delivery.Calendar!.Value;
+            var quote=new QuoteSpecification(key,QuoteKind.Outright,key,key,ExactDecimal.Parse("2"),ExactDecimal.Parse("0.01"),
+                ExactDecimal.Parse("0.01"),ExactDecimal.Parse("-1000"),ExactDecimal.Parse("1000"));
+            var price=GasCompositionStore.ChargePrice("5000",quote);
+            Equal(PriceUnit.FromQuote(quote),price.Unit,"retained quote unit");
+            Equal("2500",price.Value.ToString(),"exact contractual quote literal");
+            Equal("5000",price.ExactTimes(new(ExactDecimal.Parse("1"),key)).ToExactString(),"stated cash amount");
+            var rate=GasCompositionStore.ChargePrice("0.02",quote);
+            Equal("200",rate.ExactTimes(new(ExactDecimal.Parse("10000"),key)).ToExactString(),"stated daily cash");
+            Refuses("gas_composition_input","an unrepresentable cash amount",()=>GasCompositionStore.ChargePrice("1",quote with{Multiplier=ExactDecimal.Parse("3")}));
+            Refuses("gas_composition_input","a lump sum supplying a quantity",()=> (lump with{DailyQuantity="1"}).RequireBasis());
+            Refuses("gas_composition_input","capacity supplying a payment instant",()=> (capacity with{PaymentAt=lump.PaymentAt}).RequireBasis());
+        });
         var jsonOptions=new JsonSerializerOptions(JsonSerializerDefaults.Web);
         var dailyRight=new {right_sides=new[]{"PAY","RCT"},right_period="delivery_day",right_holder="us",right_settlement="physical",right_lead_hours="6"};
         TicketDraft Rights(TicketDraft draft,params object[] rights)

@@ -45,6 +45,7 @@ def main():
     parser.add_argument('--gas-operations-check',action='store_true',help='Qualify manual gas requests, acknowledgments and imbalance transfers')
     parser.add_argument('--gas-billing-check',action='store_true',help='Qualify final daily gas cash and retained corrections')
     parser.add_argument('--gas-exercise-check',action='store_true',help='Qualify gas exercise right admission and retained exercise times')
+    parser.add_argument('--gas-charges-check', action='store_true', help='Qualify independent gas charges and their retained payment rows')
     parser.add_argument('--gas-pricing-check',action='store_true',help='Qualify exact gas payment shares, parts, dates and named indexes')
     parser.add_argument('--gas-delivery-quantity-check',action='store_true',help='Qualify selected delivery quantities in booked valuation and retained risk')
     parser.add_argument('--gas-daily-quantity-check',action='store_true',help='Qualify daily trade-owned quantities, temporal selection and corrections')
@@ -195,7 +196,7 @@ def main():
     if args.gas_quantity_benchmark: args.gas_daily_quantity_check=True
     if args.with_gas_operations_demo: args.with_gas_basis_demo=True
     if args.gas_billing_check or args.gas_operations_check: args.physical_gas_check=True
-    if args.gas_setup_check or args.gas_composition_check or args.gas_amendments_check or args.gas_indexed_check or args.gas_in_term_check or args.deal_ticket_check or args.gas_daily_quantity_check or args.gas_delivery_quantity_check or args.gas_pricing_check or args.gas_exercise_check or args.facility_quantity_check: args.physical_gas_check=True
+    if args.gas_setup_check or args.gas_composition_check or args.gas_amendments_check or args.gas_indexed_check or args.gas_in_term_check or args.deal_ticket_check or args.gas_daily_quantity_check or args.gas_delivery_quantity_check or args.gas_charges_check or args.gas_pricing_check or args.gas_exercise_check or args.facility_quantity_check: args.physical_gas_check=True
     if args.gas_in_term_check and args.gas_indexed_check: parser.error('--gas-in-term-check and --gas-indexed-check use different fixtures; run them separately')
     if args.demo_instruments_check or args.gas_indexed_check or args.gas_in_term_check: args.check=True
 
@@ -208,7 +209,7 @@ def main():
     if args.authoring_browser_suite and not(args.browser_check and args.custom_curves_check):
         parser.error('--authoring-browser-suite requires --custom-curves-check or --price-authoring-check, and --browser-check')
     if args.lifecycle_swap_browser_check and not args.browser_check: parser.error('--lifecycle-swap-browser-check requires --browser-check and --browser')
-    fixing_frames=args.lifecycle_swap_browser_check or args.price_authoring_check or args.gas_operations_check or args.gas_billing_check or gas_demo or args.physical_crude_check or args.lng_cargo_check or args.crude_lifecycle_check or args.with_gas_quantity_dates or args.gas_amendments_check or args.gas_indexed_check or args.gas_daily_quantity_check or args.gas_delivery_quantity_check or args.gas_pricing_check or args.gas_exercise_check or args.facility_quantity_check or args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check or args.close_out_drafts_check
+    fixing_frames=args.lifecycle_swap_browser_check or args.price_authoring_check or args.gas_operations_check or args.gas_billing_check or gas_demo or args.physical_crude_check or args.lng_cargo_check or args.crude_lifecycle_check or args.with_gas_quantity_dates or args.gas_amendments_check or args.gas_indexed_check or args.gas_daily_quantity_check or args.gas_delivery_quantity_check or args.gas_charges_check or args.gas_pricing_check or args.gas_exercise_check or args.facility_quantity_check or args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check or args.close_out_drafts_check
 
     if args.blotter_stream_benchmark and (args.output is None or args.output.resolve().is_relative_to(ROOT)):
         parser.error('--blotter-stream-benchmark requires an --output file outside the repository')
@@ -327,7 +328,7 @@ def main():
             if args.gas_indexed_check:
                 from gas_indexed_fixture import add_fixture
                 reference,market,security,manifest=add_fixture(reference,market,security,manifest)
-            if args.gas_pricing_check or args.gas_exercise_check:
+            if args.gas_charges_check or args.gas_pricing_check or args.gas_exercise_check:
                 from gas_pricing_fixture import add_fixture as add_pricing_fixture
                 reference,market,security,manifest=add_pricing_fixture(reference,market,security,manifest,exercise_months=args.gas_exercise_check)
             if args.gas_delivery_quantity_check:
@@ -378,6 +379,13 @@ def main():
             if migration.name=='0216_in_term_gas_lifecycle.sql':
                 from check_gas_in_term import upgrade_checks as check_in_term_upgrade
                 check_in_term_upgrade(query,migration)
+            if migration.name=='0397_gas_charge_entries.sql' and args.gas_charges_check:
+                from check_fact_anchor_upgrade import run_checks as check_charge_upgrade
+                check_charge_upgrade(query,migration,number='0397',guard='gas_charge_upgrade',signatures=(
+                    'security.write_gas_composition(uuid,jsonb,timestamptz,boolean)',
+                    'trading.require_gas_program_shape(uuid,uuid,integer,date,date,timestamptz,numeric,numeric,market_data.gas_valuation_assignments,ref_data.gas_delivery_conventions,timestamptz,jsonb,numeric)',
+                    'security.record_gas_cash_payment(uuid,jsonb,timestamptz)',
+                    'trading.request_side_calendar_policy(jsonb,integer)', 'trading.require_gas_cash_payment()'))
             if migration.name=='0395_joint_volatility_shifts.sql' and args.gas_exercise_check:
                 from check_fact_anchor_upgrade import run_checks as check_volatility_upgrade
                 check_volatility_upgrade(query,migration,number='0395',guard='joint_volatility_upgrade',
@@ -1139,11 +1147,14 @@ def main():
                 check_gas_in_term(url,query,manifest,risk_worker_runner(),admin_load_in_term,browse_in_term if args.browser_check else None)
                 from check_gas_point_in_term import run_checks as check_point_in_term
                 check_point_in_term(url,query,manifest,admin_load_in_term)
-            elif args.gas_pricing_check or args.gas_exercise_check:
+            elif args.gas_charges_check or args.gas_pricing_check or args.gas_exercise_check:
                 run_worker=risk_worker_runner()
                 if args.gas_composition_check:
                     from check_gas_composition import run_checks as check_gas_composition
                     check_gas_composition(url,query,manifest,run_worker=run_worker)
+                if args.gas_charges_check:
+                    from check_gas_charges import run_checks as check_gas_charges
+                    check_gas_charges(url,query,manifest)
                 if args.gas_pricing_check:
                     from check_gas_pricing import run_checks as check_gas_pricing
                     pricing_fixture=check_gas_pricing(url,query,manifest,run_worker,admin_load_in_term)

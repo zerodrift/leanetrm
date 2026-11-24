@@ -21,6 +21,11 @@ application. See [current implementation](../docs/implementation.md) and
 
 Recent schema groups and their contracts:
 
+- Gas compositions may retain independent lump sums and daily capacity charges.
+  Each selects a physical membership for its clock and owns its payment quantities
+  and dates. Capacity payments use the selected day of the next UTC month.
+  A recorded payment requires an ended day in its own occurrence.
+  [0397](migrations/0397_gas_charge_entries.sql)
 - A physical exercise action compares each saved period with the latest revision
   known when the ticket opened, including future-effective instructions and
   withdrawals. Preparing a range requires current amendment authority on the
