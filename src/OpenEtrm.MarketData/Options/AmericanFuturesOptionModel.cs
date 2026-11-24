@@ -6,20 +6,22 @@ namespace OpenEtrm.MarketData.Options;
 
 public enum OptionRight { Call = 1, Put }
 
-// The listed option terms the model supports: American exercise into the
-// underlying future. Anything else is rejected rather than priced as something
-// it is not.
+// The listed option terms the models support: American or European exercise into
+// the underlying future. Anything else is rejected rather than priced as something
+// it is not. The stated style selects the model (FuturesOptionModels).
 public sealed record FuturesOptionTerms(OptionRight Right, ExactDecimal Strike, DateTimeOffset ExpiryAt, string ExerciseStyle, string SettlementMethod)
 {
+    public const string American = "american";
+    public const string European = "european";
     public OptionRight Right { get; } = Enum.IsDefined(Right) ? Right
         : throw new MarketDataException("option_terms", $"Unsupported option right {(int)Right}.");
-    public string ExerciseStyle { get; } = ExerciseStyle == "american" ? ExerciseStyle
-        : throw new MarketDataException("option_terms", $"Unsupported exercise style '{ExerciseStyle}'; only american is supported.");
+    public string ExerciseStyle { get; } = ExerciseStyle is American or European ? ExerciseStyle
+        : throw new MarketDataException("option_terms", $"Unsupported exercise style '{ExerciseStyle}'; only {American} and {European} are supported.");
     public string SettlementMethod { get; } = SettlementMethod == "exercise_into_future" ? SettlementMethod
         : throw new MarketDataException("option_terms", $"Unsupported settlement method '{SettlementMethod}'; only exercise_into_future is supported.");
 }
 
-// How a tree is laid out against the futures price and the strike.
+// How a tree is laid out against the futures price and the strike, or that the policy's model has none.
 public enum OptionLattice
 {
     // Cox-Ross-Rubinstein: levels a constant factor apart around the futures price. The tree is rebuilt around each
@@ -28,6 +30,8 @@ public enum OptionLattice
     // Leisen-Reimer: an odd number of steps whose two middle terminal nodes lie either side of the strike at every
     // futures price, so no level crosses it.
     CentredOnStrike,
+    // No tree: a formula in closed form, smooth in the futures price.
+    ClosedForm,
 }
 
 // Lattice, Steps and DayCount drive the tree; the volatility bracket and MaxIterations
@@ -35,16 +39,23 @@ public enum OptionLattice
 // of quote) is the step-count stability tolerance: on the convergence cases the
 // pinned tree agrees with a tree of four times the steps within it. It is neither
 // an accuracy bound (see AmericanFuturesOptionModel) nor the calibration round-trip
-// bound, which is half the series' clearing increment.
+// bound, which is half the series' clearing increment. A formula has no steps and
+// no step tolerance.
 public sealed record OptionNumericalPolicy(
     string Id, OptionLattice Lattice, int Steps, string DayCount, LatticeDecimal VolatilityMin, LatticeDecimal VolatilityMax,
-    LatticeDecimal PriceTolerance, int MaxIterations);
+    LatticeDecimal PriceTolerance, int MaxIterations)
+{
+    // How far below the selected curve's discount factor the one a settlement implies may lie. Stated by a policy whose
+    // zero-volatility value is discounted; a tree's is undiscounted intrinsic and states none.
+    public LatticeDecimal? DiscountTolerance { get; init; }
+}
 
 public static class OptionNumericalPolicies
 {
     public const string ActualOver365FixedInstant = "act_365_fixed_instant_v1";
     public const string CoxRossRubinstein = "american_futures_option_crr_v1";
     public const string LeisenReimer = "american_futures_option_leisen_reimer_v1";
+    public const string Black76 = "european_futures_option_black76_v1";
 
     // Chosen from convergence evidence over the Black-76 oracle cases:
     // - 400 steps bound |tree - Black-76| by F*sigma*sqrt(T)/3200. Observed errors
@@ -74,10 +85,20 @@ public static class OptionNumericalPolicies
         LeisenReimer, OptionLattice.CentredOnStrike, 401, ActualOver365FixedInstant,
         LatticeDecimal.Parse("0.01"), LatticeDecimal.Parse("3"), LatticeDecimal.Parse("0.01"), 30);
 
+    // The Black-76 formula (EuropeanFuturesOptionModel) keeps the day count, the bracket and the iteration limit. It has
+    // no lattice, so no steps, no step tolerance and no range that lowers the bracket's top.
+    // - DiscountTolerance 0.005: a settlement is struck with the market's discounting, not the selected curve's, so far
+    //   in the money it can lie below the curve's discount times intrinsic. 0.005 admits a rate 0.5% a year above the
+    //   curve's for a year, or 2% for a quarter (EuropeanFuturesOptionChecks).
+    private static readonly OptionNumericalPolicy Black76V1 = new(
+        Black76, OptionLattice.ClosedForm, 0, ActualOver365FixedInstant,
+        LatticeDecimal.Parse("0.01"), LatticeDecimal.Parse("3"), LatticeDecimal.Parse("0"), 30) { DiscountTolerance = LatticeDecimal.Parse("0.005") };
+
     public static OptionNumericalPolicy Require(string id) => id switch
     {
         CoxRossRubinstein => CrrV1,
         LeisenReimer => LeisenReimerV1,
+        Black76 => Black76V1,
         _ => throw new MarketDataException("option_numerical_policy", $"Unknown option numerical policy '{id}'."),
     };
 }
@@ -137,16 +158,24 @@ public static class AmericanFuturesOptionModel
     internal static LatticeDecimal ValidateInputs(FuturesOptionTerms terms, LatticeDecimal futures, LatticeDecimal discountToExpiry,
         DateTimeOffset valuationAt, OptionNumericalPolicy policy)
     {
+        if (terms.ExerciseStyle != FuturesOptionTerms.American)
+            throw new MarketDataException("option_terms", $"The tree prices American exercise only; the series states '{terms.ExerciseStyle}'.");
+        RequireMarketInputs(terms, futures, discountToExpiry);
+        RequireSteps(policy);
+        return YearFraction(valuationAt, terms.ExpiryAt, policy);
+    }
+
+    // The prices and the discount factor every option model needs, whatever its style.
+    internal static void RequireMarketInputs(FuturesOptionTerms terms, LatticeDecimal futures, LatticeDecimal discountToExpiry)
+    {
         RequirePositive(futures, "futures price");
         RequirePositive(LatticeDecimal.From(terms.Strike), "strike");
         RequirePositive(discountToExpiry, "discount factor");
         if (discountToExpiry.CompareTo(One) > 0)
             throw new MarketDataException("option_input", $"The discount factor {discountToExpiry} must not exceed 1.");
-        RequireSteps(policy);
-        return YearFraction(valuationAt, terms.ExpiryAt, policy);
     }
 
-    private static void RequirePositive(LatticeDecimal value, string name)
+    internal static void RequirePositive(LatticeDecimal value, string name)
     {
         if (value.CompareTo(Zero) <= 0)
             throw new MarketDataException("option_input", $"The {name} must be positive; got {value}.");
@@ -186,6 +215,8 @@ public static class AmericanFuturesOptionModel
     {
         if (!Enum.IsDefined(policy.Lattice))
             throw new MarketDataException("option_numerical_policy", $"Unsupported lattice {(int)policy.Lattice}.");
+        if (policy.Lattice == OptionLattice.ClosedForm)
+            throw new MarketDataException("option_numerical_policy", $"Policy '{policy.Id}' names a formula; the tree needs a lattice.");
         if (policy.Steps < 1)
             throw new MarketDataException("option_numerical_policy", $"The policy needs at least one step; got {policy.Steps}.");
         if (policy.Lattice == OptionLattice.CentredOnStrike && policy.Steps % 2 == 0)

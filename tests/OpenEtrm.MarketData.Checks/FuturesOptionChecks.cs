@@ -130,13 +130,13 @@ internal static partial class FuturesOptionChecks
         Reject("option_context",()=>RiskEngine.PrepareConnected(built.Connected,built.PricingBindings,[wrongPortfolio],built));
     }
 
-    private static readonly DateTimeOffset ValuationAt = new(2026, 1, 5, 19, 30, 0, TimeSpan.Zero);
+    internal static readonly DateTimeOffset ValuationAt = new(2026, 1, 5, 19, 30, 0, TimeSpan.Zero);
     private static readonly OptionNumericalPolicy Policy = OptionNumericalPolicies.Require(OptionNumericalPolicies.CoxRossRubinstein);
 
-    private sealed record Black76Case(string Futures, string Strike, string Volatility, string Years, string Discount,
+    internal sealed record Black76Case(string Futures, string Strike, string Volatility, string Years, string Discount,
         string Call, string Put, string UndiscountedCall, string UndiscountedPut);
 
-    private static Black76Case[] Black76Cases()
+    internal static Black76Case[] Black76Cases()
     {
         var oracle = JsonNode.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "fixtures", "futures-option-oracle.json")))!;
         string Field(JsonNode row, string name) => row[name]!.GetValue<string>();
@@ -148,7 +148,7 @@ internal static partial class FuturesOptionChecks
     }
 
     // Years are whole seconds under act/365 fixed in every oracle case.
-    private static DateTimeOffset ExpiryAfter(string years) =>
+    internal static DateTimeOffset ExpiryAfter(string years) =>
         ValuationAt.AddSeconds((double)(decimal.Parse(years, CultureInfo.InvariantCulture) * 365 * 86400));
 
     private static LatticeDecimal Price(OptionRight right, string futures, string strike, string volatility, string years,
@@ -600,7 +600,7 @@ internal static partial class FuturesOptionChecks
     {
         var expiry = ExpiryAfter("0.25");
         var strike = ExactDecimal.Parse("3");
-        Reject("option_terms", () => _ = new FuturesOptionTerms(OptionRight.Call, strike, expiry, "european", "exercise_into_future"));
+        Reject("option_terms", () => _ = new FuturesOptionTerms(OptionRight.Call, strike, expiry, "bermudan", "exercise_into_future"));
         Reject("option_terms", () => _ = new FuturesOptionTerms(OptionRight.Call, strike, expiry, "american", "cash"));
         Reject("option_terms", () => _ = new FuturesOptionTerms((OptionRight)0, strike, expiry, "american", "exercise_into_future"));
         Reject("option_numerical_policy", () => OptionNumericalPolicies.Require("american_futures_option_crr_v2"));
