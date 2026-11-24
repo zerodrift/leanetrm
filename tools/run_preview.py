@@ -331,6 +331,9 @@ def main():
             if args.gas_charges_check or args.gas_pricing_check or args.gas_exercise_check:
                 from gas_pricing_fixture import add_fixture as add_pricing_fixture
                 reference,market,security,manifest=add_pricing_fixture(reference,market,security,manifest,exercise_months=args.gas_exercise_check)
+            if args.gas_charges_check:
+                from check_gas_charges import add_quote_fixture
+                reference,market,security,manifest=add_quote_fixture(reference,market,security,manifest)
             if args.gas_delivery_quantity_check:
                 from delivery_quantity_fixture import add_fixture as add_delivery_quantity_fixture
                 reference,market,security,manifest=add_delivery_quantity_fixture(reference,market,security,manifest)

@@ -142,6 +142,7 @@ BEGIN
  IF jsonb_typeof(item) IS DISTINCT FROM 'object' THEN RAISE EXCEPTION 'gas_composition_input';END IF;
  IF EXISTS(SELECT 1 FROM jsonb_object_keys(item) k WHERE k NOT IN('code','basis','direction','price','dailyQuantity','from','to','paymentAt','paymentDay','clockSide','calendarPolicy'))
   OR NOT(item ?& ARRAY['code','basis','direction','price','clockSide','calendarPolicy'])
+  OR jsonb_typeof(item->'clockSide') IS DISTINCT FROM 'string'
   OR jsonb_typeof(item->'price') IS DISTINCT FROM 'string' OR item->>'price' !~ '^-?(0|[1-9][0-9]*)([.][0-9]{1,18})?$'
  THEN RAISE EXCEPTION 'gas_composition_input';END IF;
  sign_number=CASE item->>'direction' WHEN 'receive' THEN 1 WHEN 'pay' THEN -1 END;
