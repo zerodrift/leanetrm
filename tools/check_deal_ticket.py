@@ -314,11 +314,13 @@ def check_ticket_operations(c,context,cat,description,body,view,query,manifest):
     refused('tickets/trade',{'context':context,'tradeId':fact['tradeId'],'bindingId':str(uuid4()),'revision':fact['revision']},'position_unavailable')
     assert opened['actions']['record']['allowed'] is True,opened['actions']
     # Day entries are offered only where the record operation takes them: on working data, to a role that may amend trades.
-    recording=lambda at:c.call('tickets/trade',{'context':at,'tradeId':fact['tradeId'],'bindingId':fact['bindingId'],'revision':fact['revision']})['actions']['record']
+    recording=lambda at,reader=c:reader.call('tickets/trade',{'context':at,'tradeId':fact['tradeId'],'bindingId':fact['bindingId'],'revision':fact['revision']})['actions']['record']
     captured_after={**context,'knowledgeMode':'retained','contextId':c.call('gas/catalog',context)['context']['contextId']}
     assert recording(captured_after)=={'allowed':False,'reason':'Return to working data before recording daily quantities.'},recording(captured_after)
     refused('gas/quantities/record',{**record,'context':captured_after,'operationId':str(uuid4()),'quantity':'9100','expectedPreviousId':receipt['revisionId']},'historical_read_only')
-    c.call('profile',{'profile':'risk'});unpermitted=recording(context);c.call('profile',{'profile':'trader'})
+    # Keep the trader's read proofs while other roles inspect the trade and publish subsequent revisions.
+    other=PreviewClient(c.url);other.bootstrap();other.call('profile',{'profile':'risk'})
+    unpermitted=recording(context,other)
     assert unpermitted=={'allowed':False,'reason':'Your current role does not have Amend Trade permission.'},unpermitted
     # A stored single-point gas booking opens read-only as the composition it is: one physical side, its payment and its fee, each charged on the
     # side's delivered quantity and paid at the booking's one payment instant. Its schedule, from its own retained programs, is exactly the
@@ -344,16 +346,15 @@ def check_ticket_operations(c,context,cat,description,body,view,query,manifest):
 
     # Historical choices: a point retired by a later gas setup stays listed, and priced, in the earlier context.
     # Publication is append-only, so the check leaves the setup as it found it by publishing the found configuration again.
-    c.call('profile',{'profile':'editor'})
-    authored=c.call('gas-setup/catalog');original=authored['configuration'];retired='synthetic_gas_point_d'
+    other.call('profile',{'profile':'editor'})
+    authored=other.call('gas-setup/catalog');original=authored['configuration'];retired='synthetic_gas_point_d'
     without={**original,'paths':[x for x in original['paths'] if x['point']!=retired],'meters':[m for m in original['meters'] if m['point']!=retired]}
     def publish(configuration,base):
-        saved=c.call('gas-setup/save',{'operationId':str(uuid4()),'baseSetupId':base,'configuration':configuration})
-        c.call('profile',{'profile':'approver'});c.call('gas-setup/publish',{'operationId':str(uuid4()),'setupId':saved['setupId']});c.call('profile',{'profile':'editor'})
+        saved=other.call('gas-setup/save',{'operationId':str(uuid4()),'baseSetupId':base,'configuration':configuration})
+        other.call('profile',{'profile':'approver'});other.call('gas-setup/publish',{'operationId':str(uuid4()),'setupId':saved['setupId']});other.call('profile',{'profile':'editor'})
         return saved['setupId']
     later=publish(without,authored['activeSetupId'])
-    order=next(v['publication_order'] for v in c.call('gas-setup/catalog')['versions'] if v['id']==later)
-    c.call('profile',{'profile':'trader'})
+    order=next(v['publication_order'] for v in other.call('gas-setup/catalog')['versions'] if v['id']==later)
     # A gas setup is named by its publication order.
     named=c.call('tickets/choices',{'context':context,'draft':{'product':'physical_gas','version':1,'trade':{},'sides':[]},'side':None,'field':'gas_setup'})['choices']
     assert named==[{'value':later,'label':f'Published setup {order}'}],named
@@ -383,17 +384,14 @@ def check_ticket_operations(c,context,cat,description,body,view,query,manifest):
     assert retired in choices(context,at_d(cat['gasSetupId']),'physical','delivery_point'), 'Physical choices do not select a pricing setup'
     then=lookup(retained,at_d(cat['gasSetupId']),'physical','price')
     assert then['value'] and then['source']['label']==f"{d['deliveryPointName']} · close 2020-12-18",then
-    c.call('profile',{'profile':'editor'});publish(original,later)
-    assert c.call('gas-setup/catalog')['configuration']==original,'The deal ticket check must leave the gas setup configuration it found.'
+    publish(original,later)
+    assert other.call('gas-setup/catalog')['configuration']==original,'The deal ticket check must leave the gas setup configuration it found.'
 
     # Historical party choices: a counterparty revised after a context was captured lists its earlier revision there.
     party={'kind':'counterparty','id':None,'expectedRevision':None,'code':'ticket_counterparty','name':'Synthetic ticket counterparty','effectiveAt':'2020-12-01T00:00:00Z'}
-    first=c.call('parties/save',{**party,'operationId':str(uuid4())})
-    c.call('profile',{'profile':'trader'})
+    first=other.call('parties/save',{**party,'operationId':str(uuid4())})
     captured={**context,'knowledgeMode':'retained','contextId':c.call('gas/catalog',context)['context']['contextId']}
-    c.call('profile',{'profile':'editor'})
-    second=c.call('parties/save',{**party,'operationId':str(uuid4()),'id':first['id'],'expectedRevision':1,'name':'Revised synthetic ticket counterparty','effectiveAt':'2020-12-02T00:00:00Z'})
-    c.call('profile',{'profile':'trader'})
+    second=other.call('parties/save',{**party,'operationId':str(uuid4()),'id':first['id'],'expectedRevision':1,'name':'Revised synthetic ticket counterparty','effectiveAt':'2020-12-02T00:00:00Z'})
     listed=lambda at:[v for v in choices(at,{'product':'physical_gas','version':1,'trade':{},'sides':[]},None,'counterparty') if v.startswith(first['id']+'@')]
     assert second['revision']==2 and listed(captured)==[f"{first['id']}@1"] and listed(context)==[f"{first['id']}@2"],(listed(captured),listed(context))
     print('PASS deal ticket operations: description, catalog and party choices by parent and context, exact tariff references and labelled market prices at the pinned close, mapped drafts preview and book idempotently with payment and fee sides, working-data-only booking, and a booked trade reopens as its draft',flush=True)
