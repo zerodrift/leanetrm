@@ -3,6 +3,7 @@ using System.Numerics;
 using OpenEtrm.MarketData;
 using OpenEtrm.Security;
 
+if(args is ["--instrument-schedule"]){InstrumentScheduleChecks.Run();return;}
 if(args is ["--instrument-sides"]){InstrumentSideAlignmentChecks.Run();return;}
 if(args is ["--cash-sides"]){CashSideAlignmentChecks.Run();return;}
 if(args is ["--gas-holding-side"]){GasHoldingSideChecks.Run();return;}

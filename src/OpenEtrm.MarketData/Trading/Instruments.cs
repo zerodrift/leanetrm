@@ -204,12 +204,9 @@ public abstract record SidedInstrument : Instrument
     public override UnitPricingContract Declare(UnitValuationContext context)=>
         new(Id,"independent_side_unit_pv_v1",DependenciesAt(context.Snapshot),UnitQuantity.Specification,Currency) { Time = ValuationTimeDependency.Pinned };
 
-    // The instrument delegates valuation; it never interprets a side's cashflows.
-    public override InstrumentValuation PV(SideValuationContext context)
-    {
-        if (context is null) throw new MarketDataException("side_context", "An explicit valuation context is required.");
-        RequireSideComposition();
-        return new(this, context, Sides.Select(m => context.Evaluate(m.Side)).ToImmutableArray());
-    }
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SidedInstrument, InstrumentSchedule> Schedules = new();
+    public virtual InstrumentSchedule GenerateSchedule() => Schedules.GetValue(this, static instrument => new(instrument));
+
+    public override InstrumentValuation PV(SideValuationContext context) => GenerateSchedule().Evaluate(context);
 
 }

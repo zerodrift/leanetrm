@@ -7,7 +7,7 @@ using OpenEtrm.MarketData.Risk;
 
 internal static class PhysicalGasSideChecks
 {
-    internal static void Run()
+    internal static void Run(Action<SidedInstrument, SideValuationContext>? inspect = null)
     {
         var f = new CommodityLookupFixture(31);
         var floating = f.Swap().Floating;
@@ -81,7 +81,8 @@ internal static class PhysicalGasSideChecks
             [new("cash",differentClockCash,"consideration","delivery",GasQuantityStage.Delivery,ExactDecimal.Parse("-1"))]));
         var purchase = new PhysicalGasInstrument(Guid.NewGuid(), physical, Cash("3"), [Cash("0.1")], ExactDecimal.Parse("1"), ExactDecimal.Parse("-1"));
         Equal(purchase.PV(context).PresentValue.Scale(ExactDecimal.Parse("1000")), "100");
-        RetainedPortfolio(f, purchase, assignment, market);
+        inspect?.Invoke(purchase, context);
+        RetainedPortfolio(f, purchase, assignment, market, inspect);
 
         var pointB=Location(R("delivery_b"));
         var assignmentB=new GasValuationAssignment(R("gas_value_b"),pointB,assignment.Product,from,to,lookup.Settlement,f.Quote,new(lookup.Market,lookup.Contract),lookup.Fixing,new(ExactDecimal.Parse("-0.1"),f.Quote));
@@ -92,6 +93,7 @@ internal static class PhysicalGasSideChecks
         var composition=new GasCompositionInstrument(Guid.NewGuid(),[receipts,deliveries],[linkedFee]);
         var composedContext=Context(market,[assignment,assignmentB]);
         Equal(composition.PV(composedContext).PresentValue.Scale(composition.BaseQuantity),"64");
+        inspect?.Invoke(composition, composedContext);
         Equal(new GasCompositionInstrument(Guid.NewGuid(),[receipts,deliveries],[linkedFee with{Stage=GasQuantityStage.Receipt}]).PV(composedContext).PresentValue.Scale(composition.BaseQuantity),"62");
         var indexedCash=new FloatingSide(Guid.NewGuid(),lookup.Settlement,f.Quote,physical.UnitQuantity,
             [new(from,to,lookup.Fixing!.FixingAt,clock.Boundary(to).AddDays(2),FloatingAveraging.CalendarDayArithmetic,
@@ -153,7 +155,8 @@ internal static class PhysicalGasSideChecks
         Equal(composition.PV(Context(shocks.Down,[assignment,assignmentB])).PresentValue.Scale(composition.BaseQuantity),"62");
         Equal(purchase.PV(Context(shocks.Down, [assignment])).PresentValue.Scale(ExactDecimal.Parse("1000")), "0");
         Equal(purchase.PV(context).PresentValue.Scale(ExactDecimal.Parse("1000")), "100");
-        RetainedPortfolio(f, purchase, assignment, market);
+        inspect?.Invoke(purchase, context);
+        RetainedPortfolio(f, purchase, assignment, market, inspect);
 
 
         var adjusted = Assignment(assignment.Point, assignment.Product, new(ExactDecimal.Parse("0.05"), f.Quote));
@@ -213,13 +216,18 @@ internal static class PhysicalGasSideChecks
         catch (OperationCanceledException) { }
         Console.WriteLine("PASS physical gas side: executable noncash schedule, assignment qualification, independent cash, exact PV and symmetric shocks");
     }
-    private static void RetainedPortfolio(CommodityLookupFixture fixture, PhysicalGasInstrument purchase, GasValuationAssignment assignment, CurveBuild market)
+    private static void RetainedPortfolio(CommodityLookupFixture fixture, PhysicalGasInstrument purchase, GasValuationAssignment assignment, CurveBuild market, Action<SidedInstrument, SideValuationContext>? inspect = null)
     {
         var ratios = new OpenEtrm.Shared.Numerics.ExactRatio[] { new(1,3), new(2,3), new(3,2) };
         var members = purchase.Sides.Select((member, slot) => new RetainedGasMember(member.Side.Id, member.Coefficient,
             ratios[slot], BookedSideProgram.Compile(ScheduleDefinitionCompiler.Generate(member.Side)))).ToImmutableArray();
         var instrument = new RetainedGasInstrument(purchase.Id, members, [assignment]);
         RetainedInstrumentContractChecks.Gas(instrument);
+        var sources = new ScheduleMarketSources(market.Graph.Plan.Context, market, null, null,
+            IntervalKnowledgePolicy.ResolvedCutoff, OpenEtrm.MarketData.Power.PendingActualsPolicy.RequireActuals,
+            [assignment.Lookup], [], [assignment]);
+        inspect?.Invoke(instrument, new SideValuationContext(market, new ExplicitDiscounting(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted))
+            .WithUnitEvaluation(market.Snapshot.ValuationAt, false, ValuationMeasure.PresentValue, default).WithRetainedPrograms(new(sources, market)));
         var book = Guid.NewGuid();
         Trade Holding(string quantity) => new(Guid.NewGuid(), book, [new(Guid.NewGuid(), instrument, new(ExactDecimal.Parse(quantity), instrument.UnitQuantity.Specification))]);
         var portfolio = ValuationPortfolio.FromTrades([Holding("12"), Holding("24")], new(ValuationMeasure.PresentValue,
