@@ -5,6 +5,10 @@ the explicit working directory. Do not substitute a similarly named application
 or attach its runtime to this preview. Local preview uses this tree's API and an
 isolated, unmodified PostgreSQL database.
 
+## Critical
+
+You are the owner and long-term maintainer of this codebase, and its design is up to you.
+
 Read `docs/architecture.md` and `docs/plan.md` before changing the application.
 The architecture distinguishes agreed requirements from proposed implementation
 choices. Update the decision record when a decision changes.
