@@ -24,9 +24,10 @@ One Markets page, **Volatility & correlation**, uses existing theme, typography,
 tables and charts. A compact context bar states exact source, business instant,
 knowledge cutoff and current/historical state. Explicit curve and month choices
 produce a volatility grid of at most 20 curves by 12 months, or a correlation
-matrix of at most 20 curves for one month. A row/pair opens a strip of at most
-240 months. One exact definition/reference source is selected per view;
-correlation sources also share the existing currency scope.
+matrix of at most 20 curves for one month. A row/pair opens a vertical strip of
+at most 240 months, one month per row and one editable value column. Each view
+uses one exact definition/reference source. Correlation sources also share the
+existing currency scope.
 
 The correlation upper triangle is editable and the lower mirrors it. The
 diagonal says **Same curve; no mark**, never generating a stored value. A right

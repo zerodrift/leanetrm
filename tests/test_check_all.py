@@ -681,7 +681,7 @@ class CheckAllTests(unittest.TestCase):
         self.assertEqual(executed, expected)
         schedule_commands = [c for c in commands if '--project' in c and 'Api.Checks' in c[c.index('--project') + 1]]
         self.assertEqual([c[-2:] for c in schedule_commands],
-                         [['--', flag] for flag in ('--context-resolution', '--read-references', '--schedules', '--power-hedge', '--async-reads', '--assistant-prompts', '--published-clock', '--calendar-authoring', '--gas-ticket', '--historical-risk', '--monte-carlo-risk', '--position-adjustment', '--close-risk', '--automation',
+                         [['--', flag] for flag in ('--context-resolution', '--read-references', '--schedules', '--power-hedge', '--async-reads', '--assistant-prompts', '--published-clock', '--calendar-authoring', '--gas-ticket', '--curve-mark-editor', '--historical-risk', '--monte-carlo-risk', '--position-adjustment', '--close-risk', '--automation',
                            '--live-calculation', '--reference-intake', '--preview-data', '--side-observation-compatibility',
                        '--gas-park-custody','--gas-park-custody-ticket','--gas-park-custody-evidence',
                        '--gas-park-custody-actions','--gas-park-custody-effects','--gas-park-custody-handler',

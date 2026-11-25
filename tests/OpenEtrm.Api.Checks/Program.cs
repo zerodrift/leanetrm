@@ -13,6 +13,7 @@ if(args is ["--point-trader-mark-identity"]){PointTraderMarkIdentityChecks.Run()
 if(args is ["--point-trader-mark-inputs"]){PointTraderMarkInputSelectionChecks.Run();return;}
 if(args is ["--point-trader-mark-commands"]){PointTraderMarkCommandChecks.Run();return;}
 if(args is ["--point-trader-mark-receipts"]){PointTraderMarkReceiptChecks.Run();return;}
+if(args is ["--curve-mark-editor"]){CurveMarkEditorChecks.Run();return;}
 
 if(args is ["--delivery-nomination-batch"]){DeliveryNominationBatchChecks.Run();return;}
 if(args is ["--delivery-workbench"]){DeliveryWorkbenchChecks.Run();return;}
