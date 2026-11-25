@@ -2,11 +2,13 @@
 
 ## Curve Marks Editor (D453)
 
-Local qualification on 2026-11-24 used the branch with master `b836ef3c`
-merged at `0b26568d` and the fixture correction at `3a2eabaf`. The workstation
-was macOS arm64 with stock PostgreSQL 18.7, .NET SDK 10.0.402, Node 24.22.0,
-Python 3.14.2 and Chrome 158. The runner used this tree's API, synthetic data
-and disposable databases.
+On 2026-11-24 the repository, frontend, managed and database groups passed at
+`0b26568d`, which integrated master `b836ef3c`. After the futures execution
+fixture correction at `3a2eabaf`, the full workspace rerun, gas, trading and
+focused editor checks passed at that revision. The workstation ran macOS arm64
+with stock PostgreSQL 18.7, .NET SDK 10.0.402, Node 24.22.0, Python 3.14.2
+and Chrome 158. The runner used this tree's API, synthetic data and disposable
+databases.
 
 Run the groups with the pinned binaries from the repository root.
 
@@ -69,7 +71,18 @@ paste refusals, pending recovery and the 390-pixel inspector drawer. The
 browser checks covered reduced motion, exact 12-place values, viewport
 bounds and keyboard navigation in the supported theme.
 
-Independent whole-branch review is pending. See the
+On 2026-11-25 the full frontend group passed all 2,380 tests with the fixes
+at `cb1b803a`. The focused managed editor checks passed. The focused preview
+passed 125 checkpoints, including 30 browser assertions. A native batch
+published in a non-UTC session returned the same receipt through owner-scoped
+HTTP status and retry. Refused command representations left request, fact
+and publication counts unchanged. Visual
+inspection confirmed distinct column codes on the populated, scrolled matrix.
+The gas exercise preview passed 128 checkpoints, including 21 browser checks,
+and completed four retained risk jobs. Explicit repricing returned `2947.4419`
+and the earlier missing mark and retained risk result stayed pinned.
+
+Independent review of the fixes is pending. See the
 [feature contract](curve-marks-editor.md).
 
 ## Whole-book P&L dates without trades (D452)
