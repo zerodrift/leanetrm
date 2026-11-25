@@ -11,6 +11,14 @@ verification passed. See the
 [contract](physical-gas-side.md#imbalance-cash-out-d454) and
 [local qualification](verification.md#imbalance-cash-out-d454).
 
+Proposed next gas increment: [bounded physical swing](superpowers/specs/2026-11-25-gas-swing-design.md)
+and its [implementation plan](superpowers/plans/2026-11-25-gas-swing.md).
+It covers daily quantity elections sharing a term volume budget, with explicit
+joint valuation and recorded decisions. Implementation waits for imbalance
+cash-out PR #352 to merge and starts from that resulting master. This is a
+design, not delivered capability; change counts, ramps and broader swing models
+remain outside the proposed first profile.
+
 D453 delivers monthly curve volatility and correlation authoring in the Markets
 workspace. It includes grids, focused strips, historical reads, reviewed atomic
 publication and recovery of an owned receipt. The gas exercise example consumes
