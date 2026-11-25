@@ -13,8 +13,12 @@ internal static class GasBillingReadChecks
     {
         var root=Path.GetFullPath(Environment.GetEnvironmentVariable("OPENETRM_PREVIEW_ROOT")!);
         var runtime=new NpgsqlConnectionStringBuilder(Environment.GetEnvironmentVariable("OPENETRM_PREVIEW_RUNTIME")!);
-        if(!File.Exists(Path.Combine(root,".openetrm-preview"))||Path.GetFullPath(runtime.Host!)!=root||runtime.Username!="preview_runtime"||runtime.Database!="postgres"||runtime.CommandTimeout!=5||Path.GetDirectoryName(Path.GetFullPath(fixturePath))!=root)
-            throw new Exception("Billing work checks require an owned preview and its ordinary five-second read deadline.");
+        if(!File.Exists(Path.Combine(root,".openetrm-preview"))||Path.GetFullPath(runtime.Host!)!=root||runtime.Username!="preview_runtime"||runtime.Database!="postgres"||Path.GetDirectoryName(Path.GetFullPath(fixturePath))!=root)
+            throw new Exception("Billing work checks require an owned preview.");
+        // This dedicated measurement process keeps its five-second budget
+        // independently of the general preview's retained-portfolio deadline.
+        runtime.CommandTimeout=5;
+        Environment.SetEnvironmentVariable("OPENETRM_PREVIEW_RUNTIME",runtime.ConnectionString);
         using var fixture=JsonDocument.Parse(File.ReadAllText(fixturePath));
         var input=fixture.RootElement;
         var frame=input.GetProperty("frame").Deserialize<InputFrame>(Json)!;
@@ -25,6 +29,7 @@ internal static class GasBillingReadChecks
         var captured=input.TryGetProperty("context",out var held)?held.Deserialize<ScheduleContext>(Json):null;
         var result=await database.WithIdentity(input.GetProperty("profile").GetString()!,"ReadTrades",async(connection,ct)=>
         {
+            if(connection.CommandTimeout!=5)throw new Exception("Billing work must run under its five-second SQL command deadline.");
             await using(var plan=ScheduleStore.Command(connection,$"SET LOCAL plan_cache_mode={mode}"))await plan.ExecuteNonQueryAsync(ct);
             // Hold one certified view across maintenance and unrelated-row growth.
             if(captured is not null)

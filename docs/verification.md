@@ -87,6 +87,16 @@ completed workers; its disposable database was removed. The checks cover both
 dated-observation worker replay and scheduled-swap Blotter pricing. Independent
 review found no blocking issue in the deadline change.
 
+Billing metadata qualification retains its own five-second SQL command budget.
+Its dedicated measurement process sets that budget before creating the database
+client and verifies it on the opened connection. Exact result comparisons,
+retained input coordinates and metadata-work bounds remain unchanged when the
+general preview uses a longer command budget. The full assistant group passed
+12 runner workloads, 1,666 PASS checkpoints and 350 owned browser checks; all
+three preview databases were removed. Repository checks passed again, and an
+independent review found no blocking issue in the measurement's process scope
+or preserved deadline.
+
 ## Whole-book P&L dates without trades (D452)
 
 Checked on synthetic data on 2026-11-24, in the same Linux x86_64 containers as
