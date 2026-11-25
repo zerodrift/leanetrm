@@ -36,10 +36,10 @@
 
 **Interfaces:** Public record contracts for context (ContextId, AsOf, BusinessDate, optional SnapshotId), view (kind, mode, ordered curve selection, inclusive FromMonth/ToMonth), cell key (FirstCurve, nullable SecondCurve, Month), change (key fields, ExpectedRevision, Value), and batch (Policy, OwnerId, OperationId, Kind, Source, Context, Reason, Changes). Use CatalogueSource for exact definition/reference identity. Expose pure `CurveMarkEditorDraft` operations for command normalization, view cells, draft validation/coverage/differences and addressed TSV/matrix paste. Define precise request/response records here for later tasks; adapters may extend them with context metadata without changing behavior.
 
-- [ ] Write failing checks for 0.500000000000→0.5, exact 0.6−0.5=0.1, negative correlation, 12-place values, invalid range/precision, canonical pairs, duplicate keys, bounds, missing/zero distinctions, 20×12 grid and 240-month strip, rectangular TSV and full matrix mirrors/diagonals/blanks; preserve whole pre-paste draft on refusal.
-- [ ] Run `$DOTNET run --project tests/OpenEtrm.Api.Checks -c Release -- --curve-mark-editor` and capture expected failure.
-- [ ] Implement the managed contracts and pure behavior with structured errors and exact existing number types; manual clearing invalid, no formula parsing.
-- [ ] Run the new checks and affected existing API checks; inspect diff and signed-off commit.
+- [x] Write failing checks for 0.500000000000→0.5, exact 0.6−0.5=0.1, negative correlation, 12-place values, invalid range/precision, canonical pairs, duplicate keys, bounds, missing/zero distinctions, 20×12 grid and 240-month strip, rectangular TSV and full matrix mirrors/diagonals/blanks; preserve whole pre-paste draft on refusal.
+- [x] Run `$DOTNET run --project tests/OpenEtrm.Api.Checks -c Release -- --curve-mark-editor` and capture expected failure.
+- [x] Implement the managed contracts and pure behavior with structured errors and exact existing number types; manual clearing invalid, no formula parsing.
+- [x] Run the new checks and affected existing API checks; inspect diff and signed-off commit.
 
 ### Task 2: Atomic native batches and market-only history
 
@@ -47,10 +47,10 @@
 
 **Interfaces:** Native setup/cells/history/status and atomic batch operations over existing tables; request policy and canonical contracts from Task 1. Existing `trading.record_curve_marks` delegates shared private cell logic without changing legacy normalization or receipts. New batches keep one aggregate receipt and durable source coordinates in versioned metadata.
 
-- [ ] Write failing disposable native checks for atomic multi-curve and multi-pair commands, one-publication/receipt counts, invalid/stale rollback, identical facts/older acknowledgement, exact legacy replay, source/authority denials, bounded history, temporal boundaries, owner-only status, absence versus denial and durable-coordinate recovery.
-- [ ] Run the focused preview and record the missing-function failure.
-- [ ] Implement with pinned predecessors and existing authority/commit conventions; working editor reads register certified market-only inputs and historical reads bind them, both filtering publication prefix AND known time. Leave valuation/risk readers untouched. History pages 50, selected value distinct from current head, no live head in historical mode.
-- [ ] Run native checks plus existing gas exercise legacy checks; inspect diff and signed-off commit.
+- [x] Write failing disposable native checks for atomic multi-curve and multi-pair commands, one-publication/receipt counts, invalid/stale rollback, identical facts/older acknowledgement, exact legacy replay, source/authority denials, bounded history, temporal boundaries, owner-only status, absence versus denial and durable-coordinate recovery.
+- [x] Run the focused preview and record the missing-function failure.
+- [x] Implement with pinned predecessors and existing authority/commit conventions; working editor reads register certified market-only inputs and historical reads bind them, both filtering publication prefix AND known time. Leave valuation/risk readers untouched. History pages 50, selected value distinct from current head, no live head in historical mode.
+- [x] Run native checks plus existing gas exercise legacy checks; inspect diff and signed-off commit.
 
 ### Task 3: API setup, validation, review, publication and recovery
 
@@ -58,10 +58,10 @@
 
 **Interfaces:** POST `/curve-marks/editor/{setup,validate,review,record,status,history}`. Setup returns authorized paged choices/cells/analytics/limits/editability and exact context. Validate addresses draft/paste errors without facts. Review returns definitive changes/acknowledgements using rolled-back exact writer. Record and status return validated immutable receipts. Status never needs the old frame. No generic TradingRead or ReadTrades requirement.
 
-- [ ] Write failing HTTP checks for a market publisher without trade access completing all operations, reader denial, invalid contexts, source revocation/expired authority, review without persistence, later head, record race, old acknowledgement, status after session renewal and context-qualified analytics.
-- [ ] Run focused preview to observe missing routes.
-- [ ] Implement using KnowledgeResolver/CalendarReadCut and ICommitAdmission patterns. Read bind differs from write source registration. Persist/reconstruct certified ReadInputCoordinates. Fresh current refresh keeps business/source coordinates; current authority is always checked.
-- [ ] Run managed and focused native/HTTP checks including existing gas exercise behavior; inspect diff and signed-off commit.
+- [x] Write failing HTTP checks for a market publisher without trade access completing all operations, reader denial, invalid contexts, source revocation/expired authority, review without persistence, later head, record race, old acknowledgement, status after session renewal and context-qualified analytics.
+- [x] Run focused preview to observe missing routes.
+- [x] Implement using KnowledgeResolver/CalendarReadCut and ICommitAdmission patterns. Read bind differs from write source registration. Persist/reconstruct certified ReadInputCoordinates. Fresh current refresh keeps business/source coordinates; current authority is always checked.
+- [x] Run managed and focused native/HTTP checks including existing gas exercise behavior; inspect diff and signed-off commit.
 
 ### Task 4: Polished grids, strips, charts and history
 
@@ -69,10 +69,10 @@
 
 **Interfaces:** Feature page lifecycle supports load/sync/leave/unsaved/pending/reset and exact market selection. Consume Task 3 responses with validated types. Reuse existing theme/chart/actor/context patterns; no new dependency. Draft and publication workflow includes required reason, backend validation and review, then exact record. Recovery hardening belongs to Task 5, but basic pending transport must be used from first publish.
 
-- [ ] Write failing presentation/model tests for missing/zero/edit/error states, backend exact strings, selected cell and strip navigation, context fences, charts preserving gaps, fixed correlation scale and published/draft legends.
-- [ ] Run focused web tests and capture failure.
-- [ ] Build the approved dense workspace: sticky headers/context/draft bar, aligned values, accessible upper-triangle editing, mirrored lower triangle, inspector/drawer, term charts/heatmap/exact tooltips/backend differences/coverage/history. Explicit selection, scoped draft guards and keyboard editing. Use decimal strings for commands; charts only approximate coordinates.
-- [ ] Run web build/tests, inspect responsive semantics and signed-off commit.
+- [x] Write failing presentation/model tests for missing/zero/edit/error states, backend exact strings, selected cell and strip navigation, context fences, charts preserving gaps, fixed correlation scale and published/draft legends.
+- [x] Run focused web tests and capture failure.
+- [x] Build the approved dense workspace: sticky headers/context/draft bar, aligned values, accessible upper-triangle editing, mirrored lower triangle, inspector/drawer, term charts/heatmap/exact tooltips/backend differences/coverage/history. Explicit selection, scoped draft guards and keyboard editing. Use decimal strings for commands; charts only approximate coordinates.
+- [x] Run web build/tests, inspect responsive semantics and signed-off commit.
 
 ### Task 5: Paste, recovery and end-to-end browser behavior
 
@@ -80,16 +80,16 @@
 
 **Interfaces:** Actor-owned retained immutable PendingCommand with mark-specific restore validation; exact command ID/body retry, owner-only status. Paste returns backend-addressed candidates and is applied atomically after review. UI responses fenced by actor/source/context/generation.
 
-- [ ] Write failing browser/checks for TSV/full-matrix paste, mirrored conflicts, blank/zero, paste bounds; publication conflict preserves draft; lost reply/reload/session expiry; owner/context switch and late replies; old fact acknowledgement; receipt retained on refresh failure; keyboard/narrow/theme layouts.
-- [ ] Observe focused browser failures before closing gaps.
-- [ ] Complete clipboard and durable recovery, block replacement while unknown, distinguish denial/absence/commit, fresh current editor refresh only. Verify an editor-published missing gas mark produces existing exercise values after explicit reprice; pinned historical/risk results remain unchanged.
-- [ ] Run `npm test --prefix web` and focused disposable browser/HTTP checks; inspect screenshots privately at desktop/narrow widths including maximum grids, long labels, empty/error/recovery states; signed-off commit.
+- [x] Write failing browser/checks for TSV/full-matrix paste, mirrored conflicts, blank/zero, paste bounds; publication conflict preserves draft; lost reply/reload/session expiry; owner/context switch and late replies; old fact acknowledgement; receipt retained on refresh failure; keyboard/narrow/theme layouts.
+- [x] Observe focused browser failures before closing gaps.
+- [x] Complete clipboard and durable recovery, block replacement while unknown, distinguish denial/absence/commit, fresh current editor refresh only. Verify an editor-published missing gas mark produces existing exercise values after explicit reprice; pinned historical/risk results remain unchanged.
+- [x] Run `npm test --prefix web` and focused disposable browser/HTTP checks; inspect screenshots privately at desktop/narrow widths including maximum grids, long labels, empty/error/recovery states; signed-off commit.
 
 ### Task 6: Full qualification, independent review and records
 
 **Files:** Feature contract and decision/status/verification docs; spec status line.
 
-- [ ] Run repository, frontend, managed, database, workspace, gas and trading groups with pinned tools, retaining actual counts and any failures.
+- [x] Run repository, frontend, managed, database, workspace, gas and trading groups with pinned tools, retaining actual counts and any failures.
 - [ ] Obtain independent adversarial whole-branch review of authorization, time, atomicity, recovery, numerical behavior and visual implementation. Fix findings with red/green evidence and rerun affected checks.
-- [ ] Update decision/architecture/security/implementation/plan/verification records accurately; mark spec built only when all required work passes. Integrate current master and resolve any shared runner/nav/migration-number conflicts with concurrent work.
-- [ ] Inspect full staged diff, generated files and commit identity; signed-off records commit. Leave clean local branch ready for the authorized PR workflow; do not deploy or merge.
+- [x] Update decision/architecture/security/implementation/plan/verification records accurately; mark spec built only when all required work passes. Integrate current master and resolve any shared runner/nav/migration-number conflicts with concurrent work.
+- [x] Inspect full staged diff, generated files and commit identity; signed-off records commit. Leave clean local branch ready for the authorized PR workflow; do not deploy or merge.

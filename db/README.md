@@ -1836,3 +1836,6 @@ authority, requires observation import authority for publication, and recovers
 an owned receipt from its recorded business date, cutoff and database lineage.
 The editor exposes bounded definer operations to the runtime role. The existing
 trade valuation and risk-worker reads retain their own authority boundaries.
+
+See the [editor contract](../docs/curve-marks-editor.md) and
+[verification](../docs/verification.md#curve-marks-editor-d453).

@@ -1,6 +1,9 @@
 # Curve volatility and correlation workspace
 
-Status: approved design; implementation and qualification pending.
+Status: implemented and locally qualified. Independent whole-branch review pending.
+
+[Implemented contract](../../curve-marks-editor.md) ·
+[Local verification](../../verification.md#curve-marks-editor-d453)
 
 ## Contract
 
