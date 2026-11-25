@@ -79,7 +79,7 @@ public sealed class GasTicketStore(PreviewDatabase database)
   if(body.Field is "forecast_curve" or "floating_forecast_curve")
   {
    var probe=GasTicket.PriceProbe(body.Draft,body.Side!,await Catalog(c,data,frame,ct),frame.Id,data.DefinitionRevision.RevisionId);
-   var physical=probe.PhysicalSides.Single();var metadata=await gas.Metadata(c,data,GasCompositionStore.Selection(probe,physical),ct);
+   var physical=probe.Source;var metadata=await gas.Metadata(c,data,probe.Selection,ct,probe.SwingCoverage,physical.Code);
    var from=DateWorkspace.Date(physical.DeliveryFrom);var to=DateWorkspace.Date(physical.DeliveryTo);
    var days=Enumerable.Range(0,to.DayNumber-from.DayNumber).Select(n=>new ProjectionDelivery(from.AddDays(n),from.AddDays(n+1)));
    var choices=await CustomCurves.ProjectionChoices(c,database,data,frame,ct);
@@ -127,7 +127,7 @@ public sealed class GasTicketStore(PreviewDatabase database)
    if(side.Values.TryGetValue(body.Field,out var current))return new TicketLookup(current,new("suggestion","Retained price"));
    var source=GasTicketStartingValues.Source(body.Draft,side);
    var probe=GasTicket.PriceProbe(body.Draft,source.Code,catalog,frame.Id,data.DefinitionRevision.RevisionId);
-   var metadata=await gas.Metadata(c,data,GasCompositionStore.Selection(probe,probe.PhysicalSides[0]),ct);
+   var metadata=await gas.Metadata(c,data,probe.Selection,ct,probe.SwingCoverage,probe.Source.Code);
    var market=await composition.MarketPrice(c,data,frame,probe,ct);
    return new TicketLookup(GasTicketStartingValues.Price(market,metadata.Assignments[0].Quote.TradingTick),new("suggestion","Suggested market price at quote precision"));
   }
@@ -138,7 +138,7 @@ public sealed class GasTicketStore(PreviewDatabase database)
 
  // The booked gas trade, selected by its exact binding and revision, as its ticket draft and schedule, with its quantity links. A composed
  // trade's schedule shows its recorded day quantities; a single-point trade opens as the one-physical-side composition it is, and records none.
- public async Task<(object Ticket,GasExerciseAction? Exercise,GasSwingAction? Swing)> Trade(NpgsqlConnection c,PreviewData data,InputFrame frame,TicketTradeRequest body,bool working,CancellationToken ct)
+ internal async Task<(object Ticket,GasExerciseAction? Exercise,GasSwingAction? Swing)> Trade(NpgsqlConnection c,PreviewData data,InputFrame frame,TicketTradeRequest body,bool working,GasSwingAction.WriteAuthority? swingAuthority,CancellationToken ct)
  {
   var selected=TradePositionSelection.From(new(body.Context,body.TradeId,body.BindingId,body.Revision,GasPositions.Type));
   var position=(await GasPositions.Read(c,database.Manifest,[],[],ct,selected)).Single();
@@ -167,7 +167,7 @@ public sealed class GasTicketStore(PreviewDatabase database)
     reason is null?await GasExerciseAction.ReadPeriods(c,database.Manifest.CatalogId,body.TradeId,body.BindingId,body.Revision,ct):[]);
   }
   var swing=execution.SwingRights.IsEmpty?null:await GasSwingAction.Read(c,database,execution,frame,body.Revision,
-   !working?"Return to working data to record swing elections.":refused?.Message,ct);
+   !working?"Return to working data to record swing elections.":swingAuthority is null?"Your current role does not have Amend Trade permission.":null,swingAuthority,ct);
   var followed=terms.PhysicalSides.Any(p=>p.QuantityPolicy is not null);
   var facilityAllocations=composed?await new FacilityQuantityStore(database).TradeAllocations(c,body.TradeId,ct):JsonSerializer.SerializeToElement(Array.Empty<object>(),Json);
   var actions=new GasTicketActions(GasTicket.Retired(terms)?new(false,"This retained strict daily index form is read-only. Book a new trade using named index pricing."):

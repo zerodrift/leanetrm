@@ -40,9 +40,14 @@ export function swingDetails(right:SwingReport,unit:string,currency:string,insta
   ['Committed',`${exact(right.committedQuantity)} ${unit}`],['Remaining feasible',`${range(right.remainingMinimumQuantity,right.remainingMaximumQuantity)} ${unit}`],
   ['Next deadline',right.nextDeadline?instant(right.nextDeadline):'All decisions recorded']]));
  const commercial=(day:SwingDay)=>day.electedQuantity===null?(action?.days.find(d=>d.day===day.day)?.effectiveRevision?'Withdrawn · contingent':'Undecided · contingent'):`Elected · ${exact(day.electedQuantity)}`;
+ const commercialEvidence=(d:SwingDay)=>{
+  const effective=action?.days.find(held=>held.day===d.day);
+  const revision=effective?.effectiveRevision??d.revisionId;
+  return [...new Set([revision,effective?.evidence,...d.quantityEvidence.filter(e=>e.revisionId===revision).map(e=>e.reference)].filter(Boolean))].join(' · ')||'—';
+ };
  section.append(table('Daily elections and delivery', ['Gas day','Election deadline',`Commercial (${unit})`,`Selected (${unit})`,'Commercial evidence','Delivery evidence'],
   right.days.map(d=>[d.day,instant(d.exerciseAt),commercial(d),exact(d.selectedQuantity),
-   [d.revisionId,...d.quantityEvidence.filter(e=>e.revisionId===d.revisionId).map(e=>e.reference)].filter(Boolean).join(' · ')||'—',
+   commercialEvidence(d),
    d.quantityEvidence.filter(e=>e.revisionId!==d.revisionId).map(e=>`${e.source} · ${e.reference} · ${e.revisionId}`).join('\n')||'—']),[2,3]));
  const drawer=el('details');drawer.className='swing-quant';drawer.append(el('summary','Quant details'));
  drawer.append(facts([['Model',right.pricing.model],['Price assumption','One common lognormal price factor'],['Day count',right.pricing.dayCount],
@@ -58,12 +63,13 @@ export function swingDetails(right:SwingReport,unit:string,currency:string,insta
  section.append(drawer);return section;
 }
 
-export function swingContractDetails(contract:SwingContract,unit:string,instant:(at:string)=>string,knownAt?:string){
- const detail=el('details');detail.className='swing-quant';
- detail.append(el('summary',`Resolved election deadlines · ${contract.source}`),
-  el('p',`Reference daily quantity · ${exact(contract.referenceQuantity)} ${unit}`));
+export function swingContractDetails(contract:SwingContract,unit:string,instant:(at:string)=>string,knownAt?:string,action?:SwingAction){
+ const detail=el('section');detail.className='ticket-swing-detail';
+ detail.append(el('h3',`Swing elections · ${contract.source}`));
  if(knownAt)detail.append(el('small',`Knowledge cutoff · ${instant(knownAt)}`));
- detail.append(table('Contract deadlines',['Gas day','Election deadline'],contract.days.map(d=>[d.day,instant(d.exerciseAt)])));
+ if(action)detail.append(...retainedElections(action,unit,instant));
+ else detail.append(el('p',`Reference daily quantity · ${exact(contract.referenceQuantity)} ${unit}`),
+  table('Contract deadlines',['Gas day','Election deadline'],contract.days.map(d=>[d.day,instant(d.exerciseAt)])));
  return detail;
 }
 
@@ -78,9 +84,13 @@ export function swingRangeFields(selected:SwingAction,unit:string,field:<T exten
  decision.onchange=update;update();
  options(field('exercisingParty','Exercising party',el('select')),selected.parties);
  field('submittedAt','Submitted instant · UTC',el('input')).placeholder='YYYY-MM-DDTHH:mm:ssZ';
+ return retainedElections(selected,unit,at=>at);
+}
+
+function retainedElections(selected:SwingAction,unit:string,instant:(at:string)=>string){
  return [facts([['Reference daily quantity',`${exact(selected.referenceQuantity)} ${unit}`],['Daily limits',`${range(selected.dailyMinimum,selected.dailyMaximum)} ${unit}`],
   ['Increment',`${exact(selected.increment)} ${unit}`],['Term budget',`${range(selected.totalMinimum,selected.totalMaximum)} ${unit}`],
   ['Committed',`${exact(selected.committed)} ${unit}`],['Remaining feasible',`${range(selected.remainingMinimum,selected.remainingMaximum)} ${unit}`]]),
-  table('Retained election days',['Gas day','Deadline',`Elected (${unit})`,'Evidence','Latest known head'],selected.days.map(d=>[d.day,d.exerciseAt,
-   d.electedQuantity!==null?`Elected · ${exact(d.electedQuantity)}`:d.effectiveRevision?'Withdrawn':'Undecided',d.evidence??'—',d.head??'—']),[2])];
+  table('Retained election days',['Gas day','Deadline',`Elected (${unit})`,'Effective revision','Evidence','Latest known head'],selected.days.map(d=>[d.day,instant(d.exerciseAt),
+   d.electedQuantity!==null?`Elected · ${exact(d.electedQuantity)}`:d.effectiveRevision?'Withdrawn':'Undecided',d.effectiveRevision??'—',d.evidence??'—',d.head??'—']),[2])];
 }

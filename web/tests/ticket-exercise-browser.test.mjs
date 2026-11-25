@@ -2,6 +2,49 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {browserAvailable,withBrowserPage,browserTestTimeout} from './browser-page.mjs';
 
+for(const kind of ['exercise','swing'])for(const code of [kind+'_election_conflict',kind==='swing'?'swing_feasibility':'exercise_election'])
+test(`a lost ${kind} refusal releases its exact retry after ${code}`,{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+ await withBrowserPage('<main></main>',async evaluate=>{
+  const result=await evaluate(`(async()=>{
+   const kind=${JSON.stringify(kind)},code=${JSON.stringify(code)},day='2041-02-01',ctx={snapshotId:'frame',knowledgeMode:'current'};
+   const {setupExerciseAction}=await import('/ticket-exercise-action.js');
+   const base={allowed:true,tradeId:'trade',instrumentId:'binding',expectedRevision:1,readContextId:'held',label:'Record',
+    preparePath:'/api/gas/'+kind+'/prepare',recordPath:'/api/gas/'+kind+'/record'};
+   const action=kind==='exercise'?{...base,periods:[{right:0,from:day,to:day,exerciseAt:day,previousId:null}],outcomes:[{value:'exercised',label:'Exercised'}]}:
+    {...base,right:0,days:[{day,exerciseAt:day,head:null,effectiveRevision:null,evidence:null,electedQuantity:null}],
+     increment:'1',dailyMinimum:'0',dailyMaximum:'2',referenceQuantity:'1',totalMinimum:'0',totalMaximum:'2',committed:'0',remainingMinimum:'0',remainingMaximum:'2',
+     decisions:[{value:'elect',label:'Elect'}],parties:[{value:'us',label:'Us'}]};
+   const host=document.querySelector('main'),writes=[];
+   let editor,reads=0;
+   function mount(){
+    editor=setupExerciseAction({kind,context:()=>ctx,current:()=>true,signal:new AbortController().signal,owner:'actor',tradeId:'trade',bindingId:'binding',revision:1,
+     writable:true,reread:async()=>{reads++;editor.select(action,ctx,'MMBtu');},api:async(path,body)=>{
+      if(path.endsWith('/prepare'))return {command:{...body,...kind==='exercise'?{right:undefined,elections:[{right:0,fromDate:day}]}:
+       {expectedHeads:[{day,revisionId:null}],elections:[{day,quantity:'0'}]}}};
+      writes.push(body);
+      if(writes.length===1)throw Error('Synthetic lost reply');
+      if(writes.length===2)throw Object.assign(Error('Synthetic authority refusal'),{code:'access_denied',status:403});
+      throw Object.assign(Error('Synthetic authoritative refusal'),{code,status:code.endsWith('conflict')?409:422});
+     }});
+    host.replaceChildren();editor.select(action,ctx,'MMBtu');editor.mount(host);
+   }
+   const tick=()=>new Promise(r=>setTimeout(r,10));
+   mount();host.querySelector('.ticket-record-'+kind).click();const form=host.querySelector('form');
+   const values=kind==='exercise'?{right:'0',firstPeriod:day,lastPeriod:day,outcome:'exercised'}:
+    {firstDay:day,lastDay:day,decision:'elect',quantity:'0',exercisingParty:'us',submittedAt:'2041-01-01T00:00:00Z'};
+   for(const [key,val] of Object.entries({...values,effectiveAt:'2041-01-01T00:00:00Z',evidence:'Synthetic notice'})){
+    const ctrl=form.elements.namedItem(key);ctrl.value=val;ctrl.dispatchEvent(new Event('change'));
+   }
+   form.requestSubmit();await tick();mount();const retry=()=>host.querySelector('.ticket-retry-'+kind);
+   retry().click();await tick();const deniedPending=editor.pending()&&!!retry();
+   retry().click();await tick();const pending=editor.pending();host.querySelector('.ticket-refresh-'+kind)?.click();await tick();
+   return {deniedPending,pending,reads,writes,available:!host.querySelector('.ticket-record-'+kind).disabled};
+  })()`);
+  assert.ok(result.deniedPending);assert.deepEqual(result.writes,[result.writes[0],result.writes[0],result.writes[0]]);
+  assert.deepEqual([result.pending,result.reads,result.available],[false,1,true]);
+ });
+});
+
 for(const failure of ['write','removal'])test(`election recovery survives a ticket remount after a storage ${failure} failure`,
  {skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await withBrowserPage('<div id="host"></div>',async evaluate=>{

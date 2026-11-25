@@ -24,7 +24,16 @@ public sealed record TicketDraft(string Product,int Version,ImmutableDictionary<
 public sealed record TicketChoice(string Value,string Label);
 public sealed record TicketSource(string Kind,string Label);
 public sealed record TicketLookup(string Value,TicketSource Source);
-public sealed record TicketChoices(ImmutableArray<TicketChoice> Choices,TicketLookup? StartingValue);
+public sealed record TicketChoices(ImmutableArray<TicketChoice> Choices,TicketLookup? StartingValue)
+{
+ [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public string? SelectionConflict{get;init;}
+}
+
+internal sealed record GasTicketPriceProbe(GasCompositionRequest Terms,bool SwingCoverage)
+{
+ internal GasPhysicalRequest Source=>Terms.PhysicalSides.Single();
+ internal PhysicalGasTerms Selection=>GasCompositionStore.Selection(Terms,Source);
+}
 
 public static class GasTicket
 {
@@ -47,7 +56,7 @@ public static class GasTicket
      Field("delivery_to","To · exclusive","End of delivery, exclusive.","date","end") with{Lookup="entry_to"},
      Field("product","Product","Service level of the gas.","choice","product",choices:"gas_products"),
      Field("quantity","Quantity","Quantity per the chosen basis, in the unit the side's gas path is quoted in. Taken from the link when the side is linked.","decimal","quantity",unit:"quantity",required:false,rule:"Derived from the link source when a link is set.") with{Lookup="entry_quantity"},
-     Field("forecast_curve","Forecast curve","Published curve used for future prices; the assigned index and fixing source remain contractual.","choice",choices:"forecast_curves",required:false) with{DependsOn=["delivery_from","delivery_to","product","delivery_point"]},
+     Field("forecast_curve","Forecast curve","Published curve used for future prices; the assigned index and fixing source remain contractual.","choice",choices:"forecast_curves",required:false) with{DependsOn=["delivery_from","delivery_to","product","delivery_point"],RefreshOn=["swing_side"]},
      Info("price","Price","Market price at the delivery point.","price","market_price"),
      Info("payment","Payment","Sides that pay for this gas.","payment","paid_through"),
      Field("quantity_policy","Valuation quantity","Choose whether value and accrued cash use the contract quantity or selected scheduled and allocated delivery quantities.","choice",choices:"quantity_policies") with{RefreshOn=["swing_side","swing_quantity_policy"]},
@@ -133,7 +142,7 @@ public static class GasTicket
   return cash with{Fields=[..cash.Fields.Where(f=>f.Id is not("floating_price" or "floating_payment_at")),
    Field("floating_pricing","Pricing","How the payment selects its index publications.","choice",choices:"index_pricing",dependsOn:"floating_source"),
    Field("floating_index","Pricing index","Named index that determines the payment price.","choice",choices:"pricing_indices",dependsOn:"floating_source") with{VisibleWhen=new("floating_pricing",["named_daily","named_monthly","retained_daily"])},
-   Field("floating_forecast_curve","Forecast curve","Published curve used for unfixed daily index prices.","choice",choices:"forecast_curves") with{DependsOn=["floating_source","floating_start","floating_end","delivery_from","delivery_to","delivery_point","product"],RefreshOn=["forecast_curve","floating_pricing"]},
+   Field("floating_forecast_curve","Forecast curve","Published curve used for unfixed daily index prices.","choice",choices:"forecast_curves") with{DependsOn=["floating_source","floating_start","floating_end","delivery_from","delivery_to","delivery_point","product"],RefreshOn=["forecast_curve","floating_pricing","swing_side"]},
    Field("floating_spread","Index spread","Contractual adder to the index in the source quote units.","decimal","price") with{Lookup="entry_spread"},
    Field("floating_payment_day","Payment day","Contractual calendar date in the following month, without a holiday adjustment.","choice","payment",choices:"payment_days")]};
  }
@@ -476,6 +485,8 @@ public static class GasTicket
  {
   var (target,f)=Field(draft,side,field);
   if(GasExerciseTicket.Section.Fields.Contains(f)||GasSwingTicket.Section.Fields.Contains(f))return new(choices,null);
+  if(f.Id=="quantity_policy"&&target?.Values.GetValueOrDefault(f.Id) is {Length:>0} stated&&!choices.Any(c=>c.Value==stated))
+   return new(choices,null){SelectionConflict="The stated valuation quantity conflicts with this side's current terms. Choose its valuation quantity explicitly."};
   if(f.Id=="quantity_policy"&&GasSwingTicket.Governs(draft,side))
   {
    var selected=draft.SwingRights is [{QuantityPolicy:SwingRight.ElectedDeliveryQuantity}];
@@ -592,7 +603,7 @@ public static class GasTicket
  // A physical market-price probe uses its own path and term. An indexed forecast-choice probe
  // uses that path over the payment's own dates, one unit received per operating day, no cash.
  // Price does not depend on the quantity, direction or basis, so the probe states them only to make a complete side.
- public static GasCompositionRequest PriceProbe(TicketDraft draft,string side,JsonElement catalog,Guid snapshot,Guid definition)
+ internal static GasTicketPriceProbe PriceProbe(TicketDraft draft,string side,JsonElement catalog,Guid snapshot,Guid definition)
  {
   var entry=draft.Sides.SingleOrDefault(s=>s.Code==side)??throw Bad("Choose an existing Side.");
   var target=QuantitySource(draft,entry);
@@ -600,8 +611,14 @@ public static class GasTicket
   RequireSetup(draft,catalog);
   var (from,to)=entry.Kind=="floating"?(Term(entry,"floating_start",Unresolved),Term(entry,"floating_end",Unresolved)):
    (Term(target,"delivery_from",Unresolved),Term(target,"delivery_to",Unresolved));var path=Path(target,catalog,Unresolved);
-  return new(snapshot,PhysicalGasStore.Convention,"current",GasCompositionStore.Profile,Guid.Empty,Guid.Empty,definition,Id(draft.Trade,"gas_setup"),false,null,null,null,null,
-   [new(target!.Code,path.Text("pipeline"),path.Text("zone"),path.Text("deliveryPoint"),path.Text("product"),"receive",from,to,"per_operating_day","1",null,Forecast(target.Values.GetValueOrDefault("forecast_curve"))){CalendarPolicy=Calendar(target)}],[]);
+  return new(new(snapshot,PhysicalGasStore.Convention,"current",GasCompositionStore.Profile,Guid.Empty,Guid.Empty,definition,Id(draft.Trade,"gas_setup"),false,null,null,null,null,
+   [new(target!.Code,path.Text("pipeline"),path.Text("zone"),path.Text("deliveryPoint"),path.Text("product"),"receive",from,to,"per_operating_day","1",null,Forecast(target.Values.GetValueOrDefault("forecast_curve"))){CalendarPolicy=Calendar(target)}],[]),GasSwingTicket.Governs(draft,target.Code));
+ }
+
+ internal static bool RequiresMarketInputs(TicketDraft draft,string? side,string field)
+ {
+  var (target,description)=Field(draft,side,field);
+  return description.Lookup=="market_price"||description.Lookup=="entry_price"&&target is not null&&!target.Values.ContainsKey(field);
  }
 
  public static string? LookupOf(TicketDraft draft,string? side,string field)=>Field(draft,side,field).Field.Lookup;

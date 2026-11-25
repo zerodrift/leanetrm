@@ -182,7 +182,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
  static ExercisePeriod Period(string value)=>value switch{"delivery_day"=>ExercisePeriod.DeliveryDay,"delivery_month"=>ExercisePeriod.DeliveryMonth,_=>throw Invalid("Select a supported exercise period.")};
  static ExerciseHolder Holder(string value)=>value switch{"us"=>ExerciseHolder.Us,"counterparty"=>ExerciseHolder.Counterparty,_=>throw Invalid("Select an explicit exercise holder.")};
  static ExerciseSettlement Settlement(string value)=>value switch{"physical"=>ExerciseSettlement.Physical,"cash_automatic"=>ExerciseSettlement.CashAutomatic,_=>throw Invalid("Select a supported exercise settlement.")};
- async Task<GasCompositionDraft> Resolve(NpgsqlConnection c,PreviewData data,GasCompositionRequest body,DateTimeOffset at,CancellationToken ct)
+ async Task<GasCompositionDraft> Resolve(NpgsqlConnection c,PreviewData data,GasCompositionRequest body,DateTimeOffset at,CancellationToken ct,string? swingProbeSource=null)
  {
   var charges=body.ChargeSides??[];
   if(charges.IsDefault||charges.Any(p=>p is null)||body.PhysicalSides.IsDefault||body.CashSides.IsDefault||body.PhysicalSides.Any(s=>s is null)||body.CashSides.Any(s=>s is null))throw Invalid("Supply each physical and payment Side explicitly.");
@@ -204,7 +204,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   var physical=ImmutableArray.CreateBuilder<GasPhysicalComponent>();var assignments=new List<ImmutableArray<GasValuationAssignment>>();var clocks=new List<GasDayClock>();var mappings=new List<JsonElement>();
   foreach(var p in body.PhysicalSides)
   {
-   var m=await gas.Metadata(c,data,Selection(body,p),ct,swingSource:body.SwingRights is [{Side:var swingCode}]&&swingCode==p.Code,bookingSide:p.Code);assignments.Add(m.Assignments);clocks.Add(m.Clock);mappings.Add(m.Mapping);
+   var m=await gas.Metadata(c,data,Selection(body,p),ct,swingSource:p.Code==swingProbeSource||body.SwingRights is [{Side:var swingCode}]&&swingCode==p.Code,bookingSide:p.Code);assignments.Add(m.Assignments);clocks.Add(m.Clock);mappings.Add(m.Mapping);
    var basis=p.QuantityBasis switch{"per_operating_day"=>GasQuantityBasis.PerOperatingDay,"period_total_equal_days"=>GasQuantityBasis.PeriodTotalEqualOperatingDays,_=>throw Invalid("Choose each physical quantity basis explicitly.")};
    var side=new PhysicalGasSide(Guid.NewGuid(),m.Assignments[0].Location,m.Assignments[0].Product,new(m.Clock,DateWorkspace.Date(p.DeliveryFrom),DateWorkspace.Date(p.DeliveryTo),basis,new(Number("1"),m.Assignments[0].Quote.Quantity),GasFuelConvention.None,default),m.Assignments,SideCalendarPolicies.Resolve(data,p.CalendarPolicy),GasPointPricing.Resolve(database.Manifest.CatalogId,m.Mapping,p.ForecastCurve)?.ToBinding());
    var link=p.Link is null?null:new GasCompositionLink(p.Link.Source,p.Link.Formula switch{"none"=>GasFuelConvention.None,"gross_less_fraction"=>GasFuelConvention.NetEqualsGrossTimesOneMinusFuel,"gross_divided_by_one_plus_fraction"=>GasFuelConvention.NetEqualsGrossDividedByOnePlusFuel,_=>throw Invalid("Select an installed fuel rule.")},Number(p.Link.Fraction));
@@ -548,12 +548,12 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   }
  }
  // The single market price a physical side's schedule shows over its delivery term, evaluated from a price probe (GasTicket.PriceProbe).
- internal async Task<string> MarketPrice(NpgsqlConnection c,PreviewData data,InputFrame frame,GasCompositionRequest probe,CancellationToken ct)
+ internal async Task<string> MarketPrice(NpgsqlConnection c,PreviewData data,InputFrame frame,GasTicketPriceProbe probe,CancellationToken ct)
  {
   GasCompositionValue value;
-  try{var d=await Resolve(c,data,probe,frame.At,ct);value=await Value(c,data,frame,d.Members,d.Instrument.BaseQuantity,d.Instrument,probe.GasSetupId,null,true,ct);}
-  catch(MarketDataException error)when(error.Code is "gas_input" or "gas_composition_input"){throw new MarketDataException("ticket_lookup",error.Message);}
-  var code=probe.PhysicalSides.Single().Code;
+  var code=probe.Source.Code;
+  try{var d=await Resolve(c,data,probe.Terms,frame.At,ct,probe.SwingCoverage?code:null);value=await Value(c,data,frame,d.Members,d.Instrument.BaseQuantity,d.Instrument,probe.Terms.GasSetupId,null,true,ct);}
+  catch(MarketDataException error)when(error is not TicketFieldException&&error.Code is ("gas_input" or "gas_composition_input")){throw new MarketDataException("ticket_lookup",error.Message);}
   if(value.Schedule is null)throw new MarketDataException("ticket_lookup",$"The side's schedule cannot be shown, so its market price is not read: {value.ScheduleRefusal!.Message}");
   return value.Schedule.Totals[$"{code}.market_price"].Value??throw new MarketDataException("ticket_lookup","The side's delivery term has no single market price.");
  }

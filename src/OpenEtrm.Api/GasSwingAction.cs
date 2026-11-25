@@ -29,13 +29,13 @@ public sealed record GasSwingAction(bool Allowed,string? Reason,Guid TradeId,Gui
     public ImmutableArray<TicketChoice> Parties=>[new(Holder,Holder=="us"?"Us":"Counterparty")];
 
     internal static async Task<GasSwingAction> Read(NpgsqlConnection c,PreviewDatabase database,GasCompositionExecution execution,
-        InputFrame frame,int revision,string? reason,CancellationToken ct)
+        InputFrame frame,int revision,string? reason,WriteAuthority? authority,CancellationToken ct)
     {
         if(reason is null)
         {
-            await using var grant=ScheduleStore.Command(c,"SELECT security.gas_swing_write_until($1)",database.Manifest.CatalogId);
-            var until=new DateTimeOffset((DateTime)(await grant.ExecuteScalarAsync(ct))!);
-            database.RegisterCommitAdmission(c,new WriteAuthority(database.Manifest.CatalogId,until));
+            if(authority is null)throw new PreviewDeniedException();
+            await authority.RequireCommit(c,ct);
+            database.RegisterCommitAdmission(c,authority);
         }
         var right=execution.SwingRights.Single();
         var term=execution.Terms.SwingRights!.Value.Single();
@@ -58,20 +58,31 @@ public sealed record GasSwingAction(bool Allowed,string? Reason,Guid TradeId,Gui
             Quantity(budget.RemainingMinimumLots),Quantity(budget.RemainingMaximumLots),days);
     }
 
-    private sealed record WriteAuthority(Guid Catalog,DateTimeOffset Until):ICommitAdmission
+    internal sealed record WriteAuthority(Guid Catalog,DateTimeOffset Until):ICommitAdmission
     {
         public async Task RequireCommit(NpgsqlConnection c,CancellationToken ct)
         {
-            await using var q=ScheduleStore.Command(c,"SELECT clock_timestamp()<least($2,security.gas_swing_write_until($1))",Catalog,Until);
+            await using var q=ScheduleStore.Command(c,"SELECT clock_timestamp()<least($2,deadline) FROM security.gas_swing_write_until($1) AS deadline",Catalog,Until);
             if(await q.ExecuteScalarAsync(ct) is not true)throw new PreviewDeniedException();
         }
     }
 
-    internal static async Task RequireAuthority(NpgsqlConnection c,Guid catalog,Guid trade,Guid binding,CancellationToken ct)
+    internal static async Task<WriteAuthority?> CaptureAuthority(NpgsqlConnection c,Guid catalog,CancellationToken ct)
     {
-        await GasSwingStore.RequireScope(c,catalog,trade,binding,ct);
-        await using var check=ScheduleStore.Command(c,"SELECT security.gas_swing_write_until($1)",catalog);
-        await check.ExecuteScalarAsync(ct);
+        // Bind the original AmendTrade deadline first. The scoped native check may wait
+        // before it reads the catalog's current market and trading authority.
+        await using var capture=ScheduleStore.Command(c,"""
+            SELECT least(initial.until_at,security.gas_swing_write_until($1))
+            FROM security.authority_until('AmendTrade') AS initial(until_at)
+            WHERE clock_timestamp()<initial.until_at
+            """,catalog);
+        return await capture.ExecuteScalarAsync(ct) is DateTime until?new(catalog,new DateTimeOffset(until)):null;
+    }
+
+    internal static async Task RequireAuthority(NpgsqlConnection c,WriteAuthority authority,Guid trade,Guid binding,CancellationToken ct)
+    {
+        await GasSwingStore.RequireScope(c,authority.Catalog,trade,binding,ct);
+        await authority.RequireCommit(c,ct);
     }
 
     internal GasSwingRecordRequest Build(GasSwingPrepareRequest request)

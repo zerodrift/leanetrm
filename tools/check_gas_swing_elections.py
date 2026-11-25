@@ -61,6 +61,66 @@ def read_grant_transition(query, manifest, reader):
             DELETE FROM security.roles WHERE id='{role}';COMMIT;""")
 
 
+def action_grant_transition(client, query, manifest, path, body, table):
+    """A request that already waited under A cannot publish a writable action under B."""
+    role, grant = uuid4(), uuid4()
+    name = 'swing_amend_' + role.hex
+    existing = json.loads(query("SELECT json_agg(role_id)::text FROM security.role_permissions WHERE permission='AmendTrade'"))
+    try:
+        boundary = query(f"""BEGIN;DELETE FROM security.role_permissions WHERE permission='AmendTrade';
+            INSERT INTO security.roles VALUES('{role}','{name}','Synthetic swing action authority');
+            INSERT INTO security.role_permissions VALUES('{role}','AmendTrade');
+            INSERT INTO security.role_grants SELECT '{grant}',principal_id,'{role}','{manifest['tenantId']}','{manifest['workspaceId']}',
+             clock_timestamp()-interval '1 day',clock_timestamp()+interval '4 seconds',false FROM security.identity_bindings
+             WHERE issuer='https://preview.invalid' AND subject='trader';
+            INSERT INTO security.role_grants SELECT gen_random_uuid(),principal_id,role_id,tenant_id,workspace_id,
+             granted_to,granted_to+interval '1 minute',false FROM security.role_grants WHERE id='{grant}';
+            SELECT granted_to FROM security.role_grants WHERE id='{grant}';COMMIT;""")
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            locked = pool.submit(query, f"""SET application_name='{name}';BEGIN;LOCK TABLE {table} IN ACCESS EXCLUSIVE MODE;
+                SELECT pg_sleep_until(TIMESTAMPTZ '{boundary}');COMMIT;""")
+            limit = monotonic()+8
+            while query(f"SELECT EXISTS(SELECT FROM pg_stat_activity WHERE application_name='{name}' AND wait_event='PgSleep');")!='t':
+                assert not locked.done() and monotonic()<limit, 'Grant-transition table lock did not start'
+                sleep(.03)
+            request = pool.submit(client.call,path,body,expected=(200,403))
+            while query(f"""SELECT EXISTS(SELECT FROM pg_locks WHERE NOT granted AND relation='{table}'::regclass
+                    AND clock_timestamp()<TIMESTAMPTZ '{boundary}');""")!='t':
+                assert not request.done() and monotonic()<limit, f'{path} did not reach its bound read under grant A'
+                sleep(.03)
+            locked.result(timeout=10)
+            request.result(timeout=10)
+            assert client.last_status==403, f'{path} published a writable result under successor B after waiting under A'
+        result = client.call(path,body)
+        assert ('command' in result if path.endswith('/prepare') else result['actions']['recordSwing']['allowed'])
+    finally:
+        restore = ','.join(f"('{r}','AmendTrade')" for r in existing)
+        query(f"""BEGIN;DELETE FROM security.role_grants WHERE role_id='{role}';DELETE FROM security.role_permissions WHERE role_id='{role}';
+            DELETE FROM security.roles WHERE id='{role}';INSERT INTO security.role_permissions VALUES {restore};COMMIT;""")
+
+
+def ticket_source_lookups(client, context, draft):
+    from copy import deepcopy
+    from decimal import Decimal
+    catalog = client.call('gas/catalog',context)
+    draft = deepcopy(draft)
+    source, cash = draft['sides']
+    cash['values'].pop('cash_price')
+    source['values']['delivery_to']='2021-02-01'
+    for point, status in [('synthetic_intrinsic_point',200),('synthetic_swing_overlap_point',422)]:
+        path = next(p for p in catalog['locations'] if p['deliveryPoint']==point)
+        source['values'].update(pipeline=path['pipeline'],zone=path['zone'],delivery_point=point,product=path['product'])
+        for endpoint, side, field in [('choices',source,'forecast_curve'),('lookup',source,'price'),('lookup',cash,'cash_price')]:
+            value=client.call('tickets/'+endpoint,dict(context=context,draft=draft,side=side['code'],field=field),expected=(200,422))
+            assert client.last_status==status,(point,endpoint,side['code'],field,value)
+            if status==422:
+                assert (value['code'],value['side'],value['field'])==('gas_composition_input',source['code'],'delivery_point')
+            elif endpoint=='choices':
+                assert any(c['value']=='assigned' for c in value['choices'])
+            else:
+                assert Decimal(value['value'])==Decimal('3.20'), value
+
+
 def native_authority_fences(query, manifest, reader, replay, target):
     read_grant_transition(query,manifest,reader)
     cat = manifest['catalogId']
@@ -171,6 +231,13 @@ def election_checks(client, query, manifest, context, booking, plain, run_worker
     choice=dict(context=context,readContextId=action['readContextId'],**selected,expectedRevision=1,operationId=str(uuid4()),right=0,
         firstDay=DAYS[1],lastDay=DAYS[2],decision='elect',quantity='600',exercisingParty='us',
         submittedAt=AT,effectiveAt=BETWEEN,evidence='Synthetic ticket range')
+    ticket_request=dict(context=context,tradeId=selected['tradeId'],bindingId=selected['instrumentId'],revision=1)
+    for path,body,table in [('gas/swing/prepare',choice,'security.market_catalog_scopes'),
+                            ('gas/swing/prepare',choice,'trading.gas_trade_revisions'),
+                            ('tickets/trade',ticket_request,'trading.gas_trade_revisions')]:
+        action_grant_transition(client,query,manifest,path,body,table)
+    ticket_source_lookups(client,context,ticket['draft'])
+    print('PASS daily-only and overlapping swing source lookups; ticket and prepare retain their initial AmendTrade deadline',flush=True)
     prepared=client.call('gas/swing/prepare',choice)['command']
     assert prepared['expectedHeads']==heads(now) and [r['day'] for r in prepared['elections']]==DAYS[1:]
     failure=record(prepared,expected=422)
@@ -268,6 +335,24 @@ def election_checks(client, query, manifest, context, booking, plain, run_worker
     swapped = command(heads(read(target=concurrent)),row(loser,'900'),row(1-loser,'100'),target=concurrent)
     assert len(record(swapped)['elections'])==2
     assert sum(int(e['quantity']) for e in read(target=concurrent)['elections'])==1000
+    # A historical ticket must use its original facts even after a later withdrawal.
+    withdrawal=record(command(heads(read()),{**row(2,None),'evidence':'Synthetic zero withdrawn'}))['elections'][0]
+    location=dict(tradeId=selected['tradeId'],bindingId=selected['instrumentId'],revision=1)
+    historical=client.call('tickets/trade',dict(context=cutoff,**location))
+    assert historical['context']['contextId']==cutoff['contextId'] and historical['scheduleRefusal']['code']=='exercise_marks'
+    previous=historical['actions']['recordSwing']
+    assert not previous['allowed'] and previous['readContextId'] is None
+    assert previous['committed']=='700' and previous['remainingMaximum']=='300'
+    assert previous['days'][0]['head']==future['revisionId'] and previous['days'][2]['electedQuantity']=='0'
+    reader=PreviewClient(client.url)
+    reader.bootstrap()
+    reader.call('profile',dict(profile='risk'))
+    current=reader.call('tickets/trade',dict(context=context,**location))
+    action=current['actions']['recordSwing']
+    assert not action['allowed'] and action['readContextId'] is None and action['committed']=='700'
+    assert action['days'][2]['electedQuantity'] is None and action['days'][2]['effectiveRevision']==withdrawal['revisionId']
+    assert action['days'][2]['evidence']=='Synthetic zero withdrawn'
+    print('PASS unpriced read-only ticket retains the effective withdrawal; earlier cutoff still shows elected zero and the original budget',flush=True)
     check_worker(client, query, manifest, context, complete, plain, accepted, run_worker)
     # A previous binding is readable at its certified cutoff. An exact retry
     # retains its outcome there, but a fresh command cannot amend that revision.

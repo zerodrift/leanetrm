@@ -71,9 +71,14 @@ export function setupExerciseAction(o:{api:Api;context:()=>WorkingContext;curren
   catch(error){
    if(!o.current())return;
    sending=false;
-   if((error as {code?:string}).code===`${kind}_election_conflict`&&!uncertain){
+   const code=(error as {code?:string}).code,conflict=code===`${kind}_election_conflict`;
+   const rejected=code===`${kind}_election`||(kind==='exercise'?code==='exercise_election_limit':code==='swing_feasibility');
+   // These record refusals follow the native exact-receipt check. An authority
+   // refusal on a retry cannot tell us whether the original operation committed.
+   if(conflict||uncertain&&rejected){
     keep(undefined);stale=true;form=undefined;open=false;
-    said=`The ${kind} election changed. Refresh the trade to choose from the current instructions.`;
+    said=conflict?`The ${kind} election changed. Refresh the trade to choose from the current instructions.`:
+     `${name} refused. ${reasonOf(error)} Refresh the trade to enter a new instruction.`;
    }else{
     if(!uncertain&&definite(error))keep(undefined);
     said=prepared?`The ${kind} record is unconfirmed. ${reasonOf(error)}`:`${name} refused. ${reasonOf(error)}`;

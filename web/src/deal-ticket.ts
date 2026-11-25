@@ -461,8 +461,8 @@ export function renderTicket(host:HTMLElement,o:TicketView){
  for(const spec of d.repeatableTerms??[]){const terms=rightTerms(o,spec);if(terms)root.append(terms);}
  const pricedGroups=o.groups??o.schedule?.groups;
  if(pricedGroups?.length)root.append(exerciseGroups(pricedGroups,o.currency));
- for(const right of o.swingRights??[]){if(!o.currency||!o.quantityUnit)throw Error('A swing report requires its retained currency and quantity unit.');root.append(swingDetails(right,o.quantityUnit,o.currency,o.instant,o.knownAt,o.swingContract,o.actions?.recordSwing));}
- if(o.swingContract&&!o.swingRights?.length&&o.quantityUnit)root.append(swingContractDetails(o.swingContract,o.quantityUnit,o.instant,o.knownAt));
+ for(const right of o.swingRights??[]){if(!o.currency||!o.quantityUnit)throw Error('A swing report requires its retained currency and quantity unit.');root.append(swingDetails(right,o.quantityUnit,o.currency,o.instant,o.knownAt,o.swingContract,o.mode==='booked'?o.actions?.recordSwing:undefined));}
+ if(o.swingContract&&!o.swingRights?.length&&o.quantityUnit)root.append(swingContractDetails(o.swingContract,o.quantityUnit,o.instant,o.knownAt,o.mode==='booked'?o.actions?.recordSwing:undefined));
  o.exerciseAction?.(root);
  if(o.unassessedDays)root.append(el('p','ticket-incomplete',incompleteText(o.unassessedDays)));
  if(o.measures){if(!o.currency)throw Error('The trade measures require their currency.');root.append(measures(o.measures,o.currency,o.instant));}

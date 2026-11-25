@@ -76,6 +76,8 @@ internal static class GasTicketChecks
             try{Map(missingPolicy);throw new Exception("A right without an explicit policy was accepted.");}
             catch(TicketFieldException e)when(e.TermRow==0&&e.Field=="swing_quantity_policy"){}
             var competing=draft with{Sides=[draft.Sides[0] with{Values=draft.Sides[0].Values.SetItem("quantity_policy","delivery_schedule_v1")},draft.Sides[1]]};
+            var conflict=JsonSerializer.SerializeToElement(GasTicket.ChoiceSet(competing,"RCT","quantity_policy",GasTicket.LocalChoices(competing,"RCT","quantity_policy")!.Value),json);
+            Equal(true,conflict.TryGetProperty("selectionConflict",out var issue)&&!string.IsNullOrWhiteSpace(issue.GetString()),"manual source conflict is returned with its choices");
             try{Map(competing);throw new Exception("The swing source accepted a competing delivery policy.");}
             catch(TicketFieldException e)when(e.Side=="RCT"&&e.Field=="quantity_policy"){}
             var ordinary=Receipt with{Code="OTHER",Values=Receipt.Values.SetItem("quantity_policy","delivery_schedule_v1")};
@@ -1029,7 +1031,7 @@ internal static class GasTicketChecks
         Check("an indexed forecast is qualified on the payment's own term",()=>{
             var indexed=With(With(Indexed,"floating_start","2027-01-15"),"floating_end","2027-01-17");
             var probe=GasTicket.PriceProbe(Open(A(Receipt),indexed),"IDX",catalog,Snapshot,Definition);
-            Equal(("2027-01-15","2027-01-17"),(probe.PhysicalSides[0].DeliveryFrom,probe.PhysicalSides[0].DeliveryTo),"payment forecast coverage");
+            Equal(("2027-01-15","2027-01-17"),(probe.Source.DeliveryFrom,probe.Source.DeliveryTo),"payment forecast coverage");
             var field=GasTicket.Description.Sides.Single(s=>s.Kind=="floating").Fields.Single(f=>f.Id=="floating_forecast_curve");
             Equal(true,field.DependsOn.Contains("floating_start")&&field.DependsOn.Contains("floating_end")&&field.RefreshOn.Contains("floating_pricing"),"forecast refresh inputs");
         });
@@ -1146,9 +1148,12 @@ internal static class GasTicketChecks
         Refuses("ticket_input", "a lookup on a field without one refuses", () => GasTicket.Lookup(Open(A(Receipt)), "RCT", "zone", catalog));
         Check("a market price probe prices the side's own path and term", () =>
         {
+            var terms=Open(A(Receipt),With(Cash,"cash_price",null));
+            Equal(true,GasTicket.RequiresMarketInputs(terms,Cash.Code,"cash_price"),"following price suggestion requires the market");
+            Equal(false,GasTicket.RequiresMarketInputs(Open(A(Receipt),Cash),Cash.Code,"cash_price"),"an explicitly entered price needs no market lookup");
             var probe = GasTicket.PriceProbe(Open(A(Receipt), Cash), "RCT", catalog, Snapshot, Definition);
-            Equal(Setup, probe.GasSetupId, "probe setup"); Equal(0, probe.CashSides.Length, "probe cash");
-            var side = probe.PhysicalSides.Single();
+            Equal(Setup, probe.Terms.GasSetupId, "probe setup"); Equal(0, probe.Terms.CashSides.Length, "probe cash");
+            var side = probe.Source;
             Equal(("RCT", "PA", "ZA1", "P1", "firm", "2027-01-01", "2027-02-01"), (side.Code, side.Pipeline, side.Zone, side.DeliveryPoint, side.Product, side.DeliveryFrom, side.DeliveryTo), "probe path");
             Equal(new TicketSource("market", "Point 1 · close 2020-12-18"), GasTicket.MarketPrice(Open(A(Receipt)), "RCT", catalog, "3.1", new(2020, 12, 18)).Source, "market source");
         });

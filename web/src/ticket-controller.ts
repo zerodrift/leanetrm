@@ -263,9 +263,10 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
    if(!term&&(!fieldVisible(f,valuesOf(side))||f.dependsOn.some(parent=>!dependencyFilled(side,parent)))){delete choices[key];delete choiceErrors[key];return;}
    const controller=new AbortController(),signal=AbortSignal.any([lifetime.signal,controller.signal]),edit=choiceEdits.get(key);choiceReads.set(key,controller);
    try{
-    const r=await readField<{choices:TicketChoice[];startingValue?:TicketLookup|null}>('tickets/choices',{context:o.context(),draft:draft(),side,field:f.id},signal);
+    const r=await readField<{choices:TicketChoice[];startingValue?:TicketLookup|null;selectionConflict?:string}>('tickets/choices',{context:o.context(),draft:draft(),side,field:f.id},signal);
     if(signal.aborted||asked.get(key)!==n||!current())return;
     choices[key]=r.choices;delete choiceErrors[key];
+    if(r.selectionConflict&&choiceEdits.get(key)===edit){choiceErrors[key]=r.selectionConflict;later();return;}
     if(!term&&entry&&state&&choiceEdits.get(key)===edit&&!blocked()){
      const before=sent();state=resolveChoice(state,side,f.id,r.choices,retainedChoices.get(key),clearedChoices.has(key)?null:r.startingValue);retainedChoices.delete(key);
      if(sent()!==before){state=nextPreview(state).state;bookable=undefined;cancelPreview();panel={...panel,sideGroups:undefined,sideGroupsReason:undefined,status:{kind:'updating',text:'Updating…'}};settle();void readChoices(dependents(side,f.id));}

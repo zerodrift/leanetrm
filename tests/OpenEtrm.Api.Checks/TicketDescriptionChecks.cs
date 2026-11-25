@@ -42,6 +42,9 @@ internal static class TicketDescriptionChecks
                 "swing_daily_min","swing_daily_max","swing_total_min","swing_total_max","swing_lead_hours","swing_quantity_policy","swing_model","swing_numerical_policy"])||
                 fields.Any(f=>!f.Required||f.State!="editable")||GasTicket.SideKind("physical").Fields.Any(f=>fields.Any(s=>s.Id==f.Id)))
                 throw new Exception("Missing or duplicate working swing fields.");
+            foreach(var (side,field) in new[]{("physical","forecast_curve"),("floating","floating_forecast_curve")})
+                if(!GasTicket.Description.Sides.Single(s=>s.Kind==side).Fields.Single(f=>f.Id==field).RefreshOn.Contains("swing_side"))
+                    throw new Exception("Forecast choices need a fresh coverage read when the swing source changes.");
         });
         Check("a valid description passes unchanged", () => { if (!ReferenceEquals(TicketDescriptions.Validate(valid), valid)) throw new Exception("Instance changed"); });
         Check("ticket dispatch rejects an explicit null draft",()=>

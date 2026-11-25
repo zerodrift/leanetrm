@@ -261,4 +261,15 @@ test('a swing right renders one remaining value, explicit zero and a read-only i
  for(const value of ['Elected · 0','75','election-a','schedule-b','Intrinsic','98.5','2026-12-01T02:00:00Z'])assert.ok(host.textContent.includes(value),value);
  const detail=all(host).find(n=>n.tagName==='DETAILS'&&n.textContent.includes('Intrinsic'));
  assert.ok(detail);assert.equal(controls(detail).length,0);
+ const withdrawn={...day,electedQuantity:null,revisionId:null,quantityEvidence:[]};
+ const action={allowed:false,reason:'Retained read',days:[{day:day.day,exerciseAt:day.exerciseAt,electedQuantity:null,
+  effectiveRevision:'withdrawal-a',head:'future-head',evidence:'Synthetic withdrawal evidence'}],referenceQuantity:'200',dailyMinimum:'0',dailyMaximum:'200',
+  increment:'25',totalMinimum:'0',totalMaximum:'500',committed:'75',remainingMinimum:'25',remainingMaximum:'425'};
+ const contract={source:'receipt',referenceQuantity:'200',priceUnit:'USD/MMBtu',days:[day]};
+ for(const priced of [true,false]){
+  const view=draw({mode:'booked',actions:{recordSwing:action,record:{allowed:false},amend:{allowed:false},closeOut:{allowed:false}},
+   swingContract:contract,swingRights:priced?[{...swing,days:[withdrawn]}]:[],quantityUnit:'MMBtu',currency:'USD',knownAt:'2026-12-01T02:00:00Z'});
+  for(const value of ['Withdrawn','withdrawal-a','Synthetic withdrawal evidence','2026-12-01T02:00:00Z'])assert.ok(view.textContent.includes(value),value);
+  if(!priced)for(const value of ['Committed75 MMBtu','Remaining feasible25 – 425 MMBtu','future-head'])assert.ok(view.textContent.includes(value),value);
+ }
 });
