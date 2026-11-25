@@ -322,6 +322,88 @@ def run_checks(url,query,manifest,verify_persistence=None):
     assert all(closed['totals'][0]['values'][key]==continuing['totals'][0]['values'][key] for key in ('openingValue','closingValue','economicPnl')),closed['totals']
     print('PASS continuing option P&L: shared price Greeks, one calendar day on a named clock from a working snapshot and on the convention\'s clock from a recorded close, and exact endpoint clock roll with retained opening inputs.',flush=True)
 
+    # A run that names no trades covers its whole books, as the Risk page asks for it. Each date that holds trades then
+    # proves, under that date's own exact source, that the books hold no independently owned gas. One option held at both
+    # dates in a book of its own is reported as the run that names that one trade reports it, and can be saved.
+    c.call('profile',{'profile':'trader'})
+    own_book=str(uuid4())
+    query(f"INSERT INTO trading.books SELECT catalog_id,'{own_book}',portfolio_id,'Synthetic whole-book P&L',publication_order,effective_at FROM trading.books WHERE(catalog_id,id)=('{cat}','{book}');")
+    alone=c.call('options/book',dict(operationId=str(uuid4()),**early_context,bookId=own_book,series=on['series'],definitionRevisionId=on['definitionRevisionId'],
+                                   side='buy',lots='1',premium='1',premiumPaymentDate=earlier['at'][:10],premiumStyle='premium_paid_up_front',**early_parties))
+    c.call('profile',{'profile':'risk'})
+    in_book={**request,'knownAt':c.call('options/catalog',context)['context']['knownAt'],'bookIds':[own_book]}
+    whole_run=c.call('portfolio/pnl/run',{**in_book,'tradeIds':None},timeout=300);whole=whole_run['report']
+    named_trade=c.call('portfolio/pnl/run',{**in_book,'tradeIds':[alone['tradeId']]},timeout=300)['report']
+    assert whole_run['saveRefusal'] is None and whole_run['artifact'],whole_run['saveRefusal']
+    assert whole['scope']['tradeSelection']=='All trades in the selected books' and named_trade['scope']['tradeSelection']=='Selected trades',whole['scope']
+    assert {p['position']['tradeId'] for p in whole['positions']}=={alone['tradeId']} and {p['state'] for p in whole['positions']}=={'continuing'},whole['positions']
+    assert whole['totals']==named_trade['totals'] and whole['positions']==named_trade['positions'],(whole['totals'],named_trade['totals'])
+    print('PASS whole-book P&L: a run naming no trades reports a book\'s holdings as the run naming each of them does.',flush=True)
+
+    # A date of a whole-book run attests complete coverage of its books, so it proves that they hold no independently owned
+    # gas whether or not it holds trades (D452). One book takes title to gas on 15 October: it holds none at the 13th and
+    # 14th and some at the 15th and 16th. It holds no trade until the 16th. Another book holds no gas and one trade from
+    # the 16th on.
+    c.call('profile',{'profile':'trader'})
+    gas_book,later_book=str(uuid4()),str(uuid4())
+    query(f"INSERT INTO trading.books SELECT k.catalog_id,b.id,k.portfolio_id,b.name,k.publication_order,k.effective_at FROM trading.books k,"
+          f"(VALUES('{gas_book}'::uuid,'Synthetic owned gas'),('{later_book}'::uuid,'Synthetic later trade'))b(id,name) WHERE(k.catalog_id,k.id)=('{cat}','{book}');")
+    query("INSERT INTO security.role_permissions SELECT r.role_id,p.code FROM security.role_permissions r CROSS JOIN security.permissions p "
+          "WHERE r.permission='AmendTrade' AND p.code IN('ReadGasOwnedHoldings','RecordGasOwnedHoldings','ConfigureGasOwnedHoldings') ON CONFLICT DO NOTHING;")
+    def native(sql):
+        return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token(60)}');{sql}COMMIT;")
+    def owned(account,action,body,at,policy='NULL,NULL'):
+        return json.loads(native(f"SELECT security.record_gas_owned('{cat}','{uuid4()}','{action}','{account}',{quote(json.dumps(body))}::jsonb,'{at}',"
+                                 f"security.resolve_operation_context('{cat}','{at[:10]}',NULL),{policy},false)::text;"))
+    gas=json.loads(query("SELECT jsonb_build_object('markCurve',c.code,'quantity',q.quantity_code,'currency',q.currency_code,'location',c.location_code)::text "
+                         "FROM market_data.curves c JOIN ref_data.quote_specifications q ON(q.catalog_id,q.revision_id,q.code)=(c.reference_catalog_id,c.reference_revision_id,c.quote_code) "
+                         f"WHERE(c.catalog_id,c.revision_id,c.code)=('{cat}','{manifest['revisionId']}','nymex_ng');"))
+    between,held_from=(working_frame_at(c.call('workspace'),at) for at in ('2026-10-14T16:00:00Z','2026-10-15T16:00:00Z'))
+    account,title_policy,received=str(uuid4()),str(uuid4()),'2026-10-15T08:00:00Z'
+    owned(account,'account',dict(code='synthetic_owned_gas',kind='owned_inventory',bookId=gas_book,legalEntityId=parties['legalEntityId'],legalEntityRevision=parties['legalEntityRevision'],
+        counterpartyId=None,counterpartyRevision=None,referenceCatalogId=manifest['referenceCatalogId'],referenceRevisionId=manifest['referenceRevisionId'],
+        definitionRevisionId=manifest['revisionId'],markContractId=earlier['curveContracts']['nymex_ng'][0],titlePolicy='explicit_accepted_title_v1',
+        lossPolicy='separate_evidenced_loss_v1',effectiveAt='2026-10-01T00:00:00Z',**gas),earlier['at'])
+    manual=dict(operationId=str(uuid4()),policyId=title_policy,expectedRevision=0,action='gas.owned.receive_title',mode='manual',
+                fromAt='2026-01-01T00:00:00Z',untilAt='2028-01-01T00:00:00Z',implementation='explicit_lifecycle_action_policy_v1')
+    native(f"SELECT lifecycle.save_policy('{cat}',{quote(json.dumps(manual))}::jsonb);")
+    owned(account,'bind_policy',dict(action='gas.owned.receive_title',policyId=title_policy,policyRevision=1,effectiveAt='2026-10-01T00:00:00Z'),earlier['at'])
+    receipt=owned(account,'evidence',dict(sourceKey='synthetic_title_receipt',kind='title_receipt',quantity='720',occurredAt=received,
+                                          evidence='Synthetic observed title receipt',expectedRevision=0),held_from['at'])['id']
+    owned(account,'receive_title',dict(evidenceId=receipt,quantity='720',titleAt=received,availableAt=received,originPolicy='opening_owned_stock_v1',
+                                       carrying='nominal_mark_v1'),held_from['at'],policy=f"'{title_policy}',1")
+    def whole_books(opening,closing,books):
+        return {**request,'knownAt':c.call('options/catalog',context)['context']['knownAt'],'opening':endpoint(opening),'closing':endpoint(closing),
+                'bookIds':books,'tradeIds':None}
+    def refused_for_owned_gas(opening,closing):
+        refused=c.call('portfolio/pnl/run',whole_books(opening,closing,[gas_book]),expected=422)
+        assert refused['code']=='gas_owned_policy_required' and 'does not value' in refused['message'] and 'Name the trades' in refused['message'],refused
+    c.call('profile',{'profile':'risk'})
+    # With no trade at either date the run is refused at the current date, which holds the gas, never as a scope that holds nothing.
+    refused_for_owned_gas(earlier,frame)
+    # A trade booked at the 16th, its premium paid then, is known to runs between earlier dates that do not hold it.
+    c.call('profile',{'profile':'trader'})
+    later=[c.call('options/book',{**terms,'operationId':str(uuid4()),'bookId':selected}) for selected in (gas_book,later_book)]
+    c.call('cash-payments/record',{**command,'operationId':str(uuid4()),'allocationId':str(uuid4()),'tradeId':later[0]['tradeId'],'bindingId':later[0]['premiumInstrumentId'],'amount':format(owed,'f')})
+    c.call('profile',{'profile':'risk'})
+    # Where the gas is held at a date without trades, that cash no longer makes a report of the books.
+    refused_for_owned_gas(between,held_from)
+    # Where neither date holds the gas yet, each proves its absence and the report lists that cash alone.
+    before_gas=c.call('portfolio/pnl/run',whole_books(earlier,between,[gas_book]),timeout=300)['report']
+    assert {p['position']['tradeId'] for p in before_gas['positions']}=={later[0]['tradeId']} and {p['state'] for p in before_gas['positions']}=={'cash_only'},before_gas['positions']
+    # The date that holds the trade proves the absence while it is valued, after a prior date without gas or trades has proved it.
+    refused_for_owned_gas(between,frame)
+    # A run that names its trades covers those trades alone and claims nothing about the books' gas, at a date that holds
+    # the gas and none of them as at one that holds both.
+    by_trade=c.call('portfolio/pnl/run',{**whole_books(held_from,frame,[gas_book]),'tradeIds':[later[0]['tradeId']]},timeout=300)['report']
+    assert {p['position']['tradeId'] for p in by_trade['positions']}=={later[0]['tradeId']} and {p['state'] for p in by_trade['positions']}=={'new'},by_trade['positions']
+    # Books with no gas pass the proof at a date with no trades: that date is reported empty and the trade as new.
+    without_gas=c.call('portfolio/pnl/run',whole_books(earlier,frame,[later_book]),timeout=300)
+    assert without_gas['saveRefusal'] is None and {p['position']['tradeId'] for p in without_gas['report']['positions']}=={later[1]['tradeId']},without_gas['report']['positions']
+    assert {p['state'] for p in without_gas['report']['positions']}=={'new'} and without_gas['report']['holdings']['opening']==[],without_gas['report']['holdings']
+    print('PASS whole-book P&L owned gas: each date proves its books hold no independently owned gas, with or without trades; '
+          'a run naming its trades and books with no gas are reported.',flush=True)
+
     # One report explains holdings priced on two curves: the centre call of the first product's first two listed underlying
     # months and of the other product's first, booked at the opening close. A run values each held option nine times, at both
     # closes, under six price samples and under one clock sample, all inside one request: the strip is kept to what the

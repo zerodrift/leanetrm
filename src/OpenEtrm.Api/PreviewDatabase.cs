@@ -27,6 +27,12 @@ internal interface ICommitAdmission
 {
     Task RequireCommit(NpgsqlConnection connection,CancellationToken ct);
 }
+// Its requirement reads request state that a temporary view restores. The
+// view requires it before that restore; what outlives the state stays for commit.
+internal interface IViewAdmission:ICommitAdmission
+{
+    ICommitAdmission Retained{get;}
+}
 public sealed record ReferencePage(string Table,ImmutableArray<JsonElement> Rows,
     ImmutableDictionary<string,ImmutableArray<JsonElement>> References,int Offset,int PageSize,int MaximumOffset,bool HasMore,string Search,
     ReferenceRevision ReferenceRevision,Guid DefinitionRevisionId);
