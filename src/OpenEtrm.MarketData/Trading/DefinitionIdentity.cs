@@ -70,6 +70,8 @@ public sealed record DefinitionIdentity(string Version, string Digest, string Ca
                 if(value is IRetainedSideComposition && field.Name == nameof(SidedInstrument.Sides)) continue;
                 if(field.Name == nameof(Gas.RetainedGasInstrument.Rights) &&
                     value is Gas.RetainedGasInstrument { Rights.IsEmpty: true } or Gas.GasCompositionInstrument { Rights.IsEmpty: true }) continue;
+                if(field.Name == nameof(Gas.RetainedGasInstrument.SwingRights) &&
+                    value is Gas.RetainedGasInstrument { SwingRights.IsEmpty: true }) continue;
                 if(field.Name==nameof(FloatingSidePeriod.ContractObservations)&&
                     (value is FloatingSidePeriod p&&p.ContractObservations.IsDefaultOrEmpty||value is FloatingProjectionBinding b&&b.ContractObservations.IsDefaultOrEmpty))continue;
                 if (field.Name == nameof(Crude.CrudeValuationAssignment.QuantityEquivalence) &&
