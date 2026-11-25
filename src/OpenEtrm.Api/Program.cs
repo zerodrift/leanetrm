@@ -102,9 +102,15 @@ const string malformed="The request is incomplete or malformed.";
     PostgresException p when p.MessageText=="exercise_election_conflict" => (409,p.MessageText,"Reload the trade and its current election revisions."),
     PostgresException p when p.MessageText=="exercise_election_denied" => (403,"access_denied","This account cannot access the selected trade and exercise facts."),
     PostgresException p when p.MessageText=="exercise_election" => (422,p.MessageText,"Select a retained physical group, its outcome or withdrawal, evidence and an effective UTC instant by exercise."),
+    MarketDataException m when m.Code=="curve_mark_request_conflict" => (409,m.Code,m.Message),
+    MarketDataException m when m.Code=="curve_mark_receipt" => (503,m.Code,m.Message),
     PostgresException p when p.MessageText.StartsWith("curve_mark_",StringComparison.Ordinal)
         =>(p.SqlState=="42501"?403:p.MessageText is "curve_mark_stale" or "curve_mark_request_conflict"?409:422,
             p.MessageText,p.MessageText switch {
+                "curve_mark_owner_changed"=>"Return to the workspace and account that submitted the publication.",
+                "curve_mark_denied"=>"Current market authority no longer permits this operation for the exact source.",
+                "curve_mark_context"=>"Select the certified business date, instant and knowledge cutoff for this source.",
+                "curve_mark_bounds"=>"Choose a page, month range and number of cells within the editor limits.",
                 "curve_mark_source"=>"Select visible outright curves under their exact definition revision.",
                 "curve_mark_pair"=>"Select distinct curves with a common reference revision and quote currency.",
                 "curve_mark_time"=>"A revision cannot take effect before the mark it replaces.",
@@ -132,6 +138,8 @@ const string malformed="The request is incomplete or malformed.";
         =>(p.MessageText is "point_trader_mark_stale" or "point_trader_mark_conflict"?409:422,p.MessageText,
             "Retain the exact market point, explicit policy and original request. Refresh changed sources before reviewing a new publication."),
     MarketDataException m when m.Code is "point_trader_mark_owner_changed" or "point_trader_mark_conflict" or "point_trader_mark_stale"=>(409,m.Code,m.Message),
+    Exception when context.Items.ContainsKey("curve_mark_record_attempted")&&e is (NpgsqlException and not PostgresException) or OperationCanceledException
+        =>(503,"curve_mark_outcome_unknown","Retain the publication request and check its status to reconcile the outcome."),
     Exception when context.Items.ContainsKey("point_trader_mark_attempted")&&e is NpgsqlException or OperationCanceledException
         =>(503,"point_trader_mark_outcome_unknown","The publication outcome is unknown. Retain the original request and check its status."),
             ToolRefusal refusal=>(422,refusal.Code,AgentTools.Text(refusal.Code)),
@@ -467,6 +475,7 @@ app.Use(async (context,next)=>
         // A role refusal also names the role and permission as fields, so a page never parses its message.
         object body=e is PostgresException{SqlState:"P0001",MessageText:"agent_role_lacks_permission"} lacking&&AgentAdministration.Lacking(lacking.Hint) is {} lack
             ?new {code,message,role=lack.Role,permission=lack.Permission}:new {code,message};
+        if(e is CurveMarkEditorException editor)body=new{code,message,editor.Key,editor.Address};
         if(e is CloseRiskInputsException closeRisk)body=new{code,message,affectedBindings=closeRisk.AffectedBindings};
         if(e is PostgresException {MessageText:"desk_agreement_ambiguous",Hint:{} selection})
             body=new{code,message,agreementSelection=JsonSerializer.Deserialize<JsonElement>(selection)};
@@ -677,6 +686,7 @@ InputFrame Frame(PreviewSession session,Guid id)
 }
 LifecycleEndpoints.Map(api,database,Locked,Profile,Frame);
 PointTraderMarkEndpoints.Map(api,database,Locked,Profile);
+CurveMarkEditorEndpoints.Map(api,database,Locked,Profile);
 async Task<SessionFramePlan> DiscoverFrames(NpgsqlConnection connection,PreviewSession session,CancellationToken ct,bool reuseRecordedInputs=false)
 {
     if(session.Live is not null)return new([],session.FrameCatalog);

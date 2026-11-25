@@ -5,7 +5,7 @@ import {built,contrast,css,rootBlock,sheet,token,tokenNames} from './theme-token
 
 // The app has one theme (D383): a dark palette stated once, as tokens in app.css's :root block. Everything else names a token, so no
 // rule can keep a colour of its own that the palette does not know.
-const sheets={'app.css':css.replace(rootBlock,''),'position-window.css':sheet('position-window.css')};
+const sheets={'app.css':css.replace(rootBlock,''),'position-window.css':sheet('position-window.css'),'curve-mark.css':sheet('curve-mark.css')};
 // A colour written out: hex, a colour function, or one of the common colour names as a whole word of a declaration's value.
 const written=/#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\(|(?<![\w-])(?:white|black|red|green|blue|gr[ae]y|silver|navy|orange|yellow|purple|teal|pink|brown|gold|maroon|olive|lime|aqua|cyan|magenta|violet|indigo|crimson|coral|salmon|khaki|beige|ivory)(?![\w-])/i;
 test('every colour in the stylesheets is a theme token',()=>{

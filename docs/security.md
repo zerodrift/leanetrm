@@ -369,6 +369,30 @@ current trade-control operations. Discount-default reads additionally retain the
 selected historical reference/market-definition visibility.
 
 
+## Curve mark editor boundary
+
+Setup, validation, history and status use current `ReadMarketData`. Review and
+publication also require `ImportObservations` and working mode. Each operation
+checks its exact definition and reference versions against current authority.
+The editor has its own market-only routes. Trade and risk-worker access remain
+separately scoped.
+
+Working reads register certified coordinates. Historical reads bind the
+retained market context, which suppresses write predecessor evidence and
+publication. The API captures the original authority deadlines before waits
+and rechecks the source and permissions for commit. Native batch admission
+also rechecks after the shared publication lock. A deferred guard checks the
+original deadline for an inserted receipt at commit.
+
+A receipt is scoped to its original actor, workspace, catalog and operation.
+The owner check precedes disclosure of private source coordinates. Status
+reconstructs the original business date, knowledge instant and database
+lineage with current source authority and can succeed after the original
+application session ends. Denial is distinct from an authorized absence.
+The editor exposes narrow operations to the runtime. Direct access to the
+mark writer and private receipt storage remains restricted. See the
+[curve marks editor contract](curve-marks-editor.md#api-and-temporal-contract).
+
 ## Implemented automation boundary
 
 The [bounded jobs/controller implementation](automation.md) uses forced RLS on

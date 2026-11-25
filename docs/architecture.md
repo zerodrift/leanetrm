@@ -1965,6 +1965,31 @@ catalog, current limits and evidence. Managed slot ordinals match durable storag
 validation. The [settlement follow-on](ppa-settlement-next.md) remains a proposal
 under the shared settlement prerequisites.
 
+### 4.2 Monthly curve volatility and correlation (D453)
+
+The market editor works on the existing held log-return mark families. Exact
+definition and reference revisions identify the source. Volatility is keyed by
+curve and month. Correlation is keyed by a canonical unordered pair and month,
+with an exact shared reference and currency scope. These are individually
+supplied facts. Valuation resolves these marks under its own selected context
+and declared dependencies.
+
+The editor resolves market-only read inputs. A fact must be inside both the
+certified trading publication prefix and the knowledge cutoff. Selection also
+requires the mark to have taken effect at the business instant. The working
+editor can separately receive a write predecessor within that cut. A
+later-effective predecessor blocks a correction at the selected instant.
+Historical binding suppresses write authority. Managed code computes exact
+validation, deltas, paste addresses and coverage. The browser retains the
+command and presents the evidence.
+
+One batch targets a single kind, source and effective instant. The existing
+mark writers share one private revision operation and publication lock. Each
+successful batch has an immutable receipt. Review temporarily runs the same
+writer and rolls it back. Durable recovery re-resolves the original certified
+coordinates with current authority. See the
+[curve marks editor contract](curve-marks-editor.md).
+
 ## 5. Shared scenarios and black-box pricers
 
 The fundamental operation is **shock market factors, then compute the affected

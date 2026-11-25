@@ -60,6 +60,7 @@ test('actor command retention survives storage failure and editor remount withou
  const stored={body:{operationId:'original-operation',physicalSides:[{code:'receipt',quantity:'1000'}]},uncertain:true};
  const transport=actorTransport(()=>actor,()=>({getItem(){throw Error('blocked');},setItem(){throw Error('full');},removeItem(){throw Error('blocked');}}));
  transport.write(stored);stored.body.physicalSides[0].quantity='2000';
+ assert.equal(transport.readStored(),null);
  const reopened=transport.read();assert.equal(reopened.body.operationId,'original-operation');assert.equal(reopened.body.physicalSides[0].quantity,'1000');
  actor='desk:b';assert.equal(transport.read(),null);
  actor='desk:a';assert.equal(transport.read().body.operationId,'original-operation');
