@@ -33,6 +33,17 @@ internal static class GasImbalanceLifecycleChecks
                 "The pair does not alter ordinary delivery or payment quantities, values or labels.");
         }
 
+        var spreads = new CashoutValuationFixture("0.10", "0.20");
+        var opposite = spreads.Balances("100", null, null, null);
+        opposite = opposite.Add(opposite[0] with { AccountId = Guid.NewGuid(), StatementId = Guid.NewGuid(),
+            Current = ExactQuantity.FromQuantity(new(ExactDecimal.Parse("-100"), spreads.Quote.Quantity)) });
+        foreach(var netting in new[]{AccountNetting.NetAccounts,AccountNetting.EachAccount})
+        {
+            var held=spreads.Instrument(netting:netting);
+            var cash=spreads.Value(held,spreads.State(held,opposite));
+            Equal(cash.Rows.Single(row=>row.Slot==2&&row.DeliveryFrom==spreads.From).Accrued,netting==AccountNetting.NetAccounts?"0":"310");
+            Equal(cash.Rows.Single(row=>row.Slot==3&&row.DeliveryFrom==spreads.From).Accrued,netting==AccountNetting.NetAccounts?"0":"-320");
+        }
         var daily = f.Instrument();
         var balances = f.Balances("300", "300", "-200", null);
         var current = f.State(daily, balances);
@@ -50,6 +61,23 @@ internal static class GasImbalanceLifecycleChecks
             inspected.Rows[3].Quantity is null && inspected.Rows[3].Amount is null && inspected.Rows[3].Accrued is null &&
             inspected.Rows[3].PresentValue is null && inspected.Rows[3].QuantityState == "unassessed",
             "Side inspection shows the absolute quantity and unknown amounts, never the retained contract quantity.");
+        var balanceView = ((RetainedProgramValuation)instrumentValue.Sides[2].Value).ViewInput("balance.to_us",
+            ExactDecimal.Parse("10000"), new(1, 1), [("quantity", ScheduleViewMeasure.Quantity), ("price", ScheduleViewMeasure.Price), ("amount", ScheduleViewMeasure.Amount)]);
+        var combined = ScheduleViews.Build([balanceView], ["term", "month", "day"], f.Clock.Boundary);
+        Require(combined.Rows.Single(row => row.OperatingDate == "2041-01-01").Cells["balance.to_us.quantity"].Value == "300" &&
+            combined.Rows.Single(row => row.OperatingDate == "2041-01-04").Cells["balance.to_us.quantity"].Value is null &&
+            combined.Totals["balance.to_us.amount"].Value == "1830", "The combined schedule uses assessed absolute quantities and leaves unknown days empty.");
+        Require(combined.UnassessedDays == 1 && combined.Totals["balance.to_us.amount"].Incomplete,
+            "Combined schedule totals carry incomplete coverage.");
+        foreach (var detail in new[] { RiskDetail.Holdings, RiskDetail.Books })
+        {
+            var risk = f.Risk(daily, current, detail);
+            Require(risk.Groups.Single().BaseValues.Single().UnassessedDays == 1, "Book totals retain unknown day coverage in both detail modes.");
+            if (detail == RiskDetail.Holdings)
+                Require(risk.Groups.Single().BasePositions.Single().UnassessedDays == 1 &&
+                    risk.Groups.Single().BasePositions.Single().Entries[2].UnassessedDays == 1,
+                    "Risk retains the trade and entry coverage without counting the pair twice.");
+        }
         var before = f.Value(daily, current, endedDays: 2);
         Require(before.UnassessedDays == 0 && before.Rows.Where(row => row.Slot > 1 && row.DeliveryFrom >= f.From.AddDays(2))
             .All(row => row.QuantityBasis == "not_applicable" && row.Accrued is null && row.Expected is null), "Unended days have no imbalance or amount.");
@@ -136,7 +164,7 @@ internal static class GasImbalanceLifecycleChecks
         internal DateOnly To => From.AddDays(4);
         internal QuoteSpecification Quote => reference.Quotes[0];
         internal GasDayClock Clock { get; }
-        internal CashoutValuationFixture()
+        internal CashoutValuationFixture(string spreadToUs="0",string spreadByUs="0")
         {
             Clock = GasDayClock.Capture(reference.R("synthetic_cashout_clock"), TimeZoneInfo.Utc, 360);
             ImmutableArray<MarketContract> contracts = [..Enumerable.Range(0, 8).Select(n => new MarketContract(reference.K(200 + n),
@@ -159,24 +187,24 @@ internal static class GasImbalanceLifecycleChecks
             var payment = PaymentDatePolicy.Start(From.AddMonths(1).AddDays(14));
             var ordinary = new FixedSide(Guid.NewGuid(), new FlatPrice(new UnitPrice(N("3"), Quote)), Quote, physical.UnitQuantity,
                 [new(From, To, payment, new(4, 1), null) { DeliveryCompletionAt = Clock.Boundary(To) }], SyntheticSideCalendars.Dated(false), gasDeliveryClock: Clock);
-            FloatingSide Cash()
+            FloatingSide Cash(string spread)
             {
                 ImmutableArray<FloatingSidePeriod> periods = [..contracts.Skip(4).Select((contract, n) => new FloatingSidePeriod(
                     contract.DeliveryFrom, contract.DeliveryTo, fixings[n + 4].FixingAt, payment, FloatingAveraging.CalendarDayArithmetic,
-                    [new(new(index.Key, contract.Key), contract)], [fixings[n + 4]], null, new(default, Quote), null, null, ExactRatio.One,
+                    [new(new(index.Key, contract.Key), contract)], [fixings[n + 4]], null, new(N(spread), Quote), null, null, ExactRatio.One,
                     FloatingSide.DeliveryIndexImplementation) { DeliveryCompletionAt = Clock.Boundary(contract.DeliveryTo) })];
                 return new(Guid.NewGuid(), Quote, physical.UnitQuantity, periods, FloatingSide.DeliveryIndexImplementation,
                     SyntheticSideCalendars.FloatingPeriods(periods), gasDeliveryClock: Clock);
             }
-            sides = [physical, ordinary, Cash(), Cash()];
+            sides = [physical, ordinary, Cash(spreadToUs), Cash(spreadByUs)];
             lookups = [..assignments.Select(a => a.Lookup), ..sides.Skip(2).SelectMany(side => side.GenerateSchedule().Rows)
                 .SelectMany(row => row.Prices).Select(price => price.Lookup!).Distinct()];
         }
-        internal RetainedGasInstrument Instrument(StatementBasis basis = StatementBasis.DailyImbalance, bool pair = true) => new(Guid.NewGuid(),
+        internal RetainedGasInstrument Instrument(StatementBasis basis = StatementBasis.DailyImbalance, bool pair = true,AccountNetting netting=AccountNetting.NetAccounts) => new(Guid.NewGuid(),
             [..sides.Take(pair ? 4 : 2).Select((side, slot) => new RetainedGasMember(side.Id, N(slot is 0 or 2 ? "1" : "-1"), ExactRatio.One,
                 BookedSideProgram.Compile(ScheduleDefinitionCompiler.Generate(side, lifecycle: ScheduleLifecycleSelection.StartedPhysicalDelivery)),
                 pair ? 0 : null, balance: slot < 2 ? null : new(ReportedBalanceFollow.DailyIndexProfile, slot == 2, basis,
-                    AccountNetting.NetAccounts, GasImbalanceTrading.FinalPolicy)))], assignments, lookups);
+                    netting, GasImbalanceTrading.FinalPolicy)))], assignments, lookups);
         internal ImmutableArray<AccountDayBalance> Balances(params string?[] amounts) => [..amounts.Select((amount, n) => (amount, n))
             .Where(item => item.amount is not null).Select(item => new AccountDayBalance(account, From.AddDays(item.n),
                 ExactQuantity.FromQuantity(new(N(item.amount!), Quote.Quantity)), Guid.NewGuid(), "final", "Synthetic statement"))];
@@ -189,10 +217,10 @@ internal static class GasImbalanceLifecycleChecks
                 ownerDays: pair && ownerDays ? [..Enumerable.Range(0, 4).Select(n => new HeldDayQuantity(0, From.AddDays(n),
                     ExactQuantity.FromQuantity(quantity), ExactQuantity.FromQuantity(quantity), PhysicalLifecycle.ContractQuantity, []))] : [],
                 balances: pair && (!balances.IsEmpty || transfer) ? [new SlotBalances(0,
-                    Enumerable.Range(0, 4).ToImmutableDictionary(n => From.AddDays(n), _ => ImmutableArray.Create(account)), balances,
+                    Enumerable.Range(0, 4).ToImmutableDictionary(n => From.AddDays(n), _ => balances.IsEmpty?ImmutableArray.Create(account):balances.Select(balance=>balance.AccountId).Distinct().ToImmutableArray()), balances,
                     transfer ? [From] : [])] : []);
         }
-        private (UnitValuationContext Unit, CurveBuild Market) Prepare(RetainedGasInstrument instrument, PhysicalCashState? state,
+        private (UnitValuationContext Unit, CurveBuild Market, PreparedConnectedPortfolioRisk Risk) Prepare(RetainedGasInstrument instrument, PhysicalCashState? state,
             int endedDays, int? unpublished, (int Day, string Price)? priceOverride)
         {
             var at = Clock.Boundary(From.AddDays(endedDays)).AddHours(1);
@@ -216,16 +244,18 @@ internal static class GasImbalanceLifecycleChecks
             var compiled = model.Compile(snapshot, dependencies, false, market.Graph.Plan.Context);
             var bindings = dependencies.ToImmutableDictionary(request => request, request => compiled.Points[(request, InputUse.Variable)]);
             var prepared = RiskEngine.PrepareConnected(ConnectedValuation.Prepare(market.Graph, market.Snapshot), bindings, [portfolio], market);
-            return (new UnitValuationContext(prepared.Market.Snapshot, setup, prepared.Market).For(prepared.Contracts[0][0], null, state), market);
+            return (new UnitValuationContext(prepared.Market.Snapshot, setup, prepared.Market).For(prepared.Contracts[0][0], null, state), market, prepared);
         }
         internal PhysicalLifecycleValue Value(RetainedGasInstrument instrument, PhysicalCashState state, int endedDays = 4,
             int? unpublished = null, (int Day, string Price)? priceOverride = null) =>
             instrument.EvaluateLifecycle(Prepare(instrument, state, endedDays, unpublished, priceOverride).Unit);
         internal InstrumentValuation Sides(RetainedGasInstrument instrument, PhysicalCashState? state)
         {
-            var (_, market) = Prepare(instrument, state, 4, null, null);
+            var (_, market, _) = Prepare(instrument, state, 4, null, null);
             return instrument.PV(instrument.PrepareValuation(market, market, new ExplicitDiscounting(N("1"), DiscountFactorSource.Undiscounted), state));
         }
+        internal ConnectedGroupedRiskRun Risk(RetainedGasInstrument instrument, PhysicalCashState state, RiskDetail detail) =>
+            RiskEngine.CalculateExact(Prepare(instrument, state, 4, null, null).Risk, [], RiskEngine.ExactNumericalPolicy, detail: detail);
         private static ExactDecimal N(string value) => ExactDecimal.Parse(value);
     }
 }

@@ -4,7 +4,12 @@ using OpenEtrm.MarketData.Trading;
 namespace OpenEtrm.MarketData.Gas;
 
 public sealed record SlotBalances(int Slot, ImmutableDictionary<DateOnly, ImmutableArray<Guid>> AccountsOn,
-    ImmutableArray<AccountDayBalance> Balances, ImmutableHashSet<DateOnly> MonthsWithTransfers);
+    ImmutableArray<AccountDayBalance> Balances, ImmutableHashSet<DateOnly> MonthsWithTransfers)
+{
+    public ImmutableArray<AccountStatementEvidence> StatementHeads { get; init; } = [];
+}
+public sealed record AccountStatementEvidence(Guid AccountId,DateOnly Day,Guid ServiceVersionId,Guid? StatementId,
+    string Status,ExactQuantity? ReportedBalance,string Evidence);
 
 // Gas resolves statements; the common Side lifecycle receives only a state and
 // absolute quantity. One resolution serves both directions of the cash-out pair.
@@ -38,7 +43,7 @@ internal static class GasBalanceQuantities
         return [..members.Select(member => member.Balance is not {} terms ? default(ImmutableArray<ReportedDayQuantity>) :
             selected[member.SourceSlot!.Value].Select(day => new ReportedDayQuantity(member.SourceSlot.Value, day.Day, day.State,
                 (terms.OwedToUs ? day.OwedToUs : day.OwedByUs) is {} quantity ? ExactQuantity.FromRatio(quantity, state.Quantity.Specification) : null,
-                day.Evidence)).ToImmutableArray())];
+                day.Evidence){Reason=day.Reason}).ToImmutableArray())];
     }
     private static MarketDataException Invalid(string message) => new("gas_imbalance_input", message);
 }

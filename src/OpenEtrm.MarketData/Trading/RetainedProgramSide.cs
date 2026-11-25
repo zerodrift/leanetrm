@@ -211,7 +211,8 @@ public sealed record RetainedProgramValuation : SideValuation
         ImmutableDictionary<DateOnly,EntryDayQuantity>? selected = null;
         if(Context.RetainedPrograms is { Occurrence: {} occurrence, EntryDays.IsDefault: false } inputs && !inputs.EntryDays[occurrence.Slot].IsDefault)
             selected = inputs.EntryDays[occurrence.Slot].ToImmutableDictionary(d => d.Day);
-        return new(code, Execution, ((RetainedProgramSchedule)Schedule).Program, scale, coefficient, columns, FollowedDays: selected, Part: Context.RetainedPrograms?.EntryPart);
+        return new(code, Execution, ((RetainedProgramSchedule)Schedule).Program, scale, coefficient, columns, FollowedDays: selected, Part: Context.RetainedPrograms?.EntryPart)
+        {ReportedRows=Lifecycle?.Rows.Any(row=>row.ReportedQuantity is not null)==true?Lifecycle.Rows.ToImmutableDictionary(row=>row.DeliveryFrom):null};
     }
     public override SideScheduleSnapshot InspectSchedule(string manifest, ExactDecimal scale, SignedRatio coefficient, Func<DateOnly, DateTimeOffset> boundary)
     {

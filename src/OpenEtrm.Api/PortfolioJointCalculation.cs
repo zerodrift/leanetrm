@@ -76,8 +76,8 @@ internal static class PortfolioJointCalculation
             }
         }
         var parts=partitions.ToImmutable();
-        var bases=parts.SelectMany(p=>p.Run.Groups.SelectMany((g,n)=>g.Values.Select(v=>new PortfolioTotal(p.Market.Measures[n],v.BookId,v.Value))))
-            .GroupBy(v=>(v.Measure,v.BookId,v.Value.Currency)).Select(g=>new PortfolioTotal(g.Key.Measure,g.Key.BookId,g.Select(v=>v.Value).Aggregate((a,b)=>a.Add(b)))).ToImmutableArray();
+        var bases=parts.SelectMany(p=>p.Run.Groups.SelectMany((g,n)=>g.Values.Select(v=>new PortfolioTotal(p.Market.Measures[n],v.BookId,v.Value){UnassessedDays=v.UnassessedDays})))
+            .GroupBy(v=>(v.Measure,v.BookId,v.Value.Currency)).Select(g=>new PortfolioTotal(g.Key.Measure,g.Key.BookId,g.Select(v=>v.Value).Aggregate((a,b)=>a.Add(b))){UnassessedDays=g.Sum(v=>v.UnassessedDays)}).ToImmutableArray();
         var samples=joint.Samples.Select((sample,index)=>
         {
             var totals=parts.SelectMany(p=>p.Run.Scenarios[index].Groups.SelectMany(g=>g.Totals.Select(v=>new JointBookValue(p.Market.Measures[g.Group],v.BookId,v.Values))))

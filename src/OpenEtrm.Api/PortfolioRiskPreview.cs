@@ -265,7 +265,7 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
             currency=Currency(markets,v.Base.Currency),currencyReference=v.Base.Currency,
             deltaUnit=$"{Currency(markets,v.Base.Currency)} / ({Unit(markets,v.Delta.Unit.Factor)})",
             gammaUnit=$"{Currency(markets,v.Base.Currency)} / ({Unit(markets,v.Gamma.Unit.Factor)})²"};
-        return new{detail=run.Detail.ToString(),tradeIds=prepared.Request.TradeIds,convention=Convention,numericalPolicy=RiskEngine.ExactNumericalPolicy,
+        return new{run.UnassessedDays,run.Incomplete,detail=run.Detail.ToString(),tradeIds=prepared.Request.TradeIds,convention=Convention,numericalPolicy=RiskEngine.ExactNumericalPolicy,
             engineVersion=RiskJobs.EngineVersion,displayPolicy=new{implementation="risk_decimal_display_v1",decimalPlaces=12,tieRule="to_even"},
             run.Work,run.SnapshotId,run.ConnectedScenarios,scenario=Scenario(prepared),heldInstruments=run.Positions.Select(p=>(p.DefinitionRevisionId,p.InstrumentId)).Distinct().Count(),
             excludedPositions=prepared.Portfolio.Excluded,
@@ -283,19 +283,19 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
             factors=prepared.Bumps.Select(b=>new{
                 factor=Factor(markets,run.Factors.Single(f=>f.Axis.Id==b.Axis.Id).Axis),
                 bump=b.Size.ToString(),bumpConvention=ConnectedRiskBump.Convention,
-                totals=run.Risk.Where(r=>r.Factor==b.Axis.Id).Select(r=>new{r.Measure,measureLabel=MeasureLabel(r.Measure),r.BookId,book=Book(r.BookId),
+                totals=run.Risk.Where(r=>r.Factor==b.Axis.Id).Select(r=>new{unassessedDays=run.Totals.Single(t=>t.Measure==r.Measure&&t.BookId==r.BookId&&t.Value.Currency==r.Currency).UnassessedDays,incomplete=run.Totals.Single(t=>t.Measure==r.Measure&&t.BookId==r.BookId&&t.Value.Currency==r.Currency).Incomplete,r.Measure,measureLabel=MeasureLabel(r.Measure),r.BookId,book=Book(r.BookId),
                     values=Values(new(run.Totals.Single(t=>t.Measure==r.Measure&&t.BookId==r.BookId&&t.Value.Currency==r.Currency).Value,
                         r.Up,r.Down,r.UpPnl,r.DownPnl,r.Delta,r.Gamma))}),
                 positions=run.HoldingRisk.Where(r=>r.Factor==b.Axis.Id).Select(r=>
                 {
                     var p=r.Position;var evidence=positions[(p.Owner,p.BindingId)];
-                    var position=JsonSerializer.SerializeToNode(new{p.Owner,p.TradeId,p.BindingId,p.BookId,book=Book(p.BookId),p.ValuationId,evidence.TradeReference,
+                    var position=JsonSerializer.SerializeToNode(new{p.UnassessedDays,p.Incomplete,p.Owner,p.TradeId,p.BindingId,p.BookId,book=Book(p.BookId),p.ValuationId,evidence.TradeReference,
                         evidence.InstrumentReference,evidence.InstrumentType,r.Measure,measureLabel=MeasureLabel(r.Measure),values=Values(p.Values)},RiskJobs.Json)!.AsObject();
                     // A started-delivery gas position reports its named components, which sum to its values, under the same scenarios.
                     if(!p.Components.IsEmpty)position["components"]=JsonSerializer.SerializeToNode(p.Components.ToDictionary(c=>c.Name,c=>new{
                         @base=c.Base.ToExactString(),up=c.Up.ToExactString(),down=c.Down.ToExactString()}),RiskJobs.Json);
                     if(!p.Entries.IsEmpty)position["entries"]=JsonSerializer.SerializeToNode(p.Entries.Select(e=>new{
-                        e.Slot,@base=e.Base.ToExactString(),up=e.Up.ToExactString(),down=e.Down.ToExactString()}),RiskJobs.Json);
+                        e.Slot,e.UnassessedDays,e.Incomplete,@base=e.Base.ToExactString(),up=e.Up.ToExactString(),down=e.Down.ToExactString()}),RiskJobs.Json);
                     if(p.GroupValues is {} groups)
                         position["groups"]=JsonSerializer.SerializeToNode(new{@base=groups.Base.Select(ExerciseGroupReport.FromValue),
                             up=groups.Up.Select(ExerciseGroupReport.FromValue),down=groups.Down.Select(ExerciseGroupReport.FromValue)},RiskJobs.Json);

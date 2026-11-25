@@ -75,7 +75,7 @@ public static partial class RiskEngine
         }
     }
     private static ImmutableArray<ExactRiskPositionValue> BasePositions(ValuationPortfolio portfolio,PortfolioValue value,RiskDetail detail)=>
-        detail==RiskDetail.Books?[]:portfolio.Positions.Select((position,n)=>new ExactRiskPositionValue(position.TradeId,position.BindingId,position.BookId,position.ValuationId,value.Positions[n]){Owner=position.Owner,Components=value.PositionComponents[n],Entries=value.PositionEntries[n],ExerciseGroups=value.PositionExerciseGroups[n],GroupValues=value.PositionGroupValues[n]}).ToImmutableArray();
+        detail==RiskDetail.Books?[]:portfolio.Positions.Select((position,n)=>new ExactRiskPositionValue(position.TradeId,position.BindingId,position.BookId,position.ValuationId,value.Positions[n]){UnassessedDays=value.PositionUnassessedDays[n],Owner=position.Owner,Components=value.PositionComponents[n],Entries=value.PositionEntries[n],ExerciseGroups=value.PositionExerciseGroups[n],GroupValues=value.PositionGroupValues[n]}).ToImmutableArray();
     // A position's components under the base and both scenarios, paired by name; the scenarios must name exactly the base's parts.
     private static ImmutableArray<ComponentRiskValues> Paired(ImmutableArray<ValueComponent> basis,ImmutableArray<ValueComponent> up,ImmutableArray<ValueComponent> down)
     {
@@ -89,7 +89,7 @@ public static partial class RiskEngine
     {
         if(!basis.Select(e=>e.Slot).SequenceEqual(up.Select(e=>e.Slot)) || !basis.Select(e=>e.Slot).SequenceEqual(down.Select(e=>e.Slot)))
             throw new MarketDataException("valuation_entries","Every scenario must retain the same ordered Instrument entries.");
-        return [..basis.Select((entry,n)=>new EntryRiskValues(entry.Slot,entry.Value,up[n].Value,down[n].Value))];
+        return [..basis.Select((entry,n)=>new EntryRiskValues(entry.Slot,entry.Value,up[n].Value,down[n].Value){UnassessedDays=entry.UnassessedDays})];
     }
     private static ImmutableArray<ExerciseGroupRiskValues> PairedExerciseGroups(ImmutableArray<ExerciseGroupContribution> basis,
         ImmutableArray<ExerciseGroupContribution> up, ImmutableArray<ExerciseGroupContribution> down)
@@ -105,7 +105,7 @@ public static partial class RiskEngine
         for(var n=0;n<basis.Totals.Length;n++)
         {
             cancellation.ThrowIfCancellationRequested();var value=basis.Totals[n];
-            totals.Add(new(value.BookId,ExactRepricing.Measure(value.Value,up.Totals[n].Value,down.Totals[n].Value,size,unit)));
+            totals.Add(new(value.BookId,ExactRepricing.Measure(value.Value,up.Totals[n].Value,down.Totals[n].Value,size,unit)){UnassessedDays=value.UnassessedDays});
         }
         var positions=ImmutableArray.CreateBuilder<ExactRiskPositionResult>(detail==RiskDetail.Books?0:portfolio.Positions.Length);
         for(var n=0;detail!=RiskDetail.Books&&n<portfolio.Positions.Length;n++)
@@ -113,7 +113,7 @@ public static partial class RiskEngine
             cancellation.ThrowIfCancellationRequested();var position=portfolio.Positions[n];
             positions.Add(new(position.TradeId,position.BindingId,position.BookId,position.ValuationId,
                 ExactRepricing.Measure(basis.Positions[n],up.Positions[n],down.Positions[n],size,unit))
-                {Owner=position.Owner,Components=Paired(basis.PositionComponents[n],up.PositionComponents[n],down.PositionComponents[n]),Entries=PairedEntries(basis.PositionEntries[n],up.PositionEntries[n],down.PositionEntries[n]),
+                {UnassessedDays=basis.PositionUnassessedDays[n],Owner=position.Owner,Components=Paired(basis.PositionComponents[n],up.PositionComponents[n],down.PositionComponents[n]),Entries=PairedEntries(basis.PositionEntries[n],up.PositionEntries[n],down.PositionEntries[n]),
                     GroupValues=basis.PositionGroupValues[n].IsEmpty?null:new(basis.PositionGroupValues[n],up.PositionGroupValues[n],down.PositionGroupValues[n]),
                     ExerciseGroups=PairedExerciseGroups(basis.PositionExerciseGroups[n],up.PositionExerciseGroups[n],down.PositionExerciseGroups[n])});
         }

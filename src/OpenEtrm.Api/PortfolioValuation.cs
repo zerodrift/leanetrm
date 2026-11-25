@@ -47,7 +47,11 @@ public sealed record ExcludedPosition(Guid TradeId,Guid BindingId,Guid BookId,st
     }
 }
 public sealed record PortfolioFactor(PortfolioRiskAxis Axis,ExactDecimal BumpSize);
-public sealed record PortfolioTotal(string Measure,Guid BookId,ExactMoney Value);
+public sealed record PortfolioTotal(string Measure,Guid BookId,ExactMoney Value)
+{
+    public int UnassessedDays { get; init; }
+    public bool Incomplete => UnassessedDays != 0;
+}
 public sealed record PortfolioFactorRisk(string Measure,Guid BookId,ReferenceKey Currency,string Factor,
     ExactMoney Up,ExactMoney Down,ExactMoney UpPnl,ExactMoney DownPnl,ExactRiskDerivative Delta,ExactRiskDerivative Gamma);
 public sealed record PortfolioDiscountEvidence(Guid InstrumentId,SidePaymentKey Payment,PaymentDiscount Input)
@@ -73,6 +77,9 @@ public sealed record PortfolioValuationResult(Guid SnapshotId,ScheduleContext Co
     ImmutableArray<PortfolioFactor> Factors,ImmutableArray<PortfolioTotal> Totals,
     ImmutableArray<PortfolioFactorRisk> Risk,RiskWork Work)
 {
+    public int UnassessedDays => Totals.Sum(total=>total.UnassessedDays);
+    public bool Incomplete => UnassessedDays != 0;
+
     public ImmutableArray<PortfolioDiscountEvidence> DiscountInputs{get;init;}=[];
     public ImmutableArray<PortfolioInstantDiscountEvidence> InstantDiscountInputs{get;init;}=[];
     public ImmutableArray<ValuationReceipt> PpaReceipts{get;init;}=[];
@@ -692,8 +699,8 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         stress=stress.Select(s=>s with{Axis=Canonical(s.Axis)}).ToImmutableArray();
         var runs=prepared.Markets.Select(m=>Run(m,bumps,stress,prepared.Policy.RiskNumericalPolicy,detail,ct)).ToImmutableArray();
         var groups=runs.SelectMany(r=>r.Groups.Select((g,n)=>(Measure:r.Market.Measures[n],Group:g))).ToImmutableArray();
-        var totals=groups.SelectMany(g=>g.Group.BaseValues.Select(v=>new PortfolioTotal(g.Measure,v.BookId,v.Value)))
-            .GroupBy(v=>(v.Measure,v.BookId,v.Value.Currency)).Select(g=>new PortfolioTotal(g.Key.Measure,g.Key.BookId,g.Select(v=>v.Value).Aggregate((a,b)=>a.Add(b)))).ToImmutableArray();
+        var totals=groups.SelectMany(g=>g.Group.BaseValues.Select(v=>new PortfolioTotal(g.Measure,v.BookId,v.Value){UnassessedDays=v.UnassessedDays}))
+            .GroupBy(v=>(v.Measure,v.BookId,v.Value.Currency)).Select(g=>new PortfolioTotal(g.Key.Measure,g.Key.BookId,g.Select(v=>v.Value).Aggregate((a,b)=>a.Add(b))){UnassessedDays=g.Sum(v=>v.UnassessedDays)}).ToImmutableArray();
         var holdingRisk=ImmutableArray.CreateBuilder<PortfolioHoldingRisk>();
         var totalsRisk=ImmutableArray.CreateBuilder<PortfolioFactorRisk>();
         foreach(var bump in bumps)
@@ -708,8 +715,8 @@ public sealed class PortfolioValuation(PreviewDatabase database)
                     contributions.AddRange(group.BaseValues.Select(v=>(measure,v.BookId,Unchanged(v.Value,bump))));
                     holdingRisk.AddRange(group.BasePositions.Select(p=>new PortfolioHoldingRisk(measure,bump.Axis.Id,
                         new(p.TradeId,p.BindingId,p.BookId,p.ValuationId,Unchanged(p.Value,bump))
-                        {Owner=p.Owner,Components=[..p.Components.Select(c=>new ComponentRiskValues(c.Name,c.Value,c.Value,c.Value))],
-                         Entries=[..p.Entries.Select(e=>new EntryRiskValues(e.Slot,e.Value,e.Value,e.Value))],
+                        {UnassessedDays=p.UnassessedDays,Owner=p.Owner,Components=[..p.Components.Select(c=>new ComponentRiskValues(c.Name,c.Value,c.Value,c.Value))],
+                         Entries=[..p.Entries.Select(e=>new EntryRiskValues(e.Slot,e.Value,e.Value,e.Value){UnassessedDays=e.UnassessedDays})],
                          ExerciseGroups=[..p.ExerciseGroups.Select(g=>new ExerciseGroupRiskValues(g.Group,g.Value,g.Value,g.Value))],
                          GroupValues=p.GroupValues.IsEmpty?null:new(p.GroupValues,p.GroupValues,p.GroupValues)})));
                 }

@@ -32,7 +32,10 @@ public sealed record AccountDayBalance(Guid AccountId, DateOnly Day, ExactQuanti
     Guid StatementId, string Status, string Evidence);
 
 public sealed record ImbalanceDay(DateOnly Day, string State, SignedRatio? OwedToUs,
-    SignedRatio? OwedByUs, ImmutableArray<DeliveryQuantityEvidence> Evidence);
+    SignedRatio? OwedByUs, ImmutableArray<DeliveryQuantityEvidence> Evidence)
+{
+    public string? Reason { get; init; }
+}
 
 public static class GasImbalanceCashout
 {
@@ -55,29 +58,30 @@ public static class GasImbalanceCashout
         var result = ImmutableArray.CreateBuilder<ImbalanceDay>(days.Length);
         foreach (var day in days)
         {
-            if (!ended(day)) { result.Add(new(day, NotApplicable, null, null, [])); continue; }
+            if (!ended(day)) { result.Add(new(day, NotApplicable, null, null, []){Reason="day_not_ended"}); continue; }
             var month = new DateOnly(day.Year, day.Month, 1);
             if (basis == StatementBasis.MonthToDateBalance && monthsWithTransfers.Contains(month))
                 throw new MarketDataException("gas_imbalance_transfer", "An accepted transfer makes the month-to-date cash-out ambiguous for that month.");
 
             var evidence = ImmutableArray.CreateBuilder<DeliveryQuantityEvidence>();
             var figures = new List<SignedRatio>();
-            var complete = !accounts[day].IsEmpty &&
-                !(basis == StatementBasis.MonthToDateBalance && days[0].Day != 1 && month <= days[0]);
+            string? reason=accounts[day].IsEmpty?"no_account":
+                basis == StatementBasis.MonthToDateBalance && days[0].Day != 1 && month <= days[0]?"partial_first_month":null;
+            var complete=reason is null;
             foreach (var account in accounts[day])
             {
-                if (!facts.TryGetValue((account, day), out var current)) { complete = false; continue; }
+                if (!facts.TryGetValue((account, day), out var current)) { complete = false; reason??="statement_unavailable"; continue; }
                 evidence.Add(Evidence(current));
                 var figure = Quantity(current);
                 if (basis == StatementBasis.MonthToDateBalance && day.Day != 1)
                 {
-                    if (!facts.TryGetValue((account, day.AddDays(-1)), out var previous)) { complete = false; continue; }
+                    if (!facts.TryGetValue((account, day.AddDays(-1)), out var previous)) { complete = false; reason??="preceding_day_unavailable"; continue; }
                     evidence.Add(Evidence(previous));
                     figure -= Quantity(previous);
                 }
                 figures.Add(figure);
             }
-            if (!complete) { result.Add(new(day, Unassessed, null, null, evidence.ToImmutable())); continue; }
+            if (!complete) { result.Add(new(day, Unassessed, null, null, evidence.ToImmutable()){Reason=reason}); continue; }
 
             var toUs = SignedRatio.Zero;
             var byUs = SignedRatio.Zero;

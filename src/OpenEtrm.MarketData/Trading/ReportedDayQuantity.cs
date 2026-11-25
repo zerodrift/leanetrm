@@ -10,6 +10,7 @@ public sealed record ReportedDayQuantity
     public int SourceSlot { get; }
     public DateOnly Day { get; }
     public string State { get; }
+    public string? Reason { get; init; }
     public ExactQuantity? Quantity { get; }
     public ImmutableArray<DeliveryQuantityEvidence> Evidence { get; }
 

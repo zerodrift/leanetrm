@@ -75,6 +75,9 @@ internal sealed record GasCompositionValue(string PresentValue,string Currency,s
  GasLifecycleMeasures? Measures=null)
 {
  public ImmutableArray<ExerciseGroupReport> Groups{get;init;}=[];
+ public int UnassessedDays=>Lifecycle?.UnassessedDays??0;
+ public bool Incomplete=>UnassessedDays!=0;
+ public ImmutableArray<GasImbalanceReportRow> ImbalanceRows{get;init;}=[];
  public CatalogueSource? Source{get;init;}
  [JsonIgnore]internal PhysicalLifecycleValue? Lifecycle{get;init;}
  [JsonIgnore]internal ImmutableArray<InstrumentEntryValue> EntryValues{get;init;}=[];
@@ -421,7 +424,8 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   var groups=valuation.Groups.Select(ExerciseGroupReport.FromValue).ToImmutableArray();
   var total=valuation.PresentValue.Scale(quantity);
   if(state is not null)lifecycle=PhysicalLifecycle.FromValuation(valuation);
-  var valued=new List<(GasCompositionRow Member,ExactMoney Amount,ExactQuantity Quantity,List<object> Rows)>();
+  var valued=new List<(GasCompositionRow Member,ExactMoney Amount,ExactQuantity? Quantity,List<object> Rows)>();
+  var imbalanceRows=ImmutableArray.CreateBuilder<GasImbalanceReportRow>();
   foreach(var member in members.OrderBy(x=>x.Slot))
   {
    var p=programs.Single(x=>x.Slot==member.Slot);
@@ -436,6 +440,8 @@ public sealed class GasCompositionStore(PreviewDatabase database)
    if(rights.FirstOrDefault(r=>r.Slots.Contains(member.Slot)) is {} right)
     sideView=sideView with{ExerciseGroups=[..groups.Where(g=>g.Right==right.Ordinal)]};
    views?.Add(sideView);inspect?.Invoke(sideView,member.Clock);
+   if(view&&member.Balance is not null)
+    imbalanceRows.AddRange(GasImbalanceReport.Rows(member,sideValue,quantity,state!,programs.Single(p=>p.Slot==member.Slot).Program,ct));
    var rows=new List<object>();ExactQuantity? qtotal=null;
    if(member.Role=="physical")
    {
@@ -450,14 +456,16 @@ public sealed class GasCompositionStore(PreviewDatabase database)
    else
    {
     var q=ScheduleViews.TotalQuantity(sideView with{Recorded=null},member.Clock.Boundary);
-    qtotal=ExactQuantity.FromRatio(new(BigInteger.Abs(q.Numerator),q.Denominator),member.Assignment.Quote.Quantity);
+    qtotal=sideView.ReportedRows is {} reported&&!reported.Values.Any(row=>row.ReportedQuantity?.Quantity is not null)?null:
+     ExactQuantity.FromRatio(new(BigInteger.Abs(q.Numerator),q.Denominator),member.Assignment.Quote.Quantity);
    }
    valued.Add((member,amount,qtotal!,rows));
   }
+  int Unassessed(int slot)=>lifecycle?.Rows.Count(row=>row.Slot==slot&&row.ReportedQuantity?.State==ReportedDayQuantity.Unassessed)??0;
   var sides=valued.Select(v=>(object)new{v.Member.Code,v.Member.Role,source=v.Member.Source,stage=v.Member.Stage,pipeline=v.Member.Role=="physical"?v.Member.Assignment.Location.Pipeline.Code:null,zone=v.Member.Role=="physical"?v.Member.Assignment.Location.Zone.Code:null,deliveryPoint=v.Member.Role=="physical"?v.Member.Assignment.Point.Code:null,
    direction=v.Member.Direction==1?"receive":v.Member.Role=="physical"?"deliver":"pay",
    presentValue=v.Amount.ToExactString(),
-   quantity=Ratio(v.Quantity),deliveryRows=v.Rows}).ToList();
+   quantity=v.Quantity is null?null:Ratio(v.Quantity),unassessedDays=Unassessed(v.Member.Slot),incomplete=Unassessed(v.Member.Slot)!=0,deliveryRows=v.Rows}).ToList();
   var links=!view?Array.Empty<object>():members.Where(m=>m.Role=="physical"&&m.Source is not null).Select(m=>{var receipt=quantities[m.Source!];var delivery=quantities[m.Code];var fuel=receipt.Add(delivery.Scale(Number("-1")));return(object)new{source=m.Source,target=m.Code,m.Formula,m.Fraction,receipt=receipt.ToExactString(),delivery=delivery.ToExactString(),fuel=fuel.ToExactString()};}).ToArray();
   // The schedule is a display projection: a trade it cannot show keeps its valuation and reports why.
   ScheduleView? schedule=null;GasScheduleRefusal? refusal=null;
@@ -473,7 +481,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   // No contract-against-market measure is defined for these sides yet, so none is reported.
   var summaries=schedule is null?null:views!.Select(v=>(object)new{side=v.Code,billedQuantity=schedule.Totals[v.Code+".quantity"].Value,amount=schedule.Totals[v.Code+".amount"].Value,againstMarket=(string?)null}).ToArray();
   return new(total!.ToExactString(),members[0].Assignment.Quote.Currency.Code,unit,sides,links,schedule,summaries,refusal,members.ToImmutableDictionary(m=>m.Code,m=>m.Slot),
-   lifecycle is null?null:GasLifecycleMeasures.From(lifecycle,discounting)){Groups=groups,Lifecycle=lifecycle,EntryValues=[..valued.Select(v=>new InstrumentEntryValue(v.Member.Slot,v.Amount))],Source=new(data.DefinitionRevision.RevisionId,data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId)};
+   lifecycle is null?null:GasLifecycleMeasures.From(lifecycle,discounting)){Groups=groups,ImbalanceRows=imbalanceRows.ToImmutable(),Lifecycle=lifecycle,EntryValues=[..valued.Select(v=>new InstrumentEntryValue(v.Member.Slot,v.Amount){UnassessedDays=Unassessed(v.Member.Slot)})],Source=new(data.DefinitionRevision.RevisionId,data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId)};
  }
  // A preview and a booking are held to the gas setup their context resolves (GasTicket.RequireSetup).
  async Task RequireSetup(NpgsqlConnection c,PreviewData data,GasCompositionRequest body,CancellationToken ct)=>GasTicket.RequireSetup(body.GasSetupId,(await gas.CurrentSetup(c,data,ct)).Id);

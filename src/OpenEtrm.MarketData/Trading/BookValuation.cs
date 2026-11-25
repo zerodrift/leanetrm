@@ -122,13 +122,16 @@ public sealed class UnitValuationContext
     internal ImmutableArray<InstrumentEntryValue> Entries{get;private set;}=[];
     internal ImmutableArray<ExerciseGroupContribution> ExerciseGroups { get; private set; } = [];
     internal ImmutableArray<ExerciseGroupValue> HeldGroupValues { get; private set; } = [];
+    internal int UnassessedDays { get; private set; }
     internal void RecordEntries(InstrumentValuation value)
     {
         if(!Entries.IsEmpty || value is null || declaration is not null && value.InstrumentId != declaration.Id)
             throw new MarketDataException("valuation_entries","Retain one entry partition from this exact unit Instrument valuation.");
+        UnassessedDays = value.UnassessedDays;
         HeldGroupValues = value.Groups;
         ExerciseGroups = value.UnitExerciseGroups;
-        Entries=[..value.Sides.Select((side,slot)=>new InstrumentEntryValue(slot,side.Contribution))];
+        Entries=[..value.Sides.Select((side,slot)=>new InstrumentEntryValue(slot,side.Contribution)
+            {UnassessedDays=side.Value is RetainedProgramValuation {Lifecycle: {} lifecycle}?lifecycle.UnassessedDays:0})];
     }
     internal void RecordMeasures(ValueMeasureSet measures)
     {
@@ -201,9 +204,17 @@ public sealed class UnitValuationContext
 
 public sealed record BookRiskFactors(Guid BookId,ImmutableArray<QuoteFactor> Factors);
 
-public sealed record BookCurrencyValue(Guid BookId,ReferenceKey Currency,ExactMoney Value);
+public sealed record BookCurrencyValue(Guid BookId,ReferenceKey Currency,ExactMoney Value)
+{
+    public int UnassessedDays { get; init; }
+    public bool Incomplete => UnassessedDays != 0;
+}
 public sealed record ValueComponent(string Name,ExactMoney Value);
-public sealed record InstrumentEntryValue(int Slot,ExactMoney Value);
+public sealed record InstrumentEntryValue(int Slot,ExactMoney Value)
+{
+    public int UnassessedDays { get; init; }
+    public bool Incomplete => UnassessedDays != 0;
+}
 [method:System.Text.Json.Serialization.JsonConstructor]
 public sealed record MeasureBinding(Guid TradeId,Guid BindingId)
 {
@@ -229,6 +240,10 @@ public sealed class PortfolioValue
     internal ImmutableArray<ImmutableArray<ExerciseGroupValue>> PositionGroupValues { get; init; } = [];
     internal ImmutableArray<ImmutableArray<ExerciseGroupContribution>> UnitExerciseGroups { get; init; } = [];
     internal ImmutableArray<ImmutableArray<ExerciseGroupContribution>> PositionExerciseGroups { get; init; } = [];
+    internal ImmutableArray<int> UnitUnassessedDays {get;init;}=[];
+    internal ImmutableArray<int> PositionUnassessedDays {get;init;}=[];
+    public int UnassessedDays => PositionUnassessedDays.Sum();
+    public bool Incomplete => UnassessedDays != 0;
     public int UnitValuations{get;}
     public int QuantityApplications{get;}
     public int SideCalculations{get;}
@@ -521,6 +536,7 @@ public sealed class ValuationPortfolio
         var session=Setup.Interval?.Session(market.NativeIntervalScenario??throw Error("ppa_context","Interval valuation requires an exact native market scenario."),baseValue?.IntervalSession);
         var context=new UnitValuationContext(market.Snapshot,Setup,market,cancellation:ct,intervalSession:session);
         var unit=ImmutableArray.CreateBuilder<ExactMoney>(Scopes.Length);var calls=0;var parts=new ImmutableArray<ValueComponent>[Scopes.Length];var entries=new ImmutableArray<InstrumentEntryValue>[Scopes.Length];
+        var unknown = new int[Scopes.Length];
         var groups = new ImmutableArray<ExerciseGroupContribution>[Scopes.Length];
         var reports = new ImmutableArray<ExerciseGroupValue>[Scopes.Length];
         var measures=new Dictionary<(Guid,DeliveryCoverage?),ValueMeasureSet>();
@@ -544,12 +560,12 @@ public sealed class ValuationPortfolio
                 if(result.Money is null||result.Quantity!=contract.Quantity)
                     throw Error("risk_quantity","A unit PV must retain its declared quantity denominator.");
                 value=result.Money;parts[n]=unitContext.Components;entries[n]=unitContext.Entries;groups[n]=unitContext.ExerciseGroups;
-                reports[n]=unitContext.HeldGroupValues;
+                reports[n]=unitContext.HeldGroupValues;unknown[n]=unitContext.UnassessedDays;
                 if(!parts[n].IsEmpty&&parts[n].Aggregate(ExactMoney.FromMoney(new(default,value.Currency)),(sum,c)=>sum.Add(c.Value))!=value)
                     throw Error("valuation_components","Value components must sum exactly to their unit value.");
             }
             else{value=baseValue!.UnitValues[n];parts[n]=baseValue.UnitComponents[n];entries[n]=baseValue.UnitEntries[n];groups[n]=baseValue.UnitExerciseGroups[n];
-                reports[n]=baseValue.ScopeGroupValues[n];}
+                reports[n]=baseValue.ScopeGroupValues[n];unknown[n]=baseValue.UnitUnassessedDays[n];}
             if (!entries[n].IsEmpty || !groups[n].IsEmpty)
             {
                 var entryValue = entries[n].Aggregate(ExactMoney.Parse("0", value.Currency), (sum, e) => sum.Add(e.Value));
@@ -579,16 +595,19 @@ public sealed class ValuationPortfolio
         var positionEntries=results.Select((value,index)=>
         {
             var position=Positions[index];
-            return entries[scopeIndexes[ScopeKey(position)]].Select(e=>new InstrumentEntryValue(e.Slot,e.Value.Scale(position.Quantity.Amount))).ToImmutableArray();
+            return entries[scopeIndexes[ScopeKey(position)]].Select(e=>e with{Value=e.Value.Scale(position.Quantity.Amount)}).ToImmutableArray();
         }).ToImmutableArray();
         var positionGroups = results.Select((_, index) =>
         {
             var position = Positions[index];
             return groups[scopeIndexes[ScopeKey(position)]].Select(g => g with { Value = g.Value.Scale(position.Quantity.Amount) }).ToImmutableArray();
         }).ToImmutableArray();
+        var positionUnknown=Positions.Select(position=>unknown[scopeIndexes[ScopeKey(position)]]).ToImmutableArray();
+        var bookUnknown=Positions.Select((position,n)=>(position.BookId,position.FixedBasis.Currency,Count:positionUnknown[n]))
+            .GroupBy(p=>(p.BookId,p.Currency)).ToDictionary(g=>g.Key,g=>g.Sum(p=>p.Count));
         return new(this,market,declarations,results.ToImmutableArray(),totals.OrderBy(p=>p.Key.Item1).ThenBy(p=>p.Key.Item2.Code,StringComparer.Ordinal)
-            .Select(p=>new BookCurrencyValue(p.Key.Item1,p.Key.Item2,p.Value)).ToImmutableArray(),units,calls,applications,session,baseMeasures,context.SideCalculations)
-            {UnitComponents=[..parts],PositionComponents=positionParts,UnitEntries=[..entries],PositionEntries=positionEntries,
+            .Select(p=>new BookCurrencyValue(p.Key.Item1,p.Key.Item2,p.Value){UnassessedDays=bookUnknown[p.Key]}).ToImmutableArray(),units,calls,applications,session,baseMeasures,context.SideCalculations)
+            {UnitUnassessedDays=[..unknown],PositionUnassessedDays=positionUnknown,UnitComponents=[..parts],PositionComponents=positionParts,UnitEntries=[..entries],PositionEntries=positionEntries,
                 ScopeGroupValues=[..reports],PositionGroupValues=[..results.Select((_,n)=>reports[scopeIndexes[ScopeKey(Positions[n])]])],
                 UnitExerciseGroups=[..groups], PositionExerciseGroups=positionGroups};
     }

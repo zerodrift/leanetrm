@@ -28,6 +28,7 @@ def add_fixture(reference,market,security,manifest,*,exercise_months=False,imbal
     refs=[];definitions=[];observations=[]
     series=[('daily',94600),('monthly',94610)]
     if exercise_months:series.append(('worked_daily',94620))
+    if imbalance_days:series.append(('delayed',94640))
     for kind,first in series:
         code='synthetic_entry_'+kind
         refs.extend([f"INSERT INTO ref_data.price_index_definitions SELECT catalog_id,revision_id,'{code}',commodity_code,location_code,currency_code,quote_unit_code,quote_multiplier,calendar_code FROM ref_data.price_index_definitions WHERE(catalog_id,revision_id,code)=({R},'test_price');",
@@ -48,6 +49,8 @@ def add_fixture(reference,market,security,manifest,*,exercise_months=False,imbal
             if exercise_months:
                 for day in [date(2021,1,31),date(2021,2,1),date(2021,2,2)]:
                     periods.append((day,day+timedelta(days=1),'3.20','3.20',f'{day}T12:00:00Z'))
+        if kind=='delayed':
+            periods=[(start,end,forecast,actual,'2021-01-06T12:00:00Z' if start.day==3 else at) for start,end,forecast,actual,at in periods]
         for ordinal,(start,end,forecast,actual,at) in enumerate(periods):
             number=first+ordinal
             cid,sid=identity('5',number),identity('9',number)

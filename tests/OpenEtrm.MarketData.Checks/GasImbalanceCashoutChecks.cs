@@ -28,6 +28,7 @@ internal static class GasImbalanceCashoutChecks
         var daily = Calculate(days, balances, StatementBasis.DailyImbalance);
         Check(daily[0], "assessed", 300, 0); Check(daily[1], "assessed", 300, 0);
         Check(daily[2], "assessed", 0, 200); Check(daily[3], "unassessed", null, null);
+        Require(daily[3].Reason == "statement_unavailable", "A missing eligible statement has its own coverage reason.");
         var monthly = Calculate(days, balances, StatementBasis.MonthToDateBalance);
         Check(monthly[0], "assessed", 300, 0); Check(monthly[1], "assessed", 0, 0);
         Check(monthly[2], "assessed", 0, 500); Check(monthly[3], "unassessed", null, null);
@@ -57,12 +58,14 @@ internal static class GasImbalanceCashoutChecks
         Check(missing[0], "assessed", 100, 0);
         for (var index = 1; index <= 3; index++) Check(missing[index], "unassessed", null, null);
         Check(missing[4], "assessed", 50, 0);
+        Require(missing[3].Reason == "preceding_day_unavailable", "A predecessor gap is distinct from a missing current statement.");
         var daily = Calculate(Range(Start, 5), gap, StatementBasis.DailyImbalance);
         Check(daily[3], "assessed", 250, 0); Check(daily[4], "assessed", 300, 0);
 
         var partialDays = Range(new(2027, 1, 10), 24);
         var partial = Calculate(partialDays, [..partialDays.Select(day => Balance(First, day, day == new DateOnly(2027, 2, 1) ? "40" : "10"))], StatementBasis.MonthToDateBalance);
         foreach (var day in partial.Where(day => day.Day.Month == 1)) Check(day, "unassessed", null, null);
+        Require(partial[0].Reason == "partial_first_month", "A mid-month term states its missing opening basis.");
         Check(partial[^2], "assessed", 40, 0); Check(partial[^1], "assessed", 0, 30);
         Console.WriteLine("PASS imbalance calendar differences: consecutive-day evidence, gap recovery, month reset and partial first month");
     }
