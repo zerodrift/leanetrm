@@ -63,6 +63,18 @@ resolved with failing-then-passing regressions before the full qualification
 above. No review findings remain deferred. The review was read-only; the
 verification runs were performed separately by the implementer.
 
+After merging master `b836ef3c`, cash-out was renumbered to D453; migration
+0401 is unchanged. At merge commit `0207ce82`, the same local environment
+passed `tools/check_all.py --group repository` (five workloads, 186 Python
+unit checks, 36 settlement specification checks and 40 browser-harness checks).
+Separate disposable `tools/run_preview.py` runs passed `--check
+--gas-imbalance-check --browser-check` (103 PASS checkpoints, five browser
+checks and three completed workers) and `--check --cash-pnl-check` (90 PASS
+checkpoints). Both integration databases were removed. These reruns cover the
+merged temporary-view source admission, whole-book owned-gas absence checks,
+cash-out accounting and browser workflow. A separate read-only integration
+review found no issues in their combined authorization and coverage behavior.
+
 ## Whole-book P&L dates without trades (D452)
 
 Checked on synthetic data on 2026-11-24, in the same Linux x86_64 containers as
