@@ -99,11 +99,13 @@ def run(dotnet):
         ctx.prec = 80
         for case, actual in zip(cases, observed, strict=True):
             expected = reference(case, 21600)
-            assert abs(actual - expected) <= TOLERANCE, (case, actual, expected)
+            if abs(actual - expected) > TOLERANCE:
+                raise AssertionError(f'Swing finite grid differs for {case}: {actual} versus {expected}')
         for case, (f, k), actual in zip(cases[:3], pairs, observed[:3], strict=True):
             exact = analytic(f / 10000, k / 10000)
             fine = reference(case, 2700)
-            assert abs(actual - exact) <= 2 and abs(fine - exact) <= D('0.25'), (actual, fine, exact)
+            if abs(actual - exact) > 2 or abs(fine - exact) > D('0.25'):
+                raise AssertionError(f'Swing analytic check failed: six-hour {actual}, 45-minute {fine}, analytic {exact}')
             print(f'PASS swing F={f / 10000:.2f} K={k / 10000:.2f}: six-hour {actual:.9f}, '
                   f'45-minute {fine:.9f}, analytic {exact:.9f}')
     print(f'PASS {len(cases)} swing cases against the 80-digit finite-grid oracle within {TOLERANCE:f}')

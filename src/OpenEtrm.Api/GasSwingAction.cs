@@ -99,7 +99,8 @@ public sealed record GasSwingAction(bool Allowed,string? Reason,Guid TradeId,Gui
         var first=Days.IndexOf(Days.FirstOrDefault(d=>d.Day==request.FirstDay)!);
         var last=Days.IndexOf(Days.FirstOrDefault(d=>d.Day==request.LastDay)!);
         TicketFieldException Invalid(string field,string message,int row)=>new("swing_election",message,null,field){TermRow=row,TermSection="swingElections"};
-        if(first<0||last<first)throw Invalid("firstDay","Choose an ordered range of saved gas days.",Math.Max(first,0));
+        if(first<0)throw Invalid("firstDay","Choose the first saved gas day.",0);
+        if(last<first)throw Invalid("lastDay","Choose a saved last gas day at or after the first.",last<0?first:last);
         if(request.Decision is not ("elect" or "withdraw")||(request.Decision=="elect")!=(request.Quantity is not null))
             throw Invalid("quantity","Choose an explicit quantity or withdrawal.",first);
         if(request.Quantity is {} entered)

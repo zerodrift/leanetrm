@@ -131,6 +131,8 @@ export function setupExerciseAction(o:{api:Api;context:()=>WorkingContext;curren
   function field<T extends HTMLInputElement|HTMLSelectElement>(name:string,label:string,control:T){
    const row=element('label');row.className='ticket-field';
    const title=element('span',label);title.className='ticket-label';
+   const clearError=()=>control.removeAttribute('aria-invalid');
+   control.addEventListener('input',clearError);control.addEventListener('change',clearError);
    control.name=name;control.className='ticket-control';control.required=true;row.append(title,control);fields.append(row);return control;
   }
   function options(control:HTMLSelectElement,choices:TicketChoice[]){

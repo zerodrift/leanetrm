@@ -692,6 +692,19 @@ test('started-delivery gas is labelled and totalled under its own measure, never
  assert.deepEqual(header.subtotals.map(s=>[s.measure,s.amount,s.currency]),[['Contractual PV','64','USD'],['Unrealized + realized unsettled','18','USD']]);
 });
 
+test('the quantity chart distinguishes a contractual and a lifecycle gas partition at the same market',()=>{
+ const measures=['gas_contractual_present_value','gas_lifecycle_value_v1'];
+ const summaries=changed(fixture.summaries,3,groups=>measures.map(measure=>({
+  ...groups[0],instrumentType:'physical_gas',measure,quantity:null})));
+ const holdings=measures.map(measure=>({...fixture.holdings[0],instrumentType:'physical_gas',measure,quantity:null}));
+ const [panel]=positionChartPanels(summaries,holdings,commodityColors(['test_gas']),format);
+ const points=panel.series[0].points;
+ assert.equal(new Set(points.map(p=>p.x)).size,2);
+ assert.ok(points.some(p=>p.label.includes('Contractual PV')));
+ assert.ok(points.some(p=>p.label.includes('Unrealized + realized unsettled')));
+ assert.ok(points.every(p=>p.y===null));
+});
+
 test('a price uses its actual quote denominator rather than the holding lot or capacity unit',()=>{
  const h={currency:'USD',unit:'lot',quoteMultiplier:'10000',priceUnitLabel:'USD/MMBtu'};
  assert.equal(priceUnit(h),'USD/MMBtu');

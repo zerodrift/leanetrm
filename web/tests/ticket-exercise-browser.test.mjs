@@ -178,7 +178,9 @@ test('a swing election keeps zero explicit and retries the same range command af
    const mount=()=>{
     const editor=setupExerciseAction({kind:'swing',owner:'actor',tradeId:'trade',bindingId:'binding',revision:1,context:()=>context,current:()=>true,
      writable:true,signal:new AbortController().signal,reread:async()=>{},api:async(path,body)=>{
-      if(path==='gas/swing/prepare'){prepares.push(body);return {command:{context,tradeId:'trade',instrumentId:'binding',expectedRevision:1,
+      if(path==='gas/swing/prepare'){
+       if(body.lastDay<body.firstDay)throw Object.assign(Error('Reversed range'),{details:{field:'lastDay',termRow:0}});
+       prepares.push(body);return {command:{context,tradeId:'trade',instrumentId:'binding',expectedRevision:1,
        operationId:body.operationId,right:0,expectedHeads:days.map(d=>({day:d.day,revisionId:d.head})),elections:days.slice(0,2).map(d=>({day:d.day,quantity:body.quantity}))}};}
       if(path==='gas/swing/record'){writes.push(body);if(writes.length===1)throw Error('Synthetic lost response');return {...body,elections:body.elections.map(e=>({...e,revisionId:'receipt'}))};}
       throw Error(path);
@@ -190,11 +192,14 @@ test('a swing election keeps zero explicit and retries the same range command af
    const fill=(k,v)=>{const c=form.elements.namedItem(k);c.value=v;c.dispatchEvent(new Event('change'));};
    for(const [k,v] of Object.entries({firstDay:days[0].day,lastDay:days[1].day,decision:'elect',quantity:'0',exercisingParty:'us',
     submittedAt:'2041-01-01T16:00:00Z',effectiveAt:'2041-01-02T16:00:00Z',evidence:'Synthetic range'}))fill(k,v);
+   fill('firstDay',days[1].day);fill('lastDay',days[0].day);form.requestSubmit();
+   const end=form.elements.namedItem('lastDay');await until(()=>end===document.activeElement&&end.getAttribute('aria-invalid')==='true');
+   fill('firstDay',days[0].day);fill('lastDay',days[1].day);const corrected=!end.hasAttribute('aria-invalid');
    form.requestSubmit();await until(()=>host.querySelector('.ticket-retry-swing'));
    mount();host.querySelector('.ticket-retry-swing').click();await until(()=>!host.querySelector('.ticket-record-swing').disabled);
-   return {empty,prepares,writes};
+   return {empty,corrected,prepares,writes};
   })()`);
-  assert.ok(result.empty);
+  assert.ok(result.empty);assert.ok(result.corrected);
   assert.equal(result.prepares.length,1);assert.equal(result.prepares[0].quantity,'0');
   assert.equal(result.writes.length,2);assert.deepEqual(result.writes[0],result.writes[1]);
   assert.equal(result.writes[0].expectedHeads[2].revisionId,'saved-head');

@@ -101,6 +101,11 @@ internal static class GasTicketChecks
                 n==1?prior:null,null,null,null)).ToImmutableArray();
             var action=new GasSwingAction(true,null,request.TradeId,request.InstrumentId,3,request.ReadContextId,0,"us","100","0","1000","1000",
                 "0","3000","0","0","3000",days);
+            foreach(var invalidEnd in new[]{default(DateOnly), new DateOnly(2027,1,1), new DateOnly(2027,2,1)})
+            {
+                try{action.Build(request with{LastDay=invalidEnd});throw new Exception("Invalid end date was accepted.");}
+                catch(TicketFieldException e)when(e.Field=="lastDay"){}
+            }
             var batch=action.Build(request);
             Equal(3,batch.ExpectedHeads.Length,"all retained days");
             Equal(prior,batch.ExpectedHeads[0].RevisionId,"outside selection head");

@@ -55,6 +55,13 @@ internal static partial class GasSwingChecks
         Refuse("swing_numerical_scope", () => SwingChoice.Value(active with { DailyMaximumLots = 33 }));
         Refuse("swing_numerical_scope", () => SwingChoice.Value(active with { CalculationAt = At.AddDays(-401) }));
         Refuse("swing_numerical_scope", () => SwingChoice.Value(active with { Days = [day with { Volatility = D("9999") }] }));
+        // Exactly 1,600 regular ticks fit. An off-grid second deadline would add a 1,601st layer.
+        var lastAt = At.AddDays(400);
+        var offGrid = day with { Day = new(From.AddDays(1), At.AddDays(399).AddHours(1)) };
+        var lastGrid = day with { Day = new(From.AddDays(2), lastAt) };
+        var fullGrid = active with { Days = [day with { Day = new(From, At.AddHours(6)) }, lastGrid] };
+        Require(SwingPriceLattice.Grid(fullGrid).Transitions.Length == 1600, "The maximum regular grid must fit exactly.");
+        Refuse("swing_numerical_scope", () => SwingChoice.Value(fullGrid with { Days = [fullGrid.Days[0], offGrid, lastGrid] }));
         var wide = Inputs([.. Enumerable.Repeat(1, 31)], 0, 32, 0, 31 * 32);
         Refuse("swing_numerical_scope", () => SwingChoice.Value(wide with { CalculationAt = At.AddDays(-320),
             Days = [.. wide.Days.Select(d => d with { Volatility = D("0.5") })] }));
@@ -62,6 +69,20 @@ internal static partial class GasSwingChecks
         Refuse("swing_numerical_scope", () => SwingVolumeGrid.RequireStateCount(2050));
         try { SwingChoice.Value(active, new CancellationToken(true)); throw new Exception("Swing ignored cancellation."); }
         catch (OperationCanceledException) { }
+
+        // Cancel after the solver starts, on a stochastic workload admitted by the production caps.
+        using var cancel = new CancellationTokenSource();
+        using var started = new ManualResetEventSlim();
+        var running = Task.Run(() =>
+        {
+            started.Set();
+            return SwingChoice.Value(active with { CalculationAt = At.AddDays(-200) }, cancel.Token);
+        });
+        if (!started.Wait(TimeSpan.FromSeconds(5))) throw new Exception("Swing task did not start.");
+        cancel.CancelAfter(TimeSpan.FromMilliseconds(10));
+        try { running.WaitAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult(); throw new Exception("Swing calculation completed despite cancellation."); }
+        catch (OperationCanceledException e) when (e.CancellationToken == cancel.Token) { }
+        Console.WriteLine("PASS swing cancellation before and during pricing; days, daily choices, volume states, time and inserted deadlines, actions and magnitude bounds");
 
         Exact(Inputs([], 0, 1, 4, 5) with { CommittedLots = 4 }, R(0));
         Refuse("swing_feasibility", () => SwingChoice.Value(Inputs([], 0, 1, 4, 5)));

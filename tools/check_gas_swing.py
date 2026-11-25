@@ -98,7 +98,7 @@ def overlapping_upgrade(client, query, manifest, prior, context, base, right):
     upgraded_book_checks(client,context,book,swing,companion)
 
 
-def run_checks(url, query, manifest, prior, period_prior, run_worker):
+def run_checks(url, query, manifest, prior, period_prior, run_worker, browse=None):
     client = PreviewClient(url)
     client.bootstrap()
     client.call('profile', dict(profile='trader'))
@@ -303,6 +303,43 @@ def run_checks(url, query, manifest, prior, period_prior, run_worker):
         operationId=str(uuid4()),reason='Synthetic swing monthly inputs',curve='synthetic_swing_location',
         marks=[dict(month=m,volatility='0',expectedRevision=0) for m in ('2021-01','2021-02')]))
     assert client.call('gas/composition/preview',body)['presentValue']=='310'
+    if browse:
+        # Zero is outside the mandatory contract's daily limits. Qualify it on its own optional right.
+        optional = book({**body,'operationId':str(uuid4()),'swingRights':[{**right,'dailyMinimum':'0','totalMinimum':'0','totalMaximum':'1000'}]})
+        browse(dict(optionalTrade=optional))
     from check_gas_swing_routes import reported_cash_checks, route_checks
     reported_cash_checks(client, query, manifest, context, outside_saved)
     route_checks(client, query, manifest, context, body, run_worker)
+
+
+def measure_workloads(dotnet, output):
+    """One fresh process per contract/scenario, two consecutive calls to the production pricing kernel."""
+    from pathlib import Path
+    import platform
+    import subprocess
+    import tempfile
+
+    root = Path(__file__).resolve().parents[1]
+    dll = root / 'tests/OpenEtrm.MarketData.Checks/bin/Debug/net10.0/OpenEtrm.MarketData.Checks.dll'
+    cases = []
+    with tempfile.TemporaryDirectory(prefix='openetrm-swing-work-') as directory:
+        sample = Path(directory) / 'sample.json'
+        for days in (1, 3, 31):
+            for maximum in (1, 4):
+                for scenario in ('base', 'price', 'volatility'):
+                    subprocess.run([str(dotnet), str(dll), '--gas-swing-workload', str(days), str(maximum), scenario, str(sample)],
+                                   cwd=root, check=True, timeout=120)
+                    cases.append(json.loads(sample.read_text()))
+    output.write_text(json.dumps(dict(scope='SwingChoice.Value pricing kernel', contracts=6, scenariosPerContract=3,
+        valuations=36, processConcurrency=1, os=platform.platform(), machine=platform.machine(), cases=cases), indent=2)+'\n')
+
+
+if __name__ == '__main__':
+    import argparse
+    from pathlib import Path
+
+    parser = argparse.ArgumentParser(description='Measure bounded gas swing pricing workloads.')
+    parser.add_argument('--dotnet', type=Path, required=True)
+    parser.add_argument('--workloads', type=Path, required=True, help='Write private workload measurements to this JSON file.')
+    args = parser.parse_args()
+    measure_workloads(args.dotnet.resolve(), args.workloads)

@@ -370,11 +370,14 @@ function rightTerms(o:TicketView,spec:TicketTermSection){
    const saved=termValue(values,f.id),listed=o.choices[f.id];
    if(!entry){
     const current=Array.isArray(saved)?saved:saved?[saved]:[];
+    const inline=el('span');
     current.forEach((value,n)=>{
      const text=el('span','ticket-value',choiceText(value,null,listed));
      if(f.choices!==null){text.dataset.choiceKey=f.id;text.dataset.choiceValue=value;}
-     if(n)row.append(document.createTextNode(', '));row.append(text);
+     if(n)inline.append(document.createTextNode(', '));
+     inline.append(text);
     });
+    row.append(inline);
    }else if(f.type==='multiple_choice'){
     const select=el('select','ticket-control');select.multiple=true;select.setAttribute('aria-label',f.label);
     const selected=Array.isArray(saved)?saved:[];

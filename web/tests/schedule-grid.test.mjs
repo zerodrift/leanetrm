@@ -110,6 +110,15 @@ test('decorations carry the backend’s source labels and delivered rows',()=>{
  assert.equal(sourceLabels.estimated,'Estimated');
 });
 
+test('commercial swing decisions keep elected and contingent schedule sources distinct',()=>{
+ const v=view();
+ v.rows[1].cells['physical-1.quantity']=cell('0',['elected']);
+ v.rows[2].cells['physical-1.quantity']=cell(null,['undecided','contingent']);
+ const g=scheduleGridData(v,description,sides,'instrument','day',shown);
+ assert.deepEqual(g.decorations[1][1].sources,['Elected']);
+ assert.deepEqual(g.decorations[2][1].sources,['Undecided','contingent']);
+});
+
 test('an unknown value source is refused',()=>{
  const v=view();v.rows[0].cells['physical-1.quantity']=cell('-2000',['guessed']);
  assert.throws(()=>scheduleGridData(v,description,sides,'instrument','month',shown),{message:'Unknown value source: guessed'});

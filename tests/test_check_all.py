@@ -86,6 +86,8 @@ class CheckAllTests(unittest.TestCase):
         exercise=[command for command in previews if '--gas-exercise-check' in command]
         self.assertEqual(len(exercise),1)
         self.assertTrue({'--gas-pricing-check','--browser-check'}.issubset(exercise[0]))
+        swing, = [command for command in previews if '--gas-swing-check' in command]
+        self.assertIn('--browser-check', swing)
         charge = [command for command in previews if '--gas-charges-check' in command]
         self.assertEqual(len(charge), 1)
         self.assertIn('--browser-check', charge[0])

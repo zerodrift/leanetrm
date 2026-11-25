@@ -1246,7 +1246,17 @@ def main():
                         subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-pricing'],cwd=ROOT,env=env,check=True,timeout=300)
                 if args.gas_swing_check:
                     from check_gas_swing import run_checks as check_gas_swing
-                    check_gas_swing(url,query,manifest,swing_predecessor,swing_period_predecessor,run_worker)
+                    def browse_swing(fixture):
+                        target=temporary/'browser-target.json'
+                        target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,'facility':fixture}))
+                        try:
+                            subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-swing'],
+                                cwd=ROOT,env=env,check=True,timeout=360)
+                        finally:
+                            if evidence:=os.environ.get('OPENETRM_SWING_BROWSER_EVIDENCE'):
+                                destination=Path(evidence).resolve();destination.mkdir(parents=True,exist_ok=True)
+                                for screenshot in temporary.glob('swing-*.png'):shutil.copy2(screenshot,destination/screenshot.name)
+                    check_gas_swing(url,query,manifest,swing_predecessor,swing_period_predecessor,run_worker,browse_swing if args.browser_check else None)
                 if args.gas_exercise_check:
                     from check_gas_exercise import run_checks as check_gas_exercise
                     def browse_exercise(suite,fixture):

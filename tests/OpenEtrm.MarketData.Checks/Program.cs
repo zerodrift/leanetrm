@@ -108,6 +108,11 @@ if(args is ["--european-options"]){EuropeanFuturesOptionChecks.Run();return;}
 if(args is ["--spread-options"]){SpreadOptionChecks.Run();HeatRateCallChecks.Run();HeatRateCallScheduleChecks.Run();return;}
 if(args is ["--exercise-mark-pair"]){ExerciseRightChecks.MarkBindings();return;}
 if(args is ["--exercise-rights"]){ExerciseRightChecks.Run();return;}
+if(args is ["--gas-swing-workload", var days, var lots, var scenario, var outputPath])
+{
+    GasSwingWorkload.Run(days, lots, scenario, outputPath);
+    return;
+}
 if(args is ["--gas-swing-oracles", var swingCases, var swingResults]){GasSwingOracleRunner.Run(swingCases,swingResults);return;}
 if(args is ["--gas-swing"]){GasSwingChecks.Run();return;}
 if(args is ["--option-calibration-workload"]){FuturesOptionChecks.CalibrationWorkload();return;}

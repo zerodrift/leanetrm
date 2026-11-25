@@ -173,6 +173,10 @@ def route_checks(c, query, manifest, context, template, run_worker):
                 for partition in (queued,live):
                     work = partition['graphWork']
                     assert work.keys()==counters and all(isinstance(n,int) and n>=0 for n in work.values()),work
+                    for name in counters - {'evaluatedNodes'}:
+                        assert work[name] == 0, (name, work)
+                print(f"PASS swing graph preparation evaluated nodes: worker {queued['graphWork']['evaluatedNodes']}, "
+                      f"HTTP {live['graphWork']['evaluatedNodes']}; reused reads, affected nodes, traversed edges and evaluated work all zero", flush=True)
                 for field in queued.keys() | live.keys():
                     if field!='graphWork':
                         assert_replay('partition.'+field,queued[field],live[field])
