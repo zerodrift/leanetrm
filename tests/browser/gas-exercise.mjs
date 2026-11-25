@@ -136,6 +136,7 @@ export async function run(actions){
  await wait('!'+at(refresh)+'&& !'+at(action)+'.disabled',30000);
  await check('a refreshed exercise action clears the stale instruction',
   '!'+at(bookedTicket+' .ticket-exercise-controls')+'.textContent.includes("Refresh the trade")');
+ await positionValued('3447.441896609978803165');
  await open();await selectPeriod('2021-01-17','abandoned');
  await check('the refreshed group choice shows its known predecessor and effective instant',
   at(bookInput('firstPeriod'))+'?.selectedOptions[0].textContent.includes("known Exercised effective 2020-12-18T16:00:00")');
