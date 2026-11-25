@@ -28,7 +28,7 @@ internal static class GasExerciseTicket
 
     internal static ImmutableArray<TicketChoice> Choices(TicketDraft draft,string field)=>field switch
     {
-        "right_sides"=>[..draft.Sides.Where(s=>s.Kind!=GasTicket.Charge).Select(s=>new TicketChoice(s.Code,s.Code))],
+        "right_sides"=>[..draft.Sides.Where(s=>s.Kind is not (GasTicket.Charge or GasTicket.Imbalance)).Select(s=>new TicketChoice(s.Code,s.Code))],
         "right_period"=>[new("delivery_day","Each gas day"),new("delivery_month","Each delivery month")],
         "right_holder"=>[new("us","Us"),new("counterparty","Counterparty")],
         "right_settlement"=>[new("physical","Physical, by election"),new("cash_automatic","Cash, by published prices")],
@@ -42,10 +42,10 @@ internal static class GasExerciseTicket
     {
         if(draft.ExerciseRights is not {Length:>0} rows)return null;
         var result=ImmutableArray.CreateBuilder<GasExerciseRightRequest>(rows.Length);
-        var ordered=draft.Sides.Where(s=>s.Kind!=GasTicket.Charge).OrderByDescending(s=>s.Kind=="physical");
+        var ordered=draft.Sides.Where(s=>s.Kind is not (GasTicket.Charge or GasTicket.Imbalance)).OrderByDescending(s=>s.Kind=="physical");
         var slots=ordered.Select((side,slot)=>(side.Code,slot)).ToDictionary(e=>e.Code,e=>e.slot,StringComparer.Ordinal);
         var physicalCount=draft.Sides.Count(s=>s.Kind=="physical");
-        var charges=draft.Sides.Where(s=>s.Kind==GasTicket.Charge).Select(s=>s.Code).ToHashSet(StringComparer.Ordinal);
+        var independent=draft.Sides.Where(s=>s.Kind is GasTicket.Charge or GasTicket.Imbalance).Select(s=>s.Code).ToHashSet(StringComparer.Ordinal);
         var claimed=new HashSet<int>();
         foreach(var row in rows)
         {
@@ -54,8 +54,8 @@ internal static class GasExerciseTicket
                 throw Invalid(field,"Select one of the offered choices.");
             if(row?.Sides is not {Length:>0} entries)
                 throw Invalid("right_sides","Select existing sides. Each side may be covered only once.");
-            if(entries.Any(charges.Contains))
-                throw Invalid("right_sides","A charge is independent and cannot be covered by an exercise right.");
+            if(entries.Any(independent.Contains))
+                throw Invalid("right_sides","Charges and imbalance cash-outs cannot be covered by an exercise right.");
             if(draft.Sides.Any(side=>side.Kind=="physical"&&side.Values.ContainsKey("link_source")))
                 throw Invalid("right_sides","Exercise rights require independent physical sources without quantity links.");
             var period=Choice("right_period",row.Period);

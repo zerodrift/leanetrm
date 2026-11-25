@@ -21,8 +21,8 @@ public sealed record TicketColumn(string Id,string Label,string? Unit,string Mea
 // A new ticket opens with Initial sides of the kind, between Min and Max; a coming-soon kind is offered greyed and none can be added.
 public sealed record TicketCalendarPurposes(bool Delivery,bool Observation,bool Payment);
 public sealed record TicketSideKind(string Kind,string Pill,string Colour,int Min,int Initial,int Max,ImmutableArray<TicketField> Fields,ImmutableArray<TicketColumn> Columns,string? Soon=null)
-{public TicketCalendarPurposes? CalendarPurposes{get;init;}}
-// At most Max sides of the named kinds together; each kind keeps its own Min and Max.
+{public TicketCalendarPurposes? CalendarPurposes{get;init;} public int EntryCount{get;init;}=1;}
+// At most Max native entries of the named kinds together; a kind states its entry count and keeps its own card limits.
 public sealed record TicketSideLimit(ImmutableArray<string> Kinds,int Max);
 public sealed record TicketTab(string Id,string Label,string? Soon=null);
 public sealed record TicketFieldGroup(string Id,string Label,string Kind,ImmutableArray<string> Fields);
@@ -102,6 +102,7 @@ public static class TicketDescriptions
     Fail(d,$"soon side kind '{side.Kind}' needs hover text, no sides, fields, columns or side limit");
   foreach(var side in d.Sides.Where(s=>s.Soon is null))
   {
+   if(side.EntryCount<1)Fail(d,$"side kind '{side.Kind}' needs a positive native entry count");
    if(side.Min<0||side.Min>side.Max||side.Max<1)Fail(d,$"side kind '{side.Kind}' needs 0 <= min <= max and 1 <= max");
    if(side.Initial<side.Min||side.Initial>side.Max)Fail(d,$"side kind '{side.Kind}' needs min <= initial <= max");
    if(side.Columns.FirstOrDefault(column=>!ViewMeasures.ContainsKey(column.Measure)) is {} unshown)Fail(d,$"side kind '{side.Kind}' column '{unshown.Id}' has measure '{unshown.Measure}', which the schedule view cannot show");
@@ -112,7 +113,7 @@ public static class TicketDescriptions
   {
    var kinds=limit.Kinds.Select(kind=>d.Sides.SingleOrDefault(side=>side.Kind==kind)).ToArray();
    if(kinds.Length==0||kinds.Contains(null)||limit.Kinds.Distinct().Count()!=kinds.Length)Fail(d,"a side limit must name distinct declared side kinds");
-   if(limit.Max<Math.Max(1,kinds.Sum(kind=>kind!.Initial)))Fail(d,$"the side limit on {string.Join(", ",limit.Kinds)} is below one or their initial sides");
+   if(limit.Max<Math.Max(1,kinds.Sum(kind=>kind!.Initial*kind.EntryCount)))Fail(d,$"the side limit on {string.Join(", ",limit.Kinds)} is below one or their initial sides");
   }
   return d;
  }

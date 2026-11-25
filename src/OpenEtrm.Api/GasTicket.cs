@@ -26,10 +26,10 @@ public sealed record TicketChoices(ImmutableArray<TicketChoice> Choices,TicketLo
 public static class GasTicket
 {
  const string Physical="physical";
- internal const string Charge="charge";
+ internal const string Charge="charge",Imbalance="imbalance";
  public static TicketChoice AssignedForecastChoice{get;}=new("assigned","Assigned location curve");
  // The composition role each side kind books as.
- static readonly ImmutableDictionary<string,string> Roles=new Dictionary<string,string>{[Physical]="physical",["cash"]="consideration",["fee"]="fee",["floating"]="indexed_consideration",[Charge]=Charge}.ToImmutableDictionary();
+ static readonly ImmutableDictionary<string,string> Roles=new Dictionary<string,string>{[Physical]="physical",["cash"]="consideration",["fee"]="fee",["floating"]="indexed_consideration",[Charge]=Charge,[Imbalance]="imbalance_cashout"}.ToImmutableDictionary();
  public static TicketDescription Description{get;}=WithCalendars(TicketDescriptions.Validate(new("physical_gas",1,"flow",
   [Trade("book","Book","Book that holds the trade.","choice",choices:"books"),
    Trade("legal_entity","Legal entity","Our legal entity on the trade.","choice",choices:"legal_entities",required:false),
@@ -72,14 +72,14 @@ public static class GasTicket
    CashKind("cash","Cash","cash",false,1),
    CashKind("fee","Fee","fee",true,0),
    IndexedCashKind(),
-   ChargeKind()],
-  [new(["cash","fee","floating",Charge],GasCompositionInstrument.MaxCashSides),new([Physical,"cash","fee","floating",Charge],GasCompositionInstrument.MaxSides)],
+   ChargeKind(),ImbalanceKind()],
+  [new(["cash","fee","floating",Charge,Imbalance],GasCompositionInstrument.MaxCashSides),new([Physical,"cash","fee","floating",Charge,Imbalance],GasCompositionInstrument.MaxSides)],
   [new("net_cash","Net cash",null,"money",[]),new("payment_at","Payment date",null,"payment_date",[])],
   ["term","month","day"],[new("links","Quantity links"),
    new("imbalance","Imbalance","Will compare each gas day's nominated and actual quantities, with the imbalance, its cash-out price and its amount.")],["new","booked","amend"]){RepeatableTerms=[GasExerciseTicket.Section]}));
 
  static TicketDescription WithCalendars(TicketDescription description)=>description with{Sides=[..description.Sides.Select(kind=>kind with
-  {CalendarPurposes=new(true,kind.Kind=="floating",kind.Kind!=Physical)})]};
+  {CalendarPurposes=new(true,kind.Kind is "floating" or Imbalance,kind.Kind!=Physical)})]};
  // Preserve an absent field through completed-command lookup. New generation
  // requires the policy in the same managed resolver as the direct API.
  static SideCalendarPolicyInput Calendar(TicketSideDraft side)=>side.CalendarPolicy!;
@@ -143,6 +143,33 @@ public static class GasTicket
    [new("quantity","Quantity","quantity","quantity",[]),new("price","Price",null,"price",[]),new("amount","Amount",null,"money",[])]);
  }
 
+ static TicketSideKind ImbalanceKind()=>new(Imbalance,"Imbalance cash-out","floating",0,0,GasCompositionInstrument.MaxCashSides/2,
+  [Field("imbalance_source","Physical side","Physical side whose service accounts provide the balance.","choice",choices:"physical_sides"),
+   Field("imbalance_index","Cash-out index","Named daily index used to price each assessed gas day.","choice",choices:"pricing_indices",dependsOn:"imbalance_source"),
+   Field("imbalance_spread_to_us","Spread when gas is owed to us","Fixed adder for the received payment.","decimal"),
+   Field("imbalance_spread_by_us","Spread when we owe gas","Fixed adder for the paid payment.","decimal"),
+   Field("imbalance_payment_day","Payment day","Calendar day in the following month, without holiday adjustment.","choice",choices:"payment_days"),
+   Field("imbalance_statement_policy","Statements used","Which latest statement statuses are eligible.","choice",choices:"statement_policies"),
+   Field("imbalance_statement_basis","A statement reports","Whether the statement is daily or month-to-date.","choice",choices:"statement_bases"),
+   Field("imbalance_account_netting","Several accounts","Whether accounts are netted before splitting directions.","choice",choices:"account_netting")],[]){EntryCount=2};
+
+ static GasImbalanceCashoutRequest ImbalanceRequest(TicketSideDraft side,TicketSideDraft[] physical,HashSet<string> sources)
+ {
+  var v=side.Values;
+  string Choice(string field,string list)=>Fixed[list].Any(choice=>choice.Value==v[field])?v[field]:throw EntryError(side.Code,field,"Select one of the offered choices.");
+  string Spread(string field)
+  {
+   try{ExactDecimal.Parse(v[field]);return v[field];}
+   catch(MarketDataException error){throw EntryError(side.Code,field,error.Message);}
+  }
+  var source=v["imbalance_source"];
+  if(!physical.Any(p=>p.Code==source)||physical.Any(p=>p.Values.ContainsKey("link_source"))||!sources.Add(source))
+   throw EntryError(side.Code,"imbalance_source","Select one independent physical side per cash-out, on a composition without quantity links.");
+  return new(side.Code,ReportedBalanceFollow.DailyIndexProfile,source,v["imbalance_index"],Spread("imbalance_spread_to_us"),Spread("imbalance_spread_by_us"),
+   PaymentDay(side,"imbalance_payment_day"),Choice("imbalance_statement_policy","statement_policies"),Choice("imbalance_statement_basis","statement_bases"),Choice("imbalance_account_netting","account_netting"))
+   {CalendarPolicy=Calendar(side)};
+ }
+
  public static GasCompositionRequest Request(TicketDraft draft,Guid snapshotId,string knowledgeMode,Guid operationId,Guid definitionRevisionId)=>Request(draft,snapshotId,knowledgeMode,operationId,definitionRevisionId,false);
  internal static GasCompositionRequest Request(TicketDraft draft,Guid snapshotId,string knowledgeMode,Guid operationId,Guid definitionRevisionId,bool retained)
  {
@@ -153,8 +180,8 @@ public static class GasTicket
    var kind=Description.Sides.SingleOrDefault(k=>k.Kind==side.Kind)??throw Bad($"Unknown side kind '{side.Kind}'.");
    if(kind.Soon is not null)throw Bad($"A {kind.Pill.ToLowerInvariant()} side is coming soon; gas booking does not take one yet.");
    if(side.Kind==Charge&&side.Values.GetValueOrDefault("charge_basis") is not ("lump_sum" or "capacity"))
-    throw ChargeError(side.Code,"charge_basis","Choose a lump sum or daily capacity.");
-   Check(kind.Fields,side.Values,$"{side.Kind} side '{side.Code}'",side.Code,side.Kind==Charge);
+    throw EntryError(side.Code,"charge_basis","Choose a lump sum or daily capacity.");
+   Check(kind.Fields,side.Values,$"{side.Kind} side '{side.Code}'",side.Code,side.Kind is Charge or Imbalance);
    if(string.IsNullOrWhiteSpace(side.Code))throw Bad($"Each {side.Kind} side needs a code.");
   }
   if(draft.Sides.GroupBy(s=>s.Code).Any(g=>g.Count()>1))throw Bad("Side codes must be unique.");
@@ -163,17 +190,21 @@ public static class GasTicket
    var count=draft.Sides.Count(s=>s.Kind==kind.Kind);
    if(count>=kind.Min&&count<=kind.Max)continue;
    var message=$"Use {kind.Min} to {kind.Max} {kind.Kind} sides, not {count}.";
-   if(kind.Kind==Charge)throw ChargeError(draft.Sides.Where(s=>s.Kind==Charge).ElementAt(kind.Max).Code,"charge_basis",message);
+   if(kind.Kind==Imbalance)throw EntryError(draft.Sides.Where(s=>s.Kind==Imbalance).ElementAt(kind.Max).Code,"imbalance_source",message);
+   if(kind.Kind==Charge)throw EntryError(draft.Sides.Where(s=>s.Kind==Charge).ElementAt(kind.Max).Code,"charge_basis",message);
    throw Bad(message);
   }
   foreach(var limit in Description.SideLimits)
   {
-   var count=draft.Sides.Count(s=>limit.Kinds.Contains(s.Kind));
+   var count=draft.Sides.Where(s=>limit.Kinds.Contains(s.Kind)).Sum(s=>Description.Sides.Single(k=>k.Kind==s.Kind).EntryCount);
    if(count<=limit.Max)continue;
    var message=$"Use at most {limit.Max} {string.Join(" and ",limit.Kinds)} sides together, not {count}.";
    // Owning entries are appended after the physical and following entries in the request.
-   var excess=draft.Sides.Where(s=>limit.Kinds.Contains(s.Kind)).OrderBy(s=>s.Kind==Charge).ElementAt(limit.Max);
-   if(excess.Kind==Charge)throw ChargeError(excess.Code,"charge_basis",message);
+   var used=0;
+   var excess=draft.Sides.Where(s=>limit.Kinds.Contains(s.Kind)).OrderBy(s=>s.Kind==Charge?2:s.Kind==Imbalance?1:0)
+    .First(s=>(used+=Description.Sides.Single(k=>k.Kind==s.Kind).EntryCount)>limit.Max);
+   if(excess.Kind==Imbalance)throw EntryError(excess.Code,"imbalance_source",message);
+   if(excess.Kind==Charge)throw EntryError(excess.Code,"charge_basis",message);
    throw Bad(message);
   }
   var rights=GasExerciseTicket.Request(draft);
@@ -184,19 +215,21 @@ public static class GasTicket
   var codes=physical.Select(s=>s.Code).ToHashSet();
   string Source(TicketSideDraft side,string id)=>codes.Contains(side.Values[id])?side.Values[id]:throw On(side.Code,id,$"{side.Kind} side '{side.Code}' names '{side.Values[id]}', which is not a physical side code.");
   var charges=draft.Sides.Where(s=>s.Kind==Charge).Select(s=>ChargeRequest(s,codes)).ToImmutableArray();
+  var balanceSources=new HashSet<string>();
+  var cashouts=draft.Sides.Where(s=>s.Kind==Imbalance).Select(s=>ImbalanceRequest(s,physical,balanceSources)).ToImmutableArray();
   var t=draft.Trade;
   var (entity,entityRevision)=Versioned(t,"legal_entity");var (party,partyRevision)=Versioned(t,"counterparty");
-  return new(snapshotId,PhysicalGasStore.Convention,knowledgeMode,draft.Sides.Any(s=>s.Kind=="floating")?GasCompositionStore.IndexedProfile:GasCompositionStore.Profile,operationId,Id(t,"book")!.Value,definitionRevisionId,Id(t,"gas_setup"),false,entity,entityRevision,party,partyRevision,
+  return new(snapshotId,PhysicalGasStore.Convention,knowledgeMode,draft.Sides.Any(s=>s.Kind is "floating" or Imbalance)?GasCompositionStore.IndexedProfile:GasCompositionStore.Profile,operationId,Id(t,"book")!.Value,definitionRevisionId,Id(t,"gas_setup"),false,entity,entityRevision,party,partyRevision,
    [..physical.Select(s=>PhysicalRequest(s,Source))],
-   [..draft.Sides.Where(s=>s.Kind is not (Physical or Charge)).Select(s=>CashRequest(s,physical,Source,retained))])
-   {ChargeSides=charges.IsEmpty?null:charges,ExerciseRights=rights};
+   [..draft.Sides.Where(s=>s.Kind is not (Physical or Charge or Imbalance)).Select(s=>CashRequest(s,physical,Source,retained))])
+   {ChargeSides=charges.IsEmpty?null:charges,ImbalanceCashouts=cashouts.IsEmpty?null:cashouts,ExerciseRights=rights};
  }
 
  static GasChargeRequest ChargeRequest(TicketSideDraft side,HashSet<string> physicalCodes)
  {
   var values=side.Values;
   var clock=values["charge_clock_side"];
-  if(!physicalCodes.Contains(clock))throw ChargeError(side.Code,"charge_clock_side","Select the gas-day clock of a physical side on this trade.");
+  if(!physicalCodes.Contains(clock))throw EntryError(side.Code,"charge_clock_side","Select the gas-day clock of a physical side on this trade.");
   var basis=values["charge_basis"];
   var request=new GasChargeRequest(side.Code,basis,values["charge_direction"],values["charge_price"],
    values.GetValueOrDefault("charge_daily_quantity"),values.GetValueOrDefault("charge_start"),values.GetValueOrDefault("charge_end"),
@@ -249,8 +282,8 @@ public static class GasTicket
 
  static int PaymentDay(TicketSideDraft side,string field="floating_payment_day")=>
   int.TryParse(side.Values[field],NumberStyles.None,CultureInfo.InvariantCulture,out var day)&&day is >=1 and <=28&&
-  (side.Kind!=Charge||side.Values[field]==day.ToString(CultureInfo.InvariantCulture))?day:
-  throw new TicketFieldException(side.Kind==Charge?"gas_composition_input":"ticket_input","Choose a following-month UTC payment day from 1 through 28.",side.Code,field);
+  (side.Kind is not (Charge or Imbalance)||side.Values[field]==day.ToString(CultureInfo.InvariantCulture))?day:
+  throw new TicketFieldException(side.Kind is Charge or Imbalance?"gas_composition_input":"ticket_input","Choose a following-month UTC payment day from 1 through 28.",side.Code,field);
 
  static GasPhysicalRequest PhysicalRequest(TicketSideDraft side,Func<TicketSideDraft,string,string> source)
  {
@@ -279,17 +312,17 @@ public static class GasTicket
   link is null?side.Values.GetValueOrDefault("quantity")??throw On(side.Code,"quantity",$"Physical side '{side.Code}' needs a quantity or a link source."):
   side.Values.ContainsKey("quantity")?throw On(side.Code,"quantity",$"Physical side '{side.Code}' takes its quantity from its link source; leave quantity empty."):null;
 
- static void Check(ImmutableArray<TicketField> fields,ImmutableDictionary<string,string> values,string scope,string? side,bool charge=false)
+ static void Check(ImmutableArray<TicketField> fields,ImmutableDictionary<string,string> values,string scope,string? side,bool component=false)
  {
-  TicketFieldException Error(string id,string message)=>charge?ChargeError(side,id,message):On(side,id,message);
+  TicketFieldException Error(string id,string message)=>component?EntryError(side,id,message):On(side,id,message);
   foreach(var (id,value) in values)
   {
    var field=fields.SingleOrDefault(f=>f.Id==id)??throw Error(id,$"The {scope} has no field '{id}'.");
    if(field.VisibleWhen is {} condition&&!condition.Matches(values))throw Error(id,$"Field '{id}' is not used by the selected choice.");
    if(field.State!="editable")throw Error(id,$"Field '{id}' on the {scope} is {field.State} and takes no value.");
    if(string.IsNullOrWhiteSpace(value))throw Error(id,$"Field '{id}' on the {scope} is blank.");
-   // Owning entries validate decimals with their other managed charge terms.
-   if(field.Type=="decimal"&&!charge)try{ExactDecimal.Parse(value);}catch(MarketDataException error){throw new TicketFieldException(error.Code,error.Message,side,id);}
+   // Composed entries validate decimals with their other managed terms.
+   if(field.Type=="decimal"&&!component)try{ExactDecimal.Parse(value);}catch(MarketDataException error){throw new TicketFieldException(error.Code,error.Message,side,id);}
   }
   foreach(var field in fields.Where(f=>f.Required&&(f.VisibleWhen is null||f.VisibleWhen.Matches(values))&&!values.ContainsKey(f.Id)))throw Error(field.Id,$"The {scope} needs a value for '{field.Id}'.");
  }
@@ -335,7 +368,11 @@ public static class GasTicket
    ("charge_basis",c.Basis),("charge_direction",c.Direction),("charge_price",c.Price),("charge_daily_quantity",c.DailyQuantity),
    ("charge_start",c.From),("charge_end",c.To),("charge_payment_at",c.PaymentAt),("charge_payment_day",c.PaymentDay?.ToString(CultureInfo.InvariantCulture)),
    ("charge_clock_side",c.ClockSide))){CalendarPolicy=c.CalendarPolicy});
-  return new(Description.Product,Description.Version,trade.ToImmutableDictionary(),[..physical,..cash,..charges]){ExerciseRights=GasExerciseTicket.Draft(terms.ExerciseRights)};
+  var cashouts=(terms.ImbalanceCashouts??[]).Select(c=>new TicketSideDraft(Imbalance,c.Code,Values(
+   ("imbalance_source",c.Side),("imbalance_index",c.Index),("imbalance_spread_to_us",c.SpreadOwedToUs),("imbalance_spread_by_us",c.SpreadOwedByUs),
+   ("imbalance_payment_day",c.PaymentDay.ToString(CultureInfo.InvariantCulture)),("imbalance_statement_policy",c.StatementPolicy),
+   ("imbalance_statement_basis",c.StatementBasis),("imbalance_account_netting",c.AccountNetting))){CalendarPolicy=c.CalendarPolicy});
+  return new(Description.Product,Description.Version,trade.ToImmutableDictionary(),[..physical,..cash,..cashouts,..charges]){ExerciseRights=GasExerciseTicket.Draft(terms.ExerciseRights)};
  }
 
  // The draft a booked request reopens as. The draft must map back to exactly the stored terms;
@@ -352,7 +389,7 @@ public static class GasTicket
  // A completed retry returns its original command bytes, never this normalized view.
  internal static bool SameTerms(GasCompositionRequest a,GasCompositionRequest b)
  {
-  GasCompositionRequest Normalize(GasCompositionRequest request)=>request with{ChargeSides=request.ChargeSides is {Length:0}?null:request.ChargeSides,ExerciseRights=request.ExerciseRights is {Length:0}?null:request.ExerciseRights,CashSides=[..request.CashSides.Select(c=>{
+  GasCompositionRequest Normalize(GasCompositionRequest request)=>request with{ImbalanceCashouts=request.ImbalanceCashouts is {Length:0}?null:request.ImbalanceCashouts,ChargeSides=request.ChargeSides is {Length:0}?null:request.ChargeSides,ExerciseRights=request.ExerciseRights is {Length:0}?null:request.ExerciseRights,CashSides=[..request.CashSides.Select(c=>{
    var source=request.PhysicalSides.Single(p=>p.Code==c.Source);
    return c with{Share=c.Share??"1",DeliveryFrom=c.DeliveryFrom??source.DeliveryFrom,DeliveryTo=c.DeliveryTo??source.DeliveryTo,
     Part=c.Part is {Kind:"band",Upper:not null} part&&ExactDecimal.Parse(part.Lower).CompareTo(default)==0?part with{Lower="0"}:c.Part};})]};
@@ -403,6 +440,9 @@ public static class GasTicket
 
  // Fixed lists the booking contract admits, and the lists read from the context's gas catalog.
  static readonly ImmutableDictionary<string,ImmutableArray<TicketChoice>> Fixed=new Dictionary<string,ImmutableArray<TicketChoice>>{
+  ["statement_policies"]=[new(GasImbalanceTrading.FinalPolicy,"Final only"),new(GasImbalanceTrading.ReportedPolicy,"Provisional and final")],
+  ["statement_bases"]=[new("daily_imbalance_v1","That day's imbalance"),new("month_to_date_balance_v1","The month-to-date balance")],
+  ["account_netting"]=[new("net_accounts_v1","Net them, then settle"),new("each_account_v1","Settle each on its own")],
   ["charge_bases"]=[new("lump_sum","A lump sum"),new("capacity","A daily capacity")],
   ["quantity_parts"]=[new("whole","Whole quantity"),new("up_to","Up to a daily level"),new("above","Above a daily level"),new("between","Between two daily levels"),new("shortfall","Shortfall below a daily level")],
   ["index_pricing"]=[new("point_publications","Point publications"),new("named_daily","Named index, daily"),new("named_monthly","Named index, monthly")],
@@ -423,6 +463,7 @@ public static class GasTicket
  {
   var (target,f)=Field(draft,side,field);
   if(GasExerciseTicket.Section.Fields.Contains(f))return new(choices,null);
+  if(target?.Kind==Imbalance)return new(choices,null);
   if(target?.Kind==Charge)return new(choices,f.Id=="charge_clock_side"&&choices is [var only]?
    new(only.Value,new("suggestion","Only eligible choice")):null);
   string? value=f.Choices!="pricing_indices"&&choices.Length==1&&(f.Required||side is null||f.Id=="forecast_curve")?choices[0].Value:null;
@@ -593,7 +634,7 @@ public static class GasTicket
  }
 
  static MarketDataException Unresolved(string message)=>new("ticket_lookup",message);
- static TicketFieldException ChargeError(string? side,string field,string message)=>new("gas_composition_input",message,side,field);
+ static TicketFieldException EntryError(string? side,string field,string message)=>new("gas_composition_input",message,side,field);
  static MarketDataException Bad(string message)=>new("ticket_input",message);
  static TicketFieldException On(string? side,string field,string message)=>new("ticket_input",message,side,field);
 }
