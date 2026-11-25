@@ -1,6 +1,7 @@
 """Atomic curve marks over exact synthetic sources and certified read inputs."""
 from concurrent.futures import ThreadPoolExecutor
 import json
+import time
 from uuid import uuid4
 from check_booked_side_programs import runtime_query
 
@@ -171,4 +172,91 @@ def run_checks(query, manifest):
         assert delta(before)==([2,1,1] if values[0]==values[1] else [1,1,1])
     assert read(f"security.curve_mark_editor_setup({scope(current)},'',0,1)",profile='trader')['canPublish'] is False
     assert not read(status(vol,actor=run(f"SELECT security.curve_mark_editor_owner('{cat}');",profile='trader')),profile='trader')['found']
+    check_workspace_reassignment(query,manifest,owner,vol)
     print('PASS atomic curve mark batches, certified cutoffs, effective heads, owned recovery and market-only history',flush=True)
+
+
+def check_workspace_reassignment(query, manifest, original_owner, command):
+    """A human's new workspace may read the catalog without owning the old receipt."""
+    tenant,workspace,catalog,reference = (manifest[k] for k in ('tenantId','workspaceId','catalogId','referenceCatalogId'))
+    other = str(uuid4())
+    query.raw(f"""BEGIN;
+      INSERT INTO security.workspaces VALUES('{tenant}','{other}','synthetic_curve_editor');
+      INSERT INTO security.workspace_memberships
+        SELECT tenant_id,'{other}',principal_id,login_handle,display_name,enabled,version FROM security.workspace_memberships
+        WHERE(tenant_id,workspace_id,login_handle)=('{tenant}','{workspace}','editor');
+      INSERT INTO security.role_grants
+        SELECT gen_random_uuid(),g.principal_id,g.role_id,g.tenant_id,'{other}',g.granted_from,g.granted_to,g.revoked
+        FROM security.role_grants g JOIN security.workspace_memberships m USING(tenant_id,workspace_id,principal_id)
+        WHERE(g.tenant_id,g.workspace_id,m.login_handle)=('{tenant}','{workspace}','editor');
+      INSERT INTO security.reference_catalog_scopes VALUES('{reference}','{tenant}','{other}','read_only');
+      UPDATE security.market_catalog_scopes SET workspace_id='{other}' WHERE catalog_id='{catalog}';
+      -- Stop before reading private inputs if admission ever reaches reconstruction.
+      CREATE OR REPLACE FUNCTION security.register_owner_coordinates(catalog uuid,identifier uuid,day date,cutoff timestamptz,system_id text,timeline integer)
+        RETURNS security.operation_read_coordinates LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $sentinel$
+        BEGIN RAISE EXCEPTION 'Unexpected receipt coordinate registration';END$sentinel$;
+      SET LOCAL SESSION AUTHORIZATION preview_authenticator;
+      SELECT security.issue_context('https://preview.invalid','editor','human_interactive','{tenant}','{other}',NULL,'preview_runtime',60) AS token \\gset
+      SET LOCAL SESSION AUTHORIZATION preview_runtime;
+      SELECT security.use_context(:'token');
+      DO $check$ DECLARE new_owner text=security.curve_mark_editor_owner('{catalog}');BEGIN
+        IF new_owner='{original_owner}' OR security.reference_access('{reference}','ReadMarketData') IS NOT TRUE
+        THEN RAISE EXCEPTION 'Expected independently authorized editor workspace';END IF;
+        BEGIN
+          PERFORM security.curve_mark_editor_status('{catalog}',new_owner,'{command['operationId']}','{command['kind']}');
+          RAISE EXCEPTION 'Expected receipt ownership refusal';
+        EXCEPTION WHEN insufficient_privilege THEN
+          IF SQLERRM<>'curve_mark_owner_changed' THEN RAISE;END IF;
+        END;
+      END$check$;
+      ROLLBACK;""")
+    print('PASS reassigned catalog retains the original workspace receipt owner before reconstructing inputs',flush=True)
+
+
+def check_upgrade_overlap(query, migration):
+    """Exercise real predecessor admission while the complete migration is waiting."""
+    from preview_fixture import fixture
+    from seed_fixture_market import load_fixture
+    name = 'synthetic_curve_mark_upgrade'
+    def local(sql):
+        # Roles are cluster-wide. Keep this populated predecessor clone's two
+        # synthetic logins separate from the preview client's later setup.
+        sql = sql.replace('preview_authenticator','curve_upgrade_authenticator').replace('preview_runtime','curve_upgrade_runtime')
+        return query('\\connect '+name+'\n'+sql)
+    query(f'CREATE DATABASE {name} TEMPLATE postgres;')
+    try:
+        reference,market,security,manifest = fixture(migration.parents[2])
+        load_fixture(local,reference,market,security,manifest)
+        catalog,definition = manifest['catalogId'],manifest['revisionId']
+        body = dict(operationId=str(uuid4()),definitionRevisionId=definition,convention='curve_marks_log_return_held_v1',
+                    reason='Synthetic in-flight legacy mark',curve='local_gas',marks=[dict(month='2021-01',expectedRevision=0,volatility='0.5')])
+        writer = f"""SET LOCAL application_name='curve_upgrade_writer';
+          DO $wait$ DECLARE migrator integer;until_at timestamptz=clock_timestamp()+interval '10 seconds';BEGIN
+            LOOP
+              PERFORM pg_stat_clear_snapshot();
+              SELECT pid INTO migrator FROM pg_stat_activity WHERE datname=current_database() AND application_name='curve_upgrade_migration'
+                AND pg_backend_pid()=ANY(pg_blocking_pids(pid));
+              EXIT WHEN migrator IS NOT NULL;
+              IF clock_timestamp()>=until_at THEN RAISE EXCEPTION 'Migration did not wait for the admitted writer';END IF;
+              PERFORM pg_sleep(0.02);
+            END LOOP;
+            IF EXISTS(SELECT FROM pg_locks WHERE pid=migrator AND locktype='advisory' AND granted)
+            THEN RAISE EXCEPTION 'Migration already holds the publication lock while waiting for writer admission';END IF;
+          END$wait$;
+          SELECT security.record_volatility_marks('{catalog}',{literal(body)},'2020-12-18T16:00:00Z');"""
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            pending = pool.submit(runtime_query,local,manifest,writer,'editor')
+            until = time.monotonic()+10
+            while local("SELECT EXISTS(SELECT FROM pg_stat_activity WHERE datname=current_database() AND application_name='curve_upgrade_writer');")!='t':
+                if pending.done():pending.result()
+                if time.monotonic()>=until:raise AssertionError('The legacy writer did not reach its admission barrier')
+                time.sleep(.02)
+            local("SET application_name='curve_upgrade_migration';"+migration.read_text())
+            receipt = json.loads(pending.result(timeout=15))
+        assert receipt['marks'][0]['revision']==1 and receipt['marks'][0]['changed']
+        saved = local(f"SELECT outcome FROM trading.curve_mark_requests WHERE operation_id='{body['operationId']}' AND editor_metadata IS NULL;")
+        assert json.loads(saved)==receipt
+        print('PASS admitted legacy writer commits first and the complete migration preserves its receipt',flush=True)
+    finally:
+        query(f'DROP DATABASE {name};')
+        query('DROP ROLE IF EXISTS curve_upgrade_authenticator,curve_upgrade_runtime;')

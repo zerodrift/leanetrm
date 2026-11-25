@@ -395,6 +395,8 @@ def main():
                 from check_gas_in_term import upgrade_checks as check_in_term_upgrade
                 check_in_term_upgrade(query,migration)
             if migration.name=='0401_curve_mark_editor.sql' and args.curve_marks_check:
+                from check_curve_marks import check_upgrade_overlap
+                check_upgrade_overlap(query,migration)
                 from check_fact_anchor_upgrade import run_checks as check_curve_upgrade
                 check_curve_upgrade(query,migration,number='0401',guard='curve_mark_editor_upgrade',
                                     signatures=('trading.record_curve_marks(uuid,jsonb,timestamptz,text)',))

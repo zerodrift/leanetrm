@@ -2,8 +2,8 @@
 BEGIN;
 SET LOCAL search_path=pg_catalog;
 SET LOCAL lock_timeout='5s';
-SELECT pg_advisory_xact_lock(730849102);
 SELECT 1 FROM security.epoch WHERE id FOR UPDATE;
+SELECT pg_advisory_xact_lock(730849102);
 
 DO $guard$
 DECLARE p pg_proc;signature text='trading.record_curve_marks(uuid,jsonb,timestamptz,text)';
@@ -227,6 +227,7 @@ BEGIN
   RETURN jsonb_build_object('found',false,'authorityUntil',deadline);
  END IF;
  IF prior.editor_metadata->>'policy' IS DISTINCT FROM 'curve_mark_batch_v1' THEN RAISE EXCEPTION 'curve_mark_request_conflict';END IF;
+ IF prior.command->>'ownerId' IS DISTINCT FROM owner_id THEN RAISE EXCEPTION 'curve_mark_owner_changed' USING ERRCODE='42501';END IF;
  inputs=prior.editor_metadata->'sourceInputs';context=(prior.editor_metadata->>'sourceContextId')::uuid;
  PERFORM security.register_owner_coordinates(catalog,context,(inputs->>'businessOn')::date,(inputs->>'knownAt')::timestamptz,
   inputs->>'systemId',(inputs->>'timeline')::integer);
