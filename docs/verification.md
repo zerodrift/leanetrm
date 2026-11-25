@@ -24,6 +24,14 @@ from the 13th to the 16th, which names no trades and whose dates hold none:
 | `--check --exchange-check`, which also runs the P&L checks | passed, 430 PASS lines |
 | `--check`, the default owned check | passed, 1,586 PASS lines |
 
+Rerun on 2026-11-24 after merging master at `2ae16e0a`, which took D450 for
+independent gas charges; this entry and D451 below were renumbered then. On the
+merged branch, in the same kind of container: `--check --cash-pnl-check` 90
+PASS lines, `--check --async-workbench-check` 139, `--check --exchange-check`
+430, the default owned check 1,586, and `tools/check_all.py --group managed`
+passed its 81 workloads. The 186 repository Python unit checks, the settlement
+specification and the standalone dependency check pass on the workstation.
+
 What the new case establishes, for runs over the gas book that name no trades:
 
 - From the 13th to the 16th, with no trade at either date, the run is refused
