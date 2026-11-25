@@ -18,6 +18,7 @@ internal static class GasImbalanceCashoutChecks
         AccountSelection();
         TransfersAndInvalidInputs();
         EntryTerms();
+        GasImbalanceLifecycleChecks.Run();
     }
 
     private static void ReferenceValues()
@@ -189,6 +190,14 @@ internal static class GasImbalanceCashoutChecks
         Refused(() => Member(toUs, part: QuantityPart.Shortfall(new(1, 1))), "gas_membership");
         Refused(() => Member(toUs with { Direction = N("-1") }), "gas_membership");
         Refused(() => Member(toUs with { Side = f.Physical }), "gas_membership");
+        Refused(() => new RetainedGasInstrument(Guid.NewGuid(), [owner, Member(toUs)], f.Assignments), "gas_membership");
+        Refused(() => new RetainedGasInstrument(Guid.NewGuid(), [owner, Member(toUs), Member(byUs with
+            { Balance = byUs.Balance! with { Netting = AccountNetting.EachAccount } })], f.Assignments), "gas_membership");
+        Refused(() => new RetainedGasInstrument(Guid.NewGuid(), [owner, Member(toUs), Member(byUs with { Side = f.Indexed(strict: true) })], f.Assignments), "gas_membership");
+        Refused(() => new RetainedGasInstrument(Guid.NewGuid(), [owner, Member(toUs), Member(byUs with { Side = f.Indexed(fromDay: 1) })], f.Assignments), "gas_membership");
+        var right = new GasExerciseRight(["cashout.to_us", "cashout.by_us"], ExercisePeriod.DeliveryDay,
+            ExerciseHolder.Us, ExerciseSettlement.CashAutomatic, null);
+        Refused(() => new GasCompositionInstrument(Guid.NewGuid(), [source], [toUs, byUs], [right]));
         Console.WriteLine("PASS imbalance entry terms: paired daily payments, directions, source, policy, index, dates, share, links and legacy identities");
     }
 

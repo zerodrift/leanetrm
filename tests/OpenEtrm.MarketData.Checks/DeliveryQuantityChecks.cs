@@ -160,11 +160,11 @@ internal static class DeliveryQuantityChecks
         var state=f.State(days);var value=f.Evaluate(state,at);
         Equal(value.Unrealized,"380");Equal(value.RealizedUnsettled,"-6090");Equal(value.Total,"-5710");
         var physical=value.Rows.Where(r=>r.Slot==0).ToArray();
-        Require(physical.Select(r=>r.Unrealized.ToExactString()).SequenceEqual(["0","0","2880","3200"]),"Only unended physical days retain selected value.");
+        Require(physical.Select(r=>r.Unrealized!.ToExactString()).SequenceEqual(["0","0","2880","3200"]),"Only unended physical days retain selected value.");
         Require(physical.Select(r=>r.QuantityBasis).SequenceEqual([PhysicalLifecycle.AllocatedFinalQuantity,PhysicalLifecycle.ScheduledQuantity,
             PhysicalLifecycle.ScheduledQuantity,PhysicalLifecycle.ContractQuantity]),"Every physical row names the selected rank.");
         var cash=value.Rows.Single(r=>r.Slot==1);
-        Equal(cash.Accrued,"-6090");Equal(cash.Unrealized,"-5700");Equal(cash.Expected!,"-11790");
+        Equal(cash.Accrued!,"-6090");Equal(cash.Unrealized!,"-5700");Equal(cash.Expected!,"-11790");
         Require(cash.QuantityBasis==PhysicalLifecycle.SelectedQuantityPolicy,"Cash names the selected quantity policy.");
         var shocked=f.Evaluate(state,at,"3.3");Equal(shocked.Unrealized,"570");Equal(shocked.RealizedUnsettled,"-6090");
         var corrected=f.State(f.Days(("980",PhysicalLifecycle.AllocatedFinalQuantity),("1020",PhysicalLifecycle.AllocatedFinalQuantity),
@@ -182,7 +182,7 @@ internal static class DeliveryQuantityChecks
         Require(Paid("900","1050").Settlement==SettlementState.PartPaid,"Accrual above paid stays part paid.");
         Require(Paid("900","0").Settlement==SettlementState.Overpaid,"Accrual below paid is overpaid.");
         var zero=Paid("0","0");Require(zero.Settlement==SettlementState.Overpaid,"Zero accrual retains an overpaid balance.");
-        Equal(zero.Accrued,"0");Equal(zero.Paid,"-2940");Equal(zero.Outstanding,"2940");Equal(zero.RealizedUnsettled,"2940");
+        Equal(zero.Accrued!,"0");Equal(zero.Paid,"-2940");Equal(zero.Outstanding!,"2940");Equal(zero.RealizedUnsettled!,"2940");
         var noFuture=f.State(f.Days(("0",PhysicalLifecycle.AllocatedFinalQuantity),("0",PhysicalLifecycle.AllocatedFinalQuantity),
             ("0",PhysicalLifecycle.ScheduledQuantity),("0",PhysicalLifecycle.ScheduledQuantity)),[payment]);
         var allZero=f.Evaluate(noFuture,at);Equal(allZero.Total,"2940");Equal(allZero.Unrealized,"0");

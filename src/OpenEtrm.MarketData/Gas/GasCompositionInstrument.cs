@@ -116,8 +116,8 @@ public sealed record GasCompositionInstrument:SidedInstrument
 
    var ordinal=saved.Count;
    var slots=GasExerciseRight.ClaimEntries(ordinal,right.Entries,physical,slotsByCode,Physical.Length,claimed);
-   if(slots.Any(slot=>Roles[slot].Owned is not null))
-    throw new GasExerciseTermException(ordinal,"An exercise right cannot cover an independently owned charge.");
+   if(slots.Any(slot=>Roles[slot].Owned is not null||Roles[slot].Balance is not null))
+    throw new GasExerciseTermException(ordinal,"An exercise right cannot cover an independently owned charge or a reported-balance cash-out.");
    try{saved.Add(ResolveGroups(ordinal,right,slots));}
    catch(MarketDataException error)when(error.Code=="gas_composition_input"&&error is not GasExerciseTermException)
    {throw new GasExerciseTermException(ordinal,error.Message);}

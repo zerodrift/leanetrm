@@ -104,6 +104,7 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
             throw new MarketDataException("gas_membership", "Every execution entry requires physical geometry consistent with its quantity terms; an owned charge cannot name a physical source.");
         PhysicalSources=physicalSources;
         PriceLookups=priceLookups.IsDefault?[..Assignments.Select(a=>a.Lookup).Distinct()]:priceLookups.Distinct().ToImmutableArray();
+        GasImbalanceCashoutEntries.RequireRetained(members);
         Rights = rights.IsDefault ? [] : rights;
         if (!Rights.IsEmpty) RequireRights();
         marks?.Validate();
@@ -127,8 +128,8 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
             {
                 if ((uint)slot >= (uint)Members.Length || !claimedSlots.Add(slot))
                     throw InvalidRight("Every exercise right must name existing membership slots claimed exactly once.");
-                if (Members[slot].Owned is not null)
-                    throw InvalidRight("An exercise right cannot cover an independently owned charge.");
+                if (Members[slot].Owned is not null || Members[slot].Balance is not null)
+                    throw InvalidRight("An exercise right cannot cover an independently owned charge or a reported-balance cash-out.");
             }
 
             var hasPhysical = right.Slots.Any(slot => Members[slot].Program.Document.Family == "gas");
@@ -373,7 +374,8 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
                 owners.Add(owner, geometry = PhysicalLifecycle.PrepareGeometry([Members[owner].Program], [], context.Snapshot));
             return geometry;
         }
-        return input with{Cash=cash,Geometries=[..Enumerable.Range(0, Members.Length).Select(Geometry)],
+        ImmutableArray<PhysicalLifecycleGeometry> geometries = [..Enumerable.Range(0, Members.Length).Select(Geometry)];
+        return input with{Cash=cash,Geometries=geometries,ReportedDays=GasBalanceQuantities.Build(Members,cash,geometries),
             HeldFactors=[..Members.Select(m=>quantity*new SignedRatio(m.Direction.ScaledValue,ExactDecimal.WorkingScale)*new SignedRatio(m.Ratio.Numerator,m.Ratio.Denominator))]};
     }
     private int? GeometrySource(int slot)
@@ -414,7 +416,7 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
         {
             if (Members.Any(m => m.Owned is not null))
                 throw new MarketDataException("gas_delivery_lifecycle", "A gas instrument with owned charges requires its held cash state from booking.");
-            if(!Rights.IsEmpty || Members.Any(m => m.QuantityPolicy is not null || m.Part is not null))
+            if(!Rights.IsEmpty || Members.Any(m => m.QuantityPolicy is not null || m.Part is not null || m.Balance is not null))
                 throw PhysicalDeliveryQuantities.Invalid("An instrument with quantity terms requires its complete held owner-day inputs.");
             base.ValidateValuationState(state); return;
         }

@@ -1,4 +1,8 @@
 using System.Collections.Immutable;
+using System.Globalization;
+using System.Numerics;
+using System.Text.Json;
+using OpenEtrm.MarketData.Physical;
 using OpenEtrm.MarketData.Trading;
 using OpenEtrm.Shared.Numerics;
 
@@ -46,14 +50,7 @@ public static class GasImbalanceCashout
             throw Invalid("Supply consecutive gas days, dated accounts and explicit statement basis and account netting.");
 
         var accounts = days.ToDictionary(day => day, accountsOn);
-        if (accounts.Values.Any(ids => ids.IsDefault || ids.Any(id => id == Guid.Empty) || ids.Distinct().Count() != ids.Length) ||
-            balances.Any(balance => balance is null || !accounts.TryGetValue(balance.Day, out var ids) || !ids.Contains(balance.AccountId) ||
-                balance.Current is null || balance.StatementId == Guid.Empty || balance.Status is not ("final" or "provisional") ||
-                string.IsNullOrWhiteSpace(balance.Evidence)) ||
-            balances.Select(balance => balance.Current.Specification).Distinct().Count() > 1 ||
-            balances.Select(balance => (balance.AccountId, balance.Day)).Distinct().Count() != balances.Length)
-            throw Invalid("Supply one eligible statement per account and gas day in one quantity unit, with its revision and evidence.");
-
+        RequireBalanceFacts(accounts, balances);
         var facts = balances.ToDictionary(balance => (balance.AccountId, balance.Day));
         var result = ImmutableArray.CreateBuilder<ImbalanceDay>(days.Length);
         foreach (var day in days)
@@ -94,11 +91,75 @@ public static class GasImbalanceCashout
 
     private static SignedRatio Quantity(AccountDayBalance balance) => new(balance.Current.NumeratorValue, balance.Current.DenominatorValue);
     private static DeliveryQuantityEvidence Evidence(AccountDayBalance balance) => new("operator_statement_v1", balance.StatementId, balance.Evidence);
+    internal static void RequireBalanceFacts(IReadOnlyDictionary<DateOnly, ImmutableArray<Guid>> accounts, ImmutableArray<AccountDayBalance> balances)
+    {
+        if (balances.IsDefault || accounts.Values.Any(ids => ids.IsDefault || ids.Any(id => id == Guid.Empty) || ids.Distinct().Count() != ids.Length) ||
+            balances.Any(balance => balance is null || !accounts.TryGetValue(balance.Day, out var ids) || !ids.Contains(balance.AccountId) ||
+                balance.Current is null || balance.StatementId == Guid.Empty || balance.Status is not ("final" or "provisional") ||
+                string.IsNullOrWhiteSpace(balance.Evidence)) ||
+            balances.Select(balance => balance.Current.Specification).Distinct().Count() > 1 ||
+            balances.Select(balance => (balance.AccountId, balance.Day)).Distinct().Count() != balances.Length)
+            throw Invalid("Supply one statement head per account and gas day in one quantity unit, with its revision and evidence.");
+    }
     private static MarketDataException Invalid(string message) => new("gas_imbalance_input", message);
 }
 
 internal static class GasImbalanceCashoutEntries
 {
+    internal static void RequireRetained(ImmutableArray<RetainedGasMember> members)
+    {
+        foreach (var group in members.Where(member => member.Balance is not null).GroupBy(member => member.SourceSlot!.Value))
+        {
+            var pair = group.ToArray();
+            if (pair.Length != 2 || pair.Count(member => member.Balance!.OwedToUs) != 1 ||
+                pair[0].Balance! with { OwedToUs = false } != pair[1].Balance! with { OwedToUs = false } ||
+                pair.Any(member => member.Ratio != members[group.Key].Ratio) ||
+                RetainedShape(pair[0], members[group.Key]) != RetainedShape(pair[1], members[group.Key]))
+                throw RetainedInvalid();
+        }
+    }
+
+    private static (string Index, int PaymentDay) RetainedShape(RetainedGasMember member, RetainedGasMember source)
+    {
+        try
+        {
+            using var definition = JsonDocument.Parse(member.Program.Document.EconomicIdentity);
+            var periods = definition.RootElement.GetProperty(nameof(FloatingSide.Periods));
+            var days = PhysicalDeliverySchedule.ReadLiteralQuantities(source.Program, ExactRatio.One);
+            if (periods.GetArrayLength() != days.Length || days.IsEmpty) throw RetainedInvalid();
+            string? index = null; int? paymentDay = null;
+            for (var ordinal = 0; ordinal < days.Length; ordinal++)
+            {
+                var period = periods[ordinal]; var day = days[ordinal];
+                var from = day.OperatingDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                var to = day.OperatingDate.AddDays(1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                var fixings = period.GetProperty(nameof(FloatingSidePeriod.Fixings));
+                var allocation = period.GetProperty(nameof(FloatingSidePeriod.Allocation));
+                var quantity = new SignedRatio(BigInteger.Parse(allocation[1].GetString()!, CultureInfo.InvariantCulture),
+                    BigInteger.Parse(allocation[2].GetString()!, CultureInfo.InvariantCulture));
+                var paidAt = period.GetProperty(nameof(FloatingSidePeriod.PaymentAt)).GetDateTimeOffset();
+                if (period.GetProperty(nameof(FloatingSidePeriod.ObservationImplementation)).GetString() != FloatingSide.DeliveryIndexImplementation ||
+                    period.GetProperty(nameof(FloatingSidePeriod.DeliveryFrom)).GetString() != from ||
+                    period.GetProperty(nameof(FloatingSidePeriod.DeliveryTo)).GetString() != to ||
+                    period.GetProperty(nameof(FloatingSidePeriod.DeliveryCompletionAt)).GetDateTimeOffset() != day.End ||
+                    quantity != new SignedRatio(day.Quantity.NumeratorValue, day.Quantity.DenominatorValue) ||
+                    fixings.GetArrayLength() != 1 || fixings[0].GetProperty(nameof(IndexFixing.From)).GetString() != from ||
+                    fixings[0].GetProperty(nameof(IndexFixing.To)).GetString() != to || paidAt.Day is < 1 or > 28 ||
+                    paidAt != PaymentDatePolicy.Start(new DateOnly(day.OperatingDate.Year, day.OperatingDate.Month, 1).AddMonths(1).AddDays(paidAt.Day - 1)))
+                    throw RetainedInvalid();
+                var selected = fixings[0].GetProperty(nameof(IndexFixing.Index)).GetRawText();
+                if (index is not null && index != selected || paymentDay is not null && paymentDay != paidAt.Day) throw RetainedInvalid();
+                index = selected; paymentDay = paidAt.Day;
+            }
+            return (index!, paymentDay!.Value);
+        }
+        catch (Exception error) when (error is JsonException or InvalidOperationException or KeyNotFoundException or FormatException or ArgumentException or IndexOutOfRangeException)
+        { throw RetainedInvalid(); }
+    }
+
+    private static MarketDataException RetainedInvalid() => new("gas_membership",
+        "Retain a complete matching cash-out pair with whole-term daily index programs, exact source quantities and next-month payment dates.");
+
     internal static void Require(GasCashComponent entry, PhysicalGasSide source)
     {
         if (entry.Balance is not {} terms || entry.Role != "imbalance_cashout" || entry.Side is not FloatingSide side ||

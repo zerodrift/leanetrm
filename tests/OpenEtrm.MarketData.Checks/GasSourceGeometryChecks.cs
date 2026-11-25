@@ -16,8 +16,8 @@ internal static class GasSourceGeometryChecks
             var f=new Sources(laterClock,follows);var context=f.Context(f.Instrument);
             var result=PhysicalLifecycle.FromValuation(f.Instrument.PV(context));
             var first=result.Rows.Single(r=>r.Slot==2);var second=result.Rows.Single(r=>r.Slot==3);
-            Equal(first.Accrued,"-6000");Equal(first.Unrealized,"-3000");
-            Equal(second.Accrued,laterClock?"-4000":"-8000");Equal(second.Unrealized,laterClock?"-4000":"0");
+            Equal(first.Accrued!,"-6000");Equal(first.Unrealized!,"-3000");
+            Equal(second.Accrued!,laterClock?"-4000":"-8000");Equal(second.Unrealized!,laterClock?"-4000":"0");
             Equal(result.RealizedUnsettled,laterClock?"-10000":"-14000");
             Equal(result.Unrealized,laterClock?"2600":"3400");
             // Reusing this prepared occurrence is safe; another source map on
@@ -39,9 +39,9 @@ internal static class GasSourceGeometryChecks
         var contextWithElection = fixture.Context(right);
         var elected = right.PV(contextWithElection);
         var rows = PhysicalLifecycle.FromValuation(elected).Rows;
-        Equal(rows.Single(r => r.Slot == 2).Accrued, "-6000");
-        Equal(rows.Single(r => r.Slot == 3).Accrued, "-4000");
-        Equal(rows.Single(r => r.Slot == 3).Unrealized, "-4000");
+        Equal(rows.Single(r => r.Slot == 2).Accrued!, "-6000");
+        Equal(rows.Single(r => r.Slot == 3).Accrued!, "-4000");
+        Equal(rows.Single(r => r.Slot == 3).Unrealized!, "-4000");
         Require(elected.Groups.Single().State == "exercised", "The elected group keeps its own gas clock.");
         _ = right.PV(contextWithElection);
         Require(contextWithElection.EvaluatedSides == 4, "An exercised group reuses its own ordinary occurrences.");

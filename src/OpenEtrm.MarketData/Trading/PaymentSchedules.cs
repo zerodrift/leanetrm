@@ -568,6 +568,9 @@ public sealed record InstrumentValuation
     public string? ScenarioId => Context.ScenarioId;
     public string CurveNumericalPolicy => Context.CurveNumericalPolicy;
     public ImmutableArray<SideContribution> Sides { get; }
+    public int UnassessedDays => PhysicalLifecycleValue.Unassessed(Sides.SelectMany(side =>
+        side.Value is RetainedProgramValuation { Lifecycle: {} lifecycle } ? lifecycle.Rows : [])).Count();
+    public bool Incomplete => UnassessedDays != 0;
     public ImmutableArray<ExerciseGroupValue> Groups { get; } = [];
     internal ImmutableArray<ExerciseGroupContribution> UnitExerciseGroups { get; } = [];
     internal ExactMoney UndecidedUnitValue { get; }

@@ -75,13 +75,16 @@ public static class EntryQuantities
     }
 
     internal static ImmutableArray<ImmutableArray<EntryDayQuantity>> ForMembers<TMember>(
-        ImmutableArray<TMember> members, PhysicalCashState state, Func<int, DateOnly, bool>? counted = null) where TMember : IRetainedProgramMember
+        ImmutableArray<TMember> members, PhysicalCashState state, Func<int, DateOnly, bool>? counted = null,
+        ImmutableArray<ExerciseRight> rights = default) where TMember : IRetainedProgramMember
     {
-        var owners = state.OwnerDays.ToLookup(d => d.Slot);
+        var rightSources = rights.IsDefaultOrEmpty ? [] : rights.SelectMany(right => right.Slots).Select(slot => members[slot].ValuationSourceSlot).ToHashSet();
+        var owners = state.OwnerDays.Where(day => members[day.Slot].ValuationQuantityPolicy is not null || rightSources.Contains(day.Slot) ||
+            members.Any(member => member.ValuationSourceSlot == day.Slot && member.ValuationPart is not null)).ToLookup(d => d.Slot);
         var basis = new SignedRatio(System.Numerics.BigInteger.Abs(state.Quantity.Amount.ScaledValue), ExactDecimal.WorkingScale);
         return [..members.Select((member, slot) =>
         {
-            if(member.ValuationSourceSlot is not {} source || !owners.Contains(source)) return default(ImmutableArray<EntryDayQuantity>);
+            if(member.ValuationBalance is not null || member.ValuationSourceSlot is not {} source || !owners.Contains(source)) return default(ImmutableArray<EntryDayQuantity>);
             var rows = member.Program.Document.Instructions.Where(i => i.Output.Operation == "output_guard").Select(i => i.Output).ToArray();
             var from = rows.Min(row => row.Grid is {} grid ? member.Program.Document.Grids[grid].Interval(0).OperatingDate : row.DeliveryFrom!.Value);
             var to = rows.Max(row => row.Grid is {} grid ? member.Program.Document.Grids[grid].Interval(member.Program.Document.Grids[grid].CellCount - 1).OperatingDate.AddDays(1) : row.DeliveryTo!.Value);
