@@ -16,6 +16,7 @@ public interface IRetainedProgramMember
     string? ValuationQuantityPolicy { get; }
     QuantityPart? ValuationPart { get; }
     OwnedQuantity? ValuationOwned { get; }
+    ReportedBalanceFollow? ValuationBalance { get; }
 }
 
 // Published Members remain the canonical contract. Sides are a checked,

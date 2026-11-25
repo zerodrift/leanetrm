@@ -21,15 +21,17 @@ public sealed record RetainedGasMember : IRetainedProgramMember
     [IdentityField] public string? QuantityPolicy { get; }
     [IdentityField] public QuantityPart? Part { get; }
     [IdentityField] public OwnedQuantity? Owned { get; }
+    [IdentityField] public ReportedBalanceFollow? Balance { get; }
     ExactDecimal IRetainedProgramMember.ValuationCoefficient => Direction;
     ExactRatio? IRetainedProgramMember.ValuationRatio => Ratio;
     int? IRetainedProgramMember.ValuationSourceSlot => SourceSlot;
     string? IRetainedProgramMember.ValuationQuantityPolicy => QuantityPolicy;
     QuantityPart? IRetainedProgramMember.ValuationPart => Part;
     OwnedQuantity? IRetainedProgramMember.ValuationOwned => Owned;
+    ReportedBalanceFollow? IRetainedProgramMember.ValuationBalance => Balance;
 
     public RetainedGasMember(Guid sideId, ExactDecimal direction, ExactRatio ratio, BookedSideProgram program,
-        int? sourceSlot = null, string? quantityPolicy = null, QuantityPart? part = null, OwnedQuantity? owned = null)
+        int? sourceSlot = null, string? quantityPolicy = null, QuantityPart? part = null, OwnedQuantity? owned = null, ReportedBalanceFollow? balance = null)
     {
         if (sideId == Guid.Empty || program is null || ratio is null || ratio.Numerator <= 0 ||
             (direction != ExactDecimal.Parse("1") && direction != ExactDecimal.Parse("-1")))
@@ -41,8 +43,12 @@ public sealed record RetainedGasMember : IRetainedProgramMember
             program.Document.Family != "fixed" || !Enum.IsDefined(owned.Basis) || owned.Clock is null ||
             owned.DailyQuantity is null || owned.Basis == ChargeBasis.LumpSum && owned.DailyQuantity != ExactRatio.One))
             throw new MarketDataException("gas_membership", "An owned charge requires fixed terms, its captured clock and an exact daily quantity with no source, policy or part.");
+        if (balance is not null && (sourceSlot is null || part is not null || quantityPolicy is not null || owned is not null ||
+            program.Document.Family != "floating" || direction != ExactDecimal.Parse(balance.OwedToUs ? "1" : "-1")))
+            throw new MarketDataException("gas_membership", "A reported balance requires an indexed payment with its physical source and fixed direction, without a part, policy or owned quantity.");
+        balance?.Require("gas_membership");
         SideId = sideId; Direction = direction; Ratio = ratio; Program = program;
-        SourceSlot = sourceSlot; QuantityPolicy = quantityPolicy; Part = part; Owned = owned;
+        SourceSlot = sourceSlot; QuantityPolicy = quantityPolicy; Part = part; Owned = owned; Balance = balance;
         ProgramDigest = BookedSideProgram.Digest(program.Write());
     }
 }
@@ -81,7 +87,7 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
             throw new MarketDataException("gas_membership", "Select complete retained physical, fixed or indexed cash programs with their exact compatible assignments.");
         if(priceLookups.IsDefault&&members.Any(m=>m.Program.Document.Instructions.Any(i=>i.Output.Operation==CurvePriceScheduleSource.Operation)))
             throw new MarketDataException("side_market_sources","Bound programs require their exact authorized retained price lookups.");
-        var hasQuantityTerms = members.Any(m => m.QuantityPolicy is not null || m.Part is not null);
+        var hasQuantityTerms = members.Any(m => m.QuantityPolicy is not null || m.Part is not null || m.Balance is not null);
         var allowSources = hasQuantityTerms || !rights.IsDefaultOrEmpty;
         if (members.Where((m, slot) => m.SourceSlot is {} source
                 ? !allowSources || source >= members.Length || members[source].Program.Document.Family != "gas" ||

@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Gas;
+using OpenEtrm.MarketData.Trading;
 using OpenEtrm.Shared.Numerics;
 
 internal static class GasImbalanceCashoutChecks
@@ -16,6 +17,7 @@ internal static class GasImbalanceCashoutChecks
         CalendarDifferences();
         AccountSelection();
         TransfersAndInvalidInputs();
+        EntryTerms();
     }
 
     private static void ReferenceValues()
@@ -130,5 +132,115 @@ internal static class GasImbalanceCashoutChecks
     {
         try { action(); } catch (MarketDataException error) when (error.Code == code) { return; }
         throw new Exception("Expected " + code);
+    }
+
+    private static void EntryTerms()
+    {
+        static void Refused(Action action, string code = "gas_composition_input") => GasImbalanceCashoutChecks.Refused(action, code);
+        var old = new GasInstrumentScheduleChecks.IdentityFixture();
+        Require(old.Instrument.EconomicIdentity.Canonical == GasInstrumentScheduleChecks.LegacyIdentity, "Existing saved gas identity is unchanged.");
+        var legacy = new GasCompositionInstrument(Guid.NewGuid(), [new("delivery", old.Physical, N("1"), N("10000"), null)],
+            [new("payment", old.Cash, "consideration", "delivery", GasQuantityStage.Delivery, N("-1"), N("1"))]);
+        Require(legacy.EconomicIdentity.Canonical == GasCompositionPricingChecks.LegacyIdentity, "Existing booking identity is unchanged.");
+
+        var f = new CashoutFixture();
+        var source = new GasPhysicalComponent("delivery", f.Physical, N("1"), N("10000"), null);
+        var toUs = f.Cash(true); var byUs = f.Cash(false);
+        GasCompositionInstrument Compose(params GasCashComponent[] cash) => new(Guid.NewGuid(), [source], [..cash]);
+        var pair = Compose(toUs, byUs);
+        Require(pair.Sides.Skip(1).All(member => member.QuantityRatio == pair.Sides[0].QuantityRatio) &&
+            pair.Roles.Skip(1).All(role => role.Role == "imbalance_cashout"), "Both cash-out entries retain their source's contractual ratio and own role.");
+        var monthly = Compose(toUs with { Balance = toUs.Balance! with { Basis = StatementBasis.MonthToDateBalance } },
+            byUs with { Balance = byUs.Balance! with { Basis = StatementBasis.MonthToDateBalance } });
+        Require(Compose().EconomicIdentity != pair.EconomicIdentity && pair.EconomicIdentity != monthly.EconomicIdentity,
+            "Cash-out and its statement basis belong to booking identity.");
+        Refused(() => pair.PV(f.Context));
+        Refused(() => Compose(toUs));
+        Refused(() => Compose(toUs, byUs with { Balance = toUs.Balance }));
+        Refused(() => Compose(toUs, byUs with { Balance = byUs.Balance! with { Basis = StatementBasis.MonthToDateBalance } }));
+        Refused(() => Compose(toUs, byUs with { Balance = byUs.Balance! with { Netting = AccountNetting.EachAccount } }));
+        Refused(() => Compose(toUs, byUs with { Balance = byUs.Balance! with { StatementPolicy = GasImbalanceTrading.ReportedPolicy } }));
+        Refused(() => Compose(toUs, byUs with { Side = f.Indexed(paymentDay: 16) }));
+        Refused(() => Compose(toUs, byUs with { Side = f.Indexed(indexCode: "synthetic_other_index") }));
+        Refused(() => Compose(toUs, byUs with { Side = f.Indexed(fromDay: 1) }));
+        Refused(() => Compose(toUs, byUs with { Side = f.Indexed(strict: true) }));
+        Refused(() => Compose(toUs, byUs with { Share = N("1.01") }));
+        Refused(() => Compose(toUs, byUs with { Part = QuantityPart.Shortfall(new(1, 1)) }));
+        Refused(() => Compose(toUs, byUs with { Side = f.Fixed }));
+        Refused(() => Compose(toUs, byUs with { Direction = N("1") }));
+        Refused(() => Compose(toUs, byUs with { Balance = null }));
+        foreach (var invalid in new[] { byUs.Balance! with { Profile = "unknown_v1" }, byUs.Balance! with { StatementPolicy = "unknown_v1" },
+            byUs.Balance! with { Basis = (StatementBasis)0 }, byUs.Balance! with { Netting = (AccountNetting)0 } })
+            Refused(() => Compose(toUs, byUs with { Balance = invalid }));
+        var linked = source with { Code = "linked", Quantity = null, Link = new("delivery", GasFuelConvention.None, default) };
+        Refused(() => new GasCompositionInstrument(Guid.NewGuid(), [source, linked], [toUs, byUs]));
+        Refused(() => new GasCompositionInstrument(Guid.NewGuid(), [source, linked], [toUs with { Source = "linked" }, byUs with { Source = "linked" }]));
+
+        RetainedGasMember Member(GasCashComponent cash, int? slot = 0, string? policy = null, QuantityPart? part = null) =>
+            new(cash.Side.Id, cash.Direction, ExactRatio.One, Book(cash.Side), slot, policy, part, balance: cash.Balance);
+        var owner = new RetainedGasMember(f.Physical.Id, N("1"), ExactRatio.One, Book(f.Physical), 0);
+        RetainedGasInstrument Saved(ReportedBalanceFollow? change = null) => new(Guid.NewGuid(),
+            [owner, Member(toUs with { Balance = change ?? toUs.Balance }), Member(byUs with { Balance = change is null ? byUs.Balance : change with { OwedToUs = false } })], f.Assignments);
+        var saved = Saved();
+        Require(saved.EconomicIdentity != Saved(toUs.Balance! with { Basis = StatementBasis.MonthToDateBalance }).EconomicIdentity,
+            "The saved Instrument retains its balance terms in economic identity.");
+        Refused(() => Member(toUs, slot: null), "gas_membership");
+        Refused(() => Member(toUs, policy: "delivery_schedule_v1"), "gas_membership");
+        Refused(() => Member(toUs, part: QuantityPart.Shortfall(new(1, 1))), "gas_membership");
+        Refused(() => Member(toUs with { Direction = N("-1") }), "gas_membership");
+        Refused(() => Member(toUs with { Side = f.Physical }), "gas_membership");
+        Console.WriteLine("PASS imbalance entry terms: paired daily payments, directions, source, policy, index, dates, share, links and legacy identities");
+    }
+
+    private static ExactDecimal N(string value) => ExactDecimal.Parse(value);
+    private static BookedSideProgram Book(Side side) => BookedSideProgram.Compile(ScheduleDefinitionCompiler.Generate(side,
+        lifecycle: ScheduleLifecycleSelection.StartedPhysicalDelivery));
+
+    private sealed class CashoutFixture
+    {
+        internal readonly CommodityLookupFixture Market = new(31);
+        internal readonly ImmutableArray<GasValuationAssignment> Assignments;
+        internal readonly PhysicalGasSide Physical;
+        internal readonly FixedSide Fixed;
+        internal readonly GasDayClock Clock;
+        internal readonly SideValuationContext Context;
+        internal DateOnly From => Physical.Quantities.From;
+        internal DateOnly To => Physical.Quantities.To;
+        internal CashoutFixture()
+        {
+            var lookups = Market.Swap().Floating.GenerateSchedule().Rows[0].Prices.Take(4).Select(price => price.Lookup!).ToArray();
+            ReferenceKey R(string code) => new(Market.Quote.Key.Revision, code);
+            Clock = GasDayClock.Capture(R("synthetic_cashout_clock"), TimeZoneInfo.Utc, 360);
+            var location = new GasDeliveryLocation(R("synthetic_pipeline"), R("synthetic_zone"), R("synthetic_point"));
+            Assignments = [..lookups.Select((lookup, index) => new GasValuationAssignment(R("synthetic_assignment_" + index), location,
+                R("synthetic_product"), lookup.Contract.DeliveryFrom, lookup.Contract.DeliveryTo, lookup.Settlement, lookup.Quote,
+                new(lookup.Market, lookup.Contract), lookup.Fixing, new(default, Market.Quote)))];
+            Physical = new(Guid.NewGuid(), location, Assignments[0].Product, new(Clock, Assignments[0].From, Assignments[^1].To,
+                GasQuantityBasis.PerOperatingDay, new(N("1"), Market.Quote.Quantity), GasFuelConvention.None, default), Assignments, SyntheticSideCalendars.Physical());
+            Fixed = new(Guid.NewGuid(), new FlatPrice(new UnitPrice(N("3"), Market.Quote)), Market.Quote, Physical.UnitQuantity,
+                [new(From, To, PaymentDatePolicy.Start(new(2041, 2, 15)), new(4, 1), null) { DeliveryCompletionAt = Clock.Boundary(To) }],
+                SyntheticSideCalendars.Dated(false), gasDeliveryClock: Clock);
+            var snapshot = Market.Snapshot.WithKnowledge(Guid.NewGuid(), Market.Snapshot.ValuationAt);
+            var market = Market.Model.Build(snapshot, Physical.DependenciesAt(snapshot));
+            Context = SideValuationContext.ForPhysicalGas(market, market, new ExplicitDiscounting(N("1"), DiscountFactorSource.Undiscounted), Assignments);
+        }
+        internal GasCashComponent Cash(bool toUs) => new(toUs ? "cashout.to_us" : "cashout.by_us", Indexed(), "imbalance_cashout", "delivery",
+            GasQuantityStage.Delivery, N(toUs ? "1" : "-1"), N("1"), Balance: new("daily_index_cashout_v1", toUs,
+                StatementBasis.DailyImbalance, AccountNetting.NetAccounts, GasImbalanceTrading.FinalPolicy));
+        internal FloatingSide Indexed(int paymentDay = 15, int fromDay = 0, string? indexCode = null, bool strict = false)
+        {
+            ImmutableArray<FloatingSidePeriod> periods = [..Assignments.Skip(fromDay).Select(assignment => {
+                var fixing = assignment.Fixing!;
+                if (indexCode is not null) fixing = fixing with { Index = fixing.Index with { Code = indexCode } };
+                return new FloatingSidePeriod(assignment.From, assignment.To, fixing.FixingAt, PaymentDatePolicy.Start(new(2041, 2, paymentDay)),
+                    FloatingAveraging.CalendarDayArithmetic, [assignment.Projection], [fixing], null, new(default, Market.Quote), null, null,
+                    ExactRatio.One, strict ? FloatingSide.IndexedImplementation : FloatingSide.DeliveryIndexImplementation)
+                    { DeliveryCompletionAt = Clock.Boundary(assignment.To) }; })];
+            return strict
+                ? new(Guid.NewGuid(), PriceSettlementSelection.CurveTarget(periods[0].Fixings[0].Index), Market.Quote, Physical.UnitQuantity,
+                    periods, SyntheticSideCalendars.FloatingPeriods(periods), gasDeliveryClock: Clock)
+                : new(Guid.NewGuid(), Market.Quote, Physical.UnitQuantity, periods, FloatingSide.DeliveryIndexImplementation,
+                    SyntheticSideCalendars.FloatingPeriods(periods), gasDeliveryClock: Clock);
+        }
     }
 }

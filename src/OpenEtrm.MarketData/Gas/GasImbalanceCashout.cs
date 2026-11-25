@@ -7,6 +7,20 @@ namespace OpenEtrm.MarketData.Gas;
 public enum StatementBasis { DailyImbalance = 1, MonthToDateBalance }
 public enum AccountNetting { NetAccounts = 1, EachAccount }
 
+[EconomicDefinition("reported_balance_follow_v1")]
+public sealed record ReportedBalanceFollow([property: IdentityField] string Profile, [property: IdentityField] bool OwedToUs,
+    [property: IdentityField] StatementBasis Basis, [property: IdentityField] AccountNetting Netting,
+    [property: IdentityField] string StatementPolicy)
+{
+    public const string DailyIndexProfile = "daily_index_cashout_v1";
+    internal void Require(string code)
+    {
+        if (Profile != DailyIndexProfile || !Enum.IsDefined(Basis) || !Enum.IsDefined(Netting) ||
+            StatementPolicy is not (GasImbalanceTrading.FinalPolicy or GasImbalanceTrading.ReportedPolicy))
+            throw new MarketDataException(code, "Select the daily index cash-out profile, statement basis, account netting and an installed statement policy.");
+    }
+}
+
 // These are eligible, temporally resolved statements. Revision selection and the
 // statement policy are applied before constructing this input, never by falling
 // back to an older eligible revision here.
@@ -81,4 +95,39 @@ public static class GasImbalanceCashout
     private static SignedRatio Quantity(AccountDayBalance balance) => new(balance.Current.NumeratorValue, balance.Current.DenominatorValue);
     private static DeliveryQuantityEvidence Evidence(AccountDayBalance balance) => new("operator_statement_v1", balance.StatementId, balance.Evidence);
     private static MarketDataException Invalid(string message) => new("gas_imbalance_input", message);
+}
+
+internal static class GasImbalanceCashoutEntries
+{
+    internal static void Require(GasCashComponent entry, PhysicalGasSide source)
+    {
+        if (entry.Balance is not {} terms || entry.Role != "imbalance_cashout" || entry.Side is not FloatingSide side ||
+            entry.Share != ExactDecimal.Parse("1") || entry.Part is not null || entry.Stage != GasQuantityStage.Delivery ||
+            entry.Direction != ExactDecimal.Parse(terms.OwedToUs ? "1" : "-1") ||
+            side.DeliveryFrom != source.Quantities.From || side.DeliveryTo != source.Quantities.To ||
+            side.Periods.IsDefaultOrEmpty || side.Periods.Any(period =>
+                period.ObservationImplementation != FloatingSide.DeliveryIndexImplementation ||
+                period.Projections[0].Contract.DeliveryFrom != period.DeliveryFrom || period.Projections[0].Contract.DeliveryTo != period.DeliveryTo ||
+                period.PaymentAt != PaymentDatePolicy.Start(new DateOnly(period.DeliveryFrom.Year, period.DeliveryFrom.Month, 1)
+                    .AddMonths(1).AddDays(period.PaymentAt.Day - 1)) || period.PaymentAt.Day is < 1 or > 28) ||
+            side.Periods.Select(period => period.PaymentAt.Day).Distinct().Count() != 1 ||
+            side.Periods.Select(period => period.Fixings[0].Index).Distinct().Count() != 1)
+            throw Invalid("An imbalance entry requires a whole-term daily index payment, share one, its fixed direction and next-month payment day 1 to 28.");
+        terms.Require("gas_composition_input");
+    }
+
+    internal static void RequirePairs(ImmutableArray<GasCashComponent> entries)
+    {
+        foreach (var group in entries.Where(entry => entry.Balance is not null).GroupBy(entry => entry.Source))
+        {
+            var pair = group.ToArray();
+            if (pair.Length != 2 || pair.Count(entry => entry.Balance!.OwedToUs) != 1 ||
+                pair[0].Balance! with { OwedToUs = false } != pair[1].Balance! with { OwedToUs = false } ||
+                !((FloatingSide)pair[0].Side).Periods.Select(period => (period.Fixings[0].Index, period.PaymentAt))
+                    .SequenceEqual(((FloatingSide)pair[1].Side).Periods.Select(period => (period.Fixings[0].Index, period.PaymentAt))))
+                throw Invalid("Each physical source requires exactly one received and one paid cash-out entry with matching profile, index, payment day, basis, netting and policy.");
+        }
+    }
+
+    private static MarketDataException Invalid(string message) => new("gas_composition_input", message);
 }
