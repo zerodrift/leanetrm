@@ -5,8 +5,27 @@
 Local qualification uses synthetic trades, the checkout's own API and leased
 worker, and isolated stock PostgreSQL 18.7 databases on macOS arm64. Toolchain:
 .NET SDK 10.0.402, Python 3.13.7, Node 24.22.0 and Chrome. No production resources
-are used. Full gas, trading and managed group results and the independent
-adversarial review are pending at this checkpoint.
+are used. The full gas, trading and managed groups passed sequentially at
+implementation commit `d8b1dc7f`, after the independent adversarial review and
+its fixes. With the pinned tools selected, run from the repository root:
+
+```bash
+for group in gas trading managed; do
+  python3 tools/check_all.py --pg-bin "$PG_BIN" --dotnet "$DOTNET" --browser "$BROWSER" --group "$group" || exit
+done
+```
+
+| Group | Runner `CHECK` workloads | Printed `PASS` checkpoints | Owned browser checks | Completed workers | Databases removed |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Gas | 19 | 1,323 | 213 | 30 | 11 |
+| Trading | 20 | 1,588 | 489 | 20 | 10 |
+| Managed | 81 | 2,905 | — | — | — |
+
+Runner workloads include restores and builds; printed checkpoints include
+repeated setup and migration checks. Gas and trading each qualified an expected
+`risk_graph_manifest` refusal for an altered retained manifest. Managed reported
+806 core checks and 231 gas ticket checks. The dedicated cash-out workload
+reported 103 PASS checkpoints, five browser checks and three completed workers.
 
 Focused qualification passes both exact cash-out oracles: daily +1,190 and
 month-to-date −700, each with one unassessed day. Managed cases cover immediate
@@ -18,7 +37,7 @@ knowledge on ordinary and queued routes. Net settlement checks conserve +1,830
 and −640 into one +1,190 receipt, preserve its identity on retries and refuse a
 different second monthly settlement.
 
-The full frontend suite passes 2,363 tests with zero skips, using sequential
+The full frontend suite passes 2,364 tests with zero skips, using sequential
 files to avoid concurrent owned-browser startup contention on this host. Run
 from the repository root after the web build:
 
@@ -31,6 +50,18 @@ fields, booking, absent amounts on unknown days, signed daily statement values,
 and exact native Side inspection for both payments. Gas ticket checks pass
 231 cases. Retained overview and Blotter subtotal checks also pass. These are
 local results, not evidence of deployment or production qualification.
+
+Focused regressions retain paid cash when a fixing crosses zero, reject direct
+worker settlement access, and hide a settlement before its paid instant. P&L
+reports the quantity-only −300 residual with no cash, with a 900 receipt, and
+after that receipt is revised to 600. It retains separate endpoint coverage;
+an incomplete zero subtotal stays visible. Joint scenarios and derivatives
+carry distinct coverage for an incomplete cash-out book and a complete book.
+The independent review covered numerical behavior, temporal selection, paid
+corrections, valuation authority and scenario reuse. Its four findings were
+resolved with failing-then-passing regressions before the full qualification
+above. No review findings remain deferred. The review was read-only; the
+verification runs were performed separately by the implementer.
 
 ## Independent gas charges (D450)
 

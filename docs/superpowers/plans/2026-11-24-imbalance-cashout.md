@@ -388,21 +388,21 @@ git commit -s -m "Show a trade's imbalance day by day on its Imbalance tab"
 **Files:**
 - Modify: `docs/decisions.md`, `docs/gas-delivery-operations.md`, `docs/physical-gas-side.md`, `docs/deal-ticket.md`, `docs/security.md`, `docs/plan.md`, `docs/implementation.md`, `docs/verification.md`, and the spec's status line
 
-- [ ] **Step 1: Run the full groups**
+- [x] **Step 1: Run the full groups**
 
 Run: `python3 tools/check_all.py --pg-bin "$PG_BIN" --dotnet "$DOTNET" --browser "$BROWSER" --group gas`, then `--group trading` and `--group managed`
 Expected: every group passes.
 
-- [ ] **Step 2: Update the records.**
+- [x] **Step 2: Update the records.**
   - `docs/decisions.md`: one new decision under the next free number. It states the two entries, the two statement bases, the day quantity rules, the unassessed state, who may read a statement's value in valuation, and the ten calls confirmed in the spec. It revises D339's statement that a statement balance has no portfolio value, for trades that state a cash-out.
   - `docs/gas-delivery-operations.md` and `docs/security.md`: the valuation read and its authority.
   - `docs/physical-gas-side.md` and `docs/deal-ticket.md`: the side, its fields, the Imbalance tab and the refusals.
   - `docs/plan.md`, `docs/implementation.md`, `docs/verification.md`: status and the actual check counts from Step 1.
   - The spec's status line: built, with the decision number.
 
-- [ ] **Step 3: Obtain one independent adversarial review** of the temporal behavior (statement effective time and knowledge cutoff on every route, revisions after payment) and of the authority of the valuation read (trade readers, operations permission, the risk worker's lease). Resolve findings and rerun Step 1.
+- [x] **Step 3: Obtain one independent adversarial review** of the temporal behavior (statement effective time and knowledge cutoff on every route, revisions after payment) and of the authority of the valuation read (trade readers, operations permission, the risk worker's lease). Resolve findings and rerun Step 1.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add docs

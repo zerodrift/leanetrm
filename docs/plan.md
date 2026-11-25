@@ -5,7 +5,9 @@ payments, explicit statement basis/netting, temporal evidence, unassessed
 subtotals, recorded net settlement and the ticket's Imbalance tab. This replaces
 the proposed scheduled-less-allocated balance building block with operator
 statements. Other cash-out profiles, rolled balances on a trade and transport
-imbalances remain separate work. See the
+imbalances remain separate work. All eight implementation tasks and the
+independent review are complete; full gas, trading, managed and frontend
+verification passed. See the
 [contract](physical-gas-side.md#imbalance-cash-out-d451) and
 [local qualification](verification.md#imbalance-cash-out-d451).
 

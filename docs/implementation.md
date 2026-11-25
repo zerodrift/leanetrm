@@ -19,7 +19,8 @@ P&L for cash-out bindings carries the complete native gas payment ledger and
 separate opening/closing coverage. Revised payment facts replace their prior
 flow. Joint risk retains coverage on each book's samples and derivatives.
 
-Local qualification and remaining limits are recorded in
+Full gas, trading, managed and frontend qualification passed after independent
+review. Exact check counts and remaining limits are recorded in
 [verification](verification.md#imbalance-cash-out-d451) and the
 [physical gas contract](physical-gas-side.md#imbalance-cash-out-d451).
 
