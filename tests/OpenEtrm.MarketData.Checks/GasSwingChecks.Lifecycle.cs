@@ -87,6 +87,15 @@ internal static partial class GasSwingChecks
         var reserved = f.State([early]);
         var value = f.Inspect(reserved, f.Before);
         var swing = value.SwingValues.Single();
+        var report = SwingRightReport.FromValue(swing);
+        Require(report.Days.Select(d => d.Forward).SequenceEqual(["3.2","2.8",null]) &&
+            report.Marks.Single().RevisionId == f.Instrument.Marks!.Volatilities.Single().Id &&
+            report.Days[2].ElectedQuantity == "1100" && report.Days[2].IntrinsicLots is null &&
+            report.MinimumQuantity == "2400" && report.MaximumQuantity == "2700" && report.CommittedQuantity == "1100" &&
+            report.RemainingMinimumQuantity == "1400" && report.RemainingMaximumQuantity == "1600" &&
+            report.DailyMinimumQuantity == "700" && report.DailyMaximumQuantity == "1100" &&
+            report.Days.Select(d => d.IntrinsicQuantity).SequenceEqual(["900", "700", null]) && report.NextDeadline == f.Terms.Days[0].ExerciseAt,
+            "Right-level inspection carries the selected point marks and deadline; only pending days have intrinsic choices.");
         Require(swing.CommittedLots == 11 && swing.RemainingMinimumLots == 14 && swing.RemainingMaximumLots == 16 &&
             swing.Counted == f.Money("-120") && swing.IntrinsicLots.SequenceEqual([9, 7]) &&
             swing.Days[2].Election == early && swing.Days[2].SelectedQuantity == early.Quantity &&
@@ -149,12 +158,29 @@ internal static partial class GasSwingChecks
         var done = optional.Inspect(complete, optional.Terms.Days[^1].ExerciseAt);
         Require(done.SwingValues.Single() is { Inputs: null, CommittedLots: 0 } && done.SwingValues.Single().Counted == optional.Money("0"),
             "Explicit zero decisions consume zero and close the joint model.");
+        CounterpartyHolding(f);
         BindingScopes(f);
         ScaledRights();
         IndependentEntries(f);
         ReportedBalances();
         RequiredMarks();
         OwnedBoundary(f);
+    }
+
+    private static void CounterpartyHolding(HeldFixture f)
+    {
+        var reversed = f.Instrument.Members.Select((member, slot) => new RetainedGasMember(member.SideId,
+            slot == 0 ? ExactDecimal.Parse("-1") : ExactDecimal.Parse("1"), slot == 2 ? new(1, 2) : member.Ratio,
+            member.Program, member.SourceSlot)).ToImmutableArray();
+        var instrument = new RetainedGasInstrument(f.Instrument.Id, reversed, f.Instrument.Assignments, marks: f.Instrument.Marks,
+            swingRights: [f.Terms with { Holder = ExerciseHolder.Counterparty }], swingPricingBindings: [Pricing]);
+        foreach (var (size, expected) in new[] { ("1000", "-345"), ("-1000", "345") })
+        {
+            var valuation = f.Inspect(f.State(size: size), f.Before, instrument);
+            var right = valuation.SwingValues.Single();
+            Require(right.IntrinsicLots.SequenceEqual([9, 7, 11]) && right.Counted == f.Money(expected),
+                "Counterparty chooses 900/700/1100 against 3.00 plus half of 0.10 on a delivering membership; only the external sign changes.");
+        }
     }
 
     private static void BindingScopes(HeldFixture f)
@@ -260,7 +286,13 @@ internal static partial class GasSwingChecks
         var curve = plain.Assignments[0].Projection.Market.Curve;
         var marks = new ExerciseMarks([new(curve, new(f.From.Year, f.From.Month, 1),
             new(Guid.NewGuid(), "0", VolatilityInput.Annualized))], [], ExerciseMarks.HeldLogReturn);
-        var instrument = new RetainedGasInstrument(plain.Id, plain.Members, plain.Assignments, plain.PriceLookups,
+        var premium = GasChargeSides.LumpSum(Guid.NewGuid(), new(ExactDecimal.Parse("5"), f.Quote), plain.UnitQuantity,
+            f.Clock, f.Clock.Boundary(f.To).AddDays(2), SyntheticSideCalendars.Dated(false), f.Quote);
+        var charge = new RetainedGasMember(premium.Id, ExactDecimal.Parse("-1"), new(1, 10000), Retain(premium, "-1").Program,
+            owned: new(ChargeBasis.LumpSum, f.Clock, ExactRatio.One));
+        var members = plain.Members.Add(charge);
+        var ordinary = new RetainedGasInstrument(plain.Id, members, plain.Assignments, plain.PriceLookups);
+        var instrument = new RetainedGasInstrument(plain.Id, members, plain.Assignments, plain.PriceLookups,
             marks: marks, swingRights: [right], swingPricingBindings: [Pricing]);
         var at = f.Clock.Boundary(f.From.AddDays(2)).AddHours(1);
         var state = f.State(plain, f.Balances("300", null, null, null),
@@ -268,10 +300,19 @@ internal static partial class GasSwingChecks
         var accepted = days.Take(3).Select(day => new SwingElection(0, day.Day,
             ExactQuantity.FromRatio(new(7000, 1), plain.UnitQuantity.Specification), right.Holder, days[0].ExerciseAt,
             days[0].ExerciseAt, Guid.NewGuid(), "Synthetic swing order")).ToImmutableArray();
-        var held = new PhysicalCashState(state.TradeId, state.BindingId, state.Quantity, state.BookId,
-            state.Payments, PhysicalCashState.Policy, state.OwnerDays, balances: state.Balances, swingElections: accepted);
-        var baseline = f.Value(plain, state, endedDays: 2);
-        var value = f.Value(instrument, held, endedDays: 2);
+        PhysicalLifecycleValue Selected(ImmutableArray<SwingElection> facts) => f.Value(instrument,
+            new PhysicalCashState(state.TradeId, state.BindingId, state.Quantity, state.BookId, state.Payments,
+                PhysicalCashState.Policy, state.OwnerDays, balances: state.Balances, swingElections: facts), endedDays: 2);
+        var baseline = f.Value(ordinary, state, endedDays: 2);
+        var value = Selected(accepted);
+        var corrected = Selected(accepted.SetItem(0, accepted[0] with {
+            Quantity = ExactQuantity.FromRatio(new(8000, 1), plain.UnitQuantity.Specification), RevisionId = Guid.NewGuid() }));
+        var premiumCash = value.Rows.Single(r => r.Slot == 4);
+        Require(premiumCash.Expected == ExactMoney.Parse("-5", plain.Currency) && corrected.Rows.Single(r => r.Slot == 4) == premiumCash &&
+            corrected.UnassessedDays == 1 && corrected.Rows.Where(r => r.Slot is 2 or 3).Zip(value.Rows.Where(r => r.Slot is 2 or 3))
+                .All(pair => pair.First.Expected == pair.Second.Expected && pair.First.Paid == pair.Second.Paid &&
+                    pair.First.Settlement == pair.Second.Settlement && pair.First.Outstanding == pair.Second.Outstanding),
+            "Correcting the same-source election leaves the independent premium, reported pair, paid amount and missing day unchanged.");
         var reported = value.Rows.Where(r => r.Slot >= 2).ToArray();
         Require(value.Incomplete && value.UnassessedDays == 1 && reported.Zip(baseline.Rows.Where(r => r.Slot >= 2))
             .All(pair => pair.First.Accrued == pair.Second.Accrued && pair.First.Outstanding == pair.Second.Outstanding &&

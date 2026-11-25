@@ -76,6 +76,7 @@ internal sealed record GasCompositionValue(string PresentValue,string Currency,s
  GasLifecycleMeasures? Measures=null)
 {
  public ImmutableArray<ExerciseGroupReport> Groups{get;init;}=[];
+ [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)]public ImmutableArray<SwingRightReport> SwingRights{get;init;}
  public int UnassessedDays=>Lifecycle?.UnassessedDays??0;
  public bool Incomplete=>UnassessedDays!=0;
  public ImmutableArray<GasImbalanceReportRow> ImbalanceRows{get;init;}=[];
@@ -202,7 +203,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   var physical=ImmutableArray.CreateBuilder<GasPhysicalComponent>();var assignments=new List<ImmutableArray<GasValuationAssignment>>();var clocks=new List<GasDayClock>();var mappings=new List<JsonElement>();
   foreach(var p in body.PhysicalSides)
   {
-   var m=await gas.Metadata(c,data,Selection(body,p),ct);assignments.Add(m.Assignments);clocks.Add(m.Clock);mappings.Add(m.Mapping);
+   var m=await gas.Metadata(c,data,Selection(body,p),ct,swingSource:body.SwingRights is [{Side:var swingCode}]&&swingCode==p.Code);assignments.Add(m.Assignments);clocks.Add(m.Clock);mappings.Add(m.Mapping);
    var basis=p.QuantityBasis switch{"per_operating_day"=>GasQuantityBasis.PerOperatingDay,"period_total_equal_days"=>GasQuantityBasis.PeriodTotalEqualOperatingDays,_=>throw Invalid("Choose each physical quantity basis explicitly.")};
    var side=new PhysicalGasSide(Guid.NewGuid(),m.Assignments[0].Location,m.Assignments[0].Product,new(m.Clock,DateWorkspace.Date(p.DeliveryFrom),DateWorkspace.Date(p.DeliveryTo),basis,new(Number("1"),m.Assignments[0].Quote.Quantity),GasFuelConvention.None,default),m.Assignments,SideCalendarPolicies.Resolve(data,p.CalendarPolicy),GasPointPricing.Resolve(database.Manifest.CatalogId,m.Mapping,p.ForecastCurve)?.ToBinding());
    var link=p.Link is null?null:new GasCompositionLink(p.Link.Source,p.Link.Formula switch{"none"=>GasFuelConvention.None,"gross_less_fraction"=>GasFuelConvention.NetEqualsGrossTimesOneMinusFuel,"gross_divided_by_one_plus_fraction"=>GasFuelConvention.NetEqualsGrossDividedByOnePlusFuel,_=>throw Invalid("Select an installed fuel rule.")},Number(p.Link.Fraction));
@@ -434,9 +435,10 @@ public sealed class GasCompositionStore(PreviewDatabase database)
     selected?.Days??default);
   }
   var instrument=GasCompositionExecution.BuildInstrument(held?.InstrumentId??draft!.Id,members,programs,dated,rights,swings,pricing);
-  if(!rights.IsEmpty)instrument=await new CurveMarkStore(database.Manifest.CatalogId).Bind(c,instrument,snapshot,state,ct);
+  if(!rights.IsEmpty||!swings.IsEmpty)instrument=await new CurveMarkStore(database.Manifest.CatalogId).Bind(c,instrument,snapshot,state,ct);
   var valuation=instrument.PV(instrument.PrepareValuation(market,market,discount,state,ct));
   var groups=valuation.Groups.Select(ExerciseGroupReport.FromValue).ToImmutableArray();
+  var swingReports=valuation.SwingValues.Select(SwingRightReport.FromValue).ToImmutableArray();
   var total=valuation.PresentValue.Scale(quantity);
   if(state is not null)lifecycle=PhysicalLifecycle.FromValuation(valuation);
   var valued=new List<(GasCompositionRow Member,ExactMoney Amount,ExactQuantity? Quantity,List<object> Rows)>();
@@ -454,6 +456,8 @@ public sealed class GasCompositionStore(PreviewDatabase database)
     sideView=sideView with{Recorded=recordedDays.ToImmutableDictionary(d=>d.Key,d=>new ScheduleViewQuantity(new(BigInteger.Parse(d.Value.Quantity.Numerator)*member.Direction,BigInteger.Parse(d.Value.Quantity.Denominator)),d.Value.Kind))};
    if(rights.FirstOrDefault(r=>r.Slots.Contains(member.Slot)) is {} right)
     sideView=sideView with{ExerciseGroups=[..groups.Where(g=>g.Right==right.Ordinal)]};
+   if(swingReports.FirstOrDefault(s=>s.Slots.Contains(member.Slot)) is {} swingReport)
+    sideView=sideView with{SwingRights=[swingReport]};
    views?.Add(sideView);inspect?.Invoke(sideView,member.Clock);
    if(view&&member.Balance is not null)
     imbalanceRows.AddRange(GasImbalanceReport.Rows(member,sideValue,quantity,state!,programs.Single(p=>p.Slot==member.Slot).Program,ct));
@@ -496,7 +500,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   // No contract-against-market measure is defined for these sides yet, so none is reported.
   var summaries=schedule is null?null:views!.Select(v=>(object)new{side=v.Code,billedQuantity=schedule.Totals[v.Code+".quantity"].Value,amount=schedule.Totals[v.Code+".amount"].Value,againstMarket=(string?)null}).ToArray();
   return new(total!.ToExactString(),members[0].Assignment.Quote.Currency.Code,unit,sides,links,schedule,summaries,refusal,members.ToImmutableDictionary(m=>m.Code,m=>m.Slot),
-   lifecycle is null?null:GasLifecycleMeasures.From(lifecycle,discounting)){Groups=groups,ScheduleEntries=GasTicket.ScheduleEntries(members),ImbalanceRows=imbalanceRows.ToImmutable(),Lifecycle=lifecycle,EntryValues=[..valued.Select(v=>new InstrumentEntryValue(v.Member.Slot,v.Amount){UnassessedDays=Unassessed(v.Member.Slot)})],Source=new(data.DefinitionRevision.RevisionId,data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId)};
+   lifecycle is null?null:GasLifecycleMeasures.From(lifecycle,discounting)){Groups=groups,SwingRights=swingReports.IsEmpty?default:swingReports,ScheduleEntries=GasTicket.ScheduleEntries(members),ImbalanceRows=imbalanceRows.ToImmutable(),Lifecycle=lifecycle,EntryValues=[..valued.Select(v=>new InstrumentEntryValue(v.Member.Slot,v.Amount){UnassessedDays=Unassessed(v.Member.Slot)})],Source=new(data.DefinitionRevision.RevisionId,data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId)};
  }
  // A preview and a booking are held to the gas setup their context resolves (GasTicket.RequireSetup).
  async Task RequireSetup(NpgsqlConnection c,PreviewData data,GasCompositionRequest body,CancellationToken ct)=>GasTicket.RequireSetup(body.GasSetupId,(await gas.CurrentSetup(c,data,ct)).Id);
@@ -649,7 +653,8 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   foreach(var r in rows.Where(r=>r.Text("role")=="physical"))
   {
    var p=new GasPhysicalRequest(r.Text("code"),r.Text("pipeline_code"),r.Text("zone_code"),r.Text("point_code"),r.Text("product_code"),r.Text("direction")=="1"?"receive":"deliver",r.Text("delivery_from"),r.Text("delivery_to"),r.Text("quantity_basis"),r.OptionalText("independent_quantity"),null);
-   var m=await gas.Metadata(c,data,Selection(valuationBody,p),ct);phys.Add(int.Parse(r.Text("slot")),(p,m.Assignments,m.Clock));
+   var slot=int.Parse(r.Text("slot"),CultureInfo.InvariantCulture);
+   var m=await gas.Metadata(c,data,Selection(valuationBody,p),ct,swingSource:swings.Any(right=>right.PhysicalSlot==slot));phys.Add(slot,(p,m.Assignments,m.Clock));
   }
   foreach(var r in rows)
   {

@@ -19,7 +19,8 @@ def add_fixture(reference,market,security,manifest,*,price='3.20',prefix='synthe
        guarded('market_data.gas_valuation_groups',f"INSERT INTO market_data.gas_valuation_groups VALUES({M},'{group}',{R},'test_pipeline_a','test_gas','{curve}',0);"),
        guarded('market_data.gas_valuation_assignments',f"INSERT INTO market_data.gas_valuation_assignments(catalog_id,revision_id,code,reference_catalog_id,reference_revision_id,pipeline_code,zone_code,point_code,product_code,curve_code,group_code,group_adjustment,location_adjustment) VALUES({M},'{assignment}',{R},'test_pipeline_a','synthetic_gas_zone_a','{point}','test_gas','{curve}','{group}',0,0);")]
     observations=[]
-    for ordinal,(start,end) in enumerate(months):
+    prices = [price] * len(months) if isinstance(price, str) else price
+    for ordinal,((start,end),mark) in enumerate(zip(months, prices, strict=True)):
         cid,sid=identity('5',number+ordinal),identity('9',number+ordinal)
         definitions.extend([f"INSERT INTO market_data.contracts VALUES({M},'{cid}',{R},'forward','{start}','{end}','{end}T00:00:00Z',NULL);",
                             f"INSERT INTO market_data.curve_members VALUES({M},'{curve}','{cid}',{ordinal});",
@@ -28,7 +29,7 @@ def add_fixture(reference,market,security,manifest,*,price='3.20',prefix='synthe
             frame['observationIds']=[*frame['observationIds'],identity('7',number*100+index*10+ordinal)]
             frame['curveContracts']={**frame['curveContracts'],curve:[*frame['curveContracts'].get(curve, []),cid]}
             oid=frame['observationIds'][-1]
-            observations.append(f"INSERT INTO market_data.observations VALUES('{CAT}','{oid}','{REV}','{sid}',{R},'fixture','{prefix}_{index}_{ordinal}','1','trader_mark','final','{frame['at']}',CURRENT_TIMESTAMP,{price},NULL);")
+            observations.append(f"INSERT INTO market_data.observations VALUES('{CAT}','{oid}','{REV}','{sid}',{R},'fixture','{prefix}_{index}_{ordinal}','1','trader_mark','final','{frame['at']}',CURRENT_TIMESTAMP,{mark},NULL);")
     market=market.replace('UPDATE ref_data.revisions SET','\n'.join(refs)+'\nUPDATE ref_data.revisions SET',1)
     market=market.replace('UPDATE market_data.revisions SET','\n'.join(definitions)+'\nUPDATE market_data.revisions SET',1)
     market=market.rsplit('COMMIT;',1)[0]+'\n'.join(observations)+'\nCOMMIT;\n'

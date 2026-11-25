@@ -15,6 +15,8 @@ from synthetic_side_calendars import side_calendar_policy
 
 
 WRITER = 'security.write_gas_composition(uuid,jsonb,timestamptz,boolean)'
+SHAPE = ('trading.require_gas_program_shape(uuid,uuid,integer,date,date,timestamptz,numeric,numeric,'
+         'market_data.gas_valuation_assignments,ref_data.gas_delivery_conventions,timestamptz,jsonb,numeric,date[],timestamptz[])')
 TABLES = ('gas_swing_rights', 'gas_swing_members', 'gas_swing_days', 'gas_swing_pricing')
 
 
@@ -23,7 +25,13 @@ def predecessor(query, migration):
     return query(f"SELECT pg_get_functiondef('{WRITER}'::regprocedure)"), migration_body(migration.read_text())
 
 
-def populated_upgrade(query, manifest, prior, body, booked):
+def period_predecessor(query, migration):
+    check_upgrade_guard(query, migration, number='0405', guard='gas_swing_period_upgrade', signatures=[WRITER, SHAPE])
+    definitions = [query(f"SELECT pg_get_functiondef('{signature}'::regprocedure)") for signature in (SHAPE, WRITER)]
+    return ';'.join(definitions)+';', migration_body(migration.read_text())
+
+
+def populated_upgrade(query, manifest, prior, period_prior, body, booked):
     # Rehearse the upgrade over a real no-right booking in a rollback-only transaction.
     # Keep later migrations' objects intact, including dependencies on the current tables.
     writer, migration = prior
@@ -52,10 +60,15 @@ def populated_upgrade(query, manifest, prior, body, booked):
         THEN RAISE EXCEPTION 'swing_upgrade_history';END IF;END$proof$;"""
     runtime_query(query, manifest, replay + 'RESET SESSION AUTHORIZATION;' + migration + proof +
                   'SET LOCAL SESSION AUTHORIZATION preview_runtime;' + replay, prefix=prefix, commit=False)
+    period_helpers, period_migration = period_prior
+    prefix = f"{period_helpers}DROP FUNCTION {SHAPE[:-1]},boolean);CREATE TEMP TABLE previous_gas AS {snapshot};"
+    runtime_query(query, manifest, replay + 'RESET SESSION AUTHORIZATION;' + period_migration + proof +
+                  'SET LOCAL SESSION AUTHORIZATION preview_runtime;' + replay, prefix=prefix, commit=False)
+    print('PASS populated 0405 preserves no-right predecessor command replay, trade, program bytes and schedule bindings',flush=True)
     print('PASS populated 0402 writer replay and 0403 upgrade preserve the trade, components, program bytes and schedule bindings', flush=True)
 
 
-def run_checks(url, query, manifest, prior, run_worker):
+def run_checks(url, query, manifest, prior, period_prior, run_worker):
     client = PreviewClient(url)
     client.bootstrap()
     client.call('profile', dict(profile='trader'))
@@ -87,7 +100,7 @@ def run_checks(url, query, manifest, prior, run_worker):
         return saved
 
     plain = book(base)
-    populated_upgrade(query, manifest, prior, base, plain)
+    populated_upgrade(query, manifest, prior, period_prior, base, plain)
     assert terms(plain) == []
     for absent in (None, []):
         assert terms(book({**base, 'operationId': str(uuid4()), 'swingRights': absent})) == []
@@ -98,6 +111,10 @@ def run_checks(url, query, manifest, prior, run_worker):
     before = cut(plain)
     body = {**base, 'operationId': str(uuid4()), 'swingRights': [right]}
     saved = book(body)
+    for point in ('synthetic_swing_gap_point','synthetic_swing_overlap_point'):
+        invalid = {**body,'operationId':str(uuid4()),'physicalSides':[{**source,'deliveryPoint':point}]}
+        staged_booking(query,manifest,body,invalid,'swing_price_coverage')
+        assert client.call('gas/composition/book',invalid,expected=422)['code']=='swing_price_coverage'
     first = date(2021, 1, 31)
     assert terms(saved) == [dict(ordinal=0, physical_slot=0, slots=[0, 1], holder='us', reference_lots=10,
         daily_minimum=7, daily_maximum=11, total_minimum=30, total_maximum=31, quantity_policy=right['quantityPolicy'],
@@ -247,3 +264,13 @@ def run_checks(url, query, manifest, prior, run_worker):
     print('PASS physical gas swing cross-month booking, exact non-midnight deadlines, native parity, missing marks and immutable scoped terms', flush=True)
     from check_gas_swing_elections import election_checks
     election_checks(client, query, manifest, context, body, plain, run_worker)
+    writer = PreviewClient(url)
+    writer.bootstrap()
+    writer.call('profile',dict(profile='editor'))
+    writer.call('volatility-marks/record', dict(context=context,definitionRevisionId=body['definitionRevisionId'],
+        operationId=str(uuid4()),reason='Synthetic swing monthly inputs',curve='synthetic_swing_location',
+        marks=[dict(month=m,volatility='0',expectedRevision=0) for m in ('2021-01','2021-02')]))
+    assert client.call('gas/composition/preview',body)['presentValue']=='310'
+    from check_gas_swing_routes import reported_cash_checks, route_checks
+    reported_cash_checks(client, query, manifest, context, outside_saved)
+    route_checks(client, query, manifest, context, body, run_worker)

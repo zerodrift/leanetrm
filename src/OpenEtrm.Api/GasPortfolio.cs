@@ -60,9 +60,9 @@ internal static class GasPortfolio
     {
      var state=await GasCashPaymentStore.Read(connection,database,execution,book,quantity,GasCashPaymentStore.LatestKnownRevision,snapshot.ValuationAt,ct);
      states.Add(new(position.Trade,position.Binding),state);
-     if(instrument.Members.Any(member=>member.Balance is not null))
+     if(!execution.SwingRights.IsEmpty||instrument.Members.Any(member=>member.Balance is not null))
       accounting.Add(new(position.Trade,position.Binding),await GasCashPaymentStore.Accounting(connection,database.Manifest.CatalogId,state,snapshot,ct));
-     if(!execution.Rights.IsEmpty)
+     if(!execution.Rights.IsEmpty||!execution.SwingRights.IsEmpty)
      {
       instrument=await new CurveMarkStore(database.Manifest.CatalogId).Bind(connection,instrument,snapshot,state,ct);
       exercises.Add(position.Trade,(instrument,state));

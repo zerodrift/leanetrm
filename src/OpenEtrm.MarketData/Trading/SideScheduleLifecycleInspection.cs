@@ -58,6 +58,6 @@ public static partial class SideScheduleInspection
      Remaining=cash?row.Unrealized?.ToExactString():null,
      FinalDetermination=determinations.TryGetValue(row.Occurrence,out var final)?final.ToExactString():null,QuantityEvidence=row.ReportedQuantity?.Evidence??selected?.Evidence??default,QuantityAdjustment=selected is null?null:new(ExactNumberText.Format(contract!.Value),ExactNumberText.Format(selected.Fraction))});
   }
-  return new(side.Code,program.ScheduleManifest,evaluation.Context.ValuationAt,evaluation.Context.KnownAt,offset,lifecycle.Length,rows.ToImmutable()){Groups=side.ExerciseGroups.IsEmpty?default:side.ExerciseGroups};
+  return new(side.Code,program.ScheduleManifest,evaluation.Context.ValuationAt,evaluation.Context.KnownAt,offset,lifecycle.Length,rows.ToImmutable()){SwingRights=side.SwingRights.IsEmpty?default:side.SwingRights,Groups=side.ExerciseGroups.IsEmpty?default:side.ExerciseGroups};
  }
 }

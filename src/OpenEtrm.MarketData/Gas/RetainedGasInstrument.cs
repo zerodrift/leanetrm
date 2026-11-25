@@ -131,6 +131,16 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
     public ImmutableArray<(ExerciseGroupKey Group, CurveKey Curve, DateOnly Month)> ExerciseMarkInputs(MarketSnapshot snapshot, PhysicalCashState held) =>
         RetainedExerciseValuation.Scope(this, snapshot, snapshot.ValuationAt, held).Inputs;
 
+    // Only curves jointly used by an exercise group share correlation inputs. Swing reads one curve per pending month.
+    public IEnumerable<(DateOnly Month, ImmutableArray<CurveKey> Curves)> RequiredMarkSets(MarketSnapshot snapshot, PhysicalCashState held)
+    {
+        var scope = RetainedExerciseValuation.Scope(this, snapshot, snapshot.ValuationAt, held);
+        foreach (var group in scope.Inputs.GroupBy(i => (i.Group, i.Month, i.Curve.Revision)))
+            yield return (group.Key.Month, [..group.Select(i => i.Curve).Distinct().OrderBy(c => c.Code, StringComparer.Ordinal)]);
+        foreach (var (curve, month) in scope.SwingMarks)
+            yield return (month, [curve]);
+    }
+
     private void RequireRights()
     {
         var claimedSlots = new HashSet<int>();

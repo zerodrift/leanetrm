@@ -718,6 +718,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
                         {UnassessedDays=p.UnassessedDays,Owner=p.Owner,Components=[..p.Components.Select(c=>new ComponentRiskValues(c.Name,c.Value,c.Value,c.Value))],
                          Entries=[..p.Entries.Select(e=>new EntryRiskValues(e.Slot,e.Value,e.Value,e.Value){UnassessedDays=e.UnassessedDays})],
                          ExerciseGroups=[..p.ExerciseGroups.Select(g=>new ExerciseGroupRiskValues(g.Group,g.Value,g.Value,g.Value))],
+                         SwingValues=p.SwingValues.IsEmpty?null:new(p.SwingValues,p.SwingValues,p.SwingValues),
                          GroupValues=p.GroupValues.IsEmpty?null:new(p.GroupValues,p.GroupValues,p.GroupValues)})));
                 }
                 else

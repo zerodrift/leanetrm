@@ -48,9 +48,11 @@ public sealed partial class PortfolioRiskPreview
         {
             var p=holding.Position;
             var position=Position(p.Owner,p.BindingId,p.BookId,holding.Measure,Value(p.Values));
-            if(p.Groups.IsEmpty)return position;
+            if(p.Groups.IsEmpty&&p.SwingValues.IsEmpty)return position;
             var row=JsonSerializer.SerializeToNode(position,RiskJobs.Json)!.AsObject();
-            row["groups"]=JsonSerializer.SerializeToNode(new{@base=p.BaseGroups.Select(ExerciseGroupReport.FromValue),
+            if(!p.SwingValues.IsEmpty)row["swingRights"]=JsonSerializer.SerializeToNode(new{@base=p.BaseSwingValues.Select(SwingRightReport.FromValue),
+                value=p.SwingValues.Select(SwingRightReport.FromValue)},RiskJobs.Json);
+            if(!p.Groups.IsEmpty)row["groups"]=JsonSerializer.SerializeToNode(new{@base=p.BaseGroups.Select(ExerciseGroupReport.FromValue),
                 value=p.Groups.Select(ExerciseGroupReport.FromValue)},RiskJobs.Json);
             return row;
         }

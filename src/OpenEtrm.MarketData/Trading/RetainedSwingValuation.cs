@@ -5,10 +5,15 @@ using OpenEtrm.Shared.Numerics;
 namespace OpenEtrm.MarketData.Trading;
 
 public sealed record SwingDayValue(SwingDay Day, string State, SwingElection? Election, ExactQuantity? SelectedQuantity,
-    ImmutableArray<DeliveryQuantityEvidence> QuantityEvidence);
+    ImmutableArray<DeliveryQuantityEvidence> QuantityEvidence)
+{
+    public string? Forward { get; init; }
+}
+public sealed record SwingVolatilityValue(CurveKey Curve, DateOnly Month, Guid RevisionId, string Volatility);
 public sealed record SwingRightValue(int Right, int CommittedLots, int RemainingMinimumLots, int RemainingMaximumLots,
     ExactQuantity Increment, ExactMoney Counted, ExactMoney Intrinsic, ImmutableArray<SwingDayValue> Days,
-    ImmutableArray<int> IntrinsicLots, SwingPricingBinding Pricing, SwingChoiceInputs? Inputs, SwingWorkCounts Work);
+    ImmutableArray<int> IntrinsicLots, SwingPricingBinding Pricing, SwingChoiceInputs? Inputs, SwingWorkCounts Work,
+    SwingRight Terms, ImmutableArray<SwingVolatilityValue> Marks);
 
 // Commercial commitments use absolute elected lots. Selected operational quantities affect ordinary Sides only.
 internal sealed class RetainedSwingValuation
@@ -101,13 +106,15 @@ internal sealed class RetainedSwingValuation
         var holder = right.Holder == ExerciseHolder.Us ? 1 : -1;
         var uncertain = Pending.ToDictionary(d => d.Day, _ => SignedRatio.Zero);
         var certain = Pending.ToDictionary(d => d.Day, _ => SignedRatio.Zero);
+        var forwards = new Dictionary<DateOnly, string>();
         if (!Pending.IsEmpty)
             foreach (var slot in right.Slots)
             {
                 var physical = slot == right.PhysicalSlot;
                 var amounts = physical ? uncertain : certain;
                 var factor = context.RetainedPrograms!.HeldFactors[slot] * new SignedRatio(holder * sign, 1);
-                foreach (var row in perLot(slot).Lifecycle!.Rows)
+                var side = perLot(slot);
+                foreach (var row in side.Lifecycle!.Rows)
                 {
                     var covered = Pending.Where(d => d.Day >= row.DeliveryFrom && d.Day < row.DeliveryTo).ToArray();
                     if (covered.Length == 0) continue;
@@ -116,19 +123,42 @@ internal sealed class RetainedSwingValuation
                     var gross = (physical ? row.Unrealized : row.Expected)!.Ratio;
                     if (physical && gross.Numerator.Sign <= 0)
                         throw new MarketDataException("swing_model_scope", "The one-factor swing model requires positive physical forwards.");
+                    if (physical) forwards.Add(row.DeliveryFrom, PhysicalForward(side, row.Occurrence));
                     var share = gross * factor * new SignedRatio(1, covered.Length);
                     foreach (var day in covered) amounts[day.Day] += share;
                 }
             }
-        LatticeDecimal? Volatility(DateOnly day) => RequiresMarks
-            ? LatticeDecimal.Parse(context.ExerciseVolatility((marks ?? throw ExerciseMarks.Missing())
-                .Volatility(curve, new(day.Year, day.Month, 1))).Format(30, MidpointRounding.ToEven)) : null;
+        var monthly = new Dictionary<DateOnly, SwingVolatilityValue>();
+        LatticeDecimal? Volatility(DateOnly day)
+        {
+            if (!RequiresMarks) return null;
+            var month = new DateOnly(day.Year, day.Month, 1);
+            if (!monthly.TryGetValue(month, out var mark))
+            {
+                var input = (marks ?? throw ExerciseMarks.Missing()).Volatility(curve, month);
+                mark = new(curve, month, input.Id, context.ExerciseVolatility(input).Format(30, MidpointRounding.ToEven));
+                monthly.Add(month, mark);
+            }
+            return LatticeDecimal.Parse(mark.Volatility);
+        }
         var inputs = new SwingChoiceInputs([..Pending.Select(d => new SwingPayoffDay(d, uncertain[d.Day], certain[d.Day], Volatility(d.Day)))],
             right.DailyMinimumLots, right.DailyMaximumLots, right.MinimumLots, right.MaximumLots, budget.CommittedLots,
             context.UnitEvaluation.CalculationAt, pricing.NumericalPolicy);
         var choice = SwingChoice.Value(inputs, context.UnitEvaluation.Cancellation);
         ExactMoney Held(SignedRatio value) => ExactMoney.FromFraction(value.Numerator * holder * sign, value.Denominator, currency);
         return new(right.Ordinal, budget.CommittedLots, budget.RemainingMinimumLots, budget.RemainingMaximumLots, increment,
-            Held(choice.Value), Held(choice.IntrinsicValue), days, choice.IntrinsicLots, pricing, Pending.IsEmpty ? null : inputs, choice.Work);
+            Held(choice.Value), Held(choice.IntrinsicValue), [..days.Select(d => d with { Forward = forwards.GetValueOrDefault(d.Day.Day) })],
+            choice.IntrinsicLots, pricing, Pending.IsEmpty ? null : inputs, choice.Work, right, [..monthly.Values.OrderBy(m => m.Month)]);
+    }
+
+    private static string PhysicalForward(RetainedProgramValuation side, int occurrence)
+    {
+        var document = ((RetainedProgramSchedule)side.Schedule).Program.Document;
+        var guard = document.Instructions[side.Execution.Contributions[occurrence].Instruction];
+        var amount = SideScheduleInspection.Operand(document, guard, "amount");
+        var price = side.Execution.Values[SideScheduleInspection.Operand(document, amount, "price").Output.Ordinal];
+        var (column, cell) = SideScheduleInspection.Column(price, 0);
+        var point = column.Values[cell];
+        return ExactNumberText.Format(new(point.Numerator, point.Denominator));
     }
 }

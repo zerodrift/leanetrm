@@ -50,6 +50,8 @@ public sealed record ScheduleInspectionPage(string Side,string Manifest,DateTime
 {
  [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
  public ImmutableArray<ExerciseGroupReport> Groups{get;init;}
+ [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+ public ImmutableArray<SwingRightReport> SwingRights{get;init;}
 }
 
 // Read evaluated schedules without regenerating dates or performing pricing.

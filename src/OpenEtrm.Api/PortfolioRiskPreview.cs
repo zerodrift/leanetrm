@@ -296,6 +296,9 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
                         @base=c.Base.ToExactString(),up=c.Up.ToExactString(),down=c.Down.ToExactString()}),RiskJobs.Json);
                     if(!p.Entries.IsEmpty)position["entries"]=JsonSerializer.SerializeToNode(p.Entries.Select(e=>new{
                         e.Slot,e.UnassessedDays,e.Incomplete,@base=e.Base.ToExactString(),up=e.Up.ToExactString(),down=e.Down.ToExactString()}),RiskJobs.Json);
+                    if(p.SwingValues is {} swing)
+                        position["swingRights"]=JsonSerializer.SerializeToNode(new{@base=swing.Base.Select(SwingRightReport.FromValue),
+                            up=swing.Up.Select(SwingRightReport.FromValue),down=swing.Down.Select(SwingRightReport.FromValue)},RiskJobs.Json);
                     if(p.GroupValues is {} groups)
                         position["groups"]=JsonSerializer.SerializeToNode(new{@base=groups.Base.Select(ExerciseGroupReport.FromValue),
                             up=groups.Up.Select(ExerciseGroupReport.FromValue),down=groups.Down.Select(ExerciseGroupReport.FromValue)},RiskJobs.Json);

@@ -21,6 +21,10 @@ application. See [current implementation](../docs/implementation.md) and
 
 Recent schema groups and their contracts:
 
+- [0405](migrations/0405_gas_swing_point_periods.sql) qualifies the selected swing
+  physical membership against the unique native daily or calendar-month point
+  covering each gas day. The existing schedule proof checks its exact contract,
+  fixing, quote and assignment. Gaps and overlaps refuse.
 - [0404](migrations/0404_gas_swing_elections.sql) records a batch of physical gas
   swing elections against the complete set of day revisions. Each correction or
   withdrawal preserves the prior fact. The writer checks the shared volume budget

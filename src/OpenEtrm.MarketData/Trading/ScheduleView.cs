@@ -35,6 +35,8 @@ public sealed record ScheduleView(ImmutableArray<string> Levels,ImmutableArray<S
 
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
     public ImmutableArray<ExerciseGroupReport> Groups { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public ImmutableArray<SwingRightReport> SwingRights { get; init; }
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? ProgressBasis { get; init; }
 }
@@ -53,6 +55,7 @@ public sealed record SideViewInput(string Code,BookedSideEvaluation Evaluation,B
     // Rows from the Side's lifecycle, before held scaling, with absolute evidence quantities.
     public ImmutableDictionary<DateOnly,PhysicalLifecycleRow>? ReportedRows { get; init; }
     public ImmutableArray<ExerciseGroupReport> ExerciseGroups { get; init; } = [];
+    public ImmutableArray<SwingRightReport> SwingRights { get; init; } = [];
     // A controlled membership has one right and its contiguous, ordered periods.
     internal ImmutableArray<ExerciseSchedulePeriod> Periods(DateOnly from,DateOnly to)
     {
@@ -91,7 +94,7 @@ public static class ScheduleViews
     public const string NetCash="trade.net_cash",PaymentAt="trade.payment_at";
     private static readonly string[] Supported=["term","month","day"];
     // One canonical tag order; a set of tags is a bit mask over it.
-    private static readonly string[] Tags=["contract","forecast","meter","fwd","actual","modeled","fixed","estimated","nominated","confirmed","scheduled","allocated","delivered","allocated_final","allocated_provisional","contingent","assessed","unassessed","not_applicable"];
+    private static readonly string[] Tags=["contract","forecast","meter","fwd","actual","modeled","fixed","estimated","nominated","confirmed","scheduled","allocated","delivered","allocated_final","allocated_provisional","contingent","assessed","unassessed","not_applicable","elected","undecided"];
     private static readonly string[] RecordedTags=["nominated","confirmed","scheduled","allocated"];
     private const int ContractTag=1<<0,DeliveredTag=1<<12,ContingentTag=1<<15;
     private static readonly (SchedulePriceFacts Fact,int Tag)[] PriceTags=[(SchedulePriceFacts.Fixed,0),(SchedulePriceFacts.Projected,3),
@@ -147,6 +150,7 @@ public static class ScheduleViews
         return new(levels,rows.ToImmutable(),Cells(sides,pieces),split?Cells(sides,[..pieces.Where(piece=>piece.End<=valuationAt)]):null,
             split?Cells(sides,[..pieces.Where(piece=>piece.End>valuationAt)]):null,deliveredLeaves,leaves,valuationAt)
             {UnassessedDays=Unassessed(pieces),ProgressBasis=independentIntervals?"native_schedule_rows_v1":null,
+             SwingRights=sides.All(s=>s.SwingRights.IsEmpty)?default:[..sides.SelectMany(s=>s.SwingRights).DistinctBy(s=>s.Right)],
              Groups=sides.All(s=>s.ExerciseGroups.IsEmpty)?default:[..sides.SelectMany(s=>s.ExerciseGroups).Distinct().OrderBy(g=>g.Right).ThenBy(g=>g.From)]};
     }
 
@@ -208,6 +212,7 @@ public static class ScheduleViews
                 }
                 var selected=ScheduleSelectedQuantity.Read(side,guard.Output,cell);
                 if(selected is not null)foreach(var day in selected.Days)if(!selectedDays.Add(day))throw Error("Each selected day must name one shown contribution.");
+                if(selected?.Tags.Contains(RetainedSwingValuation.Undecided)==true)contingent=ContingentTag;
                 var selectionTags=selected?.Tags.Aggregate(0,(mask,tag)=>mask|1<<Array.IndexOf(Tags,tag));
                 if(cash.Presence[cell]!=ScheduleCellPresence.Resolved&&side.Program.EndedWholeGasDay(guard.Output,cell,evaluation.Context.ValuationAt))
                 {

@@ -344,10 +344,8 @@ def main():
                 from gas_pricing_fixture import add_fixture as add_pricing_fixture
                 reference,market,security,manifest=add_pricing_fixture(reference,market,security,manifest,exercise_months=args.gas_exercise_check,imbalance_days=args.gas_imbalance_check)
             if args.gas_swing_check:
-                from delivery_quantity_fixture import add_fixture as swing_location
-                reference,market,security,manifest=swing_location(reference,market,security,manifest,
-                    price='3.10',prefix='synthetic_swing',number=95820,curve_name='Synthetic swing point',start_minute=555,
-                    months=(('2021-01-01','2021-02-01'),('2021-02-01','2021-03-01')))
+                from gas_swing_fixture import add_fixture as add_swing_fixture
+                reference,market,security,manifest=add_swing_fixture(reference,market,security,manifest)
             if args.gas_charges_check:
                 from check_gas_charges import add_quote_fixture, add_reference_fixture
                 reference,market,security,manifest=add_quote_fixture(reference,market,security,manifest)
@@ -361,6 +359,9 @@ def main():
         operating_predecessors=None
         query((ROOT/'db/bootstrap.sql').read_text())
         for migration in sorted((ROOT/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
+            if args.gas_swing_check and migration.name=='0405_gas_swing_point_periods.sql':
+                from check_gas_swing import period_predecessor
+                swing_period_predecessor=period_predecessor(query,migration)
             if args.gas_swing_check and migration.name=='0404_gas_swing_elections.sql':
                 from check_fact_anchor_upgrade import run_checks as check_swing_guard
                 check_swing_guard(query,migration,number='0404',guard='gas_swing_election_upgrade',
@@ -1245,7 +1246,7 @@ def main():
                         subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-pricing'],cwd=ROOT,env=env,check=True,timeout=300)
                 if args.gas_swing_check:
                     from check_gas_swing import run_checks as check_gas_swing
-                    check_gas_swing(url,query,manifest,swing_predecessor,run_worker)
+                    check_gas_swing(url,query,manifest,swing_predecessor,swing_period_predecessor,run_worker)
                 if args.gas_exercise_check:
                     from check_gas_exercise import run_checks as check_gas_exercise
                     def browse_exercise(suite,fixture):

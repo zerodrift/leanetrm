@@ -57,19 +57,16 @@ internal sealed class CurveMarkStore(Guid catalog)
         DateOnly.TryParseExact(text+"-01","yyyy-MM-dd",CultureInfo.InvariantCulture,DateTimeStyles.None,out var date)?date:throw Invalid();
     private static MarketDataException Invalid()=>new("curve_mark_input","Select exact curves and delivery months in yyyy-MM format.");
 
-    // Request marks only for curves that occur together in an undecided group. Groups with the same curve set share a read.
+    // Batch months with the same required curve set. A swing point needs its monthly volatility alone.
     internal async Task<RetainedGasInstrument> Bind(NpgsqlConnection connection,RetainedGasInstrument instrument,
         MarketSnapshot snapshot,PhysicalCashState? state,CancellationToken ct)
     {
-        if(instrument.Rights.IsEmpty)return instrument;
+        if(instrument.Rights.IsEmpty && instrument.SwingRights.IsEmpty)return instrument;
         if(state is null)throw new MarketDataException("gas_composition_input","Exercise valuation requires held quantities.");
-        var scope=instrument.ExerciseMarkInputs(snapshot,state);
+        var scope=instrument.RequiredMarkSets(snapshot,state);
         var volatilities=new HashSet<CurveVolatilityMark>();
         var correlations=new HashSet<CurveCorrelationMark>();
-        var groups=scope.GroupBy(i=>(i.Group,i.Month,i.Curve.Revision)).Select(g=>new
-        {
-            g.Key.Month,g.Key.Revision,Curves=g.Select(i=>i.Curve.Code).Distinct().Order(StringComparer.Ordinal).ToArray()
-        });
+        var groups=scope.Select(set=>new {set.Month,set.Curves[0].Revision,Curves=set.Curves.Select(c=>c.Code).ToArray()});
         foreach(var batch in groups.GroupBy(g=>(g.Revision,Curves:string.Join('/',g.Curves))))
         {
             var revision=batch.Key.Revision;
