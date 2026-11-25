@@ -49,7 +49,7 @@
 
 - [ ] Write failing disposable native checks for atomic multi-curve and multi-pair commands, one-publication/receipt counts, invalid/stale rollback, identical facts/older acknowledgement, exact legacy replay, source/authority denials, bounded history, temporal boundaries, owner-only status, absence versus denial and durable-coordinate recovery.
 - [ ] Run the focused preview and record the missing-function failure.
-- [ ] Implement with pinned predecessors and existing authority/commit conventions; editor reads bind certified market-only inputs and filter publication prefix AND known time. Leave valuation/risk readers untouched. History pages 50, selected value distinct from current head, no live head in historical mode.
+- [ ] Implement with pinned predecessors and existing authority/commit conventions; working editor reads register certified market-only inputs and historical reads bind them, both filtering publication prefix AND known time. Leave valuation/risk readers untouched. History pages 50, selected value distinct from current head, no live head in historical mode.
 - [ ] Run native checks plus existing gas exercise legacy checks; inspect diff and signed-off commit.
 
 ### Task 3: API setup, validation, review, publication and recovery

@@ -86,7 +86,9 @@ and working mode. No ReadTrades permission is needed. Capture authority deadline
 before waits and recheck sources and current authority at commit. Existing
 valuation reads and risk-worker lease restrictions remain unchanged.
 
-Use certified market-only read inputs. Both publication-prefix and known-time
+Use certified market-only read inputs: register them for a working read and
+bind them for a historical read. Historical binding deliberately suppresses
+write authority. Both publication-prefix and known-time
 predicates qualify facts; selected values additionally satisfy effective time.
 History includes known revisions and flags their effective eligibility. Selected
 value and current write head are separate. A later-effective head disables a

@@ -44,6 +44,7 @@ def main():
     parser.add_argument('--with-gas-operations-demo',action='store_true',help='Seed the synthetic basis example plus manual scheduling and imbalance records')
     parser.add_argument('--gas-operations-check',action='store_true',help='Qualify manual gas requests, acknowledgments and imbalance transfers')
     parser.add_argument('--gas-billing-check',action='store_true',help='Qualify final daily gas cash and retained corrections')
+    parser.add_argument('--curve-marks-check',action='store_true',help='Qualify atomic curve mark batches and certified market history')
     parser.add_argument('--gas-exercise-check',action='store_true',help='Qualify gas exercise right admission and retained exercise times')
     parser.add_argument('--gas-charges-check', action='store_true', help='Qualify independent gas charges and their retained payment rows')
     parser.add_argument('--gas-pricing-check',action='store_true',help='Qualify exact gas payment shares, parts, dates and named indexes')
@@ -150,7 +151,7 @@ def main():
         args.with_regional_seed=True
     if args.with_regional_seed and (args.example!='standard' or args.check and not args.regional_seed_check):
         parser.error('Use --with-regional-seed for the interactive standard preset or --regional-seed-check --check for qualification')
-    if args.ephemeral_context_check: args.check=True
+    if args.ephemeral_context_check or args.curve_marks_check: args.check=True
     if args.historical_pool_check: args.jobs_check=True
     if args.market_dates_benchmark_only:args.market_dates_reads_check=True
     if args.market_dates_reads_check:args.market_dates_check=True
@@ -393,6 +394,10 @@ def main():
             if migration.name=='0216_in_term_gas_lifecycle.sql':
                 from check_gas_in_term import upgrade_checks as check_in_term_upgrade
                 check_in_term_upgrade(query,migration)
+            if migration.name=='0401_curve_mark_editor.sql' and args.curve_marks_check:
+                from check_fact_anchor_upgrade import run_checks as check_curve_upgrade
+                check_curve_upgrade(query,migration,number='0401',guard='curve_mark_editor_upgrade',
+                                    signatures=('trading.record_curve_marks(uuid,jsonb,timestamptz,text)',))
             if migration.name=='0400_gas_charge_boundaries.sql' and args.gas_charges_check:
                 from check_fact_anchor_upgrade import run_checks as check_boundary_upgrade
                 check_boundary_upgrade(query,migration,number='0400',guard='gas_charge_boundary_upgrade',signatures=(
@@ -1159,6 +1164,9 @@ def main():
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,'facility':gas_demo_fixture}))
                     subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-basis-demo'],cwd=ROOT,env=env,check=True,timeout=300)
+            elif args.curve_marks_check:
+                from check_curve_marks import run_checks as check_curve_marks
+                check_curve_marks(query,manifest)
             elif args.gas_in_term_check:
                 from check_gas_in_term import run_checks as check_gas_in_term
                 def browse_in_term(fixture):

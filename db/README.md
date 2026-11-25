@@ -1818,3 +1818,21 @@ four existing functions are patched in place and keep their
 owners and privileges; a function that no longer reads as expected stops the
 migration. `options` joins the pages whose assistant guidance can be configured.
 It requires a qualified schema release.
+
+## Migration 0401 — atomic curve mark batches
+
+The market editor publishes up to 240 supplied volatility cells or correlation
+cells for one exact definition/reference source and effective instant. A changed
+batch appends one trading publication. Every successful command owns one
+actor-scoped receipt. An identical value at the same effective instant
+acknowledges its original revision, including after a correction. Each editor
+receipt records both the accepted revision and the chain head at publication.
+
+The existing single-curve and single-pair commands keep their receipt formats
+and share the private cell recorder with the batch command. Editor cells and
+history qualify facts by certified trading prefix and knowledge time. History
+labels each revision's effective eligibility. The editor checks market read
+authority, requires observation import authority for publication, and recovers
+an owned receipt from its recorded business date, cutoff and database lineage.
+The editor exposes bounded definer operations to the runtime role. The existing
+trade valuation and risk-worker reads retain their own authority boundaries.
