@@ -1,6 +1,6 @@
 # Physical gas booking and pre-delivery valuation
 
-## Imbalance cash-out (D453)
+## Imbalance cash-out (D454)
 
 An independent physical Side can carry a `daily_index_cashout_v1` pair of
 ordinary named daily index payments. Each gas day has a received `owed_to_us`
@@ -60,8 +60,8 @@ paid against the entry's opposite direction.
 There is no link to an owned operator balance: representing the same gas in both
 can double count it. Retired service terms may prevent a late final statement.
 Rolled balances, other cash-out pricing profiles, transport imbalances and
-accounting remain separate contracts. See [D453](decisions.md#d453--reported-gas-balances-supply-an-explicit-cash-out-pair)
-and [local verification](verification.md#imbalance-cash-out-d453).
+accounting remain separate contracts. See [D454](decisions.md#d454--reported-gas-balances-supply-an-explicit-cash-out-pair)
+and [local verification](verification.md#imbalance-cash-out-d454).
 
 ## Independent gas charges (D450)
 

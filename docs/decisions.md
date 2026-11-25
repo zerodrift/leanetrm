@@ -2983,7 +2983,7 @@ context, current authority and idempotent first outcomes apply throughout.
 
 No live pipeline submission, tariff interpretation, new portfolio imbalance
 instrument, automatic cash-out, invoice/payment execution or accounting is
-introduced by this manual consumer. D453 adds an explicit cash-out pair on a gas
+introduced by this manual consumer. D454 adds an explicit cash-out pair on a gas
 trade and a scoped financial read of its statement evidence; transfer cash remains
 outside the portfolio. Qualify the business oracles and complete independent
 review before publication.
@@ -7568,7 +7568,7 @@ The report offers no gas valuation policy. Books that hold independently owned
 gas are therefore reported only by a run that names its trades, and the
 refusal says so instead of asking for a policy the report cannot take.
 
-## D453 — Reported gas balances supply an explicit cash-out pair
+## D454 — Reported gas balances supply an explicit cash-out pair
 
 A gas composition may name `daily_index_cashout_v1` on an independent physical
 membership. It creates two ordinary named daily index payment entries, received
@@ -7639,7 +7639,7 @@ Paid time determines recognition, and knowledge time determines the selected
 revision. Opening and closing unassessed-day counts remain separate on P&L
 positions and totals. Joint risk samples and derivatives retain coverage per book.
 
-Migration 0401 stores the typed terms, admits the pair independently, provides
+Migration 0402 stores the typed terms, admits the pair independently, provides
 `security.read_gas_valuation_balances`, and records net settlement through
 `security.record_gas_cash_settlement`. The ticket has one required, unprefilled
 cash-out card and two exact native schedules. The Imbalance tab shows statement
@@ -7647,6 +7647,6 @@ heads, state, quantity, price and cash. No transfer cash, external payment or
 accounting action is performed. D339's operating-only statement rule is revised
 only for trades that explicitly book this pair. There is no automatic link to
 an owned operator balance; keeping both for the same gas can double count it.
-See [the contract](physical-gas-side.md#imbalance-cash-out-d453),
+See [the contract](physical-gas-side.md#imbalance-cash-out-d454),
 [the design](superpowers/specs/2026-11-24-imbalance-cashout-design.md) and
-[verification](verification.md#imbalance-cash-out-d453).
+[verification](verification.md#imbalance-cash-out-d454).

@@ -1,8 +1,8 @@
 # Identity and authorization foundation
 
-## Gas cash-out valuation evidence (D453)
+## Gas cash-out valuation evidence (D454)
 
-Migration 0401 grants `security.read_gas_valuation_balances` to runtime and risk
+Migration 0402 grants `security.read_gas_valuation_balances` to runtime and risk
 worker roles. This bounded security-definer operation requires `ReadTrades`,
 `ReadMarketData`, the visible exact trade/binding and its market sources, and a
 resolved financial context. It discloses only legal-entity-held service accounts

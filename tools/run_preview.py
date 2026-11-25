@@ -351,7 +351,7 @@ def main():
         operating_predecessors=None
         query((ROOT/'db/bootstrap.sql').read_text())
         for migration in sorted((ROOT/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
-            if args.gas_imbalance_check and migration.name=='0401_gas_imbalance_cashout.sql':
+            if args.gas_imbalance_check and migration.name=='0402_gas_imbalance_cashout.sql':
                 from check_gas_imbalance import upgrade_checks
                 upgrade_checks(query,migration)
             if args.structured_power_check and migration.name=='0356_operating_side_composition.sql':

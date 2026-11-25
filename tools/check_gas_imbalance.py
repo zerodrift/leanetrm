@@ -324,7 +324,7 @@ def worker_scope(c, query, manifest, context, booked, failures):
 
 def upgrade_checks(query, migration):
     from check_fact_anchor_upgrade import run_checks
-    run_checks(query, migration, number='0401', guard='gas_imbalance_upgrade', signatures=(
+    run_checks(query, migration, number='0402', guard='gas_imbalance_upgrade', signatures=(
         'security.write_gas_composition(uuid,jsonb,timestamptz,boolean)',
         'trading.request_side_calendar_policy(jsonb,integer)',
         'security.record_gas_cash_payment(uuid,jsonb,timestamptz)',

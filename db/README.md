@@ -21,7 +21,7 @@ application. See [current implementation](../docs/implementation.md) and
 
 Recent schema groups and their contracts:
 
-- [0401](migrations/0401_gas_imbalance_cashout.sql) retains a gas cash-out as two
+- [0402](migrations/0402_gas_imbalance_cashout.sql) retains a gas cash-out as two
   daily index payment entries. Financial reads resolve dated service accounts,
   statement heads and accepted transfers under business time and knowledge cutoff.
   A net settlement links immutable directional payments under one exact net fact.

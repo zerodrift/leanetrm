@@ -1,6 +1,6 @@
 # Delivery plan and acceptance criteria
 
-D453 implements reported-balance cash-out on a gas trade: paired daily index
+D454 implements reported-balance cash-out on a gas trade: paired daily index
 payments, explicit statement basis/netting, temporal evidence, unassessed
 subtotals, recorded net settlement and the ticket's Imbalance tab. This replaces
 the proposed scheduled-less-allocated balance building block with operator
@@ -8,8 +8,8 @@ statements. Other cash-out profiles, rolled balances on a trade and transport
 imbalances remain separate work. All eight implementation tasks and the
 independent review are complete; full gas, trading, managed and frontend
 verification passed. See the
-[contract](physical-gas-side.md#imbalance-cash-out-d453) and
-[local qualification](verification.md#imbalance-cash-out-d453).
+[contract](physical-gas-side.md#imbalance-cash-out-d454) and
+[local qualification](verification.md#imbalance-cash-out-d454).
 
 D452 makes each date of a whole-book P&L run prove that its books hold no
 independently owned gas, including a date that holds no trades. Over books that
@@ -78,7 +78,7 @@ explicit contracts. Local qualification is recorded in [verification](verificati
 D447 replaces the weighted-price-term design with independent payment entries.
 D450 adds lump-sum and capacity charge bases. Strip exercise across delivery
 months, other balance profiles and constrained rights remain separate work.
-D453 implements the daily-index cash-out profile from reported balances.
+D454 implements the daily-index cash-out profile from reported balances.
 
 D443 adds **New trade → Gas & LNG → Two-location gas** and **Facilities →
 Pipeline outlook**. Independent purchase and sale tickets can have different
