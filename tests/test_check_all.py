@@ -575,7 +575,7 @@ class CheckAllTests(unittest.TestCase):
         runs = [c for c in commands if '--project' in c and c[c.index('--project') + 1] == market]
         self.assertEqual([c[c.index('--project') + 2:] for c in runs],
                          [[], ['--', '--futures-options'], ['--', '--spread-options'], ['--', '--exercise-rights'],
-                          ['--', '--vol-surface'], ['--', '--calendar-policy'], ['--', '--payment-date-policy'],
+                          ['--', '--gas-swing'], ['--', '--vol-surface'], ['--', '--calendar-policy'], ['--', '--payment-date-policy'],
                           ['--', '--hybrid-monte-carlo-risk'],
                           *[['--', flag] for flag in ('--power-flat', '--power-atc', '--power-product-averages',
                                                       '--power-interval-quantities', '--ppa-sides')]])

@@ -7,7 +7,7 @@ using OpenEtrm.MarketData.Risk;
 using OpenEtrm.MarketData.Trading;
 using OpenEtrm.Shared.Numerics;
 
-internal static class GasSwingChecks
+internal static partial class GasSwingChecks
 {
     private static readonly DateOnly From = new(2041, 1, 30);
     private static readonly DateTimeOffset At = new(2041, 1, 29, 12, 0, 0, TimeSpan.Zero);
@@ -17,6 +17,7 @@ internal static class GasSwingChecks
 
     internal static void Run()
     {
+        ChoiceNumerics();
         Feasibility();
         IntegerBoundaries();
         RetainedIdentityAndAdmission();
