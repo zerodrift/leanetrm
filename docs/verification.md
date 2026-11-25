@@ -1,5 +1,37 @@
 # Local verification and continuous integration
 
+## Imbalance cash-out (D451)
+
+Local qualification uses synthetic trades, the checkout's own API and leased
+worker, and isolated stock PostgreSQL 18.7 databases on macOS arm64. Toolchain:
+.NET SDK 10.0.402, Python 3.13.7, Node 24.22.0 and Chrome. No production resources
+are used. Full gas, trading and managed group results and the independent
+adversarial review are pending at this checkpoint.
+
+Focused qualification passes both exact cash-out oracles: daily +1,190 and
+month-to-date −700, each with one unassessed day. Managed cases cover immediate
+predecessors, month boundaries, mid-month starts, account netting, exact units,
+absolute size, negative and zero prices, paid corrections and paid withdrawal.
+Native/API checks cover complete-pair admission, replay, financial readers
+without gas-operations access, SQLSTATE 42501 outside a worker lease, and pinned
+knowledge on ordinary and queued routes. Net settlement checks conserve +1,830
+and −640 into one +1,190 receipt, preserve its identity on retries and refuse a
+different second monthly settlement.
+
+The full frontend suite passes 2,363 tests with zero skips, using sequential
+files to avoid concurrent owned-browser startup contention on this host. Run
+from the repository root after the web build:
+
+```bash
+node --test --test-concurrency=1 web/tests/*.test.mjs
+```
+
+The dedicated browser workload passes five checks: empty required cash-out
+fields, booking, absent amounts on unknown days, signed daily statement values,
+and exact native Side inspection for both payments. Gas ticket checks pass
+231 cases. Retained overview and Blotter subtotal checks also pass. These are
+local results, not evidence of deployment or production qualification.
+
 ## Independent gas charges (D450)
 
 Local verification on 2026-11-24 at `e8580a79` uses synthetic trades with

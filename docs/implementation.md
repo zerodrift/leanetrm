@@ -1,5 +1,25 @@
 # Current implementation record
 
+## Imbalance cash-out (D451)
+
+A gas composition can book a pair of existing daily index payment Sides against
+its physical source's reported operator balance. Exact statement-basis and
+account-netting rules prepare a distinct `ReportedDayQuantity` occurrence input;
+the shared lifecycle values absolute quantities and represents unassessed cash
+as absent. Delivery and ordinary following payments retain their prior values.
+No-cash-out canonical identities remain unchanged.
+
+Migration 0401 stores the typed entry terms, independently admits the complete
+pair, exposes the scoped temporal financial statement read and records atomic
+net settlements linked to directional payments. The ticket authors one pair
+card, reopens two native schedule memberships and displays the backend's daily
+statement evidence in the Imbalance tab. Entry, trade, portfolio and retained
+risk reports carry incomplete-subtotal flags and deduplicated missing-day counts.
+
+Local qualification and remaining limits are recorded in
+[verification](verification.md#imbalance-cash-out-d451) and the
+[physical gas contract](physical-gas-side.md#imbalance-cash-out-d451).
+
 ## Independent gas charges (D450)
 
 Gas composition uses the existing fixed Side for both lump-sum and

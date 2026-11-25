@@ -1,5 +1,14 @@
 # Delivery plan and acceptance criteria
 
+D451 implements reported-balance cash-out on a gas trade: paired daily index
+payments, explicit statement basis/netting, temporal evidence, unassessed
+subtotals, recorded net settlement and the ticket's Imbalance tab. This replaces
+the proposed scheduled-less-allocated balance building block with operator
+statements. Other cash-out profiles, rolled balances on a trade and transport
+imbalances remain separate work. See the
+[contract](physical-gas-side.md#imbalance-cash-out-d451) and
+[local qualification](verification.md#imbalance-cash-out-d451).
+
 D450 implements independent fixed lump sums and capacity charges on a
 standalone physical gas composition. The owning membership accrues at its
 own gas-day ends, including outside physical delivery. The ticket, native
@@ -50,7 +59,8 @@ selection, ordinary queued risk, provenance and zero-after-payment balances have
 explicit contracts. Local qualification is recorded in [verification](verification.md).
 D447 replaces the weighted-price-term design with independent payment entries.
 D450 adds lump-sum and capacity charge bases. Strip exercise across delivery
-months, balance positions and constrained rights remain separate work.
+months, other balance profiles and constrained rights remain separate work.
+D451 implements the daily-index cash-out profile from reported balances.
 
 D443 adds **New trade → Gas & LNG → Two-location gas** and **Facilities →
 Pipeline outlook**. Independent purchase and sale tickets can have different

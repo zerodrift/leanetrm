@@ -2983,8 +2983,10 @@ context, current authority and idempotent first outcomes apply throughout.
 
 No live pipeline submission, tariff interpretation, new portfolio imbalance
 instrument, automatic cash-out, invoice/payment execution or accounting is
-introduced by this manual consumer. Qualify the business oracles and complete
-independent review before publication.
+introduced by this manual consumer. D451 adds an explicit cash-out pair on a gas
+trade and a scoped financial read of its statement evidence; transfer cash remains
+outside the portfolio. Qualify the business oracles and complete independent
+review before publication.
 
 ## D340 — Separate physical operations and instrument inspection
 
@@ -7462,3 +7464,77 @@ the same exact row and payment terms. See the
 [gas contract](physical-gas-side.md#independent-gas-charges-d450),
 [design](superpowers/specs/2026-11-23-charges-design.md) and
 [local verification](verification.md#independent-gas-charges-d450).
+
+## D451 — Reported gas balances supply an explicit cash-out pair
+
+A gas composition may name `daily_index_cashout_v1` on an independent physical
+membership. It creates two ordinary named daily index payment entries, received
+for `owed_to_us` and paid for `owed_by_us`, each with a fixed direction and a
+nonnegative absolute quantity. Each entry has its own spread. The pair shares
+its source, index, following-month payment day 1–28, statement basis, account
+netting and statement policy. Explicit calendar bindings remain required.
+The pair counts as two of seven payment Sides and eight total memberships.
+There is no new Side, quantity inferred from delivery, or forecast imbalance.
+
+The ten approved design calls are adopted.
+
+1. Readers with `ReadTrades`, `ReadMarketData` and access to the exact trade and
+   its sources may see the balance evidence used in valuation. Operating
+   screens keep their separate permissions. Workers need their active lease
+   and exact job scope. Missing authority refuses with SQLSTATE `42501`.
+2. The trade explicitly selects `daily_imbalance_v1` or
+   `month_to_date_balance_v1`, and `net_accounts_v1` or `each_account_v1`.
+   Net accounts adds the signed figures before splitting; each account splits
+   each figure before adding. Neither selection is inferred.
+3. Month-to-date differences need the immediately preceding calendar day's
+   assessed account balance. Only day 1 starts from zero. A mid-month term's
+   opening month is unassessed. A correction affects its day and the next day;
+   a gap cannot be bridged to an earlier statement.
+4. An unassessed day has no quantity, accrual or outstanding amount. Its
+   entry, trade, portfolio and risk value is a marked subtotal. Aggregate
+   counts identify each source/day once, not both directions twice.
+5. Withdrawal after payment gives `UnassessedPaid`: the payment remains a
+   fact and accrual stays unknown. An assessed correction to zero or a sign
+   change instead leaves an overpaid balance on the old direction.
+6. A net settlement is one immutable fact linked to the directional payments.
+   Explicit occurrence allocations must conserve its net amount and belong
+   to its month. Zero directional legs create no payment. Same-fact retries
+   return the existing settlement; a different second monthly fact refuses.
+7. Zero price is real zero. Negative index plus spread values with its sign;
+   remittance against that reversed amount is refused by the existing fixed
+   direction rule. This decision does not change that rule.
+8. Only the explicitly booked cash-out enters trade valuation. Rolled gas
+   balances remain in the owned operator-balance product. Transfer cash is
+   still outside the portfolio.
+9. Before a gas day ends its imbalance input is `not_applicable`, with no
+   quantity or amount. After it ends, an eligible statement with an unpublished
+   index uses a labelled price forecast; publication earns the cash.
+10. Statement quantities are absolute in the account's exact native unit.
+    Doubling contract size leaves the cash-out unchanged.
+
+Account identity and service coverage are resolved under business time and the
+knowledge cutoff for each gas day. Select the latest visible statement revision
+first, then apply final-only or provisional-and-final policy. A withdrawn or
+ineligible head never revives an older statement. All in-scope accounts must
+be assessed. Current balance uses the existing reported balance plus accepted
+movements not already included. An accepted transfer makes a month-to-date
+month ambiguous and refuses with `gas_imbalance_transfer`.
+
+The gas adapter prepares neutral `ReportedDayQuantity` inputs. The Instrument
+supplies them through each Side occurrence to the shared physical lifecycle.
+Delivery selection and ordinary payments keep their prior behavior. Terms are
+in economic identity; facts remain trade-owned and temporally resolved. An
+Instrument without cash-out terms keeps its canonical identity. Statement-only
+value changes remain in P&L explain's residual.
+
+Migration 0401 stores the typed terms, admits the pair independently, provides
+`security.read_gas_valuation_balances`, and records net settlement through
+`security.record_gas_cash_settlement`. The ticket has one required, unprefilled
+cash-out card and two exact native schedules. The Imbalance tab shows statement
+heads, state, quantity, price and cash. No transfer cash, external payment or
+accounting action is performed. D339's operating-only statement rule is revised
+only for trades that explicitly book this pair. There is no automatic link to
+an owned operator balance; keeping both for the same gas can double count it.
+See [the contract](physical-gas-side.md#imbalance-cash-out-d451),
+[the design](superpowers/specs/2026-11-24-imbalance-cashout-design.md) and
+[verification](verification.md#imbalance-cash-out-d451).
