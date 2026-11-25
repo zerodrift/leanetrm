@@ -20,6 +20,13 @@ Net cash settlement uses the existing authorized gas cash-payment operation
 inside one transaction, with immutable settlement links, exact occurrence/month
 checks, conservation and idempotent command/fact receipts. It records internal
 facts only and does not execute an external payment.
+Direct settlement reads require runtime financial authority, visible trade
+ownership, the settlement's paid instant and its knowledge receipt. Workers have
+no direct settlement-table grant; their valuation reads use the bounded scope.
+Cash-out P&L checks financial authority before and after reading the native
+payment ledger and requires exact agreement with the held payment allocations.
+The balance and accounting reads share `security.require_gas_cashout_binding`,
+which checks the exact binding, current financial authority and worker lease.
 
 Status: current security persistence, scoped role templates and PostgreSQL RLS are
 implemented locally and tested in disposable resources. The private pilot has

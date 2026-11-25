@@ -10,6 +10,7 @@ from preview_fixture import CURRENCY
 
 
 def run_checks(url, query, manifest, run_worker, admin_load):
+    failures = []
     c = PreviewClient(url)
     c.bootstrap()
     c.call('profile', dict(profile='trader'))
@@ -169,6 +170,10 @@ def run_checks(url, query, manifest, run_worker, admin_load):
     assert same['settlementId'] == settled['settlementId']
     amounts = json.loads(query(f"SELECT jsonb_agg(jsonb_build_array(p.slot,p.amount::text) ORDER BY p.slot) FROM trading.gas_cash_settlements s JOIN trading.gas_cash_payments p ON p.catalog_id=s.catalog_id AND p.id IN(s.to_us_payment_id,s.by_us_payment_id) WHERE s.id='{settled['settlementId']}'"))
     assert amounts == [[1, '1830'], [2, '-640']], amounts
+    # A known receipt cannot be disclosed as a settlement before its paid instant.
+    for instant, expected in [('2021-01-05T00:00:00Z', '0'), ('2021-01-05T08:00:00Z', '1')]:
+        visible = runtime_query(query, manifest, read_binding(at=instant) + f"SELECT count(*) FROM trading.gas_cash_settlements WHERE id='{settled['settlementId']}';").splitlines()[-1]
+        if visible != expected: failures.append(f"settlement business time: {instant}: expected {expected}, got {visible}")
     try:
         settle({**net, 'operationId': str(uuid4()), 'amount': '1200', 'toUs': [dict(occurrence=0, amount='910'), dict(occurrence=1, amount='930')]})
     except RuntimeError as error:
@@ -225,6 +230,49 @@ def run_checks(url, query, manifest, run_worker, admin_load):
     c.call('date-schedules/context', dict(effectiveOn='2021-01-05', mode='current'))
     earlier_business = {**after, 'snapshotId': initial_frame(c.call('workspace'), '2021-01-02')['id']}
     assert all(not day['accounts'] for day in read(earlier_business, at='2021-01-02T08:00:00Z')[0]['days'])
+    # P&L includes complete recorded cash, with quantity-only changes in residual.
+    def pnl_checks():
+        nonlocal after
+        terms, position, owner, version = load_pair('pnl', 'daily_imbalance_v1')
+        original = after
+        later = {**after, 'snapshotId': next(frame['id'] for frame in c.call('workspace')['frames'] if frame['at'].startswith('2021-01-15T08:'))}
+        policies = c.call('portfolio/pnl/policies')
+        endpoint = lambda context: dict(snapshotId=context['snapshotId'], convention='trading_workspace_v1', knowledgeMode='at')
+        def pnl():
+            cutoff = c.call('gas/quantities/read', dict(context=later, tradeId=position['tradeId'], selectionPolicy='operational_projection_v1'))['context']['knownAt']
+            request = dict(opening=endpoint(original), closing=endpoint(later), knownAt=cutoff, bookIds=[], portfolioIds=[], tradeIds=[position['tradeId']],
+                accountingPolicy=policies['accounting'], attributionPolicy=policies['attribution'], factorPolicy=policies['factors'], factorBump=policies['factorBump']['offered'],
+                time=dict(mode='opening_to_closing_clock_v1', policy=policies['clockPolicy'], clock=None))
+            c.call('profile', dict(profile='risk'))
+            try:
+                return c.call('portfolio/pnl/run', request, timeout=300)['report']
+            finally:
+                c.call('profile', dict(profile='trader'))
+        missing = pnl()['totals'][0]['values']
+        assert missing['incomplete'] and missing['openingUnassessedDays'] == missing['closingUnassessedDays'] == 1, missing
+        write('statement', dict(accountId=owner['accountId'], serviceVersionId=version, externalReference='synthetic-pnl-2021-01-04', expectedPreviousId=None,
+            balance='0', status='final', reportedAt='2021-01-05T00:00:00Z', includedMovementId=None, evidence='Synthetic complete cash-out'), '2021-01-04', position['tradeId'])
+        try:
+            after = later
+            # The exact native statement identity is retained by the statement table.
+            previous_id = query(f"SELECT id FROM trading.gas_balance_statements WHERE account_id='{owner['accountId']}' AND day='2021-01-01' ORDER BY revision DESC LIMIT 1")
+            write('statement', dict(accountId=owner['accountId'], serviceVersionId=version, externalReference='synthetic-pnl-2021-01-01', expectedPreviousId=previous_id,
+                balance='200', status='final', reportedAt='2021-01-15T00:00:00Z', includedMovementId=None, evidence='Synthetic later effective correction'), trade_id=position['tradeId'])
+            values = pnl()['totals'][0]['values']
+            assert values['residual']['amount'] == '-300' and values['economicPnl']['amount'] == '-300' and not values['incomplete'], values
+            for amount in ['900', '600']:
+                cash = dict(operationId=str(uuid4()), tradeId=position['tradeId'], expectedRevision=1, slot=1, businessKey='synthetic-pnl-cash',
+                    paidAt='2021-01-06T01:00:00Z', currency=CURRENCY, amount=amount, allocations=[dict(occurrence=0, amount=amount)])
+                runtime_query(query, manifest, f"SELECT security.record_gas_cash_payment('{cat}','{json.dumps(cash)}'::jsonb,'2021-01-15T08:00:00Z');")
+                values = pnl()['totals'][0]['values']
+                assert values['cash']['amount'] == amount and values['economicPnl']['amount'] == '-300', values
+        finally:
+            after = original
+        print('PASS cash-out P&L: explicit endpoint coverage, quantity residual and complete revised cash ledger', flush=True)
+    try:
+        pnl_checks()
+    except (AssertionError, RuntimeError, KeyError) as error:
+        failures.append('cash-out P&L: ' + str(error))
     # Operating permissions remain separate. Financial authority alone discloses
     # the exact same statement heads; losing trade authority refuses, not [] .
     query(f"DELETE FROM security.role_grants WHERE principal_id='{principal}' AND role_id IN(SELECT id FROM security.roles WHERE code IN('gas_operator','gas_service_admin'))")
@@ -233,11 +281,12 @@ def run_checks(url, query, manifest, run_worker, admin_load):
     assert financial_only['incomplete'] and financial_only['unassessedDays'] == 1
     denied = f"DO $test$ BEGIN BEGIN PERFORM security.read_gas_valuation_balances('{cat}','{trade}','{binding}');RAISE EXCEPTION 'read_disclosed';EXCEPTION WHEN insufficient_privilege THEN NULL;END;END$test$;"
     runtime_query(query, manifest, read_binding() + f"RESET SESSION AUTHORIZATION;DELETE FROM security.role_grants WHERE principal_id='{principal}';SET LOCAL SESSION AUTHORIZATION preview_runtime;" + denied, commit=False)
-    worker_scope(c, query, manifest, before, booked)
+    worker_scope(c, query, manifest, before, booked, failures)
+    assert not failures, "\n".join(failures)
     print('PASS cash-out native booking: complete immutable pair, replay, independent refusals and scoped statement heads', flush=True)
 
 
-def worker_scope(c, query, manifest, context, booked):
+def worker_scope(c, query, manifest, context, booked, failures):
     cat, trade, binding = manifest['catalogId'], booked['tradeId'], booked['instrumentId']
     reader = f"SELECT security.read_gas_valuation_balances('{cat}','{trade}','{binding}');"
     denied = f"DO $test$ BEGIN BEGIN PERFORM security.read_gas_valuation_balances('{cat}','{trade}','{binding}');RAISE EXCEPTION 'read_disclosed';EXCEPTION WHEN insufficient_privilege THEN NULL;END;END$test$;"
@@ -259,6 +308,10 @@ def worker_scope(c, query, manifest, context, booked):
     def worker(statement):
         return query('BEGIN;SET LOCAL SESSION AUTHORIZATION preview_risk_worker;' + bind + statement + 'ROLLBACK;')
     assert len(json.loads(worker(reader).splitlines()[-1])) == 1
+    try:
+        worker("DO $test$ BEGIN BEGIN PERFORM id FROM trading.gas_cash_settlements;RAISE EXCEPTION 'settlement_disclosed';EXCEPTION WHEN insufficient_privilege THEN NULL;END;END$test$;")
+    except RuntimeError as error:
+        failures.append('worker settlement access: ' + str(error))
     for statement in [reader.replace(binding, str(uuid4())), reader.replace(trade, str(uuid4())), reader.replace(cat, str(uuid4()))]:
         # Inspect SQLSTATE in the native session instead of accepting any error.
         perform = statement.replace('SELECT ', 'PERFORM ', 1)
@@ -308,14 +361,16 @@ def route_values(c, context, body, booked, expected, missing, run_worker, queued
     assert Fraction(blotter['presentValue']) == sum(expected) and blotter['unassessedDays'] == missing and blotter['incomplete'] == bool(missing), blotter
     # The installed sensitivity request requires an explicit active factor.
     # Keep a one-unit future delivery beside the fully fixed cash-out; assertions
-    # still inspect the cash-out's own values and the whole portfolio coverage.
+    # still inspect the cash-out's own values and each book's distinct coverage.
     if not hasattr(c, '_cashout_probe'):
         probe = deepcopy(body)
         probe.update(operationId=str(uuid4()), profile='fixed_gas_composition_v1')
         probe.pop('imbalanceCashouts')
         probe['cashSides'] = []
+        probe['bookId'] = next(book['id'] for book in c.call('gas/catalog', context)['books'] if book['id'] != body['bookId'])
         probe['physicalSides'][0].update(deliveryFrom='2021-01-06', deliveryTo='2021-01-07', quantity='1')
         c._cashout_probe = c.call('gas/composition/book', probe)['tradeId']
+        c._cashout_probe_book = probe['bookId']
     c.call('profile', dict(profile='risk'))
     scope = dict(context=shared, bookIds=[], portfolioIds=[], tradeIds=[trade, c._cashout_probe])
     catalog = c.call('portfolio/risk/catalog', scope)
@@ -326,8 +381,11 @@ def route_values(c, context, body, booked, expected, missing, run_worker, queued
     result = c.call('portfolio/risk', request)
     assert result['unassessedDays'] == missing and result['incomplete'] == bool(missing), result
     for factor in result['factors']:
-        assert factor['totals'][0]['unassessedDays'] == missing
-        assert Fraction(factor['totals'][0]['values']['base']) == sum(expected) + Fraction('3.10')
+        totals = {total['bookId']: total for total in factor['totals']}
+        assert totals[body['bookId']]['unassessedDays'] == missing
+        assert Fraction(totals[body['bookId']]['values']['base']) == sum(expected)
+        assert totals[c._cashout_probe_book]['unassessedDays'] == 0
+        assert Fraction(totals[c._cashout_probe_book]['values']['base']) == Fraction('3.10')
         position = next(position for position in factor['positions'] if position['tradeId'] == trade)
         assert Fraction(position['values']['base']) == sum(expected)
         assert [Fraction(entry['base']) for entry in position['entries']] == expected
@@ -342,7 +400,19 @@ def route_values(c, context, body, booked, expected, missing, run_worker, queued
                 convention='absolute_curve_coordinate_parent_additive_v1')])]))}
     joint = c.call('portfolio/risk', joint_request)
     assert joint['unassessedDays'] == missing and joint['incomplete'] == bool(missing), joint
-    assert joint['joint']['baseTotals'][0]['unassessedDays'] == missing
+    def coverage(totals):
+        assert {total['bookId']: (total['unassessedDays'], total['incomplete']) for total in totals} == {
+            body['bookId']: (missing, bool(missing)), c._cashout_probe_book: (0, False)}, totals
+    coverage(joint['joint']['baseTotals'])
+    coverage(joint['joint']['samples'][0]['totals'])
+    derivative_request = {**joint_request, 'joint': dict(convention='portfolio_joint_risk_v1', scenarios=None,
+        derivatives=dict(convention='exact_central_half_nominal_double_v1', mixed=[], axes=[dict(id='first', bump=request['bumps'][0],
+            deltaTolerance=dict(absolute='0', relative='0'), gammaTolerance=dict(absolute='0', relative='0'))]))}
+    derivatives = c.call('portfolio/risk', derivative_request)
+    coverage(derivatives['joint']['baseTotals'])
+    assert len(derivatives['joint']['derivatives']) == 2
+    for derivative in derivatives['joint']['derivatives']:
+        coverage(derivative['totals'])
     if queued:
         job = c.call('portfolio/risk/jobs', dict(requestId=str(uuid4()), request=request))
         run_worker()

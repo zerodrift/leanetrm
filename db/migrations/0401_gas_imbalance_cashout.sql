@@ -216,12 +216,12 @@ BEGIN
   EXECUTE format('CREATE TRIGGER immutable_record BEFORE UPDATE OR DELETE ON trading.%I FOR EACH ROW EXECUTE FUNCTION market_data.guard_knowledge_receipt()',name);
  END LOOP;
 END$tables$;
-CREATE POLICY scoped_read ON trading.gas_cash_settlements FOR SELECT TO openetrm_runtime,openetrm_risk_worker USING(
+CREATE POLICY scoped_read ON trading.gas_cash_settlements FOR SELECT TO openetrm_runtime USING(
  security.trading_access(catalog_id,'ReadTrades') AND security.market_access(catalog_id,'ReadMarketData') AND
- security.trading_visible(catalog_id,publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00') AND EXISTS(
+ security.trading_visible(catalog_id,publication_order,paid_at) AND EXISTS(
   SELECT 1 FROM trading.gas_trade_revisions r WHERE(r.catalog_id,r.trade_id,r.instrument_id)=(gas_cash_settlements.catalog_id,gas_cash_settlements.trade_id,gas_cash_settlements.instrument_id)));
-CREATE POLICY worker_service ON trading.gas_cash_settlements AS RESTRICTIVE FOR SELECT TO openetrm_risk_worker USING(risk.worker_read());
-GRANT SELECT ON trading.gas_cash_settlements TO openetrm_runtime,openetrm_risk_worker;
+-- Workers consume the scoped payment/balance readers, never settlement-table rows.
+GRANT SELECT ON trading.gas_cash_settlements TO openetrm_runtime;
 
 CREATE FUNCTION trading.require_gas_cash_settlement() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog SET jit=off AS $$
 DECLARE total numeric;counted integer;
@@ -330,9 +330,10 @@ END$$;
 ALTER FUNCTION security.record_gas_cash_settlement(uuid,jsonb,timestamptz) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION security.record_gas_cash_settlement(uuid,jsonb,timestamptz) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION security.record_gas_cash_settlement(uuid,jsonb,timestamptz) TO openetrm_runtime;
-CREATE FUNCTION security.read_gas_valuation_balances(catalog uuid,trade uuid,binding uuid) RETURNS jsonb
+-- Balance evidence and cash accounting share the same exact financial boundary.
+CREATE FUNCTION security.require_gas_cashout_binding(catalog uuid,trade uuid,binding uuid) RETURNS trading.gas_trade_revisions
  LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog SET jit=off AS $function$
-DECLARE q security.request_contexts;head trading.gas_trade_revisions;job risk.jobs;result jsonb;
+DECLARE q security.request_contexts;head trading.gas_trade_revisions;job risk.jobs;
 BEGIN
  SELECT * INTO q FROM security.request_contexts WHERE backend_pid=pg_backend_pid()
   AND transaction_id=pg_current_xact_id_if_assigned() AND runtime_login=session_user AND expires_at>clock_timestamp();
@@ -358,6 +359,19 @@ BEGIN
   OR NULLIF(job.request->'tradeIds','null'::jsonb) IS NOT NULL AND job.request->'tradeIds' @> jsonb_build_array(trade) IS NOT TRUE)
  THEN RAISE EXCEPTION 'risk_job_scope' USING ERRCODE='42501';END IF;
  PERFORM security.require_gas_quantity_trade(catalog,trade,false);
+ RETURN head;
+END$function$;
+ALTER FUNCTION security.require_gas_cashout_binding(uuid,uuid,uuid) OWNER TO openetrm_security_owner;
+REVOKE ALL ON FUNCTION security.require_gas_cashout_binding(uuid,uuid,uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION security.require_gas_cashout_binding(uuid,uuid,uuid) TO openetrm_runtime,openetrm_risk_worker;
+
+CREATE FUNCTION security.read_gas_valuation_balances(catalog uuid,trade uuid,binding uuid) RETURNS jsonb
+ LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog SET jit=off AS $function$
+DECLARE q security.request_contexts;head trading.gas_trade_revisions;result jsonb;
+BEGIN
+ head=security.require_gas_cashout_binding(catalog,trade,binding);
+ SELECT * INTO STRICT q FROM security.request_contexts WHERE backend_pid=pg_backend_pid()
+  AND transaction_id=pg_current_xact_id_if_assigned() AND runtime_login=session_user AND expires_at>clock_timestamp();
  WITH sources AS MATERIALIZED(
   SELECT DISTINCT o.slot,o.id obligation_id,m.delivery_from,m.delivery_to
   FROM trading.gas_delivery_obligations o JOIN trading.gas_component_terms m
@@ -395,11 +409,7 @@ BEGIN
  ), slots AS(SELECT slot,jsonb_agg(jsonb_build_object('day',day,'accounts',accounts) ORDER BY day) days FROM day_accounts GROUP BY slot)
  SELECT coalesce(jsonb_agg(jsonb_build_object('slot',slot,'days',days) ORDER BY slot),'[]') INTO result FROM slots;
  -- Recheck current authority and the active lease immediately before disclosure.
- PERFORM security.require_gas_quantity_trade(catalog,trade,false);
- IF security.gas_component_sources_visible(catalog,binding) IS NOT TRUE
-  OR pg_has_role(session_user,'openetrm_risk_worker','MEMBER') AND NOT risk.worker_read()
- THEN RAISE EXCEPTION 'gas_balance_denied' USING ERRCODE='42501';END IF;
- IF job.id IS NOT NULL THEN PERFORM risk.bound_lifecycle_reader();END IF;
+ PERFORM security.require_gas_cashout_binding(catalog,trade,binding);
  RETURN result;
 END$function$;
 ALTER FUNCTION security.read_gas_valuation_balances(uuid,uuid,uuid) OWNER TO openetrm_security_owner;

@@ -48,7 +48,7 @@ public sealed class PhysicalCashState:IBindingValuationState
     }
     // Paid is only ever recorded against cash that has started to accrue: there is no prepayment.
     // Returns the visible paid total and the latest visible payment instant.
-    internal (ExactMoney Total,DateTimeOffset? Last) Paid(int slot,int occurrence,MarketSnapshot snapshot,ExactMoney accrued,bool accruing,ExactMoney? contractAmount=null,bool selectedQuantity=false)
+    internal (ExactMoney Total,DateTimeOffset? Last) Paid(int slot,int occurrence,MarketSnapshot snapshot,ExactMoney accrued,bool accruing,ExactMoney? contractAmount=null,bool selectedQuantity=false,ExactMoney? recordedDirection=null)
     {
         var total=ExactMoney.Parse("0",accrued.Currency);DateTimeOffset? last=null;
         foreach(var payment in VisiblePayments(snapshot).Where(p=>p.Slot==slot&&p.Occurrence==occurrence))
@@ -56,7 +56,7 @@ public sealed class PhysicalCashState:IBindingValuationState
             if(!accruing)throw new MarketDataException("payment_state","A payment requires at least one ended gas day of its cash occurrence.");
             // A selected quantity can correct accrued cash to zero. Its retained price and
             // contractual amount still establish payment direction; cash is never rescaled.
-            var basis=selectedQuantity&&accrued.CompareTo(ExactMoney.Parse("0",accrued.Currency))==0?contractAmount??accrued:accrued;
+            var basis=recordedDirection??(selectedQuantity&&accrued.CompareTo(ExactMoney.Parse("0",accrued.Currency))==0?contractAmount??accrued:accrued);
             CashAllocationBalance.RequireDirection(basis,payment.Amount);total=total.Add(payment.Amount);
             if(last is null||payment.PaidAt>last)last=payment.PaidAt;
         }
@@ -347,9 +347,10 @@ public static class PhysicalLifecycle
                     continue;
                 }
                 var accrued=contractAmount.Scale(fractions.Ended);
-                var paymentDirection=reported is not null&&contractAmount.CompareTo(zero)==0
-                    ?ExactMoney.FromFraction(heldFactor.Numerator.Sign,1,currency):contractAmount;
-                var(paid,paidAt)=state.Paid(slot,occurrence,snapshot,accrued,ended>0,paymentDirection,follows||reported is not null);var outstanding=accrued.Subtract(paid);
+                // A later fixing can cross zero. The recorded cash fact keeps its
+                // booked membership direction, independently of the corrected price.
+                var recordedDirection=reported is null?null:ExactMoney.FromFraction(heldFactor.Numerator.Sign,1,currency);
+                var(paid,paidAt)=state.Paid(slot,occurrence,snapshot,accrued,ended>0,contractAmount,follows||reported is not null,recordedDirection);var outstanding=accrued.Subtract(paid);
                 if(due)RequireOutside(contribution);
                 // Not yet due: the row's own discount factor, PV over amount from this one evaluation.
                 var value=due?zero:Held(member,contribution.PresentValue);
@@ -394,7 +395,7 @@ public static class PhysicalLifecycle
         if(!accruing)return SettlementState.Remaining;
         var zero=ExactMoney.Parse("0",accrued.Currency);var sign=accrued.CompareTo(zero);
         if(paid.CompareTo(zero)==0)return sign==0?SettlementState.NoAmountDue:SettlementState.AccruedUnpaid;
-        if(sign==0)return SettlementState.Overpaid;
+        if(sign==0||paid.CompareTo(zero)!=sign)return SettlementState.Overpaid;
         return (paid.CompareTo(accrued)*sign) switch{<0=>SettlementState.PartPaid,0=>SettlementState.Paid,_=>SettlementState.Overpaid};
     }
     private static MarketDataException Unsupported(string message)=>new("physical_lifecycle_unsupported",message);

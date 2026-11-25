@@ -138,9 +138,18 @@ internal static class GasImbalanceLifecycleChecks
         Require(correctedPrice.Settlement == SettlementState.Overpaid, "A correction to a real zero price retains the paid amount as overpaid.");
         Equal(correctedPrice.Accrued, "0"); Equal(correctedPrice.Outstanding, "-900");
         Equal(correctedPrice.RealizedUnsettled, "-900");
-        Refused(() => f.Value(instrument, f.State(instrument, f.Balances("300", "300", "-200", null), [payment]),
-            priceOverride: (0, "-3")), "settlement_conservation");
-        Console.WriteLine("PASS imbalance paid revisions: same-sign adjustment, cross-direction correction, withdrawal and negative-price payment refusal");
+        foreach(var (balance,accrual,outstanding) in new[]{("300","-300","-1200"),("-100","0","-900")})
+        {
+            var corrected=f.Value(instrument,f.State(instrument,f.Balances(balance,"300","-200",null),[payment]),priceOverride:(0,"-1"));
+            var received=corrected.Rows.Single(row=>row.Slot==2&&row.DeliveryFrom==f.From);
+            Equal(received.Accrued,accrual);Equal(received.Paid,"900");Equal(received.Outstanding,outstanding);
+            Equal(received.RealizedUnsettled,outstanding);
+            Require(received.Settlement==SettlementState.Overpaid,"A signed fixing correction preserves the historical receipt as overpaid.");
+            if(balance=="-100")Equal(corrected.Rows.Single(row=>row.Slot==3&&row.DeliveryFrom==f.From).Accrued,"100");
+        }
+        Refused(()=>f.Value(instrument,f.State(instrument,f.Balances("300","300","-200",null),
+            [payment with{Amount=ExactMoney.Parse("-900",f.Quote.Currency)}]),priceOverride:(0,"-3")),"settlement_conservation");
+        Console.WriteLine("PASS imbalance paid revisions: quantity and fixing sign corrections, withdrawal, zero price and fixed-direction payment refusal");
     }
     private static void Equal(ExactMoney? actual, string? expected) => Require(actual?.ToExactString() == expected, $"Expected {expected ?? "unknown"}, received {actual?.ToExactString() ?? "unknown"}.");
     private static void Require(bool condition, string message) { if (!condition) throw new Exception(message); }

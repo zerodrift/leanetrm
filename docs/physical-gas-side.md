@@ -40,6 +40,14 @@ outstanding amount. Totals remain visible as incomplete subtotals, with counts
 at entry, trade, portfolio and risk level. The pair's missing day counts once in
 aggregate. Recorded payments survive withdrawal as `UnassessedPaid`; known
 corrections can create underpaid or overpaid balances, including a sign change.
+A corrected fixing that crosses zero also retains previously recorded cash in
+its booked direction. New payments still obey the fixed direction rule.
+
+P&L for a cash-out binding includes all of its native gas cash-payment revisions,
+with one stable flow per payment business key. Revised cash replaces prior cash;
+it is not added again. Quantity-only value changes remain in the residual.
+P&L shows separate opening and closing unassessed-day counts, and an incomplete
+zero subtotal remains visible. Joint risk carries coverage on each book subtotal.
 
 `security.record_gas_cash_settlement` accepts one net fact with explicit signed
 occurrence allocations for each direction in one month. It records the linked

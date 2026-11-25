@@ -7502,7 +7502,8 @@ The ten approved design calls are adopted.
    return the existing settlement; a different second monthly fact refuses.
 7. Zero price is real zero. Negative index plus spread values with its sign;
    remittance against that reversed amount is refused by the existing fixed
-   direction rule. This decision does not change that rule.
+   direction rule. A later fixing that crosses zero retains an already recorded
+   payment in its booked direction and shows the resulting overpaid balance.
 8. Only the explicitly booked cash-out enters trade valuation. Rolled gas
    balances remain in the owned operator-balance product. Transfer cash is
    still outside the portfolio.
@@ -7526,6 +7527,14 @@ Delivery selection and ordinary payments keep their prior behavior. Terms are
 in economic identity; facts remain trade-owned and temporally resolved. An
 Instrument without cash-out terms keeps its canonical identity. Statement-only
 value changes remain in P&L explain's residual.
+
+For a binding containing this pair, P&L reads the complete latest-known native
+gas cash-payment ledger, including ordinary payments and charges on that binding.
+The first revision of each payment business key identifies its cash flow; later
+revisions replace it. Occurrence allocations must conserve that same owned flow.
+Paid time determines recognition, and knowledge time determines the selected
+revision. Opening and closing unassessed-day counts remain separate on P&L
+positions and totals. Joint risk samples and derivatives retain coverage per book.
 
 Migration 0401 stores the typed terms, admits the pair independently, provides
 `security.read_gas_valuation_balances`, and records net settlement through

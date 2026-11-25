@@ -15,6 +15,9 @@ net settlements linked to directional payments. The ticket authors one pair
 card, reopens two native schedule memberships and displays the backend's daily
 statement evidence in the Imbalance tab. Entry, trade, portfolio and retained
 risk reports carry incomplete-subtotal flags and deduplicated missing-day counts.
+P&L for cash-out bindings carries the complete native gas payment ledger and
+separate opening/closing coverage. Revised payment facts replace their prior
+flow. Joint risk retains coverage on each book's samples and derivatives.
 
 Local qualification and remaining limits are recorded in
 [verification](verification.md#imbalance-cash-out-d451) and the

@@ -13,6 +13,12 @@ internal static class TradingPnlChecks
         AccountingFlow Cash(string value,DateTimeOffset at,DateTimeOffset known)=>new(Guid.NewGuid(),1,key,at,known,Money(value),AccountingFlowKind.EconomicCash);
         PnlAccountingPoint Point(DateTimeOffset at,string? value,ImmutableArray<AccountingFlow> cash)=>new(Guid.NewGuid(),Guid.NewGuid(),at,at,
             value is null?[]:[new(key,Money(value))],cash,PnlAccountingCoverage.Complete);
+        var missingOpening=Point(opening,"1190",[]) with{Positions=[new(key,Money("1190")){UnassessedDays=1}]};
+        var missingClosing=Point(closing,"890",[]) with{Positions=[new(key,Money("890")){UnassessedDays=2}]};
+        var incomplete=TradingPnlAccounting.Compare(missingOpening,missingClosing,TradingPnlAccounting.Version1).Positions.Single();
+        Equal(incomplete.EconomicPnl,"-300");
+        if(!incomplete.Incomplete||incomplete.OpeningUnassessedDays!=1||incomplete.ClosingUnassessedDays!=2)
+            throw new Exception("P&L subtotals retain both endpoint coverage counts independently of ledger completeness.");
         var paid=Cash("100",closing,closing);
         var settled=TradingPnlAccounting.Compare(Point(opening,"100",[]),Point(closing,"0",[paid]),TradingPnlAccounting.Version1).Positions.Single();
         Equal(settled.ValueMovement,"-100");Equal(settled.PeriodCash,"100");Equal(settled.EconomicPnl,"0");
