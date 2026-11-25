@@ -65,6 +65,12 @@ static class TradingBlotterChecks
         scaled["priceUnitReference"]!["multiplier"]="100";
         Require(TradingBlotter.Groups(Pivot(TotalsConvention,["instrumentType"],["fixedPriceMean"],PriceStatistics.MeanPolicy),[capacityPrice,scaled]).Count==2,"Quote multipliers are part of a price denomination.");
         Console.WriteLine("PASS price pivots partition by exact quote units independently of external capacity quantities");
+        var unknown=Position("synthetic-cashout","physical_gas","mmbtu","1190");unknown["unassessedDays"]=1;unknown["incomplete"]=true;
+        var other=Position("synthetic-other","physical_gas","mmbtu","-700");other["unassessedDays"]=2;other["incomplete"]=true;
+        var subtotal=TradingBlotter.Groups(Pivot(MoneyConvention,["instrumentType"],MoneyMeasures),[unknown,other]).Single();
+        Require(Text(subtotal,"presentValue")=="490"&&Count(subtotal,"unassessedDays")==3&&subtotal["incomplete"]!.GetValue<bool>(),
+            "A Blotter subtotal must retain its three unassessed days without changing its amount.");
+        Console.WriteLine("PASS Blotter subtotals retain the exact value and unassessed-day coverage");
         Validation();
         Partitions();
         Aggregation();

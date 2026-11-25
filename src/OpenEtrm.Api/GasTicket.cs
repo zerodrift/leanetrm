@@ -12,6 +12,7 @@ public sealed record TicketSideDraft(string Kind,string Code,ImmutableDictionary
 {
  [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public SideCalendarPolicyInput? CalendarPolicy { get; init; }
 }
+internal sealed record TicketScheduleEntry(string Code,string Owner,string Kind,string Name);
 public sealed record TicketDraft(string Product,int Version,ImmutableDictionary<string,string> Trade,ImmutableArray<TicketSideDraft> Sides)
 {
  [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public ImmutableArray<TicketExerciseRightDraft>? ExerciseRights{get;init;}
@@ -76,7 +77,7 @@ public static class GasTicket
   [new(["cash","fee","floating",Charge,Imbalance],GasCompositionInstrument.MaxCashSides),new([Physical,"cash","fee","floating",Charge,Imbalance],GasCompositionInstrument.MaxSides)],
   [new("net_cash","Net cash",null,"money",[]),new("payment_at","Payment date",null,"payment_date",[])],
   ["term","month","day"],[new("links","Quantity links"),
-   new("imbalance","Imbalance","Will compare each gas day's nominated and actual quantities, with the imbalance, its cash-out price and its amount.")],["new","booked","amend"]){RepeatableTerms=[GasExerciseTicket.Section]}));
+   new("imbalance","Imbalance")],["new","booked","amend"]){RepeatableTerms=[GasExerciseTicket.Section]}));
 
  static TicketDescription WithCalendars(TicketDescription description)=>description with{Sides=[..description.Sides.Select(kind=>kind with
   {CalendarPurposes=new(true,kind.Kind is "floating" or Imbalance,kind.Kind!=Physical)})]};
@@ -86,6 +87,18 @@ public static class GasTicket
 
  public static TicketSideKind SideKind(string role)=>Description.Sides.SingleOrDefault(kind=>Roles.GetValueOrDefault(kind.Kind)==role)??
   throw new MarketDataException("ticket_description",$"No {Description.Product} side kind books as role '{role}'.");
+
+ internal static ImmutableArray<TicketScheduleEntry> ScheduleEntries(ImmutableArray<GasCompositionRow> members)=>
+  [..members.Select(member=>ScheduleEntry(member.Code,member.Role,member.Balance))];
+ internal static TicketScheduleEntry ScheduleEntry(string code,string role,ReportedBalanceFollow? balance)
+ {
+  if(balance is null){var kind=SideKind(role);return new(code,code,kind.Kind,kind.Pill+" "+code);}
+  var suffix=balance.OwedToUs?".to_us":".by_us";
+  if(!code.EndsWith(suffix,StringComparison.Ordinal)||code.Length==suffix.Length)
+   throw new MarketDataException("ticket_description","A cash-out schedule must name its exact paired entry.");
+  var owner=code[..^suffix.Length];
+  return new(code,owner,"floating",owner+(balance.OwedToUs?" · Owed to us":" · Owed by us"));
+ }
 
  static TicketField Trade(string id,string label,string meaning,string type,string? choices=null,bool required=true)=>
   new(id,label,meaning,type,null,"editable",required,null,choices,[],null,null,null);

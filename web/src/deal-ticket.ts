@@ -1,14 +1,15 @@
+import {scheduleMembers} from './ticket-schedule-members.js';
 import {exerciseFieldKey,fieldVisible,termFieldVisible,termValue} from './ticket-model.js';
 import {sideNavigation} from './side-navigation.js';
 import {sideCalendar,referenceCalendarChoices,type SideCalendarPolicy} from './side-calendar.js';
 import {paymentDateInput,displayPaymentDate} from './payment-date.js';
 import {facilityAllocationTrack} from './facility-allocation-track.js';
-import type {ExerciseGroup,FacilityAllocationTrack,ScheduleView,TicketChoice,TicketDescription,TicketField,TicketLink,TicketSummary,TradeActions} from './ticket-types.js';
+import type {ExerciseGroup,ImbalanceReportRow,TicketScheduleEntry,FacilityAllocationTrack,ScheduleView,TicketChoice,TicketDescription,TicketField,TicketLink,TicketSummary,TradeActions} from './ticket-types.js';
 import {addSide,removeSide,type FieldValue,type TicketSide,type TicketState} from './ticket-model.js';
 import {numberText,resolvedUnit,scheduleGridData,scheduleTabs,sideKind,type ScheduleSide} from './schedule-grid.js';
 import {emptyGridLayout,renderDataGrid,sideColour,type GridHandle} from './data-grid.js';
 import {reasonOf} from './ticket-preview.js';
-import {exerciseStateText,measureLines,type GasMeasures} from './lifecycle-text.js';
+import {imbalanceStateText,incompleteText,exerciseStateText,measureLines,type GasMeasures} from './lifecycle-text.js';
 import {sideCardHeader} from './side-card.js';
 import {localTimeValue} from './user-time.js';
 import {renderInstrumentSides,requireInstrumentSideGroups,type InstrumentSideGroup} from './instrument-sides.js';
@@ -28,7 +29,7 @@ export type TicketEntry={side:string;day:string;fields:TicketField[];values:Reco
 // fieldErrors and choices are keyed by the field id for a trade field and by "<side code>.<field id>" for a side field. Under the chosen
 // level every schedule row is open but those in `closed`, the rows the person closed. quantityUnit is the unit the schedule's preview resolved,
 // and instant the page's formatter for the instants the ticket shows. links are the schedule's quantity links, and entry the day entry open, if any.
-export type TicketView={state:TicketState;sideLabels?:Readonly<Record<string,string>>;groupedEntry?:boolean;mode:'new'|'booked'|'amend';presentation?:'schedules'|'terms';actions:TradeActions|null;schedule:ScheduleView|null;quantityUnit:string|null;instant:(at:string)=>string;zone:string;previous:ScheduleView|null;summaries:TicketSummary[];
+export type TicketView={scheduleEntries?:TicketScheduleEntry[];imbalanceRows?:ImbalanceReportRow[];unassessedDays?:number;state:TicketState;sideLabels?:Readonly<Record<string,string>>;groupedEntry?:boolean;mode:'new'|'booked'|'amend';presentation?:'schedules'|'terms';actions:TradeActions|null;schedule:ScheduleView|null;quantityUnit:string|null;instant:(at:string)=>string;zone:string;previous:ScheduleView|null;summaries:TicketSummary[];
  links:TicketLink[];entry:TicketEntry|null;sideSchedule?:(host:HTMLElement,side:TicketSide)=>()=>void;facilityAllocations?:FacilityAllocationTrack[];sideGroups?:InstrumentSideGroup[];sideGroupsReason?:string|null;
  // A booked started-delivery gas trade's measures, with the currency its figures are in; none for any other trade.
  measures?:GasMeasures|null;currency?:string;groups?:ExerciseGroup[];exerciseAction?:(host:HTMLElement)=>void;
@@ -306,6 +307,25 @@ function entryForm(o:TicketView,e:TicketEntry,name:string){
  return node;
 }
 
+// Reported balances and assessed amounts are supplied by the backend; missing amounts stay absent.
+function imbalanceGrid(o:TicketView,content:HTMLElement){
+ const rows=o.imbalanceRows??[];
+ if(!rows.length){content.append(el('p','muted','This trade has no imbalance cash-out.'));return;}
+ const table=el('table','ticket-imbalance'),head=el('thead'),header=el('tr');
+ for(const label of ['Gas day','Entry','Reported balance','Statements','Day state','Quantity','Index','Price','Price state','Amount','Cash','Paid','Outstanding'])header.append(el('th',undefined,label));
+ head.append(header);table.append(head);const body=el('tbody');
+ for(const row of rows){
+  const tr=el('tr');tr.dataset.day=row.day;tr.dataset.entry=row.entry;
+  const amount=(value:string|null)=>value===null?'—':numberText(value);
+  const values:Record<string,string>={day:row.day,entry:row.balanceSide==='owed_to_us'?'Owed to us':'Owed by us',reported:amount(row.reportedBalance),
+   statements:row.statements.map(statement=>statement.status).join(', ')||'—',state:imbalanceStateText(row.state,row.reason),quantity:amount(row.quantity),
+   index:row.index,price:amount(row.price),priceState:row.published?'Published':'Forecast',amount:amount(row.amount),cash:row.cashState==='UnassessedPaid'?'Unassessed · payment recorded':row.cashState.replace(/([a-z])([A-Z])/g,'$1 $2'),paid:amount(row.paid),outstanding:amount(row.outstanding)};
+  for(const [key,value] of Object.entries(values)){const cell=el('td',undefined,value);cell.dataset.column=key;tr.append(cell);}
+  tr.title=row.statements.map(statement=>`${statement.accountId} · ${statement.statementId??'no statement'} · ${statement.evidence}`).join('\n');body.append(tr);
+ }
+ table.append(body);content.append(table);
+}
+
 // Each linked side's receipt, delivery and fuel over the term, exactly as the backend reports them.
 function linksGrid(o:TicketView,content:HTMLElement):GridHandle|undefined{
  if(!o.links.length){content.append(el('p','muted','No side takes its quantity from a link.'));return;}
@@ -408,13 +428,15 @@ export function renderTicket(host:HTMLElement,o:TicketView){
  if(d.sideGroupsRequired!==undefined&&typeof d.sideGroupsRequired!=='boolean')throw Error('Reread the ticket Side composition requirement.');
  const groups=o.sideGroups!==undefined||o.sideGroupsReason!==undefined||d.sideGroupsRequired&&o.mode==='booked'?requireInstrumentSideGroups(o.sideGroups,o.mode==='booked',o.sideGroupsReason):undefined;
  const fields=ticketFieldGroups(d);if(groups)requireSideGroupMappings(groups,fields);
- const named:ScheduleSide[]=sides.map(s=>({kind:s.kind,code:s.code,name:o.sideLabels?.[s.code]??sideName(d,s)}));
+ const cardNames:ScheduleSide[]=sides.map(s=>({kind:s.kind,code:s.code,name:o.sideLabels?.[s.code]??sideName(d,s)}));
+ const scheduled=scheduleMembers(o.state,o.scheduleEntries);
+ const named:ScheduleSide[]=scheduled.map(s=>({kind:s.kind,code:s.code,name:s.name??o.sideLabels?.[s.code]??sideName(d,s)}));
  // The ticket keeps its controls' states itself: a page's busy sweep leaves them as drawn.
  const root=el('div','deal-ticket');root.dataset.mode=o.mode;root.dataset.ownControls='';
  const notices=el('ul','ticket-notices');for(const text of o.state.notices){const n=el('li','ticket-notice',text);n.setAttribute('role','status');notices.append(n);}
  // Narrow containers stack the cards; these chips then jump between the sides.
  const chips=el('nav','ticket-chips');chips.setAttribute('aria-label','Sides');
- for(const s of named){
+ for(const s of cardNames){
   const chip=button('ticket-side-chip',s.name,()=>o.on.selectSide(s.code));chip.setAttribute('aria-pressed',String(o.selectedSide===s.code));
   chip.style.setProperty('--side-colour',sideColour(sideKind(d,s.kind).colour));chips.append(chip);
  }
@@ -438,6 +460,7 @@ export function renderTicket(host:HTMLElement,o:TicketView){
  const pricedGroups=o.groups??o.schedule?.groups;
  if(pricedGroups?.length)root.append(exerciseGroups(pricedGroups,o.currency));
  o.exerciseAction?.(root);
+ if(o.unassessedDays)root.append(el('p','ticket-incomplete',incompleteText(o.unassessedDays)));
  if(o.measures){if(!o.currency)throw Error('The trade measures require their currency.');root.append(measures(o.measures,o.currency,o.instant));}
  if(o.presentation!=='terms')root.append(panel);
  const planned=upcoming(o);
@@ -451,13 +474,14 @@ export function renderTicket(host:HTMLElement,o:TicketView){
    text.textContent=choiceText(text.dataset.choiceValue!,text.dataset.choiceUnit??null,choices[text.dataset.choiceKey!]);text.hidden=!text.textContent;
   }
  }
- const shows=o.tab==='instrument'||sides.some(s=>s.code===o.tab);
+ const shows=o.tab==='instrument'||scheduled.some(s=>s.code===o.tab);
  // A side added since the last preview has no values in its schedule yet; the grid draws the sides it holds.
  const previewed=named.filter(s=>o.schedule&&Object.keys(o.schedule.totals).some(key=>key.startsWith(`${s.code}.`)));
  const unpreviewed=named.find(s=>s.code===o.tab&&!previewed.includes(s));
  if(o.presentation==='terms')return {destroy:()=>host.replaceChildren(),updateBookedChoiceLabels};
- if(o.mode==='booked'&&o.sideSchedule&&sides.some(s=>s.code===o.tab))disposeSide=o.sideSchedule(content,sides.find(s=>s.code===o.tab)!);
+ if(o.mode==='booked'&&o.sideSchedule&&scheduled.some(s=>s.code===o.tab))disposeSide=o.sideSchedule(content,scheduled.find(s=>s.code===o.tab)!);
  else if(o.tab==='links')grid=linksGrid(o,content);
+ else if(o.tab==='imbalance')imbalanceGrid(o,content);
  else if(!shows)content.append(el('p','muted',`${d.tabs.find(t=>t.id===o.tab)?.label??o.tab} is not drawn in this ticket yet.`));
  else if(!o.schedule)content.append(el('p','muted','No schedule yet. Preview the trade to draw it.'));
  else if(unpreviewed)content.append(el('p','muted',`${unpreviewed.name} is not in the last preview yet.`));

@@ -201,3 +201,11 @@ test('shared gas ticket serialization omits empty rights and preserves exact sav
  const {repeatableTerms,...withoutTerms}=gas;
  assert.throws(()=>ticketOf(withoutTerms,retained),/exercise right/i);
 });
+
+test('a pair consumes the entry count declared by the backend',()=>{
+ const d={...description,sides:description.sides.map(kind=>kind.kind==='fee'?{...kind,entryCount:2}:kind)};
+ let state=addSide(newTicket(d),'cash');state=addSide(state,'fee');
+ assert.throws(()=>addSide(state,'cash'),/at most/);
+ assert.throws(()=>addSide(state,'fee'),/at most/);
+ assert.equal(state.sides.length,3);
+});

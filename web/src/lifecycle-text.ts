@@ -52,3 +52,16 @@ export function lifecycleLines(row:LifecycleRow,instant:(at:string|null)=>string
   row.finalDetermination!=null&&`Final determination: ${numberText(row.finalDetermination)} · accrual unchanged`,
   state.fulfillment&&`Fulfillment: ${words(state.fulfillment)}`,state.economicClass&&words(state.economicClass),state.coverage&&(measureTexts[state.coverage]??words(state.coverage))].filter((v):v is string=>!!v);
 }
+
+
+const imbalanceStates:Readonly<Record<string,string>>={assessed:'',unassessed:'no statement yet',not_applicable:'day not ended'};
+const imbalanceReasons:Readonly<Record<string,string>>={no_account:'no statement yet · no service account',statement_unavailable:'no eligible statement',preceding_day_unavailable:'preceding day unassessed',partial_first_month:'opening month unassessed',day_not_ended:'day not ended'};
+export function imbalanceStateText(state:string,reason?:string|null){
+ if(!Object.hasOwn(imbalanceStates,state))throw Error('The schedule returned an unknown imbalance state.');
+ if(reason&&!Object.hasOwn(imbalanceReasons,reason))throw Error('The schedule returned an unknown imbalance reason.');
+ return reason?imbalanceReasons[reason]:imbalanceStates[state];
+}
+export function incompleteText(days:number){
+ if(!Number.isSafeInteger(days)||days<0)throw Error('The valuation returned an invalid unassessed-day count.');
+ return days?`incomplete: ${days} unassessed ${days===1?'day':'days'}`:'';
+}

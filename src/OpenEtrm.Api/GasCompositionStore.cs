@@ -78,6 +78,7 @@ internal sealed record GasCompositionValue(string PresentValue,string Currency,s
  public int UnassessedDays=>Lifecycle?.UnassessedDays??0;
  public bool Incomplete=>UnassessedDays!=0;
  public ImmutableArray<GasImbalanceReportRow> ImbalanceRows{get;init;}=[];
+ public ImmutableArray<TicketScheduleEntry> ScheduleEntries{get;init;}=[];
  public CatalogueSource? Source{get;init;}
  [JsonIgnore]internal PhysicalLifecycleValue? Lifecycle{get;init;}
  [JsonIgnore]internal ImmutableArray<InstrumentEntryValue> EntryValues{get;init;}=[];
@@ -481,7 +482,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   // No contract-against-market measure is defined for these sides yet, so none is reported.
   var summaries=schedule is null?null:views!.Select(v=>(object)new{side=v.Code,billedQuantity=schedule.Totals[v.Code+".quantity"].Value,amount=schedule.Totals[v.Code+".amount"].Value,againstMarket=(string?)null}).ToArray();
   return new(total!.ToExactString(),members[0].Assignment.Quote.Currency.Code,unit,sides,links,schedule,summaries,refusal,members.ToImmutableDictionary(m=>m.Code,m=>m.Slot),
-   lifecycle is null?null:GasLifecycleMeasures.From(lifecycle,discounting)){Groups=groups,ImbalanceRows=imbalanceRows.ToImmutable(),Lifecycle=lifecycle,EntryValues=[..valued.Select(v=>new InstrumentEntryValue(v.Member.Slot,v.Amount){UnassessedDays=Unassessed(v.Member.Slot)})],Source=new(data.DefinitionRevision.RevisionId,data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId)};
+   lifecycle is null?null:GasLifecycleMeasures.From(lifecycle,discounting)){Groups=groups,ScheduleEntries=GasTicket.ScheduleEntries(members),ImbalanceRows=imbalanceRows.ToImmutable(),Lifecycle=lifecycle,EntryValues=[..valued.Select(v=>new InstrumentEntryValue(v.Member.Slot,v.Amount){UnassessedDays=Unassessed(v.Member.Slot)})],Source=new(data.DefinitionRevision.RevisionId,data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId)};
  }
  // A preview and a booking are held to the gas setup their context resolves (GasTicket.RequireSetup).
  async Task RequireSetup(NpgsqlConnection c,PreviewData data,GasCompositionRequest body,CancellationToken ct)=>GasTicket.RequireSetup(body.GasSetupId,(await gas.CurrentSetup(c,data,ct)).Id);

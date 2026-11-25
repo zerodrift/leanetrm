@@ -39,6 +39,16 @@ internal static class GasTicketChecks
             throw new Exception($"Expected ticket_input for {name}.");
         }
         void Equal(object? expected, object? actual, string what) { if (!Equals(expected, actual)) throw new Exception($"{what}: expected '{expected}', got '{actual}'."); }
+        Check("one cash-out card names its two native schedules explicitly",()=>{
+            var terms=GasCashoutTerms.Terms("daily_index_cashout_v1",true,"daily_imbalance_v1","net_accounts_v1","final_statement_balance_v1");
+            var received=GasTicket.ScheduleEntry("balance.to_us","imbalance_cashout",terms);
+            var paid=GasTicket.ScheduleEntry("balance.by_us","imbalance_cashout",terms with{OwedToUs=false});
+            Equal("balance",received.Owner,"received owner");Equal("balance",paid.Owner,"paid owner");
+            Equal("balance.to_us",received.Code,"received native code");Equal("balance.by_us",paid.Code,"paid native code");
+            Equal("floating",received.Kind,"payment schedule kind");Equal("balance · Owed to us",received.Name,"received name");
+            Equal("balance · Owed by us",paid.Name,"paid name");
+            Equal("RCT",GasTicket.ScheduleEntry("RCT","physical",null).Owner,"ordinary owner");
+        });
         Check("imbalance cash-out terms round trip and an absent pair preserves the wire request", () =>
         {
             var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
@@ -609,7 +619,7 @@ internal static class GasTicketChecks
             Equal("swing_daily_min,swing_daily_max,swing_range,swing_notice_deadline,nomination_cycle,nominating_party,heat_content,quality_spec", Soon(GasTicket.SideKind("physical").Fields), "soon physical fields");
             Equal("", string.Join(",", GasTicket.Description.Sides.Where(k => k.Soon is not null).Select(k => k.Kind)), "soon side kinds");
             Equal("volume", string.Join(",", GasTicket.Description.Sides.SelectMany(k => k.Columns).Where(c => c.Soon is not null).Select(c => c.Id)), "soon columns");
-            Equal("imbalance", string.Join(",", GasTicket.Description.Tabs.Where(t => t.Soon is not null).Select(t => t.Id)), "soon tabs");
+            Equal("", string.Join(",", GasTicket.Description.Tabs.Where(t => t.Soon is not null).Select(t => t.Id)), "soon tabs");
             if (TicketDescriptions.ViewColumns(GasTicket.SideKind("physical")).Any(c => c.Item1 == "volume")) throw new Exception("The soon volume column reached the schedule view.");
         });
         Check("a role without a side kind refuses", () =>

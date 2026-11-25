@@ -132,3 +132,10 @@ test('an explicitly selected pricing policy requires the backend report comparis
  assert.equal(opensAsCurrent({...saved,underStatedPricingPolicy:false,statedPricingPolicyId:'native-gas-v1'},'s1','native-gas-v1'),true);
  assert.equal(opensAsCurrent({...saved,statedPricingPolicyId:undefined},'s1','base'),false);
 });
+
+test('unassessed cash-out days mark the report as an incomplete subtotal once across factor parts',()=>{
+ const reports=[report([factor('jan',[total()])],{incomplete:true,unassessedDays:2}),report([factor('feb',[total()])],{incomplete:true,unassessedDays:2})];
+ const shown=reportPresentation(run(reports),'delta');
+ assert.equal(shown.state,'incomplete');assert.equal(shown.unassessedDays,2);
+ assert.throws(()=>reportPresentation(run([reports[0],{...reports[1],unassessedDays:3}]),'delta'),/coverage/);
+});

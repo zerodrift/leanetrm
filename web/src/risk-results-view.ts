@@ -1,3 +1,4 @@
+import {incompleteText} from './lifecycle-text.js';
 import {renderMonteCarlo,newMonteCarloView} from './monte-carlo-risk-view.js';
 import {node,table} from './risk-report-elements.js';
 import {renderJointResults,newJointView} from './joint-risk-results-view.js';
@@ -44,6 +45,7 @@ export function setupRiskResults(host:HTMLElement,zone:()=>string,reportUrl:(id:
   let view:ReturnType<typeof reportPresentation>;try{view=reportPresentation(current,metric,{offset:factorPage*64,limit:64});}catch(error){const errorNode=node('p',error instanceof Error?error.message:'This report cannot be displayed.');errorNode.setAttribute('role','alert');host.append(errorNode);return;}
   const head=node('div');head.className='risk-result-heading';
   const title=view.monteCarlo?(view.monteCarlo.request.hybrid?'Hybrid Monte Carlo VaR / ES':'Monte Carlo VaR / ES'):view.historical?'Historical simulation VaR / ES':view.parametric?'Parametric VaR / ES':view.joint?.kind==='scenarios'?'Joint scenario report':view.joint?'Selected Greeks and cross-gamma':'Sensitivity report';
+  if(view.unassessedDays)head.append(node('p',incompleteText(view.unassessedDays)));
   head.append(node('h3',view.state==='complete'?title:view.state==='incomplete'?title+' · incomplete coverage':view.state==='running'?'Risk run in progress':'Risk results unavailable'));
   const context=node('p');context.className='field-help';context.textContent=publicText(`${current.asOf?displayInstant(current.asOf,zone()):'Market time not recorded'}${current.context?.knownAt?` · known at ${displayInstant(current.context.knownAt,zone())}`:''} · ${current.parts.length} part${current.parts.length===1?'':'s'}`);head.append(context,node('p',current.setupText));host.append(head);
   const retained=current.parts.find(p=>p.job?.id)?.job?.id;

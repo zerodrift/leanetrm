@@ -1,3 +1,4 @@
+import {incompleteText} from './lifecycle-text.js';
 // What the Blotter desk shows: which backend groups and rows each tile, chart, group header and position row
 // presents, and in which words. It selects, orders and labels exact server values; it never adds, nets, converts
 // or infers them (AGENTS.md: TypeScript is presentation only).
@@ -14,7 +15,7 @@ import {excludedPositions,valuationNote,valuationReason,type ValuationReason} fr
 
 export type Reference={revision:{catalogId:string;revisionId:string};code:string};
 /** A position as the trading workspace reads it. */
-export type Holding={priceUnitReference?:import('./financial-provenance.js').PriceUnitReference|null;priceUnitLabel?:string|null;booking:Booking;commodity:{code:string;name:string};priceTick?:string;markTick?:string;fixedAmountFormat:DisplayPrecision;quoteMultiplier?:string;amountFormat:DisplayPrecision;
+export type Holding={unassessedDays?:number;incomplete?:boolean;priceUnitReference?:import('./financial-provenance.js').PriceUnitReference|null;priceUnitLabel?:string|null;booking:Booking;commodity:{code:string;name:string};priceTick?:string;markTick?:string;fixedAmountFormat:DisplayPrecision;quoteMultiplier?:string;amountFormat:DisplayPrecision;
   instrumentType:string;
   /** Whether the position has Side schedules to read, as the backend's registered schedule sources say. */
   sideSchedules:boolean;
@@ -157,7 +158,7 @@ function totalNote(total:string|null,excluded:number,reason:unknown,instrumentTy
 }
 function statedTotal(group:PivotGroup,measure:string){
   const value=amount(group,measure),excluded=excludedPositions(group.unvaluedPositions);
-  return {value,excluded,note:totalNote(value,excluded,group.valuationUnavailableReason,text(group,'instrumentType'))};
+  return {value,excluded,note:[totalNote(value,excluded,group.valuationUnavailableReason,text(group,'instrumentType')),incompleteText(group.unassessedDays===undefined?0:count(group,'unassessedDays'))].filter(Boolean).join(' · ')||null};
 }
 
 export type TileRow={currencyKey:string;currency:string;total:string|null;trades:number;excluded:number;note:string|null;byBook:{bookId:string;book:string;value:string|null;excluded:number}[]};
@@ -405,7 +406,7 @@ type Valuation={value:string;unavailable:null}|{value:null;unavailable:string};
 export type DeskRow={tradeId:string;revision:string;instrumentType:string;pill:'FUT'|'SWAP'|'HEAT'|'PPA'|'GAS'|'CRUDE'|'LNG'|'OPT'|'RIGHT'|'REC'|'TOLL'|'STOR';reference:string;
   market:string;commodity:string;commodityName:string;curve:string;delivery:string;deliveryFrom:string;deliveryTo:string;
   quantity:string|null;unit:string;quantityKey:string;side:string;exposure:'long'|'short'|'flat'|null;
-  price:string|null;priceLabel:'Executed'|'Fixed'|'Side'|'Fee'|'Premium'|'Strike';priceUnit:string|null;mark:string|null;measure:'P&L'|'PV'|'Value excl. overdue'|'Contractual PV'|'Unrealized + realized unsettled'|'Remaining scheduled plan PV'|'Remaining custody service PV'|'Remaining Transport rights and fee PV';currency:string;
+  price:string|null;priceLabel:'Executed'|'Fixed'|'Side'|'Fee'|'Premium'|'Strike';priceUnit:string|null;mark:string|null;measure:string;currency:string;
   /**
    * Why the position has no single quantity, fixed price or mark the backend states, where it has none for a reason of its own: a
    * scheduled swap holds them by period, and a swap valued by its settlement lifecycle states no curve mark.
@@ -543,7 +544,7 @@ export function positionRows(holdings:readonly Holding[],zone='UTC'):DeskRow[]{
     const markNote=valuation.unavailable!==null||mark!==null?null:type===instruments.heat_rate_call?'Model value':type===instruments.gas_storage?'Plan value':type===instruments.physical_gas_transport?'Rights and fee terms':type===instruments.physical_gas_park_custody?'Fee terms':type===instruments.physical_gas_park_loan?'Saved account mark':type===instruments.futures_option?(h.component==='premium'?'Premium cash':'No open lots'):(sidedRight||type===instruments.ppa||type===instruments.physical_gas||type===instruments.physical_crude||type===instruments.physical_lng)?'Independent side schedules':h.settlement==='Active'?'Settlement lifecycle':scheduledSwap?byPeriod:'Several marks';
     return {tradeId:h.tradeId,revision:h.revision,instrumentType:h.instrumentType,pill:type.pill,reference:h.tradeReference,
       market:h.marketLabel??curveName(h.curve),commodity:h.commodity.code,commodityName:h.commodity.name,curve:h.curve,delivery,deliveryFrom:h.deliveryFrom,deliveryTo:h.deliveryTo,
-      quantity:h.quantity,unit:h.unit,quantityKey:referenceKey(h.quantitySpecification),side,exposure,price,priceLabel:type.priceLabel,priceUnit:unitOfPrice,mark,measure:valueLabel(h),currency:h.currency,...valuation,
+      quantity:h.quantity,unit:h.unit,quantityKey:referenceKey(h.quantitySpecification),side,exposure,price,priceLabel:type.priceLabel,priceUnit:unitOfPrice,mark,measure:[valueLabel(h),incompleteText(h.unassessedDays??0)].filter(Boolean).join(' · '),currency:h.currency,...valuation,
       quantityNote,priceNote,markNote,severalCurves:projectsFromSeveralCurves(h),
       words:[h.tradeReference,h.instrumentReference,type.pill,delivery,...(quantityNote?[quantityNote]:[]),h.unit,side,...(priceNote?[priceNote]:[]),price===null&&priceNote===null?'No fixed price':[type.priceLabel,unitOfPrice].filter(Boolean).join(' · '),...(markNote?[markNote]:[]),
         valuation.unavailable===null?`${type.label} · ${h.currency}`:`Not valued ${valuation.unavailable}`].join(' ')};

@@ -289,6 +289,12 @@ def route_values(c, context, body, booked, expected, missing, run_worker, queued
     assert [Fraction(side['presentValue']) for side in value['sides']] == expected, value
     assert [side['incomplete'] for side in value['sides']] == [False, bool(missing), bool(missing)], value['sides']
     assert value['unassessedDays'] == missing and value['incomplete'] == bool(missing), value
+    ticket = c.call('tickets/trade', dict(context=context, tradeId=trade, bindingId=booked['instrumentId'], revision=1))
+    assert ticket['imbalanceRows'] == value['imbalanceRows']
+    assert ticket['unassessedDays'] == missing and ticket['incomplete'] == bool(missing)
+    assert ticket['scheduleEntries'] == value['scheduleEntries']
+    assert [(entry['code'], entry['owner']) for entry in ticket['scheduleEntries']] == [('gas', 'gas'), ('balance.to_us', 'balance'), ('balance.by_us', 'balance')]
+    assert set(ticket['sideSlots']) == {entry['code'] for entry in ticket['scheduleEntries']}
     assert value['schedule'] is not None, value.get('scheduleRefusal')
     day = next(row for row in value['schedule']['rows'] if row['key'] == '2021-01-04')
     if missing:
@@ -346,3 +352,10 @@ def route_values(c, context, body, booked, expected, missing, run_worker, queued
     c.call('profile', dict(profile='trader'))
     print('PASS cash-out routes: exact entry values, unknown days, incomplete totals, statement evidence and retained queued risk', flush=True)
     return value
+
+
+def browser_authority(query, manifest):
+    """Explicit operating authority for the synthetic browser operator."""
+    principal = query("SELECT principal_id FROM security.identity_bindings WHERE issuer='https://preview.invalid' AND subject='trader'")
+    for role in ['gas_operator', 'gas_service_admin']:
+        query(f"INSERT INTO security.role_grants SELECT '{uuid4()}','{principal}',id,'{manifest['tenantId']}','{manifest['workspaceId']}',clock_timestamp()-interval '1 day',clock_timestamp()+interval '1 hour',false FROM security.roles WHERE code='{role}'")

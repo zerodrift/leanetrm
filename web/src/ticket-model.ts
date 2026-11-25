@@ -119,7 +119,7 @@ export function addSide(s:TicketState,kind:string):TicketState{
  if(spec.soon)throw new Error(spec.soon);
  if(s.sides.filter(x=>x.kind===kind).length>=spec.max)throw new Error(`A ticket takes at most ${spec.max} ${kind} sides.`);
  for(const limit of s.description.sideLimits)
-  if(limit.kinds.includes(kind)&&s.sides.filter(x=>limit.kinds.includes(x.kind)).length>=limit.max)
+  if(limit.kinds.includes(kind)&&s.sides.filter(x=>limit.kinds.includes(x.kind)).reduce((sum,side)=>sum+(s.description.sides.find(k=>k.kind===side.kind)!.entryCount??1),0)+(spec.entryCount??1)>limit.max)
    throw new Error(`A ticket takes at most ${limit.max} ${limit.kinds.join(' and ')} sides together.`);
  return {...s,sides:[...s.sides,{kind,code:lowestFreeCode(s.sides,s.removed,kind),values:{}}]};
 }

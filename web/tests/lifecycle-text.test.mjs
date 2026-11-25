@@ -89,3 +89,15 @@ test('cash schedules show the supplied unrealized present value to come separate
  assert.ok(lifecycleLines(row({remaining:'0'}),instant).includes('To come (unrealized present value): 0'));
  assert.ok(!lifecycleLines(row({remaining:null}),instant).some(line=>line.startsWith('To come')));
 });
+
+test('reported balance states never label an unknown accrual as zero or paid',async()=>{
+ const {imbalanceStateText,incompleteText}=await import('../dist/lifecycle-text.js');
+ assert.equal(imbalanceStateText('assessed'),'');
+ assert.equal(imbalanceStateText('unassessed'),'no statement yet');
+ assert.equal(imbalanceStateText('not_applicable'),'day not ended');
+ assert.equal(imbalanceStateText('unassessed','preceding_day_unavailable'),'preceding day unassessed');
+ assert.equal(incompleteText(4),'incomplete: 4 unassessed days');
+ assert.equal(incompleteText(0),'');
+ const paid=lifecycleLines(row({lifecycle:{cash:'UnassessedPaid'},paid:'900',accrued:null,outstanding:null}),instant);
+ assert.ok(paid.includes('Paid: 900')&&!paid.some(text=>text.startsWith('Accrued:')||text.startsWith('Outstanding:')));
+});

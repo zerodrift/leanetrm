@@ -42,6 +42,16 @@ function gasChargeSection(member:GasInstrumentFacts['components'][number],facts:
   ['Daily quantity',`${denominator==='1'?numerator:`${numerator}/${denominator}`} ${terms.unit}`],['From',term('delivery_from')],['To · exclusive',term('delivery_to')],
   ['Payment day',term('payment_day')],['Payment convention',term('payment_convention')]]};
 }
+function gasCashoutRows(member:GasInstrumentFacts['components'][number],source:string|undefined):TermSection['rows']{
+ const missing=()=>Error('The cash-out Side is missing its retained terms.');
+ const choice=(field:string,words:Record<string,string>)=>{const value=member[field];if(typeof value!=='string'||!Object.hasOwn(words,value))throw missing();return words[value];};
+ if(!source||member.cashout_profile!=='daily_index_cashout_v1')throw missing();
+ return [['Side','Imbalance cash-out'],['Direction',Number(member.direction)===1?'Receive':'Pay'],['Quantity source',source+' · reported service-account balance'],
+  ['Balance side',choice('balance_side',{owed_to_us:'Owed to us',owed_by_us:'Owed by us'})],
+  ['A statement reports',choice('statement_basis',{daily_imbalance_v1:"That day's imbalance",month_to_date_balance_v1:'The month-to-date balance'})],
+  ['Several accounts',choice('account_netting',{net_accounts_v1:'Net them, then settle',each_account_v1:'Settle each on its own'})],
+  ['Statements used',choice('statement_policy',{final_statement_balance_v1:'Final only',reported_statement_balance_v1:'Provisional and final'})]];
+}
 export function gasInstrumentSections(f:GasInstrumentFacts,zone:string):TermSection[]{
  const quote=(p:GasInstrumentFacts['physical'][number]|undefined)=>p?.currency!=null&&p.unit!=null&&p.multiplier!=null?priceUnit({currency:String(p.currency),unit:String(p.unit),quoteMultiplier:String(p.multiplier)}):'Unavailable';
  if(!f.components.length)return [...f.physical.map(p=>({title:'Physical delivery',rows:[['Pipeline',String(p.pipeline_code)],['Zone',String(p.zone_code)],['Delivery point',String(p.point_code)],['Product',String(p.product_code)],['Direction',Number(f.head.direction)===1?'Receive':'Deliver'],['Delivery',`${p.delivery_from} to ${p.delivery_to} · exclusive`],['Quantity basis',friendly(f.head.quantity_basis)],['Quantity',`${f.head.quantity} ${p.unit}`],['Pricing reference',String(p.curve_name)]] as [string,string][]})),
@@ -51,11 +61,12 @@ export function gasInstrumentSections(f:GasInstrumentFacts,zone:string):TermSect
  return confirmations.concat(f.components.map<TermSection>(m=>{
   if(m.role==='charge')return gasChargeSection(m,f);
   const source=f.physical.find(s=>Number(s.slot)===Number(m.source_slot));
-  const cash:TermSection['rows']=[['Side',friendly(m.role)],['Direction',Number(m.direction)===1?'Receive':'Pay'],['Quantity source',String(f.components.find(s=>s.slot===m.source_slot)?.code??'Unavailable')],['Quantity stage',friendly(m.stage)]];
-  if(m.role==='indexed_consideration'){
+  const sourceCode=f.components.find(s=>String(s.slot)===String(m.source_slot))?.code;
+  const cash:TermSection['rows']=m.role==='imbalance_cashout'?gasCashoutRows(m,sourceCode==null?undefined:String(sourceCode)):[['Side',friendly(m.role)],['Direction',Number(m.direction)===1?'Receive':'Pay'],['Quantity source',String(sourceCode??'Unavailable')],['Quantity stage',friendly(m.stage)]];
+  if(m.role==='indexed_consideration'||m.role==='imbalance_cashout'){
    const index=f.indexedCash?.find(i=>Number(i.slot)===Number(m.slot));if(!index)throw Error('The indexed gas Side is missing its retained terms.');
    return{title:String(m.code),rows:[...cash,['Pricing index',index.index_code],['Observation convention',index.observation_convention],['Spread',index.spread],['Price unit',quote(source)],
-    ['Forecast projection',index.projection_id??'Assigned physical reference'],['Payment convention',index.payment_convention],['Payment day',String(index.payment_day)]]};
+    ['Forecast projection',m.role==='imbalance_cashout'?'Named index curve':index.projection_id??'Assigned physical reference'],['Payment convention',index.payment_convention],['Payment day',String(index.payment_day)]]};
   }
   const p=f.physical.find(p=>Number(p.slot)===Number(m.slot));const quantity:TermSection['rows']=m.independent_quantity!==null?[['Quantity',`${m.independent_quantity} ${p?.unit}`]]:[['Quantity source',String(f.components.find(s=>s.slot===m.source_slot)?.code??'Unavailable')],['Link formula',String(m.formula)],['Link fraction',String(m.fraction)]];return{title:String(m.code),rows:p?[
   ['Side','Physical delivery'],['Pipeline',String(p.pipeline_code)],['Zone',String(p.zone_code)],['Delivery point',String(p.point_code)],['Product',String(p.product_code)],

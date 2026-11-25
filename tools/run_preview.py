@@ -1181,6 +1181,11 @@ def main():
                 if args.gas_imbalance_check:
                     from check_gas_imbalance import run_checks as check_gas_imbalance
                     check_gas_imbalance(url,query,manifest,run_worker,admin_load_in_term)
+                    if args.browser_check:
+                        from check_gas_imbalance import browser_authority
+                        browser_authority(query,manifest)
+                        target=temporary/'browser-target.json';target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                        subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-imbalance'],cwd=ROOT,env=env,check=True,timeout=300)
                 if args.gas_charges_check:
                     from check_gas_charges import run_checks as check_gas_charges
                     def check_charge_boundary(terms):
