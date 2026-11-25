@@ -209,19 +209,45 @@ export function requireReview(v:unknown,batch:Batch):Review{
  }
  return v as Review;
 }
+// Compare the supported UTC wire instants at exact microsecond precision. Date
+// checks the calendar only, with the fraction kept outside its millisecond clock.
+function receiptInstant(value:string){
+ const [seconds,fraction='']=canonicalInstant(value).split('.');
+ if(fraction.length>6||seconds.startsWith('0000-')||seconds>='9999-12-31T00:00:00')return;
+ const calendar=new Date(seconds+'Z');
+ if(Number.isNaN(calendar.getTime())||calendar.toISOString().slice(0,19)!==seconds)return;
+ return `${seconds}.${fraction.padEnd(6,'0')}`;
+}
+
+// These patterns verify canonical evidence returned by the server. Draft values
+// are always sent verbatim for backend validation and normalization.
+function receiptValue(kind:MarkKind,value:string){
+ return kind==='volatility'?/^(?:10|[0-9](?:\.\d{0,11}[1-9])?)$/.test(value):
+  /^(?:0|-?1|-?0\.\d{0,11}[1-9])$/.test(value);
+}
+const ordinal=(a:string,b:string)=>a<b?-1:a>b?1:0;
+const receiptOrder=(a:CellKey,b:CellKey)=>ordinal(a.firstCurve,b.firstCurve)||
+ ordinal(a.secondCurve??'',b.secondCurve??'')||ordinal(a.month,b.month);
 export function requireReceipt(v:unknown,batch:Batch):Receipt{
  if(!shape(v,'policy ownerId operationId kind source effectiveAt reason cells')||v.policy!==batch.policy||v.ownerId!==batch.ownerId||
   v.operationId!==batch.operationId||v.kind!==batch.kind||v.reason!==batch.reason||!isSource(v.source)||sourceId(v.source)!==sourceId(batch.source)||
   !isUtcInstant(v.effectiveAt)||!sameInstant(v.effectiveAt,batch.context.asOf)||!array(v.cells,isReceiptCell)||
-  !matchingChanges(v.cells,batch,(cell,change)=>cell.value===change.value,cell=>cell.key))throw failure();
+  v.cells.length!==batch.changes.length)throw failure();
+ const effective=receiptInstant(v.effectiveAt);
+ if(!effective)throw failure();
+ const orderedChanges=[...batch.changes].sort(receiptOrder);
  const ids=new Set<string>();
- for(const cell of v.cells){
-  const head=cell.headAtPublication;
-  if(ids.has(cell.markId)||ids.has(head.markId))throw failure();
-  ids.add(cell.markId);ids.add(head.markId);
-  if(head.revision<cell.revision||cell.changed&&head.revision!==cell.revision||
-   head.revision===cell.revision&&(head.markId!==cell.markId||head.value!==cell.value||!sameInstant(head.effectiveAt,v.effectiveAt))||
-   head.revision>cell.revision&&head.markId===cell.markId)throw failure();
+ const maxRevision=2_147_483_647;
+ for(const [index,cell] of v.cells.entries()){
+  const change=orderedChanges[index],head=cell.headAtPublication,headEffective=receiptInstant(head.effectiveAt);
+  const acceptedId=cell.markId.toLowerCase(),headId=head.markId.toLowerCase();
+  const acceptedIsHead=head.revision===cell.revision;
+  if(keyId(cell.key)!==keyId(change)||cell.value!==change.value||!receiptValue(batch.kind,cell.value)||ids.has(acceptedId)||ids.has(headId)||
+   cell.revision>maxRevision||head.revision>maxRevision||head.revision<cell.revision||
+   !headEffective||headEffective<effective||!receiptValue(batch.kind,head.value)||
+   acceptedIsHead!==(acceptedId===headId)||acceptedIsHead&&(head.value!==cell.value||headEffective!==effective)||
+   cell.changed&&(!acceptedIsHead||cell.revision!==change.expectedRevision+1))throw failure();
+  ids.add(acceptedId);ids.add(headId);
  }
  return v as Receipt;
 }

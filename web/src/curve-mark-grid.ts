@@ -16,6 +16,7 @@ type GridOptions={
 /** The server's display addresses determine ordering and canonical mirror identities. */
 export function setupMarkGrid(host:HTMLElement,o:GridOptions){
  let buttons=new Map<string,HTMLButtonElement>(),openers=new Map<string,()=>void>(),cells:LayoutCell[]=[],active:Address|undefined;
+ let deferred:Parameters<typeof draw>|undefined;
  let editor:{input:HTMLInputElement;key:CellKey;address:Address;touched:boolean}|undefined;
  const matches=(a:Address,b:Address|undefined)=>!!b&&addressId(a)===addressId(b);
  const buttonAt=(at:Address)=>buttons.get(addressId(at));
@@ -32,12 +33,15 @@ export function setupMarkGrid(host:HTMLElement,o:GridOptions){
   input.replaceWith(buttonAt(address)!);
   if(commit&&touched)o.edited(key,input.value);
   else o.editing();
+  // A touched edit can draw newer state before the deferred draw.
+  if(deferred)draw(...deferred);
   if(refocus)buttonAt(following??address)?.focus();
  }
  function start(cell:LayoutCell,presented:string,initial?:string){
-  const button=buttonAt(cell.address);
-  if(!cell.key||!button||!o.mayEdit(cell))return;
+  if(!cell.key||!o.mayEdit(cell))return;
   if(editor)finish(true,undefined,false);
+  const button=buttonAt(cell.address);
+  if(!button)return;
   const input=element('input');
   input.type='text';input.inputMode='decimal';input.autocomplete='off';input.spellcheck=false;
   input.className='mark-cell-input';input.setAttribute('aria-label',`Edit ${button.getAttribute('aria-label')}`);
@@ -48,7 +52,13 @@ export function setupMarkGrid(host:HTMLElement,o:GridOptions){
   input.focus();
   if(initial===undefined)input.select();
   input.oninput=()=>{if(editor?.input===input)editor.touched=true;};
-  input.onblur=()=>{if(editor?.input===input)finish(true,undefined,false);};
+  input.onblur=event=>{
+   if(editor?.input!==input)return;
+   const target=event.relatedTarget;
+   const next=cells.find(cell=>buttonAt(cell.address)===target)?.address;
+   finish(true,undefined,false);
+   if(next&&target instanceof HTMLElement&&!target.isConnected)buttonAt(next)?.focus();
+  };
   input.onkeydown=event=>{
    if(event.key==='Escape'){event.preventDefault();event.stopPropagation();finish(false);return;}
    const direction=event.key==='Enter'?'down':event.key==='Tab'?(event.shiftKey?'previous':'next'):undefined;
@@ -61,7 +71,8 @@ export function setupMarkGrid(host:HTMLElement,o:GridOptions){
   };
  }
  function draw(setup:Setup|undefined,edits:ReadonlyMap<string,string>,pending:ReadonlyMap<string,string>,preserve=true){
-  if(editor)return;
+  if(editor){deferred=[setup,edits,pending,preserve];return;}
+  deferred=undefined;
   const focus=host.contains(document.activeElement),scrollLeft=host.scrollLeft,scrollTop=host.scrollTop;
   const wanted=preserve?active:undefined;
   host.replaceChildren();buttons=new Map();openers=new Map();cells=[];active=undefined;

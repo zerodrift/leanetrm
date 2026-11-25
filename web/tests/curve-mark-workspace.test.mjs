@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {cellPresentation,moveCell,markFence,currentMarkFence,requireDraft} from '../dist/curve-mark-model.js';
+import {cellPresentation,moveCell,markFence,currentMarkFence,requireDraft,requireReceipt,requireStatus} from '../dist/curve-mark-model.js';
 import {termOptions,correlationScale} from '../dist/curve-mark-charts.js';
 
 const key=month=>({firstCurve:'synthetic',secondCurve:null,month});
@@ -61,4 +61,47 @@ test('Charts preserve missing months and separate solid published from strictly 
  const stale=termOptions([approved],new Map([[JSON.stringify(Object.values(approved.state.key)),'0.2']]),'Synthetic','curve_marks_log_return_held_v1','volatility');
  assert.equal(stale.series[1].data[0],null);
  assert.deepEqual(correlationScale,{min:-1,max:1,labels:['−1','0','+1']});
+});
+
+const id=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
+const source={definitionRevisionId:id(1),referenceCatalogId:id(2),referenceRevisionId:id(3)};
+const batch={policy:'curve_mark_batch_v1',ownerId:'synthetic-owner',operationId:id(4),kind:'volatility',source,
+ context:{contextId:id(5),asOf:'2026-01-01T00:00:00.000002Z',businessDate:'2026-01-01'},reason:'Synthetic test',
+ changes:[{...key('2026-01'),expectedRevision:0,value:'0.5'}]};
+const receiptFor=(command,cells)=>({
+ policy:command.policy,ownerId:command.ownerId,operationId:command.operationId,kind:command.kind,source:command.source,
+ effectiveAt:command.context.asOf,reason:command.reason,cells,
+});
+const recorded={key:key('2026-01'),markId:id(6),revision:1,value:'0.5',changed:true,
+ headAtPublication:{markId:id(6),revision:1,value:'0.5',effectiveAt:'2026-01-01T00:00:00.000002+00:00'}};
+const acknowledged={...recorded,changed:false,
+ headAtPublication:{markId:id(7),revision:2,value:'0.6',effectiveAt:'2026-01-01T00:00:00.000003Z'}};
+const verifiers=[requireReceipt,(value,command)=>requireStatus({status:'committed',receipt:value},command)];
+
+test('Record and status refuse a changed fact that skips the reviewed predecessor',()=>{
+ const wrong={...recorded,revision:7,headAtPublication:{...recorded.headAtPublication,revision:7}};
+ for(const verify of verifiers){
+  assert.throws(()=>verify(receiptFor(batch,[wrong]),batch));
+  assert.deepEqual(verify(receiptFor(batch,[recorded]),batch).cells,[recorded]);
+ }
+});
+
+test('Record and status keep a valid older acknowledgement and reject a head that predates it by one microsecond',()=>{
+ const command={...batch,changes:[{...batch.changes[0],expectedRevision:2}]};
+ const wrong={...acknowledged,headAtPublication:{...acknowledged.headAtPublication,effectiveAt:'2026-01-01T00:00:00.000001Z'}};
+ for(const verify of verifiers){
+  assert.throws(()=>verify(receiptFor(command,[wrong]),command));
+  assert.deepEqual(verify(receiptFor(command,[acknowledged]),command).cells,[acknowledged]);
+ }
+});
+
+test('Publication evidence uses canonical values, supported clocks, and backend key order',()=>{
+ for(const invalidHead of [{value:'0.60'},{value:'10.1'},{effectiveAt:'2026-02-30T00:00:00Z'},{effectiveAt:'2026-01-01T00:00:00.0000031Z'}]){
+  const invalid={...acknowledged,headAtPublication:{...acknowledged.headAtPublication,...invalidHead}};
+  assert.throws(()=>requireReceipt(receiptFor(batch,[invalid]),batch));
+ }
+ const later={...recorded,key:key('2026-02'),markId:id(8),headAtPublication:{...recorded.headAtPublication,markId:id(8)}};
+ const reverseRequest={...batch,changes:[{...batch.changes[0],month:'2026-02'},batch.changes[0]]};
+ assert.deepEqual(requireReceipt(receiptFor(reverseRequest,[recorded,later]),reverseRequest).cells,[recorded,later]);
+ assert.throws(()=>requireReceipt(receiptFor(reverseRequest,[later,recorded]),reverseRequest));
 });

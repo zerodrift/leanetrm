@@ -136,6 +136,7 @@ export function setupCurveMarks(root:HTMLElement,o:Options){
  const pending=new PendingCommand(writeRefused);
  let actor='',appStamp='',generation=0,draftVersion=0,historySequence=0,sendSequence=0,validationSequence=0;
  let source:CatalogueSource|undefined,context:MarkContext|undefined,setup:Setup|undefined,catalogue:Setup|undefined;
+ let setupDraft:Draft|null=null;
  let sourceOptions=new Map<string,{source:CatalogueSource;label:string}>();
  let kind:MarkKind='volatility',selection:LayoutCell|undefined,mode:MarkView['mode']='grid',frameHint:FrameSummary|undefined;
  let modeOfRead:'working'|'historical'='working',reading=false,sending=false,validating=false,reviewing=false,deskWritable=false;
@@ -191,17 +192,18 @@ export function setupCurveMarks(root:HTMLElement,o:Options){
   grid.cancel();draftEdits.clear();draftVersion++;validating=reviewing=false;reviewed=undefined;reasonField.value='';
   if(reviewDialog.open)reviewDialog.close();
   clearReview();
-  if(setup&&catalogue&&setup.draft)setup={...setup,draft:cleanDraft(setup.draft)};
+  if(setup)setup={...setup,draft:setupDraft};
   drawDesk();changed();
  }
- function cleanDraft(draft:Draft):Draft{
-  return {coverage:{...draft.coverage,changed:0,invalid:0},cells:draft.cells.map(cell=>({...cell,enteredValue:null,proposedValue:null,difference:null,isChanged:false,isNewMark:false,error:null}))};
+ function installSetup(value?:Setup){
+  setup=value;
+  setupDraft=value?.draft??null;
  }
  function resetScope(){
   generation++;sendSequence++;reading=sending=false;
   grid.cancel();draftEdits.clear();draftVersion++;validating=reviewing=false;reviewed=undefined;reasonField.value='';
   if(reviewDialog.open)reviewDialog.close();if(guard.open)guard.close('keep');clearReview();
-  source=undefined;context=undefined;setup=undefined;catalogue=undefined;selection=undefined;chosen.clear();seenChoices.clear();
+  source=undefined;context=undefined;installSetup();catalogue=undefined;selection=undefined;chosen.clear();seenChoices.clear();
   mode='grid';query='';offset=0;searchField.value='';fromField.value='';toField.value='';historyOffset=0;frameHint=undefined;
   sourceField.value='';dateField.value='';instantField.value='';
   el<HTMLDetailsElement>('clock-panel').open=true;el<HTMLDetailsElement>('selector').open=true;
@@ -397,7 +399,7 @@ export function setupCurveMarks(root:HTMLElement,o:Options){
    if(!sameInstant(value.context.knownAt,knownAt))throw Error('The source read did not match the captured knowledge cutoff.');
    generation++;source=option.source;context=next;modeOfRead=newMode;
    requestFence=fence();
-   setup=undefined;selection=undefined;chosen.clear();seenChoices.clear();mode='grid';query='';offset=0;
+   installSetup();selection=undefined;chosen.clear();seenChoices.clear();mode='grid';query='';offset=0;
    receipt=undefined;drawReceipt();
    searchField.value='';fromField.value='';toField.value='';setDrawer(false);
    applyCatalogue(value);drawDesk(false);
@@ -426,7 +428,7 @@ export function setupCurveMarks(root:HTMLElement,o:Options){
    const value=await getSetup(scope(),view,query,offset,modeOfRead);
    if(!current(at))return;
    if(value.ownerId!==catalogue.ownerId||!sameInstant(value.context.knownAt,catalogue.context.knownAt))throw Error('The view context changed. Read the exact source again.');
-   generation++;requestFence=fence();setup=value;selection=undefined;setDrawer(false);drawDesk(false);
+   generation++;requestFence=fence();installSetup(value);selection=undefined;setDrawer(false);drawDesk(false);
    el<HTMLDetailsElement>('selector').open=false;message('');
   }catch(error){if(current(at))message(problem(error));}
   finally{if(current(requestFence)){reading=false;drawDesk();drawControls();}}
@@ -448,7 +450,7 @@ export function setupCurveMarks(root:HTMLElement,o:Options){
   draftVersion++;reviewed=undefined;clearReview();
   if(!draftEdits.size){
    validating=false;
-   if(setup?.draft)setup={...setup,draft:cleanDraft(setup.draft)};
+   if(setup)setup={...setup,draft:setupDraft};
   }
   drawDesk();changed();
   if(draftEdits.size)void validateDraft();
@@ -563,7 +565,7 @@ export function setupCurveMarks(root:HTMLElement,o:Options){
    const refreshed=await getSetup({source:original.source,context:next},view,query,offset,'working');
    if(!current(at))return;
    if(refreshed.ownerId!==original.ownerId||!sameInstant(refreshed.context.knownAt,knownAt))throw Error('The refresh did not match the publication owner and captured knowledge cutoff.');
-   generation++;context=next;setup=refreshed;applyCatalogue(refreshed);drawDesk();
+   generation++;context=next;installSetup(refreshed);applyCatalogue(refreshed);drawDesk();
    if(selection)void history(0);
    message('Publication confirmed. Marks refreshed at current knowledge. Financial inputs refresh separately.');
   }catch(error){if(current(at))message('Publication confirmed. Mark refresh failed. '+problem(error));}
@@ -628,7 +630,7 @@ export function setupCurveMarks(root:HTMLElement,o:Options){
  for(const item of root.querySelectorAll<HTMLButtonElement>('[data-mark-kind]'))item.onclick=()=>action(async()=>{
   const next=item.dataset.markKind as MarkKind;
   if(next===kind||!await leave())return;
-  generation++;kind=next;mode='grid';setup=undefined;selection=undefined;setDrawer(false);
+  generation++;kind=next;mode='grid';installSetup();selection=undefined;setDrawer(false);
   drawChosen();drawDesk(false);drawControls();el<HTMLDetailsElement>('selector').open=true;
  });
  button('inspect').onclick=()=>setDrawer(true);
