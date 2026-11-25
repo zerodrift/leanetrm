@@ -886,7 +886,7 @@ def main():
         # the initial view, so its explicit working selections are never recorded
         # as closes containing contracts that do not exist yet.
         working_days=tuple({frame['at'][:10] for frame in manifest['frames']}) if args.factor_swap_check else (
-            ('2020-12-18',) if args.factor_history_check or args.context_read_check else ())
+            ('2020-12-18',) if args.factor_history_check or args.context_read_check or args.curve_marks_check else ())
         seed_session_closes(query,manifest,working=working_days,input_markets=close_inputs)
         (temporary/'manifest.json').write_text(json.dumps(manifest))
         (temporary/'manifest.json').chmod(0o600)
@@ -1169,6 +1169,8 @@ def main():
             elif args.curve_marks_check:
                 from check_curve_marks import run_checks as check_curve_marks
                 check_curve_marks(query,manifest)
+                from check_curve_marks_http import run_checks as check_curve_marks_http
+                check_curve_marks_http(url,query,manifest)
             elif args.gas_in_term_check:
                 from check_gas_in_term import run_checks as check_gas_in_term
                 def browse_in_term(fixture):

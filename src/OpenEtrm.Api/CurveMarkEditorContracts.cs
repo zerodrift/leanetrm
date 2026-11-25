@@ -123,9 +123,12 @@ public sealed record CurveMarkEditorHistoryEntry(CurveMarkEditorValue Mark, Guid
 public sealed record CurveMarkEditorHistoryResponse(CatalogueSource Source, CurveMarkEditorReadContext Context, string Kind,
     CurveMarkEditorCellKey Key, ImmutableArray<CurveMarkEditorHistoryEntry> Revisions, bool HasMore);
 public sealed record CurveMarkEditorReviewedChange(CurveMarkEditorCellKey Key, string? SelectedValue, string ProposedValue,
-    int ExpectedRevision, bool WouldChange);
-public sealed record CurveMarkEditorReviewResponse(CurveMarkEditorBatch Batch, ImmutableArray<CurveMarkEditorReviewedChange> Changes);
-public sealed record CurveMarkEditorReceiptCell(CurveMarkEditorCellKey Key, Guid MarkId, int Revision, string Value, bool Changed);
+    int ExpectedRevision, bool WouldChange, int? AcknowledgedRevision, CurveMarkEditorReviewedHead? HeadAfterReview);
+public sealed record CurveMarkEditorReviewedHead(int Revision, string Value, DateTimeOffset EffectiveAt);
+public sealed record CurveMarkEditorReviewResponse(CurveMarkEditorBatch Batch, ImmutableArray<CurveMarkEditorReviewedChange> Changes, bool AlreadyRecorded);
+public sealed record CurveMarkEditorReceiptCell(CurveMarkEditorCellKey Key, Guid MarkId, int Revision, string Value, bool Changed,
+    CurveMarkEditorPublishedHead HeadAtPublication);
+public sealed record CurveMarkEditorPublishedHead(Guid MarkId, int Revision, string Value, DateTimeOffset EffectiveAt);
 public sealed record CurveMarkEditorReceipt(string Policy, string OwnerId, Guid OperationId, string Kind, CatalogueSource Source,
     DateTimeOffset EffectiveAt, string Reason, ImmutableArray<CurveMarkEditorReceiptCell> Cells);
 public sealed record CurveMarkEditorStatusResponse(string Status, CurveMarkEditorReceipt? Receipt);

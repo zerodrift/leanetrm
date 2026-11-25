@@ -22,11 +22,40 @@ internal static class CurveMarkEditorChecks
     internal static void Run()
     {
         Commands();
+        Receipts();
         Views();
         Analytics();
         Rectangles();
         Matrices();
-        Console.WriteLine("PASS curve mark editor: exact commands, bounded views, draft analytics, addressed TSV and atomic matrix paste");
+        Console.WriteLine("PASS curve mark editor: exact commands, bounded views, draft analytics, addressed TSV, atomic matrix paste and verified publication receipts");
+    }
+
+    private static void Receipts()
+    {
+        var batch = new CurveMarkEditorBatch(CurveMarkEditorDraft.Policy, "synthetic_owner", Guid.NewGuid(), Volatility,
+            Source, Context, "Synthetic receipt", [new(First, null, January, 0, "0.5")]);
+        var head = new CurveMarkEditorPublishedHead(Guid.NewGuid(), 2, "0.6", Effective);
+        var ack = new CurveMarkEditorReceiptCell(Key(First, January), Guid.NewGuid(), 1, "0.5", false, head);
+        var receipt = new CurveMarkEditorReceipt(batch.Policy, batch.OwnerId, batch.OperationId, batch.Kind, batch.Source,
+            Effective, batch.Reason, [ack]);
+        JsonElement Wire(CurveMarkEditorReceipt value) => JsonSerializer.SerializeToElement(value, CurveMarkEditorEndpoints.Json);
+        var recovered = CurveMarkEditorReceiptValidation.Require(batch, Wire(receipt));
+        Require(recovered.Cells.Single() == ack, "Recovery must retain the accepted old fact and the later publication head.");
+        foreach (var invalid in new[]
+        {
+            receipt with { OwnerId = "another_owner" },
+            receipt with { Cells = [] },
+            receipt with { Cells = [ack with { Key = Key(Second, January) }] },
+            receipt with { Cells = [ack with { Changed = true }] },
+            receipt with { Cells = [ack with { HeadAtPublication = head with { Revision = 1 } }] },
+            receipt with { Cells = [ack with { HeadAtPublication = head with { Value = "20" } }] },
+            receipt with { Cells = [ack with { HeadAtPublication = head with { MarkId = ack.MarkId } }] }
+        })
+        {
+            try { CurveMarkEditorReceiptValidation.Require(batch, Wire(invalid)); }
+            catch (OpenEtrm.MarketData.MarketDataException error) when (error.Code == "curve_mark_receipt") { continue; }
+            throw new Exception("A conflicting retained receipt was accepted.");
+        }
     }
 
     private static void Commands()
