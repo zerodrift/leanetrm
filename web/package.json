@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "scripts": {
     "build": "tsc && node build.mjs",
-    "test": "npm run build && node --test tests/*.test.mjs"
+    "test": "npm run build && node --test --test-concurrency=1 tests/*.test.mjs"
   },
   "devDependencies": {
     "esbuild": "0.28.2",
