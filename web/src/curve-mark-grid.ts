@@ -97,7 +97,9 @@ export function setupMarkGrid(host:HTMLElement,o:GridOptions){
   const widths=element('colgroup');widths.append(element('col'),...Array.from({length:layout.columnCount},()=>element('col')));table.append(widths);
   const head=table.createTHead().insertRow();
   function heading(row:HTMLTableRowElement,text:string,scope:'row'|'col',code?:string){
-   const cell=element('th',text);cell.scope=scope;cell.title=code?`${text} · ${code}`:text;row.append(cell);return cell;
+   const cell=element('th',text);cell.scope=scope;cell.title=code?`${text} · ${code}`:text;
+   if(code&&code!==text)cell.append(element('small',code));
+   row.append(cell);
   }
   heading(head,strip?'Delivery month':matrix?'Curve pair':'Curve / month','col');
   for(let column=0;column<layout.columnCount;column++){
@@ -107,8 +109,7 @@ export function setupMarkGrid(host:HTMLElement,o:GridOptions){
   const body=table.createTBody();
   for(let row=0;row<layout.rowCount;row++){
    const line=body.insertRow(),code=view.curves[row];
-   const rowHeader=heading(line,strip?layout.cells[row].key!.month:label(code),'row',strip?undefined:code);
-   if(!strip&&label(code)!==code)rowHeader.append(element('small',code));
+   heading(line,strip?layout.cells[row].key!.month:label(code),'row',strip?undefined:code);
    for(let column=0;column<layout.columnCount;column++){
     const display=layout.cells[row*layout.columnCount+column],td=line.insertCell(),key=display.key;
     td.dataset.markAddress=addressId(display.address);

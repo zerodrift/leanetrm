@@ -75,7 +75,7 @@
 .mark-grid thead th{position:sticky;top:0;z-index:2;text-align:right;background:var(--surface-3);color:var(--text-2);height:37px;padding:4px 9px;max-width:10rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mark-grid thead th:first-child{left:0;z-index:3;text-align:left}
 .mark-grid tbody th{position:sticky;left:0;z-index:1;text-align:left;max-width:12rem;min-width:8rem;padding:5px 9px;background:var(--surface-2);color:var(--text);font-weight:600;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
-.mark-grid tbody th small{display:block;color:var(--text-3);white-space:nowrap;text-overflow:ellipsis;overflow:hidden;font-weight:500;font-size:10px}
+.mark-grid th small{display:block;color:var(--text-3);white-space:nowrap;text-overflow:ellipsis;overflow:hidden;font-weight:500;font-size:10px}
 .mark-grid td.mark-diagonal{background:var(--surface-2);color:var(--text-3);font-size:10px;padding:0 8px;text-align:center;white-space:nowrap}
 .mark-cell{
  position:relative;display:grid;justify-items:end;align-content:center;gap:2px;width:100%;min-height:43px;padding:5px 8px;

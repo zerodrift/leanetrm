@@ -38,10 +38,12 @@ an input leaves an invalid edit.
 
 ## Editing and clipboard
 
-Tab and Shift-Tab move between editable cells. Enter commits the cell edit and
-moves down. Escape cancels the edit. A single visible draft follows the selected
-scope. Changing the scope, page or workspace context with an open draft offers
-review, discard or continued editing. Publication requires an explicit button.
+Tab and Shift-Tab move forward and backward through cells in row order. In the
+correlation matrix this includes read-only mirrors and skips the diagonal.
+Enter commits the cell edit and moves down. Escape cancels the edit. A single
+visible draft follows the selected scope. Changing the scope, page or workspace
+context with an open draft offers review, discard or continued editing.
+Publication requires an explicit button.
 
 Paste plain-text TSV at an editable cell to address a rectangle of values. A
 blank preserves the cell's existing value or draft. Ragged rows, formulas and
@@ -60,6 +62,12 @@ value. Review shows the selected value, proposed value, expected write
 revision, projected outcome and effective instant. Editing the draft or reason
 invalidates review. The server runs the same writer in a rolled-back savepoint
 for review and checks the expected predecessors again on publication.
+
+The HTTP editor normalizes decimal values, trims the reason and sorts changes
+before sending the command to storage. A direct native batch must already
+use those values and ordinal key order (first curve, second curve, month).
+Operation, source and snapshot UUIDs use lowercase, hyphenated text. The
+snapshot ID can be null. Receipt timestamps are recorded in UTC.
 
 Publication commits a batch atomically. A changed batch appends one trading
 publication. Every successful batch returns one immutable receipt. Retrying

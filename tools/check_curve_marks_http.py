@@ -2,8 +2,10 @@
 from concurrent.futures import ThreadPoolExecutor
 import json
 import time
-from uuid import uuid4
+from uuid import UUID, uuid4
 
+from check_booked_side_programs import runtime_query
+from check_curve_marks import literal
 from preview_client import PreviewClient
 
 
@@ -72,6 +74,7 @@ def run_checks(url, query, manifest):
     def counts():
         return query('SELECT jsonb_build_array((SELECT count(*) FROM trading.curve_mark_requests),'
                      '(SELECT count(*) FROM trading.curve_mark_facts),(SELECT count(*) FROM trading.publications));')
+    native_status = check_native_receipt(query, manifest, editor, batch, choices['curves'], counts)
     before = counts()
     first_review = call(editor, 'review', batch)
     assert first_review['changes'][0]['wouldChange'] and not first_review['alreadyRecorded']
@@ -165,7 +168,8 @@ def run_checks(url, query, manifest):
     assert readonly['draft']['cells'][0]['error']['code'] == 'curve_mark_read_only'
     for route in ['review','record']:
         assert call(reader,route,{**batch,'ownerId':read['ownerId']},403)['code'] == 'curve_mark_denied'
-    assert call(reader,'status',status,403)['code'] == 'curve_mark_owner_changed'
+    for owned in (status, native_status):
+        assert call(reader,'status',owned,403)['code'] == 'curve_mark_owner_changed'
     assert call(reader,'status',{**status,'ownerId':read['ownerId']})['status'] == 'absent'
     expiring = change('0.4',0,capture(renewed))
     expiring['changes'][0]['month'] = '2024-07'
@@ -175,8 +179,82 @@ def run_checks(url, query, manifest):
     query("DELETE FROM security.role_permissions WHERE permission='ImportObservations';")
     assert call(renewed,'status',status)['receipt'] == first_receipt
     query(f"DELETE FROM security.reference_catalog_scopes WHERE catalog_id='{source['referenceCatalogId']}';")
-    assert call(renewed,'status',status,403)['code'] == 'curve_mark_denied'
+    for owned in (status, native_status):
+        assert call(renewed,'status',owned,403)['code'] == 'curve_mark_denied'
     print('PASS curve mark HTTP publisher, temporal analytics, review, stale race, receipt recovery and source revocation',flush=True)
+
+
+def check_native_receipt(query, manifest, editor, batch, curves, counts):
+    catalog = manifest['catalogId']
+    def native(sql):
+        return runtime_query(query, manifest, sql, profile='editor')
+
+    def capture(day):
+        return native(f"SELECT security.resolve_operation_context('{catalog}','{day}',NULL);")
+
+    day = batch['context']['businessDate']
+    context = {**batch['context'], 'contextId':capture(day)}
+    at = context['asOf']
+    cells = [{**batch['changes'][0], 'month':month, 'value':'0.5'} for month in ('2027-03','2027-04')]
+    canonical = {k:v for k,v in batch.items() if k != 'context'}
+    canonical.update(operationId=str(uuid4()), snapshotId=context['snapshotId'], changes=cells,
+                     reason='Synthetic\u00a0reason '.ljust(500, '🌱'))
+
+    def publish(body, selected=context, settings=''):
+        return json.loads(native(f"{settings}SELECT security.record_curve_mark_batch("
+                                 f"'{catalog}','{selected['contextId']}','{at}',{literal(body)});"))
+
+    def status(body):
+        return editor.call('curve-marks/editor/status', dict(kind=body['kind'], ownerId=body['ownerId'],
+                                                            operationId=str(UUID(body['operationId']))))
+
+    def refused(body, error, selected=context):
+        before = counts()
+        try:
+            publish(body, selected)
+        except RuntimeError as problem:
+            assert error in str(problem), problem
+        else:
+            raise AssertionError(f"Expected native refusal {error}")
+        assert counts() == before and status(body) == dict(status='absent', receipt=None)
+
+    outcome = publish(canonical, settings="SET LOCAL TIME ZONE 'America/Chicago';")
+    after = counts()
+    recovered = status(canonical)
+    retry = {k:v for k,v in canonical.items() if k != 'snapshotId'}
+    replayed = editor.call('curve-marks/editor/record', {**retry, 'context':context})
+    assert recovered == dict(status='committed', receipt=replayed)
+    receipt = recovered['receipt']
+    assert receipt == outcome and receipt['reason'] == canonical['reason']
+    assert [c['key']['month'] for c in receipt['cells']] == ['2027-03', '2027-04']
+    assert counts() == after
+
+    # A native client may spell JSON differently. Only canonical field values and
+    # ordinal key order can cross the durable boundary shared with the editor.
+    for amount in ('0.50','00.5','-0'):
+        changes = [{**cells[0], 'month':'2027-01'}, {**cells[1], 'value':amount}]
+        refused({**canonical, 'operationId':str(uuid4()), 'changes':changes}, 'curve_mark_value')
+    first, second, third = sorted(c['code'] for c in curves if c['currency'] == curves[0]['currency'])[:3]
+    def pair(left, right):
+        return {**cells[0], 'firstCurve':left, 'secondCurve':right}
+    variants = [
+        dict(changes=list(reversed(cells))),
+        dict(kind='correlation', changes=[pair(second,third), pair(first,third)]),
+        dict(kind='correlation', changes=[pair(first,third), pair(first,second)]),
+        dict(reason=' Padded'), dict(reason='Padded\u00a0'), dict(reason='\u0085Padded'), dict(reason='Padded\u3000'),
+        dict(reason=canonical['reason']+'x'), dict(operationId='{'+str(uuid4())+'}'),
+        dict(operationId='01234567-89AB-4CDE-8FAB-0123456789AB'),
+        dict(snapshotId=canonical['snapshotId'].replace('-','')),
+    ]
+    for field, value in canonical['source'].items():
+        variants.append(dict(source={**canonical['source'], field:'{'+value+'}'}))
+    for variant in variants:
+        refused({**canonical, 'operationId':str(uuid4()), **variant}, 'curve_mark_input')
+    refused({**canonical, 'operationId':str(uuid4())}, 'curve_mark_context',
+            {**context, 'contextId':capture('0001-01-01')})
+
+    print('PASS native canonical admission, atomic refusals, owner HTTP receipt and exact retry', flush=True)
+    return {k:canonical[k] for k in ('kind','ownerId','operationId')}
 
 
 def check_catalogue_read_only(query, setup):

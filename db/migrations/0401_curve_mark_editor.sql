@@ -146,33 +146,44 @@ BEGIN
 END$$;
 
 CREATE FUNCTION security.record_curve_mark_batch(catalog uuid,context uuid,as_of timestamptz,body jsonb) RETURNS jsonb
-LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog SET TimeZone='UTC' AS $$
 DECLARE deadline timestamptz=security.curve_mark_editor_authority(catalog,true);owner_id text=security.curve_mark_editor_owner(catalog);
  actor uuid=(security.presentation_actor()).actor_id;operation uuid;mark_kind text=body->>'kind';source jsonb=body->'source';keys jsonb;
  prior trading.curve_mark_requests;cut security.operation_read_coordinates;metadata jsonb;item jsonb;amount_value numeric;
  publication integer;cell record;cells jsonb='[]';outcome jsonb;
+ empty_id CONSTANT uuid='00000000-0000-0000-0000-000000000000';
 BEGIN
- IF context IS NULL OR as_of IS NULL OR jsonb_typeof(body) IS DISTINCT FROM 'object' OR pg_column_size(body)>131072
+ IF context IS NULL OR context=empty_id OR as_of IS NULL OR jsonb_typeof(body) IS DISTINCT FROM 'object' OR pg_column_size(body)>131072
   OR trading.rec_keys(body,ARRAY['policy','ownerId','operationId','kind','source','snapshotId','reason','changes']) IS NOT TRUE
   OR EXISTS(SELECT 1 FROM jsonb_each(body)e WHERE e.key NOT IN('source','changes','snapshotId') AND jsonb_typeof(e.value)<>'string')
   OR body->>'policy' IS DISTINCT FROM 'curve_mark_batch_v1' OR mark_kind NOT IN('volatility','correlation')
   OR jsonb_typeof(body->'source') IS DISTINCT FROM 'object' OR jsonb_typeof(body->'changes') IS DISTINCT FROM 'array'
-  OR jsonb_typeof(body->'snapshotId') NOT IN('string','null') OR (body->>'snapshotId')::uuid='00000000-0000-0000-0000-000000000000'::uuid
-  OR body->>'reason' !~ '[^[:space:]]' OR length(body->>'reason')>500
+  OR jsonb_typeof(body->'snapshotId') NOT IN('string','null')
+  -- The editor trims Unicode White_Space and counts Unicode scalars.
+  OR length(body->>'reason') NOT BETWEEN 1 AND 500 OR (body->>'reason') COLLATE pg_unicode_fast ~ '^[[:space:]]|[[:space:]]$'
  THEN RAISE EXCEPTION 'curve_mark_input';END IF;
  IF owner_id IS DISTINCT FROM body->>'ownerId' THEN RAISE EXCEPTION 'curve_mark_owner_changed' USING ERRCODE='42501';END IF;
  operation=(body->>'operationId')::uuid;
- IF operation='00000000-0000-0000-0000-000000000000' THEN RAISE EXCEPTION 'curve_mark_input';END IF;
+ -- Persist the same command representation that managed recovery verifies.
+ IF operation=empty_id OR body->>'operationId'<>operation::text
+  OR (body->>'snapshotId')::uuid=empty_id OR body->>'snapshotId'<>(body->>'snapshotId')::uuid::text
+  OR EXISTS(SELECT FROM jsonb_each_text(source) e WHERE e.value::uuid=empty_id OR e.value<>e.value::uuid::text)
+ THEN RAISE EXCEPTION 'curve_mark_input';END IF;
  IF jsonb_array_length(body->'changes') NOT BETWEEN 1 AND 240 THEN RAISE EXCEPTION 'curve_mark_bounds';END IF;
  PERFORM pg_advisory_xact_lock(730849102);
  PERFORM security.require_curve_mark_editor_commit(catalog,context,as_of,source,true,deadline);
  SELECT s.* INTO STRICT cut FROM security.operation_read_inputs s WHERE(s.catalog_id,s.id)=(catalog,context);
+ IF cut.effective_on=DATE '0001-01-01' THEN RAISE EXCEPTION 'curve_mark_context';END IF;
  metadata=jsonb_build_object('policy','curve_mark_batch_v1','sourceContextId',context,'sourceInputs',
   jsonb_build_object('businessOn',cut.effective_on,'knownAt',market_data.point_trader_mark_instant(cut.known_at),'systemId',cut.system_id,'timeline',cut.timeline),'authorityUntil',deadline);
  IF EXISTS(SELECT FROM jsonb_array_elements(body->'changes') e WHERE jsonb_typeof(e)<>'object')
  THEN RAISE EXCEPTION 'curve_mark_input';END IF;
- SELECT jsonb_agg(value-'value'-'expectedRevision') INTO keys FROM jsonb_array_elements(body->'changes');
+ SELECT jsonb_agg(value-'value'-'expectedRevision' ORDER BY ordinality) INTO keys
+ FROM jsonb_array_elements(body->'changes') WITH ORDINALITY;
  PERFORM trading.curve_mark_editor_keys(catalog,source,mark_kind,keys);
+ IF keys<>(SELECT jsonb_agg(k ORDER BY (k->>'firstCurve') COLLATE "C",(k->>'secondCurve') COLLATE "C",(k->>'month') COLLATE "C")
+           FROM jsonb_array_elements(keys) k)
+ THEN RAISE EXCEPTION 'curve_mark_input';END IF;
  SELECT r.* INTO prior FROM trading.curve_mark_requests r WHERE(r.catalog_id,r.actor_id,r.kind,r.operation_id)=(catalog,actor,mark_kind,operation);
  IF FOUND THEN
   IF (prior.command,prior.effective_at,prior.editor_metadata-'authorityUntil') IS DISTINCT FROM(body,as_of,metadata-'authorityUntil')
@@ -186,7 +197,8 @@ BEGIN
   IF jsonb_typeof(item->'value') IS DISTINCT FROM 'string' OR item->>'value' !~ '^-?[0-9]+([.][0-9]{1,12})?$'
   THEN RAISE EXCEPTION 'curve_mark_value';END IF;
   amount_value=(item->>'value')::numeric;
-  IF mark_kind='volatility' AND amount_value NOT BETWEEN 0 AND 10 OR mark_kind='correlation' AND abs(amount_value)>1
+  IF item->>'value'<>trim_scale(amount_value)::text
+   OR mark_kind='volatility' AND amount_value NOT BETWEEN 0 AND 10 OR mark_kind='correlation' AND abs(amount_value)>1
   THEN RAISE EXCEPTION 'curve_mark_value';END IF;
   SELECT * INTO STRICT cell FROM trading.record_curve_mark_cell(catalog,actor,operation,(source->>'definitionRevisionId')::uuid,mark_kind,
    item->>'firstCurve',item->>'secondCurve',(item->>'month'||'-01')::date,(item->>'expectedRevision')::integer,amount_value,as_of,publication);

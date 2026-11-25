@@ -219,6 +219,21 @@ export async function run(actions){
     header.textContent.trim()&&document.elementFromPoint(x,y)?.closest('th')===header&&
     Math.abs(header.getBoundingClientRect().left-bounds.left)<3&&getComputedStyle(header).backgroundColor==='rgb(17, 23, 40)';
   })()`);
+ await check('scrolled matrix columns show their distinguishing curve codes below the full-name titles',
+  `(()=>{const grid=mark('grid'),bounds=grid.getBoundingClientRect(),head=grid.querySelector('thead tr');
+   const visible=[...head.cells].slice(1).filter(th=>{
+    const r=th.getBoundingClientRect();
+    return r.left>=head.cells[0].getBoundingClientRect().right&&r.right<=bounds.right;
+   });
+   return visible.length>=2&&visible.every(th=>{
+    const code=${q(curves)}[th.cellIndex-1],range=document.createRange();
+    const label=[...th.childNodes].find(node=>node.textContent===code);
+    if(!label||!th.title.endsWith(' · '+code))return false;
+    range.selectNodeContents(label);
+    const r=range.getBoundingClientRect(),h=th.getBoundingClientRect();
+    return r.width>0&&r.height>0&&r.left>=h.left&&r.right<=h.right&&r.top>=h.top&&r.bottom<=h.bottom;
+   });
+  })()`);
  await shot('marks-correlation-populated-scroll');
  await evaluate("mark('grid').scrollLeft=mark('grid').scrollWidth;mark('grid').scrollTop=185");
  await evaluate("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))");
