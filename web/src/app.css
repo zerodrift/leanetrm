@@ -778,6 +778,10 @@ body .tabulator-popup-container{border:1px solid var(--border-strong);background
 .deal-ticket .ticket-tab[aria-selected=true]{border-bottom-color:var(--side-colour);color:var(--text);font-weight:600}
 .ticket-level{height:30px;padding:0 8px;border:1px solid var(--border-strong);border-radius:var(--radius-sm);background:var(--surface)}
 .ticket-grid{overflow-x:auto}
+.ticket-incomplete{color:var(--text-2);margin:0}
+.ticket-imbalance{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.ticket-imbalance :is(th,td){padding:7px 10px;border-bottom:1px solid var(--border);text-align:left;white-space:nowrap}
+.ticket-imbalance th{color:var(--text-2);font-weight:600}
 .ticket-cell-input{width:100%;min-width:0;height:24px;padding:0 6px;border:1px solid var(--border-strong);border-radius:var(--radius-sm);background:var(--surface);font:inherit;text-align:right}
 .ticket-record{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px;margin-top:10px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-2)}
 .ticket-record-title{flex-basis:100%;font-size:13px}

@@ -433,12 +433,12 @@ internal static class ExerciseRightChecks
         PhysicalLifecycleRow Row(PhysicalCashState held) =>
             withoutMarks.EvaluateLifecycle(EvaluateElections(f, held, at, withoutMarks).Context).Rows.Single(r => r.Slot == 1);
         var accrued = Row(ElectedState(f, elections, days));
-        if (accrued.Accrued.Ratio != R("-30000") || accrued.Expected?.Ratio != R("-30000") ||
-            accrued.Unrealized.Ratio != R("0") || accrued.Settlement != SettlementState.AccruedUnpaid)
+        if (accrued.Accrued!.Ratio != R("-30000") || accrued.Expected?.Ratio != R("-30000") ||
+            accrued.Unrealized!.Ratio != R("0") || accrued.Settlement != SettlementState.AccruedUnpaid)
             throw new Exception("Only the ended and exercised day accrues, with no future payment for the abandoned days.");
         var payment = new CashOccurrencePayment(Guid.NewGuid(), 1, 0, at, at, ExactMoney.Parse("-30000", f.Instrument.Currency));
         var paid = Row(ElectedState(f, elections, days, [payment]));
-        if (paid.Accrued.Ratio != R("-30000") || paid.Paid.Ratio != R("-30000") || paid.Outstanding.Ratio != R("0") ||
+        if (paid.Accrued!.Ratio != R("-30000") || paid.Paid.Ratio != R("-30000") || paid.Outstanding!.Ratio != R("0") ||
             paid.Expected?.Ratio != R("0") || paid.Settlement != SettlementState.Paid)
             throw new Exception("The exact whole-row payment clears cash without being apportioned to the exercised day.");
         var mixed = ElectedState(f, elections.SetItem(2, elections[2] with { Outcome = "exercised" }), days, [payment]);
@@ -446,14 +446,14 @@ internal static class ExerciseRightChecks
         var mixedCash = withoutMarks.EvaluateLifecycle(mixedContext).Rows.Single(r => r.Slot == 1);
         if (value.Groups[0].ForwardSum.Ratio != R("-30000") || value.Groups[0].Counted.Ratio != R("-30000") ||
             value.Groups[2].ForwardSum.Ratio != R("2000") || value.Groups[2].Counted.Ratio != R("2000") ||
-            mixedCash.Paid.Ratio != R("-30000") || mixedCash.Outstanding.Ratio != R("0") ||
-            mixedCash.RealizedUnsettled.Ratio != R("0") || mixedCash.Unrealized.Ratio != R("-30000") ||
+            mixedCash.Paid.Ratio != R("-30000") || mixedCash.Outstanding!.Ratio != R("0") ||
+            mixedCash.RealizedUnsettled!.Ratio != R("0") || mixedCash.Unrealized!.Ratio != R("-30000") ||
             TradeValue(risk).Ratio != R("2000"))
             throw new Exception("The group reports gross economics and the Side preserves paid, outstanding and future cash.");
         var corrected = days.SetItem(0, f.Market.Days((0, PhysicalLifecycle.AllocatedFinalQuantity))[0]);
         var overpaid = Row(ElectedState(f, elections, corrected, [payment]));
-        if (overpaid.Accrued.Ratio != R("0") || overpaid.Paid.Ratio != R("-30000") ||
-            overpaid.Outstanding.Ratio != R("30000") || overpaid.Settlement != SettlementState.Overpaid)
+        if (overpaid.Accrued!.Ratio != R("0") || overpaid.Paid.Ratio != R("-30000") ||
+            overpaid.Outstanding!.Ratio != R("30000") || overpaid.Settlement != SettlementState.Overpaid)
             throw new Exception("A correction to zero selected quantity retains its original payment and exact overpayment.");
     }
 

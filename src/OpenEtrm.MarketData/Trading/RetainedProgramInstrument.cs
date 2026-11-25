@@ -16,6 +16,7 @@ public interface IRetainedProgramMember
     string? ValuationQuantityPolicy { get; }
     QuantityPart? ValuationPart { get; }
     OwnedQuantity? ValuationOwned { get; }
+    ReportedBalanceFollow? ValuationBalance { get; }
 }
 
 // Published Members remain the canonical contract. Sides are a checked,
@@ -133,7 +134,8 @@ internal class RetainedInstrumentSchedule<TMember> : InstrumentSchedule where TM
         retained.RequireRetainedSides();
         if(context is null) throw new MarketDataException("side_context", "Supply the exact retained Side valuation context.");
         var hasQuantityTerms = retained.Members.Any(m => m.ValuationQuantityPolicy is not null || m.ValuationPart is not null);
-        if((hasQuantityTerms || !retained.Rights.IsEmpty) && context.BindingState is not PhysicalCashState)
+        var hasReportedQuantities = retained.Members.Any(m => m.ValuationBalance is not null);
+        if((hasQuantityTerms || hasReportedQuantities || !retained.Rights.IsEmpty) && context.BindingState is not PhysicalCashState)
             throw PhysicalDeliveryQuantities.Invalid("An instrument with quantity terms requires its complete held owner-day inputs.");
         if(context.BindingState is PhysicalCashState state)
         {
@@ -144,6 +146,9 @@ internal class RetainedInstrumentSchedule<TMember> : InstrumentSchedule where TM
                 inputs.Occurrence is not null || inputs.HeldFactors.IsDefault || inputs.HeldFactors.Length != retained.Members.Length)
                 throw LifecycleContext();
             retained.ValidateValuationState(state);
+            if (inputs.ReportedDays.IsDefault != !hasReportedQuantities ||
+                !inputs.ReportedDays.IsDefault && inputs.ReportedDays.Length != retained.Members.Length)
+                throw PhysicalDeliveryQuantities.Invalid("Reported quantity inputs must match the instrument's declared entries.");
             var quantity = new SignedRatio(state.Quantity.Amount.ScaledValue, ExactDecimal.WorkingScale);
             for(var slot = 0; slot < retained.Members.Length; slot++)
             {
@@ -152,6 +157,18 @@ internal class RetainedInstrumentSchedule<TMember> : InstrumentSchedule where TM
                     (member.ValuationRatio is {} ratio ? new SignedRatio(ratio.Numerator, ratio.Denominator) : new SignedRatio(1, 1));
                 if(inputs.HeldFactors[slot] != factor ||
                     inputs.Geometries[slot].OwnedDays.ContainsKey(slot) != (member.ValuationOwned is not null)) throw LifecycleContext();
+                if (!inputs.ReportedDays.IsDefault)
+                {
+                    var reported = inputs.ReportedDays[slot];
+                    var geometry = inputs.Geometries[slot].Days;
+                    if (member.ValuationBalance is null ? !reported.IsDefault : reported.IsDefault || reported.Length != geometry.Count ||
+                        reported.Any(day => day is null || day.SourceSlot != member.ValuationSourceSlot ||
+                            day.Quantity is {} native && native.Specification != state.Quantity.Specification ||
+                            !geometry.TryGetValue(day.Day, out var delivery) ||
+                            (day.State == ReportedDayQuantity.NotApplicable) == (delivery == DeliveryState.Ended)) ||
+                        !reported.Select(day => day.Day).ToHashSet().SetEquals(geometry.Keys))
+                        throw PhysicalDeliveryQuantities.Invalid("Each reported quantity entry requires exactly its source's days and compatible delivery states.");
+                }
             }
             var rights = retained.Rights;
             var decisions = rights.IsEmpty && state.Elections.IsEmpty ? null :
@@ -169,7 +186,7 @@ internal class RetainedInstrumentSchedule<TMember> : InstrumentSchedule where TM
             ImmutableArray<ExerciseGroupValue> groups = [];
             if (decisions is not null)
             {
-                var forwardDays = EntryQuantities.ForMembers(retained.Members, state);
+                var forwardDays = EntryQuantities.ForMembers(retained.Members, state, rights: rights);
                 var exercises = new List<RetainedExerciseValuation>(rights.Length);
                 foreach (var right in rights)
                 {
@@ -188,7 +205,7 @@ internal class RetainedInstrumentSchedule<TMember> : InstrumentSchedule where TM
                 groups = [..exercises.SelectMany(exercise => exercise.Values(context, retained.Marks, retained.Currency, quantity.Numerator.Sign))];
             }
             var entryDays = hasQuantityTerms || !rights.IsEmpty ? EntryQuantities.ForMembers(retained.Members, state,
-                decisions is null ? null : decisions.Counted) : default;
+                decisions is null ? null : decisions.Counted, rights) : default;
             ImmutableArray<SideValuation> sides = [..retained.Sides.Select((_, slot) => EvaluateOccurrence(context, slot, entryDays))];
             var value = new InstrumentValuation(retained, context, sides, groups);
             retained.RequireAfterValuation(value);

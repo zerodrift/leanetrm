@@ -21,6 +21,11 @@ application. See [current implementation](../docs/implementation.md) and
 
 Recent schema groups and their contracts:
 
+- [0402](migrations/0402_gas_imbalance_cashout.sql) retains a gas cash-out as two
+  daily index payment entries. Financial reads resolve dated service accounts,
+  statement heads and accepted transfers under business time and knowledge cutoff.
+  A net settlement links immutable directional payments under one exact net fact.
+
 - Gas compositions may retain independent lump sums and daily capacity charges.
   Each selects a physical membership for its clock and owns its payment quantities
   and dates. Capacity payments use the selected day of the next UTC month.

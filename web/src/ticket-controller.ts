@@ -1,3 +1,4 @@
+import {requireScheduleMembers} from './ticket-schedule-members.js';
 import {carryReadReferences,cloneRead,retainedKnowledge} from './read-references.js';
 import {setupExerciseAction} from './ticket-exercise-action.js';
 import {ticketFieldGroups} from './ticket-field-groups.js';
@@ -132,7 +133,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   if(!current()||!d||!state)return;
   const levels=panel.schedule?.levels??d.levels;
   if(!levels.includes(level)){level=levels[0];closed=new Set();}
-  const shown:TicketView={state,mode,presentation:o.presentation,sideLabels:entry?.sideLabels,groupedEntry:!!entry?.groupReview,actions,schedule:panel.schedule,groups:panel.groups,quantityUnit:panel.quantityUnit,instant:o.instant,zone:o.zone(),previous:panel.previous,summaries:panel.summaries,links:panel.links,sideGroups:panel.sideGroups,sideGroupsReason:panel.sideGroupsReason,facilityAllocations,measures,currency:mode==='booked'?currency:panel.currency??currency,exerciseAction:exercise?.mount,entry:entryView(),status:panel.status,
+  const shown:TicketView={state,mode,presentation:o.presentation,sideLabels:entry?.sideLabels,groupedEntry:!!entry?.groupReview,actions,scheduleEntries:panel.scheduleEntries,imbalanceRows:panel.imbalanceRows,unassessedDays:panel.unassessedDays,schedule:panel.schedule,groups:panel.groups,quantityUnit:panel.quantityUnit,instant:o.instant,zone:o.zone(),previous:panel.previous,summaries:panel.summaries,links:panel.links,sideGroups:panel.sideGroups,sideGroupsReason:panel.sideGroupsReason,facilityAllocations,measures,currency:mode==='booked'?currency:panel.currency??currency,exerciseAction:exercise?.mount,entry:entryView(),status:panel.status,
 
    fieldErrors:entry?{...choiceErrors,...lookupErrors,...panel.errors}:{},choices,selectedSide,tab,level,closed,on};
   if(mode==='booked'&&o.sideSchedule)shown.sideSchedule=(target,side)=>{
@@ -469,8 +470,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   state=ticketOf(d!,r.draft);actions=o.readOnly?{...r.actions,record:{allowed:false,reason:'This trade window is read only.'}}:r.actions;quantityPolicy=r.quantityPolicy??undefined;
   if(mode==='booked'&&o.sideSchedule){
    sideSlots=r.sideSlots;
-   if(!sideSlots||Object.keys(sideSlots).length!==state.sides.length||state.sides.some(s=>!Number.isInteger(sideSlots![s.code])||sideSlots![s.code]<0)||new Set(Object.values(sideSlots)).size!==state.sides.length)
-    throw Error('The booked Side schedules require their exact native membership slots.');
+   requireScheduleMembers(state,r.scheduleEntries,sideSlots);
    if(tab===''){if(!state.sides.length)throw Error('This trade has no Side schedules.');selectedSide=tab=state.sides[0].code;}
   }
   const recordExercise=r.actions.recordExercise;

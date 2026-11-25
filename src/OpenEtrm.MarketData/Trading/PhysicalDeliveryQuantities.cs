@@ -35,7 +35,8 @@ internal static class PhysicalDeliveryQuantities
         if (rightSources.Any(source => members[source].ValuationSourceSlot != source))
             throw Invalid("An exercise quantity source requires its own retained physical day schedule.");
         var required = members.Select((m, slot) => (m, slot)).Where(p => p.m.ValuationSourceSlot == p.slot &&
-            (rightSources.Contains(p.slot) || p.m.ValuationQuantityPolicy is not null || members.Any(m => m.ValuationSourceSlot == p.slot && m.ValuationPart is not null))).ToArray();
+            (rightSources.Contains(p.slot) || p.m.ValuationQuantityPolicy is not null || members.Any(m => m.ValuationSourceSlot == p.slot &&
+                (m.ValuationPart is not null || m.ValuationBalance is not null)))).ToArray();
         if(!required.Select(p => p.slot).ToHashSet().SetEquals(state.OwnerDays.Select(d => d.Slot)))
             throw Invalid("Held quantities cover exactly the physical owners required by the instrument's quantity terms.");
         foreach(var (member, slot) in required)

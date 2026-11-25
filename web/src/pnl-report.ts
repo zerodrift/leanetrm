@@ -10,6 +10,13 @@ type Shown={instant:(at:string)=>string;currency:number;chooseCurrency:(index:nu
 const currencyId=(c:Currency)=>currencyKey({code:c.code,...c.revision});
 const section=(name:string,heading:string)=>{const part=node('section');part.className='pnl-section '+name;part.append(node('h3',heading));return part;};
 const states:Record<string,string>={continuing:'Held',new:'New',closed:'Closed',cash_only:'Cash only'};
+function coverage(values:Values){
+ const prior=values.openingUnassessedDays??0,current=values.closingUnassessedDays??0;
+ if(!Number.isSafeInteger(prior)||prior<0||!Number.isSafeInteger(current)||current<0||values.incomplete!==undefined&&values.incomplete!==(prior>0||current>0))
+  throw Error('The P&L report returned inconsistent endpoint coverage.');
+ const days=(count:number)=>`${count} unassessed ${count===1?'day':'days'}`;
+ return prior||current?`incomplete: prior ${days(prior)}; current ${days(current)}`:'';
+}
 const reasons:Record<string,string>={finite_difference_unstable:'Estimate did not converge',closing_exact_price_unavailable:'No closing price'};
 // Whose calendar clock one calendar day was counted on.
 const clockOwners:Record<string,(name:string|null)=>string>={prior_close_convention:name=>`of the prior date’s close convention, ${name}`,request:()=>'chosen for the prior date, a working snapshot'};
@@ -40,6 +47,7 @@ function comparedDates(report:Report,shown:Shown){
 function hero(report:Report,total:Total,rows:number,shown:Shown){
  const top=node('div'),result=node('div'),period=node('div');top.className='pnl-hero';period.className='pnl-period';
  result.append(node('p','Economic P&L'),amount(total.values.economicPnl),node('small',total.currencyLabel??total.currency.code.toUpperCase()));
+ if(coverage(total.values))result.append(node('p',coverage(total.values)));
  period.append(node('span',report.scope.books.map(b=>b.name).join(' · ')+' · '+report.scope.tradeSelection),node('strong',comparedDates(report,shown)),
   node('span',rows===1?'1 holding or cash item':`${rows} holdings and cash items`),node('span',`Known as of ${shown.instant(report.opening.context.knownAt)}`));
  top.append(result,period);
@@ -120,7 +128,7 @@ function positionsSection(report:Report,all:Position[]){
  const part=section('pnl-positions','Positions & cash'),wrap=node('div'),grid=node('table'),header=node('thead'),head=node('tr'),body=node('tbody'),toggle=node('button');
  const paging=node('div'),previous=node('button','Previous rows'),next=node('button','Next rows'),range=node('span');
  const books=new Map(report.scope.books.map(b=>[b.id,b.name])),factors=new Map(report.factors.map(f=>[f.axis,f.label]));
- const still=(p:Position)=>[p.values.valueMovement,p.values.cash,p.values.economicPnl].every(isZero),quiet=all.filter(still).length;
+ const still=(p:Position)=>!p.values.incomplete&&[p.values.valueMovement,p.values.cash,p.values.economicPnl].every(isZero),quiet=all.filter(still).length;
  const name=(p:Position)=>p.tradeReference&&p.instrumentReference?`${p.tradeReference} · ${p.instrumentReference}`:'Ledger cash',identity=(p:Position)=>p.position.tradeId+'/'+p.position.bindingId;
  const pricedOn=(axes:string[],between:string)=>factorName(axes.map(axis=>factors.get(axis)??axis).join(between));
  let sort:{key:SortKey;descending:boolean}|undefined,quietShown=false,page=0;const open=new Set<string>();
@@ -165,7 +173,7 @@ function positionsSection(report:Report,all:Position[]){
     const control=node('button',name(p));control.type='button';control.className='pnl-holding';control.dataset.holding=id;control.setAttribute('aria-expanded',String(open.has(id)));
     control.onclick=()=>{if(!open.delete(id))open.add(id);draw();};holding=control;
    }
-   for(const value of [holding,books.get(p.position.bookId)??'—',priced.length?pricedOn(priced,', '):'—',states[p.state]??p.state,amount(p.values.openingValue),
+   for(const value of [holding,books.get(p.position.bookId)??'—',priced.length?pricedOn(priced,', '):'—',[states[p.state]??p.state,coverage(p.values)].filter(Boolean).join(' · '),amount(p.values.openingValue),
     amount(p.values.closingValue),amount(p.values.cash),amount(p.values.economicPnl),explained(p),amount(p.values.residual)]){const cell=node('td');cell.append(value);row.append(cell);}
    body.append(row);if(open.has(id))body.append(detail(p));
   }

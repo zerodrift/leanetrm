@@ -1,5 +1,22 @@
 # Manual gas delivery operations
 
+## Statement evidence in valuation (D454)
+
+A gas trade with an explicit cash-out pair reads only the legal-entity-held
+accounts of its exact physical source. `security.read_gas_valuation_balances`
+resolves account/service coverage and the latest statement revision for each
+native day under the financial business time and knowledge cutoff. It returns
+the latest head regardless of status; managed code then applies the booked
+statement policy and `GasImbalanceTrading.Balance` to the accepted movement
+prefix. A withdrawn or ineligible latest head never exposes an older value.
+
+Runtime callers need `ReadTrades`, `ReadMarketData` and a visible binding and
+sources. Workers need the active lease and exact catalog, context, instant,
+book and trade scope. Missing authority is SQLSTATE `42501`, never an empty
+account list. An authorized source with no accounts is instead an unassessed
+valuation. Operating reads and writes retain their existing permissions.
+See [cash-out behavior and limits](physical-gas-side.md#imbalance-cash-out-d454).
+
 D339 is the bounded local implementation contract for a manual delivery desk covering
 before flow, scheduling, after flow and reconciliation. Live pipeline submission,
 EDI/file connectors and automatic acknowledgments remain unavailable. Recorded
@@ -9,15 +26,18 @@ external evidence and application of that evidence are separate operations.
 
 Reuse retained booked gas obligations/native days, exact reference-data and party
 versions, existing daily quantity revisions, facility allocations, daily cash
-and the shared Blotter retained-command/review mechanisms. Contractual PV remains
-its existing explicit measure. New operational cash is not included in that PV,
-posted to accounting or dispatched to a bank.
+and the shared Blotter retained-command/review mechanisms. D454 adds a cash-out
+only when a gas composition explicitly states its payment pair. Transfer cash
+remains outside the portfolio. Neither operation posts accounting or dispatches
+payments to a bank.
 
 A versioned gas service account identifies an external service-account reference,
 its exact booked physical anchor, pipeline/zone/product/unit and holder (the
 anchor's legal entity or counterparty). Independent gas-operations capabilities
 are required in addition to current anchor-trade/source rights. Ordinary trade
-visibility does not grant access to operator-account statements. Account identity
+visibility does not grant access to operating statement screens. D454 separately
+authorizes the statement evidence used by an explicitly booked cash-out under
+financial read permissions. Account identity
 and unit/scope cannot be changed to mint another balance pool. Versioned terms
 state their supported native-day range, agreement/terms locator and explicit
 statement-input policy. No real pipeline tariff is selected by the application.

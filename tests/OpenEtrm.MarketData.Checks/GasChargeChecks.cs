@@ -288,7 +288,7 @@ internal static class GasChargeChecks
                         "The full payment closes the retained charge occurrence.");
                 Require(value.Rows.Where(r => r.Slot < 2).SequenceEqual(ordinaryValues[n].Rows),
                     "Independent accrual preserves the physical and ordinary payment rows.");
-                Require(value.Total.Subtract(ordinaryValues[n].Total) == row.RealizedUnsettled.Add(row.Unrealized),
+                Require(value.Total.Subtract(ordinaryValues[n].Total) == row.RealizedUnsettled!.Add(row.Unrealized!),
                     "The signed charge contributes exactly its two amounts to the held Instrument.");
             }
         }
@@ -344,13 +344,13 @@ internal static class GasChargeChecks
         var monthly = With(month);
         var part = Value(monthly, tenDays, Payment("-1000", tenDays)).Rows.Single(r => r.Slot == 2);
         Amounts(part, "-1000", "-4000");
-        Require(part.Settlement == SettlementState.PartPaid && part.Accrued.ToExactString() == "-2000" &&
-            part.Paid.ToExactString() == "-1000" && part.Outstanding.ToExactString() == "-1000" && part.PaidAt == tenDays,
+        Require(part.Settlement == SettlementState.PartPaid && part.Accrued!.ToExactString() == "-2000" &&
+            part.Paid.ToExactString() == "-1000" && part.Outstanding!.ToExactString() == "-1000" && part.PaidAt == tenDays,
             "A 1000 payment applies once against the 2000 accrued.");
         var overpaid = Value(monthly, settledAt, Payment("-7000", settledAt)).Rows.Single(r => r.Slot == 2);
         Amounts(overpaid, "1000", "0");
-        Require(overpaid.Settlement == SettlementState.Overpaid && overpaid.Accrued.ToExactString() == "-6000" &&
-            overpaid.Paid.ToExactString() == "-7000" && overpaid.Outstanding.ToExactString() == "1000",
+        Require(overpaid.Settlement == SettlementState.Overpaid && overpaid.Accrued!.ToExactString() == "-6000" &&
+            overpaid.Paid.ToExactString() == "-7000" && overpaid.Outstanding!.ToExactString() == "1000",
             "A 7000 payment leaves 1000 overpaid after the month.");
         var hidden = Value(monthly, tenDays, Payment("-1000", tenDays, tenDays.AddMinutes(1)), tenDays).Rows.Single(r => r.Slot == 2);
         Amounts(hidden, "-2000", "-4000");
@@ -416,9 +416,9 @@ internal static class GasChargeChecks
     private static void Amounts(PhysicalLifecycleRow row, string owed, string toCome)
     {
         Require(row.QuantityBasis == PhysicalLifecycle.ContractQuantity &&
-            row.RealizedUnsettled.ToExactString() == owed && row.Unrealized.ToExactString() == toCome,
+            row.RealizedUnsettled!.ToExactString() == owed && row.Unrealized!.ToExactString() == toCome,
             $"Expected {row.DeliveryFrom:yyyy-MM-dd}: {owed} owed and {toCome} to come on contract quantity, " +
-            $"got {row.RealizedUnsettled.ToExactString()}, {row.Unrealized.ToExactString()} and {row.QuantityBasis}.");
+            $"got {row.RealizedUnsettled!.ToExactString()}, {row.Unrealized!.ToExactString()} and {row.QuantityBasis}.");
     }
 
     private static void CheckRow(FixedSidePeriod period, ScheduleRow row, DateOnly from, DateOnly to,

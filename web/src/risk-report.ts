@@ -43,7 +43,7 @@ export type RiskWorkReport={heldInstruments:number;work:PricerCallWork&{position
  * A portfolio risk report: each factor's results by book and by holding, and the positions the run leaves out. An earlier job's
  * result can lack its list of those positions, which is refused when it is shown, never read as leaving out none.
  */
-type ReportBase=RiskWorkReport&{projectionPolicies:ProjectionPolicyReceipt[];displayPolicy:unknown;scenario:{depth:number;isBase:boolean};context:{contextId:string};snapshotId:string;tradeIds?:string[]|null;
+type ReportBase=RiskWorkReport&{unassessedDays?:number;incomplete?:boolean;projectionPolicies:ProjectionPolicyReceipt[];displayPolicy:unknown;scenario:{depth:number;isBase:boolean};context:{contextId:string};snapshotId:string;tradeIds?:string[]|null;
   detail?:string;inputs?:{positions:{tradeId:string;bindingId:string;bookId:string;measure:string}[];markets:{definitions:{revisionId:string}}[];pricingPolicy?:{futuresOptions?:Partial<OptionValuationPolicy>|null}};
   excludedPositions?:ExcludedPosition[];scenarioPolicy?:string|null;optionCalibrations?:unknown[]};
 export type RiskFactorResult={factor:RiskFactor;bump:string;totals:RiskTotal[];positions:RiskPosition[]};

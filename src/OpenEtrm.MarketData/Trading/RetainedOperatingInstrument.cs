@@ -17,6 +17,7 @@ public sealed record RetainedOperatingMember:IRetainedProgramMember
     string? IRetainedProgramMember.ValuationQuantityPolicy => null;
     QuantityPart? IRetainedProgramMember.ValuationPart => null;
     Gas.OwnedQuantity? IRetainedProgramMember.ValuationOwned => null;
+    Gas.ReportedBalanceFollow? IRetainedProgramMember.ValuationBalance => null;
     public RetainedOperatingMember(Guid sideId,ExactDecimal coefficient,BookedSideProgram program)
     {
         if(sideId==Guid.Empty||program is null||program.Document.Family!="operating"||

@@ -1,5 +1,68 @@
 # Physical gas booking and pre-delivery valuation
 
+## Imbalance cash-out (D454)
+
+An independent physical Side can carry a `daily_index_cashout_v1` pair of
+ordinary named daily index payments. Each gas day has a received `owed_to_us`
+entry and a paid `owed_by_us` entry, with separate spreads, the same index and
+a payment day 1–28 of the following month. Explicit delivery, observation and
+payment calendars are required. The pair uses two payment memberships within
+the existing seven-payment/eight-total limits. It cannot have a quantity part,
+a share other than one, a partial term, a fuel-linked source or an exercise
+right. It can coexist with independent charges and rights on other entries.
+
+The trade states the statement basis (`daily_imbalance_v1` or
+`month_to_date_balance_v1`), netting (`net_accounts_v1` or `each_account_v1`)
+and final-only or provisional-and-final policy. Service accounts held by the
+trade's legal entity supply absolute quantities. No service account is required
+at booking. No nominated, scheduled or allocated quantity supplies the balance.
+The existing delivery and ordinary payment values are unchanged.
+
+Account coverage, statement heads and accepted transfers use the same business
+time and knowledge cutoff as valuation. The latest visible statement is selected
+before testing policy; withdrawal or a newer provisional statement under
+final-only policy makes the day unassessed. Every account covering the day must
+have an eligible statement. Current balance includes accepted movements not
+already included in the statement. Net accounts splits their sum into the two
+directions; each account splits before addition.
+
+Month-to-date uses the immediately preceding calendar day's balance per account.
+Only the first of a month needs no predecessor; a term beginning mid-month has
+an unassessed opening month. A missing day affects itself and the next day's
+difference. Later consecutive balances can recover. An accepted transfer in the
+month refuses that month's value with `gas_imbalance_transfer`.
+
+Before day end, the imbalance is not applicable and has no quantity or amount.
+After day end, an eligible statement has a nonnegative absolute quantity on each
+entry, including explicit zero. An unpublished index gives projected cash; a
+published index earns it. An unassessed row has no quantity, accrued amount or
+outstanding amount. Totals remain visible as incomplete subtotals, with counts
+at entry, trade, portfolio and risk level. The pair's missing day counts once in
+aggregate. Recorded payments survive withdrawal as `UnassessedPaid`; known
+corrections can create underpaid or overpaid balances, including a sign change.
+A corrected fixing that crosses zero also retains previously recorded cash in
+its booked direction. New payments still obey the fixed direction rule.
+
+P&L for a cash-out binding includes all of its native gas cash-payment revisions,
+with one stable flow per payment business key. Revised cash replaces prior cash;
+it is not added again. Quantity-only value changes remain in the residual.
+P&L shows separate opening and closing unassessed-day counts, and an incomplete
+zero subtotal remains visible. Joint risk carries coverage on each book subtotal.
+
+`security.record_gas_cash_settlement` accepts one net fact with explicit signed
+occurrence allocations for each direction in one month. It records the linked
+payments atomically and checks conservation. Identical facts and command retries
+retain their original settlement; a different second monthly settlement refuses.
+This native operation does not send money. There is no net-settlement entry
+screen in this increment. Negative prices value with their sign but cannot be
+paid against the entry's opposite direction.
+
+There is no link to an owned operator balance: representing the same gas in both
+can double count it. Retired service terms may prevent a late final statement.
+Rolled balances, other cash-out pricing profiles, transport imbalances and
+accounting remain separate contracts. See [D454](decisions.md#d454--reported-gas-balances-supply-an-explicit-cash-out-pair)
+and [local verification](verification.md#imbalance-cash-out-d454).
+
 ## Independent gas charges (D450)
 
 A standalone gas composition can include a fixed contractual `charge`

@@ -2,6 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {valuationReason,valuationNote,excludedPositions,valuationMeasure} from '../dist/valuation-status.js';
 
+test('a month-to-date cash-out with a transfer has a product-specific refusal label',()=>{
+ assert.equal(valuationReason('gas_imbalance_transfer','physical_gas'),'Month-to-date cash-out cannot include accepted transfers');
+ assert.throws(()=>valuationReason('gas_imbalance_transfer','financial_swap'),/unknown valuation status/);
+});
+
 test('a future without its exact close source has an explicit status, without widening other product statuses',()=>{
  assert.equal(valuationReason('market_inputs_missing','future'),'Booked market inputs are unavailable at this close');
  for(const instrumentType of ['ppa','financial_swap','heat_rate'])

@@ -10,7 +10,7 @@ import {validateParametric,type ParametricView} from './parametric-risk.js';
 
 export type RiskMetric='delta'|'gamma'|'upPnl'|'downPnl';
 export const riskMetricLabels:Record<RiskMetric,string>={delta:'Delta',gamma:'Gamma',upPnl:'Up P&L',downPnl:'Down P&L'};
-export type ReportPresentation={state:'complete'|'incomplete'|'running'|'unavailable';excluded:ExcludedPosition[];gaps:RunGap[];
+export type ReportPresentation={state:'complete'|'incomplete'|'running'|'unavailable';unassessedDays:number;excluded:ExcludedPosition[];gaps:RunGap[];
  factors:RiskSensitivityReport['factors'];charts:{key:string;spec:ChartSpec}[];joint?:JointReport;parametric?:ParametricView;historical?:HistoricalView;monteCarlo?:MonteCarloView};
 const canonical=(value:unknown):string=>JSON.stringify(value,(_key,v)=>v&&typeof v==='object'&&!Array.isArray(v)?Object.fromEntries(Object.entries(v).sort(([a],[b])=>a.localeCompare(b))):v);
 
@@ -20,7 +20,7 @@ export const moved=(v:{delta:string;gamma:string;upPnl:string;downPnl:string})=>
 export const movedTotals=(f:Pick<RiskFactorResult,'totals'>)=>f.totals.filter(t=>moved(t.values));
 /** Presentation of server values only. Factors overlap; there is deliberately no sum across rows or report parts. */
 export function reportPresentation(run:RunView,metric:RiskMetric,window?:{offset:number;limit:number}):ReportPresentation{
- const gaps=runGaps(run),empty={excluded:[],gaps,factors:[],charts:[]};
+ const gaps=runGaps(run),empty={unassessedDays:0,excluded:[],gaps,factors:[],charts:[]};
  if(run.running)return {state:'running',...empty};
  const reports=run.parts.flatMap(p=>p.report?[p.report]:[]);
  if(!reports.length)return {state:'unavailable',...empty};
@@ -29,26 +29,29 @@ export function reportPresentation(run:RunView,metric:RiskMetric,window?:{offset
   throw Error('The report parts do not match the run’s selected trades. Their trade scope cannot be displayed together.');
  if(reports.some(r=>r.context.contextId!==run.context?.contextId||r.snapshotId!==first.snapshotId||canonical(r.scenario)!==canonical(first.scenario)))
   throw Error('The report parts do not share one retained context, close and scenario. Their results cannot be displayed together.');
- const excluded=runExclusions(reports);
+ const counts=reports.map(report=>report.unassessedDays??0);
+ if(counts.some(count=>!Number.isSafeInteger(count)||count<0)||new Set(counts).size!==1||reports.some((report,n)=>report.incomplete!==undefined&&report.incomplete!==(counts[n]>0)))
+  throw Error('The report parts do not agree on unassessed-day coverage.');
+ const unassessedDays=counts[0],excluded=runExclusions(reports);
  if(reports.some(r=>r.monteCarlo)){
   if(reports.length!==1||run.parts.length!==1||!first.monteCarlo)throw Error('A Monte Carlo report is one complete job and cannot be combined as sensitivity parts.');
   const monteCarlo=validateMonteCarlo(first as Parameters<typeof validateMonteCarlo>[0]);
-  return {state:gaps.length||excluded.length||!run.scope?'incomplete':monteCarlo.result.available?'complete':'unavailable',excluded,gaps,factors:[],charts:[],monteCarlo};
+  return {state:gaps.length||excluded.length||unassessedDays>0||!run.scope?'incomplete':monteCarlo.result.available?'complete':'unavailable',unassessedDays,excluded,gaps,factors:[],charts:[],monteCarlo};
  }
  if(reports.some(r=>r.historical)){
   if(reports.length!==1||run.parts.length!==1||!first.historical)throw Error('A historical report is one complete job and cannot be combined as sensitivity parts.');
   const historical=validateHistorical(first as Parameters<typeof validateHistorical>[0]);
-  return {state:gaps.length||excluded.length||!run.scope?'incomplete':historical.result.available?'complete':'unavailable',excluded,gaps,factors:[],charts:[],historical};
+  return {state:gaps.length||excluded.length||unassessedDays>0||!run.scope?'incomplete':historical.result.available?'complete':'unavailable',unassessedDays,excluded,gaps,factors:[],charts:[],historical};
  }
  if(reports.some(r=>r.parametric)){
   if(reports.length!==1||run.parts.length!==1||!first.parametric)throw Error('A parametric report is one complete job and cannot be combined as sensitivity parts.');
   const parametric=validateParametric(first as Parameters<typeof validateParametric>[0]);
-  return {state:gaps.length||excluded.length||!run.scope?'incomplete':parametric.result.available?'complete':'unavailable',excluded,gaps,factors:[],charts:[],parametric};
+  return {state:gaps.length||excluded.length||unassessedDays>0||!run.scope?'incomplete':parametric.result.available?'complete':'unavailable',unassessedDays,excluded,gaps,factors:[],charts:[],parametric};
  }
  if(reports.some(r=>r.joint)){
   if(reports.length!==1||run.parts.length!==1)throw Error('A joint report is one complete job and cannot be combined as sensitivity parts.');
   const joint=validateJoint(first);
-  return {state:gaps.length||excluded.length||!run.scope?'incomplete':'complete',excluded,gaps,factors:[],joint,charts:jointCharts(joint,joint.kind==='scenarios'?'loss':metric==='gamma'?'gamma':'delta')};
+  return {state:gaps.length||excluded.length||unassessedDays>0||!run.scope?'incomplete':'complete',unassessedDays,excluded,gaps,factors:[],joint,charts:jointCharts(joint,joint.kind==='scenarios'?'loss':metric==='gamma'?'gamma':'delta')};
  }
  const factors=reports.flatMap(sensitivityFactors);
  if(new Set(factors.map(f=>f.factor.id)).size!==factors.length)throw Error('This run states a factor more than once. Its results cannot be displayed together.');
@@ -71,7 +74,7 @@ export function reportPresentation(run:RunView,metric:RiskMetric,window?:{offset
   series:[...g.books].map(([id,b])=>({id,name:b.name,points:drawn.filter(f=>f.factor.coordinate===g.coordinate&&[...g.books.values()].some(book=>book.values.has(f.factor.id))).map(f=>({
    x:f.factor.id,label:`${f.factor.label} · ±${f.bump} ${f.factor.unit}`,y:b.values.get(f.factor.id)?.exact??null,text:b.values.get(f.factor.id)?.text,
   }))}))} satisfies ChartSpec}));
- return {state:gaps.length||excluded.length||!run.scope?'incomplete':'complete',excluded,gaps,factors,charts};
+ return {state:gaps.length||excluded.length||unassessedDays>0||!run.scope?'incomplete':'complete',unassessedDays,excluded,gaps,factors,charts};
 }
 
 /**

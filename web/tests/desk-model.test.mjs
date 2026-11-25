@@ -697,3 +697,12 @@ test('a price uses its actual quote denominator rather than the holding lot or c
  assert.equal(priceUnit(h),'USD/MMBtu');
  assert.equal(priceUnit({...h,unit:'MW',priceUnitLabel:'USD/MWh'}),'USD/MWh');
 });
+
+
+test('an assessed subtotal keeps its number and displays the backend missing-day count',()=>{
+ const base={...fixture.holdings[0],instrumentType:'physical_gas',contractIdentityKind:'gas_instrument',direction:'multi_side',quantity:null,lots:null,executionPrice:null,
+  fixedPrice:null,mark:null,markMinusPrice:null,presentValue:'1190',measure:'gas_lifecycle_value_v1',measureLabel:'Unrealized + realized unsettled',discounting:'undiscounted',unavailableReason:null,incomplete:true,unassessedDays:1};
+ const row=positionRows([base])[0];assert.equal(row.value,'1190');assert.match(row.measure,/incomplete: 1 unassessed day/);
+ const summaries=changed(fixture.summaries,0,groups=>groups.map(group=>({...group,incomplete:true,unassessedDays:2})));
+ assert.match(summaryTiles(summaries)[0].rows[0].note,/incomplete: 2 unassessed days/);
+});

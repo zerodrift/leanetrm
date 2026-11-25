@@ -20,7 +20,7 @@ public sealed record PnlGreekRun
         if(Risk.Repricing.Groups.Any(g=>g.Measure!=ValuationMeasure.PresentValue))
             throw new MarketDataException("pnl_pv_basis","A remaining-value accounting point requires actual present value.");
         return new(Context.ContextId,Risk.Repricing.SnapshotId,Context.ValuationAt,Context.KnownAt,
-            [..Risk.Repricing.Groups.SelectMany(g=>g.Positions).Select(p=>new PnlPositionValue(new(p.Owner,p.BindingId,p.BookId),p.Value))],flows,coverage)
+            [..Risk.Repricing.Groups.SelectMany(g=>g.Positions).Select(p=>new PnlPositionValue(new(p.Owner,p.BindingId,p.BookId),p.Value){UnassessedDays=p.UnassessedDays})],flows,coverage)
             {ValueSources=[Prepared]};
     }
     public static PnlGreekRun Capture(PreparedConnectedPortfolioRisk prepared,ConnectedFiniteDifferenceRun risk)

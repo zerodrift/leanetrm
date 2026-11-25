@@ -10,12 +10,12 @@ public enum GasQuantityStage { Receipt=1,Delivery,Fuel }
 [EconomicDefinition("gas_composition_link_v1")]
 public sealed record GasCompositionLink([property:IdentityField]string Source,[property:IdentityField]GasFuelConvention Formula,[property:IdentityField]ExactDecimal Fraction);
 public sealed record GasPhysicalComponent(string Code,PhysicalGasSide Side,ExactDecimal Direction,ExactDecimal? Quantity,GasCompositionLink? Link,string? QuantityPolicy=null);
-public sealed record GasCashComponent(string Code,Side Side,string Role,string Source,GasQuantityStage Stage,ExactDecimal Direction,ExactDecimal? Share=null,QuantityPart? Part=null);
+public sealed record GasCashComponent(string Code,Side Side,string Role,string Source,GasQuantityStage Stage,ExactDecimal Direction,ExactDecimal? Share=null,QuantityPart? Part=null,ReportedBalanceFollow? Balance=null);
 public sealed record GasChargeComponent(string Code,FixedSide Side,ChargeBasis Basis,string ClockSide,ExactDecimal DailyQuantity,ExactDecimal Direction);
 [EconomicDefinition("gas_composition_role_v1")]
 public sealed record GasCompositionRole([property:IdentityField]string Code,[property:IdentityField]string Role,[property:IdentityField]string? Source,[property:IdentityField]GasQuantityStage? Stage,[property:IdentityField]GasCompositionLink? Link,
  [property:IdentityField]ExactDecimal? Share=null,[property:IdentityField]QuantityPart? Part=null,[property:IdentityField]string? QuantityPolicy=null,
- [property:IdentityField]OwnedQuantity? Owned=null,[property:IdentityField]string? ClockSide=null);
+ [property:IdentityField]OwnedQuantity? Owned=null,[property:IdentityField]string? ClockSide=null,[property:IdentityField]ReportedBalanceFollow? Balance=null);
 
 public sealed class GasExerciseTermException(int ordinal,string message,bool leadHours=false):MarketDataException("gas_composition_input",message)
 {
@@ -77,7 +77,7 @@ public sealed record GasCompositionInstrument:SidedInstrument
   Physical=physical;Cash=cash;Charges=charges.IsDefault?[]:charges;BaseQuantity=c.Base;ReceiptRatios=c.Receipts;
   var entryTerms=physical.Any(p=>p.QuantityPolicy is not null)||cash.Any(p=>p.Part is not null);
   Roles=[..physical.Select(p=>new GasCompositionRole(p.Code,"physical",p.Link?.Source,null,p.Link,QuantityPolicy:p.QuantityPolicy)),
-   ..cash.Select(p=>new GasCompositionRole(p.Code,p.Role,p.Source,p.Stage,null,entryTerms||p.Share!=ExactDecimal.Parse("1")?p.Share:null,p.Part)),
+   ..cash.Select(p=>new GasCompositionRole(p.Code,p.Role,p.Source,p.Stage,null,entryTerms||p.Share!=ExactDecimal.Parse("1")?p.Share:null,p.Part,Balance:p.Balance)),
    ..c.ChargeRoles];
   Rights=rights.IsDefault?[]:rights;
   resolvedRights=ResolveBookingRights();
@@ -91,8 +91,8 @@ public sealed record GasCompositionInstrument:SidedInstrument
  protected internal override void RequireBeforeValuation(SideValuationContext context)
  {
   RequireNoExerciseRights();
-  if(Physical.Any(p=>p.QuantityPolicy is not null)||Cash.Any(p=>p.Part is not null))
-   throw Invalid("Value quantity policies and parts through the saved Instrument with its held day quantities.");
+  if(Physical.Any(p=>p.QuantityPolicy is not null)||Cash.Any(p=>p.Part is not null||p.Balance is not null))
+   throw Invalid("Value quantity policies, parts and reported balances through the saved Instrument with its held facts.");
  }
  private void RequireNoExerciseRights()
  {
@@ -116,8 +116,8 @@ public sealed record GasCompositionInstrument:SidedInstrument
 
    var ordinal=saved.Count;
    var slots=GasExerciseRight.ClaimEntries(ordinal,right.Entries,physical,slotsByCode,Physical.Length,claimed);
-   if(slots.Any(slot=>Roles[slot].Owned is not null))
-    throw new GasExerciseTermException(ordinal,"An exercise right cannot cover an independently owned charge.");
+   if(slots.Any(slot=>Roles[slot].Owned is not null||Roles[slot].Balance is not null))
+    throw new GasExerciseTermException(ordinal,"An exercise right cannot cover an independently owned charge or a reported-balance cash-out.");
    try{saved.Add(ResolveGroups(ordinal,right,slots));}
    catch(MarketDataException error)when(error.Code=="gas_composition_input"&&error is not GasExerciseTermException)
    {throw new GasExerciseTermException(ordinal,error.Message);}
@@ -207,8 +207,8 @@ public sealed record GasCompositionInstrument:SidedInstrument
    physical.Any(p=>p is null||p.Side is null)||cash.Any(p=>p is null||p.Side is null)||charges.Any(p=>p is null||p.Side is null))
    throw Invalid($"Select {MinPhysicalSides} to {MaxPhysicalSides} physical sides, up to {MaxCashSides} payment and charge sides and at most {MaxSides} in all.");
   if(physical.Any(p=>p.QuantityPolicy is not(null or GasHeldQuantities.DeliverySchedulePolicy))||
-   physical.Any(p=>p.Link is not null)&&(physical.Any(p=>p.QuantityPolicy is not null)||cash.Any(p=>p.Part is not null)))
-   throw Invalid("Quantity policies and parts require independent physical sources and no quantity links.");
+   physical.Any(p=>p.Link is not null)&&(physical.Any(p=>p.QuantityPolicy is not null)||cash.Any(p=>p.Part is not null||p.Balance is not null)))
+   throw Invalid("Quantity policies, parts and reported balances require independent physical sources and no quantity links.");
   if(cash.Any(p=>p.Share is not {} share||share.CompareTo(default)<=0))
    throw Invalid("Every payment requires an explicit positive share of its source quantity.");
   var codes=physical.Select(p=>p.Code).Concat(cash.Select(p=>p.Code)).Concat(charges.Select(p=>p.Code)).ToArray();
@@ -251,8 +251,9 @@ public sealed record GasCompositionInstrument:SidedInstrument
   foreach(var p in cash)
   {
    var source=Index(p.Source);var a=physical[source].Side;
+   if(p.Balance is not null||p.Role=="imbalance_cashout")GasImbalanceCashoutEntries.Require(p,a);
    GasCashDelivery.Require(p.Side,a,"gas_composition_input");
-   var indexed=p.Role=="indexed_consideration"&&p.Side is FloatingSide;
+   var indexed=p.Role is("indexed_consideration" or "imbalance_cashout")&&p.Side is FloatingSide;
    if(!(indexed||p.Role is("consideration" or "fee")&&p.Side is FixedSide)||!Enum.IsDefined(p.Stage)||p.Direction!=one&&p.Direction!=minus||
     p.Side.GenerateSchedule() is not SidePaymentSchedule schedule||schedule.Currency!=native.Currency||schedule.UnitQuantity!=native.UnitQuantity||schedule.Rows.Count<1||!indexed&&schedule.Rows.Count!=1)
     throw Invalid("Cash sides require their declared fixed or indexed price, independent direction and explicit physical quantity stage in the same native quote.");
@@ -269,6 +270,7 @@ public sealed record GasCompositionInstrument:SidedInstrument
    }
    members.Add(new(p.Side,p.Direction,Ratio(p.Share!.Value).Times(Stage(inputs[source],outputs[source]!,p.Stage))));
   }
+  GasImbalanceCashoutEntries.RequirePairs(cash);
   var chargeRoles=ImmutableArray.CreateBuilder<GasCompositionRole>(charges.Length);
   foreach(var charge in charges)
   {

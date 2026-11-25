@@ -39,6 +39,26 @@ internal static class GasTicketChecks
             throw new Exception($"Expected ticket_input for {name}.");
         }
         void Equal(object? expected, object? actual, string what) { if (!Equals(expected, actual)) throw new Exception($"{what}: expected '{expected}', got '{actual}'."); }
+        Check("one cash-out card names its two native schedules explicitly",()=>{
+            var terms=GasCashoutTerms.Terms("daily_index_cashout_v1",true,"daily_imbalance_v1","net_accounts_v1","final_statement_balance_v1");
+            var received=GasTicket.ScheduleEntry("balance.to_us","imbalance_cashout",terms);
+            var paid=GasTicket.ScheduleEntry("balance.by_us","imbalance_cashout",terms with{OwedToUs=false});
+            Equal("balance",received.Owner,"received owner");Equal("balance",paid.Owner,"paid owner");
+            Equal("balance.to_us",received.Code,"received native code");Equal("balance.by_us",paid.Code,"paid native code");
+            Equal("floating",received.Kind,"payment schedule kind");Equal("balance · Owed to us",received.Name,"received name");
+            Equal("balance · Owed by us",paid.Name,"paid name");
+            Equal("RCT",GasTicket.ScheduleEntry("RCT","physical",null).Owner,"ordinary owner");
+        });
+        Check("imbalance cash-out terms round trip and an absent pair preserves the wire request", () =>
+        {
+            var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+            var plain = Map(Draft(Receipt, Cash));
+            Equal(false, JsonSerializer.SerializeToElement(plain, json).TryGetProperty("imbalanceCashouts", out _), "absent cash-out");
+            var pair = new GasImbalanceCashoutRequest("balance", "daily_index_cashout_v1", "RCT", "I", "0.10", "0.20", 15,
+                "final_statement_balance_v1", "daily_imbalance_v1", "each_account_v1");
+            var saved = JsonSerializer.Deserialize<GasCompositionRequest>(JsonSerializer.Serialize(plain with { ImbalanceCashouts = [pair] }, json), json)!;
+            Equal(pair, saved.ImbalanceCashouts!.Value.Single(), "retained cash-out terms");
+        });
         Check("exercise terms round trip and an absent right preserves the wire request",()=>{
             var json=new JsonSerializerOptions(JsonSerializerDefaults.Web);
             var plain=Map(Draft(Receipt,Cash));
@@ -541,8 +561,8 @@ internal static class GasTicketChecks
             string[] structural = ["GasPhysicalRequest.Code", "GasPhysicalRequest.Link", "GasCashRequest.Code", "GasCashRequest.Role", "GasCompositionRequest.SnapshotId", "GasCompositionRequest.Convention", "GasCompositionRequest.KnowledgeMode",
                 "GasCompositionRequest.Profile", "GasCompositionRequest.OperationId", "GasCompositionRequest.DefinitionRevisionId", "GasCompositionRequest.Discounting", "GasCompositionRequest.PhysicalSides", "GasCompositionRequest.CashSides",
                 "GasCompositionRequest.TradeId", "GasCompositionRequest.BindingId", "GasCompositionRequest.ExpectedRevision", "GasCompositionRequest.Reason", "GasCompositionRequest.AmendmentPolicy", "GasCompositionRequest.PreviewTradeId", "GasCompositionRequest.PreviewContextId",
-                "GasCashRequest.Indexed", "GasIndexedCashRequest.PaymentConvention", "GasChargeRequest.Code"];
-            var parameters = new[] { typeof(GasPhysicalRequest), typeof(GasCashRequest), typeof(GasQuantityLinkRequest), typeof(GasCompositionRequest), typeof(GasIndexedCashRequest), typeof(GasChargeRequest) }
+                "GasCashRequest.Indexed", "GasIndexedCashRequest.PaymentConvention", "GasChargeRequest.Code", "GasImbalanceCashoutRequest.Code", "GasImbalanceCashoutRequest.Profile"];
+            var parameters = new[] { typeof(GasPhysicalRequest), typeof(GasCashRequest), typeof(GasQuantityLinkRequest), typeof(GasCompositionRequest), typeof(GasIndexedCashRequest), typeof(GasChargeRequest), typeof(GasImbalanceCashoutRequest) }
                 .SelectMany(t => t.GetConstructors().Single().GetParameters().Select(x => $"{t.Name}.{x.Name}")).Where(x => !structural.Contains(x)).Concat(new[]{"GasPhysicalRequest.QuantityPolicy","GasCashRequest.Share","GasCashRequest.Part","GasCashRequest.DeliveryFrom","GasCashRequest.DeliveryTo"}).Order().ToArray();
             string[] reached = ["GasPhysicalRequest.Pipeline:pipeline", "GasPhysicalRequest.Zone:zone", "GasPhysicalRequest.DeliveryPoint:delivery_point", "GasPhysicalRequest.Product:product", "GasPhysicalRequest.Direction:direction",
                 "GasPhysicalRequest.DeliveryFrom:delivery_from", "GasPhysicalRequest.DeliveryTo:delivery_to", "GasPhysicalRequest.QuantityBasis:quantity_basis", "GasPhysicalRequest.QuantityPolicy:quantity_policy", "GasPhysicalRequest.Quantity:quantity",
@@ -555,6 +575,7 @@ internal static class GasTicketChecks
                 "GasPhysicalRequest.ForecastCurve:forecast_curve", "GasCompositionRequest.CounterpartyId:counterparty", "GasCompositionRequest.CounterpartyRevision:counterparty",
                 "GasChargeRequest.Basis:charge_basis", "GasChargeRequest.Direction:charge_direction", "GasChargeRequest.Price:charge_price", "GasChargeRequest.DailyQuantity:charge_daily_quantity",
                 "GasChargeRequest.From:charge_start", "GasChargeRequest.To:charge_end", "GasChargeRequest.PaymentAt:charge_payment_at", "GasChargeRequest.PaymentDay:charge_payment_day", "GasChargeRequest.ClockSide:charge_clock_side",
+                "GasImbalanceCashoutRequest.Side:imbalance_source", "GasImbalanceCashoutRequest.Index:imbalance_index", "GasImbalanceCashoutRequest.SpreadOwedToUs:imbalance_spread_to_us", "GasImbalanceCashoutRequest.SpreadOwedByUs:imbalance_spread_by_us", "GasImbalanceCashoutRequest.PaymentDay:imbalance_payment_day", "GasImbalanceCashoutRequest.StatementPolicy:imbalance_statement_policy", "GasImbalanceCashoutRequest.StatementBasis:imbalance_statement_basis", "GasImbalanceCashoutRequest.AccountNetting:imbalance_account_netting",
                 "GasIndexedCashRequest.Index:floating_index", "GasIndexedCashRequest.ForecastCurve:floating_forecast_curve", "GasIndexedCashRequest.Spread:floating_spread", "GasIndexedCashRequest.PaymentDay:floating_payment_day"];
             var names = reached.Select(x => x.Split(':')[0]).Order().ToArray();
             if (!parameters.SequenceEqual(names)) throw new Exception($"Request properties and the field map differ: {string.Join(", ", parameters.Except(names).Concat(names.Except(parameters)))}.");
@@ -574,11 +595,11 @@ internal static class GasTicketChecks
         Check("the side caps are the composition contract's", () =>
         {
             Equal((GasCompositionInstrument.MinPhysicalSides, GasCompositionInstrument.MaxPhysicalSides), (GasTicket.SideKind("physical").Min, GasTicket.SideKind("physical").Max), "physical sides");
-            Equal(GasCompositionInstrument.MaxCashSides, GasTicket.Description.SideLimits.Single(l => l.Kinds.Where(k=>k!="charge").SequenceEqual(["cash", "fee", "floating"])).Max, "cash and fee sides");
+            Equal(GasCompositionInstrument.MaxCashSides, GasTicket.Description.SideLimits.Single(l => l.Kinds.Where(k=>k is not ("charge" or "imbalance")).SequenceEqual(["cash", "fee", "floating"])).Max, "cash and fee sides");
             foreach (var role in new[] { "consideration", "fee", "indexed_consideration" }) Equal(GasCompositionInstrument.MaxCashSides, GasTicket.SideKind(role).Max, role + " sides");
         });
         Check("a new gas ticket opens with one physical and one payment side", () =>
-            Equal("physical:1,cash:1,fee:0,floating:0", string.Join(",", GasTicket.Description.Sides.Where(k=>k.Kind!="charge").Select(k => $"{k.Kind}:{k.Initial}")), "initial sides"));
+            Equal("physical:1,cash:1,fee:0,floating:0", string.Join(",", GasTicket.Description.Sides.Where(k=>k.Kind is not ("charge" or "imbalance")).Select(k => $"{k.Kind}:{k.Initial}")), "initial sides"));
         Check("quantities are in the trade's resolved quantity unit, never a unit symbol", () =>
         {
             var fields = GasTicket.Description.TradeFields.Concat(GasTicket.Description.Sides.SelectMany(k => k.Fields)).Where(f => f.Unit is not null&&f.Id!="charge_daily_quantity").Select(f => $"{f.Id}:{f.Unit}");
@@ -598,7 +619,7 @@ internal static class GasTicketChecks
             Equal("swing_daily_min,swing_daily_max,swing_range,swing_notice_deadline,nomination_cycle,nominating_party,heat_content,quality_spec", Soon(GasTicket.SideKind("physical").Fields), "soon physical fields");
             Equal("", string.Join(",", GasTicket.Description.Sides.Where(k => k.Soon is not null).Select(k => k.Kind)), "soon side kinds");
             Equal("volume", string.Join(",", GasTicket.Description.Sides.SelectMany(k => k.Columns).Where(c => c.Soon is not null).Select(c => c.Id)), "soon columns");
-            Equal("imbalance", string.Join(",", GasTicket.Description.Tabs.Where(t => t.Soon is not null).Select(t => t.Id)), "soon tabs");
+            Equal("", string.Join(",", GasTicket.Description.Tabs.Where(t => t.Soon is not null).Select(t => t.Id)), "soon tabs");
             if (TicketDescriptions.ViewColumns(GasTicket.SideKind("physical")).Any(c => c.Item1 == "volume")) throw new Exception("The soon volume column reached the schedule view.");
         });
         Check("a role without a side kind refuses", () =>
@@ -660,6 +681,51 @@ internal static class GasTicketChecks
             Map(Draft([Receipt,..sevenPayments.Take(6),lumpSum])).ChargeSides!.Value.Length, "admitted charge"));
         Names("a charge as the eighth payment side", Draft([Receipt,..sevenPayments,lumpSum]), "gas_composition_input", "PREM", "charge_basis");
         Names("a charge as the ninth side in total", Draft([Receipt,Linked,..sevenPayments.Take(6),lumpSum]), "gas_composition_input", "PREM", "charge_basis");
+        var imbalance = Side("imbalance", "BAL", ("imbalance_source", "RCT"), ("imbalance_index", "I"),
+            ("imbalance_spread_to_us", "0.10"), ("imbalance_spread_by_us", "0.20"), ("imbalance_payment_day", "15"),
+            ("imbalance_statement_policy", "final_statement_balance_v1"), ("imbalance_statement_basis", "daily_imbalance_v1"),
+            ("imbalance_account_netting", "each_account_v1")) with { CalendarPolicy = Policy("floating") };
+        Check("a cash-out draft maps to its complete pair request and reopens exactly", () =>
+        {
+            var terms=Map(Draft(Receipt,Cash,imbalance));
+            var pair=terms.ImbalanceCashouts!.Value.Single();
+            Equal(new GasImbalanceCashoutRequest("BAL","daily_index_cashout_v1","RCT","I","0.10","0.20",15,
+                "final_statement_balance_v1","daily_imbalance_v1","each_account_v1"){CalendarPolicy=Policy("floating")},pair,"cash-out terms");
+            Equal(GasCompositionStore.IndexedProfile,terms.Profile,"index profile");
+            Equal(1,terms.CashSides.Length,"ordinary payments");
+            Equal(true,GasTicket.SameTerms(terms,Map(GasTicket.Reopen(terms))),"retained round trip");
+        });
+        Check("a cash-out has no proposed field values, including a single available choice", () =>
+        {
+            var kind=GasTicket.Description.Sides.Single(side=>side.Kind=="imbalance");
+            Equal(8,kind.Fields.Length,"required fields");
+            foreach(var field in kind.Fields)
+            {
+                Equal(true,field.Required,"required choice");Equal(null,field.Lookup,"no proposed lookup");
+                if(field.Choices is not null)Equal(null,GasTicket.ChoiceSet(Draft(Receipt,imbalance),"BAL",field.Id,[new("only","Only")]).StartingValue,"no starting choice");
+            }
+            Equal(2,JsonSerializer.SerializeToElement(kind).GetProperty("EntryCount").GetInt32(),"two native entries");
+            Equal(true,kind.CalendarPurposes!.Observation,"index observation calendar");
+        });
+        Check("a cash-out fits beside five payments",()=>Equal(1,Map(Draft([Receipt,..sevenPayments.Take(5),imbalance])).ImbalanceCashouts!.Value.Length,"cash-out count"));
+        Names("a cash-out beside six payments",Draft([Receipt,..sevenPayments.Take(6),imbalance]),"gas_composition_input","BAL","imbalance_source");
+        Names("a cash-out exceeding eight entries",Draft([Receipt,Receipt with{Code="ALT"},..sevenPayments.Take(5),imbalance]),"gas_composition_input","BAL","imbalance_source");
+        Names("a cash-out on a linked source",Draft(Receipt,Linked,With(imbalance,"imbalance_source","DLV")),"gas_composition_input","BAL","imbalance_source");
+        Names("a cash-out beside a linked source",Draft(Receipt,Linked,imbalance),"gas_composition_input","BAL","imbalance_source");
+        Names("a cash-out naming a payment",Draft(Receipt,Cash,With(imbalance,"imbalance_source","PAY")),"gas_composition_input","BAL","imbalance_source");
+        Names("two pairs on one source",Draft(Receipt,imbalance,imbalance with{Code="OTHER"}),"gas_composition_input","OTHER","imbalance_source");
+        Names("an unknown cash-out basis",Draft(Receipt,With(imbalance,"imbalance_statement_basis","unknown")),"gas_composition_input","BAL","imbalance_statement_basis");
+        Names("an unknown account netting",Draft(Receipt,With(imbalance,"imbalance_account_netting","unknown")),"gas_composition_input","BAL","imbalance_account_netting");
+        Names("an unknown statement policy",Draft(Receipt,With(imbalance,"imbalance_statement_policy","unknown")),"gas_composition_input","BAL","imbalance_statement_policy");
+        Names("a missing cash-out spread",Draft(Receipt,With(imbalance,"imbalance_spread_to_us",null)),"gas_composition_input","BAL","imbalance_spread_to_us");
+        Names("a malformed cash-out spread",Draft(Receipt,With(imbalance,"imbalance_spread_to_us","1,000")),"gas_composition_input","BAL","imbalance_spread_to_us");
+        RejectRight("an exercise right cannot claim a cash-out",Rights(Draft(Receipt,Cash,imbalance),dailyRight with{right_sides=["PAY","RCT","BAL"]}),0,"right_sides");
+        Check("independent cash-out does not alter an ordinary exercise right",()=>{
+            var draft=Rights(Draft(Receipt,imbalance,Cash),dailyRight);
+            Equal("PAY,RCT",string.Join(",",GasTicket.Choices(draft,null,"right_sides",default).Select(choice=>choice.Value).Order()),"eligible entries");
+            Equal(true,GasTicket.SameTerms(Map(draft),Map(GasTicket.Reopen(Map(draft)))),"right and pair round trip");
+        });
+        Names("a cash-out payment day of 29",Draft(Receipt,With(imbalance,"imbalance_payment_day","29")),"gas_composition_input","BAL","imbalance_payment_day");
         Names("a quantity that is not a plain decimal", Draft(With(Receipt, "quantity", "10,000")), "numeric_format", "RCT", "quantity");
         Names("a fee price that is not a plain decimal", Draft(Receipt, Linked, With(With(Fee, "fee_tariff", null), "fee_price", "0.1x")), "numeric_format", "FEE", "fee_price");
         Names("a missing required side value", Draft(With(Receipt, "product", null)), "ticket_input", "RCT", "product");
@@ -907,7 +973,7 @@ internal static class GasTicketChecks
         Refuses("ticket_input", "usage tariffs on a receipt-stage fee refuse", () => GasTicket.Choices(Open(A(Receipt), With(fee, "fee_stage", "receipt")), "FEE", "fee_tariff", catalog));
         Check("every choice field of the description is answered", () =>
         {
-            var draft = Open(A(Receipt), A(Linked), Cash, fee, Indexed, capacityCharge);
+            var draft = Open(A(Receipt), A(Linked), Cash, fee, Indexed, capacityCharge, imbalance);
             foreach (var kind in GasTicket.Description.Sides)
                 foreach (var field in kind.Fields.Where(f => f.Choices is not null))
                     if (GasTicket.Choices(draft, draft.Sides.First(s => s.Kind == kind.Kind).Code, field.Id, catalog).IsEmpty) throw new Exception($"No choices for {field.Id}.");

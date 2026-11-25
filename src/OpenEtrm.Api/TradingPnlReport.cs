@@ -351,7 +351,7 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
     private static object Values(PnlAttributionPosition[] rows)
     {
         var explained=TradingPnlAttribution.Explained(rows);
-        return new{openingValue=Money(Sum(rows,r=>r.Accounting.OpeningValue)),closingValue=Money(Sum(rows,r=>r.Accounting.ClosingValue)),
+        return new{openingUnassessedDays=rows.Sum(r=>r.Accounting.OpeningUnassessedDays),closingUnassessedDays=rows.Sum(r=>r.Accounting.ClosingUnassessedDays),incomplete=rows.Any(r=>r.Accounting.Incomplete),openingValue=Money(Sum(rows,r=>r.Accounting.OpeningValue)),closingValue=Money(Sum(rows,r=>r.Accounting.ClosingValue)),
             valueMovement=Money(Sum(rows,r=>r.Accounting.ValueMovement)),cash=Money(Sum(rows,r=>r.Accounting.PeriodCash)),priorCash=Money(Sum(rows,r=>r.Accounting.PriorCashKnowledgeAdjustment)),
             transfers=Money(Sum(rows,r=>r.Accounting.NonEarningTransfers)),economicPnl=Money(Sum(rows,r=>r.Accounting.EconomicPnl)),
             explained=explained.Amount is null?null:Money(explained.Amount),residual=Money(Sum(rows,r=>r.ResidualValueMovement)),unavailableEstimates=explained.Unavailable};

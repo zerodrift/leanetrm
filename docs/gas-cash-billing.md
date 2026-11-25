@@ -106,7 +106,8 @@ otherwise enlarge an earlier measurement's RLS inputs. The analyzed layout
 covers the full database's RLS dependencies before recording its baseline.
 Stale small-table estimates can still cause one physical curve scan;
 this is not a history-independent scan or
-latency claim. The ordinary five-second command deadline is unchanged.
+latency claim. Each measurement explicitly selects and verifies its own
+five-second SQL command deadline, independently of the general preview budget.
 
 ## Native operations and UI
 

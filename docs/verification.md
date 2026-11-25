@@ -1,5 +1,112 @@
 # Local verification and continuous integration
 
+## Imbalance cash-out (D454)
+
+Local qualification uses synthetic trades, the checkout's own API and leased
+worker, and isolated stock PostgreSQL 18.7 databases on macOS arm64. Toolchain:
+.NET SDK 10.0.402, Python 3.13.7, Node 24.22.0 and Chrome. No production resources
+are used. The full gas, trading and managed groups passed sequentially at
+implementation commit `d8b1dc7f`, after the independent adversarial review and
+its fixes. With the pinned tools selected, run from the repository root:
+
+```bash
+for group in gas trading managed; do
+  python3 tools/check_all.py --pg-bin "$PG_BIN" --dotnet "$DOTNET" --browser "$BROWSER" --group "$group" || exit
+done
+```
+
+| Group | Runner `CHECK` workloads | Printed `PASS` checkpoints | Owned browser checks | Completed workers | Databases removed |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Gas | 19 | 1,323 | 213 | 30 | 11 |
+| Trading | 20 | 1,588 | 489 | 20 | 10 |
+| Managed | 81 | 2,905 | — | — | — |
+
+Runner workloads include restores and builds; printed checkpoints include
+repeated setup and migration checks. Gas and trading each qualified an expected
+`risk_graph_manifest` refusal for an altered retained manifest. Managed reported
+806 core checks and 231 gas ticket checks. The dedicated cash-out workload
+reported 103 PASS checkpoints, five browser checks and three completed workers.
+
+Focused qualification passes both exact cash-out oracles: daily +1,190 and
+month-to-date −700, each with one unassessed day. Managed cases cover immediate
+predecessors, month boundaries, mid-month starts, account netting, exact units,
+absolute size, negative and zero prices, paid corrections and paid withdrawal.
+Native/API checks cover complete-pair admission, replay, financial readers
+without gas-operations access, SQLSTATE 42501 outside a worker lease, and pinned
+knowledge on ordinary and queued routes. Net settlement checks conserve +1,830
+and −640 into one +1,190 receipt, preserve its identity on retries and refuse a
+different second monthly settlement.
+
+The full frontend suite passes 2,364 tests with zero skips, using sequential
+files to avoid concurrent owned-browser startup contention on this host. Run
+from the repository root after the web build:
+
+```bash
+node --test --test-concurrency=1 web/tests/*.test.mjs
+```
+
+The dedicated browser workload passes five checks: empty required cash-out
+fields, booking, absent amounts on unknown days, signed daily statement values,
+and exact native Side inspection for both payments. Gas ticket checks pass
+231 cases. Retained overview and Blotter subtotal checks also pass. These are
+local results, not evidence of deployment or production qualification.
+
+Focused regressions retain paid cash when a fixing crosses zero, reject direct
+worker settlement access, and hide a settlement before its paid instant. P&L
+reports the quantity-only −300 residual with no cash, with a 900 receipt, and
+after that receipt is revised to 600. It retains separate endpoint coverage;
+an incomplete zero subtotal stays visible. Joint scenarios and derivatives
+carry distinct coverage for an incomplete cash-out book and a complete book.
+The independent review covered numerical behavior, temporal selection, paid
+corrections, valuation authority and scenario reuse. Its four findings were
+resolved with failing-then-passing regressions before the full qualification
+above. No review findings remain deferred. The review was read-only; the
+verification runs were performed separately by the implementer.
+
+After merging master `b836ef3c` at commit `0207ce82`, the same local environment
+passed `tools/check_all.py --group repository` (five workloads, 186 Python
+unit checks, 36 settlement specification checks and 40 browser-harness checks).
+Separate disposable `tools/run_preview.py` runs passed `--check
+--gas-imbalance-check --browser-check` (103 PASS checkpoints, five browser
+checks and three completed workers) and `--check --cash-pnl-check` (90 PASS
+checkpoints). Both integration databases were removed. These reruns cover the
+merged temporary-view source admission, whole-book owned-gas absence checks,
+cash-out accounting and browser workflow. A separate read-only integration
+review found no issues in their combined authorization and coverage behavior.
+
+The settlement CI follow-up raises the disposable preview's runtime and risk
+worker SQL command budgets from five to 30 seconds. Retained scheduled-swap
+reads exceeded the five-second command budget on shared CI runners. Connection
+and authenticator limits remain five seconds; worker calculation deadlines,
+lease checks and cancellation still apply independently. This is a test and
+local-preview budget adjustment, not a query optimization or a change to hosted
+connection settings. The complete settlement group passes locally with nine
+runner workloads, 252 PASS checkpoints, 101 owned browser checks and three
+completed workers; its disposable database was removed. The checks cover both
+dated-observation worker replay and scheduled-swap Blotter pricing. Independent
+review found no blocking issue in the deadline change.
+
+Billing metadata qualification retains its own five-second SQL command budget.
+Its dedicated measurement process sets that budget before creating the database
+client and verifies it on the opened connection. Exact result comparisons,
+retained input coordinates and metadata-work bounds remain unchanged when the
+general preview uses a longer command budget. At billing fix `467685b0`, the
+full assistant group passed
+12 runner workloads, 1,666 PASS checkpoints and 350 owned browser checks; all
+three preview databases were removed. Repository checks passed again, and an
+independent review found no blocking issue in the measurement's process scope
+or preserved deadline.
+
+Integration with master `cbab62a9` reserves D453 and migration 0401 for the
+curve-mark editor, and D454 and migration 0402 for cash-out. The cash-out
+migration's contents are unchanged. Repository checks passed on the combined
+tree, as did three focused database/API/browser workloads: cash-out (103 PASS
+checkpoints, five browser checks and three workers), curve marks (125 PASS
+checkpoints and 30 browser checks), and physical assistant (153 PASS checkpoints
+and ten browser checks). The last includes all four five-second billing
+measurements. Each preview removed its database. Independent integration review
+found no issues in migration ordering, test dispatch or retained deadlines.
+
 ## Curve Marks Editor (D453)
 
 On 2026-11-24 the repository, frontend, managed and database groups passed at

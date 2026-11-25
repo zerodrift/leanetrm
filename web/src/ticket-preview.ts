@@ -1,13 +1,13 @@
 import {exerciseFieldKey} from './ticket-model.js';
 import type {TicketStatus} from './deal-ticket.js';
-import type {ExerciseGroup,ScheduleView,TicketLink,TicketPreview,TicketSummary} from './ticket-types.js';
+import type {ExerciseGroup,ImbalanceReportRow,TicketScheduleEntry,ScheduleView,TicketLink,TicketPreview,TicketSummary} from './ticket-types.js';
 import {requireInstrumentSideGroups,type InstrumentSideGroup} from './instrument-sides.js';
 import {requireSideGroupMappings,type TicketFieldGroup} from './ticket-field-groups.js';
 
 // What a preview answer makes of the ticket's schedule panel (docs/deal-ticket.md, Live preview): the schedule it draws, or the last good
 // one kept, marked stale, with the refusal's reason on the field it names.
 // quantityUnit is the unit the shown schedule's preview resolved, and links its quantity links.
-export type SchedulePanel={groups?:ExerciseGroup[];schedule:ScheduleView|null;quantityUnit:string|null;currency?:string;previous:ScheduleView|null;summaries:TicketSummary[];links:TicketLink[];status:TicketStatus;errors:Record<string,string>;sideGroups?:InstrumentSideGroup[];sideGroupsReason?:string|null};
+export type SchedulePanel={scheduleEntries?:TicketScheduleEntry[];imbalanceRows?:ImbalanceReportRow[];unassessedDays?:number;groups?:ExerciseGroup[];schedule:ScheduleView|null;quantityUnit:string|null;currency?:string;previous:ScheduleView|null;summaries:TicketSummary[];links:TicketLink[];status:TicketStatus;errors:Record<string,string>;sideGroups?:InstrumentSideGroup[];sideGroupsReason?:string|null};
 
 /** Why an attempt was refused or failed, in the words it gives. */
 export const reasonOf=(error:unknown)=>error instanceof Error?error.message:String(error);
@@ -34,13 +34,14 @@ export function previewed(panel:SchedulePanel,outcome:{preview:TicketPreview}|{r
  const composition=sideGroups?{sideGroups,...sideGroupsReason!==undefined?{sideGroupsReason}:{}}:{};
  if(typeof quantityUnit!=='string'||!quantityUnit)throw Error('The preview did not resolve the trade’s quantity unit.');
  if(!Array.isArray(links))throw Error('The preview did not return the trade’s quantity links.');
+ const reported={...outcome.preview.scheduleEntries?{scheduleEntries:outcome.preview.scheduleEntries}:{},...outcome.preview.imbalanceRows?{imbalanceRows:outcome.preview.imbalanceRows}:{},...outcome.preview.unassessedDays===undefined?{}:{unassessedDays:outcome.preview.unassessedDays}};
  const pricedGroups=Array.isArray(outcome.preview.groups)?{groups:outcome.preview.groups}:{};
- if(schedule)return {schedule,...pricedGroups,quantityUnit,...currency===undefined?{}:{currency},previous:panel.schedule,summaries:summaries??[],links,...composition,status:{kind:'current',text:'Up to date · previewed after your last change'},errors:{}};
+ if(schedule)return {schedule,...reported,...pricedGroups,quantityUnit,...currency===undefined?{}:{currency},previous:panel.schedule,summaries:summaries??[],links,...composition,status:{kind:'current',text:'Up to date · previewed after your last change'},errors:{}};
  if(!scheduleRefusal)throw Error('The preview returned neither a schedule nor why it has none.');
  const status={kind:'refused',text:`Schedule refused: ${scheduleRefusal.message}`} as const;
  if(!options.retained && panel.schedule && outcome.preview.groups!==undefined && !outcome.preview.groups?.length)
   return {...kept(status.text,{}),groups:[],...composition};
- if(pricedGroups.groups)return {schedule:null,previous:null,...pricedGroups,quantityUnit,...currency===undefined?{}:{currency},summaries:summaries??[],links,...composition,status,errors:{}};
- if(outcome.preview.groups===null)return {schedule:null,previous:null,quantityUnit,summaries:[],links,...composition,status,errors:{}};
+ if(pricedGroups.groups)return {schedule:null,previous:null,...reported,...pricedGroups,quantityUnit,...currency===undefined?{}:{currency},summaries:summaries??[],links,...composition,status,errors:{}};
+ if(outcome.preview.groups===null)return {schedule:null,previous:null,...reported,quantityUnit,summaries:[],links,...composition,status,errors:{}};
  return {...kept(status.text,{}),...composition};
 }

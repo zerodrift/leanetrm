@@ -15,6 +15,7 @@ internal sealed record RetainedProgramContext(ScheduleMarketSources Sources, Cur
     internal RetainedProgramOccurrence? Occurrence { get; init; }
     internal ImmutableArray<SignedRatio> HeldFactors { get; init; } = [];
     internal ImmutableArray<ImmutableArray<EntryDayQuantity>> EntryDays { get; init; }
+    internal ImmutableArray<ImmutableArray<ReportedDayQuantity>> ReportedDays { get; init; }
     internal bool CashAutomatic { get; init; }
     internal QuantityPart? EntryPart { get; init; }
 }
@@ -66,7 +67,7 @@ public sealed partial class SideValuationContext
         if (inputs.Cash is { Payments.IsEmpty: false } cash)
         {
             var gross = new PhysicalCashState(cash.TradeId, cash.BindingId, cash.Quantity, cash.BookId, [],
-                PhysicalCashState.Policy, cash.OwnerDays, cash.Elections, cash.NextElectionEffectiveAt);
+                PhysicalCashState.Policy, cash.OwnerDays, cash.Elections, cash.NextElectionEffectiveAt, cash.Balances);
             return scopes.Exercised = WithRetainedPrograms(inputs with { Cash = gross }).WithBindingState(gross);
         }
         return scopes.Exercised = WithRetainedPrograms(inputs);
@@ -191,7 +192,8 @@ public sealed record RetainedProgramSchedule : SideSchedule
             : inputs.Sources.Evaluate(Program, SideId, inputs.Scenario, context.Discounting, context.UnitEvaluation.Cancellation);
         var lifecycle = inputs.Cash is {} cash ? PhysicalLifecycle.EvaluateSide(Program, execution, Program.Document.Family == "gas", inputs.Occurrence!.Slot,
             inputs.HeldFactors[inputs.Occurrence.Slot], inputs.Geometries[inputs.Occurrence.Slot], cash, context.Snapshot, Currency,
-            inputs.EntryDays.IsDefault ? default : inputs.EntryDays[inputs.Occurrence.Slot], inputs.CashAutomatic) : null;
+            inputs.EntryDays.IsDefault ? default : inputs.EntryDays[inputs.Occurrence.Slot], inputs.CashAutomatic,
+            inputs.ReportedDays.IsDefault ? default : inputs.ReportedDays[inputs.Occurrence.Slot]) : null;
         return new(this, context, execution, lifecycle);
     }
 }
@@ -209,7 +211,8 @@ public sealed record RetainedProgramValuation : SideValuation
         ImmutableDictionary<DateOnly,EntryDayQuantity>? selected = null;
         if(Context.RetainedPrograms is { Occurrence: {} occurrence, EntryDays.IsDefault: false } inputs && !inputs.EntryDays[occurrence.Slot].IsDefault)
             selected = inputs.EntryDays[occurrence.Slot].ToImmutableDictionary(d => d.Day);
-        return new(code, Execution, ((RetainedProgramSchedule)Schedule).Program, scale, coefficient, columns, FollowedDays: selected, Part: Context.RetainedPrograms?.EntryPart);
+        return new(code, Execution, ((RetainedProgramSchedule)Schedule).Program, scale, coefficient, columns, FollowedDays: selected, Part: Context.RetainedPrograms?.EntryPart)
+        {ReportedRows=Lifecycle?.Rows.Any(row=>row.ReportedQuantity is not null)==true?Lifecycle.Rows.ToImmutableDictionary(row=>row.DeliveryFrom):null};
     }
     public override SideScheduleSnapshot InspectSchedule(string manifest, ExactDecimal scale, SignedRatio coefficient, Func<DateOnly, DateTimeOffset> boundary)
     {

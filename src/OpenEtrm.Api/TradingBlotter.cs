@@ -194,6 +194,8 @@ public sealed partial class TradingBlotter(PreviewDatabase database,FuturesStore
     else group[measure]=counted.Select(r=>ExactDecimal.Parse(Text(r,measure)!)).Aggregate((a,b)=>a+b).ToString();
    }
    group["unvaluedPositions"]=Unvalued(partition);
+   var unassessed=partition.Sum(row=>row["unassessedDays"]?.GetValue<int>()??0);
+   if(unassessed!=0){group["unassessedDays"]=unassessed;group["incomplete"]=true;}
    if(needsRebooking)group["valuationUnavailableReason"]=PpaBlotter.NeedsRebooking;
    groups.Add(group);
   }

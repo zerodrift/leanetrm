@@ -1,5 +1,27 @@
 # Deal ticket
 
+## Gas imbalance cash-out (D454)
+
+Add side offers **Imbalance cash-out**. One card creates two native payment
+memberships and consumes two of the seven payment slots. Each field is required
+and initially empty: physical source, named daily index, spread owed to us,
+spread owed by us, following-month payment day, statement policy, statement basis
+and account netting. Existing calendar controls remain explicit. Linked sources
+and compositions with fuel links refuse on the source field. Limits count the
+expanded memberships, including ordinary payments and independent charges.
+
+Reopening retains the exact choices. The card's **Owed to us** and **Owed by us**
+schedule tabs inspect the separate native membership slots. The **Imbalance**
+tab shows gas day, direction, reported balance, statement statuses, assessment
+state, quantity, index, price and publication state, amount and recorded cash.
+Missing quantity and amounts display as absent. The heading marks incomplete
+subtotals and the backend's unassessed-day count; row reasons distinguish no
+account, ineligible statement, missing predecessor and a partial opening month.
+A future day says **day not ended**. Withdrawal after payment preserves the paid
+amount with an unassessed state. All values and coverage counts come from the
+backend. A net settlement has a native recording operation; no settlement-entry
+screen is added here.
+
 ## Gas charge Side (D450)
 
 **Add side** offers **Charge** on standalone Physical gas tickets. Choose
@@ -580,8 +602,9 @@ profile's lifecycle and explicit no-discounting policy are unchanged.
   and maximum, swing range as a percentage of the base quantity, swing notice
   deadline), nomination (cycle, nominating party), heat content in Btu per cubic
   foot and quality specification. The strip shows the planned master agreement
-  force majeure and credit terms. The schedule lists a planned Volume column and
-  an Imbalance tab for nominated and actual quantities, cash-out price and amount.
+  force majeure and credit terms. The schedule lists a planned Volume column. The implemented Imbalance tab
+  shows reported balance cash-out under D454; it does not derive imbalance from
+  nominated or allocated quantities.
   **New trade → Structured** opens dedicated tickets for
   [Gas storage](gas-storage-contract.md) and [Heat-rate call option](heat-rate-call-option.md).
 

@@ -44,6 +44,7 @@ internal static class GasPortfolio
    var held=new List<(string Measure,Trade Trade,PortfolioPositionEvidence Evidence)>();
    var exercises=new Dictionary<Guid,(RetainedGasInstrument Instrument,PhysicalCashState State)>();
    var states=ImmutableDictionary.CreateBuilder<MeasureBinding,IBindingValuationState>();
+   var accounting=ImmutableDictionary.CreateBuilder<MeasureBinding,BindingAccountingFacts>();
    foreach(var position in group)
    {
     var execution=position.Head.GetProperty("composition").GetBoolean()
@@ -59,6 +60,8 @@ internal static class GasPortfolio
     {
      var state=await GasCashPaymentStore.Read(connection,database.Manifest.CatalogId,execution,book,quantity,GasCashPaymentStore.LatestKnownRevision,snapshot.ValuationAt,ct);
      states.Add(new(position.Trade,position.Binding),state);
+     if(instrument.Members.Any(member=>member.Balance is not null))
+      accounting.Add(new(position.Trade,position.Binding),await GasCashPaymentStore.Accounting(connection,database.Manifest.CatalogId,state,snapshot,ct));
      if(!execution.Rights.IsEmpty)
      {
       instrument=await new CurveMarkStore(database.Manifest.CatalogId).Bind(connection,instrument,snapshot,state,ct);
@@ -74,7 +77,9 @@ internal static class GasPortfolio
    foreach(var measured in held.GroupBy(h=>h.Measure).OrderBy(g=>g.Key,StringComparer.Ordinal))
    {
     var portfolio=ValuationPortfolio.FromTrades([..measured.Select(h=>h.Trade)],new(ValuationMeasure.PresentValue,
-     ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)){BindingStates=states.Where(s=>measured.Any(h=>h.Trade.Id==s.Key.TradeId)).ToImmutableDictionary()});
+     ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)){
+      BindingStates=states.Where(s=>measured.Any(h=>h.Trade.Id==s.Key.TradeId)).ToImmutableDictionary(),
+      AccountingFacts=accounting.Where(s=>measured.Any(h=>h.Trade.Id==s.Key.TradeId)).ToImmutableDictionary()});
     result.Add(new(source.Data,source.Frame,snapshot,portfolio,[..measured.Select(h=>h.Evidence)],measured.Key)
      {ExerciseHoldings=[..measured.Where(h=>exercises.ContainsKey(h.Trade.Id)).Select(h=>exercises[h.Trade.Id])]});
    }

@@ -43,3 +43,16 @@ test('retained independent gas charges show the authored amount or rate and thei
  assert.deepEqual(capacity,{'Side':'Charge','Direction':'Pay','Gas day of':'delivery','Charged on':'A daily capacity','Rate per unit per day':'0.02 USD/MMBtu/day',
   'Daily quantity':'20001/2 MMBtu','From':'2021-04-01','To · exclusive':'2021-06-11','Payment day':'2','Payment convention':'next_month_day_utc_v1'});
 });
+
+test('cash-out overview shows reported-balance terms and the named daily payment convention',()=>{
+ const member={slot:1,code:'balance.to_us',role:'imbalance_cashout',direction:1,source_slot:0,stage:'delivery',price:null,payment_at:null,
+  balance_side:'owed_to_us',cashout_profile:'daily_index_cashout_v1',statement_basis:'daily_imbalance_v1',account_netting:'net_accounts_v1',statement_policy:'final_statement_balance_v1'};
+ const facts={head:{},physical:[{slot:0,unit:'MMBtu',currency:'USD',multiplier:'1'}],components:[{slot:0,code:'gas',role:'physical',direction:1,independent_quantity:'100'},member],
+  indexedCash:[{slot:'1',index_code:'synthetic_daily_index',observation_convention:'named_index_daily_v1',payment_convention:'next_month_day_utc_v1',payment_day:'15',spread:'0',projection_id:null}]};
+ const rows=Object.fromEntries(gasInstrumentSections(facts,'America/Chicago')[1].rows);
+ assert.equal(rows.Side,'Imbalance cash-out');assert.equal(rows['Quantity source'],'gas · reported service-account balance');
+ assert.equal(rows['Statements used'],'Final only');assert.equal(rows['A statement reports'],"That day's imbalance");
+ assert.equal(rows['Several accounts'],'Net them, then settle');assert.equal(rows['Payment day'],'15');
+ assert.equal(rows['Forecast projection'],'Named index curve');assert.equal(rows.Payment,undefined);assert.equal(rows['Fixed unit price'],undefined);
+ assert.throws(()=>gasInstrumentSections({...facts,components:[facts.components[0],{...member,statement_policy:null}]},'UTC'),/cash-out.*terms/i);
+});

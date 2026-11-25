@@ -37,9 +37,9 @@ internal static class GasBlotter
      // Started compositions admit only their explicit no-discounting selection, which the label states.
      if(execution.Started){row["measure"]=GasPositions.LifecycleMeasure;row["measureLabel"]=GasPositions.LifecycleLabel;if(execution.Terms.Discounting==false)row["discounting"]="undiscounted";}
      var valuation=await composition.Value(connection,source.Data,source.Frame,execution,ct,savedVersions:savedVersions);
-     row["presentValue"]=valuation.PresentValue;
+     row["presentValue"]=valuation.PresentValue;row["unassessedDays"]=valuation.UnassessedDays;row["incomplete"]=valuation.Incomplete;
      if(!valuation.Groups.IsEmpty)row["groups"]=System.Text.Json.JsonSerializer.SerializeToNode(valuation.Groups,RiskJobs.Json);
-     row["sides"]=System.Text.Json.JsonSerializer.SerializeToNode(valuation.EntryValues.Select(e=>new{e.Slot,presentValue=e.Value.ToExactString()}),RiskJobs.Json);
+     row["sides"]=System.Text.Json.JsonSerializer.SerializeToNode(valuation.EntryValues.Select(e=>new{e.Slot,presentValue=e.Value.ToExactString(),e.UnassessedDays,e.Incomplete}),RiskJobs.Json);
      // A started-delivery trade's headline is its labelled sum, with both components shown.
      if(valuation.Measures is {} measures)
      {row["unrealized"]=measures.Unrealized;row["realizedUnsettled"]=measures.RealizedUnsettled;}

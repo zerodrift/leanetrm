@@ -1,5 +1,16 @@
 # Delivery plan and acceptance criteria
 
+D454 implements reported-balance cash-out on a gas trade: paired daily index
+payments, explicit statement basis/netting, temporal evidence, unassessed
+subtotals, recorded net settlement and the ticket's Imbalance tab. This replaces
+the proposed scheduled-less-allocated balance building block with operator
+statements. Other cash-out profiles, rolled balances on a trade and transport
+imbalances remain separate work. All eight implementation tasks and the
+independent review are complete; full gas, trading, managed and frontend
+verification passed. See the
+[contract](physical-gas-side.md#imbalance-cash-out-d454) and
+[local qualification](verification.md#imbalance-cash-out-d454).
+
 D453 delivers monthly curve volatility and correlation authoring in the Markets
 workspace. It includes grids, focused strips, historical reads, reviewed atomic
 publication and recovery of an owned receipt. The gas exercise example consumes
@@ -74,7 +85,8 @@ selection, ordinary queued risk, provenance and zero-after-payment balances have
 explicit contracts. Local qualification is recorded in [verification](verification.md).
 D447 replaces the weighted-price-term design with independent payment entries.
 D450 adds lump-sum and capacity charge bases. Strip exercise across delivery
-months, balance positions and constrained rights remain separate work.
+months, other balance profiles and constrained rights remain separate work.
+D454 implements the daily-index cash-out profile from reported balances.
 
 D443 adds **New trade → Gas & LNG → Two-location gas** and **Facilities →
 Pipeline outlook**. Independent purchase and sale tickets can have different

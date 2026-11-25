@@ -49,7 +49,8 @@ internal sealed class RetainedExerciseValuation
         {
             var output = program.Document.Instructions[contribution.Instruction].Output;
             var row = byOccurrence[output.PaymentOrdinal!.Value];
-            var amount = (row.Expected?.Add(row.Paid) ?? row.Unrealized).Ratio;
+            var amount = (row.Expected?.Add(row.Paid) ?? row.Unrealized ??
+                throw new MarketDataException("exercise_right", "An exercise right requires an assessed row amount.")).Ratio;
             var certain = IsCertain(contribution.Amount.States[0].Prices);
             var shares = new Dictionary<Amounts, SignedRatio>();
             var total = SignedRatio.Zero;
@@ -176,7 +177,7 @@ internal sealed class RetainedExerciseValuation
             Boundary(next);
         }
         foreach (var election in held.Elections) Boundary(election.EffectiveAt);
-        var entryDays = EntryQuantities.ForMembers(instrument.Members, held);
+        var entryDays = EntryQuantities.ForMembers(instrument.Members, held, rights: instrument.Rights);
         var used = new HashSet<(ExerciseGroupKey Group, CurveKey Curve, DateOnly Month)>();
         var lookupIndex = instrument.PriceLookups.ToLookup(l => (l.Market, l.Contract.DeliveryFrom, l.Contract.DeliveryTo));
         for (var slot = 0; slot < instrument.Members.Length; slot++)

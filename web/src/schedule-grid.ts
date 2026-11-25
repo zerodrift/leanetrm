@@ -1,5 +1,5 @@
 import {displayPaymentDate,paymentDateValue} from './payment-date.js';
-import {exercisePeriodText} from './lifecycle-text.js';
+import {incompleteText,exercisePeriodText} from './lifecycle-text.js';
 import {numberText} from './exact-number.js';
 export {numberText} from './exact-number.js';
 import type {ScheduleView,ScheduleViewCell,TicketColumn,TicketDescription} from './ticket-types.js';
@@ -11,7 +11,7 @@ export type ScheduleSide={kind:string;code:string;name:string};
 export type CellDecoration={sources:string[];changed:boolean;delivered:boolean;evidence?:string[]};
 export type HeaderGroup={title:string;colour:string;columns:number[]};
 export const sourceLabels:Readonly<Record<string,string>>=Object.freeze({contract:'Contract',fwd:'Fwd',fixed:'Fixed',actual:'Actual',meter:'Meter',forecast:'Forecast',estimated:'Estimated',modeled:'Modeled',contingent:'contingent',
- nominated:'Nominated',confirmed:'Confirmed',scheduled:'Scheduled',allocated:'Allocated',allocated_final:'Allocated, final',allocated_provisional:'Allocated, provisional',delivered:'Delivered'});
+ nominated:'Nominated',confirmed:'Confirmed',scheduled:'Scheduled',allocated:'Allocated',allocated_final:'Allocated, final',allocated_provisional:'Allocated, provisional',delivered:'Delivered',assessed:'Assessed',unassessed:'Unassessed',not_applicable:'Day not ended'});
 const neutral='neutral',numericMeasures=['quantity','price','money'];
 
 /** The symbol of a field's or column's declared unit (TicketField.unit), from the units the latest preview resolved; null when it declares
@@ -61,13 +61,13 @@ export function scheduleGridData(view:ScheduleView,d:TicketDescription,sides:Sch
   rows.push([r.key,...values]);
   displayRows.push([r.level==='term'?'Whole term':r.key,...values.map((v,i)=>displayText(columns[i].column,v,display))]);
   decorations.push([null,...found.map((c,i)=>{
-   const evidence=[...(c.quantityEvidence??[]).map(e=>`${e.reference} · ${e.revisionId}`),...(c.exercisePeriods??[]).map(exercisePeriodText)];
+   const evidence=[...c.unassessedDays?[incompleteText(c.unassessedDays)]:[],...(c.quantityEvidence??[]).map(e=>`${e.reference} · ${e.revisionId}`),...(c.exercisePeriods??[]).map(exercisePeriodText)];
    return {sources:c.sources.map(s=>sourceLabels[s]),...evidence.length?{evidence}:{},changed:previous!==undefined&&(prior?.[columns[i].key]?.value??null)!==c.value,delivered:r.delivered};
   })]);
  }
  // In delivery the backend splits its totals into delivered and remaining; the grid pins them above the total, in that order.
  if((view.delivered===null)!==(view.remaining===null))throw Error('The schedule view reports delivered and remaining together or not at all.');
  const totalRow=(label:string,cells:Record<string,ScheduleViewCell>)=>[label,...columns.map(({key,column})=>displayText(column,valueOf(cells,key).value??'',display))];
- const totals=[...view.delivered&&view.remaining?[totalRow('Delivered',view.delivered),totalRow('Remaining',view.remaining)]:[],totalRow('Total',view.totals)];
+ const totals=[...view.delivered&&view.remaining?[totalRow('Delivered',view.delivered),totalRow('Remaining',view.remaining)]:[],totalRow(view.unassessedDays?'Subtotal · '+incompleteText(view.unassessedDays):'Total',view.totals)];
  return {headers,rows,displayRows,parents:shown.map(r=>r.parent),keys:shown.map(r=>r.key),levels:shown.map(r=>r.level),columns:['period',...columns.map(c=>c.key)],numeric,headerGroups,totals,decorations};
 }

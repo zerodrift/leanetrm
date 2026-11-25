@@ -9,7 +9,7 @@ export type Money={amount:string;currency:Currency};
 export type GreekEffect={amount:Money|null;unavailableEstimates:number};
 export type Step=GreekEffect&{label:string;kind:'greek'|'residual'|'cash'|'adjustment';start:Money;end:Money};
 // What opening Greeks explain has no amount when none of the estimates is available; unavailableEstimates counts the missing ones.
-export type Values={openingValue:Money;closingValue:Money;valueMovement:Money;cash:Money;priorCash:Money;transfers:Money;economicPnl:Money;explained:Money|null;residual:Money;
+export type Values={openingUnassessedDays?:number;closingUnassessedDays?:number;incomplete?:boolean;openingValue:Money;closingValue:Money;valueMovement:Money;cash:Money;priorCash:Money;transfers:Money;economicPnl:Money;explained:Money|null;residual:Money;
  unavailableEstimates:number};
 // A price factor of the opening holdings. It has no closing price, and so no change, when the closing endpoint states none.
 export type Factor={unit:{currency:Currency;quantity:Currency;multiplier:string};unitLabel:string;axis:string;label:string;priceTick:string;opening:{price:string};closing:{price:string}|null;change:{price:string}|null;unavailableReason:string|null};

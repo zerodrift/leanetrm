@@ -568,3 +568,12 @@ test('P&L empty and completed views use the shared dark theme with readable text
  await evaluate('run()');await evaluate("button('Show 1 holding with no P&L').click();button('TR-1 · IN-1').click()");
  assert.deepEqual(await evaluate(`(${themeAudit})(document.querySelector('#host'))`),{grounds:[],text:[]});
 }));
+
+test('P&L subtotals display the distinct missing-day counts of both endpoints',browser,()=>page(async evaluate=>{
+ await evaluate(setup);
+ await evaluate("for(const values of [report.totals[0].values,report.positions[0].values,report.positions[3].values])Object.assign(values,{openingUnassessedDays:1,closingUnassessedDays:2,incomplete:true});");
+ await evaluate("run()");
+ assert.match(await evaluate("document.querySelector('.pnl-hero').textContent"),/incomplete: prior 1 unassessed day; current 2 unassessed days/);
+ assert.match(await evaluate("document.querySelector('.pnl-positions').textContent"),/incomplete: prior 1 unassessed day; current 2 unassessed days/);
+ assert.ok((await evaluate("rows('.pnl-positions tbody tr').map(row=>row[0])")).includes('TR-2 · IN-4'),'An incomplete zero subtotal is visible without expanding quiet holdings');
+}));

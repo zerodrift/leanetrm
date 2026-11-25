@@ -172,6 +172,7 @@ public sealed class GasTicketStore(PreviewDatabase database)
    new(composed&&refused is null,!composed?SinglePointRecordReason:refused?.Message??(followed?FollowedRecordReason:RecordReason)),exercise);
   var ticket=new{snapshotId=frame.Id,draft=GasTicket.Reopen(terms),definitionRevisionId=terms.DefinitionRevisionId,schedule=value?.Schedule,summaries=value?.Summaries,
    scheduleRefusal=unavailable??value?.ScheduleRefusal,quantityUnit=value?.QuantityUnit??position.Physical[0].Text("unit"),measures=value?.Measures,
+   scheduleEntries=GasTicket.ScheduleEntries(execution.Members),imbalanceRows=value?.ImbalanceRows??[],unassessedDays=value?.UnassessedDays??0,incomplete=value?.Incomplete??false,
    currency=value?.Currency??position.Currency.Code,links=value?.Links??[],sideSlots=value?.SideSlots??execution.Members.ToImmutableDictionary(m=>m.Code,m=>m.Slot),
    quantityPolicy=composed?(followed?GasDailyQuantitySelection.ValuationPolicy:QuantityPolicy):null,facilityAllocations,actions};
   if(execution.Rights.IsEmpty)return (ticket,null);

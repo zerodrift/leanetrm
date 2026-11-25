@@ -7,6 +7,7 @@ if(args is ["--instrument-schedule"]){InstrumentScheduleChecks.Run();return;}
 if(args is ["--gas-composition-pricing"]){GasCompositionPricingChecks.Run();return;}
 if(args is ["--gas-instrument-schedule"]){GasInstrumentScheduleChecks.Run();return;}
 if(args is ["--gas-charges"]){GasChargeChecks.Run();return;}
+if(args is ["--gas-imbalance-cashout"]){GasImbalanceCashoutChecks.Run();return;}
 if(args is ["--instrument-sides"]){InstrumentSideAlignmentChecks.Run();return;}
 if(args is ["--cash-sides"]){CashSideAlignmentChecks.Run();return;}
 if(args is ["--gas-holding-side"]){GasHoldingSideChecks.Run();return;}
@@ -701,6 +702,7 @@ InstrumentSideAlignmentChecks.Run();passed++;
 InstrumentScheduleChecks.Run();passed++;
 GasInstrumentScheduleChecks.Run();passed++;
 GasChargeChecks.Run();passed++;
+GasImbalanceCashoutChecks.Run();passed++;
 GasCompositionPricingChecks.Run();passed++;
 CashSideAlignmentChecks.Run();passed++;
 GasHoldingSideChecks.Run();passed++;

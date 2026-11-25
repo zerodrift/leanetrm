@@ -27,6 +27,27 @@ internal static class GasIndexCashChecks
                 p.Fixings.Single().Index.Code == "daily_index" && p.ObservationImplementation == FloatingSide.DeliveryIndexImplementation).All(v => v),
                 "Daily rows must use the named index's exact daily forecast and fixing.");
         });
+        Check("a retained cash-out overview exposes both ordinary index payment schedules",()=>
+        {
+            var cash=GasNamedIndexCash.Resolve(f.Data(),f.Physical,f.Cash("daily_index","named_index_daily_v1"),f.From,f.To);
+            Side[] sides=[f.Physical,cash,cash];
+            var programs=sides.Select((side,slot)=>{
+                var program=BookedSideProgram.Compile(ScheduleDefinitionCompiler.Generate(side));
+                return new RetainedSideProgram(slot,side.Id,Guid.NewGuid(),program.Identity,program);
+            }).ToImmutableArray();
+            var position=new GasPosition(Row(new{instrument_id=Guid.NewGuid()}),default,[Row(new{
+                reference_catalog_id=cash.Quote.Quantity.Revision.CatalogId,reference_revision_id=cash.Quote.Quantity.Revision.RevisionId,
+                quantity_code=cash.Quote.Quantity.Code,currency_code=cash.Quote.Currency.Code})]);
+            ImmutableArray<JsonElement> members=[
+                Row(new{slot=0,code="gas",role="physical",direction=1,ratio_n=1,ratio_d=1}),
+                Row(new{slot=1,code="balance.to_us",role="imbalance_cashout",direction=1,ratio_n=1,ratio_d=1}),
+                Row(new{slot=2,code="balance.by_us",role="imbalance_cashout",direction=-1,ratio_n=1,ratio_d=1})];
+            var group=RetainedInstrumentSidePresentation.Gas(position,programs,members);
+            Require(group.Sides.Length==3&&group.Sides[1].RoleLabel=="Imbalance cash-out payment"&&
+                group.Sides[2].RoleLabel=="Imbalance cash-out payment"&&group.Sides[1].Slot==1&&group.Sides[2].Slot==2&&
+                group.Sides[1].SideId==cash.Id&&group.Sides[2].SideId==cash.Id,
+                "Both directions keep their own native membership of the reusable floating Side, without pricing the overview.");
+        });
         Check("named monthly payments retain one shared monthly contract and fixing on daily rows", () =>
         {
             var side = GasNamedIndexCash.Resolve(f.Data(), f.Physical, f.Cash("monthly_index", "named_index_monthly_v1"), f.From, f.To);
