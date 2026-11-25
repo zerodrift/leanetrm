@@ -94,7 +94,16 @@ its recorded plan in force.
 ## Continuous feasibility and reservation
 
 Work in exact ratios throughout, or equivalently in native quantities with the
-same unit. In one period let E be the sum of elections in force, h their number
+same unit. Let D be the full number of retained gas days in this limit period.
+Resolve the **applied** lower and upper endpoints L and U once from the terms.
+Under `per_period_v1` each supplied endpoint equals its stated quantity.
+Under `per_day_v1` each supplied endpoint equals D times its stated rate.
+An absent endpoint supplies no inequality. Only the paired-width admission
+test above compares stated quantities before multiplication. The same L and U
+govern booking, every historical/effective election check, suffix pruning and
+terminal feasibility. They are independent of election and assessment state.
+
+In one period let E be the sum of elections in force, h their number
 different from B and n the number of days without an election. The latter
 includes any missed deadline for the purpose of recording facts. Without a
 count let k=n. With a count, reject h>C and let k=min(n,C−h). The exact interval
@@ -103,16 +112,28 @@ of attainable totals is
     [E + n·B − k·(B−a), E + n·B + k·(b−B)].
 
 Changing up to k of the identical remaining days continuously from their bases
-fills the interval. Intersect it with the stated total bounds. A nonempty
+fills the interval. Intersect it with the applied interval [L,U]. A nonempty
 intersection and valid individual elections are necessary and sufficient. With
 no open days this tests the elected total itself. A cut, allocation, forecast,
 planned schedule or observed delivery cannot change E, h or these bounds.
+
+For a 31-day January with an upper rate of 1,005 per day, U is 31,155.
+An all-base schedule at 1,000 per day totals 31,000 and fits. After a
+1,050 election there are 30 open days and at most 30,105 left for them
+(31,155 − 1,050). At 1,000 each the total becomes 31,050 and still fits.
+The month still has D=31. With daily bounds 900–1,100 and at most two changed
+days, the election consumes one change. The largest feasible remaining total
+is 30,100 even though the arithmetic cap left is 30,105. With s=100 the
+terminal upper index for those 30 open days is floor((31,155−1,050−27,000)/100)=31.
 
 Use the same contract in managed booking, retained reads and native booking and
 recording. A batch first replaces the selected facts for all its touched days,
 then checks each touched period at the union of effective-time boundaries. The
 writer can sweep per-day deltas in E, elected-day count and changed-day count,
-grouped by period and effective instant, including later known revisions. Apply
+grouped by period and effective instant, including later known revisions. Each
+fresh revision of a day requires an effective instant at or after that day's
+predecessor. At equal instants the higher revision is in force. An exact retry
+returns its original outcome and contributes no delta. Apply
 simultaneous changes before testing. Withdrawals release a day and any count
 slot. Individual intermediate mutations of one batch are never visible.
 The original Monday/Tuesday correction example must refuse even though the
@@ -290,15 +311,21 @@ initial state of the next period at the same factor node, with that month's
 elections and count already reserved. Process monthly problems on consecutive
 layers; no product of monthly histories. Skip unassessed/settled commercial
 decisions while propagating their intervening factor time. Periods proved
-commercially forced may be stripped at inception at their exact unconditional
-forward values because their rewards are additive, unconditionally martingales
-and cannot affect choices in another period. Apply the same exact strip to a
-wholly zero-volatility independent period once its required marks are present.
+commercially forced and independent periods with all required volatilities
+explicitly zero **must** be stripped before the stochastic recursion.
+Compute their exact unit-reference forward values in the holder's perspective.
+Their expected rewards are additive and their actions cannot constrain another
+period. Keep their elapsed factor time on the clock of any later stochastic
+decisions.
 No such split within a coupled period on the basis of a zero monthly mark alone.
 
-Round the joint normalized stochastic root once with `ToExact()`, then scale
-as an **exact rational** by held B and restore the holder/position signs in the
-existing Trade normalization path. Do not round the scaled money back to 18
+Let V be the normalized root for the remaining stochastic periods and Dᵥ the
+exact sum of the stripped unit-reference values. Use zero for an empty sum.
+The covered remaining-right value in the holder's perspective is exactly
+B × (ToExact(V) + Dᵥ), treating an empty stochastic root as zero. Thus the
+stochastic root rounds once and **only then** is the exact deterministic strip
+added. Apply the held B as an exact rational and restore holder/position signs
+in the existing Trade normalization path. Do not round the scaled money back to 18
 places before recording/reporting exact PV. Exact deterministic and ordinary
 amounts keep their own lifecycle contracts. The same normalized inputs and
 proportionate elections give identical normalized decisions, tree, rounded root
@@ -479,11 +506,17 @@ homogeneity by exact equality independently of approximation tolerances.
 ## Persistence, service and presentation
 
 Upgrade the published 0402 schema directly. Revise the unpublished 0403 terms
-and 0404 election migrations in place; retain 0405's exact-source lookup and
-legacy wrapper behavior, regenerating its writer predecessor pin against the
-revised 0403 on stock PostgreSQL. All three ship as one reviewed chain from
-0402. There is no released integer-lot swing schema to migrate. Old local
-preview databases are disposable. Never apply this rewrite to a populated
+and 0404 election migrations in place. They create owner-only swing tables,
+helpers and election operations, preserving the published composition writer.
+Revoke default PUBLIC access and withhold runtime/worker grants. The final
+0405 transaction installs the expanded composition writer and strict dated
+lookup with its legacy wrapper, grants scoped election/term reads and writes,
+and commits all native entry points together. Pin each actual predecessor,
+including the published writer and shape helper, on stock PostgreSQL.
+Ship the matching booking, election and retained-read API DTOs with this chain
+at Task 14. Start the matching API against the completed schema. An ordinary
+caller or direct runtime role cannot book expanded terms between migrations. There is no released integer-lot swing schema to migrate.
+Old local preview databases are disposable. Never apply this rewrite to a populated
 deployment of an unpublished migration. No migration through 0402 changes.
 
 0403 stores selected limit period, optional bounds/basis, count/rule, exact
@@ -501,7 +534,10 @@ body, ACL, owner, search path and execution attributes against the actual
 preceding migration, including any newly touched cash or amendment routine.
 Run drifted-body and drifted-privilege rollback tests and a populated 0402
 upgrade with plain gas, binary rights, cash-out, payments and replay. Keep
-0404→0405's exact lookup ambiguity refusal scoped to its offending trade.
+the retained exact-lookup ambiguity refusal scoped to its offending trade.
+Check the published writer and inaccessible swing operations independently at
+0403 and 0404, even on an interrupted upgrade. A failed final transaction
+must leave these restrictions intact.
 
 The record operation takes a bounded nonempty batch, exact expected trade
 revision and the complete distinct expected-head set for the **whole right**
