@@ -74,13 +74,23 @@ export async function gasMark(actions){
 }
 
 export async function run(actions){
- const {check,wait,evaluate,click,set,submit,command,shot}=actions;
+ const {check,wait,evaluate,click,set,submit,command,shot,fitsWidth}=actions;
  const curves=Array.from({length:20},(_,i)=>'zz_mark_'+String(i+1).padStart(2,'0'));
+ // Reserve a classic scrollbar gutter even on platforms with overlay scrollbars.
+ await command('Page.addScriptToEvaluateOnNewDocument',{source:`{
+  const sheet=new CSSStyleSheet();
+  sheet.replaceSync('html{overflow-y:scroll} html::-webkit-scrollbar{width:15px}');
+  document.adoptedStyleSheets=[...document.adoptedStyleSheets,sheet];
+ }`});
  await start(actions);
  await shot('marks-empty');
  await source(actions);await scope(actions,curves,'2025-01','2025-12');
+ const gridObserved=`({cells:document.querySelectorAll('[data-mark-cell]').length,gridScroll:mark('grid').scrollWidth,gridClient:mark('grid').clientWidth,
+  documentScroll:document.documentElement.scrollWidth,documentClient:document.documentElement.clientWidth,innerWidth,
+  title:document.querySelector('.mark-grid tbody th')?.title})`;
  await check('the 20 by 12 volatility desk scrolls inside the grid and preserves the full curve name',
-  "document.querySelectorAll('[data-mark-cell]').length===240&&mark('grid').scrollWidth>mark('grid').clientWidth&&document.documentElement.scrollWidth===innerWidth&&document.querySelector('.mark-grid tbody th').title.includes('SyntheticNorthernInterconnectionPeakDelivery')");
+  `document.querySelectorAll('[data-mark-cell]').length===240&&mark('grid').scrollWidth>mark('grid').clientWidth&&
+   document.documentElement.clientWidth<innerWidth&&${fitsWidth}&&document.querySelector('.mark-grid tbody th').title.includes('SyntheticNorthernInterconnectionPeakDelivery')`,gridObserved);
  await paste(actions,'0.5\t0.123456789012\t0\n0.46\t\t0.49\n');
  await check('the backend addresses five values, with blank untouched and zero visible before application',
   "mark('paste-details').querySelectorAll('tbody tr').length===5&&metric('changed')==='0'&&cell(0,2).dataset.state==='missing'");
@@ -103,7 +113,7 @@ export async function run(actions){
  await command('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false});
  await check('the narrow desk fits at 390px under reduced motion',
-  "matchMedia('(prefers-reduced-motion: reduce)').matches&&document.documentElement.scrollWidth===innerWidth&&getComputedStyle(mark('inspector')).display==='none'");
+  `matchMedia('(prefers-reduced-motion: reduce)').matches&&${fitsWidth}&&getComputedStyle(mark('inspector')).display==='none'`,gridObserved);
  await evaluate(`(async()=>{
   await document.fonts.ready;
   for(let frame=0;frame<3;frame++){
@@ -119,7 +129,10 @@ export async function run(actions){
  await shot('marks-narrow');
  await click(mark('inspect'));await wait("getComputedStyle(mark('inspector')).display==='block'");
  await check('the selected term structure stays inside the narrow viewport',
-  "(()=>{const r=mark('inspector').getBoundingClientRect();return r.left>=0&&r.right===innerWidth&&r.top===0&&r.bottom===innerHeight})()");
+  `(()=>{const r=mark('inspector').getBoundingClientRect(),{clientWidth,clientHeight}=document.documentElement;
+   return r.left>=0&&r.right===clientWidth&&r.top===0&&r.bottom===clientHeight;
+  })()`,
+  "({drawer:mark('inspector').getBoundingClientRect().toJSON(),innerWidth,innerHeight,clientWidth:document.documentElement.clientWidth,clientHeight:document.documentElement.clientHeight})");
  await shot('marks-drawer');await click('.mark-drawer-close');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
  await paste(actions,'0.6');await apply(actions);await publish(actions,'Synthetic volatility correction');
@@ -208,7 +221,7 @@ export async function run(actions){
  await publish(actions,'Synthetic pair matrix');
  await evaluate("cell(0,1).focus();scrollTo(0,0)");
  await check('the lower matrix mirrors the normalized upper fact with its exact value and convention',
-  "cell(1,0).dataset.editable==='false'&&cell(1,0).textContent==='0.25Published'&&cell(18,19).textContent==='0Published'&&cell(0,1).title.includes('curve_marks_log_return_held_v1')&&document.documentElement.scrollWidth===innerWidth");
+  `cell(1,0).dataset.editable==='false'&&cell(1,0).textContent==='0.25Published'&&cell(18,19).textContent==='0Published'&&cell(0,1).title.includes('curve_marks_log_return_held_v1')&&${fitsWidth}`,gridObserved);
  await evaluate(`{const grid=mark('grid'),bounds=grid.getBoundingClientRect(),populated=cell(1,2).getBoundingClientRect();
   grid.scrollTop=0;grid.scrollLeft+=populated.left+populated.width/2-bounds.left-28;}`);
  await evaluate("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))");
