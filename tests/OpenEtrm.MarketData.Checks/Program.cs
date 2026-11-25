@@ -702,6 +702,7 @@ InstrumentSideAlignmentChecks.Run();passed++;
 InstrumentScheduleChecks.Run();passed++;
 GasInstrumentScheduleChecks.Run();passed++;
 GasChargeChecks.Run();passed++;
+GasImbalanceCashoutChecks.Run();passed++;
 GasCompositionPricingChecks.Run();passed++;
 CashSideAlignmentChecks.Run();passed++;
 GasHoldingSideChecks.Run();passed++;

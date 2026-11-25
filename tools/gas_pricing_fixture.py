@@ -7,7 +7,11 @@ from delivery_quantity_fixture import add_fixture as location_fixture
 
 ADMINISTRATOR=('pricing_administrator',identity('c',94690))
 
-def add_fixture(reference,market,security,manifest,*,exercise_months=False):
+def add_fixture(reference,market,security,manifest,*,exercise_months=False,imbalance_days=False):
+    if imbalance_days:
+        template=next(f for f in manifest['frames'] if f['at']=='2021-01-01T08:00:00Z')
+        for at in ('2021-01-02T08:00:00Z','2021-01-05T08:00:00Z'):
+            manifest['frames'].append({**deepcopy(template),'at':at})
     if exercise_months:
         # The deadline/fixing and the paid-cap close each have exact synthetic input selections.
         january=next(f for f in manifest['frames'] if f['at']=='2021-01-15T08:00:00Z')
@@ -38,6 +42,9 @@ def add_fixture(reference,market,security,manifest,*,exercise_months=False):
         else:
             periods=[(date(2021,1,13)+timedelta(days=n),date(2021,1,14)+timedelta(days=n),'3.20',['3.30','3.10','3.20'][n],
                       f'2021-01-{13+n}T12:00:00Z') for n in range(3)]
+            if imbalance_days:
+                periods=[(date(2021,1,n+1),date(2021,1,n+2),'3.20',price,
+                          f'2021-01-{n+1:02d}T12:00:00Z') for n,price in enumerate(['3.00','3.10','3.20','3.30'])]
             if exercise_months:
                 for day in [date(2021,1,31),date(2021,2,1),date(2021,2,2)]:
                     periods.append((day,day+timedelta(days=1),'3.20','3.20',f'{day}T12:00:00Z'))

@@ -19,6 +19,7 @@ internal static class GasCashPaymentStore
   if(revisionPolicy!=LatestKnownRevision)throw new MarketDataException(PhysicalLifecycle.ContextRefusal,"Select the latest-known payment revision policy.");
   var trade=held.TradeId;var binding=held.InstrumentId;
   var selected=await GasDeliveryQuantityStore.Read(connection,catalog,held,valuationAt,ct);
+  var balances=await GasBalanceStore.Read(connection,catalog,held,valuationAt,ct);
   (ImmutableArray<ExerciseElection> elections,DateTimeOffset? next)=held.Rights.IsEmpty?([],null):
    await GasExerciseStore.Facts(connection,catalog,trade,binding,ct);
   var rows=await PreviewDatabase.Rows(connection,"""
@@ -31,7 +32,7 @@ internal static class GasCashPaymentStore
    ORDER BY p.slot,a.occurrence,p.id
    """,[catalog,trade,binding],ct);
   return new(trade,binding,quantity,book,[..rows.Select(r=>new CashOccurrencePayment(r.Id("id"),Int(r,"slot"),Int(r,"occurrence"),Instant(r,"paid_at"),Instant(r,"known_from"),
-   ExactMoney.Parse(r.Text("amount"),Currency(r))))],PhysicalCashState.Policy,selected?.Days??default,elections,next);
+   ExactMoney.Parse(r.Text("amount"),Currency(r))))],PhysicalCashState.Policy,selected?.Days??default,elections,next,balances);
  }
 
  // The latest visible D338 final determination of each cash slot and gas day: separate facts shown beside the accrual.

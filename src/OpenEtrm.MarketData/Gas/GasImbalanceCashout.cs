@@ -17,7 +17,7 @@ public sealed record ReportedBalanceFollow([property: IdentityField] string Prof
     [property: IdentityField] string StatementPolicy)
 {
     public const string DailyIndexProfile = "daily_index_cashout_v1";
-    internal void Require(string code)
+    public void Require(string code)
     {
         if (Profile != DailyIndexProfile || !Enum.IsDefined(Basis) || !Enum.IsDefined(Netting) ||
             StatementPolicy is not (GasImbalanceTrading.FinalPolicy or GasImbalanceTrading.ReportedPolicy))

@@ -39,6 +39,16 @@ internal static class GasTicketChecks
             throw new Exception($"Expected ticket_input for {name}.");
         }
         void Equal(object? expected, object? actual, string what) { if (!Equals(expected, actual)) throw new Exception($"{what}: expected '{expected}', got '{actual}'."); }
+        Check("imbalance cash-out terms round trip and an absent pair preserves the wire request", () =>
+        {
+            var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+            var plain = Map(Draft(Receipt, Cash));
+            Equal(false, JsonSerializer.SerializeToElement(plain, json).TryGetProperty("imbalanceCashouts", out _), "absent cash-out");
+            var pair = new GasImbalanceCashoutRequest("balance", "daily_index_cashout_v1", "RCT", "I", "0.10", "0.20", 15,
+                "final_statement_balance_v1", "daily_imbalance_v1", "each_account_v1");
+            var saved = JsonSerializer.Deserialize<GasCompositionRequest>(JsonSerializer.Serialize(plain with { ImbalanceCashouts = [pair] }, json), json)!;
+            Equal(pair, saved.ImbalanceCashouts!.Value.Single(), "retained cash-out terms");
+        });
         Check("exercise terms round trip and an absent right preserves the wire request",()=>{
             var json=new JsonSerializerOptions(JsonSerializerDefaults.Web);
             var plain=Map(Draft(Receipt,Cash));
