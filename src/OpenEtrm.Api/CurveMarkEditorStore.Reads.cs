@@ -53,13 +53,12 @@ internal sealed partial class CurveMarkEditorStore
         return states;
     }
 
-    private async Task<ImmutableArray<CurveMarkEditorCellState>> ViewStates(NpgsqlConnection c, ReadScope scope,
-        CatalogueSource source, CurveMarkEditorView view, CurveMarkEditorLayout layout, CancellationToken ct)
+    private async Task<ImmutableArray<CurveMarkEditorCellState>> ViewStates(NpgsqlConnection c, CurveMarkEditorContext context,
+        CatalogueSource source, CurveMarkEditorView view, CurveMarkEditorLayout layout, bool canPublish, CancellationToken ct)
     {
-        var context = scope.Context.Selected;
         ImmutableArray<CurveMarkEditorCellKey> keys = [..layout.Cells.Where(cell => cell.Editable).Select(cell => cell.Key!)];
         if (keys.Length > 0)
-            return await Cells(c, context, source, view.Kind, keys, scope.ImportUntil is not null, ct);
+            return await Cells(c, context, source, view.Kind, keys, canPublish, ct);
 
         // A one-curve matrix contains just its diagonal. Verify the selection using the
         // authorized, code-ordered catalogue without constructing a financial mark key.
@@ -82,7 +81,7 @@ internal sealed partial class CurveMarkEditorStore
         if (canPublish) AdmitEditability(c, scope, request.Source);
         var layout = request.View is null ? null : CurveMarkEditorDraft.ViewCells(request.View);
         var draft = layout is null ? null : CurveMarkEditorDraft.Validate(request.View!,
-            await ViewStates(c, scope, request.Source, request.View!, layout, ct), []);
+            await ViewStates(c, request.Context, request.Source, request.View!, layout, canPublish, ct), []);
         return new(request.Source, scope.Context, await Owner(c, ct), canPublish, CurveMarkEditorDraft.Convention, CurveMarkEditorDraft.Limits,
             choices.Curves, choices.HasMoreCurves, request.View, layout, draft);
     }
@@ -91,7 +90,7 @@ internal sealed partial class CurveMarkEditorStore
     {
         var scope = await ReadScopeFor(c, session, request.Context, request.Source, true, ct);
         var layout = CurveMarkEditorDraft.ViewCells(request.View);
-        var states = await ViewStates(c, scope, request.Source, request.View, layout, ct);
+        var states = await ViewStates(c, request.Context, request.Source, request.View, layout, scope.ImportUntil.HasValue, ct);
         if (states.Any(state => state.EditBlock?.Code != "curve_mark_read_only")) AdmitEditability(c, scope, request.Source);
         if (request.Paste is {} paste)
         {

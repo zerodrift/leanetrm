@@ -68,6 +68,9 @@ def run_checks(url, query, manifest):
     assert pinned['coverage'] == dict(marked=0, missing=1, changed=0, invalid=0)
     assert pinned['cells'][0]['state']['writeHead'] is None
     fresh = capture(editor)
+    check_catalogue_read_only(query, lambda: call(editor,'setup',{**setup,'context':fresh}))
+    mismatched = {**original,'asOf':day+'T16:01:00Z'}
+    assert call(editor,'setup',{**setup,'context':mismatched},422)['code'] == 'curve_mark_context'
     validated = dict(context=fresh, source=source, view=view, edits=[dict(key=key,value='0.600000000001')])
     draft = call(editor, 'validate', validated)['draft']
     assert draft['coverage'] == dict(marked=1,missing=0,changed=1,invalid=0)
@@ -153,6 +156,25 @@ def run_checks(url, query, manifest):
     query(f"DELETE FROM security.reference_catalog_scopes WHERE catalog_id='{source['referenceCatalogId']}';")
     assert call(renewed,'status',status,403)['code'] == 'curve_mark_denied'
     print('PASS curve mark HTTP publisher, temporal analytics, review, stale race, receipt recovery and source revocation',flush=True)
+
+
+def check_catalogue_read_only(query, setup):
+    """Model a grant gap deterministically: catalogue sampling sees no import grant."""
+    signature = 'security.curve_mark_editor_setup(uuid,uuid,timestamptz,jsonb,text,integer,integer)'
+    original = query.raw(f"SELECT pg_get_functiondef('{signature}'::regprocedure);")
+    sample = "import_until timestamptz=security.authority_until('ImportObservations')"
+    assert original.count(sample) == 1, 'Expected the native catalogue import sample'
+    # Preserve every source/authority check and the normal cell provider. Only the
+    # optional catalogue capability is marked unavailable in this disposable fixture.
+    query.raw(original.replace(sample, 'import_until timestamptz=NULL'))
+    try:
+        result = setup()
+        state = result['draft']['cells'][0]['state']
+        assert not result['canPublish'] and state['selected']['revision'] == 1
+        assert state['writeHead'] is None and state['expectedRevision'] is None, 'Read-only catalogue exposed a write predecessor'
+        assert state['editBlock']['code'] == 'curve_mark_read_only'
+    finally:
+        query.raw(original)
 
 
 def check_expired(query, manifest, attempt):

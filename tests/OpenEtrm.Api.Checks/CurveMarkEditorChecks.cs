@@ -41,6 +41,20 @@ internal static class CurveMarkEditorChecks
         JsonElement Wire(CurveMarkEditorReceipt value) => JsonSerializer.SerializeToElement(value, CurveMarkEditorEndpoints.Json);
         var recovered = CurveMarkEditorReceiptValidation.Require(batch, Wire(receipt));
         Require(recovered.Cells.Single() == ack, "Recovery must retain the accepted old fact and the later publication head.");
+        void RequireRefusal(CurveMarkEditorBatch command, CurveMarkEditorReceipt invalid)
+        {
+            try { CurveMarkEditorReceiptValidation.Require(command, Wire(invalid)); }
+            catch (OpenEtrm.MarketData.MarketDataException error) when (error.Code == "curve_mark_receipt") { return; }
+            throw new Exception("A conflicting retained receipt was accepted.");
+        }
+        var secondHead = head with { MarkId = Guid.NewGuid() };
+        var secondAck = ack with { Key = Key(Second, January), MarkId = Guid.NewGuid(), HeadAtPublication = secondHead };
+        var pair = batch with { Changes = batch.Changes.Add(new(Second, null, January, 0, "0.5")) };
+        var both = receipt with { Cells = [ack, secondAck] };
+        Require(CurveMarkEditorReceiptValidation.Require(pair, Wire(both)).Cells.Length == 2,
+            "Distinct accepted and head identities must remain recoverable for both keys.");
+        RequireRefusal(pair, both with { Cells = [ack, secondAck with { MarkId = head.MarkId }] });
+        RequireRefusal(pair, both with { Cells = [ack, secondAck with { HeadAtPublication = secondHead with { MarkId = head.MarkId } }] });
         foreach (var invalid in new[]
         {
             receipt with { OwnerId = "another_owner" },
@@ -51,11 +65,7 @@ internal static class CurveMarkEditorChecks
             receipt with { Cells = [ack with { HeadAtPublication = head with { Value = "20" } }] },
             receipt with { Cells = [ack with { HeadAtPublication = head with { MarkId = ack.MarkId } }] }
         })
-        {
-            try { CurveMarkEditorReceiptValidation.Require(batch, Wire(invalid)); }
-            catch (OpenEtrm.MarketData.MarketDataException error) when (error.Code == "curve_mark_receipt") { continue; }
-            throw new Exception("A conflicting retained receipt was accepted.");
-        }
+            RequireRefusal(batch, invalid);
     }
 
     private static void Commands()

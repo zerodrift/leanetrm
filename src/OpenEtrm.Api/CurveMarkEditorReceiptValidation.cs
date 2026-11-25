@@ -19,17 +19,17 @@ internal static class CurveMarkEditorReceiptValidation
                 receipt.EffectiveAt != batch.Context.AsOf || receipt.Cells.Length != batch.Changes.Length)
                 throw Unavailable();
 
-            var ids = new HashSet<Guid>();
+            var factIds = new HashSet<Guid>();
             foreach (var (cell, change) in receipt.Cells.Zip(batch.Changes))
             {
                 if (cell is null || cell.Key != new CurveMarkEditorCellKey(change.FirstCurve, change.SecondCurve, change.Month) ||
-                    cell.MarkId == Guid.Empty || !ids.Add(cell.MarkId) || cell.Revision < 1 || cell.Value != change.Value ||
+                    cell.MarkId == Guid.Empty || !factIds.Add(cell.MarkId) || cell.Revision < 1 || cell.Value != change.Value ||
                     cell.HeadAtPublication is not {} head || head.MarkId == Guid.Empty || head.Revision < cell.Revision ||
                     !TradingInstant.IsSupported(head.EffectiveAt) || head.EffectiveAt < receipt.EffectiveAt ||
                     CurveMarkEditorDraft.NormalizeValue(batch.Kind, head.Value) != head.Value)
                     throw Unavailable();
                 var acceptedIsHead = cell.Revision == head.Revision;
-                if (acceptedIsHead != (head.MarkId == cell.MarkId) ||
+                if (acceptedIsHead != (head.MarkId == cell.MarkId) || !acceptedIsHead && !factIds.Add(head.MarkId) ||
                     acceptedIsHead && (head.Value != cell.Value || head.EffectiveAt != receipt.EffectiveAt) ||
                     cell.Changed && (!acceptedIsHead || (long)change.ExpectedRevision + 1 != cell.Revision))
                     throw Unavailable();
