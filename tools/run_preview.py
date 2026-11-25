@@ -361,6 +361,10 @@ def main():
         operating_predecessors=None
         query((ROOT/'db/bootstrap.sql').read_text())
         for migration in sorted((ROOT/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
+            if args.gas_swing_check and migration.name=='0404_gas_swing_elections.sql':
+                from check_fact_anchor_upgrade import run_checks as check_swing_guard
+                check_swing_guard(query,migration,number='0404',guard='gas_swing_election_upgrade',
+                                  signatures=['security.require_gas_cashout_binding(uuid,uuid,uuid)'])
             if args.gas_swing_check and migration.name=='0403_gas_swing_rights.sql':
                 from check_gas_swing import predecessor
                 swing_predecessor=predecessor(query,migration)
@@ -1241,7 +1245,7 @@ def main():
                         subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-pricing'],cwd=ROOT,env=env,check=True,timeout=300)
                 if args.gas_swing_check:
                     from check_gas_swing import run_checks as check_gas_swing
-                    check_gas_swing(url,query,manifest,swing_predecessor)
+                    check_gas_swing(url,query,manifest,swing_predecessor,run_worker)
                 if args.gas_exercise_check:
                     from check_gas_exercise import run_checks as check_gas_exercise
                     def browse_exercise(suite,fixture):

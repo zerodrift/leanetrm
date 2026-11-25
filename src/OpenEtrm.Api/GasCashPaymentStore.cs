@@ -20,14 +20,16 @@ internal static class GasCashPaymentStore
   JOIN trading.knowledge_receipts k ON(k.catalog_id,k.publication_order)=(p.catalog_id,p.publication_order)
   WHERE(p.catalog_id,p.trade_id,p.instrument_id)=($1,$2,$3) ORDER BY p.slot,p.business_key,k.known_from DESC,p.publication_order DESC
   """;
- internal static async Task<PhysicalCashState> Read(NpgsqlConnection connection,Guid catalog,GasCompositionExecution held,Guid book,Quantity quantity,string revisionPolicy,DateTimeOffset valuationAt,CancellationToken ct)
+ internal static async Task<PhysicalCashState> Read(NpgsqlConnection connection,PreviewDatabase database,GasCompositionExecution held,Guid book,Quantity quantity,string revisionPolicy,DateTimeOffset valuationAt,CancellationToken ct)
  {
   if(revisionPolicy!=LatestKnownRevision)throw new MarketDataException(PhysicalLifecycle.ContextRefusal,"Select the latest-known payment revision policy.");
+  var catalog=database.Manifest.CatalogId;
   var trade=held.TradeId;var binding=held.InstrumentId;
   var selected=await GasDeliveryQuantityStore.Read(connection,catalog,held,valuationAt,ct);
   var balances=await GasBalanceStore.Read(connection,catalog,held,valuationAt,ct);
   (ImmutableArray<ExerciseElection> elections,DateTimeOffset? next)=held.Rights.IsEmpty?([],null):
    await GasExerciseStore.Facts(connection,catalog,trade,binding,ct);
+  var swing=await GasSwingStore.Facts(connection,database,held,ct);
   var rows=await PreviewDatabase.Rows(connection,$"""
    SELECT json_build_object('id',p.id,'slot',p.slot,'occurrence',a.occurrence,'paid_at',p.paid_at,'known_from',p.known_from,'amount',trim_scale(a.amount)::text,
     'reference_catalog_id',p.reference_catalog_id,'reference_revision_id',p.reference_revision_id,'currency_code',p.currency_code)::text
@@ -36,7 +38,7 @@ internal static class GasCashPaymentStore
    ORDER BY p.slot,a.occurrence,p.id
    """,[catalog,trade,binding],ct);
   return new(trade,binding,quantity,book,[..rows.Select(r=>new CashOccurrencePayment(r.Id("id"),Int(r,"slot"),Int(r,"occurrence"),Instant(r,"paid_at"),Instant(r,"known_from"),
-   ExactMoney.Parse(r.Text("amount"),Currency(r))))],PhysicalCashState.Policy,selected?.Days??default,elections,next,balances);
+   ExactMoney.Parse(r.Text("amount"),Currency(r))))],PhysicalCashState.Policy,selected?.Days??default,elections,next,balances,swing.Elections,swing.Next);
  }
 
  // One native payment business key allocates entirely to one held binding. Its

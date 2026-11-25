@@ -21,6 +21,12 @@ application. See [current implementation](../docs/implementation.md) and
 
 Recent schema groups and their contracts:
 
+- [0404](migrations/0404_gas_swing_elections.sql) records a batch of physical gas
+  swing elections against the complete set of day revisions. Each correction or
+  withdrawal preserves the prior fact. The writer checks the shared volume budget
+  at every effective transition and publishes the receipt and facts together.
+  Financial reads select the latest effective revision known at the cutoff and
+  the next known transition under the trade's current authority.
 - [0403](migrations/0403_gas_swing_rights.sql) retains one physical gas swing
   right with its source membership, covered slots, exact reference and volume
   limits in contractual lots, gas-day grid references and deadlines. The separate

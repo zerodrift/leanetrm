@@ -104,6 +104,21 @@ internal static class GasTicketChecks
             catch (JsonException) { return; }
             throw new Exception("The private gas loader accepted the wrong-case swing section.");
         });
+        Check("swing command requires explicit heads, quantity or withdrawal, exact party and right", () =>
+        {
+            var wire = """{"context":{"snapshotId":"00000000-0000-0000-0000-000000000051","convention":"physical_gas_fixed_quantity_v4","knowledgeMode":"current"},"tradeId":"00000000-0000-0000-0000-000000000001","instrumentId":"00000000-0000-0000-0000-000000000002","expectedRevision":1,"operationId":"00000000-0000-0000-0000-000000000003","right":0,"expectedHeads":[{"day":"2021-01-31","revisionId":null}],"elections":[{"day":"2021-01-31","quantity":null,"exercisingParty":"us","submittedAt":"2021-01-20T00:00:00Z","effectiveAt":"2021-01-20T00:00:00Z","evidence":"Synthetic withdrawal"}]}""";
+            GasSwingRecordRequest Parse(string input) => GasSwingStore.Request<GasSwingRecordRequest>(JsonSerializer.Deserialize<JsonElement>(input));
+            Equal(null, Parse(wire).Elections.Single().Quantity, "explicit withdrawal");
+            foreach (var invalid in new[] { wire.Replace("\"quantity\":null,", ""), wire.Replace("\"right\":0,", ""),
+                wire.Replace("\"right\":0", "\"RIGHT\":0"), wire.Replace("\"right\":0", "\"right\":\"0\""),
+                wire.Replace(",\"revisionId\":null", ""), wire.Replace("exercisingParty", "holder"),
+                wire.Replace("\"quantity\":null", "\"quantity\":null,\"quantity\":\"0\"") })
+            {
+                try { Parse(invalid); }
+                catch (JsonException) { continue; }
+                throw new Exception("An incomplete or ambiguous swing command was accepted.");
+            }
+        });
         Check("exercise terms round trip and an absent right preserves the wire request",()=>{
             var json=new JsonSerializerOptions(JsonSerializerDefaults.Web);
             var plain=Map(Draft(Receipt,Cash));

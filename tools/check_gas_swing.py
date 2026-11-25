@@ -55,7 +55,7 @@ def populated_upgrade(query, manifest, prior, body, booked):
     print('PASS populated 0402 writer replay and 0403 upgrade preserve the trade, components, program bytes and schedule bindings', flush=True)
 
 
-def run_checks(url, query, manifest, prior):
+def run_checks(url, query, manifest, prior, run_worker):
     client = PreviewClient(url)
     client.bootstrap()
     client.call('profile', dict(profile='trader'))
@@ -245,3 +245,5 @@ def run_checks(url, query, manifest, prior):
     for excluded in ('balance.to_us','premium'):
         reject(outside, [{**right, 'entries':[*right['entries'], excluded]}], 'swing_right')
     print('PASS physical gas swing cross-month booking, exact non-midnight deadlines, native parity, missing marks and immutable scoped terms', flush=True)
+    from check_gas_swing_elections import election_checks
+    election_checks(client, query, manifest, context, body, plain, run_worker)

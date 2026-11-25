@@ -107,6 +107,11 @@ internal sealed record GasCompositionExecution
  internal ImmutableArray<SwingRight> SwingRights{get;}
  internal ImmutableArray<SwingPricingBinding> SwingPricingBindings{get;}
  internal Guid TradeId{get;}
+ internal ReferenceKey SwingQuantityUnit(int ordinal)
+ {
+  var right=SwingRights.Single(r=>r.Ordinal==ordinal);
+  return Members.Single(m=>m.Slot==right.PhysicalSlot).Assignment.Quote.Quantity;
+ }
  // Every retained program selects the started-delivery lifecycles; older or mixed trades keep their own refusals.
  internal bool Started=>GasCompositionStore.Started(Programs);
  internal GasCompositionExecution(Guid tradeId,GasCompositionRequest terms,Guid instrumentId,ImmutableArray<GasCompositionRow> members,
@@ -420,7 +425,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   {
    if(held.Members.Length!=members.Length)throw Invalid("Started-delivery valuation requires every member of the held trade.");
    if(held.Terms.Discounting!=false)throw Invalid("A held gas composition requires its explicit no-discounting selection.");
-   state=await GasCashPaymentStore.Read(c,database.Manifest.CatalogId,held,held.Terms.BookId,new(quantity,members[0].Assignment.Quote.Quantity),GasCashPaymentStore.LatestKnownRevision,snapshot.ValuationAt,ct);
+   state=await GasCashPaymentStore.Read(c,database,held,held.Terms.BookId,new(quantity,members[0].Assignment.Quote.Quantity),GasCashPaymentStore.LatestKnownRevision,snapshot.ValuationAt,ct);
   }
   else if(!rights.IsEmpty||!swings.IsEmpty||members.Any(m=>m.QuantityPolicy is not null||m.Part is not null||m.Balance is not null||m.Owned is not null))
   {

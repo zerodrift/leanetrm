@@ -98,6 +98,9 @@ const string malformed="The request is incomplete or malformed.";
     PostgresException p when p.MessageText.StartsWith("gas_storage_",StringComparison.Ordinal)
         =>(p.SqlState=="42501"?403:p.MessageText.Contains("conflict",StringComparison.Ordinal)||p.MessageText.Contains("stale",StringComparison.Ordinal)?409:422,
             p.MessageText,GasStorageStore.Refusal(p.MessageText)),
+    PostgresException p when p.MessageText=="swing_election_conflict" => (409,p.MessageText,"Reload the trade and the current revision for every swing day."),
+    PostgresException p when p.MessageText=="swing_feasibility" => (422,p.MessageText,"The elections leave no feasible completion of the term quantity."),
+    PostgresException p when p.MessageText=="swing_election" => (422,p.MessageText,"Select retained swing days, admissible quantities or withdrawals, the contractual holder and timely acceptance evidence."),
     PostgresException p when p.MessageText=="exercise_election_limit" => (422,p.MessageText,"This trade has reached the command, fact or group revision limit."),
     PostgresException p when p.MessageText=="exercise_election_conflict" => (409,p.MessageText,"Reload the trade and its current election revisions."),
     PostgresException p when p.MessageText=="exercise_election_denied" => (403,"access_denied","This account cannot access the selected trade and exercise facts."),
@@ -2453,6 +2456,26 @@ api.MapPost("/gas/quantities/record",(HttpContext c,GasDailyWriteRequest body)=>
  if(await gasDaily.RecordRefusal(connection,TradingReadSelection.IsWorking(session,body.Context),ct) is {} refused)throw refused;
  return Results.Ok(await gasDaily.Save(connection,Frame(session,body.Context.SnapshotId),body,ct));
 },c.RequestAborted)));
+
+api.MapPost("/gas/swing/read",(HttpContext c,JsonElement request)=>
+{
+ var body=GasSwingStore.Request<GasSwingReadRequest>(request);
+ return TradingRead(c,body.Context,(connection,view,ct)=>tradeReads.ReadBound(connection,view,
+  async()=>await GasSwingStore.Read(connection,database,body.TradeId,body.InstrumentId,ct),ct),
+  expectedConvention:PhysicalGasStore.Convention,publicationCheck:(connection,_,ct)=>
+   GasSwingStore.RequireScope(connection,database.Manifest.CatalogId,body.TradeId,body.InstrumentId,ct));
+});
+api.MapPost("/gas/swing/record",(HttpContext c,JsonElement request)=>
+{
+ var body=GasSwingStore.Request<GasSwingRecordRequest>(request);
+ return Locked(c,session=>
+ {
+  if(!TradingReadSelection.IsWorking(session,body.Context))throw new MarketDataException("historical_read_only","Return to working data before recording swing elections.");
+  RequireConvention(body.Context,PhysicalGasStore.Convention);
+  var frame=Frame(session,body.Context.SnapshotId);
+  return database.WithIdentity(Profile(session),"AmendTrade",async(connection,ct)=>Results.Ok(await GasSwingStore.Record(connection,database,body,frame,ct)),c.RequestAborted);
+ });
+});
 
 api.MapPost("/gas/exercise/read",(HttpContext c,GasExerciseReadRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("exercise_election","Select a financial context."),
  (connection,view,ct)=>tradeReads.ReadBound(connection,view,async()=>await GasExerciseStore.Read(connection,database.Manifest.CatalogId,body.TradeId,body.InstrumentId,ct),ct),

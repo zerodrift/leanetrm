@@ -631,7 +631,7 @@ def ticket_authority_expiry(risk,query,manifest,context,saved,pending_head):
     print('PASS booked exercise ticket rechecks expiring authority before publishing future election heads',flush=True)
 
 
-def amend_rights(query,manifest,saved,rights,at):
+def amend_rights(query,manifest,saved,rights,at,*,swing_rights=None):
     """Stage the unchanged retained Sides through the native API and amend just the right terms."""
     from check_booked_side_programs import runtime_query
     cat=manifest['catalogId']
@@ -641,6 +641,8 @@ def amend_rights(query,manifest,saved,rights,at):
     body=json.loads(query(f"SELECT request FROM trading.trades WHERE(catalog_id,id)=('{cat}','{trade}');"))
     body.update(operationId=op,tradeId=trade,bindingId=inst,expectedRevision=1,reason='Synthetic exercise terms',
                 amendmentPolicy='future_gas_composition_replace_v1',exerciseRights=rights)
+    if swing_rights is not None:
+        body['swingRights']=swing_rights
     headers=json.loads(query(f"""SELECT jsonb_agg(jsonb_build_object('family',s.family,'definitionRevisionId',s.definition_revision_id,
       'referenceCatalogId',s.reference_catalog_id,'referenceRevisionId',s.reference_revision_id,'economicIdentity',s.economic_identity,
       'pricingBindingIdentity',s.pricing_binding_identity,'schemaVersion',h.schema_version,'generatorVersion',h.generator_version,

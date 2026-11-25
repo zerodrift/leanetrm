@@ -50,7 +50,7 @@ internal static class GasSwingBooking
         return (rights.ToImmutable(), pricing.ToImmutable());
     }
 
-    private static ExerciseHolder Holder(string value) => value switch
+    internal static ExerciseHolder Holder(string value) => value switch
     {
         "us" => ExerciseHolder.Us,
         "counterparty" => ExerciseHolder.Counterparty,
