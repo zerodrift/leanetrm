@@ -46,7 +46,7 @@ public sealed record SwingDayDecision(SwingDay Day, SwingElection? Election, int
 public sealed record SwingBudget(ImmutableArray<SwingDayDecision> Days, int CommittedLots, int RemainingMinimumLots,
     int RemainingMaximumLots);
 
-public static class SwingFeasibility
+public static partial class SwingFeasibility
 {
     // The caller selects one fact for each day at the resolved cutoff. This check
     // only counts facts already effective at the valuation instant.
@@ -54,34 +54,45 @@ public static class SwingFeasibility
         ImmutableArray<SwingElection> elections, DateTimeOffset valuationAt)
     {
         RequireRight(right);
+        var facts = SelectElections(right.Ordinal, right.Holder, right.Days, referenceDailyQuantity,
+            elections, valuationAt, quantity => ElectionLots(right, referenceDailyQuantity, quantity));
+        ImmutableArray<SwingDayDecision> decisions = [..right.Days.Select(day => facts.TryGetValue(day.Day, out var fact)
+            ? new SwingDayDecision(day, fact.Election, fact.Quantity) : new(day, null, null))];
+        var committed = decisions.Sum(day => (long)(day.Lots ?? 0));
+        var (minimum, maximum) = RequireCompletion(right, committed, decisions.Count(day => day.Lots is null));
+        // A feasible completion bounds the sum by the retained Int32 term maximum.
+        return new(decisions, (int)committed, minimum, maximum);
+    }
+
+    private static Dictionary<DateOnly, (SwingElection Election, T Quantity)> SelectElections<T>(int ordinal,
+        ExerciseHolder holder, ImmutableArray<SwingDay> days, ExactQuantity referenceDailyQuantity,
+        ImmutableArray<SwingElection> elections, DateTimeOffset valuationAt, Func<ExactQuantity, T> readQuantity)
+    {
         if (referenceDailyQuantity is null || referenceDailyQuantity.NumeratorValue.Sign <= 0)
             throw InvalidRight("Swing needs a positive reference daily quantity.");
         if (elections.IsDefault || valuationAt == default || !TradingInstant.IsSupported(valuationAt))
             throw InvalidElection("Supply the selected election facts and a supported valuation instant.");
 
-        var days = right.Days.ToDictionary(day => day.Day);
-        var selected = new Dictionary<DateOnly, SwingDayDecision>();
+        var calendar = days.ToDictionary(day => day.Day);
+        var selected = new Dictionary<DateOnly, (SwingElection, T)>();
+        var seen = new HashSet<DateOnly>();
         var revisions = new HashSet<Guid>();
         foreach (var election in elections)
         {
-            if (election is null || election.Right != right.Ordinal || election.ExercisingParty != right.Holder ||
-                !days.TryGetValue(election.Day, out var day) || election.SubmittedAt == default || election.EffectiveAt == default ||
+            if (election is null || election.Right != ordinal || election.ExercisingParty != holder ||
+                !calendar.TryGetValue(election.Day, out var day) || election.SubmittedAt == default || election.EffectiveAt == default ||
                 !TradingInstant.IsSupported(election.SubmittedAt) || !TradingInstant.IsSupported(election.EffectiveAt) ||
                 election.SubmittedAt > election.EffectiveAt || election.EffectiveAt > day.ExerciseAt ||
                 election.RevisionId == Guid.Empty || string.IsNullOrWhiteSpace(election.Evidence))
                 throw InvalidElection("Each election requires its retained day, holder, timely submission and effectiveness, revision and evidence.");
 
-            var lots = ElectionLots(right, referenceDailyQuantity, election.Quantity);
-            if (!revisions.Add(election.RevisionId) ||
-                !selected.TryAdd(day.Day, election.EffectiveAt <= valuationAt ? new(day, election, lots) : new(day, null, null)))
+            var quantity = readQuantity(election.Quantity);
+            if (!revisions.Add(election.RevisionId) || !seen.Add(election.Day))
                 throw InvalidElection("Supply one distinct selected election revision for each elected swing day.");
+            if (election.EffectiveAt <= valuationAt)
+                selected.Add(election.Day, (election, quantity));
         }
-
-        ImmutableArray<SwingDayDecision> decisions = [..right.Days.Select(day => selected.GetValueOrDefault(day.Day) ?? new(day, null, null))];
-        var committed = decisions.Sum(day => (long)(day.Lots ?? 0));
-        var (minimum, maximum) = RequireCompletion(right, committed, decisions.Count(day => day.Lots is null));
-        // A feasible completion bounds the sum by the retained Int32 term maximum.
-        return new(decisions, (int)committed, minimum, maximum);
+        return selected;
     }
 
     internal static void RequireRight(SwingRight right)
@@ -96,15 +107,20 @@ public static class SwingFeasibility
             right.QuantityPolicy != SwingRight.ElectedDeliveryQuantity || right.Days.IsDefaultOrEmpty || right.Days.Length > 31)
             throw InvalidRight("Select explicit swing terms with a positive on-grid reference quantity, ordered volume limits and one to 31 gas days.");
 
+        RequireCalendar(right.Days);
+        RequireCompletion(right, 0, right.Days.Length);
+    }
+
+    private static void RequireCalendar(ImmutableArray<SwingDay> days)
+    {
         SwingDay? previous = null;
-        foreach (var day in right.Days)
+        foreach (var day in days)
         {
             if (day is null || day.Day == default || day.ExerciseAt == default || !TradingInstant.IsSupported(day.ExerciseAt) ||
                 previous is not null && (day.Day.DayNumber != previous.Day.DayNumber + 1 || day.ExerciseAt <= previous.ExerciseAt))
                 throw InvalidRight("Swing days and their deadlines must be ordered across consecutive gas days.");
             previous = day;
         }
-        RequireCompletion(right, 0, right.Days.Length);
     }
 
     private static int ElectionLots(SwingRight right, ExactQuantity reference, ExactQuantity election)
