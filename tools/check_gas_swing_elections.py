@@ -1,6 +1,7 @@
 """Commercial swing facts, both clocks and whole-right concurrency."""
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
+from time import monotonic, sleep
 from uuid import uuid4
 import json
 
@@ -15,6 +16,86 @@ DAYS = ['2021-01-31', '2021-02-01', '2021-02-02']
 
 def denied(call):
     return f"DO $proof$ BEGIN BEGIN PERFORM {call};RAISE EXCEPTION 'Unexpected election authority';EXCEPTION WHEN insufficient_privilege THEN NULL;END;END$proof$;"
+
+
+def read_grant_transition(query, manifest, reader):
+    """Delay the reader's first schedule access until a disjoint successor grant begins."""
+    cat = manifest['catalogId']
+    role, initial, successor = uuid4(), uuid4(), uuid4()
+    name = 'swing_read_' + role.hex
+    table = 'trading.instrument_side_schedules'
+    try:
+        boundary = query(f"""BEGIN;INSERT INTO security.roles VALUES('{role}','{name}','Synthetic swing read authority');
+            INSERT INTO security.role_permissions VALUES('{role}','ReadTrades');
+            INSERT INTO security.role_grants SELECT '{initial}',principal_id,'{role}','{manifest['tenantId']}','{manifest['workspaceId']}',
+             clock_timestamp()-interval '1 day',clock_timestamp()+interval '4 seconds',false FROM security.identity_bindings
+             WHERE issuer='https://preview.invalid' AND subject='editor';
+            INSERT INTO security.role_grants SELECT '{successor}',principal_id,role_id,tenant_id,workspace_id,
+             granted_to,granted_to+interval '1 minute',false FROM security.role_grants WHERE id='{initial}';
+            SELECT granted_to FROM security.role_grants WHERE id='{initial}';COMMIT;""")
+        # The ordinary fixture editor has market permission. Only the first of
+        # the two ReadTrades grants may contribute to this request's initial deadline.
+        bind = f"""SELECT security.use_market_context('{cat}',security.resolve_operation_context('{cat}','2020-12-18',NULL));
+            SELECT security.use_trading_context('{cat}','{AT}');"""
+        check = f"""DO $bound$ BEGIN IF settlement_data.futures_margin_preview_authority('{cat}') IS DISTINCT FROM TIMESTAMPTZ '{boundary}'
+             THEN RAISE EXCEPTION 'Wrong initial grant deadline';END IF;END$bound$;"""
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            holder = pool.submit(query,f"""SET application_name='{name}';BEGIN;LOCK TABLE {table} IN ACCESS EXCLUSIVE MODE;
+                SELECT pg_sleep_until(TIMESTAMPTZ '{boundary}');COMMIT;""")
+            limit = monotonic()+6
+            while query(f"SELECT EXISTS(SELECT FROM pg_stat_activity WHERE application_name='{name}' AND wait_event='PgSleep');")!='t':
+                assert not holder.done() and monotonic()<limit, 'Schedule lock did not start'
+                sleep(.03)
+            reading = pool.submit(runtime_query,query,manifest,bind + check + denied(reader),profile='editor',commit=False)
+            while query(f"""SELECT EXISTS(SELECT 1 FROM pg_locks l JOIN pg_stat_activity a USING(pid)
+                WHERE NOT l.granted AND l.relation='{table}'::regclass AND a.query LIKE '%read_gas_swing_elections%'
+                AND clock_timestamp()<TIMESTAMPTZ '{boundary}');""")!='t':
+                assert not reading.done() and monotonic()<limit, 'Reader did not reach the schedule under its initial grant'
+                sleep(.03)
+            holder.result(timeout=10)
+            reading.result(timeout=10)
+        new_read = runtime_query(query,manifest,bind+f"SELECT jsonb_array_length({reader}->'elections');",profile='editor',commit=False)
+        assert new_read.splitlines()[-1]=='3', 'A new request under the successor grant must see the three retained elections'
+    finally:
+        query(f"""BEGIN;DELETE FROM security.role_grants WHERE role_id='{role}';DELETE FROM security.role_permissions WHERE role_id='{role}';
+            DELETE FROM security.roles WHERE id='{role}';COMMIT;""")
+
+
+def native_authority_fences(query, manifest, reader, replay, target):
+    read_grant_transition(query,manifest,reader)
+    cat = manifest['catalogId']
+    assert query("""SELECT bool_or(has_column_privilege(login,'security.request_contexts',field,'UPDATE'))
+        FROM unnest(ARRAY['preview_runtime','preview_risk_worker']) login,
+         unnest(ARRAY['swing_replay_catalog_id','swing_replay_operation_id','swing_replay_until']) field;""")=='f'
+    trade = target['tradeId']
+    counts = f"""SELECT jsonb_build_array((SELECT count(*) FROM trading.gas_swing_elections WHERE trade_id='{trade}'),
+        (SELECT count(*) FROM trading.gas_swing_commands WHERE trade_id='{trade}'))"""
+    previous = query(counts)
+    runtime_query(query,manifest,f"""SELECT {replay};
+        SELECT security.use_market_context('{cat}',security.resolve_operation_context('{cat}','2020-12-17',NULL));
+        SELECT security.use_trading_context('{cat}','2020-12-17T16:00:00Z');RESET SESSION AUTHORIZATION;
+        DO $facts$ BEGIN IF ({counts}) IS DISTINCT FROM '{previous}'::jsonb THEN RAISE EXCEPTION 'Replay inserted a fact or receipt';END IF;END$facts$;
+        DELETE FROM security.role_permissions WHERE permission='AmendTrade';SET LOCAL SESSION AUTHORIZATION preview_runtime;"""
+        + denied('security.check_operation_seals()'), commit=False)
+    # A second retry after a grant transition must not replace the earlier
+    # pending admission. Both operations stay retries of the same receipt.
+    role = uuid4()
+    setup = f"""DELETE FROM security.role_permissions WHERE permission='AmendTrade';
+        INSERT INTO security.roles VALUES('{role}','swing_replay_{role.hex}','Synthetic swing recording authority');
+        INSERT INTO security.role_permissions VALUES('{role}','AmendTrade');
+        SELECT set_config('synthetic_swing.boundary',(clock_timestamp()+interval '2 seconds')::text,true);
+        INSERT INTO security.role_grants SELECT gen_random_uuid(),b.principal_id,'{role}','{manifest['tenantId']}','{manifest['workspaceId']}',
+         w.from_at,w.to_at,false FROM security.identity_bindings b CROSS JOIN LATERAL
+         (VALUES (clock_timestamp()-interval '1 day',current_setting('synthetic_swing.boundary')::timestamptz),
+                 (current_setting('synthetic_swing.boundary')::timestamptz,clock_timestamp()+interval '2 minutes')) AS w(from_at,to_at)
+         WHERE b.issuer='https://preview.invalid' AND b.subject='trader';"""
+    runtime_query(query,manifest,f"""SELECT security.check_operation_seals();
+        DO $bound$ BEGIN IF security.gas_swing_write_until('{cat}') IS DISTINCT FROM current_setting('synthetic_swing.boundary')::timestamptz
+        THEN RAISE EXCEPTION 'Wrong initial write deadline';END IF;END$bound$;
+        SELECT {replay};SELECT pg_sleep_until(current_setting('synthetic_swing.boundary')::timestamptz);SELECT {replay};"""
+        + denied('security.check_operation_seals()'),prefix=setup,commit=False)
+    assert query(counts)==previous
+    print('PASS blocked swing read expires, successor reads three elections, and every native retry retains its own receipt and deadline at the seal',flush=True)
 
 
 def election_checks(client, query, manifest, context, booking, plain, run_worker):
@@ -112,6 +193,7 @@ def election_checks(client, query, manifest, context, booking, plain, run_worker
     runtime_query(query,manifest,f"""SELECT security.use_market_context('{cat}',security.resolve_operation_context('{cat}','2020-12-18',NULL));
         SELECT security.use_trading_context('{cat}','{AT}');RESET SESSION AUTHORIZATION;""" + revoke_source +
         'SET LOCAL SESSION AUTHORIZATION preview_runtime;' + denied(native(complete)),commit=False)
+    native_authority_fences(query,manifest,native(complete),call,complete)
     # Exercise the transaction seal after the writer's internal check and before commit.
     pending = {**all_command,'operationId':str(uuid4()),'expectedHeads':heads(read(target=complete)),
                'elections':[{**all_rows[0],'evidence':'Synthetic corrected acceptance evidence'}]}
@@ -122,7 +204,7 @@ def election_checks(client, query, manifest, context, booking, plain, run_worker
     assert heads(read(target=complete))==pending['expectedHeads']
     # Restore borrowed read inputs even when the caller already owns another financial source.
     runtime_query(query,manifest,f"""DO $proof$ DECLARE original uuid=security.resolve_operation_context('{cat}','2020-12-17',NULL);BEGIN
-        PERFORM {call};PERFORM security.use_market_context('{cat}',original);
+        PERFORM {call};PERFORM security.use_market_context('{cat}',original);PERFORM security.check_operation_seals();
         IF NOT EXISTS(SELECT 1 FROM security.operation_knowledge WHERE id=original) THEN RAISE EXCEPTION 'Original source lost';END IF;
         END$proof$;""",commit=False)
     for change in [dict(elections=[{**first,'unknown':1}]),dict(expectedHeads=[{'day':DAYS[0]}]),dict(extra=1)]:

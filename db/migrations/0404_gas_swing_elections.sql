@@ -125,6 +125,25 @@ END$$;
 CREATE CONSTRAINT TRIGGER swing_command_authority AFTER INSERT ON trading.gas_swing_commands
  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION trading.guard_gas_swing_commit();
 
+-- An exact retry returns the existing receipt and has its own authority
+-- deadline. Each deferred trigger retains its NEW tuple even when the request
+-- clears these inputs, binds another view or retries another command.
+ALTER TABLE security.request_contexts
+ ADD COLUMN swing_replay_catalog_id uuid, ADD COLUMN swing_replay_operation_id uuid, ADD COLUMN swing_replay_until ref_data.instant,
+ ADD CHECK(num_nonnulls(swing_replay_catalog_id,swing_replay_operation_id,swing_replay_until) IN(0,3)),
+ ADD FOREIGN KEY(swing_replay_catalog_id,swing_replay_operation_id) REFERENCES trading.gas_swing_commands(catalog_id,operation_id);
+CREATE FUNCTION security.guard_gas_swing_replay() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+BEGIN
+ PERFORM security.require_gas_swing_receipt(NEW.swing_replay_catalog_id,NEW.swing_replay_operation_id,NEW.swing_replay_until);
+ RETURN NULL;
+END$$;
+ALTER FUNCTION security.guard_gas_swing_replay() OWNER TO openetrm_security_owner;
+REVOKE ALL ON FUNCTION security.guard_gas_swing_replay() FROM PUBLIC;
+CREATE CONSTRAINT TRIGGER swing_replay_authority AFTER UPDATE OF swing_replay_operation_id ON security.request_contexts
+ DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN(NEW.swing_replay_operation_id IS NOT NULL)
+ EXECUTE FUNCTION security.guard_gas_swing_replay();
+
 -- Validate the union of effective-time boundaries across all days. A revision
 -- replaces the prior quantity and occupied-day count. Simultaneous revisions
 -- enter the budget together. Withdrawal releases both, including a zero election.
@@ -181,6 +200,9 @@ BEGIN
  IF command.operation_id IS NOT NULL THEN
   PERFORM security.require_gas_swing_receipt(catalog,operation,until_at);
   IF (command.request,command.recording_as_of) IS DISTINCT FROM(body,as_of) THEN RAISE EXCEPTION 'swing_election_conflict';END IF;
+  SET CONSTRAINTS security.swing_replay_authority DEFERRED;
+  UPDATE security.request_contexts SET swing_replay_catalog_id=catalog,swing_replay_operation_id=operation,swing_replay_until=until_at WHERE id=caller.id;
+  UPDATE security.request_contexts SET swing_replay_catalog_id=NULL,swing_replay_operation_id=NULL,swing_replay_until=NULL WHERE id=caller.id;
   RETURN command.outcome;
  END IF;
  record_context=security.resolve_operation_context(catalog,(as_of AT TIME ZONE 'UTC')::date,NULL);
@@ -262,10 +284,13 @@ END$function$;
 
 CREATE FUNCTION security.read_gas_swing_elections(catalog uuid,trade uuid,binding uuid) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog SET jit=off SET timezone='UTC' AS $function$
-DECLARE as_of timestamptz;result jsonb;until_at timestamptz;
+DECLARE as_of timestamptz;result jsonb;
+ until_at timestamptz=least(security.authority_until('ReadTrades'),security.authority_until('ReadMarketData'));
 BEGIN
+ -- The financial reader also checks the active worker lease and hosted session.
+ -- Those checks may shorten the original grants' deadline.
+ until_at=least(until_at,settlement_data.futures_margin_preview_authority(catalog));
  PERFORM security.require_gas_swing_binding(catalog,trade,binding);
- until_at=settlement_data.futures_margin_preview_authority(catalog);
  SELECT q.trading_as_of INTO as_of FROM security.request_contexts q WHERE q.backend_pid=pg_backend_pid()
   AND q.transaction_id=pg_current_xact_id_if_assigned() AND q.runtime_login=session_user AND q.expires_at>clock_timestamp();
  IF as_of IS NULL THEN RAISE EXCEPTION 'swing_election_denied' USING ERRCODE='42501';END IF;
