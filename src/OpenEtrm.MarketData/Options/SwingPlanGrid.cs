@@ -88,8 +88,9 @@ internal sealed class SwingPlanGrid
         Days = [..open.Where(d => d.ExerciseAt > period.AssessmentAt)];
         if (Days.Length + 1L > budget.MaximumStates) throw Scope("state slots", budget.MaximumStates);
 
+        var reciprocalStep = arithmetic.ReciprocalOfStep(right.Step);
         SignedRatio IndexOfDifference(SignedRatio x, SignedRatio y) =>
-            arithmetic.Multiply(arithmetic.Subtract(x, y), new(right.Step.Denominator, right.Step.Numerator));
+            arithmetic.Multiply(arithmetic.Subtract(x, y), reciprocalStep);
         last = IndexOfDifference(right.Maximum, right.Minimum).Numerator;
         rest = IndexOfDifference(SwingQuantityRight.Base, right.Minimum).Numerator;
         var offset = hasTotal ? arithmetic.Add(period.Elected, arithmetic.Multiply(new(Days.Length, 1), right.Minimum)) : SignedRatio.Zero;

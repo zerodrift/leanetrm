@@ -117,6 +117,21 @@ internal static partial class GasSwingChecks
         Refuse("swing_right", () => component.Resolve(Composition(source with {Side=periodSource}), Before));
     }
 
+    private static void BoundedPlanningStep()
+    {
+        var arithmetic = new SwingPlanArithmetic(8);
+        Require(arithmetic.ReciprocalOfStep(R(255,128)) == R(128,255), "Both 8-bit limbs fit the reciprocal budget.");
+        foreach (var step in new[] { R(256,255), R(255,256) })
+        {
+            var flat = Terms(1) with { Minimum = R(1), Maximum = R(1), Step = step, Upper = null, TotalBasis = null };
+            var period = SwingFeasibility.Resolve(flat, Units(1), [], Before).Single();
+            Require(period.RemainingMinimum == R(1) && period.RemainingMaximum == R(1),
+                "The flat day has one exact commercial completion for either positive step.");
+            Refuse("swing_numerical_scope", () => SwingPlanGrid.Build(period, PlanBudget with { MaximumIntegerBits = 8 }));
+            Refuse("swing_numerical_scope", () => arithmetic.ReciprocalOfStep(step));
+        }
+    }
+
     private static void SparsePlanLimits()
     {
         var right = Terms(1) with { Minimum = R(0), Maximum = R(2), Step = R(1,100000000), Lower = R(1), Upper = R(100000001,100000000) };

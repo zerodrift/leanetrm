@@ -41,6 +41,12 @@ internal sealed class SwingPlanArithmetic
 
     internal BigInteger Lcm(BigInteger left, BigInteger right) => Product(left / BigInteger.GreatestCommonDivisor(left,right), right);
 
+    internal SignedRatio ReciprocalOfStep(SignedRatio step)
+    {
+        Require(step);
+        return new(step.Denominator, step.Numerator);
+    }
+
     internal SignedRatio Multiply(SignedRatio left, SignedRatio right)
     {
         Require(left);
