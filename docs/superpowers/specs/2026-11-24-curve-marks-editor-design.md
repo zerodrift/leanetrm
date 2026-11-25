@@ -1,6 +1,6 @@
 # Curve volatility and correlation workspace
 
-Status: implemented and locally qualified. Independent whole-branch review pending.
+Status: built under D453. Local qualification and independent review are complete.
 
 [Implemented contract](../../curve-marks-editor.md) ·
 [Local verification](../../verification.md#curve-marks-editor-d453)

@@ -82,8 +82,12 @@ The gas exercise preview passed 128 checkpoints, including 21 browser checks,
 and completed four retained risk jobs. Explicit repricing returned `2947.4419`
 and the earlier missing mark and retained risk result stayed pinned.
 
-Independent review of the fixes is pending. See the
-[feature contract](curve-marks-editor.md).
+Independent whole-branch review led to four corrections. The native batch
+writer now requires canonical commands and serializes timestamps in UTC for
+owner-scoped receipt recovery. Visible curve codes distinguish scrolled matrix
+columns, and the documentation records the actual keyboard traversal and tested
+revisions. An independent review of the fixes confirmed all four findings were
+resolved. See the [feature contract](curve-marks-editor.md).
 
 ## Whole-book P&L dates without trades (D452)
 

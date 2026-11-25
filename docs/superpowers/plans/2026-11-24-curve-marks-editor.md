@@ -90,6 +90,6 @@
 **Files:** Feature contract and decision/status/verification docs; spec status line.
 
 - [x] Run repository, frontend, managed, database, workspace, gas and trading groups with pinned tools, retaining actual counts and any failures.
-- [ ] Obtain independent adversarial whole-branch review of authorization, time, atomicity, recovery, numerical behavior and visual implementation. Fix findings with red/green evidence and rerun affected checks.
+- [x] Obtain independent adversarial whole-branch review of authorization, time, atomicity, recovery, numerical behavior and visual implementation. Fix findings with red/green evidence and rerun affected checks.
 - [x] Update decision/architecture/security/implementation/plan/verification records accurately; mark spec built only when all required work passes. Integrate current master and resolve any shared runner/nav/migration-number conflicts with concurrent work.
 - [x] Inspect full staged diff, generated files and commit identity; signed-off records commit. Leave clean local branch ready for the authorized PR workflow; do not deploy or merge.
