@@ -902,9 +902,12 @@ def main():
                 reservation.bind(('127.0.0.1',0))
                 port=reservation.getsockname()[1]
         url=f'http://127.0.0.1:{port}'
+        # Retained portfolio reads include exact schedules and current authority.
+        # Give their SQL commands a bounded 30 s on shared CI runners; connection
+        # establishment and authentication retain their separate 5 s limits.
         app_env={**env,'OPENETRM_PREVIEW_ROOT':str(temporary),'OPENETRM_PREVIEW_PORT':str(port),
                  'OPENETRM_PREVIEW_WEB':str(temporary/'web'),
-                 'OPENETRM_PREVIEW_RUNTIME':f'Host={temporary};Port=55439;Database=postgres;Username=preview_runtime;SSL Mode=Disable;Timeout=5;Command Timeout=5;Maximum Pool Size=8',
+                 'OPENETRM_PREVIEW_RUNTIME':f'Host={temporary};Port=55439;Database=postgres;Username=preview_runtime;SSL Mode=Disable;Timeout=5;Command Timeout=30;Maximum Pool Size=8',
                  'OPENETRM_PREVIEW_AUTHENTICATOR':f'Host={temporary};Port=55439;Database=postgres;Username=preview_authenticator;SSL Mode=Disable;Timeout=5;Command Timeout=5;Maximum Pool Size=8',
                  **credential_keys}
         # Exercise transport independently of the launcher's UTC psql sessions.
@@ -942,7 +945,7 @@ def main():
             from check_risk_jobs_db import provision_worker
             provision_worker(query,selected or manifest,login)
             connection=temporary/f'{login}-connection'
-            connection.write_text(f'Host={temporary};Port=55439;Database=postgres;Username={login};SSL Mode=Disable;Timeout=5;Command Timeout=5;Maximum Pool Size=2')
+            connection.write_text(f'Host={temporary};Port=55439;Database=postgres;Username={login};SSL Mode=Disable;Timeout=5;Command Timeout=30;Maximum Pool Size=2')
             connection.chmod(0o600)
             config=temporary/f'{login}.json'
             config.write_text(json.dumps({'connectionFile':str(connection),'leaseSeconds':30,'pollSeconds':1,'timeoutSeconds':timeout}))

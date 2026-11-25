@@ -75,6 +75,18 @@ merged temporary-view source admission, whole-book owned-gas absence checks,
 cash-out accounting and browser workflow. A separate read-only integration
 review found no issues in their combined authorization and coverage behavior.
 
+The settlement CI follow-up raises the disposable preview's runtime and risk
+worker SQL command budgets from five to 30 seconds. Retained scheduled-swap
+reads exceeded the five-second command budget on shared CI runners. Connection
+and authenticator limits remain five seconds; worker calculation deadlines,
+lease checks and cancellation still apply independently. This is a test and
+local-preview budget adjustment, not a query optimization or a change to hosted
+connection settings. The complete settlement group passes locally with nine
+runner workloads, 252 PASS checkpoints, 101 owned browser checks and three
+completed workers; its disposable database was removed. The checks cover both
+dated-observation worker replay and scheduled-swap Blotter pricing. Independent
+review found no blocking issue in the deadline change.
+
 ## Whole-book P&L dates without trades (D452)
 
 Checked on synthetic data on 2026-11-24, in the same Linux x86_64 containers as
