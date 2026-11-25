@@ -117,6 +117,18 @@ def run_checks(url, query, manifest, prior):
     fixed = book(forced)
     fixed_view = client.call('gas/composition/editor', dict(context=context, tradeId=fixed['tradeId']))
     assert Decimal(fixed_view['valuation']['presentValue']) == Decimal('300')
+    # The financial header and its child terms have independent visibility predicates.
+    # Exercise the real held loader with the header readable and its pricing child withheld.
+    query(f"""CREATE POLICY swing_hidden_price ON trading.gas_swing_pricing AS RESTRICTIVE FOR SELECT
+        TO openetrm_runtime USING (instrument_id <> '{fixed['instrumentId']}'::uuid);""")
+    try:
+        predecessor_view = client.call('gas/composition/editor', dict(context=context, tradeId=plain['tradeId']))
+        assert predecessor_view['valuation']['presentValue'] == '300'
+        assert client.call('gas/composition/editor', dict(context=context, tradeId=fixed['tradeId']),
+                           expected=422)['code'] == 'holder_choice_inputs'
+    finally:
+        query('DROP POLICY swing_hidden_price ON trading.gas_swing_pricing;')
+    print('PASS held swing header with hidden pricing refuses; predecessor no-right header retains PV 300', flush=True)
     for endpoint, payload in [('gas/composition/editor', dict(context=context, tradeId=saved['tradeId'])),
                               ('gas/composition/preview', body)]:
         assert client.call(endpoint, payload, expected=422)['code'] == 'exercise_marks'
@@ -173,6 +185,19 @@ def run_checks(url, query, manifest, prior):
         assert client.call('gas/composition/book', invalid, expected=400)['code'] == 'request_format'
         code = 'gas_composition_input' if 'unknownKey' in changes else ('swing_right' if 'unknownKey' in changes['swingRights'][0] else 'swing_model_scope')
         staged_booking(query, manifest, base, invalid, code)
+
+    # ASP.NET's normal Web options accept case-insensitive keys and quoted numbers.
+    upper_lead = {k:v for k,v in right.items() if k != 'leadHours'} | {'LEADHOURS':6}
+    upper_model = {k:v for k,v in pricing.items() if k != 'model'} | {'MODEL':pricing['model']}
+    for extra, native_code in [
+        ({'swingRights':[{**right, 'leadHours':'6'}]}, 'swing_right'),
+        ({'swingRights':[upper_lead]}, 'swing_right'),
+        ({'swingRights':[{**right, 'pricing':upper_model}]}, 'swing_model_scope'),
+        ({'SWINGRIGHTS':[right]}, 'gas_composition_input')]:
+        invalid = {**base, **extra, 'operationId':str(uuid4())}
+        assert client.call('gas/composition/book', invalid, expected=400)['code'] == 'request_format'
+        staged_booking(query, manifest, base, invalid, native_code)
+    print('PASS HTTP and native swing booking reject a quoted lead and wrong-case right, pricing and section names', flush=True)
 
     def source_case(physical, code='swing_right'):
         original = {**base, 'operationId': str(uuid4()), 'physicalSides': physical}

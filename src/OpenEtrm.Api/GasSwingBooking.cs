@@ -29,8 +29,11 @@ internal static class GasSwingBooking
     }
 
     // Read normalized terms and captured deadlines from the visible saved binding.
-    internal static (ImmutableArray<SwingRight> Rights, ImmutableArray<SwingPricingBinding> Pricing) Read(JsonElement terms)
+    internal static (ImmutableArray<SwingRight> Rights, ImmutableArray<SwingPricingBinding> Pricing) Read(JsonElement terms, int declaredRights)
     {
+        // Each projected row joins one visible right to its mandatory pricing binding.
+        if (terms.ValueKind != JsonValueKind.Array || terms.GetArrayLength() != declaredRights)
+            throw new MarketDataException("holder_choice_inputs", "The held gas binding requires all of its declared swing rights and pricing terms.");
         var rights = ImmutableArray.CreateBuilder<SwingRight>();
         var pricing = ImmutableArray.CreateBuilder<SwingPricingBinding>();
         foreach (var term in terms.EnumerateArray())

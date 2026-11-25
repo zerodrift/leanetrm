@@ -59,15 +59,50 @@ internal static class GasTicketChecks
             var saved = JsonSerializer.Deserialize<GasCompositionRequest>(JsonSerializer.Serialize(plain with { ImbalanceCashouts = [pair] }, json), json)!;
             Equal(pair, saved.ImbalanceCashouts!.Value.Single(), "retained cash-out terms");
         });
+        const string swingWire = """[{"side":"RCT","entries":["RCT","PAY"],"holder":"us","increment":"100","dailyMinimum":"700","dailyMaximum":"1100","totalMinimum":"3000","totalMaximum":"3100","leadHours":6,"quantityPolicy":"swing_elected_delivery_quantity_v1","pricing":{"model":"gas_swing_one_factor_lognormal_v1","dayCount":"act_365_fixed_instant_v1","numericalPolicy":"swing_trinomial_6h_half_even_18_v1","marksConvention":"curve_marks_log_return_held_v1"}}]""";
         Check("swing terms round trip and an absent right preserves the wire request", () =>
         {
             var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
             var wire = JsonSerializer.SerializeToNode(Map(Draft(Receipt, Cash)), json)!.AsObject();
             Equal(false, wire.ContainsKey("swingRights"), "absent swing");
-            var rights = """[{"side":"RCT","entries":["RCT","PAY"],"holder":"us","increment":"100","dailyMinimum":"700","dailyMaximum":"1100","totalMinimum":"3000","totalMaximum":"3100","leadHours":6,"quantityPolicy":"swing_elected_delivery_quantity_v1","pricing":{"model":"gas_swing_one_factor_lognormal_v1","dayCount":"act_365_fixed_instant_v1","numericalPolicy":"swing_trinomial_6h_half_even_18_v1","marksConvention":"curve_marks_log_return_held_v1"}}]""";
-            wire["swingRights"] = System.Text.Json.Nodes.JsonNode.Parse(rights);
+            wire["swingRights"] = System.Text.Json.Nodes.JsonNode.Parse(swingWire);
             var reopened = JsonSerializer.SerializeToNode(wire.Deserialize<GasCompositionRequest>(json), json)!;
             Equal(true, System.Text.Json.Nodes.JsonNode.DeepEquals(wire["swingRights"], reopened["swingRights"]), "retained swing terms");
+        });
+        Check("swing lead and pricing inputs require their exact JSON shapes", () =>
+        {
+            var json = new Microsoft.AspNetCore.Http.Json.JsonOptions().SerializerOptions;
+            json.AllowDuplicateProperties = false;
+            var predecessor = Map(Draft(Receipt, Cash));
+            var legacy = JsonSerializer.SerializeToNode(predecessor, json)!.AsObject();
+            legacy.Remove("profile");
+            legacy["PROFILE"] = predecessor.Profile;
+            legacy["legalEntityRevision"] = "4";
+            var rebound = GasCompositionRequestJson.From(JsonSerializer.SerializeToElement(legacy, json), json);
+            Equal((predecessor.Profile, (int?)4), (rebound.Profile, rebound.LegalEntityRevision), "predecessor Web binding");
+            foreach (var malformed in new[] { swingWire.Replace("\"leadHours\":6", "\"leadHours\":\"6\""),
+                swingWire.Replace("leadHours", "LEADHOURS"), swingWire.Replace("marksConvention", "MARKSCONVENTION") })
+            {
+                var wire = JsonSerializer.SerializeToNode(Map(Draft(Receipt, Cash)), json)!.AsObject();
+                wire["swingRights"] = System.Text.Json.Nodes.JsonNode.Parse(malformed);
+                try { wire.Deserialize<GasCompositionRequest>(json); }
+                catch (JsonException) { continue; }
+                throw new Exception("A swing right accepted a malformed lead or property name.");
+            }
+        });
+        Check("the private gas loader applies the same swing section name at its nested composition", () =>
+        {
+            var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+            var command = new GasInTermLoadRequest("synthetic", Map(Draft(Receipt, Cash)));
+            var wire = JsonSerializer.SerializeToNode(command, json)!.AsObject();
+            var composition = wire["composition"]!.AsObject();
+            composition["swingRights"] = System.Text.Json.Nodes.JsonNode.Parse(swingWire);
+            Equal(6, wire.Deserialize<GasInTermLoadRequest>(json)!.Composition.SwingRights!.Value.Single().LeadHours, "operator swing lead");
+            composition.Remove("swingRights");
+            composition["SWINGRIGHTS"] = System.Text.Json.Nodes.JsonNode.Parse(swingWire);
+            try { wire.Deserialize<GasInTermLoadRequest>(json); }
+            catch (JsonException) { return; }
+            throw new Exception("The private gas loader accepted the wrong-case swing section.");
         });
         Check("exercise terms round trip and an absent right preserves the wire request",()=>{
             var json=new JsonSerializerOptions(JsonSerializerDefaults.Web);

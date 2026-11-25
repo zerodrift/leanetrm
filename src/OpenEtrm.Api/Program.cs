@@ -2473,17 +2473,26 @@ api.MapPost("/gas/exercise/record",(HttpContext c,GasExerciseRecordRequest body)
 }));
 
 var gasComposition=new GasCompositionStore(database);
-api.MapPost("/gas/composition/preview",(HttpContext c,GasCompositionRequest body)=>FuturesRead(c,new(body.SnapshotId,body.Convention,body.KnowledgeMode,body.PreviewContextId),
- (connection,data,frame,ct)=>gasComposition.Preview(connection,data,frame,body,ct),expectedConvention:PhysicalGasStore.Convention,gasTrade:body.PreviewTradeId));
+var gasRequestJson=app.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions>>().Value.SerializerOptions;
+api.MapPost("/gas/composition/preview",(HttpContext c,JsonElement request)=>
+{
+ var body=GasCompositionRequestJson.From(request,gasRequestJson);
+ return FuturesRead(c,new(body.SnapshotId,body.Convention,body.KnowledgeMode,body.PreviewContextId),
+  (connection,data,frame,ct)=>gasComposition.Preview(connection,data,frame,body,ct),expectedConvention:PhysicalGasStore.Convention,gasTrade:body.PreviewTradeId);
+});
 api.MapPost("/gas/composition/editor",(HttpContext c,PhysicalGasEditorRequest body)=>FuturesRead(c,body.Context,
  (connection,data,frame,ct)=>gasComposition.Editor(connection,data,frame,body.TradeId,ct),expectedConvention:PhysicalGasStore.Convention,gasTrade:body.TradeId));
 // A gas booking's outcome by its operation id, for the person who sent it; the composition and ticket bookings share it.
 Task<IResult> GasBookingStatus(HttpContext c,FuturesStatusRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>Results.Ok(await gasStore.Status(connection,body.OperationId,ct)),c.RequestAborted));
 api.MapPost("/gas/composition/status",GasBookingStatus);
-api.MapPost("/gas/composition/book",(HttpContext c,GasCompositionRequest body)=>Locked(c,session=>{
- GasCompositionStore.RequireNewTrade(body);
- return BookGasComposition(c,session,body);
-}));
+api.MapPost("/gas/composition/book",(HttpContext c,JsonElement request)=>
+{
+ var body=GasCompositionRequestJson.From(request,gasRequestJson);
+ return Locked(c,session=>{
+  GasCompositionStore.RequireNewTrade(body);
+  return BookGasComposition(c,session,body);
+ });
+});
 // Booking takes working data only: no selected historical context, current knowledge and no captured context.
 void RequireGasBooking(PreviewSession session,string? knowledgeMode,Guid? contextId=null)
 {

@@ -64,7 +64,7 @@ public sealed record GasCompositionRequest(Guid SnapshotId,string Convention,str
  [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public ImmutableArray<GasChargeRequest>? ChargeSides {get;init;}
  [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public ImmutableArray<GasExerciseRightRequest>? ExerciseRights {get;init;}
  [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public ImmutableArray<GasImbalanceCashoutRequest>? ImbalanceCashouts {get;init;}
- [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public ImmutableArray<GasSwingRightRequest>? SwingRights {get;init;}
+ [JsonConverter(typeof(GasSwingRightsJson)),JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public ImmutableArray<GasSwingRightRequest>? SwingRights {get;init;}
 }
 internal sealed record GasCompositionRow(int Slot,string Code,string Role,int Direction,ExactRatio Ratio,ExactRatio Receipt,string? Source,string? Stage,string? Formula,string? Fraction,GasPhysicalRequest? Physical,GasCashRequest? Cash,ImmutableArray<GasValuationAssignment> Assignments,GasDayClock Clock,string? QuantityPolicy=null,ExactDecimal? Share=null,QuantityPart? Part=null,OwnedQuantity? Owned=null,ReportedBalanceFollow? Balance=null)
 {
@@ -638,6 +638,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   // or executable program. Typed terms resolve exact market metadata only.
   if(header.GetProperty("request").ValueKind!=JsonValueKind.Object)throw Invalid("The selected gas revision requires its exact retained command.");
   var body=JsonSerializer.Deserialize<GasCompositionRequest>(header.GetProperty("request").GetRawText(),Json)!;
+  var (swings,pricing)=GasSwingBooking.Read(header.GetProperty("swing_terms"),body.SwingRights?.Length??0);
   var valuationBody=body with{DefinitionRevisionId=header.Id("definition_revision_id"),GasSetupId=header.OptionalText("gas_setup_id") is {} setup?Guid.Parse(setup):null,SnapshotId=frame.Id};
   var members=ImmutableArray.CreateBuilder<GasCompositionRow>();var phys=new Dictionary<int,(GasPhysicalRequest Physical,ImmutableArray<GasValuationAssignment> Assignments,GasDayClock Clock)>();
   foreach(var r in rows.Where(r=>r.Text("role")=="physical"))
@@ -658,7 +659,6 @@ public sealed class GasCompositionStore(PreviewDatabase database)
    [..r.GetProperty("slots").EnumerateArray().Select(v=>v.GetInt32())],Period(r.Text("period")),Holder(r.Text("holder")),Settlement(r.Text("settlement")),
    r.Text("model"),r.Text("day_count"),[..r.GetProperty("groups").EnumerateArray().Select(g=>new ExerciseGroup(
     DateWorkspace.Date(g.Text("period_from")),DateWorkspace.Date(g.Text("period_to")),SchedulePreview.ParseAt(g.Text("exercise_at"))))])).ToImmutableArray();
-  var (swings,pricing)=GasSwingBooking.Read(header.GetProperty("swing_terms"));
   return new(trade,body,header.Id("instrument_id"),members.ToImmutable(),Number(header.Text("quantity")),programs.Value,rights,swings,pricing);
  }
 }
