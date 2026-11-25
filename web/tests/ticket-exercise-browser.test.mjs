@@ -117,3 +117,43 @@ test('an explicit reread clears a stale exercise message and a recorded reread k
   assert.equal(statuses[2],'Exercise election recorded.');
  });
 });
+
+test('a swing election keeps zero explicit and retries the same range command after a lost reply',
+ {skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+ await withBrowserPage('<div id="host"></div>',async evaluate=>{
+  const result=await evaluate(`(async()=>{
+   const {setupExerciseAction}=await import('/ticket-exercise-action.js');
+   const context={snapshotId:'frame',knowledgeMode:'current'};
+   const head='saved-head',days=['2041-02-01','2041-02-02','2041-02-03'].map((day,i)=>({day,exerciseAt:'2041-01-31T16:00:00Z',
+    head:i===2?head:null,effectiveRevision:null,electedQuantity:null,evidence:null}));
+   const action={allowed:true,label:'Record swing election',preparePath:'/api/gas/swing/prepare',recordPath:'/api/gas/swing/record',
+    tradeId:'trade',instrumentId:'binding',expectedRevision:1,readContextId:'cutoff',right:0,holder:'us',increment:'100',dailyMinimum:'0',
+    dailyMaximum:'1000',referenceQuantity:'1000',totalMinimum:'0',totalMaximum:'3000',committed:'0',remainingMinimum:'0',remainingMaximum:'3000',
+    decisions:[{value:'elect',label:'Elect a quantity'},{value:'withdraw',label:'Withdraw an election'}],parties:[{value:'us',label:'Us'}],days};
+   const writes=[],prepares=[],host=document.querySelector('#host');
+   const until=async f=>{for(let i=0;i<200&&!f();i++)await new Promise(r=>setTimeout(r,10));if(!f())throw Error('Missing election control');};
+   const mount=()=>{
+    const editor=setupExerciseAction({kind:'swing',owner:'actor',tradeId:'trade',bindingId:'binding',revision:1,context:()=>context,current:()=>true,
+     writable:true,signal:new AbortController().signal,reread:async()=>{},api:async(path,body)=>{
+      if(path==='gas/swing/prepare'){prepares.push(body);return {command:{context,tradeId:'trade',instrumentId:'binding',expectedRevision:1,
+       operationId:body.operationId,right:0,expectedHeads:days.map(d=>({day:d.day,revisionId:d.head})),elections:days.slice(0,2).map(d=>({day:d.day,quantity:body.quantity}))}};}
+      if(path==='gas/swing/record'){writes.push(body);if(writes.length===1)throw Error('Synthetic lost response');return {...body,elections:body.elections.map(e=>({...e,revisionId:'receipt'}))};}
+      throw Error(path);
+     }});
+    host.replaceChildren();editor.select(action,context,'MMBtu');editor.mount(host);
+   };
+   mount();host.querySelector('.ticket-record-swing').click();
+   const form=host.querySelector('form'),empty=[...form.elements].filter(c=>c.tagName==='SELECT'||c.tagName==='INPUT').every(c=>c.value==='');
+   const fill=(k,v)=>{const c=form.elements.namedItem(k);c.value=v;c.dispatchEvent(new Event('change'));};
+   for(const [k,v] of Object.entries({firstDay:days[0].day,lastDay:days[1].day,decision:'elect',quantity:'0',exercisingParty:'us',
+    submittedAt:'2041-01-01T16:00:00Z',effectiveAt:'2041-01-02T16:00:00Z',evidence:'Synthetic range'}))fill(k,v);
+   form.requestSubmit();await until(()=>host.querySelector('.ticket-retry-swing'));
+   mount();host.querySelector('.ticket-retry-swing').click();await until(()=>!host.querySelector('.ticket-record-swing').disabled);
+   return {empty,prepares,writes};
+  })()`);
+  assert.ok(result.empty);
+  assert.equal(result.prepares.length,1);assert.equal(result.prepares[0].quantity,'0');
+  assert.equal(result.writes.length,2);assert.deepEqual(result.writes[0],result.writes[1]);
+  assert.equal(result.writes[0].expectedHeads[2].revisionId,'saved-head');
+ });
+});

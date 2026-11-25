@@ -71,8 +71,21 @@ internal static class GasSwingStore
         var until = new DateTimeOffset((DateTime)(await capture.ExecuteScalarAsync(ct))!);
         var body = new { request.OperationId, request.TradeId, request.InstrumentId, request.ExpectedRevision,
             request.Right, request.ExpectedHeads, request.Elections };
-        var result = await Result(connection, "SELECT security.record_gas_swing_elections($1,$2::jsonb,$3)::text",
-            ct, catalog, JsonSerializer.Serialize(body, Wire), frame.At);
+        JsonElement result;
+        try
+        {
+            result=await Result(connection,"SELECT security.record_gas_swing_elections($1,$2::jsonb,$3)::text",
+                ct,catalog,JsonSerializer.Serialize(body,Wire),frame.At);
+        }
+        catch(PostgresException error) when(error is {SqlState:"P0001",MessageText:"swing_feasibility"})
+        {
+            // Feasibility belongs to this atomic selection of days. Identify its first
+            // row for focus; the native validator considered every effective boundary.
+            var selected=request.Elections.Select(e=>e.Day).Order(StringComparer.Ordinal).ToArray();
+            var row=request.ExpectedHeads.Count(h=>string.CompareOrdinal(h.Day,selected[0])<0);
+            throw new TicketFieldException("swing_feasibility",$"The elections for {selected[0]} through {selected[^1]} leave no feasible completion of the term quantity.",
+                null,"quantity"){TermSection="swingElections",TermRow=row};
+        }
         database.RegisterCommitAdmission(connection, new WriteAdmission(catalog, request.OperationId, until));
         return result;
     }
@@ -96,6 +109,11 @@ internal static class GasSwingStore
     {
         if (held.SwingRights.IsEmpty) return ([], null);
         var result = await Read(connection, database, held.TradeId, held.InstrumentId, ct);
+        return Facts(held,result);
+    }
+
+    internal static (ImmutableArray<SwingElection> Elections, DateTimeOffset? Next) Facts(GasCompositionExecution held,JsonElement result)
+    {
         var elections = ImmutableArray.CreateBuilder<SwingElection>();
         foreach (var row in result.GetProperty("elections").EnumerateArray())
         {

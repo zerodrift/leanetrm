@@ -157,6 +157,27 @@ def election_checks(client, query, manifest, context, booking, plain, run_worker
     now = read()
     assert heads(now)[0]['revisionId']==future['revisionId'] and now['elections'][0]['revisionId']==d1
     assert now['nextElectionEffectiveAt'].startswith(LATER[:-1])
+    # The ticket keeps the effective commercial fact separate from the later known predecessor.
+    ticket=client.call('tickets/trade',dict(context=context,tradeId=selected['tradeId'],bindingId=selected['instrumentId'],revision=1))
+    contract=ticket['swingContract']
+    assert contract['referenceQuantity']=='1000' and contract['priceUnit'] and [d['day'] for d in contract['days']]==DAYS
+    new_terms=client.call('tickets/preview',dict(context=context,draft=ticket['draft']))
+    assert new_terms['swingContract']==contract and new_terms['context']['knownAt']
+    action=ticket['actions']['recordSwing']
+    assert action['allowed'] and action['readContextId']==ticket['context']['contextId']
+    assert action['days'][0]['head']==future['revisionId'] and action['days'][0]['electedQuantity']=='700'
+    assert action['days'][2]['electedQuantity']=='0' and action['committed']=='700'
+    assert ticket['draft']['sides'][0]['values']['quantity_policy']=='swing_elected_delivery_quantity_v1'
+    choice=dict(context=context,readContextId=action['readContextId'],**selected,expectedRevision=1,operationId=str(uuid4()),right=0,
+        firstDay=DAYS[1],lastDay=DAYS[2],decision='elect',quantity='600',exercisingParty='us',
+        submittedAt=AT,effectiveAt=BETWEEN,evidence='Synthetic ticket range')
+    prepared=client.call('gas/swing/prepare',choice)['command']
+    assert prepared['expectedHeads']==heads(now) and [r['day'] for r in prepared['elections']]==DAYS[1:]
+    failure=record(prepared,expected=422)
+    assert (failure['code'],failure['termSection'],failure['termRow'],failure['field'])==('swing_feasibility','swingElections',1,'quantity')
+    invalid=client.call('gas/swing/prepare',{**choice,'quantity':'75'},expected=422)
+    assert (invalid['code'],invalid['termRow'],invalid['field'])==('swing_election',1,'quantity')
+    print('PASS ticket retains governed source, effective zero and future head; atomic range rejects with its exact day row',flush=True)
     # The final sum is 900. Between the two instants, 700 + 600 + 100 exceeds 1,000.
     reject(command(heads(now),row(2,'100',BETWEEN),row(1,'600',BETWEEN)), 'swing_feasibility')
     reject(command(heads(now),row(0,'100',BETWEEN)), 'swing_election_conflict',409)

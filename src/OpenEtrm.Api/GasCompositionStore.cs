@@ -76,6 +76,7 @@ internal sealed record GasCompositionValue(string PresentValue,string Currency,s
  GasLifecycleMeasures? Measures=null)
 {
  public ImmutableArray<ExerciseGroupReport> Groups{get;init;}=[];
+ [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public SwingTicketProjection? SwingContract{get;init;}
  [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)]public ImmutableArray<SwingRightReport> SwingRights{get;init;}
  public int UnassessedDays=>Lifecycle?.UnassessedDays??0;
  public bool Incomplete=>UnassessedDays!=0;
@@ -526,15 +527,24 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   if(body.PreviewContextId is not null)throw Invalid("A preview cutoff requires an explicit saved trade.");
   if(body.TradeId is not null)await GasAmendments.Require(c,database.Manifest.CatalogId,body,frame.At,ct);
   await RequireSetup(c,data,body,ct);var d=await Resolve(c,data,body,frame.At,ct);
-  try{return await Value(c,data,frame,d.Members,d.Instrument.BaseQuantity,d.Instrument,body.GasSetupId,null,true,ct);}
+  var contract=ticket&&d.Instrument.SwingRights is [var swing]?GasSwingTicket.Projection(data,body,d.Members,swing):null;
+  try
+  {
+   var value=await Value(c,data,frame,d.Members,d.Instrument.BaseQuantity,d.Instrument,body.GasSetupId,null,true,ct);
+   return contract is null?value:value with{SwingContract=contract};
+  }
   catch(MarketDataException error)when(ticket&&(!d.Instrument.Rights.IsEmpty||!d.Instrument.SwingRights.IsEmpty)&&error.Code=="exercise_marks")
   {
    // The valuation reaches marks after it builds the retained Instrument. The
    // ticket can review those structural terms with the valuation explicitly unavailable.
-   return new{source=new CatalogueSource(data.DefinitionRevision.RevisionId,data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId),
+   var unavailable=new{source=new CatalogueSource(data.DefinitionRevision.RevisionId,data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId),
     quantityUnit=QuantityUnit(data,d.Members.Select(m=>m.Assignment.Quote.Quantity)),currency=d.Members[0].Assignment.Quote.Currency.Code,
     presentValue=(string?)null,schedule=(ScheduleView?)null,summaries=(object[]?)null,groups=(ExerciseGroupReport[]?)null,links=Array.Empty<object>(),
     scheduleRefusal=new GasScheduleRefusal(error.Code,error.Message)};
+   if(contract is null)return unavailable;
+   var projection=JsonSerializer.SerializeToNode(unavailable,Json)!.AsObject();
+   projection["swingContract"]=JsonSerializer.SerializeToNode(contract,Json);
+   return projection;
   }
  }
  // The single market price a physical side's schedule shows over its delivery term, evaluated from a price probe (GasTicket.PriceProbe).

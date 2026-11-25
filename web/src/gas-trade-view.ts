@@ -14,7 +14,7 @@ const convention='physical_gas_fixed_quantity_v4';
 // remain available after delivery starts, without changing the booked contract.
 // Every gas trade opens read-only in the deal ticket; a single-point trade opens as the composition of one physical side it is.
 export async function readGasView(api:Api,context:Record<string,unknown>,h:Holding,o:{actor:()=>string;onDenied:()=>void;readOnly?:boolean;allowExercise?:boolean;amend?:()=>void}):Promise<DetailRead>{
- const detail=await api<GasInstrumentFacts&{amend:AmendState;history?:Record<string,string|number|null>[];sideGroups:InstrumentSideGroup[];hasExerciseRights?:boolean}>('trading/gas',{context:{...context,convention:'trading_workspace_v1'},tradeId:h.tradeId,bindingId:h.bindingId,revision:Number(h.revision),instrumentType:'physical_gas'});
+ const detail=await api<GasInstrumentFacts&{amend:AmendState;history?:Record<string,string|number|null>[];sideGroups:InstrumentSideGroup[];hasExerciseRights?:boolean;hasSwingRights?:boolean}>('trading/gas',{context:{...context,convention:'trading_workspace_v1'},tradeId:h.tradeId,bindingId:h.bindingId,revision:Number(h.revision),instrumentType:'physical_gas'});
  if(String(detail.head.revision)!==h.revision||detail.head.instrument_id!==h.bindingId)throw Error('The gas position changed. Refresh the Blotter.');
  const composition=requireBoundInstrumentSides(detail.sideGroups,h.bindingId);
  let ticket:TicketHandle|undefined;
@@ -25,7 +25,7 @@ export async function readGasView(api:Api,context:Record<string,unknown>,h:Holdi
    ...(detail.history??[]).map(row=>({title:`Revision ${row.revision}`,rows:[['Effective',displayInstant(String(row.effective_at),zone)],['Reason',row.reason===null?'Original booking':String(row.reason)],['Actor',String(row.actor_id)]] as [string,string][]}))],
    schedules:(host:HTMLElement)=>{
     const position={context:{...context,convention:'trading_workspace_v1'},tradeId:h.tradeId,bindingId:h.bindingId,revision:Number(h.revision),instrumentType:h.instrumentType};
-    if(h.unavailableReason!==null&&!detail.hasExerciseRights){
+    if(h.unavailableReason!==null&&!detail.hasExerciseRights&&!detail.hasSwingRights){
      return mountSideScheduleInspection(host,{api,onDenied:o.onDenied,position,instant:at=>displayInstant(at,zone)});
     }
     ticket=setupTicket(host,{api,context:()=>({...context,convention}),product:'physical_gas',instant:at=>displayInstant(at,zone),zone:()=>zone,actor:o.actor,readOnly:true,presentation:'schedules',

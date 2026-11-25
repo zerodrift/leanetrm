@@ -60,6 +60,55 @@ internal static class GasTicketChecks
             Equal(pair, saved.ImbalanceCashouts!.Value.Single(), "retained cash-out terms");
         });
         const string swingWire = """[{"side":"RCT","entries":["RCT","PAY"],"holder":"us","increment":"100","dailyMinimum":"700","dailyMaximum":"1100","totalMinimum":"3000","totalMaximum":"3100","leadHours":6,"quantityPolicy":"swing_elected_delivery_quantity_v1","pricing":{"model":"gas_swing_one_factor_lognormal_v1","dayCount":"act_365_fixed_instant_v1","numericalPolicy":"swing_trinomial_6h_half_even_18_v1","marksConvention":"curve_marks_log_return_held_v1"}}]""";
+        Check("a bounded swing ticket reopens the exact right and its governed source policy",()=>{
+            var json=JsonSerializerOptions.Web;
+            var source=Receipt with{Values=Receipt.Values.SetItem("delivery_to","2027-01-04").SetItem("quantity","1000")};
+            var payment=Cash with{Values=Cash.Values.SetItem("cash_end","2027-01-04")};
+            var plain=Map(Draft(source,payment));
+            var saved=plain with{SwingRights=JsonSerializer.Deserialize<ImmutableArray<GasSwingRightRequest>>(swingWire,json)};
+            var draft=GasTicket.Reopen(saved);
+            Equal("swing_elected_delivery_quantity_v1",draft.Sides[0].Values["quantity_policy"],"governed source");
+            var governed=GasTicket.LocalChoices(draft,"RCT","quantity_policy")!.Value;
+            Equal("swing_elected_delivery_quantity_v1",GasTicket.ChoiceSet(draft,"RCT","quantity_policy",governed).StartingValue?.Value,"source reflects the explicit right policy");
+            var statedOnce=draft with{Sides=[draft.Sides[0] with{Values=draft.Sides[0].Values.Remove("quantity_policy")},draft.Sides[1]]};
+            Equal(true,GasTicket.SameTerms(saved,Map(statedOnce)),"only the explicitly selected right owns the policy");
+            var missingPolicy=statedOnce with{SwingRights=[statedOnce.SwingRights!.Value[0] with{QuantityPolicy=null}]};
+            try{Map(missingPolicy);throw new Exception("A right without an explicit policy was accepted.");}
+            catch(TicketFieldException e)when(e.TermRow==0&&e.Field=="swing_quantity_policy"){}
+            var competing=draft with{Sides=[draft.Sides[0] with{Values=draft.Sides[0].Values.SetItem("quantity_policy","delivery_schedule_v1")},draft.Sides[1]]};
+            try{Map(competing);throw new Exception("The swing source accepted a competing delivery policy.");}
+            catch(TicketFieldException e)when(e.Side=="RCT"&&e.Field=="quantity_policy"){}
+            var ordinary=Receipt with{Code="OTHER",Values=Receipt.Values.SetItem("quantity_policy","delivery_schedule_v1")};
+            Equal("delivery_schedule_v1",Map(draft with{Sides=draft.Sides.Add(ordinary)}).PhysicalSides[1].QuantityPolicy,"independent source policy");
+            Equal(true,GasTicket.SameTerms(saved,Map(draft)),"lossless swing ticket");
+            Equal(false,JsonSerializer.SerializeToElement(GasTicket.Reopen(plain),json).TryGetProperty("swingRights",out _),"ordinary draft");
+            var choices=GasTicket.LocalChoices(draft,null,"swing_model")!.Value;
+            Equal(null,GasTicket.ChoiceSet(draft,null,"swing_model",choices).StartingValue,"explicit model");
+            var bad=JsonSerializer.SerializeToNode(draft,json)!;
+            bad["swingRights"]![0]!["swing_total_min"]="3400";
+            try{Map(bad.Deserialize<TicketDraft>(json)!);}
+            catch(TicketFieldException e)when(e.Field=="swing_total_min"&&e.TermRow==0){return;}
+            throw new Exception("The impossible minimum must name the right row and quantity field.");
+        });
+        Check("a swing range preserves all frozen heads and distinguishes zero, withdrawal and off-grid rows",()=>{
+            var context=new FuturesReadRequest(Snapshot,PhysicalGasStore.Convention,"current");
+            var request=new GasSwingPrepareRequest(context,Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),3,Operation,0,
+                new(2027,1,2),new(2027,1,3),"elect","0","us","2026-12-01T00:00:00Z","2026-12-01T06:00:00Z","synthetic instruction");
+            var prior=Guid.NewGuid();
+            var days=Enumerable.Range(1,3).Select(n=>new GasSwingActionDay(new(2027,1,n),new(2026,12,31,0,0,0,TimeSpan.Zero),
+                n==1?prior:null,null,null,null)).ToImmutableArray();
+            var action=new GasSwingAction(true,null,request.TradeId,request.InstrumentId,3,request.ReadContextId,0,"us","100","0","1000","1000",
+                "0","3000","0","0","3000",days);
+            var batch=action.Build(request);
+            Equal(3,batch.ExpectedHeads.Length,"all retained days");
+            Equal(prior,batch.ExpectedHeads[0].RevisionId,"outside selection head");
+            Equal("2027-01-02,2027-01-03",string.Join(",",batch.Elections.Select(e=>e.Day)),"atomic range");
+            Equal("0",batch.Elections[0].Quantity,"elected zero");
+            Equal(null,action.Build(request with{Decision="withdraw",Quantity=null}).Elections[0].Quantity,"explicit withdrawal");
+            try{action.Build(request with{Quantity="75"});}
+            catch(TicketFieldException e)when(e.Code=="swing_election"&&e.Field=="quantity"&&e.TermRow==1){return;}
+            throw new Exception("An off-grid election must identify its first selected day.");
+        });
         Check("swing terms round trip and an absent right preserves the wire request", () =>
         {
             var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
@@ -676,7 +725,7 @@ internal static class GasTicketChecks
         {
             string Soon(IEnumerable<TicketField> fields) => string.Join(",", fields.Where(f => f.State == "soon").Select(f => f.Id));
             Equal("force_majeure,credit_terms", Soon(GasTicket.Description.TradeFields), "soon trade fields");
-            Equal("swing_daily_min,swing_daily_max,swing_range,swing_notice_deadline,nomination_cycle,nominating_party,heat_content,quality_spec", Soon(GasTicket.SideKind("physical").Fields), "soon physical fields");
+            Equal("swing_range,nomination_cycle,nominating_party,heat_content,quality_spec", Soon(GasTicket.SideKind("physical").Fields), "soon physical fields");
             Equal("", string.Join(",", GasTicket.Description.Sides.Where(k => k.Soon is not null).Select(k => k.Kind)), "soon side kinds");
             Equal("volume", string.Join(",", GasTicket.Description.Sides.SelectMany(k => k.Columns).Where(c => c.Soon is not null).Select(c => c.Id)), "soon columns");
             Equal("", string.Join(",", GasTicket.Description.Tabs.Where(t => t.Soon is not null).Select(t => t.Id)), "soon tabs");

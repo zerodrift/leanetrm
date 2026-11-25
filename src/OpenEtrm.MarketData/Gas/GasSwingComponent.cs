@@ -42,14 +42,6 @@ public sealed record GasSwingComponent(string Side, ImmutableArray<string> Entri
             instrument.ResolveRights().Any(r => r.Slots.Any(covered.Contains)))
             throw SwingFeasibility.InvalidRight("Name the physical source and each ordinary following payment exactly once, outside any other exercise right.");
 
-        int Lots(ExactDecimal amount)
-        {
-            var lots = BigInteger.DivRem(amount.ScaledValue, Increment.ScaledValue, out var remainder);
-            if (!remainder.IsZero || lots < 0 || lots > int.MaxValue)
-                throw SwingFeasibility.InvalidRight("Every swing quantity must be an exact nonnegative integer number of supported contractual increments.");
-            return (int)lots;
-        }
-
         var days = ImmutableArray.CreateBuilder<SwingDay>();
         foreach (var day in side.GenerateSchedule().Quantities.Rows)
         {
@@ -58,9 +50,18 @@ public sealed record GasSwingComponent(string Side, ImmutableArray<string> Entri
             catch (ArgumentOutOfRangeException) { throw SwingFeasibility.InvalidRight("Every swing deadline must lie in the supported instant range."); }
             days.Add(new(day.OperatingDay, deadline));
         }
-        var right = new SwingRight(0, slot, [..covered], Holder, new ExactRatio(1, Lots(reference)),
-            Lots(DailyMinimum), Lots(DailyMaximum), Lots(TotalMinimum), Lots(TotalMaximum), QuantityPolicy, days.ToImmutable());
+        var right = new SwingRight(0, slot, [..covered], Holder, new ExactRatio(1, QuantityLots(reference,Increment)),
+            QuantityLots(DailyMinimum,Increment), QuantityLots(DailyMaximum,Increment), QuantityLots(TotalMinimum,Increment), QuantityLots(TotalMaximum,Increment), QuantityPolicy, days.ToImmutable());
         SwingFeasibility.RequireRight(right);
         return right;
+    }
+
+    public static int QuantityLots(ExactDecimal amount, ExactDecimal increment)
+    {
+        if (increment.CompareTo(default) <= 0)throw SwingFeasibility.InvalidRight("Select a positive contractual increment.");
+        var lots = BigInteger.DivRem(amount.ScaledValue, increment.ScaledValue, out var remainder);
+        if (!remainder.IsZero || lots < 0 || lots > int.MaxValue)
+            throw SwingFeasibility.InvalidRight("Every swing quantity must be an exact nonnegative integer number of supported contractual increments.");
+        return (int)lots;
     }
 }

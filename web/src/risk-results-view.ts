@@ -1,6 +1,6 @@
 import {incompleteText} from './lifecycle-text.js';
 import {renderMonteCarlo,newMonteCarloView} from './monte-carlo-risk-view.js';
-import {node,table} from './risk-report-elements.js';
+import {node,table,swingRiskSamples} from './risk-report-elements.js';
 import {renderJointResults,newJointView} from './joint-risk-results-view.js';
 import {renderHistorical,newHistoricalView} from './historical-risk-view.js';
 import {renderParametric,newParametricView} from './parametric-risk-view.js';
@@ -32,6 +32,8 @@ export function setupRiskResults(host:HTMLElement,zone:()=>string,reportUrl:(id:
   positions.append(table(['Trade','Instrument','Book','Measure','Base','Up P&L','Down P&L','Delta','Gamma','Currency / sensitivity units'],held.map(p=>[p.tradeReference,p.instrumentReference,p.book,p.measureLabel,shown(p.values,'base'),shown(p.values,'upPnl'),shown(p.values,'downPnl'),shown(p.values,'delta'),shown(p.values,'gamma'),`${p.values.currency} · ${p.values.deltaUnit} · ${p.values.gammaUnit}`])));
   if(!factor.positions.length)positions.append(node('p','This report retains book totals only. Position detail was not requested.'));
   target.append(positions);
+  const swing=swingRiskSamples(factor.positions,[['base','Base'],['up',`Up · +${factor.bump} ${factor.factor.unit}`],['down',`Down · −${factor.bump} ${factor.factor.unit}`]]);
+  if(swing)target.append(swing);
  }
  // Where a page can start a report, its empty report offers those ways.
  function empty(){

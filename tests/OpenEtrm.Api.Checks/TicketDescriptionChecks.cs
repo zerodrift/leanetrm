@@ -28,13 +28,20 @@ internal static class TicketDescriptionChecks
         Check("gas describes repeatable exercise terms, including the physical-only lead and no starting choices",()=>{
             var description=JsonSerializer.SerializeToElement(GasTicket.Description,JsonSerializerOptions.Web);
             if(!description.TryGetProperty("repeatableTerms",out var terms))throw new Exception("Missing Exercise right section.");
-            var section=terms.EnumerateArray().Single();
+            var section=terms.EnumerateArray().Single(t=>t.GetProperty("id").GetString()=="exerciseRights");
             var fields=section.GetProperty("fields").EnumerateArray().ToArray();
             if(section.GetProperty("id").GetString()!="exerciseRights"||section.GetProperty("label").GetString()!="Exercise right"||
                 !fields.Select(f=>f.GetProperty("label").GetString()).SequenceEqual(["Sides covered","Exercise period","Held by","Settlement","Exercise lead in hours"])||
                 fields.Any(f=>!f.GetProperty("required").GetBoolean()||f.GetProperty("lookup").ValueKind!=JsonValueKind.Null)||
                 fields[0].GetProperty("type").GetString()!="multiple_choice"||fields[4].GetProperty("visibleWhen").GetProperty("values")[0].GetString()!="physical")
                 throw new Exception("Unexpected exercise field contract.");
+        });
+        Check("one swing section declares the editable contract without duplicate physical placeholders",()=>{
+            var fields=GasTicket.Description.RepeatableTerms!.Value.Single(t=>t.Id=="swingRights").Fields;
+            if(!fields.Select(f=>f.Id).SequenceEqual(["swing_side","swing_entries","swing_holder","swing_increment",
+                "swing_daily_min","swing_daily_max","swing_total_min","swing_total_max","swing_lead_hours","swing_quantity_policy","swing_model","swing_numerical_policy"])||
+                fields.Any(f=>!f.Required||f.State!="editable")||GasTicket.SideKind("physical").Fields.Any(f=>fields.Any(s=>s.Id==f.Id)))
+                throw new Exception("Missing or duplicate working swing fields.");
         });
         Check("a valid description passes unchanged", () => { if (!ReferenceEquals(TicketDescriptions.Validate(valid), valid)) throw new Exception("Instance changed"); });
         Check("ticket dispatch rejects an explicit null draft",()=>

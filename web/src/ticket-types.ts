@@ -1,3 +1,4 @@
+import type {SwingAction,SwingContract,SwingReport} from './ticket-swing.js';
 import type {SideCalendarPolicy,CalendarPurposes,SideCalendarCatalogRow} from './side-calendar.js';
 import type {CatalogueSource} from './market-navigation.js';
 import type {ExerciseState,GasMeasures} from './lifecycle-text.js';
@@ -17,11 +18,12 @@ export type TicketSideKind={kind:string;pill:string;entryCount?:number;colour:st
 // At most `max` sides of the named kinds together.
 export type TicketSideLimit={kinds:string[];max:number};
 export type TicketTab={id:string;label:string;soon:string|null};
-export type TicketTermSection={id:'exerciseRights';label:string;fields:TicketField[]};
-export type ExerciseRightDraft={right_sides?:string[];right_period?:string;right_holder?:string;right_settlement?:string;right_lead_hours?:string};
+export type TermSectionId='exerciseRights'|'swingRights';
+export type TicketTermSection={id:TermSectionId;label:string;fields:TicketField[];maximumRows?:number};
+export type TicketTermDraft=Record<string,string|string[]|undefined>;
 export type TicketDescription={product:string;version:number;rowShape:string;tradeFields:TicketField[];sides:TicketSideKind[];sideLimits:TicketSideLimit[];tradeColumns:TicketColumn[];levels:string[];tabs:TicketTab[];modes:string[];sideCalendars?:SideCalendarCatalogRow[];selection?:Record<string,string>;sideGroupsRequired?:boolean;fieldGroups?:TicketFieldGroup[]|null;repeatableTerms?:TicketTermSection[]};
 export type TicketSideDraft={kind:string;code:string;values:Record<string,string>;calendarPolicy?:SideCalendarPolicy};
-export type TicketDraft={product:string;version:number;trade:Record<string,string>;sides:TicketSideDraft[];exerciseRights?:ExerciseRightDraft[]};
+export type TicketDraft={product:string;version:number;trade:Record<string,string>;sides:TicketSideDraft[];exerciseRights?:TicketTermDraft[];swingRights?:TicketTermDraft[]};
 export type TicketChoice={value:string;label:string};
 export type TicketLookup={value:string;source:{kind:string;label:string}};
 // A null value means the level has no value there, never zero; trade.payment_at holds an ISO-8601 UTC instant.
@@ -39,12 +41,12 @@ export type TradeAction={allowed:boolean;reason:string};
 export type ExerciseAction={allowed:boolean;reason:string|null;label:string;preparePath:string;recordPath:string;
  tradeId:string;instrumentId:string;expectedRevision:number;readContextId:string|null;outcomes:TicketChoice[];
  periods:{right:number;from:string;to:string;exerciseAt:string;previousId:string|null;previousOutcome:Extract<ExerciseState,'exercised'|'abandoned'>|null;previousEffectiveAt:string|null}[]};
-export type TradeActions={amend:TradeAction;closeOut:TradeAction;record:TradeAction;recordExercise?:ExerciseAction};
+export type TradeActions={amend:TradeAction;closeOut:TradeAction;record:TradeAction;recordExercise?:ExerciseAction;recordSwing?:SwingAction};
 // A preview answers its schedule, or why the schedule could not be built beside a valuation that succeeded; a booked trade read adds its draft
 // and the actions it offers; a booking answers its receipt.
 // A link is a physical side whose quantity follows its source's: their receipt, delivery and fuel totals over the term, as exact text.
 export type TicketLink={source:string;target:string;formula:string;fraction:string;receipt:string;delivery:string;fuel:string};
-export type TicketPreview={scheduleEntries?:TicketScheduleEntry[];imbalanceRows?:ImbalanceReportRow[];unassessedDays?:number;incomplete?:boolean;source:CatalogueSource;schedule:ScheduleView|null;summaries:TicketSummary[]|null;scheduleRefusal:ScheduleRefusal|null;quantityUnit:string;currency?:string;links:TicketLink[];groups?:ExerciseGroup[]|null;sideGroups?:InstrumentSideGroup[];sideGroupsReason?:string|null};
+export type TicketPreview={swingContract?:SwingContract;context?:{knownAt:string};swingRights?:SwingReport[]|null;scheduleEntries?:TicketScheduleEntry[];imbalanceRows?:ImbalanceReportRow[];unassessedDays?:number;incomplete?:boolean;source:CatalogueSource;schedule:ScheduleView|null;summaries:TicketSummary[]|null;scheduleRefusal:ScheduleRefusal|null;quantityUnit:string;currency?:string;links:TicketLink[];groups?:ExerciseGroup[]|null;sideGroups?:InstrumentSideGroup[];sideGroupsReason?:string|null};
 // quantityPolicy is the daily quantity selection the booked schedule shows, or null for a trade that records no daily quantities.
 export type FacilityAllocationTrack={obligationId:string;sideCode:string;day:string;quantity:string|null;unit:string;state:'planned'|'no_current_allocation';finalQuantity?:string|null;finalState?:string};
 export type TicketTrade=TicketPreview&{measures?:GasMeasures|null;draft:TicketDraft;retainedChoices?:Record<string,TicketChoice[]>;lifecycleTarget?:LifecycleTarget;definitionRevisionId:string;snapshotId:string;context:{contextId:string;effectiveOn:string;knownAt:string};sideSlots:Record<string,number>;actions:TradeActions;quantityPolicy:string|null;facilityAllocations:FacilityAllocationTrack[]};

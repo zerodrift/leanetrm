@@ -24,3 +24,14 @@ test('a report that values options states its option valuation policy in its hea
   const plain=await heading(evaluate,report({scenarioPolicy:null,optionCalibrations:[]}));
   assert.doesNotMatch(plain,/Option valuation/);
  }));
+
+test('a factor report shows the retained swing contribution and evaluated actions in each scenario',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(
+ '<div id="host" style="width:1100px"></div>',async evaluate=>{
+  const r=report({});
+  const lane=(counted,evaluatedActions)=>[{right:0,counted,work:{evaluatedActions}}];
+  r.factors[0].positions=[{tradeId:'T',tradeReference:'Trade 7',instrumentReference:'Instrument 8',instrumentType:'physical_gas',bindingId:'B',bookId:'A',book:'A',
+   measure:'pv',measureLabel:'Present value',values,swingRights:{base:lane('91',17),up:lane('93',19),down:lane('89',21)}}];
+  await heading(evaluate,r);
+  const text=await evaluate("document.querySelector('.swing-risk-samples')?.textContent");
+  assert.match(text,/Base.*91.*17.*Up.*93.*19.*Down.*89.*21/s);
+ }));

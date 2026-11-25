@@ -484,7 +484,10 @@ app.Use(async (context,next)=>
             body=new{code,message,agreementSelection=JsonSerializer.Deserialize<JsonElement>(selection)};
         if(e is GasBookingAgreementException agreement)
             body=new{code,message,confirmation=agreement.Confirmation,agreementSelection=agreement.Selection};
-        if(e is TicketFieldException ticket)body=ticket.TermRow is {} row?new{code,message,termRow=row,field=ticket.Field}:new{code,message,side=ticket.Side,field=ticket.Field};
+        if(e is TicketFieldException ticket)body=ticket switch{
+            {TermRow:{} row,TermSection:{} section}=>new{code,message,termSection=section,termRow=row,field=ticket.Field},
+            {TermRow:{} row}=>new{code,message,termRow=row,field=ticket.Field},
+            _=>new{code,message,side=ticket.Side,field=ticket.Field}};
         if(e is OpenEtrm.MarketData.Gas.GasExerciseTermException term&&apiPath.StartsWithSegments("/api/tickets"))
             body=new{code,message,termRow=term.Ordinal,field=term.LeadHours?"right_lead_hours":"right_sides"};
         if(e is RiskRunTieException tie)body=new{code,message,definition=tie.Definition,runs=tie.Runs};
@@ -2465,6 +2468,21 @@ api.MapPost("/gas/swing/read",(HttpContext c,JsonElement request)=>
   expectedConvention:PhysicalGasStore.Convention,publicationCheck:(connection,_,ct)=>
    GasSwingStore.RequireScope(connection,database.Manifest.CatalogId,body.TradeId,body.InstrumentId,ct));
 });
+api.MapPost("/gas/swing/prepare",(HttpContext c,JsonElement request)=>
+{
+ var body=GasSwingStore.Request<GasSwingPrepareRequest>(request);
+ return TradingRead(c,body.RetainedContext(),(connection,view,ct)=>ReadGasMarket(connection,view,body.TradeId,async(data,frame)=>{
+  if(!TradingReadSelection.IsWorking(Session(c),body.Context))throw new MarketDataException("historical_read_only","Return to working data to prepare a swing election.");
+  await GasSwingAction.RequireAuthority(connection,database.Manifest.CatalogId,body.TradeId,body.InstrumentId,ct);
+  var selected=TradePositionSelection.From(new(body.Context,body.TradeId,body.InstrumentId,body.ExpectedRevision,GasPositions.Type));
+  _=(await GasPositions.Read(connection,database.Manifest,[],[],ct,selected)).Single();
+  var held=await new GasCompositionStore(database).Load(connection,data,frame,body.TradeId,ct);
+  if(held.InstrumentId!=body.InstrumentId||held.SwingRights.IsEmpty)throw new MarketDataException("swing_election_conflict","Refresh the selected swing trade revision.");
+  var action=await GasSwingAction.Read(connection,database,held,frame,body.ExpectedRevision,null,ct);
+  return new{command=action.Build(body)};
+ },ct),expectedConvention:PhysicalGasStore.Convention,publicationCheck:(connection,_,ct)=>
+  GasSwingAction.RequireAuthority(connection,database.Manifest.CatalogId,body.TradeId,body.InstrumentId,ct));
+});
 api.MapPost("/gas/swing/record",(HttpContext c,JsonElement request)=>
 {
  var body=GasSwingStore.Request<GasSwingRecordRequest>(request);
@@ -2574,16 +2592,18 @@ api.MapPost("/tickets/trade",(HttpContext c,TicketTradeRequest body)=>
  if(body.Product==GasTransportFinancialTicket.Product)
   return FinancialTicketRead(c,context,(connection,frame,ct)=>transportTicket.Trade(connection,frame,body,ct));
  var park=body.Product is GasParkLoanTicket.Product or GasParkCustodyTicket.Product;
- GasExerciseAction? exercise=null;
+ GasExerciseAction? exercise=null;GasSwingAction? swing=null;
  return TradingRead(c,context,(connection,view,ct)=>ReadGasMarket(connection,view,park?null:body.TradeId,async(data,frame)=>{
   if(body.Product==GasParkCustodyTicket.Product)return await parkCustodyTicket.Trade(connection,data,frame,body,ct);
   if(body.Product==GasParkLoanTicket.Product)return await parkLoanTicket.Trade(connection,data,frame,body,ct);
   _=GasTicketStore.Description(body.Product??GasTicket.Description.Product);
   var result=await gasTicket.Trade(connection,data,frame,body,view.Working,ct);
-  exercise=result.Exercise;
+  exercise=result.Exercise;swing=result.Swing;
   return result.Ticket;
- },ct),expectedConvention:PhysicalGasStore.Convention,publicationCheck:(connection,_,ct)=>exercise is {Allowed:true}
-  ?GasExerciseAction.RequireAuthority(connection,database.Manifest.CatalogId,exercise.TradeId,exercise.InstrumentId,ct):Task.CompletedTask);
+ },ct),expectedConvention:PhysicalGasStore.Convention,publicationCheck:async(connection,_,ct)=>{
+  if(exercise is {Allowed:true})await GasExerciseAction.RequireAuthority(connection,database.Manifest.CatalogId,exercise.TradeId,exercise.InstrumentId,ct);
+  if(swing is {Allowed:true})await GasSwingAction.RequireAuthority(connection,database.Manifest.CatalogId,swing.TradeId,swing.InstrumentId,ct);
+ });
 });
 api.MapPost("/tickets/status",(HttpContext c,TicketStatusRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>
 {

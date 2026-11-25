@@ -22,7 +22,8 @@ public sealed record TicketTradeRequest([property:JsonRequired]FuturesReadReques
 {public string? Product{get;init;}};
 
 internal sealed record GasTicketActions(GasTicketAvailability Amend,GasTicketAvailability CloseOut,GasTicketAvailability Record,
- [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]GasExerciseAction? RecordExercise);
+ [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]GasExerciseAction? RecordExercise,
+ [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]GasSwingAction? RecordSwing);
 internal sealed record GasTicketAvailability(bool Allowed,string? Reason);
 
 // Deal ticket reads for physical gas: choices and lookups from the gas catalog under the read's
@@ -137,7 +138,7 @@ public sealed class GasTicketStore(PreviewDatabase database)
 
  // The booked gas trade, selected by its exact binding and revision, as its ticket draft and schedule, with its quantity links. A composed
  // trade's schedule shows its recorded day quantities; a single-point trade opens as the one-physical-side composition it is, and records none.
- public async Task<(object Ticket,GasExerciseAction? Exercise)> Trade(NpgsqlConnection c,PreviewData data,InputFrame frame,TicketTradeRequest body,bool working,CancellationToken ct)
+ public async Task<(object Ticket,GasExerciseAction? Exercise,GasSwingAction? Swing)> Trade(NpgsqlConnection c,PreviewData data,InputFrame frame,TicketTradeRequest body,bool working,CancellationToken ct)
  {
   var selected=TradePositionSelection.From(new(body.Context,body.TradeId,body.BindingId,body.Revision,GasPositions.Type));
   var position=(await GasPositions.Read(c,database.Manifest,[],[],ct,selected)).Single();
@@ -155,7 +156,7 @@ public sealed class GasTicketStore(PreviewDatabase database)
   var terms=execution.Terms;
   GasCompositionValue? value=null;GasScheduleRefusal? unavailable=null;
   try{value=await composition.Value(c,data,frame,execution,ct,recorded);}
-  catch(MarketDataException e)when(!execution.Rights.IsEmpty&&ValuationStatus.PositionSpecific(e))
+  catch(MarketDataException e)when((!execution.Rights.IsEmpty||!execution.SwingRights.IsEmpty)&&ValuationStatus.PositionSpecific(e))
   {unavailable=new(e.Code,e.Message);}
   var refused=composed?await daily.RecordRefusal(c,working,ct):null;
   GasExerciseAction? exercise=null;
@@ -165,19 +166,26 @@ public sealed class GasTicketStore(PreviewDatabase database)
    exercise=new(reason is null,reason,body.TradeId,body.BindingId,body.Revision,reason is null?frame.ContextId:null,
     reason is null?await GasExerciseAction.ReadPeriods(c,database.Manifest.CatalogId,body.TradeId,body.BindingId,body.Revision,ct):[]);
   }
+  var swing=execution.SwingRights.IsEmpty?null:await GasSwingAction.Read(c,database,execution,frame,body.Revision,
+   !working?"Return to working data to record swing elections.":refused?.Message,ct);
   var followed=terms.PhysicalSides.Any(p=>p.QuantityPolicy is not null);
   var facilityAllocations=composed?await new FacilityQuantityStore(database).TradeAllocations(c,body.TradeId,ct):JsonSerializer.SerializeToElement(Array.Empty<object>(),Json);
   var actions=new GasTicketActions(GasTicket.Retired(terms)?new(false,"This retained strict daily index form is read-only. Book a new trade using named index pricing."):
    await GasAmendments.Action(c,database.Manifest.CatalogId,body.TradeId,body.BindingId,body.Revision,frame.At,working,ct),new(false,CloseOutReason),
-   new(composed&&refused is null,!composed?SinglePointRecordReason:refused?.Message??(followed?FollowedRecordReason:RecordReason)),exercise);
+   new(composed&&refused is null,!composed?SinglePointRecordReason:refused?.Message??(swing is not null?"Swing quantities follow the commercial election and the retained delivery evidence for each day.":followed?FollowedRecordReason:RecordReason)),exercise,swing);
   var ticket=new{snapshotId=frame.Id,draft=GasTicket.Reopen(terms),definitionRevisionId=terms.DefinitionRevisionId,schedule=value?.Schedule,summaries=value?.Summaries,
    scheduleRefusal=unavailable??value?.ScheduleRefusal,quantityUnit=value?.QuantityUnit??position.Physical[0].Text("unit"),measures=value?.Measures,
    scheduleEntries=GasTicket.ScheduleEntries(execution.Members),imbalanceRows=value?.ImbalanceRows??[],unassessedDays=value?.UnassessedDays??0,incomplete=value?.Incomplete??false,
    currency=value?.Currency??position.Currency.Code,links=value?.Links??[],sideSlots=value?.SideSlots??execution.Members.ToImmutableDictionary(m=>m.Code,m=>m.Slot),
    quantityPolicy=composed?(followed?GasDailyQuantitySelection.ValuationPolicy:QuantityPolicy):null,facilityAllocations,actions};
-  if(execution.Rights.IsEmpty)return (ticket,null);
+  if(execution.Rights.IsEmpty&&swing is null)return (ticket,null,null);
   var result=JsonSerializer.SerializeToNode(ticket,Json)!.AsObject();
-  result["groups"]=JsonSerializer.SerializeToNode(value?.Groups,Json);
-  return (result,exercise);
+  if(swing is not null)
+  {
+   result["swingRights"]=JsonSerializer.SerializeToNode(value?.SwingRights,Json);
+   result["swingContract"]=JsonSerializer.SerializeToNode(GasSwingTicket.Projection(data,terms,execution.Members,execution.SwingRights.Single()),Json);
+  }
+  if(!execution.Rights.IsEmpty)result["groups"]=JsonSerializer.SerializeToNode(value?.Groups,Json);
+  return (result,exercise,swing);
  }
 }

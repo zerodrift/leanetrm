@@ -247,3 +247,18 @@ test('a started-delivery trade draws its measures as separate figures with expec
  assert.equal(byClass(draw({mode:'booked',presentation:'schedules',measures:null,currency:'USD'}),'ticket-measures').length,0);
  assert.equal(byClass(draw(),'ticket-measures').length,0);
 });
+
+test('a swing right renders one remaining value, explicit zero and a read-only intrinsic comparison',()=>{
+ const day={day:'2027-01-01',exerciseAt:'2026-12-31T18:00:00Z',state:'elected',electedQuantity:'0',selectedQuantity:'75',
+  revisionId:'election-a',quantityEvidence:[{source:'scheduled',revisionId:'schedule-b',reference:'meter-c'}],
+  forward:'5',uncertainPerLot:null,certainPerLot:null,intrinsicQuantity:null};
+ const swing={right:0,holder:'us',counted:'123.45',increment:'25',minimumQuantity:'0',maximumQuantity:'500',dailyMinimumQuantity:'0',dailyMaximumQuantity:'200',
+  committedQuantity:'0',remainingMinimumQuantity:'0',remainingMaximumQuantity:'200',nextDeadline:null,intrinsic:'98.50',
+  pricing:{model:'gas_swing_one_factor_lognormal_v1',dayCount:'act_365_fixed_instant_v1',numericalPolicy:'swing_trinomial_6h_half_even_18_v1',marksConvention:'curve_marks_log_return_held_v1'},
+  days:[day],marks:[],work:{timeSteps:0,maximumPriceNodes:1,maximumVolumeStates:2,evaluatedActions:3}};
+ const host=draw({swingRights:[swing],quantityUnit:'MMBtu',currency:'USD',knownAt:'2026-12-01T02:00:00Z'});
+ assert.equal(host.textContent.split('123.45').length,2);
+ for(const value of ['Elected · 0','75','election-a','schedule-b','Intrinsic','98.5','2026-12-01T02:00:00Z'])assert.ok(host.textContent.includes(value),value);
+ const detail=all(host).find(n=>n.tagName==='DETAILS'&&n.textContent.includes('Intrinsic'));
+ assert.ok(detail);assert.equal(controls(detail).length,0);
+});
