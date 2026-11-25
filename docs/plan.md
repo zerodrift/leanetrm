@@ -1,5 +1,21 @@
 # Delivery plan and acceptance criteria
 
+D452 makes each date of a whole-book P&L run prove that its books hold no
+independently owned gas, including a date that holds no trades. Over books that
+hold gas such a run was refused as an empty scope or, with the known cash of a
+later trade, returned a report; it is now refused for the missing gas policy.
+The two other limits D451 listed were explored and no run reaches them today.
+The database and HTTP checks pass; the real-browser checks have not been run.
+See [trading P&L](trading-pnl.md#run-and-save) and
+[verification](verification.md#whole-book-pl-dates-without-trades-d452).
+
+D451 corrects P&L runs over whole books, which were refused at commit. Each
+date's exact source is required before its temporary view is restored, and its
+original read deadline stays a commit check. The database and HTTP checks pass;
+the real-browser checks have not been run. See
+[trading P&L](trading-pnl.md#run-and-save) and
+[verification](verification.md#whole-book-pl-date-sources-d451).
+
 D450 implements independent fixed lump sums and capacity charges on a
 standalone physical gas composition. The owning membership accrues at its
 own gas-day ends, including outside physical delivery. The ticket, native

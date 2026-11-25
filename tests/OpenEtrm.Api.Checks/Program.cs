@@ -134,7 +134,7 @@ if(args is ["--curve-risk-axes"])
     CurveRiskAxisChecks.Run(new(f.Manifest,f.Definitions,f.References,f.Observations),f.Frame);return;
 }
 if(args is ["--curve-display"]){CurveDisplayChecks.Run();return;}
-if(args is ["--pnl-persistence",var pnlFixture]){await PnlPersistenceChecks.Run(pnlFixture);return;}
+if(args is ["--pnl-persistence",var pnlFixture]){await PnlPersistenceChecks.Run(pnlFixture);await PnlEndpointSourceChecks.Run(pnlFixture);return;}
 if(args is ["--pnl-artifacts"]){PnlArtifactChecks.Run();return;}
 if(args is ["--pnl-factors"]){PnlFactorSelectionChecks.Run();return;}
 if(args is ["--pnl-time"]){PnlTimeSelectionChecks.Run();return;}

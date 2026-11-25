@@ -183,6 +183,15 @@ or accept result values supplied by the browser. The retained execution/report
 infrastructure owns the artifact; saved reads reauthorize both endpoints and
 underlying market, position and cash sources under current authority.
 
+A run names its trades or, naming none, covers its whole books. Each date is
+read in a temporary view of its own. A whole-book date proves there, under its
+own exact source, that its books hold no independently owned gas, whether or
+not it holds trades (D452). Books that hold such gas are refused with
+`gas_owned_policy_required`: the report selects no gas valuation policy, so only
+a run that names its trades reports them. The source of the proof is required
+before the view is restored for the other date, and its original read deadline
+stays a commit check (D451).
+
 Run retains the completed JSON result and source receipts in a process-local
 memo. Save carries a small authenticated handle rather than sending that result
 back from the browser. Its eligibility window is 24 hours, subject to capacity
