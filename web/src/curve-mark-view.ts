@@ -1,6 +1,6 @@
 import type {CatalogueSource,FrameSummary} from './market-navigation.js';
 import {actorTransport,PendingCommand,type RequestCommand} from './pending-command.js';
-import {carryReadReferences} from './read-references.js';
+import {carryReadReferences,readReferences} from './read-references.js';
 import {checkPasteDraft,setupMarkPaste} from './curve-mark-paste.js';
 import {correlationScale} from './curve-mark-charts.js';
 import {setupMarkGrid} from './curve-mark-grid.js';
@@ -539,7 +539,7 @@ export function setupCurveMarks(root:HTMLElement,o:Options){
   publish.onclick=()=>action(async()=>{
    if(!reviewed||reviewed.version!==draftVersion||!current(reviewed.fence)||!writable()||reviewed.batch!==batch)return;
    const command=pending.begin(markPath+'record',batch,()=>batch.operationId) as MarkCommand;
-   if(value.alreadyRecorded){store();reviewDialog.close();await reconcile(false);}
+   if(value.alreadyRecorded){pending.sending();store();reviewDialog.close();await reconcile(false);}
    else await send(command);
   });
  }
@@ -595,9 +595,19 @@ export function setupCurveMarks(root:HTMLElement,o:Options){
  }
  async function send(command:MarkCommand){
   const at=fence(),serial=++sendSequence,previouslyUncertain=pending.sending();
+  const saved=transport(actor),proofs=readReferences(command.body);
+  saved.write(command);
+  const restored=restoreMarkCommand(saved.readStored());
+  if(!restored||!proofs[command.body.context.contextId]||JSON.stringify(restored.body)!==JSON.stringify(command.body)||
+   JSON.stringify(readReferences(restored.body))!==JSON.stringify(proofs)){
+   const detail='Could not save the exact publication and its context proof for recovery. Check session storage and the captured context before publishing.';
+   if(previouslyUncertain)el('pending-status').textContent=detail;
+   else{pending.clear();store();el('review-status').textContent=detail;}
+   return;
+  }
   sending=true;checkedAbsent=false;
   if(!previouslyUncertain){receipt=undefined;drawReceipt();}
-  store();
+  drawDesk();changed();
   try{
    const result=requireReceipt(await o.api(command.path,command.body),command.body);
    if(current(at)&&pending.command===command)await accept(result,command,at);

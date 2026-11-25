@@ -14,6 +14,7 @@ const wait=async(evaluate,condition)=>{
 const load=async evaluate=>{
  await evaluate(`(async()=>{
   const {setupCurveMarks}=await import('/curve-mark-view.js');
+  const {attachReadReferences}=await import('/read-references.js');
   const id=n=>'00000000-0000-4000-8000-'+String(n).padStart(12,'0');
   const source={definitionRevisionId:id(1),referenceCatalogId:id(2),referenceRevisionId:id(3)};
   const asOf='2026-01-01T00:00:00.000002Z',knownAt='2026-01-02T00:00:00Z',businessDate='2026-01-01';
@@ -45,7 +46,7 @@ const load=async evaluate=>{
     if(override!==undefined)return override;
    }
    const context={selected:body.context,knownAt,mode:'working'};
-   if(path==='date-schedules/context')return {context:{contextId,knownAt,effectiveOn:businessDate}};
+   if(path==='date-schedules/context')return attachReadReferences({context:{contextId,knownAt,effectiveOn:businessDate}},window.omitProof?{}:{[contextId]:'synthetic-read-proof'});
    switch(path.split('/').at(-1)){
     case 'setup':return {source,context,ownerId,canPublish:true,convention,limits:{gridCurves:20,volatilityGridMonths:12,stripMonths:240,batchCells:240,pageSize:50,reasonCharacters:500},
      curves:choices,hasMoreCurves:false,view:body.view,layout:body.view?{rowCount:2,columnCount:1,cells}:null,draft:body.view?baseline:null};
@@ -224,6 +225,65 @@ async function reviewOne(evaluate,command){
  await evaluate("at('review').click();field('markReason').value='Synthetic recovery';at('reason-form').requestSubmit()");
  await wait(evaluate,"at('publish')&&!at('publish').disabled");
 }
+
+for(const failure of ['proof write','command write after proof','changed stored proof','changed stored command','missing context proof']){
+ test('Publication stays in review with zero record requests on '+failure,options,async()=>{
+  await withBrowserPage(page,async(evaluate,command)=>{
+   if(failure==='missing context proof')await evaluate('window.omitProof=true');
+   await load(evaluate);
+   await evaluate(`window.records=[];window.overrideApi=async(path,body)=>{
+    if(path.endsWith('/review'))window.reviewedBatch=structuredClone(body);
+    if(path.endsWith('/record'))records.push(structuredClone(body));
+   }`);
+   await reviewOne(evaluate,command);
+   await evaluate(`{const failure=${JSON.stringify(failure)};window.storageWrites=[];window.originalSetter=Storage.prototype.setItem;
+    Storage.prototype.setItem=function(key,value){
+     if(key.startsWith('curve-mark-publication:')){
+      const proof=key.endsWith(':read-references');storageWrites.push(proof?'proof':'command');
+      if((proof&&failure==='proof write')||(!proof&&failure==='command write after proof'))
+       throw new DOMException('Storage full','QuotaExceededError');
+      if(proof&&failure==='changed stored proof')value=value.replace('synthetic-read-proof','different-proof');
+      if(!proof&&failure==='changed stored command'){
+       const changed=JSON.parse(value);changed.body.changes[0].value='0.6';value=JSON.stringify(changed);
+      }
+     }
+     originalSetter.call(this,key,value);
+    };at('publish').click();}`);
+   assert.deepEqual(await evaluate('records'),[]);
+   if(failure==='command write after proof')assert.deepEqual(await evaluate('storageWrites'),['proof','command']);
+   assert.match(await evaluate("at('review-status').textContent"),/could not save/i);
+   assert.equal(await evaluate("at('publish').closest('dialog').open&&!at('publish').disabled&&!workspace.pending()"),true);
+   assert.equal(await evaluate("field('markReason').value"),'Synthetic recovery');
+   assert.equal(await evaluate("gridCell(0).textContent"),'0.5Validated draft');
+   if(failure==='missing context proof')return;
+   await evaluate("Storage.prototype.setItem=originalSetter;at('publish').click()");
+   await wait(evaluate,'records.length===1');
+   assert.deepEqual(await evaluate('records[0]'),await evaluate('reviewedBatch'));
+   assert.deepEqual(await evaluate("JSON.parse(sessionStorage.getItem('curve-mark-publication:synthetic-actor:read-references'))"),
+    {[await evaluate('reviewedBatch.context.contextId')]:'synthetic-read-proof'});
+  });
+ });
+}
+
+test('A retry blocked by storage keeps the original uncertain publication',options,async()=>{
+ await withBrowserPage(page,async(evaluate,command)=>{
+  await load(evaluate);
+  await reviewOne(evaluate,command);
+  await evaluate(`window.records=[];window.overrideApi=async(path,body)=>{
+   if(path.endsWith('/record')){records.push(structuredClone(body));throw Error('Reply lost');}
+  };at('publish').click()`);
+  await wait(evaluate,"at('pending-status').textContent.includes('Reply lost')");
+  await evaluate(`sessionStorage.removeItem('curve-mark-publication:synthetic-actor');
+   window.originalSetter=Storage.prototype.setItem;Storage.prototype.setItem=function(){throw Error('Storage unavailable');};
+   at('retry').click()`);
+  assert.equal(await evaluate('records.length'),1);
+  assert.equal(await evaluate("workspace.pending()&&at('review').disabled"),true);
+  assert.match(await evaluate("at('pending-status').textContent"),/could not save/i);
+  await evaluate("Storage.prototype.setItem=originalSetter;at('retry').click()");
+  await wait(evaluate,'records.length===2');
+  assert.deepEqual(await evaluate('records[1]'),await evaluate('records[0]'));
+ });
+});
 
 test('A denied retry retains an absent original, and a refresh failure preserves its verified receipt',options,async()=>{
  await withBrowserPage(page,async(evaluate,command)=>{

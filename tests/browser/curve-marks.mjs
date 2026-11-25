@@ -209,6 +209,17 @@ export async function run(actions){
  await evaluate("cell(0,1).focus();scrollTo(0,0)");
  await check('the lower matrix mirrors the normalized upper fact with its exact value and convention',
   "cell(1,0).dataset.editable==='false'&&cell(1,0).textContent==='0.25Published'&&cell(18,19).textContent==='0Published'&&cell(0,1).title.includes('curve_marks_log_return_held_v1')&&document.documentElement.scrollWidth===innerWidth");
+ await evaluate(`{const grid=mark('grid'),bounds=grid.getBoundingClientRect(),populated=cell(1,2).getBoundingClientRect();
+  grid.scrollTop=0;grid.scrollLeft+=populated.left+populated.width/2-bounds.left-28;}`);
+ await evaluate("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))");
+ await check('the pinned row label covers a populated pair at an intermediate horizontal scroll',
+  `(()=>{const grid=mark('grid'),bounds=grid.getBoundingClientRect(),pair=cell(1,2),under=pair.getBoundingClientRect();
+   const x=bounds.left+28,y=under.top+under.height/2,header=pair.closest('tr').querySelector('th[scope=row]');
+   return grid.scrollLeft>0&&grid.scrollLeft<grid.scrollWidth-grid.clientWidth&&under.left<=x&&x<under.right&&pair.dataset.state==='published'&&
+    header.textContent.trim()&&document.elementFromPoint(x,y)?.closest('th')===header&&
+    Math.abs(header.getBoundingClientRect().left-bounds.left)<3&&getComputedStyle(header).backgroundColor==='rgb(17, 23, 40)';
+  })()`);
+ await shot('marks-correlation-populated-scroll');
  await evaluate("mark('grid').scrollLeft=mark('grid').scrollWidth;mark('grid').scrollTop=185");
  await evaluate("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))");
  await check('scrolled row headings remain fixed, opaque and on top of the matrix values',
