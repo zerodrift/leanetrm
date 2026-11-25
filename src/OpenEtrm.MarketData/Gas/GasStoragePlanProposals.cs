@@ -80,7 +80,7 @@ public static class GasStoragePlanProposals
 
         var low = ExactQuantity.FromQuantity(terminal.MinimumInventory);
         var high = ExactQuantity.FromQuantity(terminal.MaximumInventory);
-        var bounds = Enumerable.Repeat(new LevelPlanBounds(0, levels - 1, 0), prices.Length + 1).ToImmutableArray();
+        var layers = Enumerable.Repeat(LevelPlanLayer.Range(0, levels - 1), prices.Length + 1).ToImmutableArray();
         var rewards = prices.Select(price => (Injection: -price.InjectionCost.ScaledValue * injected,
             Withdrawal: price.WithdrawalValue.ScaledValue * withdrawn)).ToArray();
         IEnumerable<LevelPlanCandidate> Candidates(int day, LevelPlanState state)
@@ -99,9 +99,9 @@ public static class GasStoragePlanProposals
             }
         }
 
-        var proposal = LevelPlanSearch.Search(bounds, new(origin, 0), Candidates, _ => 0,
+        var proposal = LevelPlanSearch.Search(layers, new(origin, 0), Candidates, _ => 0,
             state => GasStoragePlans.Compare(inventory[state.Level], low) >= 0 && GasStoragePlans.Compare(inventory[state.Level], high) <= 0,
-            work, new(MaximumLevels, MaximumWork, (long)bounds.Length * levels, MaximumScoreBits));
+            work, new(MaximumLevels, MaximumWork, (long)layers.Length * levels, MaximumScoreBits));
         if (proposal.Status == LevelPlanStatus.WorkLimit)
             throw WorkError();
         if (proposal.Score is not { } objective)
