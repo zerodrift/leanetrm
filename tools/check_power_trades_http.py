@@ -75,7 +75,7 @@ def original_physical_authority(client, query, manifest, selected):
     print('PASS selected operating Side HTTP authority: expired and absent original ReadPhysical refuse despite active successor, unchanged epoch and unchanged publication heads',flush=True)
 
 
-def run_checks(client, query, manifest, plan, *, other_plans=()):
+def run_checks(client, query, manifest, plan, *, operating_predecessors, other_plans=()):
     client.call('profile', {'profile': 'trader'})
     frame=initial_frame(client.call('workspace'),'2020-12-15')['id']
     route='physical/power-trades/'
@@ -167,13 +167,13 @@ def run_checks(client, query, manifest, plan, *, other_plans=()):
         print('PASS '+kind+' operating trade HTTP: native booking, exact replay/reopening, independent retained gross Sides and ordinary position PV',flush=True)
         upgrade_positions.append(dict(kind=kind,request=other,saved=receipt,value=expected_value))
     from check_operating_populated_upgrade import run_checks as check_populated_upgrade
-    check_populated_upgrade(query,manifest,upgrade_positions)
+    check_populated_upgrade(query,manifest,upgrade_positions,operating_predecessors)
     for position in upgrade_positions:
         receipt=position['saved'];exact=dict(snapshotId=frame,tradeId=receipt['tradeId'])
         assert client.call(route+'get',exact)['terms']==position['request']
         assert fraction(client.call(route+'valuation',exact)['valuation']['value'])==position['value']
         assert client.call(route+'book',position['request'])==receipt
-    print('PASS committed operating upgrade HTTP: original commands reopen, value and replay with preserved native programs',flush=True)
+    print('PASS post-upgrade operating HTTP: original commands reopen, value and replay with current helpers and preserved native programs',flush=True)
     risk=client.call('portfolio/risk/catalog',dict(context=context,bookIds=[request['bookId']],portfolioIds=[],tradeIds=[saved['tradeId']]))
     assert any(m['measure']=='operating_contractual_present_value' for m in risk['measures'])
     future_context=dict(snapshotId=frame,convention='contract_lot_execution_pnl_v2',knowledgeMode='current')

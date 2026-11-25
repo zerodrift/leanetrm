@@ -26,6 +26,22 @@ export function overviewTermSections(sections:readonly PhysicalOverviewSection[]
 }
 export type GasIndexedCashFacts={slot:string;index_code:string;observation_convention:string;payment_convention:string;payment_day:string;spread:string;projection_id:string|null};
 export type GasInstrumentFacts={head:Record<string,string|number|boolean|null>;physical:Record<string,string|number|null>[];components:Record<string,string|number|null>[];confirmations?:{agreements:string;purchaseTradeId:string;saleTradeId:string;purchaseReference:string;saleReference:string}[];indexedCash?:GasIndexedCashFacts[]};
+function gasChargeSection(member:GasInstrumentFacts['components'][number],facts:GasInstrumentFacts):TermSection{
+ const missing=()=>Error('The charge Side is missing its retained terms.');
+ const term=(field:string)=>{const value=member[field];if(value==null)throw missing();return String(value);};
+ const clockSlot=term('clock_slot'),clock=facts.components.find(side=>side.role==='physical'&&String(side.slot)===clockSlot);
+ const terms=facts.physical.find(side=>String(side.slot)===clockSlot);
+ if(clock?.code==null||terms?.currency==null||terms.unit==null)throw missing();
+ const title=term('code');
+ const rows:TermSection['rows']=[['Side','Charge'],['Direction',Number(term('direction'))===1?'Receive':'Pay'],['Gas day of',String(clock.code)]];
+ if(member.charge_basis==='lump_sum')return{title,rows:[...rows,
+  ['Charged on','A lump sum'],['Amount',`${term('price')} ${terms.currency}`],['Payment date',displayPaymentDate(term('payment_at'))]]};
+ if(member.charge_basis!=='capacity')throw missing();
+ const numerator=term('charge_quantity_n'),denominator=term('charge_quantity_d');
+ return{title,rows:[...rows,['Charged on','A daily capacity'],['Rate per unit per day',`${term('price')} ${terms.currency}/${terms.unit}/day`],
+  ['Daily quantity',`${denominator==='1'?numerator:`${numerator}/${denominator}`} ${terms.unit}`],['From',term('delivery_from')],['To · exclusive',term('delivery_to')],
+  ['Payment day',term('payment_day')],['Payment convention',term('payment_convention')]]};
+}
 export function gasInstrumentSections(f:GasInstrumentFacts,zone:string):TermSection[]{
  const quote=(p:GasInstrumentFacts['physical'][number]|undefined)=>p?.currency!=null&&p.unit!=null&&p.multiplier!=null?priceUnit({currency:String(p.currency),unit:String(p.unit),quoteMultiplier:String(p.multiplier)}):'Unavailable';
  if(!f.components.length)return [...f.physical.map(p=>({title:'Physical delivery',rows:[['Pipeline',String(p.pipeline_code)],['Zone',String(p.zone_code)],['Delivery point',String(p.point_code)],['Product',String(p.product_code)],['Direction',Number(f.head.direction)===1?'Receive':'Deliver'],['Delivery',`${p.delivery_from} to ${p.delivery_to} · exclusive`],['Quantity basis',friendly(f.head.quantity_basis)],['Quantity',`${f.head.quantity} ${p.unit}`],['Pricing reference',String(p.curve_name)]] as [string,string][]})),
@@ -33,6 +49,7 @@ export function gasInstrumentSections(f:GasInstrumentFacts,zone:string):TermSect
  const confirmations:TermSection[]=(f.confirmations??[]).map(pair=>({title:'Two-location gas',rows:pair.agreements==='one_agreement'?
   [['Confirmation','One bilateral agreement']]:[['Purchase confirmation',pair.purchaseReference],['Sale confirmation',pair.saleReference]]}));
  return confirmations.concat(f.components.map<TermSection>(m=>{
+  if(m.role==='charge')return gasChargeSection(m,f);
   const source=f.physical.find(s=>Number(s.slot)===Number(m.source_slot));
   const cash:TermSection['rows']=[['Side',friendly(m.role)],['Direction',Number(m.direction)===1?'Receive':'Pay'],['Quantity source',String(f.components.find(s=>s.slot===m.source_slot)?.code??'Unavailable')],['Quantity stage',friendly(m.stage)]];
   if(m.role==='indexed_consideration'){

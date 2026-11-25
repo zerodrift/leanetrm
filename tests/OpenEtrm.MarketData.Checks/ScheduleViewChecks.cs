@@ -171,7 +171,7 @@ internal static class ScheduleViewChecks
         var at=From.AddDays(19);
         var delivered=ScheduleViews.Build([Daily(31,at,_=>(N("10000"),VolumeState.Contractual),_=>(N("3.412"),SchedulePriceFacts.Fixed)),
             Cash("cash","3.412",1,at),Cash("fee","0.045",-1,at)],Levels,Utc);
-        if(delivered.DeliveredLeaves!=19||delivered.Leaves!=31||delivered.Delivered is null||delivered.Remaining is null||delivered.ValuationAt!=at||
+        if(delivered.DeliveredLeaves!=19||delivered.Leaves!=31||delivered.Delivered is null||delivered.Remaining is null||delivered.ValuationAt!=at||delivered.ProgressBasis is not null||
             !Row(delivered,"2031-12-19").Delivered||Row(delivered,"2031-12-20").Delivered||Row(delivered,"2031-12").Delivered)
             throw new Exception("Rows ending by the valuation instant are delivered.");
         Equal(delivered.Delivered["physical.quantity"].Value,"190000");Equal(delivered.Remaining["physical.quantity"].Value,"120000");
@@ -232,19 +232,20 @@ internal static class ScheduleViewChecks
         var location=new GasDeliveryLocation(G("pipeline"),G("zone"),G("delivery_point"));
         var assignment=new GasValuationAssignment(G("gas_value"),location,G("gas_product"),from,to,lookup.Settlement,lookup.Quote,
             new(lookup.Market,lookup.Contract),lookup.Fixing,new UnitPrice(default,f.Quote));
-        var physical=new PhysicalGasSide(Guid.NewGuid(),location,G("gas_product"),
-            new(clock,from,to,GasQuantityBasis.PerOperatingDay,new(D("1"),f.Quote.Quantity),GasFuelConvention.None,default),[assignment],SyntheticSideCalendars.Physical());
+        PhysicalGasSide Physical(DateOnly start,DateOnly end)=>new(Guid.NewGuid(),location,G("gas_product"),
+            new(clock,start,end,GasQuantityBasis.PerOperatingDay,new(D("1"),f.Quote.Quantity),GasFuelConvention.None,default),[assignment],SyntheticSideCalendars.Physical());
         FixedSide Fixed(string price)=>new(Guid.NewGuid(),new FlatPrice(new UnitPrice(D(price),f.Quote)),f.Quote,new(D("1"),f.Quote.Quantity),
             [new(from,to,clock.Boundary(to).AddDays(2),new(to.DayNumber-from.DayNumber,1),null)],SyntheticSideCalendars.FixedPeriods([new(from,to,clock.Boundary(to).AddDays(2),new(to.DayNumber-from.DayNumber,1),null)]));
         var before=clock.Boundary(from).AddDays(-1);
-        SideViewInput Side(string code,Side side,int coefficient)
+        SideViewInput Side(string code,Side side,int coefficient,DateTimeOffset? at=null,
+            ScheduleLifecycleSelection lifecycle=ScheduleLifecycleSelection.FutureDelivery)
         {
-            var program=Load(ScheduleDefinitionCompiler.Generate(side));var demand=program.Inputs(Context(before));
+            var program=Load(ScheduleDefinitionCompiler.Generate(side,lifecycle:lifecycle));var demand=program.Inputs(Context(at??before));
             var evaluation=program.Execute(demand,"base","base",Inputs(program,demand,(row,_)=>row.Operation=="price_lookup"?
                 (N("3.412"),new(null,SchedulePriceFacts.Projected)):(N("1"),default)));
             return new(code,evaluation,program,D("10000"),S(coefficient),Columns);
         }
-        ImmutableArray<SideViewInput> sides=[Side("physical",physical,1),Side("cash",Fixed("3.412"),-1),Side("fee",Fixed("0.045"),-1)];
+        ImmutableArray<SideViewInput> sides=[Side("physical",Physical(from,to),1),Side("cash",Fixed("3.412"),-1),Side("fee",Fixed("0.045"),-1)];
         var view=ScheduleViews.Build(sides,Levels,clock.Boundary);
         var month=Row(view,from.ToString("yyyy-MM",System.Globalization.CultureInfo.InvariantCulture));
         var days=view.Rows.Where(row=>row.Parent==month.Key).ToArray();
@@ -257,6 +258,65 @@ internal static class ScheduleViewChecks
         Equal(month.Cells["trade.net_cash"].Value,"-1071670");Equal(days[0].Cells["physical.price"].Value,"3.412");
         Reject("schedule_view",()=>ScheduleViews.Build(sides,Levels,Utc));
         Pass("a 09:00 gas composition anchors days and its cash month on the gas-day boundary");
+
+        var partialPhysical=Side("physical",Physical(from.AddDays(3),from.AddDays(20)),1);
+        var capacity=GasChargeSides.Capacity(Guid.NewGuid(),new(D("0.02"),f.Quote),new(D("1"),f.Quote.Quantity),clock,
+            from.AddDays(13),from.AddDays(25),2,SyntheticSideCalendars.Dated(false),f.Quote);
+        var charge=Side("charge",capacity,-1) with{MonthlyScalarRows=true};
+        ImmutableArray<SideViewInput> independent=[partialPhysical,charge];
+        var chargeView=ScheduleViews.Build(independent,Levels,clock.Boundary,independentIntervals:true);
+        Reject("schedule_view",()=>ScheduleViews.Build(independent,Levels,clock.Boundary));
+        Reject("schedule_view",()=>ScheduleViews.Build(independent,Levels,Utc,independentIntervals:true));
+        var chargeMonth=Row(chargeView,month.Key);
+        if(chargeMonth.Start!=clock.Boundary(from.AddDays(3))||chargeMonth.End!=clock.Boundary(from.AddDays(25)))
+            throw new Exception("The month spans both exact gas-day intervals.");
+        foreach(var cells in new[]{chargeMonth.Cells,chargeView.Totals})
+        {
+            Equal(cells["physical.quantity"].Value,"170000");Equal(cells["physical.amount"].Value,"580040");
+            Equal(cells["charge.quantity"].Value,"-120000");Equal(cells["charge.amount"].Value,"-2400");
+            Equal(cells["trade.net_cash"].Value,"-2400");
+        }
+        var chargeDays=chargeView.Rows.Where(row=>row.Level=="day").ToArray();
+        if(chargeDays.Length!=17||chargeDays.Any(row=>Columns.Any(column=>row.Cells["charge."+column.Item1].Value is not null)))
+            throw new Exception("The partial capacity amount stays on its monthly row.");
+        Pass("an independent gas charge keeps its exact monthly values beside a different partial physical term");
+
+        SideViewInput Capacity(DateOnly start,DateOnly end,DateTimeOffset at) =>
+            Side("capacity",GasChargeSides.Capacity(Guid.NewGuid(),new(D("0.02"),f.Quote),new(D("1"),f.Quote.Quantity),clock,
+                start,end,2,SyntheticSideCalendars.Dated(false),f.Quote),-1,at,ScheduleLifecycleSelection.StartedPhysicalDelivery) with{MonthlyScalarRows=true};
+        var day=to.AddDays(-1);
+        var lump=Side("premium",GasChargeSides.LumpSum(Guid.NewGuid(),new(D("50"),f.Quote),new(D("1"),f.Quote.Quantity),clock,
+            clock.Boundary(to).AddHours(9),SyntheticSideCalendars.Dated(false),f.Quote),-1) with{Scale=D("1")};
+        var stub=ScheduleViews.Build([Side("physical",Physical(day,to),1),lump,Capacity(day,to.AddDays(2),before)],
+            Levels,clock.Boundary,independentIntervals:true);
+        var stubMonth=Row(stub,"2041-01");var nextMonth=Row(stub,"2041-02");var matchingDay=Row(stub,"2041-01-31");
+        Equal(stubMonth.Cells["capacity.quantity"].Value,"-10000");Equal(stubMonth.Cells["capacity.price"].Value,"0.02");
+        Equal(stubMonth.Cells["capacity.amount"].Value,"-200");Equal(nextMonth.Cells["capacity.amount"].Value,"-400");
+        Equal(stub.Totals["capacity.quantity"].Value,"-30000");Equal(stub.Totals["capacity.amount"].Value,"-600");
+        Equal(matchingDay.Cells["physical.amount"].Value,"34120");Equal(matchingDay.Cells["premium.amount"].Value,"-50");
+        foreach(var column in Columns)Equal(matchingDay.Cells["capacity."+column.Item1].Value,null);
+        Pass("a one-day capacity stub stays monthly beside a daily lump sum and physical day");
+
+        var middle=clock.Boundary(from.AddDays(9));
+        var earlyEnd=from.AddDays(4);var lateStart=from.AddDays(14);var lateEnd=from.AddDays(19);
+        var chargeFirst=ScheduleViews.Build([Side("physical",Physical(lateStart,lateEnd),1,middle,ScheduleLifecycleSelection.StartedPhysicalDelivery),Capacity(from,earlyEnd,middle)],
+            Levels,clock.Boundary,independentIntervals:true);
+        if(chargeFirst.ProgressBasis!="native_schedule_rows_v1"||chargeFirst.DeliveredLeaves!=1||chargeFirst.Leaves!=6||chargeFirst.Delivered is null||chargeFirst.Remaining is null||Row(chargeFirst,"2041-01").Delivered)
+            throw new Exception("One ended capacity row counts even while all five physical days are in the future.");
+        Equal(chargeFirst.Delivered["trade.net_cash"].Value,"-800");Equal(chargeFirst.Delivered["capacity.quantity"].Value,"-40000");
+        Equal(chargeFirst.Delivered["physical.quantity"].Value,null);Equal(chargeFirst.Remaining["physical.quantity"].Value,"50000");
+        Equal(chargeFirst.Remaining["physical.amount"].Value,"170600");Equal(chargeFirst.Remaining["trade.net_cash"].Value,null);
+        Pass("a completed monthly charge is delivered alongside five remaining physical days");
+
+        var physicalFirst=ScheduleViews.Build([Side("physical",Physical(from,earlyEnd),1,middle,ScheduleLifecycleSelection.StartedPhysicalDelivery),Capacity(lateStart,lateEnd,middle)],
+            Levels,clock.Boundary,independentIntervals:true);
+        if(physicalFirst.ProgressBasis!="native_schedule_rows_v1"||physicalFirst.DeliveredLeaves!=4||physicalFirst.Leaves!=5||physicalFirst.Delivered is null||physicalFirst.Remaining is null||Row(physicalFirst,"2041-01").Delivered)
+            throw new Exception("Four ended physical days cannot complete progress while the capacity row is in the future.");
+        Equal(physicalFirst.Delivered["physical.quantity"].Value,"40000");Equal(physicalFirst.Delivered["physical.amount"].Value,null);
+        Equal(physicalFirst.Delivered["trade.net_cash"].Value,null);
+        Equal(physicalFirst.Remaining["physical.quantity"].Value,null);Equal(physicalFirst.Remaining["capacity.quantity"].Value,"-50000");
+        Equal(physicalFirst.Remaining["trade.net_cash"].Value,"-1000");
+        Pass("four completed physical days leave progress open for the remaining monthly charge");
     }
 
     private static SideViewInput Daily(int days,DateTimeOffset valuation,Func<int,(ScheduleNumber,VolumeState)> quantity,Func<int,(ScheduleNumber,SchedulePriceFacts)> price,

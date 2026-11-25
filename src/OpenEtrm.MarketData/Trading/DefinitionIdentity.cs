@@ -77,9 +77,12 @@ public sealed record DefinitionIdentity(string Version, string Digest, string Ca
                 if(field.Name==nameof(ProfileQuantity.HourlyFactors)&&value is ProfileQuantity profileIdentity&&profileIdentity.HourlyFactors.IsDefaultOrEmpty)continue;
                 var selected=field.GetValue(value);
                 if(selected is null && value is Gas.RetainedGasMember &&
-                    field.Name is nameof(Gas.RetainedGasMember.SourceSlot) or nameof(Gas.RetainedGasMember.QuantityPolicy) or nameof(Gas.RetainedGasMember.Part)) continue;
+                    field.Name is nameof(Gas.RetainedGasMember.SourceSlot) or nameof(Gas.RetainedGasMember.QuantityPolicy)
+                        or nameof(Gas.RetainedGasMember.Part) or nameof(Gas.RetainedGasMember.Owned)) continue;
                 if(selected is null && value is Gas.GasCompositionRole &&
-                    field.Name is nameof(Gas.GasCompositionRole.Share) or nameof(Gas.GasCompositionRole.Part) or nameof(Gas.GasCompositionRole.QuantityPolicy)) continue;
+                    field.Name is nameof(Gas.GasCompositionRole.Share) or nameof(Gas.GasCompositionRole.Part)
+                        or nameof(Gas.GasCompositionRole.QuantityPolicy) or nameof(Gas.GasCompositionRole.Owned)
+                        or nameof(Gas.GasCompositionRole.ClockSide)) continue;
                 if(field.Name==nameof(FixedSide.OperatingDefinition)&&selected is null&&value is FixedSide or FloatingSide)continue;
                 writer.WritePropertyName(field.Name);Write(writer,selected);
             }

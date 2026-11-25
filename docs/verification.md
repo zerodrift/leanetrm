@@ -1,9 +1,9 @@
 # Local verification and continuous integration
 
-## Whole-book P&L dates without trades (D451)
+## Whole-book P&L dates without trades (D452)
 
 Checked on synthetic data on 2026-11-24, in the same Linux x86_64 containers as
-D450 below (stock PostgreSQL 18.7, .NET SDK 10.0.402, Python 3.12.3, Debug API
+D451 below (stock PostgreSQL 18.7, .NET SDK 10.0.402, Python 3.12.3, Debug API
 build), each run on a disposable database built from the whole migration
 sequence and a fresh build. A workstation (macOS arm64) ran the 185 repository
 Python unit checks and the standalone dependency check, which pass.
@@ -11,7 +11,7 @@ Python unit checks and the standalone dependency check, which pass.
 The new case in `tools/check_recorded_cash.py` records independently owned gas
 in a book of its own through the native gas commands, with title received on
 15 October: the book holds no gas at the 13th and 14th and some at the 15th
-and 16th. With the code before D451, `tools/run_preview.py --check
+and 16th. With the code before D452, `tools/run_preview.py --check
 --cash-pnl-check` passed 85 checks and stopped at the first run over that book,
 from the 13th to the 16th, which names no trades and whose dates hold none:
 422 `pnl_position`, a scope with neither holdings nor cash.
@@ -41,11 +41,11 @@ What the new case establishes, for runs over the gas book that name no trades:
 - Over a book with no gas, a run whose prior date holds no trade reports that
   date empty, the trade as new, and is offered for saving.
 
-Before D451, an exploratory run on an interactive preview over books that held
+Before D452, an exploratory run on an interactive preview over books that held
 gas at both dates, neither holding a trade, returned a report listing only a
 later trade's cash.
 
-D450's other remaining limits were explored with temporary instrumentation that
+D451's other remaining limits were explored with temporary instrumentation that
 recorded, after each date's view was restored, which admissions registered in
 it would be refused. It is not in the tree.
 
@@ -71,13 +71,13 @@ it would be refused. It is not in the tree.
   date's context again before commit.
 
 Not established here: no real-browser suite ran, for the reason given under
-D450. The custody and Transport source reads were read in the code, not run.
+D451. The custody and Transport source reads were read in the code, not run.
 The fence functions that make them unreachable have native checks of their own
 (`tools/check_gas_park_custody.py`, `tools/gas_transport_financial_fences.py`);
 no P&L run over books that hold such agreements ran here. The economic
 projection's own source admission was not changed or run.
 
-## Whole-book P&L date sources (D450)
+## Whole-book P&L date sources (D451)
 
 Checked on synthetic data on 2026-11-24. A Linux x86_64 container (Ubuntu
 24.04.5, stock PostgreSQL 18.7, .NET SDK 10.0.402, Python 3.12.3, Debug API
@@ -124,9 +124,129 @@ does not start under the container's default security profile, which was left
 as it was. The Risk page's own whole-book run was therefore not exercised in a
 browser. The other check groups were not run for this change. No check lets an
 original deadline lapse between a date's read and the commit of a real run.
-Whole books that hold independently owned gas, and the limits D450 lists as
+Whole books that hold independently owned gas, and the limits D451 lists as
 remaining, are covered by the next entry above
-([D451](#whole-book-pl-dates-without-trades-d451)).
+([D452](#whole-book-pl-dates-without-trades-d452)).
+
+## Independent gas charges (D450)
+
+Local verification on 2026-11-24 at `e8580a79` uses synthetic trades with
+stock PostgreSQL 18.7 and the checkout's own API and worker. The pinned
+tools are .NET SDK 10.0.402, Python 3.14.2, Node 24.22.0 and Chrome on macOS
+arm64. The gas, trading and managed groups run sequentially through
+`tools/check_all.py`. Integration fixtures provision and remove their own
+databases. With the pinned tools selected, run the groups from the
+repository root.
+
+```bash
+for group in gas trading managed; do
+  python3 tools/check_all.py --pg-bin "$PG_BIN" --dotnet "$DOTNET" --browser "$BROWSER" --group "$group" || exit
+done
+```
+
+All three groups passed. The first trading run stopped at the swap draft's
+curve-read-count assertion and removed its disposable database. The full
+trading rerun at the same commit with the same command and timeouts passed
+both executions of that assertion. The cause of the initial failure is
+unknown.
+
+| Group | Runner `CHECK` workloads | Printed `PASS` checkpoints | Owned browser checks | Completed workers | Databases removed |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Gas | 18 | 1,220 | 208 | 27 | 10 |
+| Trading | 20 | 1,588 | 489 | 20 | 10 |
+| Managed | 81 | 2,809 | — | — | — |
+
+Runner workloads include locked restores and builds. Printed checkpoints
+include repeated setup and migration checks. Browser counts come from the
+owned runner summaries. Each integration group also qualified one worker
+refusal for an altered retained manifest (`risk_graph_manifest`). Managed
+reported 804 core checks and 211 gas ticket checks.
+
+The managed charge checks pin the no-charge identities and unchanged
+following payment values. They exercise exact row shapes and charge
+quantities, a second physical clock, distinct resolved day states across two
+clocks, a term outside physical delivery, partial and overpaid cash, and
+earlier knowledge. The lump sum refuses remittance one microsecond before
+its derived earned day ends and admits it at that boundary, before its
+payment date begins. Capacity payable on day 1 uses the exact completion
+instant later the same day.
+
+The gas charge integration workload reported 118 PASS checkpoints, 15 owned
+browser checks and three completed retained workers. It compares independent
+entry values and position components in previews, exact trades, the Blotter
+and shared scenarios. The held schedule's reference example checks a
+capacity charge of 10,000 units per day at 0.02. After ten days it has −2,000 accrued
+and −4,000 unrealized. A −1,000 remittance leaves −1,000 outstanding then.
+An earlier knowledge view of the same close excludes that remittance.
+Changing delivery size leaves the charge amounts fixed. The workload also
+covers retained workers, a multiplier-two typed price, remittance sign and
+zero-amount refusals, request replay, invalid native shapes, an
+exercise premium with unchanged group value and final billing refusals.
+
+Migration 0400 extends migration 0399's native charge admission to refuse
+the unrepresentable first UTC instant of a local 0001-01-01 day under a
+midnight UTC+14 clock. Native lump-sum and capacity checks stage their
+matching programs with the exact calendar and physical clock. Each accepts
+the adjacent representable day.
+
+Future replacement checks cover a fully paid upfront premium, original and
+proposed capacity starting at the amendment instant, and a known payment
+effective after the amendment. The ticket disables amendment for ineligible
+holdings. Preview, booking preparation and the locked writer also reject a
+started candidate. The checks compare the original revision, binding,
+payment and allocations before and after refusal. A wholly future unpaid
+replacement succeeds and its completed command replays after a payment on
+the new binding.
+
+The browser exercises explicit calendars, cleared basis-dependent price,
+payment day 1–28, booking and exact retained charge Terms. It checks both
+basis-specific labels, blank daily capacity cells, and the accrued,
+outstanding and unrealized amounts through the exact Side inspectors. Saved
+charge Terms show the stated currency, rate unit and capacity unit. The
+inspector identifies the amount to come as unrealized present value.
+The combined schedule includes independent monthly intervals and preserves
+the monthly grain of a one-day capacity stub. Its progress uses the number
+of native rows completed at their own ends. The ordinary projection still
+uses its leaf-based progress, with no native-row basis marker.
+
+The complete frontend suite passed all 2,353 tests with zero skips. It ran
+the frontend build and the following two-worker test invocation from `web`.
+The denomination test uses a multiplier-two quote, an exact 18-decimal-place
+amount and a fractional capacity. A separate presentation test supplies
+−3,925.75 unrealized PV against −4,000 nominal future cash.
+
+```bash
+npm run build
+node --test --test-concurrency=2 tests/*.test.mjs
+```
+
+Independent review confirmed the corrected UTC boundary, amendment and payment
+visibility checks, retained denomination and unrealized present value display.
+The reviewed correction passed the focused preview, three full groups and full
+frontend suite above. Optimizing the bounded repeated calendar reads remains
+deferred. Integrated CI remains a separate gate.
+
+Before publication, merge `75ca8b7e` incorporated the European-option changes
+from master and assigned the unchanged charge migrations 0399 and 0400 and
+the charge decision D450. Independent integration review found no lost
+implementation, check registration or migration predecessor conflict.
+On that combined tree, all 186 repository tests and 81 managed workloads
+passed; the managed run printed 2,857 PASS checkpoints. The charge preview
+passed 118 checkpoints, all 15 owned browser checks and three retained risk
+jobs, then removed its disposable database. This run also qualified both
+renumbered migration predecessor guards. The complete frontend build and
+two-worker suite passed all 2,356 tests with zero failures or skips.
+
+CI exposed a populated operating-upgrade fixture that reconstructed migration
+0356's calendar predecessor from the current helper, retaining migration 0399's
+later charge branch. The fixture now captures the actual four predecessors
+before 0356, verifies legacy quantities, programs and retries under both the
+predecessor and candidate, and atomically restores all current helper definitions.
+This preserves later facility-booking and charge-calendar extensions. Both the
+original guard failure and a current-helper preservation regression were observed
+before their corrections. Independent review passed. The final structured-power
+preview passed 156 checkpoints and all 35 owned browser checks, removed its
+disposable database, and the full repository Python suite passed all 186 tests.
 
 ## European futures options (D449)
 

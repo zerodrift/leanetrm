@@ -58,7 +58,7 @@ def run_checks(url,query,manifest,run_worker,admin_load):
                            deliveryFrom='2021-01-14',deliveryTo='2021-01-16',calendarPolicy=side_calendar_policy(body['cashSides'][0]['calendarPolicy']['payment']['calendar'],delivery=True,observation=False,payment=True))]
     partial=c.call('gas/composition/book',plain)
     assert Fraction(c.call('gas/composition/editor',dict(context=context,tradeId=partial['tradeId']))['valuation']['sides'][1]['presentValue'])==-20000
-    route_checks(c,context,body,booked,run_worker,query,admin_load)
+    route_checks(c,context,body,booked,run_worker,admin_load)
     modern_ticket_replay(c,context,body)
     native_admission(query,manifest,body)
     billing_checks(c,query,manifest,body,booked,plain)
@@ -101,19 +101,22 @@ def upgrade_checks(query,migration):
     print('PASS gas pricing upgrade: four predecessor definitions, owners, grants and configuration are pinned; caller search path is independent',flush=True)
 
 
-def staged_booking(query,manifest,original,invalid,code):
+def staged_booking(query,manifest,original,invalid,code,*,at='2020-12-18T16:00:00Z'):
     """Replay the original sealed programs with a new authenticated command in a rollback-only transaction."""
     from check_booked_side_programs import runtime_query
     cat=manifest['catalogId'];operation=invalid['operationId']
     wire=json.dumps(invalid).replace("'","''")
+    amending = 'tradeId' in invalid
+    binding = f",'permission','AmendTrade','trade_id','{invalid['tradeId']}','expected_revision',{invalid['expectedRevision']}" if amending else ''
     prefix=f"""INSERT INTO trading.side_schedule_requests SELECT(jsonb_populate_record(NULL::trading.side_schedule_requests,
-      to_jsonb(s)||jsonb_build_object('request_id','{operation}','command_hash',encode(sha256(convert_to('{wire}'::jsonb::text,'UTF8')),'hex')))).*
+      to_jsonb(s)||jsonb_build_object('request_id','{operation}'{binding},'command_hash',encode(sha256(convert_to('{wire}'::jsonb::text,'UTF8')),'hex')))).*
       FROM trading.side_schedule_requests s WHERE(catalog_id,request_id)=('{cat}','{original['operationId']}');"""
     # bytea JSON uses PostgreSQL's explicit hex representation.
     prefix=prefix.replace("'command_hash',encode(","'command_hash','\\x'||encode(")
     for table in ['side_schedule_request_items','side_schedule_request_seals']:
         prefix+=f"INSERT INTO trading.{table} SELECT(jsonb_populate_record(NULL::trading.{table},to_jsonb(s)||jsonb_build_object('request_id','{operation}'))).* FROM trading.{table} s WHERE(catalog_id,request_id)=('{cat}','{original['operationId']}');"
-    runtime_query(query,manifest,f"DO $test$ BEGIN BEGIN PERFORM security.book_gas_composition('{cat}','{wire}'::jsonb,'2020-12-18T16:00:00Z');RAISE EXCEPTION 'malformed_entry_accepted';EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'{code}' THEN RAISE;END IF;END;END$test$;",prefix=prefix,commit=False)
+    writer = 'amend_gas_composition' if amending else 'book_gas_composition'
+    runtime_query(query,manifest,f"DO $test$ BEGIN BEGIN PERFORM security.{writer}('{cat}','{wire}'::jsonb,'{at}');RAISE EXCEPTION 'malformed_entry_accepted';EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'{code}' THEN RAISE;END IF;END;END$test$;",prefix=prefix,commit=False)
 
 
 def native_admission(query,manifest,body):
@@ -145,7 +148,7 @@ def billing_checks(c,query,manifest,body,booked,plain):
     print('PASS API and native billing refuse pricing entries while full-term, whole fixed cash remains supported',flush=True)
 
 
-def route_checks(c,context,body,booked,run_worker,query,admin_load):
+def route_checks(c,context,body,booked,run_worker,admin_load):
     from check_portfolio_risk import VIEW,financial
     trade=booked['tradeId']
     shared={**context,'convention':'trading_workspace_v1'}
@@ -244,7 +247,6 @@ def route_checks(c,context,body,booked,run_worker,query,admin_load):
 
     # The dedicated administrator loads a started trade; ordinary booking stays closed.
     from gas_pricing_fixture import ADMINISTRATOR
-    query("CREATE ROLE preview_gas_in_term_loader LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS INHERIT IN ROLE openetrm_runtime,openetrm_gas_in_term_loader;")
     context={**before,'snapshotId':next(f['id'] for f in c.call('workspace')['frames'] if f['at'].startswith('2021-01-15T08:'))}
     shared={**context,'convention':'trading_workspace_v1'}
     body={**original,**context,'operationId':str(uuid4())}

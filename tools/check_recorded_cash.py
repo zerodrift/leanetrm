@@ -341,7 +341,7 @@ def run_checks(url,query,manifest,verify_persistence=None):
     print('PASS whole-book P&L: a run naming no trades reports a book\'s holdings as the run naming each of them does.',flush=True)
 
     # A date of a whole-book run attests complete coverage of its books, so it proves that they hold no independently owned
-    # gas whether or not it holds trades (D451). One book takes title to gas on 15 October: it holds none at the 13th and
+    # gas whether or not it holds trades (D452). One book takes title to gas on 15 October: it holds none at the 13th and
     # 14th and some at the 15th and 16th. It holds no trade until the 16th. Another book holds no gas and one trade from
     # the 16th on.
     c.call('profile',{'profile':'trader'})

@@ -6,7 +6,7 @@ from exact_values import fraction
 from preview_client import PreviewClient, initial_frame
 
 
-def run_checks(url, query, manifest):
+def run_checks(url, query, manifest, *, operating_predecessors):
     client = PreviewClient(url)
     client.bootstrap()
     client.call('profile', {'profile': 'editor'})
@@ -155,7 +155,7 @@ def run_checks(url, query, manifest):
     booked_thermal['valuation']['fuelQuantityBasis']='guaranteed'
     booked_solar=deepcopy(solar_request)
     booked_solar['grid']['operatingDate']='2031-01-05'
-    operating=check_trades(client,query,manifest,request,other_plans=[
+    operating=check_trades(client,query,manifest,request,operating_predecessors=operating_predecessors,other_plans=[
         ('thermal',booked_thermal,760,{'energy_output':1000,'fuel_input':240}),
         ('solar',booked_solar,500,{'payment_energy':500})])
     from check_operating_access_http import run_checks as check_access

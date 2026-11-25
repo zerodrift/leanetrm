@@ -20,14 +20,16 @@ public sealed record RetainedGasMember : IRetainedProgramMember
     [IdentityField] public int? SourceSlot { get; }
     [IdentityField] public string? QuantityPolicy { get; }
     [IdentityField] public QuantityPart? Part { get; }
+    [IdentityField] public OwnedQuantity? Owned { get; }
     ExactDecimal IRetainedProgramMember.ValuationCoefficient => Direction;
     ExactRatio? IRetainedProgramMember.ValuationRatio => Ratio;
     int? IRetainedProgramMember.ValuationSourceSlot => SourceSlot;
     string? IRetainedProgramMember.ValuationQuantityPolicy => QuantityPolicy;
     QuantityPart? IRetainedProgramMember.ValuationPart => Part;
+    OwnedQuantity? IRetainedProgramMember.ValuationOwned => Owned;
 
     public RetainedGasMember(Guid sideId, ExactDecimal direction, ExactRatio ratio, BookedSideProgram program,
-        int? sourceSlot = null, string? quantityPolicy = null, QuantityPart? part = null)
+        int? sourceSlot = null, string? quantityPolicy = null, QuantityPart? part = null, OwnedQuantity? owned = null)
     {
         if (sideId == Guid.Empty || program is null || ratio is null || ratio.Numerator <= 0 ||
             (direction != ExactDecimal.Parse("1") && direction != ExactDecimal.Parse("-1")))
@@ -35,8 +37,12 @@ public sealed record RetainedGasMember : IRetainedProgramMember
         if(sourceSlot is < 0 || quantityPolicy is not null && (quantityPolicy != GasHeldQuantities.DeliverySchedulePolicy || program.Document.Family != "gas") ||
             part is not null && (program.Document.Family == "gas" || sourceSlot is null))
             throw new MarketDataException("gas_membership", "A delivery policy belongs to a physical member; a quantity part requires a payment with an explicit physical source.");
+        if (owned is not null && (sourceSlot is not null || quantityPolicy is not null || part is not null ||
+            program.Document.Family != "fixed" || !Enum.IsDefined(owned.Basis) || owned.Clock is null ||
+            owned.DailyQuantity is null || owned.Basis == ChargeBasis.LumpSum && owned.DailyQuantity != ExactRatio.One))
+            throw new MarketDataException("gas_membership", "An owned charge requires fixed terms, its captured clock and an exact daily quantity with no source, policy or part.");
         SideId = sideId; Direction = direction; Ratio = ratio; Program = program;
-        SourceSlot = sourceSlot; QuantityPolicy = quantityPolicy; Part = part;
+        SourceSlot = sourceSlot; QuantityPolicy = quantityPolicy; Part = part; Owned = owned;
         ProgramDigest = BookedSideProgram.Digest(program.Write());
     }
 }
@@ -52,10 +58,12 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
     public override DefinitionIdentity? PricingBindingIdentity => Marks is null ? null : DefinitionIdentity.For(Marks);
     // Existing component terms already own this connection. Keep legacy economic
     // bytes, while retaining the connection in the schedule's execution identity.
-    public ImmutableArray<int> PhysicalSources { get; }
-    public override string RetainedScheduleIdentity => PhysicalSources.IsDefault && Rights.IsEmpty ? base.RetainedScheduleIdentity :
-        base.RetainedScheduleIdentity + "/physical_sources_v1/" + string.Join('/', Members.Select((_, slot) =>
-            GeometrySource(slot)?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "pooled"));
+    // An explicit map has a null slot only for a charge that owns its quantity.
+    public ImmutableArray<int?> PhysicalSources { get; }
+    public override string RetainedScheduleIdentity =>
+        PhysicalSources.IsDefault && Rights.IsEmpty && Members.All(m => m.Owned is null) ? base.RetainedScheduleIdentity :
+        base.RetainedScheduleIdentity + "/physical_sources_v1/" + string.Join('/', Members.Select((member, slot) =>
+            member.Owned is not null ? "owned" : GeometrySource(slot)?.ToString(CultureInfo.InvariantCulture) ?? "pooled"));
     public ImmutableArray<IndexPriceLookup> PriceLookups { get; }
     public ImmutableArray<SchedulePriceTerm> ActivePrices => PhysicalLifecycle.ActivePrices(Members.Select(m=>m.Program),PriceLookups);
     public override ReferenceKey Currency => Assignments[0].Quote.Currency;
@@ -63,7 +71,7 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
 
     public RetainedGasInstrument(Guid id, ImmutableArray<RetainedGasMember> members,
         ImmutableArray<GasValuationAssignment> assignments, ImmutableArray<IndexPriceLookup> priceLookups = default,
-        ImmutableArray<ExerciseRight> rights = default, ExerciseMarks? marks = null, ImmutableArray<int> physicalSources = default)
+        ImmutableArray<ExerciseRight> rights = default, ExerciseMarks? marks = null, ImmutableArray<int?> physicalSources = default)
         : base(id, members, new(ExactDecimal.Parse("1"), First(assignments).Quote.Quantity), First(assignments).Quote.Currency)
     {
         if (members.IsDefaultOrEmpty || members.Any(m => m is null) || assignments.IsDefaultOrEmpty || assignments.Any(a => a is null) ||
@@ -78,14 +86,16 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
         if (members.Where((m, slot) => m.SourceSlot is {} source
                 ? !allowSources || source >= members.Length || members[source].Program.Document.Family != "gas" ||
                     m.Program.Document.Family == "gas" && source != slot
-                : hasQuantityTerms).Any())
+                : hasQuantityTerms && m.Owned is null).Any())
             throw new MarketDataException("gas_membership", "Retain each required physical source and its exact membership slot.");
         Members = members; Assignments = assignments.Distinct().ToImmutableArray();
-        if(physicalSources.IsDefault&&hasQuantityTerms)physicalSources=[..members.Select(m=>m.SourceSlot!.Value)];
-        if(!physicalSources.IsDefault&&(physicalSources.Length!=members.Length||physicalSources.Where((source,slot)=>
-            source<0||source>=members.Length||members[source].Program.Document.Family!="gas"||
-            members[slot].Program.Document.Family=="gas"&&source!=slot||members[slot].SourceSlot is {} declared&&declared!=source).Any()))
-            throw new MarketDataException("gas_membership","Every execution entry requires its exact physical source slot, consistent with its quantity terms.");
+        if (physicalSources.IsDefault && hasQuantityTerms) physicalSources = [..members.Select(m => m.SourceSlot)];
+        if (!physicalSources.IsDefault && (physicalSources.Length != members.Length || physicalSources.Where((source, slot) =>
+            members[slot].Owned is not null ? source is not null :
+            source is not {} owner || owner < 0 || owner >= members.Length || members[owner].Program.Document.Family != "gas" ||
+            members[slot].Program.Document.Family == "gas" && owner != slot ||
+            members[slot].SourceSlot is {} declared && declared != owner).Any()))
+            throw new MarketDataException("gas_membership", "Every execution entry requires physical geometry consistent with its quantity terms; an owned charge cannot name a physical source.");
         PhysicalSources=physicalSources;
         PriceLookups=priceLookups.IsDefault?[..Assignments.Select(a=>a.Lookup).Distinct()]:priceLookups.Distinct().ToImmutableArray();
         Rights = rights.IsDefault ? [] : rights;
@@ -108,8 +118,12 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
                 right.Model != KirkSpreadCall.Implementation || right.DayCount != OptionNumericalPolicies.ActualOver365FixedInstant)
                 throw InvalidRight("Select ordered exercise rights with explicit members, groups and installed exercise terms.");
             foreach (var slot in right.Slots)
+            {
                 if ((uint)slot >= (uint)Members.Length || !claimedSlots.Add(slot))
                     throw InvalidRight("Every exercise right must name existing membership slots claimed exactly once.");
+                if (Members[slot].Owned is not null)
+                    throw InvalidRight("An exercise right cannot cover an independently owned charge.");
+            }
 
             var hasPhysical = right.Slots.Any(slot => Members[slot].Program.Document.Family == "gas");
             if (hasPhysical != (right.Settlement == ExerciseSettlement.Physical))
@@ -340,12 +354,17 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
         var quantity=new SignedRatio(cash.Quantity.Amount.ScaledValue,ExactDecimal.WorkingScale);
         var owners = new Dictionary<int, PhysicalLifecycleGeometry>();
         PhysicalLifecycleGeometry? pooled = null;
+        PhysicalLifecycleGeometry? owned = null;
         PhysicalLifecycleGeometry Geometry(int slot)
         {
+            if (Members[slot].Owned is not null)
+                return owned ??= PhysicalLifecycle.PrepareGeometry([], Members.Select((member, index) => (member, index))
+                    .Where(entry => entry.member.Owned is not null)
+                    .Select(entry => (entry.index, entry.member.Program, entry.member.Owned!)), context.Snapshot);
             if (GeometrySource(slot) is not {} owner)
-                return pooled ??= PhysicalLifecycle.PrepareGeometry(Members.Where(m => m.Program.Document.Family == "gas").Select(m => m.Program), context.Snapshot);
+                return pooled ??= PhysicalLifecycle.PrepareGeometry(Members.Where(m => m.Program.Document.Family == "gas").Select(m => m.Program), [], context.Snapshot);
             if (!owners.TryGetValue(owner, out var geometry))
-                owners.Add(owner, geometry = PhysicalLifecycle.PrepareGeometry([Members[owner].Program], context.Snapshot));
+                owners.Add(owner, geometry = PhysicalLifecycle.PrepareGeometry([Members[owner].Program], [], context.Snapshot));
             return geometry;
         }
         return input with{Cash=cash,Geometries=[..Enumerable.Range(0, Members.Length).Select(Geometry)],
@@ -387,6 +406,8 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
     {
         if (state is not PhysicalCashState cash)
         {
+            if (Members.Any(m => m.Owned is not null))
+                throw new MarketDataException("gas_delivery_lifecycle", "A gas instrument with owned charges requires its held cash state from booking.");
             if(!Rights.IsEmpty || Members.Any(m => m.QuantityPolicy is not null || m.Part is not null))
                 throw PhysicalDeliveryQuantities.Invalid("An instrument with quantity terms requires its complete held owner-day inputs.");
             base.ValidateValuationState(state); return;

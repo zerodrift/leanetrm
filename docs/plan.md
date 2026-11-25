@@ -1,20 +1,33 @@
 # Delivery plan and acceptance criteria
 
-D451 makes each date of a whole-book P&L run prove that its books hold no
+D452 makes each date of a whole-book P&L run prove that its books hold no
 independently owned gas, including a date that holds no trades. Over books that
 hold gas such a run was refused as an empty scope or, with the known cash of a
 later trade, returned a report; it is now refused for the missing gas policy.
-The two other limits D450 listed were explored and no run reaches them today.
+The two other limits D451 listed were explored and no run reaches them today.
 The database and HTTP checks pass; the real-browser checks have not been run.
 See [trading P&L](trading-pnl.md#run-and-save) and
-[verification](verification.md#whole-book-pl-dates-without-trades-d451).
+[verification](verification.md#whole-book-pl-dates-without-trades-d452).
 
-D450 corrects P&L runs over whole books, which were refused at commit. Each
+D451 corrects P&L runs over whole books, which were refused at commit. Each
 date's exact source is required before its temporary view is restored, and its
 original read deadline stays a commit check. The database and HTTP checks pass;
 the real-browser checks have not been run. See
 [trading P&L](trading-pnl.md#run-and-save) and
-[verification](verification.md#whole-book-pl-date-sources-d450).
+[verification](verification.md#whole-book-pl-date-sources-d451).
+
+D450 implements independent fixed lump sums and capacity charges on a
+standalone physical gas composition. The owning membership accrues at its
+own gas-day ends, including outside physical delivery. The ticket, native
+admission, exact retained reads, Blotter and risk share the same contract.
+Lump sums can serve as premiums for exercise rights over other memberships.
+Final gas billing retains its ordinary fixed consideration profile. Tariffs,
+balance-based charges, and charges on transport need separate contracts. Local
+verification passed 18 gas, 20 trading and 81 managed runner workloads.
+Independent review passed for the corrections to charge admission, amendments
+and presentation. See
+[gas charges](physical-gas-side.md#independent-gas-charges-d450) and
+[local qualification](verification.md#independent-gas-charges-d450).
 
 D449 admits European exercise on a listed futures option: a product row states
 the style, its series are valued by a Black-76 formula named in the option
@@ -31,11 +44,11 @@ Standalone gas booking and eligible amendments, exact held reads, the main
 Blotter, shared scenarios and retained risk implement the same schedule
 contract. See [gas exercise rights](physical-gas-side.md#exercise-rights-d448).
 
-The full gas, trading and managed groups pass 17, 20 and 81 local runner
-workloads respectively. Integrated CI is a separate merge gate. Premium,
-strip exercise, constrained and path-dependent
-rights, transport/storage optionality and a marks editor need separate
-work. See [local qualification](verification.md#exercise-rights-on-a-gas-instrument-d448).
+The earlier D448 qualification passed 17 gas, 20 trading and 81 managed
+runner workloads. D450 supplies an independent premium. Strip exercise,
+constrained and path-dependent rights, transport/storage optionality and a
+marks editor need separate work. See the
+[D448 qualification](verification.md#exercise-rights-on-a-gas-instrument-d448).
 
 D446 and D447 implement the Instrument schedule and independent gas pricing
 entries: exact share, daily band/shortfall and partial-term payments, with point,
@@ -52,8 +65,8 @@ source. Existing trades and two-location entry keep contract quantity. Temporal
 selection, ordinary queued risk, provenance and zero-after-payment balances have
 explicit contracts. Local qualification is recorded in [verification](verification.md).
 D447 replaces the weighted-price-term design with independent payment entries.
-Strip exercise across delivery months, charge bases, balance positions and
-constrained rights remain separate work.
+D450 adds lump-sum and capacity charge bases. Strip exercise across delivery
+months, balance positions and constrained rights remain separate work.
 
 D443 adds **New trade → Gas & LNG → Two-location gas** and **Facilities →
 Pipeline outlook**. Independent purchase and sale tickets can have different

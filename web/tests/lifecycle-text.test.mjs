@@ -81,3 +81,11 @@ test('exercise groups show the recorded outcome or the specific decision still a
  assert.equal(exerciseStateText('undecided'),'not yet exercised');
  assert.equal(exerciseStateText('undecided_forecast'),'awaiting published price');
 });
+
+test('cash schedules show the supplied unrealized present value to come separately from accrued and outstanding, including zero',()=>{
+ const partial=lifecycleLines(row({lifecycle:{cash:'PartPaid'},accrued:'-2000',paid:'-1000',outstanding:'-1000',amount:'-6000',remaining:'-3925.75'}),instant);
+ assert.deepEqual(partial.filter(line=>/^(Accrued|Paid|Outstanding|To come \(unrealized present value\)):/.test(line)),
+  ['Accrued: -2,000','Paid: -1,000','Outstanding: -1,000','To come (unrealized present value): -3,925.75']);
+ assert.ok(lifecycleLines(row({remaining:'0'}),instant).includes('To come (unrealized present value): 0'));
+ assert.ok(!lifecycleLines(row({remaining:null}),instant).some(line=>line.startsWith('To come')));
+});

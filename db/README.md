@@ -21,6 +21,15 @@ application. See [current implementation](../docs/implementation.md) and
 
 Recent schema groups and their contracts:
 
+- Gas compositions may retain independent lump sums and daily capacity charges.
+  Each selects a physical membership for its clock and owns its payment quantities
+  and dates. Capacity payments use the selected day of the next UTC month.
+  A recorded payment requires an ended day in its own occurrence. Both charge
+  bases require a representable first UTC start. Future replacement requires
+  unstarted original and proposed charges and no recorded payment on an
+  original charge. [0399](migrations/0399_gas_charge_entries.sql),
+  [0400](migrations/0400_gas_charge_boundaries.sql)
+
 - [0398](migrations/0398_european_option_surfaces.sql) lets a stored volatility
   surface name `european_futures_option_black76_v1`. The table check admits that
   id beside the rebuilt tree's; `risk.submit_vol_surface_fit` and

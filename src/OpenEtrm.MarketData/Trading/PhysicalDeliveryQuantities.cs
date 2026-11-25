@@ -57,6 +57,8 @@ internal static class PhysicalDeliveryQuantities
 // Ratios over the original contractual quantity, shared by lifecycle value and its schedule projection.
 internal readonly record struct DeliveryQuantityFractions(SignedRatio Total,SignedRatio Ended)
 {
+    internal static DeliveryQuantityFractions EqualDays(int ended,int total) => new(new(1,1),new(ended,total));
+
     internal static DeliveryQuantityFractions For(IEnumerable<EntryDayQuantity> days,Func<DateOnly,bool> ended)
     {
         var contract=SignedRatio.Zero;var selected=SignedRatio.Zero;var accrued=SignedRatio.Zero;

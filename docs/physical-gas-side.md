@@ -1,5 +1,65 @@
 # Physical gas booking and pre-delivery valuation
 
+## Independent gas charges (D450)
+
+A standalone gas composition can include a fixed contractual `charge`
+membership alongside physical, consideration and fee Sides. It uses the
+existing fixed payment Side and names a physical Side on the same trade to
+select the gas-day clock. It owns its terms and quantities, with no source or
+stage. The quantity unit and currency match the composition. The combined
+limits are one to four physical Sides, seven payment Sides including charges,
+and eight Sides in all.
+
+- **Lump sum** (`lump_sum`) stores a stated amount, an explicit UTC payment
+  instant and quantity one. Its single gas day is the latest one ended when
+  that instant's UTC date begins. A lump sum dated on the booking date can
+  already be accrued at booking, before physical delivery starts. An
+  independent lump sum can be a premium alongside a right over other Sides.
+- **Capacity** (`capacity`) stores a positive fixed rate, a positive daily
+  capacity and ordered gas days with an exclusive end. There is one row per
+  covered calendar month, including partial months. Each row's quantity is
+  the daily capacity times the number of covered days. The stated payment
+  day, 1–28 of the following month, pays at UTC midnight without holiday
+  adjustment under `next_month_day_utc_v1`.
+
+Both bases use the gas composition's explicit no-discounting selection and
+require explicit delivery and payment calendar bindings. The contractual
+amount or rate is in trade currency, with the rate per quantity unit per day.
+The fixed Side retains the exact versioned quote
+and normalizes the raw amount or rate by its multiplier using exact division.
+The absolute stated price must be below 10^12. A price literal that cannot
+be represented exactly at the supported 18-place decimal scale refuses.
+Migration 0400 also checks the first owned UTC instant under the admitted
+fixed-offset clock before retaining either charge basis. Exact ratios on the
+holding base let the Trade apply quantity once and preserve the same stated charge at different delivery sizes.
+
+Accrual uses each charge's own ended gas days, even outside the physical
+term. Equal daily capacity makes accrual proportional to the number of ended
+days. Shared UTC payment-date admission and the complete-day overdue rule
+apply. A capacity row payable on day 1 can finish later on that UTC date and
+is overdue starting the next UTC date. Payments use the retained charge
+occurrence and are admitted once any of its days has ended. Both the
+valuation instant and the resolved knowledge cutoff govern visibility.
+Accrual, part payment, full payment and overpaid balances use the existing
+cash lifecycle. The sign of a lump-sum remittance follows the membership
+direction multiplied by the stated amount's sign. Zero nominal admits no
+remittance. Native payment admission checks earning at the actual paid instant
+and refuses with `gas_payment_occurrence` if no day has ended by then. It uses
+`gas_payment_amount` for a contradictory sign or zero nominal. The managed
+lifecycle checks the earned state at the valuation instant and uses
+`payment_state` if visible cash is applied to an occurrence with no ended day.
+A right naming a charge refuses with
+`gas_composition_input` during booking and `exercise_right` during retained
+admission.
+
+Previews, held reads, the Blotter and risk use the retained Instrument and
+Side programs. Charges have no market-price dependencies and contribute no
+price-factor exposure. Final billing refuses charge slots with
+`gas_billing_profile`. Ordinary fixed consideration keeps its existing
+billing and physical coverage rules. See the
+[ticket contract](deal-ticket.md#gas-charge-side-d450) and
+[decision](decisions.md#d450--gas-compositions-admit-fixed-payments-that-own-their-quantity).
+
 ## Exercise rights (D448)
 
 A gas composition can include disjoint rights over named existing entries. Every
@@ -87,7 +147,8 @@ scenario refuses the run. Native futures keep their all-valued requirement.
 | `holder_choice_inputs` | Invalid model inputs |
 
 This build covers gas exercise over ordinary physical and payment Sides.
-Premium, strip exercise across delivery months, discounting, negative modeled
+D450 permits an independent lump-sum premium while refusing a right that names
+a charge. Strip exercise across delivery months, discounting, negative modeled
 prices, path-dependent and constrained rights, transport/storage optionality,
 and a marks editor are outside the profile. D288 listed futures options and
 the D431 heat-rate call keep their own contracts.
@@ -233,8 +294,9 @@ configured usage tariff can supply a delivery-based fee price. A tariff cannot
 silently price a receipt/fuel stage or overwrite a manual price. Selecting the
 fuel stage bills a separately declared charge on that reduction; it does not
 change in-kind fuel into cash-paid fuel. Whole-term fixed cash retains its explicit
-payment instant without inferred monthly allocation. Fixed nominal/capacity
-charges remain outside this profile.
+payment instant without inferred monthly allocation. D450 adds independent
+fixed [lump sums and capacity charges](#independent-gas-charges-d450) with
+their own quantities and days.
 
 **Index payment** uses the existing `FloatingSide` under
 `indexed_gas_composition_v1`. Named pricing has one exact daily or containing-month
@@ -282,7 +344,11 @@ risk include supported gas compositions; generated gas closes still refuse.
 The main-window Blotter's **Amend** action opens the ordinary ticket under
 `future_gas_composition_replace_v1`. Original and replacement delivery must remain
 future, with the latest exact binding/revision, retained definition and explicit
-reason. A changed command appends a revision with new owned physical occurrences;
+reason. Each original and proposed charge must also have its first gas-day
+start strictly after the amendment instant. Any recorded payment on an
+original charge blocks replacement, including a payment known now with a
+later effective instant. Its payment and allocations retain the original
+binding. A changed command appends a revision with new owned physical occurrences;
 unchanged typed terms return the existing revision. Retries retain their first
 outcome, including after a successor. Legacy single-point trades and trades with
 daily quantity, service or facility relationships refuse until operational

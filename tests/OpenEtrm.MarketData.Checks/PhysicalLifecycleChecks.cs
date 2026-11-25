@@ -18,7 +18,7 @@ internal static class PhysicalLifecycleChecks
     internal static PhysicalLifecycleValue ConstructedSideRows(ImmutableArray<LifecycleMember> members, PhysicalCashState state,
         MarketSnapshot snapshot, ReferenceKey currency)
     {
-        var geometry = PhysicalLifecycle.PrepareGeometry(members.Where(m => m.Physical).Select(m => m.Program), snapshot);
+        var geometry = PhysicalLifecycle.PrepareGeometry(members.Where(m => m.Physical).Select(m => m.Program), [], snapshot);
         var one = ExactMoney.Parse("1", currency); var zero = ExactMoney.Parse("0", currency);
         var parts = members.Select((member, slot) =>
         {
@@ -323,7 +323,7 @@ internal static class PhysicalLifecycleChecks
             var input=new RetainedProgramContext(sources,market)
             {
                 Cash=state,Owner=new(repeated.Id,repeated.EconomicIdentity,repeated.RetainedScheduleIdentity),
-                Geometries=[..Enumerable.Repeat(PhysicalLifecycle.PrepareGeometry(repeated.Members.Where(m=>m.Program.Document.Family=="gas").Select(m=>m.Program),snapshot),repeated.Members.Length)],
+                Geometries=[..Enumerable.Repeat(PhysicalLifecycle.PrepareGeometry(repeated.Members.Where(m=>m.Program.Document.Family=="gas").Select(m=>m.Program),[],snapshot),repeated.Members.Length)],
                 HeldFactors=[..repeated.Members.Select(m=>quantity*new SignedRatio(m.Direction.ScaledValue,ExactDecimal.WorkingScale)*new SignedRatio(m.Ratio.Numerator,m.Ratio.Denominator))]
             };
             SideValuationContext Context(RetainedProgramContext selected,PhysicalCashState cash,ISideDiscounting discount)=>new SideValuationContext(market,discount)

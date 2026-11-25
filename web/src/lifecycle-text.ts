@@ -14,7 +14,7 @@ export const exercisePeriodText=(period:ExercisePeriod)=>`Exercise right ${perio
 export type MeasureLine={label:string;value:string};
 // The P&L explain measures: days not yet ended are unrealized; delivered days fixed and not yet paid are realized but unsettled.
 const measureTexts:Readonly<Record<string,string>>={Unrealized:'Unrealized (remaining delivery)',RealizedUnsettled:'Realized, unsettled (delivered, not paid)'};
-export type LifecycleRow={paymentAt:string|null;paid:string|null;outstanding:string|null;paidAt?:string|null;accrued?:string|null;finalDetermination?:string|null;
+export type LifecycleRow={paymentAt:string|null;paid:string|null;outstanding:string|null;paidAt?:string|null;accrued?:string|null;remaining?:string|null;finalDetermination?:string|null;
  lifecycle:{delivery:string;due:string|null;cash:string|null;economicClass:string|null;coverage:string|null;fulfillment:string|null}};
 
 export const words=(value:string|null|undefined)=>{if(!value)return '—';const text=value.replace(/_/g,' ').replace(/([a-z])([A-Z])/g,'$1 $2');return text[0]+text.slice(1).toLowerCase();};
@@ -47,7 +47,8 @@ export function lifecycleLines(row:LifecycleRow,instant:(at:string|null)=>string
  const paidOn=cash!==null&&paidStates.has(cash)&&row.paidAt?`Paid on ${instant(row.paidAt)}`:'';
  const due=cash!==null&&(unpaid.has(cash)||cash==='PartPaid')&&row.paymentAt!==null?`Due date: ${displayPaymentDate(row.paymentAt)}`:'';
  return [state.due&&`Payment: ${words(state.due)}`,cash&&(physical?'Settlement: not applicable (physical delivery)':`Cash: ${words(cash)}`),
-  row.accrued!=null&&`Accrued: ${numberText(row.accrued)}`,row.paid!==null&&`Paid: ${numberText(row.paid)}`,row.outstanding!==null&&`Outstanding: ${numberText(row.outstanding)}`,paidOn,due,
+  row.accrued!=null&&`Accrued: ${numberText(row.accrued)}`,row.paid!==null&&`Paid: ${numberText(row.paid)}`,row.outstanding!==null&&`Outstanding: ${numberText(row.outstanding)}`,
+  row.remaining!=null&&`To come (unrealized present value): ${numberText(row.remaining)}`,paidOn,due,
   row.finalDetermination!=null&&`Final determination: ${numberText(row.finalDetermination)} · accrual unchanged`,
   state.fulfillment&&`Fulfillment: ${words(state.fulfillment)}`,state.economicClass&&words(state.economicClass),state.coverage&&(measureTexts[state.coverage]??words(state.coverage))].filter((v):v is string=>!!v);
 }
