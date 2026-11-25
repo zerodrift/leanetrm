@@ -24,7 +24,8 @@ public static class SwingChoice
         if (!volumes.UniqueSchedule && inputs.Days.Any(d => d.Volatility is null))
             throw new MarketDataException("exercise_marks", "Each undecided swing month requires an explicit volatility.");
         var work = new SwingWorkCounts(0, 1, volumes.States.Max(s => s.Count), volumes.ActionCounts.Sum());
-        var deterministic = volumes.UniqueSchedule || inputs.Days.All(d => d.Volatility == default(LatticeDecimal));
+        var deterministic = volumes.UniqueSchedule ||
+            inputs.Days.All(d => d.Uncertain.Numerator.IsZero || d.Volatility == default(LatticeDecimal));
         var grid = deterministic ? null : SwingPriceLattice.Grid(inputs);
         if (grid is not null) work = CountWork(grid, volumes, work);
         var (intrinsic, lots) = volumes.Intrinsic(cancellation);

@@ -34,6 +34,15 @@ internal static partial class GasSwingChecks
         var extreme = Inputs([1], int.MaxValue - 1, int.MaxValue, int.MaxValue, int.MaxValue);
         Exact(extreme, R(int.MaxValue), int.MaxValue);
 
+        var halfAtom = new SignedRatio(1, 2 * System.Numerics.BigInteger.Pow(10, 18));
+        var fixedOnly = Inputs([0], 0, 3, 0, 3);
+        var fixedDay = fixedOnly.Days[0] with { Certain = halfAtom, Volatility = D("0.5") };
+        Refuse("exercise_marks", () => SwingChoice.Value(fixedOnly with { Days = [fixedDay with { Volatility = null }] }));
+        Exact(fixedOnly with { Days = [fixedDay] }, R(3) * halfAtom, 3);
+        var nextMonth = new SwingDay(fixedDay.Day.Day.AddDays(2), fixedDay.Day.ExerciseAt.AddDays(2));
+        var zeroVolDay = new SwingPayoffDay(nextMonth, R(2) * halfAtom, R(0), D("0"));
+        Exact(fixedOnly with { Days = [fixedDay, zeroVolDay], MaximumLots = 4 }, R(7) * halfAtom, 1, 3);
+
         var optional = Inputs([5], 0, 1, 0, 1);
         var day = optional.Days[0] with { Volatility = D("0.5") };
         var active = optional with { Days = [day] };
@@ -46,7 +55,7 @@ internal static partial class GasSwingChecks
         Refuse("swing_numerical_scope", () => SwingChoice.Value(active with { DailyMaximumLots = 33 }));
         Refuse("swing_numerical_scope", () => SwingChoice.Value(active with { CalculationAt = At.AddDays(-401) }));
         Refuse("swing_numerical_scope", () => SwingChoice.Value(active with { Days = [day with { Volatility = D("9999") }] }));
-        var wide = Inputs(new int[31], 0, 32, 0, 31 * 32);
+        var wide = Inputs([.. Enumerable.Repeat(1, 31)], 0, 32, 0, 31 * 32);
         Refuse("swing_numerical_scope", () => SwingChoice.Value(wide with { CalculationAt = At.AddDays(-320),
             Days = [.. wide.Days.Select(d => d with { Volatility = D("0.5") })] }));
         SwingVolumeGrid.RequireStateCount(2049);
