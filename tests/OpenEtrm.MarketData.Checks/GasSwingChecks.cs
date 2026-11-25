@@ -124,6 +124,29 @@ internal static partial class GasSwingChecks
         var composition = new GasCompositionInstrument(Guid.NewGuid(),
             [new("delivery", legacy.Physical, ExactDecimal.Parse("1"), ExactDecimal.Parse("1000"), null)],
             [new("payment", legacy.Cash, "consideration", "delivery", GasQuantityStage.Delivery, ExactDecimal.Parse("-1"), ExactDecimal.Parse("1"))]);
+        var component = new GasSwingComponent("delivery", ["delivery", "payment"], ExerciseHolder.Us, ExactDecimal.Parse("100"),
+            ExactDecimal.Parse("700"), ExactDecimal.Parse("1100"), ExactDecimal.Parse("700"), ExactDecimal.Parse("1100"), 6, QuantityPolicy);
+        GasCompositionInstrument Book(GasSwingComponent term, ImmutableArray<SwingPricingBinding> pricing) =>
+            new(Guid.NewGuid(), composition.Physical, composition.Cash, swings: [term], swingPricingBindings: pricing);
+        var booking = Book(component, [Pricing]);
+        var booked = booking.ResolveSwingRights().Single();
+        Require(booked.IncrementRatio == new ExactRatio(1, 10) && booked.DailyMinimumLots == 7 && booked.MaximumLots == 11 &&
+            booked.Days.Single().ExerciseAt == legacy.Physical.GenerateSchedule().Quantities.Rows.Single().Start.AddHours(-6),
+            "The booking form normalizes absolute quantities against the covered reference and captures the contractual deadline.");
+        Require(booking.EconomicIdentity.Canonical.Contains("gas_swing_right_v1") &&
+            !booking.EconomicIdentity.Canonical.Contains(Pricing.Model) && booking.PricingBindingIdentity.Canonical.Contains(Pricing.Model),
+            "Only the normalized swing right enters economic identity, and the explicit model enters pricing identity.");
+        var scaledBooking = new GasCompositionInstrument(Guid.NewGuid(), [composition.Physical[0] with { Quantity = ExactDecimal.Parse("2000") }],
+            composition.Cash, swings: [component with { Entries = ["payment", "delivery"], Increment = ExactDecimal.Parse("200"),
+                DailyMinimum = ExactDecimal.Parse("1400"), DailyMaximum = ExactDecimal.Parse("2200"),
+                TotalMinimum = ExactDecimal.Parse("1400"), TotalMaximum = ExactDecimal.Parse("2200") }], swingPricingBindings: [Pricing]);
+        Require(scaledBooking.EconomicIdentity == booking.EconomicIdentity && scaledBooking.PricingBindingIdentity == booking.PricingBindingIdentity,
+            "Equivalent normalized terms retain their identities across quantity scaling and entry order.");
+        Refuse("swing_right", () => Book(component with { Entries = ["delivery", "delivery"] }, [Pricing]));
+        Refuse("swing_right", () => Book(component with { Entries = ["delivery"] }, [Pricing]));
+        Refuse("swing_right", () => Book(component with { DailyMinimum = ExactDecimal.Parse("701") }, [Pricing]));
+        Refuse("swing_feasibility", () => Book(component with { TotalMinimum = ExactDecimal.Parse("1200"), TotalMaximum = ExactDecimal.Parse("1400") }, [Pricing]));
+        Refuse("swing_model_scope", () => Book(component, []));
         var empty = new RetainedGasInstrument(original.Id, original.Members, original.Assignments, swingRights: [], swingPricingBindings: []);
         Require(composition.EconomicIdentity.Canonical == GasCompositionPricingChecks.LegacyIdentity &&
             original.EconomicIdentity.Canonical == GasInstrumentScheduleChecks.LegacyIdentity &&
@@ -160,6 +183,9 @@ internal static partial class GasSwingChecks
         Refuse("swing_right", () => Save(right with { Slots = [0] }));
         Refuse("swing_right", () => Save(right with { Slots = [0, 0, 1] }));
         Refuse("swing_right", () => Save(right with { PhysicalSlot = 1 }));
+        var owner = members[0];
+        var competingPolicy = new RetainedGasMember(owner.SideId, owner.Direction, owner.Ratio, owner.Program, 0, GasHeldQuantities.DeliverySchedulePolicy);
+        Refuse("swing_right", () => Save(right, entries: members.SetItem(0, competingPolicy)));
         Refuse("swing_right", () => Save(right with { Days = [new(row.OperatingDay.AddDays(1), row.End.AddHours(-1))] }));
         Refuse("swing_right", () => Save(right with { Days = [new(row.OperatingDay, row.Start.AddMinutes(1))] }));
         Refuse("swing_right", () => Save(right with { Days = [new(row.OperatingDay, row.Start.AddMinutes(-30))] }));

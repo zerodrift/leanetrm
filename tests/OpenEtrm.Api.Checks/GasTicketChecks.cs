@@ -59,6 +59,16 @@ internal static class GasTicketChecks
             var saved = JsonSerializer.Deserialize<GasCompositionRequest>(JsonSerializer.Serialize(plain with { ImbalanceCashouts = [pair] }, json), json)!;
             Equal(pair, saved.ImbalanceCashouts!.Value.Single(), "retained cash-out terms");
         });
+        Check("swing terms round trip and an absent right preserves the wire request", () =>
+        {
+            var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+            var wire = JsonSerializer.SerializeToNode(Map(Draft(Receipt, Cash)), json)!.AsObject();
+            Equal(false, wire.ContainsKey("swingRights"), "absent swing");
+            var rights = """[{"side":"RCT","entries":["RCT","PAY"],"holder":"us","increment":"100","dailyMinimum":"700","dailyMaximum":"1100","totalMinimum":"3000","totalMaximum":"3100","leadHours":6,"quantityPolicy":"swing_elected_delivery_quantity_v1","pricing":{"model":"gas_swing_one_factor_lognormal_v1","dayCount":"act_365_fixed_instant_v1","numericalPolicy":"swing_trinomial_6h_half_even_18_v1","marksConvention":"curve_marks_log_return_held_v1"}}]""";
+            wire["swingRights"] = System.Text.Json.Nodes.JsonNode.Parse(rights);
+            var reopened = JsonSerializer.SerializeToNode(wire.Deserialize<GasCompositionRequest>(json), json)!;
+            Equal(true, System.Text.Json.Nodes.JsonNode.DeepEquals(wire["swingRights"], reopened["swingRights"]), "retained swing terms");
+        });
         Check("exercise terms round trip and an absent right preserves the wire request",()=>{
             var json=new JsonSerializerOptions(JsonSerializerDefaults.Web);
             var plain=Map(Draft(Receipt,Cash));

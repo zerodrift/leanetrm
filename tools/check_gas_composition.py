@@ -136,7 +136,9 @@ def run_checks(url,query=None,manifest=None,run_worker=None):
     assert not any(e['tradeId']==booked['tradeId'] for e in risk['excludedPositions'])
     assert len({f['id'] for f in risk['factors']})==len(risk['factors']), 'Shared gas factors must appear once'
     if run_worker is not None:
-        gas_curve=cat['locations'][0]['valuation']['curve']
+        receipt=body['physicalSides'][0]
+        gas_curve=next(p['valuation']['curve'] for p in cat['locations']
+                       if all(p[key]==receipt[key] for key in ('pipeline','zone','deliveryPoint','product')))
         factor=next(f for f in risk['scenarioTargets'] if f['kind']=='contract' and f['factor']['target']['curve']['code']==gas_curve and f['id'] in risk['heldContractTargets'])
         request={'context':{**shared,'knowledgeMode':'retained','contextId':mixed['context']['contextId']},'bookIds':[],'portfolioIds':[],'bumps':[{'factor':factor['factor'],'size':'0.1','convention':risk['bumpConvention']}],
                  'convention':risk['convention'],'numericalPolicy':risk['numericalPolicy'],'pricingPolicy':risk['pricingPolicy'],'stress':[]}

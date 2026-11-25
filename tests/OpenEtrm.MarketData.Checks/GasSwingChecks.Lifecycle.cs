@@ -30,7 +30,8 @@ internal static partial class GasSwingChecks
             var curve = f.Instrument.Assignments[0].Projection.Market.Curve;
             var marks = vol is null ? null : new ExerciseMarks([new(curve, new(f.From.Year, f.From.Month, 1),
                 new(Guid.NewGuid(), vol, VolatilityInput.Annualized))], [], ExerciseMarks.HeldLogReturn);
-            var source = f.Instrument.Members[0];
+            var original = f.Instrument.Members[0];
+            var source = new RetainedGasMember(original.SideId, original.Direction, original.Ratio, original.Program, 0);
             if (dayCount == 1)
             {
                 var assignment = f.Instrument.Assignments[0];

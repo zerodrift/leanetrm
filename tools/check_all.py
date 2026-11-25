@@ -293,6 +293,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     preview_check('physical gas booking, facility allocation, setup and daily quantities', [*preview, '--facility-quantity-check', '--gas-daily-quantity-check', '--gas-composition-check', '--gas-setup-check', '--browser-check', '--browser', str(browser)], suite='gas')
     preview_check('gas payment entries, named index pricing and exercise rights', [*preview, '--gas-exercise-check', '--gas-pricing-check', '--browser-check', '--browser', str(browser)], suite='gas')
     preview_check('independent gas charges, payment admission and browser', [*preview, '--gas-charges-check', '--browser-check', '--browser', str(browser)], suite='gas')
+    preview_check('bounded gas swing booking, native admission and upgrade', [*preview, '--gas-swing-check'], suite='gas')
     preview_check('gas imbalance cash-out, statement authority and browser', [*preview, '--gas-imbalance-check', '--browser-check', '--browser', str(browser)], suite='gas')
     preview_check('selected gas delivery quantities, temporal evidence and retained risk', [*preview, '--gas-delivery-quantity-check', '--browser-check', '--browser', str(browser)], suite='gas')
     preview_check('future gas amendments, immutable revisions and ticket recovery', [*preview, '--gas-amendments-check', '--browser-check', '--browser', str(browser)], suite='gas')

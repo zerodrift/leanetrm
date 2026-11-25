@@ -17,9 +17,7 @@ internal static class GasSwingAdmission
         if (rights.IsEmpty && pricing.IsEmpty) return;
         if (rights.Length != 1 || rights[0] is not { Ordinal: 0 } right || pricing.Length != 1 || pricing[0] is not { Right: 0 } binding)
             throw SwingFeasibility.InvalidRight("Retain exactly one swing right and its explicit, matching pricing binding.");
-        if (binding.Model != SwingPricingBinding.SupportedModel || binding.DayCount != OptionNumericalPolicies.ActualOver365FixedInstant ||
-            binding.NumericalPolicy != SwingPricingBinding.SupportedNumericalPolicy || binding.MarksConvention != ExerciseMarks.HeldLogReturn)
-            throw new MarketDataException("swing_model_scope", "Select the installed one-factor swing model, day count, numerical policy and held log-return marks.");
+        RequirePricing(binding);
 
         SwingFeasibility.RequireRight(right);
         var members = instrument.Members;
@@ -27,6 +25,8 @@ internal static class GasSwingAdmission
             members[right.PhysicalSlot].Program.Document.Family != "gas")
             throw SwingFeasibility.InvalidRight("Swing must name an existing physical source and its covered membership slots.");
 
+        if (members[right.PhysicalSlot].QuantityPolicy is not null)
+            throw SwingFeasibility.InvalidRight("The swing source already selects its quantity policy on the retained right.");
         var covered = right.Slots.ToHashSet();
         if (instrument.Rights.Any(exercise => exercise.Slots.Any(covered.Contains)))
             throw SwingFeasibility.InvalidRight("Swing and exercise rights cannot claim the same membership.");
@@ -49,6 +49,13 @@ internal static class GasSwingAdmission
         var clock = RequirePhysical(instrument, right, source);
         foreach (var slot in right.Slots.Where(slot => slot != right.PhysicalSlot))
             RequirePayment(instrument, right, members[slot].Program, clock);
+    }
+
+    internal static void RequirePricing(SwingPricingBinding binding)
+    {
+        if (binding is not { Right: 0 } || binding.Model != SwingPricingBinding.SupportedModel || binding.DayCount != OptionNumericalPolicies.ActualOver365FixedInstant ||
+            binding.NumericalPolicy != SwingPricingBinding.SupportedNumericalPolicy || binding.MarksConvention != ExerciseMarks.HeldLogReturn)
+            throw new MarketDataException("swing_model_scope", "Select the installed one-factor swing model, day count, numerical policy and held log-return marks.");
     }
 
     private static GasDayClock RequirePhysical(RetainedGasInstrument instrument, SwingRight right, BookedSideProgram source)
