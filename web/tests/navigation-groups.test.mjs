@@ -20,7 +20,7 @@ test('the groups and their pages keep the sidebar order',()=>{
  assert.deepEqual(navigationGroups.map(g=>[g.id,g.label,[...g.pages]]),[
   ['overview','Overview',['dashboard']],
   ['trading','Trading',['new-trade','futures','options']],
-  ['markets','Markets',['market','delivery','interval-series','vol-surfaces','interval-curves']],
+  ['markets','Markets',['market','delivery','interval-series','curve-marks','vol-surfaces','interval-curves']],
   ['risk','Risk',['risk','risk-pnl','risk-scenarios','risk-var','risk-runs']],
   ['scheduling','Scheduling',['lifecycle','physical-operations','facilities','physical-power','rec-inventory']],
   ['reference','Reference Data',['reference']],
@@ -75,7 +75,7 @@ test('market data outranks administration and the Blotter outranks plain market 
 });
 
 test('the sidebar lists each page for the permissions that open it',()=>{
- const market=['dashboard','market','delivery','interval-series','interval-curves','reference'];
+ const market=['dashboard','market','delivery','interval-series','curve-marks','interval-curves','reference'];
  assert.deepEqual(listed(['ReadMarketData','RunJobs']).sort(),[...market,'jobs'].sort());
  assert.deepEqual(listed(['ReadMarketData','ReadTrades','ReadTradeParties']).sort(),[...market,'jobs','lifecycle','physical-operations','facilities','new-trade','futures','options','vol-surfaces','rec-inventory'].sort());
  assert.deepEqual(listed(['ReadMarketData','ReadTrades']).sort(),[...market,'jobs','lifecycle','physical-operations','facilities','new-trade','futures','options','vol-surfaces','rec-inventory'].sort());
@@ -145,7 +145,7 @@ test('every setup page belongs to Reference Data',()=>{
 });
 test('console and sidebar pages expose only their authorized native readers',()=>{
  const reach=permissions=>[...allPages,'custom-curves','configuration','schedules','power','parties','gas-setup','crude-setup','curve-definitions'].filter(page=>pageAvailable(page,permissions)).sort();
- const market=['dashboard','market','delivery','interval-series','interval-curves','reference','jobs','custom-curves','configuration','schedules','power','gas-setup','crude-setup','curve-definitions'];
+ const market=['dashboard','market','delivery','interval-series','curve-marks','interval-curves','reference','jobs','custom-curves','configuration','schedules','power','gas-setup','crude-setup','curve-definitions'];
  assert.deepEqual(reach(['ReadMarketData']),[...market].sort());
  assert.deepEqual(reach(['ReadMarketData','ReadTrades']),[...market,'lifecycle','physical-operations','facilities','new-trade','futures','options','vol-surfaces','rec-inventory'].sort());
  assert.deepEqual(reach(['ReadMarketData','ReadTradeParties']),[...market,'parties'].sort());

@@ -11,6 +11,14 @@ verification passed. See the
 [contract](physical-gas-side.md#imbalance-cash-out-d454) and
 [local qualification](verification.md#imbalance-cash-out-d454).
 
+D453 delivers monthly curve volatility and correlation authoring in the Markets
+workspace. It includes grids, focused strips, historical reads, reviewed atomic
+publication and recovery of an owned receipt. The gas exercise example consumes
+an editor-published mark after an explicit financial refresh. Listed-option
+surfaces and heat-rate-call spread authoring have separate contracts. See the
+[editor contract](curve-marks-editor.md) and
+[qualification](verification.md#curve-marks-editor-d453).
+
 D452 makes each date of a whole-book P&L run prove that its books hold no
 independently owned gas, including a date that holds no trades. Over books that
 hold gas such a run was refused as an empty scope or, with the known cash of a

@@ -92,6 +92,7 @@ export async function run(actions){
  };
  const submit=()=>click(form+' .ticket-submit-exercise');
  const outcomeShown=(date,outcome)=>wait('!'+at(form)+'&&'+at(bookedTicket+' .ticket-exercise-groups')+'?.querySelector('+q('[data-from="'+date+'"][data-state="'+outcome+'"]')+')',30000);
+ const positionValued=exact=>wait(`${at('#position-details-head .kpi-value')}?.title.startsWith(${q(exact+' ')})&&${idle}`,30000);
  await open();
  await check('exercise entry starts with no selections or effective instant',
   '[...document.querySelectorAll('+q(form+' select,'+bookInput('effectiveAt'))+')].every(n=>!n.value)');
@@ -117,6 +118,8 @@ export async function run(actions){
  // The election already appears after the lost reply. Wait for the retry receipt to clear the pending command.
  await wait('!'+at(retry)+'&&'+at(action)+'?.checkVisibility()&&!'+at(action)+'.disabled',30000);
  await outcomeShown('2021-01-16','exercised');
+ // The ticket reread can show the election before the Blotter reprices and re-enables the position tabs.
+ await positionValued('5380.614722020289702291');
  await reopenSchedules();
  await check('a second remount offers a fresh election after the original receipt is confirmed',
   '!'+at(action)+'.disabled&&!'+at(retry));
@@ -133,6 +136,7 @@ export async function run(actions){
  await wait('!'+at(refresh)+'&& !'+at(action)+'.disabled',30000);
  await check('a refreshed exercise action clears the stale instruction',
   '!'+at(bookedTicket+' .ticket-exercise-controls')+'.textContent.includes("Refresh the trade")');
+ await positionValued('3447.441896609978803165');
  await open();await selectPeriod('2021-01-17','abandoned');
  await check('the refreshed group choice shows its known predecessor and effective instant',
   at(bookInput('firstPeriod'))+'?.selectedOptions[0].textContent.includes("known Exercised effective 2020-12-18T16:00:00")');
@@ -144,8 +148,7 @@ export async function run(actions){
    ['2021-01-16','exercised','1,000','1,000'],['2021-01-17','abandoned','-500','0'],
    ['2021-01-18','not yet exercised','2,000','2,947.441896609978803165']
   ]))}`,shownGroups);
- const heading='#position-details-head .kpi-value';
- await wait(at(heading)+'?.title.startsWith("3947.441896609978803165 ")&&'+idle,30000);
+ await positionValued('3947.441896609978803165');
  await wait(`[...document.querySelectorAll(${q(bookedTicket+' .inspection-rows tbody tr')})].some(r=>r.textContent.includes('Operating day: 2021-01-18'))`,30000);
  await check('the third gas day in the selected Side schedule remains contingent',
   `[...document.querySelectorAll(${q(bookedTicket+' .inspection-rows tbody tr')})].some(r=>r.textContent.includes('Operating day: 2021-01-18')&&r.textContent.includes('contingent'))`);

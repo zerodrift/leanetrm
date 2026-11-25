@@ -24,6 +24,26 @@ review. Exact check counts and remaining limits are recorded in
 [verification](verification.md#imbalance-cash-out-d454) and the
 [physical gas contract](physical-gas-side.md#imbalance-cash-out-d454).
 
+## Curve Marks Editor (D453)
+
+**Markets → Volatility & correlation** implements editable volatility grids
+and correlation matrices, focused monthly strips, exact draft differences and
+coverage, revision history, and addressed TSV previews. The browser presents
+managed calculations using the existing tables, theme and charts. The narrow
+layout uses a drawer for the inspector.
+
+Migration 0401 reuses the existing mark facts and request receipts and shares a
+private cell recorder with the legacy commands. An editor batch commits under
+one publication lock and returns one receipt. Status can recover the original
+accepted facts under current market authority without the original browser
+frame. Before sending, the editor verifies that the exact command and captured
+context proof can be restored from session storage. A committed publication
+refreshes only matching editor inputs. Financial reads and risk runs retain
+their own refresh and replay contracts.
+
+See the [feature contract](curve-marks-editor.md) and
+[qualification](verification.md#curve-marks-editor-d453).
+
 ## Independent gas charges (D450)
 
 Gas composition uses the existing fixed Side for both lump-sum and

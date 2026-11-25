@@ -44,7 +44,13 @@ export function restoreTradeRequest(value:unknown):RequestCommand|undefined{
 /** Actor-scoped transport retention survives editor remounts even when browser storage fails. */
 export function actorTransport<T>(key:()=>string,storage:()=>Pick<Storage,'getItem'|'setItem'|'removeItem'>){
  const memory=new Map<string,T|null>();
+ function readStored(actor:string):T|null{
+  return attachReadReferences(JSON.parse(storage().getItem(actor)??'null') as T|null,storage().getItem(actor+':read-references'));
+ }
  return{
+  // Read both entries as a fresh page would, bypassing the in-memory fallback.
+  readStored():T|null{try{return readStored(key());}catch{return null;}},
+
   write(value:T|undefined){
    const actor=key();memory.set(actor,value===undefined?null:cloneRead(value));
    try{
@@ -55,7 +61,7 @@ export function actorTransport<T>(key:()=>string,storage:()=>Pick<Storage,'getIt
   read():T|null{
    const actor=key();
    if(memory.has(actor))return cloneRead(memory.get(actor)!);
-   try{const value=attachReadReferences(JSON.parse(storage().getItem(actor)??'null') as T|null,storage().getItem(actor+':read-references'));memory.set(actor,value);return cloneRead(value);}catch{return null;}
+   try{const value=readStored(actor);memory.set(actor,value);return cloneRead(value);}catch{return null;}
   },
  };
 }

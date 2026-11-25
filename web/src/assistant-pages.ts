@@ -36,7 +36,7 @@ export type PageState=(
   |({page:'futures';risk:boolean;trade:TradeShown|null;entry:EntryShown|null;lens:'values'|'risk';view:BlotterSelection}&BlotterLayoutShown)
   |{page:'jobs';job:string|null}|({page:'ppa'}&PpaShown)|{page:'custom-curves';curve:string|null;unsaved:boolean}
   |{page:'physical-operations';physical?:PhysicalShown}|{page:'lifecycle'}|{page:'risk';view:RiskView}
-  |{page:'rec-inventory'|'physical-power'|'facilities'|'dashboard'|'crude-setup'|'gas-setup'|'gas'|'crude'|'delivery'|'interval-series'|'interval-curves'|'vol-surfaces'|'options'|'admin'|'ai'})&{assistant?:WorkspaceSelection;digestView?:BlotterDigestView;focus?:PageFocus;businessDate?:string;facilityLedger?:string|null;facilitySection?:'outlook'|'trades'|'quantities'|'definitions'|'activity'|'transport'|'route'|'gas-delivery'|'crude-delivery'};
+  |{page:'rec-inventory'|'physical-power'|'facilities'|'dashboard'|'crude-setup'|'gas-setup'|'gas'|'crude'|'delivery'|'interval-series'|'interval-curves'|'curve-marks'|'vol-surfaces'|'options'|'admin'|'ai'})&{assistant?:WorkspaceSelection;digestView?:BlotterDigestView;focus?:PageFocus;businessDate?:string;facilityLedger?:string|null;facilitySection?:'outlook'|'trades'|'quantities'|'definitions'|'activity'|'transport'|'route'|'gas-delivery'|'crude-delivery'};
 // The knowledge a page shows: working data, with its As of frame once one is chosen; the selected historical view; or a
 // historical selection not yet applied, which pins nothing.
 export type PageContext={mode:'current';frameId:string|null;frameLabel:string|null;businessDate?:string}
@@ -44,7 +44,7 @@ export type PageContext={mode:'current';frameId:string|null;frameLabel:string|nu
 
 export const inconsistent=()=>Error('The assistant’s page is inconsistent. Reload it.');
 const unsupported:Record<string,string>={'rec-inventory':'rec_inventory','physical-power':'physical_power',facilities:'facility_quantities',dashboard:'dashboard','crude-setup':'crude_setup','gas-setup':'gas_setup',gas:'physical_gas',crude:'physical_crude',delivery:'delivery_prices','interval-series':'interval_series',
-  'interval-curves':'interval_curves','vol-surfaces':'vol_surfaces',options:'options',admin:'users_access',ai:'settings_ai'};
+  'interval-curves':'interval_curves','curve-marks':'curve_marks','vol-surfaces':'vol_surfaces',options:'options',admin:'users_access',ai:'settings_ai'};
 // Pages the assistant reads but Navigate does not open (D250).
 const unopened:readonly string[]=['ppa'];
 const noBlotter={mode:null,portfolioIds:null,groupBy:null,measures:null};

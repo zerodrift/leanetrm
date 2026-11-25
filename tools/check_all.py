@@ -26,6 +26,7 @@ CHECK_PROJECTS = (
     ('tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj', ('--published-clock',)),
     ('tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj', ('--calendar-authoring',)),
     ('tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj', ('--gas-ticket',)),
+    ('tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj', ('--curve-mark-editor',)),
     ('tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj', ('--historical-risk',)),
     ('tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj', ('--monte-carlo-risk',)),
     ('tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj', ('--position-adjustment',)),
@@ -269,6 +270,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     preview_check('integrated live calculation and browser',[*preview,'--live-calculation-check','--browser-check','--browser',str(browser)])
     preview_check('private inactive reference intake',[*preview,'--reference-import-check'], suite='reference')
     preview_check('standard preview and browser', [*preview, '--browser-check', '--browser', str(browser)], suite='standard')
+    preview_check('atomic curve marks, market history and editor browser', [*preview, '--curve-marks-check', '--browser-check', '--browser', str(browser)], suite='standard')
     preview_check('runtime context removal, exact replay and worker reconstruction', [*preview,'--ephemeral-context-check','--browser-check','--browser',str(browser)],suite='standard')
     preview_check('context read demand and grouped header', [*preview,'--context-read-check','--browser-check','--browser',str(browser)])
     preview_check('asynchronous workbench reads', [*preview,'--async-workbench-check','--browser-check','--browser',str(browser)])

@@ -44,6 +44,7 @@ def main():
     parser.add_argument('--with-gas-operations-demo',action='store_true',help='Seed the synthetic basis example plus manual scheduling and imbalance records')
     parser.add_argument('--gas-operations-check',action='store_true',help='Qualify manual gas requests, acknowledgments and imbalance transfers')
     parser.add_argument('--gas-billing-check',action='store_true',help='Qualify final daily gas cash and retained corrections')
+    parser.add_argument('--curve-marks-check',action='store_true',help='Qualify atomic curve mark batches and certified market history')
     parser.add_argument('--gas-exercise-check',action='store_true',help='Qualify gas exercise right admission and retained exercise times')
     parser.add_argument('--gas-imbalance-check',action='store_true',help='Qualify reported-balance cash-out booking, valuation and authority')
     parser.add_argument('--gas-charges-check', action='store_true', help='Qualify independent gas charges and their retained payment rows')
@@ -151,7 +152,7 @@ def main():
         args.with_regional_seed=True
     if args.with_regional_seed and (args.example!='standard' or args.check and not args.regional_seed_check):
         parser.error('Use --with-regional-seed for the interactive standard preset or --regional-seed-check --check for qualification')
-    if args.ephemeral_context_check: args.check=True
+    if args.ephemeral_context_check or args.curve_marks_check: args.check=True
     if args.historical_pool_check: args.jobs_check=True
     if args.market_dates_benchmark_only:args.market_dates_reads_check=True
     if args.market_dates_reads_check:args.market_dates_check=True
@@ -329,6 +330,9 @@ def main():
             from demo_date_plan import compile_plan
             date_plan=compile_plan(dotnet,dll,temporary) if not args.check and not gas_demo else None
             reference,market,security,manifest=fixture(ROOT,fixing_frames=fixing_frames,date_plan=date_plan,window_frames=args.contract_dates_check,publish_clocks=False)
+            if args.curve_marks_check and args.browser_check:
+                from check_curve_marks_http import add_grid_curves
+                market=add_grid_curves(market)
             if args.curve_eligibility_check:
                 from check_curve_eligibility import prepare as prepare_curve_eligibility
                 reference,market,manifest=prepare_curve_eligibility(reference,market,manifest)
@@ -397,6 +401,12 @@ def main():
             if migration.name=='0216_in_term_gas_lifecycle.sql':
                 from check_gas_in_term import upgrade_checks as check_in_term_upgrade
                 check_in_term_upgrade(query,migration)
+            if migration.name=='0401_curve_mark_editor.sql' and args.curve_marks_check:
+                from check_curve_marks import check_upgrade_overlap
+                check_upgrade_overlap(query,migration)
+                from check_fact_anchor_upgrade import run_checks as check_curve_upgrade
+                check_curve_upgrade(query,migration,number='0401',guard='curve_mark_editor_upgrade',
+                                    signatures=('trading.record_curve_marks(uuid,jsonb,timestamptz,text)',))
             if migration.name=='0400_gas_charge_boundaries.sql' and args.gas_charges_check:
                 from check_fact_anchor_upgrade import run_checks as check_boundary_upgrade
                 check_boundary_upgrade(query,migration,number='0400',guard='gas_charge_boundary_upgrade',signatures=(
@@ -883,7 +893,7 @@ def main():
         # the initial view, so its explicit working selections are never recorded
         # as closes containing contracts that do not exist yet.
         working_days=tuple({frame['at'][:10] for frame in manifest['frames']}) if args.factor_swap_check else (
-            ('2020-12-18',) if args.factor_history_check or args.context_read_check else ())
+            ('2020-12-18',) if args.factor_history_check or args.context_read_check or args.curve_marks_check else ())
         seed_session_closes(query,manifest,working=working_days,input_markets=close_inputs)
         (temporary/'manifest.json').write_text(json.dumps(manifest))
         (temporary/'manifest.json').chmod(0o600)
@@ -1166,6 +1176,20 @@ def main():
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,'facility':gas_demo_fixture}))
                     subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-basis-demo'],cwd=ROOT,env=env,check=True,timeout=300)
+            elif args.curve_marks_check:
+                from check_curve_marks import run_checks as check_curve_marks
+                check_curve_marks(query,manifest)
+                if args.browser_check:
+                    target=temporary/'curve-marks-browser.json'
+                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                    try:
+                        subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--curve-marks'],cwd=ROOT,env=env,check=True,timeout=300)
+                    finally:
+                        if evidence:=os.environ.get('OPENETRM_MARKS_BROWSER_EVIDENCE'):
+                            destination=Path(evidence).resolve();destination.mkdir(parents=True,exist_ok=True)
+                            for screenshot in temporary.glob('marks-*.png'):shutil.copy2(screenshot,destination/screenshot.name)
+                from check_curve_marks_http import run_checks as check_curve_marks_http
+                check_curve_marks_http(url,query,manifest)
             elif args.gas_in_term_check:
                 from check_gas_in_term import run_checks as check_gas_in_term
                 def browse_in_term(fixture):
@@ -1208,9 +1232,9 @@ def main():
                         subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-pricing'],cwd=ROOT,env=env,check=True,timeout=300)
                 if args.gas_exercise_check:
                     from check_gas_exercise import run_checks as check_gas_exercise
-                    def browse_exercise(fixture):
+                    def browse_exercise(suite,fixture):
                         target=temporary/'browser-target.json';target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,'facility':fixture}))
-                        subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-exercise'],cwd=ROOT,env=env,check=True,timeout=300)
+                        subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),suite],cwd=ROOT,env=env,check=True,timeout=300)
                     check_gas_exercise(url,query,manifest,run_worker,browse_exercise if args.browser_check else None)
             elif args.gas_indexed_check:
                 from check_gas_indexed import run_checks as check_gas_indexed

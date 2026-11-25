@@ -2,7 +2,7 @@ import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import {bundleApplication} from './bundle-app.mjs';
 import {createHash} from 'node:crypto';
 mkdirSync('dist', { recursive: true });
-for (const file of ['app.css','position.html','position-window.css']) copyFileSync(`src/${file}`, `dist/${file}`);
+for (const file of ['app.css','curve-mark.css','position.html','position-window.css']) copyFileSync(`src/${file}`, `dist/${file}`);
 // The pop-out Blotter (blotter.html) draws the main page's own Blotter markup: the regions index.html marks, each once, in its includes.
 const regions=new Map();
 const main=readFileSync('src/index.html','utf8').replace(/ *<!-- blotter-window: ([a-z]+) -->\n([\s\S]*?) *<!-- \/blotter-window: \1 -->\n/g,(_,name,body)=>{

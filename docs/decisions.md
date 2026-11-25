@@ -7568,6 +7568,38 @@ The report offers no gas valuation policy. Books that hold independently owned
 gas are therefore reported only by a run that names its trades, and the
 refusal says so instead of asking for a policy the report cannot take.
 
+## D453 — Curve mark publication is atomic and market scoped
+
+Monthly curve volatility and pair correlation under
+`curve_marks_log_return_held_v1` have one market workspace. Use exact decimal
+strings and retain the existing bounds and independent pair semantics. The
+managed backend owns normalization, validation, draft deltas and coverage.
+
+1. A view pins one exact definition/reference source, business instant and
+   certified knowledge cut. A known fact must meet both the publication prefix
+   and the cutoff. The selected mark also satisfies effective time. A working
+   publisher sees the write predecessor separately. Historical views omit
+   write predecessors.
+2. A batch declares `curve_mark_batch_v1`, one mark kind, exact source and
+   effective instant, an explicit reason and at most 240 unique cells.
+   Migration 0401 adds the batch recorder over the existing facts and
+   requests. Legacy and editor recorders share a private cell operation and one
+   advisory transaction lock. A changed batch appends one publication.
+3. An identical key, value and effective instant acknowledges the original
+   fact without advancing or restoring the head. The receipt identifies the
+   accepted fact and the head at publication. A retried operation returns its
+   original receipt. Review uses a rolled-back savepoint with the same writer.
+4. Editor reads require current market read access. Review and publication also
+   require import authority and working mode. Original deadlines and exact
+   source admission survive waits through commit. Recovery verifies the
+   original actor and workspace and reconstructs durable certified coordinates
+   under current authority. Browser publication and retry use the same
+   recoverable command. Only the matching editor scope refreshes after success.
+
+See the [editor contract](curve-marks-editor.md),
+[security boundary](security.md#curve-mark-editor-boundary) and
+[verification](verification.md#curve-marks-editor-d453).
+
 ## D454 — Reported gas balances supply an explicit cash-out pair
 
 A gas composition may name `daily_index_cashout_v1` on an independent physical

@@ -90,11 +90,111 @@ Billing metadata qualification retains its own five-second SQL command budget.
 Its dedicated measurement process sets that budget before creating the database
 client and verifies it on the opened connection. Exact result comparisons,
 retained input coordinates and metadata-work bounds remain unchanged when the
-general preview uses a longer command budget. The full assistant group passed
+general preview uses a longer command budget. At billing fix `467685b0`, the
+full assistant group passed
 12 runner workloads, 1,666 PASS checkpoints and 350 owned browser checks; all
 three preview databases were removed. Repository checks passed again, and an
 independent review found no blocking issue in the measurement's process scope
 or preserved deadline.
+
+Integration with master `cbab62a9` reserves D453 and migration 0401 for the
+curve-mark editor, and D454 and migration 0402 for cash-out. The cash-out
+migration's contents are unchanged. Repository checks passed on the combined
+tree, as did three focused database/API/browser workloads: cash-out (103 PASS
+checkpoints, five browser checks and three workers), curve marks (125 PASS
+checkpoints and 30 browser checks), and physical assistant (153 PASS checkpoints
+and ten browser checks). The last includes all four five-second billing
+measurements. Each preview removed its database. Independent integration review
+found no issues in migration ordering, test dispatch or retained deadlines.
+
+## Curve Marks Editor (D453)
+
+On 2026-11-24 the repository, frontend, managed and database groups passed at
+`0b26568d`, which integrated master `b836ef3c`. After the futures execution
+fixture correction at `3a2eabaf`, the full workspace rerun, gas, trading and
+focused editor checks passed at that revision. The workstation ran macOS arm64
+with stock PostgreSQL 18.7, .NET SDK 10.0.402, Node 24.22.0, Python 3.14.2
+and Chrome 158. The runner used this tree's API, synthetic data and disposable
+databases.
+
+Run the groups with the pinned binaries from the repository root.
+
+```sh
+for group in repository frontend managed database workspace gas trading; do
+  python3 tools/check_all.py --pg-bin "$PG_BIN" --dotnet "$DOTNET" --browser "$BROWSER" --group "$group" || exit
+done
+python3 tools/run_preview.py --pg-bin "$PG_BIN" --dotnet "$DOTNET" \
+  --curve-marks-check --browser-check --browser "$BROWSER" --no-build
+```
+
+The repository group passed 186 Python unit checks, 36 independent settlement
+specification checks, 6 owned-process cleanup checks and 40 browser-readiness
+checks. The standalone dependency check passed.
+
+The frontend group ran the locked install, build and all 2,380 tests with
+zero failures, cancellations or skips. Test files ran serially with the
+existing deadlines. This includes first-publication storage failures, exact
+retry after an uncertain outcome and review timestamp layout.
+
+| Group | Runner workloads | Printed PASS checkpoints | Reported owned browser checks | Disposable previews removed |
+| --- | ---: | ---: | ---: | ---: |
+| Managed | 82 | 2,858 | — | — |
+| Database | 24 | 434 | — | — |
+| Workspace | 20 | 1,686 | 276 | 12 |
+| Gas | 18 | 1,223 | 210 | 10 |
+| Trading | 20 | 1,588 | 489 | 10 |
+
+Workloads include dependency restores and builds. Printed checkpoints include
+setup and migration checks. The managed group reported 805 core checks and
+passed the editor's exact command, draft, addressed clipboard and receipt
+checks. The database group reported 173 combined-schema checks.
+
+The first workspace run stopped at the repeated-midnight futures execution
+fixture. PostgreSQL 18.7 includes tzdata 2026f, which dropped the predicted
+November 2026 fallback in Havana. The fixture now uses the observed November
+2025 transition and checks that both fixed UTC instants map to the same local
+midnight before requiring the two policy refusals. The focused execution
+preview passed 90 checkpoints, including both refusals and the existing
+financial expectations. [PostgreSQL 18.7 release notes](https://www.postgresql.org/docs/18/release-18-7.html)
+
+The gas group completed 27 retained risk jobs. In the editor exercise case, a
+missing January volatility left the call unpriced. The browser published
+`0.5`, and an explicit financial refresh returned the existing four-place
+acceptance value `2947.4419`. The earlier cut still showed missing volatility
+and the retained risk result stayed pinned.
+
+The focused web suite passed all 32 tests with zero failures, cancellations or
+skips. The fresh focused preview passed 123 printed checkpoints, including
+29 real-browser assertions and authenticated HTTP and native checks. Migration
+0401 refused predecessor drift and preserved an overlapping legacy command's
+original receipt. The editor checks exercised market-only admission, both
+time coordinates, atomic rollback, stale predecessors, owner-scoped recovery,
+receipt replay and source revocation. The preview removed its disposable
+database.
+
+Visual inspection covered the 20 × 12 volatility grid, 20-curve correlation
+matrix, scrolled sticky headings, long synthetic labels, review evidence,
+paste refusals, pending recovery and the 390-pixel inspector drawer. The
+browser checks covered reduced motion, exact 12-place values, viewport
+bounds and keyboard navigation in the supported theme.
+
+On 2026-11-25 the full frontend group passed all 2,380 tests with the fixes
+at `cb1b803a`. The focused managed editor checks passed. The focused preview
+passed 125 checkpoints, including 30 browser assertions. A native batch
+published in a non-UTC session returned the same receipt through owner-scoped
+HTTP status and retry. Refused command representations left request, fact
+and publication counts unchanged. Visual
+inspection confirmed distinct column codes on the populated, scrolled matrix.
+The gas exercise preview passed 128 checkpoints, including 21 browser checks,
+and completed four retained risk jobs. Explicit repricing returned `2947.4419`
+and the earlier missing mark and retained risk result stayed pinned.
+
+Independent whole-branch review led to four corrections. The native batch
+writer now requires canonical commands and serializes timestamps in UTC for
+owner-scoped receipt recovery. Visible curve codes distinguish scrolled matrix
+columns, and the documentation records the actual keyboard traversal and tested
+revisions. An independent review of the fixes confirmed all four findings were
+resolved. See the [feature contract](curve-marks-editor.md).
 
 ## Whole-book P&L dates without trades (D452)
 
