@@ -1,6 +1,6 @@
 # Current implementation record
 
-## Imbalance cash-out (D451)
+## Imbalance cash-out (D453)
 
 A gas composition can book a pair of existing daily index payment Sides against
 its physical source's reported operator balance. Exact statement-basis and
@@ -21,8 +21,8 @@ flow. Joint risk retains coverage on each book's samples and derivatives.
 
 Full gas, trading, managed and frontend qualification passed after independent
 review. Exact check counts and remaining limits are recorded in
-[verification](verification.md#imbalance-cash-out-d451) and the
-[physical gas contract](physical-gas-side.md#imbalance-cash-out-d451).
+[verification](verification.md#imbalance-cash-out-d453) and the
+[physical gas contract](physical-gas-side.md#imbalance-cash-out-d453).
 
 ## Independent gas charges (D450)
 

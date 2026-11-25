@@ -2983,7 +2983,7 @@ context, current authority and idempotent first outcomes apply throughout.
 
 No live pipeline submission, tariff interpretation, new portfolio imbalance
 instrument, automatic cash-out, invoice/payment execution or accounting is
-introduced by this manual consumer. D451 adds an explicit cash-out pair on a gas
+introduced by this manual consumer. D453 adds an explicit cash-out pair on a gas
 trade and a scoped financial read of its statement evidence; transfer cash remains
 outside the portfolio. Qualify the business oracles and complete independent
 review before publication.
@@ -7465,7 +7465,110 @@ the same exact row and payment terms. See the
 [design](superpowers/specs/2026-11-23-charges-design.md) and
 [local verification](verification.md#independent-gas-charges-d450).
 
-## D451 — Reported gas balances supply an explicit cash-out pair
+## D451 — A date's source is required before its temporary view is restored
+
+Corrects whole-book P&L runs and states the rule they rely on. Implemented and
+checked on disposable databases
+([verification](verification.md#whole-book-pl-date-sources-d451)).
+
+A request holds one admitted business source at a time (migration 0259), and
+source admission keeps its original read deadline as a commit check (D401,
+[lifecycle projection](lifecycle-projection.md)). A P&L run reads its two dates
+one after the other, each in a temporary view: a savepoint that binds that
+date's context and is restored when the read ends. A run that names no trades
+proves, at each date that holds trades, that its books hold no independently
+owned gas, and that proof admits the date's own exact source inside the view.
+Restoring the view emptied the source slot and left the commit callback of that
+source pending, so every such run was refused at commit with a database denial
+although nothing had been revoked. Runs that name their trades skip the proof
+and were not affected.
+
+The rule, for an admission that declares that its requirement reads state a
+temporary view restores:
+
+- It is required before the restore, while that state exists. A refusal there
+  refuses the request.
+- What outlives the state stays a commit check. The restore leaves no callback
+  to state it removed.
+- A read that fails inside its view returns nothing and leaves no such
+  admission.
+
+The business source is the one admission that declares this. What it keeps for
+commit is its original read deadline with current market and trade access; a
+successor grant does not renew it. Its slot identity and the trading history
+boundary of its context are checked when the view ends. Every other admission
+registered in a view stays pending for commit in full, as before, and so does a
+source admitted outside a view, as lifecycle actions and economic projection
+admit theirs.
+
+The P&L date read is the one consumer. Its final reauthorization binds each date
+again under current authority.
+
+Other admissions registered in a date's view are not declared. Each would be
+refused at commit where its requirement needs that date's bound context. The
+first two below were explored after the change with temporary instrumentation,
+which is not in the tree
+([verification](verification.md#whole-book-pl-dates-without-trades-d452)). No
+run reaches any of these refusals today:
+
+- The service presence proofs of Park and Loan, custody and Transport need
+  their date's read coordinates in the operation, and either a business day
+  that is the UTC date of the date's instant or that date's bound context. The
+  restore removes the coordinates and the binding. At commit the coordinates
+  are there again, because the final reauthorization resolves both dates
+  outside any view, and every date a run can name is on its UTC date: a working
+  snapshot by definition, a recorded close because recording refuses a cutoff
+  on another UTC date ([regional closes](regional-closes.md)). A close stored
+  past that rule with a business day before its UTC date, the one case tried,
+  was refused when its date was read, before a proof was registered. Admitting
+  such closes needs these proofs declared first.
+- The source read of a Park and Loan agreement needs its date's bound context
+  and is refused once the view is restored. Every run that registers it is
+  refused before commit: for accounting coverage while the agreement has value
+  left, because its valuation carries no accounting facts; for the missing gas
+  policy over whole books once the book holds gas; and for its trade scope when
+  a named agreement has nothing left to value. Giving the agreement accounting
+  facts needs this read declared first.
+- The source reads of custody and Transport agreements are of the same kind,
+  read in the code and not run. Neither is registered in a date's view: a run
+  over books that hold either kind of agreement by its closing instant is
+  refused before either date is read (`gas_custody_pnl`,
+  `gas_transport_financial_pnl`).
+
+The economic projection's own copy of the source admission is in no restored
+view and is unchanged. A whole-book date that holds no trades made no owned-gas
+proof; D452 corrects that.
+
+## D452 — A whole-book P&L date proves its books hold no independently owned gas, with or without trades
+
+Corrects whole-book P&L runs over books that hold independently owned gas.
+Implemented and checked on disposable databases
+([verification](verification.md#whole-book-pl-dates-without-trades-d452)).
+
+Whole-book valuation proves that its books hold no independently owned gas, or
+values that gas under an explicitly selected policy
+([owned gas](gas-owned-holdings.md)). A P&L run selects no gas policy, so it
+can only prove absence, and a complete point attests that its books hold
+nothing else ([trading P&L](trading-pnl.md)). A date that holds trades made the
+proof while it was prepared. A date that holds no trades skipped preparation,
+and the proof with it, and was still reported empty with complete coverage. Over
+books that hold gas and no trade at either date, a run was refused as a scope
+with neither holdings nor cash. Where a trade booked after both dates was
+already known and had recorded cash, the run returned a report that listed
+only that cash.
+
+Each date of a run that names no trades now makes the proof, whether or not it
+holds trades. Books that hold independently owned gas are refused with
+`gas_owned_policy_required` at the first date that shows it. A run that names
+its trades makes no proof and claims nothing about its books' gas, as before.
+The proof admits the date's exact source inside its temporary view, under
+D451's rule.
+
+The report offers no gas valuation policy. Books that hold independently owned
+gas are therefore reported only by a run that names its trades, and the
+refusal says so instead of asking for a policy the report cannot take.
+
+## D453 — Reported gas balances supply an explicit cash-out pair
 
 A gas composition may name `daily_index_cashout_v1` on an independent physical
 membership. It creates two ordinary named daily index payment entries, received
@@ -7544,6 +7647,6 @@ heads, state, quantity, price and cash. No transfer cash, external payment or
 accounting action is performed. D339's operating-only statement rule is revised
 only for trades that explicitly book this pair. There is no automatic link to
 an owned operator balance; keeping both for the same gas can double count it.
-See [the contract](physical-gas-side.md#imbalance-cash-out-d451),
+See [the contract](physical-gas-side.md#imbalance-cash-out-d453),
 [the design](superpowers/specs/2026-11-24-imbalance-cashout-design.md) and
-[verification](verification.md#imbalance-cash-out-d451).
+[verification](verification.md#imbalance-cash-out-d453).

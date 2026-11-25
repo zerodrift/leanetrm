@@ -1,6 +1,6 @@
 # Local verification and continuous integration
 
-## Imbalance cash-out (D451)
+## Imbalance cash-out (D453)
 
 Local qualification uses synthetic trades, the checkout's own API and leased
 worker, and isolated stock PostgreSQL 18.7 databases on macOS arm64. Toolchain:
@@ -62,6 +62,142 @@ corrections, valuation authority and scenario reuse. Its four findings were
 resolved with failing-then-passing regressions before the full qualification
 above. No review findings remain deferred. The review was read-only; the
 verification runs were performed separately by the implementer.
+
+## Whole-book P&L dates without trades (D452)
+
+Checked on synthetic data on 2026-11-24, in the same Linux x86_64 containers as
+D451 below (stock PostgreSQL 18.7, .NET SDK 10.0.402, Python 3.12.3, Debug API
+build), each run on a disposable database built from the whole migration
+sequence and a fresh build. A workstation (macOS arm64) ran the 185 repository
+Python unit checks and the standalone dependency check, which pass.
+
+The new case in `tools/check_recorded_cash.py` records independently owned gas
+in a book of its own through the native gas commands, with title received on
+15 October: the book holds no gas at the 13th and 14th and some at the 15th
+and 16th. With the code before D452, `tools/run_preview.py --check
+--cash-pnl-check` passed 85 checks and stopped at the first run over that book,
+from the 13th to the 16th, which names no trades and whose dates hold none:
+422 `pnl_position`, a scope with neither holdings nor cash.
+
+| Run, with the change | Result |
+| --- | --- |
+| `--check --cash-pnl-check` | passed, 90 PASS lines |
+| the same with named-trade runs also making the proof | fails: the run that names its trade is refused with `gas_owned_policy_required` |
+| `--check --async-workbench-check` | passed, 139 PASS lines |
+| `--check --exchange-check`, which also runs the P&L checks | passed, 430 PASS lines |
+| `--check`, the default owned check | passed, 1,586 PASS lines |
+
+Rerun on 2026-11-24 after merging master at `2ae16e0a`, which took D450 for
+independent gas charges; this entry and D451 below were renumbered then. On the
+merged branch, in the same kind of container: `--check --cash-pnl-check` 90
+PASS lines, `--check --async-workbench-check` 139, `--check --exchange-check`
+430, the default owned check 1,586, and `tools/check_all.py --group managed`
+passed its 81 workloads. The 186 repository Python unit checks, the settlement
+specification and the standalone dependency check pass on the workstation.
+
+What the new case establishes, for runs over the gas book that name no trades:
+
+- From the 13th to the 16th, with no trade at either date, the run is refused
+  at the 16th with `gas_owned_policy_required`, and the refusal says that a P&L
+  report does not value such gas and to name the trades instead.
+- A trade booked at the 16th in that book, with its premium cash recorded, is
+  known to runs between earlier dates. From the 14th to the 15th the run is
+  refused at the 15th, a date that holds the gas and no trade.
+- From the 13th to the 14th, before the gas is held, each date proves its
+  absence and the report lists that trade's cash alone.
+- From the 14th to the 16th the run is refused at the 16th, which holds the
+  trade, after the 14th has made the proof without gas or trades.
+- A run from the 15th to the 16th that names the trade reports it as new and
+  makes no claim about the book's gas.
+- Over a book with no gas, a run whose prior date holds no trade reports that
+  date empty, the trade as new, and is offered for saving.
+
+Before D452, an exploratory run on an interactive preview over books that held
+gas at both dates, neither holding a trade, returned a report listing only a
+later trade's cash.
+
+D451's other remaining limits were explored with temporary instrumentation that
+recorded, after each date's view was restored, which admissions registered in
+it would be refused. It is not in the tree.
+
+- Presence proofs. In P&L runs over the exchange example (options, a whole
+  book and a named trade) they were refused right after the restore
+  (`gas_park_loan_scope`, `gas_transport_financial_context`), because the
+  restore also removes the date's read coordinates. Once those coordinates are
+  resolved again, as the final reauthorization resolves them outside any view,
+  every proof passed: each date was on the UTC date of its instant. A close
+  inserted directly with a business day before its UTC date, which the
+  recording operation refuses, made both runs from it fail with 403
+  `access_denied` while the date's close was read, before any proof was
+  registered. The same runs from a close on its UTC date completed.
+- Park and Loan source read. The Park and Loan native fixture
+  (`tools/check_gas_park_loan.py`, four agreements across five checkpoints
+  each) was extended with a P&L run over each agreement's book, whole and by
+  the agreement's trade. All 40 runs were refused before commit:
+  `pnl_accounting_coverage` while the agreement had value left,
+  `gas_owned_policy_required` over the whole book once it held gas, and
+  `risk_trade_scope` for a named agreement with nothing left to value. The
+  agreement's source read was registered in 44 of their date views. Tried right
+  after each restore it was refused (`gas_owned_context`), and nothing binds a
+  date's context again before commit.
+
+Not established here: no real-browser suite ran, for the reason given under
+D451. The custody and Transport source reads were read in the code, not run.
+The fence functions that make them unreachable have native checks of their own
+(`tools/check_gas_park_custody.py`, `tools/gas_transport_financial_fences.py`);
+no P&L run over books that hold such agreements ran here. The economic
+projection's own source admission was not changed or run.
+
+## Whole-book P&L date sources (D451)
+
+Checked on synthetic data on 2026-11-24. A Linux x86_64 container (Ubuntu
+24.04.5, stock PostgreSQL 18.7, .NET SDK 10.0.402, Python 3.12.3, Debug API
+build) ran the database and HTTP checks, each on a disposable database built
+from the whole migration sequence. A workstation (macOS arm64) ran the 185
+repository Python unit checks and the standalone dependency check, which pass.
+
+Before the change, with only the new whole-book case added,
+`tools/run_preview.py --check --cash-pnl-check` passed the runs that name their
+trades and stopped at the run that names none: 403 `access_denied`, SQLSTATE
+42501.
+
+| Run, in the container with the change | Result |
+| --- | --- |
+| `--check --cash-pnl-check` | passed, 89 PASS lines |
+| the same with the view's requirement of its admissions removed | fails in the native check: an unadmitted source left its view unrequired |
+| the same with a view also taking the admissions registered before it | fails in the native check: a view required an admission that was not its own |
+| `--check --async-workbench-check` | passed, 139 PASS lines |
+| `--check --exchange-check` | passed, 429 PASS lines |
+| `--check`, the default owned check | passed, 1,586 PASS lines |
+| `tools/check_all.py --group managed` | passed, 81 workloads |
+
+What the new cases establish:
+
+- A book of its own holds one option at both dates. The run that names no
+  trades reports the same totals and positions as the run that names that
+  trade, states its scope as all trades in the selected books, and is offered
+  for saving.
+- In one request, each of a saved report's two dates admits its own exact
+  source in a temporary view, and the request commits.
+- A source that was never admitted is refused with `trading_source_denied` when
+  its view ends. That view leaves its ordinary admission pending and none that
+  reads its state.
+- What a restored source keeps for commit refuses an expired original deadline
+  with `futures_margin_denied`.
+- A source admitted before a view, and admitted again inside it, is still
+  admitted after the restore and is required in full at commit.
+- An admission that reads a view's state is required once before each restore
+  and its retained part once at commit. One registered before the view, and an
+  ordinary one registered inside it, are required at commit only, in full.
+
+Not established here: no real-browser suite ran, because the browser's sandbox
+does not start under the container's default security profile, which was left
+as it was. The Risk page's own whole-book run was therefore not exercised in a
+browser. The other check groups were not run for this change. No check lets an
+original deadline lapse between a date's read and the commit of a real run.
+Whole books that hold independently owned gas, and the limits D451 lists as
+remaining, are covered by the next entry above
+([D452](#whole-book-pl-dates-without-trades-d452)).
 
 ## Independent gas charges (D450)
 

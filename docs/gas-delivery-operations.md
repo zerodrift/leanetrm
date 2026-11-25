@@ -1,6 +1,6 @@
 # Manual gas delivery operations
 
-## Statement evidence in valuation (D451)
+## Statement evidence in valuation (D453)
 
 A gas trade with an explicit cash-out pair reads only the legal-entity-held
 accounts of its exact physical source. `security.read_gas_valuation_balances`
@@ -15,7 +15,7 @@ sources. Workers need the active lease and exact catalog, context, instant,
 book and trade scope. Missing authority is SQLSTATE `42501`, never an empty
 account list. An authorized source with no accounts is instead an unassessed
 valuation. Operating reads and writes retain their existing permissions.
-See [cash-out behavior and limits](physical-gas-side.md#imbalance-cash-out-d451).
+See [cash-out behavior and limits](physical-gas-side.md#imbalance-cash-out-d453).
 
 D339 is the bounded local implementation contract for a manual delivery desk covering
 before flow, scheduling, after flow and reconciliation. Live pipeline submission,
@@ -26,7 +26,7 @@ external evidence and application of that evidence are separate operations.
 
 Reuse retained booked gas obligations/native days, exact reference-data and party
 versions, existing daily quantity revisions, facility allocations, daily cash
-and the shared Blotter retained-command/review mechanisms. D451 adds a cash-out
+and the shared Blotter retained-command/review mechanisms. D453 adds a cash-out
 only when a gas composition explicitly states its payment pair. Transfer cash
 remains outside the portfolio. Neither operation posts accounting or dispatches
 payments to a bank.
@@ -35,7 +35,7 @@ A versioned gas service account identifies an external service-account reference
 its exact booked physical anchor, pipeline/zone/product/unit and holder (the
 anchor's legal entity or counterparty). Independent gas-operations capabilities
 are required in addition to current anchor-trade/source rights. Ordinary trade
-visibility does not grant access to operating statement screens. D451 separately
+visibility does not grant access to operating statement screens. D453 separately
 authorizes the statement evidence used by an explicitly booked cash-out under
 financial read permissions. Account identity
 and unit/scope cannot be changed to mint another balance pool. Versioned terms

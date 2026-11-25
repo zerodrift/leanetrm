@@ -1,6 +1,6 @@
 # Deal ticket
 
-## Gas imbalance cash-out (D451)
+## Gas imbalance cash-out (D453)
 
 Add side offers **Imbalance cash-out**. One card creates two native payment
 memberships and consumes two of the seven payment slots. Each field is required
@@ -603,7 +603,7 @@ profile's lifecycle and explicit no-discounting policy are unchanged.
   deadline), nomination (cycle, nominating party), heat content in Btu per cubic
   foot and quality specification. The strip shows the planned master agreement
   force majeure and credit terms. The schedule lists a planned Volume column. The implemented Imbalance tab
-  shows reported balance cash-out under D451; it does not derive imbalance from
+  shows reported balance cash-out under D453; it does not derive imbalance from
   nominated or allocated quantities.
   **New trade → Structured** opens dedicated tickets for
   [Gas storage](gas-storage-contract.md) and [Heat-rate call option](heat-rate-call-option.md).

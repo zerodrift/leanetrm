@@ -1,9 +1,9 @@
 # Imbalance cash-out on a gas trade: design
 
-Status: built under D451 on 24 November 2026, from the owner-approved second
+Status: built under D453 on 24 November 2026, from the owner-approved second
 review. It builds on the implemented
 [Instrument schedule and gas pricing design](2026-11-23-instrument-schedule-and-gas-pricing-design.md)
-(D446–D447). See [local qualification](../../verification.md#imbalance-cash-out-d451).
+(D446–D447). See [local qualification](../../verification.md#imbalance-cash-out-d453).
 
 ## Intent
 
@@ -360,7 +360,7 @@ Each stage leaves every check passing.
 
 ## Confirmed design calls
 
-The owner-approved calls are recorded in D451.
+The owner-approved calls are recorded in D453.
 
 1. Anyone who can read the trade sees its imbalance value. Confirmed by the
    owner on 24 November 2026.

@@ -6,11 +6,22 @@ namespace OpenEtrm.Api;
 
 internal static class TradingContext
 {
-    internal sealed record SourceAdmission(Guid Catalog,Guid Context,DateTimeOffset At,DateOnly BusinessDate,DateTimeOffset Until):ICommitAdmission
+    internal sealed record SourceAdmission(Guid Catalog,Guid Context,DateTimeOffset At,DateOnly BusinessDate,DateTimeOffset Until):IViewAdmission
     {
         public async Task RequireCommit(NpgsqlConnection connection,CancellationToken ct)
         {
             await using var command=ScheduleStore.Command(connection,"SELECT security.require_admitted_business_source($1,$2,$3,$4,$5)",Catalog,Context,At,BusinessDate,Until);
+            await command.ExecuteNonQueryAsync(ct);
+        }
+        // Restoring a view empties the request's source slot. The original read
+        // deadline and current market and trade access remain required at commit.
+        public ICommitAdmission Retained=>new SourceAuthority(Catalog,Until);
+    }
+    private sealed record SourceAuthority(Guid Catalog,DateTimeOffset Until):ICommitAdmission
+    {
+        public async Task RequireCommit(NpgsqlConnection connection,CancellationToken ct)
+        {
+            await using var command=ScheduleStore.Command(connection,"SELECT settlement_data.require_futures_margin_preview($1,$2)",Catalog,Until);
             await command.ExecuteNonQueryAsync(ct);
         }
     }

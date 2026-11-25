@@ -1,6 +1,6 @@
 # Identity and authorization foundation
 
-## Gas cash-out valuation evidence (D451)
+## Gas cash-out valuation evidence (D453)
 
 Migration 0401 grants `security.read_gas_valuation_balances` to runtime and risk
 worker roles. This bounded security-definer operation requires `ReadTrades`,
