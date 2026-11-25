@@ -81,6 +81,9 @@ internal static class GasSwingAdmission
             }) || dated.SelectMany(p => p).Any(p => p.CustomProjection is not null || p.ProjectionInterval is not null ||
                 p.Quote.Kind != QuoteKind.Outright) || dated.SelectMany(p => p).Select(p => p.Market.Curve).Distinct().Count() != 1)
             throw new MarketDataException("swing_model_scope", "Swing requires one unadjusted point-price curve in the retained native quote.");
+        foreach (var price in priceInputs.Where(i => i.Output.Operation == "price_lookup"))
+            ScheduleMarketSources.RequireDatedGasAssignment(price.Output, price.Bindings.ToDictionary(binding => binding.Port),
+                instrument.Assignments, dated[price.Output.Ordinal].Single());
         return clock;
     }
 

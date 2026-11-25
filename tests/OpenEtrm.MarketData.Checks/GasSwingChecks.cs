@@ -137,6 +137,7 @@ internal static class GasSwingChecks
             ExerciseMarks? marks = null) => new(original.Id, entries.IsDefault ? members : entries, original.Assignments,
                 rights: exercise, marks: marks, swingRights: [terms], swingPricingBindings: pricing.IsDefault ? [Pricing] : pricing);
         var saved = Save(right);
+        RequireExactAssignment(saved);
         Require(saved.EconomicIdentity.Canonical.Contains("\"contract\":\"gas_swing_right_v1\"", StringComparison.Ordinal) &&
             saved.PricingBindingIdentity!.Canonical.Contains("\"contract\":\"gas_swing_pricing_v1\"", StringComparison.Ordinal) &&
             !saved.EconomicIdentity.Canonical.Contains(Pricing.NumericalPolicy, StringComparison.Ordinal),
@@ -198,6 +199,32 @@ internal static class GasSwingChecks
         Require(Save(right, entries: withBalances).SwingRights[0].Slots.SequenceEqual([0, 1]),
             "The reported-balance pair shares the source and stays outside the covered swing slots.");
         Refuse("swing_right", () => Save(right with { Slots = [0, 1, 2, 3] }, entries: withBalances));
+    }
+
+    private static void RequireExactAssignment(RetainedGasInstrument saved)
+    {
+        var assignment = saved.Assignments.Single();
+        var other = new GasValuationAssignment(assignment.Key with { Code = "synthetic_other_assignment" },
+            assignment.Location, assignment.Product, assignment.From, assignment.To, assignment.Settlement,
+            assignment.Quote, assignment.Projection, assignment.Fixing, assignment.Adjustment);
+        var lookup = assignment.Lookup;
+        var fixing = lookup.Fixing!;
+        var lookupWithOtherFixing = lookup with { Fixing = fixing with { FixingAt = fixing.FixingAt.AddHours(-1) } };
+
+        string Admission(ImmutableArray<GasValuationAssignment> assignments, IndexPriceLookup admittedLookup)
+        {
+            try
+            {
+                _ = new RetainedGasInstrument(saved.Id, saved.Members, assignments, [admittedLookup],
+                    swingRights: saved.SwingRights, swingPricingBindings: saved.SwingPricingBindings);
+                return "accepted";
+            }
+            catch (MarketDataException error) { return error.Code; }
+        }
+        var wrongKey = Admission([other], lookup);
+        var wrongFixing = Admission([assignment], lookupWithOtherFixing);
+        Require(wrongKey == "side_market_sources" && wrongFixing == "side_market_sources",
+            $"Swing must require the sealed assignment and its exact lookup. Different key was {wrongKey}; different fixing was {wrongFixing}.");
     }
 
     private static RetainedGasMember Retain(Side side, string direction, ReportedBalanceFollow? balance = null) =>
