@@ -137,7 +137,7 @@ public sealed class PhysicalGasStore(PreviewDatabase database)
   return new{sideCalendars=await SideCalendarPolicies.Catalog(c,ct),gasSetupId=setup,gasSetupPublication=publication,physicalReferences=referencePaths.Select(ReferencePath).ToArray(),locations,pricingIndices=GasNamedIndexCash.Choices(data).ToArray(),tariffs=(await Tariffs(c,data,setup,ct)).Select(t=>new{code=t.Text("code"),name=t.OptionalText("logical_code")??t.Text("code"),pipeline=t.Text("pipeline_code"),product=t.Text("product_code"),quote=t.Text("quote_code"),rate=t.Text("rate"),validFrom=t.Text("valid_from"),validTo=t.Text("valid_to"),basis="contractual_delivery_quantity"}),books,legalEntities=await TradeParties.Catalog(c,Catalog,true,ct),counterparties=await TradeParties.Catalog(c,Catalog,false,ct),
    scope="Future physical gas delivery with fixed contractual quantities, separate fixed consideration and optional usage fee. This profile admits up to 1200 operating days with exact monthly index coverage, fixed-offset gas days and no discounting. Actuals and settlement remain unavailable."};
  }
- internal async Task<(ImmutableArray<GasValuationAssignment> Assignments,GasDayClock Clock,JsonElement Mapping)> Metadata(NpgsqlConnection c,PreviewData data,PhysicalGasTerms body,CancellationToken ct,bool swingSource=false)
+ internal async Task<(ImmutableArray<GasValuationAssignment> Assignments,GasDayClock Clock,JsonElement Mapping)> Metadata(NpgsqlConnection c,PreviewData data,PhysicalGasTerms body,CancellationToken ct,bool swingSource=false,string? bookingSide=null)
  {
   if(body.Convention!=Convention||body.KnowledgeMode!="current"||body.Discounting!=false||body.DefinitionRevisionId!=data.DefinitionRevision.RevisionId)
    throw Invalid("Select current exact gas inputs and explicit no-discounting policy.");
@@ -157,7 +157,7 @@ public sealed class PhysicalGasStore(PreviewDatabase database)
   var selection=PriceSettlementSelection.CurveTarget(R(target.Text("index_a_code")));
   var assignments=ImmutableArray.CreateBuilder<GasValuationAssignment>();
   var forwards=data.Contracts.Where(x=>members.Contains(x.Key.Id)&&x.Kind==ContractKind.Forward).ToArray();
-  foreach(var contract in DeliveryContracts(forwards,from,to,swingSource))
+  foreach(var contract in DeliveryContracts(forwards,from,to,swingSource,bookingSide))
   {
    var fixing=One(PriceSettlementInputs.Fixings(data,selection,quote,[contract]));
    assignments.Add(new(R(row.Text("code")),new(R(row.Text("pipeline_code")),R(row.Text("zone_code")),R(row.Text("point_code"))),R(row.Text("product_code")),contract.DeliveryFrom,contract.DeliveryTo,selection,quote,
@@ -169,7 +169,7 @@ public sealed class PhysicalGasStore(PreviewDatabase database)
   return(assignments.ToImmutable(),clock,row);
  }
  // A swing day consumes exactly one native daily or calendar-month point. Other gas profiles retain monthly pricing.
- private static IEnumerable<MarketContract> DeliveryContracts(MarketContract[] forwards,DateOnly from,DateOnly to,bool swingSource)
+ private static IEnumerable<MarketContract> DeliveryContracts(MarketContract[] forwards,DateOnly from,DateOnly to,bool swingSource,string? bookingSide)
  {
   if(!swingSource)
   {
@@ -183,7 +183,12 @@ public sealed class PhysicalGasStore(PreviewDatabase database)
   for(var day=from;day<to;day=day.AddDays(1))
   {
    var coverage=eligible.Where(x=>x.DeliveryFrom<=day&&x.DeliveryTo>day).Take(2).ToArray();
-   if(coverage.Length!=1)throw new MarketDataException("swing_price_coverage","Every swing day requires exactly one daily or calendar-month contract on the point curve.");
+   if(coverage.Length!=1)
+   {
+    var message=$"Swing day {day:yyyy-MM-dd} requires exactly one daily or calendar-month contract on the selected point curve.";
+    throw bookingSide is null?new MarketDataException("swing_model_scope",message):
+     new TicketFieldException("gas_composition_input",message,bookingSide,"delivery_point");
+   }
    if(coverage[0]!=previous)yield return coverage[0];
    previous=coverage[0];
   }

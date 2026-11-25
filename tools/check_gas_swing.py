@@ -28,7 +28,8 @@ def predecessor(query, migration):
 def period_predecessor(query, migration):
     check_upgrade_guard(query, migration, number='0405', guard='gas_swing_period_upgrade', signatures=[WRITER, SHAPE])
     definitions = [query(f"SELECT pg_get_functiondef('{signature}'::regprocedure)") for signature in (SHAPE, WRITER)]
-    return ';'.join(definitions)+';', migration_body(migration.read_text())
+    restore = ';'.join(definitions)+f';DROP FUNCTION {SHAPE[:-1]},text);'
+    return restore, migration_body(migration.read_text())
 
 
 def populated_upgrade(query, manifest, prior, period_prior, body, booked):
@@ -60,12 +61,41 @@ def populated_upgrade(query, manifest, prior, period_prior, body, booked):
         THEN RAISE EXCEPTION 'swing_upgrade_history';END IF;END$proof$;"""
     runtime_query(query, manifest, replay + 'RESET SESSION AUTHORIZATION;' + migration + proof +
                   'SET LOCAL SESSION AUTHORIZATION preview_runtime;' + replay, prefix=prefix, commit=False)
-    period_helpers, period_migration = period_prior
-    prefix = f"{period_helpers}DROP FUNCTION {SHAPE[:-1]},boolean);CREATE TEMP TABLE previous_gas AS {snapshot};"
+    restore, period_migration = period_prior
+    prefix = f"{restore}CREATE TEMP TABLE previous_gas AS {snapshot};"
     runtime_query(query, manifest, replay + 'RESET SESSION AUTHORIZATION;' + period_migration + proof +
                   'SET LOCAL SESSION AUTHORIZATION preview_runtime;' + replay, prefix=prefix, commit=False)
     print('PASS populated 0405 preserves no-right predecessor command replay, trade, program bytes and schedule bindings',flush=True)
     print('PASS populated 0402 writer replay and 0403 upgrade preserve the trade, components, program bytes and schedule bindings', flush=True)
+
+
+def overlapping_upgrade(client, query, manifest, prior, context, base, right):
+    from check_gas_exercise import amend_rights
+    from check_gas_swing_routes import upgraded_book_checks
+    restore, migration = prior
+    book = str(uuid4())
+    query(f"INSERT INTO trading.books SELECT catalog_id,'{book}',portfolio_id,'Synthetic predecessor swing',publication_order,effective_at FROM trading.books LIMIT 1;")
+    ordinary = deepcopy(base)
+    ordinary.update(bookId=book,operationId=str(uuid4()))
+    ordinary['physicalSides'][0]['deliveryPoint'] = 'synthetic_swing_overlap_point'
+    query("BEGIN;"+restore+"COMMIT;")
+    try:
+        companion = client.call('gas/composition/book',ordinary)
+        original = client.call('gas/composition/book',{**ordinary,'operationId':str(uuid4())})
+        fixed = {**right,'dailyMinimum':'1000','dailyMaximum':'1000','totalMinimum':'3000','totalMaximum':'3000'}
+        swing = amend_rights(query,manifest,original,[],'2020-12-18T16:00:00Z',swing_rights=[fixed])
+        def sealed_programs():
+            return query(f"""SELECT s.instrument_id,s.slot,s.schedule_id,encode(sha256(convert_to(to_jsonb(p)::text,'UTF8')),'hex')
+                FROM trading.instrument_side_schedules s JOIN trading.side_schedule_programs p USING(catalog_id,schedule_id)
+                WHERE s.instrument_id IN ('{swing['instrumentId']}','{companion['instrumentId']}')
+                ORDER BY s.instrument_id,s.slot;""")
+        before = sealed_programs()
+        assert len(before.splitlines())==4 and swing['revision']==2
+        assert json.loads(query(f"SELECT trading.gas_swing_terms('{manifest['catalogId']}','{swing['instrumentId']}')"))[0]['slots']==[0,1]
+    finally:
+        query('BEGIN;'+migration+'COMMIT;')
+    assert sealed_programs()==before
+    upgraded_book_checks(client,context,book,swing,companion)
 
 
 def run_checks(url, query, manifest, prior, period_prior, run_worker):
@@ -111,10 +141,12 @@ def run_checks(url, query, manifest, prior, period_prior, run_worker):
     before = cut(plain)
     body = {**base, 'operationId': str(uuid4()), 'swingRights': [right]}
     saved = book(body)
+    overlapping_upgrade(client, query, manifest, period_prior, context, base, right)
     for point in ('synthetic_swing_gap_point','synthetic_swing_overlap_point'):
         invalid = {**body,'operationId':str(uuid4()),'physicalSides':[{**source,'deliveryPoint':point}]}
-        staged_booking(query,manifest,body,invalid,'swing_price_coverage')
-        assert client.call('gas/composition/book',invalid,expected=422)['code']=='swing_price_coverage'
+        error = client.call('gas/composition/book',invalid,expected=422)
+        assert (error.get('code'),error.get('side'),error.get('field'))==('gas_composition_input',source['code'],'delivery_point'),error
+        staged_booking(query,manifest,body,invalid,'gas_composition_input',fields=dict(side=source['code'],field='delivery_point'))
     first = date(2021, 1, 31)
     assert terms(saved) == [dict(ordinal=0, physical_slot=0, slots=[0, 1], holder='us', reference_lots=10,
         daily_minimum=7, daily_maximum=11, total_minimum=30, total_maximum=31, quantity_policy=right['quantityPolicy'],

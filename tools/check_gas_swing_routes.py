@@ -22,6 +22,34 @@ def assert_replay(field, queued, live):
         raise AssertionError(field+' replay mismatch\n'+'\n'.join(islice(diff,10)))
 
 
+def upgraded_book_checks(c, ctx, book, swing, companion):
+    shared = {**ctx,'convention':'trading_workspace_v1'}
+    view = dict(mode='trades',bookIds=[book],portfolioIds=[],groupBy=[],measures=[],pivotConvention=None)
+    response = c.call('trading/blotter',dict(context=shared,view=view))
+    holdings = {h['tradeId']:h for h in response['holdings']}
+    assert response['unvaluedPositions']==1 and holdings[companion['tradeId']]['presentValue']=='300'
+    affected = holdings[swing['tradeId']]
+    assert affected['presentValue'] is None and affected['unavailableReason']=='swing_model_scope',affected
+    pivot = c.call('trading/blotter',dict(context=shared,view={**view,'mode':'pivot','groupBy':['book'],
+        'measures':['presentValue','tradeCount'],'pivotConvention':'trading_blotter_money_totals_v1'}))
+    assert sum(g['tradeCount'] for g in pivot['groups'])==2 and sum(g['unvaluedPositions'] for g in pivot['groups'])==1
+    assert sum(Decimal(g['presentValue']) for g in pivot['groups'] if g['presentValue'] is not None)==300
+    risk = PreviewClient(c.url)
+    risk.bootstrap()
+    risk.call('profile',dict(profile='risk'))
+    scope = dict(context=shared,bookIds=[book],portfolioIds=[],tradeIds=None)
+    cat = risk.call('portfolio/risk/catalog',scope)
+    assert [(p['tradeId'],p['reason']) for p in cat['excludedPositions']]==[(swing['tradeId'],'swing_model_scope')]
+    result = risk.call('portfolio/risk',dict(scope,context={**shared,'knowledgeMode':'retained','contextId':cat['context']['contextId']},
+        detail='holdings',convention=cat['convention'],numericalPolicy=cat['numericalPolicy'],pricingPolicy=cat['pricingPolicy'],
+        stress=[],bumps=[dict(factor=cat['factors'][0]['factor'],size='0.001',convention=cat['bumpConvention'])]))
+    assert result['excludedPositions']==cat['excludedPositions']
+    factor, = result['factors']
+    position, = factor['positions']
+    assert position['tradeId']==companion['tradeId'] and position['values']['base']==factor['totals'][0]['values']['base']=='300'
+    print('PASS populated 0404 overlapping swing and ordinary companion retain sealed programs across 0405: one row-local refusal and valued subtotal 300 on Blotter and risk',flush=True)
+
+
 def route_checks(c, query, manifest, context, template, run_worker):
     risk = PreviewClient(c.url)
     risk.bootstrap()
@@ -41,6 +69,7 @@ def route_checks(c, query, manifest, context, template, run_worker):
 
     gain = book_strip('synthetic_intrinsic')
     loss = book_strip('synthetic_mandatory')
+    stochastic = book_strip('synthetic_intrinsic')
     from check_gas_pricing import staged_booking
     staged_booking(query,manifest,gain[0],{**loss[0],'operationId':str(uuid4())},'gas_schedule_assignment')
     plain = deepcopy(gain[0])
@@ -235,20 +264,23 @@ def route_checks(c, query, manifest, context, template, run_worker):
     policies = risk.call('portfolio/pnl/policies')
     def endpoint(ctx):
         return dict(snapshotId=ctx['snapshotId'],convention='trading_workspace_v1',knowledgeMode='at')
-    def pnl_values(trade):
-        request = dict(opening=endpoint(context),closing=endpoint(future),knownAt=read(trade,future)['context']['knownAt'],
+    def pnl_values(trade, opening, closing, known_at, refusal=None):
+        request = dict(opening=endpoint(opening),closing=endpoint(closing),knownAt=known_at,
             bookIds=[],portfolioIds=[],tradeIds=[trade['tradeId']],accountingPolicy=policies['accounting'],
             attributionPolicy=policies['attribution'],factorPolicy=policies['factors'],factorBump=policies['factorBump']['offered'],
             time=dict(mode='opening_to_closing_clock_v1',policy=policies['clockPolicy'],clock=None))
-        return risk.call('portfolio/pnl/run',request,timeout=300)['report']['totals'][0]['values']
+        result = risk.call('portfolio/pnl/run',request,timeout=300,expected=(200,422) if refusal else 200)
+        if refusal:
+            assert risk.last_status==422 and result.get('code')==refusal and 'report' not in result,(risk.last_status,result.get('code'),refusal)
+            return
+        return result['report']['totals'][0]['values']
 
     for case,opening,closing,movement in [(loss,'-450','-450','0'),(gain,'480','360','-120')]:
-        pnl = pnl_values(case[1])
+        pnl = pnl_values(case[1],context,future,read(case[1],future)['context']['knownAt'])
         assert (pnl['openingValue']['amount'],pnl['closingValue']['amount'],pnl['economicPnl']['amount'])==(opening,closing,movement),pnl
         assert pnl['cash']['amount']=='0' and not pnl['incomplete'],pnl
     print('PASS mandatory swing P&L endpoints -450/-450; early correction 480/360, zero cash and -120 P&L',flush=True)
 
-    stochastic = book_strip('synthetic_intrinsic')
     curve = 'synthetic_intrinsic_location'
     jan = mark(curve,'2021-01','0.33',1)
     feb = mark(curve,'2021-02','0.71',1)
@@ -258,13 +290,24 @@ def route_checks(c, query, manifest, context, template, run_worker):
     stochastic_at = {**context,'snapshotId':frame['id']}
     dates = [datetime.fromisoformat(d+'T03:15:00Z') for d in DAYS]
 
-    def oracle(january='0.33', january_forward='320'):
+    def oracle(january='0.33', january_forward='320', calculation_at=clock):
         with localcontext() as precision:
             precision.prec = 80
-            inputs = [day(forward,-300,vol,int((deadline-clock).total_seconds())) for deadline,forward,vol in
+            inputs = [day(forward,-300,vol,int((deadline-calculation_at).total_seconds())) for deadline,forward,vol in
                       zip(dates,[january_forward,'280','340'],[january,'0.71','0.71'],strict=True)]
             return reference(fixture(inputs,7,11,24,27),21600)
 
+    opening_clock = datetime.fromisoformat('2021-01-01T08:00:00Z')
+    def pricing_pnl(cutoff, january):
+        pnl = pnl_values(stochastic[1],future,stochastic_at,cutoff)
+        start, end = oracle(january,calculation_at=opening_clock), oracle(january)
+        for field,value in [('openingValue',start),('closingValue',end),('economicPnl',end-start)]:
+            check_value(pnl[field]['amount'],value)
+        assert pnl['cash']['amount']=='0' and not pnl['incomplete'],pnl
+        return pnl
+
+    missing_cutoff = coordinates[prior['contextId']]['knownAt']
+    pnl_values(stochastic[1],future,stochastic_at,missing_cutoff,'exercise_marks')
     expected = oracle()
     right = routes(stochastic,stochastic_at,expected)
     assert [m['revisionId'] for m in right['marks']]==[jan['markId'],feb['markId']]
@@ -279,6 +322,8 @@ def route_checks(c, query, manifest, context, template, run_worker):
         check_value(half['values'][lane],oracle(january_forward=fwd))
     assert abs(Decimal(half['values']['delta'])-Decimal(row['values']['delta']))<Decimal('0.00000001')
     historical = pin(stochastic[1],stochastic_at)
+    historical_cutoff = coordinates[historical['contextId']]['knownAt']
+    original_pnl = pricing_pnl(historical_cutoff,'0.33')
     up,down = job(stochastic,historical,expected,shift=jan['markId'],after_submit=lambda:mark(curve,'2021-01','0.50',2))
     check_value(up,oracle('0.34'))
     check_value(down,oracle('0.32'))
@@ -286,6 +331,13 @@ def route_checks(c, query, manifest, context, template, run_worker):
     assert Decimal(up)<expected<Decimal(down)
     assert routes(stochastic,historical,expected)==right
     routes(stochastic,stochastic_at,oracle('0.50'))
+    current_cutoff = read(stochastic[1],stochastic_at)['context']['knownAt']
+    current_pnl = pricing_pnl(current_cutoff,'0.50')
+    assert pricing_pnl(historical_cutoff,'0.33')==original_pnl
+    pnl_values(stochastic[1],future,stochastic_at,missing_cutoff,'exercise_marks')
+    print(f"PASS P&L missing cutoff {missing_cutoff} refuses, unequal marks at {historical_cutoff}: "
+          f"{original_pnl['openingValue']['amount']}/{original_pnl['closingValue']['amount']}, January revision at {current_cutoff}: "
+          f"{current_pnl['openingValue']['amount']}/{current_pnl['closingValue']['amount']}, old cutoff replays",flush=True)
     print(f"PASS unequal monthly marks, PV {row['values']['base']}, point up/down {row['values']['up']}/{row['values']['down']}, "
           f"volatility up/down {up}/{down}, pinned worker replay, finite-grid delta {row['values']['delta']}",flush=True)
 
