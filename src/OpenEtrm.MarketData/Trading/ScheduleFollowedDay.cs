@@ -23,6 +23,7 @@ internal sealed record ScheduleSelectedQuantity(SignedRatio Contract,SignedRatio
         {
             PhysicalLifecycle.ContractQuantity=>"contract",PhysicalLifecycle.ScheduledQuantity=>"scheduled",
             PhysicalLifecycle.AllocatedFinalQuantity=>"allocated_final",PhysicalLifecycle.AllocatedProvisionalQuantity=>"allocated_provisional",
+            PhysicalLifecycle.ElectedQuantity or RetainedSwingValuation.Undecided => v.Source,
             _=>throw Invalid("A followed schedule requires a supported selected quantity rank.")
         }).Distinct()], [..values.SelectMany(v=>v.Evidence).Distinct()]);
     }

@@ -22,6 +22,8 @@ public sealed class PhysicalCashState:IBindingValuationState
     public ImmutableArray<CashOccurrencePayment> Payments { get; }
     public ImmutableArray<HeldDayQuantity> OwnerDays { get; }
     public ImmutableArray<ExerciseElection> Elections { get; }
+    public ImmutableArray<SwingElection> SwingElections { get; }
+    public DateTimeOffset? NextSwingElectionEffectiveAt { get; }
     public ImmutableArray<SlotBalances> Balances { get; }
 
     // Earliest known correction or withdrawal after the business instant used to select Elections.
@@ -29,7 +31,7 @@ public sealed class PhysicalCashState:IBindingValuationState
 
     public PhysicalCashState(Guid tradeId,Guid bindingId,Quantity quantity,Guid? bookId,ImmutableArray<CashOccurrencePayment> payments,string policy,
         ImmutableArray<HeldDayQuantity> ownerDays=default,ImmutableArray<ExerciseElection> elections=default,DateTimeOffset? nextElectionEffectiveAt=null,
-        ImmutableArray<SlotBalances> balances=default)
+        ImmutableArray<SlotBalances> balances=default, ImmutableArray<SwingElection> swingElections=default, DateTimeOffset? nextSwingElectionEffectiveAt=null)
     {
         if(bookId==Guid.Empty||policy!=Policy||tradeId==Guid.Empty||bindingId==Guid.Empty||quantity is null||quantity.Amount==default||payments.IsDefault||
             payments.Any(p=>p is null||p.Id==Guid.Empty||p.Slot<0||p.Occurrence<0||p.Amount is null||!Supported(p.PaidAt)||!Supported(p.KnownAt))||
@@ -44,6 +46,10 @@ public sealed class PhysicalCashState:IBindingValuationState
         if (nextElectionEffectiveAt is {} next && !Supported(next))
             throw new MarketDataException("exercise_election","Select a supported UTC election transition instant.");
         NextElectionEffectiveAt = nextElectionEffectiveAt;
+        SwingElections = swingElections.IsDefault ? [] : swingElections;
+        if (nextSwingElectionEffectiveAt is {} swingTransition && !Supported(swingTransition))
+            throw new MarketDataException("swing_election", "Supply a supported UTC swing election transition.");
+        NextSwingElectionEffectiveAt = nextSwingElectionEffectiveAt;
         Balances = balances.IsDefault ? [] : balances;
     }
     // Paid is only ever recorded against cash that has started to accrue: there is no prepayment.
@@ -119,6 +125,7 @@ internal sealed record PhysicalLifecycleGeometry(ImmutableDictionary<DateOnly,De
 public static class PhysicalLifecycle
 {
     public const string EstimatedQuantity="contract_estimate_allocation_pending_v1",ContractQuantity="contractual_quantity_v1";
+    public const string ElectedQuantity = "elected";
     public const string SelectedQuantityPolicy="selected_delivery_quantity_v1";
     public const string AllocatedFinalQuantity="allocated_final_v1",AllocatedProvisionalQuantity="allocated_provisional_v1",ScheduledQuantity="scheduled_v1";
     // The named value components a started-delivery position reports to risk; they sum to its value.

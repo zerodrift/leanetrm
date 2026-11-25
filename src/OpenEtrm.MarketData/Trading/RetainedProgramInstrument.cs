@@ -137,7 +137,7 @@ internal class RetainedInstrumentSchedule<TMember> : InstrumentSchedule where TM
         if(context is null) throw new MarketDataException("side_context", "Supply the exact retained Side valuation context.");
         var hasQuantityTerms = retained.Members.Any(m => m.ValuationQuantityPolicy is not null || m.ValuationPart is not null);
         var hasReportedQuantities = retained.Members.Any(m => m.ValuationBalance is not null);
-        if((hasQuantityTerms || hasReportedQuantities || !retained.Rights.IsEmpty) && context.BindingState is not PhysicalCashState)
+        if((hasQuantityTerms || hasReportedQuantities || !retained.Rights.IsEmpty || !retained.SwingRights.IsEmpty) && context.BindingState is not PhysicalCashState)
             throw PhysicalDeliveryQuantities.Invalid("An instrument with quantity terms requires its complete held owner-day inputs.");
         if(context.BindingState is PhysicalCashState state)
         {
@@ -206,10 +206,21 @@ internal class RetainedInstrumentSchedule<TMember> : InstrumentSchedule where TM
                 decisions.RequireCompatiblePayments(retained.Members, state, context.Snapshot, ExerciseSettlement.CashAutomatic);
                 groups = [..exercises.SelectMany(exercise => exercise.Values(context, retained.Marks, retained.Currency, quantity.Numerator.Sign))];
             }
-            var entryDays = hasQuantityTerms || !rights.IsEmpty ? EntryQuantities.ForMembers(retained.Members, state,
+            var entryDays = hasQuantityTerms || !rights.IsEmpty || !retained.SwingRights.IsEmpty ? EntryQuantities.ForMembers(retained.Members, state,
                 decisions is null ? null : decisions.Counted, rights) : default;
+            ImmutableArray<SwingRightValue> swingValues = [];
+            if (!retained.SwingRights.IsEmpty)
+            {
+                var right = retained.SwingRights.Single();
+                var swing = new RetainedSwingValuation(right, state, context.Snapshot.ValuationAt);
+                swing.RequireCompatiblePayments(retained.Members, state, context.Snapshot);
+                var perLotDays = swing.Entries(entryDays, counterfactual: true);
+                swingValues = [swing.Evaluate(context, retained.Currency, retained.SwingPricingBindings.Single(), retained.Marks, swing.PointCurve(retained),
+                    slot => EvaluateOccurrence(context.ExercisedOccurrences(), slot, perLotDays))];
+                entryDays = swing.Entries(entryDays, counterfactual: false);
+            }
             ImmutableArray<SideValuation> sides = [..retained.Sides.Select((_, slot) => EvaluateOccurrence(context, slot, entryDays))];
-            var value = new InstrumentValuation(retained, context, sides, groups);
+            var value = new InstrumentValuation(retained, context, sides, groups, swingValues);
             retained.RequireAfterValuation(value);
             return value;
         }

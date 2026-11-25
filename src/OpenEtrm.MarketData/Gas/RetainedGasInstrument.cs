@@ -343,8 +343,8 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
     // and original whole-day delivery-mark policy in its explicit model version.
     public override UnitPricingContract Declare(UnitValuationContext context)
     {
-        RequireSwingEvaluator();
-        if (!Rights.IsEmpty || context.BindingState is PhysicalCashState { Elections.IsEmpty: false })
+        if (!Rights.IsEmpty || !SwingRights.IsEmpty || context.BindingState is PhysicalCashState cash &&
+            (!cash.Elections.IsEmpty || !cash.SwingElections.IsEmpty || cash.NextSwingElectionEffectiveAt is not null))
             ValidateValuationState(context.BindingState);
         var declaration = RetainedDeclaration(new(Id,
             (context.BindingState is PhysicalCashState ? PhysicalCashState.Policy + "/" : "") +
@@ -352,14 +352,13 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
             (Members.Any(m => PhysicalLifecycle.ReadsDeliveryMarks(m.Program)) ? PeriodPriceSelector.DeliveryMarkPolicy + "/" : "")+"retained_gas_side_pv_v3",
             PhysicalLifecycle.PriceDependencies(Members.Select(member => member.Program), PriceLookups, context.Snapshot),
             UnitQuantity.Specification, Currency) { Time = ValuationTimeDependency.Pinned, ScheduleIdentity = RetainedScheduleIdentity });
-        if (Rights.IsEmpty) return declaration;
+        if (Rights.IsEmpty && SwingRights.IsEmpty) return declaration;
         return RetainedExerciseValuation.Declare(declaration, this, context);
     }
 
     protected internal override void RequireBeforeValuation(SideValuationContext context)
     {
-        RequireSwingEvaluator();
-        if (Rights.IsEmpty || context is null) return;
+        if (Rights.IsEmpty && SwingRights.IsEmpty || context is null) return;
         if (context.Discounting is ExplicitDiscounting scalar)
         {
             if (scalar.Undiscounted) return;
@@ -374,13 +373,7 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
                     f.DiscountFactor == ExactDecimal.Parse("1") && f.Snapshot is not null && f.Snapshot.HasSameInputs(context.Snapshot)) &&
                 keys.ToHashSet().SetEquals(factors.Select(f => f.Payment))) return;
         }
-        throw new MarketDataException("exercise_model_scope", "The exercise model requires explicitly undiscounted valuation.");
-    }
-
-    private void RequireSwingEvaluator()
-    {
-        if (!SwingRights.IsEmpty)
-            throw new MarketDataException("swing_model_scope", "Complete swing valuation requires an installed swing evaluator.");
+        throw new MarketDataException(SwingRights.IsEmpty ? "exercise_model_scope" : "swing_model_scope", "The selected choice model requires explicitly undiscounted valuation.");
     }
 
     private protected override RetainedProgramContext PrepareSides(UnitValuationContext context,CurveBuild basis,CurveBuild scenario)
@@ -445,7 +438,7 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
         {
             if (Members.Any(m => m.Owned is not null))
                 throw new MarketDataException("gas_delivery_lifecycle", "A gas instrument with owned charges requires its held cash state from booking.");
-            if(!Rights.IsEmpty || Members.Any(m => m.QuantityPolicy is not null || m.Part is not null || m.Balance is not null))
+            if(!Rights.IsEmpty || !SwingRights.IsEmpty || Members.Any(m => m.QuantityPolicy is not null || m.Part is not null || m.Balance is not null))
                 throw PhysicalDeliveryQuantities.Invalid("An instrument with quantity terms requires its complete held owner-day inputs.");
             base.ValidateValuationState(state); return;
         }
@@ -454,7 +447,10 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
                 Members[p.Slot].Program.Document.Family == "gas" || p.Amount.Currency != Currency ||
                 !Members[p.Slot].Program.Document.Instructions.Any(i => i.Output is { Operation: "output_guard", Grid: null } && i.Output.PaymentOrdinal == p.Occurrence)))
             throw new MarketDataException("payment_state", "Each payment allocation must name a retained cash occurrence of this instrument in its currency and quantity.");
-        PhysicalDeliveryQuantities.RequireSchedules(Members, cash, Rights);
+        PhysicalDeliveryQuantities.RequireSchedules(Members, cash, Rights, SwingRights);
+        if (cash.SwingElections.Any(e => e is null || !SwingRights.Any(r => r.Ordinal == e.Right)) ||
+            SwingRights.IsEmpty && cash.NextSwingElectionEffectiveAt is not null)
+            throw new MarketDataException("swing_election", "Swing facts require their exact retained right.");
     }
 
     protected override ScheduleMarketSources Sources(CurveBuild basis) => new(basis.Graph.Plan.Context, basis, null, null,

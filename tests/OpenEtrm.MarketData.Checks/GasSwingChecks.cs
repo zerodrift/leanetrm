@@ -17,11 +17,12 @@ internal static partial class GasSwingChecks
 
     internal static void Run()
     {
+        HeldLifecycle();
         ChoiceNumerics();
         Feasibility();
         IntegerBoundaries();
         RetainedIdentityAndAdmission();
-        Console.WriteLine("PASS gas swing: exact daily and term limits, effective reservations, atomic corrections, bounded lots, retained identity, coverage and valuation refusal");
+        Console.WriteLine("PASS gas swing: exact daily and term limits, effective reservations, atomic corrections, bounded lots, retained identity, joint held value, lifecycle corrections and independent bindings");
     }
 
     private static void Feasibility()
@@ -175,10 +176,10 @@ internal static partial class GasSwingChecks
         var discounting = new ExplicitDiscounting(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted);
         var unit = new UnitValuationContext(market.Snapshot,
             new(ValuationMeasure.PresentValue, ImmutableDictionary<Guid, FuturesMarketBinding>.Empty, discounting));
-        Refuse("swing_model_scope", () => saved.Declare(unit));
-        Refuse("swing_model_scope", () => saved.Value(unit));
+        Refuse("physical_lifecycle_quantity", () => saved.Declare(unit));
+        Refuse("physical_lifecycle_quantity", () => saved.Value(unit));
         var build = market.Model.Build(market.Snapshot, legacy.Physical.Dependencies);
-        Refuse("swing_model_scope", () => saved.PV(new SideValuationContext(build, discounting)));
+        Refuse("physical_lifecycle_quantity", () => saved.PV(new SideValuationContext(build, discounting)));
 
         var clock = legacy.Physical.Quantities.Clock;
         var scaledPayment = new FixedSide(Guid.NewGuid(), legacy.Cash.Price, market.Quote, legacy.Physical.UnitQuantity,

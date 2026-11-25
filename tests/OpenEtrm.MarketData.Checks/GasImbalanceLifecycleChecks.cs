@@ -159,7 +159,7 @@ internal static class GasImbalanceLifecycleChecks
         throw new Exception("Expected " + code);
     }
 
-    private sealed class CashoutValuationFixture
+    internal sealed class CashoutValuationFixture
     {
         private readonly Fixture reference = new();
         private readonly CurveModel model;

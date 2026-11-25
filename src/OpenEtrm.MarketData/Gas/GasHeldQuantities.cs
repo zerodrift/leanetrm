@@ -15,7 +15,7 @@ public static class GasHeldQuantities
     public static ImmutableArray<HeldDayQuantity> Build(ImmutableArray<GasFollowedMember> members,ImmutableArray<GasQuantityHead> heads,DateTimeOffset at)
     {
         if(members.IsDefault||heads.IsDefault||members.Any(m=>m is null||m.Slot<0||m.Scale is null||m.Scale.Numerator<=0||
-            m.Days.IsDefaultOrEmpty||m.QuantityPolicy is not(null or DeliverySchedulePolicy)||
+            m.Days.IsDefaultOrEmpty||m.QuantityPolicy is not(null or DeliverySchedulePolicy or SwingRight.ElectedDeliveryQuantity)||
             m.Days.Any(d=>d is null||d.Quantity is null||d.Quantity.NumeratorValue<=0)||m.Days.Select(d=>d.Day).Distinct().Count()!=m.Days.Length))
             throw Invalid("Select physical owners, their complete retained native days and explicit quantity policies.");
         var slots=members.Select(m=>m.Slot).ToArray();
@@ -33,13 +33,15 @@ public static class GasHeldQuantities
                     GasDailyQuantitySelection.RequireValuationHeads(day, observations, at);
                     output.Add(new(member.Slot, day.Day, day.Quantity, day.Quantity, PhysicalLifecycle.ContractQuantity, [])
                     {
+                        HasOperationalRecord = observations.Any(o => o.Status != "withdrawn"),
                         HasContractDeliveryRecord = observations.Any(o => o.Kind is ("scheduled" or "allocated") && o.Status != "withdrawn")
                     });
                     continue;
                 }
                 var selected=GasDailyQuantitySelection.Select(day,observations,GasDailyQuantitySelection.ValuationPolicy,at,member.Scale);
                 var value=new HeldDayQuantity(member.Slot,day.Day,day.Quantity,selected.Quantity,GasDailyQuantitySelection.ValuationSource(selected),
-                    [..selected.Provenance.Select(p=>new DeliveryQuantityEvidence(p.Source,p.Id,p.Evidence))]);
+                    [..selected.Provenance.Select(p=>new DeliveryQuantityEvidence(p.Source,p.Id,p.Evidence))])
+                    { HasOperationalRecord = observations.Any(o => o.Status != "withdrawn") };
                 output.Add(value);
             }
         return [..output.OrderBy(q=>q.Slot).ThenBy(q=>q.Day)];
