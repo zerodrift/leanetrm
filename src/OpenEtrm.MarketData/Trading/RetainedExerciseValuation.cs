@@ -253,7 +253,11 @@ internal sealed class RetainedExerciseValuation
             throw PhysicalDeliveryQuantities.Invalid("An exercise right requires its complete held day quantities.");
         var scope = Scope(instrument, context.Snapshot, context.CalculationAt, held);
         var used = scope.Inputs.Select(i => (i.Curve, i.Month)).ToHashSet();
-        used.UnionWith(scope.SwingMarks);
+        foreach (var mark in scope.SwingMarks)
+        {
+            _ = (instrument.Marks ?? throw ExerciseMarks.Missing()).Volatility(mark.Curve, mark.Month);
+            used.Add(mark);
+        }
         var model = scope.HasModel ? contract.ModelVersion + "/" + ModelPolicy : contract.ModelVersion;
         if (!instrument.SwingRights.IsEmpty)
             model += "/" + SwingPricingBinding.SupportedModel + "/" + SwingPricingBinding.SupportedNumericalPolicy;

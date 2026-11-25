@@ -9,13 +9,14 @@ internal static partial class GasSwingChecks
 {
     private sealed class HeldFixture
     {
-        internal readonly GasPricingScheduleFixture Market = new(size: 1000);
+        internal readonly GasPricingScheduleFixture Market;
         internal readonly RetainedGasInstrument Instrument;
         internal SwingRight Terms => Instrument.SwingRights.Single();
         internal DateTimeOffset Before => Terms.Days[0].ExerciseAt.AddHours(-1);
-        internal HeldFixture(string? vol = "0", bool optional = false, int dayCount = 3, string payment = "3", string fee = "0.10")
+        internal HeldFixture(string? vol = "0", bool optional = false, int dayCount = 3, string payment = "3", string fee = "0.10",
+            DateOnly? from = null)
         {
-            var f = Market;
+            var f = Market = new(size: 1000, dailyPaymentStart: from);
             var to = f.From.AddDays(dayCount);
             var period = new FixedSidePeriod(f.From, to, f.Clock.Boundary(to).AddDays(2), new(dayCount, 1), null)
                 { DeliveryCompletionAt = f.Clock.Boundary(to) };
@@ -288,6 +289,19 @@ internal static partial class GasSwingChecks
         Require(value.Counted == f.Money("-210") && value.Inputs!.Days.Single().Volatility is null &&
             f.Instrument.Declare(f.Context(forced, f.Before)).Volatility.IsEmpty,
             "A single feasible pending schedule needs no volatility and retains its exact mandatory loss.");
+
+        var crossMonth = new HeldFixture(from: new(2041, 1, 30));
+        var januaryOnly = crossMonth.Instrument;
+        var january = januaryOnly.Marks!.Volatilities.Single();
+        var february = new CurveVolatilityMark(january.Curve, new(2041, 2, 1),
+            new(Guid.NewGuid(), "0.15", VolatilityInput.Annualized));
+        var bothMonths = new RetainedGasInstrument(januaryOnly.Id, januaryOnly.Members, januaryOnly.Assignments,
+            marks: januaryOnly.Marks with { Volatilities = [february, january] },
+            swingRights: januaryOnly.SwingRights, swingPricingBindings: [Pricing]);
+        var context = crossMonth.Context(crossMonth.State(), crossMonth.Before, bothMonths);
+        Require(bothMonths.Declare(context).Volatility.SequenceEqual([january.Volatility, february.Volatility]),
+            "A pending January/February right declares both exact monthly volatility revisions.");
+        Refuse("exercise_marks", () => januaryOnly.Declare(context));
     }
 
     private static void OwnedBoundary(HeldFixture f)
