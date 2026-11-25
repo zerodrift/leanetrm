@@ -1,6 +1,7 @@
 import type {CatalogueSource,FrameSummary} from './market-navigation.js';
 import {actorTransport,PendingCommand,type RequestCommand} from './pending-command.js';
 import {carryReadReferences} from './read-references.js';
+import {checkPasteDraft,setupMarkPaste} from './curve-mark-paste.js';
 import {correlationScale} from './curve-mark-charts.js';
 import {setupMarkGrid} from './curve-mark-grid.js';
 import {markDetail,setupMarkInspector} from './curve-mark-inspector.js';
@@ -60,7 +61,7 @@ export function setupCurveMarks(root:HTMLElement,o:Options){
   </details>
  </section>
  <section data-mark="pending" class="mark-recovery" hidden>
-  <div><h3>Original publication</h3><p data-mark="pending-status" role="status">The result is unconfirmed. The exact original command is retained.</p></div>
+  <div><h3>Original publication</h3><p data-mark="pending-details" class="mark-note"></p><p data-mark="pending-status" role="status">The result is unconfirmed. The exact original command is retained.</p></div>
   <div class="mark-action-row"><button data-mark="status" type="button">Check status</button><button data-mark="retry" type="button" class="secondary">Retry original</button><button data-mark="dismiss" type="button" class="secondary">Dismiss checked request</button></div>
  </section>
  <p data-mark="message" class="mark-message" role="status" hidden></p>
@@ -93,7 +94,8 @@ export function setupCurveMarks(root:HTMLElement,o:Options){
   <div data-mark="desk" class="mark-desk" hidden>
    <section class="mark-matrix-panel" aria-label="Curve marks grid">
     <div class="mark-grid-header"><div><h3 data-mark="grid-title"></h3><p data-mark="grid-summary" class="mark-muted"></p></div>
-     <button type="button" data-mark="inspect" class="secondary mark-inspect-button" disabled>Inspect cell</button>
+     <div class="mark-action-row"><button type="button" data-mark="paste" class="secondary" disabled>Paste values</button>
+     <button type="button" data-mark="inspect" class="secondary mark-inspect-button" disabled>Inspect cell</button></div>
      <div data-mark="heat-legend" class="mark-heat-legend" aria-label="Correlation heat scale from minus one to plus one" hidden>
       <span>Correlation</span><span class="mark-heat-bar"></span>
       <div class="mark-heat-labels">${correlationScale.labels.map(item=>`<span>${item}</span>`).join('')}</div>
@@ -162,7 +164,8 @@ export function setupCurveMarks(root:HTMLElement,o:Options){
   const row=setup!.draft!.cells.find(candidate=>keyId(candidate.state.key)===keyId(cell.key!));
   return !!row&&row.state.expectedRevision!==null&&row.state.editBlock===null;
  };
- const grid=setupMarkGrid(el('grid'),{mayEdit,selected:selectCell,edited:editCell,editing:changed});
+ const paste=setupMarkPaste(root,markRows);
+ const grid=setupMarkGrid(el('grid'),{mayEdit,selected:selectCell,edited:editCell,editing:changed,paste:openPaste});
  const inspector=setupMarkInspector(el('inspector'),{
   reset:()=>{if(selection?.key&&draftEdits.delete(keyId(selection.key)))onDraftChange();},
   edit:()=>{if(selection){grid.focus(selection.address);grid.edit(selection.address);setDrawer(false);}},
@@ -199,7 +202,12 @@ export function setupCurveMarks(root:HTMLElement,o:Options){
   setup=value;
   setupDraft=value?.draft??null;
  }
+ function clearStatus(){
+  checkedAbsent=false;
+  el('pending-status').textContent='The result is unconfirmed. The exact original command is retained.';
+ }
  function resetScope(){
+  paste.close();clearStatus();
   generation++;sendSequence++;reading=sending=false;
   grid.cancel();draftEdits.clear();draftVersion++;validating=reviewing=false;reviewed=undefined;reasonField.value='';
   if(reviewDialog.open)reviewDialog.close();if(guard.open)guard.close('keep');clearReview();
@@ -220,7 +228,7 @@ export function setupCurveMarks(root:HTMLElement,o:Options){
   }
   if(!o.active())return;
   const stamp=o.clock().stamp;
-  if(appStamp!==stamp&&!unsaved()){
+  if(appStamp!==stamp&&(!unsaved()||pending.command)){
    resetScope();appStamp=stamp;receipt=undefined;drawReceipt();
    message('');
   }
@@ -263,6 +271,7 @@ export function setupCurveMarks(root:HTMLElement,o:Options){
   el('selector').hidden=!catalogue;
   el('desk').hidden=!setup;
   button('inspect').disabled=!selection;
+  button('paste').disabled=!writable()||!(selection&&mayEdit(selection)||setup?.view?.kind==='correlation'&&setup.view.mode==='grid'&&setup.draft?.cells.length);
   el('empty').hidden=!!setup;
   for(const element of root.querySelectorAll<HTMLButtonElement>('[data-mark-kind]')){
    element.setAttribute('aria-pressed',String(element.dataset.markKind===kind));element.disabled=blocked;
@@ -276,7 +285,11 @@ export function setupCurveMarks(root:HTMLElement,o:Options){
   el('draft-total').textContent=pending.command?'Publication retained':`${draftEdits.size} draft ${draftEdits.size===1?'cell':'cells'}`;
   el('draft-progress').textContent=pending.command?'Check the original outcome':validating?'Validating changes…':draftEdits.size?'Review exact changes before publishing':'Editing a cell';
   button('discard').disabled=busyDraft;button('review').disabled=!writable()||!unsaved();
-  el('pending').hidden=!pending.command;
+  const original=(pending.command as MarkCommand|undefined)?.body;
+  el('pending').hidden=!original;
+  const detail=el('pending-details');
+  detail.textContent=original?`${typeName(original.kind)} · ${original.changes.length} ${original.changes.length===1?'cell':'cells'} · ${original.context.asOf} · ${original.reason} · Operation ${original.operationId}`:'';
+  detail.title=original?formatSource(original.source):'';
   button('status').disabled=!pending.command||sending||o.busy()||!permission('ReadMarketData');
   button('retry').disabled=!pending.command||sending||o.busy()||!currentApp()||!!clock.retained||!permission('ReadMarketData')||!permission('ImportObservations');
   button('dismiss').disabled=!pending.command||!checkedAbsent||sending;
@@ -349,7 +362,7 @@ export function setupCurveMarks(root:HTMLElement,o:Options){
   if(!cell.key)return;
   const before=selection?.key;
   if(selection&&addressId(selection.address)===addressId(cell.address))return;
-  selection=cell;button('inspect').disabled=false;
+  selection=cell;drawControls();
   inspector.update(cell,setup?{...setup,curves:[...seenChoices.values()]}:undefined,edits(),mayEdit(cell));
   if(!before||keyId(before)!==keyId(cell.key))void history(0);
  }
@@ -487,11 +500,11 @@ export function setupCurveMarks(root:HTMLElement,o:Options){
   if(!reviewDialog.open)reviewDialog.showModal();
   if(!reviewed)reasonField.focus();
  }
- function markRows(headings:string[],rows:string[][],label:string){
+ function markRows(headings:string[],rows:(string|HTMLElement)[][],label:string){
   const table=node('table');table.className='mark-evidence-table';table.setAttribute('aria-label',label);
   const head=table.createTHead().insertRow();
   for(const heading of headings){const th=node('th',heading);th.scope='col';head.append(th);}
-  const body=table.createTBody();for(const row of rows){const line=body.insertRow();for(const [index,value] of row.entries()){const cell=line.insertCell();cell.textContent=value;cell.dataset.markColumn=headings[index];}}
+  const body=table.createTBody();for(const row of rows){const line=body.insertRow();for(const [index,value] of row.entries()){const cell=line.insertCell();cell.append(value);cell.dataset.markColumn=headings[index];}}
   return table;
  }
  function drawReview(value:Review,batch:Batch){
@@ -502,11 +515,21 @@ export function setupCurveMarks(root:HTMLElement,o:Options){
   const rows=value.changes.map(change=>{
    const head=change.headAfterReview;
    const draft=validated.get(keyId(change.key));
+   const evidence=node('div');evidence.className='mark-reviewed-head';
+   if(head){
+    evidence.append(node('span',`Revision ${head.revision} · ${head.value}`));
+    const time=node('time');time.dateTime=head.effectiveAt;
+    const split=head.effectiveAt.indexOf('T');
+    time.append(node('span',head.effectiveAt.slice(0,split)),node('wbr'),node('span',head.effectiveAt.slice(split)));
+    evidence.append(time);
+   }else evidence.textContent='—';
    return [keyLabel(change.key),change.key.month,change.selectedValue??'Missing',change.proposedValue,draft?.isNewMark?'New mark':draft?.difference??'—',
     String(change.expectedRevision),change.wouldChange?'Record revision':`Acknowledge revision ${change.acknowledgedRevision}`,
-    head?`Revision ${head.revision} · ${head.value} · ${head.effectiveAt}`:'—'];
+    evidence];
   });
-  host.append(markRows(['Curve / pair','Month','Selected','Proposed','Draft − selected','Expected head','Outcome','Head after review'],rows,'Reviewed publication changes'));
+  const evidenceTable=node('div');evidenceTable.className='mark-review-evidence';
+  evidenceTable.append(markRows(['Curve / pair','Month','Selected','Proposed','Draft − selected','Expected head','Outcome','Head after review'],rows,'Reviewed publication changes'));
+  host.append(evidenceTable);
   if(value.alreadyRecorded){
    const note=node('p','This operation was already recorded. Check the original publication status for its accepted facts and heads at publication.');
    host.append(note);
@@ -572,7 +595,9 @@ export function setupCurveMarks(root:HTMLElement,o:Options){
  }
  async function send(command:MarkCommand){
   const at=fence(),serial=++sendSequence,previouslyUncertain=pending.sending();
-  sending=true;checkedAbsent=false;store();
+  sending=true;checkedAbsent=false;
+  if(!previouslyUncertain){receipt=undefined;drawReceipt();}
+  store();
   try{
    const result=requireReceipt(await o.api(command.path,command.body),command.body);
    if(current(at)&&pending.command===command)await accept(result,command,at);
@@ -582,7 +607,15 @@ export function setupCurveMarks(root:HTMLElement,o:Options){
    reviewed=undefined;clearReview();el('review-status').textContent=problem(error);
    if(pending.command){if(reviewDialog.open)reviewDialog.close();el('pending-status').textContent='The original result is unconfirmed. '+problem(error);}
    else message(problem(error));
-  }finally{if(serial===sendSequence&&o.active()){sending=false;drawDesk();changed();}}
+  }finally{
+   if(serial===sendSequence&&o.active()){
+    sending=false;drawDesk();changed();
+    if(current(at)&&pending.command===command){
+     el('pending').scrollIntoView({block:'center'});
+     button('status').focus({preventScroll:true});
+    }
+   }
+  }
  }
  async function reconcile(retry:boolean){
   const command=pending.command as MarkCommand|undefined;
@@ -633,6 +666,24 @@ export function setupCurveMarks(root:HTMLElement,o:Options){
   generation++;kind=next;mode='grid';installSetup();selection=undefined;setDrawer(false);
   drawChosen();drawDesk(false);drawControls();el<HTMLDetailsElement>('selector').open=true;
  });
+ function openPaste(raw?:string){
+  grid.commit();
+  if(!writable()||!setup?.view||!setup.layout)return;
+  const matrix=setup.view.kind==='correlation'&&setup.view.mode==='grid';
+  const start=selection&&mayEdit(selection)?selection.address:null;
+  if(!start&&(!matrix||raw!==undefined))return;
+  const at=fence(),version=draftVersion,{view,layout,context:clock}=setup,request={...scope(),view,edits:[...draftEdits.values()]};
+  paste.open({matrix,start,label:selection?.key?`${keyLabel(selection.key)} · ${selection.key.month}`:'',
+   current:()=>current(at)&&version===draftVersion&&writable(),
+   validate:async input=>checkPasteDraft(requireValidation(await o.api(markPath+'validate',{...request,paste:input}),request,view,layout,clock),request.edits),
+   apply:value=>{
+    for(const {key,value:amount} of value.addressed)draftEdits.set(keyId(key),{key,value:amount});
+    validationSequence++;validating=false;draftVersion++;reviewed=undefined;clearReview();
+    setup={...setup!,draft:value.draft};drawDesk();changed();message('');
+   },
+  },raw);
+ }
+ button('paste').onclick=()=>openPaste();
  button('inspect').onclick=()=>setDrawer(true);
  el('inspector').onkeydown=event=>{if(event.key==='Escape'&&el('inspector').hasAttribute('data-open')){event.stopPropagation();closeDrawer();}};
  button('discard').onclick=()=>{resetDraft();message('Draft discarded.');};
@@ -643,5 +694,5 @@ export function setupCurveMarks(root:HTMLElement,o:Options){
  button('retry').onclick=()=>action(()=>reconcile(true));
  button('dismiss').onclick=()=>{if(checkedAbsent){pending.clear();checkedAbsent=false;reviewed=undefined;store();message('The checked original request was dismissed.');drawDesk();}};
  return {sync,load:()=>{sync();drawDesk();drawControls();},leave,unsaved,pending:()=>!!pending.command,reset,
-  deactivate:()=>{generation++;sendSequence++;reading=sending=validating=reviewing=false;inspector.releaseChart();setDrawer(false);}};
+  deactivate:()=>{paste.close();clearStatus();generation++;sendSequence++;reading=sending=validating=reviewing=false;inspector.releaseChart();setDrawer(false);}};
 }

@@ -120,6 +120,24 @@ def run_checks(url,query,manifest,run_worker,browse=None):
     print('PASS no-right ticket replays the original explicit empty-array command',flush=True)
     print('PASS gas exercise: API and SQL admission, exact physical and latest fixing times, immutable terms, replay and unpriced valuation',flush=True)
 
+def publish_editor_volatility(writer,manifest,curve,expected_revision,value):
+    day='2020-12-18'
+    source=dict(definitionRevisionId=manifest['revisionId'],referenceCatalogId=manifest['referenceCatalogId'],
+                referenceRevisionId=manifest['referenceRevisionId'])
+    clock=writer.call('date-schedules/context',dict(effectiveOn=day,mode='current'))['context']
+    scope=dict(source=source,context=dict(contextId=clock['contextId'],businessDate=day,asOf=day+'T16:00:00Z',snapshotId=None))
+    view=dict(kind='volatility',mode='grid',curves=[curve],fromMonth='2021-01',toMonth='2021-01')
+    setup=writer.call('curve-marks/editor/setup',dict(**scope,view=view,offset=0,limit=50,search=''))
+    cell,=setup['draft']['cells']
+    assert cell['state']['expectedRevision']==expected_revision
+    if expected_revision==0: assert cell['state']['selected'] is None
+    batch=dict(**scope,policy='curve_mark_batch_v1',kind='volatility',ownerId=setup['ownerId'],operationId=str(uuid4()),
+               reason='Synthetic gas exercise volatility',changes=[dict(**cell['state']['key'],value=value,expectedRevision=expected_revision)])
+    assert writer.call('curve-marks/editor/review',batch)['changes'][0]['wouldChange']
+    fact,=writer.call('curve-marks/editor/record',batch)['cells']
+    assert fact['changed'] and fact['value']==value and fact['revision']==expected_revision+1
+
+
 def curve_marks(c,query,manifest,context,fixed,base,plain,run_worker,browse):
     point='synthetic_exercise_location'
     other='synthetic_entry_daily'
@@ -180,6 +198,7 @@ def curve_marks(c,query,manifest,context,fixed,base,plain,run_worker,browse):
     job=risk.call('portfolio/risk/jobs',dict(requestId=str(uuid4()),request=request))
 
     raised={**mark,'operationId':str(uuid4()),'marks':[dict(month='2021-01',expectedRevision=1,volatility='0.6')]}
+    publish_editor_volatility(writer,manifest,point,1,'0.6')
     assert writer.call('volatility-marks/record',raised)['marks'][0]['revision']==2
     run_worker()
     finished=risk.call('portfolio/risk/jobs/'+job['id'])
@@ -264,8 +283,29 @@ def curve_marks(c,query,manifest,context,fixed,base,plain,run_worker,browse):
         try:query(f"SET SESSION AUTHORIZATION {login};SELECT security.read_curve_marks('{cat}','{definition}',ARRAY['{point}'],ARRAY[DATE '2021-01-01']);")
         except RuntimeError as error:assert 'denied' in str(error),error
         else:raise AssertionError('A mark read requires an authorized transaction and a bound context')
-    for curve in ('synthetic_worked_location','synthetic_entry_worked_daily'):
-        writer.call('volatility-marks/record',{**mark,'operationId':str(uuid4()),'curve':curve})
+    # Reprice an independent worked-point call only after publishing its missing
+    # volatility through the editor. Keep the original consumer cut and risk report.
+    worked=deepcopy(call)
+    worked['operationId']=str(uuid4())
+    worked['physicalSides'][0]['deliveryPoint']='synthetic_worked_point'
+    worked_saved=c.call('gas/composition/book',worked)
+    def worked_editor(ctx,expected=200):
+        return c.call('gas/composition/editor',dict(context=ctx,tradeId=worked_saved['tradeId']),expected=expected)
+    assert worked_editor(context,422)['code']=='exercise_marks'
+    held_cut=c.call('gas/quantities/read',dict(context=context,tradeId=worked_saved['tradeId'],
+                    selectionPolicy='operational_projection_v1'))['context']
+    held_context={**context,'contextId':held_cut['contextId'],'knowledgeMode':'retained'}
+    curve='synthetic_worked_location'
+    if browse:
+        browse('--gas-curve-mark',dict(curve=curve))
+    else:
+        publish_editor_volatility(writer,manifest,curve,0,'0.5')
+    assert worked_editor(held_context,422)['code']=='exercise_marks'
+    refreshed=worked_editor(context)['valuation']
+    assert round(Fraction(refreshed['groups'][2]['counted'])*10000)==29474419,refreshed['groups']
+    assert risk.call('portfolio/risk/jobs/'+job['id'])['result']['factors']==report['factors']
+    print('PASS editor publication and explicit gas reprice: 2947.4419, pinned absence and retained risk unchanged',flush=True)
+    writer.call('volatility-marks/record',{**mark,'operationId':str(uuid4()),'curve':'synthetic_entry_worked_daily'})
     worked_routes(c,query,manifest,context,call,base,run_worker,browse)
     check_unpriced_ticket(c,context,call)
     print('PASS curve marks: current authority, replay, revision history, pinned absence, symmetric gas pair and held 2947.4419 call',flush=True)
@@ -645,7 +685,7 @@ def worked_routes(c,query,manifest,context,call,base,run_worker,browse):
     from preview_client import initial_frame
     source='synthetic_entry_worked_daily'
     published=publish_daily_point(c,context,source)
-    if browse: browse(dict(curveId=published['id']))
+    if browse: browse('--gas-exercise',dict(curveId=published['id']))
     body=deepcopy(call)
     book=str(uuid4())
     query(f"INSERT INTO trading.books SELECT catalog_id,'{book}',portfolio_id,'Synthetic exercise routes',publication_order,effective_at FROM trading.books LIMIT 1;")

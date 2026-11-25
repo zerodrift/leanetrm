@@ -105,3 +105,18 @@ test('Publication evidence uses canonical values, supported clocks, and backend 
  assert.deepEqual(requireReceipt(receiptFor(reverseRequest,[recorded,later]),reverseRequest).cells,[recorded,later]);
  assert.throws(()=>requireReceipt(receiptFor(reverseRequest,[later,recorded]),reverseRequest));
 });
+
+test('Restored publications preserve the exact reviewed batch and read proof, and reject unrelated local shapes',async()=>{
+ const {restoreMarkCommand,markPath}=await import('../dist/curve-mark-model.js');
+ const {attachReadReferences,readReferences}=await import('../dist/read-references.js');
+ const saved=attachReadReferences({path:markPath+'record',operationId:batch.operationId,body:structuredClone(batch),uncertain:true},
+  {[batch.context.contextId]:'synthetic-proof'});
+ const restored=restoreMarkCommand(saved);
+ assert.deepEqual(JSON.parse(JSON.stringify(restored)),JSON.parse(JSON.stringify(saved)));
+ assert.deepEqual(readReferences(restored),readReferences(saved));
+ for(const invalid of [
+  {...saved,operationId:id(11)},{...saved,path:markPath+'review'},{...saved,uncertain:'maybe'},
+  {...saved,body:{...batch,kind:'correlation'}},{...saved,body:{...batch,changes:[{...batch.changes[0],secondCurve:'other'}]}},
+  {...saved,body:{...batch,changes:[{...batch.changes[0],value:'0.50'}]}},
+ ])assert.equal(restoreMarkCommand(invalid),undefined);
+});

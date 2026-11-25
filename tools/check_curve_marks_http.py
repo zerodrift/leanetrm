@@ -7,6 +7,27 @@ from uuid import uuid4
 from preview_client import PreviewClient
 
 
+def add_grid_curves(market):
+    # The maximum-size browser desk shares the synthetic future's admitted contracts.
+    # Its display names exercise both a spaced name and a long unbroken label.
+    from preview_fixture import M
+    curves = f"""
+        INSERT INTO market_data.curves
+        SELECT (jsonb_populate_record(c, jsonb_build_object(
+            'code','zz_mark_' || lpad(n::text,2,'0'),
+            'name',CASE WHEN n=1 THEN 'SyntheticNorthernInterconnectionPeakDelivery' ELSE 'Synthetic delivery region ' || n END))).*
+        FROM market_data.curves c CROSS JOIN generate_series(1,20) n
+        WHERE (c.catalog_id,c.revision_id,c.code)=({M},'future');
+        INSERT INTO market_data.curve_members
+        SELECT m.catalog_id,m.revision_id,'zz_mark_' || lpad(n::text,2,'0'),m.contract_id,m.ordinal
+        FROM market_data.curve_members m CROSS JOIN generate_series(1,20) n
+        WHERE (m.catalog_id,m.revision_id,m.curve_code)=({M},'future');
+    """
+    marker = 'UPDATE market_data.revisions SET'
+    assert marker in market
+    return market.replace(marker, curves + marker, 1)
+
+
 def run_checks(url, query, manifest):
     def client(profile):
         c = PreviewClient(url)

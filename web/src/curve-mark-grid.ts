@@ -11,6 +11,7 @@ type GridOptions={
  selected:(cell:LayoutCell)=>void;
  edited:(key:CellKey,value:string)=>void;
  editing:()=>void;
+ paste:(text:string)=>void;
 };
 
 /** The server's display addresses determine ordering and canonical mirror identities. */
@@ -26,6 +27,15 @@ export function setupMarkGrid(host:HTMLElement,o:GridOptions){
   buttonAt(active)?.setAttribute('aria-pressed','true');
   o.selected(cell);
  }
+ host.onpaste=event=>{
+  if(!event.clipboardData?.types.includes('text/plain'))return;
+  event.preventDefault();
+  const id=event.target instanceof Element?event.target.closest<HTMLElement>('[data-mark-address]')?.dataset.markAddress:undefined;
+  const cell=cells.find(item=>addressId(item.address)===id);
+  if(!cell||!o.mayEdit(cell))return;
+  selected(cell);
+  o.paste(event.clipboardData.getData('text/plain'));
+ };
  function finish(commit:boolean,following?:Address,refocus=true){
   if(!editor)return;
   const {input,key,address,touched}=editor;

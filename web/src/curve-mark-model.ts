@@ -93,7 +93,7 @@ const isContext=(v:unknown):v is MarkContext=>shape(v,'contextId asOf businessDa
 const isReadContext=(v:unknown):v is ReadMarkContext=>shape(v,'selected knownAt mode')&&isContext(v.selected)&&isUtcInstant(v.knownAt)&&(v.mode==='working'||v.mode==='historical');
 const isView=(v:unknown):v is MarkView=>shape(v,'kind mode curves fromMonth toMonth')&&isKind(v.kind)&&(v.mode==='grid'||v.mode==='strip')&&array(v.curves,nonblank)&&month(v.fromMonth)&&month(v.toMonth);
 const isKey=(v:unknown):v is CellKey=>shape(v,'firstCurve secondCurve month')&&nonblank(v.firstCurve)&&nullable(v.secondCurve,nonblank)&&month(v.month);
-const isAddress=(v:unknown):v is Address=>shape(v,'row column')&&count(v.row)&&count(v.column);
+export const isAddress=(v:unknown):v is Address=>shape(v,'row column')&&count(v.row)&&count(v.column);
 const isLayoutCell=(v:unknown):v is LayoutCell=>shape(v,'address key editable')&&isAddress(v.address)&&nullable(v.key,isKey)&&bool(v.editable)&&(!v.editable||v.key!==null);
 const isLayout=(v:unknown):v is NonNullable<Setup['layout']>=>shape(v,'rowCount columnCount cells')&&positive(v.rowCount)&&positive(v.columnCount)&&array(v.cells,isLayoutCell)&&v.cells.length===v.rowCount*v.columnCount&&v.cells.every((cell,i)=>cell.address.row===Math.floor(i/(v.columnCount as number))&&cell.address.column===i%(v.columnCount as number));
 const isValue=(v:unknown):v is MarkValue=>shape(v,'id revision value effectiveAt knownAt')&&uuid(v.id)&&positive(v.revision)&&decimal(v.value)&&isUtcInstant(v.effectiveAt)&&isUtcInstant(v.knownAt);
@@ -260,5 +260,9 @@ export function requireStatus(v:unknown,batch:Batch):Receipt|null{
 }
 export function restoreMarkCommand(value:unknown):MarkCommand|undefined{
  if(!shape(value,'path operationId body',['uncertain','label'])||value.path!==markPath+'record'||!isBatch(value.body)||value.operationId!==value.body.operationId)return;
+ const batch=value.body;
+ if((value.uncertain!==undefined&&!bool(value.uncertain))||(value.label!==undefined&&!text(value.label))||
+  !receiptInstant(batch.context.asOf)||!batch.changes.every(change=>receiptValue(batch.kind,change.value)&&
+   (batch.kind==='volatility'?change.secondCurve===null:change.secondCurve!==null&&change.firstCurve<change.secondCurve)))return;
  return{path:value.path,operationId:value.body.operationId,body:cloneRead(value.body),uncertain:true};
 }

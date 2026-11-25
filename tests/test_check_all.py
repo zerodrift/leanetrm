@@ -817,6 +817,8 @@ class CheckAllTests(unittest.TestCase):
             self.assertIn(flag, previews[name][0])
         self.assertEqual(len(previews['standard']), 3)
         self.assertEqual(group_of('--curve-marks-check'), 'standard')
+        mark_check=next(command for command in previews['standard'] if '--curve-marks-check' in command)
+        self.assertEqual(mark_check[-3:], ('--browser-check', '--browser', '/browser'))
         self.assertEqual(previews['standard'][0][-3:], ('--browser-check', '--browser', '/browser'))
         self.assertFalse(any(flag.endswith('-check') and flag not in ('--check', '--browser-check')
                              for flag in previews['standard'][0]))
