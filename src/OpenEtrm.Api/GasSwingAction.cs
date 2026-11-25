@@ -22,6 +22,7 @@ public sealed record GasSwingAction(bool Allowed,string? Reason,Guid TradeId,Gui
     int Right,string Holder,string Increment,string DailyMinimum,string DailyMaximum,string ReferenceQuantity,string TotalMinimum,string TotalMaximum,
     string Committed,string RemainingMinimum,string RemainingMaximum,ImmutableArray<GasSwingActionDay> Days)
 {
+    internal WriteAuthority? Admission {get;init;}
     public string Label=>"Record swing election";
     public string PreparePath=>"/api/gas/swing/prepare";
     public string RecordPath=>"/api/gas/swing/record";
@@ -34,7 +35,7 @@ public sealed record GasSwingAction(bool Allowed,string? Reason,Guid TradeId,Gui
         if(reason is null)
         {
             if(authority is null)throw new PreviewDeniedException();
-            await authority.RequireCommit(c,ct);
+            authority=await authority.Admit(c,ct);
             database.RegisterCommitAdmission(c,authority);
         }
         var right=execution.SwingRights.Single();
@@ -55,27 +56,31 @@ public sealed record GasSwingAction(bool Allowed,string? Reason,Guid TradeId,Gui
         string Quantity(int lots)=>lot.Scale(ExactDecimal.Parse(lots.ToString(CultureInfo.InvariantCulture))).ToExactString();
         return new(reason is null,reason,execution.TradeId,execution.InstrumentId,revision,reason is null?frame.ContextId:null,right.Ordinal,term.Holder,term.Increment,
             term.DailyMinimum,term.DailyMaximum,reference,term.TotalMinimum,term.TotalMaximum,Quantity(budget.CommittedLots),
-            Quantity(budget.RemainingMinimumLots),Quantity(budget.RemainingMaximumLots),days);
+            Quantity(budget.RemainingMinimumLots),Quantity(budget.RemainingMaximumLots),days){Admission=reason is null?authority:null};
     }
 
     internal sealed record WriteAuthority(Guid Catalog,DateTimeOffset Until):ICommitAdmission
     {
-        public async Task RequireCommit(NpgsqlConnection c,CancellationToken ct)
+        internal async Task<WriteAuthority> Admit(NpgsqlConnection c,CancellationToken ct)
         {
-            await using var q=ScheduleStore.Command(c,"SELECT clock_timestamp()<least($2,deadline) FROM security.gas_swing_write_until($1) AS deadline",Catalog,Until);
-            if(await q.ExecuteScalarAsync(ct) is not true)throw new PreviewDeniedException();
+            await using var q=ScheduleStore.Command(c,"SELECT least($2,deadline) FROM security.gas_swing_write_until($1) AS deadline WHERE clock_timestamp()<least($2,deadline)",Catalog,Until);
+            if(await q.ExecuteScalarAsync(ct) is not DateTime deadline)throw new PreviewDeniedException();
+            return this with{Until=new DateTimeOffset(deadline)};
         }
+
+        public async Task RequireCommit(NpgsqlConnection c,CancellationToken ct)=>_=await Admit(c,ct);
     }
 
-    internal static async Task<WriteAuthority?> CaptureAuthority(NpgsqlConnection c,Guid catalog,CancellationToken ct)
+    internal static async Task<WriteAuthority?> CaptureDeadline(NpgsqlConnection c,Guid catalog,CancellationToken ct)
     {
-        // Bind the original AmendTrade deadline first. The scoped native check may wait
-        // before it reads the catalog's current market and trading authority.
+        // A working ticket can learn whether its binding has swing only after the
+        // bound reads. Pin the original grant limits without claiming a write.
         await using var capture=ScheduleStore.Command(c,"""
-            SELECT least(initial.until_at,security.gas_swing_write_until($1))
-            FROM security.authority_until('AmendTrade') AS initial(until_at)
-            WHERE clock_timestamp()<initial.until_at
-            """,catalog);
+            WITH initial AS MATERIALIZED (
+                SELECT least(security.authority_until('AmendTrade'),security.authority_until('ReadMarketData'),
+                             security.authority_until('ReadTrades')) AS until_at)
+            SELECT until_at FROM initial WHERE clock_timestamp()<until_at
+            """);
         return await capture.ExecuteScalarAsync(ct) is DateTime until?new(catalog,new DateTimeOffset(until)):null;
     }
 

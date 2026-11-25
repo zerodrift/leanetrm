@@ -61,11 +61,13 @@ def read_grant_transition(query, manifest, reader):
             DELETE FROM security.roles WHERE id='{role}';COMMIT;""")
 
 
-def action_grant_transition(client, query, manifest, path, body, table):
-    """A request that already waited under A cannot publish a writable action under B."""
+def action_grant_transition(client, query, manifest, path, body, table, *, successor=True):
+    """Hold the requested bound read across expiry, then check the selected ticket or action."""
     role, grant = uuid4(), uuid4()
     name = 'swing_amend_' + role.hex
     existing = json.loads(query("SELECT json_agg(role_id)::text FROM security.role_permissions WHERE permission='AmendTrade'"))
+    next_grant = f"""INSERT INTO security.role_grants SELECT gen_random_uuid(),principal_id,role_id,tenant_id,workspace_id,
+        granted_to,granted_to+interval '1 minute',false FROM security.role_grants WHERE id='{grant}';""" if successor else ''
     try:
         boundary = query(f"""BEGIN;DELETE FROM security.role_permissions WHERE permission='AmendTrade';
             INSERT INTO security.roles VALUES('{role}','{name}','Synthetic swing action authority');
@@ -73,8 +75,7 @@ def action_grant_transition(client, query, manifest, path, body, table):
             INSERT INTO security.role_grants SELECT '{grant}',principal_id,'{role}','{manifest['tenantId']}','{manifest['workspaceId']}',
              clock_timestamp()-interval '1 day',clock_timestamp()+interval '4 seconds',false FROM security.identity_bindings
              WHERE issuer='https://preview.invalid' AND subject='trader';
-            INSERT INTO security.role_grants SELECT gen_random_uuid(),principal_id,role_id,tenant_id,workspace_id,
-             granted_to,granted_to+interval '1 minute',false FROM security.role_grants WHERE id='{grant}';
+            {next_grant}
             SELECT granted_to FROM security.role_grants WHERE id='{grant}';COMMIT;""")
         with ThreadPoolExecutor(max_workers=2) as pool:
             locked = pool.submit(query, f"""SET application_name='{name}';BEGIN;LOCK TABLE {table} IN ACCESS EXCLUSIVE MODE;
@@ -89,10 +90,17 @@ def action_grant_transition(client, query, manifest, path, body, table):
                 assert not request.done() and monotonic()<limit, f'{path} did not reach its bound read under grant A'
                 sleep(.03)
             locked.result(timeout=10)
-            request.result(timeout=10)
-            assert client.last_status==403, f'{path} published a writable result under successor B after waiting under A'
-        result = client.call(path,body)
-        assert ('command' in result if path.endswith('/prepare') else result['actions']['recordSwing']['allowed'])
+            result = request.result(timeout=10)
+            if successor:
+                assert client.last_status==403, f'{path} published a writable result under successor B after waiting under A'
+            else:
+                assert client.last_status==200, f'The plain ticket lost its read when only AmendTrade expired: {result}'
+                assert result['schedule'] and not result['actions']['record']['allowed'] and 'recordSwing' not in result['actions']
+        fresh = client.call(path,body)
+        if successor:
+            assert ('command' in fresh if path.endswith('/prepare') else fresh['actions']['recordSwing']['allowed'])
+        else:
+            assert fresh['schedule'] and not fresh['actions']['record']['allowed']
     finally:
         restore = ','.join(f"('{r}','AmendTrade')" for r in existing)
         query(f"""BEGIN;DELETE FROM security.role_grants WHERE role_id='{role}';DELETE FROM security.role_permissions WHERE role_id='{role}';
@@ -232,6 +240,9 @@ def election_checks(client, query, manifest, context, booking, plain, run_worker
         firstDay=DAYS[1],lastDay=DAYS[2],decision='elect',quantity='600',exercisingParty='us',
         submittedAt=AT,effectiveAt=BETWEEN,evidence='Synthetic ticket range')
     ticket_request=dict(context=context,tradeId=selected['tradeId'],bindingId=selected['instrumentId'],revision=1)
+    plain_request=dict(context=context,tradeId=plain['tradeId'],bindingId=plain['instrumentId'],revision=1)
+    action_grant_transition(client,query,manifest,'tickets/trade',plain_request,'security.market_catalog_scopes',successor=False)
+    print('PASS ordinary working ticket retains its schedule and disables recording when AmendTrade expires during a catalog-scope wait',flush=True)
     for path,body,table in [('gas/swing/prepare',choice,'security.market_catalog_scopes'),
                             ('gas/swing/prepare',choice,'trading.gas_trade_revisions'),
                             ('tickets/trade',ticket_request,'trading.gas_trade_revisions')]:

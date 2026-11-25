@@ -2485,8 +2485,10 @@ api.MapPost("/gas/swing/prepare",(HttpContext c,JsonElement request)=>
   var action=await GasSwingAction.Read(connection,database,held,frame,body.ExpectedRevision,null,authority,ct);
   return new{command=action.Build(body)};
  },ct),expectedConvention:PhysicalGasStore.Convention,publicationCheck:(connection,_,ct)=>
-  GasSwingAction.RequireAuthority(connection,authority!,body.TradeId,body.InstrumentId,ct),initialAdmission:async(connection,_,ct)=>
-  authority=await GasSwingAction.CaptureAuthority(connection,database.Manifest.CatalogId,ct)??throw new PreviewDeniedException());
+  GasSwingAction.RequireAuthority(connection,authority!,body.TradeId,body.InstrumentId,ct),initialAdmission:async(connection,_,ct)=>{
+  var initial=await GasSwingAction.CaptureDeadline(connection,database.Manifest.CatalogId,ct)??throw new PreviewDeniedException();
+  authority=await initial.Admit(connection,ct);
+ });
 });
 api.MapPost("/gas/swing/record",(HttpContext c,JsonElement request)=>
 {
@@ -2607,11 +2609,11 @@ api.MapPost("/tickets/trade",(HttpContext c,TicketTradeRequest body)=>
   return result.Ticket;
  },ct),expectedConvention:PhysicalGasStore.Convention,publicationCheck:async(connection,_,ct)=>{
   if(exercise is {Allowed:true})await GasExerciseAction.RequireAuthority(connection,database.Manifest.CatalogId,exercise.TradeId,exercise.InstrumentId,ct);
-  if(swing is {Allowed:true})await GasSwingAction.RequireAuthority(connection,swingAuthority!,swing.TradeId,swing.InstrumentId,ct);
+  if(swing?.Admission is {} admission)await GasSwingAction.RequireAuthority(connection,admission,swing.TradeId,swing.InstrumentId,ct);
  },initialAdmission:async(connection,selection,ct)=>{
   // Capture the potential swing action before the working knowledge capture or
   // any bound trade read waits. Only a ticket that publishes it consumes the cap.
-  if(!park&&selection.Working)swingAuthority=await GasSwingAction.CaptureAuthority(connection,database.Manifest.CatalogId,ct);
+  if(!park&&selection.Working)swingAuthority=await GasSwingAction.CaptureDeadline(connection,database.Manifest.CatalogId,ct);
  });
 });
 api.MapPost("/tickets/status",(HttpContext c,TicketStatusRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>
