@@ -17,26 +17,30 @@ def literal(value):
 class ParkLoanFixture:
     """Own the accounts and explicit native evidence used by one qualification."""
 
-    def __init__(self, query, manifest):
-        self.query, self.manifest = query, manifest
+    def __init__(self, query, manifest, *, prepared=False, actor='trader'):
+        """`prepared` takes a database that already holds its trading fixture, discount default, operating policies
+        and identities: the constructor then writes nothing, permissions included. `actor` signs in where a call
+        names nobody."""
+        self.query, self.manifest, self.actor = query, manifest, actor
         self.context_operation=('security.resolve_operation_context' if query("SELECT to_regprocedure('security.resolve_operation_context(uuid,date,timestamptz)') IS NOT NULL;")=='t' else 'security.capture_date_context')
         self.catalog = manifest['catalogId']
         self.at = '2020-12-20T16:00:00Z'
         self.day = '2020-12-20'
-        query(trading_fixture(self.catalog))
-        from rate_curve_fixture import discount_default
-        reference = f"'{manifest['referenceCatalogId']}','{manifest['referenceRevisionId']}'"
-        publication = f"(SELECT max(publication_order) FROM trading.publications WHERE catalog_id='{self.catalog}')"
-        query(f"BEGIN;INSERT INTO trading.publications SELECT '{self.catalog}',max(publication_order)+1,pg_current_xact_id() "
-              f"FROM trading.publications WHERE catalog_id='{self.catalog}';" +
-              discount_default(self.catalog, str(uuid4()), manifest['revisionId'], reference, 'usd', 'interest_rates', publication,
-                  '2020-01-01T00:00:00Z') + 'COMMIT;')
-        query(f"SELECT security.initialize_operating_policies('{manifest['tenantId']}','{manifest['workspaceId']}');")
-        query(catalogue_fixture(manifest, manifest['identityIssuer']))
-        query("INSERT INTO security.role_permissions SELECT role_id,p.code FROM security.role_permissions r "
-              "CROSS JOIN security.permissions p WHERE r.permission='AmendTrade' AND p.code IN "
-              "('ReadGasOwnedHoldings','RecordGasOwnedHoldings','ConfigureGasOwnedHoldings','RunScenario') "
-              "ON CONFLICT DO NOTHING;")
+        if not prepared:
+            query(trading_fixture(self.catalog))
+            from rate_curve_fixture import discount_default
+            reference = f"'{manifest['referenceCatalogId']}','{manifest['referenceRevisionId']}'"
+            publication = f"(SELECT max(publication_order) FROM trading.publications WHERE catalog_id='{self.catalog}')"
+            query(f"BEGIN;INSERT INTO trading.publications SELECT '{self.catalog}',max(publication_order)+1,pg_current_xact_id() "
+                  f"FROM trading.publications WHERE catalog_id='{self.catalog}';" +
+                  discount_default(self.catalog, str(uuid4()), manifest['revisionId'], reference, 'usd', 'interest_rates', publication,
+                      '2020-01-01T00:00:00Z') + 'COMMIT;')
+            query(f"SELECT security.initialize_operating_policies('{manifest['tenantId']}','{manifest['workspaceId']}');")
+            query(catalogue_fixture(manifest, manifest['identityIssuer']))
+            query("INSERT INTO security.role_permissions SELECT role_id,p.code FROM security.role_permissions r "
+                  "CROSS JOIN security.permissions p WHERE r.permission='AmendTrade' AND p.code IN "
+                  "('ReadGasOwnedHoldings','RecordGasOwnedHoldings','ConfigureGasOwnedHoldings','RunScenario') "
+                  "ON CONFLICT DO NOTHING;")
         self.terms = json.loads(query(
             "SELECT jsonb_build_object('quantity',q.quantity_code,'currency',q.currency_code,'location',c.location_code)::text "
             "FROM market_data.curves c JOIN ref_data.quote_specifications q ON(q.catalog_id,q.revision_id,q.code)="
@@ -47,19 +51,19 @@ class ParkLoanFixture:
         self.party = 'd5000000-0000-0000-0000-000000000001'
         self.other_party = 'd5000000-0000-0000-0000-000000000002'
 
-    def call(self, sql, *, profile='trader', rollback=False):
+    def call(self, sql, *, profile=None, rollback=False):
         manifest = self.manifest
         token = self.query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
-            f"'{manifest['identityIssuer']}','{profile}','human_interactive','{manifest['tenantId']}',"
+            f"'{manifest['identityIssuer']}','{profile or self.actor}','human_interactive','{manifest['tenantId']}',"
             f"'{manifest['workspaceId']}',NULL,'preview_runtime',60);")
         return self.query("SET SESSION AUTHORIZATION preview_runtime;BEGIN;"
             f"SELECT security.use_context('{token}');{sql}" + ('ROLLBACK;' if rollback else 'COMMIT;'))
 
-    def capture(self, *, day=None, cutoff=None):
+    def capture(self, *, day=None, cutoff=None, profile=None):
         selected = 'NULL' if cutoff is None else "'" + cutoff + "'"
-        return self.call(f"SELECT {self.context_operation}('{self.catalog}','{day or self.day}',{selected});")
+        return self.call(f"SELECT {self.context_operation}('{self.catalog}','{day or self.day}',{selected});", profile=profile)
 
-    def native(self, account, action, body, *, policy=None, operation=None, context=None, profile='trader', rollback=False):
+    def native(self, account, action, body, *, policy=None, operation=None, context=None, profile=None, rollback=False):
         selected = f"'{policy}',1" if policy else 'NULL,NULL'
         return json.loads(self.call(
             f"SELECT security.record_gas_owned('{self.catalog}','{operation or uuid4()}','{action}','{account}',"

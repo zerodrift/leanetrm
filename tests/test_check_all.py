@@ -317,6 +317,12 @@ class CheckAllTests(unittest.TestCase):
                 self.assertIn('--browser-check',browser[0])
                 self.assertEqual(browser[0][browser[0].index('--browser')+1],'/browser')
 
+    def test_inventory_access_runs_once_in_physical_partition(self):
+        for group in ALL_GROUPS:
+            commands=[]
+            run_checks(Path('/pg'),Path('/dotnet'),Path('/browser'),group=group,run=lambda command,**options:commands.append(command))
+            self.assertEqual(sum('--inventory-access-check' in command for command in commands),int(group=='physical'))
+
     def test_assistant_prompt_and_demand_checks_are_required(self):
         for group in ALL_GROUPS:
             commands = []

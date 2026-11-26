@@ -270,6 +270,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
         check(label, command, suite=suite)
 
     preview_check('structured power facilities, trading, REC inventory and browser',[*preview,'--structured-power-check','--browser-check','--browser',str(browser)],suite='physical')
+    preview_check('installed role access to REC inventory and owned gas',[*preview,'--inventory-access-check'],suite='physical')
     preview_check('integrated live calculation and browser',[*preview,'--live-calculation-check','--browser-check','--browser',str(browser)])
     preview_check('private inactive reference intake',[*preview,'--reference-import-check'], suite='reference')
     preview_check('standard preview and browser', [*preview, '--browser-check', '--browser', str(browser)], suite='standard')
