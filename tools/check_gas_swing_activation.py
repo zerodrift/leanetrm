@@ -59,7 +59,10 @@ def booking_fields(client,query,manifest,base):
         invalid=dict(body,operationId=str(uuid4()),swingRights=[dict(right,**edits)])
         refusal=client.call('gas/composition/book',invalid,expected=422)
         assert (refusal.get('code'),refusal.get('field'))==(code,field),(edits,refusal)
-        staged_booking(query,manifest,body,invalid,code,fields=dict(field=field))
+        fields=dict(field=field)
+        if code=='swing_numerical_scope':
+            fields.update(dimension='candidate visits',limit=100_000_000)
+        staged_booking(query,manifest,body,invalid,code,fields=fields)
     for policy in ('model','numericalPolicy'):
         invalid=dict(body,operationId=str(uuid4()),swingRights=[dict(right,pricing=dict(right['pricing'],**{policy:'unsupported'}))])
         assert client.call('gas/composition/book',invalid,expected=422)['code']=='swing_model_scope'

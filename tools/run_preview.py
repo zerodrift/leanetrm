@@ -43,6 +43,8 @@ def main():
     parser.add_argument('--gas-operations-check',action='store_true',help='Qualify manual gas requests, acknowledgments and imbalance transfers')
     parser.add_argument('--gas-billing-check',action='store_true',help='Qualify final daily gas cash and retained corrections')
     parser.add_argument('--curve-marks-check',action='store_true',help='Qualify atomic curve mark batches and certified market history')
+    parser.add_argument('--gas-swing-workload-check',action='store_true',help='Measure the marked seasonal and annual swing through booking and leased risk jobs')
+    parser.add_argument('--gas-swing-workload-days',type=int,choices=(90,365),help='Measure one term in a fresh preview')
     parser.add_argument('--gas-swing-check',action='store_true',help='Qualify physical gas swing booking and retained terms')
     parser.add_argument('--gas-exercise-check',action='store_true',help='Qualify gas exercise right admission and retained exercise times')
     parser.add_argument('--gas-imbalance-check',action='store_true',help='Qualify reported-balance cash-out booking, valuation and authority')
@@ -143,8 +145,8 @@ def main():
     parser.add_argument('--authoring-browser-suite',choices=['curve-objects','contract-pricing-controls','publication-controls','price-authoring-recovery'],help='Run one focused authoring control suite in the owned authoring fixture')
     parser.add_argument('--example', choices=['standard','mixed-gas'], default='standard', help='Explicit synthetic dataset')
     args = parser.parse_args()
-    if args.gas_swing_check and not __debug__:
-        parser.error('--gas-swing-check requires Python assertions; run without -O or PYTHONOPTIMIZE.')
+    if (args.gas_swing_check or args.gas_swing_workload_check) and not __debug__:
+        parser.error('Gas swing qualification requires Python assertions; run without -O or PYTHONOPTIMIZE.')
     from check_standalone import main as check_standalone
     check_standalone()
     if args.regional_seed_check:
@@ -208,7 +210,7 @@ def main():
             if enabled and name.endswith('_check') and name not in compatible:
                 parser.error(f"--gas-charges-check and --{name.replace('_','-')} use different fixtures; run them separately")
         if args.example!='standard': parser.error('--gas-charges-check requires the standard fixture')
-    if args.gas_setup_check or args.gas_composition_check or args.gas_amendments_check or args.gas_indexed_check or args.gas_in_term_check or args.deal_ticket_check or args.gas_daily_quantity_check or args.gas_delivery_quantity_check or args.gas_imbalance_check or args.gas_charges_check or args.gas_pricing_check or args.gas_exercise_check or args.gas_swing_check or args.facility_quantity_check: args.physical_gas_check=True
+    if args.gas_setup_check or args.gas_composition_check or args.gas_amendments_check or args.gas_indexed_check or args.gas_in_term_check or args.deal_ticket_check or args.gas_daily_quantity_check or args.gas_delivery_quantity_check or args.gas_imbalance_check or args.gas_charges_check or args.gas_pricing_check or args.gas_exercise_check or args.gas_swing_check or args.gas_swing_workload_check or args.facility_quantity_check: args.physical_gas_check=True
     if args.demo_instruments_check or args.gas_indexed_check or args.gas_in_term_check: args.check=True
 
     if args.retained_schedule_check or args.physical_gas_check or args.physical_crude_check or args.lng_cargo_check: args.check=True
@@ -220,7 +222,7 @@ def main():
     if args.authoring_browser_suite and not(args.browser_check and args.custom_curves_check):
         parser.error('--authoring-browser-suite requires --custom-curves-check or --price-authoring-check, and --browser-check')
     if args.lifecycle_swap_browser_check and not args.browser_check: parser.error('--lifecycle-swap-browser-check requires --browser-check and --browser')
-    fixing_frames=args.lifecycle_swap_browser_check or args.price_authoring_check or args.gas_operations_check or args.gas_billing_check or gas_demo or args.physical_crude_check or args.lng_cargo_check or args.crude_lifecycle_check or args.with_gas_quantity_dates or args.gas_amendments_check or args.gas_indexed_check or args.gas_daily_quantity_check or args.gas_delivery_quantity_check or args.gas_imbalance_check or args.gas_charges_check or args.gas_pricing_check or args.gas_exercise_check or args.gas_swing_check or args.facility_quantity_check or args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check or args.close_out_drafts_check
+    fixing_frames=args.lifecycle_swap_browser_check or args.price_authoring_check or args.gas_operations_check or args.gas_billing_check or gas_demo or args.physical_crude_check or args.lng_cargo_check or args.crude_lifecycle_check or args.with_gas_quantity_dates or args.gas_amendments_check or args.gas_indexed_check or args.gas_daily_quantity_check or args.gas_delivery_quantity_check or args.gas_imbalance_check or args.gas_charges_check or args.gas_pricing_check or args.gas_exercise_check or args.gas_swing_check or args.gas_swing_workload_check or args.facility_quantity_check or args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check or args.close_out_drafts_check
 
     if args.blotter_stream_benchmark and (args.output is None or args.output.resolve().is_relative_to(ROOT)):
         parser.error('--blotter-stream-benchmark requires an --output file outside the repository')
@@ -335,7 +337,8 @@ def main():
         else:
             from demo_date_plan import compile_plan
             date_plan=compile_plan(dotnet,dll,temporary) if not args.check and not gas_demo else None
-            reference,market,security,manifest=fixture(ROOT,fixing_frames=fixing_frames,date_plan=date_plan,window_frames=args.contract_dates_check,publish_clocks=False)
+            reference,market,security,manifest=fixture(ROOT,fixing_frames=fixing_frames,date_plan=date_plan,window_frames=args.contract_dates_check,publish_clocks=False,
+                market_effective_to="2042-02-01" if args.gas_swing_workload_check else "2022-01-01")
             if args.curve_marks_check and args.browser_check:
                 from check_curve_marks_http import add_grid_curves
                 market=add_grid_curves(market)
@@ -345,9 +348,12 @@ def main():
             if args.gas_indexed_check:
                 from gas_indexed_fixture import add_fixture
                 reference,market,security,manifest=add_fixture(reference,market,security,manifest)
-            if args.gas_imbalance_check or args.gas_charges_check or args.gas_pricing_check or args.gas_exercise_check or args.gas_swing_check:
+            if args.gas_imbalance_check or args.gas_charges_check or args.gas_pricing_check or args.gas_exercise_check or args.gas_swing_check or args.gas_swing_workload_check:
                 from gas_pricing_fixture import add_fixture as add_pricing_fixture
                 reference,market,security,manifest=add_pricing_fixture(reference,market,security,manifest,exercise_months=args.gas_exercise_check,imbalance_days=args.gas_imbalance_check)
+            if args.gas_swing_workload_check:
+                from gas_swing_fixture import add_workload
+                reference,market,security,manifest=add_workload(reference,market,security,manifest)
             if args.gas_swing_check:
                 from gas_swing_fixture import add_fixture as add_swing_fixture
                 reference,market,security,manifest=add_swing_fixture(reference,market,security,manifest)
@@ -907,6 +913,8 @@ def main():
         # as closes containing contracts that do not exist yet.
         working_days=tuple({frame['at'][:10] for frame in manifest['frames']}) if args.factor_swap_check else (
             ('2020-12-18',) if args.factor_history_check or args.context_read_check or args.curve_marks_check else ())
+        if args.gas_swing_workload_check:
+            working_days=(*working_days,'2040-12-31','2041-01-02')
         seed_session_closes(query,manifest,working=working_days,input_markets=close_inputs)
         if swing_chain:
             from check_gas_swing_upgrade import install_chain
@@ -1005,13 +1013,18 @@ def main():
                 if not measure:
                     subprocess.run(command,cwd=ROOT,env=worker_env,check=True,timeout=timeout+30);return None
                 # One claimed job, with the worker process's resident memory sampled every 50 ms; returns the sampled peak in KiB.
-                process=subprocess.Popen(command,cwd=ROOT,env=worker_env);peak=0;deadline=time.monotonic()+timeout+30
+                process=subprocess.Popen(command,cwd=ROOT,env=worker_env);peak=0;first_sample=None;deadline=time.monotonic()+timeout+30
                 while process.poll() is None:
                     sample=subprocess.run(['ps','-o','rss=','-p',str(process.pid)],capture_output=True,text=True).stdout.strip()
-                    peak=max(peak,int(sample)) if sample else peak
+                    if sample:
+                        rss=int(sample)
+                        if first_sample is None and rss>0:first_sample=rss
+                        peak=max(peak,rss)
                     if time.monotonic()>deadline:process.kill();raise RuntimeError(f'The risk worker did not finish within {timeout+30} seconds.')
                     time.sleep(.05)
                 if process.returncode:raise subprocess.CalledProcessError(process.returncode,command)
+                if args.gas_swing_workload_check:
+                    print(f'WORKLOAD fresh Debug worker first observed RSS {first_sample} KiB, peak {peak} KiB',flush=True)
                 return peak
             return run
         if (args.regional_seed_check or not gas_demo and not args.check or args.jobs_check or args.live_calculation_check or args.unit_check or args.risk_jobs_check or args.async_workbench_check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check or args.valuation_status_check or args.desk_fields_check or args.ephemeral_context_check) and args.example=='standard':
@@ -1225,8 +1238,16 @@ def main():
                 check_gas_in_term(url,query,manifest,risk_worker_runner(),admin_load_in_term,browse_in_term if args.browser_check else None)
                 from check_gas_point_in_term import run_checks as check_point_in_term
                 check_point_in_term(url,query,manifest,admin_load_in_term)
-            elif args.gas_imbalance_check or args.gas_charges_check or args.gas_pricing_check or args.gas_exercise_check or args.gas_swing_check:
+            elif args.gas_imbalance_check or args.gas_charges_check or args.gas_pricing_check or args.gas_exercise_check or args.gas_swing_check or args.gas_swing_workload_check:
                 run_worker=risk_worker_runner()
+                if args.gas_swing_workload_check:
+                    from hashlib import sha256
+                    import platform
+                    binaries={name:sha256((frozen_dll.parent/name).read_bytes()).hexdigest() for name in
+                              (frozen_dll.name,"OpenEtrm.MarketData.dll","OpenEtrm.Api.runtimeconfig.json")}
+                    print("WORKLOAD frozen Debug API and worker "+json.dumps(dict(host=platform.platform(),sha256=binaries)),flush=True)
+                    from check_gas_swing import workload_routes
+                    workload_routes(url,query,manifest,run_worker,child.pid,args.gas_swing_workload_days)
                 if args.gas_imbalance_check or args.gas_charges_check or args.gas_pricing_check:
                     query("CREATE ROLE preview_gas_in_term_loader LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS INHERIT IN ROLE openetrm_runtime,openetrm_gas_in_term_loader;")
                 if args.gas_composition_check:

@@ -137,7 +137,7 @@ BEGIN
    IF lo>hi THEN CONTINUE;END IF;
   END IF;
   width=hi-lo+1;states=states+width;
-  IF states>65536 THEN RAISE EXCEPTION 'swing_numerical_scope' USING DETAIL='state slots';END IF;
+  IF states>65536 THEN RAISE EXCEPTION 'swing_numerical_scope' USING DETAIL='{"field":"numericalPolicy","dimension":"state slots","limit":65536}',HINT='state slots';END IF;
   IF remaining=0 THEN CONTINUE;END IF;
   fan=1;
   IF allowance>0 THEN
@@ -152,7 +152,7 @@ BEGIN
    IF change_limit IS NOT NULL AND base_index NOT BETWEEN first_move AND last_move THEN fan=fan+1;END IF;
   END IF;
   moves=moves+width*fan;
-  IF moves>100000000 THEN RAISE EXCEPTION 'swing_numerical_scope' USING DETAIL='candidate visits';END IF;
+  IF moves>100000000 THEN RAISE EXCEPTION 'swing_numerical_scope' USING DETAIL='{"field":"numericalPolicy","dimension":"candidate visits","limit":100000000}',HINT='candidate visits';END IF;
  END LOOP;
 END$$;
 
@@ -208,7 +208,7 @@ BEGIN
    IF mod(elapsed_us-phase,tick_us)<>0 THEN splits=splits+1;END IF;
    IF flexible THEN
     t=(elapsed_us-phase)/tick_us+1+splits;
-    IF 3*t::numeric*t>100000000 THEN RAISE EXCEPTION 'swing_numerical_scope' USING DETAIL='operations';END IF;
+    IF 3*t::numeric*t>100000000 THEN RAISE EXCEPTION 'swing_numerical_scope' USING DETAIL='{"field":"numericalPolicy","dimension":"operations","limit":100000000}',HINT='operations';END IF;
     nodes=2*t+1;
     branches=branches+3*(t*t-previous*previous)*before_layer.states;
     choices=choices+nodes*before_layer.moves;payoffs=payoffs+nodes*least(last_index+1,before_layer.moves);
@@ -219,8 +219,8 @@ BEGIN
    END IF;
    operations=preflight+4*slots+3*moves+branches+choices+payoffs+normalizers+(2*previous+1)*cardinality(months)+previous+days;
    peak_bytes=32768+4096*slots+8192*days+256*previous+96*((2*previous+1)*cardinality(months)+2*rolling)+1536*max_edges;
-   IF operations>100000000 THEN RAISE EXCEPTION 'swing_numerical_scope' USING DETAIL='operations';END IF;
-   IF peak_bytes>268435456 THEN RAISE EXCEPTION 'swing_numerical_scope' USING DETAIL='modeled live bytes';END IF;
+   IF operations>100000000 THEN RAISE EXCEPTION 'swing_numerical_scope' USING DETAIL='{"field":"numericalPolicy","dimension":"operations","limit":100000000}',HINT='operations';END IF;
+   IF peak_bytes>268435456 THEN RAISE EXCEPTION 'swing_numerical_scope' USING DETAIL='{"field":"numericalPolicy","dimension":"modeled live bytes","limit":268435456}',HINT='modeled live bytes';END IF;
   END LOOP;
  END LOOP;
  RETURN jsonb_build_object('policy',format_version,'calculationAt',at_time,'operations',coalesce(operations,preflight),
@@ -318,13 +318,7 @@ BEGIN
   END;
   IF key IS NOT NULL THEN RAISE EXCEPTION 'swing_feasibility' USING DETAIL=jsonb_build_object('field',key)::text;END IF;
  END LOOP;
- BEGIN
-  work=trading.gas_swing_booking_work(calendar,deadlines,as_of,ref,minimum,maximum,step,period,lower_limit,upper_limit,basis,change_limit);
- EXCEPTION WHEN raise_exception THEN
-  IF SQLERRM<>'swing_numerical_scope' THEN RAISE;END IF;
-  GET STACKED DIAGNOSTICS key=PG_EXCEPTION_DETAIL;
-  RAISE EXCEPTION 'swing_numerical_scope' USING DETAIL='{"field":"numericalPolicy"}',HINT=key;
- END;
+ work=trading.gas_swing_booking_work(calendar,deadlines,as_of,ref,minimum,maximum,step,period,lower_limit,upper_limit,basis,change_limit);
  INSERT INTO trading.gas_swing_rights VALUES(catalog,instrument,0,source.slot,schedule,term->>'holder',
   trading.gas_swing_ratio_of(minimum,ref),trading.gas_swing_ratio_of(maximum,ref),trading.gas_swing_ratio_of(step,ref),period,
   trading.gas_swing_ratio_of(lower_limit,ref),trading.gas_swing_ratio_of(upper_limit,ref),basis,change_limit,count_rule,

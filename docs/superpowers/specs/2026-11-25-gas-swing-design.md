@@ -433,7 +433,7 @@ the version after independent review. Do not ship if the following gates fail.
 | Annual monthly resets | 365 days from 2041-01-01, same range/step, at most two changed days each month, per-day maximum 1,005 and no lower total. Use actual month lengths. A first-month missed election leaves later months assessable. |
 | Prices and marked optionality | Fixed 3.00, monthly forwards alternating 2.95/3.05, annualized volatilities alternating 0.20/0.25, first deadline six hours from calculation. Run base, point ±0.01 and vol ±0.01 including changed months. Already elected days alone or a zero-volatility shortcut cannot pass. |
 | Budget boundaries | Prove below/at/over admissions for each frozen ceiling with integer estimator fixtures and at least one actually priced near-limit case. Compare estimated to instrumented counts and high-water memory. Check over-budget failure before large allocation. |
-| End-to-end | Book and read both long terms via the ordinary API/native writer and a real worker. Characterize kernel cold/warm, full retained valuation and job runtime separately. Target ≤120 s per kernel call at each fixture and ≤512 MiB peak process RSS on the qualification host. Capture peak RSS during execution, not only before/after. |
+| End-to-end | Book and read both long terms via the ordinary API/native writer and a real worker. Characterize kernel cold/warm, full retained valuation and job runtime separately. Require ≤120 s per standalone kernel call and ≤512 MiB kernel-process high-water RSS. On the qualification host require ≤2 GiB sampled API RSS and ≤1 GiB sampled RSS for each worker executing the seasonal or annual job. Capture RSS during execution, including the API route sequence and the worker through result commit. |
 | Cancellation | Check cancellation at entry, inside graph construction, exact search, payoffs and priced continuation, at bounded blocks (at most 1,024 candidate/branch visits between polls). On observed in-flight work require cancellation within one second on the measured host. Release buffers and worker state. |
 
 The UTC 365-day fixture gives 1,457 six-hour steps and at most 2,915 price
@@ -519,7 +519,84 @@ arrays. Reject an operation or byte total strictly above 100,000,000 or
 4,096-bit per-integer limit. Commercial fact admission is independent of the
 numerical limits. The [portable admission fixtures](../../../tests/fixtures/gas-swing-unit-resource-v2.json)
 fix the adjacent operation, byte and fan-out cases for the native implementation.
-End-to-end qualification and independent resource-policy review remain pending.
+
+### Measured marked workloads
+
+The workload runner starts a fresh ordinary API for each term and a fresh
+worker per job. The annual point and volatility scenarios require two
+separately persisted jobs under the 32-child named-scenario limit. Each job
+uses the same retained inputs and financial base. For each declared month it
+reprices one isolated up and one down shock. All reported measurements used
+one trade binding with two Sides, concurrency one, arm64 macOS 26.6.2,
+14 logical CPUs, 48 GiB of RAM, .NET SDK 10.0.402 and stock PostgreSQL 18.7.
+
+| Ordinary Debug API and worker | 90-day term | 365-day monthly resets |
+| --- | ---: | ---: |
+| Distinct market contracts / children per job | 3 / 6 | 12 / 24 |
+| Two jobs, base-plus-child scenarios / evaluated unit calls including preparations / reused unit scenario values | 14 / 16 / 0 | 50 / 52 / 0 |
+| Booking / first retained read, seconds | 1.177 / 0.807 | 3.793 / 2.874 |
+| Point / volatility job start to result commit, seconds | 3.099 / 3.105 | 50.513 / 51.483 |
+| Execution headroom at result commit, seconds | 56.901 / 56.895 | 9.487 / 8.517 |
+| Lease headroom at result commit, seconds | 26.901 / 26.895 | 29.527 / 28.556 |
+| Original frame authority / request headroom at booking commit, seconds | 58.867 / 59.876 | 56.275 / 58.812 |
+| Both complete jobs, submit through result reads, seconds | 8.002 | 107.605 |
+| API baseline / sampled peak across route sequence, KiB | 210,240 / 538,640 | 210,304 / 1,199,568 |
+| Point / volatility workers, first OS samples, KiB | 3,120 / 2,512 | 3,072 / 3,072 |
+| Sampled point / volatility worker peaks, KiB | 322,592 / 333,648 | 866,416 / 870,352 |
+| Gross managed allocation at last observation, separate runs, MiB (API / point worker / volatility worker) | 517.1 / 244.9 / 254.9 | 1,818.2 / 2,550.3 / 2,947.0 |
+| Held base PV | −1,656.894221623503797 | 535.976104037492649 |
+
+Both jobs committed for both terms under the role-specific thresholds.
+The API process was sampled with `ps` every 70 ms from the first ready
+session through the route sequence. Each fresh worker was sampled every
+50 ms through exit. The cancelled annual worker also exited, peaking at
+154,880 KiB with no result or surviving lease. Gross managed allocations
+come from separate ordinary-GC diagnostic processes using
+`GC.GetTotalAllocatedBytes`, through exit for the seasonal roles and through
+the final observed protected stage for the annual roles. The proposed
+512 MiB whole-service target failed on both final APIs and the annual workers.
+A separate annual control with the same physical/fixed geometry and 24 point
+children, without a quantity right, reached 702,240 KiB in the ordinary API.
+Its worker peaked at 489,952 KiB. The ordinary base was −150 and each isolated
+shift changed PV by 10 times that month's actual day count.
+
+The role-specific thresholds apply to these two fixtures on this host.
+The shared server-GC runtime sizes its heap for the machine. An ordinary
+annual API read can exceed 512 MiB with no swing numerical work. The
+2 GiB API and 1 GiB worker targets leave headroom over the observed
+ordinary-host peaks and preserve the shared service's existing operational
+settings. The 512 MiB standalone kernel limit, 256 MiB modeled workspace,
+4,096-bit integer limit and 100,000,000-operation ceiling still apply,
+along with the original 15-second request and 60-second job budgets. Separate
+384 MiB and 320 MiB managed heap-limit experiments kept the annual workers
+under 512 MiB, but their APIs peaked at 564,816 and 540,432 KiB respectively.
+**Whole-service operation within 512 MiB remains unqualified.** Smaller
+hosts require separate allocation and runtime qualification.
+
+One independent base kernel in Release took 129/107 ms cold/warm for
+90 days and 750/563 ms for 365 days. Cold/warm managed allocations were
+14,611,624/14,603,496 bytes and 67,880,256/67,872,640 bytes respectively.
+Process high-water RSS from child resource usage was 96,387,072 and
+101,957,632 bytes respectively.
+Annual counted work was 37,500,365 operations against 59,016,138 admitted.
+The actual modeled peak was 14,173,440 bytes against 23,071,872 admitted.
+The compact rolling cells preserve ordered 30-place rounding, use the wide
+representation outside their exact fast paths, and fit the existing
+96-byte value charge. Growth factors retain the original exponential and
+its narrow scaled integer when representable. Ordered prefix normalizers
+are shared only within the same clock, volatility and pricing call.
+
+The near-operation case priced 5,771 prefix ticks, 99,982,598 operations.
+The near-memory case priced 174,729 daily choices, 268,434,400 modeled bytes.
+The adjacent larger cases refuse before allocating the graph or price arrays.
+Annual and seasonal scenario values agree with independently conditioned
+monthly/term optima from the same inception. The workload runner also checks
+the seasonal 1,050 election, one unassessed annual month, real cancellation,
+DST splits and the original lease/authority boundaries.
+
+Cold 1,200-day ordinary booking remains outside the measured HTTP envelope.
+The separate complete-head election transport check used an authenticated
+native publication. Independent review of the resource policy remains pending.
 
 ## Independent financial oracles
 

@@ -11,7 +11,7 @@ internal sealed record SwingForwardPlan(ImmutableArray<SignedRatio> QuantityRati
     // grid.Days order. Each returned fraction multiplies that same parcel. The
     // score excludes fixed elections, whose economics belong to the ordinary Sides.
     internal static SwingForwardPlan Search(SwingPlanGrid grid, ImmutableArray<SignedRatio> baseParcelValuesToUs,
-        CancellationToken cancellation = default)
+        CancellationToken cancellation = default, Action<SwingWorkStage>? observeStage = null)
     {
         cancellation.ThrowIfCancellationRequested();
         if (baseParcelValuesToUs.IsDefault || baseParcelValuesToUs.Length != grid.Days.Length ||
@@ -39,6 +39,7 @@ internal sealed record SwingForwardPlan(ImmutableArray<SignedRatio> QuantityRati
             var moves = grid.Moves(day, state);
             for (var rank = 0; rank < moves.Count; rank++)
             {
+                if ((rank & 255) == 255) observeStage?.Invoke(SwingWorkStage.ExactPlan);
                 var index = moves.IndexAt(rank);
                 var reward = arithmetic.Add(score.Minimum, arithmetic.Product(index, score.Step));
                 yield return new(rank, grid.Successor(day, state, index), reward);

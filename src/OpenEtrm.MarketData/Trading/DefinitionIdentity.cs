@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -23,7 +24,13 @@ public sealed record DefinitionIdentity(string Version, string Digest, string Ca
 {
     private static readonly ConcurrentDictionary<Type, PropertyInfo[]> Fields = new();
 
-    public static DefinitionIdentity For(object definition)
+    // These immutable point assignments and settlement selections are verified
+    // on every dated price row. Cache only their canonical contract, by instance.
+    private static readonly ConditionalWeakTable<object,DefinitionIdentity> PointDefinitions = new();
+    public static DefinitionIdentity For(object definition) =>
+        definition is Gas.GasValuationAssignment or PriceSettlementSelection ? PointDefinitions.GetValue(definition,Compute) : Compute(definition);
+
+    private static DefinitionIdentity Compute(object definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
         var contract = definition.GetType().GetCustomAttribute<EconomicDefinitionAttribute>(false)

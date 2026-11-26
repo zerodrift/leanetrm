@@ -69,10 +69,10 @@ internal sealed class SwingPlanGrid
         }
     }
 
-    internal static SwingPlanGrid Build(SwingPeriodBudget period, LevelPlanBudget budget, CancellationToken cancellation = default) =>
-        new(period, budget, cancellation);
+    internal static SwingPlanGrid Build(SwingPeriodBudget period, LevelPlanBudget budget, CancellationToken cancellation = default,
+        Action<SwingWorkStage>? observeStage = null) => new(period, budget, cancellation, observeStage);
 
-    private SwingPlanGrid(SwingPeriodBudget period, LevelPlanBudget budget, CancellationToken cancellation)
+    private SwingPlanGrid(SwingPeriodBudget period, LevelPlanBudget budget, CancellationToken cancellation, Action<SwingWorkStage>? observeStage)
     {
         cancellation.ThrowIfCancellationRequested();
         if (budget.MaximumLevels < 1 || budget.MaximumCandidates < 0 || budget.MaximumStates < 1 || budget.MaximumIntegerBits < 1)
@@ -125,6 +125,7 @@ internal sealed class SwingPlanGrid
                 for (var rank = 0; rank < feasible.Count; rank++)
                 {
                     cancellation.ThrowIfCancellationRequested();
+                    if ((rank & 255) == 255) observeStage?.Invoke(SwingWorkStage.Graph);
                     var index = feasible.IndexAt(rank);
                     var nextLevel = hasTotal ? arithmetic.Add(level, index) : BigInteger.Zero;
                     var count = RemainingCount(state.Count, index);

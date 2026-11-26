@@ -20,6 +20,8 @@ internal static partial class GasSwingChecks
         ExactWorkedPlans();
         ExactPeriodBudgets();
         SmallPlanOracle();
+        CheckSwingNodeArithmetic();
+        CancelWorkStages();
         UnitWorkLimits();
         UnitScalingAndClock();
         QuantityComponentAdmission();

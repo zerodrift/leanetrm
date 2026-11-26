@@ -29,3 +29,20 @@ def add_fixture(reference,market,security,manifest):
         for i,(start,end) in enumerate(long_months))
     market=market.replace('UPDATE market_data.revisions SET','\n'.join(fixings)+'\nUPDATE market_data.revisions SET',1)
     return reference,market,security,manifest
+
+
+def add_workload(reference, market, security, manifest):
+    starts = [f'2041-{month:02d}-01' for month in range(1,13)] + ['2042-01-01']
+    reference,market,security,manifest=location(reference,market,security,manifest,
+        price=['2.95','3.05']*6,prefix='synthetic_swing_workload',number=195000,
+        curve_name='Synthetic swing monthly forwards',start_minute=0,months=tuple(zip(starts,starts[1:])))
+    # The physical Side requires the exact monthly fixing-series definition, including for
+    # future observations. The workload only consumes its quoted forward before delivery.
+    fixings=[f"""INSERT INTO market_data.index_fixing_observations VALUES({M},'test_price','{begin}','{end}',{R},
+        'test_gas_outright','{identity('9',195000+i)}','fixture','{end}T12:00:00Z','published_index_observations_v1');"""
+        for i,(begin,end) in enumerate(zip(starts,starts[1:]))]
+    market=market.replace('UPDATE market_data.revisions SET','\n'.join(fixings)+'\nUPDATE market_data.revisions SET',1)
+    observed=next(frame for frame in manifest['frames'] if frame['at']=='2020-12-18T16:00:00Z')
+    for at in ('2040-12-31T12:00:00Z','2041-01-02T12:00:00Z'):
+        manifest['frames'].append(dict(observed,at=at))
+    return reference,market,security,manifest

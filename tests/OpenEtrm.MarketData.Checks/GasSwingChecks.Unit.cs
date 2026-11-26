@@ -7,6 +7,69 @@ using OpenEtrm.Shared.Numerics;
 
 internal static partial class GasSwingChecks
 {
+    private static void CheckSwingNodeArithmetic()
+    {
+        var side = LatticeDecimal.Parse("0.166666666666666666666666666667");
+        var middle = LatticeDecimal.Parse("0.666666666666666666666666666666");
+        // In particular, adding a cancelling third term must never conceal an
+        // overflow in the first sum or in the physical product of an immediate reward.
+        var large=SwingLatticeAmount.From(D("900000000000000000000000"));
+        var minusLarge=SwingLatticeAmount.From(D("-900000000000000000000000"));
+        Refuse("numeric_range",()=>SwingLatticeAmount.Sum(large,large,minusLarge));
+        Refuse("numeric_range",()=>new SwingLatticePayoff(D("2"),minusLarge.ToLattice()).Value(large));
+        var random = new Random(617);
+        var values = new List<LatticeDecimal>();
+        foreach (var integer in new[] { "0", "1", "19", "99999999999999", "100000000000001", "900000000000000000000000" })
+        foreach (var fraction in new[] { "000000000000000000000000000001", "249999999999999999999999999999",
+            "250000000000000000000000000000", "500000000000000000000000000000", "750000000000000000000000000001",
+            "999999999999999999999999999999" })
+        foreach (var sign in new[] { "", "-" }) values.Add(LatticeDecimal.Parse(sign+integer+"."+fraction));
+        for (int i=0;i<4000;i++)
+            values.Add(LatticeDecimal.Parse($"{random.NextInt64(-50000000,50000000)}.{random.NextInt64(1000000000000000):D15}{random.NextInt64(1000000000000000):D15}"));
+        foreach (var denominator in new[] { "0.999999999999999999999999999999", "1","1.000000000000000000000000000001",
+            "1.000427871059220013035917764523","2","7.500000000000000000000000000001","1000000000000000000000" })
+        {
+            var n=LatticeDecimal.Parse(denominator);
+            var normalizer=new SwingLatticeNormalizer(n);
+            foreach (var value in values.Where(v=>v.CompareTo(default)>0))
+            {
+                var expected=value/n;
+                if (expected==default)
+                    Refuse("swing_numerical_scope",()=>normalizer.Multiplier(new SwingGrowthFactor(value)));
+                else
+                {
+                    var actual=normalizer.Multiplier(new SwingGrowthFactor(value));
+                    Require(actual.CompareTo(SwingLatticeAmount.From(expected))==0, $"Incorrect normalized quotient for {value}/{n}.");
+                }
+            }
+        }
+        foreach (var value in values)
+        {
+            var node = SwingLatticeAmount.From(value);
+            Require(node.ToLattice()==value, "The rolling representation must preserve every lattice digit.");
+            var opposite = SwingLatticeAmount.From(default(LatticeDecimal)-value);
+            Require((node+opposite).ToLattice()==default && Math.Sign(node.CompareTo(opposite))==Math.Sign(value.CompareTo(opposite.ToLattice())),
+                "Rolling addition and comparison preserve the exact lattice amount.");
+            node.RegularWeights(out var weightedSide,out var weightedMiddle);
+            Require(weightedSide.ToLattice()==side*value && weightedMiddle.ToLattice()==middle*value &&
+                weightedMiddle.CompareTo(SwingLatticeAmount.From(middle*value))==0,
+                "Each branch rounds independently before summation.");
+            if (value.CompareTo(LatticeDecimal.Parse("100000000000000"))<0 && value.CompareTo(LatticeDecimal.Parse("-100000000000000"))>0)
+                foreach (var coefficient in new[] { "-3.245","0","0.001","2.655","7","7.001","3.000000000000000001" })
+                {
+                    var slope=LatticeDecimal.Parse(coefficient);
+                    var fixedAmount=LatticeDecimal.Parse("-3.000000000000000001");
+                    var payoff=new SwingLatticePayoff(slope,fixedAmount);
+                    Require(payoff.Value(node).ToLattice()==slope*value+fixedAmount,
+                        $"Payoff rounding differs for {coefficient} times {value}.");
+                }
+            opposite.RegularWeights(out _,out var center);
+            var actual = SwingLatticeAmount.Sum(weightedSide,center,weightedSide).ToLattice();
+            var expected = side*value+middle*opposite.ToLattice()+side*value;
+            Require(actual==expected, $"Regular branches differ at {value}: {actual} vs {expected}.");
+        }
+    }
+
     private static void UnitWorkLimits()
     {
         var terms = Terms(1200) with { Upper = null, TotalBasis = null };
@@ -261,79 +324,6 @@ internal static partial class GasSwingChecks
         return new(right, periods, [..periods.SelectMany(p => p.Days).Where(d => d.Election == null).Select(d =>
             new SwingUnitPayoffDay(d.Day,R(d.Day.Day.Month%2 == 1 ? 295 : 305,100),R(-3),D(d.Day.Day.Month%2 == 1 ? "0.20" : "0.25")))],
             R(1000), at, Pricing);
-    }
-
-    internal static void UnitWorkload(int length, bool sampleHeap = false)
-    {
-        var inputs = LongInputs(length == 1 ? 90 : length);
-        if (length == 1)
-        {
-            var right = Terms(1) with { Minimum = R(0), Maximum = R(1), Step = R(1), Upper = null, TotalBasis = null };
-            var at = right.Days[0].ExerciseAt.AddHours(-6 * 5771);
-            inputs = new(right, SwingFeasibility.Resolve(right, Units(1), [], at), [new(right.Days[0], R(3), R(-3), D("0.01"))],
-                R(1), at, Pricing);
-        }
-        if (sampleHeap)
-        {
-            // Run apart from timed measurements. Collect at interior production
-            // boundaries to distinguish rooted managed storage from GC churn.
-            var payload = new byte[512];
-            Array.Fill(payload, (byte)255);
-            var integers = new System.Numerics.BigInteger[1024];
-            long allocation = GC.GetAllocatedBytesForCurrentThread();
-            for (int i = 0; i < integers.Length; i++) integers[i] = new(payload, isUnsigned: true);
-            long limbBytes = (GC.GetAllocatedBytesForCurrentThread() - allocation) / integers.Length;
-            GC.KeepAlive(integers);
-            long baseline = GC.GetTotalMemory(true), maximum = 0, nextSample = 1;
-            int samples = 0;
-            var solved = SwingChoice.Value(inputs, default, branches =>
-            {
-                if (branches < nextSample) return;
-                maximum = Math.Max(maximum, GC.GetTotalMemory(true) - baseline);
-                samples++;
-                nextSample = branches + 1_000_000;
-            });
-            Require(maximum <= solved.Estimate.PeakBytes, "Sampled rooted managed growth exceeded the modeled bound.");
-            Console.WriteLine(JsonSerializer.Serialize(new
-            {
-                Length = length,
-                Samples = samples,
-                LargestHeapIncrease = maximum,
-                LimbAllocationBytes = limbBytes,
-                Modeled = solved.Work.PeakBytes,
-                Estimated = solved.Estimate.PeakBytes
-            }));
-            return;
-        }
-        for (int run = 0; run < (length == 1 ? 1 : 2); run++)
-        {
-            var timer = System.Diagnostics.Stopwatch.StartNew();
-            long bytes = GC.GetAllocatedBytesForCurrentThread();
-            var result = SwingChoice.Value(inputs);
-            bytes = GC.GetAllocatedBytesForCurrentThread() - bytes;
-            Require(result.Work.PeakBytes <= result.Estimate.PeakBytes && result.Work.Operations <= result.Estimate.Operations && result.Work.Branches <= result.Estimate.Branches &&
-                result.Work.PricedChoices <= result.Estimate.PricedChoices && result.Work.Payoffs <= result.Estimate.Payoffs &&
-                result.Work.Moves <= result.Estimate.Moves && result.Work.StateSlots <= result.Estimate.StateSlots &&
-                result.Work.MaximumStates <= result.Estimate.MaximumStates && result.Work.MaximumChoices <= result.Estimate.MaximumChoices &&
-                result.Work.Normalizers <= result.Estimate.Normalizers, "Structural bounds must cover every measured work category.");
-            Console.WriteLine(JsonSerializer.Serialize(new
-            {
-                Length = length,
-                Run = run,
-                Milliseconds = timer.Elapsed.TotalMilliseconds,
-                AllocatedBytes = bytes,
-                Value = HalfEven18.Report(result.CountedToUs),
-                result.Estimate,
-                result.Work.Branches,
-                result.Work.PricedChoices,
-                result.Work.StateSlots,
-                result.Work.Moves,
-                result.Work.Payoffs,
-                result.Work.Normalizers,
-                result.Work.Operations,
-                result.Work.PeakBytes
-            }));
-        }
     }
 
     private sealed record UnitDay(int Seconds, string Physical, string Fixed, string Sigma, string? Election);

@@ -56,11 +56,13 @@ public sealed class SwingUnitWork
     }
 }
 
+internal enum SwingWorkStage { Graph, ExactPlan, Payoffs }
+
 public static class SwingChoice
 {
     internal static MarketDataException Scope(string detail) => new("swing_numerical_scope", detail);
     internal static SwingUnitResult Value(SwingUnitChoiceInputs inputs, CancellationToken token = default,
-        Action<long>? reportBranches = null)
+        Action<long>? reportBranches = null, Action<SwingWorkStage>? observeStage = null)
     {
         token.ThrowIfCancellationRequested();
         var work = new SwingUnitWork();
@@ -124,13 +126,13 @@ public static class SwingChoice
             {
                 MaximumCandidates = estimate.Moves - work.Moves,
                 MaximumStates = estimate.StateSlots - work.StateSlots
-            }, token);
+            }, token, observeStage);
             work.MaximumChoices = Math.Max(work.MaximumChoices, grid.MaximumChoices);
             work.Days += grid.Days.Length;
             work.MaximumStates = Math.Max(work.MaximumStates, grid.Coordinates.Max(layer => layer.Length));
             work.Moves += grid.ActionCounts.Sum();
             work.StateSlots += grid.Coordinates.Sum(s => (long)s.Length);
-            var plan = SwingForwardPlan.Search(grid, [.. grid.Days.Select(d => arithmetic.Add(indexed[d].FixedToUs, indexed[d].PhysicalToUs))], token);
+            var plan = SwingForwardPlan.Search(grid, [.. grid.Days.Select(d => arithmetic.Add(indexed[d].FixedToUs, indexed[d].PhysicalToUs))], token, observeStage);
             intrinsic = arithmetic.Add(intrinsic, plan.ValueToUs);
             if (!stochastic.Contains(period)) strip = arithmetic.Add(strip, plan.ValueToUs);
             for (int d = 0; d < grid.Days.Length; d++)
@@ -142,7 +144,7 @@ public static class SwingChoice
         SignedRatio root = SignedRatio.Zero;
         if (decisions.Count != 0)
         {
-            try { root = SwingPriceLattice.UnitRoot(inputs, decisions, work, reportBranches, token); }
+            try { root = SwingPriceLattice.UnitRoot(inputs, decisions, work, reportBranches, token, observeStage); }
             catch (MarketDataException e) when (e.Code == "numeric_range")
             { throw new MarketDataException("swing_numerical_scope", "The unit-reference lattice exceeds its numerical magnitude.", e); }
         }

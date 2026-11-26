@@ -12,10 +12,10 @@ internal static class SwingPriceLattice
         LatticeDecimal.From(ExactDecimal.FromScaled(value * ExactDecimal.WorkingScale));
 
     private sealed record UnitEdges(int[] Start, (int Action, int Next)[] Moves,
-        (LatticeDecimal Physical, LatticeDecimal Fixed)[] Amounts);
+        SwingLatticePayoff[] Amounts);
 
     internal static SignedRatio UnitRoot(SwingUnitChoiceInputs inputs, List<SwingUnitDecision> decisions,
-        SwingUnitWork work, Action<long>? reportBranches, CancellationToken token)
+        SwingUnitWork work, Action<long>? reportBranches, CancellationToken token, Action<SwingWorkStage>? observeStage)
     {
         var clock = new SwingUnitResources.Clock(inputs.Right.Days, inputs.CalculationAt);
         var times = clock.Times(decisions[^1].Payoff.Day.ExerciseAt);
@@ -41,26 +41,47 @@ internal static class SwingPriceLattice
             probabilities[i] = (side, One - (side + side));
         }
         // Cache exp(sigma*h*j) verbatim at its absolute factor coordinate.
-        var growth = new Dictionary<LatticeDecimal, LatticeDecimal[]>();
+        var growth = new Dictionary<LatticeDecimal, SwingGrowthFactor[]>();
+        var normalizers = new LatticeDecimal[times.Length];
         foreach (var group in decisions.GroupBy(d => d.Payoff.Volatility!.Value))
         {
             var jump = group.Key * Jump;
             int last = clock.Index(group.Last().Payoff.Day.ExerciseAt);
-            var values = new LatticeDecimal[2 * last + 1];
+            var values = new SwingGrowthFactor[2 * last + 1];
             for (int j = -last; j <= last; j++)
             {
                 token.ThrowIfCancellationRequested();
-                values[last + j] = (jump * Integer(j)).Exp();
-                if (values[last + j] == default) throw SwingChoice.Scope("A positive swing growth factor underflowed.");
+                values[last + j] = new((jump * Integer(j)).Exp());
+                if (values[last + j].Value == default) throw SwingChoice.Scope("A positive swing growth factor underflowed.");
             }
             work.GrowthNodes += values.Length;
             growth.Add(group.Key, values);
+            // Extend this volatility's original ordered prefix exactly once. Months
+            // sharing a mark still see the absolute factor clock from inception.
+            var prefix = One;
+            int t = 0;
+            foreach (var decision in group)
+            {
+                int stop = clock.Index(decision.Payoff.Day.ExerciseAt);
+                while (t < stop)
+                {
+                    token.ThrowIfCancellationRequested();
+                    var (side,middle) = probabilities[t++];
+                    prefix *= side * values[last-1].Value + middle + side * values[last+1].Value;
+                }
+                normalizers[stop] = prefix;
+            }
+            work.Normalizers += t;
         }
 
         work.RollingCapacity = capacity;
-        var next = new LatticeDecimal[capacity];
-        var current = new LatticeDecimal[capacity];
-        var expectation = new LatticeDecimal[maxStates];
+        var next = new SwingLatticeAmount[capacity];
+        var current = new SwingLatticeAmount[capacity];
+        var expectation = new SwingLatticeAmount[maxStates];
+        // Three commercial-state rows suffice for the overlapping three-child stencil.
+        var down = new SwingLatticeAmount[maxStates];
+        var followingSide = new SwingLatticeAmount[maxStates];
+        var middleWeight = new SwingLatticeAmount[maxStates];
         int nextStates = 1;
         for (int step = steps; step >= 0; step--)
         {
@@ -68,20 +89,17 @@ internal static class SwingPriceLattice
             var decision = atStep[step];
             var edges = decision == null ? null : Edges(decision, work, token);
             var prices = decision == null ? null : growth[decision.Payoff.Volatility!.Value];
-            var normalizer = One;
-            if (prices != null)
-            {
-                int center = prices.Length / 2;
-                for (int t = 0; t < step; t++)
+            var normalizer = decision is null ? default : new SwingLatticeNormalizer(normalizers[step]);
+            int states = edges == null ? nextStates : edges.Start.Length - 1;
+            var rewards = edges == null ? null : new SwingLatticeAmount[edges.Amounts.Length];
+            bool regular = step < steps && times[step+1]-times[step] == SwingUnitResources.Interval;
+            if (regular)
+                for (int s=0;s<nextStates;s++)
                 {
                     token.ThrowIfCancellationRequested();
-                    var (side, middle) = probabilities[t];
-                    normalizer *= side * prices[center - 1] + middle + side * prices[center + 1];
+                    next[s].RegularWeights(out down[s],out _);
+                    next[nextStates+s].RegularWeights(out followingSide[s],out middleWeight[s]);
                 }
-                work.Normalizers += step;
-            }
-            int states = edges == null ? nextStates : edges.Start.Length - 1;
-            var rewards = edges == null ? null : new LatticeDecimal[edges.Amounts.Length];
             int branchBlock = 0;
             for (int node = 0; node < 2 * step + 1; node++)
             {
@@ -92,7 +110,16 @@ internal static class SwingPriceLattice
                     int child = node * nextStates;
                     for (int s = 0; s < nextStates; s++, child++)
                     {
-                        expectation[s] = side * next[child] + middle * next[child + nextStates] + side * next[child + 2 * nextStates];
+                        if (regular)
+                        {
+                            next[child+2*nextStates].RegularWeights(out var up,out var nextMiddle);
+                            expectation[s]=SwingLatticeAmount.Sum(down[s],middleWeight[s],up);
+                            down[s]=followingSide[s];
+                            followingSide[s]=up;
+                            middleWeight[s]=nextMiddle;
+                        }
+                        else expectation[s]=SwingLatticeAmount.From(side * next[child].ToLattice() + middle * next[child+nextStates].ToLattice()
+                            + side * next[child+2*nextStates].ToLattice());
                         branchBlock += 3;
                         if (branchBlock >= 768)
                         {
@@ -107,18 +134,20 @@ internal static class SwingPriceLattice
                     Array.Copy(expectation, 0, current, node * states, states);
                     continue;
                 }
-                var multiplier = prices![prices.Length / 2 + node - step] / normalizer;
-                if (multiplier == default) throw SwingChoice.Scope("A positive swing forward multiplier underflowed.");
+                var compactMultiplier = normalizer.Multiplier(prices![prices.Length / 2 + node - step]);
                 for (int r = 0; r < edges.Amounts.Length; r++)
                 {
-                    if ((r & 255) == 0) token.ThrowIfCancellationRequested();
-                    var amount = edges.Amounts[r];
-                    rewards![r] = amount.Physical * multiplier + amount.Fixed;
+                    if ((r & 255) == 0)
+                    {
+                        if (r != 0) observeStage?.Invoke(SwingWorkStage.Payoffs);
+                        token.ThrowIfCancellationRequested();
+                    }
+                    rewards![r] = edges.Amounts[r].Value(compactMultiplier);
                 }
                 work.Payoffs += edges.Amounts.Length;
                 for (int s = 0; s < states; s++)
                 {
-                    LatticeDecimal best = default;
+                    SwingLatticeAmount best = default;
                     for (int m = edges.Start[s]; m < edges.Start[s + 1]; m++)
                     {
                         if ((m & 255) == 0) token.ThrowIfCancellationRequested();
@@ -134,7 +163,7 @@ internal static class SwingPriceLattice
             (next, current) = (current, next);
             nextStates = states;
         }
-        return new(next[0].ToExact().ScaledValue, ExactDecimal.WorkingScale);
+        return new(next[0].ToLattice().ToExact().ScaledValue, ExactDecimal.WorkingScale);
     }
 
     private static UnitEdges Edges(SwingUnitDecision decision, SwingUnitWork work, CancellationToken token)
@@ -156,7 +185,7 @@ internal static class SwingPriceLattice
         var start = new int[before.Length + 1];
         var moves = new (int, int)[checked((int)grid.ActionCounts[day])];
         var actions = new Dictionary<BigInteger, int>();
-        var amounts = new List<(LatticeDecimal, LatticeDecimal)>();
+        var amounts = new List<SwingLatticePayoff>();
         int edge = 0;
         for (int s = 0; s < before.Length; s++)
         {
@@ -171,7 +200,7 @@ internal static class SwingPriceLattice
                     var ratio = arithmetic.Add(terms.Minimum, arithmetic.Multiply(terms.Step, new(i, 1)));
                     action = amounts.Count;
                     actions.Add(i, action);
-                    amounts.Add((Rounded(arithmetic.Multiply(physical, ratio)), Rounded(arithmetic.Multiply(fixedAmount, ratio))));
+                    amounts.Add(new(Rounded(arithmetic.Multiply(physical, ratio)), Rounded(arithmetic.Multiply(fixedAmount, ratio))));
                 }
                 moves[edge++] = (action, day + 1 == grid.Days.Length ? 0 : indexes[grid.Successor(day, before[s], i)]);
             }

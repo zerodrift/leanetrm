@@ -40,9 +40,9 @@ public sealed partial class ScheduleMarketSources
             throw Invalid("Undelivered physical gas requires its exact admitted point/product assignment.");
 
         var matching = assignments.Where(a => a.Key == assignment.Reference && a.Point == point.Reference &&
-            a.Product == product.Reference && DefinitionIdentity.For(a).Canonical == assignment.Coordinate &&
-            a.From == row.ObservationFrom && a.To == row.ObservationTo && a.Lookup.Market == bindings["market"].Market &&
-            a.Quote.Key == bindings["quote"].Reference && a.Settlement.SelectedIndex == bindings["index"].Reference).ToArray();
+            a.Product == product.Reference && a.From == row.ObservationFrom && a.To == row.ObservationTo &&
+            a.Projection.Market == bindings["market"].Market && a.Quote.Key == bindings["quote"].Reference &&
+            a.Settlement.SelectedIndex == bindings["index"].Reference && DefinitionIdentity.For(a).Canonical == assignment.Coordinate).ToArray();
         if (matching.Length != 1)
             throw Invalid("The gas price requires its exact admitted point/product assignment and complete definition.");
         if (!CurvePriceScheduleSource.SameObservation(lookup, matching[0].Lookup))

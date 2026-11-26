@@ -52,11 +52,26 @@ def resource_cases(query):
         try:
             work = json.loads(query(call))
         except RuntimeError as error:
-            if case['Refusal'] is None or 'swing_numerical_scope' not in str(error) or case['Refusal'] not in str(error):
+            if case['Refusal'] is None or 'swing_numerical_scope' not in str(error):
                 raise
+            dimension=case['Refusal']
+            limit={'operations':100_000_000,'candidate visits':100_000_000,'modeled live bytes':268_435_456}[dimension]
+            detail=next(line.split('DETAIL:',1)[1] for line in str(error).splitlines() if 'DETAIL:' in line)
+            assert json.loads(detail)==dict(field='numericalPolicy',dimension=dimension,limit=limit),(case['Name'],detail)
         else:
             if case['Refusal'] is not None or (work['operations'],work['peakBytes']) != (case['Operations'],case['Bytes']):
                 raise AssertionError((case,work))
+    # One elapsed choice and no remaining dates: exactly r+1 reachable terminal levels.
+    for slots in (65535,65536,65537):
+        call=f"SELECT states FROM trading.gas_swing_layer(1,1,{slots-1},1,true,0,{slots-1},NULL)"
+        try:
+            states=int(query(call))
+        except RuntimeError as error:
+            if slots!=65537 or 'swing_numerical_scope' not in str(error):raise
+            detail=next(line.split('DETAIL:',1)[1] for line in str(error).splitlines() if 'DETAIL:' in line)
+            assert json.loads(detail)==dict(field='numericalPolicy',dimension='state slots',limit=65536)
+        else:
+            assert states==slots<=65536
     for days,period,upper,basis,expected in (
         (90,'term',90100,'per_period_v1',(357,3698739,5130080)),
         (365,'delivery_month',1005,'per_day_v1',(1457,59016138,23071872))):

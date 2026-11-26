@@ -324,3 +324,305 @@ def run_checks(url, query, manifest, period_prior, run_worker, browse=None, *, c
     from check_gas_swing_routes import route_checks
     route_checks(client,query,manifest,context,{**base,'operationId':str(uuid4()),'swingRights':[right]},run_worker,route_book,outside_saved)
     if browser_failure:raise browser_failure
+
+
+def observed_operation(operation, read):
+    """Sample only the disposable fixture's own evidence while an ordinary operation is in flight."""
+    from concurrent.futures import ThreadPoolExecutor
+    from time import monotonic, sleep
+    samples=[]
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        start=monotonic()
+        running=pool.submit(operation)
+        while not running.done():
+            sample=read()
+            if sample:
+                samples.append(sample)
+            sleep(.035)
+        return running.result(),monotonic()-start,samples
+
+
+def workload_routes(url, query, manifest, run_worker, api_pid, length):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    import subprocess
+    from time import monotonic
+    stopped=Event()
+    samples=[]
+    def sample():
+        while not stopped.is_set():
+            reading=subprocess.run(['ps','-o','rss=','-p',str(api_pid)],capture_output=True,text=True,check=True)
+            samples.append((monotonic(),int(reading.stdout.strip())))
+            stopped.wait(.07)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        watcher=pool.submit(sample)
+        try:
+            observations,workers=workload_values(url,query,manifest,run_worker,samples,(length,) if length else (90,365))
+        finally:
+            stopped.set()
+            watcher.result()  # An interrupted sampler invalidates the RSS measurement.
+            if samples:
+                print(f'WORKLOAD Debug API baseline {samples[0][1]} KiB sampled peak {max(m for _,m in samples)} KiB',flush=True)
+    from gas_swing_reference import check_long_value
+    for days,value,changes in observations:
+        check_long_value(days,value,**changes)
+    print(f'PASS {len(observations)} retained and isolated-shock values against independently conditioned periods',flush=True)
+    require_host_memory(max(rss for _,rss in samples),workers)
+    print('PASS ordinary process RSS within 2 GiB for the API and 1 GiB for each worker',flush=True)
+
+
+def require_host_memory(api_kib,workers_kib):
+    if api_kib>2*1024**2:
+        raise AssertionError(f'API RSS {api_kib} KiB exceeded the 2 GiB qualification threshold')
+    for job,rss in workers_kib.items():
+        if rss>1024**2:
+            raise AssertionError(f'{job} worker RSS {rss} KiB exceeded the 1 GiB qualification threshold')
+
+
+def workload_values(url, query, manifest, run_worker, samples, lengths):
+    """Qualify single-binding seasonal and monthly jobs under the ordinary preview budgets."""
+    from time import monotonic
+    from check_gas_swing_activation import january
+    from preview_fixture import gas_purchase
+
+    from check_gas_swing_upgrade import resource_cases
+    resource_cases(query)
+    trader, writer, risk = (PreviewClient(url) for _ in range(3))
+    for client, profile in ((trader,'trader'),(writer,'editor'),(risk,'risk')):
+        client.bootstrap()
+        client.call('profile',dict(profile=profile))
+    frame = initial_frame(trader.call('workspace'),'2040-12-31')
+    context = dict(snapshotId=frame['id'],convention='physical_gas_fixed_quantity_v4',knowledgeMode='current')
+    template = gas_purchase(context,trader.call('gas/catalog',context),point='synthetic_swing_workload_point',fee=None)
+    source, = template['physicalSides']
+    source.update(quantityBasis='per_operating_day',deliveryFrom='2041-01-01')
+    strike, = template['cashSides']
+    strike.update(code='strike',paymentAt='2042-01-15T00:00:00Z')
+    definition = template['definitionRevisionId']
+    writer_frame=initial_frame(writer.call('workspace'),'2020-12-18')
+    risk_frame=initial_frame(risk.call('workspace'),'2040-12-31')
+    writer.call('volatility-marks/record',dict(context=dict(context,snapshotId=writer_frame['id']),definitionRevisionId=definition,
+        curve='synthetic_swing_workload_location',operationId=str(uuid4()),reason='Synthetic marked swing workload',
+        marks=[dict(month=f'2041-{month:02d}',volatility='0.20' if month%2 else '0.25',expectedRevision=0) for month in range(1,13)]))
+    values_to_verify=[]
+    worker_peaks={}
+    for length in lengths:
+        body = january(template)
+        body['physicalSides'][0].update(deliveryFrom='2041-01-01',deliveryTo=(date(2041,1,1)+timedelta(days=length)).isoformat())
+        if length==90:
+            body['swingRights'][0].update(totalMaximum='90100',limitPeriod='term',totalBasis='per_period_v1')
+        start = monotonic()
+        operation = body['operationId']
+        proof_sql = f"""SELECT json_build_object('frame',f.frame_id,'valuation',f.valuation_at,'until',f.authority_until,
+            'requestUntil',q.expires_at) FROM security.gas_swing_booking_frames f JOIN security.request_contexts q
+            ON q.id=f.request_id WHERE f.operation_id='{operation}'"""
+        saved,elapsed,proofs=observed_operation(lambda:trader.call('gas/composition/book',body),lambda:query.raw(proof_sql))
+        assert proofs, 'No original booking attestation was observed before commit'
+        proof=json.loads(proofs[-1])
+        actual_commit=datetime.fromisoformat(query.raw(f"""SELECT pg_xact_commit_timestamp(xmin) FROM trading.gas_trade_revisions
+            WHERE (trade_id,operation_id)=('{saved["tradeId"]}','{operation}')"""))
+        headroom=[(datetime.fromisoformat(proof[k])-actual_commit).total_seconds() for k in ('until','requestUntil')]
+        assert elapsed<15 and proof['frame']==frame['id'] and min(headroom)>0 and not query.raw(proof_sql)
+        print(f'WORKLOAD {length} booking {elapsed:.3f}s authority/request seconds remaining at commit {headroom} '
+              f'API peak {max((rss for t,rss in samples if t>=start),default=0)} KiB',flush=True)
+        start = monotonic()
+        editor = trader.call('gas/composition/editor',dict(context=context,tradeId=saved['tradeId']))['valuation']
+        read_seconds=monotonic()-start
+        assert read_seconds<15
+        print(f'WORKLOAD {length} retained {read_seconds:.3f}s PV {editor["presentValue"]} '
+              f'API peak {max((rss for t,rss in samples if t>=start),default=0)} KiB',flush=True)
+        scope = dict(context=dict(context,snapshotId=risk_frame['id'],convention='trading_workspace_v1'),bookIds=[],portfolioIds=[],tradeIds=[saved['tradeId']])
+        catalog = risk.call('portfolio/risk/catalog',scope)
+        months = 3 if length==90 else 12
+        assert not catalog['excludedPositions'] and len(catalog['factors'])==len(catalog['volatilityInputs'])==months
+        pinned = dict(scope['context'],knowledgeMode='retained',contextId=catalog['context']['contextId'])
+        contract = catalog['joint']
+        values_to_verify.append((length,editor['presentValue'],{}))
+        mark_month={m['revisionId']:int(m['month'][5:7]) for m in editor['swingRights'][0]['marks']}
+        original_identity = None
+        pair_start=monotonic()
+        completed=[]
+        for kind, inputs in [('price',catalog['factors']),('volatility',catalog['volatilityInputs'])]:
+            scenarios = []
+            cases={}
+            for entry in inputs:
+                month=int(entry['deliveryFrom'][5:7]) if kind=='price' else mark_month[entry['id']]
+                for direction, amount in [('up','0.01'),('down','-0.01')]:
+                    label = f'{kind}-{month:02d}-{direction}'
+                    cases[label]={kind:(month,amount)}
+                    sample = dict(id=label,label=label,shifts=[])
+                    if kind=='price':
+                        sample['shifts']=[dict(factor=entry['factor'],size=amount,convention=contract['shiftConvention'])]
+                    else:
+                        sample['volatility']=[dict(inputId=entry['id'],size=amount,convention=contract['volatilityShiftConvention'])]
+                    scenarios.append(sample)
+            assert set(cases)=={f'{kind}-{month:02d}-{direction}' for month in range(1,months+1) for direction in ('up','down')}
+            request = dict(scope,context=pinned,detail='books',convention=catalog['convention'],numericalPolicy=catalog['numericalPolicy'],
+                pricingPolicy=catalog['pricingPolicy'],stress=[],bumps=[],joint=dict(convention=contract['convention'],derivatives=None,
+                scenarios=dict(id='swing-'+kind,version='1',convention=contract['scenarioConvention'],scenarios=scenarios)))
+            start = monotonic()
+            job = risk.call('portfolio/risk/jobs',dict(requestId=str(uuid4()),request=request))
+            print(f'WORKLOAD {length} {kind} submitted {monotonic()-start:.3f}s',flush=True)
+            job_id=job['id']
+            lease_sql=f"SELECT lease_expires_at FROM risk.jobs WHERE id='{job_id}' AND state='running'"
+            peak,worker_elapsed,leases=observed_operation(lambda:run_worker(measure=True),lambda:query.raw(lease_sql))
+            result = risk.call('portfolio/risk/jobs/'+job_id)
+            clock_row=json.loads(query.raw(f"""SELECT json_build_object('started',started_at,'commit',pg_xact_commit_timestamp(xmin),
+                'hasResult',result IS NOT NULL,'leaseReleased',lease_token IS NULL AND worker_login IS NULL)
+                FROM risk.jobs WHERE id='{job_id}'"""))
+            assert clock_row['leaseReleased'] and clock_row['hasResult']==(result['state']=='completed')
+            committed=datetime.fromisoformat(clock_row['commit'])
+            execution_elapsed=(committed-datetime.fromisoformat(clock_row['started'])).total_seconds()
+            assert leases
+            lease_headroom=(datetime.fromisoformat(leases[-1])-committed).total_seconds()
+            print(f'WORKLOAD {length} {kind} process {worker_elapsed:.3f}s commit {execution_elapsed:.3f}s '
+                  f'execution remaining {60-execution_elapsed:.3f}s lease remaining {lease_headroom:.3f}s '
+                  f'observed lease deadlines {len(set(leases))}',flush=True)
+            print(f'WORKLOAD {length} {kind} worker peak {peak} KiB elapsed {monotonic()-start:.3f}s',flush=True)
+            assert result['state']=='completed',(length,kind,result['state'],result.get('error'))
+            assert 0<=execution_elapsed<60 and lease_headroom>0
+            report = result['result']
+            joint = report['joint']
+            assert [sample['id'] for sample in joint['samples']]==[s['id'] for s in scenarios]
+            assert {sample['totals'][0]['values']['base'] for sample in joint['samples']}=={editor['presentValue']}
+            for sample in joint['samples']:
+                total,=sample['totals']
+                values_to_verify.append((length,total['values']['value'],cases[sample['id']]))
+            identity={key:report[key] for key in ('snapshotId','asOf','context','scenario','modelContracts','inputs')}
+            identity['baseTotals']=joint['baseTotals']
+            if original_identity is None:
+                original_identity=identity
+            else:
+                assert original_identity==identity, 'Separate jobs lost their common input identity or base value'
+            work=report['work']
+            assert (work['positionCount'],work['uniqueInstruments'],work['uniqueMarketContracts'])==(1,1,months)
+            assert work['scenarioCount']==work['unitPricerCalls']==len(scenarios)+1
+            assert work['totalUnitPricerCalls']==work['unitPricerCalls']+work['preparationUnitPricerCalls']
+            assert work['preparationUnitPricerCalls']==1 and work['reusedUnitScenarioValues']==0
+            worker_peaks[f'{length}-{kind}']=peak
+            completed.append(work)
+            print(f'WORKLOAD {length} {kind} result work '+json.dumps(work),flush=True)
+            print(f'WORKLOAD {length} {kind} isolated shocks '+json.dumps(scenarios),flush=True)
+            print(f'PASS {length} {kind} worker {len(scenarios)} child scenarios {monotonic()-start:.3f}s {peak} KiB',flush=True)
+
+        print(f'WORKLOAD {length} two committed jobs elapsed {monotonic()-pair_start:.3f}s including both submitted requests and reads, '
+              f'{sum(w["scenarioCount"] for w in completed)} base-plus-child scenarios, '
+              f'{sum(w["totalUnitPricerCalls"] for w in completed)} unit calls (including both preparations), '
+              f'{sum(w["reusedUnitScenarioValues"] for w in completed)} reused unit scenario values',flush=True)
+        warm_start=monotonic()
+        repeated=trader.call('gas/composition/editor',dict(context=context,tradeId=saved['tradeId']))['valuation']
+        assert repeated['presentValue']==editor['presentValue']
+        print(f'WORKLOAD {length} repeated retained read {monotonic()-warm_start:.3f}s',flush=True)
+        if length==90:
+            ids=dict(tradeId=saved['tradeId'],instrumentId=saved['instrumentId'])
+            heads=trader.call('gas/swing/read',dict(context=context,**ids))['heads']
+            day='2041-02-15'
+            at='2040-12-31T12:00:00Z'
+            statement=dict(day=day,quantity='1050',exercisingParty='us',submittedAt=at,effectiveAt=at,
+                evidence='Synthetic seasonal off-grid reservation')
+            trader.call('gas/swing/record',dict(context=context,**ids,operationId=str(uuid4()),expectedRevision=1,right=0,
+                expectedHeads=[{k:h[k] for k in ('day','revisionId')} for h in heads],elections=[statement]))
+            reserved=trader.call('gas/composition/editor',dict(context=context,tradeId=saved['tradeId']))['valuation']
+            right,=reserved['swingRights']
+            assert right['modeledDays']==89 and Decimal(reserved['presentValue'])-Decimal(right['counted'])==Decimal('52.5')
+            values_to_verify.append((length,right['counted'],dict(election=45)))
+        else:
+            cut=dict(context,snapshotId=initial_frame(trader.call('workspace'),'2041-01-02')['id'])
+            missed=trader.call('gas/composition/editor',dict(context=cut,tradeId=saved['tradeId']))['valuation']
+            right,=missed['swingRights']
+            assert missed['incomplete'] and missed['unassessedDays']==31 and right['modeledDays']==334
+            assert [d['state'] for d in right['days'][:31]]==['missing_election']*2+['period_unassessed']*29
+            values_to_verify.append((length,right['counted'],dict(missed=True)))
+
+            # Run the same complete retained request. Cancel a real running attempt
+            # and wait for its ordinary heartbeat to acknowledge the command.
+            from concurrent.futures import ThreadPoolExecutor
+            from time import sleep
+            cancelled=risk.call('portfolio/risk/jobs',dict(requestId=str(uuid4()),request=request))['id']
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                running=pool.submit(run_worker,measure=True)
+                limit=monotonic()+20
+                while query.raw(f"SELECT state='running' AND clock_timestamp()>started_at+interval '2 seconds' FROM risk.jobs WHERE id='{cancelled}'")!='t':
+                    if running.done() or monotonic()>limit:
+                        raise AssertionError('Could not observe the running cancellation workload')
+                    sleep(.05)
+                start=monotonic()
+                risk.call(f'portfolio/risk/jobs/{cancelled}/cancel',{})
+                worker_peaks[f'{length}-cancelled']=running.result()
+            terminal=risk.call('portfolio/risk/jobs/'+cancelled)
+            assert terminal['state']=='cancelled' and terminal.get('result') is None
+            assert query.raw(f"SELECT result IS NULL AND lease_token IS NULL AND worker_login IS NULL FROM risk.jobs WHERE id='{cancelled}'")=='t'
+            assert query.raw("SELECT count(*) FROM pg_stat_activity WHERE usename='preview_risk_worker'")=='0'
+            print(f'PASS complete running annual job cancelled and released without a partial result in {monotonic()-start:.3f}s',flush=True)
+
+    return values_to_verify,worker_peaks
+
+
+def kernel_workloads(root, dotnet, no_build):
+    import os
+    import platform
+    import subprocess
+    import tempfile
+    from gas_swing_reference import check_long_value
+    cases=[(1,'standard'),(3,'standard'),(3,'dense'),(3,'dst'),(31,'standard'),(31,'dst'),(90,'standard'),
+           (90,'reserved'),(365,'standard'),(365,'missed'),(1,'prefix'),(1,'memory')]
+    project=root/'tests/OpenEtrm.MarketData.Checks'
+    dll=project/'bin/Release/net10.0/OpenEtrm.MarketData.Checks.dll'
+    if not no_build:
+        subprocess.run([dotnet,'build',str(project),'-c','Release'],cwd=root,check=True)
+    from hashlib import sha256
+    artifacts=(dll,dll.parent/'OpenEtrm.MarketData.dll',dll.with_suffix('.runtimeconfig.json'))
+    print('KERNEL Release host '+json.dumps(dict(host=platform.platform(),
+        sha256={f.name:sha256(f.read_bytes()).hexdigest() for f in artifacts})),flush=True)
+    for days,variant in cases:
+        with tempfile.TemporaryFile(mode='w+t') as out:
+            process=subprocess.Popen([dotnet,str(dll),'--gas-swing-unit-workload',str(days),variant],cwd=root,stdout=out)
+            _,status,usage=os.wait4(process.pid,0)
+            process.returncode=os.waitstatus_to_exitcode(status)
+            if process.returncode:
+                raise RuntimeError(f'{days} {variant} kernel exited {process.returncode}')
+            out.seek(0)
+            runs=[json.loads(line) for line in out]
+        peak=usage.ru_maxrss if platform.system()=='Darwin' else usage.ru_maxrss*1024
+        assert len(runs)==2 and runs[0]['Value']==runs[1]['Value'] and peak<=512*1024**2
+        for row in runs:
+            if variant=='dst':
+                # Through March 11, the last deadline precedes the regular grid by
+                # one hour. Each of the subsequent 28 off-phase deadlines adds a split.
+                assert row['Estimate']['Steps']==(9 if days==3 else 149)
+            assert row['Milliseconds']<=120000 and row['AllocatedBytes']>0
+            print('KERNEL '+json.dumps(dict(row,Build='Release',ProcessPeakRssBytes=peak)),flush=True)
+        if days in (90,365) and variant in ('standard','reserved','missed'):
+            parts=check_long_value(days,runs[0]['Value'],election=45 if variant=='reserved' else None,missed=variant=='missed')
+            print(f'PASS {days} {variant} independent period values from the common inception '+','.join(map(str,parts)),flush=True)
+
+
+if __name__ == '__main__':
+    import argparse
+    import os
+    from pathlib import Path
+    import subprocess
+    import sys
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--workloads',action='store_true',required=True)
+    parser.add_argument('--no-build',action='store_true')
+    section=parser.add_mutually_exclusive_group()
+    section.add_argument('--kernel-only',action='store_true')
+    section.add_argument('--routes-only',action='store_true')
+    args = parser.parse_args()
+    root = Path(__file__).resolve().parents[1]
+    if not __debug__:
+        parser.error('Workload qualification requires Python assertions enabled.')
+    if not args.routes_only:
+        kernel_workloads(root,os.environ['DOTNET'],args.no_build)
+    if not args.kernel_only:
+        failures=[]
+        for days in (90,365):
+            preview=subprocess.run([sys.executable,str(root/'tools/run_preview.py'),'--check','--gas-swing-workload-check',
+                                    '--gas-swing-workload-days',str(days),'--pg-bin',os.environ['PG_BIN'],'--dotnet',os.environ['DOTNET'],
+                                    *(['--no-build'] if args.no_build or days==365 and not failures else [])],cwd=root)
+            if preview.returncode:
+                failures.append(days)
+        if failures:
+            raise SystemExit(f'Qualification failed for the following ordinary host workloads: {failures}')
