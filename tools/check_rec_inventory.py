@@ -1,6 +1,10 @@
 """Independent synthetic checks for evidenced certificate accounts and serial ranges."""
 import json
+from pathlib import Path
 from uuid import uuid4
+
+ROOT = Path(__file__).resolve().parents[1]
+MIGRATION = '0406_inventory_role_grants.sql'
 
 
 def run_checks(query, manifest, psql=None, environment=None):
@@ -13,7 +17,7 @@ def run_checks(query, manifest, psql=None, environment=None):
         passed += 1
         print('PASS REC inventory: ' + label, flush=True)
 
-    def runtime(sql, actor='trader'):
+    def runtime(sql, actor='operator'):
         token = query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
             f"'https://preview.invalid','{actor}','human_interactive','{manifest['tenantId']}',"
             f"'{manifest['workspaceId']}',NULL,'preview_runtime',120);")
@@ -23,7 +27,7 @@ def run_checks(query, manifest, psql=None, environment=None):
     def literal(value):
         return "'" + json.dumps(value).replace("'", "''") + "'::jsonb"
 
-    def reject(sql, code, actor='trader'):
+    def reject(sql, code, actor='operator'):
         try:
             query(runtime(sql, actor))
         except RuntimeError as error:
@@ -39,13 +43,49 @@ def run_checks(query, manifest, psql=None, environment=None):
     def configure(body=account, request=operation):
         return f"SELECT security.configure_rec_account('{catalog}','{request}',{literal(body)},'2020-12-15T12:00:00Z');"
 
-    # Missing capability fails as a consumer call, rather than an existence assertion.
-    reject(configure(), '42501')
-    check('installation grants no inventory authority')
+    def holders(permission):
+        return set(query("SELECT r.code FROM security.role_permissions p JOIN security.roles r ON r.id=p.role_id "
+                         f"WHERE p.permission='{permission}';").split())
+
+    agent_only = {'agent_reader', 'swap_settlement_operator', 'gas_lifecycle_operator'}
+    trade_readers = holders('ReadTrades') - agent_only
+    check('every human role that reads trades reads REC inventory, and no other role does',
+          holders('ReadRecInventory') == trade_readers)
+    check('every human role that reads trades reads owned gas, and the agent-only gas role is the only other reader',
+          holders('ReadGasOwnedHoldings') == trade_readers | {'gas_lifecycle_operator'})
+    check('Facility operations records and Contracts administration sets up REC inventory, and no other role does either',
+          holders('RecordRecInventory') == {'facility_operator'} and holders('ConfigureRecInventory') == {'contracts_officer'})
+    check('the two gas roles and the agent-only gas role record owned gas, and Gas service setup alone sets it up',
+          holders('RecordGasOwnedHoldings') == {'gas_operator', 'gas_service_admin', 'gas_lifecycle_operator'}
+          and holders('ConfigureGasOwnedHoldings') == {'gas_service_admin'})
+    check('only the two gas roles can be on the customer side of custody, and no role that books reads gas operations',
+          holders('ReadGasOperations') & holders('ReadGasOwnedHoldings') == {'gas_operator', 'gas_service_admin'}
+          and not holders('BookTrade') & holders('ReadGasOperations'))
+    check('neither gas role can bind an automatic action policy, which needs RunJobs',
+          not holders('RunJobs') & {'gas_operator', 'gas_service_admin'})
+    check('grants made by hand before the migration are kept, and the migration installs the rest',
+          query("SELECT count(*) FROM security.role_permissions p JOIN security.roles r ON r.id=p.role_id WHERE(r.code,p.permission) IN("
+                "('credit_officer','ReadRecInventory'),('credit_officer','ReadGasOwnedHoldings'),('facility_operator','RecordRecInventory'),"
+                "('trader','ReadRecInventory'),('trader','ReadGasOwnedHoldings'));") == '5')
+    migration = (ROOT / 'db/migrations' / MIGRATION).read_text()
+    grants = "SELECT(SELECT count(*) FROM security.role_permissions)::text||' '||(SELECT count(*) FROM security.role_grants)::text;"
+    installed = query(grants)
+    query(migration)
+    check('applying the grants again changes no role and gives no person a role', query(grants) == installed)
+    body = migration[migration.index('BEGIN;') + len('BEGIN;'):migration.rindex('COMMIT;')]
+    try:
+        query("BEGIN;UPDATE security.roles SET code='synthetic_renamed_role' WHERE code='credit_officer';" + body + 'ROLLBACK;')
+    except RuntimeError as error:
+        assert 'inventory_role_grants' in str(error) and 'credit_officer' in str(error), str(error)
+    else:
+        raise AssertionError('The grants accepted an installation without one of their roles')
+    check('an installation without one of the named roles is told which and receives no part of the grants',
+          query(grants) == installed)
+    for actor in ('trader', 'risk', 'viewer', 'editor', 'approver', 'admin'):
+        reject(configure(), '42501', actor)
+    check('a person without the setup role cannot set up a certificate account')
     from preview_fixture import trading_fixture
     query(trading_fixture(catalog))
-    query("INSERT INTO security.role_permissions SELECT id,p FROM security.roles CROSS JOIN "
-        "(VALUES('ReadRecInventory'),('RecordRecInventory'),('ConfigureRecInventory'))x(p) WHERE code='trader';")
     first = json.loads(query(runtime(configure())))
     check('account pins an existing book, exact entity and registry source', first['accountId'] == account['accountId'] and first['changed'])
     check('exact command replay returns its first receipt', json.loads(query(runtime(configure()))) == first)
@@ -94,6 +134,19 @@ def run_checks(query, manifest, psql=None, environment=None):
     check('certified read retains two facts and sixty available certificates', len(held['facts']) == 2 and held['lotBalances'][0]['availableCount'] == '60')
     directory = json.loads(query(runtime(selected + f"SELECT security.rec_inventory_directory('{catalog}','{context}','2020-12-15T23:59:59.999999Z');")))
     check('directory offers exact eligible products and configured owned accounts', len(directory['products']) == 1 and len(directory['accounts']) == 2 and directory['registries'][0]['code'] == 'fixture')
+    read_held = selected + f"SELECT security.read_rec_inventory('{catalog}','{account['accountId']}','{context}','2020-12-15T23:59:59.999999Z');"
+    read_directory = selected + f"SELECT security.rec_inventory_directory('{catalog}','{context}','2020-12-15T23:59:59.999999Z');"
+    for actor in ('trader', 'risk'):
+        assert json.loads(query(runtime(read_held, actor)))['lotBalances'][0]['availableCount'] == '60', actor
+        assert len(json.loads(query(runtime(read_directory, actor)))['accounts']) == 2, actor
+    check('installed trade readers read the certified inventory and the directory')
+    for actor in ('viewer', 'editor', 'approver', 'admin'):
+        reject(read_held, '42501', actor)
+        reject(read_directory, '42501', actor)
+    check('roles that read no trades read no inventory')
+    reject(record(receipt, 2), '42501', 'trader')
+    reject(configure(request=str(uuid4())), '42501', 'trader')
+    check('a trade reader records and sets up nothing')
     status = json.loads(query(runtime(f"SELECT security.rec_inventory_status('{catalog}','{operation}');")))
     check('status returns the original actor scoped account receipt', status == first)
     destination = dict(destinationId=str(uuid4()), counterpartyId='d5000000-0000-0000-0000-000000000001', counterpartyRevision=1,
@@ -123,11 +176,16 @@ def run_checks(query, manifest, psql=None, environment=None):
     check('current knowledge uses the thirty-certificate correction with complete retained lineage', len(amended['facts'])==3 and amended['lotBalances'][0]['availableCount']=='70')
     reasserted = json.loads(query(runtime(record(retirement,3,business=retired['factId']).replace("T12:00:00Z", "T13:00:00Z"))))
     check('reasserting an old fact returns it without restoring its value', not reasserted['changed'] and reasserted['revision']==1 and json.loads(query(runtime(current+current_read)))['lotBalances'][0]['availableCount']=='70')
-    query("DELETE FROM security.role_permissions WHERE permission='RecordRecInventory' AND role_id IN(SELECT id FROM security.roles WHERE code='trader');")
+    query("DELETE FROM security.role_permissions WHERE permission='RecordRecInventory' AND role_id IN(SELECT id FROM security.roles WHERE code='facility_operator');")
     no_record = json.loads(query(runtime(configure(request=str(uuid4())))))
     reject(record(receipt,2),'42501')
     check('configuration capability is independent and never grants evidence recording', not no_record['changed'])
-    query("INSERT INTO security.role_permissions SELECT id,'RecordRecInventory' FROM security.roles WHERE code='trader';")
+    query("INSERT INTO security.role_permissions SELECT id,'RecordRecInventory' FROM security.roles WHERE code='facility_operator';")
+    query("DELETE FROM security.role_permissions WHERE permission='ConfigureRecInventory' AND role_id IN(SELECT id FROM security.roles WHERE code='contracts_officer');")
+    reject(configure(request=str(uuid4())), '42501')
+    no_setup = json.loads(query(runtime(record(retirement,3,business=retired['factId']).replace("T12:00:00Z", "T13:00:00Z"))))
+    query("INSERT INTO security.role_permissions SELECT id,'ConfigureRecInventory' FROM security.roles WHERE code='contracts_officer';")
+    check('evidence recording is independent and never grants configuration', not no_setup['changed'] and no_setup['revision'] == 1)
     from concurrent.futures import ThreadPoolExecutor
     raced_lot = str(uuid4()); raced_business = str(uuid4()); raced_request = str(uuid4())
     raced_receipt = dict(receipt, lotId=raced_lot, registryLotReference='SYNTHETIC-CONCURRENT-LOT', **{'from':'0','to':'10'})
@@ -141,8 +199,16 @@ def run_checks(query, manifest, psql=None, environment=None):
     return passed
 
 
+def before_migration(query, migration):
+    if migration.name == MIGRATION:
+        # An installation may already have granted some of these by hand; the migration keeps those grants.
+        query("INSERT INTO security.role_permissions SELECT r.id,g.permission FROM security.roles r JOIN(VALUES"
+              "('credit_officer','ReadRecInventory'),('credit_officer','ReadGasOwnedHoldings'),"
+              "('facility_operator','RecordRecInventory'))g(code,permission) ON g.code=r.code;")
+
+
 if __name__ == '__main__':
     from check_reference_editing import main
     from preview_fixture import fixture
     from rec_fixture import extend
-    main(checks=run_checks, fixture_factory=lambda root: extend(*fixture(root)))
+    main(checks=run_checks, fixture_factory=lambda root: extend(*fixture(root)), before_migration=before_migration)
