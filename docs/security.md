@@ -53,7 +53,7 @@ service/agent credential issuance and rotation remain work;
 credential rotation should preserve principal identity. Never log raw credentials
 or capability tokens. There are no seeded users, passwords, grants or universal
 administrator accounts in the migrations. The owned disposable preview fixture
-separately provisions six clearly labeled synthetic test identities and scoped
+separately provisions seven clearly labeled synthetic test identities and scoped
 grants; these never establish a production login boundary.
 
 ## Common roles and scoped authority

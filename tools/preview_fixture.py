@@ -404,6 +404,14 @@ def security_fixture(catalog,reference_catalog):
             f"INSERT INTO security.identity_bindings VALUES ('https://preview.invalid','{slug}','{pid}','human_interactive');",
             f"INSERT INTO security.workspace_memberships VALUES ('{TENANT}','{WORKSPACE}','{pid}','{slug}','Synthetic {slug}',true,1);",
             f"INSERT INTO security.role_grants VALUES (gen_random_uuid(),'{pid}','a0000000-0000-0000-0000-{role:012d}','{TENANT}','{WORKSPACE}',CURRENT_TIMESTAMP-INTERVAL '1 day',CURRENT_TIMESTAMP+INTERVAL '1 day',false);"])
+    # The operator holds the five operating roles. They are selected by code because their ids are generated, and a
+    # schema from before a role existed gives the operator the roles it has.
+    operator=identity('c',7)
+    security.extend([f"INSERT INTO security.principals VALUES ('{operator}','human',true);",
+        f"INSERT INTO security.identity_bindings VALUES ('https://preview.invalid','operator','{operator}','human_interactive');",
+        f"INSERT INTO security.workspace_memberships VALUES ('{TENANT}','{WORKSPACE}','{operator}','operator','Synthetic operator',true,1);",
+        f"INSERT INTO security.role_grants SELECT gen_random_uuid(),'{operator}',id,'{TENANT}','{WORKSPACE}',CURRENT_TIMESTAMP-INTERVAL '1 day',CURRENT_TIMESTAMP+INTERVAL '1 day',false FROM security.roles "
+        "WHERE code IN('facility_operator','facility_limits_admin','gas_operator','gas_service_admin','contracts_officer');"])
     security.extend(['CREATE ROLE preview_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS INHERIT IN ROLE openetrm_runtime;',
                      'CREATE ROLE preview_authenticator LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS INHERIT IN ROLE openetrm_authenticator;'])
     return '\n'.join(security)
