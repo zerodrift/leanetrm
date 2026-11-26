@@ -2,10 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {requestDeadlines} from '../dist/request-deadline.js';
 
-test('business requests require server deadlines; startup alone has a bounded guard',()=>{
- const deadlines=requestDeadlines();
- assert.equal(deadlines.milliseconds('bootstrap?includeFrames=false'),20000);
- assert.equal(deadlines.milliseconds('examples'),20000);
+test('business requests require server deadlines; startup waits out the longest ordinary budget the server can serve',()=>{
+ // The API's ordinary ceiling of 29 s plus its largest response grace of 5 s; HostedConfigurationChecks holds the
+ // page's startup guard to the API's actual ceilings.
+ const deadlines=requestDeadlines(),longestOrdinary=34000;
+ assert.ok(deadlines.milliseconds('bootstrap?includeFrames=false')>=longestOrdinary);
+ assert.equal(deadlines.milliseconds('examples'),deadlines.milliseconds('bootstrap'));
  assert.throws(()=>deadlines.milliseconds('trading/blotter'),/deadline metadata/);
 });
 test('all windows use the server ordinary and extended request budgets',()=>{
