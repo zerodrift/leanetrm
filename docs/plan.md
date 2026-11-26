@@ -1,12 +1,13 @@
 # Delivery plan and acceptance criteria
 
-D457 raises the hosted API's memory limit to a provisional figure, to be set from
-the whole load of a demo dataset once it is measured: no run has yet reached the
-end of that load. Deploy candidates run under the same limits, and hosts may
-select ordinary and extended request limits of up to 29 s and 35 s. It is
-capacity, not speed: on two processors the demo's risk history reads took 5.3 to
-14.2 s and its risk job submissions 7.0 to 14.8 s, and making them faster remains
-open. Applying it needs the [operator steps](hosted-pilot.md#hosted-capacity-d457).
+D457 raises the hosted API's memory limit above the measured peak of a demo
+dataset's whole load: 2,231 MB on two processors with no heap limit. Deploy
+candidates run under the same limits, and hosts may select ordinary and extended
+request limits of up to 29 s and 35 s. It is capacity, not speed: even with no
+memory cap, the 15-second deadline cancelled 16 risk job submissions, 2 history
+reads and a whole-firm Blotter read. History reads took 5.3 to 14.8 s and job
+submissions 7.0 to 14.8 s, and making them faster remains open. Applying it
+needs the [operator steps](hosted-pilot.md#hosted-capacity-d457).
 
 D456 restores the Physical Operations directory to its native gas, crude and LNG
 consumers while preserving all products in the Blotter. The mixed-product

@@ -7741,43 +7741,44 @@ explicit recovery and updater suspension follow the
 This exception includes no schema or business-data migration and authorizes no
 other backend change or general maintenance release mechanism.
 
-## D457 — More memory and longer request limits for a hosted demo dataset (memory provisional)
+## D457 — More memory and longer request limits for a hosted demo dataset
 
-Decided 2026-11-26. The memory figure is provisional until the whole load of a
-hosted demo dataset, about 209 trades, 65 curves and 4,236 market contracts, has
-been measured.
+Decided 2026-11-26. A hosted demo dataset of about 209 trades, 65 curves and
+4,236 market contracts needs more memory than the hosted API's 1 GiB and longer
+requests than its 15-second ordinary deadline.
 
-What was measured, and how. The dataset was loaded on a shared test host into
-application installations allowed 8 GiB and six processors, each holding .NET to
-two processors (`DOTNET_PROCESSOR_COUNT=2`). The hosted 1 GiB and 2 GiB
-containers were emulated by .NET heap hard limits of 768 MiB and 1.5 GiB (75 % of
-each), not by container memory limits; a third run set no heap limit.
+What was measured, and how. The whole load ran on a shared test host with .NET
+held to two processors (`DOTNET_PROCESSOR_COUNT=2`) and no heap limit: all 110
+phases, the 209 trades, every check, the measurement and the closing. The
+application's peak resident memory (`VmHWM`) was 2,231 MB, reached in the risk
+runs, and no later phase raised it. Each restart of the application starts the
+reading again: it read 216 MB through the prices, about 1,051 MB through the
+closes and definitions, 1,005 MB in the trades, 1,397 MB through the surfaces and
+the first risk runs, then 1,493, 2,082 and 2,231 MB in the risk runs. The peak
+may slightly overstate one clean load, since some risk items were sent again
+after 15-second cancellations. Earlier partial runs emulated 1 GiB and 2 GiB
+containers with .NET heap hard limits of 768 MiB and 1.5 GiB on the same two
+processors. Under 768 MiB the peak reached 978 MB before the load stopped on the
+API's catch-all 500 (`preview_error`), whose exception was not read. Under
+1.5 GiB it reached 1,824 MB a third of the way through, before a cancelled
+request stopped it.
 
-- Under the 768 MiB heap limit, peak resident memory (`VmHWM`) reached 978 MB,
-  and the load stopped on the API's catch-all 500 (`preview_error`) after 96 of
-  147 trades. Its exception was not read, so memory is not established as the
-  cause.
-- Under the 1.5 GiB heap limit, it reached 1,412 MB by the end of the trades and
-  1,824 MB about a third of the way through the load's 110 phases, still rising,
-  when a cancelled request stopped it.
-- Without a heap limit it reached 1,397 MB at about the same point, when a
-  cancelled request stopped it.
-- No run has reached the end of the load, so its whole need is not known.
-
-On two processors, the loading tool's direct requests for value-at-risk history
-(`portfolio/risk/history`) were answered in 5.3 to 14.2 s, most in 11.1 to
-12.7 s, and one was cancelled at 15.2 s. Its risk job submissions
-(`portfolio/risk/{parametric,historical,monte-carlo}/jobs`) were answered in 7.0
-to 14.8 s, and others were cancelled at 15.0 s: the 15-second ordinary request
-deadline cut one or another at random.
+Even with no memory cap, the 15-second ordinary deadline cut requests the
+loading tool sent directly. In the whole load, value-at-risk job submissions
+(`portfolio/risk/{parametric,historical,monte-carlo}/jobs`) were answered in
+12.7 to 14.8 s and 16 were cancelled at 15.0 s. History reads
+(`portfolio/risk/history`) were answered in 11.1 to 14.8 s and 2 were cancelled.
+One whole-firm Blotter read at the Europe close was cancelled at 15.0 s. Across
+all runs, history reads were answered from 5.3 s and job submissions from 7.0 s.
 
 The API container's memory limit, `mem_limit` in `deploy/compose.yaml`, rises
-from 1 GiB to a provisional figure stated only there, to be set from the whole
-load's measured peak. Under a container limit .NET's default heap limit is 75 % of
-it, so no runtime setting changes. The API's two processors and 128 processes,
-and the database and collector limits, are unchanged. A deploy's candidate runs
-under the rendered API's own memory, processor and process limits instead of a
-copy of them in `tools/deploy_release.py`. The deployer refuses a Compose file
+from 1 GiB to 3 GiB. Inside a 3 GiB container, .NET's default heap limit is three
+quarters of it, 2.25 GiB, which is above the measured peak, and the container
+keeps over 0.8 GiB above that peak. No runtime setting changes. The API's two
+processors and 128 processes, and the database and collector limits, are
+unchanged. A deploy's candidate runs under the rendered API's own memory,
+processor and process limits instead of a copy of them in
+`tools/deploy_release.py`. The deployer refuses a Compose file
 whose API does not state all three, and `tools/check_deployment.py` makes the
 same refusal in CI. It checks the limits Docker records, memory and processes
 exactly and processors to a thousandth. A candidate recorded under other limits
@@ -7832,7 +7833,7 @@ selected value:
 - Connections of the 8-connection application pool, asynchronous-read submission
   and a closing view's detachment.
 
-This is capacity, not speed. On two processors the risk history reads and risk
-job submissions stay as slow as measured; a longer limit only stops them being
-cancelled. Making them faster is an open performance item. Nothing takes effect
+This is capacity, not speed. On two processors the risk history reads, the risk
+job submissions and a whole-firm Blotter read at a close stay as slow as
+measured; a longer limit only stops them being cancelled. Making them faster is an open performance item. Nothing takes effect
 until the operator follows [hosted capacity](hosted-pilot.md#hosted-capacity-d457).

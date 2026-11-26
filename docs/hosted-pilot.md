@@ -479,9 +479,9 @@ attested prior-image Docker run remains a release prerequisite for this incremen
 
 ## Hosted capacity (D457)
 
-D457 raises the API container's memory limit in `deploy/compose.yaml`, to a
-provisional figure, and the ceilings of the request time limits. It is an
-infrastructure change: nothing takes effect until the operator applies it, in
+D457 raises the API container's memory limit in `deploy/compose.yaml` above a
+demo dataset's measured peak, and the ceilings of the request time limits. It is
+an infrastructure change: nothing takes effect until the operator applies it, in
 this order. Each step names the check its safety depends on and the way back.
 
 Before starting:
@@ -587,6 +587,6 @@ Before starting:
 5. **Start `openetrm-deployment.timer` again** only once step 4's hash is
    recorded and the site serves.
 
-Risk history reads and risk job submissions on the demo dataset stay slow on two
-processors; the longer limits only stop them being cancelled. Their speed is an
-open performance item.
+Risk history reads, risk job submissions and a whole-firm Blotter read at a close
+stay slow on the demo dataset on two processors; the longer limits only stop them
+being cancelled at 15 s. Their speed is an open performance item.
