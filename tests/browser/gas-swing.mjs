@@ -91,7 +91,11 @@ export async function run(actions){
  await reveal(detail+' [aria-label="Daily elections and delivery"]');await shot('swing-narrow-days');
  await check('the narrow swing review contains horizontal scrolling inside its tables',fitsWidth+'&&'+at(detail)+'.scrollWidth<='+at(detail)+'.clientWidth+1');
  await screen(1440,1000);await reveal(drawer+' summary');await click(drawer+' summary');
- const open=async()=>{await wait(at(trigger)+'?.checkVisibility()&&!'+at(trigger)+'.disabled',60000);await click(trigger);};
+ const open=async()=>{
+  // The recovered election can queue a Blotter refresh while the next booked control is already visible.
+  await wait(at(trigger)+'?.checkVisibility()&&!'+at(trigger)+'.disabled&&'+idle,60000);
+  await click(trigger,60000);
+ };
  const chooseDays=async(first,last,decision,quantity)=>{
   await set(input('firstDay'),first);await set(input('lastDay'),last);await set(input('decision'),decision);
   if(decision==='elect')await set(input('quantity'),quantity);
