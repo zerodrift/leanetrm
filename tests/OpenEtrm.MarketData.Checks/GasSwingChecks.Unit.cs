@@ -155,7 +155,9 @@ internal static partial class GasSwingChecks
                     });
                     return new(terms, periods, [..amounts], held, at, Pricing with { NumericalPolicy = SwingUnitResources.Policy });
                 }
-                var one = SwingChoice.Value(Inputs(R(1), true));
+                var original = Inputs(R(1), true);
+                Refuse("swing_model_scope", () => SwingChoice.Value(original with { HeldReference = R(2) }));
+                var one = SwingChoice.Value(original);
                 if (holder == ExerciseHolder.Us) normalizedBuys.Add(forced, one);
                 else Require(one.CountedToUs == normalizedBuys[forced].CountedToUs * R(-1) &&
                     one.Plan.SequenceEqual(normalizedBuys[forced].Plan), "Reversing holder and signed Side amounts reverses only value.");

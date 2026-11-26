@@ -202,6 +202,7 @@ public sealed record ExactRiskPositionValue(Guid TradeId,Guid BindingId,Guid Boo
 
     public AccountingOwnerKey Owner{get;init;}=new(AccountingOwnerKind.Trade,TradeId);
     public ImmutableArray<ValueComponent> Components{get;init;}=[];
+    internal SwingQuantityRightValue? QuantitySwing { get; init; }
     public ImmutableArray<SwingRightValue> SwingValues { get; init; } = [];
     public ImmutableArray<ExerciseGroupValue> GroupValues { get; init; } = [];
     public ImmutableArray<ExerciseGroupContribution> ExerciseGroups { get; init; } = [];
@@ -214,6 +215,7 @@ public sealed record ExactRiskPositionResult(Guid TradeId,Guid BindingId,Guid Bo
 
     public AccountingOwnerKey Owner{get;init;}=new(AccountingOwnerKind.Trade,TradeId);
     public ImmutableArray<ComponentRiskValues> Components{get;init;}=[];
+    internal (SwingQuantityRightValue Base, SwingQuantityRightValue Up, SwingQuantityRightValue Down)? QuantitySwing { get; init; }
     public SwingScenarioValues? SwingValues { get; init; }
     public ExerciseScenarioGroupValues? GroupValues { get; init; }
     public ImmutableArray<ExerciseGroupRiskValues> ExerciseGroups { get; init; } = [];

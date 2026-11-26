@@ -26,6 +26,7 @@ internal static partial class GasSwingChecks
         BoundedPlanningStep();
         SparsePlanLimits();
         Console.WriteLine("PASS expanded gas swing: worked forward plans, continuous optima, 1,024 independent small cases, monthly budgets, exact reservations, compact wide-grid moves and source coverage");
+        RetainedQuantityLifecycle();
         HeldLifecycle();
         ChoiceNumerics();
         Feasibility();

@@ -9,6 +9,7 @@ namespace OpenEtrm.MarketData.Trading;
 // Flows retain all known allocations; recognition by effective time happens only in Compare.
 public sealed record PnlPositionValue(AccountingPositionKey Position,ExactMoney RemainingValue)
 {
+    internal ImmutableArray<MissingDayAssessment> MissingAssessments { get; init; } = [];
     public int UnassessedDays{get;init;}
 }
 public enum PnlAccountingCoverage { RemainingValueOnly=1,Complete }

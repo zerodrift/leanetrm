@@ -46,14 +46,16 @@ public static partial class SideScheduleInspection
    var shownQuantity=row.ReportedQuantity is {} reported
     ?reported.Quantity?.ScaleFraction(scale.Numerator.Sign,1).ToExactString()
     :selected is null?Value(quantity.Column,quantity.Cell,scale):ExactNumberText.Format(contract!.Value*selected.Fraction);
+   if (selected?.NoSelectedQuantity == true) shownQuantity = null;
    var shownAmount=row.ReportedQuantity is not null?row.Expected?.Add(row.Paid).ToExactString():Value(contribution.Amount,0,scale*(selected?.Fraction??one));
+   if (selected?.NoSelectedQuantity == true) shownAmount = null;
    var shownValue=row.Unrealized is {} unrealized&&row.RealizedUnsettled is {} unsettled?unrealized.Add(unsettled).ToExactString():null;
    rows.Add(new($"{guard.Output.Ordinal}:0",guard.Output.Operation,state.Kind.ToString(),geometry.From,geometry.To,geometry.Start,geometry.End,
     guard.Output.ObservationFrom,guard.Output.ObservationTo,guard.Output.ValueAt,shownQuantity,Value(price.Column,price.Cell,one),
     shownAmount,Value(discount.Column,discount.Cell,one),shownValue,side.Part?.QuantityBasis??row.QuantityBasis,prices,
-    new ScheduleInspectionLifecycle(row.Delivery.ToString(),due,row.Settlement?.ToString()??"NotApplicable",state.Class?.ToString(),measures,null))
+    new ScheduleInspectionLifecycle(row.Delivery.ToString(),due,row.Settlement?.ToString()??"NotApplicable",state.Class?.ToString(),measures,row.MissingSwingDays.IsEmpty ? null : string.Join(",",row.MissingSwingDays.Select(d=>d.Reason).Distinct())))
     {ExercisePeriods=side.ExerciseGroups.IsEmpty?default:side.Periods(row.DeliveryFrom,row.DeliveryTo),
-     SourceQuantity=selected is null?null:ExactNumberText.Format(selected.Selected),SourceQuantityStates=selected?.Tags??default,PaymentTiming=RetainedTiming(guard.Output,state.Kind),QuantitySpecification=quantity.Column.Unit,Currency=contribution.Amount.Currency,QuoteMultiplier=price.Column.QuoteMultiplier,OperatingDate=geometry.OperatingDate,
+     SourceQuantity=selected is null || selected.NoSelectedQuantity?null:ExactNumberText.Format(selected.Selected),SourceQuantityStates=selected?.Tags??default,PaymentTiming=RetainedTiming(guard.Output,state.Kind),QuantitySpecification=quantity.Column.Unit,Currency=contribution.Amount.Currency,QuoteMultiplier=price.Column.QuoteMultiplier,OperatingDate=geometry.OperatingDate,
      Accrued=cash?row.Accrued?.ToExactString():null,Paid=cash?row.Paid.ToExactString():null,Outstanding=cash?row.Outstanding?.ToExactString():null,PaidAt=row.PaidAt,
      Remaining=cash?row.Unrealized?.ToExactString():null,
      FinalDetermination=determinations.TryGetValue(row.Occurrence,out var final)?final.ToExactString():null,QuantityEvidence=row.ReportedQuantity?.Evidence??selected?.Evidence??default,QuantityAdjustment=selected is null?null:new(ExactNumberText.Format(contract!.Value),ExactNumberText.Format(selected.Fraction))});

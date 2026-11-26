@@ -38,8 +38,12 @@ internal sealed record SwingQuantityRight(
 internal sealed record SwingQuantityDay(SwingDay Day, SwingElection? Election, SignedRatio? QuantityRatio);
 
 internal sealed record SwingPeriodBudget(SwingQuantityRight Right, ImmutableArray<SwingQuantityDay> Days,
-    DateTimeOffset AssessmentAt, SignedRatio? AppliedLower, SignedRatio? AppliedUpper, SignedRatio Elected,
-    SignedRatio RemainingMinimum, SignedRatio RemainingMaximum, int ChangedDays, int? AvailableChanges);
+    DateTimeOffset AssessmentAt, SignedRatio Reference, SignedRatio? AppliedLower, SignedRatio? AppliedUpper, SignedRatio Elected,
+    SignedRatio RemainingMinimum, SignedRatio RemainingMaximum, int ChangedDays, int? AvailableChanges)
+{
+    internal bool MissingCoupledPeriod => (Right.HasTotal || Right.ChangeCount.HasValue) &&
+        Days.Any(d => d.Election is null && d.Day.ExerciseAt <= AssessmentAt);
+}
 
 public static partial class SwingFeasibility
 {
@@ -59,10 +63,10 @@ public static partial class SwingFeasibility
         });
         var periods = right.Days.GroupBy(d => right.Period == SwingQuantityRight.Term ? 0 : d.Day.Year * 12 + d.Day.Month);
         return [..periods.Select(period => ResolvePeriod(right, [..period.Select(day => facts.TryGetValue(day.Day, out var fact)
-            ? new SwingQuantityDay(day, fact.Election, fact.Quantity) : new(day, null, null))], assessmentAt))];
+            ? new SwingQuantityDay(day, fact.Election, fact.Quantity) : new(day, null, null))], assessmentAt, new(reference.NumeratorValue, reference.DenominatorValue)))];
     }
 
-    private static SwingPeriodBudget ResolvePeriod(SwingQuantityRight right, ImmutableArray<SwingQuantityDay> days, DateTimeOffset at)
+    private static SwingPeriodBudget ResolvePeriod(SwingQuantityRight right, ImmutableArray<SwingQuantityDay> days, DateTimeOffset at, SignedRatio reference)
     {
         var multiplier = new SignedRatio(right.TotalBasis == SwingQuantityRight.PerDay ? days.Length : 1, 1);
         var lower = right.Lower * multiplier;
@@ -87,7 +91,7 @@ public static partial class SwingFeasibility
         if (upper is {} u && (u - elected).CompareTo(maximum) < 0) maximum = u - elected;
         if (minimum.CompareTo(maximum) > 0)
             throw new MarketDataException("swing_feasibility", "The elected days leave no continuous completion in this limit period.");
-        return new(right, days, at, lower, upper, elected, minimum, maximum, changed, available);
+        return new(right, days, at, reference, lower, upper, elected, minimum, maximum, changed, available);
     }
 
     private static void RequireQuantityTerms(SwingQuantityRight r)

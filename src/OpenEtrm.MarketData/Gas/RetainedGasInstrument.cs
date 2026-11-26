@@ -66,6 +66,7 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
     [IdentityField] public ImmutableArray<GasValuationAssignment> Assignments { get; }
     [IdentityField] public override ImmutableArray<ExerciseRight> Rights { get; }
     [IdentityField] public override ImmutableArray<SwingRight> SwingRights { get; }
+    internal override SwingQuantityRight? QuantityRight { get; }
     public override ImmutableArray<SwingPricingBinding> SwingPricingBindings { get; }
     public override ExerciseMarks? Marks { get; }
     public override DefinitionIdentity? PricingBindingIdentity => (SwingPricingBindings.IsEmpty, Marks) switch
@@ -80,7 +81,7 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
     // An explicit map has a null slot only for a charge that owns its quantity.
     public ImmutableArray<int?> PhysicalSources { get; }
     public override string RetainedScheduleIdentity =>
-        PhysicalSources.IsDefault && Rights.IsEmpty && SwingRights.IsEmpty && Members.All(m => m.Owned is null) ? base.RetainedScheduleIdentity :
+        PhysicalSources.IsDefault && Rights.IsEmpty && !HasSwing && Members.All(m => m.Owned is null) ? base.RetainedScheduleIdentity :
         base.RetainedScheduleIdentity + "/physical_sources_v1/" + string.Join('/', Members.Select((member, slot) =>
             member.Owned is not null ? "owned" : GeometrySource(slot)?.ToString(CultureInfo.InvariantCulture) ?? "pooled"));
     public ImmutableArray<IndexPriceLookup> PriceLookups { get; }
@@ -92,6 +93,17 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
         ImmutableArray<GasValuationAssignment> assignments, ImmutableArray<IndexPriceLookup> priceLookups = default,
         ImmutableArray<ExerciseRight> rights = default, ExerciseMarks? marks = null, ImmutableArray<int?> physicalSources = default,
         ImmutableArray<SwingRight> swingRights = default, ImmutableArray<SwingPricingBinding> swingPricingBindings = default)
+        : this(id, members, assignments, priceLookups, rights, marks, physicalSources, swingRights, swingPricingBindings, null) { }
+
+    internal RetainedGasInstrument(Guid id, ImmutableArray<RetainedGasMember> members, ImmutableArray<GasValuationAssignment> assignments,
+        SwingQuantityRight quantityRight, SwingPricingBinding pricing, ImmutableArray<IndexPriceLookup> priceLookups = default,
+        ImmutableArray<ExerciseRight> rights = default, ExerciseMarks? marks = null, ImmutableArray<int?> physicalSources = default)
+        : this(id, members, assignments, priceLookups, rights, marks, physicalSources, [], [pricing], quantityRight) { }
+
+    private RetainedGasInstrument(Guid id, ImmutableArray<RetainedGasMember> members, ImmutableArray<GasValuationAssignment> assignments,
+        ImmutableArray<IndexPriceLookup> priceLookups, ImmutableArray<ExerciseRight> rights, ExerciseMarks? marks,
+        ImmutableArray<int?> physicalSources, ImmutableArray<SwingRight> swingRights, ImmutableArray<SwingPricingBinding> swingPricingBindings,
+        SwingQuantityRight? quantityRight)
         : base(id, members, new(ExactDecimal.Parse("1"), First(assignments).Quote.Quantity), First(assignments).Quote.Currency)
     {
         if (members.IsDefaultOrEmpty || members.Any(m => m is null) || assignments.IsDefaultOrEmpty || assignments.Any(a => a is null) ||
@@ -102,7 +114,8 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
         if(priceLookups.IsDefault&&members.Any(m=>m.Program.Document.Instructions.Any(i=>i.Output.Operation==CurvePriceScheduleSource.Operation)))
             throw new MarketDataException("side_market_sources","Bound programs require their exact authorized retained price lookups.");
         var hasQuantityTerms = members.Any(m => m.QuantityPolicy is not null || m.Part is not null || m.Balance is not null);
-        var allowSources = hasQuantityTerms || !rights.IsDefaultOrEmpty || !swingRights.IsDefaultOrEmpty;
+        QuantityRight = quantityRight;
+        var allowSources = quantityRight is not null || hasQuantityTerms || !rights.IsDefaultOrEmpty || !swingRights.IsDefaultOrEmpty;
         if (members.Where((m, slot) => m.SourceSlot is {} source
                 ? !allowSources || source >= members.Length || members[source].Program.Document.Family != "gas" ||
                     m.Program.Document.Family == "gas" && source != slot
@@ -125,7 +138,8 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
         Marks = marks;
         SwingRights = swingRights.IsDefault ? [] : swingRights;
         SwingPricingBindings = swingPricingBindings.IsDefault ? [] : swingPricingBindings;
-        GasSwingAdmission.Require(this);
+        if (quantityRight is null) GasSwingAdmission.Require(this);
+        else GasSwingAdmission.Require(this, quantityRight, SwingPricingBindings.Single());
     }
 
     public ImmutableArray<(ExerciseGroupKey Group, CurveKey Curve, DateOnly Month)> ExerciseMarkInputs(MarketSnapshot snapshot, PhysicalCashState held) =>
@@ -353,7 +367,7 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
     // and original whole-day delivery-mark policy in its explicit model version.
     public override UnitPricingContract Declare(UnitValuationContext context)
     {
-        if (!Rights.IsEmpty || !SwingRights.IsEmpty || context.BindingState is PhysicalCashState cash &&
+        if (!Rights.IsEmpty || HasSwing || context.BindingState is PhysicalCashState cash &&
             (!cash.Elections.IsEmpty || !cash.SwingElections.IsEmpty || cash.NextSwingElectionEffectiveAt is not null))
             ValidateValuationState(context.BindingState);
         var declaration = RetainedDeclaration(new(Id,
@@ -362,13 +376,13 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
             (Members.Any(m => PhysicalLifecycle.ReadsDeliveryMarks(m.Program)) ? PeriodPriceSelector.DeliveryMarkPolicy + "/" : "")+"retained_gas_side_pv_v3",
             PhysicalLifecycle.PriceDependencies(Members.Select(member => member.Program), PriceLookups, context.Snapshot),
             UnitQuantity.Specification, Currency) { Time = ValuationTimeDependency.Pinned, ScheduleIdentity = RetainedScheduleIdentity });
-        if (Rights.IsEmpty && SwingRights.IsEmpty) return declaration;
+        if (Rights.IsEmpty && !HasSwing) return declaration;
         return RetainedExerciseValuation.Declare(declaration, this, context);
     }
 
     protected internal override void RequireBeforeValuation(SideValuationContext context)
     {
-        if (Rights.IsEmpty && SwingRights.IsEmpty || context is null) return;
+        if (Rights.IsEmpty && !HasSwing || context is null) return;
         if (context.Discounting is ExplicitDiscounting scalar)
         {
             if (scalar.Undiscounted) return;
@@ -383,7 +397,7 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
                     f.DiscountFactor == ExactDecimal.Parse("1") && f.Snapshot is not null && f.Snapshot.HasSameInputs(context.Snapshot)) &&
                 keys.ToHashSet().SetEquals(factors.Select(f => f.Payment))) return;
         }
-        throw new MarketDataException(SwingRights.IsEmpty ? "exercise_model_scope" : "swing_model_scope", "The selected choice model requires explicitly undiscounted valuation.");
+        throw new MarketDataException(!HasSwing ? "exercise_model_scope" : "swing_model_scope", "The selected choice model requires explicitly undiscounted valuation.");
     }
 
     private protected override RetainedProgramContext PrepareSides(UnitValuationContext context,CurveBuild basis,CurveBuild scenario)
@@ -413,7 +427,7 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
     internal int? GeometrySource(int slot)
     {
         if (!PhysicalSources.IsDefault) return PhysicalSources[slot];
-        if (Rights.IsEmpty && SwingRights.IsEmpty) return null; // Legacy direct callers have pooled compatible geometry.
+        if (Rights.IsEmpty && !HasSwing) return null; // Legacy direct callers have pooled compatible geometry.
         var member = Members[slot];
         return member.Program.Document.Family == "gas" ? slot : member.SourceSlot;
     }
@@ -448,7 +462,7 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
         {
             if (Members.Any(m => m.Owned is not null))
                 throw new MarketDataException("gas_delivery_lifecycle", "A gas instrument with owned charges requires its held cash state from booking.");
-            if(!Rights.IsEmpty || !SwingRights.IsEmpty || Members.Any(m => m.QuantityPolicy is not null || m.Part is not null || m.Balance is not null))
+            if(!Rights.IsEmpty || HasSwing || Members.Any(m => m.QuantityPolicy is not null || m.Part is not null || m.Balance is not null))
                 throw PhysicalDeliveryQuantities.Invalid("An instrument with quantity terms requires its complete held owner-day inputs.");
             base.ValidateValuationState(state); return;
         }
@@ -457,9 +471,9 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
                 Members[p.Slot].Program.Document.Family == "gas" || p.Amount.Currency != Currency ||
                 !Members[p.Slot].Program.Document.Instructions.Any(i => i.Output is { Operation: "output_guard", Grid: null } && i.Output.PaymentOrdinal == p.Occurrence)))
             throw new MarketDataException("payment_state", "Each payment allocation must name a retained cash occurrence of this instrument in its currency and quantity.");
-        PhysicalDeliveryQuantities.RequireSchedules(Members, cash, Rights, SwingRights);
-        if (cash.SwingElections.Any(e => e is null || !SwingRights.Any(r => r.Ordinal == e.Right)) ||
-            SwingRights.IsEmpty && cash.NextSwingElectionEffectiveAt is not null)
+        PhysicalDeliveryQuantities.RequireSchedules(Members, cash, Rights, SwingRights, QuantityRight?.PhysicalSlot);
+        if (cash.SwingElections.Any(e => e is null || QuantityRight?.Ordinal != e.Right && !SwingRights.Any(r => r.Ordinal == e.Right)) ||
+            !HasSwing && cash.NextSwingElectionEffectiveAt is not null)
             throw new MarketDataException("swing_election", "Swing facts require their exact retained right.");
     }
 

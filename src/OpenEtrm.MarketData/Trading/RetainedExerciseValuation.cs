@@ -242,6 +242,15 @@ internal sealed class RetainedExerciseValuation
             foreach (var election in held.SwingElections) Boundary(election.EffectiveAt);
             if (held.NextSwingElectionEffectiveAt is {} transition) Boundary(transition);
         }
+        if (instrument.QuantityRight is {} terms)
+        {
+            var swing = new RetainedSwingQuantityValuation(terms, held, snapshot.ValuationAt);
+            var curve = instrument.Sides[terms.PhysicalSlot].Side.Dependencies.Select(d => d.Curve).Distinct().Single();
+            if (swing.NextDeadline is {} deadline) Boundary(deadline);
+            foreach (var day in swing.MarkedDays) swingMarks.Add((curve, new(day.Day.Year, day.Day.Month, 1)));
+            foreach (var election in held.SwingElections) Boundary(election.EffectiveAt);
+            if (held.NextSwingElectionEffectiveAt is {} transition) Boundary(transition);
+        }
         if (firstEvent <= at)
             throw new MarketDataException("valuation_time_coverage", "The calculation clock crosses a retained valuation event.");
         return new([..used], modeled.Count > 0, firstEvent, [..swingMarks.Distinct()]);
@@ -259,8 +268,8 @@ internal sealed class RetainedExerciseValuation
             used.Add(mark);
         }
         var model = scope.HasModel ? contract.ModelVersion + "/" + ModelPolicy : contract.ModelVersion;
-        if (!instrument.SwingRights.IsEmpty)
-            model += "/" + SwingPricingBinding.SupportedModel + "/" + SwingPricingBinding.SupportedNumericalPolicy;
+        if (instrument.HasSwing)
+            model += "/" + SwingPricingBinding.SupportedModel + "/" + instrument.SwingPricingBindings.Single().NumericalPolicy;
         return contract with
         {
             ModelVersion = model,

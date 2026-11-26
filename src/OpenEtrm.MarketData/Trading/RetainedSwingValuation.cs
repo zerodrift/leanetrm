@@ -104,30 +104,8 @@ internal sealed class RetainedSwingValuation
     {
         var sign = ((PhysicalCashState)context.BindingState!).Quantity.Amount.ScaledValue.Sign;
         var holder = right.Holder == ExerciseHolder.Us ? 1 : -1;
-        var uncertain = Pending.ToDictionary(d => d.Day, _ => SignedRatio.Zero);
-        var certain = Pending.ToDictionary(d => d.Day, _ => SignedRatio.Zero);
-        var forwards = new Dictionary<DateOnly, string>();
-        if (!Pending.IsEmpty)
-            foreach (var slot in right.Slots)
-            {
-                var physical = slot == right.PhysicalSlot;
-                var amounts = physical ? uncertain : certain;
-                var factor = context.RetainedPrograms!.HeldFactors[slot] * new SignedRatio(holder * sign, 1);
-                var side = perLot(slot);
-                foreach (var row in side.Lifecycle!.Rows)
-                {
-                    var covered = Pending.Where(d => d.Day >= row.DeliveryFrom && d.Day < row.DeliveryTo).ToArray();
-                    if (covered.Length == 0) continue;
-                    // Each pending day in this occurrence contributes exactly one identical native increment.
-                    // The Side has already applied its own payment terms and quantity denominator.
-                    var gross = (physical ? row.Unrealized : row.Expected)!.Ratio;
-                    if (physical && gross.Numerator.Sign <= 0)
-                        throw new MarketDataException("swing_model_scope", "The one-factor swing model requires positive physical forwards.");
-                    if (physical) forwards.Add(row.DeliveryFrom, PhysicalForward(side, row.Occurrence));
-                    var share = gross * factor * new SignedRatio(1, covered.Length);
-                    foreach (var day in covered) amounts[day.Day] += share;
-                }
-            }
+        var (uncertain, certain, forwards) = Amounts(context, Pending, right.Slots, right.PhysicalSlot,
+            new(holder * sign, 1), perLot);
         var monthly = new Dictionary<DateOnly, SwingVolatilityValue>();
         LatticeDecimal? Volatility(DateOnly day)
         {
@@ -151,10 +129,47 @@ internal sealed class RetainedSwingValuation
             choice.IntrinsicLots, pricing, Pending.IsEmpty ? null : inputs, choice.Work, right, [..monthly.Values.OrderBy(m => m.Month)]);
     }
 
-    private static string PhysicalForward(RetainedProgramValuation side, int occurrence)
+    internal static (Dictionary<DateOnly, SignedRatio> Physical, Dictionary<DateOnly, SignedRatio> Fixed,
+        Dictionary<DateOnly, string> Forwards) Amounts(SideValuationContext context, ImmutableArray<SwingDay> pending,
+        ImmutableArray<int> slots, int physicalSlot, SignedRatio orientation, Func<int, RetainedProgramValuation> occurrence)
+    {
+        var uncertain = pending.ToDictionary(d => d.Day, _ => SignedRatio.Zero);
+        var certain = pending.ToDictionary(d => d.Day, _ => SignedRatio.Zero);
+        var forwards = new Dictionary<DateOnly, string>();
+        if (pending.IsEmpty) return (uncertain, certain, forwards);
+        foreach (var slot in slots)
+        {
+            var physical = slot == physicalSlot;
+            var amounts = physical ? uncertain : certain;
+            var factor = context.RetainedPrograms!.HeldFactors[slot] * orientation;
+            var side = occurrence(slot);
+            var rows = side.Lifecycle!.Rows;
+            for (var index = 0; index < rows.Length; index++)
+            {
+                var row = rows[index];
+                var covered = Enumerable.Range(0, row.DeliveryTo.DayNumber - row.DeliveryFrom.DayNumber)
+                    .Select(row.DeliveryFrom.AddDays).Where(amounts.ContainsKey).ToArray();
+                if (covered.Length == 0) continue;
+                // Each pending day in the occurrence contributes one equal hypothetical parcel.
+                // The concrete Side has applied its own payment terms and quantity denominator.
+                var gross = (physical ? row.Unrealized : row.Expected)!.Ratio;
+                if (physical)
+                {
+                    if (gross.Numerator.Sign <= 0)
+                        throw new MarketDataException("swing_model_scope", "The one-factor swing model requires positive physical forwards.");
+                    forwards.Add(row.DeliveryFrom, PhysicalForward(side, index));
+                }
+                var share = gross * factor * new SignedRatio(1, covered.Length);
+                foreach (var day in covered) amounts[day] += share;
+            }
+        }
+        return (uncertain, certain, forwards);
+    }
+
+    private static string PhysicalForward(RetainedProgramValuation side, int contribution)
     {
         var document = ((RetainedProgramSchedule)side.Schedule).Program.Document;
-        var guard = document.Instructions[side.Execution.Contributions[occurrence].Instruction];
+        var guard = document.Instructions[side.Execution.Contributions[contribution].Instruction];
         var amount = SideScheduleInspection.Operand(document, guard, "amount");
         var price = side.Execution.Values[SideScheduleInspection.Operand(document, amount, "price").Output.Ordinal];
         var (column, cell) = SideScheduleInspection.Column(price, 0);

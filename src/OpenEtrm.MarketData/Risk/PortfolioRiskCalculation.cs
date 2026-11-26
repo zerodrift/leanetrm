@@ -75,7 +75,7 @@ public static partial class RiskEngine
         }
     }
     private static ImmutableArray<ExactRiskPositionValue> BasePositions(ValuationPortfolio portfolio,PortfolioValue value,RiskDetail detail)=>
-        detail==RiskDetail.Books?[]:portfolio.Positions.Select((position,n)=>new ExactRiskPositionValue(position.TradeId,position.BindingId,position.BookId,position.ValuationId,value.Positions[n]){UnassessedDays=value.PositionUnassessedDays[n],Owner=position.Owner,Components=value.PositionComponents[n],Entries=value.PositionEntries[n],ExerciseGroups=value.PositionExerciseGroups[n],GroupValues=value.PositionGroupValues[n],SwingValues=value.PositionSwingValues[n]}).ToImmutableArray();
+        detail==RiskDetail.Books?[]:portfolio.Positions.Select((position,n)=>new ExactRiskPositionValue(position.TradeId,position.BindingId,position.BookId,position.ValuationId,value.Positions[n]){UnassessedDays=value.PositionUnassessedDays[n],Owner=position.Owner,Components=value.PositionComponents[n],Entries=value.PositionEntries[n],ExerciseGroups=value.PositionExerciseGroups[n],GroupValues=value.PositionGroupValues[n],SwingValues=value.PositionSwingValues[n],QuantitySwing=value.PositionQuantitySwings[n]}).ToImmutableArray();
     // A position's components under the base and both scenarios, paired by name; the scenarios must name exactly the base's parts.
     private static ImmutableArray<ComponentRiskValues> Paired(ImmutableArray<ValueComponent> basis,ImmutableArray<ValueComponent> up,ImmutableArray<ValueComponent> down)
     {
@@ -114,6 +114,7 @@ public static partial class RiskEngine
             positions.Add(new(position.TradeId,position.BindingId,position.BookId,position.ValuationId,
                 ExactRepricing.Measure(basis.Positions[n],up.Positions[n],down.Positions[n],size,unit))
                 {UnassessedDays=basis.PositionUnassessedDays[n],Owner=position.Owner,Components=Paired(basis.PositionComponents[n],up.PositionComponents[n],down.PositionComponents[n]),Entries=PairedEntries(basis.PositionEntries[n],up.PositionEntries[n],down.PositionEntries[n]),
+                    QuantitySwing=basis.PositionQuantitySwings[n] is {} swing?(swing,up.PositionQuantitySwings[n]!,down.PositionQuantitySwings[n]!):null,
                     SwingValues=basis.PositionSwingValues[n].IsEmpty?null:new(basis.PositionSwingValues[n],up.PositionSwingValues[n],down.PositionSwingValues[n]),
                     GroupValues=basis.PositionGroupValues[n].IsEmpty?null:new(basis.PositionGroupValues[n],up.PositionGroupValues[n],down.PositionGroupValues[n]),
                     ExerciseGroups=PairedExerciseGroups(basis.PositionExerciseGroups[n],up.PositionExerciseGroups[n],down.PositionExerciseGroups[n])});

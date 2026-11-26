@@ -39,3 +39,17 @@ public sealed record SwingRightReport(int Right, int PhysicalSlot, ImmutableArra
             Quantity(value.RemainingMinimumLots), Quantity(value.RemainingMaximumLots));
     }
 }
+
+
+// Amounts are signed held currency. A missing subtotal has no assessable open decision.
+internal sealed record SwingPlanComparison(string Model, string Scope, int PlannedDays, int UnassessedDays, ExactMoney Amount);
+internal sealed record SwingQuantityDayValue(SwingDay Day, string State, SwingElection? Election,
+    ExactQuantity? SelectedQuantity, ImmutableArray<DeliveryQuantityEvidence> Evidence, ExactQuantity? PlannedQuantity,
+    string? Forward, SwingUnitPayoffDay? UnitPayoff, ImmutableArray<HeldDeliveryRecord> OperationalRecords);
+internal sealed record SwingQuantityRightValue(SwingQuantityRight Terms, ExactQuantity Reference, SwingPricingBinding Pricing,
+    ImmutableArray<SwingPeriodBudget> Periods, ImmutableArray<SwingQuantityDayValue> Days,
+    ImmutableArray<SwingVolatilityValue> Marks, DateTimeOffset? NextDeadline, string Scope, int ModeledDays, ExactMoney? Counted,
+    SwingPlanComparison? Comparison, SwingUnitEstimate Estimate, SwingUnitWork Work)
+{
+    internal int UnassessedDays => Days.Count(d => d.State is RetainedSwingQuantityValuation.Missing or RetainedSwingQuantityValuation.Blocked);
+}

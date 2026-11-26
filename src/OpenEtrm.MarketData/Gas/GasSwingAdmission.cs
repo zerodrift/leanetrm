@@ -20,14 +20,31 @@ internal static class GasSwingAdmission
         RequirePricing(binding);
 
         SwingFeasibility.RequireRight(right);
+        if (right.PhysicalSlot >= instrument.Members.Length || instrument.Members[right.PhysicalSlot].QuantityPolicy is not null)
+            throw SwingFeasibility.InvalidRight("The swing source already selects its quantity policy on the retained right.");
+        RequireCoverage(instrument, right.PhysicalSlot, right.Slots, right.Days, null);
+    }
+
+    internal static void Require(RetainedGasInstrument instrument, SwingQuantityRight right, SwingPricingBinding pricing)
+    {
+        RequirePricing(pricing, SwingUnitResources.Policy);
+        _ = SwingFeasibility.Resolve(right, ExactQuantity.FromQuantity(instrument.UnitQuantity), [], right.Days.IsDefaultOrEmpty ? default : right.Days[0]?.ExerciseAt ?? default);
+        if (right.Ordinal != 0 || right.PhysicalSlot >= instrument.Members.Length ||
+            right.QuantityPolicy != (instrument.Members[right.PhysicalSlot].QuantityPolicy is null
+                ? SwingQuantityRight.Elected : SwingRight.ElectedDeliveryQuantity))
+            throw SwingFeasibility.InvalidRight("The elected quantity selection must agree with the retained physical source policy.");
+        RequireCoverage(instrument, right.PhysicalSlot, right.Slots, right.Days, right.LeadHours);
+    }
+
+    private static void RequireCoverage(RetainedGasInstrument instrument, int physicalSlot, ImmutableArray<int> slots,
+        ImmutableArray<SwingDay> calendar, int? leadHours)
+    {
         var members = instrument.Members;
-        if (members.Length > GasCompositionInstrument.MaxSides || right.Slots.Any(slot => slot >= members.Length) ||
-            members[right.PhysicalSlot].Program.Document.Family != "gas")
+        if (members.Length > GasCompositionInstrument.MaxSides || slots.Any(slot => slot >= members.Length) ||
+            members[physicalSlot].Program.Document.Family != "gas")
             throw SwingFeasibility.InvalidRight("Swing must name an existing physical source and its covered membership slots.");
 
-        if (members[right.PhysicalSlot].QuantityPolicy is not null)
-            throw SwingFeasibility.InvalidRight("The swing source already selects its quantity policy on the retained right.");
-        var covered = right.Slots.ToHashSet();
+        var covered = slots.ToHashSet();
         if (instrument.Rights.Any(exercise => exercise.Slots.Any(covered.Contains)))
             throw SwingFeasibility.InvalidRight("Swing and exercise rights cannot claim the same membership.");
 
@@ -38,40 +55,40 @@ internal static class GasSwingAdmission
             var owner = instrument.GeometrySource(slot);
             if (payment && owner is null)
                 throw SwingFeasibility.InvalidRight("Retain each ordinary payment's exact physical source to establish swing coverage.");
-            var followsSwing = payment && owner == right.PhysicalSlot;
-            if (covered.Contains(slot) != (slot == right.PhysicalSlot || followsSwing))
+            var followsSwing = payment && owner == physicalSlot;
+            if (covered.Contains(slot) != (slot == physicalSlot || followsSwing))
                 throw SwingFeasibility.InvalidRight("Swing must cover its physical source and every ordinary payment following it.");
             if (followsSwing && (member.Program.Document.Family != "fixed" || member.Part is not null))
                 throw SwingFeasibility.InvalidRight("Swing payments must be fixed per-unit terms without quantity parts.");
         }
 
-        var source = members[right.PhysicalSlot].Program;
-        var clock = RequirePhysical(instrument, right, source);
-        foreach (var slot in right.Slots.Where(slot => slot != right.PhysicalSlot))
-            RequirePayment(instrument, right, members[slot].Program, clock);
+        var source = members[physicalSlot].Program;
+        var clock = RequirePhysical(instrument, calendar, source, leadHours);
+        foreach (var slot in slots.Where(slot => slot != physicalSlot))
+            RequirePayment(instrument, calendar, members[slot].Program, clock);
     }
 
-    internal static void RequirePricing(SwingPricingBinding binding)
+    internal static void RequirePricing(SwingPricingBinding binding, string policy = SwingPricingBinding.SupportedNumericalPolicy)
     {
         if (binding is not { Right: 0 } || binding.Model != SwingPricingBinding.SupportedModel || binding.DayCount != OptionNumericalPolicies.ActualOver365FixedInstant ||
-            binding.NumericalPolicy != SwingPricingBinding.SupportedNumericalPolicy || binding.MarksConvention != ExerciseMarks.HeldLogReturn)
+            binding.NumericalPolicy != policy || binding.MarksConvention != ExerciseMarks.HeldLogReturn)
             throw new MarketDataException("swing_model_scope", "Select the installed one-factor swing model, day count, numerical policy and held log-return marks.");
     }
 
-    private static GasDayClock RequirePhysical(RetainedGasInstrument instrument, SwingRight right, BookedSideProgram source)
+    private static GasDayClock RequirePhysical(RetainedGasInstrument instrument, ImmutableArray<SwingDay> calendar, BookedSideProgram source, int? leadHours)
     {
         var clock = ReadPhysicalClock(source);
         var days = ReadPhysicalDays(source);
-        if (days.Length != right.Days.Length || !PhysicalLifecycle.ReadsDeliveryMarks(source))
+        if (days.Length != calendar.Length || !PhysicalLifecycle.ReadsDeliveryMarks(source))
             throw InvalidDelivery();
         var one = ExactQuantity.FromQuantity(instrument.UnitQuantity);
-        var lead = days[0].Start - right.Days[0].ExerciseAt;
-        if (lead < TimeSpan.Zero || lead.Ticks % TimeSpan.TicksPerHour != 0)
+        var lead = days[0].Start - calendar[0].ExerciseAt;
+        if (leadHours is {} hours && lead.Ticks / TimeSpan.TicksPerHour != hours || lead < TimeSpan.Zero || lead.Ticks % TimeSpan.TicksPerHour != 0)
             throw InvalidDelivery();
         for (var index = 0; index < days.Length; index++)
         {
             var held = days[index];
-            var day = right.Days[index];
+            var day = calendar[index];
             if (held.OperatingDate != day.Day || held.Quantity != one || held.Start != clock.Boundary(day.Day) ||
                 held.End != clock.Boundary(day.Day.AddDays(1)) || held.Start - day.ExerciseAt != lead)
                 throw InvalidDelivery();
@@ -86,13 +103,19 @@ internal static class GasSwingAdmission
                 "price_lookup" => dated[i.Output.Ordinal].Count() != 1,
                 _ => true
             }) || dated.SelectMany(p => p).Any(p => p.CustomProjection is not null || p.ProjectionInterval is not null ||
-                p.Quote.Kind != QuoteKind.Outright) || dated.SelectMany(p => p).Select(p => p.Market.Curve).Distinct().Count() != 1)
+                p.Quote.Kind != QuoteKind.Outright || leadHours.HasValue && !DailyOrMonthly(p.Contract)) ||
+            dated.SelectMany(p => p).Select(p => p.Market.Curve).Distinct().Count() != 1)
             throw new MarketDataException("swing_model_scope", "Swing requires one unadjusted point-price curve in the retained native quote.");
         foreach (var price in priceInputs.Where(i => i.Output.Operation == "price_lookup"))
             ScheduleMarketSources.RequireDatedGasAssignment(price.Output, price.Bindings.ToDictionary(binding => binding.Port),
                 instrument.Assignments, dated[price.Output.Ordinal].Single());
         return clock;
     }
+
+    private static bool DailyOrMonthly(MarketContract contract) =>
+        contract.DeliveryTo.DayNumber - contract.DeliveryFrom.DayNumber == 1 ||
+        contract.DeliveryFrom.Day == 1 && contract.DeliveryTo.Day == 1 &&
+        contract.DeliveryTo.DayNumber - contract.DeliveryFrom.DayNumber == DateTime.DaysInMonth(contract.DeliveryFrom.Year, contract.DeliveryFrom.Month);
 
     private static ImmutableArray<PhysicalDeliveryInterval> ReadPhysicalDays(BookedSideProgram source)
     {
@@ -118,7 +141,7 @@ internal static class GasSwingAdmission
         }
     }
 
-    private static void RequirePayment(RetainedGasInstrument instrument, SwingRight right, BookedSideProgram program, GasDayClock clock)
+    private static void RequirePayment(RetainedGasInstrument instrument, ImmutableArray<SwingDay> calendar, BookedSideProgram program, GasDayClock clock)
     {
         static MarketDataException InvalidPayment() =>
             SwingFeasibility.InvalidRight("Swing payments must retain fixed native unit prices and span the entire term on the physical source's gas-day clock.");
@@ -130,8 +153,8 @@ internal static class GasSwingAdmission
 
         var instructions = program.Document.Instructions;
         var payments = instructions.Where(i => i.Output.Operation == "output_guard").OrderBy(i => i.Output.DeliveryFrom);
-        var day = right.Days[0].Day;
-        var end = right.Days[^1].Day.AddDays(1);
+        var day = calendar[0].Day;
+        var end = calendar[^1].Day.AddDays(1);
         foreach (var payment in payments)
         {
             var row = payment.Output;

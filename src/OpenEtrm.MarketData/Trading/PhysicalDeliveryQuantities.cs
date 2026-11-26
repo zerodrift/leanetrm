@@ -5,10 +5,12 @@ using OpenEtrm.MarketData.Physical;
 namespace OpenEtrm.MarketData.Trading;
 
 public sealed record DeliveryQuantityEvidence(string Source,Guid RevisionId,string Reference);
+internal sealed record HeldDeliveryRecord(string Kind, string Status, ExactQuantity Quantity, DeliveryQuantityEvidence Evidence);
 public sealed record HeldDayQuantity(int Slot,DateOnly Day,ExactQuantity Contract,ExactQuantity Selected,string Source,
     ImmutableArray<DeliveryQuantityEvidence> Evidence)
 {
-    // Swing requires an election even for a nomination or confirmation that has no valuation rank.
+    internal ImmutableArray<HeldDeliveryRecord> OperationalRecords { get; init; } = [];
+    // The bounded swing policy requires an election even for a nomination or confirmation that has no valuation rank.
     public bool HasOperationalRecord { get; init; }
     // A contract-only owner can have a scheduled or allocated record outside its valuation policy.
     public bool HasContractDeliveryRecord { get; init; }
@@ -31,13 +33,14 @@ internal static class PhysicalDeliveryQuantities
             throw Invalid("Physical owner days require distinct, nonnegative native quantities and complete evidence; contract fallback equals its contract.");
     }
     internal static void RequireSchedules<TMember>(ImmutableArray<TMember> members, PhysicalCashState state, ImmutableArray<ExerciseRight> rights = default,
-        ImmutableArray<SwingRight> swings = default) where TMember : IRetainedProgramMember
+        ImmutableArray<SwingRight> swings = default, int? quantityRightSource = null) where TMember : IRetainedProgramMember
     {
         var rightSources = rights.IsDefaultOrEmpty ? [] : rights.SelectMany(right => right.Slots)
             .Select(slot => members[slot].ValuationSourceSlot ?? throw Invalid("An exercised entry requires its explicit physical quantity source.")).ToHashSet();
         if (rightSources.Any(source => members[source].ValuationSourceSlot != source))
             throw Invalid("An exercise quantity source requires its own retained physical day schedule.");
         var swingSources = swings.IsDefaultOrEmpty ? [] : swings.Select(right => right.PhysicalSlot).ToHashSet();
+        if (quantityRightSource is {} sourceSlot) swingSources.Add(sourceSlot);
         var required = members.Select((m, slot) => (m, slot)).Where(p => swingSources.Contains(p.slot) || p.m.ValuationSourceSlot == p.slot &&
             (rightSources.Contains(p.slot) || p.m.ValuationQuantityPolicy is not null || members.Any(m => m.ValuationSourceSlot == p.slot &&
                 (m.ValuationPart is not null || m.ValuationBalance is not null)))).ToArray();

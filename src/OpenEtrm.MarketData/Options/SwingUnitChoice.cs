@@ -72,11 +72,10 @@ public static partial class SwingChoice
             inputs.Right.Days.IsDefaultOrEmpty || inputs.Right.Days.Length > GasQuantityTerms.MaximumOperatingDays ||
             inputs.Periods.IsDefault || inputs.Days.IsDefault || inputs.Days.Length > inputs.Right.Days.Length ||
             inputs.Periods.Length > inputs.Right.Days.Length ||
-            inputs.Periods.Any(p => p.Right != inputs.Right || p.AssessmentAt != inputs.CalculationAt) ||
+            inputs.Periods.Any(p => p.Right != inputs.Right || p.AssessmentAt != inputs.CalculationAt || p.Reference != inputs.HeldReference) ||
             !inputs.Periods.SelectMany(p => p.Days.Select(d => d.Day)).SequenceEqual(inputs.Right.Days))
             throw new MarketDataException("swing_model_scope", "Supply the exact retained period geometry, assessment instant and positive held size.");
-        var periods = inputs.Periods.Where(p => !(p.Right.HasTotal || p.Right.ChangeCount.HasValue) ||
-            !p.Days.Any(d => d.Election == null && d.Day.ExerciseAt <= inputs.CalculationAt)).ToImmutableArray();
+        var periods = inputs.Periods.Where(p => !p.MissingCoupledPeriod).ToImmutableArray();
         var indexed = new Dictionary<SwingDay, SwingUnitPayoffDay>();
         var marked = new Dictionary<(int, int), LatticeDecimal>();
         foreach (var input in inputs.Days)

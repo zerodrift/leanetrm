@@ -81,6 +81,8 @@ public sealed class PhysicalCashState:IBindingValuationState
     private static bool Supported(DateTimeOffset at)=>at!=default&&TradingInstant.IsSupported(at);
 }
 
+internal sealed record MissingDayAssessment(int SourceSlot, DateOnly Day, string Owner, int OwnerOrdinal, string Reason);
+
 public enum DeliveryState { NotStarted=1,InProgress,Ended }
 public enum SettlementState { Remaining=1,AccruedUnpaid,PartPaid,Paid,Overpaid,NoAmountDue,Projected,Unassessed,UnassessedPaid }
 public enum LifecycleMeasure { Unrealized=1,RealizedUnsettled }
@@ -91,6 +93,16 @@ public sealed record PhysicalLifecycleRow(int Slot,int Occurrence,DateOnly Deliv
     DateTimeOffset? DueAt=null,ExactMoney? Expected=null,DateTimeOffset? PaidAt=null)
 {
     public ReportedDayQuantity? ReportedQuantity { get; init; }
+    internal ImmutableArray<MissingDayAssessment> MissingSwingDays { get; init; } = [];
+    internal ImmutableArray<MissingDayAssessment> MissingDays => ReportedQuantity is { State: ReportedDayQuantity.Unassessed } day
+        ? [new(day.SourceSlot, day.Day, "reported_balance", day.SourceSlot, day.Reason ?? day.State)] : MissingSwingDays;
+    internal ImmutableArray<CashOccurrencePayment> Receipts { get; init; } = [];
+    internal DateTimeOffset? FirstSwingEarnedAt { get; init; }
+    internal void RequireSwingEarnedPayment(DateTimeOffset paidAt)
+    {
+        if (FirstSwingEarnedAt is not {} earnedAt || !TradingInstant.IsSupported(paidAt) || paidAt < earnedAt || Accrued is null)
+            throw new MarketDataException("payment_state", "A new swing payment requires an elected ended day in this occurrence.");
+    }
     // The P&L explain measures the row contributes to: a day not yet ended is unrealized (remaining delivery MTM); cash
     // accrued on ended, fixed days and not yet paid is realized unsettled. A fully paid, ended day is history only and contributes to neither.
     public ImmutableArray<LifecycleMeasure> Measures=>[
@@ -102,9 +114,9 @@ public sealed record PhysicalLifecycleValue(ExactMoney Unrealized,ExactMoney Rea
 {
     public int UnassessedDays => Unassessed(Rows).Count();
     public bool Incomplete => UnassessedDays != 0;
-    internal static IEnumerable<(int SourceSlot, DateOnly Day)> Unassessed(IEnumerable<PhysicalLifecycleRow> rows) => rows
-        .Where(row => row.ReportedQuantity?.State == ReportedDayQuantity.Unassessed)
-        .Select(row => (row.ReportedQuantity!.SourceSlot, row.ReportedQuantity.Day)).Distinct();
+    internal ImmutableArray<MissingDayAssessment> MissingAssessments => [..Rows.SelectMany(row => row.MissingDays).Distinct()];
+    internal static IEnumerable<(int SourceSlot, DateOnly Day)> Unassessed(IEnumerable<PhysicalLifecycleRow> rows) =>
+        rows.SelectMany(row => row.MissingDays).Select(day => (day.SourceSlot, day.Day)).Distinct();
     // Undiscounted cash still expected, by due date. It is shown beside the measures and never added to them.
     public ImmutableArray<ExpectedCashFlow> ExpectedCash=>[..Rows.Where(r=>r.DueAt is not null&&r.Expected is not null).GroupBy(r=>r.DueAt!.Value).OrderBy(g=>g.Key)
         .Select(g=>new ExpectedCashFlow(g.Key,g.Select(r=>r.Expected!).Aggregate((a,b)=>a.Add(b))))
@@ -118,7 +130,7 @@ public sealed record LifecycleMember(BookedSideProgram Program,BookedSideEvaluat
 // Owned cash days are scoped to their occurrence slot.
 internal sealed record PhysicalLifecycleGeometry(ImmutableDictionary<DateOnly,DeliveryState> Days,
     ImmutableDictionary<DateOnly,ExactQuantity> Quantities,
-    ImmutableDictionary<int,ImmutableDictionary<DateOnly,DeliveryState>> OwnedDays);
+    ImmutableDictionary<int,ImmutableDictionary<DateOnly,DeliveryState>> OwnedDays, ImmutableDictionary<DateOnly,DateTimeOffset> Ends);
 
 // Started delivery, whole gas days: ended days leave the unrealized measure; their cash accrues on contract quantity
 // and stays realized unsettled until paid, discounted to its payment date until due.
@@ -216,6 +228,7 @@ public static class PhysicalLifecycle
         var at=snapshot.ValuationAt;
         var days=new Dictionary<DateOnly,DeliveryState>();
         var quantities=new Dictionary<DateOnly,ExactQuantity>();
+        var ends=new Dictionary<DateOnly,DateTimeOffset>();
         foreach(var program in programs)
         {
             var seen=new HashSet<DateOnly>();
@@ -225,6 +238,7 @@ public static class PhysicalLifecycle
                 if(days.TryGetValue(day.OperatingDate,out var known)&&known!=delivered||!seen.Add(day.OperatingDate))
                     throw Unsupported("Every physical member must agree whether each operating day has started or ended at the valuation instant.");
                 days[day.OperatingDate]=delivered;
+                ends[day.OperatingDate]=day.End;
                 quantities[day.OperatingDate]=quantities.TryGetValue(day.OperatingDate,out var sum)?sum.Add(day.Quantity):day.Quantity;
             }
         }
@@ -245,7 +259,7 @@ public static class PhysicalLifecycle
             }
             ownedDays.Add(slot, entryDays.ToImmutable());
         }
-        return new(days.ToImmutableDictionary(),quantities.ToImmutableDictionary(),ownedDays.ToImmutable());
+        return new(days.ToImmutableDictionary(),quantities.ToImmutableDictionary(),ownedDays.ToImmutable(),ends.ToImmutableDictionary());
     }
     private static DeliveryState DeliveryAt(DateTimeOffset start, DateTimeOffset end, DateTimeOffset at) =>
         end <= at ? DeliveryState.Ended : start <= at ? DeliveryState.InProgress : DeliveryState.NotStarted;
@@ -298,9 +312,11 @@ public static class PhysicalLifecycle
                     var selected=entryDays.IsDefault?null:entryDays.Single(d=>d.Day==interval.OperatingDate);
                     var fraction=selected is null?new SignedRatio(1,1):DeliveryQuantityFractions.For([selected],_=>false).Total;
                     if(delivery==DeliveryState.Ended)RequireOutside(contribution);
+                    var missingDay = selected?.Missing;
                     rows.Add(new(slot,occurrence,interval.OperatingDate,interval.OperatingDate.AddDays(1),delivery,null,
-                        zero,zero,zero,delivery==DeliveryState.Ended?zero:Held(member,contribution.PresentValue).Scale(fraction),zero,
-                        selected?.Source??(delivery==DeliveryState.Ended?EstimatedQuantity:ContractQuantity)));
+                        zero,zero,zero,missingDay is not null ? null : delivery==DeliveryState.Ended?zero:Held(member,contribution.PresentValue).Scale(fraction),zero,
+                        selected?.Source??(delivery==DeliveryState.Ended?EstimatedQuantity:ContractQuantity))
+                        { MissingSwingDays = missingDay is null ? [] : [missingDay] });
                     continue;
                 }
                 var (from,to,valueAt)=CashTerm(row);
@@ -330,8 +346,17 @@ public static class PhysicalLifecycle
                 if(!ownsDays&&!follows&&covered.Select(day=>geometry.Quantities[day]).Distinct().Count()!=1)
                     throw new MarketDataException("physical_lifecycle_quantity","Whole-day accrual of a multi-day payment requires equal daily contract quantities.");
                 var ended=covered.Count(day=>days[day]==DeliveryState.Ended);var started=covered.Any(day=>days[day]!=DeliveryState.NotStarted);
+                var swing = !entryDays.IsDefaultOrEmpty && entryDays[0].SwingState is not null;
+                var selection = follows ? entryDays.Where(d => d.Day >= from && d.Day < to).ToArray() : [];
+                ImmutableArray<MissingDayAssessment> missingDays = swing ? [..selection.Select(d => d.Missing).OfType<MissingDayAssessment>()] : [];
+                var earnedAt = swing ? selection.Where(d => d.SwingState == ElectedQuantity && days[d.Day] == DeliveryState.Ended)
+                    .Select(d => (DateTimeOffset?)geometry.Ends[d.Day]).Min() : null;
+                var elected = swing && selection.Any(d => d.SwingState == ElectedQuantity);
+                ImmutableArray<CashOccurrencePayment> receipts = swing ? [..state.VisiblePayments(snapshot).Where(p => p.Slot == slot && p.Occurrence == occurrence)] : [];
+                if (receipts.Any(p => p.PaidAt < geometry.Ends[from]))
+                    throw new MarketDataException("payment_state", "A payment cannot precede the first ended day of its cash occurrence.");
                 var fractions=reported is not null?ReportedFractions(reported,geometry.Quantities[from],heldFactor,ended):
-                    follows?DeliveryQuantityFractions.For(entryDays.Where(d=>d.Day>=from&&d.Day<to),day=>days[day]==DeliveryState.Ended):
+                    follows?DeliveryQuantityFractions.For(selection,day=>days[day]==DeliveryState.Ended):
                     DeliveryQuantityFractions.EqualDays(ended,covered.Length);
                 var quantityBasis=reported?.State??(follows?SelectedQuantityPolicy:!ownsDays&&ended>0?EstimatedQuantity:ContractQuantity);
                 var due=PaymentDatePolicy.IsOverdue(valueAt,at);
@@ -353,6 +378,20 @@ public static class PhysicalLifecycle
                         quantityBasis,valueAt,amount){ReportedQuantity=reported});
                     continue;
                 }
+                var deliveryState = ended==covered.Length?DeliveryState.Ended:started?DeliveryState.InProgress:DeliveryState.NotStarted;
+                // A later commercial withdrawal preserves native cash. The known future elected delivery
+                // still contributes outright; an unknown past accrual has no assessed outstanding PV.
+                if (swing && earnedAt is null && (!elected || !missingDays.IsEmpty || !receipts.IsEmpty))
+                {
+                    var (retainedPaid, lastPaid) = state.Paid(slot, occurrence, snapshot, zero, ended > 0, contractAmount, true);
+                    var remaining = elected ? due ? zero : Held(member, contribution.PresentValue).Scale(fractions.Total) : null;
+                    var settlement = !receipts.IsEmpty ? SettlementState.UnassessedPaid :
+                        missingDays.IsEmpty ? SettlementState.Remaining : SettlementState.Unassessed;
+                    rows.Add(new(slot, occurrence, from, to, deliveryState, settlement,
+                        null, retainedPaid, null, remaining, null, quantityBasis, valueAt, null, lastPaid)
+                        { MissingSwingDays = missingDays, Receipts = receipts });
+                    continue;
+                }
                 var accrued=contractAmount.Scale(fractions.Ended);
                 // A later fixing can cross zero. The recorded cash fact keeps its
                 // booked membership direction, independently of the corrected price.
@@ -364,9 +403,9 @@ public static class PhysicalLifecycle
                 var outstandingPv=due?outstanding:contractAmount.CompareTo(zero)==0?zero:outstanding.Scale(value.Over(contractAmount));
                 if(!due&&reported is not null&&contractAmount.CompareTo(zero)==0&&outstanding.CompareTo(zero)!=0)
                     outstandingPv=outstanding.Scale(DiscountFactor(member,contribution));
-                rows.Add(new(slot,occurrence,from,to,ended==covered.Length?DeliveryState.Ended:started?DeliveryState.InProgress:DeliveryState.NotStarted,
+                rows.Add(new(slot,occurrence,from,to,deliveryState,
                     Settle(ended>0,accrued,paid),accrued,paid,outstanding,value.Scale(fractions.Total-fractions.Ended),outstandingPv,
-                    quantityBasis,valueAt,amount.Subtract(paid),paidAt){ReportedQuantity=reported});
+                    quantityBasis,valueAt,amount.Subtract(paid),paidAt){ReportedQuantity=reported, MissingSwingDays=missingDays, Receipts=receipts, FirstSwingEarnedAt=earnedAt});
             }
         }
         var result=rows.ToImmutable();
