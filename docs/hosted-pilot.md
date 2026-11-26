@@ -476,32 +476,71 @@ attested prior-image Docker run remains a release prerequisite for this incremen
 
 ## Hosted capacity (D457)
 
-D457 raises the API container's memory limit in `deploy/compose.yaml` and the
-ceilings of the request time limits, so a demo dataset fits. It is an
-infrastructure change: none of it takes effect until the operator applies it.
+D457 raises the API container's memory limit in `deploy/compose.yaml`, to a
+provisional figure, and the ceilings of the request time limits. It is an
+infrastructure change: nothing takes effect until the operator applies it, in
+this order. Each step names the check its safety depends on and the way back.
 
-1. Its release carries a Compose file whose hash differs from the installed
-   `composeSha256`, so the updater refuses and quarantines that head. Stop
-   `openetrm-deployment.timer` before the release is published, as for a schema
-   release.
-2. Install the reviewed `deploy/compose.yaml` and `tools/deploy_release.py`,
-   record the new `composeSha256` and restart the timer. Its next poll deploys
-   that head while `host.json` keeps its current limits, which earlier images
-   need: they refuse an ordinary limit above 15 s or an extended limit above 20 s.
-   Promotion recreates the API container under the new memory limit. The
-   installed deployer now starts each candidate under the rendered API's memory,
-   processor and process limits and refuses a Compose file that does not state
-   all three; an older installed deployer starts its candidate with 1 GiB
-   whatever the Compose file says.
-3. Select the longer limits in the `limits` section of the private `host.json`
-   (at most 29 s ordinary and 35 s extended), record `hostConfigurationSha256` and
-   restart the API. Render the gateway again from that `host.json` with
-   `tools/gateway_configuration.py` and install it: its read timeout becomes the
-   extended limit plus the response grace, 40 s at 35 s and 5 s. A gateway
-   rendered from the earlier limits keeps its earlier read timeout (25 s at 20 s
-   and 5 s) and cuts off longer requests itself.
-4. To roll back to an earlier image, restore the previous `host.json` and its hash
-   first, as the D302 transition requires.
+Before starting:
+
+- **Will the updater deploy this head?** A poll deploys a head only when its
+  release's migration inventory and Compose hash equal the installed baseline
+  (`migrations`, `composeSha256`), the installed Compose file and `host.json` match
+  their recorded hashes and the database's schema fingerprint matches. Any other
+  head fails a check and is quarantined on the first poll that finds its release.
+  An installation whose schema is behind the release, such as one serving a D455
+  or D456 maintenance image, goes through its schema window first, as for the
+  [retained gas risk schema release](#retained-gas-risk-schema-release). These
+  steps do not replace it.
+- **Host memory.** While a candidate runs beside the serving API, the host needs
+  memory for twice the API's limit plus the database's and the collector's.
+- **Command timeouts.** Compare `Command Timeout` in the API's runtime and
+  authenticator connection files with the limits to be selected. Sign-out waits
+  behind a slow request, and a shorter command timeout answers it with an error.
+
+1. **Stop `openetrm-deployment.timer`** before the release carrying D457 is
+   published, and keep it stopped until step 5. Way back: start the timer again.
+2. **Install the operator files from that release's commit:** `deploy/compose.yaml`,
+   and `tools/deploy_release.py` together with `tools/release_bundle.py`, which it
+   imports. An older `release_bundle.py` can refuse a newer release, and an older
+   deployer starts its candidate with 1 GiB whatever the Compose file says. Check:
+   from a checkout of the same commit, `python3 tools/check_deployment.py --compose
+   <installed compose.yaml>` passes; it renders the installed file and requires the
+   API's explicit memory, processor and process limits. Record the new
+   `composeSha256`. The serving API is unchanged by this step. Way back: reinstall
+   the previous three files and record the previous hash.
+3. **Deploy the image with the timer still stopped:** run one poll with
+   `sudo systemctl start openetrm-deployment.service`, leaving `host.json`
+   unchanged; earlier images refuse an ordinary limit above 15 s or an extended
+   limit above 20 s, so the limits wait for step 4. A journal ending
+   `DEPLOYMENT_SUCCEEDED <commit>` means the candidate ran under the new Compose
+   limits and promotion recreated the API under them, both checked by the
+   deployer. Any other ending leaves the earlier image serving, or, after a
+   switch, `blocked` for the recovery above. Check before step 4: the deployer's
+   state receipt (`state.json`) names this commit as `activeCommit`, and
+   `docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' <API container>`
+   prints a commit that contains D457 (`git merge-base --is-ancestor <D457 commit> <printed commit>`).
+   Way back: there is no automatic rollback. To return to the earlier image, use
+   the D302 paired rollback (its `host.json` is still in place). To return to the
+   earlier memory limit, also reinstall the previous Compose file, record its hash
+   and recreate the API with `docker compose up -d --no-deps api`.
+4. **Select the longer limits, gateway first:**
+   1. Write the target `host.json` with the new `limits` (at most 29 s ordinary and
+      35 s extended). From it, render the gateway with `tools/gateway_configuration.py`,
+      validate the result with the target nginx (`nginx -t`), install it and reload
+      nginx. Its read timeout becomes the extended limit plus the response grace,
+      40 s at 35 s and 5 s, which also covers the limits still running. The way back
+      is the previous rendered file, reloaded.
+   2. Only then install that `host.json`, record `hostConfigurationSha256` and
+      restart the API (`docker restart <API container>`). A gateway still rendered
+      from the earlier limits would cut requests longer than its read timeout (25 s
+      at 20 s and 5 s) with a bare 504. Check: the container keeps running with a
+      steady restart count (`docker inspect --format '{{.State.Running}} {{.RestartCount}}'`),
+      its log has no "Supply limits" refusal, and the public site answers. Way back:
+      restore the previous `host.json` and its hash and restart the API. The new
+      gateway can stay, since its read timeout covers the earlier limits.
+5. **Start `openetrm-deployment.timer` again** only once step 4's hash is
+   recorded and the site serves.
 
 Risk history reads and risk job submissions on the demo dataset stay slow on two
 processors; the longer limits only stop them being cancelled. Their speed is an

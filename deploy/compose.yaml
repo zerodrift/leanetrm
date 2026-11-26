@@ -48,7 +48,7 @@ services:
     tmpfs: ["/tmp:size=64m,mode=1777"]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    # A deploy's candidate runs under these same limits (tools/deploy_release.py). The memory holds the demo dataset (D457).
+    # A deploy's candidate runs under these same limits (tools/deploy_release.py). The memory is provisional (D457).
     mem_limit: 3g
     cpus: 2
     pids_limit: 128

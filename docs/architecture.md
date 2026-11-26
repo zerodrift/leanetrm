@@ -702,10 +702,11 @@ The bounded browser repair in D455 and directory reader repair in D456 have
 explicit operator-only maintenance exceptions. Neither changes automatic release
 admission. The physical delivery directory reads only its supported native
 consumers; the complete Blotter retains every product.
-D457 sizes the hosted application for a demo dataset: Compose states the API's
-memory, processor and process limits once and deploy candidates run under them,
-and hosts may select request limits up to 29 s ordinary and 35 s extended. Slow
-risk reads remain a performance item.
+D457 raises the hosted API's memory limit to a provisional figure until a demo
+dataset's whole load is measured. Compose states the API's memory, processor and
+process limits once, deploy candidates run under them, and hosts may select
+request limits of up to 29 s ordinary and 35 s extended. Slow risk reads remain a
+performance item.
 
 D405 adds conservative [CI impact selection](ci-impact.md): shared behavior checks
 run once across the matrix, and pull requests select explicitly declared path

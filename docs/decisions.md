@@ -7741,48 +7741,93 @@ explicit recovery and updater suspension follow the
 This exception includes no schema or business-data migration and authorizes no
 other backend change or general maintenance release mechanism.
 
-## D457 — The hosted application gets the memory and request time a demo dataset needs
+## D457 — More memory and longer request limits for a hosted demo dataset (memory provisional)
 
-Decided 2026-11-26. A hosted demo dataset of about 209 trades, 65 curves and
-4,236 market contracts does not fit the hosted application's limits. It was
-loaded on a separate test host against an application with the hosted shape of
-two processors. Value-at-risk history reads (`portfolio/risk/history`) took 11 to
-15 s and risk job submissions (`portfolio/risk/{parametric,historical,monte-carlo}/jobs`)
-13 to 15 s, so one or another was cancelled at random by the 15-second ordinary
-request deadline. The application's peak resident memory (`VmHWM`) reached
-978 MB and the load failed under a 1 GiB limit; under a 2 GiB limit it reached
-1,824 MB partway through the load.
+Decided 2026-11-26. The memory figure is provisional until the whole load of a
+hosted demo dataset, about 209 trades, 65 curves and 4,236 market contracts, has
+been measured.
 
-The API container's memory limit in `deploy/compose.yaml` rises from 1 GiB to
-3 GiB. Its two processors and 128 processes, and the database and collector
-limits, are unchanged. .NET sizes its heap limit from the container's limit, so
-no runtime setting changes. A deploy's candidate now runs under the rendered
-API's own memory, processor and process limits instead of a copy of them in
-`tools/deploy_release.py`, and the deployer refuses a Compose file whose API does
-not state all three. The memory figure is therefore stated once.
+What was measured, and how. The dataset was loaded on a shared test host into
+application installations allowed 8 GiB and six processors, each holding .NET to
+two processors (`DOTNET_PROCESSOR_COUNT=2`). The hosted 1 GiB and 2 GiB
+containers were emulated by .NET heap hard limits of 768 MiB and 1.5 GiB (75 % of
+each), not by container memory limits; a third run set no heap limit.
+
+- Under the 768 MiB heap limit, peak resident memory (`VmHWM`) reached 978 MB,
+  and the load stopped on the API's catch-all 500 (`preview_error`) after 96 of
+  147 trades. Its exception was not read, so memory is not established as the
+  cause.
+- Under the 1.5 GiB heap limit, it reached 1,412 MB by the end of the trades and
+  1,824 MB about a third of the way through the load's 110 phases, still rising,
+  when a cancelled request stopped it.
+- Without a heap limit it reached 1,397 MB at about the same point, when a
+  cancelled request stopped it.
+- No run has reached the end of the load, so its whole need is not known.
+
+On two processors, the loading tool's direct requests for value-at-risk history
+(`portfolio/risk/history`) were answered in 5.3 to 14.2 s, most in 11.1 to
+12.7 s, and one was cancelled at 15.2 s. Its risk job submissions
+(`portfolio/risk/{parametric,historical,monte-carlo}/jobs`) were answered in 7.0
+to 14.8 s, and others were cancelled at 15.0 s: the 15-second ordinary request
+deadline cut one or another at random.
+
+The API container's memory limit, `mem_limit` in `deploy/compose.yaml`, rises
+from 1 GiB to a provisional figure stated only there, to be set from the whole
+load's measured peak. Under a container limit .NET's default heap limit is 75 % of
+it, so no runtime setting changes. The API's two processors and 128 processes,
+and the database and collector limits, are unchanged. A deploy's candidate runs
+under the rendered API's own memory, processor and process limits instead of a
+copy of them in `tools/deploy_release.py`. The deployer refuses a Compose file
+whose API does not state all three, and checks that both the candidate and the
+promoted API run under them; `tools/check_deployment.py` makes the same refusal
+in CI. While a candidate runs beside the serving API, the host needs memory for
+twice the API's limit plus the database's and the collector's.
 
 The request time limits stay host configuration; only their ceilings rise.
-`extendedRequestSeconds` may be at most 35 s instead of 20 s, and
-`requestSeconds` at most 29 s instead of 15 s. The ordinary ceiling is held below
-the assistant runtime set's fixed 30-second admission deadline (`turns_v23`),
-which must outlast an ask's request: at 30 s, a concurrent ask could end a turn
-as `ask_incomplete` while the request that admitted it was still finishing. An
+`requestSeconds` may be at most 29 s instead of 15 s. It is held below the
+assistant runtime set's fixed 30-second admission deadline (`turns_v23`), which
+must outlast an ask's request: at 30 s, a concurrent ask could end a turn as
+`ask_incomplete` while the request that admitted it was still finishing. An
 ordinary limit of 30 s or more needs a new runtime set with a longer admission
 deadline and the migration that admits it; this decision makes neither.
-Extended must still cover ordinary, the response grace stays 1 to 5 s on top of
-each, and the gateway's read timeout still follows the larger of 20 s and the
-extended limit plus its grace, so at most 40 s. The page no longer repeats the
-server's ceilings: it requires positive whole-millisecond budgets with extended
-covering ordinary and uses the budgets bootstrap serves. The example process
-limits, 15 s and 20 s, are unchanged.
+`extendedRequestSeconds` may be at most 35 s instead of 20 s: the extended limit
+asked for beside an ordinary 30 s, keeping the 5-second lead the extended reads
+(`/api/ppa` and `/api/trading/position`) have in the example's 15 and 20 s.
+Extended only has to cover ordinary, so a host may select less. The response
+grace stays 1 to 5 s on top of each, and the gateway's read timeout still follows
+the larger of 20 s and the extended limit plus its grace, so at most 40 s. The
+example process limits, 15 s and 20 s, are unchanged.
 
-Everything bounded by the ordinary deadline is now bounded by the selected
-value, which may be longer than 15 s: a stalled Blotter stream's hold on the
-security epoch (D268), asynchronous-read submission and a closing view's
-detachment. Nothing else about the limits changes.
+The page keeps no ceiling on the budgets bootstrap serves; it requires positive
+whole milliseconds with extended covering ordinary. Its one fixed request figure
+is the wait for bootstrap and the example directory, which come before the served
+budgets: 34 s, the longest ordinary budget the API can serve (29 s plus 5 s of
+grace). `HostedConfigurationChecks` finds the API's ceilings by asking it and
+requires the page's figure to cover them. The response channel's opening request
+still gives up after 10 s on the page while it waits on the same session gate;
+that remains open.
+
+Which callers the ordinary limit binds: direct HTTP requests, such as the loading
+tool's history reads, and every caller of the risk job submissions, which the page
+sends as ordinary gated requests. The page reads history through the response
+channel, whose own 60-second read limit does not change.
+
+Everything bounded by the ordinary or extended deadline is now bounded by the
+selected value:
+
+- A sign-in's session gate. Every gated request, and the bootstrap of every window
+  of that account, waits behind a slow gated request for up to the selected
+  ordinary limit, or the extended one behind `trading/position` and PPA reads.
+- The security epoch. Every request transaction holds `security.epoch`
+  `FOR SHARE`, so sign-out and access revocations wait behind a slow request,
+  a stalled Blotter stream (D268) included. Sign-out runs on the authenticator
+  connection: a `Command Timeout` shorter than the selected limit answers it with
+  an error while a slow request runs. The response channel's reads already hold
+  the epoch for up to 60 s, so the epoch's longest wait is not new.
+- Connections of the 8-connection application pool, asynchronous-read submission
+  and a closing view's detachment.
 
 This is capacity, not speed. On two processors the risk history reads and risk
 job submissions stay as slow as measured; a longer limit only stops them being
-cancelled. Making them faster is an open performance item. The new limits take
-effect only through the operator steps in
-[hosted capacity](hosted-pilot.md#hosted-capacity-d457).
+cancelled. Making them faster is an open performance item. Nothing takes effect
+until the operator follows [hosted capacity](hosted-pilot.md#hosted-capacity-d457).
