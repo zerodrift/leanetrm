@@ -61,7 +61,7 @@ internal sealed class CurveMarkStore(Guid catalog)
     internal async Task<RetainedGasInstrument> Bind(NpgsqlConnection connection,RetainedGasInstrument instrument,
         MarketSnapshot snapshot,PhysicalCashState? state,CancellationToken ct)
     {
-        if(instrument.Rights.IsEmpty && instrument.SwingRights.IsEmpty)return instrument;
+        if(instrument.Rights.IsEmpty && !instrument.HasSwing)return instrument;
         if(state is null)throw new MarketDataException("gas_composition_input","Exercise valuation requires held quantities.");
         var scope=instrument.RequiredMarkSets(snapshot,state);
         var volatilities=new HashSet<CurveVolatilityMark>();
@@ -86,8 +86,11 @@ internal sealed class CurveMarkStore(Guid catalog)
             }
         }
         if(volatilities.Count==0&&correlations.Count==0)return instrument;
+        var marks=new ExerciseMarks([..volatilities],[..correlations],ExerciseMarks.HeldLogReturn);
+        if(instrument.QuantityRight is {} swing)
+            return new(instrument.Id,instrument.Members,instrument.Assignments,swing,instrument.SwingPricingBindings.Single(),
+                instrument.PriceLookups,instrument.Rights,marks,instrument.PhysicalSources);
         return new(instrument.Id,instrument.Members,instrument.Assignments,instrument.PriceLookups,rights:instrument.Rights,
-            marks:new([..volatilities],[..correlations],ExerciseMarks.HeldLogReturn),physicalSources:instrument.PhysicalSources,
-            swingRights:instrument.SwingRights,swingPricingBindings:instrument.SwingPricingBindings);
+            marks:marks,physicalSources:instrument.PhysicalSources);
     }
 }

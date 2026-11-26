@@ -251,11 +251,15 @@ test('a started-delivery trade draws its measures as separate figures with expec
 test('a swing right renders one remaining value, explicit zero and a read-only intrinsic comparison',()=>{
  const day={day:'2027-01-01',exerciseAt:'2026-12-31T18:00:00Z',state:'elected',electedQuantity:'0',selectedQuantity:'75',
   revisionId:'election-a',quantityEvidence:[{source:'scheduled',revisionId:'schedule-b',reference:'meter-c'}],
-  forward:'5',uncertainPerLot:null,certainPerLot:null,intrinsicQuantity:null};
- const swing={right:0,holder:'us',counted:'123.45',increment:'25',minimumQuantity:'0',maximumQuantity:'500',dailyMinimumQuantity:'0',dailyMaximumQuantity:'200',
-  committedQuantity:'0',remainingMinimumQuantity:'0',remainingMaximumQuantity:'200',nextDeadline:null,intrinsic:'98.50',
-  pricing:{model:'gas_swing_one_factor_lognormal_v1',dayCount:'act_365_fixed_instant_v1',numericalPolicy:'swing_trinomial_6h_half_even_18_v1',marksConvention:'curve_marks_log_return_held_v1'},
-  days:[day],marks:[],work:{timeSteps:0,maximumPriceNodes:1,maximumVolumeStates:2,evaluatedActions:3}};
+  operationalRecords:[{kind:'scheduled',status:'accepted',quantity:'75',evidence:{source:'scheduled',revisionId:'schedule-b',reference:'meter-c'}}],
+  forward:'5',physicalPerUnit:null,fixedPerUnit:null,plannedQuantity:null};
+ const period={from:day.day,through:day.day,days:1,limitPeriod:'term',totalBasis:'per_period_v1',changeCount:null,changesUsed:0,
+  appliedLower:'0',appliedUpper:'500',remainingLower:'0',remainingUpper:'500',elected:'0',remainingMinimum:'0',remainingMaximum:'200',
+  planned:null,plannedChanges:null,missingDays:0,blockedDays:0,nextDeadline:null};
+ const swing={right:0,holder:'us',counted:'123.45',planningStep:'25',referenceQuantity:'200',dailyMinimum:'0',dailyMaximum:'200',
+  periods:[period],modeledDays:1,unassessedDays:0,nextDeadline:null,comparison:{plannedDays:1,amount:'98.50'},
+  pricing:{model:'gas_swing_one_factor_lognormal_v1',dayCount:'act_365_fixed_instant_v1',numericalPolicy:'swing_trinomial_6h_unit_reference_v2',marksConvention:'curve_marks_log_return_held_v1'},
+  days:[day],marks:[],forwardInputs:[],work:{factorSteps:0,maximumStates:2,operations:3},estimate:{operations:3,maximumPriceNodes:1,peakBytes:23888}};
  const host=draw({swingRights:[swing],quantityUnit:'MMBtu',currency:'USD',knownAt:'2026-12-01T02:00:00Z'});
  assert.equal(host.textContent.split('123.45').length,2);
  for(const value of ['Elected · 0','75','election-a','schedule-b','Intrinsic','98.5','2026-12-01T02:00:00Z'])assert.ok(host.textContent.includes(value),value);
@@ -264,12 +268,12 @@ test('a swing right renders one remaining value, explicit zero and a read-only i
  const withdrawn={...day,electedQuantity:null,revisionId:null,quantityEvidence:[]};
  const action={allowed:false,reason:'Retained read',days:[{day:day.day,exerciseAt:day.exerciseAt,electedQuantity:null,
   effectiveRevision:'withdrawal-a',head:'future-head',evidence:'Synthetic withdrawal evidence'}],referenceQuantity:'200',dailyMinimum:'0',dailyMaximum:'200',
-  increment:'25',totalMinimum:'0',totalMaximum:'500',committed:'75',remainingMinimum:'25',remainingMaximum:'425'};
+  planningStep:'25',periods:[{...period,elected:'75',remainingMinimum:'25',remainingMaximum:'425'}]};
  const contract={source:'receipt',referenceQuantity:'200',priceUnit:'USD/MMBtu',days:[day]};
  for(const priced of [true,false]){
   const view=draw({mode:'booked',actions:{recordSwing:action,record:{allowed:false},amend:{allowed:false},closeOut:{allowed:false}},
    swingContract:contract,swingRights:priced?[{...swing,days:[withdrawn]}]:[],quantityUnit:'MMBtu',currency:'USD',knownAt:'2026-12-01T02:00:00Z'});
   for(const value of ['Withdrawn','withdrawal-a','Synthetic withdrawal evidence','2026-12-01T02:00:00Z'])assert.ok(view.textContent.includes(value),value);
-  if(!priced)for(const value of ['Committed75 MMBtu','Remaining feasible25 – 425 MMBtu','future-head'])assert.ok(view.textContent.includes(value),value);
+  if(!priced)for(const value of ['Elected (MMBtu)','25 – 425','future-head'])assert.ok(view.textContent.includes(value),value);
  }
 });

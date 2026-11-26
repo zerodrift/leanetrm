@@ -19,8 +19,8 @@ public sealed record GasSwingPrepareRequest(FuturesReadRequest Context,Guid Read
 
 public sealed record GasSwingActionDay(DateOnly Day,DateTimeOffset ExerciseAt,Guid? Head,string? ElectedQuantity,Guid? EffectiveRevision,string? Evidence);
 public sealed record GasSwingAction(bool Allowed,string? Reason,Guid TradeId,Guid InstrumentId,int ExpectedRevision,Guid? ReadContextId,
-    int Right,string Holder,string Increment,string DailyMinimum,string DailyMaximum,string ReferenceQuantity,string TotalMinimum,string TotalMaximum,
-    string Committed,string RemainingMinimum,string RemainingMaximum,ImmutableArray<GasSwingActionDay> Days)
+    int Right,string Holder,string PlanningStep,string DailyMinimum,string DailyMaximum,string ReferenceQuantity,
+    ImmutableArray<SwingPeriodReport> Periods,ImmutableArray<GasSwingActionDay> Days)
 {
     internal WriteAuthority? Admission {get;init;}
     public string Label=>"Record swing election";
@@ -52,11 +52,9 @@ public sealed record GasSwingAction(bool Allowed,string? Reason,Guid TradeId,Gui
         var reference=execution.Terms.PhysicalSides.Single(s=>s.Code==term.Side).Quantity!;
         var budget=SwingFeasibility.Resolve(right,ExactQuantity.FromQuantity(new(ExactDecimal.Parse(reference),unit)),
             GasSwingStore.Facts(execution,facts).Elections,frame.At);
-        var lot=ExactQuantity.FromQuantity(new(ExactDecimal.Parse(term.Increment),unit));
-        string Quantity(int lots)=>lot.Scale(ExactDecimal.Parse(lots.ToString(CultureInfo.InvariantCulture))).ToExactString();
-        return new(reason is null,reason,execution.TradeId,execution.InstrumentId,revision,reason is null?frame.ContextId:null,right.Ordinal,term.Holder,term.Increment,
-            term.DailyMinimum,term.DailyMaximum,reference,term.TotalMinimum,term.TotalMaximum,Quantity(budget.CommittedLots),
-            Quantity(budget.RemainingMinimumLots),Quantity(budget.RemainingMaximumLots),days){Admission=reason is null?authority:null};
+        return new(reason is null,reason,execution.TradeId,execution.InstrumentId,revision,reason is null?frame.ContextId:null,right.Ordinal,
+            term.Holder,term.PlanningStep,term.DailyMinimum,term.DailyMaximum,reference,[..budget.Select(p=>SwingPeriodReport.FromBudget(p))],days)
+            {Admission=reason is null?authority:null};
     }
 
     internal sealed record WriteAuthority(Guid Catalog,DateTimeOffset Until):ICommitAdmission
@@ -109,7 +107,6 @@ public sealed record GasSwingAction(bool Allowed,string? Reason,Guid TradeId,Gui
             {
                 if(entered.StartsWith('-'))throw Invalid("quantity","Enter a nonnegative quantity.",first);
                 var qty=ExactDecimal.Parse(entered);
-                _=GasSwingComponent.QuantityLots(qty,ExactDecimal.Parse(Increment));
                 if(qty.CompareTo(ExactDecimal.Parse(DailyMinimum))<0||qty.CompareTo(ExactDecimal.Parse(DailyMaximum))>0)
                     throw Invalid("quantity","The quantity is outside the retained daily limits.",first);
             }

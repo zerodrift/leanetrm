@@ -70,14 +70,8 @@ public sealed record DefinitionIdentity(string Version, string Digest, string Ca
                 if(value is IRetainedSideComposition && field.Name == nameof(SidedInstrument.Sides)) continue;
                 if(field.Name == nameof(Gas.RetainedGasInstrument.Rights) &&
                     value is Gas.RetainedGasInstrument { Rights.IsEmpty: true } or Gas.GasCompositionInstrument { Rights.IsEmpty: true }) continue;
-                if (field.Name == nameof(Gas.RetainedGasInstrument.SwingRights) && value is Gas.RetainedGasInstrument { QuantityRight: {} swing })
-                {
-                    writer.WritePropertyName(field.Name);
-                    writer.WriteStartArray(); Write(writer, swing); writer.WriteEndArray();
-                    continue;
-                }
-                if(field.Name == nameof(Gas.RetainedGasInstrument.SwingRights) &&
-                    value is Gas.RetainedGasInstrument { SwingRights.IsEmpty: true } or Gas.GasCompositionInstrument { SwingRights.IsEmpty: true }) continue;
+                if (field.Name == nameof(Gas.RetainedGasInstrument.QuantityRight) &&
+                    value is Gas.RetainedGasInstrument { QuantityRight: null } or Gas.GasCompositionInstrument { QuantityRight: null }) continue;
                 if(field.Name == nameof(Gas.GasInstrumentPricingBindings.Swing) && value is Gas.GasInstrumentPricingBindings { Swing: null }) continue;
                 if(field.Name==nameof(FloatingSidePeriod.ContractObservations)&&
                     (value is FloatingSidePeriod p&&p.ContractObservations.IsDefaultOrEmpty||value is FloatingProjectionBinding b&&b.ContractObservations.IsDefaultOrEmpty))continue;

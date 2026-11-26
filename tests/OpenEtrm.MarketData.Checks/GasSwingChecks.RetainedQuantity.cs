@@ -17,7 +17,7 @@ internal static partial class GasSwingChecks
     private static RetainedGasInstrument Expanded(HeldFixture f, SwingQuantityRight right,
         ImmutableArray<RetainedGasMember> members = default, ExerciseMarks? marks = null) =>
         new(f.Instrument.Id, members.IsDefault ? f.Instrument.Members : members, f.Instrument.Assignments,
-            right, Pricing with { NumericalPolicy = SwingUnitResources.Policy }, marks: marks ?? f.Instrument.Marks);
+            right, Pricing, marks: marks ?? f.Instrument.Marks);
 
     private static void RetainedQuantityLifecycle()
     {
@@ -46,6 +46,10 @@ internal static partial class GasSwingChecks
             && right.Counted == f.Money("330") && right.Comparison!.Amount == f.Money("330")
             && right.Comparison.UnassessedDays == 2 && right.Comparison.PlannedDays == 1 && right.Days[2].PlannedQuantity == f.Quantity("1100")
             && result.Incomplete, "A missed January election blocks January's joint budget. February still values at 1100 × 0.30.");
+        var periods=SwingRightReport.FromValue(right).Periods;
+        Require(periods[0].Planned is null && periods[0].PlannedChanges is null &&
+            periods[1].Planned=="1100" && periods[1].PlannedChanges==1,
+            "A coupled month with a missing election has no hypothetical plan. The next month's plan retains its exact volume and count.");
         var views = result.Sides.Select((side,slot) => ((RetainedProgramValuation)side.Value).ViewInput($"entry{slot}",
             held.Quantity.Amount, slot==0?R(1):R(-1), [("quantity",ScheduleViewMeasure.Quantity),("amount",ScheduleViewMeasure.Amount)])).ToImmutableArray();
         var shown = ScheduleViews.Build(views, ["term","month","day"], f.Market.Clock.Boundary);
@@ -121,7 +125,7 @@ internal static partial class GasSwingChecks
         foreach (var position in new[] { 1, -1 })
         {
             var terms = QuantityTerms(f) with { Holder = holder, Period = SwingQuantityRight.Month,
-                QuantityPolicy = SwingRight.ElectedDeliveryQuantity, ChangeCount = changes, CountRule = SwingQuantityRight.DiffersFromBase };
+                QuantityPolicy = SwingQuantityRight.ElectedDeliveryQuantity, ChangeCount = changes, CountRule = SwingQuantityRight.DiffersFromBase };
             var sideSign = holder == ExerciseHolder.Us ? 1 : -1;
             SignedRatio? unitCounted = null;
             foreach (var size in new[] { R(1), R(10), atom, atom * R(2) })
@@ -195,7 +199,7 @@ internal static partial class GasSwingChecks
             "Synthetic allocation", "manual_daily_v1");
         ImmutableArray<GasQuantityHead> heads = [new(0, contract[0].Day, observed),
             new(0, contract[0].Day, observed with { Id = Guid.NewGuid(), Source = "facility_allocation_adoption_v1", Quantity = f.Quantity("0") })];
-        var policy = terms with { QuantityPolicy = SwingRight.ElectedDeliveryQuantity };
+        var policy = terms with { QuantityPolicy = SwingQuantityRight.ElectedDeliveryQuantity };
         var days = GasHeldQuantities.Build(members, heads, f.Before, policy, []);
         Require(days[0].OperationalRecords.Length==2 && days[0].HasOperationalRecord && days[0].Source == PhysicalLifecycle.ContractQuantity,
             "Conflicting valid allocations remain operational facts without selecting either one on an unelected day.");
@@ -221,7 +225,7 @@ internal static partial class GasSwingChecks
         var upcoming = f.State([f.Elect(0,"1050")], transition:future);
         Require(f.Inspect(upcoming,f.Before,instrument).QuantitySwing!.Days[0].State == PhysicalLifecycle.ElectedQuantity &&
             instrument.Declare(f.Context(upcoming,f.Before,instrument)).Time.To == future &&
-            f.Inspect(f.State(),future,instrument).QuantitySwing!.Days[0].State == RetainedSwingValuation.Undecided &&
+            f.Inspect(f.State(),future,instrument).QuantitySwing!.Days[0].State == RetainedSwingQuantityValuation.Undecided &&
             f.Inspect(f.State(),at,instrument).QuantitySwing!.Days[0].State == RetainedSwingQuantityValuation.Missing,
             "A withdrawal published and effective before the deadline releases its election. Crossing the deadline changes it to missing.");
         var saved = f.State([f.Elect(2,"1050") with { EffectiveAt = future }]);
@@ -248,7 +252,7 @@ internal static partial class GasSwingChecks
         var curve = original.Assignments[0].Projection.Market.Curve;
         var marks = new ExerciseMarks([new(curve, f.From, new(Guid.NewGuid(),"0",VolatilityInput.Annualized))], [], ExerciseMarks.HeldLogReturn);
         var instrument = new RetainedGasInstrument(original.Id, original.Members, original.Assignments, terms,
-            Pricing with { NumericalPolicy = SwingUnitResources.Policy }, original.PriceLookups, marks:marks);
+            Pricing, original.PriceLookups, marks:marks);
         var fact = new SwingElection(0,terms.Days[0].Day, ExactQuantity.FromQuantity(new(ExactDecimal.Parse("0"),f.Quote.Quantity)),
             ExerciseHolder.Us, terms.Days[0].ExerciseAt,terms.Days[0].ExerciseAt,Guid.NewGuid(),"Synthetic accepted zero");
         var at = f.Clock.Boundary(f.From.AddDays(2));
@@ -320,7 +324,7 @@ internal static partial class GasSwingChecks
         }
 
         var coupled = new RetainedGasInstrument(instrument.Id, instrument.Members, instrument.Assignments,
-            terms with { ChangeCount = 1, CountRule = SwingQuantityRight.DiffersFromBase }, Pricing with { NumericalPolicy = SwingUnitResources.Policy },
+            terms with { ChangeCount = 1, CountRule = SwingQuantityRight.DiffersFromBase }, Pricing,
             instrument.PriceLookups, marks:instrument.Marks);
         var allMissing = f.State(coupled, f.Balances("0", null, null, null));
         var allMissingRisk = f.Prepare(coupled, allMissing, 2, null, null).Risk;

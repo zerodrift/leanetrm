@@ -199,8 +199,8 @@ def election_checks(client, query, manifest, context, booking, plain, run_worker
     assert heads(initial) == empty and initial['elections'] == [] and initial['nextElectionEffectiveAt'] is None
     old = {**context,'knowledgeMode':'retained','contextId':initial['context']['contextId']}
     first = row(0,'700')
-    for bad in [dict(exercisingParty='counterparty'),dict(quantity='50'),dict(quantity='1200'),
-                dict(day='2021-01-30'),dict(submittedAt='2020-12-18T15:59:59Z'),dict(submittedAt=LATER),
+    for bad in [dict(exercisingParty='counterparty'),dict(quantity='-1'),dict(quantity='1200'),
+                dict(day='2021-01-30'),dict(submittedAt=LATER),
                 dict(effectiveAt='2021-01-31T03:15:00.000001Z'),dict(effectiveAt='2021-01-31T03:15:00.0000001Z'),
                 dict(evidence='\t')]:
         reject(command(empty, {**first, **bad}), 'swing_election')
@@ -234,8 +234,8 @@ def election_checks(client, query, manifest, context, booking, plain, run_worker
     action=ticket['actions']['recordSwing']
     assert action['allowed'] and action['readContextId']==ticket['context']['contextId']
     assert action['days'][0]['head']==future['revisionId'] and action['days'][0]['electedQuantity']=='700'
-    assert action['days'][2]['electedQuantity']=='0' and action['committed']=='700'
-    assert ticket['draft']['sides'][0]['values']['quantity_policy']=='swing_elected_delivery_quantity_v1'
+    assert action['days'][2]['electedQuantity']=='0' and action['periods'][0]['elected']=='700'
+    assert ticket['draft']['sides'][0]['values']['quantity_policy']=='contract'
     choice=dict(context=context,readContextId=action['readContextId'],**selected,expectedRevision=1,operationId=str(uuid4()),right=0,
         firstDay=DAYS[1],lastDay=DAYS[2],decision='elect',quantity='600',exercisingParty='us',
         submittedAt=AT,effectiveAt=BETWEEN,evidence='Synthetic ticket range')
@@ -253,7 +253,7 @@ def election_checks(client, query, manifest, context, booking, plain, run_worker
     assert prepared['expectedHeads']==heads(now) and [r['day'] for r in prepared['elections']]==DAYS[1:]
     failure=record(prepared,expected=422)
     assert (failure['code'],failure['termSection'],failure['termRow'],failure['field'])==('swing_feasibility','swingElections',1,'quantity')
-    invalid=client.call('gas/swing/prepare',{**choice,'quantity':'75'},expected=422)
+    invalid=client.call('gas/swing/prepare',{**choice,'quantity':'1200'},expected=422)
     assert (invalid['code'],invalid['termRow'],invalid['field'])==('swing_election',1,'quantity')
     print('PASS ticket retains governed source, effective zero and future head; atomic range rejects with its exact day row',flush=True)
     # The final sum is 900. Between the two instants, 700 + 600 + 100 exceeds 1,000.
@@ -353,14 +353,14 @@ def election_checks(client, query, manifest, context, booking, plain, run_worker
     assert historical['context']['contextId']==cutoff['contextId'] and historical['scheduleRefusal']['code']=='exercise_marks'
     previous=historical['actions']['recordSwing']
     assert not previous['allowed'] and previous['readContextId'] is None
-    assert previous['committed']=='700' and previous['remainingMaximum']=='300'
+    assert previous['periods'][0]['elected']=='700' and previous['periods'][0]['remainingMaximum']=='300'
     assert previous['days'][0]['head']==future['revisionId'] and previous['days'][2]['electedQuantity']=='0'
     reader=PreviewClient(client.url)
     reader.bootstrap()
     reader.call('profile',dict(profile='risk'))
     current=reader.call('tickets/trade',dict(context=context,**location))
     action=current['actions']['recordSwing']
-    assert not action['allowed'] and action['readContextId'] is None and action['committed']=='700'
+    assert not action['allowed'] and action['readContextId'] is None and action['periods'][0]['elected']=='700'
     assert action['days'][2]['electedQuantity'] is None and action['days'][2]['effectiveRevision']==withdrawal['revisionId']
     assert action['days'][2]['evidence']=='Synthetic zero withdrawn'
     print('PASS unpriced read-only ticket retains the effective withdrawal; earlier cutoff still shows elected zero and the original budget',flush=True)
@@ -369,12 +369,12 @@ def election_checks(client, query, manifest, context, booking, plain, run_worker
     # retains its outcome there, but a fresh command cannot amend that revision.
     from check_gas_exercise import amend_rights
     pinned = {**old,'contextId':read()['context']['contextId']}
-    replacement = amend_rights(query,manifest,selected,[],AT,swing_rights=[{**right,'holder':'counterparty'}])
-    assert replacement['revision']==2 and replacement['instrumentId']!=selected['instrumentId']
-    assert record(batch)==saved
-    assert read(pinned)['elections'][0]['revisionId']==d1
-    client.call('gas/swing/read',dict(context=context,**selected),expected=403)
-    reject(command(heads(after),first),'swing_election_conflict',409)
+    try:
+        amend_rights(query,manifest,selected,[],AT,swing_rights=[{**right,'holder':'counterparty'}])
+    except RuntimeError as error:
+        if 'gas_amendment_swing' not in str(error):raise
+    else:raise AssertionError('Amended a right with accepted election history')
+    assert record(batch)==saved and read(pinned)['elections'][0]['revisionId']==d1
     print('PASS swing elections: atomic whole-budget writes, current authority, concurrent heads, semantic replay, withdrawal and both clocks',flush=True)
 
 

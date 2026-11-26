@@ -123,14 +123,12 @@ public sealed class UnitValuationContext
     internal ImmutableArray<ExerciseGroupContribution> ExerciseGroups { get; private set; } = [];
     internal ImmutableArray<ExerciseGroupValue> HeldGroupValues { get; private set; } = [];
     internal SwingQuantityRightValue? HeldQuantitySwing { get; private set; }
-    internal ImmutableArray<SwingRightValue> HeldSwingValues { get; private set; } = [];
-    internal int UnassessedDays { get; private set; }
+    public int UnassessedDays { get; private set; }
     internal void RecordEntries(InstrumentValuation value)
     {
         if(!Entries.IsEmpty || value is null || declaration is not null && value.InstrumentId != declaration.Id)
             throw new MarketDataException("valuation_entries","Retain one entry partition from this exact unit Instrument valuation.");
         UnassessedDays = value.UnassessedDays;
-        HeldSwingValues = value.SwingValues;
         HeldQuantitySwing = value.QuantitySwing;
         HeldGroupValues = value.Groups;
         ExerciseGroups = value.UnitExerciseGroups;
@@ -217,7 +215,7 @@ public sealed record BookCurrencyValue(Guid BookId,ReferenceKey Currency,ExactMo
 public sealed record ValueComponent(string Name,ExactMoney Value);
 public sealed record InstrumentEntryValue(int Slot,ExactMoney Value)
 {
-    internal ImmutableArray<MissingDayAssessment> MissingAssessments { get; init; } = [];
+    public ImmutableArray<MissingDayAssessment> MissingAssessments { get; init; } = [];
     public int UnassessedDays { get; init; }
     public bool Incomplete => UnassessedDays != 0;
 }
@@ -244,15 +242,13 @@ public sealed class PortfolioValue
     // Held reports already include the signed binding quantity. Preserve them with their pricing scope for scenario reuse.
     internal ImmutableArray<SwingQuantityRightValue?> PositionQuantitySwings { get; init; } = [];
     internal ImmutableArray<SwingQuantityRightValue?> ScopeQuantitySwings { get; init; } = [];
-    internal ImmutableArray<ImmutableArray<SwingRightValue>> PositionSwingValues { get; init; } = [];
-    internal ImmutableArray<ImmutableArray<SwingRightValue>> ScopeSwingValues { get; init; } = [];
     internal ImmutableArray<ImmutableArray<ExerciseGroupValue>> ScopeGroupValues { get; init; } = [];
     internal ImmutableArray<ImmutableArray<ExerciseGroupValue>> PositionGroupValues { get; init; } = [];
     internal ImmutableArray<ImmutableArray<ExerciseGroupContribution>> UnitExerciseGroups { get; init; } = [];
     internal ImmutableArray<ImmutableArray<ExerciseGroupContribution>> PositionExerciseGroups { get; init; } = [];
     internal ImmutableArray<int> UnitUnassessedDays {get;init;}=[];
     internal ImmutableArray<int> PositionUnassessedDays {get;init;}=[];
-    internal ImmutableArray<MissingDayAssessment> MissingAssessments(int position) => PositionUnassessedDays[position] == 0 ? [] :
+    public ImmutableArray<MissingDayAssessment> MissingAssessments(int position) => PositionUnassessedDays[position] == 0 ? [] :
         [..PositionEntries[position].SelectMany(entry => entry.MissingAssessments).Distinct()];
     public int UnassessedDays => PositionUnassessedDays.Sum();
     public bool Incomplete => UnassessedDays != 0;
@@ -550,7 +546,6 @@ public sealed class ValuationPortfolio
         var unit=ImmutableArray.CreateBuilder<ExactMoney>(Scopes.Length);var calls=0;var parts=new ImmutableArray<ValueComponent>[Scopes.Length];var entries=new ImmutableArray<InstrumentEntryValue>[Scopes.Length];
         var unknown = new int[Scopes.Length];
         var groups = new ImmutableArray<ExerciseGroupContribution>[Scopes.Length];
-        var swings = new ImmutableArray<SwingRightValue>[Scopes.Length];
         var quantitySwings = new SwingQuantityRightValue?[Scopes.Length];
         var reports = new ImmutableArray<ExerciseGroupValue>[Scopes.Length];
         var measures=new Dictionary<(Guid,DeliveryCoverage?),ValueMeasureSet>();
@@ -574,14 +569,12 @@ public sealed class ValuationPortfolio
                 if(result.Money is null||result.Quantity!=contract.Quantity)
                     throw Error("risk_quantity","A unit PV must retain its declared quantity denominator.");
                 value=result.Money;parts[n]=unitContext.Components;entries[n]=unitContext.Entries;groups[n]=unitContext.ExerciseGroups;
-                swings[n] = unitContext.HeldSwingValues;
                 quantitySwings[n] = unitContext.HeldQuantitySwing;
                 reports[n]=unitContext.HeldGroupValues;unknown[n]=unitContext.UnassessedDays;
                 if(!parts[n].IsEmpty&&parts[n].Aggregate(ExactMoney.FromMoney(new(default,value.Currency)),(sum,c)=>sum.Add(c.Value))!=value)
                     throw Error("valuation_components","Value components must sum exactly to their unit value.");
             }
             else{value=baseValue!.UnitValues[n];parts[n]=baseValue.UnitComponents[n];entries[n]=baseValue.UnitEntries[n];groups[n]=baseValue.UnitExerciseGroups[n];
-                swings[n] = baseValue.ScopeSwingValues[n];
                 quantitySwings[n] = baseValue.ScopeQuantitySwings[n];
                 reports[n]=baseValue.ScopeGroupValues[n];unknown[n]=baseValue.UnitUnassessedDays[n];}
             if (!entries[n].IsEmpty || !groups[n].IsEmpty)
@@ -589,10 +582,10 @@ public sealed class ValuationPortfolio
                 var entryValue = entries[n].Aggregate(ExactMoney.Parse("0", value.Currency), (sum, e) => sum.Add(e.Value));
                 var partition = groups[n].Aggregate(entryValue, (sum, g) => sum.Add(g.Value));
                 var expected = value;
-                if (!swings[n].IsEmpty || quantitySwings[n] is not null)
+                if (quantitySwings[n] is not null)
                 {
                     var size = Setup.BindingStates[scope.BindingState!].Quantity.Amount;
-                    partition = swings[n].Aggregate(partition.Scale(size), (sum, swing) => sum.Add(swing.Counted));
+                    partition = partition.Scale(size);
                     if (quantitySwings[n]?.Counted is {} counted) partition = partition.Add(counted);
                     expected = value.Scale(size);
                 }
@@ -636,7 +629,6 @@ public sealed class ValuationPortfolio
             .Select(p=>new BookCurrencyValue(p.Key.Item1,p.Key.Item2,p.Value){UnassessedDays=bookUnknown[p.Key]}).ToImmutableArray(),units,calls,applications,session,baseMeasures,context.SideCalculations)
             {UnitUnassessedDays=[..unknown],PositionUnassessedDays=positionUnknown,UnitComponents=[..parts],PositionComponents=positionParts,UnitEntries=[..entries],PositionEntries=positionEntries,
                 ScopeQuantitySwings=[..quantitySwings], PositionQuantitySwings=[..results.Select((_,n)=>quantitySwings[scopeIndexes[ScopeKey(Positions[n])]])],
-                ScopeSwingValues=[..swings], PositionSwingValues=[..results.Select((_,n)=>swings[scopeIndexes[ScopeKey(Positions[n])]])],
                 ScopeGroupValues=[..reports],PositionGroupValues=[..results.Select((_,n)=>reports[scopeIndexes[ScopeKey(Positions[n])]])],
                 UnitExerciseGroups=[..groups], PositionExerciseGroups=positionGroups};
     }

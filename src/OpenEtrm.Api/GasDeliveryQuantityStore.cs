@@ -18,12 +18,12 @@ internal static class GasDeliveryQuantityStore
  internal static ExactRatio HeldScale(ExactRatio ratio,ExactDecimal quantity)
  {var n=ScheduleNumber.Parse(quantity.ToString());return ratio.Times(new(n.Numerator,n.Denominator));}
  internal const string Policy=GasHeldQuantities.DeliverySchedulePolicy;
- internal static async Task<GasDeliveryQuantityInputs?> Read(NpgsqlConnection connection,Guid catalog,GasCompositionExecution held,DateTimeOffset at,CancellationToken ct)
+ internal static async Task<GasDeliveryQuantityInputs?> Read(NpgsqlConnection connection,Guid catalog,GasCompositionExecution held,DateTimeOffset at,ImmutableArray<SwingElection> elections,CancellationToken ct)
  {
   if(held.SwingRights.IsEmpty&&held.Rights.IsEmpty&&!held.Members.Any(m=>m.QuantityPolicy is not null||m.Part is not null||m.Balance is not null))return null;
   if(!held.Started)throw new MarketDataException("gas_quantity_policy","Delivery schedule quantities require the in-term physical lifecycle.");
   var readsHeads=!held.SwingRights.IsEmpty||held.Members.Any(m=>m.QuantityPolicy is not null)||held.Rights.Any(r=>r.Settlement==ExerciseSettlement.Physical);
-  return Build(held.Members,held.Programs,held.Quantity,at,readsHeads?await ReadHeads(connection,catalog,held.TradeId,held.InstrumentId,ct):[],held.Rights,held.SwingRights);
+  return Build(held.Members,held.Programs,held.Quantity,at,readsHeads?await ReadHeads(connection,catalog,held.TradeId,held.InstrumentId,ct):[],held.Rights,held.SwingRights,elections);
  }
  internal static async Task<ImmutableArray<JsonElement>> ReadHeads(NpgsqlConnection connection,Guid catalog,Guid trade,Guid binding,CancellationToken ct)
  {
@@ -32,7 +32,7 @@ internal static class GasDeliveryQuantityStore
   return [..rows.EnumerateArray()];
  }
  internal static GasDeliveryQuantityInputs? Build(ImmutableArray<GasCompositionRow> members,ImmutableArray<RetainedSideProgram> programs,
-  ExactDecimal quantity,DateTimeOffset at,ImmutableArray<JsonElement> rows,ImmutableArray<ExerciseRight> rights=default,ImmutableArray<SwingRight> swings=default)
+  ExactDecimal quantity,DateTimeOffset at,ImmutableArray<JsonElement> rows,ImmutableArray<ExerciseRight> rights=default,ImmutableArray<SwingQuantityRight> swings=default,ImmutableArray<SwingElection> elections=default)
  {
   if(swings.IsDefaultOrEmpty&&rights.IsDefaultOrEmpty&&!members.Any(m=>m.QuantityPolicy is not null||m.Part is not null||m.Balance is not null))return null;
   var swing=swings.IsDefaultOrEmpty?null:swings.Single();
@@ -43,7 +43,7 @@ internal static class GasDeliveryQuantityStore
   var followed=members.Where(m=>m.Role=="physical"&&(m.Slot==swing?.PhysicalSlot||sources.Contains(m.Code)||m.QuantityPolicy==Policy||members.Any(p=>p.Source==m.Code&&(p.Part is not null||p.Balance is not null)))).Select(m=>{
    var scale=HeldScale(m.Ratio,quantity);
    return new GasFollowedMember(m.Slot,GasDailyQuantitySelection.ReadContract(programs.Single(p=>p.Slot==m.Slot).Program,scale),scale,
-    m.Slot==swing?.PhysicalSlot?swing.QuantityPolicy:m.QuantityPolicy);
+    m.QuantityPolicy);
   }).ToImmutableArray();
   var slots=followed.ToDictionary(m=>m.Slot);
   var heads=rows.Where(r=>slots.ContainsKey(int.Parse(r.Text("slot"),CultureInfo.InvariantCulture))).Select(r=>{
@@ -51,6 +51,6 @@ internal static class GasDeliveryQuantityStore
    return new GasQuantityHead(slot,DateWorkspace.Date(r.Text("day")),new(r.Id("id"),r.Text("kind"),r.Text("status"),
     ExactQuantity.FromQuantity(new(ExactDecimal.Parse(r.OptionalText("quantity")??"0"),unit)),r.Text("evidence"),r.Text("source")));
   }).ToImmutableArray();
-  return new(GasHeldQuantities.Build(followed,heads,at));
+  return new(swing is null?GasHeldQuantities.Build(followed,heads,at):GasHeldQuantities.Build(followed,heads,at,swing,elections.IsDefault?[]:elections));
  }
 }

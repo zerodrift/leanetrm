@@ -6,7 +6,7 @@ namespace OpenEtrm.MarketData.Trading;
 
 // Each quantity is a reduced fraction of one reference-day parcel on PhysicalSlot.
 [EconomicDefinition("gas_swing_quantity_right_v1")]
-internal sealed record SwingQuantityRight(
+public sealed record SwingQuantityRight(
     [property: IdentityField] int Ordinal,
     [property: IdentityField] int PhysicalSlot,
     [property: IdentityField] ImmutableArray<int> Slots,
@@ -26,18 +26,19 @@ internal sealed record SwingQuantityRight(
     [property: IdentityField] int LeadHours,
     [property: IdentityField] ImmutableArray<SwingDay> Days)
 {
-    internal const string Term = "term", Month = "delivery_month", PerDay = "per_day_v1", PerPeriod = "per_period_v1";
-    internal const string DiffersFromBase = "differs_from_base_v1", Elected = "swing_elected_quantity_v1";
-    internal const string ForwardPlan = "best_plan_on_forwards_v1", Deadline = "lead_before_first_gas_day_v1";
+    public const string ElectedDeliveryQuantity = "swing_elected_delivery_quantity_v1";
+    public const string Term = "term", Month = "delivery_month", PerDay = "per_day_v1", PerPeriod = "per_period_v1";
+    public const string DiffersFromBase = "differs_from_base_v1", Elected = "swing_elected_quantity_v1";
+    public const string ForwardPlan = "best_plan_on_forwards_v1", Deadline = "lead_before_first_gas_day_v1";
     internal static readonly SignedRatio Base = new(1, 1);
     internal bool HasTotal => Lower.HasValue || Upper.HasValue;
 
     internal SignedRatio IndexOf(SignedRatio aboveMinimum) => aboveMinimum * new SignedRatio(Step.Denominator, Step.Numerator);
 }
 
-internal sealed record SwingQuantityDay(SwingDay Day, SwingElection? Election, SignedRatio? QuantityRatio);
+public sealed record SwingQuantityDay(SwingDay Day, SwingElection? Election, SignedRatio? QuantityRatio);
 
-internal sealed record SwingPeriodBudget(SwingQuantityRight Right, ImmutableArray<SwingQuantityDay> Days,
+public sealed record SwingPeriodBudget(SwingQuantityRight Right, ImmutableArray<SwingQuantityDay> Days,
     DateTimeOffset AssessmentAt, SignedRatio Reference, SignedRatio? AppliedLower, SignedRatio? AppliedUpper, SignedRatio Elected,
     SignedRatio RemainingMinimum, SignedRatio RemainingMaximum, int ChangedDays, int? AvailableChanges)
 {
@@ -45,9 +46,14 @@ internal sealed record SwingPeriodBudget(SwingQuantityRight Right, ImmutableArra
         Days.Any(d => d.Election is null && d.Day.ExerciseAt <= AssessmentAt);
 }
 
+public sealed class SwingTermFieldException(string code,string field,string message) : MarketDataException(code,message)
+{
+    public string Field { get; } = field;
+}
+
 public static partial class SwingFeasibility
 {
-    internal static ImmutableArray<SwingPeriodBudget> Resolve(SwingQuantityRight right, ExactQuantity reference,
+    public static ImmutableArray<SwingPeriodBudget> Resolve(SwingQuantityRight right, ExactQuantity reference,
         ImmutableArray<SwingElection> elections, DateTimeOffset assessmentAt)
     {
         RequireQuantityTerms(right);
@@ -82,15 +88,17 @@ public static partial class SwingFeasibility
         }
         var available = right.ChangeCount - changed;
         if (available < 0)
-            throw new MarketDataException("swing_feasibility", "Elections exceed the changed-day count in this period.");
+            throw new SwingTermFieldException("swing_feasibility","changeCount","Elections exceed the changed-day count in this period.");
         var k = new SignedRatio(Math.Min(open, available ?? open), 1);
         var atBase = new SignedRatio(open, 1);
         var minimum = atBase - k * (SwingQuantityRight.Base - right.Minimum);
         var maximum = atBase + k * (right.Maximum - SwingQuantityRight.Base);
-        if (lower is {} l && (l - elected).CompareTo(minimum) > 0) minimum = l - elected;
-        if (upper is {} u && (u - elected).CompareTo(maximum) < 0) maximum = u - elected;
-        if (minimum.CompareTo(maximum) > 0)
-            throw new MarketDataException("swing_feasibility", "The elected days leave no continuous completion in this limit period.");
+        if (lower is {} low && (low-elected).CompareTo(maximum)>0)
+            throw new SwingTermFieldException("swing_feasibility","totalMinimum","The remaining days cannot reach the applied minimum.");
+        if (upper is {} high && (high-elected).CompareTo(minimum)<0)
+            throw new SwingTermFieldException("swing_feasibility","totalMaximum","The remaining days exceed the applied maximum.");
+        if (lower is {} l && (l-elected).CompareTo(minimum)>0) minimum=l-elected;
+        if (upper is {} u && (u-elected).CompareTo(maximum)<0) maximum=u-elected;
         return new(right, days, at, reference, lower, upper, elected, minimum, maximum, changed, available);
     }
 
@@ -98,20 +106,32 @@ public static partial class SwingFeasibility
     {
         static bool Nonnegative(SignedRatio value) => value.Denominator.Sign > 0 && value.Numerator.Sign >= 0;
         if (r is null || r.Ordinal < 0 || r.PhysicalSlot < 0 || r.Slots.IsDefaultOrEmpty || !r.Slots.Contains(r.PhysicalSlot) ||
-            r.Slots.Any(slot => slot < 0) || r.Slots.Distinct().Count() != r.Slots.Length || !Enum.IsDefined(r.Holder) ||
-            r.Period is not (SwingQuantityRight.Term or SwingQuantityRight.Month) ||
-            (r.HasTotal ? r.TotalBasis is not (SwingQuantityRight.PerDay or SwingQuantityRight.PerPeriod) : r.TotalBasis != null) ||
-            (r.ChangeCount.HasValue ? r.CountRule != SwingQuantityRight.DiffersFromBase : r.CountRule != null) || r.ChangeCount < 0 ||
-            r.QuantityPolicy is not (SwingQuantityRight.Elected or SwingRight.ElectedDeliveryQuantity) ||
-            r.PlanRule != SwingQuantityRight.ForwardPlan || r.DeadlineRule != SwingQuantityRight.Deadline || r.LeadHours < 0 ||
-            r.Days.IsDefaultOrEmpty || r.Days.Length > GasQuantityTerms.MaximumOperatingDays)
-            throw InvalidRight("Select one retained limit period, matching total basis and count rule, source choice, plan and deadline policy.");
-        if (!Nonnegative(r.Minimum) || !Nonnegative(r.Maximum) || !Nonnegative(r.Step) || r.Step.Numerator.IsZero ||
-            r.Minimum.CompareTo(SwingQuantityRight.Base) > 0 || r.Maximum.CompareTo(SwingQuantityRight.Base) < 0 ||
-            !r.IndexOf(SwingQuantityRight.Base - r.Minimum).Denominator.IsOne || !r.IndexOf(r.Maximum - r.Minimum).Denominator.IsOne ||
-            r.Lower is {} l && !Nonnegative(l) || r.Upper is {} u && !Nonnegative(u) ||
-            r.Upper - r.Lower is {} width && width.CompareTo(r.Step) < 0)
-            throw InvalidRight("Select nonnegative quantities, a relative grid containing the base and both daily endpoints, and paired stated totals at least one step apart.");
+            r.Slots.Any(slot => slot < 0) || r.Slots.Distinct().Count() != r.Slots.Length || !Enum.IsDefined(r.Holder))
+            throw InvalidRight("Select one physical source, its covered slots and the contractual holder.");
+        static void Check(bool valid,string field,string message)
+        {
+            if (!valid) throw new SwingTermFieldException("swing_right",field,message);
+        }
+        Check(r.Period is SwingQuantityRight.Term or SwingQuantityRight.Month,"limitPeriod","Select term or delivery-month limits.");
+        Check(r.HasTotal ? r.TotalBasis is SwingQuantityRight.PerDay or SwingQuantityRight.PerPeriod : r.TotalBasis is null,
+            "totalBasis","Supply the total basis exactly when specifying a total.");
+        Check(r.ChangeCount is null or >=0,"changeCount","Supply a nonnegative changed-day count.");
+        Check(r.ChangeCount.HasValue ? r.CountRule==SwingQuantityRight.DiffersFromBase : r.CountRule is null,
+            "countRule","Select the reference-day count rule exactly when specifying a count.");
+        Check(r.QuantityPolicy is SwingQuantityRight.Elected or SwingQuantityRight.ElectedDeliveryQuantity,
+            "quantityPolicy","Select the quantity governed by the physical source.");
+        Check(r.PlanRule==SwingQuantityRight.ForwardPlan,"planRule","Select the installed forward-planning rule.");
+        Check(r.DeadlineRule==SwingQuantityRight.Deadline,"deadlineRule","Select the installed deadline rule.");
+        Check(r.LeadHours>=0,"leadHours","Supply a nonnegative deadline lead.");
+        Check(!r.Days.IsDefaultOrEmpty && r.Days.Length<=GasQuantityTerms.MaximumOperatingDays,"side","Select a supported gas-day calendar.");
+        Check(Nonnegative(r.Step) && !r.Step.Numerator.IsZero,"planningStep","Supply a positive planning step.");
+        Check(Nonnegative(r.Minimum) && r.Minimum.CompareTo(SwingQuantityRight.Base)<=0,"dailyMinimum","The daily minimum must lie between zero and the reference quantity.");
+        Check(Nonnegative(r.Maximum) && r.Maximum.CompareTo(SwingQuantityRight.Base)>=0,"dailyMaximum","The daily maximum must include the reference quantity.");
+        Check(r.IndexOf(SwingQuantityRight.Base-r.Minimum).Denominator.IsOne && r.IndexOf(r.Maximum-r.Minimum).Denominator.IsOne,
+            "planningStep","The planning grid must contain the reference and both daily endpoints.");
+        Check(r.Lower is null || Nonnegative(r.Lower.Value),"totalMinimum","Supply a nonnegative minimum total.");
+        Check(r.Upper is null || Nonnegative(r.Upper.Value),"totalMaximum","Supply a nonnegative maximum total.");
+        Check(r.Upper-r.Lower is not {} width || width.CompareTo(r.Step)>=0,"totalMaximum","Paired stated limits must span at least one planning step.");
         RequireCalendar(r.Days);
     }
 }

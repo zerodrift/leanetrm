@@ -98,6 +98,7 @@ const string malformed="The request is incomplete or malformed.";
     PostgresException p when p.MessageText.StartsWith("gas_storage_",StringComparison.Ordinal)
         =>(p.SqlState=="42501"?403:p.MessageText.Contains("conflict",StringComparison.Ordinal)||p.MessageText.Contains("stale",StringComparison.Ordinal)?409:422,
             p.MessageText,GasStorageStore.Refusal(p.MessageText)),
+    TicketFieldException {Code:"swing_payload"} => (413,"swing_payload","The election command exceeds 4 MiB."),
     PostgresException p when p.MessageText=="swing_election_conflict" => (409,p.MessageText,"Reload the trade and the current revision for every swing day."),
     PostgresException p when p.MessageText=="swing_feasibility" => (422,p.MessageText,"The elections leave no feasible completion of the term quantity."),
     PostgresException p when p.MessageText=="swing_election" => (422,p.MessageText,"Select retained swing days, admissible quantities or withdrawals, the contractual holder and timely acceptance evidence."),
@@ -484,6 +485,9 @@ app.Use(async (context,next)=>
             body=new{code,message,agreementSelection=JsonSerializer.Deserialize<JsonElement>(selection)};
         if(e is GasBookingAgreementException agreement)
             body=new{code,message,confirmation=agreement.Confirmation,agreementSelection=agreement.Selection};
+        if(e is OpenEtrm.MarketData.Trading.SwingTermFieldException swingTerm)
+            body=new{code,message,termSection="swingRights",termRow=0,field=apiPath.StartsWithSegments("/api/tickets")
+                ?GasSwingTicket.FieldId(swingTerm.Field):swingTerm.Field};
         if(e is TicketFieldException ticket)body=ticket switch{
             {TermRow:{} row,TermSection:{} section}=>new{code,message,termSection=section,termRow=row,field=ticket.Field},
             {TermRow:{} row}=>new{code,message,termRow=row,field=ticket.Field},
@@ -500,17 +504,20 @@ app.Use(async (context,next)=>
     {
         var limit=context.Features.Get<IHttpMaxRequestBodySizeFeature>()?.MaxRequestBodySize??bodyLimit;
         var (code,message)=context.Response.StatusCode==413?("request_too_large",$"The request body exceeds its {limit/1024} KiB limit."):("request_format",malformed);
-        await context.Response.WriteAsJsonAsync(new {code,message},CancellationToken.None);
+        if(context.Response.StatusCode==413 && apiPath=="/api/gas/swing/record")
+            await context.Response.WriteAsJsonAsync(new {code="swing_payload",field="elections",message="The election command exceeds 4 MiB."},CancellationToken.None);
+        else await context.Response.WriteAsJsonAsync(new {code,message},CancellationToken.None);
     }
 });
 
-// Interval series imports alone accept bodies up to 8 MiB; every other route keeps the 32 KiB limit.
+// Allow larger requests only on the routes with a dedicated contract.
 // Binding refuses a larger body with a bare 413, which the error middleware names request_too_large.
 // The hosted gateway (deploy/nginx.conf.template) applies the same limits and answer, so change them together.
 app.Use((context,next)=>
 {
     var size=context.Features.Get<IHttpMaxRequestBodySizeFeature>();
     if(size is {IsReadOnly:false}&&context.Request.Path.Equals("/api/interval-series/revise",StringComparison.Ordinal))size.MaxRequestBodySize=processLimits.IntervalRevisionBytes;
+    if(size is {IsReadOnly:false}&&context.Request.Path.Equals("/api/gas/swing/record",StringComparison.Ordinal))size.MaxRequestBodySize=GasSwingStore.ElectionCommandBytes;
     if(size is {IsReadOnly:false}&&context.Request.Path.Equals("/api/desk/agreement",StringComparison.Ordinal))size.MaxRequestBodySize=12*1024*1024;
     return next(context);
 });

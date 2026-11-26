@@ -3,53 +3,66 @@ using OpenEtrm.MarketData.Options;
 
 namespace OpenEtrm.MarketData.Trading;
 
-// The remaining option is one contribution; each day shows its decision, quantity evidence and model inputs.
-public sealed record SwingDayReport(DateOnly Day, DateTimeOffset ExerciseAt, string State, string? ElectedQuantity,
-    string? SelectedQuantity, Guid? RevisionId, ImmutableArray<DeliveryQuantityEvidence> QuantityEvidence,
-    string? Forward, string? UncertainPerLot, string? CertainPerLot, int? IntrinsicLots, string? IntrinsicQuantity);
-
-public sealed record SwingRightReport(int Right, int PhysicalSlot, ImmutableArray<int> Slots, string Holder,
-    string Increment, ReferenceKey QuantityUnit, int DailyMinimumLots, int DailyMaximumLots, int MinimumLots, int MaximumLots,
-    int CommittedLots, int RemainingMinimumLots, int RemainingMaximumLots, DateTimeOffset? NextDeadline, string Counted,
-    string Intrinsic, SwingPricingBinding Pricing, ImmutableArray<SwingVolatilityValue> Marks, ImmutableArray<SwingDayReport> Days,
-    SwingWorkCounts Work, string DailyMinimumQuantity, string DailyMaximumQuantity, string MinimumQuantity, string MaximumQuantity,
-    string CommittedQuantity, string RemainingMinimumQuantity, string RemainingMaximumQuantity)
-{
-    public static SwingRightReport FromValue(SwingRightValue value)
-    {
-        string Quantity(int lots) => value.Increment.ScaleFraction(lots, 1).ToExactString();
-        var pending = (value.Inputs?.Days ?? []).Select((input,i) => (input, lots:value.IntrinsicLots[i]))
-            .ToDictionary(d => d.input.Day.Day);
-        var days = value.Days.Select(d =>
-        {
-            var hasInput = pending.TryGetValue(d.Day.Day, out var decision);
-            return new SwingDayReport(d.Day.Day, d.Day.ExerciseAt, d.State, d.Election?.Quantity.ToExactString(),
-                d.SelectedQuantity?.ToExactString(), d.Election?.RevisionId, d.QuantityEvidence, d.Forward,
-                hasInput ? ExactNumberText.Format(decision.input.Uncertain) : null,
-                hasInput ? ExactNumberText.Format(decision.input.Certain) : null, hasInput ? decision.lots : null,
-                hasInput ? Quantity(decision.lots) : null);
-        }).ToImmutableArray();
-        var terms = value.Terms;
-        return new(value.Right, terms.PhysicalSlot, terms.Slots, terms.Holder == ExerciseHolder.Us ? "us" : "counterparty",
-            value.Increment.ToExactString(), value.Increment.Specification, terms.DailyMinimumLots, terms.DailyMaximumLots,
-            terms.MinimumLots, terms.MaximumLots, value.CommittedLots, value.RemainingMinimumLots, value.RemainingMaximumLots,
-            value.Inputs?.Days[0].Day.ExerciseAt, value.Counted.ToExactString(), value.Intrinsic.ToExactString(), value.Pricing,
-            value.Marks, days, value.Work, Quantity(terms.DailyMinimumLots), Quantity(terms.DailyMaximumLots),
-            Quantity(terms.MinimumLots), Quantity(terms.MaximumLots), Quantity(value.CommittedLots),
-            Quantity(value.RemainingMinimumLots), Quantity(value.RemainingMaximumLots));
-    }
-}
-
+public sealed record SwingForwardInput(CurveRequest Market, DateOnly From, DateOnly To, string Price, ImmutableArray<ObservationKey> Observations);
 
 // Amounts are signed held currency. A missing subtotal has no assessable open decision.
-internal sealed record SwingPlanComparison(string Model, string Scope, int PlannedDays, int UnassessedDays, ExactMoney Amount);
-internal sealed record SwingQuantityDayValue(SwingDay Day, string State, SwingElection? Election,
+public sealed record SwingPlanComparison(string Model, string Scope, int PlannedDays, int UnassessedDays, ExactMoney Amount);
+public sealed record SwingQuantityDayValue(SwingDay Day, string State, SwingElection? Election,
     ExactQuantity? SelectedQuantity, ImmutableArray<DeliveryQuantityEvidence> Evidence, ExactQuantity? PlannedQuantity,
     string? Forward, SwingUnitPayoffDay? UnitPayoff, ImmutableArray<HeldDeliveryRecord> OperationalRecords);
-internal sealed record SwingQuantityRightValue(SwingQuantityRight Terms, ExactQuantity Reference, SwingPricingBinding Pricing,
+public sealed record SwingQuantityRightValue(SwingQuantityRight Terms, ExactQuantity Reference, SwingPricingBinding Pricing,
     ImmutableArray<SwingPeriodBudget> Periods, ImmutableArray<SwingQuantityDayValue> Days,
     ImmutableArray<SwingVolatilityValue> Marks, DateTimeOffset? NextDeadline, string Scope, int ModeledDays, ExactMoney? Counted,
-    SwingPlanComparison? Comparison, SwingUnitEstimate Estimate, SwingUnitWork Work)
+    SwingPlanComparison? Comparison, SwingUnitEstimate Estimate, SwingUnitWork Work, ImmutableArray<SwingForwardInput> ForwardInputs, DateTimeOffset KnownAt)
 {
     internal int UnassessedDays => Days.Count(d => d.State is RetainedSwingQuantityValuation.Missing or RetainedSwingQuantityValuation.Blocked);
+}
+
+public sealed record SwingPeriodReport(DateOnly From,DateOnly Through,int Days,string LimitPeriod,string? TotalBasis,int? ChangeCount,
+    string? CountRule,string? AppliedLower,string? AppliedUpper,string? RemainingLower,string? RemainingUpper,string Elected,
+    int ChangesUsed,int? AvailableChanges,string RemainingMinimum,string RemainingMaximum,int MissingDays,int BlockedDays,
+    DateTimeOffset? NextDeadline,string? Planned,int? PlannedChanges)
+{
+    public static SwingPeriodReport FromBudget(SwingPeriodBudget period,IReadOnlyDictionary<DateOnly,ExactQuantity>? plan=null)
+    {
+        string? Amount(OpenEtrm.Shared.Numerics.SignedRatio? ratio) =>
+            ratio is {} value ? ExactNumberText.Format(value*period.Reference) : null;
+        var pending=period.Days.Where(d=>d.Election is null && d.Day.ExerciseAt>period.AssessmentAt).ToArray();
+        var planned=plan is null || period.MissingCoupledPeriod?null:pending.Where(d=>plan.ContainsKey(d.Day.Day)).Select(d=>plan[d.Day.Day]).ToArray();
+        return new(period.Days[0].Day.Day,period.Days[^1].Day.Day,period.Days.Length,period.Right.Period,
+            period.Right.TotalBasis,period.Right.ChangeCount,period.Right.CountRule,Amount(period.AppliedLower),Amount(period.AppliedUpper),
+            Amount(period.AppliedLower-period.Elected),Amount(period.AppliedUpper-period.Elected),Amount(period.Elected)!,
+            period.ChangedDays,period.AvailableChanges,Amount(period.RemainingMinimum)!,Amount(period.RemainingMaximum)!,
+            period.Days.Count(d=>d.Election is null&&d.Day.ExerciseAt<=period.AssessmentAt),period.MissingCoupledPeriod?pending.Length:0,
+            pending.FirstOrDefault()?.Day.ExerciseAt,planned is null?null:ExactNumberText.Format(OpenEtrm.Shared.Numerics.SignedRatio.Sum(
+                planned.Select(q=>new OpenEtrm.Shared.Numerics.SignedRatio(q.NumeratorValue,q.DenominatorValue)))),
+            planned?.Count(q=>q.NumeratorValue*period.Reference.Denominator!=q.DenominatorValue*period.Reference.Numerator));
+    }
+}
+public sealed record SwingDayReport(DateOnly Day,DateTimeOffset ExerciseAt,string State,string? ElectedQuantity,string? SelectedQuantity,
+    Guid? RevisionId,ImmutableArray<DeliveryQuantityEvidence> QuantityEvidence,ImmutableArray<SwingOperatingRecord> OperationalRecords,
+    string? Forward,string? PhysicalPerUnit,string? FixedPerUnit,string? PlannedQuantity);
+public sealed record SwingOperatingRecord(string Kind,string Status,string Quantity,DeliveryQuantityEvidence Evidence);
+public sealed record SwingPlanReport(string Model,string Scope,int PlannedDays,int UnassessedDays,string Amount);
+public sealed record SwingRightReport(int Right,int PhysicalSlot,ImmutableArray<int> Slots,string Holder,string QuantityPolicy,
+    string ReferenceQuantity,ReferenceKey QuantityUnit,string DailyMinimum,string DailyMaximum,string PlanningStep,
+    ImmutableArray<SwingPeriodReport> Periods,DateTimeOffset? NextDeadline,string Scope,int ModeledDays,int UnassessedDays,string? Counted,
+    SwingPlanReport? Comparison,SwingPricingBinding Pricing,ImmutableArray<SwingVolatilityValue> Marks,ImmutableArray<SwingDayReport> Days,
+    SwingUnitEstimate Estimate,SwingUnitWork Work,ImmutableArray<SwingForwardInput> ForwardInputs,DateTimeOffset KnownAt)
+{
+    public static SwingRightReport FromValue(SwingQuantityRightValue value)
+    {
+        var right=value.Terms;
+        string Amount(OpenEtrm.Shared.Numerics.SignedRatio ratio)=>value.Reference.ScaleFraction(ratio.Numerator,ratio.Denominator).ToExactString();
+        var plan=value.Days.Where(d=>d.PlannedQuantity is not null).ToDictionary(d=>d.Day.Day,d=>d.PlannedQuantity!);
+        return new(right.Ordinal,right.PhysicalSlot,right.Slots,right.Holder==ExerciseHolder.Us?"us":"counterparty",right.QuantityPolicy,
+            value.Reference.ToExactString(),value.Reference.Specification,Amount(right.Minimum),Amount(right.Maximum),Amount(right.Step),
+            [..value.Periods.Select(p=>SwingPeriodReport.FromBudget(p,value.Comparison is null?null:plan))],value.NextDeadline,value.Scope,
+            value.ModeledDays,value.UnassessedDays,value.Counted?.ToExactString(),value.Comparison is {} c?
+                new(c.Model,c.Scope,c.PlannedDays,c.UnassessedDays,c.Amount.ToExactString()):null,value.Pricing,value.Marks,
+            [..value.Days.Select(d=>new SwingDayReport(d.Day.Day,d.Day.ExerciseAt,d.State,d.Election?.Quantity.ToExactString(),d.SelectedQuantity?.ToExactString(),
+                d.Election?.RevisionId,d.Evidence,[..d.OperationalRecords.Select(o=>new SwingOperatingRecord(o.Kind,o.Status,o.Quantity.ToExactString(),o.Evidence))],
+                d.Forward,d.UnitPayoff is {} u?ExactNumberText.Format(u.PhysicalToUs):null,d.UnitPayoff is {} f?ExactNumberText.Format(f.FixedToUs):null,
+                d.PlannedQuantity?.ToExactString()))],value.Estimate,value.Work,value.ForwardInputs,value.KnownAt);
+    }
 }

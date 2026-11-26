@@ -212,7 +212,7 @@ public static class ScheduleViews
                 }
                 var selected=ScheduleSelectedQuantity.Read(side,guard.Output,cell);
                 if(selected is not null)foreach(var day in selected.Days)if(!selectedDays.Add(day))throw Error("Each selected day must name one shown contribution.");
-                if(selected?.Tags.Contains(RetainedSwingValuation.Undecided)==true)contingent=ContingentTag;
+                if(selected?.Tags.Contains(RetainedSwingQuantityValuation.Undecided)==true)contingent=ContingentTag;
                 var selectionTags=selected?.Tags.Aggregate(0,(mask,tag)=>mask|1<<Array.IndexOf(Tags,tag));
                 if(cash.Presence[cell]!=ScheduleCellPresence.Resolved&&side.Program.EndedWholeGasDay(guard.Output,cell,evaluation.Context.ValuationAt))
                 {

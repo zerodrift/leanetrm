@@ -15,7 +15,7 @@ public static class GasHeldQuantities
     public static ImmutableArray<HeldDayQuantity> Build(ImmutableArray<GasFollowedMember> members,ImmutableArray<GasQuantityHead> heads,DateTimeOffset at)
         => BuildSelected(members, heads, at, null, []);
 
-    internal static ImmutableArray<HeldDayQuantity> Build(ImmutableArray<GasFollowedMember> members,
+    public static ImmutableArray<HeldDayQuantity> Build(ImmutableArray<GasFollowedMember> members,
         ImmutableArray<GasQuantityHead> heads, DateTimeOffset at, SwingQuantityRight right, ImmutableArray<SwingElection> elections)
         => BuildSelected(members, heads, at, right, elections);
 
@@ -23,7 +23,7 @@ public static class GasHeldQuantities
         ImmutableArray<GasQuantityHead> heads, DateTimeOffset at, SwingQuantityRight? right, ImmutableArray<SwingElection> elections)
     {
         if(members.IsDefault||heads.IsDefault||members.Any(m=>m is null||m.Slot<0||m.Scale is null||m.Scale.Numerator<=0||
-            m.Days.IsDefaultOrEmpty||m.QuantityPolicy is not(null or DeliverySchedulePolicy or SwingRight.ElectedDeliveryQuantity)||
+            m.Days.IsDefaultOrEmpty||m.QuantityPolicy is not(null or DeliverySchedulePolicy)||
             m.Days.Any(d=>d is null||d.Quantity is null||d.Quantity.NumeratorValue<=0)||m.Days.Select(d=>d.Day).Distinct().Count()!=m.Days.Length))
             throw Invalid("Select physical owners, their complete retained native days and explicit quantity policies.");
         var slots=members.Select(m=>m.Slot).ToArray();

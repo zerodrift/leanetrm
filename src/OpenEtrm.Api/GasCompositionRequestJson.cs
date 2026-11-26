@@ -34,6 +34,7 @@ internal sealed class GasSwingRightsJson : JsonConverter<ImmutableArray<GasSwing
     private static readonly JsonSerializerOptions Exact = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = false,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         NumberHandling = JsonNumberHandling.Strict,
         AllowDuplicateProperties = false
     };

@@ -1,13 +1,8 @@
-#!/usr/bin/env python3
 """Independent finite swing reference using forward probability distributions between decision dates."""
-import argparse
-from decimal import Decimal as D, localcontext
+from decimal import Decimal as D
 from functools import cache
-import json
 import math
 from pathlib import Path
-import subprocess
-import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 TOLERANCE = D('0.00000001')
@@ -77,41 +72,3 @@ def analytic(forward, strike):
     def normal(x):
         return math.erfc(-x / math.sqrt(2)) / 2
     return D(str(10000 * (forward * normal(d1) - strike * normal(d1 - vol_time))))
-
-
-def run(dotnet):
-    pairs = [(32000, 30000), (32000, 35000), (30000, 30000)]
-    cases = [fixture([day(f, -k, '0.5', 30 * 86400)]) for f, k in pairs]
-    # Anchor the grid at Jan 31 03:00, split a step at Feb 1 02:00. The holder can receive or deliver.
-    for sign in (1, -1):
-        days = [day(sign * 3199, -sign * 3200, '0.33', 30 * 86400 + 10800),
-                day(sign * 3001, -sign * 3000, '0.71', 31 * 86400 + 7200)]
-        cases.append(fixture(days, 1, 3, 6, 7, 2))
-    cases.append(fixture([day('1.0000000000000000015', '-1', '0.5', 7200)]))
-    dll = ROOT / 'tests/OpenEtrm.MarketData.Checks/bin/Debug/net10.0/OpenEtrm.MarketData.Checks.dll'
-    with tempfile.TemporaryDirectory(prefix='openetrm-swing-') as tmp:
-        inputs, outputs = (Path(tmp) / name for name in ('cases.json', 'results.json'))
-        inputs.write_text(json.dumps(cases))
-        subprocess.run([str(dotnet), str(dll), '--gas-swing-oracles', str(inputs), str(outputs)],
-                       cwd=ROOT, check=True, timeout=90)
-        observed = list(map(D, json.loads(outputs.read_text())))
-    with localcontext() as ctx:
-        ctx.prec = 80
-        for case, actual in zip(cases, observed, strict=True):
-            expected = reference(case, 21600)
-            if abs(actual - expected) > TOLERANCE:
-                raise AssertionError(f'Swing finite grid differs for {case}: {actual} versus {expected}')
-        for case, (f, k), actual in zip(cases[:3], pairs, observed[:3], strict=True):
-            exact = analytic(f / 10000, k / 10000)
-            fine = reference(case, 2700)
-            if abs(actual - exact) > 2 or abs(fine - exact) > D('0.25'):
-                raise AssertionError(f'Swing analytic check failed: six-hour {actual}, 45-minute {fine}, analytic {exact}')
-            print(f'PASS swing F={f / 10000:.2f} K={k / 10000:.2f}: six-hour {actual:.9f}, '
-                  f'45-minute {fine:.9f}, analytic {exact:.9f}')
-    print(f'PASS {len(cases)} swing cases against the 80-digit finite-grid oracle within {TOLERANCE:f}')
-
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--dotnet', type=Path, required=True)
-    run(parser.parse_args().dotnet.resolve())

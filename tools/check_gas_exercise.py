@@ -643,6 +643,17 @@ def amend_rights(query,manifest,saved,rights,at,*,swing_rights=None):
                 amendmentPolicy='future_gas_composition_replace_v1',exerciseRights=rights)
     if swing_rights is not None:
         body['swingRights']=swing_rights
+    return stage_gas_composition(query,manifest,inst,body,at)
+
+
+def stage_gas_composition(query,manifest,inst,body,at):
+    """Book or amend through the public native staging and publication APIs."""
+    from check_booked_side_programs import runtime_query
+    cat=manifest['catalogId']
+    op=body['operationId']
+    trade=body.get('tradeId')
+    admission=f"'AmendTrade','{trade}',{body['expectedRevision']}" if trade else "'BookTrade',NULL,NULL"
+    writer='amend_gas_composition' if trade else 'book_gas_composition'
     headers=json.loads(query(f"""SELECT jsonb_agg(jsonb_build_object('family',s.family,'definitionRevisionId',s.definition_revision_id,
       'referenceCatalogId',s.reference_catalog_id,'referenceRevisionId',s.reference_revision_id,'economicIdentity',s.economic_identity,
       'pricingBindingIdentity',s.pricing_binding_identity,'schemaVersion',h.schema_version,'generatorVersion',h.generator_version,
@@ -653,11 +664,11 @@ def amend_rights(query,manifest,saved,rights,at,*,swing_rights=None):
     def literal(value):
         return "'"+json.dumps(value).replace("'","''")+"'::jsonb"
     command=literal(body)
-    stage=''.join(f"SELECT security.begin_side_schedule('{cat}','{op}',{slot},{command},'AmendTrade','{trade}',1,{literal(header)});"
+    stage=''.join(f"SELECT security.begin_side_schedule('{cat}','{op}',{slot},{command},{admission},{literal(header)});"
                   for slot,header in enumerate(headers))
     result=runtime_query(query,manifest,stage+f"""SELECT security.seal_side_schedule_request('{cat}','{op}','[]');
       SELECT security.lock_side_schedule_request('{cat}','{op}');
-      WITH amended AS MATERIALIZED(SELECT security.amend_gas_composition('{cat}',{command},'{at}') result)
+      WITH amended AS MATERIALIZED(SELECT security.{writer}('{cat}',{command},'{at}') result)
       SELECT result FROM amended WHERE CASE WHEN (result->>'unchanged')::boolean THEN true
        ELSE security.publish_operation_side_schedules('{cat}','{op}')=(result->>'instrumentId')::uuid END;""")
     return json.loads(result.splitlines()[-1])

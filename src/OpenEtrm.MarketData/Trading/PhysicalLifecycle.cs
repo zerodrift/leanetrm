@@ -81,7 +81,7 @@ public sealed class PhysicalCashState:IBindingValuationState
     private static bool Supported(DateTimeOffset at)=>at!=default&&TradingInstant.IsSupported(at);
 }
 
-internal sealed record MissingDayAssessment(int SourceSlot, DateOnly Day, string Owner, int OwnerOrdinal, string Reason);
+public sealed record MissingDayAssessment(int SourceSlot, DateOnly Day, string Owner, int OwnerOrdinal, string Reason);
 
 public enum DeliveryState { NotStarted=1,InProgress,Ended }
 public enum SettlementState { Remaining=1,AccruedUnpaid,PartPaid,Paid,Overpaid,NoAmountDue,Projected,Unassessed,UnassessedPaid }
@@ -111,7 +111,7 @@ public sealed record PhysicalLifecycleRow(int Slot,int Occurrence,DateOnly Deliv
 }
 public sealed record ExpectedCashFlow(DateTimeOffset DueAt,ExactMoney Amount)
 {
-    internal int UnassessedDays { get; init; }
+    public int UnassessedDays { get; init; }
 }
 public sealed record PhysicalLifecycleValue(ExactMoney Unrealized,ExactMoney RealizedUnsettled,ExactMoney Total,ImmutableArray<PhysicalLifecycleRow> Rows)
 {

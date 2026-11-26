@@ -5,7 +5,7 @@ from decimal import Decimal
 import json
 from uuid import uuid4
 
-from assistant_context import migration_body
+from assistant_context import check_guard
 from check_booked_side_programs import runtime_query
 from check_fact_anchor_upgrade import run_checks as check_upgrade_guard
 from check_gas_pricing import request, staged_booking
@@ -20,69 +20,52 @@ SHAPE = ('trading.require_gas_program_shape(uuid,uuid,integer,date,date,timestam
 TABLES = ('gas_swing_rights', 'gas_swing_members', 'gas_swing_days', 'gas_swing_pricing')
 
 
+def overload_guard(query,migration,number,guard,signatures):
+    changes=[(f"CREATE FUNCTION {signature.split('(')[0]}(boolean) RETURNS boolean LANGUAGE sql AS 'SELECT $1';",signature)
+             for signature in signatures]
+    check_guard(query,migration.read_text(),number,guard,changes)
+
+
 def predecessor(query, migration):
+    overload_guard(query,migration,'0403','gas_swing_upgrade',[WRITER])
     check_upgrade_guard(query, migration, number='0403', guard='gas_swing_upgrade', signatures=[WRITER])
-    return query(f"SELECT pg_get_functiondef('{WRITER}'::regprocedure)"), migration_body(migration.read_text())
 
 
 def period_predecessor(query, migration):
-    check_upgrade_guard(query, migration, number='0405', guard='gas_swing_period_upgrade', signatures=[WRITER, SHAPE])
-    definitions = [query(f"SELECT pg_get_functiondef('{signature}'::regprocedure)") for signature in (SHAPE, WRITER)]
-    restore = ';'.join(definitions)+f';DROP FUNCTION {SHAPE[:-1]},text);'
-    return restore, migration_body(migration.read_text())
-
-
-def populated_upgrade(query, manifest, prior, period_prior, body, booked):
-    # Rehearse the upgrade over a real no-right booking in a rollback-only transaction.
-    # Keep later migrations' objects intact, including dependencies on the current tables.
-    writer, migration = prior
-    catalog = manifest['catalogId']
-    binding = booked['instrumentId']
-    wire = json.dumps(body).replace("'", "''")
-    expected = json.dumps(booked)
-    replay = f"""DO $proof$ BEGIN
-     IF security.book_gas_composition('{catalog}','{wire}'::jsonb,'2020-12-18T16:00:00Z') IS DISTINCT FROM '{expected}'::jsonb
-     THEN RAISE EXCEPTION 'swing_upgrade_replay';END IF;END$proof$;"""
-    snapshot = f"""SELECT to_jsonb(s) AS row FROM trading.gas_component_terms s WHERE instrument_id='{binding}'
-        UNION ALL SELECT to_jsonb(s) FROM trading.instrument_side_schedules s WHERE instrument_id='{binding}'
-        UNION ALL SELECT to_jsonb(p) FROM trading.side_schedule_programs p JOIN trading.instrument_side_schedules s
-        USING(catalog_id,schedule_id) WHERE s.instrument_id='{binding}'
-        UNION ALL SELECT to_jsonb(s) FROM trading.gas_trade_revisions s WHERE instrument_id='{binding}'"""
-    isolate = 'CREATE SCHEMA swing_upgrade_fixture;' + ''.join(
-        f'ALTER TABLE trading.{name} SET SCHEMA swing_upgrade_fixture;' for name in TABLES)
-    isolate += ('ALTER INDEX trading.gas_swing_published_slot RENAME TO previous_swing_slot;'
-                'ALTER FUNCTION trading.gas_swing_terms(uuid,uuid) SET SCHEMA swing_upgrade_fixture;'
-                'ALTER FUNCTION trading.save_gas_swing(uuid,uuid,uuid,jsonb) SET SCHEMA swing_upgrade_fixture;')
-    prefix = f'{isolate}{writer};CREATE TEMP TABLE previous_gas AS {snapshot};'
-    saved_rows = 'SELECT row FROM (' + snapshot + ') saved'
-    proof = f"""DO $proof$ BEGIN IF trading.gas_swing_terms('{catalog}','{binding}')<>'[]' OR EXISTS(
-        (TABLE previous_gas EXCEPT ALL {saved_rows}) UNION ALL
-        ({saved_rows} EXCEPT ALL TABLE previous_gas))
-        THEN RAISE EXCEPTION 'swing_upgrade_history';END IF;END$proof$;"""
-    runtime_query(query, manifest, replay + 'RESET SESSION AUTHORIZATION;' + migration + proof +
-                  'SET LOCAL SESSION AUTHORIZATION preview_runtime;' + replay, prefix=prefix, commit=False)
-    restore, period_migration = period_prior
-    prefix = f"{restore}CREATE TEMP TABLE previous_gas AS {snapshot};"
-    runtime_query(query, manifest, replay + 'RESET SESSION AUTHORIZATION;' + period_migration + proof +
-                  'SET LOCAL SESSION AUTHORIZATION preview_runtime;' + replay, prefix=prefix, commit=False)
-    print('PASS populated 0405 preserves no-right predecessor command replay, trade, program bytes and schedule bindings',flush=True)
-    print('PASS populated 0402 writer replay and 0403 upgrade preserve the trade, components, program bytes and schedule bindings', flush=True)
+    overload_guard(query,migration,'0405','gas_swing_period_upgrade',[WRITER,SHAPE,
+        'security.record_gas_cash_payment(uuid,jsonb,timestamptz)','security.gas_amendment_refusal(uuid,uuid,integer,uuid,timestamptz)'])
+    check_upgrade_guard(query, migration, number='0405', guard='gas_swing_period_upgrade', signatures=[WRITER, SHAPE, "security.record_gas_cash_payment(uuid,jsonb,timestamptz)", "security.gas_amendment_refusal(uuid,uuid,integer,uuid,timestamptz)"])
+    # Execute the actual final transaction body and force rollback immediately before commit.
+    final = migration.read_text()
+    try:
+        query(final[:final.rindex('COMMIT;')] + "DO $$BEGIN RAISE EXCEPTION 'synthetic final rollback';END$$;COMMIT;")
+    except RuntimeError as error:
+        if 'synthetic final rollback' not in str(error): raise
+    else:
+        raise AssertionError('forced activation rollback committed')
+    from check_gas_swing_upgrade import owner_only_prefix
+    owner_only_prefix(query, 'rolled-back 0405')
+    return query(f"SELECT pg_get_functiondef('{SHAPE}'::regprocedure)")
 
 
 def overlapping_upgrade(client, query, manifest, prior, context, base, right):
     from check_gas_exercise import amend_rights
     from check_gas_swing_routes import upgraded_book_checks
-    restore, migration = prior
+    extended = SHAPE[:-1]+',text)'
+    strict = query(f"SELECT pg_get_functiondef('{extended}'::regprocedure)")
+    old_signature = 'charge_due timestamp with time zone[])'
+    assert prior.count(old_signature)==1
+    monthly = prior.replace(old_signature,'charge_due timestamp with time zone[], swing_source text)')
     book = str(uuid4())
     query(f"INSERT INTO trading.books SELECT catalog_id,'{book}',portfolio_id,'Synthetic predecessor swing',publication_order,effective_at FROM trading.books LIMIT 1;")
     ordinary = deepcopy(base)
     ordinary.update(bookId=book,operationId=str(uuid4()))
     ordinary['physicalSides'][0]['deliveryPoint'] = 'synthetic_swing_overlap_point'
-    query("BEGIN;"+restore+"COMMIT;")
+    query(monthly)
     try:
         companion = client.call('gas/composition/book',ordinary)
         original = client.call('gas/composition/book',{**ordinary,'operationId':str(uuid4())})
-        fixed = {**right,'dailyMinimum':'1000','dailyMaximum':'1000','totalMinimum':'3000','totalMaximum':'3000'}
+        fixed = {**right,'dailyMinimum':'1000','dailyMaximum':'1000','totalMinimum':None,'totalMaximum':None,'totalBasis':None}
         swing = amend_rights(query,manifest,original,[],'2020-12-18T16:00:00Z',swing_rights=[fixed])
         def sealed_programs():
             return query(f"""SELECT s.instrument_id,s.slot,s.schedule_id,encode(sha256(convert_to(to_jsonb(p)::text,'UTF8')),'hex')
@@ -93,12 +76,12 @@ def overlapping_upgrade(client, query, manifest, prior, context, base, right):
         assert len(before.splitlines())==4 and swing['revision']==2
         assert json.loads(query(f"SELECT trading.gas_swing_terms('{manifest['catalogId']}','{swing['instrumentId']}')"))[0]['slots']==[0,1]
     finally:
-        query('BEGIN;'+migration+'COMMIT;')
+        query(strict)
     assert sealed_programs()==before
     upgraded_book_checks(client,context,book,swing,companion)
 
 
-def run_checks(url, query, manifest, prior, period_prior, run_worker, browse=None):
+def run_checks(url, query, manifest, period_prior, run_worker, browse=None, *, check_prefix,book_native):
     client = PreviewClient(url)
     client.bootstrap()
     client.call('profile', dict(profile='trader'))
@@ -115,12 +98,16 @@ def run_checks(url, query, manifest, prior, period_prior, run_worker, browse=Non
         source='gas', direction='pay', stage='delivery', share='1', price='3', tariffCode=None,
         paymentAt='2021-04-10T00:00:00Z', calendarPolicy=side_calendar_policy(calendar, delivery=True,
             observation=False, payment=True))])
-    pricing = dict(model='gas_swing_one_factor_lognormal_v1', dayCount='act_365_fixed_instant_v1',
-        numericalPolicy='swing_trinomial_6h_half_even_18_v1', marksConvention='curve_marks_log_return_held_v1')
-    right = dict(side='gas', entries=['strike', 'gas'], holder='us', increment='100', dailyMinimum='700',
-        dailyMaximum='1100', totalMinimum='3000', totalMaximum='3100', leadHours=6,
-        quantityPolicy='swing_elected_delivery_quantity_v1', pricing=pricing)
-
+    from check_gas_swing_activation import january_http, january_native, signed_parcel, booking_fields, earned_cash_and_amendment, long_transport
+    from check_gas_swing_activation import january
+    right = dict(january(base)['swingRights'][0],entries=['strike','gas'],dailyMinimum='700',dailyMaximum='1100',
+        limitPeriod='term',totalBasis='per_period_v1',totalMinimum='3000',totalMaximum='3100',changeCount=None,countRule=None)
+    pricing = right['pricing']
+    booking_fields(client,query,manifest,base)
+    january_native(client,query,manifest,context,base)
+    january_http(client,context,base)
+    signed_parcel(client,query,manifest,context,base)
+    earned_cash_and_amendment(client,query,manifest,context,base)
     def terms(trade):
         return json.loads(query(f"SELECT trading.gas_swing_terms('{manifest['catalogId']}','{trade['instrumentId']}')"))
 
@@ -130,7 +117,6 @@ def run_checks(url, query, manifest, prior, period_prior, run_worker, browse=Non
         return saved
 
     plain = book(base)
-    populated_upgrade(query, manifest, prior, period_prior, base, plain)
     assert terms(plain) == []
     for absent in (None, []):
         assert terms(book({**base, 'operationId': str(uuid4()), 'swingRights': absent})) == []
@@ -148,10 +134,11 @@ def run_checks(url, query, manifest, prior, period_prior, run_worker, browse=Non
         assert (error.get('code'),error.get('side'),error.get('field'))==('gas_composition_input',source['code'],'delivery_point'),error
         staged_booking(query,manifest,body,invalid,'gas_composition_input',fields=dict(side=source['code'],field='delivery_point'))
     first = date(2021, 1, 31)
-    assert terms(saved) == [dict(ordinal=0, physical_slot=0, slots=[0, 1], holder='us', reference_lots=10,
-        daily_minimum=7, daily_maximum=11, total_minimum=30, total_maximum=31, quantity_policy=right['quantityPolicy'],
-        time_rule='lead_before_first_gas_day_v1', lead_hours=6, model=pricing['model'], day_count=pricing['dayCount'],
-        numerical_policy=pricing['numericalPolicy'], marks_convention=pricing['marksConvention'],
+    assert terms(saved) == [dict(ordinal=0, physical_slot=0, slots=[0, 1], holder='us',
+        daily_minimum=[7,10], daily_maximum=[11,10], planning_step=[1,10], total_minimum=[3,1], total_maximum=[31,10],
+        quantity_policy=right['quantityPolicy'], limit_period='term',total_basis='per_period_v1',change_count=None,count_rule=None,
+        plan_rule=right['planRule'],time_rule=right['deadlineRule'],lead_hours=6,model=pricing['model'],day_count=pricing['dayCount'],
+        numerical_policy=pricing['numericalPolicy'],marks_convention=pricing['marksConvention'],
         days=[dict(day=str(first+timedelta(days=n)),
                    exercise_at=(datetime(2021, 1, 31, 3, 15, tzinfo=timezone.utc)+timedelta(days=n)).isoformat()) for n in range(3)])]
     catalog_id = manifest['catalogId']
@@ -162,7 +149,7 @@ def run_checks(url, query, manifest, prior, period_prior, run_worker, browse=Non
             SELECT jsonb_array_length(trading.gas_swing_terms('{catalog_id}','{saved['instrumentId']}'));"""
         assert runtime_query(query, manifest, coordinates + read).splitlines()[-1] == str(count)
     forced = {**base, 'operationId':str(uuid4()), 'swingRights':[{**right, 'dailyMinimum':'1000',
-        'dailyMaximum':'1000', 'totalMinimum':'3000', 'totalMaximum':'3000'}]}
+        'dailyMaximum':'1000', 'totalMinimum':None, 'totalMaximum':None, 'totalBasis':None}]}
     fixed = book(forced)
     fixed_view = client.call('gas/composition/editor', dict(context=context, tradeId=fixed['tradeId']))
     assert Decimal(fixed_view['valuation']['presentValue']) == Decimal('300')
@@ -255,7 +242,8 @@ def run_checks(url, query, manifest, prior, period_prior, run_worker, browse=Non
 
     source_case([{**source, 'quantityPolicy':'delivery_schedule_v1'}])
     source_case([{**source, 'quantityBasis':'period_total_equal_days'}])
-    source_case([{**source, 'deliveryFrom':'2021-01-01'}])
+    book({**body, 'operationId':str(uuid4()), 'physicalSides':[{**source,'deliveryFrom':'2021-01-01'}],
+        'swingRights':[{**right,'totalMinimum':None,'totalMaximum':None,'totalBasis':None}]})
     source_case([source, {**source, 'code':'linked', 'direction':'deliver', 'quantity':None,
                           'link':dict(source='gas', formula='gross_less_fraction', fraction='0.02')}])
     adjusted = next(p for p in catalog['locations'] if p.get('valuation') and
@@ -303,43 +291,15 @@ def run_checks(url, query, manifest, prior, period_prior, run_worker, browse=Non
         operationId=str(uuid4()),reason='Synthetic swing monthly inputs',curve='synthetic_swing_location',
         marks=[dict(month=m,volatility='0',expectedRevision=0) for m in ('2021-01','2021-02')]))
     assert client.call('gas/composition/preview',body)['presentValue']=='310'
+    browser_failure=None
     if browse:
         # Zero is outside the mandatory contract's daily limits. Qualify it on its own optional right.
         optional = book({**body,'operationId':str(uuid4()),'swingRights':[{**right,'dailyMinimum':'0','totalMinimum':'0','totalMaximum':'1000'}]})
-        browse(dict(optionalTrade=optional))
-    from check_gas_swing_routes import reported_cash_checks, route_checks
+        try:browse(dict(optionalTrade=optional))
+        except Exception as error:browser_failure=error
+    long_transport(client,context,base,book_native)
+    check_prefix(base)
+    from check_gas_swing_routes import route_checks,reported_cash_checks
+    route_checks(client,query,manifest,context,{**base,'operationId':str(uuid4()),'swingRights':[right]},run_worker)
     reported_cash_checks(client, query, manifest, context, outside_saved)
-    route_checks(client, query, manifest, context, body, run_worker)
-
-
-def measure_workloads(dotnet, output):
-    """One fresh process per contract/scenario, two consecutive calls to the production pricing kernel."""
-    from pathlib import Path
-    import platform
-    import subprocess
-    import tempfile
-
-    root = Path(__file__).resolve().parents[1]
-    dll = root / 'tests/OpenEtrm.MarketData.Checks/bin/Debug/net10.0/OpenEtrm.MarketData.Checks.dll'
-    cases = []
-    with tempfile.TemporaryDirectory(prefix='openetrm-swing-work-') as directory:
-        sample = Path(directory) / 'sample.json'
-        for days in (1, 3, 31):
-            for maximum in (1, 4):
-                for scenario in ('base', 'price', 'volatility'):
-                    subprocess.run([str(dotnet), str(dll), '--gas-swing-workload', str(days), str(maximum), scenario, str(sample)],
-                                   cwd=root, check=True, timeout=120)
-                    cases.append(json.loads(sample.read_text()))
-    output.write_text(json.dumps(dict(scope='SwingChoice.Value pricing kernel', contracts=6, scenariosPerContract=3,
-        valuations=36, processConcurrency=1, os=platform.platform(), machine=platform.machine(), cases=cases), indent=2)+'\n')
-
-
-if __name__ == '__main__':
-    import argparse
-    from pathlib import Path
-
-    parser = argparse.ArgumentParser(description='Measure bounded gas swing pricing workloads.')
-    parser.add_argument('--dotnet', type=Path, required=True)
-    parser.add_argument('--workloads', type=Path, required=True, help='Write private workload measurements to this JSON file.')
-    args = parser.parse_args()
-    measure_workloads(args.dotnet.resolve(), args.workloads)
+    if browser_failure:raise browser_failure

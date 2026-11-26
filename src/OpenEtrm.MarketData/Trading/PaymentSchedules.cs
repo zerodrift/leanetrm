@@ -572,8 +572,7 @@ public sealed record InstrumentValuation
         side.Value is RetainedProgramValuation { Lifecycle: {} lifecycle } ? lifecycle.Rows : [])).Count();
     public bool Incomplete => UnassessedDays != 0;
     public ImmutableArray<ExerciseGroupValue> Groups { get; } = [];
-    internal SwingQuantityRightValue? QuantitySwing { get; }
-    public ImmutableArray<SwingRightValue> SwingValues { get; } = [];
+    public SwingQuantityRightValue? QuantitySwing { get; }
     internal ImmutableArray<ExerciseGroupContribution> UnitExerciseGroups { get; } = [];
     internal ExactMoney UndecidedUnitValue { get; }
     public ExactMoney PresentValue { get; }
@@ -593,10 +592,10 @@ public sealed record InstrumentValuation
         NumericalPolicy=numericalPolicy;Sides=[];PresentValue=null!;UndecidedUnitValue=ExactMoney.Parse("0", Currency);
     }
     internal InstrumentValuation(SidedInstrument instrument, SideValuationContext context, ImmutableArray<SideValuation> values,
-        ImmutableArray<ExerciseGroupValue> groups = default, ImmutableArray<SwingRightValue> swingValues = default, SwingQuantityRightValue? quantitySwing = null)
+        ImmutableArray<ExerciseGroupValue> groups = default, SwingQuantityRightValue? quantitySwing = null)
         :this(instrument,context,(!groups.IsDefaultOrEmpty && groups.Any(group => group.Inputs is not null)
             ? Policy + "/" + RetainedExerciseValuation.ModelPolicy : Policy) +
-            (!swingValues.IsDefaultOrEmpty ? "/" + swingValues[0].Pricing.NumericalPolicy : quantitySwing is null ? "" : "/" + quantitySwing.Pricing.NumericalPolicy))
+            (quantitySwing is null ? "" : "/" + quantitySwing.Pricing.NumericalPolicy))
     {
         if (values.IsDefault || values.Length != instrument.Sides.Length || values.Where((v, n) => v is null ||
             v.SideId != instrument.Sides[n].Side.Id || v.Currency != instrument.Currency ||
@@ -608,9 +607,8 @@ public sealed record InstrumentValuation
         Sides = values.Select((v, n) => new SideContribution(instrument.Sides[n], v)).ToImmutableArray();
         var sideTotal = Sides.Select(s => s.Contribution).Aggregate((a, b) => a.Add(b));
         Groups = groups.IsDefault ? [] : groups;
-        SwingValues = swingValues.IsDefault ? [] : swingValues;
         QuantitySwing = quantitySwing;
-        if (!Groups.IsEmpty || !SwingValues.IsEmpty || quantitySwing is not null)
+        if (!Groups.IsEmpty || quantitySwing is not null)
         {
             var held = ((PhysicalCashState)context.BindingState!).Quantity.Amount.ScaledValue;
             var perUnit = new SignedRatio(held.Sign * ExactDecimal.WorkingScale, System.Numerics.BigInteger.Abs(held));
@@ -618,9 +616,8 @@ public sealed record InstrumentValuation
             UnitExerciseGroups = [..Groups.Where(g => g.State is "undecided" or "undecided_forecast")
                 .Select(g => new ExerciseGroupContribution(new(g.Right, g.From, g.To), g.Counted.Scale(perUnit)))];
             UndecidedUnitValue = UnitExerciseGroups.Aggregate(UndecidedUnitValue, (total, group) => total.Add(group.Value));
-            UndecidedUnitValue = SwingValues.Aggregate(UndecidedUnitValue, (total, swing) => total.Add(swing.Counted.Scale(perUnit)));
             if (quantitySwing?.Counted is {} counted) UndecidedUnitValue = UndecidedUnitValue.Add(counted.Scale(perUnit));
         }
-        PresentValue = Groups.IsEmpty && SwingValues.IsEmpty && quantitySwing is null ? sideTotal : sideTotal.Add(UndecidedUnitValue);
+        PresentValue = Groups.IsEmpty && quantitySwing is null ? sideTotal : sideTotal.Add(UndecidedUnitValue);
     }
 }

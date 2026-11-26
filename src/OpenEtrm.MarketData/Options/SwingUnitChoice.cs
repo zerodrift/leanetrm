@@ -5,7 +5,7 @@ using OpenEtrm.Shared.Numerics;
 
 namespace OpenEtrm.MarketData.Options;
 
-internal sealed record SwingUnitPayoffDay(SwingDay Day, SignedRatio PhysicalToUs, SignedRatio FixedToUs, LatticeDecimal? Volatility);
+public sealed record SwingUnitPayoffDay(SwingDay Day, SignedRatio PhysicalToUs, SignedRatio FixedToUs, LatticeDecimal? Volatility);
 
 // Days carry signed amounts to us for one native reference unit, including
 // membership shares. HeldReference is the positive native reference-day size.
@@ -26,29 +26,29 @@ internal sealed record SwingUnitChoiceInputs(SwingQuantityRight Right, Immutable
 internal sealed record SwingUnitResult(SignedRatio HeldReference, SignedRatio CountedToUs, SignedRatio IntrinsicToUs,
     ImmutableArray<(SwingDay Day, SignedRatio QuantityRatio)> Plan, SwingUnitEstimate Estimate, SwingUnitWork Work);
 
-internal sealed class SwingUnitWork
+public sealed class SwingUnitWork
 {
     // The monotone branch counter is observable by the caller while its own
     // synchronous valuation runs. Publish only at blocks small enough to cancel.
-    internal long Branches { get; private set; }
-    internal long PricedChoices { get; set; }
-    internal long Payoffs { get; set; }
-    internal long Normalizers { get; set; }
-    internal long GrowthNodes { get; set; }
-    internal long PreflightVisits { get; set; }
-    internal int FactorSteps { get; set; }
-    internal int Days { get; set; }
-    internal int MaximumStates { get; set; }
-    internal int MaximumChoices { get; set; }
-    internal long CompiledMoves { get; set; }
-    internal int MaximumEdges { get; set; }
-    internal int RollingCapacity { get; set; }
-    internal long PeakBytes => SwingUnitResources.ChargeBytes(StateSlots, Days, FactorSteps, GrowthNodes,
+    public long Branches { get; private set; }
+    public long PricedChoices { get; internal set; }
+    public long Payoffs { get; internal set; }
+    public long Normalizers { get; internal set; }
+    public long GrowthNodes { get; internal set; }
+    public long PreflightVisits { get; internal set; }
+    public int FactorSteps { get; internal set; }
+    public int Days { get; internal set; }
+    public int MaximumStates { get; internal set; }
+    public int MaximumChoices { get; internal set; }
+    public long CompiledMoves { get; internal set; }
+    public int MaximumEdges { get; internal set; }
+    public int RollingCapacity { get; internal set; }
+    public long PeakBytes => SwingUnitResources.ChargeBytes(StateSlots, Days, FactorSteps, GrowthNodes,
         RollingCapacity, MaximumEdges);
-    internal long Operations => PreflightVisits + 4 * StateSlots + 2 * Moves + CompiledMoves +
+    public long Operations => PreflightVisits + 4 * StateSlots + 2 * Moves + CompiledMoves +
         Branches + PricedChoices + Payoffs + Normalizers + GrowthNodes + FactorSteps + Days;
-    internal long Moves { get; set; }
-    internal long StateSlots { get; set; }
+    public long Moves { get; internal set; }
+    public long StateSlots { get; internal set; }
     internal void BranchBlock(int count, Action<long>? report)
     {
         Branches += count;
@@ -56,8 +56,9 @@ internal sealed class SwingUnitWork
     }
 }
 
-public static partial class SwingChoice
+public static class SwingChoice
 {
+    internal static MarketDataException Scope(string detail) => new("swing_numerical_scope", detail);
     internal static SwingUnitResult Value(SwingUnitChoiceInputs inputs, CancellationToken token = default,
         Action<long>? reportBranches = null)
     {

@@ -4,8 +4,8 @@ import {blotterAt,bookedTicket,decemberClose,gasTicket,openBookedSchedules,q} fr
 const at=selector=>'document.querySelector('+q(selector)+')';
 const all=selector=>'[...document.querySelectorAll('+q(selector)+')]';
 const days=['2021-01-31','2021-02-01','2021-02-02'];
-const policy='swing_elected_delivery_quantity_v1';
-const model='gas_swing_one_factor_lognormal_v1',grid='swing_trinomial_6h_half_even_18_v1';
+const policy='delivery_schedule_v1';
+const model='gas_swing_one_factor_lognormal_v1',grid='swing_trinomial_6h_unit_reference_v2';
 
 export async function run(actions){
  const {command,evaluate,wait,set,click,check,persona,idle,url,fixture,shot,fitsWidth}=actions;
@@ -26,15 +26,16 @@ export async function run(actions){
  await set(t.control('physical-1','delivery_from'),days[0]);await set(t.control('physical-1','delivery_to'),'2021-02-03');
  await t.choose('physical-1','forecast_curve','assigned');
  await t.cashTerms('cash-1','cash','pay','physical-1','3');await t.setInstant('cash-1','cash_payment_at','2021-04-10T00:00:00Z');
- await click(section+' .ticket-add-term');await t.until(all(row+' .ticket-control')+'.length===12');
- await check('all twelve swing controls require explicit input, including the single supported model and grid',
+ await click(section+' .ticket-add-term');await t.until(all(row+' .ticket-control')+'.length===17');
+ await check('the swing term section starts with no selections, including model and grid',
   all(row+' .ticket-control')+'.every(c=>!c.value)');
  const choose=async(id,value)=>{await t.until(all(control(id)+' option')+'.some(o=>o.value==='+q(value)+')');await set(control(id),value);};
- await choose('side','physical-1');await choose('holder','us');await choose('quantity_policy',policy);
+ await choose('side','physical-1');await choose('holder','us');await choose('limit_period','term');await choose('total_basis','per_period_v1');
+ await choose('plan_rule','best_plan_on_forwards_v1');await choose('deadline_rule','lead_before_first_gas_day_v1');
  await t.choose('physical-1','quantity_policy',policy);await choose('model',model);await choose('numerical_policy',grid);
  await t.until(all(control('entries')+' option')+'.filter(o=>o.value).length===2');
  await evaluate('{const field='+at(control('entries'))+';for(const o of field.options)o.selected=!!o.value;field.dispatchEvent(new Event("change",{bubbles:true}));}');
- for(const [id,value] of Object.entries({increment:'100',daily_min:'700',daily_max:'1100',total_min:'3000',total_max:'3100',lead_hours:'6'}))await set(control(id),value);
+ for(const [id,value] of Object.entries({planning_step:'100',daily_min:'700',daily_max:'1100',total_min:'3000',total_max:'3100',lead_hours:'6'}))await set(control(id),value);
  await t.until(t.current());
  await evaluate(`{const send=window.fetch;window.swingWrites=[];window.swingPrepares=[];
    window.fetch=async(input,init)=>{
@@ -62,18 +63,18 @@ export async function run(actions){
  await openTrade(await evaluate('window.swingBooked'));
  await check('the booked three-day purchase reopens with one joint value and contingent commercial days',
   all(detail+' .swing-heading strong')+'.length===1&&'+at(detail+' .swing-heading strong')+'.textContent==="310 usd"&&'+
-  all(detail+' > .swing-table tbody tr')+'.map(r=>r.cells[2].textContent).join("|")==="Undecided · contingent|Undecided · contingent|Undecided · contingent"');
+  all(detail+' [aria-label="Daily elections and delivery"] tbody tr')+'.map(r=>r.cells[2].textContent).join("|")==="Undecided · contingent|Undecided · contingent|Undecided · contingent"');
  const covered=bookedTicket+' [data-field="swing_entries"] .ticket-value';
  await check('both covered Sides read on one line in a desktop term field',
   `(()=>{const [a,b]=${all(covered)};return a?.textContent==='physical-1'&&b?.textContent==='cash-1'&&
    Math.abs(a.getBoundingClientRect().top-b.getBoundingClientRect().top)<2;})()`);
  await click('#blotter-dock [data-maximize=details]');
  // Begin on the focusable daily schedule; the rest of the quant review uses native keyboard navigation.
- await evaluate(at(detail+' > .swing-table')+'.focus()');await key('Tab',9);
+ await evaluate(at(detail+' [aria-label="Daily elections and delivery"]')+'.focus()');await key('Tab',9);
  await check('Tab reaches the quant disclosure from the daily schedule','document.activeElement==='+at(drawer+' summary'));
  await key('Enter',13);await wait(at(drawer)+'.open');await key('Tab',9);
- await check('keyboard review reaches the monthly volatility table and distinguishes the intrinsic plan from saved elections',
-  'document.activeElement.getAttribute("aria-label")==="Monthly volatility marks"&&'+at(drawer)+'.textContent.includes('+q(model)+')&&'+
+ await check('keyboard review reaches the forward-input table and distinguishes the intrinsic plan from saved elections',
+  'document.activeElement.getAttribute("aria-label")==="Forward inputs"&&'+at(drawer)+'.textContent.includes('+q(model)+')&&'+
   at(drawer)+'.textContent.includes('+q(grid)+')&&'+at(drawer)+'.textContent.includes("Intrinsic comparison")&&!'+at(drawer+' input')+'&&'+
   at(detail)+'.textContent.includes("Knowledge cutoff")&&'+at(drawer)+'.textContent.includes("Mark revision")');
  const marks=drawer+' [aria-label="Monthly volatility marks"] tbody tr';
@@ -84,7 +85,7 @@ export async function run(actions){
  await reveal(detail+' h3');await shot('swing-desktop');
  await reveal(drawer+' h4');await shot('swing-intrinsic');
  await screen(390,844);await reveal(detail+' h3');await shot('swing-narrow');
- await reveal(detail+' > .swing-table');await shot('swing-narrow-days');
+ await reveal(detail+' [aria-label="Daily elections and delivery"]');await shot('swing-narrow-days');
  await check('the narrow swing review contains horizontal scrolling inside its tables',fitsWidth+'&&'+at(detail)+'.scrollWidth<='+at(detail)+'.clientWidth+1');
  await screen(1440,1000);await reveal(drawer+' summary');await click(drawer+' summary');
  const open=async()=>{await wait(at(trigger)+'?.checkVisibility()&&!'+at(trigger)+'.disabled',60000);await click(trigger);};
@@ -97,7 +98,7 @@ export async function run(actions){
  };
  const submit=()=>click(form+' .ticket-submit-swing',60000);
  const focused=id=>'document.activeElement==='+at(input(id))+'&&document.activeElement.getAttribute("aria-invalid")==="true"';
- const shown=(i,state)=>wait(all(detail+' > .swing-table tbody tr')+'['+i+']?.cells[2].textContent==='+q(state)+'&&!'+at(form)+'&&'+idle,60000);
+ const shown=(i,state)=>wait(all(detail+' [aria-label="Daily elections and delivery"] tbody tr')+'['+i+']?.cells[2].textContent==='+q(state)+'&&!'+at(form)+'&&'+idle,60000);
  await open();await check('the action starts on the first day with empty instruction fields',
   'document.activeElement==='+at(input('firstDay'))+'&&'+all(form+' :is(input,select)')+'.every(c=>!c.value)');
  await chooseDays(days[1],days[0],'elect','700');await submit();await wait(focused('lastDay'));
@@ -131,7 +132,7 @@ export async function run(actions){
  await click('#blotter-dock [data-maximize=details]');await openTrade(fixture.optionalTrade);
  await open();await chooseDays(days[0],days[0],'elect','0');await submit();await shown(0,'Elected · 0');
  await check('the optional right displays the explicit zero with commercial evidence',at(detail)+'.textContent.includes("Synthetic browser instruction")&&window.swingWrites.at(-1).body.elections[0].quantity==="0"');
- await open();await chooseDays(days[0],days[0],'withdraw');await submit();await shown(0,'Withdrawn · contingent');
+ await open();await chooseDays(days[0],days[0],'withdraw');await submit();await shown(0,'Withdrawn');
  await check('withdrawing zero retains its predecessor and an undecided delivery obligation',
   'window.swingWrites.at(-1).body.elections[0].quantity===null&&!!window.swingWrites.at(-1).body.expectedHeads[0].revisionId');
 }

@@ -153,7 +153,7 @@ internal static partial class GasSwingChecks
                         return SwingUnitChoiceInputs.FromHeld(d.Day, held * sideSign * physical,
                             held * sideSign * (net - physical), held, volatility);
                     });
-                    return new(terms, periods, [..amounts], held, at, Pricing with { NumericalPolicy = SwingUnitResources.Policy });
+                    return new(terms, periods, [..amounts], held, at, Pricing);
                 }
                 var original = Inputs(R(1), true);
                 Refuse("swing_model_scope", () => SwingChoice.Value(original with { HeldReference = R(2) }));
@@ -175,7 +175,7 @@ internal static partial class GasSwingChecks
 
         var coarse = Terms(1) with { Upper = R(3, 4) };
         var single = new SwingUnitChoiceInputs(coarse, SwingFeasibility.Resolve(coarse, Units(1), [], at),
-            [new(coarse.Days[0], R(1), R(-3), null)], R(1), at, Pricing with { NumericalPolicy = SwingUnitResources.Policy });
+            [new(coarse.Days[0], R(1), R(-3), null)], R(1), at, Pricing);
         Refuse("exercise_marks", () => SwingChoice.Value(single));
         var negative = SwingChoice.Value(single with { Days = [single.Days[0] with { Volatility = D("0") }] });
         Require(negative.CountedToUs == R(-14, 10) && negative.Plan.Single().QuantityRatio == R(7, 10),
@@ -191,7 +191,7 @@ internal static partial class GasSwingChecks
         {
             var days = projected.Days.Select((d, i) => new SwingUnitPayoffDay(d, i == target ? R(1) : R(0), R(0), D(i == 0 ? "0.2" : "0.7")));
             var unit = new SwingUnitChoiceInputs(projected, SwingFeasibility.Resolve(projected, Units(1), [], At),
-                [.. days], R(1), At, Pricing with { NumericalPolicy = SwingUnitResources.Policy });
+                [.. days], R(1), At, Pricing);
             var mean = SwingChoice.Value(unit);
             Require(mean.CountedToUs == R(7, 10) && mean.Work.FactorSteps == 5 && mean.Work.Branches > 0,
                 "Each month's normalized forward has unit expectation under the fractional common clock.");
@@ -205,7 +205,7 @@ internal static partial class GasSwingChecks
         var miss = right.Days[0].ExerciseAt;
         var late = new SwingUnitChoiceInputs(right, SwingFeasibility.Resolve(right, Units(1), [], miss),
             [.. right.Days.Skip(2).Select(d => new SwingUnitPayoffDay(d, R(3), R(-3), D("0.25")))], R(1), miss,
-            Pricing with { NumericalPolicy = SwingUnitResources.Policy });
+            Pricing);
         var laterMonth = SwingChoice.Value(late);
         Require(laterMonth.Plan.Length == 2 && laterMonth.Work.FactorSteps == 14 && laterMonth.Work.Branches > 0 &&
             laterMonth.Plan.All(q => q.Day.Day.Month == 2), "A missed January decision still permits the independent February problem.");
@@ -214,7 +214,7 @@ internal static partial class GasSwingChecks
         var optional = coarse with { Minimum = R(0), Maximum = R(1), Step = R(1), Upper = null, TotalBasis = null };
         var asOf = optional.Days[0].ExerciseAt.AddDays(-30);
         var marked = new SwingUnitChoiceInputs(optional, SwingFeasibility.Resolve(optional, Units(1), [], asOf),
-            [new(optional.Days[0], R(3), R(-3), D("0.25"))], R(1), asOf, Pricing with { NumericalPolicy = SwingUnitResources.Policy });
+            [new(optional.Days[0], R(3), R(-3), D("0.25"))], R(1), asOf, Pricing);
         var baseValue = SwingChoice.Value(marked).CountedToUs;
         var priceUp = SwingChoice.Value(marked with { Days = [marked.Days[0] with { PhysicalToUs = R(301, 100) }] }).CountedToUs;
         var volUp = SwingChoice.Value(marked with { Days = [marked.Days[0] with { Volatility = D("0.26") }] }).CountedToUs;
@@ -260,7 +260,7 @@ internal static partial class GasSwingChecks
         var periods = SwingFeasibility.Resolve(right, Units(1000), election < 0 ? [] : [Fact(right, election, 1050)], at);
         return new(right, periods, [..periods.SelectMany(p => p.Days).Where(d => d.Election == null).Select(d =>
             new SwingUnitPayoffDay(d.Day,R(d.Day.Day.Month%2 == 1 ? 295 : 305,100),R(-3),D(d.Day.Day.Month%2 == 1 ? "0.20" : "0.25")))],
-            R(1000), at, Pricing with { NumericalPolicy = "swing_trinomial_6h_unit_reference_v2" });
+            R(1000), at, Pricing);
     }
 
     internal static void UnitWorkload(int length, bool sampleHeap = false)
@@ -271,7 +271,7 @@ internal static partial class GasSwingChecks
             var right = Terms(1) with { Minimum = R(0), Maximum = R(1), Step = R(1), Upper = null, TotalBasis = null };
             var at = right.Days[0].ExerciseAt.AddHours(-6 * 5771);
             inputs = new(right, SwingFeasibility.Resolve(right, Units(1), [], at), [new(right.Days[0], R(3), R(-3), D("0.01"))],
-                R(1), at, Pricing with { NumericalPolicy = SwingUnitResources.Policy });
+                R(1), at, Pricing);
         }
         if (sampleHeap)
         {
@@ -363,12 +363,13 @@ internal static partial class GasSwingChecks
                 Days = [.. fixture.Days.Select((day, i) => new SwingDay(start.AddDays(i), At.AddSeconds(day.Seconds)))]
             };
             var rows = fixture.Days.Select((d, i) => (Row: d, Day: terms.Days[i])).ToArray();
-            var periods = SwingFeasibility.Resolve(terms, Units(1), [..rows.Where(pair => pair.Row.Election != null)
-                .Select(pair => new SwingElection(0,pair.Day.Day,ExactQuantity.FromRatio(Read(pair.Row.Election!),Native),
+            var heldReference = Read(fixture.Held);
+            var periods = SwingFeasibility.Resolve(terms, ExactQuantity.FromRatio(heldReference, Native), [..rows.Where(pair => pair.Row.Election != null)
+                .Select(pair => new SwingElection(0,pair.Day.Day,ExactQuantity.FromRatio(heldReference*Read(pair.Row.Election!),Native),
                     terms.Holder,Before,Before,Guid.NewGuid(),"Synthetic proportional reservation"))], At);
             var inputs = new SwingUnitChoiceInputs(terms, periods, [..rows.Where(pair => pair.Row.Election == null)
                 .Select(pair => new SwingUnitPayoffDay(pair.Day, Read(pair.Row.Physical), Read(pair.Row.Fixed), D(pair.Row.Sigma)))],
-                Read(fixture.Held), At, Pricing with { NumericalPolicy = "swing_trinomial_6h_unit_reference_v2" });
+                heldReference, At, Pricing);
             results.Add(HalfEven18.Report(SwingChoice.Value(inputs).CountedToUs));
         }
         File.WriteAllText(output, JsonSerializer.Serialize(results));

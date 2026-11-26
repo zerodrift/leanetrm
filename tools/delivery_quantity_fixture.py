@@ -26,7 +26,7 @@ def add_fixture(reference,market,security,manifest,*,price='3.20',prefix='synthe
                             f"INSERT INTO market_data.curve_members VALUES({M},'{curve}','{cid}',{ordinal});",
                             f"INSERT INTO market_data.series VALUES({M},'{sid}','{prefix}_{ordinal}',{R},'{cid}','{quote}',NULL);"])
         for index,frame in enumerate(manifest['frames']):
-            frame['observationIds']=[*frame['observationIds'],identity('7',number*100+index*10+ordinal)]
+            frame['observationIds']=[*frame['observationIds'],identity('7',number*100+index*max(10,len(months))+ordinal)]
             frame['curveContracts']={**frame['curveContracts'],curve:[*frame['curveContracts'].get(curve, []),cid]}
             oid=frame['observationIds'][-1]
             observations.append(f"INSERT INTO market_data.observations VALUES('{CAT}','{oid}','{REV}','{sid}',{R},'fixture','{prefix}_{index}_{ordinal}','1','trader_mark','final','{frame['at']}',CURRENT_TIMESTAMP,{mark},NULL);")

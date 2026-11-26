@@ -7,7 +7,7 @@ from difflib import unified_diff
 from itertools import islice
 from uuid import uuid4
 
-from check_gas_swing_numerics import day, fixture, reference
+from gas_swing_reference import day, fixture, reference
 from preview_client import PreviewClient, initial_frame
 
 DAYS = ['2021-01-31', '2021-02-01', '2021-02-02']
@@ -47,7 +47,7 @@ def upgraded_book_checks(c, ctx, book, swing, companion):
     factor, = result['factors']
     position, = factor['positions']
     assert position['tradeId']==companion['tradeId'] and position['values']['base']==factor['totals'][0]['values']['base']=='300'
-    print('PASS populated 0404 overlapping swing and ordinary companion retain sealed programs across 0405: one row-local refusal and valued subtotal 300 on Blotter and risk',flush=True)
+    print('PASS sealed monthly-only fixture and ordinary companion evaluated under the strict point rule: one row-local refusal and valued subtotal 300 on Blotter and risk',flush=True)
 
 
 def route_checks(c, query, manifest, context, template, run_worker):
@@ -99,6 +99,8 @@ def route_checks(c, query, manifest, context, template, run_worker):
 
     def routes(case,ctx,expected=None,reason=None):
         body,trade = case
+        if not ctx.get('contextId'):
+            ctx=pin(trade,ctx)
         position = dict(context=shared(ctx),tradeId=trade['tradeId'],bindingId=trade['instrumentId'],revision=1,instrumentType='physical_gas')
         preview = dict(body,snapshotId=ctx['snapshotId'],previewTradeId=trade['tradeId'],knowledgeMode=ctx['knowledgeMode'])
         if 'contextId' in ctx:
@@ -120,13 +122,17 @@ def route_checks(c, query, manifest, context, template, run_worker):
         check_value(editor['presentValue'],expected)
         for projection in (preview, single, held):
             assert projection['presentValue']==editor['presentValue']
-            assert projection['swingRights']==editor['swingRights']
+            assert_replay('route swing evidence',projection['swingRights'],editor['swingRights'])
         right, = editor['swingRights']
+        if right['modeledDays']:
+            assert right['knownAt'] and right['forwardInputs']
+            assert all(source['market']['contract']['id'] and source['observations'] for source in right['forwardInputs'])
         assert editor['schedule']['swingRights']==[right] and all(p['swingRights']==[right] for p in pages)
-        assert sum(Decimal(s['presentValue']) for s in editor['sides'])+Decimal(right['counted'])==Decimal(editor['presentValue'])
+        assert sum(Decimal(s['presentValue']) for s in editor['sides'])+Decimal(right['counted'] or '0')==Decimal(editor['presentValue'])
         physical = pages[0]['rows']
         for item,row in zip(right['days'],physical,strict=True):
-            assert row['quantityState']==item['state'] and row['quantity']==(item['selectedQuantity'] or '0')
+            state=item['state']
+            assert (row['quantityState'],row['quantity'])==(state,item['selectedQuantity']),(row['quantityState'],row['quantity'],item)
         for row in (r for r in editor['schedule']['rows'] if r['level']=='day'):
             item = next(i for i in right['days'] if i['day']==row['key'])
             assert ('contingent' in row['cells']['gas.amount']['sources'])==(item['state']=='undecided')
@@ -207,7 +213,7 @@ def route_checks(c, query, manifest, context, template, run_worker):
         row = next(p for p in factor_row['positions'] if p['tradeId']==trade)
         check_value(row['values']['base'],expected)
         for lane in ('base','up','down'):
-            assert sum(Decimal(e[lane]) for e in row['entries'])+Decimal(row['swingRights'][lane][0]['counted'])==Decimal(row['values'][lane])
+            assert sum(Decimal(e[lane]) for e in row['entries'])+Decimal(row['swingRights'][lane][0]['counted'] or '0')==Decimal(row['values'][lane])
         return row
 
     prior = pin(gain[1],context)
@@ -219,11 +225,12 @@ def route_checks(c, query, manifest, context, template, run_worker):
         if prefix=='synthetic_intrinsic':
             job(case,context,None,reason='exercise_marks')
         mark(curve,'2021-02','0')
-        right = routes(case,context,value)
+        priced=pin(case[1],context)
+        right = routes(case,priced,value)
         plan = ['900','700','1100'] if value==480 else ['1000','700','700']
-        assert [d['intrinsicQuantity'] for d in right['days']]==plan
-        assert right['committedQuantity']=='0' and right['intrinsic']==str(value)
-        row = job(case,context,value)
+        assert [d['plannedQuantity'] for d in right['days']]==plan
+        assert right['periods'][0]['elected']=='0' and right['comparison']['amount']==str(value)
+        row = job(case,priced,value)
         assert row['swingRights']['base']==[right]
         print(f'PASS exact swing {value} in preview, trade editor, position, schedule, Blotter and actual queued worker',flush=True)
     routes(gain,prior,reason='exercise_marks')
@@ -245,15 +252,15 @@ def route_checks(c, query, manifest, context, template, run_worker):
     reserved = pin(gain[1],context)
     correction = elect(gain,2,'700','2021-01-01T08:00:00Z')
     right = routes(gain,context,480)
-    assert right['committedLots']==11 and right['counted']=='40' and right['days'][2]['revisionId']==accepted
+    assert right['periods'][0]['elected']=='1100' and right['counted']=='40' and right['days'][2]['revisionId']==accepted
     assert job(gain,context,480)['values']['delta']=='900'
     future = at('2021-01-01')
     right = routes(gain,future,360)
-    assert right['committedLots']==7 and right['days'][2]['revisionId']==correction
+    assert right['periods'][0]['elected']=='700' and right['days'][2]['revisionId']==correction
     assert job(gain,future,360)['values']['delta']=='1100'
     assert routes(gain,reserved,480)['days'][2]['revisionId']==accepted
-    assert job(gain,reserved,480)['swingRights']['base'][0]['committedLots']==11
-    assert routes(gain,initial,480)['committedLots']==0
+    assert job(gain,reserved,480)['swingRights']['base'][0]['periods'][0]['elected']=='1100'
+    assert routes(gain,initial,480)['periods'][0]['elected']=='0'
     for bump in ('0.01','0.0001'):
         row = job(gain,initial,480,bumpsize=bump)
         check_value(row['values']['up'],Decimal(480)+900*Decimal(bump))
@@ -261,8 +268,9 @@ def route_checks(c, query, manifest, context, template, run_worker):
         assert row['values']['delta']=='900'
 
     expired = at('2021-01-31')
-    routes(gain,expired,reason='swing_determination')
-    job(gain,expired,None,reason='swing_determination')
+    unresolved=routes(gain,expired,280)
+    assert unresolved['counted'] is None and unresolved['unassessedDays']==2
+    job(gain,expired,280)
     print('PASS swing 480 and mandatory -450 through preview, editor, position, schedule, Blotter and leased risk; early D3, both clocks, deltas 900/1100 and elapsed-trade isolation',flush=True)
 
     policies = risk.call('portfolio/pnl/policies')
@@ -313,11 +321,12 @@ def route_checks(c, query, manifest, context, template, run_worker):
     missing_cutoff = coordinates[prior['contextId']]['knownAt']
     pnl_values(stochastic[1],future,stochastic_at,missing_cutoff,'exercise_marks')
     expected = oracle()
-    right = routes(stochastic,stochastic_at,expected)
+    historical = pin(stochastic[1],stochastic_at)
+    right = routes(stochastic,historical,expected)
     assert [m['revisionId'] for m in right['marks']]==[jan['markId'],feb['markId']]
     assert [m['volatility'] for m in right['marks']]==['0.33','0.71']
     assert [d['forward'] for d in right['days']]==['3.2','2.8','3.4']
-    assert right['pricing']['numericalPolicy']=='swing_trinomial_6h_half_even_18_v1' and right['work']['timeSteps']>0
+    assert right['pricing']['numericalPolicy']=='swing_trinomial_6h_unit_reference_v2' and right['work']['factorSteps']>0
     row = job(stochastic,stochastic_at,expected)
     for lane,fwd in [('up','320.1'),('down','319.9')]:
         check_value(row['values'][lane],oracle(january_forward=fwd))
@@ -325,7 +334,6 @@ def route_checks(c, query, manifest, context, template, run_worker):
     for lane,fwd in [('up','320.05'),('down','319.95')]:
         check_value(half['values'][lane],oracle(january_forward=fwd))
     assert abs(Decimal(half['values']['delta'])-Decimal(row['values']['delta']))<Decimal('0.00000001')
-    historical = pin(stochastic[1],stochastic_at)
     historical_cutoff = coordinates[historical['contextId']]['knownAt']
     original_pnl = pricing_pnl(historical_cutoff,'0.33')
     up,down = job(stochastic,historical,expected,shift=jan['markId'],after_submit=lambda:mark(curve,'2021-01','0.50',2))
@@ -349,7 +357,7 @@ def route_checks(c, query, manifest, context, template, run_worker):
     one.update(bookId=book,operationId=str(uuid4()))
     one['physicalSides'][0].update(deliveryPoint='synthetic_swing_call_point',quantity='10000',
         deliveryFrom='2021-01-18',deliveryTo='2021-01-19')
-    one['swingRights'][0].update(increment='10000',dailyMinimum='0',dailyMaximum='10000',
+    one['swingRights'][0].update(planningStep='10000',dailyMinimum='0',dailyMaximum='10000',
         totalMinimum='0',totalMaximum='10000',leadHours=8)
     single = one,c.call('gas/composition/book',one)
     mark('synthetic_swing_call_location','2021-01','0.5')
@@ -357,7 +365,7 @@ def route_checks(c, query, manifest, context, template, run_worker):
         precision.prec = 80
         expected = reference(fixture([day(32000,-30000,'0.5',30*86400)]),21600)
     right = routes(single,context,expected)
-    assert right['intrinsic']=='2000' and right['work']['timeSteps']==120
+    assert right['comparison']['amount']=='2000' and right['work']['factorSteps']==120
     job(single,context,expected,factor_day='2021-01-01')
     print(f'PASS one-day 30-day-expiry swing through all routes and worker; independent 80-digit oracle {expected:.12f}',flush=True)
 

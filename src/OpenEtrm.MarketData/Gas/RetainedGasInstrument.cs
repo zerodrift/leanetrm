@@ -65,8 +65,7 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
     [IdentityField] public override ImmutableArray<RetainedGasMember> Members { get; }
     [IdentityField] public ImmutableArray<GasValuationAssignment> Assignments { get; }
     [IdentityField] public override ImmutableArray<ExerciseRight> Rights { get; }
-    [IdentityField] public override ImmutableArray<SwingRight> SwingRights { get; }
-    internal override SwingQuantityRight? QuantityRight { get; }
+    [IdentityField] public override SwingQuantityRight? QuantityRight { get; }
     public override ImmutableArray<SwingPricingBinding> SwingPricingBindings { get; }
     public override ExerciseMarks? Marks { get; }
     public override DefinitionIdentity? PricingBindingIdentity => (SwingPricingBindings.IsEmpty, Marks) switch
@@ -91,18 +90,17 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
 
     public RetainedGasInstrument(Guid id, ImmutableArray<RetainedGasMember> members,
         ImmutableArray<GasValuationAssignment> assignments, ImmutableArray<IndexPriceLookup> priceLookups = default,
-        ImmutableArray<ExerciseRight> rights = default, ExerciseMarks? marks = null, ImmutableArray<int?> physicalSources = default,
-        ImmutableArray<SwingRight> swingRights = default, ImmutableArray<SwingPricingBinding> swingPricingBindings = default)
-        : this(id, members, assignments, priceLookups, rights, marks, physicalSources, swingRights, swingPricingBindings, null) { }
+        ImmutableArray<ExerciseRight> rights = default, ExerciseMarks? marks = null, ImmutableArray<int?> physicalSources = default)
+        : this(id, members, assignments, priceLookups, rights, marks, physicalSources, [], null) { }
 
-    internal RetainedGasInstrument(Guid id, ImmutableArray<RetainedGasMember> members, ImmutableArray<GasValuationAssignment> assignments,
+    public RetainedGasInstrument(Guid id, ImmutableArray<RetainedGasMember> members, ImmutableArray<GasValuationAssignment> assignments,
         SwingQuantityRight quantityRight, SwingPricingBinding pricing, ImmutableArray<IndexPriceLookup> priceLookups = default,
         ImmutableArray<ExerciseRight> rights = default, ExerciseMarks? marks = null, ImmutableArray<int?> physicalSources = default)
-        : this(id, members, assignments, priceLookups, rights, marks, physicalSources, [], [pricing], quantityRight) { }
+        : this(id, members, assignments, priceLookups, rights, marks, physicalSources, [pricing], quantityRight) { }
 
     private RetainedGasInstrument(Guid id, ImmutableArray<RetainedGasMember> members, ImmutableArray<GasValuationAssignment> assignments,
         ImmutableArray<IndexPriceLookup> priceLookups, ImmutableArray<ExerciseRight> rights, ExerciseMarks? marks,
-        ImmutableArray<int?> physicalSources, ImmutableArray<SwingRight> swingRights, ImmutableArray<SwingPricingBinding> swingPricingBindings,
+        ImmutableArray<int?> physicalSources, ImmutableArray<SwingPricingBinding> swingPricingBindings,
         SwingQuantityRight? quantityRight)
         : base(id, members, new(ExactDecimal.Parse("1"), First(assignments).Quote.Quantity), First(assignments).Quote.Currency)
     {
@@ -115,7 +113,7 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
             throw new MarketDataException("side_market_sources","Bound programs require their exact authorized retained price lookups.");
         var hasQuantityTerms = members.Any(m => m.QuantityPolicy is not null || m.Part is not null || m.Balance is not null);
         QuantityRight = quantityRight;
-        var allowSources = quantityRight is not null || hasQuantityTerms || !rights.IsDefaultOrEmpty || !swingRights.IsDefaultOrEmpty;
+        var allowSources = quantityRight is not null || hasQuantityTerms || !rights.IsDefaultOrEmpty;
         if (members.Where((m, slot) => m.SourceSlot is {} source
                 ? !allowSources || source >= members.Length || members[source].Program.Document.Family != "gas" ||
                     m.Program.Document.Family == "gas" && source != slot
@@ -136,10 +134,8 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
         if (!Rights.IsEmpty) RequireRights();
         marks?.Validate();
         Marks = marks;
-        SwingRights = swingRights.IsDefault ? [] : swingRights;
         SwingPricingBindings = swingPricingBindings.IsDefault ? [] : swingPricingBindings;
-        if (quantityRight is null) GasSwingAdmission.Require(this);
-        else GasSwingAdmission.Require(this, quantityRight, SwingPricingBindings.Single());
+        if (quantityRight is not null) GasSwingAdmission.Require(this, quantityRight, SwingPricingBindings.Single());
     }
 
     public ImmutableArray<(ExerciseGroupKey Group, CurveKey Curve, DateOnly Month)> ExerciseMarkInputs(MarketSnapshot snapshot, PhysicalCashState held) =>
@@ -471,8 +467,8 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
                 Members[p.Slot].Program.Document.Family == "gas" || p.Amount.Currency != Currency ||
                 !Members[p.Slot].Program.Document.Instructions.Any(i => i.Output is { Operation: "output_guard", Grid: null } && i.Output.PaymentOrdinal == p.Occurrence)))
             throw new MarketDataException("payment_state", "Each payment allocation must name a retained cash occurrence of this instrument in its currency and quantity.");
-        PhysicalDeliveryQuantities.RequireSchedules(Members, cash, Rights, SwingRights, QuantityRight?.PhysicalSlot);
-        if (cash.SwingElections.Any(e => e is null || QuantityRight?.Ordinal != e.Right && !SwingRights.Any(r => r.Ordinal == e.Right)) ||
+        PhysicalDeliveryQuantities.RequireSchedules(Members, cash, Rights, QuantityRight?.PhysicalSlot);
+        if (cash.SwingElections.Any(e => e is null || QuantityRight?.Ordinal != e.Right) ||
             !HasSwing && cash.NextSwingElectionEffectiveAt is not null)
             throw new MarketDataException("swing_election", "Swing facts require their exact retained right.");
     }

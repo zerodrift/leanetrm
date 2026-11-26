@@ -5,8 +5,7 @@ using OpenEtrm.Shared.Numerics;
 
 namespace OpenEtrm.MarketData.Gas;
 
-// Internal until the retained/native booking contract can admit the same terms.
-internal sealed record GasSwingQuantityComponent(string Side, ImmutableArray<string> Entries, ExerciseHolder Holder,
+public sealed record GasSwingQuantityComponent(string Side, ImmutableArray<string> Entries, ExerciseHolder Holder,
     ExactDecimal DailyMinimum, ExactDecimal DailyMaximum, ExactDecimal Step, string Period, ExactDecimal? Lower,
     ExactDecimal? Upper, string? TotalBasis, int? ChangeCount, string? CountRule, string PlanRule, string DeadlineRule, int LeadHours)
 {
@@ -18,12 +17,10 @@ internal sealed record GasSwingQuantityComponent(string Side, ImmutableArray<str
     {
         var owner = GasSwingCoverage.SourceFor(instrument, Side);
         var covered = GasSwingCoverage.Resolve(instrument, owner, Entries, LeadHours);
-        if (!instrument.SwingRights.IsDefaultOrEmpty)
-            throw SwingFeasibility.InvalidRight("Retain exactly one physical swing right.");
         var selection = covered.Source.QuantityPolicy switch
         {
             null => SwingQuantityRight.Elected,
-            GasHeldQuantities.DeliverySchedulePolicy => SwingRight.ElectedDeliveryQuantity,
+            GasHeldQuantities.DeliverySchedulePolicy => SwingQuantityRight.ElectedDeliveryQuantity,
             _ => throw SwingFeasibility.InvalidRight("Select contract quantity or the delivery schedule on the swing source.")
         };
         if (covered.Source.Side.Assignments.Any(a => a.To != a.From.AddDays(1) &&
@@ -36,7 +33,9 @@ internal sealed record GasSwingQuantityComponent(string Side, ImmutableArray<str
             Lower is {} lower ? Normalize(lower) : null, Upper is {} upper ? Normalize(upper) : null,
             TotalBasis, ChangeCount, CountRule, selection, PlanRule, DeadlineRule, LeadHours, covered.Days);
         var reference = ExactQuantity.FromQuantity(new(covered.Reference, instrument.UnitQuantity.Specification));
-        structuralEstimate = SwingUnitResources.Booking(right,reference,bookingAt);
+        try { structuralEstimate = SwingUnitResources.Booking(right,reference,bookingAt); }
+        catch (MarketDataException error) when (error.Code=="swing_numerical_scope")
+        { throw new SwingTermFieldException(error.Code,"numericalPolicy",error.Message); }
         return right;
     }
 }

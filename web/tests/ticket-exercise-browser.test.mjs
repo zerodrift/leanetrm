@@ -12,7 +12,7 @@ test(`a lost ${kind} refusal releases its exact retry after ${code}`,{skip:!brow
     preparePath:'/api/gas/'+kind+'/prepare',recordPath:'/api/gas/'+kind+'/record'};
    const action=kind==='exercise'?{...base,periods:[{right:0,from:day,to:day,exerciseAt:day,previousId:null}],outcomes:[{value:'exercised',label:'Exercised'}]}:
     {...base,right:0,days:[{day,exerciseAt:day,head:null,effectiveRevision:null,evidence:null,electedQuantity:null}],
-     increment:'1',dailyMinimum:'0',dailyMaximum:'2',referenceQuantity:'1',totalMinimum:'0',totalMaximum:'2',committed:'0',remainingMinimum:'0',remainingMaximum:'2',
+     periods:[],planningStep:'1',dailyMinimum:'0',dailyMaximum:'2',referenceQuantity:'1',
      decisions:[{value:'elect',label:'Elect'}],parties:[{value:'us',label:'Us'}]};
    const host=document.querySelector('main'),writes=[];
    let editor,reads=0;
@@ -170,8 +170,8 @@ test('a swing election keeps zero explicit and retries the same range command af
    const head='saved-head',days=['2041-02-01','2041-02-02','2041-02-03'].map((day,i)=>({day,exerciseAt:'2041-01-31T16:00:00Z',
     head:i===2?head:null,effectiveRevision:null,electedQuantity:null,evidence:null}));
    const action={allowed:true,label:'Record swing election',preparePath:'/api/gas/swing/prepare',recordPath:'/api/gas/swing/record',
-    tradeId:'trade',instrumentId:'binding',expectedRevision:1,readContextId:'cutoff',right:0,holder:'us',increment:'100',dailyMinimum:'0',
-    dailyMaximum:'1000',referenceQuantity:'1000',totalMinimum:'0',totalMaximum:'3000',committed:'0',remainingMinimum:'0',remainingMaximum:'3000',
+    tradeId:'trade',instrumentId:'binding',expectedRevision:1,readContextId:'cutoff',right:0,holder:'us',periods:[],planningStep:'100',dailyMinimum:'0',
+    dailyMaximum:'1000',referenceQuantity:'1000',
     decisions:[{value:'elect',label:'Elect a quantity'},{value:'withdraw',label:'Withdraw an election'}],parties:[{value:'us',label:'Us'}],days};
    const writes=[],prepares=[],host=document.querySelector('#host');
    const until=async f=>{for(let i=0;i<200&&!f();i++)await new Promise(r=>setTimeout(r,10));if(!f())throw Error('Missing election control');};

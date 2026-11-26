@@ -16,6 +16,8 @@ public sealed record GasSwingReadRequest(FuturesReadRequest Context, Guid TradeI
 
 internal static class GasSwingStore
 {
+    internal const int ElectionCommandBytes = 4 * 1024 * 1024;
+
     // A nullable parameter still has to be supplied. This distinguishes a
     // withdrawal from an omitted quantity and an empty chain from a missing head.
     private static readonly JsonSerializerOptions Wire = new(JsonSerializerDefaults.Web)
@@ -79,12 +81,22 @@ internal static class GasSwingStore
         }
         catch(PostgresException error) when(error is {SqlState:"P0001",MessageText:"swing_feasibility"})
         {
-            // Feasibility belongs to this atomic selection of days. Identify its first
-            // row for focus; the native validator considered every effective boundary.
-            var selected=request.Elections.Select(e=>e.Day).Order(StringComparer.Ordinal).ToArray();
-            var row=request.ExpectedHeads.Count(h=>string.CompareOrdinal(h.Day,selected[0])<0);
-            throw new TicketFieldException("swing_feasibility",$"The elections for {selected[0]} through {selected[^1]} leave no feasible completion of the term quantity.",
+            var selected = request.Elections.Select(e=>e.Day).Order(StringComparer.Ordinal);
+            var period = error.Hint;
+            var affected = selected.First(day => period == "0001-01-01" || period is {Length:10} && day.StartsWith(period[..7],StringComparison.Ordinal));
+            var row = request.ExpectedHeads.Count(h => string.CompareOrdinal(h.Day,affected)<0);
+            throw new TicketFieldException("swing_feasibility","The batch leaves no feasible completion within this day’s limit period.",
                 null,"quantity"){TermSection="swingElections",TermRow=row};
+        }
+        catch(PostgresException error) when(error is {SqlState:"P0001",MessageText:"swing_election",Hint:not null})
+        {
+            var coordinate=JsonSerializer.Deserialize<JsonElement>(error.Hint);
+            throw new TicketFieldException("swing_election","The election does not satisfy its retained terms.",
+                null,coordinate.Text("field")){TermSection="swingElections",TermRow=coordinate.GetProperty("row").Deserialize<int?>()};
+        }
+        catch(PostgresException error) when(error is {SqlState:"P0001",MessageText:"swing_payload"})
+        {
+            throw new TicketFieldException("swing_payload","The election command exceeds 4 MiB.",null,"elections");
         }
         database.RegisterCommitAdmission(connection, new WriteAdmission(catalog, request.OperationId, until));
         return result;

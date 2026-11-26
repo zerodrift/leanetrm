@@ -19,22 +19,20 @@ public sealed record ConnectedRiskScenarioSet(string Id,string Version,string Co
 public sealed record ExactScenarioValues(ExactMoney Base,ExactMoney Value,ExactMoney Pnl,ExactMoney Loss);
 public sealed record ScenarioBookValue(Guid BookId,ExactScenarioValues Values)
 {
-    internal int BaseUnassessedDays { get; init; }
-    internal int UnassessedDays { get; init; }
-    internal bool Incomplete => BaseUnassessedDays != 0 || UnassessedDays != 0;
+    public int BaseUnassessedDays { get; init; }
+    public int UnassessedDays { get; init; }
+    public bool Incomplete => BaseUnassessedDays != 0 || UnassessedDays != 0;
 }
 public sealed record ScenarioPositionValue(Guid TradeId,Guid BindingId,Guid BookId,Guid ValuationId,ExactScenarioValues Values)
 {
     public AccountingOwnerKey Owner{get;init;}=new(AccountingOwnerKind.Trade,TradeId);
-    internal int BaseUnassessedDays { get; init; }
-    internal int UnassessedDays { get; init; }
-    internal bool Incomplete => BaseUnassessedDays != 0 || UnassessedDays != 0;
-    internal ImmutableArray<MissingDayAssessment> BaseMissingAssessments { get; init; } = [];
-    internal ImmutableArray<MissingDayAssessment> MissingAssessments { get; init; } = [];
-    internal SwingQuantityRightValue? BaseQuantitySwing { get; init; }
-    internal SwingQuantityRightValue? QuantitySwing { get; init; }
-    public ImmutableArray<SwingRightValue> BaseSwingValues{get;init;}=[];
-    public ImmutableArray<SwingRightValue> SwingValues{get;init;}=[];
+    public int BaseUnassessedDays { get; init; }
+    public int UnassessedDays { get; init; }
+    public bool Incomplete => BaseUnassessedDays != 0 || UnassessedDays != 0;
+    public ImmutableArray<MissingDayAssessment> BaseMissingAssessments { get; init; } = [];
+    public ImmutableArray<MissingDayAssessment> MissingAssessments { get; init; } = [];
+    public SwingQuantityRightValue? BaseQuantitySwing { get; init; }
+    public SwingQuantityRightValue? QuantitySwing { get; init; }
     public ImmutableArray<ExerciseGroupValue> BaseGroups{get;init;}=[];
     public ImmutableArray<ExerciseGroupValue> Groups{get;init;}=[];
 }
@@ -128,7 +126,6 @@ public static partial class RiskEngine
                         Owner = p.Owner, BaseUnassessedDays = basis.PositionUnassessedDays[i], UnassessedDays = shocked.PositionUnassessedDays[i],
                         BaseMissingAssessments = basis.MissingAssessments(i), MissingAssessments = shocked.MissingAssessments(i),
                         BaseQuantitySwing = basis.PositionQuantitySwings[i], QuantitySwing = shocked.PositionQuantitySwings[i],
-                        BaseSwingValues = basis.PositionSwingValues[i], SwingValues = shocked.PositionSwingValues[i],
                         BaseGroups = basis.PositionGroupValues[i], Groups = shocked.PositionGroupValues[i]
                     })];
                 return new ConnectedScenarioGroupValue(n, [..books], positions, shocked.UnitValuations, prepared.Contracts[n].Length - shocked.UnitValuations);

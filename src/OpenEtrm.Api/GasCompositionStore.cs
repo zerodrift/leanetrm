@@ -93,9 +93,9 @@ internal sealed record GasLifecycleMeasures(string Unrealized,string RealizedUns
 {
  internal static GasLifecycleMeasures From(PhysicalLifecycleValue value,DiscountFactorSource discounting)=>new(value.Unrealized.ToExactString(),value.RealizedUnsettled.ToExactString(),value.Total.ToExactString(),
   GasPositions.LifecycleLabel,discounting switch{DiscountFactorSource.Undiscounted=>"undiscounted",_=>throw new MarketDataException("gas_composition_input","Gas compositions value only under their explicit no-discounting selection.")},
-  [..value.ExpectedCash.Select(x=>new GasExpectedCash(x.DueAt,x.Amount.ToExactString()))]);
+  [..value.ExpectedCash.Select(x=>new GasExpectedCash(x.DueAt,x.Amount.ToExactString(),x.UnassessedDays))]);
 }
-internal sealed record GasExpectedCash(DateTimeOffset DueAt,string Amount);
+internal sealed record GasExpectedCash(DateTimeOffset DueAt,string Amount,[property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)]int UnassessedDays);
 internal sealed record GasScheduleRefusal(string Code,string Message);
 internal sealed record GasCompositionRead(GasCompositionRequest Terms,GasCompositionValue Valuation);
 internal sealed record GasCompositionExecution
@@ -106,7 +106,7 @@ internal sealed record GasCompositionExecution
  internal ExactDecimal Quantity{get;}
  internal ImmutableArray<RetainedSideProgram> Programs{get;}
  internal ImmutableArray<ExerciseRight> Rights{get;}
- internal ImmutableArray<SwingRight> SwingRights{get;}
+ internal ImmutableArray<SwingQuantityRight> SwingRights{get;}
  internal ImmutableArray<SwingPricingBinding> SwingPricingBindings{get;}
  internal Guid TradeId{get;}
  internal ReferenceKey SwingQuantityUnit(int ordinal)
@@ -118,7 +118,7 @@ internal sealed record GasCompositionExecution
  internal bool Started=>GasCompositionStore.Started(Programs);
  internal GasCompositionExecution(Guid tradeId,GasCompositionRequest terms,Guid instrumentId,ImmutableArray<GasCompositionRow> members,
   ExactDecimal quantity,ImmutableArray<RetainedSideProgram> programs,ImmutableArray<ExerciseRight> rights=default,
-  ImmutableArray<SwingRight> swingRights=default,ImmutableArray<SwingPricingBinding> swingPricingBindings=default)
+  ImmutableArray<SwingQuantityRight> swingRights=default,ImmutableArray<SwingPricingBinding> swingPricingBindings=default)
  {
   RequireSlots(members.IsDefault?[]:members.Select(m=>m.Slot),programs);
   if(members.Any(m=>programs.Single(p=>p.Slot==m.Slot).Program.Document.Family!=(m.Role=="physical"?"gas":m.Role is "indexed_consideration" or "imbalance_cashout"?"floating":"fixed")))
@@ -136,18 +136,21 @@ internal sealed record GasCompositionExecution
  internal RetainedGasInstrument Instrument(ImmutableArray<IndexPriceLookup> lookups)=>BuildInstrument(InstrumentId,Members,Programs,lookups,Rights,SwingRights,SwingPricingBindings);
  internal static RetainedGasInstrument BuildInstrument(Guid id,ImmutableArray<GasCompositionRow> members,
   ImmutableArray<RetainedSideProgram> programs,ImmutableArray<IndexPriceLookup> lookups,ImmutableArray<ExerciseRight> rights=default,
-  ImmutableArray<SwingRight> swingRights=default,ImmutableArray<SwingPricingBinding> swingPricingBindings=default)
+  ImmutableArray<SwingQuantityRight> swingRights=default,ImmutableArray<SwingPricingBinding> swingPricingBindings=default)
  {
   RequireSlots(members.Select(m=>m.Slot),programs);
   var quantityTerms=!rights.IsDefaultOrEmpty||!swingRights.IsDefaultOrEmpty||members.Any(m=>m.QuantityPolicy is not null||m.Part is not null||m.Balance is not null);
   var byCode=members.ToDictionary(m=>m.Code,StringComparer.Ordinal);
   var ordered=members.OrderBy(m=>m.Slot).ToImmutableArray();
   var sources=ordered.Select(m=>m.Owned is not null?(int?)null:m.Role=="physical"?m.Slot:byCode[m.Source!].Slot).ToImmutableArray();
-  return new(id,[..ordered.Select(m=>{
+  ImmutableArray<RetainedGasMember> retained=[..ordered.Select(m=>{
    var p=programs.Single(p=>p.Slot==m.Slot);
    return new RetainedGasMember(p.SideId,ExactDecimal.Parse(m.Direction.ToString(CultureInfo.InvariantCulture)),m.Ratio,p.Program,
     quantityTerms?sources[m.Slot]:null,m.QuantityPolicy,m.Part,m.Owned,m.Balance);
-  })],[..members.SelectMany(m=>m.Assignments).Distinct()],lookups,rights:rights,physicalSources:sources,swingRights:swingRights,swingPricingBindings:swingPricingBindings);
+  })];
+  var assignments=members.SelectMany(m=>m.Assignments).Distinct().ToImmutableArray();
+  return swingRights is [var right] ? new(id,retained,assignments,right,swingPricingBindings.Single(),lookups,rights,physicalSources:sources)
+   : new(id,retained,assignments,lookups,rights,physicalSources:sources);
  }
 
 }
@@ -252,8 +255,8 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   }
   var rights=(body.ExerciseRights??[]).Select(r=>r is null?throw Invalid("Supply each exercise right explicitly."):
    new GasExerciseRight(r.Entries,Period(r.Period),Holder(r.Holder),Settlement(r.Settlement),r.LeadHours)).ToImmutableArray();
-  var (components,bindings)=GasSwingBooking.Resolve(body.SwingRights);
-  var instrument=new GasCompositionInstrument(Guid.NewGuid(),physical.ToImmutable(),cash.ToImmutable(),rights,owning.ToImmutable(),components,bindings);var members=ImmutableArray.CreateBuilder<GasCompositionRow>();
+  var (components,bindings)=GasSwingBooking.Resolve(body.SwingRights,body.PhysicalSides);
+  var instrument=new GasCompositionInstrument(Guid.NewGuid(),physical.ToImmutable(),cash.ToImmutable(),rights,owning.ToImmutable(),components,bindings,at);var members=ImmutableArray.CreateBuilder<GasCompositionRow>();
   for(var n=0;n<physical.Count;n++){var p=body.PhysicalSides[n];members.Add(new(n,p.Code,"physical",Sign(p.Direction,true),instrument.Sides[n].QuantityRatio!,instrument.ReceiptRatios[n],p.Link?.Source,null,p.Link?.Formula,p.Link?.Fraction,p,null,assignments[n],clocks[n],p.QuantityPolicy));}
   for(var n=0;n<cash.Count;n++){var p=cashRequests[n];var source=body.PhysicalSides.Select((v,i)=>(v,i)).Single(x=>x.v.Code==p.Source).i;members.Add(new(physical.Count+n,p.Code,cash[n].Role,Sign(p.Direction,false),instrument.Sides[physical.Count+n].QuantityRatio!,instrument.Sides[physical.Count+n].QuantityRatio!,p.Source,p.Stage,null,null,null,p,assignments[source],clocks[source],Share:cash[n].Share,Part:cash[n].Part,Balance:cash[n].Balance));}
   for(var n=0;n<owning.Count;n++)
@@ -412,7 +415,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
  {
   var (unit,programs,knowledge,snapshot,dated)=await PrepareSchedules(c,data,frame,members,draft,retained,held is {Started:true}||unrecorded is not null,savedVersions,ct);
   var rights=held?.Rights??draft!.ResolveRights();
-  var swings=held?.SwingRights??draft!.ResolveSwingRights();
+  var swings=held?.SwingRights??(draft!.QuantityRight is {} choice ? [choice] : ImmutableArray<SwingQuantityRight>.Empty);
   var pricing=held?.SwingPricingBindings??draft!.SwingPricingBindings;
   var deps=PhysicalLifecycle.PriceDependencies(programs.Select(p=>p.Program),dated,snapshot);
   var prepared=await CustomCurves.PrepareMarket(c,database,data,frame,snapshot,knowledge,[],deps,CustomCurves.MarketPreparation.ValuationDependencies,ct,
@@ -439,7 +442,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   if(!rights.IsEmpty||!swings.IsEmpty)instrument=await new CurveMarkStore(database.Manifest.CatalogId).Bind(c,instrument,snapshot,state,ct);
   var valuation=instrument.PV(instrument.PrepareValuation(market,market,discount,state,ct));
   var groups=valuation.Groups.Select(ExerciseGroupReport.FromValue).ToImmutableArray();
-  var swingReports=valuation.SwingValues.Select(SwingRightReport.FromValue).ToImmutableArray();
+  ImmutableArray<SwingRightReport> swingReports=valuation.QuantitySwing is {} assessed?[SwingRightReport.FromValue(assessed)]:[];
   var total=valuation.PresentValue.Scale(quantity);
   if(state is not null)lifecycle=PhysicalLifecycle.FromValuation(valuation);
   var valued=new List<(GasCompositionRow Member,ExactMoney Amount,ExactQuantity? Quantity,List<object> Rows)>();
@@ -527,13 +530,13 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   if(body.PreviewContextId is not null)throw Invalid("A preview cutoff requires an explicit saved trade.");
   if(body.TradeId is not null)await GasAmendments.Require(c,database.Manifest.CatalogId,body,frame.At,ct);
   await RequireSetup(c,data,body,ct);var d=await Resolve(c,data,body,frame.At,ct);
-  var contract=ticket&&d.Instrument.SwingRights is [var swing]?GasSwingTicket.Projection(data,body,d.Members,swing):null;
+  var contract=ticket&&d.Instrument.QuantityRight is {} swing?GasSwingTicket.Projection(data,body,d.Members,swing):null;
   try
   {
    var value=await Value(c,data,frame,d.Members,d.Instrument.BaseQuantity,d.Instrument,body.GasSetupId,null,true,ct);
    return contract is null?value:value with{SwingContract=contract};
   }
-  catch(MarketDataException error)when(ticket&&(!d.Instrument.Rights.IsEmpty||!d.Instrument.SwingRights.IsEmpty)&&error.Code=="exercise_marks")
+  catch(MarketDataException error)when(ticket&&(!d.Instrument.Rights.IsEmpty||d.Instrument.QuantityRight is not null)&&error.Code=="exercise_marks")
   {
    // The valuation reaches marks after it builds the retained Instrument. The
    // ticket can review those structural terms with the valuation explicitly unavailable.
@@ -559,7 +562,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
  }
  // An in-term load (inTerm) values its draft with no recorded cash: there is no trade yet, so the operation that books it keys that state.
  internal Task<RetainedScheduleTerms> Prepare(NpgsqlConnection c,InputFrame frame,GasCompositionRequest body,bool inTerm,CancellationToken ct)=>TradingBookingRead.Run(database,c,frame,async(data,pinned)=>{if(body.TradeId is not null)await GasAmendments.Require(c,database.Manifest.CatalogId,body,pinned.At,ct);await RequireSetup(c,data,body,ct);var d=await Resolve(c,data,body,pinned.At,ct);
-  if(d.Instrument.Rights.IsEmpty&&d.Instrument.SwingRights.IsEmpty)
+  if(d.Instrument.Rights.IsEmpty&&d.Instrument.QuantityRight is null)
   {
    var unrecorded=inTerm?new PhysicalCashState(body.OperationId,d.Instrument.Id,new(d.Instrument.BaseQuantity,d.Members[0].Assignment.Quote.Quantity),null,[],PhysicalCashState.Policy):null;
    _=await Value(c,data,pinned,d.Members,d.Instrument.BaseQuantity,d.Instrument,body.GasSetupId,null,false,ct,unrecorded:unrecorded);
@@ -567,7 +570,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   else
   {
    var schedules=await PrepareSchedules(c,data,pinned,d.Members,d.Instrument,null,inTerm,null,ct);
-   _=GasCompositionExecution.BuildInstrument(d.Instrument.Id,d.Members,schedules.Programs,schedules.Dated,d.Instrument.ResolveRights(),d.Instrument.ResolveSwingRights(),d.Instrument.SwingPricingBindings);
+   _=GasCompositionExecution.BuildInstrument(d.Instrument.Id,d.Members,schedules.Programs,schedules.Dated,d.Instrument.ResolveRights(),d.Instrument.QuantityRight is {} selected ? [selected] : [],d.Instrument.SwingPricingBindings);
   }
   return new RetainedScheduleTerms(data.DefinitionRevision,data.ReferenceRevision,d.Instrument);},ct,physicalMarket:PhysicalMarketSelection.Gas,physicalTrade:body.TradeId);
  // A new trade names no amended trade; the ticket and the administrator in-term load both book new trades only.

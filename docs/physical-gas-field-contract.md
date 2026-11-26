@@ -118,8 +118,8 @@ the selected effective/knowledge context or purpose-specific eligibility.
 
 ## Park-and-loan and swing rights
 
-Status: required gas profiles, not implemented or admitted by the fixed-quantity
-booking command. Neither is a pipeline label or an unused optional Side field.
+The gas composition command admits the quantity-rights profile described below.
+Park-and-loan obligations remain a design requirement.
 
 ### Park-and-loan obligations
 
@@ -166,6 +166,13 @@ installed conditions. Comparing with the initial period election and comparing
 with the preceding day's election are distinct policies. Changing a forecast
 cannot exercise a right. Free-text conditions are descriptive, not executable
 optional terms.
+
+The v2 swing election command accepts up to 1,200 dated instructions and requires
+the full retained head set, including days without an election. Its HTTP record
+route accepts at most 4 MiB of UTF-8 JSON. The native writer also checks the
+4 MiB limit on the UTF-8 representation of its normalized JSON command. An
+oversized batch returns `swing_payload` on `elections`. A retry uses the original
+operation ID, expected heads and instructions.
 
 Trade-owned election events identify the exercising party, affected operating
 days, requested quantities, submission/effective times and accepted outcome.

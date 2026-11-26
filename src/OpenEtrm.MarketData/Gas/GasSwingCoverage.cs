@@ -1,37 +1,7 @@
 using System.Collections.Immutable;
-using System.Numerics;
 using OpenEtrm.MarketData.Trading;
-using OpenEtrm.Shared.Numerics;
 
 namespace OpenEtrm.MarketData.Gas;
-
-public sealed record GasSwingComponent(string Side, ImmutableArray<string> Entries, ExerciseHolder Holder,
-    ExactDecimal Increment, ExactDecimal DailyMinimum, ExactDecimal DailyMaximum, ExactDecimal TotalMinimum,
-    ExactDecimal TotalMaximum, int LeadHours, string QuantityPolicy)
-{
-    internal SwingRight Resolve(GasCompositionInstrument instrument)
-    {
-        var owner = GasSwingCoverage.SourceFor(instrument, Side);
-        var schedule = owner.Side.Quantities;
-        if (owner.QuantityPolicy is not null || schedule.To.DayNumber - schedule.From.DayNumber > 31 || Increment.CompareTo(default) <= 0)
-            throw SwingFeasibility.InvalidRight("Select one to 31 whole gas days, a positive contractual increment and no competing quantity policy.");
-        var coverage = GasSwingCoverage.Resolve(instrument, owner, Entries, LeadHours);
-        var reference = coverage.Reference;
-        var right = new SwingRight(0, coverage.Slot, coverage.Slots, Holder, new ExactRatio(1, QuantityLots(reference,Increment)),
-            QuantityLots(DailyMinimum,Increment), QuantityLots(DailyMaximum,Increment), QuantityLots(TotalMinimum,Increment), QuantityLots(TotalMaximum,Increment), QuantityPolicy, coverage.Days);
-        SwingFeasibility.RequireRight(right);
-        return right;
-    }
-
-    public static int QuantityLots(ExactDecimal amount, ExactDecimal increment)
-    {
-        if (increment.CompareTo(default) <= 0)throw SwingFeasibility.InvalidRight("Select a positive contractual increment.");
-        var lots = BigInteger.DivRem(amount.ScaledValue, increment.ScaledValue, out var remainder);
-        if (!remainder.IsZero || lots < 0 || lots > int.MaxValue)
-            throw SwingFeasibility.InvalidRight("Every swing quantity must be an exact nonnegative integer number of supported contractual increments.");
-        return (int)lots;
-    }
-}
 
 internal sealed record GasSwingCoverage(GasPhysicalComponent Source, ExactDecimal Reference, int Slot,
     ImmutableArray<int> Slots, ImmutableArray<SwingDay> Days)

@@ -5,7 +5,7 @@ using OpenEtrm.Shared.Numerics;
 
 namespace OpenEtrm.MarketData.Options;
 
-internal sealed record SwingUnitEstimate(long Operations, long PeakBytes, int Steps, int MaximumPriceNodes,
+public sealed record SwingUnitEstimate(long Operations, long PeakBytes, int Steps, int MaximumPriceNodes,
     int MaximumStates, int MaximumChoices, long StateSlots, long Moves, long Branches, long PricedChoices,
     long Payoffs, long Normalizers, long PreflightVisits, DateTimeOffset CalculationAt)
 {

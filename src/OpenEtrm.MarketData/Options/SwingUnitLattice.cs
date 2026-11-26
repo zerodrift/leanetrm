@@ -4,8 +4,13 @@ using OpenEtrm.Shared.Numerics;
 
 namespace OpenEtrm.MarketData.Options;
 
-internal sealed partial record SwingPriceLattice
+internal static class SwingPriceLattice
 {
+    private static readonly LatticeDecimal One = Integer(1);
+    private static readonly LatticeDecimal Jump = (Integer(3 * 21600) / Integer(365 * 86400)).Sqrt();
+    private static LatticeDecimal Integer(long value) =>
+        LatticeDecimal.From(ExactDecimal.FromScaled(value * ExactDecimal.WorkingScale));
+
     private sealed record UnitEdges(int[] Start, (int Action, int Next)[] Moves,
         (LatticeDecimal Physical, LatticeDecimal Fixed)[] Amounts);
 

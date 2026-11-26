@@ -263,6 +263,9 @@ def main():
         subprocess.run(['npm','run','build','--prefix','web'],cwd=ROOT,env=env,check=True,timeout=60)
         subprocess.run([str(dotnet),'restore','src/OpenEtrm.Api','--locked-mode'],cwd=ROOT,env=env,check=True,timeout=120)
         subprocess.run([str(dotnet),'build','src/OpenEtrm.Api','--no-restore'],cwd=ROOT,env=env,check=True,timeout=120)
+        if args.gas_swing_check:
+            subprocess.run([str(dotnet),'restore','tests/OpenEtrm.Api.Checks','--locked-mode'],cwd=ROOT,env=env,check=True,timeout=120)
+            subprocess.run([str(dotnet),'build','tests/OpenEtrm.Api.Checks','--no-restore'],cwd=ROOT,env=env,check=True,timeout=120)
         if args.with_regional_seed:
             subprocess.run([str(dotnet),'restore','tools/OpenEtrm.Seed','--locked-mode'],cwd=ROOT,env=env,check=True,timeout=120)
             subprocess.run([str(dotnet),'build','tools/OpenEtrm.Seed','--no-restore'],cwd=ROOT,env=env,check=True,timeout=120)
@@ -356,19 +359,13 @@ def main():
             if args.gas_in_term_check:
                 from gas_in_term_fixture import add_fixture as add_in_term_fixture
                 reference,market,security,manifest=add_in_term_fixture(reference,market,security,manifest)
+        swing_chain=[]
         operating_predecessors=None
         query((ROOT/'db/bootstrap.sql').read_text())
         for migration in sorted((ROOT/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
-            if args.gas_swing_check and migration.name=='0405_gas_swing_point_periods.sql':
-                from check_gas_swing import period_predecessor
-                swing_period_predecessor=period_predecessor(query,migration)
-            if args.gas_swing_check and migration.name=='0404_gas_swing_elections.sql':
-                from check_fact_anchor_upgrade import run_checks as check_swing_guard
-                check_swing_guard(query,migration,number='0404',guard='gas_swing_election_upgrade',
-                                  signatures=['security.require_gas_cashout_binding(uuid,uuid,uuid)'])
-            if args.gas_swing_check and migration.name=='0403_gas_swing_rights.sql':
-                from check_gas_swing import predecessor
-                swing_predecessor=predecessor(query,migration)
+            if args.gas_swing_check and migration.name[:4] in ('0403','0404','0405'):
+                swing_chain.append(migration)
+                continue
             if args.gas_imbalance_check and migration.name=='0402_gas_imbalance_cashout.sql':
                 from check_gas_imbalance import upgrade_checks
                 upgrade_checks(query,migration)
@@ -909,6 +906,20 @@ def main():
         working_days=tuple({frame['at'][:10] for frame in manifest['frames']}) if args.factor_swap_check else (
             ('2020-12-18',) if args.factor_history_check or args.context_read_check or args.curve_marks_check else ())
         seed_session_closes(query,manifest,working=working_days,input_markets=close_inputs)
+        if swing_chain:
+            from check_gas_swing_upgrade import install_chain
+            # Both databases start at the committed published prefix with the same synthetic inputs and receipts.
+            query('CREATE DATABASE preview_swing_0402 TEMPLATE postgres')
+            query('CREATE DATABASE preview_swing_fresh TEMPLATE postgres')
+            def prefix_query(database,sql):
+                command=psql.copy()
+                command[command.index('-d')+1]=database
+                result=run(command,input=prefix_transports[database].prepare(sql))
+                if result.returncode:raise RuntimeError(result.stderr)
+                return prefix_transports[database].receive(result.stdout.strip())
+            prefix_transports={database:NativeReadTransport(temporary/(database+'.json'))
+                for database in ('preview_swing_fresh','preview_swing_0402')}
+            swing_period_predecessor=install_chain(query,swing_chain)
         (temporary/'manifest.json').write_text(json.dumps(manifest))
         (temporary/'manifest.json').chmod(0o600)
         # Freeze assets for this owned instance; a later web build must not change
@@ -1256,7 +1267,25 @@ def main():
                             if evidence:=os.environ.get('OPENETRM_SWING_BROWSER_EVIDENCE'):
                                 destination=Path(evidence).resolve();destination.mkdir(parents=True,exist_ok=True)
                                 for screenshot in temporary.glob('swing-*.png'):shutil.copy2(screenshot,destination/screenshot.name)
-                    check_gas_swing(url,query,manifest,swing_predecessor,swing_period_predecessor,run_worker,browse_swing if args.browser_check else None)
+                    def fixture_book(database,body):
+                        target=temporary/'prefix-book.json'
+                        target.write_text(json.dumps(body))
+                        prefix_env={**app_env,**{key:app_env[key].replace('Database=postgres;',f'Database={database};')
+                            for key in ('OPENETRM_PREVIEW_RUNTIME','OPENETRM_PREVIEW_AUTHENTICATOR')}}
+                        check_dll=ROOT/'tests/OpenEtrm.Api.Checks/bin/Debug/net10.0/OpenEtrm.Api.Checks.dll'
+                        result=subprocess.run([str(dotnet),str(check_dll),'--gas-swing-native-book',str(temporary),str(target)],
+                            cwd=ROOT,env=prefix_env,text=True,capture_output=True,timeout=75)
+                        if result.returncode:raise RuntimeError(result.stderr)
+                        return json.loads(result.stdout.strip().splitlines()[-1])
+                    from check_gas_swing_upgrade import populated_chain,native_prefixes
+                    from functools import partial
+                    def rehearse(base):
+                        fresh='preview_swing_fresh'
+                        populated='preview_swing_0402'
+                        native_prefixes(partial(prefix_query,fresh),partial(fixture_book,fresh),manifest,swing_chain,base,'fresh')
+                        populated_chain(partial(prefix_query,populated),partial(fixture_book,populated),manifest,swing_chain,base)
+                    check_gas_swing(url,query,manifest,swing_period_predecessor,run_worker,browse_swing if args.browser_check else None,
+                                    check_prefix=rehearse,book_native=partial(fixture_book,'postgres'))
                 if args.gas_exercise_check:
                     from check_gas_exercise import run_checks as check_gas_exercise
                     def browse_exercise(suite,fixture):

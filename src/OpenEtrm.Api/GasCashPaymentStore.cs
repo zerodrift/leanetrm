@@ -25,11 +25,11 @@ internal static class GasCashPaymentStore
   if(revisionPolicy!=LatestKnownRevision)throw new MarketDataException(PhysicalLifecycle.ContextRefusal,"Select the latest-known payment revision policy.");
   var catalog=database.Manifest.CatalogId;
   var trade=held.TradeId;var binding=held.InstrumentId;
-  var selected=await GasDeliveryQuantityStore.Read(connection,catalog,held,valuationAt,ct);
+  var swing=await GasSwingStore.Facts(connection,database,held,ct);
+  var selected=await GasDeliveryQuantityStore.Read(connection,catalog,held,valuationAt,swing.Elections,ct);
   var balances=await GasBalanceStore.Read(connection,catalog,held,valuationAt,ct);
   (ImmutableArray<ExerciseElection> elections,DateTimeOffset? next)=held.Rights.IsEmpty?([],null):
    await GasExerciseStore.Facts(connection,catalog,trade,binding,ct);
-  var swing=await GasSwingStore.Facts(connection,database,held,ct);
   var rows=await PreviewDatabase.Rows(connection,$"""
    SELECT json_build_object('id',p.id,'slot',p.slot,'occurrence',a.occurrence,'paid_at',p.paid_at,'known_from',p.known_from,'amount',trim_scale(a.amount)::text,
     'reference_catalog_id',p.reference_catalog_id,'reference_revision_id',p.reference_revision_id,'currency_code',p.currency_code)::text

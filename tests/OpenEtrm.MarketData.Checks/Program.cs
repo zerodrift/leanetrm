@@ -108,15 +108,9 @@ if(args is ["--european-options"]){EuropeanFuturesOptionChecks.Run();return;}
 if(args is ["--spread-options"]){SpreadOptionChecks.Run();HeatRateCallChecks.Run();HeatRateCallScheduleChecks.Run();return;}
 if(args is ["--exercise-mark-pair"]){ExerciseRightChecks.MarkBindings();return;}
 if(args is ["--exercise-rights"]){ExerciseRightChecks.Run();return;}
-if(args is ["--gas-swing-workload", var days, var lots, var scenario, var outputPath])
-{
-    GasSwingWorkload.Run(days, lots, scenario, outputPath);
-    return;
-}
 if(args is ["--gas-swing-unit-heap",var heapDays]){GasSwingChecks.UnitWorkload(int.Parse(heapDays),true);return;}
 if(args is ["--gas-swing-unit-workload",var unitDays]){GasSwingChecks.UnitWorkload(int.Parse(unitDays));return;}
 if(args is ["--gas-swing-unit-oracles", var cases, var results]){GasSwingChecks.UnitOracles(cases,results);return;}
-if(args is ["--gas-swing-oracles", var swingCases, var swingResults]){GasSwingOracleRunner.Run(swingCases,swingResults);return;}
 if(args is ["--gas-swing"]){GasSwingChecks.Run();return;}
 if(args is ["--option-calibration-workload"]){FuturesOptionChecks.CalibrationWorkload();return;}
 if(args is ["--vol-surface"]){VolSurfaceChecks.Run();return;}

@@ -58,8 +58,8 @@ public sealed record GasCompositionInstrument:SidedInstrument
  public const int MinPhysicalSides=1,MaxPhysicalSides=4,MaxCashSides=7,MaxSides=8;
  [IdentityField]public ImmutableArray<GasCompositionRole> Roles { get; }
  [IdentityField]public ImmutableArray<GasExerciseRight> Rights { get; }
- [IdentityField]public ImmutableArray<SwingRight> SwingRights { get; }
- public ImmutableArray<SwingPricingBinding> SwingPricingBindings { get; }
+ [IdentityField]public SwingQuantityRight? QuantityRight {get;}
+ public ImmutableArray<SwingPricingBinding> SwingPricingBindings { get; } = [];
  private readonly ImmutableArray<ExerciseRight> resolvedRights;
  public ImmutableArray<GasPhysicalComponent> Physical { get; }
  public ImmutableArray<GasCashComponent> Cash { get; }
@@ -71,11 +71,22 @@ public sealed record GasCompositionInstrument:SidedInstrument
  public override DefinitionIdentity PricingBindingIdentity=>DefinitionIdentity.For(new GasInstrumentPricingBindings([..Sides.Select(m=>m.Side.PricingBindingIdentity?.Canonical)],SwingPricingBindings.IsEmpty?null:SwingPricingBindings[0]));
  internal override bool SupportsSettlement=>false;
  public GasCompositionInstrument(Guid id,ImmutableArray<GasPhysicalComponent> physical,ImmutableArray<GasCashComponent> cash,
-  ImmutableArray<GasExerciseRight> rights=default,ImmutableArray<GasChargeComponent> charges=default,
-  ImmutableArray<GasSwingComponent> swings=default,ImmutableArray<SwingPricingBinding> swingPricingBindings=default)
-  :this(id,physical,cash,rights,charges,swings,swingPricingBindings,Resolve(physical,cash,charges.IsDefault?[]:charges,!rights.IsDefaultOrEmpty||!swings.IsDefaultOrEmpty)) { }
+  ImmutableArray<GasExerciseRight> rights=default,ImmutableArray<GasChargeComponent> charges=default)
+  :this(id,physical,cash,rights,charges,Resolve(physical,cash,charges.IsDefault?[]:charges,!rights.IsDefaultOrEmpty)) { }
+ public GasCompositionInstrument(Guid id,ImmutableArray<GasPhysicalComponent> physical,ImmutableArray<GasCashComponent> cash,
+  ImmutableArray<GasExerciseRight> rights,ImmutableArray<GasChargeComponent> charges,GasSwingQuantityComponent? swing,
+  ImmutableArray<SwingPricingBinding> pricing,DateTimeOffset bookingAt)
+  :this(id,physical,cash,rights,charges,Resolve(physical,cash,charges,!rights.IsDefaultOrEmpty||swing is not null))
+ {
+  if((swing is null && !pricing.IsDefaultOrEmpty)||(swing is not null && pricing is not [{Right:0}]))
+   throw new MarketDataException("swing_model_scope","Select one explicit pricing binding per swing right.");
+  if(swing is null)return;
+  GasSwingAdmission.RequirePricing(pricing[0],SwingUnitResources.Policy);
+  QuantityRight=swing.Resolve(this,bookingAt);
+  SwingPricingBindings=pricing;
+ }
  private GasCompositionInstrument(Guid id,ImmutableArray<GasPhysicalComponent> physical,ImmutableArray<GasCashComponent> cash,
-  ImmutableArray<GasExerciseRight> rights,ImmutableArray<GasChargeComponent> charges,ImmutableArray<GasSwingComponent> swings,ImmutableArray<SwingPricingBinding> swingPricingBindings,Composition c):base(id,c.Members)
+  ImmutableArray<GasExerciseRight> rights,ImmutableArray<GasChargeComponent> charges,Composition c):base(id,c.Members)
  {
   Physical=physical;Cash=cash;Charges=charges.IsDefault?[]:charges;BaseQuantity=c.Base;ReceiptRatios=c.Receipts;
   var entryTerms=physical.Any(p=>p.QuantityPolicy is not null)||cash.Any(p=>p.Part is not null);
@@ -84,15 +95,7 @@ public sealed record GasCompositionInstrument:SidedInstrument
    ..c.ChargeRoles];
   Rights=rights.IsDefault?[]:rights;
   resolvedRights=ResolveBookingRights();
-  SwingPricingBindings=swingPricingBindings.IsDefault?[]:swingPricingBindings;
-  if(!swings.IsDefaultOrEmpty && (swings.Length!=1||swings[0] is null))
-   throw SwingFeasibility.InvalidRight("Select at most one physical swing right.");
-  if(SwingPricingBindings.Length!=(swings.IsDefaultOrEmpty?0:1))
-   throw new MarketDataException("swing_model_scope","Select one explicit pricing binding per swing right.");
-  if(!SwingPricingBindings.IsEmpty)GasSwingAdmission.RequirePricing(SwingPricingBindings[0]);
-  SwingRights=swings.IsDefaultOrEmpty?[]:[swings[0].Resolve(this)];
  }
- public ImmutableArray<SwingRight> ResolveSwingRights()=>SwingRights;
  public ImmutableArray<ExerciseRight> ResolveRights()=>resolvedRights;
  public override UnitValuation PV(UnitValuationContext context)
  {
@@ -107,7 +110,7 @@ public sealed record GasCompositionInstrument:SidedInstrument
  }
  private void RequireNoExerciseRights()
  {
-  if(!Rights.IsEmpty||!SwingRights.IsEmpty)throw Invalid("Value exercise rights through the saved Instrument with its held exercise terms.");
+  if(!Rights.IsEmpty||QuantityRight is not null)throw Invalid("Value exercise rights through the saved Instrument with its held exercise terms.");
  }
 
  private ImmutableArray<ExerciseRight> ResolveBookingRights()

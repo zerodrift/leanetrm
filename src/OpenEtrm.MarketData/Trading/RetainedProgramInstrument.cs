@@ -31,9 +31,8 @@ public abstract record RetainedProgramInstrument<TMember> : SidedInstrument, IRe
     public abstract ImmutableArray<TMember> Members { get; }
     public virtual ImmutableArray<ExerciseRight> Rights => [];
     public virtual ExerciseMarks? Marks => null;
-    public virtual ImmutableArray<SwingRight> SwingRights => [];
-    internal virtual SwingQuantityRight? QuantityRight => null;
-    internal bool HasSwing => !SwingRights.IsEmpty || QuantityRight is not null;
+    public virtual SwingQuantityRight? QuantityRight => null;
+    public bool HasSwing => QuantityRight is not null;
     public virtual ImmutableArray<SwingPricingBinding> SwingPricingBindings => [];
     internal override bool SupportsSettlement => false;
     internal override bool RequiresNativeProgramMarket => true;
@@ -210,17 +209,6 @@ internal class RetainedInstrumentSchedule<TMember> : InstrumentSchedule where TM
             }
             var entryDays = hasQuantityTerms || !rights.IsEmpty || retained.HasSwing ? EntryQuantities.ForMembers(retained.Members, state,
                 decisions is null ? null : decisions.Counted, rights) : default;
-            ImmutableArray<SwingRightValue> swingValues = [];
-            if (!retained.SwingRights.IsEmpty)
-            {
-                var right = retained.SwingRights.Single();
-                var swing = new RetainedSwingValuation(right, state, context.Snapshot.ValuationAt);
-                swing.RequireCompatiblePayments(retained.Members, state, context.Snapshot);
-                var perLotDays = swing.Entries(entryDays, counterfactual: true);
-                swingValues = [swing.Evaluate(context, retained.Currency, retained.SwingPricingBindings.Single(), retained.Marks, swing.PointCurve(retained),
-                    slot => EvaluateOccurrence(context.ExercisedOccurrences(), slot, perLotDays))];
-                entryDays = swing.Entries(entryDays, counterfactual: false);
-            }
             SwingQuantityRightValue? quantitySwing = null;
             if (retained.QuantityRight is {} terms)
             {
@@ -232,7 +220,7 @@ internal class RetainedInstrumentSchedule<TMember> : InstrumentSchedule where TM
                 entryDays = swing.Entries(entryDays, counterfactual: false);
             }
             ImmutableArray<SideValuation> sides = [..retained.Sides.Select((_, slot) => EvaluateOccurrence(context, slot, entryDays))];
-            var value = new InstrumentValuation(retained, context, sides, groups, swingValues, quantitySwing);
+            var value = new InstrumentValuation(retained, context, sides, groups, quantitySwing);
             retained.RequireAfterValuation(value);
             return value;
         }

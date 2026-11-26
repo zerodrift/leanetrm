@@ -10,28 +10,13 @@ namespace OpenEtrm.MarketData.Gas;
 
 internal static class GasSwingAdmission
 {
-    internal static void Require(RetainedGasInstrument instrument)
-    {
-        var rights = instrument.SwingRights;
-        var pricing = instrument.SwingPricingBindings;
-        if (rights.IsEmpty && pricing.IsEmpty) return;
-        if (rights.Length != 1 || rights[0] is not { Ordinal: 0 } right || pricing.Length != 1 || pricing[0] is not { Right: 0 } binding)
-            throw SwingFeasibility.InvalidRight("Retain exactly one swing right and its explicit, matching pricing binding.");
-        RequirePricing(binding);
-
-        SwingFeasibility.RequireRight(right);
-        if (right.PhysicalSlot >= instrument.Members.Length || instrument.Members[right.PhysicalSlot].QuantityPolicy is not null)
-            throw SwingFeasibility.InvalidRight("The swing source already selects its quantity policy on the retained right.");
-        RequireCoverage(instrument, right.PhysicalSlot, right.Slots, right.Days, null);
-    }
-
     internal static void Require(RetainedGasInstrument instrument, SwingQuantityRight right, SwingPricingBinding pricing)
     {
         RequirePricing(pricing, SwingUnitResources.Policy);
         _ = SwingFeasibility.Resolve(right, ExactQuantity.FromQuantity(instrument.UnitQuantity), [], right.Days.IsDefaultOrEmpty ? default : right.Days[0]?.ExerciseAt ?? default);
         if (right.Ordinal != 0 || right.PhysicalSlot >= instrument.Members.Length ||
             right.QuantityPolicy != (instrument.Members[right.PhysicalSlot].QuantityPolicy is null
-                ? SwingQuantityRight.Elected : SwingRight.ElectedDeliveryQuantity))
+                ? SwingQuantityRight.Elected : SwingQuantityRight.ElectedDeliveryQuantity))
             throw SwingFeasibility.InvalidRight("The elected quantity selection must agree with the retained physical source policy.");
         RequireCoverage(instrument, right.PhysicalSlot, right.Slots, right.Days, right.LeadHours);
     }
@@ -68,7 +53,7 @@ internal static class GasSwingAdmission
             RequirePayment(instrument, calendar, members[slot].Program, clock);
     }
 
-    internal static void RequirePricing(SwingPricingBinding binding, string policy = SwingPricingBinding.SupportedNumericalPolicy)
+    internal static void RequirePricing(SwingPricingBinding binding, string policy)
     {
         if (binding is not { Right: 0 } || binding.Model != SwingPricingBinding.SupportedModel || binding.DayCount != OptionNumericalPolicies.ActualOver365FixedInstant ||
             binding.NumericalPolicy != policy || binding.MarksConvention != ExerciseMarks.HeldLogReturn)

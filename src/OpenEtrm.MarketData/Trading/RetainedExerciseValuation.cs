@@ -230,18 +230,6 @@ internal sealed class RetainedExerciseValuation
         foreach (var group in modeled) Boundary(group.ExerciseAt);
         foreach (var payment in held.KnownPayments(snapshot)) Boundary(payment.PaidAt);
         var swingMarks = ImmutableArray.CreateBuilder<(CurveKey Curve, DateOnly Month)>();
-        foreach (var right in instrument.SwingRights)
-        {
-            var swing = new RetainedSwingValuation(right, held, snapshot.ValuationAt);
-            var curve = swing.PointCurve(instrument);
-            foreach (var day in swing.Pending)
-            {
-                Boundary(day.ExerciseAt);
-                if (swing.RequiresMarks) swingMarks.Add((curve, new(day.Day.Year, day.Day.Month, 1)));
-            }
-            foreach (var election in held.SwingElections) Boundary(election.EffectiveAt);
-            if (held.NextSwingElectionEffectiveAt is {} transition) Boundary(transition);
-        }
         if (instrument.QuantityRight is {} terms)
         {
             var swing = new RetainedSwingQuantityValuation(terms, held, snapshot.ValuationAt);

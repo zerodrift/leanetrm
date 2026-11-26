@@ -8,7 +8,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 
-from check_gas_swing_numerics import ROOT, TOLERANCE, analytic, distribution
+from gas_swing_reference import ROOT, TOLERANCE, analytic, distribution
 
 ATOM = D('1e-18')
 

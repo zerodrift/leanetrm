@@ -38,9 +38,12 @@ internal static class TicketDescriptionChecks
         });
         Check("one swing section declares the editable contract without duplicate physical placeholders",()=>{
             var fields=GasTicket.Description.RepeatableTerms!.Value.Single(t=>t.Id=="swingRights").Fields;
-            if(!fields.Select(f=>f.Id).SequenceEqual(["swing_side","swing_entries","swing_holder","swing_increment",
-                "swing_daily_min","swing_daily_max","swing_total_min","swing_total_max","swing_lead_hours","swing_quantity_policy","swing_model","swing_numerical_policy"])||
-                fields.Any(f=>!f.Required||f.State!="editable")||GasTicket.SideKind("physical").Fields.Any(f=>fields.Any(s=>s.Id==f.Id)))
+            var optional=new[]{"swing_total_min","swing_total_max","swing_total_basis","swing_change_count","swing_count_rule"};
+            if(!fields.Select(f=>f.Id).SequenceEqual(["swing_side","swing_entries","swing_holder","swing_planning_step",
+                "swing_daily_min","swing_daily_max","swing_limit_period","swing_total_min","swing_total_max","swing_total_basis",
+                "swing_change_count","swing_count_rule","swing_plan_rule","swing_deadline_rule","swing_lead_hours","swing_model","swing_numerical_policy"])||
+                fields.Any(f=>f.Required==optional.Contains(f.Id)||f.State!="editable")||
+                GasTicket.SideKind("physical").Fields.Any(f=>fields.Any(s=>s.Id==f.Id)))
                 throw new Exception("Missing or duplicate working swing fields.");
             foreach(var (side,field) in new[]{("physical","forecast_curve"),("floating","floating_forecast_curve")})
                 if(!GasTicket.Description.Sides.Single(s=>s.Kind==side).Fields.Single(f=>f.Id==field).RefreshOn.Contains("swing_side"))

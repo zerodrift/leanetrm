@@ -9,12 +9,16 @@ DO $guard$
 DECLARE predecessor record;p pg_proc;
 BEGIN
  FOR predecessor IN SELECT * FROM (VALUES
-  ('security.write_gas_composition(uuid,jsonb,timestamptz,boolean)','9fdf2dec9d3350bcfc7a0ad0fe68cdfa14f793f4d236ebe8da1ecafa3909936d'),
-  ('trading.require_gas_program_shape(uuid,uuid,integer,date,date,timestamptz,numeric,numeric,market_data.gas_valuation_assignments,ref_data.gas_delivery_conventions,timestamptz,jsonb,numeric,date[],timestamptz[])','dafd10b08d16657446764c27bd196a6b55099692675af9516bbbd537e6484a7b')
- )v(signature,digest) LOOP
+  ('security.write_gas_composition(uuid,jsonb,timestamptz,boolean)','1918e843d3f761ae794312ab0ce254df33ef0197aedd8004e1893454bc701098',false,1),
+  ('security.record_gas_cash_payment(uuid,jsonb,timestamptz)','13be11b88df674cdc4c978863457a9fa141298cccfb8dd2d7c9d1c57bacebd58',true,1),
+  ('security.gas_amendment_refusal(uuid,uuid,integer,uuid,timestamptz)','465aa7c77e98dd27ed8a897780b535a0b6dc12bae5b134638c4f991c56574faa',true,1),
+  ('trading.require_gas_program_shape(uuid,uuid,integer,date,date,timestamptz,numeric,numeric,market_data.gas_valuation_assignments,ref_data.gas_delivery_conventions,timestamptz,jsonb,numeric,date[],timestamptz[])','dafd10b08d16657446764c27bd196a6b55099692675af9516bbbd537e6484a7b',false,4)
+ )v(signature,digest,runtime,overloads) LOOP
   SELECT * INTO p FROM pg_proc WHERE oid=to_regprocedure(predecessor.signature);
   IF p.oid IS NULL OR encode(sha256(convert_to(pg_get_functiondef(p.oid),'UTF8')),'hex')<>predecessor.digest
-   OR p.proowner<>'openetrm_security_owner'::regrole OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner}'
+   OR p.proowner<>'openetrm_security_owner'::regrole OR p.proacl::text IS DISTINCT FROM
+     (CASE WHEN predecessor.runtime THEN '{openetrm_security_owner=X/openetrm_security_owner,openetrm_runtime=X/openetrm_security_owner}' ELSE '{openetrm_security_owner=X/openetrm_security_owner}' END)
+   OR (SELECT count(*) FROM pg_proc q WHERE(q.pronamespace,q.proname)=(p.pronamespace,p.proname))<>predecessor.overloads
    OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog','jit=off'] OR NOT p.prosecdef OR p.proisstrict OR p.proleakproof OR p.provolatile<>'v' OR p.proparallel<>'u'
   THEN RAISE EXCEPTION 'gas_swing_period_upgrade: unexpected helper %',predecessor.signature;END IF;
  END LOOP;
@@ -51,13 +55,91 @@ BEGIN
 END$function$ $wrapper$;
 END$shape$;
 
+DO $patch$
+DECLARE definition text=pg_get_functiondef('security.write_gas_composition(uuid,jsonb,timestamptz,boolean)'::regprocedure);c record;
+BEGIN
+ FOR c IN SELECT * FROM(VALUES
+ ($before$'exerciseRights','chargeSides','imbalanceCashouts'))$before$,$after$'exerciseRights','chargeSides','imbalanceCashouts','swingRights'))$after$),
+ ($before$ -- Equality is proved$before$,$after$ PERFORM trading.save_gas_swing(catalog,instrument,operation,body->'swingRights',valuation);
+ -- Equality is proved$after$),
+ ($before$   trading.gas_exercise_terms(catalog,instrument)=$before$,$after$   trading.gas_swing_terms(catalog,instrument)=trading.gas_swing_terms(catalog,amend_head.instrument_id) AND
+   trading.gas_exercise_terms(catalog,instrument)=$after$)
+ )v(before_text,after_text) LOOP
+  IF (length(definition)-length(replace(definition,c.before_text,'')))/length(c.before_text)<>1 THEN RAISE EXCEPTION 'gas_swing_upgrade: patch mismatch';END IF;
+  definition=replace(definition,c.before_text,c.after_text);
+ END LOOP;
+ EXECUTE definition;
+END$patch$;
+
 DO $writer$
 DECLARE definition text=pg_get_functiondef('security.write_gas_composition(uuid,jsonb,timestamptz,boolean)'::regprocedure);
  original text=$old$PERFORM trading.require_gas_program_shape(catalog,schedule,0,first_day,last_day,end_at,unit_total,NULL,a,d,start_at,item->'forecastCurve');$old$;
 BEGIN
  IF (length(definition)-length(replace(definition,original,'')))/length(original)<>1 THEN RAISE EXCEPTION 'gas_swing_period_upgrade: writer patch mismatch';END IF;
  EXECUTE replace(definition,original,$new$IF body->'swingRights'->0->>'side'=item->>'code' THEN
+    IF item->'forecastCurve' IS NOT NULL AND item->'forecastCurve'<>'null'::jsonb THEN RAISE EXCEPTION 'swing_model_scope';END IF;
     PERFORM trading.require_gas_program_shape(catalog,schedule,0,first_day,last_day,end_at,unit_total,NULL,a,d,start_at,item->'forecastCurve',1,NULL,NULL,item->>'code');
    ELSE $new$||original||' END IF;');
 END$writer$;
+-- New cash admission uses the same selected, certified commercial facts as the held valuation.
+-- The predecessor's two replay branches run before this check, preserving already admitted payment lineages.
+CREATE FUNCTION trading.require_gas_swing_payment(catalog uuid,trade uuid,binding uuid,slot_number integer,
+ allocations jsonb,paid timestamptz,as_of timestamptz) RETURNS void
+LANGUAGE plpgsql SECURITY INVOKER SET search_path=pg_catalog AS $$
+DECLARE right_no integer;cash_schedule uuid;caller security.request_contexts;facts jsonb;
+BEGIN
+ SELECT r.ordinal INTO right_no FROM trading.gas_swing_rights r
+ JOIN trading.gas_swing_members m USING(catalog_id,instrument_id,ordinal)
+ WHERE(r.catalog_id,r.instrument_id,m.slot)=(catalog,binding,slot_number);
+ IF NOT FOUND THEN RETURN;END IF;
+ SELECT schedule_id INTO STRICT cash_schedule FROM trading.instrument_side_schedules WHERE(catalog_id,instrument_id,slot)=(catalog,binding,slot_number);
+ SELECT * INTO STRICT caller FROM security.request_contexts WHERE backend_pid=pg_backend_pid() AND transaction_id=pg_current_xact_id_if_assigned()
+  AND runtime_login=session_user AND expires_at>clock_timestamp();
+ PERFORM security.use_market_context(catalog,security.resolve_operation_context(catalog,(as_of AT TIME ZONE 'UTC')::date,NULL));
+ PERFORM security.use_trading_context(catalog,as_of);
+ facts=security.read_gas_swing_elections(catalog,trade,binding);
+ IF EXISTS(SELECT FROM jsonb_array_elements(allocations) a WHERE NOT EXISTS(
+   SELECT FROM trading.side_schedule_rows cash JOIN trading.gas_swing_days d ON(d.catalog_id,d.instrument_id,d.ordinal)=(catalog,binding,right_no)
+     AND d.day>=cash.delivery_from AND d.day<cash.delivery_to
+   JOIN trading.side_schedule_grids g ON(g.catalog_id,g.schedule_id,g.ordinal)=(d.catalog_id,d.schedule_id,d.grid_ordinal)
+   JOIN jsonb_array_elements(facts->'elections') e ON(e->>'day')::date=d.day AND e->>'quantity' IS NOT NULL
+   WHERE(cash.catalog_id,cash.schedule_id,cash.operation,cash.payment_ordinal)=(catalog,cash_schedule,'output_guard',(a->>'occurrence')::integer)
+     AND g.origin+((g.selection[1]+g.lengths[1])*g.step_ticks/10)*interval '1 microsecond'<=paid))
+ THEN RAISE EXCEPTION 'gas_payment_occurrence';END IF;
+ PERFORM security.require_gas_swing_binding(catalog,trade,binding);
+ PERFORM settlement_data.require_futures_margin_preview(catalog,(facts->>'authorityUntil')::timestamptz);
+ UPDATE security.request_contexts SET market_catalog_id=caller.market_catalog_id,market_context_id=caller.market_context_id,
+  trading_as_of=caller.trading_as_of,trading_business_date=caller.trading_business_date,calendar_cut=caller.calendar_cut,read_sources=caller.read_sources
+  WHERE id=caller.id;
+END$$;
+ALTER FUNCTION trading.require_gas_swing_payment(uuid,uuid,uuid,integer,jsonb,timestamptz,timestamptz) OWNER TO openetrm_security_owner;
+REVOKE ALL ON FUNCTION trading.require_gas_swing_payment(uuid,uuid,uuid,integer,jsonb,timestamptz,timestamptz) FROM PUBLIC;
+
+DO $cash$
+DECLARE change record;definition text;
+BEGIN
+ FOR change IN SELECT * FROM (VALUES
+  ('security.record_gas_cash_payment(uuid,jsonb,timestamptz)',
+   ' IF(SELECT count(*) FROM trading.gas_cash_payments WHERE',
+   $new$ PERFORM trading.require_gas_swing_payment(catalog,trade,head.instrument_id,slot_number,body->'allocations',paid,as_of);
+$new$),
+  ('security.gas_amendment_refusal(uuid,uuid,integer,uuid,timestamptz)',
+   ' IF EXISTS(SELECT 1 FROM trading.instrument_side_schedules s JOIN trading.side_schedule_grids g',
+   $new$ IF EXISTS(SELECT FROM trading.gas_swing_elections e WHERE(e.catalog_id,e.trade_id)=(catalog,trade))
+ THEN RETURN 'gas_amendment_swing';END IF;
+$new$)
+ ) v(signature,anchor,addition) LOOP
+  definition=pg_get_functiondef(change.signature::regprocedure);
+  IF (length(definition)-length(replace(definition,change.anchor,'')))/length(change.anchor)<>1
+  THEN RAISE EXCEPTION 'gas_swing_period_upgrade: patch mismatch %',change.signature;END IF;
+  EXECUTE replace(definition,change.anchor,change.addition||change.anchor);
+ END LOOP;
+END$cash$;
+
+GRANT SELECT ON trading.gas_swing_rights,trading.gas_swing_members,trading.gas_swing_days,trading.gas_swing_pricing
+ TO openetrm_runtime,openetrm_risk_worker;
+GRANT EXECUTE ON FUNCTION trading.gas_swing_terms(uuid,uuid) TO openetrm_runtime,openetrm_risk_worker;
+GRANT EXECUTE ON FUNCTION security.gas_swing_write_until(uuid),security.require_gas_swing_receipt(uuid,uuid,timestamptz) TO openetrm_runtime;
+GRANT EXECUTE ON FUNCTION security.record_gas_swing_elections(uuid,jsonb,timestamptz) TO openetrm_runtime;
+GRANT EXECUTE ON FUNCTION security.require_gas_swing_binding(uuid,uuid,uuid),security.read_gas_swing_elections(uuid,uuid,uuid) TO openetrm_runtime,openetrm_risk_worker;
 COMMIT;

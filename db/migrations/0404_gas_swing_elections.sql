@@ -11,6 +11,7 @@ BEGIN
  SELECT * INTO p FROM pg_proc WHERE oid=to_regprocedure('security.require_gas_cashout_binding(uuid,uuid,uuid)');
  IF p.oid IS NULL OR encode(sha256(convert_to(pg_get_functiondef(p.oid),'UTF8')),'hex')<>'a583939d101832afcec6a06b5a4175a62c0c633cbecb75fa834c038be5acc138'
   OR p.proowner<>'openetrm_security_owner'::regrole OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner,openetrm_runtime=X/openetrm_security_owner,openetrm_risk_worker=X/openetrm_security_owner}'
+  OR (SELECT count(*) FROM pg_proc q WHERE(q.pronamespace,q.proname)=(p.pronamespace,p.proname))<>1
   OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog','jit=off'] OR NOT p.prosecdef OR p.proisstrict OR p.proleakproof OR p.provolatile<>'v' OR p.proparallel<>'u'
  THEN RAISE EXCEPTION 'gas_swing_election_upgrade: unexpected helper security.require_gas_cashout_binding(uuid,uuid,uuid)';END IF;
 END$guard$;
@@ -32,7 +33,7 @@ CREATE TRIGGER capture_inputs BEFORE INSERT ON trading.gas_swing_commands FOR EA
 CREATE TABLE trading.gas_swing_elections(
  catalog_id uuid NOT NULL, id uuid NOT NULL, trade_id uuid NOT NULL, instrument_id uuid NOT NULL, ordinal integer NOT NULL,
  day date NOT NULL, revision integer NOT NULL CHECK(revision BETWEEN 1 AND 1000), previous_id uuid,
- quantity numeric CHECK(quantity>=0), lots integer CHECK(lots>=0), exercising_party text NOT NULL CHECK(exercising_party IN('us','counterparty')),
+ quantity numeric CHECK(quantity>=0), exercising_party text NOT NULL CHECK(exercising_party IN('us','counterparty')),
  submitted_at ref_data.instant NOT NULL, effective_at ref_data.instant NOT NULL, evidence text NOT NULL CHECK(length(btrim(evidence)) BETWEEN 1 AND 500),
  operation_id uuid NOT NULL, publication_order integer NOT NULL,
  PRIMARY KEY(catalog_id,id), UNIQUE(catalog_id,trade_id,instrument_id,ordinal,day,revision),
@@ -45,7 +46,7 @@ CREATE TABLE trading.gas_swing_elections(
   DEFERRABLE INITIALLY DEFERRED,
  FOREIGN KEY(catalog_id,publication_order) REFERENCES trading.publications(catalog_id,publication_order),
  CHECK((revision=1)=(previous_id IS NULL) AND (previous_id IS NOT NULL OR quantity IS NOT NULL)
-  AND (quantity IS NULL)=(lots IS NULL) AND submitted_at<=effective_at)
+  AND submitted_at<=effective_at)
 );
 
 DO $access$
@@ -147,24 +148,40 @@ CREATE CONSTRAINT TRIGGER swing_replay_authority AFTER UPDATE OF swing_replay_op
 -- Validate the union of effective-time boundaries across all days. A revision
 -- replaces the prior quantity and occupied-day count. Simultaneous revisions
 -- enter the budget together. Withdrawal releases both, including a zero election.
-CREATE FUNCTION trading.require_gas_swing_completion(catalog uuid,trade uuid,r trading.gas_swing_rights,day_count integer)
+CREATE FUNCTION trading.require_gas_swing_completion(catalog uuid,trade uuid,r trading.gas_swing_rights,reference_quantity numeric)
 RETURNS void LANGUAGE plpgsql SECURITY INVOKER SET search_path=pg_catalog AS $$
+DECLARE minimum numeric=trading.gas_swing_absolute(r.daily_minimum,reference_quantity);
+ maximum numeric=trading.gas_swing_absolute(r.daily_maximum,reference_quantity);
+ lower_limit numeric=trading.gas_swing_absolute(r.total_minimum,reference_quantity);
+ upper_limit numeric=trading.gas_swing_absolute(r.total_maximum,reference_quantity);
+ failed_period date;
 BEGIN
- IF EXISTS(
-  WITH changes AS (
-   SELECT e.effective_at,coalesce(e.lots,0)-lag(coalesce(e.lots,0),1,0) OVER chain AS lot_change,
-    (e.lots IS NOT NULL)::int-lag((e.lots IS NOT NULL)::int,1,0) OVER chain AS day_change
-   FROM trading.gas_swing_elections e WHERE(e.catalog_id,e.trade_id,e.instrument_id,e.ordinal)=(catalog,trade,r.instrument_id,r.ordinal)
+  WITH calendar AS (
+   SELECT d.day,CASE WHEN r.limit_period='delivery_month' THEN date_trunc('month',d.day::timestamp)::date ELSE date '0001-01-01' END AS period
+   FROM trading.gas_swing_days d WHERE(d.catalog_id,d.instrument_id,d.ordinal)=(catalog,r.instrument_id,r.ordinal)
+  ), periods AS (SELECT period,count(*) AS size FROM calendar GROUP BY period),
+  changes AS (
+   SELECT d.period,e.effective_at,coalesce(e.quantity,0)-lag(coalesce(e.quantity,0),1,0) OVER chain AS amount,
+    (e.quantity IS NOT NULL)::int-lag((e.quantity IS NOT NULL)::int,1,0) OVER chain AS occupied,
+    coalesce(e.quantity<>reference_quantity,false)::int-lag(coalesce(e.quantity<>reference_quantity,false)::int,1,0) OVER chain AS changed
+   FROM trading.gas_swing_elections e JOIN calendar d USING(day)
+   WHERE(e.catalog_id,e.trade_id,e.instrument_id,e.ordinal)=(catalog,trade,r.instrument_id,r.ordinal)
    WINDOW chain AS (PARTITION BY day ORDER BY revision)
   ), boundaries AS (
-   SELECT effective_at,sum(lot_change) AS lots,sum(day_change) AS days FROM changes GROUP BY effective_at
+   SELECT period,effective_at,sum(amount) AS amount,sum(occupied) AS occupied,sum(changed) AS changed
+   FROM changes GROUP BY period,effective_at
   ), budgets AS (
-   SELECT sum(lots) OVER timeline AS committed,day_count-sum(days) OVER timeline AS undecided FROM boundaries
-   WINDOW timeline AS (ORDER BY effective_at)
+   SELECT period,size,sum(amount) OVER timeline AS elected,size-sum(occupied) OVER timeline AS open_days,
+    r.change_count-sum(changed) OVER timeline AS available
+   FROM boundaries JOIN periods USING(period) WINDOW timeline AS (PARTITION BY period ORDER BY effective_at)
   )
-  SELECT 1 FROM budgets WHERE greatest(r.total_minimum-committed,undecided*r.daily_minimum)>
-                              least(r.total_maximum-committed,undecided*r.daily_maximum)
- ) THEN RAISE EXCEPTION 'swing_feasibility';END IF;
+  SELECT period INTO failed_period FROM budgets WHERE available<0 OR
+   elected+open_days*reference_quantity-least(open_days,available)*(reference_quantity-minimum)>
+      upper_limit*CASE WHEN r.total_basis='per_day_v1' THEN size ELSE 1 END OR
+   elected+open_days*reference_quantity+least(open_days,available)*(maximum-reference_quantity)<
+      lower_limit*CASE WHEN r.total_basis='per_day_v1' THEN size ELSE 1 END
+  ORDER BY period LIMIT 1;
+ IF FOUND THEN RAISE EXCEPTION 'swing_feasibility' USING HINT=failed_period::text;END IF;
 END$$;
 
 CREATE FUNCTION security.record_gas_swing_elections(catalog uuid,body jsonb,as_of timestamptz) RETURNS jsonb
@@ -173,20 +190,21 @@ DECLARE
  trade uuid; binding uuid; selected_binding uuid; operation uuid; right_no integer; record_context uuid; caller security.request_contexts;
  head trading.gas_trade_revisions; command trading.gas_swing_commands; r trading.gas_swing_rights; prior trading.gas_swing_elections;
  day_count integer; reference_quantity numeric; expected_heads jsonb; item jsonb; gas_day date; deadline timestamptz;
- amount numeric; elected_lots numeric; submitted timestamptz; effective timestamptz; proof text; unchanged boolean;
+ amount numeric; submitted timestamptz; effective timestamptz; proof text; unchanged boolean; failed_field text; field_hint jsonb;
  until_at timestamptz=security.gas_swing_write_until(catalog);
  publication integer; receipt_rows jsonb[]='{}'; result jsonb;
  instant_pattern constant text='^[0-9]{4}-[0-9]{2}-[0-9]{2}T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]([.][0-9]{1,6})?(Z|[+]00:00)$';
 BEGIN
  IF security.current_write_context() IS NOT TRUE THEN RAISE EXCEPTION 'historical_read_only';END IF;
  IF trading.rec_keys(body,ARRAY['operationId','tradeId','instrumentId','expectedRevision','right','expectedHeads','elections']) IS NOT TRUE
-  OR as_of IS NULL OR NOT isfinite(as_of) OR pg_column_size(body)>131072
+  OR as_of IS NULL OR NOT isfinite(as_of)
   OR EXISTS(SELECT 1 FROM unnest(ARRAY['operationId','tradeId','instrumentId']) k WHERE jsonb_typeof(body->k)<>'string')
   OR jsonb_typeof(body->'expectedRevision')<>'number' OR body->>'expectedRevision' !~ '^[1-9][0-9]{0,2}$'
   OR jsonb_typeof(body->'right')<>'number' OR body->>'right' !~ '^(0|[1-9][0-9]{0,8})$'
-  OR jsonb_typeof(body->'elections')<>'array' OR jsonb_array_length(body->'elections') NOT BETWEEN 1 AND 31
-  OR jsonb_typeof(body->'expectedHeads')<>'array' OR jsonb_array_length(body->'expectedHeads')>31
+  OR jsonb_typeof(body->'elections')<>'array' OR jsonb_array_length(body->'elections') NOT BETWEEN 1 AND 1200
+  OR jsonb_typeof(body->'expectedHeads')<>'array' OR jsonb_array_length(body->'expectedHeads')>1200
  THEN RAISE EXCEPTION 'swing_election';END IF;
+ IF octet_length(convert_to(body::text,'UTF8'))>4194304 THEN RAISE EXCEPTION 'swing_payload' USING DETAIL='{"field":"elections"}';END IF;
  trade=(body->>'tradeId')::uuid;binding=(body->>'instrumentId')::uuid;operation=(body->>'operationId')::uuid;right_no=(body->>'right')::int;
  IF operation='00000000-0000-0000-0000-000000000000' THEN RAISE EXCEPTION 'swing_election';END IF;
 
@@ -237,22 +255,30 @@ BEGIN
  IF expected_heads IS DISTINCT FROM (SELECT jsonb_agg(jsonb_build_object('day',h->>'day','revisionId',(h->>'revisionId')::uuid) ORDER BY h->>'day') FROM jsonb_array_elements(body->'expectedHeads') h)
  THEN RAISE EXCEPTION 'swing_election_conflict';END IF;
  FOR item IN SELECT value FROM jsonb_array_elements(body->'elections') LOOP
-  IF trading.rec_keys(item,ARRAY['day','quantity','exercisingParty','submittedAt','effectiveAt','evidence']) IS NOT TRUE
-   OR jsonb_typeof(item->'day')<>'string' OR item->>'day' !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-   OR jsonb_typeof(item->'quantity') NOT IN('null','string') OR item->>'quantity' !~ '^(0|[1-9][0-9]{0,23})([.][0-9]{1,18})?$'
-   OR item->>'exercisingParty' IS DISTINCT FROM r.holder
-   OR jsonb_typeof(item->'submittedAt')<>'string' OR item->>'submittedAt' !~ instant_pattern
-   OR jsonb_typeof(item->'effectiveAt')<>'string' OR item->>'effectiveAt' !~ instant_pattern
-   OR jsonb_typeof(item->'evidence')<>'string' OR length(btrim(item->>'evidence')) NOT BETWEEN 1 AND 500
-   OR item->>'evidence' ~ U&'^[[:space:]\0085\00A0\1680\2000-\200A\2028\2029\202F\205F\3000]*$'
-  THEN RAISE EXCEPTION 'swing_election';END IF;
-  gas_day=(item->>'day')::date; amount=(item->>'quantity')::numeric; proof=btrim(item->>'evidence');
-  submitted=(item->>'submittedAt')::timestamptz;effective=(item->>'effectiveAt')::timestamptz;
-  SELECT d.exercise_at INTO deadline FROM trading.gas_swing_days d WHERE(d.catalog_id,d.instrument_id,d.ordinal,d.day)=(catalog,binding,right_no,gas_day);
-  elected_lots=div(amount*r.reference_lots,reference_quantity);
-  IF deadline IS NULL OR submitted<head.effective_at OR submitted>effective OR effective>deadline OR
-   mod(amount*r.reference_lots,reference_quantity)<>0 OR elected_lots NOT BETWEEN r.daily_minimum AND r.daily_maximum
-  THEN RAISE EXCEPTION 'swing_election';END IF;
+  failed_field=CASE
+   WHEN trading.rec_keys(item,ARRAY['day','quantity','exercisingParty','submittedAt','effectiveAt','evidence']) IS NOT TRUE THEN 'elections'
+   WHEN jsonb_typeof(item->'day')<>'string' OR item->>'day' !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+    OR NOT pg_input_is_valid(item->>'day','date') THEN 'day'
+   WHEN jsonb_typeof(item->'quantity') NOT IN('string','null') OR item->>'quantity' !~ '^(0|[1-9][0-9]{0,23})([.][0-9]{1,18})?$' THEN 'quantity'
+   WHEN item->>'exercisingParty' IS DISTINCT FROM r.holder THEN 'exercisingParty'
+   WHEN jsonb_typeof(item->'submittedAt')<>'string' OR item->>'submittedAt' !~ instant_pattern
+    OR NOT pg_input_is_valid(item->>'submittedAt','timestamptz') THEN 'submittedAt'
+   WHEN jsonb_typeof(item->'effectiveAt')<>'string' OR item->>'effectiveAt' !~ instant_pattern
+    OR NOT pg_input_is_valid(item->>'effectiveAt','timestamptz') THEN 'effectiveAt'
+   WHEN jsonb_typeof(item->'evidence')<>'string' OR length(btrim(item->>'evidence')) NOT BETWEEN 1 AND 500
+    OR item->>'evidence' ~ U&'^[[:space:]\0085\00A0\1680\2000-\200A\2028\2029\202F\205F\3000]*$' THEN 'evidence' END;
+  IF failed_field IS NULL THEN
+   gas_day=(item->>'day')::date; amount=(item->>'quantity')::numeric; proof=btrim(item->>'evidence');
+   submitted=(item->>'submittedAt')::timestamptz;effective=(item->>'effectiveAt')::timestamptz;
+   SELECT d.exercise_at INTO deadline FROM trading.gas_swing_days d WHERE(d.catalog_id,d.instrument_id,d.ordinal,d.day)=(catalog,binding,right_no,gas_day);
+   failed_field=CASE WHEN deadline IS NULL THEN 'day' WHEN submitted>effective OR effective>deadline THEN 'effectiveAt' WHEN amount*r.daily_minimum[2]<r.daily_minimum[1]*reference_quantity
+     OR amount*r.daily_maximum[2]>r.daily_maximum[1]*reference_quantity THEN 'quantity' END;
+  END IF;
+  IF failed_field IS NOT NULL THEN
+   field_hint=jsonb_build_object('field',failed_field,'row',(SELECT ord-1 FROM jsonb_array_elements(expected_heads) WITH ORDINALITY h(v,ord)
+    WHERE v->>'day'=item->>'day'));
+   RAISE EXCEPTION 'swing_election' USING HINT=field_hint::text,DETAIL=field_hint::text;
+  END IF;
   SELECT * INTO prior FROM trading.gas_swing_elections e WHERE(e.catalog_id,e.trade_id,e.instrument_id,e.ordinal,e.day)=(catalog,trade,binding,right_no,gas_day)
    AND (e.quantity,e.submitted_at,e.effective_at,e.evidence) IS NOT DISTINCT FROM(amount,submitted,effective,proof);
   unchanged=prior.id IS NOT NULL;
@@ -266,11 +292,11 @@ BEGIN
     INSERT INTO trading.publications VALUES(catalog,publication,pg_current_xact_id());
    END IF;
    INSERT INTO trading.gas_swing_elections VALUES(catalog,gen_random_uuid(),trade,binding,right_no,gas_day,coalesce(prior.revision,0)+1,
-    prior.id,amount,elected_lots::int,r.holder,submitted,effective,proof,operation,publication) RETURNING * INTO prior;
+    prior.id,amount,r.holder,submitted,effective,proof,operation,publication) RETURNING * INTO prior;
   END IF;
-  receipt_rows=array_append(receipt_rows,jsonb_build_object('day',gas_day,'revisionId',prior.id,'revision',prior.revision,'unchanged',unchanged));
+  receipt_rows=array_append(receipt_rows,jsonb_build_object('day',gas_day,'revisionId',prior.id,'revision',prior.revision,'quantity',trim_scale(prior.quantity)::text,'unchanged',unchanged));
  END LOOP;
- IF publication IS NOT NULL THEN PERFORM trading.require_gas_swing_completion(catalog,trade,r,day_count);END IF;
+ IF publication IS NOT NULL THEN PERFORM trading.require_gas_swing_completion(catalog,trade,r,reference_quantity);END IF;
  result=jsonb_build_object('tradeId',trade,'instrumentId',binding,'operationId',operation,'right',right_no,'elections',to_jsonb(receipt_rows));
  INSERT INTO trading.gas_swing_commands(catalog_id,operation_id,trade_id,trade_revision,instrument_id,ordinal,actor_id,authority_until,request,recording_as_of,outcome,context_id)
   VALUES(catalog,operation,trade,head.revision,binding,right_no,caller.actor_id,until_at,body,as_of,result,record_context);
@@ -319,13 +345,10 @@ ALTER FUNCTION security.gas_swing_write_until(uuid) OWNER TO openetrm_security_o
 ALTER FUNCTION security.require_gas_swing_receipt(uuid,uuid,timestamptz) OWNER TO openetrm_security_owner;
 ALTER FUNCTION trading.guard_gas_swing_commit() OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION security.gas_swing_write_until(uuid),security.require_gas_swing_receipt(uuid,uuid,timestamptz),trading.guard_gas_swing_commit() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION security.gas_swing_write_until(uuid),security.require_gas_swing_receipt(uuid,uuid,timestamptz) TO openetrm_runtime;
 ALTER FUNCTION security.require_gas_swing_binding(uuid,uuid,uuid) OWNER TO openetrm_security_owner;
-ALTER FUNCTION trading.require_gas_swing_completion(uuid,uuid,trading.gas_swing_rights,integer) OWNER TO openetrm_security_owner;
+ALTER FUNCTION trading.require_gas_swing_completion(uuid,uuid,trading.gas_swing_rights,numeric) OWNER TO openetrm_security_owner;
 ALTER FUNCTION security.record_gas_swing_elections(uuid,jsonb,timestamptz) OWNER TO openetrm_security_owner;
 ALTER FUNCTION security.read_gas_swing_elections(uuid,uuid,uuid) OWNER TO openetrm_security_owner;
-REVOKE ALL ON FUNCTION security.require_gas_swing_binding(uuid,uuid,uuid),trading.require_gas_swing_completion(uuid,uuid,trading.gas_swing_rights,integer),
+REVOKE ALL ON FUNCTION security.require_gas_swing_binding(uuid,uuid,uuid),trading.require_gas_swing_completion(uuid,uuid,trading.gas_swing_rights,numeric),
  security.record_gas_swing_elections(uuid,jsonb,timestamptz),security.read_gas_swing_elections(uuid,uuid,uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION security.record_gas_swing_elections(uuid,jsonb,timestamptz) TO openetrm_runtime;
-GRANT EXECUTE ON FUNCTION security.require_gas_swing_binding(uuid,uuid,uuid),security.read_gas_swing_elections(uuid,uuid,uuid) TO openetrm_runtime,openetrm_risk_worker;
 COMMIT;
