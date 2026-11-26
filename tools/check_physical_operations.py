@@ -74,3 +74,55 @@ def january_delivery_frame(workspace):
     frames=[f for f in workspace['frames'] if f['id'] in workspace['initialFrameIds'] and f['at'].startswith('2021-01-15T08:')]
     assert len(frames)==1,'Select one exact original January delivery scenario frame'
     return frames[0]['id']
+
+
+def mixed_directory_checks(client, query):
+    """A mixed book keeps every holding, but this delivery page lists only its native consumers."""
+    from preview_client import initial_frame
+    from preview_fixture import gas_purchase
+    context = dict(snapshotId=initial_frame(client.call('workspace'), '2020-12-18')['id'],
+                   convention='physical_gas_fixed_quantity_v4', knowledgeMode='current')
+    catalog = client.call('gas/catalog', context)
+    booked = []
+    for quantity in ('1234', '2345'):
+        command = gas_purchase(context, catalog)
+        command['physicalSides'][0]['quantity'] = quantity
+        booked.append(client.call('gas/composition/book', command))
+    request = dict(context={**context, 'convention':'trading_workspace_v1'},
+                   bookIds=[], portfolioIds=[], offset=0, limit=64)
+    all_facts = client.call('trading/positions', request)
+    assert all_facts['nextOffset'] is None
+    assert {'operating_right', 'rec_forward', 'heat_rate_call', 'gas_storage'} <= {
+        row['instrumentType'] for row in all_facts['positions']}
+    retained = {**request['context'], 'knowledgeMode':'retained', 'contextId':all_facts['context']['contextId']}
+    expected = [row for row in all_facts['positions'] if row['instrumentType'] in
+                ('physical_gas', 'physical_crude', 'physical_lng')]
+    assert {(row['tradeId'], row['bindingId']) for row in expected} == {
+        (row['tradeId'], row['instrumentId']) for row in booked}
+    rows, offset = [], 0
+    while True:
+        page = client.call('physical/operations/directory', {**request, 'context':retained, 'offset':offset, 'limit':1})
+        assert page['context'] == all_facts['context'] and page['asOf'] == all_facts['asOf']
+        assert page['total'] == len(expected) and len(page['positions']) == 1, page
+        rows.extend(page['positions'])
+        if page['nextOffset'] is None:
+            break
+        assert page['nextOffset'] == len(rows)
+        offset = page['nextOffset']
+    assert rows == expected, (rows, expected)
+    empty = client.call('physical/operations/directory', {**request, 'context':retained, 'offset':len(rows), 'limit':1})
+    assert empty['positions'] == [] and empty['total'] == len(rows) and empty['nextOffset'] is None
+    assert client.call('trading/positions', {**request, 'context':retained})['positions'] == all_facts['positions']
+    print('PASS physical directory: mixed-product Blotter preserved, exact delivery bindings, retained pagination and totals', flush=True)
+    # The delivery page must not consume authority for an unrelated product reader.
+    reader = 'security.read_gas_storage_positions(uuid,uuid[],uuid[],uuid[])'
+    assert query(f"SELECT has_function_privilege('openetrm_runtime','{reader}','EXECUTE');") == 't'
+    query(f'REVOKE EXECUTE ON FUNCTION {reader} FROM openetrm_runtime;')
+    try:
+        refused = client.call('trading/positions', {**request, 'context':retained}, expected=403)
+        assert refused['code'] == 'access_denied', refused
+        assert client.call('physical/operations/directory', {**request, 'context':retained})['positions'] == expected
+    finally:
+        query(f'GRANT EXECUTE ON FUNCTION {reader} TO openetrm_runtime;')
+    assert client.call('trading/positions', {**request, 'context':retained})['positions'] == all_facts['positions']
+    print('PASS physical directory: an unavailable storage reader refuses full positions without blocking native delivery', flush=True)
