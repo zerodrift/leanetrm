@@ -252,6 +252,8 @@ public sealed class PortfolioValue
     internal ImmutableArray<ImmutableArray<ExerciseGroupContribution>> PositionExerciseGroups { get; init; } = [];
     internal ImmutableArray<int> UnitUnassessedDays {get;init;}=[];
     internal ImmutableArray<int> PositionUnassessedDays {get;init;}=[];
+    internal ImmutableArray<MissingDayAssessment> MissingAssessments(int position) => PositionUnassessedDays[position] == 0 ? [] :
+        [..PositionEntries[position].SelectMany(entry => entry.MissingAssessments).Distinct()];
     public int UnassessedDays => PositionUnassessedDays.Sum();
     public bool Incomplete => UnassessedDays != 0;
     public int UnitValuations{get;}

@@ -109,7 +109,10 @@ public sealed record PhysicalLifecycleRow(int Slot,int Occurrence,DateOnly Deliv
         ..Unrealized is not null&&(Delivery!=DeliveryState.Ended||Settlement==SettlementState.Projected)?[LifecycleMeasure.Unrealized]:Array.Empty<LifecycleMeasure>(),
         ..Settlement is SettlementState.AccruedUnpaid or SettlementState.PartPaid or SettlementState.Overpaid?[LifecycleMeasure.RealizedUnsettled]:Array.Empty<LifecycleMeasure>()];
 }
-public sealed record ExpectedCashFlow(DateTimeOffset DueAt,ExactMoney Amount);
+public sealed record ExpectedCashFlow(DateTimeOffset DueAt,ExactMoney Amount)
+{
+    internal int UnassessedDays { get; init; }
+}
 public sealed record PhysicalLifecycleValue(ExactMoney Unrealized,ExactMoney RealizedUnsettled,ExactMoney Total,ImmutableArray<PhysicalLifecycleRow> Rows)
 {
     public int UnassessedDays => Unassessed(Rows).Count();
@@ -118,9 +121,24 @@ public sealed record PhysicalLifecycleValue(ExactMoney Unrealized,ExactMoney Rea
     internal static IEnumerable<(int SourceSlot, DateOnly Day)> Unassessed(IEnumerable<PhysicalLifecycleRow> rows) =>
         rows.SelectMany(row => row.MissingDays).Select(day => (day.SourceSlot, day.Day)).Distinct();
     // Undiscounted cash still expected, by due date. It is shown beside the measures and never added to them.
-    public ImmutableArray<ExpectedCashFlow> ExpectedCash=>[..Rows.Where(r=>r.DueAt is not null&&r.Expected is not null).GroupBy(r=>r.DueAt!.Value).OrderBy(g=>g.Key)
-        .Select(g=>new ExpectedCashFlow(g.Key,g.Select(r=>r.Expected!).Aggregate((a,b)=>a.Add(b))))
-        .Where(f=>f.Amount.CompareTo(ExactMoney.Parse("0",f.Amount.Currency))!=0)];
+    public ImmutableArray<ExpectedCashFlow> ExpectedCash
+    {
+        get
+        {
+            var flows = ImmutableArray.CreateBuilder<ExpectedCashFlow>();
+            foreach (var due in Rows.Where(r => r.DueAt is not null).GroupBy(r => r.DueAt!.Value).OrderBy(g => g.Key))
+            {
+                ExactMoney? subtotal = null;
+                foreach (var row in due)
+                    if (row.Expected is {} amount) subtotal = subtotal?.Add(amount) ?? amount;
+                if (subtotal is null) continue;
+                // A partial swing subtotal can be a known zero. Fully settled dates still leave the cash schedule.
+                if (subtotal.Ratio.Numerator.IsZero && !due.Any(r => !r.MissingSwingDays.IsEmpty)) continue;
+                flows.Add(new(due.Key, subtotal) { UnassessedDays = Unassessed(due).Count() });
+            }
+            return flows.ToImmutable();
+        }
+    }
 }
 
 // A member's evaluation and the map from its unscaled amounts to signed held amounts.
@@ -388,7 +406,7 @@ public static class PhysicalLifecycle
                     var settlement = !receipts.IsEmpty ? SettlementState.UnassessedPaid :
                         missingDays.IsEmpty ? SettlementState.Remaining : SettlementState.Unassessed;
                     rows.Add(new(slot, occurrence, from, to, deliveryState, settlement,
-                        null, retainedPaid, null, remaining, null, quantityBasis, valueAt, null, lastPaid)
+                        null, retainedPaid, null, remaining, null, quantityBasis, valueAt, elected ? amount : null, lastPaid)
                         { MissingSwingDays = missingDays, Receipts = receipts });
                     continue;
                 }

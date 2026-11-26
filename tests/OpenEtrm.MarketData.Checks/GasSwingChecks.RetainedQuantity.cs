@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using OpenEtrm.MarketData;
+using OpenEtrm.MarketData.Calculation;
 using OpenEtrm.MarketData.Gas;
 using OpenEtrm.MarketData.Options;
 using OpenEtrm.MarketData.Risk;
@@ -54,6 +55,18 @@ internal static partial class GasSwingChecks
         Require(ordinary.QuantitySwing!.Days[1].SelectedQuantity == f.Quantity("1050") &&
             PhysicalLifecycle.FromValuation(ordinary).Total == f.Money("15"),
             "An early January election remains an ordinary -315 even after another January deadline is missed.");
+        var ordinaryCash = PhysicalLifecycle.FromValuation(ordinary);
+        var futurePayment = ordinaryCash.Rows.Single(r => r.Slot == 1);
+        var inspection = ordinary.Sides[1].Value.InspectSchedule(instrument.Members[1].Program.Document.ScheduleManifest,
+            held.Quantity.Amount, R(-1), f.Market.Clock.Boundary).Read(0, 1).Rows.Single();
+        Require(futurePayment.Expected == f.Money("-3150") && futurePayment.Accrued is null && futurePayment.Outstanding is null &&
+            ordinaryCash.ExpectedCash.Single().Amount == f.Money("-3255") && ordinaryCash.ExpectedCash.Single().UnassessedDays == 1 && inspection.PresentValue == "-3150" &&
+            inspection.Lifecycle.UnavailableReason == "missing_election",
+            "Future elected consideration survives the missed day in expected cash and the held Side inspection.");
+        var zeroFuture = PhysicalLifecycle.FromValuation(f.Inspect(f.State([f.Elect(1,"0")]), at,
+            Expanded(f, terms with { Minimum = R(0) }, marks:marks)));
+        Require(zeroFuture.ExpectedCash.Length == 1 && zeroFuture.ExpectedCash[0].Amount == f.Money("0") &&
+            zeroFuture.ExpectedCash[0].UnassessedDays == 1, "An elected zero is a known cash subtotal on a partially assessed due date.");
         Refuse("exercise_marks", () => f.Inspect(held, at, Expanded(f, terms)));
         Require(result.UnassessedDays == 2 && PhysicalLifecycle.FromValuation(result).Rows.Single(r => r.Slot == 1).MissingDays.Length == 2,
             "A whole-term payment carries both unassessed January source days, counted once across all three entries.");
@@ -64,10 +77,22 @@ internal static partial class GasSwingChecks
         Require(paid.Settlement == SettlementState.PartPaid && paid.Accrued == f.Money("-3150") && paid.Outstanding == f.Money("-650"),
             "The elected ended day retains exact earned cash and its absolute payment alongside a missed second day.");
         var withdrawn = f.State(paid: [receipt]);
-        var vanished = PhysicalLifecycle.FromValuation(f.Inspect(withdrawn, end, instrument)).Rows.Single(r => r.Slot == 1);
+        var withdrawnValue = f.Inspect(withdrawn, end, instrument);
+        var withdrawnCash = PhysicalLifecycle.FromValuation(withdrawnValue);
+        var vanished = withdrawnCash.Rows.Single(r => r.Slot == 1);
+        var withdrawnInspection = withdrawnValue.Sides[1].Value.InspectSchedule(instrument.Members[1].Program.Document.ScheduleManifest,
+            held.Quantity.Amount, R(-1), f.Market.Clock.Boundary).Read(0, 1).Rows.Single();
+        Require(withdrawnCash.ExpectedCash.IsEmpty && withdrawnInspection.PresentValue is null && withdrawnInspection.Paid == "-2500",
+            "With no elected amount the old payment survives inspection without implying expected cash or a known PV.");
         Require(vanished.Settlement == SettlementState.UnassessedPaid && vanished.Receipts.Single() == receipt &&
             vanished.Paid == receipt.Amount && vanished.Accrued is null && vanished.Outstanding is null && vanished.Expected is null &&
             vanished.RealizedUnsettled is null, "A later known timely withdrawal preserves the paid lineage and leaves outstanding cash unknown.");
+        var futureWithReceipt = PhysicalLifecycle.FromValuation(f.Inspect(f.State([f.Elect(1,"1050")], paid:[receipt]), end, instrument))
+            .Rows.Single(r => r.Slot == 1);
+        Require(futureWithReceipt.Expected == f.Money("-3150") && futureWithReceipt.Unrealized == f.Money("-3150") &&
+            futureWithReceipt.Paid == receipt.Amount && futureWithReceipt.Receipts.Single() == receipt &&
+            futureWithReceipt.Accrued is null && futureWithReceipt.Outstanding is null && futureWithReceipt.RealizedUnsettled is null,
+            "An old receipt on withdrawn earnings cannot reduce the still-unearned elected future cash subtotal.");
         Refuse("payment_state", () => vanished.RequireSwingEarnedPayment(end));
         paid.RequireSwingEarnedPayment(end);
         var laterEnded = terms.Days[2].ExerciseAt;
@@ -241,8 +266,70 @@ internal static partial class GasSwingChecks
             value.MissingAssessments.Count(m=>m.Day==f.From.AddDays(1)) == 2 &&
             value.MissingAssessments.Where(m=>m.Day==f.From.AddDays(1)).Select(m=>m.Owner).ToHashSet().SetEquals(["swing_right","reported_balance"]),
             "D454 and swing share one missing source date while retaining both owners. Elected zero preserves the known overpayment.");
-        Require(Value("300",[fact]).UnassessedDays == 2 && Value(null,[]).UnassessedDays == 3,
-            "A reported balance cannot cure a missing election; a withdrawn last election is unassessed with its paid fact.");
+        var observed = Value("300", [fact]);
+        var sharedDay = f.From.AddDays(1);
+        Require(observed.UnassessedDays == 2 && Value(null,[]).UnassessedDays == 3 &&
+            observed.Rows.Single(r => r.Slot == 2 && r.DeliveryFrom == sharedDay).ReportedQuantity?.State == ReportedDayQuantity.Assessed &&
+            observed.MissingAssessments.Where(m => m.Day == sharedDay).Select(m => m.Owner).SequenceEqual(["swing_right"]),
+            "An assessed balance clears only its own reason on the missing commercial day.");
+
+        RetainedScenarioCoverage(f, instrument, terms, fact);
+    }
+
+    private static void RetainedScenarioCoverage(GasImbalanceLifecycleChecks.CashoutValuationFixture f,
+        RetainedGasInstrument instrument, SwingQuantityRight terms, SwingElection fact)
+    {
+        var held = f.State(instrument, f.Balances("300", null, null, null));
+        var riskState = new PhysicalCashState(held.TradeId, held.BindingId, held.Quantity, held.BookId, [], PhysicalCashState.Policy,
+            held.OwnerDays, balances: held.Balances, swingElections: [fact]);
+        var prepared = f.Prepare(instrument, riskState, 2, null, null).Risk;
+        var point = instrument.Assignments[3].Projection.Market;
+        var shock = new CurveShift(CurveShockCoordinate.MarketQuote, new ContractCurveTarget(point.Curve, point.Contract),
+            PriceUnit.FromQuote(f.Quote), ExactDecimal.Parse("0.10"), CurveShift.ParentAdditive);
+        var samples = new ConnectedRiskScenarioSet("synthetic_move", "1", ConnectedRiskScenarioSet.Independent,
+            [new("fourth_day", "Fourth gas day price increase", [shock])]);
+        var joint = RiskEngine.CalculateScenarios(prepared, samples, RiskEngine.ExactNumericalPolicy, detail: RiskDetail.Holdings)
+            .Scenarios.Single().Groups.Single();
+        var position = joint.Positions.Single();
+        MissingDayAssessment[] swing = [new(0, f.From.AddDays(1), "swing_right", 0, "missing_election"),
+            new(0, f.From.AddDays(2), "swing_right", 0, "missing_election")];
+        MissingDayAssessment[] balance = [new(0, f.From.AddDays(1), "reported_balance", 0, "statement_unavailable")];
+        void RequireOwners(int slot, ImmutableArray<MissingDayAssessment> missing)
+        {
+            var expected = slot < 2 ? swing : balance;
+            Require(missing.Length == expected.Length && missing.ToHashSet().SetEquals(expected),
+                "Each repriced entry retains precisely its missing dates, owner and reason.");
+        }
+        Require(joint.Totals.Single().UnassessedDays == 2 && position.BaseUnassessedDays == 2 && position.UnassessedDays == 2 && position.Incomplete &&
+            position.Values.Pnl == ExactMoney.Parse("1100", instrument.Currency),
+            "A priced fourth day changes the holding subtotal while its two missing source days are counted once.");
+        var missingAtHolding = swing.Concat(balance).ToHashSet();
+        Require(position.MissingAssessments.Length == 3 && position.BaseMissingAssessments.Length == 3 &&
+            missingAtHolding.SetEquals(position.MissingAssessments) && missingAtHolding.SetEquals(position.BaseMissingAssessments),
+            "Both holding snapshots retain the distinct swing and balance reasons sharing the second gas day.");
+        var bump = new ConnectedRiskBump(shock.Coordinate, shock.Target, shock.Unit, shock.Size, ConnectedRiskBump.Convention);
+        var symmetric = RiskEngine.CalculateExact(prepared, [bump], RiskEngine.ExactNumericalPolicy, detail: RiskDetail.Holdings)
+            .Groups.Single().Factors.Single().Positions.Single();
+        Require(symmetric.Entries.Length == 4 && symmetric.UnassessedDays == 2 && symmetric.Values.UpPnl == position.Values.Pnl,
+            "Finite and joint shocks agree on the holding subtotal and the finite result retains all four entries.");
+        foreach (var entry in symmetric.Entries)
+        {
+            RequireOwners(entry.Slot, entry.MissingAssessments);
+            RequireOwners(entry.Slot, entry.UpMissingAssessments);
+            RequireOwners(entry.Slot, entry.DownMissingAssessments);
+        }
+
+        var coupled = new RetainedGasInstrument(instrument.Id, instrument.Members, instrument.Assignments,
+            terms with { ChangeCount = 1, CountRule = SwingQuantityRight.DiffersFromBase }, Pricing with { NumericalPolicy = SwingUnitResources.Policy },
+            instrument.PriceLookups, marks:instrument.Marks);
+        var allMissing = f.State(coupled, f.Balances("0", null, null, null));
+        var allMissingRisk = f.Prepare(coupled, allMissing, 2, null, null).Risk;
+        var books = RiskEngine.CalculateScenarios(allMissingRisk, samples, RiskEngine.ExactNumericalPolicy, detail: RiskDetail.Books)
+            .Scenarios.Single().Groups.Single();
+        var book = books.Totals.Single();
+        Require(books.Positions.IsEmpty && book.Values.Value == ExactMoney.Parse("0", instrument.Currency) &&
+            book.Incomplete && book.UnassessedDays == 4 && book.BaseUnassessedDays == 4,
+            "An all-missing books-only scenario carries the incomplete marker directly on its zero subtotal.");
     }
 
     private static void RetainedEndpointAccounting(HeldFixture f, RetainedGasInstrument instrument)

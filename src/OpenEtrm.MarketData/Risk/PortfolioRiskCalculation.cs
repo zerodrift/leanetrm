@@ -89,7 +89,11 @@ public static partial class RiskEngine
     {
         if(!basis.Select(e=>e.Slot).SequenceEqual(up.Select(e=>e.Slot)) || !basis.Select(e=>e.Slot).SequenceEqual(down.Select(e=>e.Slot)))
             throw new MarketDataException("valuation_entries","Every scenario must retain the same ordered Instrument entries.");
-        return [..basis.Select((entry,n)=>new EntryRiskValues(entry.Slot,entry.Value,up[n].Value,down[n].Value){UnassessedDays=entry.UnassessedDays})];
+        return [..basis.Select((entry,n) => new EntryRiskValues(entry.Slot, entry.Value, up[n].Value, down[n].Value)
+        {
+            UnassessedDays = entry.UnassessedDays, MissingAssessments = entry.MissingAssessments,
+            UpMissingAssessments = up[n].MissingAssessments, DownMissingAssessments = down[n].MissingAssessments
+        })];
     }
     private static ImmutableArray<ExerciseGroupRiskValues> PairedExerciseGroups(ImmutableArray<ExerciseGroupContribution> basis,
         ImmutableArray<ExerciseGroupContribution> up, ImmutableArray<ExerciseGroupContribution> down)

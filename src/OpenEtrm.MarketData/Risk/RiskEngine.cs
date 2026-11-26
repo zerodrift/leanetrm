@@ -228,6 +228,9 @@ public sealed record ExerciseScenarioGroupValues(ImmutableArray<ExerciseGroupVal
 public sealed record ExerciseGroupRiskValues(ExerciseGroupKey Group, ExactMoney Base, ExactMoney Up, ExactMoney Down);
 public sealed record EntryRiskValues(int Slot,ExactMoney Base,ExactMoney Up,ExactMoney Down)
 {
+    internal ImmutableArray<MissingDayAssessment> MissingAssessments { get; init; } = [];
+    internal ImmutableArray<MissingDayAssessment> UpMissingAssessments { get; init; } = [];
+    internal ImmutableArray<MissingDayAssessment> DownMissingAssessments { get; init; } = [];
     public int UnassessedDays { get; init; }
     public bool Incomplete => UnassessedDays != 0;
 }

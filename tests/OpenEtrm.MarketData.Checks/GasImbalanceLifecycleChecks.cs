@@ -229,7 +229,7 @@ internal static class GasImbalanceLifecycleChecks
                     Enumerable.Range(0, 4).ToImmutableDictionary(n => From.AddDays(n), _ => balances.IsEmpty?ImmutableArray.Create(account):balances.Select(balance=>balance.AccountId).Distinct().ToImmutableArray()), balances,
                     transfer ? [From] : [])] : []);
         }
-        private (UnitValuationContext Unit, CurveBuild Market, PreparedConnectedPortfolioRisk Risk) Prepare(RetainedGasInstrument instrument, PhysicalCashState? state,
+        internal (UnitValuationContext Unit, CurveBuild Market, PreparedConnectedPortfolioRisk Risk) Prepare(RetainedGasInstrument instrument, PhysicalCashState? state,
             int endedDays, int? unpublished, (int Day, string Price)? priceOverride)
         {
             var at = Clock.Boundary(From.AddDays(endedDays)).AddHours(1);

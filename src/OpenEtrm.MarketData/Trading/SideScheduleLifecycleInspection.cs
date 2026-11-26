@@ -49,10 +49,11 @@ public static partial class SideScheduleInspection
    if (selected?.NoSelectedQuantity == true) shownQuantity = null;
    var shownAmount=row.ReportedQuantity is not null?row.Expected?.Add(row.Paid).ToExactString():Value(contribution.Amount,0,scale*(selected?.Fraction??one));
    if (selected?.NoSelectedQuantity == true) shownAmount = null;
-   var shownValue=row.Unrealized is {} unrealized&&row.RealizedUnsettled is {} unsettled?unrealized.Add(unsettled).ToExactString():null;
+   var shownValue = row.Unrealized;
+   if (cash && row.RealizedUnsettled is {} unsettled) shownValue = shownValue?.Add(unsettled) ?? unsettled;
    rows.Add(new($"{guard.Output.Ordinal}:0",guard.Output.Operation,state.Kind.ToString(),geometry.From,geometry.To,geometry.Start,geometry.End,
     guard.Output.ObservationFrom,guard.Output.ObservationTo,guard.Output.ValueAt,shownQuantity,Value(price.Column,price.Cell,one),
-    shownAmount,Value(discount.Column,discount.Cell,one),shownValue,side.Part?.QuantityBasis??row.QuantityBasis,prices,
+    shownAmount,Value(discount.Column,discount.Cell,one),shownValue?.ToExactString(),side.Part?.QuantityBasis??row.QuantityBasis,prices,
     new ScheduleInspectionLifecycle(row.Delivery.ToString(),due,row.Settlement?.ToString()??"NotApplicable",state.Class?.ToString(),measures,row.MissingSwingDays.IsEmpty ? null : string.Join(",",row.MissingSwingDays.Select(d=>d.Reason).Distinct())))
     {ExercisePeriods=side.ExerciseGroups.IsEmpty?default:side.Periods(row.DeliveryFrom,row.DeliveryTo),
      SourceQuantity=selected is null || selected.NoSelectedQuantity?null:ExactNumberText.Format(selected.Selected),SourceQuantityStates=selected?.Tags??default,PaymentTiming=RetainedTiming(guard.Output,state.Kind),QuantitySpecification=quantity.Column.Unit,Currency=contribution.Amount.Currency,QuoteMultiplier=price.Column.QuoteMultiplier,OperatingDate=geometry.OperatingDate,

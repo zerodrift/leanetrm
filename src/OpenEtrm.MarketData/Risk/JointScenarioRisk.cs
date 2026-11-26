@@ -17,10 +17,20 @@ public sealed record ConnectedRiskScenarioSet(string Id,string Version,string Co
     public const string Independent="independent_joint_absolute_curve_scenarios_v1";
 }
 public sealed record ExactScenarioValues(ExactMoney Base,ExactMoney Value,ExactMoney Pnl,ExactMoney Loss);
-public sealed record ScenarioBookValue(Guid BookId,ExactScenarioValues Values);
+public sealed record ScenarioBookValue(Guid BookId,ExactScenarioValues Values)
+{
+    internal int BaseUnassessedDays { get; init; }
+    internal int UnassessedDays { get; init; }
+    internal bool Incomplete => BaseUnassessedDays != 0 || UnassessedDays != 0;
+}
 public sealed record ScenarioPositionValue(Guid TradeId,Guid BindingId,Guid BookId,Guid ValuationId,ExactScenarioValues Values)
 {
     public AccountingOwnerKey Owner{get;init;}=new(AccountingOwnerKind.Trade,TradeId);
+    internal int BaseUnassessedDays { get; init; }
+    internal int UnassessedDays { get; init; }
+    internal bool Incomplete => BaseUnassessedDays != 0 || UnassessedDays != 0;
+    internal ImmutableArray<MissingDayAssessment> BaseMissingAssessments { get; init; } = [];
+    internal ImmutableArray<MissingDayAssessment> MissingAssessments { get; init; } = [];
     internal SwingQuantityRightValue? BaseQuantitySwing { get; init; }
     internal SwingQuantityRightValue? QuantitySwing { get; init; }
     public ImmutableArray<SwingRightValue> BaseSwingValues{get;init;}=[];
@@ -104,11 +114,25 @@ public static partial class RiskEngine
                 prepared.IntervalBasis?.BindConnected(valuation,prepared.Bindings,cancellation));
             market.RequireInputs(prepared.Contracts.SelectMany(g=>g));
             var values=calculation.Evaluate(market,cancellation);
-            var groups=prepared.Portfolios.Select((portfolio,n)=>new ConnectedScenarioGroupValue(n,
-                calculation.Bases[n].Totals.Select((b,i)=>new ScenarioBookValue(b.BookId,ScenarioValues(b.Value,values[n].Totals[i].Value))).ToImmutableArray(),
-                detail==RiskDetail.Books?[]:portfolio.Positions.Select((p,i)=>new ScenarioPositionValue(p.TradeId,p.BindingId,p.BookId,p.ValuationId,
-                    ScenarioValues(calculation.Bases[n].Positions[i],values[n].Positions[i])){Owner=p.Owner,BaseQuantitySwing=calculation.Bases[n].PositionQuantitySwings[i],QuantitySwing=values[n].PositionQuantitySwings[i],BaseSwingValues=calculation.Bases[n].PositionSwingValues[i],SwingValues=values[n].PositionSwingValues[i],BaseGroups=calculation.Bases[n].PositionGroupValues[i],Groups=values[n].PositionGroupValues[i]}).ToImmutableArray(),
-                values[n].UnitValuations,prepared.Contracts[n].Length-values[n].UnitValuations)).ToImmutableArray();
+            var groups = prepared.Portfolios.Select((portfolio, n) =>
+            {
+                var basis = calculation.Bases[n];
+                var shocked = values[n];
+                var books = basis.Totals.Select((book, i) =>
+                    new ScenarioBookValue(book.BookId, ScenarioValues(book.Value, shocked.Totals[i].Value))
+                        { BaseUnassessedDays = book.UnassessedDays, UnassessedDays = shocked.Totals[i].UnassessedDays });
+                ImmutableArray<ScenarioPositionValue> positions = detail == RiskDetail.Books ? [] :
+                    [..portfolio.Positions.Select((p, i) => new ScenarioPositionValue(p.TradeId, p.BindingId, p.BookId, p.ValuationId,
+                        ScenarioValues(basis.Positions[i], shocked.Positions[i]))
+                    {
+                        Owner = p.Owner, BaseUnassessedDays = basis.PositionUnassessedDays[i], UnassessedDays = shocked.PositionUnassessedDays[i],
+                        BaseMissingAssessments = basis.MissingAssessments(i), MissingAssessments = shocked.MissingAssessments(i),
+                        BaseQuantitySwing = basis.PositionQuantitySwings[i], QuantitySwing = shocked.PositionQuantitySwings[i],
+                        BaseSwingValues = basis.PositionSwingValues[i], SwingValues = shocked.PositionSwingValues[i],
+                        BaseGroups = basis.PositionGroupValues[i], Groups = shocked.PositionGroupValues[i]
+                    })];
+                return new ConnectedScenarioGroupValue(n, [..books], positions, shocked.UnitValuations, prepared.Contracts[n].Length - shocked.UnitValuations);
+            }).ToImmutableArray();
             var work=sample.Unchanged?default:scenario.Work;graph=AddGraphWork(graph,work);
             results.Add(new(sample.Id,Receipt(scenario),groups,work));
         }
