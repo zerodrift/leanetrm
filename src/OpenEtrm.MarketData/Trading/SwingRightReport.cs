@@ -7,9 +7,12 @@ public sealed record SwingForwardInput(CurveRequest Market, DateOnly From, DateO
 
 // Amounts are signed held currency. A missing subtotal has no assessable open decision.
 public sealed record SwingPlanComparison(string Model, string Scope, int PlannedDays, int UnassessedDays, ExactMoney Amount);
-public sealed record SwingQuantityDayValue(SwingDay Day, string State, SwingElection? Election,
+public sealed record SwingQuantityDayValue(SwingDay Day, string State, SwingElection? CommercialRevision,
     ExactQuantity? SelectedQuantity, ImmutableArray<DeliveryQuantityEvidence> Evidence, ExactQuantity? PlannedQuantity,
-    string? Forward, SwingUnitPayoffDay? UnitPayoff, ImmutableArray<HeldDeliveryRecord> OperationalRecords);
+    string? Forward, SwingUnitPayoffDay? UnitPayoff, ImmutableArray<HeldDeliveryRecord> OperationalRecords)
+{
+    public SwingElection? Election => CommercialRevision is { Quantity: not null } ? CommercialRevision : null;
+}
 public sealed record SwingQuantityRightValue(SwingQuantityRight Terms, ExactQuantity Reference, SwingPricingBinding Pricing,
     ImmutableArray<SwingPeriodBudget> Periods, ImmutableArray<SwingQuantityDayValue> Days,
     ImmutableArray<SwingVolatilityValue> Marks, DateTimeOffset? NextDeadline, string Scope, int ModeledDays, ExactMoney? Counted,
@@ -40,7 +43,7 @@ public sealed record SwingPeriodReport(DateOnly From,DateOnly Through,int Days,s
     }
 }
 public sealed record SwingDayReport(DateOnly Day,DateTimeOffset ExerciseAt,string State,string? ElectedQuantity,string? SelectedQuantity,
-    Guid? RevisionId,ImmutableArray<DeliveryQuantityEvidence> QuantityEvidence,ImmutableArray<SwingOperatingRecord> OperationalRecords,
+    Guid? RevisionId,string? CommercialEvidence,ImmutableArray<DeliveryQuantityEvidence> QuantityEvidence,ImmutableArray<SwingOperatingRecord> OperationalRecords,
     string? Forward,string? PhysicalPerUnit,string? FixedPerUnit,string? PlannedQuantity);
 public sealed record SwingOperatingRecord(string Kind,string Status,string Quantity,DeliveryQuantityEvidence Evidence);
 public sealed record SwingPlanReport(string Model,string Scope,int PlannedDays,int UnassessedDays,string Amount);
@@ -60,8 +63,8 @@ public sealed record SwingRightReport(int Right,int PhysicalSlot,ImmutableArray<
             [..value.Periods.Select(p=>SwingPeriodReport.FromBudget(p,value.Comparison is null?null:plan))],value.NextDeadline,value.Scope,
             value.ModeledDays,value.UnassessedDays,value.Counted?.ToExactString(),value.Comparison is {} c?
                 new(c.Model,c.Scope,c.PlannedDays,c.UnassessedDays,c.Amount.ToExactString()):null,value.Pricing,value.Marks,
-            [..value.Days.Select(d=>new SwingDayReport(d.Day.Day,d.Day.ExerciseAt,d.State,d.Election?.Quantity.ToExactString(),d.SelectedQuantity?.ToExactString(),
-                d.Election?.RevisionId,d.Evidence,[..d.OperationalRecords.Select(o=>new SwingOperatingRecord(o.Kind,o.Status,o.Quantity.ToExactString(),o.Evidence))],
+            [..value.Days.Select(d=>new SwingDayReport(d.Day.Day,d.Day.ExerciseAt,d.State,d.CommercialRevision?.Quantity?.ToExactString(),d.SelectedQuantity?.ToExactString(),
+                d.CommercialRevision?.RevisionId,d.CommercialRevision?.Evidence,d.Evidence,[..d.OperationalRecords.Select(o=>new SwingOperatingRecord(o.Kind,o.Status,o.Quantity.ToExactString(),o.Evidence))],
                 d.Forward,d.UnitPayoff is {} u?ExactNumberText.Format(u.PhysicalToUs):null,d.UnitPayoff is {} f?ExactNumberText.Format(f.FixedToUs):null,
                 d.PlannedQuantity?.ToExactString()))],value.Estimate,value.Work,value.ForwardInputs,value.KnownAt);
     }

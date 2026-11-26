@@ -54,7 +54,7 @@ internal sealed class RetainedSwingQuantityValuation
                 var selected = operating ? source.Selected : fact?.Quantity;
                 ImmutableArray<DeliveryQuantityEvidence> evidence = fact is null ? [] :
                     [new(PhysicalLifecycle.ElectedQuantity, fact.RevisionId, fact.Evidence), ..operating ? source.Evidence : []];
-                display.Add(new(day, state, fact, selected, evidence, null, null, null, source.OperationalRecords));
+                display.Add(new(day, state, decision.CommercialRevision, selected, evidence, null, null, null, source.OperationalRecords));
                 var actual = selected is null ? SignedRatio.Zero : new SignedRatio(selected.NumeratorValue, selected.DenominatorValue);
                 counted.Add(new(day.Day, period.Reference, actual, actual, operating ? source.Source : state, evidence)
                     { SwingSourceSlot = right.PhysicalSlot, SwingRight = right.Ordinal, SwingState = state });

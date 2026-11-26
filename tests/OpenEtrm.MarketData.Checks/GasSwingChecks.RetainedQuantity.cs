@@ -80,8 +80,13 @@ internal static partial class GasSwingChecks
         var paid = PhysicalLifecycle.FromValuation(f.Inspect(known, end, instrument)).Rows.Single(r => r.Slot == 1);
         Require(paid.Settlement == SettlementState.PartPaid && paid.Accrued == f.Money("-3150") && paid.Outstanding == f.Money("-650"),
             "The elected ended day retains exact earned cash and its absolute payment alongside a missed second day.");
-        var withdrawn = f.State(paid: [receipt]);
+        var withdrawal = f.Elect(0,"1050") with { Quantity=null, Evidence="Synthetic withdrawal after payment" };
+        var withdrawn = f.State([withdrawal], paid: [receipt]);
         var withdrawnValue = f.Inspect(withdrawn, end, instrument);
+        var dayReport = SwingRightReport.FromValue(withdrawnValue.QuantitySwing!).Days;
+        Require(dayReport[0].RevisionId==withdrawal.RevisionId && dayReport[0].CommercialEvidence==withdrawal.Evidence && dayReport[0].State==RetainedSwingQuantityValuation.Missing &&
+            dayReport[0].ElectedQuantity is null && dayReport[0].SelectedQuantity is null && dayReport[1].RevisionId is null,
+            "The selected withdrawal and never-elected day remain distinct at the same missing assessment.");
         var withdrawnCash = PhysicalLifecycle.FromValuation(withdrawnValue);
         var vanished = withdrawnCash.Rows.Single(r => r.Slot == 1);
         var withdrawnInspection = withdrawnValue.Sides[1].Value.InspectSchedule(instrument.Members[1].Program.Document.ScheduleManifest,

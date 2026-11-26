@@ -578,16 +578,20 @@ public sealed class GasCompositionStore(PreviewDatabase database)
  {if(body.TradeId is not null||body.ExpectedRevision is not null||body.BindingId is not null||body.Reason is not null||body.AmendmentPolicy is not null||body.PreviewTradeId is not null||body.PreviewContextId is not null)throw Invalid("Use the explicit gas amendment operation to amend a trade.");}
  // Books, amends or (inTerm) loads one composition as the profile's identity: staging, locking and publication are
  // idempotent by operation id (D238), so a retried operation receives its first outcome.
- internal async Task<JsonElement> Book(string profile,InputFrame frame,GasCompositionRequest body,bool inTerm,CancellationToken ct)
+ internal async Task<JsonElement> Book(string profile,InputFrame frame,GasCompositionRequest body,bool inTerm,CancellationToken ct,DateTimeOffset? sessionEnds=null)
  {
   if(body.PreviewTradeId is not null||body.PreviewContextId is not null)throw Invalid("A held preview is read-only and cannot book or amend a trade.");
   var retained=new RetainedScheduleStore(database);var permission=body.TradeId is null?"BookTrade":"AmendTrade";
+  GasSwingBookingFrame? admission=null;
   var terms=await database.WithIdentity(profile,permission,async(connection,ct)=>{
    var status=await gas.Status(connection,body.OperationId,ct);
-   return status.TryGetProperty("tradeId",out _)?null:await Prepare(connection,frame,body,inTerm,ct);
+   if(status.TryGetProperty("tradeId",out _))return null;
+   if(body.SwingRights is {Length:>0})admission=await GasSwingBookingFrame.Select(connection,database.Manifest.CatalogId,permission,
+       frame,JsonSerializer.Serialize(body,Json),sessionEnds,ct);
+   return await Prepare(connection,frame,body,inTerm,ct);
   },ct);
   if(terms is not null)await retained.Stage(profile,body.OperationId,body,permission,body.TradeId,body.ExpectedRevision,terms.Generate(ct),ct);
-  return await database.WithIdentity(profile,permission,async(connection,ct)=>{
+  return await database.WithGasBookingIdentity(profile,permission,admission,async(connection,ct)=>{
    if(terms is not null)await retained.Lock(connection,body.OperationId,ct);
    var result=await Save(connection,frame,body,inTerm,ct);
    if(terms is not null&&!(result.TryGetProperty("unchanged",out var unchanged)&&unchanged.GetBoolean()))await retained.Publish(connection,body.OperationId,ct);

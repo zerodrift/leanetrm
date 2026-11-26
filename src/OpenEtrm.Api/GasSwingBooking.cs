@@ -30,7 +30,7 @@ internal static class GasSwingBooking
         var source = matching[0];
         var selection = source.QuantityPolicy == GasDeliveryQuantityStore.Policy ? SwingQuantityRight.ElectedDeliveryQuantity : SwingQuantityRight.Elected;
         if (term.QuantityPolicy is not null && term.QuantityPolicy != selection)
-            throw Invalid("The swing selection must agree with its physical source quantity policy.");
+            throw new SwingTermFieldException("swing_right","quantityPolicy","The swing selection must agree with its physical source quantity policy.");
         var component = new GasSwingQuantityComponent(term.Side, term.Entries, Holder(term.Holder), Volume(term.DailyMinimum,"dailyMinimum"),
             Volume(term.DailyMaximum,"dailyMaximum"), Volume(term.PlanningStep,"planningStep"), term.LimitPeriod,
             term.TotalMinimum is {} low ? Volume(low,"totalMinimum") : null, term.TotalMaximum is {} high ? Volume(high,"totalMaximum") : null,

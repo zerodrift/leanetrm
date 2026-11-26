@@ -21,8 +21,36 @@ def booking_fields(client,query,manifest,base):
     from check_gas_pricing import staged_booking
     body=january(base)
     booked=client.call('gas/composition/book',body)
+    from check_gas_exercise import stage_gas_composition
+    native=dict(body,operationId=str(uuid4()))
+    def trades():
+        return int(query("SELECT count(*) FROM trading.trades"))
+    before=trades()
+    stage_gas_composition(query,manifest,booked['instrumentId'],native,'2020-12-18T10:00:00Z',refusal='swing_booking_frame')
+    assert trades()==before
+    receipt=stage_gas_composition(query,manifest,booked['instrumentId'],native,'2020-12-18T16:00:00Z')
+    assert receipt['tradeId'] and trades()==before+1
+    print('PASS native named-frame clock mismatch leaves trade count unchanged and a matching command publishes',flush=True)
+    session_frames(client,query,manifest,body,booked)
+    context={k:body[k] for k in ('snapshotId','convention','knowledgeMode')}
+    draft=client.call('tickets/trade',dict(context=context,tradeId=booked['tradeId'],bindingId=booked['instrumentId'],revision=1))['draft']
+    for field in ('swing_limit_period','swing_plan_rule','swing_deadline_rule','quantity_policy'):
+        invalid=deepcopy(draft)
+        if field=='quantity_policy':
+            next(side for side in invalid['sides'] if side['code']=='gas')['values'][field]='unsupported'
+        else:
+            invalid['swingRights'][0][field]='unsupported'
+        refusal=client.call('tickets/preview',dict(context=context,draft=invalid),expected=422)
+        assert (refusal.get('code'),refusal.get('field'))==('swing_right',field),refusal
+        if field=='quantity_policy':
+            assert refusal['side']=='gas' and refusal.get('termRow') is None,refusal
+        else:
+            assert (refusal['termSection'],refusal['termRow'])==('swingRights',0),refusal
     right=body['swingRights'][0]
     for edits,code,field in [
+        (dict(limitPeriod='unsupported'),'swing_right','limitPeriod'),(dict(planRule='unsupported'),'swing_right','planRule'),
+        (dict(deadlineRule='unsupported'),'swing_right','deadlineRule'),
+        (dict(quantityPolicy='swing_elected_delivery_quantity_v1'),'swing_right','quantityPolicy'),
         (dict(planningStep='0'),'swing_right','planningStep'),(dict(dailyMaximum='950'),'swing_right','dailyMaximum'),
         (dict(totalMinimum='985'),'swing_right','totalMaximum'),(dict(totalBasis=None),'swing_right','totalBasis'),
         (dict(changeCount=-1),'swing_right','changeCount'),(dict(countRule=None),'swing_right','countRule'),
@@ -33,7 +61,80 @@ def booking_fields(client,query,manifest,base):
         assert (refusal.get('code'),refusal.get('field'))==(code,field),(edits,refusal)
         staged_booking(query,manifest,body,invalid,code,fields=dict(field=field))
     assert booked['instrumentId']
-    print('PASS managed and native booking field coordinates for grid, stated width, count, basis, continuous cap and vastly oversized fan-out',flush=True)
+    print('PASS native/composition/ticket field coordinates for period, plan, deadline and source selection; grid, width, count, basis, cap and fan-out refusals',flush=True)
+
+
+def session_frames(client,query,manifest,body,booked):
+    import json
+    from check_booked_side_programs import runtime_query
+    from check_gas_exercise import stage_gas_composition
+    cat=manifest['catalogId']
+    from preview_client import PreviewClient,initial_frame
+    workspace=client.call('workspace')
+    frame=next(f for f in workspace['frames'] if f['id']==body['snapshotId'])
+    observation=next(o for o in workspace['observations'] if o['id'] in frame['observationIds'] and o['role']=='daily_settlement')
+    editor=PreviewClient(client.url);editor.bootstrap();editor.call('profile',dict(profile='editor'))
+    corrected=editor.call('corrections',dict(snapshotId=frame['id'],observationId=observation['id'],value=observation['value']))
+    working=client.call('select-observation',dict(snapshotId=frame['id'],observationId=corrected['observationId']))['frame']
+    assert working['at']==frame['at'] and working['id']!=frame['id']
+    command=dict(body,snapshotId=working['id'],operationId=str(uuid4()))
+    assert client.call('gas/composition/book',command)['tradeId']
+    native=dict(command,operationId=str(uuid4()))
+    actor=runtime_query(query,manifest,f"SELECT security.booking_actor('{cat}')->>'id';").splitlines()[-1]
+    def attest(token,lifetime=40,selected=native):
+        wire=json.dumps(selected).replace("'","''")
+        query(f"""SET SESSION AUTHORIZATION preview_authenticator;
+          SELECT security.attest_gas_swing_booking_frame('{token}','{actor}','{cat}','{wire}'::jsonb,
+            '{selected['snapshotId']}','{working['at']}',clock_timestamp()+interval '{lifetime} seconds')""")
+    signature='security.attest_gas_swing_booking_frame(uuid,uuid,uuid,jsonb,uuid,timestamptz,timestamptz)'
+    assert query(f"SELECT NOT has_function_privilege('preview_runtime','{signature}','EXECUTE') AND NOT has_table_privilege('preview_runtime','security.gas_swing_booking_frames','INSERT')")=='t'
+    before=query('SELECT count(*) FROM trading.trades')
+    durable=dict(body,operationId=str(uuid4()))
+    def expire_selected_close(token):
+        attest(token,lifetime=1,selected=durable)
+        query("SELECT pg_sleep(1)")
+        runtime_query(query,manifest,"SELECT true;",attest=attest)
+        # The original token still exists. Issuing another frame must retain its
+        # expired source bound rather than treating the recorded close as unbound.
+        assert query(f"""SELECT count(*) FROM security.gas_swing_booking_frames f JOIN security.request_contexts q ON q.id=f.request_id
+            WHERE q.id='{token}' AND f.authority_until<=clock_timestamp() AND q.expires_at>clock_timestamp()""")=='1', 'lost original source deadline'
+    stage_gas_composition(query,manifest,booked['instrumentId'],durable,frame['at'],refusal='42501',attest=expire_selected_close)
+    assert query('SELECT count(*) FROM trading.trades')==before
+    print('PASS issuing another frame retains the original expired recorded-close bound and denies fresh publication on its still-current token',flush=True)
+    for proposed,at,proof in [(native,working['at'],None),(native,'2020-12-18T10:00:00Z',attest),
+                              (dict(native,operationId=str(uuid4())),working['at'],attest),
+                              (dict(native,snapshotId=str(uuid4())),working['at'],attest)]:
+        stage_gas_composition(query,manifest,booked['instrumentId'],proposed,at,refusal='swing_booking_frame',attest=proof)
+    assert query('SELECT count(*) FROM trading.trades')==before
+    try:
+        stage_gas_composition(query,manifest,booked['instrumentId'],native,working['at'],
+            attest=lambda token:attest(token,lifetime=4),commit_delay=4)
+    except RuntimeError as error:
+        assert 'commit_gas_swing_booking_frame()' in str(error),error
+    else:
+        raise AssertionError('An expired frame admission committed.')
+    assert query('SELECT count(*) FROM trading.trades')==before
+    receipt=stage_gas_composition(query,manifest,booked['instrumentId'],native,working['at'],attest=attest)
+    wire=json.dumps(native).replace("'","''")
+    replay=runtime_query(query,manifest,f"SELECT security.book_gas_composition('{cat}','{wire}'::jsonb,'{working['at']}');")
+    assert json.loads(replay.splitlines()[-1])==receipt
+    stage_gas_composition(query,manifest,booked['instrumentId'],dict(native,operationId=str(uuid4())),working['at'],refusal='swing_booking_frame')
+    assert int(query('SELECT count(*) FROM trading.trades'))==int(before)+1
+    client.call('market/context',dict(effectiveOn='2020-12-18',mode='current',selection='latest_correction'))
+    try:
+        historical=initial_frame(client.call('workspace'),'2020-12-18')
+        assert historical['id']!=frame['id']
+        refused=client.call('gas/composition/book',dict(command,operationId=str(uuid4()),snapshotId=historical['id']),expected=422)
+        assert refused['code']=='historical_read_only'
+    finally:
+        client.call('market/current',{})
+    live=client.call('market/live',dict(snapshotId=frame['id'],policy='selected_facts_latest_committed_corrections_v1'))
+    try:
+        refused=client.call('gas/composition/book',dict(command,operationId=str(uuid4()),snapshotId=live['frame']['id']),expected=422)
+        assert refused['code']=='historical_read_only'
+    finally:
+        client.call('market/current',{})
+    print('PASS working frame HTTP/native booking, scope, replay, mismatched clock and expiry at commit; historical/live selections stay read-only',flush=True)
 
 
 def signed_parcel(client,query,manifest,context,base):

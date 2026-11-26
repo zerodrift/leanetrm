@@ -5,6 +5,8 @@ PUBLISHED = '1918e843d3f761ae794312ab0ce254df33ef0197aedd8004e1893454bc701098'
 
 
 def owner_only_prefix(query, prefix):
+    assert query("""SELECT to_regclass('security.gas_swing_booking_frames') IS NULL AND
+        to_regprocedure('security.attest_gas_swing_booking_frame(uuid,uuid,uuid,jsonb,uuid,timestamptz,timestamptz)') IS NULL""")=='t',prefix
     digest = query(f"SELECT encode(sha256(convert_to(pg_get_functiondef('{WRITER}'::regprocedure),'UTF8')),'hex')")
     exposed = query("""
         WITH callers AS (SELECT unnest(ARRAY['openetrm_runtime','openetrm_risk_worker']) AS role),

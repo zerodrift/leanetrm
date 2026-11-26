@@ -259,8 +259,16 @@ public sealed partial class PreviewDatabase : IAsyncDisposable
     }
 
     // A local context lasts leaseSeconds (at most 300); a hosted context lasts what its sign-in session issues.
-    public async Task<T> WithIdentity<T>(string profile, string? permission, Func<NpgsqlConnection, CancellationToken, Task<T>> operation, CancellationToken ct, Admission admission=Admission.Shared,
-        int leaseSeconds=60,string? hostedDigest=null)
+    public Task<T> WithIdentity<T>(string profile, string? permission, Func<NpgsqlConnection, CancellationToken, Task<T>> operation, CancellationToken ct, Admission admission=Admission.Shared,
+        int leaseSeconds=60,string? hostedDigest=null) =>
+        WithIdentity(profile,permission,operation,ct,admission,leaseSeconds,hostedDigest,null);
+
+    internal Task<T> WithGasBookingIdentity<T>(string profile,string permission,GasSwingBookingFrame? frame,
+        Func<NpgsqlConnection,CancellationToken,Task<T>> publish,CancellationToken ct) =>
+        WithIdentity(profile,permission,publish,ct,Admission.Shared,60,null,frame);
+
+    private async Task<T> WithIdentity<T>(string profile,string? permission,Func<NpgsqlConnection,CancellationToken,Task<T>> operation,
+        CancellationToken ct,Admission admission,int leaseSeconds,string? hostedDigest,GasSwingBookingFrame? frame)
     {
         if(authenticator is null)throw new InvalidOperationException("This direct reader has no identity-issuing capability.");
         if (string.IsNullOrWhiteSpace(profile) || profile.Length>48) throw new PreviewDeniedException();
@@ -274,6 +282,7 @@ public sealed partial class PreviewDatabase : IAsyncDisposable
         // A hosted request whose sign-in session was revoked or ended since it was authenticated (docs/ai-assistant.md §11).
         try { token = (Guid)(await issue.ExecuteScalarAsync(ct) ?? throw new PreviewDeniedException()); }
         catch (PostgresException e) when (hostedSession is not null && e.SqlState == "42501") { throw new PreviewSessionEnded(); }
+        if(frame is not null)await frame.Attest(issuer,token,Manifest.CatalogId,ct);
         return await Bound(source, token, hostedSession is not null, invocation?.ReadLimit, admission switch{Admission.Administration=>"SELECT security.use_administration_context($1)",
             Admission.Agents=>"SELECT assistant.use_agent_admission($1)",Admission.Grants=>"SELECT assistant.use_grant_admission($1)",
             Admission.OperatingAgents=>"SELECT security.use_operating_policy_context($1,'ManageAgents')",

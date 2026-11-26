@@ -36,7 +36,10 @@ public sealed record SwingQuantityRight(
     internal SignedRatio IndexOf(SignedRatio aboveMinimum) => aboveMinimum * new SignedRatio(Step.Denominator, Step.Numerator);
 }
 
-public sealed record SwingQuantityDay(SwingDay Day, SwingElection? Election, SignedRatio? QuantityRatio);
+public sealed record SwingQuantityDay(SwingDay Day, SwingElection? CommercialRevision, SignedRatio? QuantityRatio)
+{
+    public SwingElection? Election => CommercialRevision is { Quantity: not null } ? CommercialRevision : null;
+}
 
 public sealed record SwingPeriodBudget(SwingQuantityRight Right, ImmutableArray<SwingQuantityDay> Days,
     DateTimeOffset AssessmentAt, SignedRatio Reference, SignedRatio? AppliedLower, SignedRatio? AppliedUpper, SignedRatio Elected,
@@ -59,7 +62,7 @@ public static partial class SwingFeasibility
         RequireQuantityTerms(right);
         var facts = SelectElections(right.Ordinal, right.Holder, right.Days, reference, elections, assessmentAt, quantity =>
         {
-            if (quantity is null || quantity.Specification != reference.Specification)
+            if (quantity.Specification != reference.Specification)
                 throw InvalidElection("Supply the swing election in its retained native unit.");
             var ratio = new SignedRatio(quantity.NumeratorValue, quantity.DenominatorValue) *
                 new SignedRatio(reference.DenominatorValue, reference.NumeratorValue);
@@ -69,7 +72,7 @@ public static partial class SwingFeasibility
         });
         var periods = right.Days.GroupBy(d => right.Period == SwingQuantityRight.Term ? 0 : d.Day.Year * 12 + d.Day.Month);
         return [..periods.Select(period => ResolvePeriod(right, [..period.Select(day => facts.TryGetValue(day.Day, out var fact)
-            ? new SwingQuantityDay(day, fact.Election, fact.Quantity) : new(day, null, null))], assessmentAt, new(reference.NumeratorValue, reference.DenominatorValue)))];
+            ? new SwingQuantityDay(day, fact.Revision, fact.Quantity) : new(day, null, null))], assessmentAt, new(reference.NumeratorValue, reference.DenominatorValue)))];
     }
 
     private static SwingPeriodBudget ResolvePeriod(SwingQuantityRight right, ImmutableArray<SwingQuantityDay> days, DateTimeOffset at, SignedRatio reference)

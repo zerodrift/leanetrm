@@ -265,7 +265,10 @@ test('a swing right renders one remaining value, explicit zero and a read-only i
  for(const value of ['Elected · 0','75','election-a','schedule-b','Intrinsic','98.5','2026-12-01T02:00:00Z'])assert.ok(host.textContent.includes(value),value);
  const detail=all(host).find(n=>n.tagName==='DETAILS'&&n.textContent.includes('Intrinsic'));
  assert.ok(detail);assert.equal(controls(detail).length,0);
- const withdrawn={...day,electedQuantity:null,revisionId:null,quantityEvidence:[]};
+ const withdrawn={...day,state:'missing_election',selectedQuantity:null,electedQuantity:null,revisionId:'withdrawal-a',
+  commercialEvidence:'Synthetic withdrawal evidence',quantityEvidence:[]};
+ const retained=draw({swingRights:[{...swing,days:[withdrawn]}],quantityUnit:'MMBtu',currency:'USD'});
+ for(const value of ['Withdrawn','withdrawal-a','Synthetic withdrawal evidence','Missing election'])assert.ok(retained.textContent.includes(value),value);
  const action={allowed:false,reason:'Retained read',days:[{day:day.day,exerciseAt:day.exerciseAt,electedQuantity:null,
   effectiveRevision:'withdrawal-a',head:'future-head',evidence:'Synthetic withdrawal evidence'}],referenceQuantity:'200',dailyMinimum:'0',dailyMaximum:'200',
   planningStep:'25',periods:[{...period,elected:'75',remainingMinimum:'25',remainingMaximum:'425'}]};

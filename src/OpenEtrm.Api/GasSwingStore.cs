@@ -129,9 +129,9 @@ internal static class GasSwingStore
         var elections = ImmutableArray.CreateBuilder<SwingElection>();
         foreach (var row in result.GetProperty("elections").EnumerateArray())
         {
-            if (row.OptionalText("quantity") is not {} amount) continue;
             var ordinal = row.GetProperty("right").GetInt32();
-            var quantity = ExactQuantity.FromQuantity(new(ExactDecimal.Parse(amount), held.SwingQuantityUnit(ordinal)));
+            var quantity = row.OptionalText("quantity") is {} amount
+                ? ExactQuantity.FromQuantity(new(ExactDecimal.Parse(amount), held.SwingQuantityUnit(ordinal))) : null;
             elections.Add(new(ordinal, DateWorkspace.Date(row.Text("day")), quantity, GasSwingBooking.Holder(row.Text("exercisingParty")),
                 row.GetProperty("submittedAt").GetDateTimeOffset(), row.GetProperty("effectiveAt").GetDateTimeOffset(),
                 row.Id("revisionId"), row.Text("evidence")));

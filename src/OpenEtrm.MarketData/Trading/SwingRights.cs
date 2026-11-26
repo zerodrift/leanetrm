@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using OpenEtrm.Shared.Numerics;
 
 namespace OpenEtrm.MarketData.Trading;
 
@@ -18,14 +19,14 @@ public sealed record SwingPricingBinding(
     public const string SupportedModel = "gas_swing_one_factor_lognormal_v1";
 }
 
-public sealed record SwingElection(int Right, DateOnly Day, ExactQuantity Quantity, ExerciseHolder ExercisingParty,
+public sealed record SwingElection(int Right, DateOnly Day, ExactQuantity? Quantity, ExerciseHolder ExercisingParty,
     DateTimeOffset SubmittedAt, DateTimeOffset EffectiveAt, Guid RevisionId, string Evidence);
 
 public static partial class SwingFeasibility
 {
-    private static Dictionary<DateOnly, (SwingElection Election, T Quantity)> SelectElections<T>(int ordinal,
+    private static Dictionary<DateOnly, (SwingElection Revision, SignedRatio? Quantity)> SelectElections(int ordinal,
         ExerciseHolder holder, ImmutableArray<SwingDay> days, ExactQuantity referenceDailyQuantity,
-        ImmutableArray<SwingElection> elections, DateTimeOffset valuationAt, Func<ExactQuantity, T> readQuantity)
+        ImmutableArray<SwingElection> elections, DateTimeOffset valuationAt, Func<ExactQuantity, SignedRatio> readQuantity)
     {
         if (referenceDailyQuantity is null || referenceDailyQuantity.NumeratorValue.Sign <= 0)
             throw InvalidRight("Swing needs a positive reference daily quantity.");
@@ -33,7 +34,7 @@ public static partial class SwingFeasibility
             throw InvalidElection("Supply the selected election facts and a supported valuation instant.");
 
         var calendar = days.ToDictionary(day => day.Day);
-        var selected = new Dictionary<DateOnly, (SwingElection, T)>();
+        var selected = new Dictionary<DateOnly, (SwingElection, SignedRatio?)>();
         var seen = new HashSet<DateOnly>();
         var revisions = new HashSet<Guid>();
         foreach (var election in elections)
@@ -45,7 +46,7 @@ public static partial class SwingFeasibility
                 election.RevisionId == Guid.Empty || string.IsNullOrWhiteSpace(election.Evidence))
                 throw InvalidElection("Each election requires its retained day, holder, timely submission and effectiveness, revision and evidence.");
 
-            var quantity = readQuantity(election.Quantity);
+            SignedRatio? quantity = election.Quantity is {} amount ? readQuantity(amount) : null;
             if (!revisions.Add(election.RevisionId) || !seen.Add(election.Day))
                 throw InvalidElection("Supply one distinct selected election revision for each elected swing day.");
             if (election.EffectiveAt <= valuationAt)

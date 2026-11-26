@@ -6,7 +6,7 @@ type SwingPeriod={from:string;through:string;days:number;limitPeriod:string;tota
  appliedLower:string|null;appliedUpper:string|null;remainingLower:string|null;remainingUpper:string|null;elected:string;changesUsed:number;
  remainingMinimum:string;remainingMaximum:string;missingDays:number;blockedDays:number;nextDeadline:string|null;planned:string|null;plannedChanges:number|null};
 export type SwingDay={day:string;exerciseAt:string;state:string;electedQuantity:string|null;selectedQuantity:string|null;
- revisionId:string|null;quantityEvidence:DeliveryQuantityEvidence[];operationalRecords:{kind:string;status:string;quantity:string;evidence:DeliveryQuantityEvidence}[];
+ revisionId:string|null;commercialEvidence:string|null;quantityEvidence:DeliveryQuantityEvidence[];operationalRecords:{kind:string;status:string;quantity:string;evidence:DeliveryQuantityEvidence}[];
  forward:string|null;physicalPerUnit:string|null;fixedPerUnit:string|null;plannedQuantity:string|null};
 export type SwingReport={knownAt:string;right:number;holder:string;referenceQuantity:string;planningStep:string;counted:string|null;scope:string;modeledDays:number;
  unassessedDays:number;comparison:{model:string;amount:string;plannedDays:number;unassessedDays:number}|null;
@@ -47,29 +47,26 @@ function budgets(periods:SwingPeriod[],unit:string,instant:(at:string)=>string){
    range(p.remainingMinimum,p.remainingMaximum),`${p.changesUsed} / ${p.changeCount??'unlimited'}${p.countRule?' · '+p.countRule:''}`,exact(p.planned),String(p.plannedChanges??'—'),
    `${p.missingDays} / ${p.blockedDays}`,p.nextDeadline?instant(p.nextDeadline):'—']),[2,3,4,5,6,7,8,9]);
 }
-export function swingDetails(right:SwingReport,unit:string,currency:string,instant:(at:string)=>string,knownAt?:string,contract?:SwingContract,action?:SwingAction){
+export function swingDetails(right:SwingReport,unit:string,currency:string,instant:(at:string)=>string,knownAt?:string,contract?:SwingContract){
  const section=el('section');section.className='ticket-swing-detail';
  const head=el('div');head.className='swing-heading';head.append(el('h3','Remaining swing right'),el('strong',`${exact(right.counted)} ${currency}`));section.append(head);
  const cutoff=right.knownAt??knownAt;
  if(cutoff)section.append(el('small',`Knowledge cutoff · ${instant(cutoff)}`));
  section.append(facts([['Reference daily quantity',`${exact(right.referenceQuantity)} ${unit}`],['Modeled days',String(right.modeledDays)],
   ['Unassessed days',String(right.unassessedDays)],['Next deadline',right.nextDeadline?instant(right.nextDeadline):'—']]),budgets(right.periods,unit,instant));
+ const assessment=(state:string)=>state==='missing_election'?'Missing election':state==='period_unassessed'?'Unassessed period':state==='undecided'?'Undecided · contingent':state==='elected'?'Elected':state;
  const commercial=(day:SwingDay)=>{
   if(day.electedQuantity!==null)return `Elected · ${exact(day.electedQuantity)}`;
-  if(action?.days.find(d=>d.day===day.day)?.effectiveRevision)return 'Withdrawn';
-  if(day.state==='missing_election')return 'Missing election';
-  if(day.state==='period_unassessed')return 'Unassessed period';
-  return 'Undecided · contingent';
+  if(day.revisionId)return 'Withdrawn';
+  return assessment(day.state);
  };
  const commercialEvidence=(d:SwingDay)=>{
-  const effective=action?.days.find(held=>held.day===d.day);
-  const revision=effective?.effectiveRevision??d.revisionId;
-  return [...new Set([revision,effective?.evidence,...d.quantityEvidence.filter(e=>e.revisionId===revision).map(e=>e.reference)].filter(Boolean))].join(' · ')||'—';
+  return [d.revisionId,d.commercialEvidence].filter(Boolean).join(' · ')||'—';
  };
- section.append(table('Daily elections and delivery', ['Gas day','Election deadline',`Commercial (${unit})`,`Selected (${unit})`,'Commercial evidence','Delivery evidence'],
+ section.append(table('Daily elections and delivery', ['Gas day','Election deadline',`Commercial (${unit})`,`Selected (${unit})`,'Commercial evidence','Delivery evidence','Assessment'],
   right.days.map(d=>[d.day,instant(d.exerciseAt),commercial(d),exact(d.selectedQuantity),
    commercialEvidence(d),
-   d.operationalRecords.map(o=>`${o.kind} · ${o.status} · ${exact(o.quantity)} · ${o.evidence.reference} · ${o.evidence.revisionId}`).join('\n')||'—']),[2,3]));
+   d.operationalRecords.map(o=>`${o.kind} · ${o.status} · ${exact(o.quantity)} · ${o.evidence.reference} · ${o.evidence.revisionId}`).join('\n')||'—',assessment(d.state)]),[2,3]));
  const drawer=el('details');drawer.className='swing-quant';drawer.append(el('summary','Quant details'));
  drawer.append(facts([['Model',right.pricing.model],['Price assumption','One common lognormal price factor'],['Day count',right.pricing.dayCount],
   ['Numerical grid',right.pricing.numericalPolicy],['Volatility convention',right.pricing.marksConvention],['Scenario','Base market · no scenario bump'],

@@ -55,11 +55,106 @@ BEGIN
 END$function$ $wrapper$;
 END$shape$;
 
+-- Session working frames are private API selections. Only the identity issuer can
+-- attach one to an unbound publication request. Direct native callers use the
+-- visible recorded close. Both paths retain their original deadline until commit.
+CREATE TABLE security.gas_swing_booking_frames(
+ request_id uuid NOT NULL REFERENCES security.request_contexts(id) ON DELETE CASCADE,
+ catalog_id uuid NOT NULL, operation_id uuid NOT NULL, command_hash bytea NOT NULL,
+ frame_id uuid NOT NULL, valuation_at timestamptz NOT NULL, authority_until timestamptz NOT NULL,
+ permission text NOT NULL CHECK(permission IN('BookTrade','AmendTrade')), admitted boolean NOT NULL DEFAULT false, PRIMARY KEY(request_id,operation_id)
+);
+CREATE UNIQUE INDEX gas_swing_issued_frame ON security.gas_swing_booking_frames(request_id) WHERE NOT admitted;
+ALTER TABLE security.gas_swing_booking_frames ENABLE ROW LEVEL SECURITY;
+ALTER TABLE security.gas_swing_booking_frames FORCE ROW LEVEL SECURITY;
+CREATE POLICY owner ON security.gas_swing_booking_frames TO openetrm_security_owner USING(true) WITH CHECK(true);
+GRANT SELECT,INSERT,UPDATE,DELETE ON security.gas_swing_booking_frames TO openetrm_security_owner;
+
+CREATE FUNCTION security.attest_gas_swing_booking_frame(token uuid,source_actor uuid,catalog uuid,body jsonb,frame uuid,at_instant timestamptz,until_at timestamptz)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+BEGIN
+ IF NOT pg_has_role(session_user,'openetrm_authenticator','MEMBER') OR pg_has_role(session_user,'openetrm_runtime','MEMBER')
+  OR pg_has_role(session_user,'openetrm_risk_worker','MEMBER') THEN RAISE insufficient_privilege;END IF;
+ -- Retain an expired source bound for as long as its publication token can
+ -- still bind. A recorded close could otherwise take the direct native path.
+ DELETE FROM security.gas_swing_booking_frames f WHERE(f.request_id,f.operation_id) IN (
+  SELECT prior.request_id,prior.operation_id FROM security.gas_swing_booking_frames prior
+  JOIN security.request_contexts q ON q.id=prior.request_id WHERE NOT prior.admitted AND q.expires_at<=clock_timestamp()
+  LIMIT 64 FOR UPDATE OF prior SKIP LOCKED);
+ INSERT INTO security.gas_swing_booking_frames(request_id,catalog_id,operation_id,command_hash,frame_id,valuation_at,authority_until,permission)
+ SELECT q.id,catalog,(body->>'operationId')::uuid,sha256(convert_to(body::text,'UTF8')),frame,at_instant,least(until_at,q.expires_at),
+  CASE WHEN body->>'tradeId' IS NULL THEN 'BookTrade' ELSE 'AmendTrade' END
+ FROM security.request_contexts q WHERE q.id=token AND q.actor_id=source_actor AND q.backend_pid IS NULL AND q.expires_at>clock_timestamp()
+  AND until_at>clock_timestamp() AND isfinite(until_at) AND isfinite(at_instant) AND (body->>'snapshotId')::uuid=frame;
+ IF NOT FOUND THEN RAISE insufficient_privilege;END IF;
+END$$;
+ALTER FUNCTION security.attest_gas_swing_booking_frame(uuid,uuid,uuid,jsonb,uuid,timestamptz,timestamptz) OWNER TO openetrm_security_owner;
+REVOKE ALL ON FUNCTION security.attest_gas_swing_booking_frame(uuid,uuid,uuid,jsonb,uuid,timestamptz,timestamptz) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION security.attest_gas_swing_booking_frame(uuid,uuid,uuid,jsonb,uuid,timestamptz,timestamptz) TO openetrm_authenticator;
+
+CREATE FUNCTION security.admit_gas_swing_booking_frame(token uuid,catalog uuid,body jsonb,claimed timestamptz,until_at timestamptz)
+RETURNS timestamptz LANGUAGE plpgsql SECURITY INVOKER SET search_path=pg_catalog AS $$
+DECLARE frame uuid=(body->>'snapshotId')::uuid;op uuid=(body->>'operationId')::uuid;
+ digest bytea=sha256(convert_to(body::text,'UTF8'));proof security.gas_swing_booking_frames;owned_at timestamptz;visible boolean;
+BEGIN
+ SELECT * INTO proof FROM security.gas_swing_booking_frames f WHERE f.request_id=token AND NOT f.admitted;
+ IF FOUND THEN
+  IF (proof.catalog_id,proof.operation_id,proof.frame_id,proof.command_hash) IS DISTINCT FROM (catalog,op,frame,digest)
+   THEN RAISE EXCEPTION 'swing_booking_frame';END IF;
+  until_at=least(proof.authority_until,until_at);
+ END IF;
+ SELECT c.at,security.market_close_visible(c.catalog_id,c.id) INTO owned_at,visible
+ FROM market_data.market_closes c WHERE (c.catalog_id,c.id)=(catalog,frame);
+ IF FOUND THEN
+  IF visible IS NOT TRUE OR proof.request_id IS NOT NULL AND proof.valuation_at IS DISTINCT FROM owned_at
+   THEN RAISE EXCEPTION 'swing_booking_frame';END IF;
+ ELSE
+  owned_at=proof.valuation_at;
+ END IF;
+ IF owned_at IS NULL OR owned_at IS DISTINCT FROM claimed THEN RAISE EXCEPTION 'swing_booking_frame';END IF;
+ IF until_at IS NULL OR clock_timestamp()>=until_at THEN RAISE insufficient_privilege;END IF;
+ IF proof.request_id IS NULL THEN
+  INSERT INTO security.gas_swing_booking_frames VALUES(token,catalog,op,digest,frame,owned_at,until_at,
+   CASE WHEN body->>'tradeId' IS NULL THEN 'BookTrade' ELSE 'AmendTrade' END,true);
+ ELSE
+  UPDATE security.gas_swing_booking_frames f SET admitted=true,authority_until=until_at WHERE(f.request_id,f.operation_id)=(token,op);
+ END IF;
+ RETURN owned_at;
+END$$;
+ALTER FUNCTION security.admit_gas_swing_booking_frame(uuid,uuid,jsonb,timestamptz,timestamptz) OWNER TO openetrm_security_owner;
+REVOKE ALL ON FUNCTION security.admit_gas_swing_booking_frame(uuid,uuid,jsonb,timestamptz,timestamptz) FROM PUBLIC;
+
+CREATE FUNCTION security.commit_gas_swing_booking_frame() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+BEGIN
+ IF security.trading_access(NEW.catalog_id,NEW.permission) IS NOT TRUE OR security.trading_access(NEW.catalog_id,'ReadTrades') IS NOT TRUE
+  OR security.market_access(NEW.catalog_id,'ReadMarketData') IS NOT TRUE OR NOT EXISTS(SELECT 1 FROM security.request_contexts q
+  WHERE q.id=NEW.request_id AND q.backend_pid=pg_backend_pid() AND q.transaction_id=pg_current_xact_id_if_assigned()
+  AND q.runtime_login=session_user AND q.expires_at>clock_timestamp()) OR clock_timestamp()>=NEW.authority_until
+ THEN RAISE insufficient_privilege;END IF;
+ DELETE FROM security.gas_swing_booking_frames f WHERE (f.request_id,f.operation_id)=(NEW.request_id,NEW.operation_id);
+ RETURN NULL;
+END$$;
+ALTER FUNCTION security.commit_gas_swing_booking_frame() OWNER TO openetrm_security_owner;
+REVOKE ALL ON FUNCTION security.commit_gas_swing_booking_frame() FROM PUBLIC;
+CREATE CONSTRAINT TRIGGER commit_frame AFTER INSERT OR UPDATE ON security.gas_swing_booking_frames DEFERRABLE INITIALLY DEFERRED
+ FOR EACH ROW WHEN (NEW.admitted) EXECUTE FUNCTION security.commit_gas_swing_booking_frame();
+
 DO $patch$
 DECLARE definition text=pg_get_functiondef('security.write_gas_composition(uuid,jsonb,timestamptz,boolean)'::regprocedure);c record;
 BEGIN
  FOR c IN SELECT * FROM(VALUES
  ($before$'exerciseRights','chargeSides','imbalanceCashouts'))$before$,$after$'exerciseRights','chargeSides','imbalanceCashouts','swingRights'))$after$),
+ ($before$DECLARE amending boolean=$before$,$after$DECLARE swing_until timestamptz;amending boolean=$after$),
+ ($before$ PERFORM pg_advisory_xact_lock(730849102);$before$,$after$ IF body->'swingRights'->0 IS NOT NULL THEN
+  swing_until=least(security.authority_until(permission),security.authority_until('ReadMarketData'),security.authority_until('ReadTrades'));
+ END IF;
+ PERFORM pg_advisory_xact_lock(730849102);$after$),
+ ($before$ IF amending THEN
+  IF body->>'amendmentPolicy'$before$,$after$ IF body->'swingRights'->0 IS NOT NULL THEN
+  valuation=security.admit_gas_swing_booking_frame(q.id,catalog,body,valuation,swing_until);
+ END IF;
+ IF amending THEN
+  IF body->>'amendmentPolicy'$after$),
  ($before$ -- Equality is proved$before$,$after$ PERFORM trading.save_gas_swing(catalog,instrument,operation,body->'swingRights',valuation);
  -- Equality is proved$after$),
  ($before$   trading.gas_exercise_terms(catalog,instrument)=$before$,$after$   trading.gas_swing_terms(catalog,instrument)=trading.gas_swing_terms(catalog,amend_head.instrument_id) AND

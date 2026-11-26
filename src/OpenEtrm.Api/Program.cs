@@ -99,6 +99,7 @@ const string malformed="The request is incomplete or malformed.";
         =>(p.SqlState=="42501"?403:p.MessageText.Contains("conflict",StringComparison.Ordinal)||p.MessageText.Contains("stale",StringComparison.Ordinal)?409:422,
             p.MessageText,GasStorageStore.Refusal(p.MessageText)),
     TicketFieldException {Code:"swing_payload"} => (413,"swing_payload","The election command exceeds 4 MiB."),
+    PostgresException p when p.MessageText=="swing_booking_frame" => (422,p.MessageText,"Select the owned booking frame and its exact valuation instant."),
     PostgresException p when p.MessageText=="swing_election_conflict" => (409,p.MessageText,"Reload the trade and the current revision for every swing day."),
     PostgresException p when p.MessageText=="swing_feasibility" => (422,p.MessageText,"The elections leave no feasible completion of the term quantity."),
     PostgresException p when p.MessageText=="swing_election" => (422,p.MessageText,"Select retained swing days, admissible quantities or withdrawals, the contractual holder and timely acceptance evidence."),
@@ -2557,7 +2558,7 @@ void RequireGasBooking(PreviewSession session,string? knowledgeMode,Guid? contex
 async Task<IResult> BookGasComposition(HttpContext c,PreviewSession session,GasCompositionRequest body)
 {
  RequireGasBooking(session,body.KnowledgeMode);
- return Results.Ok(await gasComposition.Book(Profile(session),Frame(session,body.SnapshotId),body,false,c.RequestAborted));
+ return Results.Ok(await gasComposition.Book(Profile(session),Frame(session,body.SnapshotId),body,false,c.RequestAborted,session.Ends));
 }
 
 // The deal ticket (docs/deal-ticket.md) runs the gas operations it delegates to, with their permissions and context handling.

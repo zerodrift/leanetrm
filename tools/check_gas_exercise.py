@@ -646,7 +646,7 @@ def amend_rights(query,manifest,saved,rights,at,*,swing_rights=None):
     return stage_gas_composition(query,manifest,inst,body,at)
 
 
-def stage_gas_composition(query,manifest,inst,body,at):
+def stage_gas_composition(query,manifest,inst,body,at,*,refusal=None,attest=None,commit_delay=0):
     """Book or amend through the public native staging and publication APIs."""
     from check_booked_side_programs import runtime_query
     cat=manifest['catalogId']
@@ -666,11 +666,18 @@ def stage_gas_composition(query,manifest,inst,body,at):
     command=literal(body)
     stage=''.join(f"SELECT security.begin_side_schedule('{cat}','{op}',{slot},{command},{admission},{literal(header)});"
                   for slot,header in enumerate(headers))
-    result=runtime_query(query,manifest,stage+f"""SELECT security.seal_side_schedule_request('{cat}','{op}','[]');
-      SELECT security.lock_side_schedule_request('{cat}','{op}');
-      WITH amended AS MATERIALIZED(SELECT security.{writer}('{cat}',{command},'{at}') result)
+    stage+=f"""SELECT security.seal_side_schedule_request('{cat}','{op}','[]');
+      SELECT security.lock_side_schedule_request('{cat}','{op}');"""
+    if refusal:
+        runtime_query(query,manifest,stage+f"""DO $test$ BEGIN
+          PERFORM security.{writer}('{cat}',{command},'{at}');
+          RAISE EXCEPTION 'expected native refusal';
+        EXCEPTION WHEN raise_exception OR insufficient_privilege THEN IF '{refusal}' NOT IN(SQLERRM,SQLSTATE) THEN RAISE;END IF;END$test$;""",commit=False,attest=attest)
+        return
+    wait=f"SELECT pg_sleep({commit_delay});" if commit_delay else ''
+    result=runtime_query(query,manifest,stage+f"""WITH amended AS MATERIALIZED(SELECT security.{writer}('{cat}',{command},'{at}') result)
       SELECT result FROM amended WHERE CASE WHEN (result->>'unchanged')::boolean THEN true
-       ELSE security.publish_operation_side_schedules('{cat}','{op}')=(result->>'instrumentId')::uuid END;""")
+       ELSE security.publish_operation_side_schedules('{cat}','{op}')=(result->>'instrumentId')::uuid END;"""+wait,attest=attest)
     return json.loads(result.splitlines()[-1])
 
 

@@ -247,6 +247,23 @@ def route_checks(c, query, manifest, context, template, run_worker):
             elections=[dict(day=DAYS[index],quantity=quantity,exercisingParty='us',submittedAt=AT,effectiveAt=effective,
                             evidence='Synthetic accepted swing order')]))['elections'][0]['revisionId']
 
+    previously_elected=elect(loss,0,'1000')
+    previous=pin(loss[1],context)
+    withdrawn=elect(loss,0,None)
+    selected=pin(loss[1],context)
+    report=routes(loss,selected,-450)
+    withdrawal_day=report['days'][0]
+    assert (withdrawal_day['revisionId'],withdrawal_day['commercialEvidence'],withdrawal_day['electedQuantity'],withdrawal_day['selectedQuantity'],withdrawal_day['state'])==(
+        withdrawn,'Synthetic accepted swing order',None,None,'undecided'),withdrawal_day
+    assert report['days'][1]['revisionId'] is None and report['days'][1]['commercialEvidence'] is None
+    assert routes(loss,previous,-450)['days'][0]['revisionId']==previously_elected
+    for lane in job(loss,selected,-450)['swingRights'].values():
+        assert lane[0]['days'][0]['revisionId']==withdrawn and lane[0]['days'][0]['commercialEvidence']==withdrawal_day['commercialEvidence']
+    ticket=c.call('tickets/trade',dict(context=selected,tradeId=loss[1]['tradeId'],bindingId=loss[1]['instrumentId'],revision=1))
+    assert ticket['swingRights'][0]['days'][0]==withdrawal_day
+    assert ticket['actions']['recordSwing']['days'][0]['effectiveRevision']==withdrawn
+    print('PASS selected commercial withdrawal and prior election on held preview, editor, schedules, positions, ticket and leased risk lanes',flush=True)
+
     initial = pin(gain[1],context)
     accepted = elect(gain,2,'1100')
     reserved = pin(gain[1],context)

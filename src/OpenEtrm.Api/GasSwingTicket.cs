@@ -95,14 +95,14 @@ internal static class GasSwingTicket
     internal static ImmutableArray<GasSwingRightRequest>? Request(TicketDraft draft)
     {
         if(draft.SwingRights is not {Length:>0} rows)return null;
-        TicketFieldException Invalid(string field,string message,int row=0)=>new("gas_composition_input",message,null,field){TermRow=row,TermSection=Section.Id};
+        TicketFieldException Invalid(string field,string message,int row=0)=>new("swing_right",message,null,field){TermRow=row,TermSection=Section.Id};
         if(rows.Length>1)throw Invalid("swing_side","Select at most one swing right.",1);
         var right=rows[0]??throw Invalid("swing_side","Select the swing source.");
         string Choice(string field,string? value)=>Choices(draft,field).Any(c=>c.Value==value)?value!:throw Invalid(field,"Select one of the offered choices.");
         var source=Choice("swing_side",right.Side);
         var owner=draft.Sides.Single(s=>s.Code==source);
         if(owner.Values.GetValueOrDefault("quantity_policy") is not ("contract" or GasDeliveryQuantityStore.Policy))
-            throw new TicketFieldException("gas_composition_input","Select the quantity governed by the swing right.",source,"quantity_policy");
+            throw new TicketFieldException("swing_right","Select the quantity governed by the swing right.",source,"quantity_policy");
         var followers=draft.Sides.Where(s=>s.Values.GetValueOrDefault(s.Kind+"_source")==source&&s.Kind is "cash" or "fee" or "floating").ToArray();
         var expected=followers.Select(s=>s.Code).Append(source).ToHashSet(StringComparer.Ordinal);
         if(right.Entries is not {} entries||entries.Length!=expected.Count||!expected.SetEquals(entries)||

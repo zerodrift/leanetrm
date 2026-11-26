@@ -242,14 +242,19 @@ BEGIN
  IF jsonb_typeof(rights)<>'array' THEN RAISE EXCEPTION 'swing_right';END IF;
  IF jsonb_array_length(rights)<>1 THEN RAISE EXCEPTION 'swing_right';END IF;
  term=rights->0;
- required_keys=ARRAY['side','entries','holder','planningStep','dailyMinimum','dailyMaximum','limitPeriod','planRule','deadlineRule','leadHours','pricing'];
- allowed_keys=required_keys||ARRAY['totalMinimum','totalMaximum','totalBasis','changeCount','countRule','quantityPolicy'];
+ required_keys=ARRAY['side','entries','holder','planningStep','dailyMinimum','dailyMaximum','leadHours','pricing'];
+ allowed_keys=required_keys||ARRAY['limitPeriod','planRule','deadlineRule','totalMinimum','totalMaximum','totalBasis','changeCount','countRule','quantityPolicy'];
  IF jsonb_typeof(term) IS DISTINCT FROM 'object' OR NOT(term ?& required_keys) OR term-allowed_keys<>'{}' OR
-  (term->>'holder' IN('us','counterparty') AND term->>'limitPeriod' IN('term','delivery_month')
-   AND term->>'planRule'='best_plan_on_forwards_v1' AND term->>'deadlineRule'='lead_before_first_gas_day_v1') IS NOT TRUE OR
+  (term->>'holder' IN('us','counterparty')) IS NOT TRUE OR
   jsonb_typeof(term->'entries') IS DISTINCT FROM 'array' OR jsonb_typeof(term->'leadHours') IS DISTINCT FROM 'number' OR
   (term->>'leadHours' ~ '^[0-9]{1,10}$') IS NOT TRUE
  THEN RAISE EXCEPTION 'swing_right';END IF;
+ IF (term->>'limitPeriod' IN('term','delivery_month')) IS NOT TRUE THEN
+  RAISE EXCEPTION 'swing_right' USING DETAIL='{"field":"limitPeriod"}';END IF;
+ IF term->>'planRule' IS DISTINCT FROM 'best_plan_on_forwards_v1' THEN
+  RAISE EXCEPTION 'swing_right' USING DETAIL='{"field":"planRule"}';END IF;
+ IF term->>'deadlineRule' IS DISTINCT FROM 'lead_before_first_gas_day_v1' THEN
+  RAISE EXCEPTION 'swing_right' USING DETAIL='{"field":"deadlineRule"}';END IF;
  lead=(term->>'leadHours')::integer;
  pricing=term->'pricing';
  IF pricing IS DISTINCT FROM '{"model":"gas_swing_one_factor_lognormal_v1","dayCount":"act_365_fixed_instant_v1","numericalPolicy":"swing_trinomial_6h_unit_reference_v2","marksConvention":"curve_marks_log_return_held_v1"}'::jsonb
@@ -276,7 +281,7 @@ BEGIN
  THEN RAISE EXCEPTION 'swing_model_scope';END IF;
  ref=source.independent_quantity;
  selection=CASE WHEN source.quantity_policy IS NULL THEN 'swing_elected_quantity_v1' ELSE 'swing_elected_delivery_quantity_v1' END;
- IF term->>'quantityPolicy' IS NOT NULL AND term->>'quantityPolicy'<>selection THEN RAISE EXCEPTION 'swing_right';END IF;
+ IF term->>'quantityPolicy' IS NOT NULL AND term->>'quantityPolicy'<>selection THEN RAISE EXCEPTION 'swing_right' USING DETAIL='{"field":"quantityPolicy"}';END IF;
  FOREACH key IN ARRAY ARRAY['planningStep','dailyMinimum','dailyMaximum','totalMinimum','totalMaximum'] LOOP
   IF key IN('totalMinimum','totalMaximum') AND term->>key IS NULL THEN CONTINUE;END IF;
   IF jsonb_typeof(term->key) IS DISTINCT FROM 'string' OR (term->>key ~ '^(0|[1-9][0-9]{0,23})([.][0-9]{1,18})?$') IS NOT TRUE
