@@ -47,6 +47,18 @@ public sealed record SwingPeriodBudget(SwingQuantityRight Right, ImmutableArray<
 {
     internal bool MissingCoupledPeriod => (Right.HasTotal || Right.ChangeCount.HasValue) &&
         Days.Any(d => d.Election is null && d.Day.ExerciseAt <= AssessmentAt);
+
+    public IEnumerable<(SwingQuantityDay Decision, string State)> AssessedDays()
+    {
+        var blocked = MissingCoupledPeriod;
+        foreach (var day in Days)
+        {
+            var state = day.Election is not null ? PhysicalLifecycle.ElectedQuantity :
+                day.Day.ExerciseAt <= AssessmentAt ? RetainedSwingQuantityValuation.Missing :
+                blocked ? RetainedSwingQuantityValuation.Blocked : RetainedSwingQuantityValuation.Undecided;
+            yield return (day, state);
+        }
+    }
 }
 
 public sealed class SwingTermFieldException(string code,string field,string message) : MarketDataException(code,message)

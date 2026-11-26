@@ -301,8 +301,10 @@ def run_checks(url, query, manifest, period_prior, run_worker, browse=None, *, c
         operationId=str(uuid4()),reason='Synthetic swing monthly inputs',curve='synthetic_swing_location',
         marks=[dict(month=m,volatility='0',expectedRevision=0) for m in ('2021-01','2021-02')]))
     assert client.call('gas/composition/preview',body)['presentValue']=='310'
-    from check_gas_swing_routes import reported_cash_checks
+    from check_gas_swing_routes import book_coverage_case, check_coverage_ticket, reported_cash_checks
     reported_cash_checks(client, query, manifest, context, outside_saved)
+    coverage,coverage_context=book_coverage_case(client,context,body)
+    check_coverage_ticket(client,coverage,coverage_context,priced=False)
     browser_failure=None
     if browse:
         # Zero is outside the mandatory contract's daily limits. Qualify it on its own optional right.
@@ -311,8 +313,12 @@ def run_checks(url, query, manifest, period_prior, run_worker, browse=None, *, c
         position = dict(context={**context,'snapshotId':january['id'],'convention':'trading_workspace_v1'},
             tradeId=outside_saved['tradeId'],bindingId=outside_saved['instrumentId'],revision=1,instrumentType='physical_gas')
         cashout_reference = client.call('trading/position',position)['holding']['tradeReference']
-        try:browse(dict(optionalTrade=optional,cashoutTrade={**outside_saved,'tradeReference':cashout_reference}))
+        try:browse(dict(optionalTrade=optional,coverageTrade=coverage,cashoutTrade={**outside_saved,'tradeReference':cashout_reference}))
         except Exception as error:browser_failure=error
+    writer.call('volatility-marks/record',dict(context=context,definitionRevisionId=body['definitionRevisionId'],
+        operationId=str(uuid4()),reason='Synthetic February coverage check',curve='synthetic_swing_long_location',
+        marks=[dict(month='2021-02',volatility='0',expectedRevision=0)]))
+    check_coverage_ticket(client,coverage,coverage_context,priced=True)
     long_transport(client,context,base,book_native)
     check_prefix(base)
     from check_gas_swing_routes import route_checks

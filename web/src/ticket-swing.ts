@@ -21,10 +21,11 @@ export type SwingAction={periodLabels:PeriodLabels;allowed:boolean;reason:string
  expectedRevision:number;readContextId:string|null;right:number;holder:string;planningStep:string;dailyMinimum:string;dailyMaximum:string;
  referenceQuantity:string;periods:SwingPeriod[];
  parties:TicketChoice[];decisions:TicketChoice[];
- days:{day:string;exerciseAt:string;head:string|null;electedQuantity:string|null;effectiveRevision:string|null;evidence:string|null}[]};
+ days:{day:string;exerciseAt:string;state:string;head:string|null;electedQuantity:string|null;effectiveRevision:string|null;evidence:string|null}[]};
 
 const el=<K extends keyof HTMLElementTagNameMap>(tag:K,text?:string)=>{const node=document.createElement(tag);if(text!==undefined)node.textContent=text;return node;};
 const exact=(value:string|null)=>value===null?'—':numberText(value);
+const assessment=(state:string)=>state==='missing_election'?'Missing election':state==='period_unassessed'?'Unassessed period':state==='undecided'?'Undecided · contingent':state==='elected'?'Elected':state;
 const range=(lo:string|null,hi:string|null)=>`${exact(lo)} – ${exact(hi)}`;
 function table(caption:string,labels:string[],rows:string[][],numeric:number[]=[]){
  const wrap=el('div'),grid=el('table'),head=el('thead'),titles=el('tr'),body=el('tbody');
@@ -60,7 +61,6 @@ export function swingDetails(right:SwingReport,unit:string,currency:string,insta
  }
  section.append(facts([['Reference daily quantity',`${exact(right.referenceQuantity)} ${unit}`],['Modeled days',String(right.modeledDays)],
   ['Unassessed days',String(right.unassessedDays)],['Next deadline',right.nextDeadline?instant(right.nextDeadline):'—']]),budgets(right.periods,unit,instant,contract?.periodLabels));
- const assessment=(state:string)=>state==='missing_election'?'Missing election':state==='period_unassessed'?'Unassessed period':state==='undecided'?'Undecided · contingent':state==='elected'?'Elected':state;
  const commercial=(day:SwingDay)=>{
   if(day.electedQuantity!==null)return `Elected · ${exact(day.electedQuantity)}`;
   if(day.revisionId)return 'Withdrawn';
@@ -130,6 +130,6 @@ export function swingRangeFields(selected:SwingAction,unit:string,field:<T exten
 function retainedElections(selected:SwingAction,unit:string,instant:(at:string)=>string){
  return [facts([['Reference daily quantity',`${exact(selected.referenceQuantity)} ${unit}`],['Daily limits',`${range(selected.dailyMinimum,selected.dailyMaximum)} ${unit}`],
   ['Planning step',`${exact(selected.planningStep)} ${unit}`]]),budgets(selected.periods,unit,instant,selected.periodLabels),
-  table('Retained election days',['Gas day','Deadline',`Elected (${unit})`,'Effective revision','Evidence','Latest known head'],selected.days.map(d=>[d.day,instant(d.exerciseAt),
-   d.electedQuantity!==null?`Elected · ${exact(d.electedQuantity)}`:d.effectiveRevision?'Withdrawn':'Undecided',d.effectiveRevision??'—',d.evidence??'—',d.head??'—']),[2])];
+  table('Retained election days',['Gas day','Deadline',`Commercial (${unit})`,'Effective revision','Evidence','Latest known head','Assessment'],selected.days.map(d=>[d.day,instant(d.exerciseAt),
+   d.electedQuantity!==null?`Elected · ${exact(d.electedQuantity)}`:d.effectiveRevision?'Withdrawn':'No election',d.effectiveRevision??'—',d.evidence??'—',d.head??'—',assessment(d.state)]),[2])];
 }

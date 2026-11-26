@@ -101,7 +101,7 @@ internal static class GasTicketChecks
                 new(2027,1,2),new(2027,1,3),"elect","0","us","2026-12-01T00:00:00Z","2026-12-01T06:00:00Z","synthetic instruction");
             var prior=Guid.NewGuid();
             var days=Enumerable.Range(1,3).Select(n=>new GasSwingActionDay(new(2027,1,n),new(2026,12,31,0,0,0,TimeSpan.Zero),
-                n==1?prior:null,null,null,null)).ToImmutableArray();
+                n==1?prior:null,null,null,null,"undecided")).ToImmutableArray();
             var action=new GasSwingAction(true,null,request.TradeId,request.InstrumentId,3,request.ReadContextId,0,"us","100","0","1000","1000",
                 [],days);
             foreach(var invalidEnd in new[]{default(DateOnly), new DateOnly(2027,1,1), new DateOnly(2027,2,1)})

@@ -277,7 +277,9 @@ test('a swing right renders one remaining value, explicit zero and a read-only i
  const retained=draw({swingRights:[{...swing,days:[withdrawn]}],quantityUnit:'MMBtu',currency:'USD'});
  for(const value of ['Withdrawn','withdrawal-a','Synthetic withdrawal evidence','Missing election'])assert.ok(retained.textContent.includes(value),value);
  const action={allowed:false,reason:'Retained read',days:[{day:day.day,exerciseAt:day.exerciseAt,electedQuantity:null,
-  effectiveRevision:'withdrawal-a',head:'future-head',evidence:'Synthetic withdrawal evidence'}],referenceQuantity:'200',dailyMinimum:'0',dailyMaximum:'200',
+  effectiveRevision:'withdrawal-a',head:'future-head',evidence:'Synthetic withdrawal evidence',state:'missing_election'},
+  {day:'2027-01-02',exerciseAt:'2027-01-01T18:00:00Z',effectiveRevision:null,head:null,electedQuantity:null,evidence:null,state:'period_unassessed'},
+  {day:'2027-02-01',exerciseAt:'2027-01-31T18:00:00Z',effectiveRevision:null,head:null,electedQuantity:null,evidence:null,state:'undecided'}],referenceQuantity:'200',dailyMinimum:'0',dailyMaximum:'200',
   planningStep:'25',periods:[{...period,elected:'75',remainingMinimum:'25',remainingMaximum:'425'}]};
  const contract={source:'receipt',referenceQuantity:'200',priceUnit:'USD/MMBtu',days:[day],periodLabels:{period:'Whole term',basis:'Per period',changedDays:'No changed-day limit'},deadlineRule:'lead_before_first_gas_day_v1',leadHours:6,planRule:'best_plan_on_forwards_v1'};
  for(const priced of [true,false]){
@@ -285,6 +287,12 @@ test('a swing right renders one remaining value, explicit zero and a read-only i
    swingContract:contract,swingRights:priced?[{...swing,days:[withdrawn]}]:[],quantityUnit:'MMBtu',currency:'USD',knownAt:'2026-12-01T02:00:00Z'});
   for(const value of ['Withdrawn','withdrawal-a','Synthetic withdrawal evidence','2026-12-01T02:00:00Z'])assert.ok(view.textContent.includes(value),value);
   if(priced)assert.ok(view.textContent.includes(contract.deadlineRule));
-  if(!priced)for(const value of ['Elected (MMBtu)','25 – 425','future-head'])assert.ok(view.textContent.includes(value),value);
+  if(!priced){
+   const grid=all(view).find(n=>n.getAttribute('aria-label')==='Retained election days');
+   const body=all(grid).find(n=>n.tagName==='TBODY');
+   assert.deepEqual(body.children.map(row=>[row.children[2].textContent,row.children.at(-1).textContent]),
+    [['Withdrawn','Missing election'],['No election','Unassessed period'],['No election','Undecided · contingent']]);
+   for(const value of ['25 – 425','future-head'])assert.ok(view.textContent.includes(value),value);
+  }
  }
 });

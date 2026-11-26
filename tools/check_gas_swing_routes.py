@@ -37,6 +37,45 @@ def pnl_values(risk, policies, trade, opening, closing, known_at, refusal=None):
     return result['report']['totals'][0]['values']
 
 
+def book_coverage_case(c, context, body):
+    """A missed Jan 30 blocks Jan 31, while Feb 1 has its own monthly budget."""
+    body = deepcopy(body)
+    body['operationId'] = str(uuid4())
+    body['physicalSides'][0].update(deliveryFrom='2021-01-30',deliveryTo='2021-02-02',deliveryPoint='synthetic_swing_long_point')
+    body['swingRights'][0].update(leadHours=0,limitPeriod='delivery_month',totalBasis='per_day_v1',
+        totalMinimum=None,totalMaximum='1100')
+    trade = c.call('gas/composition/book',body)
+    ids = {k:trade[k] for k in ('tradeId','instrumentId')}
+    for quantity,evidence in [('1000','Synthetic Jan 30 election'),(None,'Synthetic Jan 30 withdrawal')]:
+        heads = c.call('gas/swing/read',dict(context=context,**ids))['heads']
+        decision = dict(day='2021-01-30',quantity=quantity,exercisingParty='us',submittedAt=AT,effectiveAt=AT,evidence=evidence)
+        outcome = c.call('gas/swing/record',dict(context=context,**ids,operationId=str(uuid4()),expectedRevision=1,right=0,
+            expectedHeads=[{k:h[k] for k in ('day','revisionId')} for h in heads],elections=[decision]))
+    cut = dict(context,snapshotId=initial_frame(c.call('workspace'),'2021-01-31')['id'])
+    position = dict(tradeId=trade['tradeId'],bindingId=trade['instrumentId'],revision=1)
+    reference = c.call('trading/position',dict(context=dict(cut,convention='trading_workspace_v1'),**position,instrumentType='physical_gas'))['holding']['tradeReference']
+    return dict(**position,tradeReference=reference,withdrawal=outcome['elections'][0]['revisionId']),cut
+
+
+def check_coverage_ticket(c, fixture, context, *, priced):
+    selection = {k:fixture[k] for k in ('tradeId','bindingId','revision')}
+    ticket = c.call('tickets/trade',dict(context=context,**selection))
+    days = ticket['actions']['recordSwing']['days']
+    expected = [('2021-01-30','missing_election'),('2021-01-31','period_unassessed'),('2021-02-01','undecided')]
+    assert [(d['day'],d.get('state')) for d in days]==expected,[(d['day'],d.get('state')) for d in days]
+    assert days[0]['effectiveRevision']==days[0]['head']==fixture['withdrawal'] and days[0]['evidence']=='Synthetic Jan 30 withdrawal'
+    assert all(d['electedQuantity'] is None for d in days)
+    assert [(p['missingDays'],p['blockedDays']) for p in ticket['actions']['recordSwing']['periods']]==[(1,1),(0,0)]
+    if priced:
+        assert ticket['scheduleRefusal'] is None
+        right,=ticket['swingRights']
+        assert [(d['day'],d['state']) for d in right['days']]==expected
+        assert right['days'][0]['revisionId']==fixture['withdrawal'] and right['days'][0]['commercialEvidence']==days[0]['evidence']
+    else:
+        assert ticket['scheduleRefusal']['code']=='exercise_marks' and not ticket['swingRights'] and ticket['schedule'] is None
+    print(f"PASS {'priced' if priced else 'unpriced'} booked swing has a withdrawn missed day, its blocked January peer and an open February day",flush=True)
+
+
 def paid_coverage_view(c, context, trade, cutoff, *, withdrawn):
     """The single January payment follows the elected Jan 2 amount through both clocks."""
     workspace=c.call('workspace')
@@ -74,6 +113,22 @@ def paid_coverage_view(c, context, trade, cutoff, *, withdrawn):
     assert tuple(result[k]['amount'] for k in ('openingValue','closingValue','economicPnl'))==values,result
     assert result['cash']['amount']=='-1',result
     return result
+
+
+def check_portfolio_groups(trades, groups):
+    # This gas book has a single instrument type and currency. Its money pivot partitions by portfolio and measure.
+    expected = {}
+    for holding in trades:
+        expected.setdefault((holding['portfolioId'], holding['measure']), []).append(holding)
+    keys = [(group['portfolioId'], group['measure']) for group in groups]
+    assert expected and len(keys)==len(expected) and set(keys)==expected.keys(), (keys, list(expected))
+    for key, group in zip(keys, groups):
+        holdings = expected[key]
+        assert group['tradeCount']==len({h['tradeId'] for h in holdings}), group
+        assert group.get('unassessedDays',0)==sum(h['unassessedDays'] for h in holdings), group
+        assessed = [Fraction(h['presentValue']) for h in holdings if h['presentValue'] is not None]
+        subtotal = group['presentValue']
+        assert (Fraction(subtotal) if subtotal is not None else None)==(sum(assessed) if assessed else None), group
 
 
 def upgraded_book_checks(c, ctx, book, swing, companion):
@@ -444,10 +499,7 @@ def route_checks(c, query, manifest, context, template, run_worker, book, cashou
     pivot_view=dict(view,mode='pivot',groupBy=['portfolio'],measures=['presentValue','tradeCount'],
                     pivotConvention='trading_blotter_money_totals_v1')
     groups=c.call('trading/blotter',dict(context=shared(pinned_expired),view=pivot_view))['groups']
-    for group in groups:
-        matching=[h for h in trades if h['measure']==group['measure']]
-        assert group['tradeCount']==len(matching) and group.get('unassessedDays',0)==sum(h['unassessedDays'] for h in matching),group
-        assert Fraction(group['presentValue'])==sum(Fraction(h['presentValue']) for h in matching if h['presentValue'] is not None),group
+    check_portfolio_groups(trades,groups)
     job(gain,expired,280)
     print('PASS swing 480 and mandatory -450 through preview, editor, position, schedule, Blotter and leased risk; early D3, both clocks, deltas 900/1100 and elapsed-trade isolation',flush=True)
 

@@ -40,14 +40,11 @@ internal sealed class RetainedSwingQuantityValuation
         var parcels = ImmutableArray.CreateBuilder<EntryDayQuantity>();
         foreach (var period in periods)
         {
-            var block = period.MissingCoupledPeriod;
-            var needsMark = !block && !SwingChoice.Forced(period, period.Days.Count(d => d.Election is null && d.Day.ExerciseAt > at));
-            foreach (var decision in period.Days)
+            var needsMark = !period.MissingCoupledPeriod && !SwingChoice.Forced(period, period.Days.Count(d => d.Election is null && d.Day.ExerciseAt > at));
+            foreach (var (decision, state) in period.AssessedDays())
             {
                 var day = decision.Day;
                 var fact = decision.Election;
-                var state = fact is not null ? PhysicalLifecycle.ElectedQuantity : day.ExerciseAt <= at ? Missing :
-                    block ? Blocked : RetainedSwingQuantityValuation.Undecided;
                 var source = owner[day.Day];
                 bool operating = fact is not null && right.QuantityPolicy == SwingQuantityRight.ElectedDeliveryQuantity &&
                     source.Source != PhysicalLifecycle.ContractQuantity;

@@ -102,7 +102,10 @@ export async function run(actions){
  const submit=()=>click(form+' .ticket-submit-swing',60000);
  const focused=id=>'document.activeElement==='+at(input(id))+'&&document.activeElement.getAttribute("aria-invalid")==="true"';
  const shown=(i,state)=>wait(all(detail+' [aria-label="Daily elections and delivery"] tbody tr')+'['+i+']?.cells[2].textContent==='+q(state)+'&&!'+at(form)+'&&'+idle,60000);
- await open();await check('the action starts on the first day with empty instruction fields',
+ await open();await check('the priced ticket’s action shows the same three contingent days as the booked schedule',
+  all(form+' [aria-label="Retained election days"] tbody tr')+'.map(r=>r.cells[r.cells.length-1].textContent).join("|")==='+
+  all(detail+' [aria-label="Daily elections and delivery"] tbody tr')+'.map(r=>r.cells[r.cells.length-1].textContent).join("|")');
+ await check('the action starts on the first day with empty instruction fields',
   'document.activeElement==='+at(input('firstDay'))+'&&'+all(form+' :is(input,select)')+'.every(c=>!c.value)');
  await chooseDays(days[1],days[0],'elect','700');await submit();await wait(focused('lastDay'));
  await check('the end date owns a reversed-range refusal before recording',focused('lastDay')+'&&window.swingWrites.length===0');
@@ -171,4 +174,18 @@ export async function run(actions){
  const corrected=await report();
  await check('a timely correction restores commercial coverage while the published cash-out remains identical',
   q(original)+' .join("|")==='+q(missing)+'.join("|")&&'+q(missing)+'.join("|")==='+q(corrected)+'.join("|")');
+ const coverage=fixture.coverageTrade;
+ await set('#blotter-filters .table-search',coverage.tradeReference);
+ const coverageRow='#desk-positions [data-row-key="'+coverage.tradeId+':'+coverage.bindingId+'"] .desk-reference';
+ await wait(at(coverageRow)+'?.checkVisibility()&&'+idle,60000);await click(coverageRow,60000);
+ await openBookedSchedules(actions);await wait(at(detail+' [aria-label="Retained election days"]')+'?.checkVisibility()&&'+idle,60000);
+ const assessed=root=>all(root+' [aria-label="Retained election days"] tbody tr')+
+  '.map(r=>[r.cells[0].textContent,r.cells[2].textContent,r.cells[r.cells.length-1].textContent])';
+ const expected=[['2021-01-30','Withdrawn','Missing election'],['2021-01-31','No election','Unassessed period'],['2021-02-01','No election','Undecided · contingent']];
+ const matches=root=>'JSON.stringify('+assessed(root)+')==='+q(JSON.stringify(expected));
+ await check('the unpriced ticket retains the withdrawal and distinguishes missed, blocked and open days',
+  matches(detail)+'&&'+at(bookedTicket+' .ticket-status')+'.textContent.includes("exercise_marks")&&'+at(detail)+'.textContent.includes('+q(coverage.withdrawal)+')',assessed(detail));
+ await click('#blotter-dock [data-maximize=details]');
+ await reveal(detail+' [aria-label="Retained election days"]');await shot('swing-unpriced-coverage');
+ await open();await check('the election form retains the same three day assessments',matches(form),assessed(form));
 }

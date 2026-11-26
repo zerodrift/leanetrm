@@ -17,7 +17,7 @@ public sealed record GasSwingPrepareRequest(FuturesReadRequest Context,Guid Read
         :throw new MarketDataException("swing_election","Select the working trade and the retained read in which its elections were opened.");
 }
 
-public sealed record GasSwingActionDay(DateOnly Day,DateTimeOffset ExerciseAt,Guid? Head,string? ElectedQuantity,Guid? EffectiveRevision,string? Evidence);
+public sealed record GasSwingActionDay(DateOnly Day,DateTimeOffset ExerciseAt,Guid? Head,string? ElectedQuantity,Guid? EffectiveRevision,string? Evidence,string State);
 public sealed record GasSwingAction(bool Allowed,string? Reason,Guid TradeId,Guid InstrumentId,int ExpectedRevision,Guid? ReadContextId,
     int Right,string Holder,string PlanningStep,string DailyMinimum,string DailyMaximum,string ReferenceQuantity,
     ImmutableArray<SwingPeriodReport> Periods,ImmutableArray<GasSwingActionDay> Days)
@@ -42,17 +42,18 @@ public sealed record GasSwingAction(bool Allowed,string? Reason,Guid TradeId,Gui
         var right=execution.SwingRights.Single();
         var term=execution.Terms.SwingRights!.Value.Single();
         var facts=await GasSwingStore.Read(c,database,execution.TradeId,execution.InstrumentId,ct);
+        var unit=execution.SwingQuantityUnit(right.Ordinal);
+        var reference=execution.Terms.PhysicalSides.Single(s=>s.Code==term.Side).Quantity!;
+        var budget=SwingFeasibility.Resolve(right,ExactQuantity.FromQuantity(new(ExactDecimal.Parse(reference),unit)),
+            GasSwingStore.Facts(execution,facts).Elections,frame.At);
+        var states=budget.SelectMany(period=>period.AssessedDays()).ToDictionary(d=>d.Decision.Day.Day,d=>d.State);
         var elections=facts.GetProperty("elections").EnumerateArray().ToDictionary(e=>DateWorkspace.Date(e.Text("day")));
         var days=facts.GetProperty("heads").EnumerateArray().Select(h=>{
             var day=DateWorkspace.Date(h.Text("day"));
             var elected=elections.TryGetValue(day,out var e);
             return new GasSwingActionDay(day,h.Instant("exerciseAt"),h.GetProperty("revisionId").Deserialize<Guid?>(),elected?e.OptionalText("quantity"):null,
-                elected?e.Id("revisionId"):null,elected?e.Text("evidence"):null);
+                elected?e.Id("revisionId"):null,elected?e.Text("evidence"):null,states[day]);
         }).ToImmutableArray();
-        var unit=execution.SwingQuantityUnit(right.Ordinal);
-        var reference=execution.Terms.PhysicalSides.Single(s=>s.Code==term.Side).Quantity!;
-        var budget=SwingFeasibility.Resolve(right,ExactQuantity.FromQuantity(new(ExactDecimal.Parse(reference),unit)),
-            GasSwingStore.Facts(execution,facts).Elections,frame.At);
         return new(reason is null,reason,execution.TradeId,execution.InstrumentId,revision,reason is null?frame.ContextId:null,right.Ordinal,
             term.Holder,term.PlanningStep,term.DailyMinimum,term.DailyMaximum,reference,[..budget.Select(p=>SwingPeriodReport.FromBudget(p))],days)
             {Admission=reason is null?authority:null,PeriodLabels=SwingPeriodLabels.From(term)};
