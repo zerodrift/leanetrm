@@ -500,13 +500,19 @@ Before starting:
 - **Command timeouts.** Compare `Command Timeout` in the API's runtime and
   authenticator connection files with the limits to be selected. Sign-out waits
   behind a slow request, and a shorter command timeout answers it with an error.
-- **No interrupted switch.** The deployer's state receipt (`state.json`) shows
-  phase `idle`. Recover any earlier `blocked` switch before step 2: a poll refuses
-  with "operator recovery required" while one is open, and once the new Compose
-  file is installed, recovering that earlier target is held to its limits.
 
 1. **Stop `openetrm-deployment.timer`** before the release carrying D457 is
-   published, and keep it stopped until step 5. Way back: start the timer again.
+   published, and keep it stopped until step 5. Then check that no poll is running
+   (`systemctl is-active openetrm-deployment.service` shows `inactive`, not
+   `activating`) and that the deployer's state receipt (`state.json`) shows a
+   phase other than `switching`, `checking` or `blocked`. Recover such a switch
+   with `--recover` before step 2: a poll refuses with "operator recovery
+   required" while one is open, and once the new Compose file is installed,
+   recovering that earlier target is held to its limits. A leftover `preparing`
+   or `preflight` phase, from an interrupted candidate, needs nothing: `--recover`
+   refuses it, and step 3's poll removes that candidate before anything else. Do
+   not run a poll to clear it, since a poll before step 2 quarantines the
+   published D457 head. Way back: start the timer again.
 2. **Install the operator files from that release's commit:** `deploy/compose.yaml`
    (as `/etc/openetrm/release-compose.yaml`, the file the service units name),
    and `tools/deploy_release.py` together with `tools/release_bundle.py`, which it
