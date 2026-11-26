@@ -3,6 +3,7 @@ import json
 from uuid import uuid4
 
 from preview_fixture import catalogue_fixture, fixture as preview_fixture, trading_fixture
+from role_fixture import hold_without, person
 
 
 def fixture(root):
@@ -18,9 +19,9 @@ class ParkLoanFixture:
     """Own the accounts and explicit native evidence used by one qualification."""
 
     def __init__(self, query, manifest, *, prepared=False, actor='trader'):
-        """`prepared` takes a database that already holds its trading fixture, discount default, operating policies
-        and identities: the constructor then writes nothing, permissions included. `actor` signs in where a call
-        names nobody."""
+        """`prepared` takes a database that already holds what the constructor writes (the trading fixture, a discount
+        default, the operating policies and the published catalogue): it then writes nothing, permissions included.
+        `actor` signs in where a call names nobody."""
         self.query, self.manifest, self.actor = query, manifest, actor
         self.context_operation=('security.resolve_operation_context' if query("SELECT to_regprocedure('security.resolve_operation_context(uuid,date,timestamptz)') IS NOT NULL;")=='t' else 'security.capture_date_context')
         self.catalog = manifest['catalogId']
@@ -41,6 +42,8 @@ class ParkLoanFixture:
                   "CROSS JOIN security.permissions p WHERE r.permission='AmendTrade' AND p.code IN "
                   "('ReadGasOwnedHoldings','RecordGasOwnedHoldings','ConfigureGasOwnedHoldings','RunScenario') "
                   "ON CONFLICT DO NOTHING;")
+            # Risk analyst reads owned gas as installed (D459); the native checks read as a Risk reader who does not.
+            hold_without(query, manifest, person(query, manifest['identityIssuer'], 'risk'), 'ReadGasOwnedHoldings')
         self.terms = json.loads(query(
             "SELECT jsonb_build_object('quantity',q.quantity_code,'currency',q.currency_code,'location',c.location_code)::text "
             "FROM market_data.curves c JOIN ref_data.quote_specifications q ON(q.catalog_id,q.revision_id,q.code)="

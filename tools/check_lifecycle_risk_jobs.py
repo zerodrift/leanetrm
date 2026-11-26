@@ -8,6 +8,7 @@ from check_reference_editing import main
 from check_risk_jobs_db import provision_worker
 from close_session_fixture import sql_session
 from preview_fixture import catalogue_fixture, trading_fixture
+from role_fixture import hold_without, person
 
 HELPERS = ('risk.worker()','risk.claim(integer,text)','risk.heartbeat(uuid,uuid,integer)','risk.owned_attempt(uuid,uuid,boolean,boolean)','risk.authorized(risk.jobs)', 'risk.worker_read()', 'risk.bind(uuid,uuid)',
            'risk.bind_pre_ppa_context(uuid,uuid)', 'risk.axis_commands(jsonb)', 'risk.retain_axes(risk.jobs,jsonb)',
@@ -66,7 +67,9 @@ def checks(query, manifest, read_policy_checks=None):
     query(catalogue_fixture(manifest, 'https://preview.invalid'))
     sql_session(query, manifest, 'synthetic_lifecycle_risk', 'test_business', '16:00', ['future'], [])
     sql_session(query, manifest, 'synthetic_alternative_risk', 'test_business', '17:00', ['future'], [])
-    provision_worker(query, manifest, 'synthetic_lifecycle_worker')
+    # Risk analyst reads owned gas as installed (D459); this check is about a reader and workers who do not.
+    provision_worker(query, manifest, 'synthetic_lifecycle_worker', without=('ReadGasOwnedHoldings',))
+    hold_without(query, manifest, person(query, 'https://preview.invalid', 'risk'), 'ReadGasOwnedHoldings')
     def literal(value):
         return "'" + json.dumps(value).replace("'", "''") + "'::jsonb"
     def user(sql, profile='risk'):
@@ -280,7 +283,7 @@ def checks(query, manifest, read_policy_checks=None):
     print('PASS original service read deadline survives a permission gap and successor grant; no newly valid grant revives the bound read',flush=True)
     for conditional_gas in (False,True):
         login='synthetic_bind_gas_wait'if conditional_gas else'synthetic_bind_base_wait'
-        provision_worker(query,manifest,login)
+        provision_worker(query,manifest,login,without=('ReadGasOwnedHoldings',))
         if conditional_gas:
             query(f"INSERT INTO security.role_grants SELECT gen_random_uuid(),principal_id,'{gas_role}','{tenant}','{workspace}',clock_timestamp(),clock_timestamp()+interval '3 seconds',false FROM risk.workers WHERE login='{login}';"
                 f"INSERT INTO security.role_grants SELECT gen_random_uuid(),principal_id,'{gas_role}','{tenant}','{workspace}',clock_timestamp()+interval '3.2 seconds','9999-12-31',false FROM risk.workers WHERE login='{login}';")

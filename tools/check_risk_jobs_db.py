@@ -19,7 +19,8 @@ from preview_fixture import fixture, trading_fixture
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def provision_worker(query, manifest, login='preview_risk_worker'):
+def provision_worker(query, manifest, login='preview_risk_worker', *, without=()):
+    """`without` names permissions the worker must lack although Risk analyst, the role every worker is given, holds them."""
     if not login.replace('_', '').isalnum():
         raise ValueError('Worker fixture login must be a simple identifier')
     catalog, tenant, workspace = (manifest[key] for key in ('catalogId', 'tenantId', 'workspaceId'))
@@ -29,6 +30,9 @@ def provision_worker(query, manifest, login='preview_risk_worker'):
     INSERT INTO security.workspace_memberships VALUES('{tenant}','{workspace}','{service}','{login}','Synthetic risk worker',true,1);
     INSERT INTO security.role_grants SELECT gen_random_uuid(),'{service}',id,'{tenant}','{workspace}',clock_timestamp(),'9999-12-31',false FROM security.roles WHERE code='risk_analyst';
     INSERT INTO risk.workers VALUES('{login}','{service}','{tenant}','{workspace}','{catalog}',true);""")
+    if without:
+        from role_fixture import hold_without
+        hold_without(query, manifest, service, *without)
 
 
 def run_checks(query, manifest, psql=None, environment=None):

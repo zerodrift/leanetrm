@@ -5,6 +5,7 @@ from check_reference_editing import main
 from check_futures_physical_delivery import fixture, checks as physical_checks
 from check_lifecycle_actions import upgrade_checks as action_upgrade_checks
 from check_risk_jobs_db import provision_worker
+from role_fixture import hold_without, person
 
 
 original_needs_gas=None
@@ -30,6 +31,8 @@ def checks(query, manifest):
     physical_checks(query, manifest)
     catalog,tenant,workspace=(manifest[k]for k in ('catalogId','tenantId','workspaceId'))
     issuer=manifest['identityIssuer'];at='2026-10-16T16:00:00Z';day='2026-10-16'
+    # Risk analyst reads owned gas as installed (D459); this check is about a reader and workers who do not.
+    hold_without(query,manifest,person(query,issuer,'risk'),'ReadGasOwnedHoldings')
     def literal(value):return "'"+json.dumps(value).replace("'","''")+"'::jsonb"
     def user(sql,profile='risk'):
         token=query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
@@ -98,7 +101,7 @@ def checks(query, manifest):
     def submit():return json.loads(user(scope()+f"SELECT risk.submit('{catalog}','{uuid4()}','{context}','{manifest['revisionId']}','{at}',{literal(request)},{literal(frame)})::text;"))
     # The ordinary option value does not consume its saved physical action
     # profile. Its exact retained scope must remain readable without Gas.
-    provision_worker(query,manifest,'synthetic_scope_worker');provision_worker(query,manifest,'synthetic_scope_no_gas_worker')
+    for login in ('synthetic_scope_worker','synthetic_scope_no_gas_worker'):provision_worker(query,manifest,login,without=('ReadGasOwnedHoldings',))
     ordinary=submit()
     assert query(f"SELECT NOT risk.needs_gas(j) FROM risk.jobs j WHERE id='{ordinary['jobId']}';")=='t'
     poison="""CREATE OR REPLACE FUNCTION risk.lifecycle_scope_policies(job risk.jobs) RETURNS TABLE(policy_id uuid,policy_revision integer,book_id uuid)

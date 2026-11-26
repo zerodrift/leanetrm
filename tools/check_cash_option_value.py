@@ -13,6 +13,7 @@ from check_lifecycle_actions import fixture as source_fixture
 from check_lifecycle_actions import upgrade_checks as source_upgrades
 from preview_fixture import catalogue_fixture
 from economic_worker_fixture import provision,run_saved
+from role_fixture import hold_without, person
 
 history_signature='lifecycle.require_option_history_read(uuid,uuid,uuid,integer,uuid,timestamptz,date,timestamptz,timestamptz)'
 history_identity=None
@@ -106,6 +107,8 @@ def checks(query,manifest,*,economic=False,native_child=False,solved=False,margi
     query(catalogue_fixture(manifest,issuer))
     query("INSERT INTO security.role_permissions SELECT role_id,'RunScenario' FROM security.role_permissions WHERE permission='AmendTrade' ON CONFLICT DO NOTHING;")
     query("INSERT INTO security.role_permissions SELECT role_id,'ReadTrades' FROM security.role_permissions WHERE permission='WriteMarketDefinitions' ON CONFLICT DO NOTHING;")
+    # Trader reads owned gas as installed (D459); this consumer is qualified for a person who does not.
+    hold_without(query,manifest,person(query,issuer,'trader'),'ReadGasOwnedHoldings')
     def literal(value):return "'"+json.dumps(value).replace("'","''")+"'::jsonb"
     def call(sql,profile='trader'):
         token=query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('{issuer}','{profile}','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
