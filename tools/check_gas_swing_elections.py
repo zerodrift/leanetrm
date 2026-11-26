@@ -63,7 +63,7 @@ def read_grant_transition(query, manifest, reader):
 
 
 @contextmanager
-def amend_grants(query, manifest, *, successor=True):
+def amend_grants(query, manifest, *, successor=True, seconds=5):
     """Give this disposable fixture a bounded trader grant and restore its roles on exit."""
     role, grant = uuid4(), uuid4()
     name = 'swing_amend_' + role.hex
@@ -75,7 +75,7 @@ def amend_grants(query, manifest, *, successor=True):
             INSERT INTO security.roles VALUES('{role}','{name}','Synthetic swing action authority');
             INSERT INTO security.role_permissions VALUES('{role}','AmendTrade');
             INSERT INTO security.role_grants SELECT '{grant}',principal_id,'{role}','{manifest['tenantId']}','{manifest['workspaceId']}',
-             clock_timestamp()-interval '1 day',clock_timestamp()+interval '5 seconds',false FROM security.identity_bindings
+             clock_timestamp()-interval '1 day',clock_timestamp()+make_interval(secs=>{seconds}),false FROM security.identity_bindings
              WHERE issuer='https://preview.invalid' AND subject='trader';
             {next_grant}
             SELECT granted_to FROM security.role_grants WHERE id='{grant}';COMMIT;""")
@@ -678,7 +678,8 @@ def receipt_authority(client, query, manifest, context, booking):
     assert counts()=='0|0'
     # The original receipt itself belongs to A. A new invocation under B
     # checks its own current authority and returns exactly that older receipt.
-    with amend_grants(query,manifest) as (name,boundary):
+    setup_window = 15  # HTTP publication, receipt instrumentation and both waiters share grant A.
+    with amend_grants(query,manifest,seconds=setup_window) as (name,boundary):
         accepted = trade.record(draft)
         assert query(f"""SELECT authority_until=timestamptz '{boundary}' FROM trading.gas_swing_commands
             WHERE operation_id='{draft['operationId']}'""")=='t'
@@ -702,7 +703,7 @@ def receipt_authority(client, query, manifest, context, booking):
                     AND NOT granted AND clock_timestamp()<timestamptz '{boundary}'""")!='2':
                 assert not any(w.done() for w in waiting) and monotonic()<limit,'Both invocations must queue under the original grant'
                 sleep(.03)
-            holder.result(timeout=8)
+            holder.result(timeout=setup_window+3)
             for w in waiting:w.result(timeout=8)
         assert trade.record(draft)==accepted
         changed = dict(draft,elections=[dict(draft['elections'][0],quantity='950')])

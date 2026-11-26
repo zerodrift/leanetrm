@@ -1,9 +1,10 @@
 from pathlib import Path
+from copy import deepcopy
 import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from check_gas_swing_routes import check_portfolio_groups
+from check_gas_swing_routes import check_graph_work, check_portfolio_groups, check_reserved_lanes
 
 
 class SwingPortfolioGroups(unittest.TestCase):
@@ -29,3 +30,26 @@ class SwingPortfolioGroups(unittest.TestCase):
         for wrong in [dict(tradeCount=2),dict(presentValue='1'),dict(unassessedDays=3)]:
             with self.subTest(wrong=wrong), self.assertRaises(AssertionError):
                 check_portfolio_groups(holdings, [dict(groups[0], **wrong), groups[1]])
+
+class SwingRiskEvidence(unittest.TestCase):
+    def test_rejects_reused_shocked_amount_or_election(self):
+        amounts = dict(base='390',up='391.1',down='388.9')
+        right = dict(days=[{}, {}, dict(revisionId='first')])
+        held = dict(values=amounts,swingRights={k:[deepcopy(right)] for k in amounts})
+        check_reserved_lanes(held,amounts,'first')
+        for lane in amounts:
+            for evidence in ('amount','election'):
+                other = deepcopy(held)
+                if evidence=='amount':
+                    other['values'][lane]='450'
+                else:
+                    other['swingRights'][lane][0]['days'][2]['revisionId']='second'
+                with self.subTest(lane=lane,evidence=evidence), self.assertRaises(AssertionError):
+                    check_reserved_lanes(other,amounts,'first')
+
+    def test_rejects_boolean_partition_counters(self):
+        work = dict(evaluatedNodes=3,reusedReads=0,affectedNodes=0,traversedAffectedEdges=0,evaluatedWork=0)
+        check_graph_work(work)
+        for counter in work:
+            with self.subTest(counter=counter), self.assertRaises(AssertionError):
+                check_graph_work({**work,counter:False})

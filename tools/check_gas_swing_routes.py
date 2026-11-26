@@ -115,6 +115,18 @@ def paid_coverage_view(c, context, trade, cutoff, *, withdrawn):
     return result
 
 
+def check_graph_work(work):
+    counters = {'evaluatedNodes','reusedReads','affectedNodes','traversedAffectedEdges','evaluatedWork'}
+    assert work.keys()==counters and all(type(n) is int and n>=0 for n in work.values()),work
+
+
+def check_reserved_lanes(row, amounts, revision):
+    for lane, amount in amounts.items():
+        assert Fraction(row['values'][lane])==Fraction(amount),(lane,row['values'],amount)
+        day = row['swingRights'][lane][0]['days'][2]
+        assert day['revisionId']==revision,(lane,day,revision)
+
+
 def check_portfolio_groups(trades, groups):
     # This gas book has a single instrument type and currency. Its money pivot partitions by portfolio and measure.
     expected = {}
@@ -299,8 +311,7 @@ def route_checks(c, query, manifest, context, template, run_worker, book, cashou
             for field in (queued.keys() | live.keys())-{'work'}:
                 assert_replay('market scenario '+field,queued[field],live[field])
             for work in (queued['work'],live['work']):
-                assert set(work)=={'evaluatedNodes','reusedReads','affectedNodes','traversedAffectedEdges','evaluatedWork'}
-                assert all(type(count) is int and count>=0 for count in work.values()),work
+                check_graph_work(work)
             for field in queued['work'].keys()-{'evaluatedNodes'}:
                 assert_replay('market graph '+field,queued['work'][field],live['work'][field])
         if shift:
@@ -308,12 +319,11 @@ def route_checks(c, query, manifest, context, template, run_worker, book, cashou
                 assert_replay('joint.'+field,result['joint'][field],synchronous['joint'][field])
             for queued,live in zip(result['joint']['partitions'],synchronous['joint']['partitions'],strict=True):
                 # Base graph preparation work can differ between a warm HTTP process and a cold worker.
-                counters = {'evaluatedNodes','reusedReads','affectedNodes','traversedAffectedEdges','evaluatedWork'}
                 for partition in (queued,live):
                     work = partition['graphWork']
-                    assert work.keys()==counters and all(isinstance(n,int) and n>=0 for n in work.values()),work
-                    for name in counters - {'evaluatedNodes'}:
-                        assert work[name] == 0, (name, work)
+                    check_graph_work(work)
+                    for name in work.keys() - {'evaluatedNodes'}:
+                        assert work[name]==0,(name,work)
                 print(f"PASS swing graph preparation evaluated nodes: worker {queued['graphWork']['evaluatedNodes']}, "
                       f"HTTP {live['graphWork']['evaluatedNodes']}; reused reads, affected nodes, traversed edges and evaluated work all zero", flush=True)
                 for field in queued.keys() | live.keys():
@@ -348,7 +358,7 @@ def route_checks(c, query, manifest, context, template, run_worker, book, cashou
         if peer:
             other=next(p for p in factor_row['positions'] if p['tradeId']==peer[0]['tradeId'])
             assert other['bindingId']==peer[0]['instrumentId']!=row['bindingId']
-            assert other['values']['base']==peer[1] and other['swingRights']['base'][0]['days'][2]['revisionId']==peer[2],other
+            check_reserved_lanes(other,peer[1],peer[2])
         for lane in ('base','up','down'):
             assert sum(Fraction(e[lane]) for e in row['entries'])+Fraction(row['swingRights'][lane][0]['counted'] or '0')==Fraction(row['values'][lane])
         assert row['unassessedDays']==row['swingRights']['base'][0]['unassessedDays']
@@ -414,9 +424,12 @@ def route_checks(c, query, manifest, context, template, run_worker, book, cashou
     left_report=routes(left,both,390)
     right_report=routes(right_pair,both,450)
     assert left_report['days'][2]['revisionId']==left_fact and right_report['days'][2]['revisionId']==right_fact
-    pair_result=job(left,both,390,peer=(right_pair[1],'450',right_fact))
+    # At the January bump the optimal January quantities are 1100 and 900 respectively.
+    # The three-day fixed payment and the elected February delivery do not move.
+    pair_result=job(left,both,390,peer=(right_pair[1],dict(base='450',up='450.9',down='449.1'),right_fact))
+    check_reserved_lanes(pair_result,dict(base='390',up='391.1',down='388.9'),left_fact)
     assert pair_result['swingRights']['base']==[left_report]
-    print('PASS identical contracts reserve 775 and 1025 on different bindings; joint worker returns distinct 390/450',flush=True)
+    print('PASS identical contracts reserve 775 and 1025 on different bindings; base/up/down reconcile to 390/391.1/388.9 and 450/450.9/449.1',flush=True)
 
     # The independent period-total Side has one third of its volume left on Jan 31.
     for scale in (1,10):

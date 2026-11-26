@@ -205,3 +205,19 @@ test('a swing election keeps zero explicit and retries the same range command af
   assert.equal(result.writes[0].expectedHeads[2].revisionId,'saved-head');
  });
 });
+
+test('the election ticket labels one gas day and multiple gas days',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+ await withBrowserPage('<main></main>',async evaluate=>{
+  const labels=await evaluate(`(async()=>{
+   const {swingContractDetails}=await import('/ticket-swing.js');
+   const first={from:'2041-01-31',through:'2041-01-31',days:1,limitPeriod:'delivery_month',changesUsed:0,changeCount:null,
+    appliedLower:null,appliedUpper:null,remainingLower:null,remainingUpper:null,elected:'0',remainingMinimum:'0',remainingMaximum:'100',
+    planned:null,plannedChanges:null,missingDays:0,blockedDays:0,nextDeadline:null};
+   const action={referenceQuantity:'100',dailyMinimum:'0',dailyMaximum:'100',planningStep:'1',days:[],
+    periods:[first,{...first,from:'2041-02-01',through:'2041-02-02',days:2}]};
+   const ticket=swingContractDetails({source:'Gas'},'MMBtu',s=>s,undefined,action);
+   return Array.from(ticket.querySelectorAll('[aria-label="Period limits and elections"] tbody tr'),r=>r.cells[0].textContent.split(' · ').at(-1));
+  })()`);
+  assert.deepEqual(labels,['1 gas day','2 gas days']);
+ });
+});

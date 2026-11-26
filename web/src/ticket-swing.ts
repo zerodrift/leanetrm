@@ -45,7 +45,7 @@ function budgets(periods:SwingPeriod[],unit:string,instant:(at:string)=>string,l
  return table('Period limits and elections',['Period','Total basis',`Applied limits (${unit})`,`Elected (${unit})`,
   `Remaining limits (${unit})`,`Remaining feasible (${unit})`,'Changes used / allowed',`Forward plan (${unit})`,
   'Planned changes','Missed / blocked days','Next deadline'],periods.map(p=>[
-   `${p.from} – ${p.through}\n${labels?.period??p.limitPeriod} · ${p.days} gas days`,labels?.basis??p.totalBasis??'No total limits',range(p.appliedLower,p.appliedUpper),exact(p.elected),range(p.remainingLower,p.remainingUpper),
+   `${p.from} – ${p.through}\n${labels?.period??p.limitPeriod} · ${p.days} gas ${p.days===1?'day':'days'}`,labels?.basis??p.totalBasis??'No total limits',range(p.appliedLower,p.appliedUpper),exact(p.elected),range(p.remainingLower,p.remainingUpper),
    range(p.remainingMinimum,p.remainingMaximum),p.changeCount===null?`${p.changesUsed} · ${labels?.changedDays??'No changed-day limit'}`:`${p.changesUsed} / ${p.changeCount}\n${labels?.changedDays??p.countRule}`,exact(p.planned),String(p.plannedChanges??'—'),
    `${p.missingDays} / ${p.blockedDays}`,p.nextDeadline?instant(p.nextDeadline):'—']),[2,3,4,5,6,7,8,9]);
 }
