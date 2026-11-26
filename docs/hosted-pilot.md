@@ -247,6 +247,42 @@ observations and private feed mappings must never enter public fixtures or expor
 Operational backup/restore, account invitation administration, wider monitoring,
 provider outages and longer-run recovery still require operator qualification.
 
+## Blotter browser maintenance (D455)
+
+The Blotter chart identity repair may be backported to an installed release
+without adopting intervening schema changes. This is a bounded, operator-only
+exception to D135 for that presentation repair, not a general maintenance branch
+or an automatic updater capability. The repaired source must also be reviewed
+and merged into the protected branch.
+
+Before promotion, verify the original release attestation and its image digest,
+and require successful full CI on the exact published backport commit. Build
+clean and repaired browser assets with the same pinned Node runtime and locked
+dependencies. The clean output must match the installed assets byte for byte;
+the repaired delta may contain only the desk module, affected entry bundles and
+their HTML cache hashes. Retain dependency notices unchanged.
+
+Derive one immutable image from that verified base. Compare its complete
+filesystem, file modes and container configuration with the base: only the
+reviewed browser files and explicit provenance labels may differ. Record source,
+base image, toolchain, asset and resulting image hashes in a private receipt.
+The resulting image is operator-qualified and **not GitHub-attested**; preserve
+the base attestation separately and do not manufacture an automated release run.
+Independent adversarial review must cover the artifact and promotion procedure.
+
+Qualification uses disposable resources. Do not attach a test candidate to the
+production database: startup can alter runtime coordination state. Promotion
+holds the installed operation lock, rechecks its schema, private configuration,
+binding and ingress baselines, pauses new work and drains active operations.
+Switch the API, risk worker and scheduled workers to the same immutable image,
+then verify readiness before restoring admissions. Preserve the previous image
+and configuration with explicit recovery instructions; interruption requires
+operator reconciliation. No schema or business-data migration is authorized.
+
+Keep the automatic updater stopped. Its receipts must distinguish this manual
+update from attested releases, and a later compatible release requires explicit
+baseline and serving-image reconciliation before the updater is restarted.
+
 ## Automated release distribution
 
 The publisher job runs after successful CI for a push to the protected `master`

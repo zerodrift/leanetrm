@@ -104,7 +104,7 @@ const instruments:Readonly<Record<string,{measure:'presentValue'|'executionPnl';
 export const valueFields=(instrumentType:string)=>['physical_gas_park_custody','physical_gas_transport'].includes(instrumentType)?['presentValue']:['mark',instrument(instrumentType).measure];
 function instrument(type:unknown){if(typeof type!=='string'||!Object.hasOwn(instruments,type))throw Error('The Blotter returned an unknown instrument type.');return instruments[type];}
 // Started-delivery gas reports its own value measure (D360): labelled, and totalled by the backend, apart from contractual PV.
-const gasLifecycleMeasure='gas_lifecycle_value_v1';
+const gasContractualMeasure='gas_contractual_present_value',gasLifecycleMeasure='gas_lifecycle_value_v1';
 const lifecycleOf=(g:{instrumentType?:unknown;measure?:unknown})=>g.instrumentType==='physical_gas'&&g.measure===gasLifecycleMeasure;
 const valueLabel=(g:{instrumentType?:unknown;measure?:unknown})=>lifecycleOf(g)?'Unrealized + realized unsettled' as const:instrument(g.instrumentType).label;
 
@@ -352,6 +352,16 @@ function pvPanelsFor(summaries:readonly Summary[],colors:ReadonlyMap<string,stri
  */
 export function positionChartPanels(summaries:readonly Summary[],holdings:readonly Holding[],colors:ReadonlyMap<string,string>,format:(value:string)=>string):ChartSpec[]{
   const markets=groupsOf(summaries,byMarket),labels=marketLabels(markets),units=unitLabels(markets);
+  // Look up the exact measures sharing a market and panel before selecting the point labels.
+  const gasMeasure=(group:PivotGroup)=>group.measure===undefined?gasContractualMeasure:text(group,'measure');
+  const gasMeasures=new Map<string,Set<string>>();
+  for(const group of markets){
+    if(group.instrumentType!=='physical_gas')continue;
+    const market=marketKey(text(group,'market'),text(group,'definitionRevisionId')),unit=referenceKey(group.quantitySpecification);
+    const key=JSON.stringify([market,unit]),measures=gasMeasures.get(key)??new Set<string>();
+    measures.add(gasMeasure(group));
+    gasMeasures.set(key,measures);
+  }
   // The directions the swaps of each market, unit and currency state, and which of them hold a swap without a single quantity, from one
   // pass over the positions.
   const directions=new Map<string,Set<Holding['direction']>>(),unquantified=new Set<string>();
@@ -365,10 +375,11 @@ export function positionChartPanels(summaries:readonly Summary[],holdings:readon
   for(const group of markets){
     const market=marketKey(text(group,'market'),text(group,'definitionRevisionId')),type=instrument(group.instrumentType),unit=referenceKey(group.quantitySpecification),currency=referenceKey(group.currencyReference);
     const quantity=amount(group,'quantity');
-    // The backend partitions physical gas at one market by contractual PV or lifecycle value.
-    const measure = type===instruments.physical_gas ? valueLabel(group) : null;
-    const point:ChartPoint={x:[market,type.pill,...(measure?[measure]:[])].join('|'),
-      label:[labels.get(market),type.plural,...(measure?[measure]:[])].join(' · '),y:quantity,color:colors.get(commodityOf(group).code)};
+    // Products can share the GAS badge, and physical gas can have separate contractual and lifecycle groups.
+    const measure=type===instruments.physical_gas?gasMeasure(group):null;
+    const split=measure!==null&&(gasMeasures.get(JSON.stringify([market,unit]))?.size??0)>1;
+    const point:ChartPoint={x:[market,text(group,'instrumentType'),...(measure?[measure]:[])].join('|'),
+      label:`${labels.get(market)} · ${type.plural}${split?` · ${valueLabel(group)}`:''}`,y:quantity,color:colors.get(commodityOf(group).code)};
     // A market's swaps have no single quantity where one of them is scheduled by period, which a held swap without one shows; a future
     // always has one.
     if(quantity===null){if(type===instruments.future||!unquantified.has(JSON.stringify([market,unit,currency])))throw Error(inconsistent);point.label+=' · no single quantity';}
