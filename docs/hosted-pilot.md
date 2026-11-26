@@ -480,9 +480,15 @@ attested prior-image Docker run remains a release prerequisite for this incremen
 ## Hosted capacity (D457)
 
 D457 raises the API container's memory limit in `deploy/compose.yaml` above a
-demo dataset's measured peak, and the ceilings of the request time limits. It is
-an infrastructure change: nothing takes effect until the operator applies it, in
-this order. Each step names the check its safety depends on and the way back.
+demo dataset's measured peak, and the ceilings of the request time limits. The
+demo's whole load peaked at 2,231 MiB resident in the API, against its
+3,072 MiB container. Its risk worker peaked at 1,003 MiB, measured with the
+runtime's own settings on six processors. The hosted demo's risk worker runs
+under a host-level unit outside this repository, with 1 GB of memory and one
+processor, so that peak is at its limit; raising it is an operator step on the
+host, and D457 sets no figure for it. The change is infrastructure: nothing takes
+effect until the operator applies it, in this order. Each step names the check
+its safety depends on and the way back.
 
 Before starting:
 
@@ -496,7 +502,8 @@ Before starting:
   [retained gas risk schema release](#retained-gas-risk-schema-release). These
   steps do not replace it.
 - **Host memory.** While a candidate runs beside the serving API, the host needs
-  memory for twice the API's limit plus the database's and the collector's.
+  memory for twice the API's limit plus the database's and the collector's, and
+  the risk worker's unit as the operator sets it.
 - **Command timeouts.** Compare `Command Timeout` in the API's runtime and
   authenticator connection files with the limits to be selected. Sign-out waits
   behind a slow request, and a shorter command timeout answers it with an error.

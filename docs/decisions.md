@@ -7749,19 +7749,27 @@ requests than its 15-second ordinary deadline.
 
 What was measured, and how. The whole load ran on a shared test host with .NET
 held to two processors (`DOTNET_PROCESSOR_COUNT=2`) and no heap limit: all 110
-phases, the 209 trades, every check, the measurement and the closing. The
-application's peak resident memory (`VmHWM`) was 2,231 MB, reached in the risk
-runs, and no later phase raised it. Each restart of the application starts the
-reading again: it read 216 MB through the prices, about 1,051 MB through the
-closes and definitions, 1,005 MB in the trades, 1,397 MB through the surfaces and
-the first risk runs, then 1,493, 2,082 and 2,231 MB in the risk runs. The peak
-may slightly overstate one clean load, since some risk items were sent again
-after 15-second cancellations. Earlier partial runs emulated 1 GiB and 2 GiB
-containers with .NET heap hard limits of 768 MiB and 1.5 GiB on the same two
-processors. Under 768 MiB the peak reached 978 MB before the load stopped on the
-API's catch-all 500 (`preview_error`), whose exception was not read. Under
-1.5 GiB it reached 1,824 MB a third of the way through, before a cancelled
-request stopped it.
+phases, the 209 trades, every check, the measurement and the closing. Memory is
+given in MiB. The application's peak resident memory (`VmHWM`) was 2,231 MiB,
+reached in the risk runs, and no later phase raised it. Each restart of the
+application starts the reading again: it read 216 MiB through the prices, about
+1,051 MiB through the closes and definitions, 1,005 MiB in the trades, 1,397 MiB
+through the surfaces and the first risk runs, then 1,493, 2,082 and 2,231 MiB in
+the risk runs. The peak may slightly overstate one clean load, since some risk
+items were sent again after 15-second cancellations. Earlier partial runs
+emulated 1 GiB and 2 GiB containers with .NET heap hard limits of 768 MiB and
+1,536 MiB on the same two processors. Under 768 MiB the peak reached 978 MiB
+before the load stopped on the API's catch-all 500 (`preview_error`), whose
+exception was not read. Under 1,536 MiB it reached 1,824 MiB a third of the way
+through, before a cancelled request stopped it.
+
+The same whole load's risk worker peaked at 1,003 MiB (`VmHWM` over its whole
+life: the load, the second runs, every check, the measurement and the closing).
+It ran with the runtime's own settings on six processors, not under the hosted
+demo's limits. The hosted demo's risk worker runs under a host-level unit outside
+this repository, with 1 GB of memory and one processor, so the measured peak is
+at that limit. Raising it is an operator step on the host; this decision sets no
+figure for it.
 
 Even with no memory cap, the 15-second ordinary deadline cut requests the
 loading tool sent directly. In the whole load, value-at-risk job submissions
@@ -7772,15 +7780,17 @@ One whole-firm Blotter read at the Europe close was cancelled at 15.0 s. Across
 all runs, history reads were answered from 5.3 s and job submissions from 7.0 s.
 
 The API container's memory limit, `mem_limit` in `deploy/compose.yaml`, rises
-from 1 GiB to 3 GiB. Inside a 3 GiB container, .NET's default heap limit is three
-quarters of it, 2.25 GiB, which is above the measured peak, and the container
-keeps over 0.8 GiB above that peak. No runtime setting changes. The API's two
-processors and 128 processes, and the database and collector limits, are
-unchanged. A deploy's candidate runs under the rendered API's own memory,
-processor and process limits instead of a copy of them in
-`tools/deploy_release.py`. The deployer refuses a Compose file
-whose API does not state all three, and `tools/check_deployment.py` makes the
-same refusal in CI. It checks the limits Docker records, memory and processes
+from 1 GiB to 3 GiB, 3,072 MiB. The resident peak of 2,231 MiB leaves 841 MiB of
+the container. The process's memory outside the managed heap is at least
+288 MiB, since it was 1,824 MiB resident under the 1,536 MiB heap limit. The
+managed heap therefore reached at most about 1,943 MiB, below the 2,304 MiB heap
+limit .NET sets by default inside a 3,072 MiB container (three quarters of it).
+No runtime setting changes. The API's two processors and 128 processes, and the
+database and collector limits, are unchanged. A deploy's candidate runs under
+the rendered API's own memory, processor and process limits instead of a copy of
+them in `tools/deploy_release.py`. The deployer refuses a Compose file whose API
+does not state all three, and `tools/check_deployment.py` makes the same refusal
+in CI. It checks the limits Docker records, memory and processes
 exactly and processors to a thousandth. A candidate recorded under other limits
 points at the host, not the release, so the deployer backs off without
 quarantining the head and journals `HostResourceMismatch` with the differing
