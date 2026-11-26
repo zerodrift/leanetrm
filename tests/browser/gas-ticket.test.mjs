@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {browserPageActions} from './owned-browser.mjs';
-import {blotterAt,gasTicket} from './gas-ticket.mjs';
+import {blotterAt,gasTicket,openBookedSchedules} from './gas-ticket.mjs';
 
 function fixture(readyAt,{selectionError}={}){
  let elapsed=0;const edits=[];
@@ -95,4 +95,46 @@ test('the gas Blotter refuses a different close selected during navigation',asyn
 test('the gas Blotter refuses a failed final price read',async()=>{
  const f=blotterFixture({finalState:'failed'});
  await assert.rejects(f.open(),/Timed out/);
+});
+
+function scheduleFixture({readyAt=12500,readMs=12500,hidden=false}={}){
+ let now=0,busyUntil=readyAt;const clicks=[];
+ const document={
+  body:{getAttribute:()=>now<busyUntil?'true':'false'},
+  querySelector(selector){
+   if(selector==='#position-details-tabs-schedules')return {click(){clicks.push(now);busyUntil=now+readMs;}};
+   if(selector==='#position-details')return {hidden};
+   return null;
+  },
+ };
+ const evaluate=async expression=>Function('document',`return ${expression}`)(document);
+ const actions=browserPageActions(evaluate,{now:()=>now,pause:async ms=>{now+=ms;}});
+ return {open:milliseconds=>openBookedSchedules(actions,milliseconds),clicks,elapsed:()=>now};
+}
+
+test('booked schedules honor the caller wait for both the position and its schedule read without clicking twice',async()=>{
+ const f=scheduleFixture();
+ await f.open(30000);
+ assert.deepEqual(f.clicks,[12500]);
+ assert.equal(f.elapsed(),25000);
+});
+
+test('booked schedules retain the ordinary wait when the caller does not select a longer one',async()=>{
+ const f=scheduleFixture();
+ await assert.rejects(f.open(),/Timed out after 10000ms/);
+ assert.deepEqual(f.clicks,[]);
+ assert.equal(f.elapsed(),10000);
+});
+
+test('a caller wait cannot pass a stuck position, hidden panel or stuck schedule read',async()=>{
+ for(const options of [{readyAt:Infinity},{readyAt:0,hidden:true}]){
+  const f=scheduleFixture(options);
+  await assert.rejects(f.open(30000),/Timed out after 30000ms/);
+  assert.deepEqual(f.clicks,[]);
+  assert.equal(f.elapsed(),30000);
+ }
+ const f=scheduleFixture({readyAt:0,readMs:Infinity});
+ await assert.rejects(f.open(30000),/Timed out after 30000ms/);
+ assert.deepEqual(f.clicks,[0]);
+ assert.equal(f.elapsed(),30000);
 });

@@ -7,9 +7,9 @@ const ticketWaitMs=30000;
 export const q=JSON.stringify;
 export const newTicket='#gas-ticket .deal-ticket',bookedTicket='#position-details .deal-ticket[data-mode=booked]';
 
-export async function openBookedSchedules({wait,click}){
- await wait("document.querySelector('#position-details-tabs-schedules')&&!document.querySelector('#position-details').hidden&&"+idle);
- await click('#position-details-tabs-schedules');
+export async function openBookedSchedules({wait,click},milliseconds){
+ await wait("document.querySelector('#position-details-tabs-schedules')&&!document.querySelector('#position-details').hidden&&"+idle,milliseconds);
+ await click('#position-details-tabs-schedules',milliseconds);
 }
 
 export function gasTicket({evaluate,wait,set},ticket=newTicket){
