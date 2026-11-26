@@ -7893,3 +7893,114 @@ job submissions and a whole-firm Blotter read at a close stay as slow as
 measured; a longer limit only stops them being cancelled. Making them faster is
 an open performance item. Nothing takes effect until the operator follows
 [hosted capacity](hosted-pilot.md#hosted-capacity-d458).
+
+## D459 — Installed roles read, record and set up REC inventory and owned gas
+
+Decided by the owner on 2026-11-26. Migration 0344 created `ReadRecInventory`,
+`RecordRecInventory` and `ConfigureRecInventory` and granted them to no role.
+Migration 0265 created `ReadGasOwnedHoldings`, `RecordGasOwnedHoldings` and
+`ConfigureGasOwnedHoldings`. The agent-only Gas lifecycle operator role held the
+first two (migration 0305) and no role held the third. An agent acts only within
+what its delegating person also holds (D401). On an installation no person could
+therefore read, record or set up REC inventory or owned gas, and neither could
+an agent: owned title, park and loan and the customer side of park custody were
+out of everyone's reach. Only the local preview and the checks could use them,
+by granting themselves the permissions. Operating facilities had the same gap
+until D444.
+
+Migration 0406 installs all six:
+
+- `ReadRecInventory` and `ReadGasOwnedHoldings`: every human role that reads
+  trades, which are Trader, Risk analyst, Facility operations, Facility
+  operating limits, Gas delivery operations, Gas service setup, Contracts
+  administration, Counterparty credit, Trade confirmations and Trade supervisor.
+- `RecordRecInventory`: Facility operations.
+- `ConfigureRecInventory`: Contracts administration.
+- `RecordGasOwnedHoldings`: Gas delivery operations and Gas service setup.
+- `ConfigureGasOwnedHoldings`: Gas service setup.
+
+The owned gas read is this wide because a park and loan agreement is a trade.
+Every read of one passes `security.gas_park_loan_authority`, which requires
+`ReadGasOwnedHoldings`. A trade reader without it is refused the whole Blotter
+and position read of a book that holds such an agreement (`gas_owned_denied`),
+not only the agreement. Giving the read to every trade-reading human role means
+that booking the first agreement changes nothing in another person's reads. The
+REC read goes to the same ten roles. It could be narrower, since no other read
+depends on it.
+
+Recording and setup go to named operating roles and not to Trader. Contracts
+administration sets up REC accounts and transfer destinations because that form
+lists legal entities and counterparties only to a holder of `ReadTradeParties`,
+which the facility roles do not hold. Facility operations records REC evidence.
+Gas service setup also holds the gas record permission because every owned gas
+write, setup included, passes `security.require_gas_owned_write`, which requires
+it.
+
+What each role can then do:
+
+- Every trade-reading human role reads REC accounts, holdings and history, sees
+  gas rows on Lifecycle and reads owned gas and park and loan agreements. A role
+  that also reads gas operations reads the customer side of a custody agreement.
+- Trader books a park and loan agreement and the customer side of a custody
+  agreement. Both need `BookTrade` and the owned gas read. Trader records and
+  sets up nothing here.
+- Risk analyst selects the pricing policy that includes independent gas
+  holdings, so a book that holds owned gas can be valued and risked whole.
+- Facility operations records REC receipts, reservations, transfers and
+  retirements.
+- Contracts administration sets up REC accounts and transfer destinations.
+- Gas delivery operations records the owned gas actions: title, reservation,
+  delivery, loss, park and loan advances and returns, operator balances and the
+  customer side of custody.
+- Gas service setup sets up owned gas accounts, their action rules, inventory
+  marks, projection settings and physical futures delivery settings, and saves
+  gas action policies.
+
+The grant follows the role, whoever holds it. A service account that holds Risk
+analyst, such as the one a scheduled risk run acts as, now reads both, as D444
+noted for operating rights.
+
+Unchanged. Viewer, Market data editor, Market data approver, Access
+administrator and Assistant prompt editor read no trades and are granted
+nothing. The agent-only roles are unchanged: Agent reader and Swap settlement
+operator hold none of the six, and Gas lifecycle operator keeps the two it held.
+An agent still needs a delegating person who holds the permissions; as
+installed, that is now a holder of Gas delivery operations or Gas service setup.
+A whole-book P&L run over a book that holds owned gas is still refused for every
+reader (D452). Binding an automatic action policy still needs `RunJobs`, which
+neither gas role holds. No single role both books and reads a custody agreement:
+Trader does not read gas operations. No new role is added, an account still
+holds at most six roles, and no permission gates anything it did not gate
+before. The migration assigns no role to any person, keeps a grant an
+installation already made and stops before granting anything if one of the ten
+roles is missing. A role an installation added by hand is not changed; if it
+reads trades, its holders meet the refusal above until the installation grants
+it the reads.
+
+The local preview no longer grants its Trader the REC permissions. It gains a
+demo operator who holds Facility operations, Facility operating limits, Gas
+delivery operations, Gas service setup and Contracts administration. The REC
+inventory storage check, the REC HTTP check and the structured trading browser
+scenario act as installed roles, and the checks of a person or worker without
+the owned gas read give that identity a role made in the check. The standalone
+checks of owned gas mechanics still grant the three owned gas permissions to
+their own fixture identity. They test the mechanics, not who holds what, and
+converting them is a separate cleanup.
+
+A later human role that reads trades needs both reads. The REC inventory storage
+check compares the human roles that read trades with the holders of each read,
+and the inventory access HTTP check runs each role as one person against every
+REC inventory and owned gas route.
+
+The cost. Hosted provisioning gives its owner six roles, the most one account
+may hold, and none of the four that record or set up. The owner reads both areas
+and can take one of the four by giving up a role.
+
+Rejected. Trader records and sets up as well: the hosted owner and a one-person
+desk could then do everything with roles already held, but a trader could book a
+sale and record its transfer; the owner declined it. The reads for the operating
+roles only: a park and loan agreement in a book would refuse that book's Blotter
+and position reads to every other trade reader, the narrowing D444 rejected for
+operating rights. New roles for REC and gas inventory: no person would hold them
+at installation, and the six-role limit makes them hard to add, as D444 found
+for a new setup role.

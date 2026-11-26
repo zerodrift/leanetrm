@@ -1,5 +1,106 @@
 # Local verification and continuous integration
 
+## REC inventory and owned gas access (D459)
+
+The checks were run first without migration 0406. The REC inventory storage
+check stopped at its first holder assertion, `every human role that reads
+trades reads REC inventory, and no other role does`. The owned
+`--structured-power-check` run, with the preview's own grant of the REC
+permissions to Trader removed, passed the 112 lines of its existing flow and
+stopped when the Trader's REC directory read answered 403 `access_denied`. The
+new `--inventory-access-check` run stopped when the demo operator's first owned
+gas write was refused with `gas_owned_denied`. `--scheduled-swap-check`, with
+the two reads added to the Trade supervisor's pinned list, failed that
+assertion after 133 lines.
+
+With the migration and before any check identity changed, seven checks failed.
+Each asserts what a person or worker without the owned gas read is refused, and
+Risk analyst and Trader now hold that read, as does every check worker, because
+a worker is provisioned as a Risk analyst:
+
+- the lifecycle economic worker check: the worker meant to lack the read held
+  it;
+- the cash lifecycle valuation check: `This exact cash consumer must be
+  qualified without gas authority.`;
+- the physical option value check: `synthetic_read_was_accepted`;
+- the lifecycle risk scope and risk jobs checks: a job expected to be refused
+  `risk_job_denied` was accepted;
+- the gas principal carrying check: `Principal metadata bypassed native gas
+  authority.`;
+- the Park and Loan check: `A Risk reader without current gas authority was
+  offered independent gas ownership.`
+
+None passed unchanged. Each identity that must lack the read now holds one role
+made in the check, a copy of what it held without the read. No assertion
+changed.
+
+With everything:
+
+- The REC inventory storage check passes 40 cases. The holders of each of the
+  six permissions are exactly the roles D459 names, and the two reads are held
+  by exactly the human roles that read trades, plus the agent-only gas role for
+  the owned gas read. Three grants made by hand before the migration are kept.
+  Applying the grants again changes no role and gives no person a role, and an
+  installation without one of the named roles is told which. The demo operator
+  sets up and records. Trader and Risk analyst read the certified inventory and
+  the directory. Viewer, Market data editor, Market data approver and Access
+  administrator read neither. Trader records and sets up nothing. Recording
+  without the setup permission and setup without the record permission each
+  stay refused.
+- `--inventory-access-check` passes its fourteen lines. The demo operator sets
+  up an owned gas account and binds four manual action rules, and the demo
+  Trader books a park and loan agreement on it, in the standard preview with
+  no other input and no grant. A Risk analyst is refused that booking with
+  `gas_park_loan_denied` and a Viewer with `gas_owned_denied`. Each of thirteen
+  roles is then run as one person against the REC directory, account read,
+  command outcome, account setup, destination setup and evidence routes, and
+  against the owned gas read, setup choices, evidence, account setup with a
+  manual action rule, the positions of the book that holds the agreement and
+  the risk setup. Each role is allowed exactly what D459 lists and refused the
+  rest with 403: `access_denied` on the reads and the REC writes,
+  `gas_owned_denied` on the owned gas writes. Contracts administration alone is
+  offered REC setup and Facility operations alone REC recording. Gas service
+  setup, holding no trade-party read, saves an owned gas account and its rule,
+  and Gas delivery operations records and is refused setup. Only Risk analyst
+  is offered the pricing policy that includes independent gas holdings. A
+  trade reader whose role loses the owned gas read is refused the whole
+  positions read of that book with 403 `gas_owned_denied`, and reads it again
+  once the role holds the read.
+- `--structured-power-check` passes the 123 lines of its HTTP part. In the REC
+  HTTP check the operator sets up accounts and destinations and records
+  evidence, the Trader reads what the operator recorded, and the Trader's own
+  record and setup requests answer 403 `access_denied`.
+- `--scheduled-swap-check` passes 151 lines and the preview's default owned
+  check 1,587, where the demo operator holds exactly its five roles and no
+  other existing member holds an operating, supervisory or bilateral role.
+- Six of the seven checks above pass. The seventh, the cash lifecycle valuation
+  check, passes its native part, including the line that it holds no gas
+  authority, and stops where its browser must start.
+
+Every command of nineteen check groups was then run, 422 in all: repository,
+managed, database, workspace, reference, standard, exchange, assistant, risk,
+trading, lifecycle, physical, gas, gas-native, gas-browser, portfolio,
+settlement, ppa and recovery. 350 commands passed as written. The 53 preview
+commands that end in a browser suite were run without that suite and passed.
+The 19 helpers that need a browser were run as written; each passed its native
+part and stopped where its browser must start. No command failed. The frontend
+group was not run.
+
+These runs used disposable Linux containers (Ubuntu 24.04.5, x86-64) with stock
+PostgreSQL 18.7, Python 3.12.3, Node 24.22.0 and a Debug API build under SDK
+10.0.402. The 203 repository Python unit checks and the repository group also
+pass on arm64 macOS with Python 3.14.2.
+
+Not run or not covered:
+
+- No browser suite ran. Chrome's sandbox does not start in these containers,
+  and it was not relaxed. This includes the structured trading scenario this
+  change edits and the cash lifecycle valuation browser check. CI runs them.
+- The frontend group.
+- The park custody routes and `/lifecycle/execute` have no route assertion of
+  their own. Holder sets pin who can use custody, and recording is asserted on
+  a route that passes the same native gate.
+
 ## Daily gas quantity rights (D457)
 
 Synthetic checks use an isolated stock PostgreSQL 18.7 server, .NET SDK
