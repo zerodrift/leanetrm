@@ -42,7 +42,7 @@ static class HostedConfigurationChecks
             Require(JsonSerializer.SerializeToElement(selected.RequestDeadlines).GetProperty("normalMilliseconds").GetInt32()==9000
                 &&JsonSerializer.SerializeToElement(selected.RequestDeadlines).GetProperty("extendedMilliseconds").GetInt32()==14000
                 &&selected.Digest!=read.Limits.Digest,"client budgets and process identity derive from the selected configuration");
-            // The longest budgets a host may select (D457): 29 s ordinary and 35 s extended, each with its response grace.
+            // The longest budgets a host may select (D458): 29 s ordinary and 35 s extended, each with its response grace.
             var longest=read.Limits with{RequestSeconds=29,ExtendedRequestSeconds=35,ResponseGraceSeconds=5};
             longest.Validate();
             Require(JsonSerializer.SerializeToElement(longest.RequestDeadlines).GetProperty("normalMilliseconds").GetInt32()==34000

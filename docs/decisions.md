@@ -7786,7 +7786,7 @@ error and seasonal and annual resource limits have fixture-specific evidence.
 See the [contract](physical-gas-side.md#daily-quantity-rights-d457) and
 [qualification](verification.md#daily-gas-quantity-rights-d457).
 
-## D457 — More memory and longer request limits for a hosted demo dataset
+## D458 — More memory and longer request limits for a hosted demo dataset
 
 Decided 2026-11-26. A hosted demo dataset of about 209 trades, 65 curves and
 4,236 market contracts needs more memory than the hosted API's 1 GiB and longer
@@ -7890,5 +7890,6 @@ selected value:
 
 This is capacity, not speed. On two processors the risk history reads, the risk
 job submissions and a whole-firm Blotter read at a close stay as slow as
-measured; a longer limit only stops them being cancelled. Making them faster is an open performance item. Nothing takes effect
-until the operator follows [hosted capacity](hosted-pilot.md#hosted-capacity-d457).
+measured; a longer limit only stops them being cancelled. Making them faster is
+an open performance item. Nothing takes effect until the operator follows
+[hosted capacity](hosted-pilot.md#hosted-capacity-d458).

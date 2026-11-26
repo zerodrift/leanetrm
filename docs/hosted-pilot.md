@@ -408,7 +408,7 @@ Recovery reuses promotion's serving-container and environment checks before
 recording success. A changed user, gateway binding, network, private mount or
 installation setting leaves the interrupted deployment unreconciled. Recording the
 new image as active also requires that the API runs under the installed Compose
-file's resource limits (D457); reconciling back to the previous image does not,
+file's resource limits (D458); reconciling back to the previous image does not,
 since that container may run under earlier ones.
 
 Inspect the private state receipt and systemd journal to distinguish waiting for
@@ -477,16 +477,16 @@ checks authentication-page availability and anonymous denial only; it does not
 qualify prior-image account claims/resets, assistant use or financial reads. The
 attested prior-image Docker run remains a release prerequisite for this increment.
 
-## Hosted capacity (D457)
+## Hosted capacity (D458)
 
-D457 raises the API container's memory limit in `deploy/compose.yaml` above a
+D458 raises the API container's memory limit in `deploy/compose.yaml` above a
 demo dataset's measured peak, and the ceilings of the request time limits. The
 demo's whole load peaked at 2,231 MiB resident in the API, against its
 3,072 MiB container. Its risk worker peaked at 1,003 MiB, measured with the
 runtime's own settings on six processors. The hosted demo's risk worker runs
 under a host-level unit outside this repository, with 1 GB of memory and one
 processor, so that peak is at its limit; raising it is an operator step on the
-host, and D457 sets no figure for it. The change is infrastructure: nothing takes
+host, and D458 sets no figure for it. The change is infrastructure: nothing takes
 effect until the operator applies it, in this order. Each step names the check
 its safety depends on and the way back.
 
@@ -508,7 +508,7 @@ Before starting:
   authenticator connection files with the limits to be selected. Sign-out waits
   behind a slow request, and a shorter command timeout answers it with an error.
 
-1. **Stop `openetrm-deployment.timer`** before the release carrying D457 is
+1. **Stop `openetrm-deployment.timer`** before the release carrying D458 is
    published, and keep it stopped until step 5. Then check that no poll is running
    (`systemctl is-active openetrm-deployment.service` shows `inactive`, not
    `activating`) and that the deployer's state receipt (`state.json`) shows a
@@ -519,7 +519,7 @@ Before starting:
    or `preflight` phase, from an interrupted candidate, needs nothing: `--recover`
    refuses it, and step 3's poll removes that candidate before anything else. Do
    not run a poll to clear it, since a poll before step 2 quarantines the
-   published D457 head. Way back: start the timer again.
+   published D458 head. Way back: start the timer again.
 2. **Install the operator files from that release's commit:** `deploy/compose.yaml`
    (as `/etc/openetrm/release-compose.yaml`, the file the service units name),
    and `tools/deploy_release.py` together with `tools/release_bundle.py`, which it
@@ -567,7 +567,7 @@ Before starting:
    Check before step 4: the deployer's state receipt (`state.json`) names this
    commit as `activeCommit`, and
    `docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' <API container>`
-   prints a commit that contains D457 (`git merge-base --is-ancestor <D457 commit> <printed commit>`).
+   prints a commit that contains D458 (`git merge-base --is-ancestor <D458 commit> <printed commit>`).
    Way back: there is no automatic rollback. To return to the earlier image, use
    the D302 paired rollback (its `host.json` is still in place). To return to the
    earlier memory limit as well, reinstall the previous Compose file, record its
