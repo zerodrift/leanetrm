@@ -42,13 +42,31 @@ static class HostedConfigurationChecks
             Require(JsonSerializer.SerializeToElement(selected.RequestDeadlines).GetProperty("normalMilliseconds").GetInt32()==9000
                 &&JsonSerializer.SerializeToElement(selected.RequestDeadlines).GetProperty("extendedMilliseconds").GetInt32()==14000
                 &&selected.Digest!=read.Limits.Digest,"client budgets and process identity derive from the selected configuration");
+            // The longest budgets a host may select (D458): 29 s ordinary and 35 s extended, each with its response grace.
+            var longest=read.Limits with{RequestSeconds=29,ExtendedRequestSeconds=35,ResponseGraceSeconds=5};
+            longest.Validate();
+            Require(JsonSerializer.SerializeToElement(longest.RequestDeadlines).GetProperty("normalMilliseconds").GetInt32()==34000
+                &&JsonSerializer.SerializeToElement(longest.RequestDeadlines).GetProperty("extendedMilliseconds").GetInt32()==40000,
+                "the longest selectable request budgets reach the client with their response grace");
+            // Refusals include an ordinary limit at the assistant's admission deadline, which an ask's request must end before.
             foreach(var invalid in new[]{read.Limits with{RequestSeconds=0},read.Limits with{RequestBytes=32769},
                 read.Limits with{PasswordHashers=5},read.Limits with{AgentConnections=4},read.Limits with{ExtendedRequestSeconds=14},
-                read.Limits with{IntervalRevisionBytes=1024}})
+                read.Limits with{IntervalRevisionBytes=1024},longest with{RequestSeconds=RuntimeSet.AdmissionSeconds},
+                longest with{ExtendedRequestSeconds=36}})
             {
                 try{invalid.Validate();throw new Exception("An incomplete or incompatible process budget was accepted.");}
                 catch(InvalidOperationException){}
             }
+            // Bootstrap precedes the served budgets, so the page's fixed startup wait must outlast the longest ordinary budget
+            // the API accepts, found here by asking the API rather than restating its ceilings.
+            static bool Accepted(ProcessLimits limits){try{limits.Validate();return true;}catch(InvalidOperationException){return false;}}
+            static int Largest(Func<int,ProcessLimits> select){var n=1;while(n<3600&&Accepted(select(n+1)))n++;return n;}
+            var ordinary=Largest(n=>read.Limits with{RequestSeconds=n,ExtendedRequestSeconds=n});
+            var grace=Largest(n=>read.Limits with{ResponseGraceSeconds=n});
+            var guard=System.Text.RegularExpressions.Regex.Match(File.ReadAllText("web/src/request-deadline.ts"),@"\bstartupMilliseconds=(\d+);");
+            Require(guard.Success,"the page states its startup wait as startupMilliseconds in web/src/request-deadline.ts");
+            Require(int.Parse(guard.Groups[1].Value,System.Globalization.CultureInfo.InvariantCulture)>=(ordinary+grace)*1000,
+                $"the page's startup wait outlasts the longest ordinary budget the API accepts, {(ordinary+grace)*1000} ms");
             Refused(()=>Read(new(complete){["limits"]=null!}),"missing process limits");
             var connectionFile=At("private/database.connection");Directory.CreateDirectory(Path.GetDirectoryName(connectionFile)!);
             File.WriteAllText(connectionFile,"Host=database.synthetic.invalid;Database=synthetic;Username=application;Timeout=2;Command Timeout=3;Maximum Pool Size=4");

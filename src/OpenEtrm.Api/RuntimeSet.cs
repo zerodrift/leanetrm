@@ -5,7 +5,8 @@ namespace OpenEtrm.Api;
 static class RuntimeSet
 {
     public const int TestOutputTokens=256;
-    // Below the request deadline of 15 seconds, leaving time to close the test and answer.
+    // Below the ordinary request deadline it runs under (15 seconds in the example limits; hosts may select up to 29),
+    // leaving time to close the test and answer.
     public static readonly TimeSpan TestDeadline=TimeSpan.FromSeconds(10);
     // An agent version's instructions, in characters, so a save's body stays under 32 KB at four bytes each (§7.5).
     public const int AgentInstructions=6000;
@@ -27,7 +28,8 @@ static class RuntimeSet
     // A question, in characters, so an ask's body stays under 32 KB at four bytes each beside its page report of 8 KiB.
     public const int QuestionLength=4000;
     // The turns a workspace runs at once.
-    // Above the request deadline of 15 seconds, so admission never takes an ask still pinning its context for a stuck one.
+    // Above every ordinary request deadline a host may select (ProcessLimits), so admission never takes an ask still pinning
+    // its context for a stuck one.
     public const int AdmissionSeconds=30;
     // How long streamed text gathers before one publication, and the most UTF-8 bytes one publication carries.
     public static readonly TimeSpan TextCoalescing=TimeSpan.FromMilliseconds(250);

@@ -26,9 +26,12 @@ def main():
         raise ValueError('Bind only the API listener to the explicitly supplied private gateway address.')
     if set(services['api']['networks'])!={'database','web_ingress'} or 'web_ingress' in services['collector']['networks']:
         raise ValueError('Only the API may join its gateway ingress bridge.')
+    # The deployer refuses, and quarantines, a release whose API states no explicit limits for its candidate.
+    from deploy_release import api_resources
+    api_resources(rendered)
     from check_swarm_deployment import main as check_workers
     check_workers()
-    print('PASS rendered deployment: valid private mounts, isolated database and collector, read-only API, one explicit gateway binding and no database/collector host ports')
+    print('PASS rendered deployment: valid private mounts, isolated database and collector, read-only API with explicit memory, processor and process limits, one explicit gateway binding and no database/collector host ports')
 
 
 if __name__=='__main__':main()

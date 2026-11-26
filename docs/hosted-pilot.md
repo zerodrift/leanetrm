@@ -406,7 +406,10 @@ sudo python3 /opt/openetrm/operations/deploy_release.py \
 
 Recovery reuses promotion's serving-container and environment checks before
 recording success. A changed user, gateway binding, network, private mount or
-installation setting leaves the interrupted deployment unreconciled.
+installation setting leaves the interrupted deployment unreconciled. Recording the
+new image as active also requires that the API runs under the installed Compose
+file's resource limits (D458); reconciling back to the previous image does not,
+since that container may run under earlier ones.
 
 Inspect the private state receipt and systemd journal to distinguish waiting for
 CI, deferred collection, quarantine, retry backoff and operator recovery. Private
@@ -473,3 +476,124 @@ host file and tests restoring that file with the prior image. That rollback smok
 checks authentication-page availability and anonymous denial only; it does not
 qualify prior-image account claims/resets, assistant use or financial reads. The
 attested prior-image Docker run remains a release prerequisite for this increment.
+
+## Hosted capacity (D458)
+
+D458 raises the API container's memory limit in `deploy/compose.yaml` above a
+demo dataset's measured peak, and the ceilings of the request time limits. The
+demo's whole load peaked at 2,231 MiB resident in the API, against its
+3,072 MiB container. Its risk worker peaked at 1,003 MiB, measured with the
+runtime's own settings on six processors. The hosted demo's risk worker runs
+under a host-level unit outside this repository, with 1 GB of memory and one
+processor, so that peak is at its limit; raising it is an operator step on the
+host, and D458 sets no figure for it. The change is infrastructure: nothing takes
+effect until the operator applies it, in this order. Each step names the check
+its safety depends on and the way back.
+
+Before starting:
+
+- **Will the updater deploy this head?** A poll deploys a head only when its
+  release's migration inventory and Compose hash equal the installed baseline
+  (`migrations`, `composeSha256`), the installed Compose file and `host.json` match
+  their recorded hashes and the database's schema fingerprint matches. Any other
+  head fails a check and is quarantined on the first poll that finds its release.
+  An installation whose schema is behind the release, such as one serving a D455
+  or D456 maintenance image, goes through its schema window first, as for the
+  [retained gas risk schema release](#retained-gas-risk-schema-release). These
+  steps do not replace it.
+- **Host memory.** While a candidate runs beside the serving API, the host needs
+  memory for twice the API's limit plus the database's and the collector's, and
+  the risk worker's unit as the operator sets it.
+- **Command timeouts.** Compare `Command Timeout` in the API's runtime and
+  authenticator connection files with the limits to be selected. Sign-out waits
+  behind a slow request, and a shorter command timeout answers it with an error.
+
+1. **Stop `openetrm-deployment.timer`** before the release carrying D458 is
+   published, and keep it stopped until step 5. Then check that no poll is running
+   (`systemctl is-active openetrm-deployment.service` shows `inactive`, not
+   `activating`) and that the deployer's state receipt (`state.json`) shows a
+   phase other than `switching`, `checking` or `blocked`. Recover such a switch
+   with `--recover` before step 2: a poll refuses with "operator recovery
+   required" while one is open, and once the new Compose file is installed,
+   recovering that earlier target is held to its limits. A leftover `preparing`
+   or `preflight` phase, from an interrupted candidate, needs nothing: `--recover`
+   refuses it, and step 3's poll removes that candidate before anything else. Do
+   not run a poll to clear it, since a poll before step 2 quarantines the
+   published D458 head. Way back: start the timer again.
+2. **Install the operator files from that release's commit:** `deploy/compose.yaml`
+   (as `/etc/openetrm/release-compose.yaml`, the file the service units name),
+   and `tools/deploy_release.py` together with `tools/release_bundle.py`, which it
+   imports (in `/opt/openetrm/operations`). An older `release_bundle.py` can refuse
+   a newer release, and an older deployer starts its candidate with 1 GiB whatever
+   the Compose file says. Check: from a checkout of the same commit,
+   `python3 tools/check_deployment.py --compose /etc/openetrm/release-compose.yaml`
+   passes; it renders the installed file and requires the API's explicit memory,
+   processor and process limits. Record the new
+   `composeSha256`. The serving API is unchanged by this step. Way back: reinstall
+   the previous three files and record the previous hash.
+3. **Deploy the image with the timer still stopped:** run one poll with
+   `sudo systemctl start openetrm-deployment.service`, leaving `host.json`
+   unchanged; earlier images refuse an ordinary limit above 15 s or an extended
+   limit above 20 s, so the limits wait for step 4. A journal ending
+   `DEPLOYMENT_SUCCEEDED <commit>` means the candidate ran under the new Compose
+   limits and promotion recreated the API under them, both checked by the
+   deployer. Any other ending leaves the earlier image serving, or, after a
+   switch, `blocked` for the recovery above.
+   - A candidate the host records under other limits than the rendered ones is
+     the host's doing, not the release's. The deployer removes it and backs off
+     without quarantining the head, and the journal shows the differing limits,
+     for example `DEPLOYMENT_FAILED HostResourceMismatch: the host records the
+     candidate under other limits than the rendered API: PidsLimit None
+     (rendered 128)` from a daemon that dropped the process limit. Check what the
+     daemon applies: `docker create
+     --network none` any local image with the rendered `--memory`, `--cpus` and
+     `--pids-limit`, read `docker inspect --format '{{.HostConfig.Memory}}
+     {{.HostConfig.NanoCpus}} {{.HostConfig.PidsLimit}}'`, then `docker rm` it. A
+     poll before `retryAfter` in `state.json` prints only `DEPLOYMENT_BACKOFF`; the
+     wait starts at 2 minutes and doubles up to 1 hour. Each retry downloads the
+     release again (up to 768 MiB) and loads and saves its image, so while the
+     timer runs, a mismatch that persists costs that once an hour until the host
+     is fixed.
+   - A switch blocked because the promoted API runs under other limits is resolved
+     by recreating the API under the installed Compose file,
+     `sudo docker compose --env-file /etc/openetrm/compose.env -f /etc/openetrm/release-compose.yaml up -d --no-deps --force-recreate api`,
+     confirming that `docker inspect --format '{{.HostConfig.Memory}} {{.HostConfig.NanoCpus}} {{.HostConfig.PidsLimit}}' <API container>`
+     shows the rendered limits, and only then running `--recover`, which refuses
+     the new image while they differ. If the recreated API still runs under other
+     limits, return to the previous image with the D302 paired rollback and run
+     `--recover`: it records the previous image as active and quarantines the
+     head.
+
+   Check before step 4: the deployer's state receipt (`state.json`) names this
+   commit as `activeCommit`, and
+   `docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' <API container>`
+   prints a commit that contains D458 (`git merge-base --is-ancestor <D458 commit> <printed commit>`).
+   Way back: there is no automatic rollback. To return to the earlier image, use
+   the D302 paired rollback (its `host.json` is still in place). To return to the
+   earlier memory limit as well, reinstall the previous Compose file, record its
+   hash and recreate the API with
+   `sudo docker compose --env-file /etc/openetrm/compose.env -f /etc/openetrm/release-compose.yaml up -d --no-deps api`.
+   Keep the timer stopped until the new Compose file is installed again: every
+   later release carries it, so against the previous hash each would be
+   quarantined.
+4. **Select the longer limits, gateway first:**
+   1. Write the target `host.json` with the new `limits` (at most 29 s ordinary and
+      35 s extended). From it, render the gateway with `tools/gateway_configuration.py`,
+      validate the result with the target nginx (`nginx -t`), install it and reload
+      nginx. Its read timeout becomes the extended limit plus the response grace,
+      40 s at 35 s and 5 s, which also covers the limits still running. The way back
+      is the previous rendered file, reloaded.
+   2. Only then install that `host.json`, record `hostConfigurationSha256` and
+      restart the API (`docker restart <API container>`). A gateway still rendered
+      from the earlier limits would cut requests longer than its read timeout (25 s
+      at 20 s and 5 s) with a bare 504. Check: the container keeps running with a
+      steady restart count (`docker inspect --format '{{.State.Running}} {{.RestartCount}}'`),
+      its log has no "Supply limits" refusal, and the public site answers. Way back:
+      restore the previous `host.json` and its hash and restart the API. The new
+      gateway can stay, since its read timeout covers the earlier limits.
+5. **Start `openetrm-deployment.timer` again** only once step 4's hash is
+   recorded and the site serves.
+
+Risk history reads, risk job submissions and a whole-firm Blotter read at a close
+stay slow on the demo dataset on two processors; the longer limits only stop them
+being cancelled at 15 s. Their speed is an open performance item.

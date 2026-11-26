@@ -33,7 +33,7 @@ def render_template(template, values):
 def render_gateway(template, values, limits):
     selected = {}
     for name, minimum, maximum in [('requestBytes', 1024, 32768),
-            ('intervalRevisionBytes', 1024, 8388608), ('extendedRequestSeconds', 1, 20),
+            ('intervalRevisionBytes', 1024, 8388608), ('extendedRequestSeconds', 1, 35),
             ('responseGraceSeconds', 1, 5)]:
         value = limits.get(name)
         if type(value) is not int or not minimum <= value <= maximum:
