@@ -1,15 +1,26 @@
 # Delivery plan and acceptance criteria
 
-D458 implements [daily gas entry billing and scoped processing](gas-cash-billing.md):
+D459 implements [daily gas entry billing and scoped processing](gas-cash-billing.md):
 retained shares, daily bands/shortfalls and payment dates; exact reconciliation;
 gas-native one-off lifecycle work; and bounded recurring book/date assessment
 through the existing job worker. Jobs offers explicit preview, once/recurring
 enrollment, pause and retained results. Each cycle reassesses the complete fixed
 window, including late old-day evidence. It does not maintain an incremental
 change feed or move the window implicitly. Qualification is recorded in
-[verification](verification.md#daily-gas-billing-and-processing-d458).
+[verification](verification.md#daily-gas-billing-and-processing-d459).
 Indexed/monthly/multisource billing, invoices, accounting, receipt/fuel billing,
 exercise/swing-dependent final cash and automatic corrections remain separate.
+
+D458 raises the hosted API's memory limit above the measured peak of a demo
+dataset's whole load: 2,231 MiB resident on two processors with no heap limit.
+Its risk worker peaked at 1,003 MiB, at the hosted demo's host-level 1 GB limit;
+raising that limit is an operator step on the host. Deploy candidates run under
+the API's limits, and hosts may select ordinary and extended request limits of
+up to 29 s and 35 s. It is capacity, not speed: even with no memory cap, the
+15-second deadline cancelled 16 risk job submissions, 2 history reads and a
+whole-firm Blotter read. History reads took 5.3 to 14.8 s and job submissions
+7.0 to 14.8 s, and making them faster remains open. Applying it needs the
+[operator steps](hosted-pilot.md#hosted-capacity-d458).
 
 D456 restores the Physical Operations directory to its native gas, crude and LNG
 consumers while preserving all products in the Blotter. The mixed-product

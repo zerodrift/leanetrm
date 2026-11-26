@@ -7786,7 +7786,115 @@ error and seasonal and annual resource limits have fixture-specific evidence.
 See the [contract](physical-gas-side.md#daily-quantity-rights-d457) and
 [qualification](verification.md#daily-gas-quantity-rights-d457).
 
-## D458 — Daily gas entry billing and bounded scope processing
+## D458 — More memory and longer request limits for a hosted demo dataset
+
+Decided 2026-11-26. A hosted demo dataset of about 209 trades, 65 curves and
+4,236 market contracts needs more memory than the hosted API's 1 GiB and longer
+requests than its 15-second ordinary deadline.
+
+What was measured, and how. The whole load ran on a shared test host with .NET
+held to two processors (`DOTNET_PROCESSOR_COUNT=2`) and no heap limit: all 110
+phases, the 209 trades, every check, the measurement and the closing. Memory is
+given in MiB. The application's peak resident memory (`VmHWM`) was 2,231 MiB,
+reached in the risk runs, and no later phase raised it. Each restart of the
+application starts the reading again: it read 216 MiB through the prices, about
+1,051 MiB through the closes and definitions, 1,005 MiB in the trades, 1,397 MiB
+through the surfaces and the first risk runs, then 1,493, 2,082 and 2,231 MiB in
+the risk runs. The peak may slightly overstate one clean load, since some risk
+items were sent again after 15-second cancellations. Earlier partial runs
+emulated 1 GiB and 2 GiB containers with .NET heap hard limits of 768 MiB and
+1,536 MiB on the same two processors. Under 768 MiB the peak reached 978 MiB
+before the load stopped on the API's catch-all 500 (`preview_error`), whose
+exception was not read. Under 1,536 MiB it reached 1,824 MiB a third of the way
+through, before a cancelled request stopped it.
+
+The same whole load's risk worker peaked at 1,003 MiB (`VmHWM` over its whole
+life: the load, the second runs, every check, the measurement and the closing).
+It ran with the runtime's own settings on six processors, not under the hosted
+demo's limits. The hosted demo's risk worker runs under a host-level unit outside
+this repository, with 1 GB of memory and one processor, so the measured peak is
+at that limit. Raising it is an operator step on the host; this decision sets no
+figure for it.
+
+Even with no memory cap, the 15-second ordinary deadline cut requests the
+loading tool sent directly. In the whole load, value-at-risk job submissions
+(`portfolio/risk/{parametric,historical,monte-carlo}/jobs`) were answered in
+12.7 to 14.8 s and 16 were cancelled at 15.0 s. History reads
+(`portfolio/risk/history`) were answered in 11.1 to 14.8 s and 2 were cancelled.
+One whole-firm Blotter read at the Europe close was cancelled at 15.0 s. Across
+all runs, history reads were answered from 5.3 s and job submissions from 7.0 s.
+
+The API container's memory limit, `mem_limit` in `deploy/compose.yaml`, rises
+from 1 GiB to 3 GiB, 3,072 MiB. The resident peak of 2,231 MiB leaves 841 MiB of
+the container. The process's memory outside the managed heap is at least
+288 MiB, since it was 1,824 MiB resident under the 1,536 MiB heap limit. The
+managed heap therefore reached at most about 1,943 MiB, below the 2,304 MiB heap
+limit .NET sets by default inside a 3,072 MiB container (three quarters of it).
+No runtime setting changes. The API's two processors and 128 processes, and the
+database and collector limits, are unchanged. A deploy's candidate runs under
+the rendered API's own memory, processor and process limits instead of a copy of
+them in `tools/deploy_release.py`. The deployer refuses a Compose file whose API
+does not state all three, and `tools/check_deployment.py` makes the same refusal
+in CI. It checks the limits Docker records, memory and processes
+exactly and processors to a thousandth. A candidate recorded under other limits
+points at the host, not the release, so the deployer backs off without
+quarantining the head and journals `HostResourceMismatch` with the differing
+limits. A promoted API under other limits blocks the switch, and
+recovery records the new image as active only once it runs under them. While a
+candidate runs beside the serving API, the host needs memory for twice the API's
+limit plus the database's and the collector's.
+
+The request time limits stay host configuration; only their ceilings rise.
+`requestSeconds` may be at most 29 s instead of 15 s. It is held below the
+assistant runtime set's fixed 30-second admission deadline (`turns_v23`), which
+must outlast an ask's request: at 30 s, a concurrent ask could end a turn as
+`ask_incomplete` while the request that admitted it was still finishing. An
+ordinary limit of 30 s or more needs a new runtime set with a longer admission
+deadline and the migration that admits it; this decision makes neither.
+`extendedRequestSeconds` may be at most 35 s instead of 20 s: the extended limit
+asked for beside an ordinary 30 s, keeping the 5-second lead the extended reads
+(`/api/ppa` and `/api/trading/position`) have in the example's 15 and 20 s.
+Extended only has to cover ordinary, so a host may select less. The response
+grace stays 1 to 5 s on top of each, and the gateway's read timeout still follows
+the larger of 20 s and the extended limit plus its grace, so at most 40 s. The
+example process limits, 15 s and 20 s, are unchanged.
+
+The page keeps no ceiling on the budgets bootstrap serves; it requires positive
+whole milliseconds with extended covering ordinary. Its one fixed request figure
+is the wait for bootstrap and the example directory, which come before the served
+budgets: 34 s, the longest ordinary budget the API can serve (29 s plus 5 s of
+grace). `HostedConfigurationChecks` finds the API's ceilings by asking it and
+requires the page's figure to cover them. The response channel's opening request
+still gives up after 10 s on the page while it waits on the same session gate;
+that remains open.
+
+Which callers the ordinary limit binds: direct HTTP requests, such as the loading
+tool's history reads, and every caller of the risk job submissions, which the page
+sends as ordinary gated requests. The page reads history through the response
+channel, whose own 60-second read limit does not change.
+
+Everything bounded by the ordinary or extended deadline is now bounded by the
+selected value:
+
+- A sign-in's session gate. Every gated request, and the bootstrap of every window
+  of that account, waits behind a slow gated request for up to the selected
+  ordinary limit, or the extended one behind `trading/position` and PPA reads.
+- The security epoch. Every request transaction holds `security.epoch`
+  `FOR SHARE`, so sign-out and access revocations wait behind a slow request,
+  a stalled Blotter stream (D268) included. Sign-out runs on the authenticator
+  connection: a `Command Timeout` shorter than the selected limit answers it with
+  an error while a slow request runs. The response channel's reads already hold
+  the epoch for up to 60 s, so the epoch's longest wait is not new.
+- Connections of the 8-connection application pool, asynchronous-read submission
+  and a closing view's detachment.
+
+This is capacity, not speed. On two processors the risk history reads, the risk
+job submissions and a whole-firm Blotter read at a close stay as slow as
+measured; a longer limit only stops them being cancelled. Making them faster is
+an open performance item. Nothing takes effect until the operator follows
+[hosted capacity](hosted-pilot.md#hosted-capacity-d458).
+
+## D459 — Daily gas entry billing and bounded scope processing
 
 Retain `gas_final_daily_fixed_cash_v1` and add the explicitly selected
 `gas_final_daily_entry_cash_v1` for one fixed delivery payment, one physical
@@ -7837,4 +7945,4 @@ including after child replay. Corrections remain manual/reviewed. Indexed,
 monthly, multisource, receipt/fuel and right-dependent billing, invoices,
 accounting and automatic correction policy remain separate consumers.
 See [the contract](gas-cash-billing.md) and
-[qualification](verification.md#daily-gas-billing-and-processing-d458).
+[qualification](verification.md#daily-gas-billing-and-processing-d459).

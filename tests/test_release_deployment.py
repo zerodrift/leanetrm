@@ -20,6 +20,11 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def applied(memory, cpus, pids):
+    """The limits as Docker records them in a container's HostConfig."""
+    return {'Memory': int(memory), 'NanoCpus': round(float(cpus) * 10 ** 9), 'PidsLimit': int(pids)}
+
+
 def archive(path, entries):
     with tarfile.open(path, 'w:gz', format=tarfile.USTAR_FORMAT) as output:
         for name, value in entries:
@@ -177,11 +182,48 @@ class AdmissionChecks(unittest.TestCase):
         self.assertEqual(command[command.index('--source-ref') + 1], 'refs/heads/master')
         self.assertEqual(command[command.index('--source-digest') + 1], COMMIT)
 
+    def test_a_failure_journals_only_its_classification(self):
+        # Provider and database output, cookies and private configuration stay out of the journal.
+        for error in [deploy.InfrastructureError('private detail'), deploy.ReleaseError('private detail'), OSError('private detail')]:
+            with self.subTest(error=type(error).__name__):
+                self.assertEqual(deploy.failure_line(error), 'DEPLOYMENT_FAILED ' + type(error).__name__)
+
     def test_schema_fingerprint_only_removes_dump_random_restrict_keys(self):
         first = b'--schema\n\\restrict alpha\nCREATE TABLE t(id int);\n\\unrestrict alpha\n'
         second = first.replace(b'alpha', b'beta')
         self.assertEqual(deploy.schema_fingerprint(first), deploy.schema_fingerprint(second))
         self.assertNotEqual(deploy.schema_fingerprint(first), deploy.schema_fingerprint(first.replace(b'int', b'text')))
+
+
+class ApiResourceChecks(unittest.TestCase):
+    complete = {'mem_limit': '2684354560', 'cpus': 2, 'pids_limit': 128}
+
+    @staticmethod
+    def resources(**api):
+        return deploy.api_resources({'services': {'api': api}})
+
+    def test_positive_whole_limits_are_the_containers_limits(self):
+        self.assertEqual(self.resources(**self.complete), applied('2684354560', 2, 128))
+        self.assertEqual(self.resources(mem_limit=2684354560, cpus=1.5, pids_limit=96), applied(2684354560, 1.5, 96))
+
+    def test_absent_zero_negative_unit_and_boolean_limits_are_refused(self):
+        for name, value in [('mem_limit', '0'), ('mem_limit', -1), ('mem_limit', '3g'), ('mem_limit', True),
+                            ('cpus', 0), ('cpus', '0.0'), ('cpus', -2), ('cpus', True),
+                            ('pids_limit', 0), ('pids_limit', -1), ('pids_limit', True)]:
+            with self.subTest(**{name: value}), self.assertRaisesRegex(deploy.ReleaseError, 'resource limits'):
+                self.resources(**{**self.complete, name: value})
+        # A limit stated only for Swarm placement is not the Compose container's limit.
+        with self.assertRaisesRegex(deploy.ReleaseError, 'resource limits'):
+            self.resources(cpus=2, pids_limit=128, deploy={'resources': {'limits': {'memory': '2684354560'}}})
+
+    def test_processors_match_within_a_thousandth_and_memory_and_processes_exactly(self):
+        expected = applied(2684354560, 4.3, 128)
+        def recorded(**host):
+            deploy.require_resources({'HostConfig': {**expected, **host}}, expected)
+        recorded(NanoCpus=4300000256)  # Compose computes NanoCPUs in single precision.
+        for host in [{'NanoCpus': 4302000000}, {'Memory': 2684354561}, {'PidsLimit': 127}, {'PidsLimit': None}]:
+            with self.subTest(**host), self.assertRaisesRegex(deploy.ReleaseError, 'resource limits'):
+                recorded(**host)
 
 
 # Exercise the real orchestration with synthetic API/daemon responses. No live services.
@@ -275,6 +317,8 @@ class StateMachineChecks(unittest.TestCase):
         self.candidate_exists = False; self.live_image = self.old_image; self.promotions = 0; self.created = 0
         self.head_reads = 0; self.supersede = False; self.fail_candidate = False; self.forced_head = None
         self.power_loss = None; self.busy_collector = False; self.transient_download = False
+        self.api_resources = {'mem_limit': '2147483648', 'cpus': 1.5, 'pids_limit': 96}
+        self.candidate_drift = {}; self.serving_drift = {}
         self.commands = []
         for name, replacement in [('command', self.command), ('api', self.api), ('download', self.download),
                                   ('http_checks', self.http), ('inspect_image', lambda *a: None)]:
@@ -340,15 +384,21 @@ class StateMachineChecks(unittest.TestCase):
             if name == 'synthetic-db':
                 value = {'Id': 'owned-db', 'State': {'StartedAt': 'unchanged', 'Running': True}}
             elif name == 'synthetic-api':
+                # Compose applies the rendered limits when it promotes; the earlier container ran under the earlier ones.
+                limits = (applied(self.api_resources['mem_limit'], self.api_resources['cpus'], self.api_resources['pids_limit'])
+                          if self.live_image == self.new_image else applied('1073741824', 2, 128))
                 value = {'Image': self.live_image, 'State': {'Running': True}, 'HostConfig': {'ReadonlyRootfs': True,
-                    'PortBindings': {'8080/tcp': [{'HostIp': '192.0.2.2', 'HostPort': '18080'}]}},
+                    'PortBindings': {'8080/tcp': [{'HostIp': '192.0.2.2', 'HostPort': '18080'}]}, **limits, **self.serving_drift},
                     'NetworkSettings': {'Networks': {'synthetic-database': {}, 'synthetic-ingress': {}}},
                     'Mounts': [{'Type': 'bind', 'Source': str(self.private) + '/application', 'Destination': '/run/private', 'RW': False},
                                {'Type': 'bind', 'Source': self.values['STATE_ROOT'] + '/application', 'Destination': '/var/lib/openetrm', 'RW': True}]}
             else:
                 if not self.candidate_exists:
                     raise deploy.InfrastructureError('synthetic container does not exist')
-                value = {'Config': {'Labels': {'io.openetrm.deployment-candidate': COMMIT}}, 'State': {'Running': True}}
+                flags = self.candidate_args
+                value = {'Config': {'Labels': {'io.openetrm.deployment-candidate': COMMIT}}, 'State': {'Running': True},
+                         'HostConfig': {**applied(*(flags[flags.index(flag) + 1] for flag in ['--memory', '--cpus', '--pids-limit'])),
+                                        **self.candidate_drift}}
             value.setdefault('Config', {'User': '1654:1654'})
             return json.dumps([value]).encode()
         if args[:2] == ['docker', 'load']:
@@ -359,7 +409,7 @@ class StateMachineChecks(unittest.TestCase):
         if args[:2] == ['docker', 'create']:
             self.assertFalse(self.candidate_exists)
             self.assertIn('127.0.0.1:18081:8080', args)
-            self.candidate_exists = True; self.created += 1
+            self.candidate_exists = True; self.created += 1; self.candidate_args = args
             if self.power_loss == 'created':
                 self.power_loss = None
                 raise PowerLoss()
@@ -374,7 +424,7 @@ class StateMachineChecks(unittest.TestCase):
             if 'config' in args:
                 process = {'read_only': True, 'cap_drop': ['ALL'], 'tmpfs': ['/tmp:size=64m,mode=1777'], 'security_opt': ['no-new-privileges:true']}
                 return json.dumps({'name': 'synthetic', 'services': {
-                    'api': {**process, 'container_name': 'synthetic-api', 'ports': [{'host_ip': '192.0.2.2', 'published': '18080', 'target': 8080, 'protocol': 'tcp'}],
+                    'api': {**process, **self.api_resources, 'container_name': 'synthetic-api', 'ports': [{'host_ip': '192.0.2.2', 'published': '18080', 'target': 8080, 'protocol': 'tcp'}],
                             'networks': {'database': {}, 'web_ingress': {}}, 'volumes': [
                                 {'source': str(self.private) + '/application', 'target': '/run/private', 'read_only': True},
                                 {'source': self.values['STATE_ROOT'] + '/application', 'target': '/var/lib/openetrm'}]},
@@ -452,6 +502,47 @@ class StateMachineChecks(unittest.TestCase):
         self.assertFalse(any(args[:2] in [['docker', 'load'], ['docker', 'create']] for args in self.commands))
         self.assertEqual(self.promotions, 0)
 
+    def test_candidate_runs_under_the_rendered_api_resource_limits(self):
+        deploy.Deployment(self.settings).run()
+        args = self.candidate_args
+        self.assertEqual([args[args.index(flag) + 1] for flag in ['--memory', '--cpus', '--pids-limit']], ['2147483648', '1.5', '96'])
+
+    def test_api_without_explicit_resource_limits_is_rejected_before_loading_or_creating(self):
+        complete = self.api_resources
+        for name in complete:
+            with self.subTest(missing=name):
+                # Each iteration starts from its own owned state.
+                deploy.write_environment(self.env, self.values)
+                deploy.atomic_json(self.root / 'state.json', {'phase': 'idle', 'activeCommit': 'd' * 40, 'activeImage': self.old_image})
+                self.live_image = self.old_image; self.commands = []
+                self.api_resources = {key: value for key, value in complete.items() if key != name}
+                with self.assertRaisesRegex(deploy.ReleaseError, 'resource limits'):
+                    deploy.Deployment(self.settings).run()
+                self.assertFalse(any(args[:2] in [['docker', 'load'], ['docker', 'create']] for args in self.commands))
+                self.assertEqual(self.promotions, 0)
+
+    def test_a_candidate_the_host_records_under_other_limits_backs_off_without_quarantining_the_head(self):
+        # The rendered limits were already validated, so a candidate under others points at the host, not the release.
+        self.candidate_drift = {'Memory': 1073741824}
+        with self.assertRaises(deploy.HostResourceMismatch) as raised:
+            deploy.Deployment(self.settings).run()
+        self.assertIsInstance(raised.exception, deploy.InfrastructureError)
+        # The journal tells this cause from other infrastructure failures and names the differing limit.
+        self.assertEqual(deploy.failure_line(raised.exception), 'DEPLOYMENT_FAILED HostResourceMismatch: the host records the '
+                         'candidate under other limits than the rendered API: Memory 1073741824 (rendered 2147483648)')
+        self.assertFalse(any(args[:2] == ['docker', 'start'] for args in self.commands))
+        self.assertFalse(self.candidate_exists)
+        self.assertEqual(self.promotions, 0)
+        self.assertNotIn(COMMIT, self.state().get('quarantined', []))
+        self.assertGreater(self.state()['retryAfter'], 0)
+
+    def test_a_promoted_api_under_other_limits_blocks_for_operator_recovery(self):
+        self.serving_drift = {'PidsLimit': 128}
+        with self.assertRaisesRegex(deploy.ReleaseError, 'resource limits'):
+            deploy.Deployment(self.settings).run()
+        self.assertEqual(self.promotions, 1)
+        self.assertEqual(self.state()['phase'], 'blocked')
+
     def test_stale_preflight_is_cleaned_even_when_head_returns_to_active_commit(self):
         self.power_loss = 'created'
         with self.assertRaises(PowerLoss):
@@ -492,7 +583,7 @@ class StateMachineChecks(unittest.TestCase):
 
     def test_recovery_rejects_drifted_serving_boundaries(self):
         original = deploy.inspect_container
-        for boundary in ['port', 'network', 'private_mount', 'user']:
+        for boundary in ['port', 'network', 'private_mount', 'user', 'resources']:
             with self.subTest(boundary=boundary):
                 state = {'phase': 'checking', 'targetCommit': COMMIT, 'targetImage': self.new_image,
                          'previousImageId': self.old_image, 'previousImage': self.old_image, 'previousCommit': 'd' * 40}
@@ -508,6 +599,8 @@ class StateMachineChecks(unittest.TestCase):
                         value['NetworkSettings']['Networks']['unexpected-public-network'] = {}
                     elif boundary == 'private_mount':
                         value['Mounts'][0]['RW'] = True
+                    elif boundary == 'resources':
+                        value['HostConfig']['PidsLimit'] = 128
                     else:
                         value['Config']['User'] = '0:0'
                     return value

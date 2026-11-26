@@ -495,13 +495,13 @@ Generated-close, readiness and controller worker paths are unchanged.
 
 ## Source-derived lifecycle tasks
 
-D458 adds the gas-native `gas.bill_daily` source and a separate bounded gas scope
+D459 adds the gas-native `gas.bill_daily` source and a separate bounded gas scope
 consumer. Its processing instant/business date replace the recorded-close input
 only for that product. Exact source policies and retained booking terms drive
 the shared billing/reconciliation operation. Recurring scopes use existing
 jobs/runs, first-admitted inputs, owner quotas and one-off children; they do not
 generalize the close-based tasks below into recurring financial calendars.
-See [gas processing](gas-cash-billing.md#reconciliation-and-scheduled-processing-d458)
+See [gas processing](gas-cash-billing.md#reconciliation-and-scheduled-processing-d459)
 for fixed-window reassessment, backpressure, updates and partial result semantics.
 
 `lifecycle_action_v1` is a separately admitted operation. The Lifecycle page offers

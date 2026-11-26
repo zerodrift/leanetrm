@@ -875,8 +875,9 @@ The tool set is fixed; each tool is switched on per agent version.
   under 20); text coalescing interval; card data and event sizes; question and
   instruction lengths (set so a body stays under 32 KB: `question_too_long`,
   `instructions_too_long`); a worker write's bound and retry interval; tool-result row
-  and byte bounds; maximum grant duration; test output limit and deadline (below 15
-  seconds); admission deadline (above 15 seconds); retained-context reserve; provider
+  and byte bounds; maximum grant duration; test output limit and deadline (below the
+  example's 15-second request deadline); admission deadline (above every ordinary
+  request deadline a host may select, D458); retained-context reserve; provider
   timeouts and response byte bound; subscriber buffer (64 signals). Oversize cards are
   `card_too_large`; text is split into events; any other oversize event is
   `event_too_large`. Nothing is truncated.
@@ -1016,7 +1017,7 @@ The tool set is fixed; each tool is switched on per agent version.
 - **One stream per unfinished turn**, because browsers cap connections per origin: a
   new one, from any of the owner's sessions, sends the older `replaced`, whose tab
   offers Resume. A stream stopped before it begins replaces none.
-- The route is matched in the first middleware, exempt from the 15-second deadline and
+- The route is matched in the first middleware, exempt from the ordinary request deadline and
   the session semaphore, and sends `refused` with `stream_expired` if the turn's
   elapsed limit plus the admission deadline passes without a terminal event; the
   worker's own `limit_elapsed` ending comes first.

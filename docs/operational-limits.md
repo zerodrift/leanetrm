@@ -58,6 +58,13 @@ listed limit is configurable or that a release has been qualified.
   upstream/site values remain separate explicit inputs. Risk UI dimensions come
   from catalog metadata. Power quantity display symbols come from exact reference
   rows; supported algorithm unit codes remain part of their financial contract.
+- D458 raises the request time ceilings to 29 s ordinary and 35 s extended. The
+  ordinary ceiling is derived from, and stays below, the assistant runtime set's
+  30-second admission deadline. The API enforces both ceilings and the gateway
+  renderer repeats the extended one. The page keeps no ceiling on served budgets;
+  its one fixed figure is the startup wait before bootstrap answers, which must
+  cover the longest ordinary budget the API can serve (34 s), and
+  `HostedConfigurationChecks` holds it there.
 
 Verification covers revision/no-op/replay/conflict behavior, ownership, configured
 access durations, duplicate failed attempts, prior-fact migration preservation,
@@ -141,12 +148,12 @@ memory or work on untrusted input), *storage* (a stored field's length) or
 | Time per read ceiling | `RuntimeSet.cs:33`; `assistant.save_agent_version` | 30 s | Fixed: guard, bounds how long a read holds the epoch row (D245) |
 | Agent version ranges | `assistant.save_agent_version` (`0121_agent_history_window.sql:73-76`); `assistant.agent_versions` checks | Tool steps 1–100, input tokens 1–10⁸, output tokens 1–10⁷, 1–3,600 s per turn, 0–10 retries, 0–1,000 history turns, description 500 | Fixed: ceilings of agent-version values |
 | Provider connect, idle, response | `RuntimeSet.cs:7-8` | 5 s, 30 s, 4 MiB | **Move:** hosted (response size ceiling stays fixed) |
-| Provider test | `RuntimeSet.cs:9`, `:11` | 256 output tokens, 10 s | Fixed: contract, derived from the 15-second request deadline. Recompute when the deadline moves |
+| Provider test | `RuntimeSet.cs:9`, `:11` | 256 output tokens, 10 s | Fixed: contract, below the ordinary request deadline it runs under (15 s in the example; hosts may select up to 29 s, D458). A host selecting 10 s or less cuts the test at its request deadline first |
 | Question, agent instructions | `RuntimeSet.cs:19`, `:13`; `assistant.is_instructions` (`0066_agent_administration.sql:152`) | 4,000 and 6,000 characters (32,000 in SQL) | Fixed: contract, keeps each body under the 32 KiB request ceiling |
 | Page report, tool input, navigation target | `ask_turn` (`0121_agent_history_window.sql:130`); `record_tool_step` (`0086_navigation_targets.sql:89`); `is_navigation_target`; `assistant.turns`, `tool_steps` checks; `AgentTools.cs:218` | 8 KiB each; target label 200 | Fixed: contract (`turns_v7`) |
 | Streamed text | `RuntimeSet.cs:27-28`; `append_turn_text` (`0072_tool_steps.sql:513`) | 250 ms, 2,048 bytes | Fixed: contract (`turns_v7`) |
 | Turn events | `RuntimeSet.cs:41-42`; `assistant.turn_events` check | 15 s heartbeat; 256 replayed, 64 buffered; 16 KiB per event | Heartbeat **Move:** hosted (must stay below the gateway's read timeout); the rest fixed: contract |
-| Admission and worker timing | `RuntimeSet.cs:23`, `:35`, `:37`; `TurnStream.cs:127` | 30 s admission, 1 s backoff, 5 s write, 2 s retry | Fixed: contract, derived from the request deadline. Recompute in a new runtime set when it moves |
+| Admission and worker timing | `RuntimeSet.cs:23`, `:35`, `:37`; `TurnStream.cs:127` | 30 s admission, 1 s backoff, 5 s write, 2 s retry | Fixed: contract. The ordinary request ceiling is derived from the admission deadline and stays below it (D458); a longer ordinary ceiling needs a new runtime set with a longer admission deadline |
 | Tool argument shapes | `AgentTools.cs:102-152`, `:555`, `:590`; `AgentTools.CustomCurves.cs:16-18`; `AgentTools.Jobs.cs:22` | 64 ids, 64 items, 160-character search, 200 reference rows, 6,144-character text and formulas, job pages of 25 up to page 10,000 | Fixed: contract, part of each tool's versioned schema |
 | Read view sizes | `TradeReads.cs:79`; `MarketReads.cs:128`; `TradingBlotter.cs:20`; `PreviewDatabase.cs:421`, `:76` | 64 PPA trades, 64 shaped curves, 4 summaries, 200 reference rows, offset 100,000 | Fixed: contract, part of each view version |
 | Directory pages | `agent_directory`, `model_directory`, `provider_directory`, `usage_directory`, `workspace_grants`, `security.administration_directory` | 100 | Fixed: contract |

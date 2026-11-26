@@ -84,6 +84,10 @@ class InfrastructureError(RuntimeError):
     pass
 
 
+class HostResourceMismatch(InfrastructureError):
+    """The host records a candidate under other limits than the validated rendered ones: the host's doing, not the release's."""
+
+
 class DeferredDeployment(ReleaseError):
     pass
 
@@ -161,6 +165,43 @@ def require_rendered(rendered, settings):
     mounts = {(item['source'], item['target'], item.get('read_only', False)) for item in api_service['volumes']}
     require(mounts == {(settings['privateRoot'] + '/application', '/run/private', True),
                        (settings['applicationStateRoot'] + '/application', '/var/lib/openetrm', False)}, 'rendered private mounts mismatch')
+
+
+def api_resources(rendered):
+    """The rendered API's explicit memory, processor and process limits, as Docker records them in a container's HostConfig."""
+    memory, processors, processes = (str(rendered['services']['api'].get(name)) for name in ['mem_limit', 'cpus', 'pids_limit'])
+    require(re.fullmatch(r'[1-9][0-9]*', memory) and re.fullmatch(r'[0-9]+(?:\.[0-9]+)?', processors) and float(processors) > 0
+            and re.fullmatch(r'[1-9][0-9]*', processes), 'rendered API resource limits are not explicit')
+    return {'Memory': int(memory), 'NanoCpus': round(float(processors) * 10 ** 9), 'PidsLimit': int(processes)}
+
+
+def resource_flags(resources):
+    return ['--memory', str(resources['Memory']), '--cpus', f"{resources['NanoCpus'] / 10 ** 9:g}", '--pids-limit', str(resources['PidsLimit'])]
+
+
+def resource_differences(actual, resources):
+    """The limits a container runs under that differ from the rendered API's: memory and processes exactly, processors to
+    a thousandth, since Compose computes NanoCPUs in single precision."""
+    host = actual['HostConfig']
+    def differs(name):
+        value = host.get(name)
+        if name == 'NanoCpus':
+            return type(value) is not int or abs(value - resources[name]) > 10 ** 6
+        return value != resources[name]
+    return ', '.join(f'{name} {host.get(name)} (rendered {resources[name]})' for name in resources if differs(name))
+
+
+def require_resources(actual, resources):
+    """A promoted or recovered API runs under the rendered API's limits."""
+    differences = resource_differences(actual, resources)
+    require(not differences, 'container resource limits differ from the rendered API: ' + differences)
+
+
+def failure_line(error):
+    """A failed run's journal line: only its classification, so provider and database output, cookies and private
+    configuration stay private. A host limits mismatch adds the differing limits, which are the installation's own."""
+    line = 'DEPLOYMENT_FAILED ' + type(error).__name__
+    return line + ': ' + str(error) if isinstance(error, HostResourceMismatch) else line
 
 
 def require_actual(actual, settings, image):
@@ -278,7 +319,7 @@ class Deployment:
             self.save(self.state.get('phase', 'idle'), candidateId=None)
         self.candidate_file.unlink(missing_ok=True)
 
-    def candidate(self, image, values, origin):
+    def candidate(self, image, values, origin, resources):
         s = self.settings
         gateway = json.loads(command(['docker', 'network', 'inspect', s['ingressNetwork']]))[0]['IPAM']['Config'][0]['Gateway']
         host = json.loads((Path(values['PRIVATE_ROOT']) / 'application/host.json').read_text())
@@ -287,7 +328,7 @@ class Deployment:
         os.chown(self.candidate_file, 1654, 1654)
         args = ['docker', 'create', '--name', s['apiContainer'] + '-candidate', '--label',
                 'io.openetrm.deployment-candidate=' + self.state['targetCommit'], '--read-only', '--cap-drop', 'ALL',
-                '--security-opt', 'no-new-privileges:true', '--memory', '1g', '--cpus', '2', '--pids-limit', '128',
+                '--security-opt', 'no-new-privileges:true', *resource_flags(resources),
                 '--network', 'name=' + s['ingressNetwork'] + ',gw-priority=1', '--network', s['databaseNetwork'],
                 '--publish', '127.0.0.1:' + str(s['candidatePort']) + ':8080', '--tmpfs', '/tmp:size=64m,mode=1777',
                 '--volume', values['PRIVATE_ROOT'] + '/application:/run/private:ro',
@@ -297,6 +338,10 @@ class Deployment:
         self.candidate_id = command(args).decode().strip()
         require(re.fullmatch(r'[a-f0-9]{64}', self.candidate_id), 'invalid created candidate identity')
         self.save('preflight', candidateId=self.candidate_id)
+        # The rendered limits are already valid, so a candidate recorded under others points at the host, not the release:
+        # back off rather than quarantine the head.
+        if differences := resource_differences(inspect_container(self.candidate_id), resources):
+            raise HostResourceMismatch('the host records the candidate under other limits than the rendered API: ' + differences)
         command(['docker', 'start', self.candidate_id])
         for attempt in range(15):
             try:
@@ -387,6 +432,7 @@ class Deployment:
                 require_environment(values, s)
                 rendered = json.loads(command([*self.compose, '--profile', 'collection', 'config', '--format', 'json']))
                 require_rendered(rendered, s)
+                resources = api_resources(rendered)
                 before = {name: inspect_container(name) for name in [s['apiContainer'], s['databaseContainer']]}
                 require_actual(before[s['apiContainer']], s, before[s['apiContainer']]['Image'])
                 collectors = command(['docker', 'ps', '-q', '--filter', 'label=com.docker.compose.project=' + values['DEPLOYMENT_PROJECT'], '--filter', 'label=com.docker.compose.service=collector']).strip()
@@ -409,7 +455,7 @@ class Deployment:
                 require(json.loads(command(['docker', 'image', 'inspect', manifest['imageTag']]))[0]['Id'] == image, 'loaded image tag changed')
                 owned = [item for item in self.state.get('ownedImages', []) if item['image'] != image]
                 self.save('preparing', ownedImages=[*owned, {'commit': commit, 'image': image}])
-                self.candidate(image, values, s['publicOrigin'])
+                self.candidate(image, values, s['publicOrigin'], resources)
                 if api(s['repository'], 'commits/' + s['branch'])['sha'] != commit:
                     self.save('idle'); self.clean_candidate(); print('DEPLOYMENT_SUPERSEDED'); return
                 self.baseline()
@@ -423,6 +469,7 @@ class Deployment:
                     try:
                         actual = inspect_container(s['apiContainer'])
                         require_actual(actual, s, image)
+                        require_resources(actual, resources)
                         http_checks(s['publicOrigin'], certificate=s.get('tlsCertificate'))
                         break
                     except (ReleaseError, InfrastructureError):
@@ -463,6 +510,10 @@ class Deployment:
         http_checks(self.settings['publicOrigin'], certificate=self.settings.get('tlsCertificate'))
         if actual['Image'] == self.state['targetImage']:
             require(values['API_IMAGE'] == self.state['targetImage'], 'serving image and environment disagree')
+            # Recording the new image as active needs promotion's limits check too; the previous image may run under earlier ones.
+            rendered = json.loads(command([*self.compose, '--profile', 'collection', 'config', '--format', 'json']))
+            require_rendered(rendered, self.settings)
+            require_resources(actual, api_resources(rendered))
             self.save('idle', activeCommit=self.state['targetCommit'], activeImage=self.state['targetImage'], retryAfter=0)
         elif actual['Image'] == self.state['previousImageId']:
             values['API_IMAGE'] = self.state['previousImage']
@@ -499,6 +550,5 @@ if __name__ == '__main__':
     try:
         main()
     except Exception as error:
-        # Log only the classification: provider/DB output, cookies and private configuration stay private.
-        print('DEPLOYMENT_FAILED ' + type(error).__name__)
+        print(failure_line(error))
         raise SystemExit(1)

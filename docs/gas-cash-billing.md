@@ -1,6 +1,6 @@
 # Final daily gas cash determinations
 
-## Pricing-entry profiles (D447, D458)
+## Pricing-entry profiles (D447, D459)
 
 `gas_final_daily_fixed_cash_v1` retains its original boundary: share one, no
 quantity part and the complete source term. The explicitly selected
@@ -94,7 +94,7 @@ accounting period state remain outside this commercial contract.
 
 ## Selected metadata reads (D355)
 
-D458 selects the latest trade revision visible at the supplied effective time
+D459 selects the latest trade revision visible at the supplied effective time
 and knowledge cutoff. The billing readers follow that binding's exact component,
 obligation, schedule, quote and currency relationships. Their retained schedule
 proof authorizes the booked definitions after the original catalogue period has
@@ -152,7 +152,7 @@ Migration 0205 and `turns_v18` introduced the billing admission boundary;
 aliases. Retained earlier requests remain replayable; deployment and
 provider/tool consent remain separate from local qualification.
 
-## Reconciliation and scheduled processing (D458)
+## Reconciliation and scheduled processing (D459)
 
 Reconciliation compares contractual, recorded scheduled and selected final
 quantities for the same owned obligation, native interval, unit and delivery
