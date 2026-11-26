@@ -210,6 +210,15 @@ class ApiResourceChecks(unittest.TestCase):
         with self.assertRaisesRegex(deploy.ReleaseError, 'resource limits'):
             self.resources(cpus=2, pids_limit=128, deploy={'resources': {'limits': {'memory': '2684354560'}}})
 
+    def test_processors_match_within_a_thousandth_and_memory_and_processes_exactly(self):
+        expected = applied(2684354560, 4.3, 128)
+        def recorded(**host):
+            deploy.require_resources({'HostConfig': {**expected, **host}}, expected)
+        recorded(NanoCpus=4300000256)  # Compose computes NanoCPUs in single precision.
+        for host in [{'NanoCpus': 4302000000}, {'Memory': 2684354561}, {'PidsLimit': 127}, {'PidsLimit': None}]:
+            with self.subTest(**host), self.assertRaisesRegex(deploy.ReleaseError, 'resource limits'):
+                recorded(**host)
+
 
 # Exercise the real orchestration with synthetic API/daemon responses. No live services.
 from unittest.mock import patch
@@ -506,14 +515,16 @@ class StateMachineChecks(unittest.TestCase):
                 self.assertFalse(any(args[:2] in [['docker', 'load'], ['docker', 'create']] for args in self.commands))
                 self.assertEqual(self.promotions, 0)
 
-    def test_a_candidate_docker_records_under_other_limits_is_removed_before_it_starts(self):
+    def test_a_candidate_the_host_records_under_other_limits_backs_off_without_quarantining_the_head(self):
+        # The rendered limits were already validated, so a candidate under others points at the host, not the release.
         self.candidate_drift = {'Memory': 1073741824}
-        with self.assertRaisesRegex(deploy.ReleaseError, 'resource limits'):
+        with self.assertRaisesRegex(deploy.InfrastructureError, 'host'):
             deploy.Deployment(self.settings).run()
         self.assertFalse(any(args[:2] == ['docker', 'start'] for args in self.commands))
         self.assertFalse(self.candidate_exists)
         self.assertEqual(self.promotions, 0)
-        self.assertIn(COMMIT, self.state()['quarantined'])
+        self.assertNotIn(COMMIT, self.state().get('quarantined', []))
+        self.assertGreater(self.state()['retryAfter'], 0)
 
     def test_a_promoted_api_under_other_limits_blocks_for_operator_recovery(self):
         self.serving_drift = {'PidsLimit': 128}
@@ -562,7 +573,7 @@ class StateMachineChecks(unittest.TestCase):
 
     def test_recovery_rejects_drifted_serving_boundaries(self):
         original = deploy.inspect_container
-        for boundary in ['port', 'network', 'private_mount', 'user']:
+        for boundary in ['port', 'network', 'private_mount', 'user', 'resources']:
             with self.subTest(boundary=boundary):
                 state = {'phase': 'checking', 'targetCommit': COMMIT, 'targetImage': self.new_image,
                          'previousImageId': self.old_image, 'previousImage': self.old_image, 'previousCommit': 'd' * 40}
@@ -578,6 +589,8 @@ class StateMachineChecks(unittest.TestCase):
                         value['NetworkSettings']['Networks']['unexpected-public-network'] = {}
                     elif boundary == 'private_mount':
                         value['Mounts'][0]['RW'] = True
+                    elif boundary == 'resources':
+                        value['HostConfig']['PidsLimit'] = 128
                     else:
                         value['Config']['User'] = '0:0'
                     return value

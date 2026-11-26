@@ -175,9 +175,17 @@ def resource_flags(resources):
     return ['--memory', str(resources['Memory']), '--cpus', f"{resources['NanoCpus'] / 10 ** 9:g}", '--pids-limit', str(resources['PidsLimit'])]
 
 
+def runs_under(actual, resources):
+    """Whether a container runs under the rendered API's limits: memory and processes exactly, processors to a thousandth,
+    since Compose computes NanoCPUs in single precision."""
+    host = actual['HostConfig']
+    return (host.get('Memory') == resources['Memory'] and host.get('PidsLimit') == resources['PidsLimit']
+            and type(host.get('NanoCpus')) is int and abs(host['NanoCpus'] - resources['NanoCpus']) <= 10 ** 6)
+
+
 def require_resources(actual, resources):
-    """A candidate or promoted API runs under exactly the rendered API's limits."""
-    require({name: actual['HostConfig'].get(name) for name in resources} == resources, 'container resource limits differ from the rendered API')
+    """A promoted or recovered API runs under the rendered API's limits."""
+    require(runs_under(actual, resources), 'container resource limits differ from the rendered API')
 
 
 def require_actual(actual, settings, image):
@@ -314,7 +322,10 @@ class Deployment:
         self.candidate_id = command(args).decode().strip()
         require(re.fullmatch(r'[a-f0-9]{64}', self.candidate_id), 'invalid created candidate identity')
         self.save('preflight', candidateId=self.candidate_id)
-        require_resources(inspect_container(self.candidate_id), resources)
+        # The rendered limits are already valid, so a candidate recorded under others points at the host, not the release:
+        # back off rather than quarantine the head.
+        if not runs_under(inspect_container(self.candidate_id), resources):
+            raise InfrastructureError('the host records the candidate under other resource limits than the rendered API')
         command(['docker', 'start', self.candidate_id])
         for attempt in range(15):
             try:
@@ -483,6 +494,10 @@ class Deployment:
         http_checks(self.settings['publicOrigin'], certificate=self.settings.get('tlsCertificate'))
         if actual['Image'] == self.state['targetImage']:
             require(values['API_IMAGE'] == self.state['targetImage'], 'serving image and environment disagree')
+            # Recording the new image as active needs promotion's limits check too; the previous image may run under earlier ones.
+            rendered = json.loads(command([*self.compose, '--profile', 'collection', 'config', '--format', 'json']))
+            require_rendered(rendered, self.settings)
+            require_resources(actual, api_resources(rendered))
             self.save('idle', activeCommit=self.state['targetCommit'], activeImage=self.state['targetImage'], retryAfter=0)
         elif actual['Image'] == self.state['previousImageId']:
             values['API_IMAGE'] = self.state['previousImage']

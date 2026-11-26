@@ -7778,10 +7778,14 @@ it, so no runtime setting changes. The API's two processors and 128 processes,
 and the database and collector limits, are unchanged. A deploy's candidate runs
 under the rendered API's own memory, processor and process limits instead of a
 copy of them in `tools/deploy_release.py`. The deployer refuses a Compose file
-whose API does not state all three, and checks that both the candidate and the
-promoted API run under them; `tools/check_deployment.py` makes the same refusal
-in CI. While a candidate runs beside the serving API, the host needs memory for
-twice the API's limit plus the database's and the collector's.
+whose API does not state all three, and `tools/check_deployment.py` makes the
+same refusal in CI. It checks the limits Docker records, memory and processes
+exactly and processors to a thousandth. A candidate recorded under other limits
+points at the host, not the release, so the deployer backs off without
+quarantining the head. A promoted API under other limits blocks the switch, and
+recovery records the new image as active only once it runs under them. While a
+candidate runs beside the serving API, the host needs memory for twice the API's
+limit plus the database's and the collector's.
 
 The request time limits stay host configuration; only their ceilings rise.
 `requestSeconds` may be at most 29 s instead of 15 s. It is held below the
