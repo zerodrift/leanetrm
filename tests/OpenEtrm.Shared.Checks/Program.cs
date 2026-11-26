@@ -224,6 +224,7 @@ passed += ScheduleChecks.Run();
 passed += BitemporalChecks.Run();
 passed += IntegerRoundingChecks.Run();
 passed += SignedRatioChecks.Run();
+passed += LevelPlanSearchChecks.Run();
 passed += OverlayChecks.Run();
 Console.WriteLine($"{passed} shared temporal checks passed.");
 

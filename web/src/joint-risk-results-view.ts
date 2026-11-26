@@ -1,4 +1,4 @@
-import {node,table,type Cells} from './risk-report-elements.js';
+import {node,table,swingRiskSamples,type Cells} from './risk-report-elements.js';
 import {renderChart} from './chart-view.js';
 import {jointCharts,jointLabels,type JointReport,type JointMetric,type JointDerivative} from './joint-risk.js';
 
@@ -34,7 +34,9 @@ export function renderJointResults(host:HTMLElement,joint:JointReport,state:Join
    const shifts=[...selected.shifts.map(s=>[s.factor.label,s.factor.coordinate==='market_quote'?'Shared market factor':'Computed output',s.size,s.factor.unit]),
     ...volatility.map(s=>[s.inputId,'Declared volatility input',s.size,'Annualized volatility'])];
    detail.append(node('h3',selected.label),table(['Target','Coordinate','Signed shift',volatility.length?'Native unit':'Native price unit'],shifts));
-   const positions=node('details');positions.append(node('summary',`Trades and instruments · ${selected.positions.length}`),table(['Trade','Instrument','Book','Measure','Base','Stressed value','P&L','Loss','Currency'],selected.positions.map(p=>[p.tradeReference,p.instrumentReference,p.book,p.measureLabel,amount(p.values.base,p.values.display.base),amount(p.values.value,p.values.display.value),amount(p.values.pnl,p.values.display.pnl),amount(p.values.loss,p.values.display.loss),p.values.currency])));detail.append(positions);}
+   const positions=node('details');positions.append(node('summary',`Trades and instruments · ${selected.positions.length}`),table(['Trade','Instrument','Book','Measure','Base','Stressed value','P&L','Loss','Currency'],selected.positions.map(p=>[p.tradeReference,p.instrumentReference,p.book,p.measureLabel,amount(p.values.base,p.values.display.base),amount(p.values.value,p.values.display.value),amount(p.values.pnl,p.values.display.pnl),amount(p.values.loss,p.values.display.loss),p.values.currency])));detail.append(positions);
+   const swing=swingRiskSamples(selected.positions,[['base','Base'],['value',selected.label]]);
+   if(swing)detail.append(swing);}
  }else{
   const derivatives=joint.derivatives.filter(d=>d.formula===formulas[state.metric as keyof typeof formulas]);
   const label=(d:JointDerivative)=>d.axes.map(id=>joint.axes.find(a=>a.id===id)?.factor.label??id).join(' × ');

@@ -75,17 +75,19 @@ class CheckAllTests(unittest.TestCase):
             workloads[group] = [command for command in commands
                                 if command[0] == sys.executable and command[1].startswith('tools/')]
         previews = workloads['gas']
-        self.assertEqual(len(previews), 11)
+        self.assertEqual(len(previews), 12)
         self.assertTrue(all(command[1] == 'tools/run_preview.py' for command in previews))
         preview_flags = {
             '--gas-basis-demo-check', '--gas-operations-check', '--gas-billing-check',
             '--gas-daily-quantity-check', '--gas-amendments-check', '--gas-indexed-check',
-            '--gas-in-term-check', '--gas-delivery-quantity-check', '--gas-pricing-check', '--gas-exercise-check', '--gas-charges-check', '--gas-imbalance-check'}
+            '--gas-in-term-check', '--gas-delivery-quantity-check', '--gas-pricing-check', '--gas-exercise-check', '--gas-charges-check', '--gas-imbalance-check', '--gas-swing-check'}
         self.assertEqual({part for command in previews for part in command if part in preview_flags},
                          preview_flags)
         exercise=[command for command in previews if '--gas-exercise-check' in command]
         self.assertEqual(len(exercise),1)
         self.assertTrue({'--gas-pricing-check','--browser-check'}.issubset(exercise[0]))
+        swing, = [command for command in previews if '--gas-swing-check' in command]
+        self.assertIn('--browser-check', swing)
         charge = [command for command in previews if '--gas-charges-check' in command]
         self.assertEqual(len(charge), 1)
         self.assertIn('--browser-check', charge[0])
@@ -575,7 +577,7 @@ class CheckAllTests(unittest.TestCase):
         runs = [c for c in commands if '--project' in c and c[c.index('--project') + 1] == market]
         self.assertEqual([c[c.index('--project') + 2:] for c in runs],
                          [[], ['--', '--futures-options'], ['--', '--spread-options'], ['--', '--exercise-rights'],
-                          ['--', '--vol-surface'], ['--', '--calendar-policy'], ['--', '--payment-date-policy'],
+                          ['--', '--gas-swing'], ['--', '--vol-surface'], ['--', '--calendar-policy'], ['--', '--payment-date-policy'],
                           ['--', '--hybrid-monte-carlo-risk'],
                           *[['--', flag] for flag in ('--power-flat', '--power-atc', '--power-product-averages',
                                                       '--power-interval-quantities', '--ppa-sides')]])

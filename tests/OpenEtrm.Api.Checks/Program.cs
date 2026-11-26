@@ -175,6 +175,7 @@ if(args is ["--database-login-boundaries",var boundaryConnectionFile,var boundar
 if(args is ["--date-lists"]){SchedulePublicationChecks.Run();return;}
 if(args is ["--schedule-preview"]){SchedulePreviewChecks.Run();return;}
 if(args is ["--ticket-description"]){TicketDescriptionChecks.Run();return;}
+if(args is ["--gas-swing-native-book",var prefixRoot,var prefixInput]){await GasSwingBookingFixture.Book(prefixRoot,prefixInput);return;}
 if(args is ["--gas-ticket"]){GasTicketChecks.Run();return;}
 if(args is ["--gas-park-loan-ticket"]){GasParkLoanTicketChecks.Run();GasParkLoanPortfolioChecks.Run();GasParkLoanPositionChecks.Run();GasParkLoanActionChecks.Run();return;}
 if(args is ["--gas-park-loan-balance-fee"]){GasParkLoanBalanceFeeAdapterChecks.Run();return;}

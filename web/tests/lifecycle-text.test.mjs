@@ -14,6 +14,13 @@ test('measures are separate figures with their labelled sum, their discounting b
  assert.deepEqual(lines.slice(4).map(l=>[l.label,l.value]),[['Expected cash by due date · not added to the total',''],['Due Nov 10, 2026','-9,300 USD'],['Due Dec 10, 2026','-9,648 USD']]);
 });
 
+test('cash coverage follows its due date, including an incomplete known zero',()=>{
+ const expectedCash=[{dueAt:'2026-11-10T00:00:00Z',amount:'0',unassessedDays:1},measures.expectedCash[1]];
+ const lines=measureLines({...measures,unrealized:'1445',expectedCash},'USD',instant);
+ assert.deepEqual(lines.slice(-2),[{label:'Due Nov 10, 2026',value:'0 USD · incomplete: 1 unassessed day'},
+  {label:'Due Dec 10, 2026',value:'-9,648 USD'}]);
+});
+
 test('a measure that is not a decimal is refused, never shown as a guess',()=>{
  assert.throws(()=>measureLines({...measures,total:'n/a'},'USD',instant),/exact number/);
 });

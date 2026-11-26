@@ -206,18 +206,15 @@ API. The ticket and both drawings report their own assistant page identity
 ## Verification
 
 `dotnet run --project tests/OpenEtrm.MarketData.Checks -- --gas-storage` runs
-fourteen checks. Eight on supplied plans, against figures worked by hand: inventory and in-kind fuel over a
-three-day plan; limits taken from the opening band; capacity and terminal
-bounds; withdrawal fuel; one direction per day, grid, opening and
-implementation refusals; entitlement policies and band coverage; and the plan
-valued as a resource right at −8,150, moving to −8,400 and −7,900 under a ±0.1
-gas shock; and the booked composition valued through the risk engine at the
-same figures, refusing a plan its ratchets do not admit. Six on proposals: a hand-worked four-day plan worth 1,100 inside the
-ratchets; no flow when the spread does not cover its costs; a terminal
-inventory met at least cost and the tie-break; fuel in kind and the step it
-needs; agreement of the objective with an exhaustive search of every lattice
-plan on three cases of four or five days, each replayed as an admitted plan
-worth its stated objective; and the refusals.
+nineteen checks. Eight cover supplied plans, including inventory and in-kind fuel,
+opening-band limits, capacity and terminal bounds, one direction per day, grid
+and contract validation, and valuation of the admitted resource right. The
+hand-worked plan is worth −8,150 and moves to −8,400 and −7,900 under a ±0.1 gas
+shock. Eleven cover proposals, including the hand-worked 1,100 objective, idle
+and required-flow plans, chronological ties, exact fuel and ratchet transitions,
+infeasibility and both legacy size bounds. A separate exhaustive listing ranks
+complete paths in four small cases and checks the objective and every selected
+day flow. Each path is replayed through the supplied-plan operation.
 
 `python3 tools/check_gas_storage_contract_storage.py --pg-bin <PostgreSQL 18 bin>`
 runs eight checks on booking and plan storage. They cover authority, closed

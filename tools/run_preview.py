@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import shlex
 import shutil
@@ -24,9 +25,49 @@ ROOT = Path(__file__).resolve().parents[1]
 SESSION_MARGIN = 10
 
 
+def measure_worker(command, cwd, env, timeout):
+    """Return the first and peak sampled worker RSS in KiB, and reap the owned process."""
+    first = None
+    peak = 0
+    deadline = time.monotonic() + timeout
+    process = subprocess.Popen(command, cwd=cwd, env=env)
+    try:
+        while process.poll() is None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeError(f'The risk worker did not finish within {timeout} seconds.')
+            sample = subprocess.run(['ps', '-o', 'rss=,state=', '-p', str(process.pid)],
+                                    capture_output=True, text=True, timeout=remaining)
+            reading = sample.stdout.strip()
+            if sample.returncode == 1 and not reading and not sample.stderr and process.poll() is not None:
+                break  # No matching PID between poll and ps.
+            fields = reading.split()
+            size, state = fields if len(fields) == 2 else ('', '')
+            rss = int(size) if size.isascii() and size.isdecimal() else None
+            # ps(1) reports Z for a zombie. On macOS its E suffix means the
+            # process is exiting: its pages can already be gone before waitpid is ready.
+            exiting = rss == 0 and re.fullmatch(r'[?IRSTUZ][+<>AELNSsVWX]*', state) and (
+                state.startswith('Z') or 'E' in state[1:])
+            if sample.returncode or rss is None or (rss == 0 and not exiting):
+                raise RuntimeError(f'Invalid worker RSS sample for PID {process.pid}: '
+                                   f'ps status {sample.returncode}, reading {reading!r}.')
+            if rss > 0:
+                if first is None:
+                    first = rss
+                peak = max(peak, rss)
+            time.sleep(.05)
+        if process.returncode:
+            raise subprocess.CalledProcessError(process.returncode, command)
+        if first is None:
+            raise RuntimeError('Worker exited without a positive RSS sample.')
+        return first, peak
+    finally:
+        if process.poll() is None:
+            process.kill()
+        process.wait()
+
+
 def main():
-    from check_standalone import main as check_standalone
-    check_standalone()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--ephemeral-context-check',action='store_true',help='Qualify runtime contexts, historical reads and worker reconstruction')
     parser.add_argument('--async-workbench-check',action='store_true',help='Qualify concurrent main-workbench SSE reads')
@@ -45,6 +86,9 @@ def main():
     parser.add_argument('--gas-operations-check',action='store_true',help='Qualify manual gas requests, acknowledgments and imbalance transfers')
     parser.add_argument('--gas-billing-check',action='store_true',help='Qualify final daily gas cash and retained corrections')
     parser.add_argument('--curve-marks-check',action='store_true',help='Qualify atomic curve mark batches and certified market history')
+    parser.add_argument('--gas-swing-workload-check',action='store_true',help='Measure the marked seasonal and annual swing through booking and leased risk jobs')
+    parser.add_argument('--gas-swing-workload-days',type=int,choices=(90,365),help='Measure one term in a fresh preview')
+    parser.add_argument('--gas-swing-check',action='store_true',help='Qualify physical gas swing booking and retained terms')
     parser.add_argument('--gas-exercise-check',action='store_true',help='Qualify gas exercise right admission and retained exercise times')
     parser.add_argument('--gas-imbalance-check',action='store_true',help='Qualify reported-balance cash-out booking, valuation and authority')
     parser.add_argument('--gas-charges-check', action='store_true', help='Qualify independent gas charges and their retained payment rows')
@@ -144,6 +188,10 @@ def main():
     parser.add_argument('--authoring-browser-suite',choices=['curve-objects','contract-pricing-controls','publication-controls','price-authoring-recovery'],help='Run one focused authoring control suite in the owned authoring fixture')
     parser.add_argument('--example', choices=['standard','mixed-gas'], default='standard', help='Explicit synthetic dataset')
     args = parser.parse_args()
+    if (args.gas_swing_check or args.gas_swing_workload_check) and not __debug__:
+        parser.error('Gas swing qualification requires Python assertions; run without -O or PYTHONOPTIMIZE.')
+    from check_standalone import main as check_standalone
+    check_standalone()
     if args.regional_seed_check:
         args.reference_demo_check=True
         args.with_regional_seed=True
@@ -205,7 +253,7 @@ def main():
             if enabled and name.endswith('_check') and name not in compatible:
                 parser.error(f"--gas-charges-check and --{name.replace('_','-')} use different fixtures; run them separately")
         if args.example!='standard': parser.error('--gas-charges-check requires the standard fixture')
-    if args.gas_setup_check or args.gas_composition_check or args.gas_amendments_check or args.gas_indexed_check or args.gas_in_term_check or args.deal_ticket_check or args.gas_daily_quantity_check or args.gas_delivery_quantity_check or args.gas_imbalance_check or args.gas_charges_check or args.gas_pricing_check or args.gas_exercise_check or args.facility_quantity_check: args.physical_gas_check=True
+    if args.gas_setup_check or args.gas_composition_check or args.gas_amendments_check or args.gas_indexed_check or args.gas_in_term_check or args.deal_ticket_check or args.gas_daily_quantity_check or args.gas_delivery_quantity_check or args.gas_imbalance_check or args.gas_charges_check or args.gas_pricing_check or args.gas_exercise_check or args.gas_swing_check or args.gas_swing_workload_check or args.facility_quantity_check: args.physical_gas_check=True
     if args.demo_instruments_check or args.gas_indexed_check or args.gas_in_term_check: args.check=True
 
     if args.retained_schedule_check or args.physical_gas_check or args.physical_crude_check or args.lng_cargo_check: args.check=True
@@ -217,7 +265,7 @@ def main():
     if args.authoring_browser_suite and not(args.browser_check and args.custom_curves_check):
         parser.error('--authoring-browser-suite requires --custom-curves-check or --price-authoring-check, and --browser-check')
     if args.lifecycle_swap_browser_check and not args.browser_check: parser.error('--lifecycle-swap-browser-check requires --browser-check and --browser')
-    fixing_frames=args.lifecycle_swap_browser_check or args.price_authoring_check or args.gas_operations_check or args.gas_billing_check or gas_demo or args.physical_crude_check or args.lng_cargo_check or args.crude_lifecycle_check or args.with_gas_quantity_dates or args.gas_amendments_check or args.gas_indexed_check or args.gas_daily_quantity_check or args.gas_delivery_quantity_check or args.gas_imbalance_check or args.gas_charges_check or args.gas_pricing_check or args.gas_exercise_check or args.facility_quantity_check or args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check or args.close_out_drafts_check
+    fixing_frames=args.lifecycle_swap_browser_check or args.price_authoring_check or args.gas_operations_check or args.gas_billing_check or gas_demo or args.physical_crude_check or args.lng_cargo_check or args.crude_lifecycle_check or args.with_gas_quantity_dates or args.gas_amendments_check or args.gas_indexed_check or args.gas_daily_quantity_check or args.gas_delivery_quantity_check or args.gas_imbalance_check or args.gas_charges_check or args.gas_pricing_check or args.gas_exercise_check or args.gas_swing_check or args.gas_swing_workload_check or args.facility_quantity_check or args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check or args.close_out_drafts_check
 
     if args.blotter_stream_benchmark and (args.output is None or args.output.resolve().is_relative_to(ROOT)):
         parser.error('--blotter-stream-benchmark requires an --output file outside the repository')
@@ -262,6 +310,9 @@ def main():
         subprocess.run(['npm','run','build','--prefix','web'],cwd=ROOT,env=env,check=True,timeout=60)
         subprocess.run([str(dotnet),'restore','src/OpenEtrm.Api','--locked-mode'],cwd=ROOT,env=env,check=True,timeout=120)
         subprocess.run([str(dotnet),'build','src/OpenEtrm.Api','--no-restore'],cwd=ROOT,env=env,check=True,timeout=120)
+        if args.gas_swing_check:
+            subprocess.run([str(dotnet),'restore','tests/OpenEtrm.Api.Checks','--locked-mode'],cwd=ROOT,env=env,check=True,timeout=120)
+            subprocess.run([str(dotnet),'build','tests/OpenEtrm.Api.Checks','--no-restore'],cwd=ROOT,env=env,check=True,timeout=120)
         if args.with_regional_seed:
             subprocess.run([str(dotnet),'restore','tools/OpenEtrm.Seed','--locked-mode'],cwd=ROOT,env=env,check=True,timeout=120)
             subprocess.run([str(dotnet),'build','tools/OpenEtrm.Seed','--no-restore'],cwd=ROOT,env=env,check=True,timeout=120)
@@ -329,7 +380,8 @@ def main():
         else:
             from demo_date_plan import compile_plan
             date_plan=compile_plan(dotnet,dll,temporary) if not args.check and not gas_demo else None
-            reference,market,security,manifest=fixture(ROOT,fixing_frames=fixing_frames,date_plan=date_plan,window_frames=args.contract_dates_check,publish_clocks=False)
+            reference,market,security,manifest=fixture(ROOT,fixing_frames=fixing_frames,date_plan=date_plan,window_frames=args.contract_dates_check,publish_clocks=False,
+                market_effective_to="2042-02-01" if args.gas_swing_workload_check else "2022-01-01")
             if args.curve_marks_check and args.browser_check:
                 from check_curve_marks_http import add_grid_curves
                 market=add_grid_curves(market)
@@ -339,9 +391,15 @@ def main():
             if args.gas_indexed_check:
                 from gas_indexed_fixture import add_fixture
                 reference,market,security,manifest=add_fixture(reference,market,security,manifest)
-            if args.gas_imbalance_check or args.gas_charges_check or args.gas_pricing_check or args.gas_exercise_check:
+            if args.gas_imbalance_check or args.gas_charges_check or args.gas_pricing_check or args.gas_exercise_check or args.gas_swing_check or args.gas_swing_workload_check:
                 from gas_pricing_fixture import add_fixture as add_pricing_fixture
                 reference,market,security,manifest=add_pricing_fixture(reference,market,security,manifest,exercise_months=args.gas_exercise_check,imbalance_days=args.gas_imbalance_check)
+            if args.gas_swing_workload_check:
+                from gas_swing_fixture import add_workload
+                reference,market,security,manifest=add_workload(reference,market,security,manifest)
+            if args.gas_swing_check:
+                from gas_swing_fixture import add_fixture as add_swing_fixture
+                reference,market,security,manifest=add_swing_fixture(reference,market,security,manifest)
             if args.gas_charges_check:
                 from check_gas_charges import add_quote_fixture, add_reference_fixture
                 reference,market,security,manifest=add_quote_fixture(reference,market,security,manifest)
@@ -352,9 +410,13 @@ def main():
             if args.gas_in_term_check:
                 from gas_in_term_fixture import add_fixture as add_in_term_fixture
                 reference,market,security,manifest=add_in_term_fixture(reference,market,security,manifest)
+        swing_chain=[]
         operating_predecessors=None
         query((ROOT/'db/bootstrap.sql').read_text())
         for migration in sorted((ROOT/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
+            if args.gas_swing_check and migration.name[:4] in ('0403','0404','0405'):
+                swing_chain.append(migration)
+                continue
             if args.gas_imbalance_check and migration.name=='0402_gas_imbalance_cashout.sql':
                 from check_gas_imbalance import upgrade_checks
                 upgrade_checks(query,migration)
@@ -894,7 +956,23 @@ def main():
         # as closes containing contracts that do not exist yet.
         working_days=tuple({frame['at'][:10] for frame in manifest['frames']}) if args.factor_swap_check else (
             ('2020-12-18',) if args.factor_history_check or args.context_read_check or args.curve_marks_check else ())
+        if args.gas_swing_workload_check:
+            working_days=(*working_days,'2040-12-31','2041-01-02')
         seed_session_closes(query,manifest,working=working_days,input_markets=close_inputs)
+        if swing_chain:
+            from check_gas_swing_upgrade import install_chain
+            # Both databases start at the committed published prefix with the same synthetic inputs and receipts.
+            query('CREATE DATABASE preview_swing_0402 TEMPLATE postgres')
+            query('CREATE DATABASE preview_swing_fresh TEMPLATE postgres')
+            def prefix_query(database,sql):
+                command=psql.copy()
+                command[command.index('-d')+1]=database
+                result=run(command,input=prefix_transports[database].prepare(sql))
+                if result.returncode:raise RuntimeError(result.stderr)
+                return prefix_transports[database].receive(result.stdout.strip())
+            prefix_transports={database:NativeReadTransport(temporary/(database+'.json'))
+                for database in ('preview_swing_fresh','preview_swing_0402')}
+            swing_period_predecessor=install_chain(query,swing_chain)
         (temporary/'manifest.json').write_text(json.dumps(manifest))
         (temporary/'manifest.json').chmod(0o600)
         # Freeze assets for this owned instance; a later web build must not change
@@ -978,13 +1056,9 @@ def main():
                 if not measure:
                     subprocess.run(command,cwd=ROOT,env=worker_env,check=True,timeout=timeout+30);return None
                 # One claimed job, with the worker process's resident memory sampled every 50 ms; returns the sampled peak in KiB.
-                process=subprocess.Popen(command,cwd=ROOT,env=worker_env);peak=0;deadline=time.monotonic()+timeout+30
-                while process.poll() is None:
-                    sample=subprocess.run(['ps','-o','rss=','-p',str(process.pid)],capture_output=True,text=True).stdout.strip()
-                    peak=max(peak,int(sample)) if sample else peak
-                    if time.monotonic()>deadline:process.kill();raise RuntimeError(f'The risk worker did not finish within {timeout+30} seconds.')
-                    time.sleep(.05)
-                if process.returncode:raise subprocess.CalledProcessError(process.returncode,command)
+                first_sample, peak = measure_worker(command, ROOT, worker_env, timeout + 30)
+                if args.gas_swing_workload_check:
+                    print(f'WORKLOAD fresh Debug worker first observed RSS {first_sample} KiB, peak {peak} KiB',flush=True)
                 return peak
             return run
         if (args.regional_seed_check or not gas_demo and not args.check or args.jobs_check or args.live_calculation_check or args.unit_check or args.risk_jobs_check or args.async_workbench_check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check or args.valuation_status_check or args.desk_fields_check or args.ephemeral_context_check) and args.example=='standard':
@@ -1198,8 +1272,16 @@ def main():
                 check_gas_in_term(url,query,manifest,risk_worker_runner(),admin_load_in_term,browse_in_term if args.browser_check else None)
                 from check_gas_point_in_term import run_checks as check_point_in_term
                 check_point_in_term(url,query,manifest,admin_load_in_term)
-            elif args.gas_imbalance_check or args.gas_charges_check or args.gas_pricing_check or args.gas_exercise_check:
+            elif args.gas_imbalance_check or args.gas_charges_check or args.gas_pricing_check or args.gas_exercise_check or args.gas_swing_check or args.gas_swing_workload_check:
                 run_worker=risk_worker_runner()
+                if args.gas_swing_workload_check:
+                    from hashlib import sha256
+                    import platform
+                    binaries={name:sha256((frozen_dll.parent/name).read_bytes()).hexdigest() for name in
+                              (frozen_dll.name,"OpenEtrm.MarketData.dll","OpenEtrm.Api.runtimeconfig.json")}
+                    print("WORKLOAD frozen Debug API and worker "+json.dumps(dict(host=platform.platform(),sha256=binaries)),flush=True)
+                    from check_gas_swing import workload_routes
+                    workload_routes(url,query,manifest,run_worker,child.pid,args.gas_swing_workload_days)
                 if args.gas_imbalance_check or args.gas_charges_check or args.gas_pricing_check:
                     query("CREATE ROLE preview_gas_in_term_loader LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS INHERIT IN ROLE openetrm_runtime,openetrm_gas_in_term_loader;")
                 if args.gas_composition_check:
@@ -1230,6 +1312,37 @@ def main():
                     if args.browser_check:
                         target=temporary/'browser-target.json';target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,'facility':pricing_fixture}))
                         subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-pricing'],cwd=ROOT,env=env,check=True,timeout=300)
+                if args.gas_swing_check:
+                    from check_gas_swing import run_checks as check_gas_swing
+                    def browse_swing(fixture):
+                        target=temporary/'browser-target.json'
+                        target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,'facility':fixture}))
+                        try:
+                            subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-swing'],
+                                cwd=ROOT,env=env,check=True,timeout=360)
+                        finally:
+                            if evidence:=os.environ.get('OPENETRM_SWING_BROWSER_EVIDENCE'):
+                                destination=Path(evidence).resolve();destination.mkdir(parents=True,exist_ok=True)
+                                for screenshot in temporary.glob('swing-*.png'):shutil.copy2(screenshot,destination/screenshot.name)
+                    def fixture_book(database,body):
+                        target=temporary/'prefix-book.json'
+                        target.write_text(json.dumps(body))
+                        prefix_env={**app_env,**{key:app_env[key].replace('Database=postgres;',f'Database={database};')
+                            for key in ('OPENETRM_PREVIEW_RUNTIME','OPENETRM_PREVIEW_AUTHENTICATOR')}}
+                        check_dll=ROOT/'tests/OpenEtrm.Api.Checks/bin/Debug/net10.0/OpenEtrm.Api.Checks.dll'
+                        result=subprocess.run([str(dotnet),str(check_dll),'--gas-swing-native-book',str(temporary),str(target)],
+                            cwd=ROOT,env=prefix_env,text=True,capture_output=True,timeout=75)
+                        if result.returncode:raise RuntimeError(result.stderr)
+                        return json.loads(result.stdout.strip().splitlines()[-1])
+                    from check_gas_swing_upgrade import populated_chain,native_prefixes
+                    from functools import partial
+                    def rehearse(base):
+                        fresh='preview_swing_fresh'
+                        populated='preview_swing_0402'
+                        native_prefixes(partial(prefix_query,fresh),partial(fixture_book,fresh),manifest,swing_chain,base,'fresh')
+                        populated_chain(partial(prefix_query,populated),partial(fixture_book,populated),manifest,swing_chain,base)
+                    check_gas_swing(url,query,manifest,swing_period_predecessor,run_worker,browse_swing if args.browser_check else None,
+                                    check_prefix=rehearse,book_native=partial(fixture_book,'postgres'))
                 if args.gas_exercise_check:
                     from check_gas_exercise import run_checks as check_gas_exercise
                     def browse_exercise(suite,fixture):

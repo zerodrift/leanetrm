@@ -1,3 +1,4 @@
+import type {TermSectionId} from './ticket-types.js';
 import {requireScheduleMembers} from './ticket-schedule-members.js';
 import {carryReadReferences,cloneRead,retainedKnowledge} from './read-references.js';
 import {setupExerciseAction} from './ticket-exercise-action.js';
@@ -28,7 +29,7 @@ export type TicketHandle={unsaved():boolean;pending():boolean;reviewed?():{draft
 const settleMs=300;
 const keyOf=(side:string|null,field:string)=>side===null?field:`${side}.${field}`;
 // A booking refused with one of these codes wrote nothing; any other failure leaves its outcome unknown.
-export const definiteTicketRefusal=(code:string|undefined)=>isCalendarAuthoringRefusal(code)||!!code&&(code.startsWith('gas_')||code.startsWith('ticket_')||['access_denied','historical_read_only','numeric_format','request_format','swap_context','trade_party'].includes(code));
+export const definiteTicketRefusal=(code:string|undefined)=>isCalendarAuthoringRefusal(code)||!!code&&(code.startsWith('gas_')||code.startsWith('ticket_')||['swing_right','swing_model_scope','swing_numerical_scope','swing_feasibility','swing_determination','swing_conflict','access_denied','historical_read_only','numeric_format','request_format','swap_context','trade_party'].includes(code));
 
 // A booking request outlives the ticket that sent it, per product and person, until its outcome is known.
 const transports=new Map<string,ReturnType<typeof actorTransport<RequestCommand>>>();
@@ -46,17 +47,17 @@ const retainedBooking=(product:string,actor:()=>string)=>{const saved=restoreTra
 export const ticketBookingRetained=(product:string,actor:()=>string)=>retainedBooking(product,actor)!==undefined;
 
 // The control the person is in, by its side and field, so a redraw puts them back where they were with what they had typed.
-type Focus={side:string|null;termRow:string|null;field:string;value:string};
+type Focus={side:string|null;termRow:string|null;termSection:string|null;field:string;value:string};
 function focusIn(root:HTMLElement):Focus|undefined{
  const active=document.activeElement;
  if(!(active instanceof HTMLInputElement||active instanceof HTMLSelectElement)||!root.contains(active))return;
  if(active instanceof HTMLInputElement&&active.type==='checkbox')return;
  const field=active.closest<HTMLElement>('[data-field]')?.dataset.field;
- return field?{side:active.closest<HTMLElement>('[data-side]')?.dataset.side??null,termRow:active.closest<HTMLElement>('[data-term-row]')?.dataset.termRow??null,field,value:active.value}:undefined;
+ return field?{side:active.closest<HTMLElement>('[data-side]')?.dataset.side??null,termSection:active.closest<HTMLElement>('[data-term-section]')?.dataset.termSection??null,termRow:active.closest<HTMLElement>('[data-term-row]')?.dataset.termRow??null,field,value:active.value}:undefined;
 }
 function refocus(root:HTMLElement,at:Focus|undefined){
  if(!at)return;
- const scope=at.termRow!==null?root.querySelector(`[data-term-row="${CSS.escape(at.termRow)}"]`):at.side===null?root.querySelector('.ticket-strip'):root.querySelector(`.ticket-card[data-side="${CSS.escape(at.side)}"]`);
+ const scope=at.termRow!==null?root.querySelector(`[data-term-section="${CSS.escape(at.termSection??'')}"] [data-term-row="${CSS.escape(at.termRow)}"]`):at.side===null?root.querySelector('.ticket-strip'):root.querySelector(`.ticket-card[data-side="${CSS.escape(at.side)}"]`);
  const control=scope?.querySelector<HTMLInputElement|HTMLSelectElement>(`[data-field="${CSS.escape(at.field)}"] .ticket-control`);
  if(control&&!control.disabled){if(!(control instanceof HTMLSelectElement&&control.multiple))control.value=at.value;control.focus({preventScroll:true});}
 }
@@ -122,10 +123,11 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  const previewCurrent=()=>descriptionReady()&&settling===undefined&&bookable!==undefined&&bookable===previewIdentity();
  const descriptionSelectors=()=>initialDescription?.tradeFields.filter(f=>f.refreshDescription)??[];
  const selectedDescriptionKey=()=>JSON.stringify(descriptionSelectors().map(f=>[f.id,state?.trade[f.id]?.value??'']));
- const exercise=o.product==='physical_gas'&&o.opened?setupExerciseAction({
+ const electionAction=(kind:'exercise'|'swing')=>o.product==='physical_gas'&&o.opened?setupExerciseAction({kind,
   api:o.api,context:o.context,current,signal:lifetime.signal,owner,tradeId:o.opened.tradeId,bindingId:o.opened.bindingId,revision:o.opened.revision,
   writable:o.exerciseWritable===true,reread:readTrade
  }):undefined;
+ const exercise=electionAction('exercise'),swing=electionAction('swing');
  const contextKey=()=>{try{return JSON.stringify(o.context());}catch{return undefined;}};
 
  function draw(){
@@ -133,7 +135,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   if(!current()||!d||!state)return;
   const levels=panel.schedule?.levels??d.levels;
   if(!levels.includes(level)){level=levels[0];closed=new Set();}
-  const shown:TicketView={state,mode,presentation:o.presentation,sideLabels:entry?.sideLabels,groupedEntry:!!entry?.groupReview,actions,scheduleEntries:panel.scheduleEntries,imbalanceRows:panel.imbalanceRows,unassessedDays:panel.unassessedDays,schedule:panel.schedule,groups:panel.groups,quantityUnit:panel.quantityUnit,instant:o.instant,zone:o.zone(),previous:panel.previous,summaries:panel.summaries,links:panel.links,sideGroups:panel.sideGroups,sideGroupsReason:panel.sideGroupsReason,facilityAllocations,measures,currency:mode==='booked'?currency:panel.currency??currency,exerciseAction:exercise?.mount,entry:entryView(),status:panel.status,
+  const shown:TicketView={state,mode,presentation:o.presentation,sideLabels:entry?.sideLabels,groupedEntry:!!entry?.groupReview,actions,scheduleEntries:panel.scheduleEntries,imbalanceRows:panel.imbalanceRows,unassessedDays:panel.unassessedDays,schedule:panel.schedule,groups:panel.groups,swingRights:panel.swingRights,swingContract:panel.swingContract,knownAt:panel.knownAt,quantityUnit:panel.quantityUnit,instant:o.instant,zone:o.zone(),previous:panel.previous,summaries:panel.summaries,links:panel.links,sideGroups:panel.sideGroups,sideGroupsReason:panel.sideGroupsReason,facilityAllocations,measures,currency:mode==='booked'?currency:panel.currency??currency,exerciseAction:host=>{exercise?.mount(host);swing?.mount(host);},entry:entryView(),status:panel.status,
 
    fieldErrors:entry?{...choiceErrors,...lookupErrors,...panel.errors}:{},choices,selectedSide,tab,level,closed,on};
   if(mode==='booked'&&o.sideSchedule)shown.sideSchedule=(target,side)=>{
@@ -233,9 +235,10 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   return [null,...state!.sides.map(s=>s.code)].flatMap(side=>fieldsOf(side).filter(f=>fieldVisible(f,valuesOf(side))&&pick(f,side)).map(f=>[side,f] as [string|null,TicketField]));
  }
  function hasUnresolvedFields(){return everyField((field,side)=>unresolved.has(keyOf(side,field.id))).length>0;}
- const termFields=()=>d?.repeatableTerms?.find(section=>section.id==='exerciseRights')?.fields??[];
- const exerciseChoices=():[null,TicketField][]=>termFields().filter(f=>f.choices!==null).map(f=>[null,f]);
- const listed=()=>[...everyField((f,side)=>f.choices!==null&&(entry?f.state==='editable':!!valuesOf(side)[f.id]?.value)),...state?.exerciseRights?.length?exerciseChoices():[]];
+ const termFields=(id?:TermSectionId)=>d?.repeatableTerms?.filter(section=>!id||section.id===id).flatMap(section=>section.fields)??[];
+ const termChoices=():[null,TicketField][]=>d?.repeatableTerms?.filter(section=>state?.[section.id]?.length).flatMap(section=>section.fields.filter(f=>f.choices!==null&&(entry||!f.retainedLabels)).map(f=>[null,f] as [null,TicketField]))??[];
+ const termRefresh=(field:string)=>termChoices().filter(([,f])=>f.refreshOn?.includes(field));
+ const listed=()=>[...everyField((f,side)=>f.choices!==null&&(entry?f.state==='editable':!!valuesOf(side)[f.id]?.value)),...termChoices()];
  // The fields that depend on a field of the same side, however indirectly: their lists change with it.
  function dependents(side:string|null,field:string):[string|null,TicketField][]{
   const found=new Map<string,[string|null,TicketField]>(),all=[null,...state!.sides.map(s=>s.code)].flatMap(at=>fieldsOf(at).map(f=>[at,f] as [string|null,TicketField]));
@@ -260,9 +263,10 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
    if(!term&&(!fieldVisible(f,valuesOf(side))||f.dependsOn.some(parent=>!dependencyFilled(side,parent)))){delete choices[key];delete choiceErrors[key];return;}
    const controller=new AbortController(),signal=AbortSignal.any([lifetime.signal,controller.signal]),edit=choiceEdits.get(key);choiceReads.set(key,controller);
    try{
-    const r=await readField<{choices:TicketChoice[];startingValue?:TicketLookup|null}>('tickets/choices',{context:o.context(),draft:draft(),side,field:f.id},signal);
+    const r=await readField<{choices:TicketChoice[];startingValue?:TicketLookup|null;selectionConflict?:string}>('tickets/choices',{context:o.context(),draft:draft(),side,field:f.id},signal);
     if(signal.aborted||asked.get(key)!==n||!current())return;
     choices[key]=r.choices;delete choiceErrors[key];
+    if(r.selectionConflict&&choiceEdits.get(key)===edit){choiceErrors[key]=r.selectionConflict;later();return;}
     if(!term&&entry&&state&&choiceEdits.get(key)===edit&&!blocked()){
      const before=sent();state=resolveChoice(state,side,f.id,r.choices,retainedChoices.get(key),clearedChoices.has(key)?null:r.startingValue);retainedChoices.delete(key);
      if(sent()!==before){state=nextPreview(state).state;bookable=undefined;cancelPreview();panel={...panel,sideGroups:undefined,sideGroupsReason:undefined,status:{kind:'updating',text:'Updating…'}};settle();void readChoices(dependents(side,f.id));}
@@ -339,7 +343,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
    entered.set(key,(entered.get(key)??0)+1);unresolved.delete(key);delete lookupErrors[key];
    if(value)clearedChoices.delete(key);else clearedChoices.add(key);
    if(state)for(const [at,f] of dependents(side,field)){const prior=valuesOf(at)[f.id];if(prior?.value)retainedChoices.set(keyOf(at,f.id),prior);}
-   change(s=>setValue(s,side,field,value),side===null?'all':[...dependents(side,field),...retry()],side===null&&fieldsOf(null).some(f=>f.id===field&&f.refreshDescription));
+   change(s=>setValue(s,side,field,value),side===null?'all':[...dependents(side,field),...termRefresh(field),...retry()],side===null&&fieldsOf(null).some(f=>f.id===field&&f.refreshDescription));
   },
   // A local date-time is resolved in the user's zone by the managed resolver; a time the clock repeats or skips is refused, not guessed.
   editLocal:(side,field,local)=>{
@@ -362,13 +366,13 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   tab:id=>{tab=id;if(state!.sides.some(s=>s.code===id))selectedSide=id;draw();},
   level:next=>{level=next;closed=new Set();draw();},
   toggle:(row,open)=>{if(open)closed.delete(row);else closed.add(row);},
-  addTerm:()=>change(s=>({...s,exerciseRights:[...s.exerciseRights??[],{}]}),exerciseChoices()),
-  editTerm:(index,id,value)=>change(s=>({...s,exerciseRights:s.exerciseRights?.map((row,n)=>{
+  addTerm:section=>change(s=>({...s,[section]:[...s[section]??[],{}]}),'all'),
+  editTerm:(section,index,id,value)=>change(s=>({...s,[section]:s[section]?.map((row,n)=>{
    if(n!==index)return row;
    const next={...row,[id]:value};
-   return Object.fromEntries(termFields().filter(f=>termFieldVisible(f,next)&&Object.hasOwn(next,f.id)).map(f=>[f.id,next[f.id as keyof typeof next]]));
-  })}),[]),
-  removeTerm:index=>change(s=>({...s,exerciseRights:s.exerciseRights?.filter((_,n)=>n!==index)}),[]),
+   return Object.fromEntries(termFields(section).filter(f=>termFieldVisible(f,next)&&Object.hasOwn(next,f.id)).map(f=>[f.id,next[f.id as keyof typeof next]]));
+  })}),[...dependents(null,id),...termRefresh(id)]),
+  removeTerm:(section,index)=>change(s=>({...s,[section]:s[section]?.filter((_,n)=>n!==index)}),'all'),
   addSide:kind=>change(s=>addSide(s,kind),'all'),
   removeSide:code=>{
    if(selectedSide===code)selectedSide=null;if(tab===code)tab='instrument';
@@ -473,13 +477,13 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
    requireScheduleMembers(state,r.scheduleEntries,sideSlots);
    if(tab===''){if(!state.sides.length)throw Error('This trade has no Side schedules.');selectedSide=tab=state.sides[0].code;}
   }
-  const recordExercise=r.actions.recordExercise;
-  if(exercise&&recordExercise){
-   if(recordExercise.allowed&&(recordExercise.readContextId!==r.context.contextId||recordExercise.tradeId!==o.opened!.tradeId||
-    recordExercise.instrumentId!==o.opened!.bindingId||recordExercise.expectedRevision!==o.opened!.revision))
-    throw Error('The exercise action did not match the exact booked trade and retained read.');
-   exercise.select(carryReadReferences(recordExercise,r.context),requested);
-  }else exercise?.select(undefined,requested);
+  for(const [editor,action] of [[exercise,r.actions.recordExercise],[swing,r.actions.recordSwing]] as const){
+   if(!editor)continue;
+   if(action?.allowed&&(action.readContextId!==r.context.contextId||action.tradeId!==o.opened!.tradeId||
+    action.instrumentId!==o.opened!.bindingId||action.expectedRevision!==o.opened!.revision))
+    throw Error('The election action did not match the exact booked trade and retained read.');
+   editor?.select(action?carryReadReferences(action,r.context):undefined,requested,r.quantityUnit);
+  }
   measures=r.measures??null;currency=r.currency;
   facilityAllocations=o.presentation?[]:r.facilityAllocations;panel=previewed(panel,{preview:r},{sideGroupsRequired:d?.sideGroupsRequired,fieldGroups:d?ticketFieldGroups(d):undefined,retained:mode==='booked'});
   if(panel.status.kind==='current')panel={...panel,status:{kind:'current',text:amendment?'Edit the retained terms, enter a reason and preview before saving a new revision.':'Booked terms and their retained schedule.'}};
@@ -551,8 +555,8 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  void load();
  return {
   reviewed:()=>state&&!blocked()&&!hasUnresolvedFields()&&previewCurrent()&&previewSource?{draft:draft(),definitionRevisionId:previewSource.definitionRevisionId}:undefined,
-  unsaved:()=>!!exercise?.unsaved()||!!day||!!entry&&!!state&&booked===undefined&&(!!pending.command||sent()!==opened||!!amendment&&!!reason),
-  pending:()=>!!exercise?.pending()||recording||!!pending.command||!!day?.pending.command,
+  unsaved:()=>!!exercise?.unsaved()||!!swing?.unsaved()||!!day||!!entry&&!!state&&booked===undefined&&(!!pending.command||sent()!==opened||!!amendment&&!!reason),
+  pending:()=>!!exercise?.pending()||!!swing?.pending()||recording||!!pending.command||!!day?.pending.command,
   destroy(){alive=false;lifetime.abort();clearTimeout(settling);drawn?.destroy();host.replaceChildren();},
  };
 }

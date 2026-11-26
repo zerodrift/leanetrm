@@ -90,8 +90,8 @@ never overwritten by a billing minimum, conversion or fee quantity.
 
 ## Park-and-loan and swing rights
 
-These are required gas capability gates, not enabled features of the current
-fixed-quantity ticket. Reuse independent physical/cash memberships and retained
+These cases distinguish the required gas profiles and their qualification gates.
+Reuse independent physical/cash memberships and retained
 programs. Add explicit obligation links, trade-owned balances and election facts;
 do not introduce nominal product fields without their execution consumers. The
 [field contract](physical-gas-field-contract.md#park-and-loan-and-swing-rights)
@@ -115,8 +115,13 @@ defines ownership and valuation boundaries.
 | SW07 | Rights remain unexercised, but the selected context lacks the required rights model or market inputs | Complete MTM is unavailable with a structured reason. Fixed-base marking or a zero option contribution cannot masquerade as a complete valuation. |
 | SW08 | Book/reopen rights, compare historical elections before/after a correction, and evaluate different trade sizes | Retain complete executable terms and source lineage; historical knowledge excludes later facts. Qualify scaling against the actual count/aggregate constraints rather than multiplying one-unit option value without proof. |
 
-These are planned acceptance oracles, not reported passing checks. The existing
-gas command must continue rejecting unsupported rights and park/loan terms.
+D457 qualifies the combined count against a constant reference, monthly resets,
+off-grid elections, observed deadlines, retained revisions and exact size
+scaling. SW03's separate directional counts, preceding-day comparison and
+ramps remain future policies. The marked profile requires a positive point
+forward and fixed following payments. Qualification for this subset is recorded
+with its [financial and route results](verification.md#daily-gas-quantity-rights-d457).
+The other acceptance cases retain their own implementation gates.
 
 ## Gas purchase and linked fees
 

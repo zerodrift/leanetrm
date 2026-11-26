@@ -7740,3 +7740,48 @@ explicit recovery and updater suspension follow the
 [backend maintenance procedure](hosted-pilot.md#physical-directory-maintenance-d456).
 This exception includes no schema or business-data migration and authorizes no
 other backend change or general maintenance release mechanism.
+
+## D457 — Daily gas quantity elections and remaining swing value
+
+Bind one right to an independent daily physical source and its fixed, linear
+following payments. The holder can elect any exact quantity within the daily
+range that leaves a continuous feasible completion. Select the operating month
+or the whole term. Each optional lower or upper total applies as entered
+(`per_period_v1`) or multiplied by all retained days in the period
+(`per_day_v1`). An optional count limits days differing from the reference.
+Accepted off-grid amounts reserve their exact quantities. Future model choices
+use the grid anchored at the daily minimum.
+
+Each command identifies the held binding and all expected election heads.
+Under the serialized publication gate, apply all same-instant decisions as a
+batch and prove each touched period feasible at every effective-time boundary,
+including later known revisions. Submission and effectiveness must meet the
+gas day's commercial election deadline. The binding and the current
+invocation's authorization bound apply through commit under the
+[supported deferred-finalization protocol](storage-facility-operations.md#transaction-admission).
+A replay returns the first outcome. Its receipt retains the original
+authorization evidence, and the replay's own grant must remain valid through
+commit. A withdrawal can leave a missed election at an elapsed deadline. Future
+unelected days in that period become unassessed if a total or count couples them.
+Independent periods remain assessable and recorded payments survive even when
+their corresponding accrued amount becomes unknown.
+
+Use positive point forwards and explicit monthly volatility for flexible days.
+The common lognormal factor lets the holder choose at an observed price node
+before its children are known. Under `swing_trinomial_6h_unit_reference_v2`,
+normalize physical and fixed rewards to one native unit of daily reference
+quantity before rounding each half-even to 18 places. Use ordered 30-place
+continuation arithmetic on the six-hour grid. Round the stochastic root once,
+add exact commercially forced and explicitly zero-volatility period values,
+then apply the held reference quantity exactly once without further rounding.
+Count the remaining joint value once alongside signed Side amounts and recorded
+cash. The optimum on forwards is a separate comparison.
+
+D433 storage proposals and the swing comparison share the exact layered search.
+A storage proposal retains its rest move, public identity, tie order and
+physical-plan evaluation. Booked storage PV continues to use the plan in force.
+The valuation scope excludes previous-day and directional counts, ramps,
+floating payments, nonpositive forwards and changing bases. The finite-grid
+error and seasonal and annual resource limits have fixture-specific evidence.
+See the [contract](physical-gas-side.md#daily-quantity-rights-d457) and
+[qualification](verification.md#daily-gas-quantity-rights-d457).

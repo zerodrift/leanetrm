@@ -101,7 +101,7 @@ def upgrade_checks(query,migration):
     print('PASS gas pricing upgrade: four predecessor definitions, owners, grants and configuration are pinned; caller search path is independent',flush=True)
 
 
-def staged_booking(query,manifest,original,invalid,code,*,at='2020-12-18T16:00:00Z'):
+def staged_booking(query,manifest,original,invalid,code,*,at='2020-12-18T16:00:00Z',fields=None):
     """Replay the original sealed programs with a new authenticated command in a rollback-only transaction."""
     from check_booked_side_programs import runtime_query
     cat=manifest['catalogId'];operation=invalid['operationId']
@@ -116,7 +116,12 @@ def staged_booking(query,manifest,original,invalid,code,*,at='2020-12-18T16:00:0
     for table in ['side_schedule_request_items','side_schedule_request_seals']:
         prefix+=f"INSERT INTO trading.{table} SELECT(jsonb_populate_record(NULL::trading.{table},to_jsonb(s)||jsonb_build_object('request_id','{operation}'))).* FROM trading.{table} s WHERE(catalog_id,request_id)=('{cat}','{original['operationId']}');"
     writer = 'amend_gas_composition' if amending else 'book_gas_composition'
-    runtime_query(query,manifest,f"DO $test$ BEGIN BEGIN PERFORM security.{writer}('{cat}','{wire}'::jsonb,'{at}');RAISE EXCEPTION 'malformed_entry_accepted';EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'{code}' THEN RAISE;END IF;END;END$test$;",prefix=prefix,commit=False)
+    details = ''
+    if fields is not None:
+        expected_fields = json.dumps(fields).replace("'", "''")
+        details = f"""GET STACKED DIAGNOSTICS detail = PG_EXCEPTION_DETAIL;
+          IF detail::jsonb IS DISTINCT FROM '{expected_fields}'::jsonb THEN RAISE EXCEPTION 'unexpected admission fields: %',detail;END IF;"""
+    runtime_query(query,manifest,f"DO $test$ DECLARE detail text;BEGIN BEGIN PERFORM security.{writer}('{cat}','{wire}'::jsonb,'{at}');RAISE EXCEPTION 'malformed_entry_accepted';EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'{code}' THEN RAISE;END IF;{details}END;END$test$;",prefix=prefix,commit=False)
 
 
 def native_admission(query,manifest,body):

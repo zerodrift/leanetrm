@@ -28,13 +28,31 @@ internal static class TicketDescriptionChecks
         Check("gas describes repeatable exercise terms, including the physical-only lead and no starting choices",()=>{
             var description=JsonSerializer.SerializeToElement(GasTicket.Description,JsonSerializerOptions.Web);
             if(!description.TryGetProperty("repeatableTerms",out var terms))throw new Exception("Missing Exercise right section.");
-            var section=terms.EnumerateArray().Single();
+            var section=terms.EnumerateArray().Single(t=>t.GetProperty("id").GetString()=="exerciseRights");
             var fields=section.GetProperty("fields").EnumerateArray().ToArray();
             if(section.GetProperty("id").GetString()!="exerciseRights"||section.GetProperty("label").GetString()!="Exercise right"||
                 !fields.Select(f=>f.GetProperty("label").GetString()).SequenceEqual(["Sides covered","Exercise period","Held by","Settlement","Exercise lead in hours"])||
                 fields.Any(f=>!f.GetProperty("required").GetBoolean()||f.GetProperty("lookup").ValueKind!=JsonValueKind.Null)||
                 fields[0].GetProperty("type").GetString()!="multiple_choice"||fields[4].GetProperty("visibleWhen").GetProperty("values")[0].GetString()!="physical")
                 throw new Exception("Unexpected exercise field contract.");
+        });
+        Check("one swing section declares the editable contract without duplicate physical placeholders",()=>{
+            var fields=GasTicket.Description.RepeatableTerms!.Value.Single(t=>t.Id=="swingRights").Fields;
+            var optional=new[]{"swing_total_min","swing_total_max","swing_total_basis","swing_change_count","swing_count_rule"};
+            if(!fields.Select(f=>f.Id).SequenceEqual(["swing_side","swing_entries","swing_holder","swing_planning_step",
+                "swing_daily_min","swing_daily_max","swing_limit_period","swing_total_min","swing_total_max","swing_total_basis",
+                "swing_change_count","swing_count_rule","swing_plan_rule","swing_deadline_rule","swing_lead_hours","swing_model","swing_numerical_policy"])||
+                fields.Any(f=>f.Required==optional.Contains(f.Id)||f.State!="editable")||
+                GasTicket.SideKind("physical").Fields.Any(f=>fields.Any(s=>s.Id==f.Id)))
+                throw new Exception("Missing or duplicate working swing fields.");
+            var wire=JsonSerializer.SerializeToElement(fields,JsonSerializerOptions.Web);
+            var model=wire.EnumerateArray().Single(f=>f.GetProperty("id").GetString()=="swing_model");
+            if(!model.TryGetProperty("retainedLabels",out var labels)||!labels.TryGetProperty("gas_swing_one_factor_lognormal_v1",out _)||
+                fields.Any(f=>!f.Required&&string.IsNullOrEmpty(f.AbsentLabel)))
+                throw new Exception("A retained swing ticket requires model and optional-term labels before choice reads.");
+            foreach(var (side,field) in new[]{("physical","forecast_curve"),("floating","floating_forecast_curve")})
+                if(!GasTicket.Description.Sides.Single(s=>s.Kind==side).Fields.Single(f=>f.Id==field).RefreshOn.Contains("swing_side"))
+                    throw new Exception("Forecast choices need a fresh coverage read when the swing source changes.");
         });
         Check("a valid description passes unchanged", () => { if (!ReferenceEquals(TicketDescriptions.Validate(valid), valid)) throw new Exception("Instance changed"); });
         Check("ticket dispatch rejects an explicit null draft",()=>

@@ -67,7 +67,8 @@ public sealed partial class SideValuationContext
         if (inputs.Cash is { Payments.IsEmpty: false } cash)
         {
             var gross = new PhysicalCashState(cash.TradeId, cash.BindingId, cash.Quantity, cash.BookId, [],
-                PhysicalCashState.Policy, cash.OwnerDays, cash.Elections, cash.NextElectionEffectiveAt, cash.Balances);
+                PhysicalCashState.Policy, cash.OwnerDays, cash.Elections, cash.NextElectionEffectiveAt, cash.Balances,
+                cash.SwingElections, cash.NextSwingElectionEffectiveAt);
             return scopes.Exercised = WithRetainedPrograms(inputs with { Cash = gross }).WithBindingState(gross);
         }
         return scopes.Exercised = WithRetainedPrograms(inputs);

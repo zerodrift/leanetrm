@@ -64,6 +64,7 @@ public sealed record GasCompositionRequest(Guid SnapshotId,string Convention,str
  [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public ImmutableArray<GasChargeRequest>? ChargeSides {get;init;}
  [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public ImmutableArray<GasExerciseRightRequest>? ExerciseRights {get;init;}
  [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public ImmutableArray<GasImbalanceCashoutRequest>? ImbalanceCashouts {get;init;}
+ [JsonConverter(typeof(GasSwingRightsJson)),JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public ImmutableArray<GasSwingRightRequest>? SwingRights {get;init;}
 }
 internal sealed record GasCompositionRow(int Slot,string Code,string Role,int Direction,ExactRatio Ratio,ExactRatio Receipt,string? Source,string? Stage,string? Formula,string? Fraction,GasPhysicalRequest? Physical,GasCashRequest? Cash,ImmutableArray<GasValuationAssignment> Assignments,GasDayClock Clock,string? QuantityPolicy=null,ExactDecimal? Share=null,QuantityPart? Part=null,OwnedQuantity? Owned=null,ReportedBalanceFollow? Balance=null)
 {
@@ -75,6 +76,8 @@ internal sealed record GasCompositionValue(string PresentValue,string Currency,s
  GasLifecycleMeasures? Measures=null)
 {
  public ImmutableArray<ExerciseGroupReport> Groups{get;init;}=[];
+ [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public SwingTicketProjection? SwingContract{get;init;}
+ [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)]public ImmutableArray<SwingRightReport> SwingRights{get;init;}
  public int UnassessedDays=>Lifecycle?.UnassessedDays??0;
  public bool Incomplete=>UnassessedDays!=0;
  public ImmutableArray<GasImbalanceReportRow> ImbalanceRows{get;init;}=[];
@@ -90,9 +93,9 @@ internal sealed record GasLifecycleMeasures(string Unrealized,string RealizedUns
 {
  internal static GasLifecycleMeasures From(PhysicalLifecycleValue value,DiscountFactorSource discounting)=>new(value.Unrealized.ToExactString(),value.RealizedUnsettled.ToExactString(),value.Total.ToExactString(),
   GasPositions.LifecycleLabel,discounting switch{DiscountFactorSource.Undiscounted=>"undiscounted",_=>throw new MarketDataException("gas_composition_input","Gas compositions value only under their explicit no-discounting selection.")},
-  [..value.ExpectedCash.Select(x=>new GasExpectedCash(x.DueAt,x.Amount.ToExactString()))]);
+  [..value.ExpectedCash.Select(x=>new GasExpectedCash(x.DueAt,x.Amount.ToExactString(),x.UnassessedDays))]);
 }
-internal sealed record GasExpectedCash(DateTimeOffset DueAt,string Amount);
+internal sealed record GasExpectedCash(DateTimeOffset DueAt,string Amount,[property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)]int UnassessedDays);
 internal sealed record GasScheduleRefusal(string Code,string Message);
 internal sealed record GasCompositionRead(GasCompositionRequest Terms,GasCompositionValue Valuation);
 internal sealed record GasCompositionExecution
@@ -103,17 +106,26 @@ internal sealed record GasCompositionExecution
  internal ExactDecimal Quantity{get;}
  internal ImmutableArray<RetainedSideProgram> Programs{get;}
  internal ImmutableArray<ExerciseRight> Rights{get;}
+ internal ImmutableArray<SwingQuantityRight> SwingRights{get;}
+ internal ImmutableArray<SwingPricingBinding> SwingPricingBindings{get;}
  internal Guid TradeId{get;}
+ internal ReferenceKey SwingQuantityUnit(int ordinal)
+ {
+  var right=SwingRights.Single(r=>r.Ordinal==ordinal);
+  return Members.Single(m=>m.Slot==right.PhysicalSlot).Assignment.Quote.Quantity;
+ }
  // Every retained program selects the started-delivery lifecycles; older or mixed trades keep their own refusals.
  internal bool Started=>GasCompositionStore.Started(Programs);
  internal GasCompositionExecution(Guid tradeId,GasCompositionRequest terms,Guid instrumentId,ImmutableArray<GasCompositionRow> members,
-  ExactDecimal quantity,ImmutableArray<RetainedSideProgram> programs,ImmutableArray<ExerciseRight> rights=default)
+  ExactDecimal quantity,ImmutableArray<RetainedSideProgram> programs,ImmutableArray<ExerciseRight> rights=default,
+  ImmutableArray<SwingQuantityRight> swingRights=default,ImmutableArray<SwingPricingBinding> swingPricingBindings=default)
  {
   RequireSlots(members.IsDefault?[]:members.Select(m=>m.Slot),programs);
   if(members.Any(m=>programs.Single(p=>p.Slot==m.Slot).Program.Document.Family!=(m.Role=="physical"?"gas":m.Role is "indexed_consideration" or "imbalance_cashout"?"floating":"fixed")))
    throw new MarketDataException("gas_program_membership","Every retained gas program requires its exact visible member slot and side family.");
   if(tradeId==Guid.Empty)throw new MarketDataException("gas_program_membership","Every retained gas program requires its exact held trade.");
   TradeId=tradeId;Terms=terms;InstrumentId=instrumentId;Members=members;Quantity=quantity;Programs=programs;Rights=rights.IsDefault?[]:rights;
+  SwingRights=swingRights.IsDefault?[]:swingRights;SwingPricingBindings=swingPricingBindings.IsDefault?[]:swingPricingBindings;
  }
  internal static void RequireSlots(IEnumerable<int> members,ImmutableArray<RetainedSideProgram> programs)
  {
@@ -121,20 +133,24 @@ internal sealed record GasCompositionExecution
    !programs.Select(p=>p.Slot).Order().SequenceEqual(Enumerable.Range(0,programs.Length)))
    throw new MarketDataException("gas_program_membership","Every retained gas program requires its exact visible member slot and side family.");
  }
- internal RetainedGasInstrument Instrument(ImmutableArray<IndexPriceLookup> lookups)=>BuildInstrument(InstrumentId,Members,Programs,lookups,Rights);
+ internal RetainedGasInstrument Instrument(ImmutableArray<IndexPriceLookup> lookups)=>BuildInstrument(InstrumentId,Members,Programs,lookups,Rights,SwingRights,SwingPricingBindings);
  internal static RetainedGasInstrument BuildInstrument(Guid id,ImmutableArray<GasCompositionRow> members,
-  ImmutableArray<RetainedSideProgram> programs,ImmutableArray<IndexPriceLookup> lookups,ImmutableArray<ExerciseRight> rights=default)
+  ImmutableArray<RetainedSideProgram> programs,ImmutableArray<IndexPriceLookup> lookups,ImmutableArray<ExerciseRight> rights=default,
+  ImmutableArray<SwingQuantityRight> swingRights=default,ImmutableArray<SwingPricingBinding> swingPricingBindings=default)
  {
   RequireSlots(members.Select(m=>m.Slot),programs);
-  var quantityTerms=!rights.IsDefaultOrEmpty||members.Any(m=>m.QuantityPolicy is not null||m.Part is not null||m.Balance is not null);
+  var quantityTerms=!rights.IsDefaultOrEmpty||!swingRights.IsDefaultOrEmpty||members.Any(m=>m.QuantityPolicy is not null||m.Part is not null||m.Balance is not null);
   var byCode=members.ToDictionary(m=>m.Code,StringComparer.Ordinal);
   var ordered=members.OrderBy(m=>m.Slot).ToImmutableArray();
   var sources=ordered.Select(m=>m.Owned is not null?(int?)null:m.Role=="physical"?m.Slot:byCode[m.Source!].Slot).ToImmutableArray();
-  return new(id,[..ordered.Select(m=>{
+  ImmutableArray<RetainedGasMember> retained=[..ordered.Select(m=>{
    var p=programs.Single(p=>p.Slot==m.Slot);
    return new RetainedGasMember(p.SideId,ExactDecimal.Parse(m.Direction.ToString(CultureInfo.InvariantCulture)),m.Ratio,p.Program,
     quantityTerms?sources[m.Slot]:null,m.QuantityPolicy,m.Part,m.Owned,m.Balance);
-  })],[..members.SelectMany(m=>m.Assignments).Distinct()],lookups,rights:rights,physicalSources:sources);
+  })];
+  var assignments=members.SelectMany(m=>m.Assignments).Distinct().ToImmutableArray();
+  return swingRights is [var right] ? new(id,retained,assignments,right,swingPricingBindings.Single(),lookups,rights,physicalSources:sources)
+   : new(id,retained,assignments,lookups,rights,physicalSources:sources);
  }
 
 }
@@ -169,7 +185,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
  static ExercisePeriod Period(string value)=>value switch{"delivery_day"=>ExercisePeriod.DeliveryDay,"delivery_month"=>ExercisePeriod.DeliveryMonth,_=>throw Invalid("Select a supported exercise period.")};
  static ExerciseHolder Holder(string value)=>value switch{"us"=>ExerciseHolder.Us,"counterparty"=>ExerciseHolder.Counterparty,_=>throw Invalid("Select an explicit exercise holder.")};
  static ExerciseSettlement Settlement(string value)=>value switch{"physical"=>ExerciseSettlement.Physical,"cash_automatic"=>ExerciseSettlement.CashAutomatic,_=>throw Invalid("Select a supported exercise settlement.")};
- async Task<GasCompositionDraft> Resolve(NpgsqlConnection c,PreviewData data,GasCompositionRequest body,DateTimeOffset at,CancellationToken ct)
+ async Task<GasCompositionDraft> Resolve(NpgsqlConnection c,PreviewData data,GasCompositionRequest body,DateTimeOffset at,CancellationToken ct,string? swingProbeSource=null)
  {
   var charges=body.ChargeSides??[];
   if(charges.IsDefault||charges.Any(p=>p is null)||body.PhysicalSides.IsDefault||body.CashSides.IsDefault||body.PhysicalSides.Any(s=>s is null)||body.CashSides.Any(s=>s is null))throw Invalid("Supply each physical and payment Side explicitly.");
@@ -191,7 +207,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   var physical=ImmutableArray.CreateBuilder<GasPhysicalComponent>();var assignments=new List<ImmutableArray<GasValuationAssignment>>();var clocks=new List<GasDayClock>();var mappings=new List<JsonElement>();
   foreach(var p in body.PhysicalSides)
   {
-   var m=await gas.Metadata(c,data,Selection(body,p),ct);assignments.Add(m.Assignments);clocks.Add(m.Clock);mappings.Add(m.Mapping);
+   var m=await gas.Metadata(c,data,Selection(body,p),ct,swingSource:p.Code==swingProbeSource||body.SwingRights is [{Side:var swingCode}]&&swingCode==p.Code,bookingSide:p.Code);assignments.Add(m.Assignments);clocks.Add(m.Clock);mappings.Add(m.Mapping);
    var basis=p.QuantityBasis switch{"per_operating_day"=>GasQuantityBasis.PerOperatingDay,"period_total_equal_days"=>GasQuantityBasis.PeriodTotalEqualOperatingDays,_=>throw Invalid("Choose each physical quantity basis explicitly.")};
    var side=new PhysicalGasSide(Guid.NewGuid(),m.Assignments[0].Location,m.Assignments[0].Product,new(m.Clock,DateWorkspace.Date(p.DeliveryFrom),DateWorkspace.Date(p.DeliveryTo),basis,new(Number("1"),m.Assignments[0].Quote.Quantity),GasFuelConvention.None,default),m.Assignments,SideCalendarPolicies.Resolve(data,p.CalendarPolicy),GasPointPricing.Resolve(database.Manifest.CatalogId,m.Mapping,p.ForecastCurve)?.ToBinding());
    var link=p.Link is null?null:new GasCompositionLink(p.Link.Source,p.Link.Formula switch{"none"=>GasFuelConvention.None,"gross_less_fraction"=>GasFuelConvention.NetEqualsGrossTimesOneMinusFuel,"gross_divided_by_one_plus_fraction"=>GasFuelConvention.NetEqualsGrossDividedByOnePlusFuel,_=>throw Invalid("Select an installed fuel rule.")},Number(p.Link.Fraction));
@@ -239,7 +255,8 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   }
   var rights=(body.ExerciseRights??[]).Select(r=>r is null?throw Invalid("Supply each exercise right explicitly."):
    new GasExerciseRight(r.Entries,Period(r.Period),Holder(r.Holder),Settlement(r.Settlement),r.LeadHours)).ToImmutableArray();
-  var instrument=new GasCompositionInstrument(Guid.NewGuid(),physical.ToImmutable(),cash.ToImmutable(),rights,owning.ToImmutable());var members=ImmutableArray.CreateBuilder<GasCompositionRow>();
+  var (components,bindings)=GasSwingBooking.Resolve(body.SwingRights,body.PhysicalSides);
+  var instrument=new GasCompositionInstrument(Guid.NewGuid(),physical.ToImmutable(),cash.ToImmutable(),rights,owning.ToImmutable(),components,bindings,at);var members=ImmutableArray.CreateBuilder<GasCompositionRow>();
   for(var n=0;n<physical.Count;n++){var p=body.PhysicalSides[n];members.Add(new(n,p.Code,"physical",Sign(p.Direction,true),instrument.Sides[n].QuantityRatio!,instrument.ReceiptRatios[n],p.Link?.Source,null,p.Link?.Formula,p.Link?.Fraction,p,null,assignments[n],clocks[n],p.QuantityPolicy));}
   for(var n=0;n<cash.Count;n++){var p=cashRequests[n];var source=body.PhysicalSides.Select((v,i)=>(v,i)).Single(x=>x.v.Code==p.Source).i;members.Add(new(physical.Count+n,p.Code,cash[n].Role,Sign(p.Direction,false),instrument.Sides[physical.Count+n].QuantityRatio!,instrument.Sides[physical.Count+n].QuantityRatio!,p.Source,p.Stage,null,null,null,p,assignments[source],clocks[source],Share:cash[n].Share,Part:cash[n].Part,Balance:cash[n].Balance));}
   for(var n=0;n<owning.Count;n++)
@@ -398,6 +415,8 @@ public sealed class GasCompositionStore(PreviewDatabase database)
  {
   var (unit,programs,knowledge,snapshot,dated)=await PrepareSchedules(c,data,frame,members,draft,retained,held is {Started:true}||unrecorded is not null,savedVersions,ct);
   var rights=held?.Rights??draft!.ResolveRights();
+  var swings=held?.SwingRights??(draft!.QuantityRight is {} choice ? [choice] : ImmutableArray<SwingQuantityRight>.Empty);
+  var pricing=held?.SwingPricingBindings??draft!.SwingPricingBindings;
   var deps=PhysicalLifecycle.PriceDependencies(programs.Select(p=>p.Program),dated,snapshot);
   var prepared=await CustomCurves.PrepareMarket(c,database,data,frame,snapshot,knowledge,[],deps,CustomCurves.MarketPreparation.ValuationDependencies,ct,
    activePrices:PhysicalLifecycle.ActivePrices(programs.Select(p=>p.Program),dated),savedVersions:savedVersions);
@@ -411,21 +430,22 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   {
    if(held.Members.Length!=members.Length)throw Invalid("Started-delivery valuation requires every member of the held trade.");
    if(held.Terms.Discounting!=false)throw Invalid("A held gas composition requires its explicit no-discounting selection.");
-   state=await GasCashPaymentStore.Read(c,database.Manifest.CatalogId,held,held.Terms.BookId,new(quantity,members[0].Assignment.Quote.Quantity),GasCashPaymentStore.LatestKnownRevision,snapshot.ValuationAt,ct);
+   state=await GasCashPaymentStore.Read(c,database,held,held.Terms.BookId,new(quantity,members[0].Assignment.Quote.Quantity),GasCashPaymentStore.LatestKnownRevision,snapshot.ValuationAt,ct);
   }
-  else if(!rights.IsEmpty||members.Any(m=>m.QuantityPolicy is not null||m.Part is not null||m.Balance is not null||m.Owned is not null))
+  else if(!rights.IsEmpty||!swings.IsEmpty||members.Any(m=>m.QuantityPolicy is not null||m.Part is not null||m.Balance is not null||m.Owned is not null))
   {
-   var selected=GasDeliveryQuantityStore.Build(members,programs,quantity,snapshot.ValuationAt,[],rights);
+   var selected=GasDeliveryQuantityStore.Build(members,programs,quantity,snapshot.ValuationAt,[],rights,swings);
    state=new(unrecorded?.TradeId??Guid.NewGuid(),unrecorded?.BindingId??draft!.Id,new(quantity,members[0].Assignment.Quote.Quantity),null,[],PhysicalCashState.Policy,
     selected?.Days??default);
   }
-  var instrument=GasCompositionExecution.BuildInstrument(held?.InstrumentId??draft!.Id,members,programs,dated,rights);
-  if(!rights.IsEmpty)instrument=await new CurveMarkStore(database.Manifest.CatalogId).Bind(c,instrument,snapshot,state,ct);
+  var instrument=GasCompositionExecution.BuildInstrument(held?.InstrumentId??draft!.Id,members,programs,dated,rights,swings,pricing);
+  if(!rights.IsEmpty||!swings.IsEmpty)instrument=await new CurveMarkStore(database.Manifest.CatalogId).Bind(c,instrument,snapshot,state,ct);
   var valuation=instrument.PV(instrument.PrepareValuation(market,market,discount,state,ct));
   var groups=valuation.Groups.Select(ExerciseGroupReport.FromValue).ToImmutableArray();
+  ImmutableArray<SwingRightReport> swingReports=valuation.QuantitySwing is {} assessed?[SwingRightReport.FromValue(assessed)]:[];
   var total=valuation.PresentValue.Scale(quantity);
   if(state is not null)lifecycle=PhysicalLifecycle.FromValuation(valuation);
-  var valued=new List<(GasCompositionRow Member,ExactMoney Amount,ExactQuantity? Quantity,List<object> Rows)>();
+  var valued=new List<(GasCompositionRow Member,ExactMoney Amount,ExactQuantity? Quantity,List<object> Rows,int UnassessedDays)>();
   var imbalanceRows=ImmutableArray.CreateBuilder<GasImbalanceReportRow>();
   foreach(var member in members.OrderBy(x=>x.Slot))
   {
@@ -440,6 +460,8 @@ public sealed class GasCompositionStore(PreviewDatabase database)
     sideView=sideView with{Recorded=recordedDays.ToImmutableDictionary(d=>d.Key,d=>new ScheduleViewQuantity(new(BigInteger.Parse(d.Value.Quantity.Numerator)*member.Direction,BigInteger.Parse(d.Value.Quantity.Denominator)),d.Value.Kind))};
    if(rights.FirstOrDefault(r=>r.Slots.Contains(member.Slot)) is {} right)
     sideView=sideView with{ExerciseGroups=[..groups.Where(g=>g.Right==right.Ordinal)]};
+   if(swingReports.FirstOrDefault(s=>s.Slots.Contains(member.Slot)) is {} swingReport)
+    sideView=sideView with{SwingRights=[swingReport]};
    views?.Add(sideView);inspect?.Invoke(sideView,member.Clock);
    if(view&&member.Balance is not null)
     imbalanceRows.AddRange(GasImbalanceReport.Rows(member,sideValue,quantity,state!,programs.Single(p=>p.Slot==member.Slot).Program,ct));
@@ -460,13 +482,12 @@ public sealed class GasCompositionStore(PreviewDatabase database)
     qtotal=sideView.ReportedRows is {} reported&&!reported.Values.Any(row=>row.ReportedQuantity?.Quantity is not null)?null:
      ExactQuantity.FromRatio(new(BigInteger.Abs(q.Numerator),q.Denominator),member.Assignment.Quote.Quantity);
    }
-   valued.Add((member,amount,qtotal!,rows));
+   valued.Add((member,amount,qtotal!,rows,sideValue.Lifecycle?.UnassessedDays??0));
   }
-  int Unassessed(int slot)=>lifecycle?.Rows.Count(row=>row.Slot==slot&&row.ReportedQuantity?.State==ReportedDayQuantity.Unassessed)??0;
   var sides=valued.Select(v=>(object)new{v.Member.Code,v.Member.Role,source=v.Member.Source,stage=v.Member.Stage,pipeline=v.Member.Role=="physical"?v.Member.Assignment.Location.Pipeline.Code:null,zone=v.Member.Role=="physical"?v.Member.Assignment.Location.Zone.Code:null,deliveryPoint=v.Member.Role=="physical"?v.Member.Assignment.Point.Code:null,
    direction=v.Member.Direction==1?"receive":v.Member.Role=="physical"?"deliver":"pay",
    presentValue=v.Amount.ToExactString(),
-   quantity=v.Quantity is null?null:Ratio(v.Quantity),unassessedDays=Unassessed(v.Member.Slot),incomplete=Unassessed(v.Member.Slot)!=0,deliveryRows=v.Rows}).ToList();
+   quantity=v.Quantity is null?null:Ratio(v.Quantity),v.UnassessedDays,incomplete=v.UnassessedDays!=0,deliveryRows=v.Rows}).ToList();
   var links=!view?Array.Empty<object>():members.Where(m=>m.Role=="physical"&&m.Source is not null).Select(m=>{var receipt=quantities[m.Source!];var delivery=quantities[m.Code];var fuel=receipt.Add(delivery.Scale(Number("-1")));return(object)new{source=m.Source,target=m.Code,m.Formula,m.Fraction,receipt=receipt.ToExactString(),delivery=delivery.ToExactString(),fuel=fuel.ToExactString()};}).ToArray();
   // The schedule is a display projection: a trade it cannot show keeps its valuation and reports why.
   ScheduleView? schedule=null;GasScheduleRefusal? refusal=null;
@@ -482,7 +503,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   // No contract-against-market measure is defined for these sides yet, so none is reported.
   var summaries=schedule is null?null:views!.Select(v=>(object)new{side=v.Code,billedQuantity=schedule.Totals[v.Code+".quantity"].Value,amount=schedule.Totals[v.Code+".amount"].Value,againstMarket=(string?)null}).ToArray();
   return new(total!.ToExactString(),members[0].Assignment.Quote.Currency.Code,unit,sides,links,schedule,summaries,refusal,members.ToImmutableDictionary(m=>m.Code,m=>m.Slot),
-   lifecycle is null?null:GasLifecycleMeasures.From(lifecycle,discounting)){Groups=groups,ScheduleEntries=GasTicket.ScheduleEntries(members),ImbalanceRows=imbalanceRows.ToImmutable(),Lifecycle=lifecycle,EntryValues=[..valued.Select(v=>new InstrumentEntryValue(v.Member.Slot,v.Amount){UnassessedDays=Unassessed(v.Member.Slot)})],Source=new(data.DefinitionRevision.RevisionId,data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId)};
+   lifecycle is null?null:GasLifecycleMeasures.From(lifecycle,discounting)){Groups=groups,SwingRights=swingReports.IsEmpty?default:swingReports,ScheduleEntries=GasTicket.ScheduleEntries(members),ImbalanceRows=imbalanceRows.ToImmutable(),Lifecycle=lifecycle,EntryValues=[..valued.Select(v=>new InstrumentEntryValue(v.Member.Slot,v.Amount){UnassessedDays=v.UnassessedDays})],Source=new(data.DefinitionRevision.RevisionId,data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId)};
  }
  // A preview and a booking are held to the gas setup their context resolves (GasTicket.RequireSetup).
  async Task RequireSetup(NpgsqlConnection c,PreviewData data,GasCompositionRequest body,CancellationToken ct)=>GasTicket.RequireSetup(body.GasSetupId,(await gas.CurrentSetup(c,data,ct)).Id);
@@ -508,30 +529,39 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   if(body.PreviewContextId is not null)throw Invalid("A preview cutoff requires an explicit saved trade.");
   if(body.TradeId is not null)await GasAmendments.Require(c,database.Manifest.CatalogId,body,frame.At,ct);
   await RequireSetup(c,data,body,ct);var d=await Resolve(c,data,body,frame.At,ct);
-  try{return await Value(c,data,frame,d.Members,d.Instrument.BaseQuantity,d.Instrument,body.GasSetupId,null,true,ct);}
-  catch(MarketDataException error)when(ticket&&!d.Instrument.Rights.IsEmpty&&error.Code=="exercise_marks")
+  var contract=ticket&&d.Instrument.QuantityRight is {} swing?GasSwingTicket.Projection(data,body,d.Members,swing):null;
+  try
+  {
+   var value=await Value(c,data,frame,d.Members,d.Instrument.BaseQuantity,d.Instrument,body.GasSetupId,null,true,ct);
+   return contract is null?value:value with{SwingContract=contract};
+  }
+  catch(MarketDataException error)when(ticket&&(!d.Instrument.Rights.IsEmpty||d.Instrument.QuantityRight is not null)&&error.Code=="exercise_marks")
   {
    // The valuation reaches marks after it builds the retained Instrument. The
    // ticket can review those structural terms with the valuation explicitly unavailable.
-   return new{source=new CatalogueSource(data.DefinitionRevision.RevisionId,data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId),
+   var unavailable=new{source=new CatalogueSource(data.DefinitionRevision.RevisionId,data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId),
     quantityUnit=QuantityUnit(data,d.Members.Select(m=>m.Assignment.Quote.Quantity)),currency=d.Members[0].Assignment.Quote.Currency.Code,
     presentValue=(string?)null,schedule=(ScheduleView?)null,summaries=(object[]?)null,groups=(ExerciseGroupReport[]?)null,links=Array.Empty<object>(),
     scheduleRefusal=new GasScheduleRefusal(error.Code,error.Message)};
+   if(contract is null)return unavailable;
+   var projection=JsonSerializer.SerializeToNode(unavailable,Json)!.AsObject();
+   projection["swingContract"]=JsonSerializer.SerializeToNode(contract,Json);
+   return projection;
   }
  }
  // The single market price a physical side's schedule shows over its delivery term, evaluated from a price probe (GasTicket.PriceProbe).
- internal async Task<string> MarketPrice(NpgsqlConnection c,PreviewData data,InputFrame frame,GasCompositionRequest probe,CancellationToken ct)
+ internal async Task<string> MarketPrice(NpgsqlConnection c,PreviewData data,InputFrame frame,GasTicketPriceProbe probe,CancellationToken ct)
  {
   GasCompositionValue value;
-  try{var d=await Resolve(c,data,probe,frame.At,ct);value=await Value(c,data,frame,d.Members,d.Instrument.BaseQuantity,d.Instrument,probe.GasSetupId,null,true,ct);}
-  catch(MarketDataException error)when(error.Code is "gas_input" or "gas_composition_input"){throw new MarketDataException("ticket_lookup",error.Message);}
-  var code=probe.PhysicalSides.Single().Code;
+  var code=probe.Source.Code;
+  try{var d=await Resolve(c,data,probe.Terms,frame.At,ct,probe.SwingCoverage?code:null);value=await Value(c,data,frame,d.Members,d.Instrument.BaseQuantity,d.Instrument,probe.Terms.GasSetupId,null,true,ct);}
+  catch(MarketDataException error)when(error is not TicketFieldException&&error.Code is ("gas_input" or "gas_composition_input")){throw new MarketDataException("ticket_lookup",error.Message);}
   if(value.Schedule is null)throw new MarketDataException("ticket_lookup",$"The side's schedule cannot be shown, so its market price is not read: {value.ScheduleRefusal!.Message}");
   return value.Schedule.Totals[$"{code}.market_price"].Value??throw new MarketDataException("ticket_lookup","The side's delivery term has no single market price.");
  }
  // An in-term load (inTerm) values its draft with no recorded cash: there is no trade yet, so the operation that books it keys that state.
  internal Task<RetainedScheduleTerms> Prepare(NpgsqlConnection c,InputFrame frame,GasCompositionRequest body,bool inTerm,CancellationToken ct)=>TradingBookingRead.Run(database,c,frame,async(data,pinned)=>{if(body.TradeId is not null)await GasAmendments.Require(c,database.Manifest.CatalogId,body,pinned.At,ct);await RequireSetup(c,data,body,ct);var d=await Resolve(c,data,body,pinned.At,ct);
-  if(d.Instrument.Rights.IsEmpty)
+  if(d.Instrument.Rights.IsEmpty&&d.Instrument.QuantityRight is null)
   {
    var unrecorded=inTerm?new PhysicalCashState(body.OperationId,d.Instrument.Id,new(d.Instrument.BaseQuantity,d.Members[0].Assignment.Quote.Quantity),null,[],PhysicalCashState.Policy):null;
    _=await Value(c,data,pinned,d.Members,d.Instrument.BaseQuantity,d.Instrument,body.GasSetupId,null,false,ct,unrecorded:unrecorded);
@@ -539,7 +569,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   else
   {
    var schedules=await PrepareSchedules(c,data,pinned,d.Members,d.Instrument,null,inTerm,null,ct);
-   _=GasCompositionExecution.BuildInstrument(d.Instrument.Id,d.Members,schedules.Programs,schedules.Dated,d.Instrument.ResolveRights());
+   _=GasCompositionExecution.BuildInstrument(d.Instrument.Id,d.Members,schedules.Programs,schedules.Dated,d.Instrument.ResolveRights(),d.Instrument.QuantityRight is {} selected ? [selected] : [],d.Instrument.SwingPricingBindings);
   }
   return new RetainedScheduleTerms(data.DefinitionRevision,data.ReferenceRevision,d.Instrument);},ct,physicalMarket:PhysicalMarketSelection.Gas,physicalTrade:body.TradeId);
  // A new trade names no amended trade; the ticket and the administrator in-term load both book new trades only.
@@ -547,16 +577,20 @@ public sealed class GasCompositionStore(PreviewDatabase database)
  {if(body.TradeId is not null||body.ExpectedRevision is not null||body.BindingId is not null||body.Reason is not null||body.AmendmentPolicy is not null||body.PreviewTradeId is not null||body.PreviewContextId is not null)throw Invalid("Use the explicit gas amendment operation to amend a trade.");}
  // Books, amends or (inTerm) loads one composition as the profile's identity: staging, locking and publication are
  // idempotent by operation id (D238), so a retried operation receives its first outcome.
- internal async Task<JsonElement> Book(string profile,InputFrame frame,GasCompositionRequest body,bool inTerm,CancellationToken ct)
+ internal async Task<JsonElement> Book(string profile,InputFrame frame,GasCompositionRequest body,bool inTerm,CancellationToken ct,DateTimeOffset? sessionEnds=null)
  {
   if(body.PreviewTradeId is not null||body.PreviewContextId is not null)throw Invalid("A held preview is read-only and cannot book or amend a trade.");
   var retained=new RetainedScheduleStore(database);var permission=body.TradeId is null?"BookTrade":"AmendTrade";
+  GasSwingBookingFrame? admission=null;
   var terms=await database.WithIdentity(profile,permission,async(connection,ct)=>{
    var status=await gas.Status(connection,body.OperationId,ct);
-   return status.TryGetProperty("tradeId",out _)?null:await Prepare(connection,frame,body,inTerm,ct);
+   if(status.TryGetProperty("tradeId",out _))return null;
+   if(body.SwingRights is {Length:>0})admission=await GasSwingBookingFrame.Select(connection,database.Manifest.CatalogId,permission,
+       frame,JsonSerializer.Serialize(body,Json),sessionEnds,ct);
+   return await Prepare(connection,frame,body,inTerm,ct);
   },ct);
   if(terms is not null)await retained.Stage(profile,body.OperationId,body,permission,body.TradeId,body.ExpectedRevision,terms.Generate(ct),ct);
-  return await database.WithIdentity(profile,permission,async(connection,ct)=>{
+  return await database.WithGasBookingIdentity(profile,permission,admission,async(connection,ct)=>{
    if(terms is not null)await retained.Lock(connection,body.OperationId,ct);
    var result=await Save(connection,frame,body,inTerm,ct);
    if(terms is not null&&!(result.TryGetProperty("unchanged",out var unchanged)&&unchanged.GetBoolean()))await retained.Publish(connection,body.OperationId,ct);
@@ -620,7 +654,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   ImmutableArray<RetainedSideProgram>? programs=null)
  {
   var selected=(await GasPositions.Read(c,database.Manifest,[],[],ct,trade:trade)).SingleOrDefault()??throw Invalid("The selected gas position is unavailable.");
-  var header=(await PreviewDatabase.Rows(c,"SELECT row_to_json(x)::text FROM(SELECT r.*,i.definition_revision_id,i.gas_setup_id,trading.gas_exercise_terms(r.catalog_id,r.instrument_id) exercise_rights,CASE WHEN r.revision=1 AND t.operation_id=r.operation_id THEN t.request ELSE a.request END request FROM trading.gas_trade_revisions r JOIN trading.gas_instruments i USING(catalog_id,instrument_id) JOIN trading.trades t ON(t.catalog_id,t.id)=(r.catalog_id,r.trade_id) LEFT JOIN trading.gas_amendment_commands a ON(a.catalog_id,a.operation_id,a.trade_id,a.result_revision,a.changed)=(r.catalog_id,r.operation_id,r.trade_id,r.revision,true) WHERE(r.catalog_id,r.trade_id,r.instrument_id,r.revision)=($1,$2,$3,$4) AND i.composition)x",[database.Manifest.CatalogId,trade,selected.Binding,int.Parse(selected.Head.Text("revision"),CultureInfo.InvariantCulture)],ct)).SingleOrDefault();
+  var header=(await PreviewDatabase.Rows(c,"SELECT row_to_json(x)::text FROM(SELECT r.*,i.definition_revision_id,i.gas_setup_id,trading.gas_exercise_terms(r.catalog_id,r.instrument_id) exercise_rights,trading.gas_swing_terms(r.catalog_id,r.instrument_id) swing_terms,CASE WHEN r.revision=1 AND t.operation_id=r.operation_id THEN t.request ELSE a.request END request FROM trading.gas_trade_revisions r JOIN trading.gas_instruments i USING(catalog_id,instrument_id) JOIN trading.trades t ON(t.catalog_id,t.id)=(r.catalog_id,r.trade_id) LEFT JOIN trading.gas_amendment_commands a ON(a.catalog_id,a.operation_id,a.trade_id,a.result_revision,a.changed)=(r.catalog_id,r.operation_id,r.trade_id,r.revision,true) WHERE(r.catalog_id,r.trade_id,r.instrument_id,r.revision)=($1,$2,$3,$4) AND i.composition)x",[database.Manifest.CatalogId,trade,selected.Binding,int.Parse(selected.Head.Text("revision"),CultureInfo.InvariantCulture)],ct)).SingleOrDefault();
   if(header.ValueKind!=JsonValueKind.Object)throw Invalid("The composed gas trade is unavailable.");
   var rows=await PreviewDatabase.Rows(c,"SELECT row_to_json(x)::text FROM trading.gas_component_terms x WHERE(catalog_id,instrument_id)=($1,$2) ORDER BY slot",[database.Manifest.CatalogId,header.Id("instrument_id")],ct);
   programs??=await new RetainedScheduleStore(database).LoadPrograms(c,header.Id("instrument_id"),frame.ContextId,frame.ContextId is null?null:frame.At,ct);
@@ -629,12 +663,14 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   // or executable program. Typed terms resolve exact market metadata only.
   if(header.GetProperty("request").ValueKind!=JsonValueKind.Object)throw Invalid("The selected gas revision requires its exact retained command.");
   var body=JsonSerializer.Deserialize<GasCompositionRequest>(header.GetProperty("request").GetRawText(),Json)!;
+  var (swings,pricing)=GasSwingBooking.Read(header.GetProperty("swing_terms"),body.SwingRights?.Length??0);
   var valuationBody=body with{DefinitionRevisionId=header.Id("definition_revision_id"),GasSetupId=header.OptionalText("gas_setup_id") is {} setup?Guid.Parse(setup):null,SnapshotId=frame.Id};
   var members=ImmutableArray.CreateBuilder<GasCompositionRow>();var phys=new Dictionary<int,(GasPhysicalRequest Physical,ImmutableArray<GasValuationAssignment> Assignments,GasDayClock Clock)>();
   foreach(var r in rows.Where(r=>r.Text("role")=="physical"))
   {
    var p=new GasPhysicalRequest(r.Text("code"),r.Text("pipeline_code"),r.Text("zone_code"),r.Text("point_code"),r.Text("product_code"),r.Text("direction")=="1"?"receive":"deliver",r.Text("delivery_from"),r.Text("delivery_to"),r.Text("quantity_basis"),r.OptionalText("independent_quantity"),null);
-   var m=await gas.Metadata(c,data,Selection(valuationBody,p),ct);phys.Add(int.Parse(r.Text("slot")),(p,m.Assignments,m.Clock));
+   var slot=int.Parse(r.Text("slot"),CultureInfo.InvariantCulture);
+   var m=await gas.Metadata(c,data,Selection(valuationBody,p),ct,swingSource:swings.Any(right=>right.PhysicalSlot==slot));phys.Add(slot,(p,m.Assignments,m.Clock));
   }
   foreach(var r in rows)
   {
@@ -649,6 +685,6 @@ public sealed class GasCompositionStore(PreviewDatabase database)
    [..r.GetProperty("slots").EnumerateArray().Select(v=>v.GetInt32())],Period(r.Text("period")),Holder(r.Text("holder")),Settlement(r.Text("settlement")),
    r.Text("model"),r.Text("day_count"),[..r.GetProperty("groups").EnumerateArray().Select(g=>new ExerciseGroup(
     DateWorkspace.Date(g.Text("period_from")),DateWorkspace.Date(g.Text("period_to")),SchedulePreview.ParseAt(g.Text("exercise_at"))))])).ToImmutableArray();
-  return new(trade,body,header.Id("instrument_id"),members.ToImmutable(),Number(header.Text("quantity")),programs.Value,rights);
+  return new(trade,body,header.Id("instrument_id"),members.ToImmutable(),Number(header.Text("quantity")),programs.Value,rights,swings,pricing);
  }
 }

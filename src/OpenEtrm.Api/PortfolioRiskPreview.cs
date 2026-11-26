@@ -295,7 +295,10 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
                     if(!p.Components.IsEmpty)position["components"]=JsonSerializer.SerializeToNode(p.Components.ToDictionary(c=>c.Name,c=>new{
                         @base=c.Base.ToExactString(),up=c.Up.ToExactString(),down=c.Down.ToExactString()}),RiskJobs.Json);
                     if(!p.Entries.IsEmpty)position["entries"]=JsonSerializer.SerializeToNode(p.Entries.Select(e=>new{
-                        e.Slot,e.UnassessedDays,e.Incomplete,@base=e.Base.ToExactString(),up=e.Up.ToExactString(),down=e.Down.ToExactString()}),RiskJobs.Json);
+                        e.Slot,e.UnassessedDays,e.Incomplete,e.MissingAssessments,e.UpMissingAssessments,e.DownMissingAssessments,@base=e.Base.ToExactString(),up=e.Up.ToExactString(),down=e.Down.ToExactString()}),RiskJobs.Json);
+                    if(p.QuantitySwing is {} swing)
+                        position["swingRights"]=JsonSerializer.SerializeToNode(new{@base=new[]{SwingRightReport.FromValue(swing.Base)},
+                            up=new[]{SwingRightReport.FromValue(swing.Up)},down=new[]{SwingRightReport.FromValue(swing.Down)}},RiskJobs.Json);
                     if(p.GroupValues is {} groups)
                         position["groups"]=JsonSerializer.SerializeToNode(new{@base=groups.Base.Select(ExerciseGroupReport.FromValue),
                             up=groups.Up.Select(ExerciseGroupReport.FromValue),down=groups.Down.Select(ExerciseGroupReport.FromValue)},RiskJobs.Json);

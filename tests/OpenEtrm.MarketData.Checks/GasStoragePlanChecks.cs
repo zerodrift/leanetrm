@@ -30,7 +30,8 @@ internal static class GasStoragePlanChecks
             [new(Q("0"),Q("30000"),Q("2000"),Q("500")),new(Q("30000"),Q("70000"),Q("1500"),Q("1000")),new(Q("70000"),Q("100000"),Q("1000"),Q("1500"))],
             D("0.01"),D("0"),GasStorageEntitlement.OpeningInventoryBand,GasStorageEntitlement.SingleDirection,GasStorageEntitlement.InKindAtPoint);
         // Gas days start at 09:00 UTC on this synthetic clock.
-        DeliveryInterval GasDay(int day)=>new(Fixture.Utc("2041-01-01T09:00:00Z").AddDays(day-1),Fixture.Utc("2041-01-01T09:00:00Z").AddDays(day),new(2041,1,day),9,0,1);
+        DeliveryInterval GasDay(int day)=>new(Fixture.Utc("2041-01-01T09:00:00Z").AddDays(day-1),Fixture.Utc("2041-01-01T09:00:00Z").AddDays(day),
+            new DateOnly(2041,1,1).AddDays(day-1),9,0,1);
         ImmutableArray<GasStorageDay> Days(params (string Injection,string Withdrawal)[] flows)=>
             [..flows.Select((flow,i)=>new GasStorageDay(GasDay(i+1),Q(flow.Injection),Q(flow.Withdrawal)))];
         GasStoragePlanResult Evaluate(ImmutableArray<GasStorageDay> days,string opening="29000",string terminalMinimum="0",string terminalMaximum="100000",
@@ -187,21 +188,38 @@ internal static class GasStoragePlanChecks
             var actual=proposal.Plan.Days.Select(d=>(d.Day.Injection.Amount.ToString(),d.Day.Withdrawal.Amount.ToString())).ToArray();
             if(!actual.SequenceEqual(expected))throw new Exception("Proposed "+string.Join(" ",actual)+", expected "+string.Join(" ",expected));
         }
-        // Every plan on the lattice, tried one by one: the same contract law written again with plain decimals.
-        decimal? Search((decimal Cost,decimal Value)[] prices,int day,decimal inventory,decimal step,decimal terminalMinimum,decimal terminalMaximum,decimal injectionFuel)
+        // List complete schedules using the synthetic contract's decimal limits, then rank the listing.
+        IEnumerable<(int[] Moves, (decimal Injection, decimal Withdrawal)[] Flows, decimal Value)> ListSchedules(
+            (decimal Cost, decimal Value)[] prices, decimal opening, decimal step, decimal low, decimal high,
+            decimal injectionFuel, decimal withdrawalFuel)
         {
-            if(day==prices.Length)return inventory>=terminalMinimum&&inventory<=terminalMaximum?0m:null;
-            var (injectionLimit,withdrawalLimit)=inventory<30000m?(2000m,500m):inventory<70000m?(1500m,1000m):(1000m,1500m);
-            decimal? best=null;
-            for(var k=-200;k<=200;k++)
+            var moves = new int[prices.Length];
+            var flows = new (decimal Injection, decimal Withdrawal)[prices.Length];
+            return List(0, opening, 0m);
+
+            IEnumerable<(int[], (decimal, decimal)[], decimal)> List(int day, decimal inventory, decimal value)
             {
-                var point=k>0?k*step/(1m-injectionFuel):-k*step;var next=inventory+k*step;
-                if(k>0&&point>injectionLimit||k<0&&point>withdrawalLimit||next<0m||next>100000m)continue;
-                if(Search(prices,day+1,next,step,terminalMinimum,terminalMaximum,injectionFuel) is not {} rest)continue;
-                var value=rest+(k>0?-point*prices[day].Cost:point*prices[day].Value);
-                if(best is null||value>best)best=value;
+                if (day == prices.Length)
+                {
+                    if (inventory >= low && inventory <= high) yield return ([.. moves], [.. flows], value);
+                    yield break;
+                }
+
+                var (injectionLimit, withdrawalLimit) = inventory < 30000m ? (2000m, 500m) :
+                    inventory < 70000m ? (1500m, 1000m) : (1000m, 1500m);
+                // The fixture's 500 and 990 steps and point limits admit at most four steps in either direction.
+                for (var move = -4; move <= 4; move++)
+                {
+                    var next = inventory + move * step;
+                    var injection = move > 0 ? move * step / (1m - injectionFuel) : 0m;
+                    var withdrawal = move < 0 ? -move * step * (1m - withdrawalFuel) : 0m;
+                    if (next < 0m || next > 100000m || injection > injectionLimit || withdrawal > withdrawalLimit) continue;
+                    moves[day] = move;
+                    flows[day] = (injection, withdrawal);
+                    foreach (var schedule in List(day + 1, next, value + withdrawal * prices[day].Value - injection * prices[day].Cost))
+                        yield return schedule;
+                }
             }
-            return best;
         }
 
         Check("a proposal buys the cheapest days and sells the dearest inside the ratchets, returning to its terminal inventory",()=>
@@ -210,7 +228,7 @@ internal static class GasStoragePlanChecks
             // Only 2,000 can come back out over the last two days, so 2,000 goes in on the cheapest day:
             // -2,000 x 3 + 1,000 x 3.5 + 1,000 x 3.6 = 1,100.
             Flows(proposal,("2000","0"),("0","0"),("0","1000"),("0","1000"));
-            if(Objective(proposal)!=1100m||proposal.Implementation!=GasStoragePlanProposals.Implementation||proposal.InventoryStep!=Q("500"))throw new Exception("Expected 1,100.");
+            if(Objective(proposal)!=1100m||proposal.Implementation!="gas_storage_inventory_lattice_search_v1"||proposal.InventoryStep!=Q("500"))throw new Exception("Expected 1,100.");
             Same(proposal.Plan.Closing.Inventory,"29000");
         });
         Check("a spread that does not cover its costs proposes no flow",()=>
@@ -234,28 +252,104 @@ internal static class GasStoragePlanChecks
             if(Objective(proposal)!=465m)throw new Exception("Expected 465.");
             Reject("gas_storage_step",()=>Propose(Prices(("3","3"),("3.5","3.5")),step:"1000",contract:entitlement));
         });
-        Check("the proposal equals an exhaustive search of every lattice plan",()=>
+        Check("equal-size and equal-value withdrawal beats injection", () =>
         {
-            var cases=new[]{
-                (Prices:new[]{("3.4","3.3"),("2.9","2.8"),("3.1","3"),("3.8","3.7"),("3.2","3.1")},Opening:"29000",Low:"28000",High:"31000",Step:"500",Contract:plain),
-                (Prices:new[]{("2","1.9"),("2.1","2"),("2.6","2.5"),("2.7","2.6"),("2.2","2.1")},Opening:"69000",Low:"68000",High:"72000",Step:"500",Contract:plain),
-                (Prices:new[]{("3","2.9"),("3.4","3.3"),("2.8","2.7"),("3.6","3.5")},Opening:"29010",Low:"28020",High:"31980",Step:"990",Contract:entitlement)};
-            foreach(var c in cases)
+            // Injecting 500 at a cost of -1 and withdrawing 500 at a price of 1 both earn 500.
+            var proposal = Propose(Prices(("-1", "1")), "29500", "29000", "30000");
+            Flows(proposal, ("0", "500"));
+            Same(proposal.Plan.Closing.Inventory, "29000");
+            if (proposal.ObjectiveText != "500") throw new Exception("Expected the equal objective of 500.");
+        });
+        Check("the proposal retains exact prices, both in-kind fuels and the ratchet transition", () =>
+        {
+            var withFuel = entitlement with { WithdrawalFuel = D("0.02") };
+            var proposal = Propose(Prices(("3.000000000000000001", "3"), ("3.5", "3.5")), "29500", "29500", "29500", "990", withFuel);
+            // 1,000 in adds 990 to inventory; 990 drawn delivers 970.2 at 3.5.
+            Flows(proposal, ("1000", "0"), ("0", "970.2"));
+            if (proposal.ObjectiveText != "395.699999999999999" || !proposal.Plan.Days.Select(d => d.Band).SequenceEqual([0, 1]))
+                throw new Exception("Expected the exact fuel-adjusted objective and opening-inventory ratchets.");
+            Same(proposal.Plan.Days[0].Closing, "30490");
+            Same(proposal.Plan.Days[0].InjectionFuel, "10");
+            Same(proposal.Plan.Days[1].WithdrawalFuel, "19.8");
+            Same(proposal.Plan.Closing.Inventory, "29500");
+        });
+        Check("the proposal agrees with an independent listing of complete schedules and every chosen flow", () =>
+        {
+            var cases = new[] {
+                (Prices: new[] { ("3.4","3.3"), ("2.9","2.8"), ("3.1","3"), ("3.8","3.7"), ("3.2","3.1") }, Opening: "29000", Low: "28000", High: "31000", Step: "500", Contract: plain),
+                (Prices: new[] { ("2","1.9"), ("2.1","2"), ("2.6","2.5"), ("2.7","2.6"), ("2.2","2.1") }, Opening: "69000", Low: "68000", High: "72000", Step: "500", Contract: plain),
+                (Prices: new[] { ("3","2.9"), ("3.4","3.3"), ("2.8","2.7"), ("3.6","3.5") }, Opening: "29010", Low: "28020", High: "31980", Step: "990", Contract: entitlement),
+                (Prices: new[] { ("3","3"), ("3","3"), ("3","3") }, Opening: "29000", Low: "30000", High: "30000", Step: "500", Contract: plain) };
+            foreach (var c in cases)
             {
-                var proposal=Propose(Prices(c.Prices),c.Opening,c.Low,c.High,c.Step,c.Contract);
-                var searched=Search([..c.Prices.Select(p=>(decimal.Parse(p.Item1),decimal.Parse(p.Item2)))],0,decimal.Parse(c.Opening),decimal.Parse(c.Step),
-                    decimal.Parse(c.Low),decimal.Parse(c.High),c.Contract==plain?0m:0.01m)??throw new Exception("The search found no plan.");
-                if(Objective(proposal)!=searched||searched<=0m)throw new Exception($"Proposed {Objective(proposal)}, searched {searched}.");
-                // The proposal is itself a plan the contract admits, worth what it says.
-                var replay=GasStoragePlans.Evaluate(c.Contract,proposal.Plan.Opening,proposal.Plan.Terminal,[..proposal.Plan.Days.Select(d=>d.Day)],GasStoragePlans.Implementation);
-                var worth=replay.Days.Select((d,i)=>decimal.Parse(d.Day.Withdrawal.Amount.ToString())*decimal.Parse(c.Prices[i].Item2)-decimal.Parse(d.Day.Injection.Amount.ToString())*decimal.Parse(c.Prices[i].Item1)).Sum();
-                if(worth!=searched)throw new Exception("The proposed plan is not worth its stated objective.");
+                var proposal = Propose(Prices(c.Prices), c.Opening, c.Low, c.High, c.Step, c.Contract);
+                var prices = c.Prices.Select(p => (decimal.Parse(p.Item1), decimal.Parse(p.Item2))).ToArray();
+                // Encode each day's rank as one digit: rest, -1, +1, -2, +2, etc.
+                var listed = ListSchedules(prices, decimal.Parse(c.Opening), decimal.Parse(c.Step), decimal.Parse(c.Low),
+                        decimal.Parse(c.High), c.Contract == plain ? 0m : 0.01m, 0m)
+                    .OrderByDescending(plan => plan.Value)
+                    .ThenBy(plan => plan.Moves.Aggregate(0, (key, move) => key * 9 + Math.Abs(move) * 2 - (move < 0 ? 1 : 0)))
+                    .First();
+                var actual = proposal.Plan.Days.Select(d =>
+                    (decimal.Parse(d.Day.Injection.Amount.ToString()), decimal.Parse(d.Day.Withdrawal.Amount.ToString())));
+                if (Objective(proposal) != listed.Value || !actual.SequenceEqual(listed.Flows))
+                    throw new Exception($"Proposed {Objective(proposal)} with {string.Join(" ", actual)}, expected {listed.Value} with {string.Join(" ", listed.Flows)}.");
+
+                var replay = GasStoragePlans.Evaluate(c.Contract, proposal.Plan.Opening, proposal.Plan.Terminal,
+                    [.. proposal.Plan.Days.Select(d => d.Day)], GasStoragePlans.Implementation);
+                if (!replay.Days.SequenceEqual(proposal.Plan.Days))
+                    throw new Exception("The proposed path differs from the admitted path.");
             }
+        });
+        GasStorageEntitlement Capacity(string maximum, string flowLimit) => plain with
+        {
+            MaximumInventory = Q(maximum),
+            Ratchets = [new(Q("0"), Q(maximum), Q(flowLimit), Q(flowLimit))]
+        };
+        Check("an unusable injection step does not bound the score of an idle plan", () =>
+        {
+            var nearTotalFuel = Capacity("2000000000000000000000", "900000000000000000000000") with
+            {
+                InjectionFuel = D("0.999999999999999999")
+            };
+            // A 10^21 inventory step would need 10^39 at the point, above the ratchet.
+            // At this price the unused scaled one-step reward would be nearly 10^99.
+            var price = Prices(("-999999999999999999999999.999999999999999999", "0"));
+            var idle = Propose(price, "0", "0", "0", "1000000000000000000000", nearTotalFuel);
+            Flows(idle, ("0", "0"));
+            if (idle.ObjectiveText != "0") throw new Exception("The idle plan has an exact zero objective.");
+        });
+        Check("the legacy level bound includes 4,001 levels and refuses 4,002", () =>
+        {
+            var one = Prices(("0", "0"));
+            foreach (var maximum in new[] { "3999", "4000" })
+                Flows(Propose(one, "0", "0", "0", "1", Capacity(maximum, "0")), ("0", "0"));
+            Reject("gas_storage_work", () => Propose(one, "0", "0", "0", "1", Capacity("4001", "0")));
+        });
+        Check("the legacy work bound counts every starting level including unreachable ones", () =>
+        {
+            var mostlyDisconnected = Capacity("199", "199") with
+            {
+                Ratchets = [new(Q("0"), Q("1"), Q("0"), Q("0")), new(Q("1"), Q("199"), Q("199"), Q("199"))]
+            };
+            ImmutableArray<GasStorageDayPrice> IdlePrices(int count) =>
+                [.. Enumerable.Range(1, count).Select(i => new GasStorageDayPrice(GasDay(i), D("0"), D("0")))];
+            // Level zero has just rest; each of the other 199 levels has 200 moves.
+            // 39,801 x 502 = 19,980,102 and 39,801 x 503 = 20,019,903.
+            var proposal = Propose(IdlePrices(502), "0", "0", "0", "1", mostlyDisconnected);
+            Flows(proposal, Enumerable.Repeat(("0", "0"), 502).ToArray());
+            Reject("gas_storage_work", () => Propose(IdlePrices(503), "0", "0", "0", "1", mostlyDisconnected));
+
+            // With all 200 levels connected, 200 x 200 x 500 admits exactly 20,000,000 visits.
+            var atLimit = Propose(IdlePrices(500), "0", "0", "0", "1", Capacity("199", "199"));
+            Flows(atLimit, Enumerable.Repeat(("0", "0"), 500).ToArray());
         });
         Check("a proposal refuses what it cannot meet, bound or represent",()=>
         {
             var two=Prices(("3","3"),("3.5","3.5"));
             Reject("gas_storage_infeasible",()=>Propose(two,terminalMinimum:"60000",terminalMaximum:"100000"));
+            Reject("gas_storage_infeasible",()=>Propose(two,terminalMinimum:"29001",terminalMaximum:"29499"));
+            Reject("gas_storage_infeasible",()=>Propose(two,"0","1","1","1",Capacity("2","0")));
             Reject("gas_storage_implementation",()=>Propose(two,implementation:"another_search_v1"));
             Reject("gas_storage_work",()=>Propose(two,step:"0.001"));
             Reject("gas_storage_step",()=>Propose(two,step:"0"));

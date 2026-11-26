@@ -5,10 +5,12 @@ using OpenEtrm.MarketData.Physical;
 namespace OpenEtrm.MarketData.Trading;
 
 public sealed record DeliveryQuantityEvidence(string Source,Guid RevisionId,string Reference);
+public sealed record HeldDeliveryRecord(string Kind, string Status, ExactQuantity Quantity, DeliveryQuantityEvidence Evidence);
 public sealed record HeldDayQuantity(int Slot,DateOnly Day,ExactQuantity Contract,ExactQuantity Selected,string Source,
     ImmutableArray<DeliveryQuantityEvidence> Evidence)
 {
-    // Independent of the quantity used for valuation on a contractual day.
+    internal ImmutableArray<HeldDeliveryRecord> OperationalRecords { get; init; } = [];
+    // A contract-only owner can have a scheduled or allocated record outside its valuation policy.
     public bool HasContractDeliveryRecord { get; init; }
 }
 
@@ -28,13 +30,14 @@ internal static class PhysicalDeliveryQuantities
             quantities.Select(q => (q.Slot, q.Day)).Distinct().Count() != quantities.Length)
             throw Invalid("Physical owner days require distinct, nonnegative native quantities and complete evidence; contract fallback equals its contract.");
     }
-    internal static void RequireSchedules<TMember>(ImmutableArray<TMember> members, PhysicalCashState state, ImmutableArray<ExerciseRight> rights = default) where TMember : IRetainedProgramMember
+    internal static void RequireSchedules<TMember>(ImmutableArray<TMember> members, PhysicalCashState state, ImmutableArray<ExerciseRight> rights = default,
+        int? quantityRightSource = null) where TMember : IRetainedProgramMember
     {
         var rightSources = rights.IsDefaultOrEmpty ? [] : rights.SelectMany(right => right.Slots)
             .Select(slot => members[slot].ValuationSourceSlot ?? throw Invalid("An exercised entry requires its explicit physical quantity source.")).ToHashSet();
         if (rightSources.Any(source => members[source].ValuationSourceSlot != source))
             throw Invalid("An exercise quantity source requires its own retained physical day schedule.");
-        var required = members.Select((m, slot) => (m, slot)).Where(p => p.m.ValuationSourceSlot == p.slot &&
+        var required = members.Select((m, slot) => (m, slot)).Where(p => quantityRightSource == p.slot || p.m.ValuationSourceSlot == p.slot &&
             (rightSources.Contains(p.slot) || p.m.ValuationQuantityPolicy is not null || members.Any(m => m.ValuationSourceSlot == p.slot &&
                 (m.ValuationPart is not null || m.ValuationBalance is not null)))).ToArray();
         if(!required.Select(p => p.slot).ToHashSet().SetEquals(state.OwnerDays.Select(d => d.Slot)))
@@ -48,7 +51,7 @@ internal static class PhysicalDeliveryQuantities
             var actual = state.OwnerDays.Where(d => d.Slot == slot).ToDictionary(d => d.Day);
             if(expected.Length != actual.Count || expected.Select(d => d.OperatingDate).Distinct().Count() != expected.Length ||
                 expected.Any(d => !actual.TryGetValue(d.OperatingDate, out var q) || q.Contract != d.Quantity) ||
-                member.ValuationQuantityPolicy is null && actual.Values.Any(d => d.Source != PhysicalLifecycle.ContractQuantity))
+                quantityRightSource != slot && member.ValuationQuantityPolicy is null && actual.Values.Any(d => d.Source != PhysicalLifecycle.ContractQuantity))
                 throw Invalid("Owner days must match the complete booked contract; a contract-policy source has only contract-labelled quantities.");
         }
     }

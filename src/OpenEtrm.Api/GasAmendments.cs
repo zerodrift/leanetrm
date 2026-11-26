@@ -20,6 +20,7 @@ internal static class GasAmendments
   "gas_amendment_denied"=>"Your current role does not have Amend Trade permission.",
   "gas_amendment_legacy"=>"Legacy single-point gas trades do not support amendments yet.",
   "gas_amendment_started"=>"Gas amendments currently require all original and replacement delivery and charge days to be in the future.",
+  "gas_amendment_swing"=>"A commercial election has been recorded against this binding.",
   "gas_amendment_payment"=>"A payment is recorded on an original charge. The trade must retain its current binding.",
   "gas_amendment_operational"=>"This gas trade has operational quantities, service agreements or facility references. Amendment continuity is not supported yet.",
   "gas_amendment_limit"=>"This gas trade has reached the supported revision limit.",

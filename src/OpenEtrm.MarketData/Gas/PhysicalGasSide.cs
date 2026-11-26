@@ -99,7 +99,8 @@ public sealed record PhysicalGasSide : Side
 internal sealed record GasValuationBindings([property: IdentityField] ImmutableArray<GasValuationAssignment> Assignments);
 
 [EconomicDefinition("gas_instrument_pricing_bindings_v1")]
-internal sealed record GasInstrumentPricingBindings([property: IdentityField] ImmutableArray<string?> Sides);
+internal sealed record GasInstrumentPricingBindings([property: IdentityField] ImmutableArray<string?> Sides,
+    [property: IdentityField] SwingPricingBinding? Swing = null);
 
 public sealed record PhysicalGasSchedule : SideSchedule
 {

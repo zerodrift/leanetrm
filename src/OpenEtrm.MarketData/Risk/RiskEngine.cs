@@ -202,6 +202,7 @@ public sealed record ExactRiskPositionValue(Guid TradeId,Guid BindingId,Guid Boo
 
     public AccountingOwnerKey Owner{get;init;}=new(AccountingOwnerKind.Trade,TradeId);
     public ImmutableArray<ValueComponent> Components{get;init;}=[];
+    public SwingQuantityRightValue? QuantitySwing { get; init; }
     public ImmutableArray<ExerciseGroupValue> GroupValues { get; init; } = [];
     public ImmutableArray<ExerciseGroupContribution> ExerciseGroups { get; init; } = [];
     public ImmutableArray<InstrumentEntryValue> Entries{get;init;}=[];
@@ -213,6 +214,7 @@ public sealed record ExactRiskPositionResult(Guid TradeId,Guid BindingId,Guid Bo
 
     public AccountingOwnerKey Owner{get;init;}=new(AccountingOwnerKind.Trade,TradeId);
     public ImmutableArray<ComponentRiskValues> Components{get;init;}=[];
+    public (SwingQuantityRightValue Base, SwingQuantityRightValue Up, SwingQuantityRightValue Down)? QuantitySwing { get; init; }
     public ExerciseScenarioGroupValues? GroupValues { get; init; }
     public ImmutableArray<ExerciseGroupRiskValues> ExerciseGroups { get; init; } = [];
     public ImmutableArray<EntryRiskValues> Entries{get;init;}=[];
@@ -223,6 +225,9 @@ public sealed record ExerciseScenarioGroupValues(ImmutableArray<ExerciseGroupVal
 public sealed record ExerciseGroupRiskValues(ExerciseGroupKey Group, ExactMoney Base, ExactMoney Up, ExactMoney Down);
 public sealed record EntryRiskValues(int Slot,ExactMoney Base,ExactMoney Up,ExactMoney Down)
 {
+    public ImmutableArray<MissingDayAssessment> MissingAssessments { get; init; } = [];
+    public ImmutableArray<MissingDayAssessment> UpMissingAssessments { get; init; } = [];
+    public ImmutableArray<MissingDayAssessment> DownMissingAssessments { get; init; } = [];
     public int UnassessedDays { get; init; }
     public bool Incomplete => UnassessedDays != 0;
 }

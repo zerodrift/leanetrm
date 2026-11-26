@@ -2,6 +2,49 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {browserAvailable,withBrowserPage,browserTestTimeout} from './browser-page.mjs';
 
+for(const kind of ['exercise','swing'])for(const code of [kind+'_election_conflict',kind==='swing'?'swing_feasibility':'exercise_election'])
+test(`a lost ${kind} refusal releases its exact retry after ${code}`,{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+ await withBrowserPage('<main></main>',async evaluate=>{
+  const result=await evaluate(`(async()=>{
+   const kind=${JSON.stringify(kind)},code=${JSON.stringify(code)},day='2041-02-01',ctx={snapshotId:'frame',knowledgeMode:'current'};
+   const {setupExerciseAction}=await import('/ticket-exercise-action.js');
+   const base={allowed:true,tradeId:'trade',instrumentId:'binding',expectedRevision:1,readContextId:'held',label:'Record',
+    preparePath:'/api/gas/'+kind+'/prepare',recordPath:'/api/gas/'+kind+'/record'};
+   const action=kind==='exercise'?{...base,periods:[{right:0,from:day,to:day,exerciseAt:day,previousId:null}],outcomes:[{value:'exercised',label:'Exercised'}]}:
+    {...base,right:0,days:[{day,exerciseAt:day,state:'undecided',head:null,effectiveRevision:null,evidence:null,electedQuantity:null}],
+     periods:[],planningStep:'1',dailyMinimum:'0',dailyMaximum:'2',referenceQuantity:'1',
+     decisions:[{value:'elect',label:'Elect'}],parties:[{value:'us',label:'Us'}]};
+   const host=document.querySelector('main'),writes=[];
+   let editor,reads=0;
+   function mount(){
+    editor=setupExerciseAction({kind,context:()=>ctx,current:()=>true,signal:new AbortController().signal,owner:'actor',tradeId:'trade',bindingId:'binding',revision:1,
+     writable:true,reread:async()=>{reads++;editor.select(action,ctx,'MMBtu');},api:async(path,body)=>{
+      if(path.endsWith('/prepare'))return {command:{...body,...kind==='exercise'?{right:undefined,elections:[{right:0,fromDate:day}]}:
+       {expectedHeads:[{day,revisionId:null}],elections:[{day,quantity:'0'}]}}};
+      writes.push(body);
+      if(writes.length===1)throw Error('Synthetic lost reply');
+      if(writes.length===2)throw Object.assign(Error('Synthetic authority refusal'),{code:'access_denied',status:403});
+      throw Object.assign(Error('Synthetic authoritative refusal'),{code,status:code.endsWith('conflict')?409:422});
+     }});
+    host.replaceChildren();editor.select(action,ctx,'MMBtu');editor.mount(host);
+   }
+   const tick=()=>new Promise(r=>setTimeout(r,10));
+   mount();host.querySelector('.ticket-record-'+kind).click();const form=host.querySelector('form');
+   const values=kind==='exercise'?{right:'0',firstPeriod:day,lastPeriod:day,outcome:'exercised'}:
+    {firstDay:day,lastDay:day,decision:'elect',quantity:'0',exercisingParty:'us',submittedAt:'2041-01-01T00:00:00Z'};
+   for(const [key,val] of Object.entries({...values,effectiveAt:'2041-01-01T00:00:00Z',evidence:'Synthetic notice'})){
+    const ctrl=form.elements.namedItem(key);ctrl.value=val;ctrl.dispatchEvent(new Event('change'));
+   }
+   form.requestSubmit();await tick();mount();const retry=()=>host.querySelector('.ticket-retry-'+kind);
+   retry().click();await tick();const deniedPending=editor.pending()&&!!retry();
+   retry().click();await tick();const pending=editor.pending();host.querySelector('.ticket-refresh-'+kind)?.click();await tick();
+   return {deniedPending,pending,reads,writes,available:!host.querySelector('.ticket-record-'+kind).disabled};
+  })()`);
+  assert.ok(result.deniedPending);assert.deepEqual(result.writes,[result.writes[0],result.writes[0],result.writes[0]]);
+  assert.deepEqual([result.pending,result.reads,result.available],[false,1,true]);
+ });
+});
+
 for(const failure of ['write','removal'])test(`election recovery survives a ticket remount after a storage ${failure} failure`,
  {skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await withBrowserPage('<div id="host"></div>',async evaluate=>{
@@ -115,5 +158,86 @@ test('an explicit reread clears a stale exercise message and a recorded reread k
   assert.match(statuses[0],/Refresh the trade/);
   assert.doesNotMatch(statuses[1],/Refresh the trade/);
   assert.equal(statuses[2],'Exercise election recorded.');
+ });
+});
+
+for(const firstRefusal of [true,false])
+test(firstRefusal?'a first swing payload refusal allows editing and recording a smaller range':
+ 'a swing election keeps zero explicit and retries the original range after a lost reply and payload refusal',
+ {skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+ await withBrowserPage('<div id="host"></div>',async evaluate=>{
+  const result=await evaluate(`(async()=>{
+   const {setupExerciseAction}=await import('/ticket-exercise-action.js');
+   const context={snapshotId:'frame',knowledgeMode:'current'};
+   const firstRefusal=${firstRefusal};
+   const head='saved-head',days=['2041-02-01','2041-02-02','2041-02-03'].map((day,i)=>({day,exerciseAt:'2041-01-31T16:00:00Z',
+    state:'undecided',head:i===2?head:null,effectiveRevision:null,electedQuantity:null,evidence:null}));
+   const action={allowed:true,label:'Record swing election',preparePath:'/api/gas/swing/prepare',recordPath:'/api/gas/swing/record',
+    tradeId:'trade',instrumentId:'binding',expectedRevision:1,readContextId:'cutoff',right:0,holder:'us',periods:[],planningStep:'100',dailyMinimum:'0',
+    dailyMaximum:'1000',referenceQuantity:'1000',
+    decisions:[{value:'elect',label:'Elect a quantity'},{value:'withdraw',label:'Withdraw an election'}],parties:[{value:'us',label:'Us'}],days};
+   const writes=[],prepares=[],host=document.querySelector('#host');
+   const until=async f=>{for(let i=0;i<200&&!f();i++)await new Promise(r=>setTimeout(r,10));if(!f())throw Error('Missing election control');};
+   const mount=()=>{
+    const editor=setupExerciseAction({kind:'swing',owner:'actor',tradeId:'trade',bindingId:'binding',revision:1,context:()=>context,current:()=>true,
+     writable:true,signal:new AbortController().signal,reread:async()=>{},api:async(path,body)=>{
+      if(path==='gas/swing/prepare'){
+       if(body.lastDay<body.firstDay)throw Object.assign(Error('Reversed range'),{details:{field:'lastDay',termRow:0}});
+       prepares.push(body);return {command:{context,tradeId:'trade',instrumentId:'binding',expectedRevision:1,
+       operationId:body.operationId,right:0,expectedHeads:days.map(d=>({day:d.day,revisionId:d.head})),elections:days.filter(d=>d.day>=body.firstDay&&d.day<=body.lastDay).map(d=>({day:d.day,quantity:body.quantity}))}};}
+      if(path==='gas/swing/record'){writes.push(body);if(writes.length===(firstRefusal?1:2))
+       throw Object.assign(Error('Command too large'),{status:413,code:'swing_payload',details:{field:'elections'}});
+       if(!firstRefusal&&writes.length===1)throw Error('Synthetic lost response');return {...body,elections:body.elections.map(e=>({...e,revisionId:'receipt'}))};}
+      throw Error(path);
+     }});
+    host.replaceChildren();editor.select(action,context,'MMBtu');editor.mount(host);
+   };
+   mount();host.querySelector('.ticket-record-swing').click();
+   const form=host.querySelector('form'),empty=[...form.elements].filter(c=>c.tagName==='SELECT'||c.tagName==='INPUT').every(c=>c.value==='');
+   const fill=(k,v)=>{const c=host.querySelector('form').elements.namedItem(k);c.value=v;c.dispatchEvent(new Event('change'));};
+   const values={firstDay:days[0].day,lastDay:days[1].day,decision:'elect',quantity:'0',exercisingParty:'us',
+    submittedAt:'2041-01-01T16:00:00Z',effectiveAt:'2041-01-02T16:00:00Z',evidence:'Synthetic range'};
+   for(const [k,v] of Object.entries(values))fill(k,v);
+   fill('firstDay',days[1].day);fill('lastDay',days[0].day);form.requestSubmit();
+   const end=form.elements.namedItem('lastDay');await until(()=>end===document.activeElement&&end.getAttribute('aria-invalid')==='true');
+   fill('firstDay',days[0].day);fill('lastDay',days[1].day);const corrected=!end.hasAttribute('aria-invalid');
+   form.requestSubmit();await until(()=>writes.length===1&&!form.inert||!!host.querySelector('.ticket-retry-swing'));
+   if(firstRefusal){
+    if(host.querySelector('form')!==form||host.querySelector('.ticket-retry-swing'))throw Error('The first definite refusal did not restore the editable range');
+    mount();host.querySelector('.ticket-record-swing').click();
+    for(const [key,value] of Object.entries({...values,lastDay:days[0].day}))fill(key,value);
+    host.querySelector('form').requestSubmit();
+   }else{
+    mount();host.querySelector('.ticket-retry-swing').click();await until(()=>writes.length===2);
+    mount();host.querySelector('.ticket-retry-swing').click();
+   }
+   await until(()=>!host.querySelector('.ticket-record-swing').disabled);
+   return {empty,corrected,prepares,writes};
+  })()`);
+  assert.ok(result.empty);assert.ok(result.corrected);
+  assert.equal(result.prepares.length,firstRefusal?2:1);assert.equal(result.prepares[0].quantity,'0');
+  if(firstRefusal){
+   assert.equal(result.prepares[1].lastDay,result.prepares[1].firstDay);
+   assert.deepEqual(result.writes.map(w=>w.elections.length),[2,1]);
+   assert.notEqual(result.writes[0].operationId,result.writes[1].operationId);
+  }
+  else assert.deepEqual(result.writes,[result.writes[0],result.writes[0],result.writes[0]]);
+  assert.equal(result.writes[0].expectedHeads[2].revisionId,'saved-head');
+ });
+});
+
+test('the election ticket labels one gas day and multiple gas days',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+ await withBrowserPage('<main></main>',async evaluate=>{
+  const labels=await evaluate(`(async()=>{
+   const {swingContractDetails}=await import('/ticket-swing.js');
+   const first={from:'2041-01-31',through:'2041-01-31',days:1,limitPeriod:'delivery_month',changesUsed:0,changeCount:null,
+    appliedLower:null,appliedUpper:null,remainingLower:null,remainingUpper:null,elected:'0',remainingMinimum:'0',remainingMaximum:'100',
+    planned:null,plannedChanges:null,missingDays:0,blockedDays:0,nextDeadline:null};
+   const action={referenceQuantity:'100',dailyMinimum:'0',dailyMaximum:'100',planningStep:'1',days:[],
+    periods:[first,{...first,from:'2041-02-01',through:'2041-02-02',days:2}]};
+   const ticket=swingContractDetails({source:'Gas'},'MMBtu',s=>s,undefined,action);
+   return Array.from(ticket.querySelectorAll('[aria-label="Period limits and elections"] tbody tr'),r=>r.cells[0].textContent.split(' · ').at(-1));
+  })()`);
+  assert.deepEqual(labels,['1 gas day','2 gas days']);
  });
 });

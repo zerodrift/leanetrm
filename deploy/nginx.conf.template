@@ -81,6 +81,15 @@ server {
         error_page 413 = @request_too_large;
         proxy_pass http://$openetrm_backend;
     }
+    location = /api/gas/swing/record {
+        client_max_body_size 4m;
+        error_page 413 = @swing_payload;
+        proxy_pass http://$openetrm_backend;
+    }
+    location @swing_payload {
+        default_type "application/json; charset=utf-8";
+        return 413 '{"code":"swing_payload","field":"elections","message":"The election command exceeds 4 MiB."}';
+    }
     location = /api/desk/agreement {
         client_max_body_size 12m;
         error_page 413 = @agreement_too_large;

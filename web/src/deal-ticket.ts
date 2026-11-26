@@ -1,5 +1,7 @@
+import {swingContractDetails,swingDetails,type SwingContract,type SwingReport} from './ticket-swing.js';
+import type {TicketTermSection,TermSectionId} from './ticket-types.js';
 import {scheduleMembers} from './ticket-schedule-members.js';
-import {exerciseFieldKey,fieldVisible,termFieldVisible,termValue} from './ticket-model.js';
+import {termFieldKey,fieldVisible,termFieldVisible,termValue} from './ticket-model.js';
 import {sideNavigation} from './side-navigation.js';
 import {sideCalendar,referenceCalendarChoices,type SideCalendarPolicy} from './side-calendar.js';
 import {paymentDateInput,displayPaymentDate} from './payment-date.js';
@@ -21,7 +23,7 @@ import {ticketFieldGroups,requireSideGroupMappings,type TicketFieldGroup} from '
 export type TicketStatus={kind:'current'|'updating'|'stale'|'refused';text:string};
 export type TicketEvents={calendar?(side:string,policy:SideCalendarPolicy):void;edit(side:string|null,field:string,value:string):void;editLocal(side:string|null,field:string,local:string):void;accept(side:string|null,field:string):void;selectSide(code:string):void;tab(id:string):void;
  level(l:string):void;toggle(row:string,open:boolean):void;addSide(kind:string):void;removeSide(code:string):void;preview():void;book():void;
- addTerm?():void;editTerm?(row:number,id:string,value:string|string[]):void;removeTerm?(row:number):void;
+ addTerm?(section:TermSectionId):void;editTerm?(section:TermSectionId,row:number,id:string,value:string|string[]):void;removeTerm?(section:TermSectionId,row:number):void;
  enter(side:string,day:string,value:string):void;entryValue(field:string,value:string):void;record():void;cancelEntry():void;checkEntry():void;retryEntry():void;amend?():void};
 // A day's entry in a side's tab, as the person fills in its record: the fields the record takes, their values and choices, whether a record
 // awaits its outcome (then only Check and Retry are offered) or is being sent, and what the last attempt said.
@@ -32,7 +34,7 @@ export type TicketEntry={side:string;day:string;fields:TicketField[];values:Reco
 export type TicketView={scheduleEntries?:TicketScheduleEntry[];imbalanceRows?:ImbalanceReportRow[];unassessedDays?:number;state:TicketState;sideLabels?:Readonly<Record<string,string>>;groupedEntry?:boolean;mode:'new'|'booked'|'amend';presentation?:'schedules'|'terms';actions:TradeActions|null;schedule:ScheduleView|null;quantityUnit:string|null;instant:(at:string)=>string;zone:string;previous:ScheduleView|null;summaries:TicketSummary[];
  links:TicketLink[];entry:TicketEntry|null;sideSchedule?:(host:HTMLElement,side:TicketSide)=>()=>void;facilityAllocations?:FacilityAllocationTrack[];sideGroups?:InstrumentSideGroup[];sideGroupsReason?:string|null;
  // A booked started-delivery gas trade's measures, with the currency its figures are in; none for any other trade.
- measures?:GasMeasures|null;currency?:string;groups?:ExerciseGroup[];exerciseAction?:(host:HTMLElement)=>void;
+ measures?:GasMeasures|null;currency?:string;groups?:ExerciseGroup[];swingContract?:SwingContract;swingRights?:SwingReport[];knownAt?:string;exerciseAction?:(host:HTMLElement)=>void;
 
  status:TicketStatus;fieldErrors:Record<string,string>;choices:Record<string,TicketChoice[]>;selectedSide:string|null;tab:string;level:string;closed:ReadonlySet<string>;on:TicketEvents};
 
@@ -352,10 +354,10 @@ function groupedFields(o:TicketView,groups:TicketFieldGroup[],actual:InstrumentS
 }
 
 
-function exerciseTerms(o:TicketView){
- const spec=o.state.description.repeatableTerms?.find(section=>section.id==='exerciseRights'),rights=o.state.exerciseRights??[];
+function rightTerms(o:TicketView,spec:TicketTermSection){
+ const rights=o.state[spec.id]??[];
  const entry=o.mode!=='booked'&&!o.groupedEntry;
- if(!spec||!entry&&!rights.length)return null;
+ if(!entry&&!rights.length)return null;
  const section=el('section','ticket-exercise-terms');section.dataset.termSection=spec.id;
  section.append(el('h3',undefined,spec.label));
  rights.forEach((values,index)=>{
@@ -364,15 +366,23 @@ function exerciseTerms(o:TicketView){
   const fields=el('div','ticket-trade-fields');group.append(fields);
   for(const f of spec.fields.filter(f=>termFieldVisible(f,values))){
    const row=el('label','ticket-field ticket-editable');row.dataset.field=f.id;
-   const label=el('span','ticket-label',f.label);label.title=f.meaning;row.append(label);
+   const label=el('span','ticket-label',f.unit==='quantity'&&o.quantityUnit?`${f.label} (${o.quantityUnit})`:f.label);label.title=f.meaning;row.append(label);
    const saved=termValue(values,f.id),listed=o.choices[f.id];
    if(!entry){
     const current=Array.isArray(saved)?saved:saved?[saved]:[];
+    const inline=el('span');
+    if(!current.length&&f.absentLabel)inline.append(el('span','ticket-value',f.absentLabel));
     current.forEach((value,n)=>{
-     const text=el('span','ticket-value',choiceText(value,null,listed));
-     if(f.choices!==null){text.dataset.choiceKey=f.id;text.dataset.choiceValue=value;}
-     if(n)row.append(document.createTextNode(', '));row.append(text);
+     const retained=f.retainedLabels?.[value];
+     const text=el('span','ticket-value',retained??choiceText(value,null,listed));
+     if(f.choices!==null){
+      text.title=value;
+      if(!retained){text.dataset.choiceKey=f.id;text.dataset.choiceValue=value;}
+     }
+     if(n)inline.append(document.createTextNode(', '));
+     inline.append(text);
     });
+    row.append(inline);
    }else if(f.type==='multiple_choice'){
     const select=el('select','ticket-control');select.multiple=true;select.setAttribute('aria-label',f.label);
     const selected=Array.isArray(saved)?saved:[];
@@ -380,20 +390,20 @@ function exerciseTerms(o:TicketView){
     for(const {value,label} of options){const option=new Option(label,value);option.selected=selected.includes(value);select.append(option);}
     select.onchange=()=>{
      const next=[...select.selectedOptions].map(option=>option.value);
-     o.on.editTerm?.(index,f.id,[...selected.filter(value=>next.includes(value)),...next.filter(value=>!selected.includes(value))]);
+     o.on.editTerm?.(spec.id,index,f.id,[...selected.filter(value=>next.includes(value)),...next.filter(value=>!selected.includes(value))]);
     };
     row.append(select);
    }else{
-    row.append(editor(f,typeof saved==='string'?saved:'',listed,value=>o.on.editTerm?.(index,f.id,value)));
+    row.append(editor(f,typeof saved==='string'?saved:'',listed,value=>o.on.editTerm?.(spec.id,index,f.id,value)));
    }
-   const issue=o.fieldErrors[exerciseFieldKey(index,f.id)]??o.fieldErrors[f.id];
+   const issue=o.fieldErrors[termFieldKey(spec.id,index,f.id)]??o.fieldErrors[f.id];
    if(issue){const error=el('span','ticket-error',issue);error.setAttribute('role','alert');row.append(error);}
    fields.append(row);
   }
-  if(entry)group.append(button('ticket-remove-term secondary',`Remove ${spec.label.toLowerCase()} ${index+1}`,()=>o.on.removeTerm?.(index)));
+  if(entry)group.append(button('ticket-remove-term secondary',`Remove ${spec.label.toLowerCase()} ${index+1}`,()=>o.on.removeTerm?.(spec.id,index)));
   section.append(group);
  });
- if(entry)section.append(button('ticket-add-term secondary',`Add ${spec.label.toLowerCase()}`,()=>o.on.addTerm?.()));
+ if(entry&&(spec.maximumRows===undefined||rights.length<spec.maximumRows))section.append(button('ticket-add-term secondary',`Add ${spec.label.toLowerCase()}`,()=>o.on.addTerm?.(spec.id)));
  return section;
 }
 
@@ -456,9 +466,11 @@ export function renderTicket(host:HTMLElement,o:TicketView){
   }
  }
  if(o.presentation==='schedules')root.append(statusLine(o.status));
- const terms=exerciseTerms(o);if(terms)root.append(terms);
+ for(const spec of d.repeatableTerms??[]){const terms=rightTerms(o,spec);if(terms)root.append(terms);}
  const pricedGroups=o.groups??o.schedule?.groups;
  if(pricedGroups?.length)root.append(exerciseGroups(pricedGroups,o.currency));
+ for(const right of o.swingRights??[]){if(!o.currency||!o.quantityUnit)throw Error('A swing report requires its retained currency and quantity unit.');root.append(swingDetails(right,o.quantityUnit,o.currency,o.instant,o.knownAt,o.swingContract));}
+ if(o.swingContract&&!o.swingRights?.length&&o.quantityUnit)root.append(swingContractDetails(o.swingContract,o.quantityUnit,o.instant,o.knownAt,o.mode==='booked'?o.actions?.recordSwing:undefined));
  o.exerciseAction?.(root);
  if(o.unassessedDays)root.append(el('p','ticket-incomplete',incompleteText(o.unassessedDays)));
  if(o.measures){if(!o.currency)throw Error('The trade measures require their currency.');root.append(measures(o.measures,o.currency,o.instant));}

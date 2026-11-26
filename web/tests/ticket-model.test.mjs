@@ -209,3 +209,13 @@ test('a pair consumes the entry count declared by the backend',()=>{
  assert.throws(()=>addSide(state,'fee'),/at most/);
  assert.equal(state.sides.length,3);
 });
+
+test('bounded swing draft preserves its section independently of binary exercise terms',()=>{
+ const gas={...description,repeatableTerms:[{id:'swingRights',label:'Swing right',fields:[
+  f('swing_side','Source'),f('swing_entries','Sides covered',{type:'multiple_choice'}),f('swing_daily_min','Daily minimum')
+ ]}]};
+ const plain=draftOf(newTicket(gas));
+ const saved={...plain,swingRights:[{swing_side:'leg-1',swing_entries:['leg-1'],swing_daily_min:'0'}]};
+ assert.deepEqual(draftOf(ticketOf(gas,saved)),saved);
+ assert.equal(Object.hasOwn(plain,'swingRights'),false);
+});

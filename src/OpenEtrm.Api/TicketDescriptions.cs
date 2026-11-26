@@ -14,6 +14,8 @@ public sealed record TicketFieldLabels(string Field,ImmutableDictionary<string,s
 public sealed record TicketField(string Id,string Label,string Meaning,string Type,string? Unit,string State,bool Required,string? Band,string? Choices,ImmutableArray<string> DependsOn,string? Lookup,string? Soon,string? Rule)
 {[JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public TicketFieldCondition? VisibleWhen{get;init;}
  [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public TicketFieldLabels? LabelByChoice{get;init;}
+ [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public string? AbsentLabel{get;init;}
+ [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public ImmutableDictionary<string,string>? RetainedLabels{get;init;}
  public ImmutableArray<string> RefreshOn{get;init;}=[];public bool AllowNotApplicable{get;init;}[JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)]public bool RefreshDescription{get;init;}}
 // Input names the modes in which a side column's day cells are entered in the side's tab, each recorded by the product's own operation.
 // Soon, on a field, side kind, column or tab, is the hover text of an item drawn as coming soon: it holds no value, is never sent and reads nothing.
@@ -26,7 +28,8 @@ public sealed record TicketSideKind(string Kind,string Pill,string Colour,int Mi
 public sealed record TicketSideLimit(ImmutableArray<string> Kinds,int Max);
 public sealed record TicketTab(string Id,string Label,string? Soon=null);
 public sealed record TicketFieldGroup(string Id,string Label,string Kind,ImmutableArray<string> Fields);
-public sealed record TicketTermSection(string Id,string Label,ImmutableArray<TicketField> Fields);
+public sealed record TicketTermSection(string Id,string Label,ImmutableArray<TicketField> Fields)
+{[JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] public int? MaximumRows{get;init;}}
 public sealed record TicketDescription(string Product,int Version,string RowShape,ImmutableArray<TicketField> TradeFields,ImmutableArray<TicketSideKind> Sides,ImmutableArray<TicketSideLimit> SideLimits,ImmutableArray<TicketColumn> TradeColumns,ImmutableArray<string> Levels,ImmutableArray<TicketTab> Tabs,ImmutableArray<string> Modes)
 {[JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public ImmutableArray<TicketTermSection>? RepeatableTerms{get;init;}
  public ImmutableArray<SideCalendarChoice> SideCalendars{get;init;}=[];[JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public ImmutableDictionary<string,string>? Selection{get;init;}[JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)]public bool SideGroupsRequired{get;init;}[JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public ImmutableArray<TicketFieldGroup>? FieldGroups{get;init;}}
@@ -36,6 +39,7 @@ public sealed class TicketFieldException(string code,string message,string? side
  public string? Side{get;}=side;
  public string Field{get;}=field;
  public int? TermRow{get;init;}
+ public string? TermSection{get;init;}
 }
 
 public static class TicketDescriptions

@@ -32,21 +32,28 @@ public sealed partial class ScheduleMarketSources
                 p.Version==projection.Version&&p.OutputNode==projection.Coordinate&&p.Position==projection.Position:lookup.CustomProjection is null)).Distinct().ToArray();
     }
 
+    internal static void RequireDatedGasAssignment(ScheduleDefinitionRow row, IReadOnlyDictionary<string, ScheduleDefinitionBinding> bindings,
+        IEnumerable<GasValuationAssignment> assignments, IndexPriceLookup lookup)
+    {
+        if (!bindings.TryGetValue("assignment", out var assignment) ||
+            !bindings.TryGetValue("point", out var point) || !bindings.TryGetValue("product", out var product))
+            throw Invalid("Undelivered physical gas requires its exact admitted point/product assignment.");
+
+        var matching = assignments.Where(a => a.Key == assignment.Reference && a.Point == point.Reference &&
+            a.Product == product.Reference && a.From == row.ObservationFrom && a.To == row.ObservationTo &&
+            a.Projection.Market == bindings["market"].Market && a.Quote.Key == bindings["quote"].Reference &&
+            a.Settlement.SelectedIndex == bindings["index"].Reference && DefinitionIdentity.For(a).Canonical == assignment.Coordinate).ToArray();
+        if (matching.Length != 1)
+            throw Invalid("The gas price requires its exact admitted point/product assignment and complete definition.");
+        if (!CurvePriceScheduleSource.SameObservation(lookup, matching[0].Lookup))
+            throw Invalid("Gas price metadata must retain the complete qualified assignment lookup, including fixing time.");
+    }
+
     // deliveryMark: the row prices undelivered physical gas, which reads its location mark and never the payment fixing (D360).
     private (ExactUnitPrice Price,SchedulePriceFacts State,ScheduleSourceEvidence Evidence) Dated(BookedSideInstruction instruction,CurveBuild market,bool deliveryMark,bool publishedWhenAvailable)
     {
         var candidates=DatedCandidates(instruction,dated,publishedWhenAvailable);
         var row=instruction.Output;var bindings=instruction.Bindings.ToDictionary(binding=>binding.Port);
-        GasValuationAssignment? gasAssignment=null;
-        if(bindings.TryGetValue("assignment",out var assignment))
-        {
-            var matching=gasAssignments.Where(a=>a.Key==assignment.Reference&&a.Point==bindings["point"].Reference&&
-                a.Product==bindings["product"].Reference&&DefinitionIdentity.For(a).Canonical==assignment.Coordinate&&
-                a.From==row.ObservationFrom&&a.To==row.ObservationTo&&a.Lookup.Market==bindings["market"].Market&&
-                a.Quote.Key==bindings["quote"].Reference&&a.Settlement.SelectedIndex==bindings["index"].Reference).ToArray();
-            if(matching.Length!=1)throw Invalid("The gas price requires its exact admitted point/product assignment and complete definition.");
-            gasAssignment=matching[0];
-        }
         CrudeValuationAssignment? crudeAssignment=null;
         if(bindings.TryGetValue("crude",out var crude))
         {
@@ -59,8 +66,8 @@ public sealed partial class ScheduleMarketSources
             crudeAssignment=matching[0];
         }
         if(candidates.Length!=1)throw Invalid("A stored dated lookup requires one exact admitted contract, quote, fixing and projection definition.");
-        if(gasAssignment is not null&&!CurvePriceScheduleSource.SameObservation(candidates[0],gasAssignment.Lookup))
-            throw Invalid("Gas price metadata must retain the complete qualified assignment lookup, including fixing time.");
+        if(deliveryMark||bindings.ContainsKey("assignment"))
+            RequireDatedGasAssignment(row,bindings,gasAssignments,candidates[0]);
         if(crudeAssignment is not null&&candidates[0]!=crudeAssignment.Lookup)
             throw Invalid("Crude metadata must retain the exact qualified quote, index, forward and fixing lookup.");
         if(bindings.TryGetValue("lng",out var lng))
@@ -70,7 +77,6 @@ public sealed partial class ScheduleMarketSources
                 a.DischargeCustody==bindings["lng_custody"].Reference&&a.Product==bindings["lng_product"].Reference&&a.Lookup==candidates[0]).ToArray();
             if(matches.Length!=1)throw Invalid("The LNG mark requires its complete exact product/discharge custody assignment and price source.");
         }
-        if(deliveryMark&&gasAssignment is null)throw Invalid("Undelivered physical gas requires its exact admitted point/product assignment.");
         var resolved=deliveryMark?PeriodPriceSelector.ResolveDeliveryMark(market,candidates[0],request=>market.Pricing.Price(request,default),request=>market.Pricing.Lineage(request,default)):
             PeriodPriceSelector.Resolve(market,candidates[0],request=>market.Pricing.Price(request,default),request=>market.Pricing.Lineage(request,default));
         RequireUnit(resolved.Price,row);

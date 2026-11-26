@@ -1,3 +1,4 @@
+import type {SwingRiskSample} from './risk-report-elements.js';
 import type {MonteCarloView} from './monte-carlo-risk.js';
 import type {ProjectionPolicyReceipt} from './projection-policy.js';
 import type {ValuationReason} from './valuation-status.js';
@@ -17,7 +18,7 @@ export type RiskFactor={id:string;label:string;coordinate:string;kind:string;uni
 export type ExcludedPosition={tradeId:string;bindingId:string;bookId:string;tradeReference:string;instrumentType:string;reason:ValuationReason};
 /** A holding's results under one factor: a position is named by its trade and binding. */
 export type RiskPosition={tradeId:string;bindingId:string;bookId:string;book:string;tradeReference:string;instrumentReference:string;instrumentType:string;
-  measure:string;measureLabel:string;values:RiskValues};
+  measure:string;measureLabel:string;values:RiskValues;swingRights?:Record<'base'|'up'|'down',SwingRiskSample[]>};
 
 /** The option valuation a run's request selected, as the run states it among its inputs. */
 export type OptionValuationPolicy={observationRole:string;numericalPolicy:string;scenarioPolicy:string;calibrationFallback:string;
