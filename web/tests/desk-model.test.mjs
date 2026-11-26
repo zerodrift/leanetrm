@@ -558,6 +558,26 @@ test('Park and loan displays managed principal and scheduled-plan PV without der
  assert.throws(()=>positionRows([{...service,quantity:null}]),/principal/);
 });
 
+test('physical gas and Park and Loan sharing a market keep distinct quantity chart entries despite their shared badge',()=>{
+ const base=fixture.holdings[0],market=JSON.stringify([base.curve]);
+ const holding=(instrumentType,quantity)=>({...base,instrumentType,marketKey:market,marketLabel:'Gas forward',direction:'multi_side',quantity});
+ const holdings=[holding('physical_gas',null),holding('physical_gas_park_loan','720')];
+ const summaries=changed(fixture.summaries,3,groups=>holdings.map(h=>({...groups[0],
+  instrumentType:h.instrumentType,market,marketLabel:h.marketLabel,quantity:h.quantity,tradeCount:1,unvaluedPositions:0})));
+ const [panel]=positionChartPanels(summaries,holdings,new Map(),format),points=panel.series[0].points;
+ assert.equal(points.length,2);
+ assert.equal(new Set(points.map(p=>p.x)).size,2);
+ assert.deepEqual(points.map(p=>[p.label,p.y]),[
+  ['Gas forward · Park and loan · multi-side',null],
+  ['Gas forward · Physical gas · no single quantity',null],
+ ]);
+ assert.match(panel.subtitle,/Park and loan · multi-side/);
+ assert.match(panel.subtitle,/Physical gas · no single quantity/);
+ // A repeated group of the same product remains inconsistent.
+ const duplicate=changed(summaries,3,groups=>[...groups,groups[0]]);
+ assert.throws(()=>positionChartPanels(duplicate,holdings,new Map(),format),/inconsistent desk summary/);
+});
+
 test('custody service rows show backend service value without a commodity price or owned exposure',()=>{
  const custody={...fixture.holdings[0],instrumentType:'physical_gas_park_custody',contractIdentityKind:'gas_park_custody_agreement',direction:'multi_side',
   quantity:'720',lots:null,curve:'',projectionCurves:[],priceNavigation:false,marketLabel:'Synthetic custody point',executionPrice:null,fixedPrice:null,mark:null,markMinusPrice:null,executionPnl:null,

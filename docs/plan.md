@@ -1,5 +1,11 @@
 # Delivery plan and acceptance criteria
 
+D455 permits a separately qualified browser-only maintenance update for the
+Blotter chart identity repair. The synthetic regression covers distinct gas
+products sharing a display badge and continued rejection of duplicate groups.
+The automatic updater remains unchanged; each installation still requires the
+[maintenance qualification](hosted-pilot.md#blotter-browser-maintenance-d455).
+
 D454 implements reported-balance cash-out on a gas trade: paired daily index
 payments, explicit statement basis/netting, temporal evidence, unassessed
 subtotals, recorded net settlement and the ticket's Imbalance tab. This replaces
