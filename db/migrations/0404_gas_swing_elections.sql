@@ -145,6 +145,28 @@ CREATE CONSTRAINT TRIGGER swing_replay_authority AFTER UPDATE OF swing_replay_op
  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN(NEW.swing_replay_operation_id IS NOT NULL)
  EXECUTE FUNCTION security.guard_gas_swing_replay();
 
+-- The final check may temporarily reopen the receipt's exact coordinates
+-- after the read has released them. Enforce release again before returning.
+CREATE FUNCTION security.commit_gas_swing_receipt() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+BEGIN
+ SET CONSTRAINTS security.read_sources_released DEFERRED;
+ IF TG_RELID='trading.gas_swing_commands'::regclass THEN
+  PERFORM security.require_gas_swing_receipt(NEW.catalog_id,NEW.operation_id,NEW.authority_until);
+ ELSE
+  PERFORM security.require_gas_swing_receipt(NEW.swing_replay_catalog_id,NEW.swing_replay_operation_id,NEW.swing_replay_until);
+ END IF;
+ SET CONSTRAINTS security.read_sources_released IMMEDIATE;
+ RETURN NULL;
+END$$;
+ALTER FUNCTION security.commit_gas_swing_receipt() OWNER TO openetrm_security_owner;
+REVOKE ALL ON FUNCTION security.commit_gas_swing_receipt() FROM PUBLIC;
+CREATE CONSTRAINT TRIGGER commit_swing_election AFTER INSERT ON trading.gas_swing_commands
+ DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION security.commit_gas_swing_receipt();
+CREATE CONSTRAINT TRIGGER commit_swing_replay AFTER UPDATE OF swing_replay_operation_id ON security.request_contexts
+ DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (NEW.swing_replay_operation_id IS NOT NULL)
+ EXECUTE FUNCTION security.commit_gas_swing_receipt();
+
 -- Validate the union of effective-time boundaries across all days. A revision
 -- replaces the prior quantity and occupied-day count. Simultaneous revisions
 -- enter the budget together. Withdrawal releases both, including a zero election.

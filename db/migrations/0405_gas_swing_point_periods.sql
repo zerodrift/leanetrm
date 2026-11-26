@@ -145,8 +145,9 @@ REVOKE ALL ON FUNCTION security.commit_gas_swing_booking_frame() FROM PUBLIC;
 CREATE CONSTRAINT TRIGGER commit_frame AFTER INSERT OR UPDATE ON security.gas_swing_booking_frames DEFERRABLE INITIALLY DEFERRED
  FOR EACH ROW WHEN (NEW.admitted) EXECUTE FUNCTION security.commit_gas_swing_booking_frame();
 
--- Flush financial seals with their sources present, then flush the source
--- release. The frame proof belongs to the transaction until its actual commit.
+-- The ordinary financial seals check elections before releasing their sources.
+-- Queue the same immutable command or per-invocation replay evidence for
+-- COMMIT as well. Receipt validation can reopen its original inputs there.
 DO $finalization$
 DECLARE change record;definition text;
 BEGIN
@@ -154,7 +155,9 @@ BEGIN
   ('security.check_operation_seals()',
    $old$c.conname='read_sources_released')$old$,
    $new$c.conname='read_sources_released')
-   AND NOT(c.conrelid='security.gas_swing_booking_frames'::regclass AND c.conname='commit_frame')$new$),
+   AND NOT(c.conrelid='security.gas_swing_booking_frames'::regclass AND c.conname='commit_frame')
+   AND NOT(c.conrelid='trading.gas_swing_commands'::regclass AND c.conname='commit_swing_election')
+   AND NOT(c.conrelid='security.request_contexts'::regclass AND c.conname='commit_swing_replay')$new$),
   ('security.finish_operation_read()','SET CONSTRAINTS ALL IMMEDIATE',
    'SET CONSTRAINTS security.read_sources_released IMMEDIATE')
  ) v(signature,anchor,replacement) LOOP

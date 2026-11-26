@@ -631,7 +631,7 @@ def ticket_authority_expiry(risk,query,manifest,context,saved,pending_head):
     print('PASS booked exercise ticket rechecks expiring authority before publishing future election heads',flush=True)
 
 
-def amend_rights(query,manifest,saved,rights,at,*,swing_rights=None):
+def amend_rights(query,manifest,saved,rights,at,*,swing_rights=None,before_commit=''):
     """Stage the unchanged retained Sides through the native API and amend just the right terms."""
     from check_booked_side_programs import runtime_query
     cat=manifest['catalogId']
@@ -643,7 +643,7 @@ def amend_rights(query,manifest,saved,rights,at,*,swing_rights=None):
                 amendmentPolicy='future_gas_composition_replace_v1',exerciseRights=rights)
     if swing_rights is not None:
         body['swingRights']=swing_rights
-    return stage_gas_composition(query,manifest,inst,body,at)
+    return stage_gas_composition(query,manifest,inst,body,at,before_commit=before_commit)
 
 
 def stage_gas_composition(query,manifest,inst,body,at,*,refusal=None,attest=None,before_commit='',commit=True):
