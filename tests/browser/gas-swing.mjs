@@ -1,5 +1,5 @@
 import {newTrade} from './new-trade.mjs';
-import {blotterAt,bookedTicket,closeOn,decemberClose,gasTicket,openBookedSchedules,q} from './gas-ticket.mjs';
+import {blotterAt,bookedTicket,closeOn,decemberClose,gasTicket,openBookedPosition,openBookedSchedules,q} from './gas-ticket.mjs';
 
 const at=selector=>'document.querySelector('+q(selector)+')';
 const all=selector=>'[...document.querySelectorAll('+q(selector)+')]';
@@ -56,8 +56,7 @@ export async function run(actions){
  const detail=bookedTicket+' .ticket-swing-detail',drawer=detail+' details',trigger=bookedTicket+' .ticket-record-swing';
  const form=bookedTicket+' .ticket-swing-action',input=id=>form+' [name="'+id+'"]',retry=bookedTicket+' .ticket-retry-swing';
  const openTrade=async trade=>{
-  const position='#desk-positions [data-row-key="'+trade.tradeId+':'+trade.instrumentId+'"] .desk-reference';
-  await wait(at(position)+'?.checkVisibility()&&'+idle,60000);await click(position,60000);await openBookedSchedules(actions,30000);
+  await openBookedPosition(actions,trade.tradeId+':'+trade.instrumentId,60000);await openBookedSchedules(actions,30000);
   await wait(at(trigger)+'?.checkVisibility()&&!'+at(trigger)+'.disabled&&!!'+at(drawer),60000);
  };
  await openTrade(await evaluate('window.swingBooked'));
@@ -182,8 +181,7 @@ export async function run(actions){
   q(original)+' .join("|")==='+q(missing)+'.join("|")&&'+q(missing)+'.join("|")==='+q(corrected)+'.join("|")');
  const coverage=fixture.coverageTrade;
  await set('#blotter-filters .table-search',coverage.tradeReference);
- const coverageRow='#desk-positions [data-row-key="'+coverage.tradeId+':'+coverage.bindingId+'"] .desk-reference';
- await wait(at(coverageRow)+'?.checkVisibility()&&'+idle,60000);await click(coverageRow,60000);
+ await openBookedPosition(actions,coverage.tradeId+':'+coverage.bindingId,60000);
  await openBookedSchedules(actions,30000);await wait(at(detail+' [aria-label="Retained election days"]')+'?.checkVisibility()&&'+idle,60000);
  const assessed=root=>all(root+' [aria-label="Retained election days"] tbody tr')+
   '.map(r=>[r.cells[0].textContent,r.cells[2].textContent,r.cells[r.cells.length-1].textContent])';

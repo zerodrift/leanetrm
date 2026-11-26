@@ -1,8 +1,40 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {browserAvailable,browserTestTimeout,withBrowserPage,pressKey} from './browser-page.mjs';
+import {browserPageActions} from '../../tests/browser/owned-browser.mjs';
+import {openBookedPosition} from '../../tests/browser/gas-ticket.mjs';
 const page='<link rel="stylesheet" href="/vendor/tabulator.css"><link rel="stylesheet" href="/app.css"><div id="host" style="width:900px"></div>';
 const ready="while(!grid.ready())await new Promise(r=>setTimeout(r,10));await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));";
+
+test('the booked-position browser action selects the requested grid row before trusting the open panel',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(page,async evaluate=>{
+ await evaluate(`(async()=>{
+  const {renderDataGrid,emptyGridLayout}=await import('/data-grid.js'),host=document.querySelector('#host');host.id='desk-positions';
+  document.body.setAttribute('aria-busy','false');window.gridBusy=false;window.rowOpens=[];
+  const panel=document.createElement('div');panel.id='position-details';panel.innerHTML='<span class="side-panel-reference">Synthetic A</span>';document.body.append(panel);
+  const values=[['Synthetic A'],['Synthetic B']],keys=['trade-a:binding-a','trade-b:binding-b'];
+  const grid=window.testGrid=renderDataGrid(host,'selection','synthetic',['Trade'],values,[],()=>window.gridBusy,{
+   keys:['trade'],rowKeys:keys,layout:emptyGridLayout(),onLayout(){},
+   cells:(index)=>{const label=document.createElement('span');label.className='desk-reference';label.textContent=values[index][0];return label;},
+   onRowOpen:index=>{window.rowOpens.push(keys[index]);panel.querySelector('.side-panel-reference').textContent=values[index][0];grid.selectRow(index);return true;}
+  });${ready}grid.selectRow(0);
+ })()`);
+ let refresh=true;
+ const driver=browserPageActions(async expression=>{
+  const result=await evaluate(expression);
+  if(refresh&&result===true&&await evaluate('window.rowOpens.length===0')){
+   refresh=false;
+   await evaluate(`window.gridBusy=true;document.body.setAttribute('aria-busy','true');
+    setTimeout(()=>{window.gridBusy=false;document.body.setAttribute('aria-busy','false');},250);`);
+  }
+  return result;
+ });
+ try{
+  await openBookedPosition(driver,'trade-b:binding-b',3000);
+  assert.deepEqual(await evaluate(`({opened:window.rowOpens,selected:document.querySelector('[data-row-key][aria-current=true]')?.dataset.rowKey,
+   shown:document.querySelector('#position-details .side-panel-reference').textContent})`),
+   {opened:['trade-b:binding-b'],selected:'trade-b:binding-b',shown:'Synthetic B'});
+ }finally{await evaluate('window.testGrid.destroy()');}
+}));
 
 test('presentation filters resolve the exact native column control without applying a filter',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(page,async evaluate=>{
  const result=await evaluate(`(async()=>{

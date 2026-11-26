@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {browserPageActions} from './owned-browser.mjs';
-import {blotterAt,gasTicket,openBookedSchedules} from './gas-ticket.mjs';
+import {blotterAt,gasTicket,openBookedPosition,openBookedSchedules} from './gas-ticket.mjs';
 
 function fixture(readyAt,{selectionError}={}){
  let elapsed=0;const edits=[];
@@ -97,20 +97,81 @@ test('the gas Blotter refuses a failed final price read',async()=>{
  await assert.rejects(f.open(),/Timed out/);
 });
 
-function scheduleFixture({readyAt=12500,readMs=12500,hidden=false}={}){
- let now=0,busyUntil=readyAt;const clicks=[];
+function positionFixture({refreshAfterPoll=false,accepted=true,reference='Synthetic B',hidden=false,readMs=12500}={}){
+ let now=0,busyUntil=0,selected='trade-a:binding-a',shown='Synthetic A',refresh=refreshAfterPoll;
+ const clicks=[],key='trade-b:binding-b';
+ const row={getAttribute:()=>selected===key?'true':null};
+ const control={textContent:'Synthetic B',checkVisibility:()=>!hidden,closest:()=>row,click(){
+  clicks.push(now);
+  if(now<busyUntil||!accepted)return;
+  selected=key;shown=reference;busyUntil=now+readMs;
+ }};
  const document={
   body:{getAttribute:()=>now<busyUntil?'true':'false'},
   querySelector(selector){
-   if(selector==='#position-details-tabs-schedules')return {click(){clicks.push(now);busyUntil=now+readMs;}};
+   if(selector===`#desk-positions [data-row-key="${key}"] .desk-reference`)return control;
+   if(selector==='#position-details')return {hidden:false,checkVisibility:()=>true,querySelector:()=>({textContent:shown})};
+   return null;
+  },
+ };
+ const evaluate=async expression=>{
+  const result=Function('document',`return ${expression}`)(document);
+  // A refresh is free to begin after a readiness evaluation, before a separate click.
+  if(refresh&&result===true&&!clicks.length){refresh=false;busyUntil=now+500;}
+  return result;
+ };
+ const actions=browserPageActions(evaluate,{now:()=>now,pause:async ms=>{now+=ms;}});
+ return {open:()=>openBookedPosition(actions,key,30000),clicks,selected:()=>selected,shown:()=>shown,elapsed:()=>now};
+}
+
+test('opening a booked position cannot lose its click to a refresh between browser evaluations',async()=>{
+ const f=positionFixture({refreshAfterPoll:true});
+ await f.open();
+ assert.equal(f.selected(),'trade-b:binding-b');assert.equal(f.shown(),'Synthetic B');
+ assert.deepEqual(f.clicks,[0]);assert.equal(f.elapsed(),12500);
+});
+
+test('opening a booked position requires both the exact selected binding and its displayed trade',async()=>{
+ for(const options of [{accepted:false},{reference:'Synthetic A'}]){
+  const f=positionFixture(options);
+  await assert.rejects(f.open(),/Timed out after 30000ms/);
+  assert.equal(f.clicks.length,1);assert.equal(f.elapsed(),30000);
+ }
+});
+
+test('opening a booked position refuses an unavailable row or a read that never settles',async()=>{
+ for(const options of [{hidden:true},{readMs:Infinity}]){
+  const f=positionFixture(options);
+  await assert.rejects(f.open(),/Timed out after 30000ms/);
+  assert.equal(f.clicks.length,options.hidden?0:1);assert.equal(f.elapsed(),30000);
+ }
+});
+
+function scheduleFixture({readyAt=12500,readMs=12500,hidden=false,refreshAfterPoll=false}={}){
+ let now=0,busyUntil=readyAt;const clicks=[];
+ let refresh=refreshAfterPoll,opened=false;
+ const document={
+  body:{getAttribute:()=>now<busyUntil?'true':'false'},
+  querySelector(selector){
+   if(selector==='#position-details-tabs-schedules')return {checkVisibility:()=>!hidden,click(){clicks.push(now);if(now<busyUntil)return;opened=true;busyUntil=now+readMs;}};
    if(selector==='#position-details')return {hidden};
    return null;
   },
  };
- const evaluate=async expression=>Function('document',`return ${expression}`)(document);
+ const evaluate=async expression=>{
+  const result=Function('document',`return ${expression}`)(document);
+  if(refresh&&result===true&&!clicks.length){refresh=false;busyUntil=now+500;}
+  return result;
+ };
  const actions=browserPageActions(evaluate,{now:()=>now,pause:async ms=>{now+=ms;}});
- return {open:milliseconds=>openBookedSchedules(actions,milliseconds),clicks,elapsed:()=>now};
+ return {open:milliseconds=>openBookedSchedules(actions,milliseconds),clicks,elapsed:()=>now,opened:()=>opened};
 }
+
+test('opening booked schedules cannot lose its click to a refresh between browser evaluations',async()=>{
+ const f=scheduleFixture({readyAt:0,refreshAfterPoll:true});
+ await f.open(30000);
+ assert.equal(f.opened(),true);assert.deepEqual(f.clicks,[0]);assert.equal(f.elapsed(),12500);
+});
 
 test('booked schedules honor the caller wait for both the position and its schedule read without clicking twice',async()=>{
  const f=scheduleFixture();
