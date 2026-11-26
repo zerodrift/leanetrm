@@ -364,7 +364,8 @@ export function positionChartPanels(summaries:readonly Summary[],holdings:readon
   for(const group of markets){
     const market=marketKey(text(group,'market'),text(group,'definitionRevisionId')),type=instrument(group.instrumentType),unit=referenceKey(group.quantitySpecification),currency=referenceKey(group.currencyReference);
     const quantity=amount(group,'quantity');
-    const point:ChartPoint={x:`${market}|${type.pill}`,label:`${labels.get(market)} · ${type.plural}`,y:quantity,color:colors.get(commodityOf(group).code)};
+    // Several gas products share the GAS badge; their instrument types remain distinct chart entries.
+    const point:ChartPoint={x:`${market}|${text(group,'instrumentType')}`,label:`${labels.get(market)} · ${type.plural}`,y:quantity,color:colors.get(commodityOf(group).code)};
     // A market's swaps have no single quantity where one of them is scheduled by period, which a held swap without one shows; a future
     // always has one.
     if(quantity===null){if(type===instruments.future||!unquantified.has(JSON.stringify([market,unit,currency])))throw Error(inconsistent);point.label+=' · no single quantity';}
