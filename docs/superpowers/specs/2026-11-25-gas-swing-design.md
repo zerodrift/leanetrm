@@ -534,27 +534,32 @@ one trade binding with two Sides, concurrency one, arm64 macOS 26.6.2,
 | --- | ---: | ---: |
 | Distinct market contracts / children per job | 3 / 6 | 12 / 24 |
 | Two jobs, base-plus-child scenarios / evaluated unit calls including preparations / reused unit scenario values | 14 / 16 / 0 | 50 / 52 / 0 |
-| Booking / first retained read, seconds | 1.177 / 0.807 | 3.793 / 2.874 |
-| Point / volatility job start to result commit, seconds | 3.099 / 3.105 | 50.513 / 51.483 |
-| Execution headroom at result commit, seconds | 56.901 / 56.895 | 9.487 / 8.517 |
-| Lease headroom at result commit, seconds | 26.901 / 26.895 | 29.527 / 28.556 |
-| Original frame authority / request headroom at booking commit, seconds | 58.867 / 59.876 | 56.275 / 58.812 |
-| Both complete jobs, submit through result reads, seconds | 8.002 | 107.605 |
-| API baseline / sampled peak across route sequence, KiB | 210,240 / 538,640 | 210,304 / 1,199,568 |
-| Point / volatility workers, first OS samples, KiB | 3,120 / 2,512 | 3,072 / 3,072 |
-| Sampled point / volatility worker peaks, KiB | 322,592 / 333,648 | 866,416 / 870,352 |
+| Booking / first retained read, seconds | 1.123 / 0.780 | 3.748 / 2.836 |
+| Point / volatility job start to result commit, seconds | 3.032 / 3.008 | 49.992 / 50.841 |
+| Execution headroom at result commit, seconds | 56.968 / 56.992 | 10.008 / 9.159 |
+| Lease headroom at result commit, seconds | 26.968 / 26.992 | 20.046 / 29.197 |
+| Original frame authority / request headroom at booking commit, seconds | 58.913 / 59.879 | 56.304 / 58.814 |
+| Both complete jobs, submit through result reads, seconds | 7.789 | 106.693 |
+| API baseline / sampled peak across route sequence, KiB | 210,944 / 487,360 | 211,344 / 1,144,512 |
+| Point / volatility workers, first OS samples, KiB | 2,512 / 3,104 | 2,816 / 3,104 |
+| Sampled point / volatility worker peaks, KiB | 332,640 / 335,600 | 878,432 / 869,328 |
 | Gross managed allocation at last observation, separate runs, MiB (API / point worker / volatility worker) | 517.1 / 244.9 / 254.9 | 1,818.2 / 2,550.3 / 2,947.0 |
 | Held base PV | −1,656.894221623503797 | 535.976104037492649 |
 
 Both jobs committed for both terms under the role-specific thresholds.
 The API process was sampled with `ps` every 70 ms from the first ready
 session through the route sequence. Each fresh worker was sampled every
-50 ms through exit. The cancelled annual worker also exited, peaking at
-154,880 KiB with no result or surviving lease. Gross managed allocations
+50 ms through exit. Each measurement requires a positive RSS observation
+and rejects a missing or invalid live-worker sample. The annual worker
+acknowledged cancellation during portfolio preparation in 0.051 seconds.
+The committed cancellation released its lease and contained no result.
+Worker exit and administrative verification took another 0.032 seconds.
+The cancelled worker peaked at 154,352 KiB. Gross managed allocations
 come from separate ordinary-GC diagnostic processes using
 `GC.GetTotalAllocatedBytes`, through exit for the seasonal roles and through
-the final observed protected stage for the annual roles. The proposed
-512 MiB whole-service target failed on both final APIs and the annual workers.
+the final observed protected stage for the annual roles. The annual API and
+both annual workers exceeded 512 MiB. An earlier seasonal run reached
+614,528 KiB in the API, so the seasonal API can also exceed 512 MiB.
 A separate annual control with the same physical/fixed geometry and 24 point
 children, without a quantity right, reached 702,240 KiB in the ordinary API.
 Its worker peaked at 489,952 KiB. The ordinary base was −150 and each isolated

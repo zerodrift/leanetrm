@@ -371,10 +371,19 @@ def workload_routes(url, query, manifest, run_worker, api_pid, length):
     print('PASS ordinary process RSS within 2 GiB for the API and 1 GiB for each worker',flush=True)
 
 
+def cancellation_elapsed(start, observed):
+    elapsed = observed - start
+    if elapsed > 1:
+        raise AssertionError(f'Native worker cancellation exceeded one second ({elapsed:.3f}s)')
+    return elapsed
+
+
 def require_host_memory(api_kib,workers_kib):
     if api_kib>2*1024**2:
         raise AssertionError(f'API RSS {api_kib} KiB exceeded the 2 GiB qualification threshold')
     for job,rss in workers_kib.items():
+        if rss <= 0:
+            raise AssertionError(f'{job} worker has no positive RSS observation')
         if rss>1024**2:
             raise AssertionError(f'{job} worker RSS {rss} KiB exceeded the 1 GiB qualification threshold')
 
@@ -548,12 +557,20 @@ def workload_values(url, query, manifest, run_worker, samples, lengths):
                     sleep(.05)
                 start=monotonic()
                 risk.call(f'portfolio/risk/jobs/{cancelled}/cancel',{})
+                while True:
+                    acknowledged = query.raw(f"SELECT state='cancelled' AND result IS NULL AND lease_token IS NULL "
+                                             f"AND worker_login IS NULL FROM risk.jobs WHERE id='{cancelled}'") == 't'
+                    observed = monotonic()
+                    elapsed = cancellation_elapsed(start, observed)
+                    if acknowledged:
+                        break
+                    sleep(.01)
                 worker_peaks[f'{length}-cancelled']=running.result()
             terminal=risk.call('portfolio/risk/jobs/'+cancelled)
             assert terminal['state']=='cancelled' and terminal.get('result') is None
-            assert query.raw(f"SELECT result IS NULL AND lease_token IS NULL AND worker_login IS NULL FROM risk.jobs WHERE id='{cancelled}'")=='t'
             assert query.raw("SELECT count(*) FROM pg_stat_activity WHERE usename='preview_risk_worker'")=='0'
-            print(f'PASS complete running annual job cancelled and released without a partial result in {monotonic()-start:.3f}s',flush=True)
+            print(f'PASS running annual job acknowledged native cancellation and released its lease without a result in {elapsed:.3f}s; '
+                  f'worker exit and administrative checks took another {monotonic()-observed:.3f}s',flush=True)
 
     return values_to_verify,worker_peaks
 

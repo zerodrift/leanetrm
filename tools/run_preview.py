@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import shlex
 import shutil
@@ -22,6 +23,48 @@ ROOT = Path(__file__).resolve().parents[1]
 # The sessions of the 64 a scope keeps that this process leaves free once the page-assistant checks have run: the
 # browser checks' own and later suites'.
 SESSION_MARGIN = 10
+
+
+def measure_worker(command, cwd, env, timeout):
+    """Return the first and peak sampled worker RSS in KiB, and reap the owned process."""
+    first = None
+    peak = 0
+    deadline = time.monotonic() + timeout
+    process = subprocess.Popen(command, cwd=cwd, env=env)
+    try:
+        while process.poll() is None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeError(f'The risk worker did not finish within {timeout} seconds.')
+            sample = subprocess.run(['ps', '-o', 'rss=,state=', '-p', str(process.pid)],
+                                    capture_output=True, text=True, timeout=remaining)
+            reading = sample.stdout.strip()
+            if sample.returncode == 1 and not reading and not sample.stderr and process.poll() is not None:
+                break  # No matching PID between poll and ps.
+            fields = reading.split()
+            size, state = fields if len(fields) == 2 else ('', '')
+            rss = int(size) if size.isascii() and size.isdecimal() else None
+            # ps(1) reports Z for a zombie. On macOS its E suffix means the
+            # process is exiting: its pages can already be gone before waitpid is ready.
+            exiting = rss == 0 and re.fullmatch(r'[?IRSTUZ][+<>AELNSsVWX]*', state) and (
+                state.startswith('Z') or 'E' in state[1:])
+            if sample.returncode or rss is None or (rss == 0 and not exiting):
+                raise RuntimeError(f'Invalid worker RSS sample for PID {process.pid}: '
+                                   f'ps status {sample.returncode}, reading {reading!r}.')
+            if rss > 0:
+                if first is None:
+                    first = rss
+                peak = max(peak, rss)
+            time.sleep(.05)
+        if process.returncode:
+            raise subprocess.CalledProcessError(process.returncode, command)
+        if first is None:
+            raise RuntimeError('Worker exited without a positive RSS sample.')
+        return first, peak
+    finally:
+        if process.poll() is None:
+            process.kill()
+        process.wait()
 
 
 def main():
@@ -1013,16 +1056,7 @@ def main():
                 if not measure:
                     subprocess.run(command,cwd=ROOT,env=worker_env,check=True,timeout=timeout+30);return None
                 # One claimed job, with the worker process's resident memory sampled every 50 ms; returns the sampled peak in KiB.
-                process=subprocess.Popen(command,cwd=ROOT,env=worker_env);peak=0;first_sample=None;deadline=time.monotonic()+timeout+30
-                while process.poll() is None:
-                    sample=subprocess.run(['ps','-o','rss=','-p',str(process.pid)],capture_output=True,text=True).stdout.strip()
-                    if sample:
-                        rss=int(sample)
-                        if first_sample is None and rss>0:first_sample=rss
-                        peak=max(peak,rss)
-                    if time.monotonic()>deadline:process.kill();raise RuntimeError(f'The risk worker did not finish within {timeout+30} seconds.')
-                    time.sleep(.05)
-                if process.returncode:raise subprocess.CalledProcessError(process.returncode,command)
+                first_sample, peak = measure_worker(command, ROOT, worker_env, timeout + 30)
                 if args.gas_swing_workload_check:
                     print(f'WORKLOAD fresh Debug worker first observed RSS {first_sample} KiB, peak {peak} KiB',flush=True)
                 return peak
