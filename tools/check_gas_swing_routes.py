@@ -545,8 +545,8 @@ def route_checks(c, query, manifest, context, template, run_worker, book, cashou
     position,=report['positions']
     values=position['values']
     assert report['totals'][0]['values']==values and values['cash']['amount']=='300',values
-    for endpoint,day,ctx in [('opening','2021-01-15',stochastic_at),('closing','2021-01-31',expired)]:
-        held=c.call('date-schedules/context',dict(effectiveOn=day,knownAt=cutoff,mode='at'))['context']
+    for endpoint,business_day,ctx in [('opening','2021-01-15',stochastic_at),('closing','2021-01-31',expired)]:
+        held=c.call('date-schedules/context',dict(effectiveOn=business_day,knownAt=cutoff,mode='at'))['context']
         editor=c.call('gas/composition/editor',dict(context=dict(ctx,knowledgeMode='retained',contextId=held['contextId']),
             tradeId=cashout['tradeId']))['valuation']
         assert values[endpoint+'Value']['amount']==editor['presentValue']
