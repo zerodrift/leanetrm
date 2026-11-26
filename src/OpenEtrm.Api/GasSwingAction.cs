@@ -115,7 +115,8 @@ public sealed record GasSwingAction(bool Allowed,string? Reason,Guid TradeId,Gui
             catch(MarketDataException e) when(e is not TicketFieldException){throw Invalid("quantity",e.Message,first);}
         }
         if(request.ExercisingParty!=Holder)throw Invalid("exercisingParty","Choose the contractual holder.",first);
-        if(string.IsNullOrWhiteSpace(request.Evidence)||request.Evidence.Trim(' ').EnumerateRunes().Count()>500)
+        var evidence=request.Evidence?.Trim(' ');
+        if(string.IsNullOrWhiteSpace(evidence)||evidence.EnumerateRunes().Count()>500)
             throw Invalid("evidence","Supply evidence of 1 to 500 characters.",first);
         if(!GasExerciseAction.TryInstant(request.SubmittedAt,out var submitted))throw Invalid("submittedAt","Enter an explicit UTC instant with at most six fractional digits.",first);
         if(!GasExerciseAction.TryInstant(request.EffectiveAt,out var effective)||effective<submitted)
@@ -125,9 +126,11 @@ public sealed record GasSwingAction(bool Allowed,string? Reason,Guid TradeId,Gui
         {
             var day=Days[i];
             if(effective>day.ExerciseAt)throw Invalid("effectiveAt","The effective instant is after the election deadline.",i);
-            rows.Add(new(Day(day.Day),request.Quantity,Holder,request.SubmittedAt,request.EffectiveAt,request.Evidence));
+            rows.Add(new(Day(day.Day),request.Quantity,Holder,request.SubmittedAt,request.EffectiveAt,evidence));
         }
-        return new(request.Context,TradeId,InstrumentId,ExpectedRevision,request.OperationId,Right,[..Days.Select(d=>new GasSwingExpectedHead(Day(d.Day),d.Head))],rows.ToImmutable());
+        var command=new GasSwingRecordRequest(request.Context,TradeId,InstrumentId,ExpectedRevision,request.OperationId,Right,[..Days.Select(d=>new GasSwingExpectedHead(Day(d.Day),d.Head))],rows.ToImmutable());
+        GasSwingStore.RequireTransportSize(command);
+        return command;
     }
 
     static string Day(DateOnly value)=>value.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture);

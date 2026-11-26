@@ -293,7 +293,9 @@ BEGIN
    gas_day=(item->>'day')::date; amount=(item->>'quantity')::numeric; proof=btrim(item->>'evidence');
    submitted=(item->>'submittedAt')::timestamptz;effective=(item->>'effectiveAt')::timestamptz;
    SELECT d.exercise_at INTO deadline FROM trading.gas_swing_days d WHERE(d.catalog_id,d.instrument_id,d.ordinal,d.day)=(catalog,binding,right_no,gas_day);
-   failed_field=CASE WHEN deadline IS NULL THEN 'day' WHEN submitted>effective OR effective>deadline THEN 'effectiveAt' WHEN amount*r.daily_minimum[2]<r.daily_minimum[1]*reference_quantity
+   failed_field=CASE WHEN submitted=timestamptz '0001-01-01 00:00:00+00' THEN 'submittedAt'
+    WHEN effective=timestamptz '0001-01-01 00:00:00+00' THEN 'effectiveAt'
+    WHEN deadline IS NULL THEN 'day' WHEN submitted>effective OR effective>deadline THEN 'effectiveAt' WHEN amount*r.daily_minimum[2]<r.daily_minimum[1]*reference_quantity
      OR amount*r.daily_maximum[2]>r.daily_maximum[1]*reference_quantity THEN 'quantity' END;
   END IF;
   IF failed_field IS NOT NULL THEN

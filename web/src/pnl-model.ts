@@ -14,8 +14,9 @@ export type Values={openingUnassessedDays?:number;closingUnassessedDays?:number;
 // A price factor of the opening holdings. It has no closing price, and so no change, when the closing endpoint states none.
 export type Factor={unit:{currency:Currency;quantity:Currency;multiplier:string};unitLabel:string;axis:string;label:string;priceTick:string;opening:{price:string};closing:{price:string}|null;change:{price:string}|null;unavailableReason:string|null};
 export type Contribution={formula:string;label:string;axes:string[];amount:Money|null;unavailableReason:string|null};
+export type MissingAssessment={sourceSlot:number;day:string;owner:string;ownerOrdinal:number;reason:string};
 export type Position={position:{tradeId:string;bindingId:string;bookId:string};tradeReference:string|null;instrumentReference:string|null;state:string;values:Values;
- contributions:Contribution[]};
+ openingMissingAssessments?:MissingAssessment[];closingMissingAssessments?:MissingAssessment[];contributions:Contribution[]};
 export type Total={currency:Currency;currencyLabel:string;values:Values;bridge:Step[];factorEffects:{axis:string;delta:GreekEffect;gamma:GreekEffect}[];greekCoverage:string};
 // A date a report compares. A recorded close states its convention and the business day it closes; a working snapshot, and a
 // report saved before closes were stated, states neither.

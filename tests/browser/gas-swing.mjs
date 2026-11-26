@@ -158,7 +158,6 @@ export async function run(actions){
   return {reference:${q(cashout.tradeReference)},mounted:host.querySelectorAll('[data-row-key]').length,gridHeight:holder?.clientHeight,
    scrollHeight:holder?.scrollHeight,displayed:!!host.querySelector('[data-row-key="${cashout.tradeId}:${cashout.instrumentId}"] .desk-reference'),
    books:Array.from(document.querySelector('#blotter-books').selectedOptions,o=>o.text),summary:document.querySelector('#futures-summary').textContent};})()`);
- console.log('Jan 31 cash-out grid before search',await gridState());
  await set('#blotter-filters .table-search',cashout.tradeReference);
  await openTrade(cashout).catch(async error=>{throw Error(error.message+' · filtered grid '+JSON.stringify(await gridState()));});
  const balance=bookedTicket+' [data-tab="imbalance"]',balanceRows=all(bookedTicket+' .ticket-imbalance tbody tr');

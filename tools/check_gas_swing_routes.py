@@ -23,7 +23,7 @@ def assert_replay(field, queued, live):
         raise AssertionError(field+' replay mismatch\n'+'\n'.join(islice(diff,10)))
 
 
-def pnl_values(risk, policies, trade, opening, closing, known_at, refusal=None):
+def pnl_report(risk, policies, trade, opening, closing, known_at, refusal=None):
     def endpoint(ctx):
         return dict(snapshotId=ctx['snapshotId'],convention='trading_workspace_v1',knowledgeMode='at')
     request = dict(opening=endpoint(opening),closing=endpoint(closing),knownAt=known_at,
@@ -34,7 +34,13 @@ def pnl_values(risk, policies, trade, opening, closing, known_at, refusal=None):
     if refusal:
         assert risk.last_status==422 and result.get('code')==refusal and 'report' not in result,(risk.last_status,result.get('code'),refusal)
         return
-    return result['report']['totals'][0]['values']
+    return result['report']
+
+
+def pnl_values(risk, policies, trade, opening, closing, known_at, refusal=None):
+    report = pnl_report(risk, policies, trade, opening, closing, known_at, refusal)
+    if report is not None:
+        return report['totals'][0]['values']
 
 
 def book_coverage_case(c, context, body):
@@ -118,6 +124,14 @@ def paid_coverage_view(c, context, trade, cutoff, *, withdrawn):
 def check_graph_work(work):
     counters = {'evaluatedNodes','reusedReads','affectedNodes','traversedAffectedEdges','evaluatedWork'}
     assert work.keys()==counters and all(type(n) is int and n>=0 for n in work.values()),work
+
+
+def check_swing_display_lanes(position, lanes):
+    for lane in lanes:
+        right, = position['swingRights'][lane]
+        assert right['counted'] is None or isinstance(right['counted'], str), lane
+        assert type(right['unassessedDays']) is int and right['unassessedDays'] >= 0, lane
+        assert type(right['work']['operations']) is int and right['work']['operations'] >= 0, lane
 
 
 def check_reserved_lanes(row, amounts, revision):
@@ -341,6 +355,7 @@ def route_checks(c, query, manifest, context, template, run_worker, book, cashou
             for sample,size in zip(result['joint']['samples'],('0.01','-0.01'),strict=True):
                 assert sample['volatility']==[dict(inputId=shift,size=size,convention=cat['joint']['volatilityShiftConvention'])]
                 position = next(p for p in sample['positions'] if p['tradeId']==trade)
+                check_swing_display_lanes(position,('base','value'))
                 check_value(position['values']['base'],expected)
                 base_right, = position['swingRights']['base']
                 shifted_right, = position['swingRights']['value']
@@ -354,6 +369,7 @@ def route_checks(c, query, manifest, context, template, run_worker, book, cashou
         factor_row, = result['factors']
         assert factor_row['bump']==bumpsize
         row = next(p for p in factor_row['positions'] if p['tradeId']==trade)
+        check_swing_display_lanes(row,('base','up','down'))
         check_value(row['values']['base'],expected)
         if peer:
             other=next(p for p in factor_row['positions'] if p['tradeId']==peer[0]['tradeId'])
@@ -517,6 +533,34 @@ def route_checks(c, query, manifest, context, template, run_worker, book, cashou
     print('PASS swing 480 and mandatory -450 through preview, editor, position, schedule, Blotter and leased risk; early D3, both clocks, deltas 900/1100 and elapsed-trade isolation',flush=True)
 
     policies = risk.call('portfolio/pnl/policies')
+    clock = datetime.fromisoformat('2021-01-15T08:00:00Z')
+    workspace = c.call('workspace')
+    frame, = [f for f in workspace['frames'] if f['id'] in workspace['initialFrameIds'] and datetime.fromisoformat(f['at'])==clock]
+    stochastic_at = {**context,'snapshotId':frame['id']}
+    # At the earlier close the Jan 13 election and balance are both missing.
+    # The later close includes the statement and its settled cash.
+    elect(cashout,0,None)
+    cutoff=read(cashout,expired)['context']['knownAt']
+    report=pnl_report(risk,policies,cashout,stochastic_at,expired,cutoff)
+    position,=report['positions']
+    values=position['values']
+    assert report['totals'][0]['values']==values and values['cash']['amount']=='300',values
+    for endpoint,day,ctx in [('opening','2021-01-15',stochastic_at),('closing','2021-01-31',expired)]:
+        held=c.call('date-schedules/context',dict(effectiveOn=day,knownAt=cutoff,mode='at'))['context']
+        editor=c.call('gas/composition/editor',dict(context=dict(ctx,knowledgeMode='retained',contextId=held['contextId']),
+            tradeId=cashout['tradeId']))['valuation']
+        assert values[endpoint+'Value']['amount']==editor['presentValue']
+        assert values[endpoint+'UnassessedDays']==editor['unassessedDays']
+    assert Fraction(values['economicPnl']['amount'])==Fraction(values['closingValue']['amount'])-Fraction(values['openingValue']['amount'])+300
+    def missing(endpoint):
+        details=position[endpoint+'MissingAssessments']
+        keys=[(d['sourceSlot'],d['day'],d['owner'],d['ownerOrdinal'],d['reason']) for d in details]
+        assert len(keys)==len(set(keys)) and len({k[:2] for k in keys})==values[endpoint+'UnassessedDays'],keys
+        return {k[2:] for k in keys if k[:2]==(0,'2021-01-13')}
+    assert missing('opening')=={('swing_right',0,'missing_election'),('reported_balance',0,'statement_unavailable')},position
+    assert missing('closing')=={('swing_right',0,'missing_election')},position
+    assert not any(k.endswith('MissingAssessments') for k in report['totals'][0].keys()|values.keys())
+    print('PASS authorized P&L position retains both missing Jan 13 owners at opening, the remaining swing reason at closing and 300 settled cash',flush=True)
     for case,opening,closing,movement in [(loss,'-450','-450','0'),(gain,'480','360','-120')]:
         pnl = pnl_values(risk,policies,case[1],context,future,read(case[1],future)['context']['knownAt'])
         assert (pnl['openingValue']['amount'],pnl['closingValue']['amount'],pnl['economicPnl']['amount'])==(opening,closing,movement),pnl
@@ -526,10 +570,6 @@ def route_checks(c, query, manifest, context, template, run_worker, book, cashou
     curve = 'synthetic_intrinsic_location'
     jan = mark(curve,'2021-01','0.33',1)
     feb = mark(curve,'2021-02','0.71',1)
-    clock = datetime.fromisoformat('2021-01-15T08:00:00Z')
-    workspace = c.call('workspace')
-    frame, = [f for f in workspace['frames'] if f['id'] in workspace['initialFrameIds'] and datetime.fromisoformat(f['at'])==clock]
-    stochastic_at = {**context,'snapshotId':frame['id']}
     dates = [datetime.fromisoformat(d+'T03:15:00Z') for d in DAYS]
 
     def oracle(january='0.33', january_forward='320', calculation_at=clock):
@@ -628,8 +668,8 @@ def reported_cash_checks(c, query, manifest, context, trade):
             elections=[dict(day=day,quantity=amount,exercisingParty='us',submittedAt=AT,effectiveAt=AT,
                 evidence='Synthetic swing decision') for day,amount in zip(days,amounts)]))
 
-    def write(kind,day,details):
-        proposal = dict(context=cut,tradeId=ids['tradeId'],expectedRevision=1,kind=kind,day=day,details=details)
+    def write(kind,day,details,*,selected=cut):
+        proposal = dict(context=selected,tradeId=ids['tradeId'],expectedRevision=1,kind=kind,day=day,details=details)
         preview = c.call('gas/operations/preview',proposal)
         return c.call('gas/operations/'+('configure' if kind=='service' else 'record'),
             dict(preview=proposal,operationId=str(uuid4()),previewHash=preview['previewHash']))
@@ -638,7 +678,7 @@ def reported_cash_checks(c, query, manifest, context, trade):
     obligation = c.call('gas/quantities/read',dict(context=cut,tradeId=ids['tradeId'],selectionPolicy='operational_projection_v1'))['rows'][0]['obligationId']
     account = write('service',days[0],dict(obligationId=obligation,holderRole='legal_entity',
         externalReference='synthetic-swing-cashout',expectedPreviousId=None,validFrom=days[0],validTo='2021-01-16',
-        active=True,statementPolicy='final_statement_balance_v1',termsReference='Synthetic account',evidence='Synthetic service'))
+        active=True,statementPolicy='final_statement_balance_v1',termsReference='Synthetic account',evidence='Synthetic service'),selected=context)
     state = c.call('gas/operations/read',dict(context=cut,tradeId=ids['tradeId'],day=days[0]))['state']
     version = next(a['version_id'] for a in state['accounts'] if a['id']==account['accountId'])
     for day,balance in zip(days,['300','-200']):

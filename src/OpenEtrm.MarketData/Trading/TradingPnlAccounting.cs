@@ -42,6 +42,8 @@ public sealed record PnlAccountingPosition(AccountingPositionKey Position,Refere
     ExactMoney OpeningValue,ExactMoney ClosingValue,ExactMoney ValueMovement,ExactMoney PeriodCash,
     ExactMoney PriorCashKnowledgeAdjustment,ExactMoney NonEarningTransfers,ExactMoney EconomicPnl)
 {
+    public ImmutableArray<MissingDayAssessment> OpeningMissingAssessments{get;init;}=[];
+    public ImmutableArray<MissingDayAssessment> ClosingMissingAssessments{get;init;}=[];
     public int OpeningUnassessedDays{get;init;}
     public int ClosingUnassessedDays{get;init;}
     public bool Incomplete=>OpeningUnassessedDays!=0||ClosingUnassessedDays!=0;
@@ -96,7 +98,11 @@ public static class TradingPnlAccounting
                 .Subtract(Sum(flowsAtOpening[position],AccountingFlowKind.EconomicCash));
             var transfers=Sum(flowsAtClosing[position],AccountingFlowKind.NonEarningTransfer).Subtract(Sum(flowsAtOpening[position],AccountingFlowKind.NonEarningTransfer));
             rows.Add(new(position,currency,prior is not null,current is not null,old,now,movement,period,restated,transfers,
-                movement.Add(period).Add(restated).Subtract(transfers)){OpeningUnassessedDays=prior?.UnassessedDays??0,ClosingUnassessedDays=current?.UnassessedDays??0});
+                movement.Add(period).Add(restated).Subtract(transfers))
+            {
+                OpeningUnassessedDays=prior?.UnassessedDays??0, ClosingUnassessedDays=current?.UnassessedDays??0,
+                OpeningMissingAssessments=prior?.MissingAssessments??[], ClosingMissingAssessments=current?.MissingAssessments??[]
+            });
         }
         return new(opening,closing,policy,rows.ToImmutable());
     }

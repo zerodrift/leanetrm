@@ -55,7 +55,6 @@ public static class GasHeldQuantities
                     output.Add(new(member.Slot, day.Day, day.Quantity, day.Quantity, PhysicalLifecycle.ContractQuantity, [])
                     {
                         OperationalRecords = records,
-                        HasOperationalRecord = observations.Any(o => o.Status != "withdrawn"),
                         HasContractDeliveryRecord = observations.Any(o => o.Kind is ("scheduled" or "allocated") && o.Status != "withdrawn")
                     });
                     continue;
@@ -63,7 +62,7 @@ public static class GasHeldQuantities
                 var selected=GasDailyQuantitySelection.Select(day,observations,GasDailyQuantitySelection.ValuationPolicy,at,member.Scale);
                 var value=new HeldDayQuantity(member.Slot,day.Day,day.Quantity,selected.Quantity,GasDailyQuantitySelection.ValuationSource(selected),
                     [..selected.Provenance.Select(p=>new DeliveryQuantityEvidence(p.Source,p.Id,p.Evidence))])
-                    { OperationalRecords = records, HasOperationalRecord = observations.Any(o => o.Status != "withdrawn") };
+                    { OperationalRecords = records };
                 output.Add(value);
             }
         return [..output.OrderBy(q=>q.Slot).ThenBy(q=>q.Day)];

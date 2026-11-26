@@ -25,13 +25,28 @@ test('a report that values options states its option valuation policy in its hea
   assert.doesNotMatch(plain,/Option valuation/);
  }));
 
-test('a factor report shows the retained swing contribution and evaluated actions in each scenario',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(
+const lane=(counted,unassessedDays,operations)=>[{right:0,counted,unassessedDays,
+ work:{operations,pricedChoices:7,moves:11,factorSteps:3,maximumStates:4,peakBytes:2048}}];
+const holding={tradeId:'T',tradeReference:'Trade 7',instrumentReference:'Instrument 8',instrumentType:'physical_gas',bindingId:'B',bookId:'A',book:'A',
+ measure:'pv',measureLabel:'Present value'};
+for(const kind of ['factor','named scenario'])
+test(`a ${kind} report distinguishes missing and zero swing values and shows v2 operations and day coverage`,{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(
  '<div id="host" style="width:1100px"></div>',async evaluate=>{
-  const r=report({});
-  const lane=(counted,evaluatedActions)=>[{right:0,counted,work:{evaluatedActions}}];
-  r.factors[0].positions=[{tradeId:'T',tradeReference:'Trade 7',instrumentReference:'Instrument 8',instrumentType:'physical_gas',bindingId:'B',bookId:'A',book:'A',
-   measure:'pv',measureLabel:'Present value',values,swingRights:{base:lane('91',17),up:lane('93',19),down:lane('89',21)}}];
-  await heading(evaluate,r);
-  const text=await evaluate("document.querySelector('.swing-risk-samples')?.textContent");
-  assert.match(text,/Base.*91.*17.*Up.*93.*19.*Down.*89.*21/s);
+  const base=lane(null,2,17),partial=lane('0',1,19);
+  if(kind==='factor'){
+   const r=report({});
+   r.factors[0].positions=[{...holding,values,swingRights:{base,up:partial,down:lane('89',0,21)}}];
+   await heading(evaluate,r);
+  }else{
+   const amounts={base:'100',value:'105',pnl:'5',loss:'-5'},values={...amounts,display:amounts,currency:'USD',currencyReference:{code:'usd'}};
+   const joint={kind:'scenarios',baseTotals:[{...holding,value:'100',display:'100',currency:'USD'}],
+    samples:[{id:'stress',label:'Joint stress',shifts:[],totals:[{...holding,values}],positions:[{...holding,values,swingRights:{base,value:partial}}]}]};
+   await evaluate(`(async()=>{const {renderJointResults,newJointView}=await import('/joint-risk-results-view.js');
+    renderJointResults(document.querySelector('#host'),${JSON.stringify(joint)},newJointView(),()=>{},[]);})()`);
+  }
+  const grid=await evaluate("Array.from(document.querySelectorAll('.swing-risk-samples tr'),r=>Array.from(r.cells,c=>c.textContent))");
+  assert.deepEqual(grid[0].slice(3),['Remaining-right value','Currency','Unassessed days','Counted operations']);
+  assert.deepEqual(grid[1].slice(3),['Unassessed','USD','2','17']);
+  assert.deepEqual(grid[2].slice(3),['0','USD','1','19']);
+  if(kind==='factor')assert.deepEqual(grid[3].slice(3),['89','USD','0','21']);
  }));

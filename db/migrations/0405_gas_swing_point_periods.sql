@@ -18,6 +18,7 @@ BEGIN
   ('security.record_gas_cash_payment(uuid,jsonb,timestamptz)','13be11b88df674cdc4c978863457a9fa141298cccfb8dd2d7c9d1c57bacebd58',runtime_acl,no_jit,1),
   ('security.gas_amendment_refusal(uuid,uuid,integer,uuid,timestamptz)','465aa7c77e98dd27ed8a897780b535a0b6dc12bae5b134638c4f991c56574faa',runtime_acl,no_jit,1),
   ('trading.require_gas_program_shape(uuid,uuid,integer,date,date,timestamptz,numeric,numeric,market_data.gas_valuation_assignments,ref_data.gas_delivery_conventions,timestamptz,jsonb,numeric,date[],timestamptz[])','dafd10b08d16657446764c27bd196a6b55099692675af9516bbbd537e6484a7b',owner_acl,no_jit,4),
+  ('security.record_gas_swing_elections(uuid,jsonb,timestamptz)','b379385fdc1ea453aa7c84977ff3d5554b8a104a29cb3e482de65212a4f15c87',owner_acl,no_jit||ARRAY['TimeZone=UTC'],1),
   ('security.check_operation_seals()','a3c23e8c1c28583a988aca6ec2277cf5318e31b95e1201c04097f77389a35642',runtime_worker_acl,catalog_path,1),
   ('security.finish_operation_read()','62acdff0786c77480412213001864b4dbaa5910af61d07bcbf833ea5fe61a650',runtime_worker_acl,catalog_path,1)
  )v(signature,digest,acl,config,overloads) LOOP

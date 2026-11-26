@@ -32,9 +32,10 @@ def predecessor(query, migration):
 
 
 def period_predecessor(query, migration):
-    overload_guard(query,migration,'0405','gas_swing_period_upgrade',[WRITER,SHAPE,
-        'security.record_gas_cash_payment(uuid,jsonb,timestamptz)','security.gas_amendment_refusal(uuid,uuid,integer,uuid,timestamptz)'])
-    check_upgrade_guard(query, migration, number='0405', guard='gas_swing_period_upgrade', signatures=[WRITER, SHAPE, "security.record_gas_cash_payment(uuid,jsonb,timestamptz)", "security.gas_amendment_refusal(uuid,uuid,integer,uuid,timestamptz)"])
+    activated=[WRITER,SHAPE,'security.record_gas_cash_payment(uuid,jsonb,timestamptz)',
+        'security.gas_amendment_refusal(uuid,uuid,integer,uuid,timestamptz)','security.record_gas_swing_elections(uuid,jsonb,timestamptz)']
+    overload_guard(query,migration,'0405','gas_swing_period_upgrade',activated)
+    check_upgrade_guard(query, migration, number='0405', guard='gas_swing_period_upgrade', signatures=activated)
     finalizers=('security.check_operation_seals()','security.finish_operation_read()')
     check_guard(query,migration.read_text(),'0405','gas_swing_period_upgrade',
         [(f'REVOKE EXECUTE ON FUNCTION {helper} FROM openetrm_risk_worker;',helper) for helper in finalizers])

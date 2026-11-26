@@ -161,12 +161,15 @@ test('an explicit reread clears a stale exercise message and a recorded reread k
  });
 });
 
-test('a swing election keeps zero explicit and retries the same range command after a lost reply',
+for(const firstRefusal of [true,false])
+test(firstRefusal?'a first swing payload refusal allows editing and recording a smaller range':
+ 'a swing election keeps zero explicit and retries the original range after a lost reply and payload refusal',
  {skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await withBrowserPage('<div id="host"></div>',async evaluate=>{
   const result=await evaluate(`(async()=>{
    const {setupExerciseAction}=await import('/ticket-exercise-action.js');
    const context={snapshotId:'frame',knowledgeMode:'current'};
+   const firstRefusal=${firstRefusal};
    const head='saved-head',days=['2041-02-01','2041-02-02','2041-02-03'].map((day,i)=>({day,exerciseAt:'2041-01-31T16:00:00Z',
     state:'undecided',head:i===2?head:null,effectiveRevision:null,electedQuantity:null,evidence:null}));
    const action={allowed:true,label:'Record swing election',preparePath:'/api/gas/swing/prepare',recordPath:'/api/gas/swing/record',
@@ -181,27 +184,44 @@ test('a swing election keeps zero explicit and retries the same range command af
       if(path==='gas/swing/prepare'){
        if(body.lastDay<body.firstDay)throw Object.assign(Error('Reversed range'),{details:{field:'lastDay',termRow:0}});
        prepares.push(body);return {command:{context,tradeId:'trade',instrumentId:'binding',expectedRevision:1,
-       operationId:body.operationId,right:0,expectedHeads:days.map(d=>({day:d.day,revisionId:d.head})),elections:days.slice(0,2).map(d=>({day:d.day,quantity:body.quantity}))}};}
-      if(path==='gas/swing/record'){writes.push(body);if(writes.length===1)throw Error('Synthetic lost response');return {...body,elections:body.elections.map(e=>({...e,revisionId:'receipt'}))};}
+       operationId:body.operationId,right:0,expectedHeads:days.map(d=>({day:d.day,revisionId:d.head})),elections:days.filter(d=>d.day>=body.firstDay&&d.day<=body.lastDay).map(d=>({day:d.day,quantity:body.quantity}))}};}
+      if(path==='gas/swing/record'){writes.push(body);if(writes.length===(firstRefusal?1:2))
+       throw Object.assign(Error('Command too large'),{status:413,code:'swing_payload',details:{field:'elections'}});
+       if(!firstRefusal&&writes.length===1)throw Error('Synthetic lost response');return {...body,elections:body.elections.map(e=>({...e,revisionId:'receipt'}))};}
       throw Error(path);
      }});
     host.replaceChildren();editor.select(action,context,'MMBtu');editor.mount(host);
    };
    mount();host.querySelector('.ticket-record-swing').click();
    const form=host.querySelector('form'),empty=[...form.elements].filter(c=>c.tagName==='SELECT'||c.tagName==='INPUT').every(c=>c.value==='');
-   const fill=(k,v)=>{const c=form.elements.namedItem(k);c.value=v;c.dispatchEvent(new Event('change'));};
-   for(const [k,v] of Object.entries({firstDay:days[0].day,lastDay:days[1].day,decision:'elect',quantity:'0',exercisingParty:'us',
-    submittedAt:'2041-01-01T16:00:00Z',effectiveAt:'2041-01-02T16:00:00Z',evidence:'Synthetic range'}))fill(k,v);
+   const fill=(k,v)=>{const c=host.querySelector('form').elements.namedItem(k);c.value=v;c.dispatchEvent(new Event('change'));};
+   const values={firstDay:days[0].day,lastDay:days[1].day,decision:'elect',quantity:'0',exercisingParty:'us',
+    submittedAt:'2041-01-01T16:00:00Z',effectiveAt:'2041-01-02T16:00:00Z',evidence:'Synthetic range'};
+   for(const [k,v] of Object.entries(values))fill(k,v);
    fill('firstDay',days[1].day);fill('lastDay',days[0].day);form.requestSubmit();
    const end=form.elements.namedItem('lastDay');await until(()=>end===document.activeElement&&end.getAttribute('aria-invalid')==='true');
    fill('firstDay',days[0].day);fill('lastDay',days[1].day);const corrected=!end.hasAttribute('aria-invalid');
-   form.requestSubmit();await until(()=>host.querySelector('.ticket-retry-swing'));
-   mount();host.querySelector('.ticket-retry-swing').click();await until(()=>!host.querySelector('.ticket-record-swing').disabled);
+   form.requestSubmit();await until(()=>writes.length===1&&!form.inert||!!host.querySelector('.ticket-retry-swing'));
+   if(firstRefusal){
+    if(host.querySelector('form')!==form||host.querySelector('.ticket-retry-swing'))throw Error('The first definite refusal did not restore the editable range');
+    mount();host.querySelector('.ticket-record-swing').click();
+    for(const [key,value] of Object.entries({...values,lastDay:days[0].day}))fill(key,value);
+    host.querySelector('form').requestSubmit();
+   }else{
+    mount();host.querySelector('.ticket-retry-swing').click();await until(()=>writes.length===2);
+    mount();host.querySelector('.ticket-retry-swing').click();
+   }
+   await until(()=>!host.querySelector('.ticket-record-swing').disabled);
    return {empty,corrected,prepares,writes};
   })()`);
   assert.ok(result.empty);assert.ok(result.corrected);
-  assert.equal(result.prepares.length,1);assert.equal(result.prepares[0].quantity,'0');
-  assert.equal(result.writes.length,2);assert.deepEqual(result.writes[0],result.writes[1]);
+  assert.equal(result.prepares.length,firstRefusal?2:1);assert.equal(result.prepares[0].quantity,'0');
+  if(firstRefusal){
+   assert.equal(result.prepares[1].lastDay,result.prepares[1].firstDay);
+   assert.deepEqual(result.writes.map(w=>w.elections.length),[2,1]);
+   assert.notEqual(result.writes[0].operationId,result.writes[1].operationId);
+  }
+  else assert.deepEqual(result.writes,[result.writes[0],result.writes[0],result.writes[0]]);
   assert.equal(result.writes[0].expectedHeads[2].revisionId,'saved-head');
  });
 });

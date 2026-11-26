@@ -401,8 +401,9 @@ per-day plan backpointers and budgeted payoff/normalizer workspace. Stream
 decision-layer payoffs or preflight their entire retained size. Account for
 both successor expectation and choice work at decision nodes.
 
-Proposed qualification ceilings per right/scenario are 100,000,000 counted
-operations and 256 MiB of modeled live workspace. Count topology generation,
+The v2 numerical policy enforces ceilings of 100,000,000 counted operations
+and 256 MiB of modeled live workspace per right and scenario. The fixture
+qualification separately measures process resident memory. Count topology generation,
 exact plan states and candidate visits, price payoff nodes, normalizer updates,
 probability branches per successor state, and each priced candidate. Count
 full factor layers from inception, including skipped dates. Charge state,
@@ -694,8 +695,11 @@ a versioned payload budget allowing the entire head set for the upstream
 commands with distinct day quantities and complete heads, including a change
 outside the draft range invalidating its predecessor. Applying a timer, paging
 the display or splitting a transport payload must never split an authorized
-atomic batch. Return a field error for a batch exceeding the documented request
-budget. New rows, semantic duplicates, request retries and publication from
+atomic batch. Prepare removes leading and trailing ASCII spaces from evidence
+before expanding the range. The complete compact UTF-8 record, including its
+context and all expected heads, must fit within 4 MiB. A first
+`413 swing_payload` refusal leaves the range editable. After an uncertain
+attempt the ticket retains the original command for exact retry. New rows, semantic duplicates, request retries and publication from
 concurrent days obey the same serialized operation and authority-at-commit
 checks as the current swing writer. Recheck input frames, trade/book visibility,
 permission and the original authority deadline after waits and before commit or

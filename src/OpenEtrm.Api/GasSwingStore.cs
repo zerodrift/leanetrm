@@ -18,6 +18,30 @@ internal static class GasSwingStore
 {
     internal const int ElectionCommandBytes = 4 * 1024 * 1024;
 
+    // The ticket posts compact JSON.stringify(command). The HTTP serializer can
+    // escape printable Unicode and HTML-sensitive characters that the ticket sends as UTF-8.
+    internal static void RequireTransportSize(GasSwingRecordRequest command)
+    {
+        var serialized=JsonSerializer.SerializeToUtf8Bytes(command,Wire);
+        var size=serialized.Length;
+        if(size<=ElectionCommandBytes)return;
+        var reader=new Utf8JsonReader(serialized);
+        while(reader.Read())
+        {
+            if(reader.TokenType is not (JsonTokenType.String or JsonTokenType.PropertyName)||!reader.ValueIsEscaped)continue;
+            size-=reader.ValueSpan.Length;
+            foreach(var rune in reader.GetString()!.EnumerateRunes())
+                size+=rune.Value switch
+                {
+                    '"' or '\\' or '\b' or '\f' or '\n' or '\r' or '\t'=>2,
+                    <32=>6,
+                    _=>rune.Utf8SequenceLength
+                };
+        }
+        if(size>ElectionCommandBytes)
+            throw new TicketFieldException("swing_payload","The election command exceeds 4 MiB.",null,"elections");
+    }
+
     // A nullable parameter still has to be supplied. This distinguishes a
     // withdrawal from an omitted quantity and an empty chain from a missing head.
     private static readonly JsonSerializerOptions Wire = new(JsonSerializerDefaults.Web)

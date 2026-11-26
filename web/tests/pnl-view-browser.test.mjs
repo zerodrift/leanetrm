@@ -577,3 +577,16 @@ test('P&L subtotals display the distinct missing-day counts of both endpoints',b
  assert.match(await evaluate("document.querySelector('.pnl-positions').textContent"),/incomplete: prior 1 unassessed day; current 2 unassessed days/);
  assert.ok((await evaluate("rows('.pnl-positions tbody tr').map(row=>row[0])")).includes('TR-2 · IN-4'),'An incomplete zero subtotal is visible without expanding quiet holdings');
 }));
+
+test('a holding without Greeks opens both endpoints’ missing assessment details',browser,()=>page(async evaluate=>{
+ await evaluate(setup);
+ const swing={sourceSlot:0,day:'2021-01-15',owner:'swing_right',ownerOrdinal:0,reason:'missing_election'};
+ const statement={...swing,owner:'reported_balance',reason:'statement_unavailable'};
+ await evaluate(`Object.assign(report.positions[0],{contributions:[],openingMissingAssessments:${JSON.stringify([swing,statement])},closingMissingAssessments:${JSON.stringify([swing])}})`);
+ await evaluate('run()');
+ assert.doesNotMatch(await evaluate("document.querySelector('.pnl-positions').textContent"),/statement unavailable/i);
+ await evaluate("button('TR-1 · IN-1')?.click()");
+ assert.deepEqual(await evaluate("rows('.pnl-detail tbody tr')"),[
+  ['Opening','1','2021-01-15','swing right 1','missing election'],['Opening','1','2021-01-15','reported balance 1','statement unavailable'],
+  ['Closing','1','2021-01-15','swing right 1','missing election']]);
+}));

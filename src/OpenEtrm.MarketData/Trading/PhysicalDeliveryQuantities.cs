@@ -10,8 +10,6 @@ public sealed record HeldDayQuantity(int Slot,DateOnly Day,ExactQuantity Contrac
     ImmutableArray<DeliveryQuantityEvidence> Evidence)
 {
     internal ImmutableArray<HeldDeliveryRecord> OperationalRecords { get; init; } = [];
-    // The bounded swing policy requires an election even for a nomination or confirmation that has no valuation rank.
-    public bool HasOperationalRecord { get; init; }
     // A contract-only owner can have a scheduled or allocated record outside its valuation policy.
     public bool HasContractDeliveryRecord { get; init; }
 }

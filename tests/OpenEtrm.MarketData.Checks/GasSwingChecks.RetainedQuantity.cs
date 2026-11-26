@@ -206,7 +206,8 @@ internal static partial class GasSwingChecks
             new(0, contract[0].Day, observed with { Id = Guid.NewGuid(), Source = "facility_allocation_adoption_v1", Quantity = f.Quantity("0") })];
         var policy = terms with { QuantityPolicy = SwingQuantityRight.ElectedDeliveryQuantity };
         var days = GasHeldQuantities.Build(members, heads, f.Before, policy, []);
-        Require(days[0].OperationalRecords.Length==2 && days[0].HasOperationalRecord && days[0].Source == PhysicalLifecycle.ContractQuantity,
+        Require(days[0].OperationalRecords.SequenceEqual(heads.Select(h=>new HeldDeliveryRecord("allocated","provisional",h.Observation.Quantity,
+            new(h.Observation.Source,h.Observation.Id,"Synthetic allocation")))) && days[0].Source == PhysicalLifecycle.ContractQuantity,
             "Conflicting valid allocations remain operational facts without selecting either one on an unelected day.");
         Refuse("gas_quantity_selection", () => GasHeldQuantities.Build(members, heads, f.Before, policy, [f.Elect(0,"1050")]));
         foreach (var t in new[] { terms with { Period = SwingQuantityRight.Term }, terms with { ChangeCount = null, CountRule = null,
@@ -391,6 +392,8 @@ internal static partial class GasSwingChecks
         var withdrawn = Endpoint(ended.AddMinutes(10),publication,[],true);
         var movement = TradingPnlAccounting.Compare(original,withdrawn,TradingPnlAccounting.Version1).Positions.Single();
         Require(before.Positions.Single().UnassessedDays==0 && before.Flows.IsEmpty && withdrawn.Positions.Single().MissingAssessments.Select(m=>m.Day).Distinct().Count()==2 && original.Flows.Single()==withdrawn.Flows.Single() &&
+            movement.OpeningMissingAssessments.SequenceEqual(original.Positions.Single().MissingAssessments) &&
+            movement.ClosingMissingAssessments.SequenceEqual(withdrawn.Positions.Single().MissingAssessments) &&
             original.Positions.Single().UnassessedDays==1 && movement.OpeningUnassessedDays==1 && movement.ClosingUnassessedDays==2 &&
             movement.PeriodCash == f.Money("0") && movement.PriorCashKnowledgeAdjustment == f.Money("0") &&
             movement.OpeningValue == f.Money("-425") && movement.ClosingValue == f.Money("330") &&

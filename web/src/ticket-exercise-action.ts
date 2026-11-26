@@ -80,7 +80,8 @@ export function setupExerciseAction(o:{api:Api;context:()=>WorkingContext;curren
     said=conflict?`The ${kind} election changed. Refresh the trade to choose from the current instructions.`:
      `${name} refused. ${reasonOf(error)} Refresh the trade to enter a new instruction.`;
    }else{
-    if(!uncertain&&definite(error))keep(undefined);
+    const payloadRefused=kind==='swing'&&code==='swing_payload'&&(error as {status?:number}).status===413;
+    if(!uncertain&&(payloadRefused||definite(error)))keep(undefined);
     said=prepared?`The ${kind} record is unconfirmed. ${reasonOf(error)}`:`${name} refused. ${reasonOf(error)}`;
    }
    markError(error);draw();return;

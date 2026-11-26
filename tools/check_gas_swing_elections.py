@@ -207,6 +207,20 @@ def election_checks(client, query, manifest, context, booking, plain, run_worker
     assert heads(initial) == empty and initial['elections'] == [] and initial['nextElectionEffectiveAt'] is None
     old = {**context,'knowledgeMode':'retained','contextId':initial['context']['contextId']}
     first = row(0,'700')
+    # A second invalid row guarantees atomic refusal even if first-row validation regresses.
+    minimum = '0001-01-01T00:00:00.000000+00:00'
+    for changes, field in [({'submittedAt':minimum}, 'submittedAt'), ({'effectiveAt':minimum}, 'effectiveAt'),
+                           ({'submittedAt':minimum, 'effectiveAt':minimum}, 'submittedAt')]:
+        before = state()
+        invalid = dict(first, **changes)
+        refused = record(command(empty, invalid, dict(row(1,'0'), evidence='')), expected=422)
+        assert (refused['code'], refused['termRow'], refused['field']) == ('swing_election', 0, field), refused
+        assert state() == before
+        cutoff = dict(context, knowledgeMode='retained', contextId=read()['context']['contextId'])
+        retained = read(cutoff)
+        assert heads(retained) == empty and retained['elections'] == []
+        ticket = client.call('tickets/trade', dict(context=cutoff, tradeId=selected['tradeId'], bindingId=selected['instrumentId'], revision=1))
+        assert all(d['effectiveRevision'] is None for d in ticket['actions']['recordSwing']['days'])
     for bad in [dict(exercisingParty='counterparty'),dict(quantity='-1'),dict(quantity='1200'),
                 dict(day='2021-01-30'),dict(submittedAt=LATER),
                 dict(effectiveAt='2021-01-31T03:15:00.000001Z'),dict(effectiveAt='2021-01-31T03:15:00.0000001Z'),
@@ -587,7 +601,7 @@ def late_booking_history(client, query, manifest, context, booking, before_booki
     visible = trade.retained()
     first = acceptance(day,'1000','2020-12-17T09:00:00Z')
     first['submittedAt']='2020-12-17T08:45:00Z'
-    original = trade.prepare(view,first)
+    original = trade.command(first)
     receipt = trade.record(original)
     accepted = trade.retained()
     correction = acceptance(day,'1050','2020-12-17T09:15:00Z')

@@ -120,6 +120,36 @@ internal static class GasTicketChecks
             catch(TicketFieldException e)when(e.Code=="swing_election"&&e.Field=="quantity"&&e.TermRow==1){return;}
             throw new Exception("An out-of-range election must identify its first selected day.");
         });
+        Check("the complete expanded swing command fits its UTF-8 record budget",()=>{
+            var from=new DateOnly(2027,1,1);
+            var days=Enumerable.Range(0,1200).Select(i=>new GasSwingActionDay(from.AddDays(i),new(2026,12,31,0,0,0,TimeSpan.Zero),
+                null,null,null,null,"undecided")).ToImmutableArray();
+            var request=new GasSwingPrepareRequest(new(Snapshot,PhysicalGasStore.Convention,"current"),Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),1,Operation,0,
+                from,days[^1].Day,"elect","0","us","2026-12-01T00:00:00Z","2026-12-01T00:00:00Z","Synthetic instruction");
+            var action=new GasSwingAction(true,null,request.TradeId,request.InstrumentId,1,request.ReadContextId,0,"us","100","0","1000","1000",[],days);
+            var swingWireOptions=new Microsoft.AspNetCore.Http.Json.JsonOptions().SerializerOptions;
+            var proof=string.Concat(Enumerable.Repeat("🌱",500));
+            var unicode=action.Build(request with {Evidence=proof});
+            Equal(1200,unicode.Elections.Length,"all Unicode evidence rows fit on the ticket wire");
+            Equal(proof,unicode.Elections[^1].Evidence,"astral evidence preserved");
+
+            // With a fixed row width, the two serialized samples establish the independent byte boundary.
+            // The extra fixture dates exercise the transport guard beyond today's 1,200-day retained geometry.
+            var extended=action with {Days=[..Enumerable.Range(0,1500).Select(i=>days[0] with{Day=from.AddDays(i)})]};
+            var escaped=new string('\u0001',500);
+            var template=extended.Build(request with {LastDay=from});
+            int Bytes(int count)=>JsonSerializer.SerializeToUtf8Bytes(template with {
+                Elections=[..Enumerable.Repeat(template.Elections[0] with {Evidence=escaped},count)]},swingWireOptions).Length;
+            int firstBytes=Bytes(1),rowBytes=Bytes(2)-firstBytes;
+            var last=1+(4*1024*1024-firstBytes)/rowBytes;
+            var near=extended.Build(request with {LastDay=from.AddDays(last-1),Evidence=escaped});
+            Equal(Bytes(last),JsonSerializer.SerializeToUtf8Bytes(near,swingWireOptions).Length,"largest complete range for this evidence");
+            Equal(last,near.Elections.Length,"no split or truncation");
+            try{extended.Build(request with {LastDay=from.AddDays(last),Evidence=escaped});throw new Exception("An expanded command over 4 MiB was prepared.");}
+            catch(TicketFieldException e)when(e.Code=="swing_payload"&&e.Field=="elections"){}
+            var padded=action.Build(request with {Evidence=new string(' ',12000)+"\tSynthetic instruction\u00a0  "});
+            Equal(true,padded.Elections.All(e=>e.Evidence=="\tSynthetic instruction\u00a0"),"only ASCII edge spaces are trimmed");
+        });
         Check("swing terms round trip and an absent right preserves the wire request", () =>
         {
             var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);

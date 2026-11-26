@@ -7721,9 +7721,13 @@ use the grid anchored at the daily minimum.
 Each command identifies the held binding and all expected election heads.
 Under the serialized publication gate, apply all same-instant decisions as a
 batch and prove each touched period feasible at every effective-time boundary,
-including later known revisions. Recheck the binding, current authority and
-original deadline through commit. A replay returns its first outcome. A
-withdrawal can leave a missed election at an elapsed deadline. Future
+including later known revisions. Submission and effectiveness must meet the
+gas day's commercial election deadline. The binding and the current
+invocation's authorization bound apply through commit under the
+[supported deferred-finalization protocol](storage-facility-operations.md#transaction-admission).
+A replay returns the first outcome. Its receipt retains the original
+authorization evidence, and the replay's own grant must remain valid through
+commit. A withdrawal can leave a missed election at an elapsed deadline. Future
 unelected days in that period become unassessed if a total or count couples them.
 Independent periods remain assessable and recorded payments survive even when
 their corresponding accrued amount becomes unknown.

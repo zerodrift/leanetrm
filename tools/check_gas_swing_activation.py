@@ -391,9 +391,27 @@ def long_transport(client, context, base, book_native):
         def send(draft):
             raw=json.dumps(draft,ensure_ascii=False,separators=(',',':')).encode('utf8')
             return client.call('gas/swing/record',raw),len(raw)
-        original=command([row(i,'Synthetic annual instruction') for i in range(days)],read())
+        if days==1200:
+            # The compact ticket wire preserves literal Unicode; JSON controls still require escaping.
+            # All heads and every election belong to the one prepared command.
+            view=read()
+            proof='測🌱'+chr(1)*496+'"'+'\\'
+            prepared=client.call('gas/swing/prepare',dict(context=context,**ids,expectedRevision=1,
+                readContextId=view['context']['contextId'],operationId=str(uuid4()),right=0,decision='elect',
+                firstDay=dates[0],lastDay=dates[-1],quantity='1000',exercisingParty='us',
+                submittedAt='2020-12-17T16:00:00Z',effectiveAt='2020-12-17T16:00:00Z',evidence=' '*12000+proof))
+            original=prepared['command']
+            assert len(original['expectedHeads'])==days and all(e['evidence']==proof for e in original['elections'])
+        else:
+            original=command([row(i,'Synthetic annual instruction') for i in range(days)],read())
         outcome,length=send(original)
         assert len(outcome['elections'])==days
+        if days==1200:
+            assert 3_800_000<length<=4*1024*1024,length
+            # Insignificant JSON whitespace pads this exact replay to the inclusive HTTP limit.
+            compact=json.dumps(original,ensure_ascii=False,separators=(',',':')).encode('utf8')
+            assert client.call('gas/swing/record',compact.ljust(4*1024*1024,b' '))==outcome
+            print('PASS normalized 1,200-day Unicode and escaped evidence, one atomic record and exact 4 MiB HTTP replay',flush=True)
         if days==365:
             selected=read()['elections']
             assert [(e['day'],e['quantity'].rstrip('0').rstrip('.')) for e in selected]==[(r['day'],r['quantity'].rstrip('0').rstrip('.')) for r in original['elections']]
