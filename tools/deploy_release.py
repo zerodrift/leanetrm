@@ -164,11 +164,20 @@ def require_rendered(rendered, settings):
 
 
 def api_resources(rendered):
-    """The rendered API's explicit memory, processor and process limits, which its candidate runs under too."""
+    """The rendered API's explicit memory, processor and process limits, as Docker records them in a container's HostConfig."""
     memory, processors, processes = (str(rendered['services']['api'].get(name)) for name in ['mem_limit', 'cpus', 'pids_limit'])
     require(re.fullmatch(r'[1-9][0-9]*', memory) and re.fullmatch(r'[0-9]+(?:\.[0-9]+)?', processors) and float(processors) > 0
             and re.fullmatch(r'[1-9][0-9]*', processes), 'rendered API resource limits are not explicit')
-    return ['--memory', memory, '--cpus', processors, '--pids-limit', processes]
+    return {'Memory': int(memory), 'NanoCpus': round(float(processors) * 10 ** 9), 'PidsLimit': int(processes)}
+
+
+def resource_flags(resources):
+    return ['--memory', str(resources['Memory']), '--cpus', f"{resources['NanoCpus'] / 10 ** 9:g}", '--pids-limit', str(resources['PidsLimit'])]
+
+
+def require_resources(actual, resources):
+    """A candidate or promoted API runs under exactly the rendered API's limits."""
+    require({name: actual['HostConfig'].get(name) for name in resources} == resources, 'container resource limits differ from the rendered API')
 
 
 def require_actual(actual, settings, image):
@@ -295,7 +304,7 @@ class Deployment:
         os.chown(self.candidate_file, 1654, 1654)
         args = ['docker', 'create', '--name', s['apiContainer'] + '-candidate', '--label',
                 'io.openetrm.deployment-candidate=' + self.state['targetCommit'], '--read-only', '--cap-drop', 'ALL',
-                '--security-opt', 'no-new-privileges:true', *resources,
+                '--security-opt', 'no-new-privileges:true', *resource_flags(resources),
                 '--network', 'name=' + s['ingressNetwork'] + ',gw-priority=1', '--network', s['databaseNetwork'],
                 '--publish', '127.0.0.1:' + str(s['candidatePort']) + ':8080', '--tmpfs', '/tmp:size=64m,mode=1777',
                 '--volume', values['PRIVATE_ROOT'] + '/application:/run/private:ro',
@@ -305,6 +314,7 @@ class Deployment:
         self.candidate_id = command(args).decode().strip()
         require(re.fullmatch(r'[a-f0-9]{64}', self.candidate_id), 'invalid created candidate identity')
         self.save('preflight', candidateId=self.candidate_id)
+        require_resources(inspect_container(self.candidate_id), resources)
         command(['docker', 'start', self.candidate_id])
         for attempt in range(15):
             try:
@@ -432,6 +442,7 @@ class Deployment:
                     try:
                         actual = inspect_container(s['apiContainer'])
                         require_actual(actual, s, image)
+                        require_resources(actual, resources)
                         http_checks(s['publicOrigin'], certificate=s.get('tlsCertificate'))
                         break
                     except (ReleaseError, InfrastructureError):

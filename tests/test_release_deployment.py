@@ -20,6 +20,11 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def applied(memory, cpus, pids):
+    """The limits as Docker records them in a container's HostConfig."""
+    return {'Memory': int(memory), 'NanoCpus': round(float(cpus) * 10 ** 9), 'PidsLimit': int(pids)}
+
+
 def archive(path, entries):
     with tarfile.open(path, 'w:gz', format=tarfile.USTAR_FORMAT) as output:
         for name, value in entries:
@@ -184,6 +189,28 @@ class AdmissionChecks(unittest.TestCase):
         self.assertNotEqual(deploy.schema_fingerprint(first), deploy.schema_fingerprint(first.replace(b'int', b'text')))
 
 
+class ApiResourceChecks(unittest.TestCase):
+    complete = {'mem_limit': '2684354560', 'cpus': 2, 'pids_limit': 128}
+
+    @staticmethod
+    def resources(**api):
+        return deploy.api_resources({'services': {'api': api}})
+
+    def test_positive_whole_limits_are_the_containers_limits(self):
+        self.assertEqual(self.resources(**self.complete), applied('2684354560', 2, 128))
+        self.assertEqual(self.resources(mem_limit=2684354560, cpus=1.5, pids_limit=96), applied(2684354560, 1.5, 96))
+
+    def test_absent_zero_negative_unit_and_boolean_limits_are_refused(self):
+        for name, value in [('mem_limit', '0'), ('mem_limit', -1), ('mem_limit', '3g'), ('mem_limit', True),
+                            ('cpus', 0), ('cpus', '0.0'), ('cpus', -2), ('cpus', True),
+                            ('pids_limit', 0), ('pids_limit', -1), ('pids_limit', True)]:
+            with self.subTest(**{name: value}), self.assertRaisesRegex(deploy.ReleaseError, 'resource limits'):
+                self.resources(**{**self.complete, name: value})
+        # A limit stated only for Swarm placement is not the Compose container's limit.
+        with self.assertRaisesRegex(deploy.ReleaseError, 'resource limits'):
+            self.resources(cpus=2, pids_limit=128, deploy={'resources': {'limits': {'memory': '2684354560'}}})
+
+
 # Exercise the real orchestration with synthetic API/daemon responses. No live services.
 from unittest.mock import patch
 import shutil
@@ -276,6 +303,7 @@ class StateMachineChecks(unittest.TestCase):
         self.head_reads = 0; self.supersede = False; self.fail_candidate = False; self.forced_head = None
         self.power_loss = None; self.busy_collector = False; self.transient_download = False
         self.api_resources = {'mem_limit': '2147483648', 'cpus': 1.5, 'pids_limit': 96}
+        self.candidate_drift = {}; self.serving_drift = {}
         self.commands = []
         for name, replacement in [('command', self.command), ('api', self.api), ('download', self.download),
                                   ('http_checks', self.http), ('inspect_image', lambda *a: None)]:
@@ -341,15 +369,21 @@ class StateMachineChecks(unittest.TestCase):
             if name == 'synthetic-db':
                 value = {'Id': 'owned-db', 'State': {'StartedAt': 'unchanged', 'Running': True}}
             elif name == 'synthetic-api':
+                # Compose applies the rendered limits when it promotes; the earlier container ran under the earlier ones.
+                limits = (applied(self.api_resources['mem_limit'], self.api_resources['cpus'], self.api_resources['pids_limit'])
+                          if self.live_image == self.new_image else applied('1073741824', 2, 128))
                 value = {'Image': self.live_image, 'State': {'Running': True}, 'HostConfig': {'ReadonlyRootfs': True,
-                    'PortBindings': {'8080/tcp': [{'HostIp': '192.0.2.2', 'HostPort': '18080'}]}},
+                    'PortBindings': {'8080/tcp': [{'HostIp': '192.0.2.2', 'HostPort': '18080'}]}, **limits, **self.serving_drift},
                     'NetworkSettings': {'Networks': {'synthetic-database': {}, 'synthetic-ingress': {}}},
                     'Mounts': [{'Type': 'bind', 'Source': str(self.private) + '/application', 'Destination': '/run/private', 'RW': False},
                                {'Type': 'bind', 'Source': self.values['STATE_ROOT'] + '/application', 'Destination': '/var/lib/openetrm', 'RW': True}]}
             else:
                 if not self.candidate_exists:
                     raise deploy.InfrastructureError('synthetic container does not exist')
-                value = {'Config': {'Labels': {'io.openetrm.deployment-candidate': COMMIT}}, 'State': {'Running': True}}
+                flags = self.candidate_args
+                value = {'Config': {'Labels': {'io.openetrm.deployment-candidate': COMMIT}}, 'State': {'Running': True},
+                         'HostConfig': {**applied(*(flags[flags.index(flag) + 1] for flag in ['--memory', '--cpus', '--pids-limit'])),
+                                        **self.candidate_drift}}
             value.setdefault('Config', {'User': '1654:1654'})
             return json.dumps([value]).encode()
         if args[:2] == ['docker', 'load']:
@@ -471,6 +505,22 @@ class StateMachineChecks(unittest.TestCase):
                     deploy.Deployment(self.settings).run()
                 self.assertFalse(any(args[:2] in [['docker', 'load'], ['docker', 'create']] for args in self.commands))
                 self.assertEqual(self.promotions, 0)
+
+    def test_a_candidate_docker_records_under_other_limits_is_removed_before_it_starts(self):
+        self.candidate_drift = {'Memory': 1073741824}
+        with self.assertRaisesRegex(deploy.ReleaseError, 'resource limits'):
+            deploy.Deployment(self.settings).run()
+        self.assertFalse(any(args[:2] == ['docker', 'start'] for args in self.commands))
+        self.assertFalse(self.candidate_exists)
+        self.assertEqual(self.promotions, 0)
+        self.assertIn(COMMIT, self.state()['quarantined'])
+
+    def test_a_promoted_api_under_other_limits_blocks_for_operator_recovery(self):
+        self.serving_drift = {'PidsLimit': 128}
+        with self.assertRaisesRegex(deploy.ReleaseError, 'resource limits'):
+            deploy.Deployment(self.settings).run()
+        self.assertEqual(self.promotions, 1)
+        self.assertEqual(self.state()['phase'], 'blocked')
 
     def test_stale_preflight_is_cleaned_even_when_head_returns_to_active_commit(self):
         self.power_loss = 'created'
