@@ -7740,3 +7740,49 @@ explicit recovery and updater suspension follow the
 [backend maintenance procedure](hosted-pilot.md#physical-directory-maintenance-d456).
 This exception includes no schema or business-data migration and authorizes no
 other backend change or general maintenance release mechanism.
+
+## D457 — The hosted application gets the memory and request time a demo dataset needs
+
+Decided 2026-11-26. A hosted demo dataset of about 209 trades, 65 curves and
+4,236 market contracts does not fit the hosted application's limits. It was
+loaded on a separate test host against an application with the hosted shape of
+two processors. Value-at-risk history reads (`portfolio/risk/history`) took 11 to
+15 s and risk job submissions (`portfolio/risk/{parametric,historical,monte-carlo}/jobs`)
+13 to 15 s, so one or another was cancelled at random by the 15-second ordinary
+request deadline. The application's peak resident memory (`VmHWM`) reached
+978 MB and the load failed under a 1 GiB limit; under a 2 GiB limit it reached
+1,824 MB partway through the load.
+
+The API container's memory limit in `deploy/compose.yaml` rises from 1 GiB to
+3 GiB. Its two processors and 128 processes, and the database and collector
+limits, are unchanged. .NET sizes its heap limit from the container's limit, so
+no runtime setting changes. A deploy's candidate now runs under the rendered
+API's own memory, processor and process limits instead of a copy of them in
+`tools/deploy_release.py`, and the deployer refuses a Compose file whose API does
+not state all three. The memory figure is therefore stated once.
+
+The request time limits stay host configuration; only their ceilings rise.
+`extendedRequestSeconds` may be at most 35 s instead of 20 s, and
+`requestSeconds` at most 29 s instead of 15 s. The ordinary ceiling is held below
+the assistant runtime set's fixed 30-second admission deadline (`turns_v23`),
+which must outlast an ask's request: at 30 s, a concurrent ask could end a turn
+as `ask_incomplete` while the request that admitted it was still finishing. An
+ordinary limit of 30 s or more needs a new runtime set with a longer admission
+deadline and the migration that admits it; this decision makes neither.
+Extended must still cover ordinary, the response grace stays 1 to 5 s on top of
+each, and the gateway's read timeout still follows the larger of 20 s and the
+extended limit plus its grace, so at most 40 s. The page no longer repeats the
+server's ceilings: it requires positive whole-millisecond budgets with extended
+covering ordinary and uses the budgets bootstrap serves. The example process
+limits, 15 s and 20 s, are unchanged.
+
+Everything bounded by the ordinary deadline is now bounded by the selected
+value, which may be longer than 15 s: a stalled Blotter stream's hold on the
+security epoch (D268), asynchronous-read submission and a closing view's
+detachment. Nothing else about the limits changes.
+
+This is capacity, not speed. On two processors the risk history reads and risk
+job submissions stay as slow as measured; a longer limit only stops them being
+cancelled. Making them faster is an open performance item. The new limits take
+effect only through the operator steps in
+[hosted capacity](hosted-pilot.md#hosted-capacity-d457).

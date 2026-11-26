@@ -163,6 +163,14 @@ def require_rendered(rendered, settings):
                        (settings['applicationStateRoot'] + '/application', '/var/lib/openetrm', False)}, 'rendered private mounts mismatch')
 
 
+def api_resources(rendered):
+    """The rendered API's explicit memory, processor and process limits, which its candidate runs under too."""
+    memory, processors, processes = (str(rendered['services']['api'].get(name)) for name in ['mem_limit', 'cpus', 'pids_limit'])
+    require(re.fullmatch(r'[1-9][0-9]*', memory) and re.fullmatch(r'[0-9]+(?:\.[0-9]+)?', processors) and float(processors) > 0
+            and re.fullmatch(r'[1-9][0-9]*', processes), 'rendered API resource limits are not explicit')
+    return ['--memory', memory, '--cpus', processors, '--pids-limit', processes]
+
+
 def require_actual(actual, settings, image):
     # Only owned checks name a provider check endpoint (docs/ai-assistant.md §5.2); a serving API never does.
     require(not any(value.startswith('OPENETRM_PROVIDER_CHECK_ENDPOINT=') for value in actual['Config'].get('Env') or []),
@@ -278,7 +286,7 @@ class Deployment:
             self.save(self.state.get('phase', 'idle'), candidateId=None)
         self.candidate_file.unlink(missing_ok=True)
 
-    def candidate(self, image, values, origin):
+    def candidate(self, image, values, origin, resources):
         s = self.settings
         gateway = json.loads(command(['docker', 'network', 'inspect', s['ingressNetwork']]))[0]['IPAM']['Config'][0]['Gateway']
         host = json.loads((Path(values['PRIVATE_ROOT']) / 'application/host.json').read_text())
@@ -287,7 +295,7 @@ class Deployment:
         os.chown(self.candidate_file, 1654, 1654)
         args = ['docker', 'create', '--name', s['apiContainer'] + '-candidate', '--label',
                 'io.openetrm.deployment-candidate=' + self.state['targetCommit'], '--read-only', '--cap-drop', 'ALL',
-                '--security-opt', 'no-new-privileges:true', '--memory', '1g', '--cpus', '2', '--pids-limit', '128',
+                '--security-opt', 'no-new-privileges:true', *resources,
                 '--network', 'name=' + s['ingressNetwork'] + ',gw-priority=1', '--network', s['databaseNetwork'],
                 '--publish', '127.0.0.1:' + str(s['candidatePort']) + ':8080', '--tmpfs', '/tmp:size=64m,mode=1777',
                 '--volume', values['PRIVATE_ROOT'] + '/application:/run/private:ro',
@@ -387,6 +395,7 @@ class Deployment:
                 require_environment(values, s)
                 rendered = json.loads(command([*self.compose, '--profile', 'collection', 'config', '--format', 'json']))
                 require_rendered(rendered, s)
+                resources = api_resources(rendered)
                 before = {name: inspect_container(name) for name in [s['apiContainer'], s['databaseContainer']]}
                 require_actual(before[s['apiContainer']], s, before[s['apiContainer']]['Image'])
                 collectors = command(['docker', 'ps', '-q', '--filter', 'label=com.docker.compose.project=' + values['DEPLOYMENT_PROJECT'], '--filter', 'label=com.docker.compose.service=collector']).strip()
@@ -409,7 +418,7 @@ class Deployment:
                 require(json.loads(command(['docker', 'image', 'inspect', manifest['imageTag']]))[0]['Id'] == image, 'loaded image tag changed')
                 owned = [item for item in self.state.get('ownedImages', []) if item['image'] != image]
                 self.save('preparing', ownedImages=[*owned, {'commit': commit, 'image': image}])
-                self.candidate(image, values, s['publicOrigin'])
+                self.candidate(image, values, s['publicOrigin'], resources)
                 if api(s['repository'], 'commits/' + s['branch'])['sha'] != commit:
                     self.save('idle'); self.clean_candidate(); print('DEPLOYMENT_SUPERSEDED'); return
                 self.baseline()

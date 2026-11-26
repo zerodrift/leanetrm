@@ -58,6 +58,10 @@ listed limit is configurable or that a release has been qualified.
   upstream/site values remain separate explicit inputs. Risk UI dimensions come
   from catalog metadata. Power quantity display symbols come from exact reference
   rows; supported algorithm unit codes remain part of their financial contract.
+- D457 raises the request time ceilings to 29 s ordinary and 35 s extended. The
+  ordinary ceiling is derived from, and stays below, the assistant runtime set's
+  30-second admission deadline. The API enforces both ceilings, the gateway
+  renderer repeats the extended one, and the page keeps none.
 
 Verification covers revision/no-op/replay/conflict behavior, ownership, configured
 access durations, duplicate failed attempts, prior-fact migration preservation,

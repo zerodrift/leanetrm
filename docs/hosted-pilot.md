@@ -473,3 +473,36 @@ host file and tests restoring that file with the prior image. That rollback smok
 checks authentication-page availability and anonymous denial only; it does not
 qualify prior-image account claims/resets, assistant use or financial reads. The
 attested prior-image Docker run remains a release prerequisite for this increment.
+
+## Hosted capacity (D457)
+
+D457 raises the API container's memory limit in `deploy/compose.yaml` and the
+ceilings of the request time limits, so a demo dataset fits. It is an
+infrastructure change: none of it takes effect until the operator applies it.
+
+1. Its release carries a Compose file whose hash differs from the installed
+   `composeSha256`, so the updater refuses and quarantines that head. Stop
+   `openetrm-deployment.timer` before the release is published, as for a schema
+   release.
+2. Install the reviewed `deploy/compose.yaml` and `tools/deploy_release.py`,
+   record the new `composeSha256` and restart the timer. Its next poll deploys
+   that head while `host.json` keeps its current limits, which earlier images
+   need: they refuse an ordinary limit above 15 s or an extended limit above 20 s.
+   Promotion recreates the API container under the new memory limit. The
+   installed deployer now starts each candidate under the rendered API's memory,
+   processor and process limits and refuses a Compose file that does not state
+   all three; an older installed deployer starts its candidate with 1 GiB
+   whatever the Compose file says.
+3. Select the longer limits in the `limits` section of the private `host.json`
+   (at most 29 s ordinary and 35 s extended), record `hostConfigurationSha256` and
+   restart the API. Render the gateway again from that `host.json` with
+   `tools/gateway_configuration.py` and install it: its read timeout becomes the
+   extended limit plus the response grace, 40 s at 35 s and 5 s. A gateway
+   rendered from the earlier limits keeps its earlier read timeout (25 s at 20 s
+   and 5 s) and cuts off longer requests itself.
+4. To roll back to an earlier image, restore the previous `host.json` and its hash
+   first, as the D302 transition requires.
+
+Risk history reads and risk job submissions on the demo dataset stay slow on two
+processors; the longer limits only stop them being cancelled. Their speed is an
+open performance item.

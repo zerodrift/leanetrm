@@ -53,8 +53,10 @@ class PublicRouteRendering(unittest.TestCase):
         self.assertIn('proxy_read_timeout 20s;', rendered)
         self.assertIn('exceeds its 4 KiB limit', rendered)
         self.assertIn('exceeds its 64 KiB limit', rendered)
-        longer=render_gateway(template,self.values,{**limits,'extendedRequestSeconds':20,'responseGraceSeconds':5})
-        self.assertIn('proxy_read_timeout 25s;',longer)
+        longest=render_gateway(template,self.values,{**limits,'extendedRequestSeconds':35,'responseGraceSeconds':5})
+        self.assertIn('proxy_read_timeout 40s;',longest)
+        with self.assertRaises(ValueError):
+            render_gateway(template,self.values,{**limits,'extendedRequestSeconds':36})
         for key in limits:
             with self.subTest(missing=key), self.assertRaises(ValueError):
                 render_gateway(template, self.values, {k:v for k,v in limits.items() if k!=key})

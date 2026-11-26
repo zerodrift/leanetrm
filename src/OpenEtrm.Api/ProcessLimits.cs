@@ -28,8 +28,9 @@ public sealed record ProcessLimits(string Implementation,int RequestSeconds,int 
         if(Implementation=="bounded_process_limits_v1"&&PreviewRecipeSampleReferences is not null||
             RecipePreviewBudget<=0||RecipePreviewBudget>RecipeEngine.MaximumSampleReferences)
             throw new InvalidOperationException($"Select bounded_process_limits_v2 and supply limits.previewRecipeSampleReferences between 1 and {RecipeEngine.MaximumSampleReferences}.");
+        // An ask's request ends before the assistant's admission deadline could end its turn as never started (D457).
         foreach(var (name,value,min,max) in new[]{
-            ("requestSeconds",RequestSeconds,1,15),("extendedRequestSeconds",ExtendedRequestSeconds,1,20),
+            ("requestSeconds",RequestSeconds,1,RuntimeSet.AdmissionSeconds-1),("extendedRequestSeconds",ExtendedRequestSeconds,1,35),
             ("responseGraceSeconds",ResponseGraceSeconds,1,5),("requestBytes",RequestBytes,1024,32768),
             ("intervalRevisionBytes",IntervalRevisionBytes,1024,8*1024*1024),("pageSessions",PageSessions,1,64),
             ("signInAttemptsPerMinute",SignInAttemptsPerMinute,1,12),("passwordHashers",PasswordHashers,1,4),

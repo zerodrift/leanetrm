@@ -42,9 +42,17 @@ static class HostedConfigurationChecks
             Require(JsonSerializer.SerializeToElement(selected.RequestDeadlines).GetProperty("normalMilliseconds").GetInt32()==9000
                 &&JsonSerializer.SerializeToElement(selected.RequestDeadlines).GetProperty("extendedMilliseconds").GetInt32()==14000
                 &&selected.Digest!=read.Limits.Digest,"client budgets and process identity derive from the selected configuration");
+            // The longest budgets a host may select (D457): 29 s ordinary and 35 s extended, each with its response grace.
+            var longest=read.Limits with{RequestSeconds=29,ExtendedRequestSeconds=35,ResponseGraceSeconds=5};
+            longest.Validate();
+            Require(JsonSerializer.SerializeToElement(longest.RequestDeadlines).GetProperty("normalMilliseconds").GetInt32()==34000
+                &&JsonSerializer.SerializeToElement(longest.RequestDeadlines).GetProperty("extendedMilliseconds").GetInt32()==40000,
+                "the longest selectable request budgets reach the client with their response grace");
+            // Refusals include an ordinary limit at the assistant's admission deadline, which an ask's request must end before.
             foreach(var invalid in new[]{read.Limits with{RequestSeconds=0},read.Limits with{RequestBytes=32769},
                 read.Limits with{PasswordHashers=5},read.Limits with{AgentConnections=4},read.Limits with{ExtendedRequestSeconds=14},
-                read.Limits with{IntervalRevisionBytes=1024}})
+                read.Limits with{IntervalRevisionBytes=1024},longest with{RequestSeconds=RuntimeSet.AdmissionSeconds},
+                longest with{ExtendedRequestSeconds=36}})
             {
                 try{invalid.Validate();throw new Exception("An incomplete or incompatible process budget was accepted.");}
                 catch(InvalidOperationException){}

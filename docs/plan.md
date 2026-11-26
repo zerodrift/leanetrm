@@ -1,5 +1,12 @@
 # Delivery plan and acceptance criteria
 
+D457 gives the hosted application the memory and request time a demo dataset
+needs: a larger API memory limit, deploy candidates under the same limits, and
+ordinary and extended request ceilings of 29 s and 35 s. It is capacity, not
+speed: on two processors the demo's risk history reads and risk job submissions
+still take 11 to 15 s, and making them faster remains open. Applying it needs the
+[operator steps](hosted-pilot.md#hosted-capacity-d457).
+
 D456 restores the Physical Operations directory to its native gas, crude and LNG
 consumers while preserving all products in the Blotter. The mixed-product
 regression covers exact retained paging and independence from unrelated product

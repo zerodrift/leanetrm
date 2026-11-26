@@ -27,7 +27,8 @@ static class RuntimeSet
     // A question, in characters, so an ask's body stays under 32 KB at four bytes each beside its page report of 8 KiB.
     public const int QuestionLength=4000;
     // The turns a workspace runs at once.
-    // Above the request deadline of 15 seconds, so admission never takes an ask still pinning its context for a stuck one.
+    // Above every ordinary request deadline a host may select (ProcessLimits), so admission never takes an ask still pinning
+    // its context for a stuck one.
     public const int AdmissionSeconds=30;
     // How long streamed text gathers before one publication, and the most UTF-8 bytes one publication carries.
     public static readonly TimeSpan TextCoalescing=TimeSpan.FromMilliseconds(250);

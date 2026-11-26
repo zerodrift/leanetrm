@@ -275,6 +275,7 @@ class StateMachineChecks(unittest.TestCase):
         self.candidate_exists = False; self.live_image = self.old_image; self.promotions = 0; self.created = 0
         self.head_reads = 0; self.supersede = False; self.fail_candidate = False; self.forced_head = None
         self.power_loss = None; self.busy_collector = False; self.transient_download = False
+        self.api_resources = {'mem_limit': '2147483648', 'cpus': 1.5, 'pids_limit': 96}
         self.commands = []
         for name, replacement in [('command', self.command), ('api', self.api), ('download', self.download),
                                   ('http_checks', self.http), ('inspect_image', lambda *a: None)]:
@@ -359,7 +360,7 @@ class StateMachineChecks(unittest.TestCase):
         if args[:2] == ['docker', 'create']:
             self.assertFalse(self.candidate_exists)
             self.assertIn('127.0.0.1:18081:8080', args)
-            self.candidate_exists = True; self.created += 1
+            self.candidate_exists = True; self.created += 1; self.candidate_args = args
             if self.power_loss == 'created':
                 self.power_loss = None
                 raise PowerLoss()
@@ -374,7 +375,7 @@ class StateMachineChecks(unittest.TestCase):
             if 'config' in args:
                 process = {'read_only': True, 'cap_drop': ['ALL'], 'tmpfs': ['/tmp:size=64m,mode=1777'], 'security_opt': ['no-new-privileges:true']}
                 return json.dumps({'name': 'synthetic', 'services': {
-                    'api': {**process, 'container_name': 'synthetic-api', 'ports': [{'host_ip': '192.0.2.2', 'published': '18080', 'target': 8080, 'protocol': 'tcp'}],
+                    'api': {**process, **self.api_resources, 'container_name': 'synthetic-api', 'ports': [{'host_ip': '192.0.2.2', 'published': '18080', 'target': 8080, 'protocol': 'tcp'}],
                             'networks': {'database': {}, 'web_ingress': {}}, 'volumes': [
                                 {'source': str(self.private) + '/application', 'target': '/run/private', 'read_only': True},
                                 {'source': self.values['STATE_ROOT'] + '/application', 'target': '/var/lib/openetrm'}]},
@@ -451,6 +452,25 @@ class StateMachineChecks(unittest.TestCase):
             deploy.Deployment(self.settings).run()
         self.assertFalse(any(args[:2] in [['docker', 'load'], ['docker', 'create']] for args in self.commands))
         self.assertEqual(self.promotions, 0)
+
+    def test_candidate_runs_under_the_rendered_api_resource_limits(self):
+        deploy.Deployment(self.settings).run()
+        args = self.candidate_args
+        self.assertEqual([args[args.index(flag) + 1] for flag in ['--memory', '--cpus', '--pids-limit']], ['2147483648', '1.5', '96'])
+
+    def test_api_without_explicit_resource_limits_is_rejected_before_loading_or_creating(self):
+        complete = self.api_resources
+        for name in complete:
+            with self.subTest(missing=name):
+                # Each iteration starts from its own owned state.
+                deploy.write_environment(self.env, self.values)
+                deploy.atomic_json(self.root / 'state.json', {'phase': 'idle', 'activeCommit': 'd' * 40, 'activeImage': self.old_image})
+                self.live_image = self.old_image; self.commands = []
+                self.api_resources = {key: value for key, value in complete.items() if key != name}
+                with self.assertRaisesRegex(deploy.ReleaseError, 'resource limits'):
+                    deploy.Deployment(self.settings).run()
+                self.assertFalse(any(args[:2] in [['docker', 'load'], ['docker', 'create']] for args in self.commands))
+                self.assertEqual(self.promotions, 0)
 
     def test_stale_preflight_is_cleaned_even_when_head_returns_to_active_commit(self):
         self.power_loss = 'created'

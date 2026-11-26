@@ -876,7 +876,8 @@ The tool set is fixed; each tool is switched on per agent version.
   instruction lengths (set so a body stays under 32 KB: `question_too_long`,
   `instructions_too_long`); a worker write's bound and retry interval; tool-result row
   and byte bounds; maximum grant duration; test output limit and deadline (below 15
-  seconds); admission deadline (above 15 seconds); retained-context reserve; provider
+  seconds); admission deadline (above every ordinary request deadline a host may
+  select, D457); retained-context reserve; provider
   timeouts and response byte bound; subscriber buffer (64 signals). Oversize cards are
   `card_too_large`; text is split into events; any other oversize event is
   `event_too_large`. Nothing is truncated.
