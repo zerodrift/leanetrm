@@ -698,6 +698,8 @@ deployment procedure. Automatic image updates use attested GitHub Release bundle
 and a pinned local pull operator; schema and infrastructure changes require a
 separate qualified baseline (D135). Hosted authentication and collection boundaries are described
 in [hosted pilot operations](hosted-pilot.md); the synthetic local preview stays isolated.
+The bounded browser repair in D455 has an explicit operator-only maintenance
+exception; it does not change automatic release admission.
 
 D405 adds conservative [CI impact selection](ci-impact.md): shared behavior checks
 run once across the matrix, and pull requests select explicitly declared path
