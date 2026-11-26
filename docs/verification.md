@@ -130,12 +130,26 @@ following, each resolved as stated.
 After these changes the lifecycle, gas-native, gas-browser, portfolio and
 physical groups and the repository group were run again, with the same result.
 
+All of this ran before the hosted capacity change (D458) reached master. With
+that change brought in, the seven groups that hold every check this change
+adds or edits were run again in containers of the same image, in the same way:
+lifecycle, gas-native, gas-browser, portfolio, physical, standard and
+settlement, 170 commands. 142 passed as written, the 10 preview commands that
+end in a browser suite passed without it, and the 18 helpers that need a
+browser passed their native part and stopped where their browser must start.
+No command failed, and every command printed as many passed lines as before.
+The repository group and the repository's Python unit checks, now 211, pass on
+arm64 macOS.
+
 Not run or not covered:
 
 - No browser suite ran. Chrome's sandbox does not start in these containers,
   and it was not relaxed. This includes the structured trading scenario this
   change edits and the cash lifecycle valuation browser check. CI runs them.
 - The frontend group.
+- After the hosted capacity change was brought in: the managed, database,
+  workspace, reference, exchange, assistant, risk, trading, gas, ppa and
+  recovery groups. They ran before it.
 - The park custody routes and `/lifecycle/execute` have no route assertion of
   their own. Holder sets pin who can use custody, and recording is asserted on
   a route that passes the same native gate.
