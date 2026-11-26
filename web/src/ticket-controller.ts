@@ -236,7 +236,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  }
  function hasUnresolvedFields(){return everyField((field,side)=>unresolved.has(keyOf(side,field.id))).length>0;}
  const termFields=(id?:TermSectionId)=>d?.repeatableTerms?.filter(section=>!id||section.id===id).flatMap(section=>section.fields)??[];
- const termChoices=():[null,TicketField][]=>d?.repeatableTerms?.filter(section=>state?.[section.id]?.length).flatMap(section=>section.fields.filter(f=>f.choices!==null).map(f=>[null,f] as [null,TicketField]))??[];
+ const termChoices=():[null,TicketField][]=>d?.repeatableTerms?.filter(section=>state?.[section.id]?.length).flatMap(section=>section.fields.filter(f=>f.choices!==null&&(entry||!f.retainedLabels)).map(f=>[null,f] as [null,TicketField]))??[];
  const termRefresh=(field:string)=>termChoices().filter(([,f])=>f.refreshOn?.includes(field));
  const listed=()=>[...everyField((f,side)=>f.choices!==null&&(entry?f.state==='editable':!!valuesOf(side)[f.id]?.value)),...termChoices()];
  // The fields that depend on a field of the same side, however indirectly: their lists change with it.

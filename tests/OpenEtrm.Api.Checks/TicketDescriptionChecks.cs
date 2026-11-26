@@ -45,6 +45,11 @@ internal static class TicketDescriptionChecks
                 fields.Any(f=>f.Required==optional.Contains(f.Id)||f.State!="editable")||
                 GasTicket.SideKind("physical").Fields.Any(f=>fields.Any(s=>s.Id==f.Id)))
                 throw new Exception("Missing or duplicate working swing fields.");
+            var wire=JsonSerializer.SerializeToElement(fields,JsonSerializerOptions.Web);
+            var model=wire.EnumerateArray().Single(f=>f.GetProperty("id").GetString()=="swing_model");
+            if(!model.TryGetProperty("retainedLabels",out var labels)||!labels.TryGetProperty("gas_swing_one_factor_lognormal_v1",out _)||
+                fields.Any(f=>!f.Required&&string.IsNullOrEmpty(f.AbsentLabel)))
+                throw new Exception("A retained swing ticket requires model and optional-term labels before choice reads.");
             foreach(var (side,field) in new[]{("physical","forecast_curve"),("floating","floating_forecast_curve")})
                 if(!GasTicket.Description.Sides.Single(s=>s.Kind==side).Fields.Single(f=>f.Id==field).RefreshOn.Contains("swing_side"))
                     throw new Exception("Forecast choices need a fresh coverage read when the swing source changes.");

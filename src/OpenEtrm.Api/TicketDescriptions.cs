@@ -14,6 +14,8 @@ public sealed record TicketFieldLabels(string Field,ImmutableDictionary<string,s
 public sealed record TicketField(string Id,string Label,string Meaning,string Type,string? Unit,string State,bool Required,string? Band,string? Choices,ImmutableArray<string> DependsOn,string? Lookup,string? Soon,string? Rule)
 {[JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public TicketFieldCondition? VisibleWhen{get;init;}
  [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public TicketFieldLabels? LabelByChoice{get;init;}
+ [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public string? AbsentLabel{get;init;}
+ [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]public ImmutableDictionary<string,string>? RetainedLabels{get;init;}
  public ImmutableArray<string> RefreshOn{get;init;}=[];public bool AllowNotApplicable{get;init;}[JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)]public bool RefreshDescription{get;init;}}
 // Input names the modes in which a side column's day cells are entered in the side's tab, each recorded by the product's own operation.
 // Soon, on a field, side kind, column or tab, is the hover text of an item drawn as coming soon: it holds no value, is never sent and reads nothing.

@@ -1,5 +1,5 @@
 import {newTrade} from './new-trade.mjs';
-import {blotterAt,bookedTicket,decemberClose,gasTicket,openBookedSchedules,q} from './gas-ticket.mjs';
+import {blotterAt,bookedTicket,closeOn,decemberClose,gasTicket,openBookedSchedules,q} from './gas-ticket.mjs';
 
 const at=selector=>'document.querySelector('+q(selector)+')';
 const all=selector=>'[...document.querySelectorAll('+q(selector)+')]';
@@ -46,8 +46,8 @@ export async function run(actions){
      if(window.holdSwingPrepare){window.holdSwingPrepare=false;await new Promise(resolve=>window.releaseSwingPrepare=resolve);}
     }
     if(path==='/api/gas/swing/record'){
-     window.swingWrites.push({body:JSON.parse(init.body),status:response.status});
-     if(response.ok&&window.loseSwingReply){window.loseSwingReply=false;return new Response('Incomplete',{status:502});}
+     window.swingWrites.push({wire:init.body,body:JSON.parse(init.body),status:response.status,outcome:await response.clone().json()});
+     if(response.ok&&window.loseSwingReply){window.loseSwingReply=false;throw new TypeError('Synthetic lost response after commit');}
     }
     return response;
    };
@@ -61,6 +61,9 @@ export async function run(actions){
   await wait(at(trigger)+'?.checkVisibility()&&!'+at(trigger)+'.disabled&&!!'+at(drawer),60000);
  };
  await openTrade(await evaluate('window.swingBooked'));
+ const savedField=id=>at(bookedTicket+' [data-term-section="swingRights"] [data-field="swing_'+id+'"] .ticket-value');
+ await check('retained policy labels show versions on demand and distinguish an absent count',savedField('model')+'.title==='+q(model)+'&&'+
+  savedField('model')+'.textContent.startsWith("One-factor lognormal")&&'+savedField('change_count')+'.textContent==="No changed-day limit"');
  await check('the booked three-day purchase reopens with one joint value and contingent commercial days',
   all(detail+' .swing-heading strong')+'.length===1&&'+at(detail+' .swing-heading strong')+'.textContent==="310 usd"&&'+
   all(detail+' [aria-label="Daily elections and delivery"] tbody tr')+'.map(r=>r.cells[2].textContent).join("|")==="Undecided · contingent|Undecided · contingent|Undecided · contingent"');
@@ -127,7 +130,7 @@ export async function run(actions){
  await check('the recovered range records both days atomically with one operation and the three retained heads',
   `(()=>{const [first,retry]=window.swingWrites.slice(-2),command=window.swingPrepares.at(-1);
    return first.status===200&&retry.status===200&&JSON.stringify(command)===JSON.stringify(first.body)&&
-    JSON.stringify(first.body)===JSON.stringify(retry.body)&&command.expectedHeads.length===3&&command.expectedHeads.every(h=>h.revisionId===null)&&
+    first.wire===retry.wire&&JSON.stringify(first.outcome)===JSON.stringify(retry.outcome)&&first.body.operationId===command.operationId&&command.expectedHeads.length===3&&command.expectedHeads.every(h=>h.revisionId===null)&&
     command.elections.map(e=>e.day+'='+e.quantity).join(',')==='2021-01-31=1000,2021-02-01=1000';})()`);
  await click('#blotter-dock [data-maximize=details]');await openTrade(fixture.optionalTrade);
  await open();await chooseDays(days[0],days[0],'elect','0');await submit();await shown(0,'Elected · 0');
@@ -135,4 +138,37 @@ export async function run(actions){
  await open();await chooseDays(days[0],days[0],'withdraw');await submit();await shown(0,'Withdrawn');
  await check('withdrawing zero retains its predecessor and an undecided delivery obligation',
   'window.swingWrites.at(-1).body.elections[0].quantity===null&&!!window.swingWrites.at(-1).body.expectedHeads[0].revisionId');
+ const periodRows=all(detail+' [aria-label="Period limits and elections"] tbody tr');
+ await check('a one-day January and two-day February reset their applied per-day maximum and changed-day allowance',
+  `${periodRows}.map(r=>r.cells[2].textContent).join('|')==='— – 1,005|— – 2,010'&&${periodRows}.every(r=>r.cells[6].textContent.startsWith('0 / 1'))`);
+ await open();await chooseDays(days[0],days[0],'elect','975');await submit();await shown(0,'Elected · 975');
+ await open();await chooseDays(days[1],days[1],'elect','1005');await submit();await shown(1,'Elected · 1,005');
+ await check('the off-grid January and February quantities each consume one change in their own period',
+  `${periodRows}.every(r=>r.cells[6].textContent.startsWith('1 / 1'))`);
+ await open();await chooseDays(days[2],days[2],'elect','975');await submit();await wait(focused('quantity'));
+ await check('an exhausted February count refuses another change at the exact quantity control',
+  focused('quantity')+'&&window.swingWrites.at(-1).outcome.code==="swing_feasibility"');
+ await blotterAt(actions,await closeOn(evaluate,'2021-01-31'));
+ // The full fixture has more trades than the Blotter mounts in the viewport. Find the position by its public reference.
+ const cashout=fixture.cashoutTrade;
+ const gridState=()=>evaluate(`(()=>{const host=document.querySelector('#desk-positions'),holder=host.querySelector('.tabulator-tableholder');
+  return {reference:${q(cashout.tradeReference)},mounted:host.querySelectorAll('[data-row-key]').length,gridHeight:holder?.clientHeight,
+   scrollHeight:holder?.scrollHeight,displayed:!!host.querySelector('[data-row-key="${cashout.tradeId}:${cashout.instrumentId}"] .desk-reference'),
+   books:Array.from(document.querySelector('#blotter-books').selectedOptions,o=>o.text),summary:document.querySelector('#futures-summary').textContent};})()`);
+ console.log('Jan 31 cash-out grid before search',await gridState());
+ await set('#blotter-filters .table-search',cashout.tradeReference);
+ await openTrade(cashout).catch(async error=>{throw Error(error.message+' · filtered grid '+JSON.stringify(await gridState()));});
+ const balance=bookedTicket+' [data-tab="imbalance"]',balanceRows=all(bookedTicket+' .ticket-imbalance tbody tr');
+ const report=async()=>{await click(balance);await wait(balanceRows+'.length===6');return evaluate(balanceRows+'.map(r=>r.textContent)');};
+ const original=await report();
+ await check('the settled balance shows the reported statement and its independent paid cash',
+  balanceRows+'.some(r=>r.textContent.includes("990")&&r.textContent.includes("500"))');
+ await open();await chooseDays('2021-01-15','2021-01-15','withdraw');await submit();await shown(2,'Withdrawn');
+ await check('the elapsed withdrawn day retains the missing election and unknown joint amount',
+  at(detail)+'.textContent.includes("Missing election")&&'+at(detail+' .swing-counted strong')+'.textContent==="Unassessed"');
+ const missing=await report();
+ await open();await chooseDays('2021-01-15','2021-01-15','elect','1000');await submit();await shown(2,'Elected · 1,000');
+ const corrected=await report();
+ await check('a timely correction restores commercial coverage while the published cash-out remains identical',
+  q(original)+' .join("|")==='+q(missing)+'.join("|")&&'+q(missing)+'.join("|")==='+q(corrected)+'.join("|")');
 }

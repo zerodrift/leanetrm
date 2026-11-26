@@ -10,7 +10,7 @@ from check_booked_side_programs import runtime_query
 from check_fact_anchor_upgrade import run_checks as check_upgrade_guard
 from check_gas_pricing import request, staged_booking
 from native_read_transport import select_context_inputs
-from preview_client import PreviewClient
+from preview_client import PreviewClient, initial_frame
 from synthetic_side_calendars import side_calendar_policy
 
 
@@ -273,6 +273,9 @@ def run_checks(url, query, manifest, period_prior, run_worker, browse=None, *, c
     reject(exercise, [right], 'swing_right')
     # A same-source reported-balance pair and an independently owned premium retain their own quantities.
     outside = deepcopy(body)
+    route_book=str(uuid4())
+    query(f"INSERT INTO trading.books SELECT catalog_id,'{route_book}',portfolio_id,'Synthetic swing routes',publication_order,effective_at FROM trading.books LIMIT 1;")
+    outside['bookId']=route_book
     outside.update(operationId=str(uuid4()), profile='indexed_gas_composition_v1')
     outside['physicalSides'][0].update(deliveryFrom='2021-01-13', deliveryTo='2021-01-16')
     outside['imbalanceCashouts'] = [dict(code='balance', profile='daily_index_cashout_v1', side='gas',
@@ -298,15 +301,20 @@ def run_checks(url, query, manifest, period_prior, run_worker, browse=None, *, c
         operationId=str(uuid4()),reason='Synthetic swing monthly inputs',curve='synthetic_swing_location',
         marks=[dict(month=m,volatility='0',expectedRevision=0) for m in ('2021-01','2021-02')]))
     assert client.call('gas/composition/preview',body)['presentValue']=='310'
+    from check_gas_swing_routes import reported_cash_checks
+    reported_cash_checks(client, query, manifest, context, outside_saved)
     browser_failure=None
     if browse:
         # Zero is outside the mandatory contract's daily limits. Qualify it on its own optional right.
-        optional = book({**body,'operationId':str(uuid4()),'swingRights':[{**right,'dailyMinimum':'0','totalMinimum':'0','totalMaximum':'1000'}]})
-        try:browse(dict(optionalTrade=optional))
+        optional = book({**body,'operationId':str(uuid4()),'swingRights':[{**right,'dailyMinimum':'0','limitPeriod':'delivery_month','totalMinimum':None,'totalMaximum':'1005','totalBasis':'per_day_v1','changeCount':1,'countRule':'differs_from_base_v1'}]})
+        january = initial_frame(client.call('workspace'),'2021-01-31')
+        position = dict(context={**context,'snapshotId':january['id'],'convention':'trading_workspace_v1'},
+            tradeId=outside_saved['tradeId'],bindingId=outside_saved['instrumentId'],revision=1,instrumentType='physical_gas')
+        cashout_reference = client.call('trading/position',position)['holding']['tradeReference']
+        try:browse(dict(optionalTrade=optional,cashoutTrade={**outside_saved,'tradeReference':cashout_reference}))
         except Exception as error:browser_failure=error
     long_transport(client,context,base,book_native)
     check_prefix(base)
-    from check_gas_swing_routes import route_checks,reported_cash_checks
-    route_checks(client,query,manifest,context,{**base,'operationId':str(uuid4()),'swingRights':[right]},run_worker)
-    reported_cash_checks(client, query, manifest, context, outside_saved)
+    from check_gas_swing_routes import route_checks
+    route_checks(client,query,manifest,context,{**base,'operationId':str(uuid4()),'swingRights':[right]},run_worker,route_book,outside_saved)
     if browser_failure:raise browser_failure

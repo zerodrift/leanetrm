@@ -28,7 +28,16 @@ public sealed record TicketSwingRightDraft(
     [property:JsonPropertyName("swing_model")] string? Model,
     [property:JsonPropertyName("swing_numerical_policy")] string? NumericalPolicy);
 
-internal sealed record SwingTicketProjection(string Source,string ReferenceQuantity,string PriceUnit,ImmutableArray<SwingDay> Days);
+internal sealed record SwingTicketProjection(string Source,string ReferenceQuantity,string PriceUnit,ImmutableArray<SwingDay> Days,SwingPeriodLabels PeriodLabels,
+    string PlanRule,string DeadlineRule,int LeadHours);
+
+public sealed record SwingPeriodLabels(string Period,string Basis,string ChangedDays)
+{
+    internal static SwingPeriodLabels From(GasSwingRightRequest term) => new(
+        GasSwingTicket.PolicyChoices("swing_limit_period").Single(c=>c.Value==term.LimitPeriod).Label,
+        term.TotalBasis is {} basis?GasSwingTicket.PolicyChoices("swing_total_basis").Single(c=>c.Value==basis).Label:"No total limits",
+        term.CountRule is {} rule?GasSwingTicket.PolicyChoices("swing_count_rule").Single(c=>c.Value==rule).Label:"No changed-day limit");
+}
 
 internal static class GasSwingTicket
 {
@@ -42,7 +51,8 @@ internal static class GasSwingTicket
     };
 
     static TicketField Field(string id,string label,string meaning,string type="choice") =>
-        new(id,label,meaning,type,type=="decimal"?"quantity":null,"editable",true,null,type is "choice" or "multiple_choice"?id:null,[],null,null,null);
+        new(id,label,meaning,type,type=="decimal"?"quantity":null,"editable",true,null,type is "choice" or "multiple_choice"?id:null,[],null,null,null)
+        {RetainedLabels=type=="choice" && id!="swing_side"?PolicyChoices(id).ToImmutableDictionary(c=>c.Value,c=>c.Label):null};
 
     internal static readonly TicketTermSection Section=new("swingRights","Swing right",[
         Field("swing_side","Physical source","Independent physical side whose daily quantity is elected.") with{RefreshOn=["link_source"]},
@@ -52,11 +62,11 @@ internal static class GasSwingTicket
         Field("swing_daily_min","Daily minimum","Least electable quantity per gas day.","decimal"),
         Field("swing_daily_max","Daily maximum","Most electable quantity per gas day.","decimal"),
         Field("swing_limit_period","Limit period","Period over which totals and changed days are counted."),
-        Field("swing_total_min","Minimum total","Lower quantity bound on the selected basis.","decimal") with {Required=false},
-        Field("swing_total_max","Maximum total","Upper quantity bound on the selected basis.","decimal") with {Required=false},
-        Field("swing_total_basis","Total basis","Select a basis when either total is supplied.") with {Required=false},
-        Field("swing_change_count","Changed days","Maximum days differing from the reference per period.","integer") with {Required=false},
-        Field("swing_count_rule","Count rule","Select how days count against the limit.") with {Required=false},
+        Field("swing_total_min","Minimum total","Lower quantity bound on the selected basis.","decimal") with {Required=false,AbsentLabel="No minimum"},
+        Field("swing_total_max","Maximum total","Upper quantity bound on the selected basis.","decimal") with {Required=false,AbsentLabel="No maximum"},
+        Field("swing_total_basis","Total basis","Select a basis when either total is supplied.") with {Required=false,AbsentLabel="No total limits"},
+        Field("swing_change_count","Changed days","Maximum days differing from the reference per period.","integer") with {Required=false,AbsentLabel="No changed-day limit"},
+        Field("swing_count_rule","Count rule","Select how days count against the limit.") with {Required=false,AbsentLabel="Not applicable"},
         Field("swing_plan_rule","Planning rule","Select the comparison schedule on forwards."),
         Field("swing_deadline_rule","Deadline rule","Select the deadline for each retained day."),
         Field("swing_lead_hours","Election lead in hours","Whole hours before the first instant of each gas day.","integer"),
@@ -66,8 +76,9 @@ internal static class GasSwingTicket
     internal static SwingTicketProjection Projection(PreviewData data,GasCompositionRequest terms,ImmutableArray<GasCompositionRow> members,SwingQuantityRight right)
     {
         var source=members.Single(m=>m.Slot==right.PhysicalSlot);
+        var term=terms.SwingRights!.Value.Single();
         return new(source.Code,terms.PhysicalSides.Single(s=>s.Code==source.Code).Quantity!,
-            data.UnitLabel(PriceUnit.FromQuote(source.Assignment.Quote)),right.Days);
+            data.UnitLabel(PriceUnit.FromQuote(source.Assignment.Quote)),right.Days,SwingPeriodLabels.From(term),term.PlanRule,term.DeadlineRule,term.LeadHours);
     }
 
     internal static bool Governs(TicketDraft draft,string? code) => code is not null && draft.SwingRights?.Any(right=>right?.Side==code)==true;
@@ -77,7 +88,12 @@ internal static class GasSwingTicket
         "swing_side"=>[..draft.Sides.Where(s=>s.Kind=="physical"&&!s.Values.ContainsKey("link_source")&&
             !draft.Sides.Any(p=>p.Values.GetValueOrDefault("link_source")==s.Code)).Select(s=>new TicketChoice(s.Code,s.Code))],
         "swing_entries"=>[..draft.Sides.Where(s=>Governs(draft,s.Code)||s.Kind is "cash" or "fee"&&Governs(draft,s.Values.GetValueOrDefault(s.Kind+"_source"))).Select(s=>new TicketChoice(s.Code,s.Code))],
-        "swing_holder"=>GasExerciseTicket.Choices(draft,"right_holder"),
+        _=>PolicyChoices(id)
+    };
+
+    internal static ImmutableArray<TicketChoice> PolicyChoices(string id) => id switch
+    {
+        "swing_holder"=>GasExerciseTicket.Holders,
         "swing_limit_period"=>[new("term","Whole term"),new("delivery_month","Delivery month")],
         "swing_total_basis"=>[new("per_period_v1","Per period"),new("per_day_v1","Per retained day")],
         "swing_count_rule"=>[new("differs_from_base_v1","Any quantity differing from reference")],
@@ -95,7 +111,7 @@ internal static class GasSwingTicket
     internal static ImmutableArray<GasSwingRightRequest>? Request(TicketDraft draft)
     {
         if(draft.SwingRights is not {Length:>0} rows)return null;
-        TicketFieldException Invalid(string field,string message,int row=0)=>new("swing_right",message,null,field){TermRow=row,TermSection=Section.Id};
+        TicketFieldException Invalid(string field,string message,int row=0)=>new(field is "swing_model" or "swing_numerical_policy"?"swing_model_scope":"swing_right",message,null,field){TermRow=row,TermSection=Section.Id};
         if(rows.Length>1)throw Invalid("swing_side","Select at most one swing right.",1);
         var right=rows[0]??throw Invalid("swing_side","Select the swing source.");
         string Choice(string field,string? value)=>Choices(draft,field).Any(c=>c.Value==value)?value!:throw Invalid(field,"Select one of the offered choices.");

@@ -371,9 +371,14 @@ function rightTerms(o:TicketView,spec:TicketTermSection){
    if(!entry){
     const current=Array.isArray(saved)?saved:saved?[saved]:[];
     const inline=el('span');
+    if(!current.length&&f.absentLabel)inline.append(el('span','ticket-value',f.absentLabel));
     current.forEach((value,n)=>{
-     const text=el('span','ticket-value',choiceText(value,null,listed));
-     if(f.choices!==null){text.dataset.choiceKey=f.id;text.dataset.choiceValue=value;}
+     const retained=f.retainedLabels?.[value];
+     const text=el('span','ticket-value',retained??choiceText(value,null,listed));
+     if(f.choices!==null){
+      text.title=value;
+      if(!retained){text.dataset.choiceKey=f.id;text.dataset.choiceValue=value;}
+     }
      if(n)inline.append(document.createTextNode(', '));
      inline.append(text);
     });

@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import subprocess
 import sys
 import unittest
 from unittest.mock import patch
@@ -18,3 +19,12 @@ class SwingOracleChecks(unittest.TestCase):
             with self.assertRaisesRegex(AssertionError, 'Unit-reference swing finite value'):
                 unit_oracle.run(Path('synthetic-check-program'))
         output.assert_not_called()
+
+    def test_direct_swing_preview_refuses_optimized_mode_before_checking(self):
+        runner = Path(__file__).resolve().parents[1] / 'tools/run_preview.py'
+        result = subprocess.run([sys.executable, '-O', str(runner), '--gas-swing-check',
+                                 '--pg-bin', '/missing/synthetic', '--dotnet', '/missing/synthetic/dotnet'],
+                                capture_output=True, text=True)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('requires Python assertions', result.stderr)
+        self.assertNotIn('PASS', result.stdout)

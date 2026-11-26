@@ -25,8 +25,6 @@ SESSION_MARGIN = 10
 
 
 def main():
-    from check_standalone import main as check_standalone
-    check_standalone()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--ephemeral-context-check',action='store_true',help='Qualify runtime contexts, historical reads and worker reconstruction')
     parser.add_argument('--async-workbench-check',action='store_true',help='Qualify concurrent main-workbench SSE reads')
@@ -145,6 +143,10 @@ def main():
     parser.add_argument('--authoring-browser-suite',choices=['curve-objects','contract-pricing-controls','publication-controls','price-authoring-recovery'],help='Run one focused authoring control suite in the owned authoring fixture')
     parser.add_argument('--example', choices=['standard','mixed-gas'], default='standard', help='Explicit synthetic dataset')
     args = parser.parse_args()
+    if args.gas_swing_check and not __debug__:
+        parser.error('--gas-swing-check requires Python assertions; run without -O or PYTHONOPTIMIZE.')
+    from check_standalone import main as check_standalone
+    check_standalone()
     if args.regional_seed_check:
         args.reference_demo_check=True
         args.with_regional_seed=True

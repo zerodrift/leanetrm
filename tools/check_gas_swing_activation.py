@@ -34,14 +34,14 @@ def booking_fields(client,query,manifest,base):
     session_frames(client,query,manifest,body,booked)
     context={k:body[k] for k in ('snapshotId','convention','knowledgeMode')}
     draft=client.call('tickets/trade',dict(context=context,tradeId=booked['tradeId'],bindingId=booked['instrumentId'],revision=1))['draft']
-    for field in ('swing_limit_period','swing_plan_rule','swing_deadline_rule','quantity_policy'):
+    for field in ('swing_limit_period','swing_plan_rule','swing_deadline_rule','quantity_policy','swing_model','swing_numerical_policy'):
         invalid=deepcopy(draft)
         if field=='quantity_policy':
             next(side for side in invalid['sides'] if side['code']=='gas')['values'][field]='unsupported'
         else:
             invalid['swingRights'][0][field]='unsupported'
         refusal=client.call('tickets/preview',dict(context=context,draft=invalid),expected=422)
-        assert (refusal.get('code'),refusal.get('field'))==('swing_right',field),refusal
+        assert (refusal.get('code'),refusal.get('field'))==('swing_model_scope' if field in ('swing_model','swing_numerical_policy') else 'swing_right',field),refusal
         if field=='quantity_policy':
             assert refusal['side']=='gas' and refusal.get('termRow') is None,refusal
         else:
@@ -60,6 +60,10 @@ def booking_fields(client,query,manifest,base):
         refusal=client.call('gas/composition/book',invalid,expected=422)
         assert (refusal.get('code'),refusal.get('field'))==(code,field),(edits,refusal)
         staged_booking(query,manifest,body,invalid,code,fields=dict(field=field))
+    for policy in ('model','numericalPolicy'):
+        invalid=dict(body,operationId=str(uuid4()),swingRights=[dict(right,pricing=dict(right['pricing'],**{policy:'unsupported'}))])
+        assert client.call('gas/composition/book',invalid,expected=422)['code']=='swing_model_scope'
+        staged_booking(query,manifest,body,invalid,'swing_model_scope')
     assert booked['instrumentId']
     print('PASS native/composition/ticket field coordinates for period, plan, deadline and source selection; grid, width, count, basis, cap and fan-out refusals',flush=True)
 
@@ -325,7 +329,16 @@ def earned_cash_and_amendment(client, query, manifest, context, base):
     elect('1000')
     refused(payment(when='2021-01-02T12:00:00Z'))
     accepted=submit(draft)
+    from check_gas_swing_routes import paid_coverage_view
+    def cutoff():
+        return client.call('gas/swing/read',dict(context=context,**ids))['context']['knownAt']
+    known=cutoff()
+    partial=paid_coverage_view(client,context,trade,known,withdrawn=False)
     elect(None)
+    unknown=paid_coverage_view(client,context,trade,cutoff(),withdrawn=True)
+    assert paid_coverage_view(client,context,trade,known,withdrawn=False)==partial
+    print(f"PASS paid whole-term cash: known cutoff {known}, partial -3000/-1/-2999 on 30 missing days; "
+          f"last withdrawal retains period cash {unknown['cash']['amount']} on 31 missing days and replays the earlier view",flush=True)
     assert submit(draft)==accepted
     duplicate=submit(dict(draft,operationId=str(uuid4())))
     assert duplicate['paymentId']==accepted['paymentId']

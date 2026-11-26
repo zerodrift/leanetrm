@@ -4,6 +4,7 @@ from copy import deepcopy
 from datetime import datetime
 from decimal import Decimal, localcontext
 from difflib import unified_diff
+from fractions import Fraction
 from itertools import islice
 from uuid import uuid4
 
@@ -20,6 +21,59 @@ def assert_replay(field, queued, live):
             return json.dumps(value,indent=2,sort_keys=True).splitlines()
         diff = unified_diff(lines(live),lines(queued),fromfile='synchronous',tofile='queued',n=1)
         raise AssertionError(field+' replay mismatch\n'+'\n'.join(islice(diff,10)))
+
+
+def pnl_values(risk, policies, trade, opening, closing, known_at, refusal=None):
+    def endpoint(ctx):
+        return dict(snapshotId=ctx['snapshotId'],convention='trading_workspace_v1',knowledgeMode='at')
+    request = dict(opening=endpoint(opening),closing=endpoint(closing),knownAt=known_at,
+        bookIds=[],portfolioIds=[],tradeIds=[trade['tradeId']],accountingPolicy=policies['accounting'],
+        attributionPolicy=policies['attribution'],factorPolicy=policies['factors'],factorBump=policies['factorBump']['offered'],
+        time=dict(mode='opening_to_closing_clock_v1',policy=policies['clockPolicy'],clock=None))
+    result = risk.call('portfolio/pnl/run',request,timeout=300,expected=(200,422) if refusal else 200)
+    if refusal:
+        assert risk.last_status==422 and result.get('code')==refusal and 'report' not in result,(risk.last_status,result.get('code'),refusal)
+        return
+    return result['report']['totals'][0]['values']
+
+
+def paid_coverage_view(c, context, trade, cutoff, *, withdrawn):
+    """The single January payment follows the elected Jan 2 amount through both clocks."""
+    workspace=c.call('workspace')
+    opening,closing=[dict(context,snapshotId=initial_frame(workspace,day)['id']) for day in ('2021-01-01','2021-01-31')]
+    missing=31 if withdrawn else 30
+    values=('0','0','-1') if withdrawn else ('100','-2999','-3100')
+    risk=PreviewClient(c.url)
+    risk.bootstrap()
+    risk.call('profile',dict(profile='risk'))
+    for ctx,day,subtotal in zip((opening,closing),('2021-01-01','2021-01-31'),values):
+        selected=c.call('date-schedules/context',dict(effectiveOn=day,knownAt=cutoff,mode='at'))['context']
+        held=dict(ctx,knowledgeMode='retained',contextId=selected['contextId'])
+        ticket=c.call('tickets/trade',dict(context=held,tradeId=trade['tradeId'],bindingId=trade['instrumentId'],revision=1))
+        editor=c.call('gas/composition/editor',dict(context=held,tradeId=trade['tradeId']))['valuation']
+        assert editor['presentValue']==subtotal,(day,editor['presentValue'],subtotal)
+        right,=ticket['swingRights']
+        for report in (ticket,editor,editor['schedule']):
+            assert report['incomplete'] and report['unassessedDays']==missing,(day,report['unassessedDays'])
+        assert [s['unassessedDays'] for s in editor['sides']]==[missing,missing],(day,'entry missing counts',editor['sides'][0]['unassessedDays'],editor['sides'][1]['unassessedDays'],missing)
+        assert right['counted'] is None and right['comparison'] is None and right['unassessedDays']==missing
+        position=dict(context=dict(held,convention='trading_workspace_v1'),tradeId=trade['tradeId'],bindingId=trade['instrumentId'],
+                      revision=1,instrumentType='physical_gas')
+        row,=c.call('trading/side-schedules',dict(position=position,sideSlot=1,contribution=None,offset=0,limit=1))['page']['rows']
+        if day=='2021-01-31':
+            assert (row['accrued'],row['paid'],row['outstanding'])==((None,'-1',None) if withdrawn else ('-3000','-1','-2999')),row
+            assert row['lifecycle']['cash']==('UnassessedPaid' if withdrawn else 'PartPaid'),row
+        reasons=set(row['lifecycle']['unavailableReason'].split(','))
+        assert reasons==({'missing_election','period_unassessed'} if day=='2021-01-01' else {'missing_election'}),row
+        if day=='2021-01-01' and not withdrawn:
+            assert row['quantityAdjustment']['ratio']=='1/31' and row['remaining']=='-3000',row
+            flow,=ticket['measures']['expectedCash']
+            assert (flow['amount'],flow['unassessedDays'])==('-3000',missing),flow
+    result=pnl_values(risk,risk.call('portfolio/pnl/policies'),trade,opening,closing,cutoff)
+    assert (result['openingUnassessedDays'],result['closingUnassessedDays'],result['incomplete'])==(missing,missing,True),result
+    assert tuple(result[k]['amount'] for k in ('openingValue','closingValue','economicPnl'))==values,result
+    assert result['cash']['amount']=='-1',result
+    return result
 
 
 def upgraded_book_checks(c, ctx, book, swing, companion):
@@ -50,16 +104,13 @@ def upgraded_book_checks(c, ctx, book, swing, companion):
     print('PASS sealed monthly-only fixture and ordinary companion evaluated under the strict point rule: one row-local refusal and valued subtotal 300 on Blotter and risk',flush=True)
 
 
-def route_checks(c, query, manifest, context, template, run_worker):
+def route_checks(c, query, manifest, context, template, run_worker, book, cashout):
     risk = PreviewClient(c.url)
     risk.bootstrap()
     risk.call('profile',dict(profile='risk'))
     writer = PreviewClient(c.url)
     writer.bootstrap()
     writer.call('profile',dict(profile='editor'))
-    book = str(uuid4())
-    query(f"INSERT INTO trading.books SELECT catalog_id,'{book}',portfolio_id,'Synthetic swing routes',publication_order,effective_at FROM trading.books LIMIT 1;")
-
     def book_strip(prefix):
         body = deepcopy(template)
         body.update(bookId=book,operationId=str(uuid4()))
@@ -111,7 +162,7 @@ def route_checks(c, query, manifest, context, template, run_worker):
         single = c.call('trading/position',position)['holding']
         blotter = c.call('trading/blotter',dict(context=shared(ctx),view=view))
         held = next(h for h in blotter['holdings'] if h['tradeId']==trade['tradeId'])
-        pages = [c.call('trading/side-schedules',dict(position=position,sideSlot=s,contribution=None,offset=0,limit=8))['page'] for s in (0,1)]
+        pages = [c.call('trading/side-schedules',dict(position=position,sideSlot=s,contribution=None,offset=0,limit=8))['page'] for s in range(len(body['physicalSides'])+len(body['cashSides']))]
         if reason:
             assert preview['code']==editor['code']==held['unavailableReason']==single['unavailableReason']==reason
             assert all(r['lifecycle']['unavailableReason']==reason for p in pages for r in p['rows']),pages
@@ -119,6 +170,11 @@ def route_checks(c, query, manifest, context, template, run_worker):
             assert next(h for h in blotter['holdings'] if h['tradeId']==companion['tradeId'])['presentValue'] is not None
             return
         editor = editor['valuation']
+        ticket = c.call('tickets/trade',dict(context=ctx,tradeId=trade['tradeId'],bindingId=trade['instrumentId'],revision=1))
+        for result in (preview,single,held,ticket,editor['schedule']):
+            assert (result['incomplete'],result['unassessedDays'])==(editor['incomplete'],editor['unassessedDays']),result.keys()
+        assert ticket['swingRights']==editor['swingRights']
+
         check_value(editor['presentValue'],expected)
         for projection in (preview, single, held):
             assert projection['presentValue']==editor['presentValue']
@@ -127,29 +183,32 @@ def route_checks(c, query, manifest, context, template, run_worker):
         if right['modeledDays']:
             assert right['knownAt'] and right['forwardInputs']
             assert all(source['market']['contract']['id'] and source['observations'] for source in right['forwardInputs'])
-        assert editor['schedule']['swingRights']==[right] and all(p['swingRights']==[right] for p in pages)
-        assert sum(Decimal(s['presentValue']) for s in editor['sides'])+Decimal(right['counted'] or '0')==Decimal(editor['presentValue'])
+        assert editor['schedule']['swingRights']==[right]
+        assert all(page.get('swingRights',[])==([right] if slot in right['slots'] else []) for slot,page in enumerate(pages))
+        assert datetime.fromisoformat(right['knownAt'])==datetime.fromisoformat(coordinates[ctx['contextId']]['knownAt'])
+        assert sum(Fraction(s['presentValue']) for s in editor['sides'])+Fraction(right['counted'] or '0')==Fraction(editor['presentValue'])
         physical = pages[0]['rows']
         for item,row in zip(right['days'],physical,strict=True):
             state=item['state']
             assert (row['quantityState'],row['quantity'])==(state,item['selectedQuantity']),(row['quantityState'],row['quantity'],item)
         for row in (r for r in editor['schedule']['rows'] if r['level']=='day'):
-            item = next(i for i in right['days'] if i['day']==row['key'])
+            item = next((i for i in right['days'] if i['day']==row['key']),None)
+            if item is None: continue  # An independent Side can cover other gas days.
             assert ('contingent' in row['cells']['gas.amount']['sources'])==(item['state']=='undecided')
         return right
 
     def check_value(actual,expected):
-        if isinstance(expected,int):
-            assert Decimal(actual)==expected,(actual,expected)
+        if isinstance(expected,(int,Fraction)):
+            assert Fraction(actual)==expected,(actual,expected)
         else:
             assert abs(Decimal(actual)-expected)<Decimal('1e-8'),(actual,expected)
 
-    def job(case,ctx,expected,*,reason=None,bumpsize='0.001',shift=None,after_submit=None,factor_day=DAYS[0]):
+    def job(case,ctx,expected,*,reason=None,bumpsize='0.001',shift=None,after_submit=None,factor_day=DAYS[0],peer=None,cashout_report=None):
         trade = case[1]['tradeId']
         if ctx.get('contextId'):
             restored = risk.call('date-schedules/context',coordinates[ctx['contextId']])['context']
             assert restored['contextId']==ctx['contextId']
-        scope = dict(context=shared(ctx),bookIds=[],portfolioIds=[],tradeIds=[trade,companion['tradeId']])
+        scope = dict(context=shared(ctx),bookIds=[],portfolioIds=[],tradeIds=[trade,companion['tradeId']]+([peer[0]['tradeId']] if peer else [])+([cashout['tradeId']] if cashout_report else []))
         cat = risk.call('portfolio/risk/catalog',scope)
         assert [(x['tradeId'],x['reason']) for x in cat['excludedPositions']]==([(trade,reason)] if reason else []),cat['excludedPositions']
         curve = 'synthetic_swing_overlap_location' if reason else case[0]['physicalSides'][0]['deliveryPoint'].replace('_point','_location')
@@ -170,6 +229,25 @@ def route_checks(c, query, manifest, context, template, run_worker):
         result = risk.call('portfolio/risk/jobs/'+job_id)
         assert result['state']=='completed',result
         result = result['result']
+        if after_submit:
+            rerun_id=risk.call('portfolio/risk/jobs',dict(requestId=str(uuid4()),request=req))['id']
+            assert rerun_id!=job_id
+            run_worker()
+            rerun=risk.call('portfolio/risk/jobs/'+rerun_id)
+            assert rerun['state']=='completed',rerun
+            for field in ('snapshotId','scenario','modelContracts','inputs','joint'):
+                assert_replay('retained worker '+field,rerun['result'][field],result[field])
+            print(f"PASS a second leased job retains original snapshot {result['snapshotId']}, valuation identities, monthly marks and full joint scenario results",flush=True)
+        for field in ('snapshotId','scenario','modelContracts','inputs','unassessedDays','incomplete'):
+            assert_replay(field,result[field],synchronous[field])
+        for queued,live in zip(result['connectedScenarios'],synchronous['connectedScenarios'],strict=True):
+            for field in (queued.keys() | live.keys())-{'work'}:
+                assert_replay('market scenario '+field,queued[field],live[field])
+            for work in (queued['work'],live['work']):
+                assert set(work)=={'evaluatedNodes','reusedReads','affectedNodes','traversedAffectedEdges','evaluatedWork'}
+                assert all(type(count) is int and count>=0 for count in work.values()),work
+            for field in queued['work'].keys()-{'evaluatedNodes'}:
+                assert_replay('market graph '+field,queued['work'][field],live['work'][field])
         if shift:
             for field in ('kind','request','baseTotals','samples','axes','derivatives'):
                 assert_replay('joint.'+field,result['joint'][field],synchronous['joint'][field])
@@ -212,8 +290,35 @@ def route_checks(c, query, manifest, context, template, run_worker):
         assert factor_row['bump']==bumpsize
         row = next(p for p in factor_row['positions'] if p['tradeId']==trade)
         check_value(row['values']['base'],expected)
+        if peer:
+            other=next(p for p in factor_row['positions'] if p['tradeId']==peer[0]['tradeId'])
+            assert other['bindingId']==peer[0]['instrumentId']!=row['bindingId']
+            assert other['values']['base']==peer[1] and other['swingRights']['base'][0]['days'][2]['revisionId']==peer[2],other
         for lane in ('base','up','down'):
-            assert sum(Decimal(e[lane]) for e in row['entries'])+Decimal(row['swingRights'][lane][0]['counted'] or '0')==Decimal(row['values'][lane])
+            assert sum(Fraction(e[lane]) for e in row['entries'])+Fraction(row['swingRights'][lane][0]['counted'] or '0')==Fraction(row['values'][lane])
+        assert row['unassessedDays']==row['swingRights']['base'][0]['unassessedDays']
+        if cashout_report:
+            other=next(p for p in factor_row['positions'] if p['tradeId']==cashout['tradeId'])
+            assert other['values']['base']==cashout_report['presentValue']
+            assert other['unassessedDays']==cashout_report['unassessedDays']==1
+            assert [e['unassessedDays'] for e in other['entries']]==[1,1,1,1,0]
+            reasons={(e['sourceSlot'],e['day'],e['owner'],e['reason']) for entry in other['entries'] for e in entry['missingAssessments']}
+            statement=next(r for r in cashout_report['imbalanceRows'] if r['day']=='2021-01-15' and r['entry']=='balance.to_us')
+            assert {(slot,day,reason) for slot,day,owner,reason in reasons}=={
+                (0,'2021-01-15','missing_election'),(0,'2021-01-15',statement['reason'])},reasons
+            assert len({owner for _,_,owner,_ in reasons})==2
+            summary=risk.call('portfolio/risk',dict(req,detail='books'))
+            book_factor,=summary['factors']
+            assert book_factor['positions']==[] and summary['unassessedDays']==3
+            assert_replay('book-only totals',book_factor['totals'],factor_row['totals'])
+            for total in book_factor['totals']:
+                members=[p for p in factor_row['positions'] if (p['bookId'],p['measure'])==(total['bookId'],total['measure'])]
+                assert total['unassessedDays']==sum(p['unassessedDays'] for p in members)
+                for lane in ('base','up','down'):
+                    assert Fraction(total['values'][lane])==sum(Fraction(p['values'][lane]) for p in members)
+            print('PASS mixed book: two missing right days plus one shared source/day with separate swing and statement reasons, exact book-only and worker totals',flush=True)
+        assert result['unassessedDays']==row['unassessedDays']+(1 if cashout_report else 0)
+        assert result['incomplete']==row['incomplete']==bool(row['unassessedDays'])
         return row
 
     prior = pin(gain[1],context)
@@ -239,17 +344,53 @@ def route_checks(c, query, manifest, context, template, run_worker):
     def at(day):
         return {**context,'snapshotId':initial_frame(c.call('workspace'),day)['id']}
 
-    def elect(case, index, quantity, effective=AT):
-        trade = case[1]
+    def elect(trade, index, quantity, effective=AT):
         heads = read(trade,context)['heads']
         return c.call('gas/swing/record', dict(context=context,tradeId=trade['tradeId'],instrumentId=trade['instrumentId'],
             expectedRevision=1,right=0,operationId=str(uuid4()),expectedHeads=[{k:h[k] for k in ('day','revisionId')} for h in heads],
-            elections=[dict(day=DAYS[index],quantity=quantity,exercisingParty='us',submittedAt=AT,effectiveAt=effective,
+            elections=[dict(day=heads[index]['day'],quantity=quantity,exercisingParty='us',submittedAt=AT,effectiveAt=effective,
                             evidence='Synthetic accepted swing order')]))['elections'][0]['revisionId']
 
-    previously_elected=elect(loss,0,'1000')
+    # The two identical contracts reserve different off-grid quantities. Price them together.
+    left,right_pair=[book_strip('synthetic_intrinsic') for _ in range(2)]
+    left_fact=elect(left[1],2,'775')
+    right_fact=elect(right_pair[1],2,'1025')
+    both=pin(left[1],context)
+    left_report=routes(left,both,390)
+    right_report=routes(right_pair,both,450)
+    assert left_report['days'][2]['revisionId']==left_fact and right_report['days'][2]['revisionId']==right_fact
+    pair_result=job(left,both,390,peer=(right_pair[1],'450',right_fact))
+    assert pair_result['swingRights']['base']==[left_report]
+    print('PASS identical contracts reserve 775 and 1025 on different bindings; joint worker returns distinct 390/450',flush=True)
+
+    # The independent period-total Side has one third of its volume left on Jan 31.
+    for scale in (1,10):
+        body=deepcopy(gain[0])
+        source=body['physicalSides'][0]
+        source['quantity']=str(3*scale)
+        residual=dict(source,code='residual',quantity=str(scale),quantityBasis='period_total_equal_days',
+            deliveryPoint='synthetic_swing_overlap_point',deliveryFrom='2021-01-28',deliveryTo='2021-01-31')
+        body['physicalSides'].append(residual)
+        body['swingRights'][0].update(dailyMinimum=str(2*scale),dailyMaximum=str(4*scale),planningStep=str(scale),
+                                     totalMinimum=None,totalMaximum=None,totalBasis=None)
+        body['operationId']=str(uuid4())
+        parcel=body,c.call('gas/composition/book',body)
+        elect(parcel[1],0,str(Decimal('2.5')*scale))
+        held=pin(parcel[1],at('2021-01-31'))
+        expected=Fraction(41*scale,15)
+        value=routes(parcel,held,expected)
+        row=job(parcel,held,expected)
+        cutoff=coordinates[held['contextId']]['knownAt']
+        pnl=pnl_values(risk,risk.call('portfolio/pnl/policies'),parcel[1],context,held,cutoff)
+        assert Fraction(pnl['openingValue']['amount'])==Fraction(24*scale,5) and Fraction(pnl['closingValue']['amount'])==expected,pnl
+        assert Fraction(pnl['economicPnl']['amount'])==expected-Fraction(24*scale,5) and pnl['cash']['amount']=='0',pnl
+        assert row['values']['base']==str(expected) and row['entries'][1]['base']==str(Fraction(31*scale,30)),row
+        assert Fraction(value['days'][0]['electedQuantity'])==Fraction(5*scale,2)
+        print(f"PASS B={3*scale}, elected five sixths; exact independent remaining Side {row['entries'][1]['base']}, trade {expected}",flush=True)
+
+    previously_elected=elect(loss[1],0,'1000')
     previous=pin(loss[1],context)
-    withdrawn=elect(loss,0,None)
+    withdrawn=elect(loss[1],0,None)
     selected=pin(loss[1],context)
     report=routes(loss,selected,-450)
     withdrawal_day=report['days'][0]
@@ -265,9 +406,9 @@ def route_checks(c, query, manifest, context, template, run_worker):
     print('PASS selected commercial withdrawal and prior election on held preview, editor, schedules, positions, ticket and leased risk lanes',flush=True)
 
     initial = pin(gain[1],context)
-    accepted = elect(gain,2,'1100')
+    accepted = elect(gain[1],2,'1100')
     reserved = pin(gain[1],context)
-    correction = elect(gain,2,'700','2021-01-01T08:00:00Z')
+    correction = elect(gain[1],2,'700','2021-01-01T08:00:00Z')
     right = routes(gain,context,480)
     assert right['periods'][0]['elected']=='1100' and right['counted']=='40' and right['days'][2]['revisionId']==accepted
     assert job(gain,context,480)['values']['delta']=='900'
@@ -284,28 +425,35 @@ def route_checks(c, query, manifest, context, template, run_worker):
         check_value(row['values']['down'],Decimal(480)-900*Decimal(bump))
         assert row['values']['delta']=='900'
 
+    switched=job(gain,initial,480,bumpsize='0.3')
+    assert [d['plannedQuantity'] for d in switched['swingRights']['up'][0]['days']]==['1100','700','900']
+    assert [d['plannedQuantity'] for d in switched['swingRights']['down'][0]['days']]==['700','700','1100']
+    assert (switched['values']['up'],switched['values']['down'])==('770','230'),switched
+    print('PASS 0.3 dated price shocks change the optimal plans and independently reconcile to 770 and 230',flush=True)
+
     expired = at('2021-01-31')
     unresolved=routes(gain,expired,280)
     assert unresolved['counted'] is None and unresolved['unassessedDays']==2
+    elect(cashout,2,None)
+    pinned_expired=pin(gain[1],expired)
+    balance=c.call('gas/composition/editor',dict(context=pinned_expired,tradeId=cashout['tradeId']))['valuation']
+    assert balance['unassessedDays']==1 and [s['unassessedDays'] for s in balance['sides']]==[1,1,1,1,0],balance['sides']
+    assert [s['presentValue'] for s in balance['sides'][2:]]==['490','-420','-2']
+    job(gain,pinned_expired,280,cashout_report=balance)
+    trades=c.call('trading/blotter',dict(context=shared(pinned_expired),view=view))['holdings']
+    pivot_view=dict(view,mode='pivot',groupBy=['portfolio'],measures=['presentValue','tradeCount'],
+                    pivotConvention='trading_blotter_money_totals_v1')
+    groups=c.call('trading/blotter',dict(context=shared(pinned_expired),view=pivot_view))['groups']
+    for group in groups:
+        matching=[h for h in trades if h['measure']==group['measure']]
+        assert group['tradeCount']==len(matching) and group.get('unassessedDays',0)==sum(h['unassessedDays'] for h in matching),group
+        assert Fraction(group['presentValue'])==sum(Fraction(h['presentValue']) for h in matching if h['presentValue'] is not None),group
     job(gain,expired,280)
     print('PASS swing 480 and mandatory -450 through preview, editor, position, schedule, Blotter and leased risk; early D3, both clocks, deltas 900/1100 and elapsed-trade isolation',flush=True)
 
     policies = risk.call('portfolio/pnl/policies')
-    def endpoint(ctx):
-        return dict(snapshotId=ctx['snapshotId'],convention='trading_workspace_v1',knowledgeMode='at')
-    def pnl_values(trade, opening, closing, known_at, refusal=None):
-        request = dict(opening=endpoint(opening),closing=endpoint(closing),knownAt=known_at,
-            bookIds=[],portfolioIds=[],tradeIds=[trade['tradeId']],accountingPolicy=policies['accounting'],
-            attributionPolicy=policies['attribution'],factorPolicy=policies['factors'],factorBump=policies['factorBump']['offered'],
-            time=dict(mode='opening_to_closing_clock_v1',policy=policies['clockPolicy'],clock=None))
-        result = risk.call('portfolio/pnl/run',request,timeout=300,expected=(200,422) if refusal else 200)
-        if refusal:
-            assert risk.last_status==422 and result.get('code')==refusal and 'report' not in result,(risk.last_status,result.get('code'),refusal)
-            return
-        return result['report']['totals'][0]['values']
-
     for case,opening,closing,movement in [(loss,'-450','-450','0'),(gain,'480','360','-120')]:
-        pnl = pnl_values(case[1],context,future,read(case[1],future)['context']['knownAt'])
+        pnl = pnl_values(risk,policies,case[1],context,future,read(case[1],future)['context']['knownAt'])
         assert (pnl['openingValue']['amount'],pnl['closingValue']['amount'],pnl['economicPnl']['amount'])==(opening,closing,movement),pnl
         assert pnl['cash']['amount']=='0' and not pnl['incomplete'],pnl
     print('PASS mandatory swing P&L endpoints -450/-450; early correction 480/360, zero cash and -120 P&L',flush=True)
@@ -328,7 +476,7 @@ def route_checks(c, query, manifest, context, template, run_worker):
 
     opening_clock = datetime.fromisoformat('2021-01-01T08:00:00Z')
     def pricing_pnl(cutoff, january):
-        pnl = pnl_values(stochastic[1],future,stochastic_at,cutoff)
+        pnl = pnl_values(risk,policies,stochastic[1],future,stochastic_at,cutoff)
         start, end = oracle(january,calculation_at=opening_clock), oracle(january)
         for field,value in [('openingValue',start),('closingValue',end),('economicPnl',end-start)]:
             check_value(pnl[field]['amount'],value)
@@ -336,7 +484,7 @@ def route_checks(c, query, manifest, context, template, run_worker):
         return pnl
 
     missing_cutoff = coordinates[prior['contextId']]['knownAt']
-    pnl_values(stochastic[1],future,stochastic_at,missing_cutoff,'exercise_marks')
+    pnl_values(risk,policies,stochastic[1],future,stochastic_at,missing_cutoff,'exercise_marks')
     expected = oracle()
     historical = pin(stochastic[1],stochastic_at)
     right = routes(stochastic,historical,expected)
@@ -363,12 +511,23 @@ def route_checks(c, query, manifest, context, template, run_worker):
     current_cutoff = read(stochastic[1],stochastic_at)['context']['knownAt']
     current_pnl = pricing_pnl(current_cutoff,'0.50')
     assert pricing_pnl(historical_cutoff,'0.33')==original_pnl
-    pnl_values(stochastic[1],future,stochastic_at,missing_cutoff,'exercise_marks')
+    pnl_values(risk,policies,stochastic[1],future,stochastic_at,missing_cutoff,'exercise_marks')
     print(f"PASS P&L missing cutoff {missing_cutoff} refuses, unequal marks at {historical_cutoff}: "
           f"{original_pnl['openingValue']['amount']}/{original_pnl['closingValue']['amount']}, January revision at {current_cutoff}: "
           f"{current_pnl['openingValue']['amount']}/{current_pnl['closingValue']['amount']}, old cutoff replays",flush=True)
     print(f"PASS unequal monthly marks, PV {row['values']['base']}, point up/down {row['values']['up']}/{row['values']['down']}, "
           f"volatility up/down {up}/{down}, pinned worker replay, finite-grid delta {row['values']['delta']}",flush=True)
+
+    # Both admissible 1,000% marks drive far-tail prices beyond the finite lattice magnitude
+    # over the December-to-February horizon, while the marked January cutoff still replays.
+    mark(curve,'2021-01','10',3)
+    mark(curve,'2021-02','10',2)
+    magnitude=pin(stochastic[1],context)
+    routes(stochastic,magnitude,reason='swing_numerical_scope')
+    job(stochastic,magnitude,None,reason='swing_numerical_scope')
+    assert routes(stochastic,historical,expected)==right
+    pnl_values(risk,policies,stochastic[1],context,stochastic_at,coordinates[magnitude['contextId']]['knownAt'],'swing_numerical_scope')
+    print('PASS two admitted 10.0 volatility marks exceed numerical magnitude on the open horizon; prior pinned prices remain available',flush=True)
 
     one = deepcopy(template)
     one.update(bookId=book,operationId=str(uuid4()))

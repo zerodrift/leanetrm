@@ -78,14 +78,14 @@ internal static class GasTicketChecks
             Equal(false,JsonSerializer.SerializeToElement(GasTicket.Reopen(plain),json).TryGetProperty("swingRights",out _),"ordinary draft");
             var choices=GasTicket.LocalChoices(draft,null,"swing_model")!.Value;
             Equal(null,GasTicket.ChoiceSet(draft,null,"swing_model",choices).StartingValue,"explicit model");
-            foreach(var field in new[]{"swing_limit_period","swing_plan_rule","swing_deadline_rule","quantity_policy"})
+            foreach(var field in new[]{"swing_limit_period","swing_plan_rule","swing_deadline_rule","quantity_policy","swing_model","swing_numerical_policy"})
             {
                 var invalid=JsonSerializer.SerializeToNode(draft,json)!;
                 bool sourceControl=field=="quantity_policy";
                 var owner=sourceControl?invalid["sides"]![0]!["values"]!:invalid["swingRights"]![0]!;
                 owner[field]="unsupported";
                 try{Map(invalid.Deserialize<TicketDraft>(json)!);}
-                catch(TicketFieldException e) when(e.Code=="swing_right" && e.Field==field &&
+                catch(TicketFieldException e) when(e.Code==(field is "swing_model" or "swing_numerical_policy"?"swing_model_scope":"swing_right") && e.Field==field &&
                     (sourceControl?e.Side=="RCT" && e.TermRow is null:e.TermSection=="swingRights" && e.TermRow==0)){continue;}
                 throw new Exception($"Expected a swing refusal on {field}.");
             }

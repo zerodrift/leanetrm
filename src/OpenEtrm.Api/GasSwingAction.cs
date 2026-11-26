@@ -23,6 +23,7 @@ public sealed record GasSwingAction(bool Allowed,string? Reason,Guid TradeId,Gui
     ImmutableArray<SwingPeriodReport> Periods,ImmutableArray<GasSwingActionDay> Days)
 {
     internal WriteAuthority? Admission {get;init;}
+    public SwingPeriodLabels? PeriodLabels {get;init;}
     public string Label=>"Record swing election";
     public string PreparePath=>"/api/gas/swing/prepare";
     public string RecordPath=>"/api/gas/swing/record";
@@ -54,7 +55,7 @@ public sealed record GasSwingAction(bool Allowed,string? Reason,Guid TradeId,Gui
             GasSwingStore.Facts(execution,facts).Elections,frame.At);
         return new(reason is null,reason,execution.TradeId,execution.InstrumentId,revision,reason is null?frame.ContextId:null,right.Ordinal,
             term.Holder,term.PlanningStep,term.DailyMinimum,term.DailyMaximum,reference,[..budget.Select(p=>SwingPeriodReport.FromBudget(p))],days)
-            {Admission=reason is null?authority:null};
+            {Admission=reason is null?authority:null,PeriodLabels=SwingPeriodLabels.From(term)};
     }
 
     internal sealed record WriteAuthority(Guid Catalog,DateTimeOffset Until):ICommitAdmission
