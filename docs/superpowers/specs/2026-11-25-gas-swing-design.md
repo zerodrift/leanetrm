@@ -458,6 +458,69 @@ annual root agrees with the sum of independent monthly optima valued from
 the same inception on the same factor clock, within a derived finite-arithmetic
 rounding envelope. No independent monthly recentering at day one.
 
+### Managed v2 resource charges
+
+The internal booking component returns its authoritative calculation instant and
+version with the structural estimate. It treats every commercially flexible
+period as positive-volatility work. In an elapsed period it drops both aggregate
+endpoints from the estimate because the quantities of missed elections are
+unknown. The level dimension and original count limit still apply. At valuation,
+use exact elected reservations and include price work only for the assessed
+periods left after the mandatory exact strips.
+
+For a period with `n` open days, write `r` for the last daily index and `b` for
+the base index. At depth `d` consider each feasible prefix change count `h`
+from zero to the lesser of `d` and the opening allowance. A flat daily range
+cannot spend a change, so its effective allowance for counting is zero. The prefix level lies
+between `(d-h)b` and `(d-h)b + hr`. With no count, use the single interval
+`[0, dr]`. With `m = n-d` days left and at most `k` available changes, the
+suffix ranges from `(m-k)b` through `(m-k)b + kr`. Intersect the prefix
+with the inward integer terminal endpoints less the opposite suffix endpoints.
+A period without any total omits this level arithmetic entirely.
+An empty intersection contributes zero states. Otherwise charge its inclusive
+width, or one state when the right has no aggregate total. Charge a base move
+when changes are exhausted. For a spendable change, intersect the daily range
+with the terminal bounds after reserving the remaining suffix and allowing
+the full prefix interval. Count the base at most once. This bounds visits
+even when multiple parents can reach the same child. Terminal layers have
+zero outgoing moves. An independent month opens at one coordinate.
+
+Count regular ticks by integer division from the first future retained
+deadline's six-hour phase. Add each off-phase retained deadline at or before
+the decision, including elected and unassessed dates. If successive modeled
+decisions have step indexes `p` and `t`, charge `3(t²-p²)` branches for
+each admissible pre-decision state. This includes the prefix from inception
+when `p=0`. Charge all bounded actions at each of the `2t+1` observed nodes.
+Charge one payoff per node per distinct action index, bounded by the smaller
+of the number of daily indices and the layer's total feasible moves. Charge
+`t` prefix normalizer updates for this decision. Charge four visits per
+commercial state slot and three per candidate for graph creation, exact plan
+and stochastic move preparation. The actual counter charges two candidate
+passes plus the moves compiled for stochastic decisions. Charge one preflight visit per retained calendar day and per prefix change-count interval inspected (including empty intersections) before and after a decision. Charge one visit per
+open day, per factor transition and per cached exponential. Bound the last
+count by the widest factor layer times the number of consumed delivery months.
+
+| Simultaneously charged workspace | Bytes |
+| --- | ---: |
+| Fixed calculation scratch including bounded integer and transcendental temporaries | 32,768 |
+| Each reached commercial state slot across retained layers, including index/range structures, rolling exact scores and backpointers | 4,096 |
+| Each open decision day, including exact unit components, coefficients, layer and plan containers | 8,192 |
+| Each modeled time step, including times, probabilities and the decision index | 256 |
+| Each cached exponential or live lattice value, including its bounded numeric limbs | 96 |
+| Each edge in the largest stochastic decision layer, including ranks, normalized action coefficients, lookup and per-node rewards | 1,536 |
+
+For the two rolling value arrays charge twice the maximum, over decision
+layers, of `(2t+3) × max(before states, after states) × 96` bytes. At a
+monthly boundary the successful terminal states share the next opening value.
+Add all table charges before building the graph, coefficient LCM or price
+arrays. Reject an operation or byte total strictly above 100,000,000 or
+268,435,456 respectively. The corresponding per-layer early bounds are
+65,536 state slots and 100,000,000 candidate visits. Exact arithmetic has a
+4,096-bit per-integer limit. Commercial fact admission is independent of the
+numerical limits. The [portable admission fixtures](../../../tests/fixtures/gas-swing-unit-resource-v2.json)
+fix the adjacent operation, byte and fan-out cases for the native implementation.
+End-to-end qualification and independent resource-policy review remain pending.
+
 ## Independent financial oracles
 
 Use all [worked examples](2026-11-24-quantity-rights-with-limits-design.md#worked-example)

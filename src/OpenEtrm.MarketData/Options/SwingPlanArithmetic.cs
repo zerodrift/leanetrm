@@ -11,7 +11,8 @@ internal sealed class SwingPlanArithmetic
     internal SwingPlanArithmetic(int bits)
     {
         Bits = Math.Min(4096, bits);
-        maximum = (BigInteger.One << Bits) - 1;
+        var highBit = BigInteger.One << (Bits - 1);
+        maximum = highBit + (highBit - 1);
     }
 
     private void Require(BigInteger value)
@@ -39,12 +40,17 @@ internal sealed class SwingPlanArithmetic
         return left + right;
     }
 
-    internal BigInteger Lcm(BigInteger left, BigInteger right) => Product(left / BigInteger.GreatestCommonDivisor(left,right), right);
-
-    internal SignedRatio ReciprocalOfStep(SignedRatio step)
+    internal BigInteger Lcm(BigInteger left, BigInteger right)
     {
-        Require(step);
-        return new(step.Denominator, step.Numerator);
+        Require(left);
+        Require(right);
+        return Product(left / BigInteger.GreatestCommonDivisor(left,right), right);
+    }
+
+    internal SignedRatio Reciprocal(SignedRatio value)
+    {
+        Require(value);
+        return new(value.Denominator, value.Numerator);
     }
 
     internal SignedRatio Multiply(SignedRatio left, SignedRatio right)
@@ -63,6 +69,25 @@ internal sealed class SwingPlanArithmetic
         var gcd = BigInteger.GreatestCommonDivisor(left.Denominator, right.Denominator);
         return new(Add(Product(left.Numerator, right.Denominator/gcd), Product(right.Numerator, left.Denominator/gcd)),
             Product(left.Denominator/gcd, right.Denominator));
+    }
+
+    internal int Compare(SignedRatio left, SignedRatio right)
+    {
+        Require(left);
+        Require(right);
+        if (left.Numerator.Sign != right.Numerator.Sign) return left.Numerator.Sign.CompareTo(right.Numerator.Sign);
+        var common = BigInteger.GreatestCommonDivisor(left.Denominator,right.Denominator);
+        return Product(left.Numerator,right.Denominator/common).CompareTo(Product(right.Numerator,left.Denominator/common));
+    }
+
+    internal BigInteger ToModelAmount(SignedRatio value)
+    {
+        Require(value);
+        var numerator = Product(value.Numerator,ExactDecimal.WorkingScale);
+        var quotient = BigInteger.DivRem(BigInteger.Abs(numerator),value.Denominator,out var remainder);
+        int halves = remainder.CompareTo(value.Denominator-remainder);
+        if (halves > 0 || halves == 0 && !quotient.IsEven) quotient = Add(quotient,1);
+        return numerator.Sign < 0 ? -quotient : quotient;
     }
 
     internal SignedRatio Subtract(SignedRatio left, SignedRatio right)

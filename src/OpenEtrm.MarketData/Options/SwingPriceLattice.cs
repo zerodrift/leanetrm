@@ -4,7 +4,7 @@ namespace OpenEtrm.MarketData.Options;
 
 // Each step has node order j = -step .. +step. A decision inserted between
 // regular ticks splits the transition without moving the six-hour anchors.
-internal sealed record SwingPriceLattice(LatticeDecimal[][] Transitions, int[] DecisionDays)
+internal sealed partial record SwingPriceLattice(LatticeDecimal[][] Transitions, int[] DecisionDays)
 {
     private const long IntervalTicks = 6 * TimeSpan.TicksPerHour;
     internal const int MaximumSteps = 1600;

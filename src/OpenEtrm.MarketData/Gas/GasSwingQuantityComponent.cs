@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using OpenEtrm.MarketData.Options;
 using OpenEtrm.MarketData.Trading;
 using OpenEtrm.Shared.Numerics;
 
@@ -9,7 +10,11 @@ internal sealed record GasSwingQuantityComponent(string Side, ImmutableArray<str
     ExactDecimal DailyMinimum, ExactDecimal DailyMaximum, ExactDecimal Step, string Period, ExactDecimal? Lower,
     ExactDecimal? Upper, string? TotalBasis, int? ChangeCount, string? CountRule, string PlanRule, string DeadlineRule, int LeadHours)
 {
-    internal SwingQuantityRight Resolve(GasCompositionInstrument instrument, DateTimeOffset bookingAt)
+    internal SwingQuantityRight Resolve(GasCompositionInstrument instrument, DateTimeOffset bookingAt) =>
+        Resolve(instrument,bookingAt,out _);
+
+    internal SwingQuantityRight Resolve(GasCompositionInstrument instrument, DateTimeOffset bookingAt,
+        out SwingUnitEstimate structuralEstimate)
     {
         var owner = GasSwingCoverage.SourceFor(instrument, Side);
         var covered = GasSwingCoverage.Resolve(instrument, owner, Entries, LeadHours);
@@ -31,7 +36,7 @@ internal sealed record GasSwingQuantityComponent(string Side, ImmutableArray<str
             Lower is {} lower ? Normalize(lower) : null, Upper is {} upper ? Normalize(upper) : null,
             TotalBasis, ChangeCount, CountRule, selection, PlanRule, DeadlineRule, LeadHours, covered.Days);
         var reference = ExactQuantity.FromQuantity(new(covered.Reference, instrument.UnitQuantity.Specification));
-        _ = SwingFeasibility.Resolve(right, reference, [], bookingAt);
+        structuralEstimate = SwingUnitResources.Booking(right,reference,bookingAt);
         return right;
     }
 }

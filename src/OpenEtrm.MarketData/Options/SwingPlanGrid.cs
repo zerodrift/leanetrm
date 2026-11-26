@@ -40,6 +40,7 @@ internal sealed class SwingPlanGrid
     internal BigInteger TerminalMinimum { get; }
     internal BigInteger TerminalMaximum { get; }
     internal ImmutableArray<ImmutableArray<LevelPlanState>> Coordinates { get; }
+    internal int MaximumChoices { get; }
     internal ImmutableArray<long> ActionCounts { get; }
     private readonly ImmutableArray<Dictionary<LevelPlanState,SwingPlanMoves>> choices;
     private readonly ImmutableArray<LevelCoordinates> levels;
@@ -82,21 +83,19 @@ internal sealed class SwingPlanGrid
         var right = period.Right;
         hasTotal = right.HasTotal;
         hasCount = right.ChangeCount.HasValue;
-        var open = period.Days.Where(d => d.Election is null).Select(d => d.Day);
-        if ((hasTotal || hasCount) && open.Any(d => d.ExerciseAt <= period.AssessmentAt))
-            throw new MarketDataException("swing_determination", "A missed election leaves the coupled limit period unassessed.");
-        Days = [..open.Where(d => d.ExerciseAt > period.AssessmentAt)];
-        if (Days.Length + 1L > budget.MaximumStates) throw Scope("state slots", budget.MaximumStates);
-
-        var reciprocalStep = arithmetic.ReciprocalOfStep(right.Step);
-        SignedRatio IndexOfDifference(SignedRatio x, SignedRatio y) =>
-            arithmetic.Multiply(arithmetic.Subtract(x, y), reciprocalStep);
-        last = IndexOfDifference(right.Maximum, right.Minimum).Numerator;
-        rest = IndexOfDifference(SwingQuantityRight.Base, right.Minimum).Numerator;
-        var offset = hasTotal ? arithmetic.Add(period.Elected, arithmetic.Multiply(new(Days.Length, 1), right.Minimum)) : SignedRatio.Zero;
-        TerminalMinimum = period.AppliedLower is {} lower ? -Floor(IndexOfDifference(offset, lower)) : 0;
-        TerminalMaximum = period.AppliedUpper is {} upper ? Floor(IndexOfDifference(upper, offset)) :
-            hasTotal ? arithmetic.Product(Days.Length, last) : 0;
+        int eligible = 0;
+        foreach (var day in period.Days)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            if (day.Election != null) continue;
+            if (day.Day.ExerciseAt > period.AssessmentAt) eligible++;
+            else if (hasTotal || hasCount)
+                throw new MarketDataException("swing_determination", "A missed election leaves the coupled limit period unassessed.");
+        }
+        if (eligible + 1L > budget.MaximumStates) throw Scope("state slots", budget.MaximumStates);
+        Days = [..period.Days.Where(d => d.Election is null && d.Day.ExerciseAt > period.AssessmentAt).Select(d => d.Day)];
+        var bounds = SwingIndexBounds.From(period, eligible, arithmetic);
+        (last, rest, TerminalMinimum, TerminalMaximum) = bounds;
         Opening = new(0, Math.Min(Days.Length, period.AvailableChanges ?? 0));
 
         var layers = ImmutableArray.CreateBuilder<ImmutableArray<LevelPlanState>>(Days.Length + 1);
@@ -119,6 +118,7 @@ internal sealed class SwingPlanGrid
                 cancellation.ThrowIfCancellationRequested();
                 var level = levelMaps[day].Value(state.Level);
                 var feasible = FeasibleMoves(level, state.Count, Days.Length - day - 1, budget.MaximumCandidates - visits);
+                MaximumChoices = Math.Max(MaximumChoices,feasible.Count);
                 visits += feasible.Count;
                 actions += feasible.Count;
                 from.Add(state, feasible);
@@ -184,19 +184,25 @@ internal sealed class SwingPlanGrid
         var same = Range(count);
         var changed = hasCount ? Range(count - 1) : same;
         var restAllowed = same.Low <= rest && rest <= same.High;
-        var size = BigInteger.Max(0, changed.High - changed.Low + 1);
-        if (changed.Low <= rest && rest <= changed.High) size--;
-        if (restAllowed) size++;
-        if (size.IsZero) throw NoCompletion();
+        var span = changed.High - changed.Low;
+        if (span > visitsLeft) throw Scope("candidate visits", Budget.MaximumCandidates);
+        long size = span.Sign < 0 ? 0 : (long)span;
+        // When the base lies inside, the changed interval already has exactly
+        // span remaining ranks after its removal.
+        if (span.Sign >= 0 && !(changed.Low <= rest && rest <= changed.High))
+        {
+            if (size == visitsLeft) throw Scope("candidate visits", Budget.MaximumCandidates);
+            size++;
+        }
+        if (restAllowed)
+        {
+            if (size == visitsLeft) throw Scope("candidate visits", Budget.MaximumCandidates);
+            size++;
+        }
+        if (size == 0) throw NoCompletion();
         if (size > visitsLeft) throw Scope("candidate visits", Budget.MaximumCandidates);
         if (size > int.MaxValue) throw Scope("candidate ranks per state", int.MaxValue);
         return new(changed.Low, changed.High, rest, restAllowed, (int)size);
-    }
-
-    private static BigInteger Floor(SignedRatio value)
-    {
-        var quotient = BigInteger.DivRem(value.Numerator, value.Denominator, out var remainder);
-        return remainder.Sign < 0 ? quotient - 1 : quotient;
     }
 
     internal static MarketDataException NoCompletion() => new("swing_plan_infeasible", "The admitted swing period has no grid completion.");

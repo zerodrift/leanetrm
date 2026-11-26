@@ -178,9 +178,9 @@ public static class LevelPlanSearch
                     var successor = to.IndexOf(candidate.Successor);
                     if (successor < 0 || after[successor] is not { } suffix)
                         continue;
-                    var score = candidate.Reward + suffix;
-                    if (TooWide(score, budget))
+                    if (AdditionExceeds(candidate.Reward, suffix, budget.MaximumIntegerBits))
                         return WorkLimit;
+                    var score = candidate.Reward + suffix;
                     if (best is { } previous)
                     {
                         var order = score.CompareTo(previous);
@@ -209,6 +209,18 @@ public static class LevelPlanSearch
             at = choice.Successor;
         }
         return new(LevelPlanStatus.Optimal, moves.MoveToImmutable(), objective);
+    }
+
+    // Both operands have already passed the integer limit. Only same-sign
+    // additions with at least one full-width operand can exceed it.
+    private static bool AdditionExceeds(BigInteger left, BigInteger right, int bits)
+    {
+        if (left.Sign != right.Sign || left.IsZero) return false;
+        var a = BigInteger.Abs(left);
+        var b = BigInteger.Abs(right);
+        if (a.GetBitLength() < bits && b.GetBitLength() < bits) return false;
+        var highBit = BigInteger.One << (bits - 1);
+        return a > highBit + (highBit - 1) - b;
     }
 
     private static bool TooWide(BigInteger value, LevelPlanBudget budget) =>

@@ -14,7 +14,7 @@ public sealed record SwingWorkCounts(int TimeSteps, int MaximumPriceNodes, int M
 public sealed record SwingChoiceResult(SignedRatio Value, SignedRatio IntrinsicValue, ImmutableArray<int> IntrinsicLots,
     SwingWorkCounts Work);
 
-public static class SwingChoice
+public static partial class SwingChoice
 {
     public static SwingChoiceResult Value(SwingChoiceInputs inputs, CancellationToken cancellation = default)
     {

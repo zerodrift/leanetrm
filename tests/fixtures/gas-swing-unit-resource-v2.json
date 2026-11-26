@@ -1,0 +1,55 @@
+{
+  "Policy": "swing_trinomial_6h_unit_reference_v2",
+  "Origin": "2041-01-01T00:00:00Z",
+  "Description": "One delivery day. FirstDeadlineTicks counts six-hour ticks after Origin. B=1, daily minimum 0, step 1, independent daily bounds, no total or count.",
+  "Cases": [
+    {
+      "Name": "one-decision",
+      "FirstDeadlineTicks": 1,
+      "DailyMaximum": 1,
+      "Operations": 38,
+      "Bytes": 53728,
+      "Refusal": null
+    },
+    {
+      "Name": "operations-last-grid",
+      "FirstDeadlineTicks": 5771,
+      "DailyMaximum": 1,
+      "Operations": 99982598,
+      "Bytes": 4854368,
+      "Refusal": null
+    },
+    {
+      "Name": "operations-next-grid",
+      "FirstDeadlineTicks": 5772,
+      "DailyMaximum": 1,
+      "Operations": 100017239,
+      "Bytes": 4855200,
+      "Refusal": "operations"
+    },
+    {
+      "Name": "bytes-last-choice",
+      "FirstDeadlineTicks": 1,
+      "DailyMaximum": 174728,
+      "Operations": 1572581,
+      "Bytes": 268434400,
+      "Refusal": null
+    },
+    {
+      "Name": "bytes-next-choice",
+      "FirstDeadlineTicks": 1,
+      "DailyMaximum": 174729,
+      "Operations": 1572590,
+      "Bytes": 268435936,
+      "Refusal": "modeled live bytes"
+    },
+    {
+      "Name": "fan-out",
+      "FirstDeadlineTicks": 1,
+      "DailyMaximum": 100000000,
+      "Operations": 900000029,
+      "Bytes": 153600052192,
+      "Refusal": "candidate visits"
+    }
+  ]
+}

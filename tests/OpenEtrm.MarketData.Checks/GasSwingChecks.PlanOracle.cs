@@ -87,7 +87,10 @@ internal static partial class GasSwingChecks
             ExactDecimal.Parse("850"), ExactDecimal.Parse("1150"), ExactDecimal.Parse("75"), "term", null, ExactDecimal.Parse("1050"),
             "per_period_v1", 1, "differs_from_base_v1", "best_plan_on_forwards_v1", "lead_before_first_gas_day_v1", 6);
         var composition = Composition(source);
-        var right = component.Resolve(composition, Before);
+        var right = component.Resolve(composition, Before, out var preflight);
+        Require(preflight.CalculationAt == Before && preflight.Policy == SwingUnitResources.Policy,
+            "The internal booking result retains its structural calculation clock and selected policy.");
+        Refuse("swing_numerical_scope", () => component.Resolve(composition,right.Days[0].ExerciseAt.AddYears(-12)));
         Require(right.Step == R(3,40) && right.Minimum == R(17,20) && right.Upper == R(21,20) &&
             right.QuantityPolicy == "swing_elected_quantity_v1" && right.Days[0].ExerciseAt == f.Physical.GenerateSchedule().Quantities.Rows[0].Start.AddHours(-6),
             "Normalize native amounts and bind the source choice, coverage and deadline.");
@@ -120,7 +123,7 @@ internal static partial class GasSwingChecks
     private static void BoundedPlanningStep()
     {
         var arithmetic = new SwingPlanArithmetic(8);
-        Require(arithmetic.ReciprocalOfStep(R(255,128)) == R(128,255), "Both 8-bit limbs fit the reciprocal budget.");
+        Require(arithmetic.Reciprocal(R(255,128)) == R(128,255), "Both 8-bit limbs fit the reciprocal budget.");
         foreach (var step in new[] { R(256,255), R(255,256) })
         {
             var flat = Terms(1) with { Minimum = R(1), Maximum = R(1), Step = step, Upper = null, TotalBasis = null };
@@ -128,7 +131,7 @@ internal static partial class GasSwingChecks
             Require(period.RemainingMinimum == R(1) && period.RemainingMaximum == R(1),
                 "The flat day has one exact commercial completion for either positive step.");
             Refuse("swing_numerical_scope", () => SwingPlanGrid.Build(period, PlanBudget with { MaximumIntegerBits = 8 }));
-            Refuse("swing_numerical_scope", () => arithmetic.ReciprocalOfStep(step));
+            Refuse("swing_numerical_scope", () => arithmetic.Reciprocal(step));
         }
     }
 

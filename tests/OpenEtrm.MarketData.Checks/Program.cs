@@ -113,6 +113,9 @@ if(args is ["--gas-swing-workload", var days, var lots, var scenario, var output
     GasSwingWorkload.Run(days, lots, scenario, outputPath);
     return;
 }
+if(args is ["--gas-swing-unit-heap",var heapDays]){GasSwingChecks.UnitWorkload(int.Parse(heapDays),true);return;}
+if(args is ["--gas-swing-unit-workload",var unitDays]){GasSwingChecks.UnitWorkload(int.Parse(unitDays));return;}
+if(args is ["--gas-swing-unit-oracles", var cases, var results]){GasSwingChecks.UnitOracles(cases,results);return;}
 if(args is ["--gas-swing-oracles", var swingCases, var swingResults]){GasSwingOracleRunner.Run(swingCases,swingResults);return;}
 if(args is ["--gas-swing"]){GasSwingChecks.Run();return;}
 if(args is ["--option-calibration-workload"]){FuturesOptionChecks.CalibrationWorkload();return;}
