@@ -1,5 +1,37 @@
 # Physical gas booking and pre-delivery valuation
 
+## Daily quantity rights (D456)
+
+The holder elects an exact native quantity for a whole operating gas day. The
+planning grid starts at the daily minimum and reaches the constant reference
+and daily maximum in whole steps. Commercial elections may fall between steps.
+A month or term can have a lower total, an upper total, both or neither, plus
+an optional count of days
+whose quantity differs from the reference. A per-day total uses every retained
+day in the period. For a January maximum of 1,005 per day, electing 1,050
+leaves 30,105 under the 31,155 cap. With daily bounds 900–1,100, a reference
+of 1,000 and two changed days allowed, the election uses one change. The
+feasible remaining maximum is 30,100 and the remaining base delivery totals
+30,000.
+
+The undiscounted model requires a positive unadjusted point forward from one
+dated daily or monthly lookup and fixed linear payments in the same currency
+covering the source's full term. Assessable flexible choices require explicit
+monthly volatility. Commercially forced quantities use exact forwards. An accepted
+commercial quantity and any selected allocation or schedule retain separate
+evidence. A missed election blocks future choices in its period when a stated
+total or count couples the days. With neither constraint, later days remain
+assessable independently. Other periods can still be assessed. A recorded
+payment remains visible even when the corresponding accrual is unknown.
+
+The remaining-right PV uses a finite six-hour common-factor tree. The ticket
+shows the comparison plan and its value separately. An election records a
+commercial fact. Nomination, dispatch, settlement and payment have their own
+operations. Previous-day counts, separate directional counts, ramps, refraction
+and simultaneous term and monthly limits remain outside this profile.
+See the [model and bounds](superpowers/specs/2026-11-25-gas-swing-design.md)
+and [independent qualification](verification.md#daily-gas-quantity-rights-d456).
+
 ## Imbalance cash-out (D454)
 
 An independent physical Side can carry a `daily_index_cashout_v1` pair of

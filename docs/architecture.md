@@ -1,5 +1,13 @@
 # Architecture and domain contracts
 
+D456 binds daily quantity rights to retained gas Instrument memberships. A
+commercial election reserves the binding's exact native quantity under the
+selected monthly or term constraints. Concrete Sides price their own quantities
+under the supplied scenario. The Instrument counts the remaining joint choice
+once and Trade applies its external size once. Generic risk reprices the same
+contract for each scenario. The [Instrument contract](instrument-contracts.md#daily-quantity-rights-d456)
+describes the cash, coverage and scaling boundaries.
+
 D448 adds exercise rights on a gas Instrument. A right governs explicit
 existing memberships by gas day or delivery month. The schedule applies the
 decision to daily quantities and counts the holder's choice while undecided.

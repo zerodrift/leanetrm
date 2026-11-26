@@ -1,5 +1,21 @@
 # Deal ticket
 
+## Gas swing (D456)
+
+On a standalone physical gas ticket, add a swing right, choose its source and
+following payment entries, and enter the daily bounds, planning step, holder,
+deadline and pricing policy. Select a month or term and any total bounds and
+changed-day count. The booked schedule shows applied totals, feasible remaining
+quantities, changes consumed and the next deadline. **Quant details** shows the
+separate forward plan, market revisions, numerical policy and modeled work.
+
+**Record swing election** accepts a quantity or withdrawal over the selected
+gas days and retains the whole right's expected heads. Zero is an election.
+Reopen or retry a lost reply under the original operation identity. A missing
+mark can prevent valuation while the ticket still shows the retained commercial
+history, a missed election and the days it blocks. See the
+[field contract](physical-gas-field-contract.md#swing-rights-and-elections).
+
 ## Gas imbalance cash-out (D454)
 
 Add side offers **Imbalance cash-out**. One card creates two native payment
@@ -598,9 +614,7 @@ profile's lifecycle and explicit no-discounting policy are unchanged.
   as descriptions there, without blank columns in the live schedule. Opening the
   disclosure performs no read or business action. None holds a value or is sent,
   and booking refuses a soon side or a value for a soon field.
-  Physical gas declares the owner's set: on the physical side, swing (daily minimum
-  and maximum, swing range as a percentage of the base quantity, swing notice
-  deadline), nomination (cycle, nominating party), heat content in Btu per cubic
+  The remaining planned physical gas fields include nomination (cycle, nominating party), heat content in Btu per cubic
   foot and quality specification. The strip shows the planned master agreement
   force majeure and credit terms. The schedule lists a planned Volume column. The implemented Imbalance tab
   shows reported balance cash-out under D454; it does not derive imbalance from

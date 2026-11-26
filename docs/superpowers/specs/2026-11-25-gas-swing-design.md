@@ -11,9 +11,11 @@ cash payment or storage plan record.
 The published baseline is D454 (748b7695). Tasks 1–8 of the
 [implementation plan](../plans/2026-11-25-gas-swing.md) built and exercised a
 narrower profile on that baseline. Its mandatory term budget, lot elections,
-31-day limit and held-money rounding do not implement the contract below. The
-remaining tasks cover implementation and qualification. Names for replacement
-types and policy versions below are proposals.
+31-day limit and held-money rounding do not implement the contract below.
+D456 implements the reconciled profile on the retained Instrument. The named
+commercial and numerical contracts below define its scope. See the
+[implementation](../../implementation.md#daily-gas-quantity-rights-d456)
+and [verification](../../verification.md#daily-gas-quantity-rights-d456).
 
 ## What the trade can state
 
@@ -269,7 +271,7 @@ prove uniqueness. A coarse grid leaving one plan on a commercially flexible
 period still requires its marks. A selected explicit zero-volatility strip uses
 the exact forward solver. Never choose zero volatility on a missing mark.
 
-Use a new numerical policy, proposed
+The selected numerical policy is
 `swing_trinomial_6h_unit_reference_v2`. The fixed six-hour time grid starts
 at the exact calculation instant. Anchor regular ticks at the first future
 retained deadline's phase. Insert every future retained deadline through the
@@ -406,7 +408,7 @@ probability branches per successor state, and each priced candidate. Count
 full factor layers from inception, including skipped dates. Charge state,
 edge, backpointer, transition and live price arrays, indexes and bounded
 arbitrary-precision limbs/temporary buffers. For the swing numerical policy,
-propose a 4,096-bit ceiling per exact intermediate integer (including reward
+apply a 4,096-bit ceiling per exact intermediate integer (including reward
 denominators, common-denominator scores, values and arithmetic scratch).
 Precheck operand bit lengths and checked quotient/product bounds before LCM,
 multiplication or score addition. A near-bound exact result may use bounded
@@ -601,7 +603,7 @@ DST splits and the original lease/authority boundaries.
 
 Cold 1,200-day ordinary booking remains outside the measured HTTP envelope.
 The separate complete-head election transport check used an authenticated
-native publication. Independent review of the resource policy remains pending.
+native publication. The resource policy and measurement fixes received independent scoped review.
 
 ## Independent financial oracles
 

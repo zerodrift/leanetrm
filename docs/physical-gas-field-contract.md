@@ -1,7 +1,7 @@
 # Physical gas terms and field admission
 
-Status: proposed contract and acceptance requirements, 30 October 2026. This
-defines required behavior and ownership, not implemented product coverage.
+The original field contract and acceptance requirements date to 30 October
+2026. Sections with decision numbers identify the implemented profiles.
 
 Physical gas support includes delivery obligations, contractual cash, operational
 quantities and the lifecycle linking them. Completeness is measured by executable
@@ -153,19 +153,19 @@ the same gas is not valued twice.
 
 ### Swing rights and elections
 
-A quantity-rights definition binds to named physical memberships and explicitly
-linked payment quantities. It specifies the entitled party, effective periods,
-reference quantity, minimum/base/maximum quantities, upward/downward allowances,
-per-period and cumulative limits, notice clock/deadline, amendment rules and
-expiry/reset rules. Quantity limits, capacity limits, minimum billing and actual
-flow are independent concepts.
+D456 binds one daily physical source and its fixed following payments to a
+holder, constant positive reference quantity, daily range, planning step, and
+explicit lead hours before each local gas day's start. Choose either operating
+month or term. Lower and upper totals are independently optional. A bound
+requires an explicit per-day or per-period basis. An optional integer count
+uses `differs_from_base_v1` for either direction. Only departures from the
+reference consume a slot. Each period retains its own totals and count.
 
-Count-limited rights also specify what counts as a change, the comparison
-baseline, separate up/down/combined allowances, permitted change sizes and any
-installed conditions. Comparing with the initial period election and comparing
-with the preceding day's election are distinct policies. Changing a forecast
-cannot exercise a right. Free-text conditions are descriptive, not executable
-optional terms.
+The daily range admits exact off-grid elections. The planning step constrains
+undecided modeled choices. Previous-day comparisons, separate up/down budgets,
+ramps, refraction and changing bases require different policies. The point and
+payment restrictions and separate operating quantity selector are documented
+in the [gas contract](physical-gas-side.md#daily-quantity-rights-d456).
 
 The v2 swing election command accepts up to 1,200 dated instructions and requires
 the full retained head set, including days without an election. Its HTTP record
@@ -183,14 +183,12 @@ booked rights definition, meter readings or prior accepted quantities. Contract
 election, operator nomination, confirmation and physical allocation have separate
 states; an accepted commercial election is not proof of accepted pipeline flow.
 
-Before exercise, the future quantity schedule is contingent. Valuing one chosen
-schedule gives that schedule's value, not complete value of the remaining right.
-Admit a declared rights-pricing model, its decision information and required
-market inputs before reporting complete MTM. An intrinsic optimization and a
-model including uncertainty have different valuation scopes. Missing option
-valuation cannot silently become zero or a fixed base quantity. Count and
-aggregate constraints also require independent quantity-scaling qualification;
-the current blanket linear composition assumption is insufficient.
+Before exercise, the future quantity schedule is contingent. The chosen
+common-factor model and exact marked inputs determine the remaining joint PV.
+A deterministic plan and its value appear separately. Held amounts use exact
+reference-unit scaling under the selected numerical policy. An unassessed
+period carries missing-day evidence. Missing inputs for an assessable period
+return a structured pricing refusal.
 
 The [acceptance plan](physical-commodity-test-plan.md#park-and-loan-and-swing-rights)
 provides independent balance, fee, exercise and lifecycle cases. Schema and UI

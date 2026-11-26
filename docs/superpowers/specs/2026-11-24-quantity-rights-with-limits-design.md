@@ -1,7 +1,10 @@
 # Quantity rights with limits across days: design
 
 Status: design approved by the owner on 24 November 2026, after a review.
-Not implemented. It builds on the
+D456 implements its quantity terms, election history, exact comparison plan
+and shared D433 storage search. The [reconciled valuation contract](2026-11-25-gas-swing-design.md)
+supersedes this document's intrinsic-only MTM for assessable undecided days.
+It retains the original worked examples as forward-plan oracles. This design builds on the
 [Instrument schedule and gas pricing](2026-11-23-instrument-schedule-and-gas-pricing-design.md)
 and [exercise rights](2026-11-23-exercise-rights-design.md) designs, on the
 incomplete marker of the

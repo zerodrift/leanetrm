@@ -1,5 +1,24 @@
 # Unit instruments and trade bindings
 
+## Daily quantity rights (D456)
+
+A `SwingQuantityRight` identifies its physical and payment slots, holder,
+and deadlines. Its quantity limits use ratios of one reference day. The pricing
+binding identifies the model, day count, numerical policy and marks convention.
+Commercial revisions and operating evidence belong to the exact trade and binding. An accepted quantity reserves its absolute amount. A
+delivery selector can change the quantity passed to Side PV while the
+reservation continues to use the elected quantity.
+
+For future unelected days, Side economics provide the signed physical and fixed
+cash rewards. The Instrument combines signed memberships and values the
+remaining right in reference units. Trade applies its external quantity once.
+Independent charges, a same-source imbalance cash-out pair and previously
+reported cash retain their separate owners. A missed election marks the
+affected period incomplete. Entry evidence preserves each reason and book
+coverage deduplicates the same binding, source and day. The retained scenario
+inputs include exact market assignments, dated forwards, volatility revisions
+and the selected clocks. See the [gas contract](physical-gas-side.md#daily-quantity-rights-d456).
+
 ## Instrument schedule (D446)
 
 Every `SidedInstrument` exposes one cached `InstrumentSchedule` per instance.
