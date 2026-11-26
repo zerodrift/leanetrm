@@ -1,6 +1,6 @@
 # Physical gas booking and pre-delivery valuation
 
-## Daily quantity rights (D456)
+## Daily quantity rights (D457)
 
 The holder elects an exact native quantity for a whole operating gas day. The
 planning grid starts at the daily minimum and reaches the constant reference
@@ -30,7 +30,7 @@ commercial fact. Nomination, dispatch, settlement and payment have their own
 operations. Previous-day counts, separate directional counts, ramps, refraction
 and simultaneous term and monthly limits remain outside this profile.
 See the [model and bounds](superpowers/specs/2026-11-25-gas-swing-design.md)
-and [independent qualification](verification.md#daily-gas-quantity-rights-d456).
+and [independent qualification](verification.md#daily-gas-quantity-rights-d457).
 
 ## Imbalance cash-out (D454)
 

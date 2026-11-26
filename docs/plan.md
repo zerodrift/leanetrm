@@ -1,5 +1,11 @@
 # Delivery plan and acceptance criteria
 
+D456 restores the Physical Operations directory to its native gas, crude and LNG
+consumers while preserving all products in the Blotter. The mixed-product
+regression covers exact retained paging and independence from unrelated product
+reader authority. Its bounded backend backport requires the
+[separate maintenance qualification](hosted-pilot.md#physical-directory-maintenance-d456).
+
 D455 permits a separately qualified browser-only maintenance update for the
 Blotter chart identity repair. The synthetic regression covers distinct gas
 products sharing a display badge and continued rejection of duplicate groups.
@@ -17,13 +23,13 @@ verification passed. See the
 [contract](physical-gas-side.md#imbalance-cash-out-d454) and
 [local qualification](verification.md#imbalance-cash-out-d454).
 
-D456 implements the approved daily quantity contract and reconciled stochastic
+D457 implements the approved daily quantity contract and reconciled stochastic
 valuation. The marked seasonal and annual fixtures qualify finite-grid PV and
 ordinary risk jobs at concurrency one. Previous-day counts, ramps, cold
 1,200-day booking performance and smaller-host service capacity remain open.
 See the [quantity contract](superpowers/specs/2026-11-24-quantity-rights-with-limits-design.md),
 [valuation and measurements](superpowers/specs/2026-11-25-gas-swing-design.md)
-and [local qualification](verification.md#daily-gas-quantity-rights-d456).
+and [local qualification](verification.md#daily-gas-quantity-rights-d457).
 
 D453 delivers monthly curve volatility and correlation authoring in the Markets
 workspace. It includes grids, focused strips, historical reads, reviewed atomic
@@ -99,7 +105,7 @@ selection, ordinary queued risk, provenance and zero-after-payment balances have
 explicit contracts. Local qualification is recorded in [verification](verification.md).
 D447 replaces the weighted-price-term design with independent payment entries.
 D450 adds lump-sum and capacity charge bases. Strip exercise across delivery
-months and other balance profiles remain separate work. D456 adds constrained daily quantities.
+months and other balance profiles remain separate work. D457 adds constrained daily quantities.
 D454 implements the daily-index cash-out profile from reported balances.
 
 D443 adds **New trade → Gas & LNG → Two-location gas** and **Facilities →
@@ -840,7 +846,7 @@ Park-and-loan and swing rights are required gas profiles beyond this fixed-volum
 slice. Their [acceptance gates](physical-commodity-test-plan.md#park-and-loan-and-swing-rights)
 cover linked advance/return obligations, trade-owned outstanding balances and
 fees, quantity elections and remaining-rights valuation. The standalone gas
-ticket implements the D456 swing profile with retained daily elections.
+ticket implements the D457 swing profile with retained daily elections.
 
 Deferred TODO: delivery-relative monthly price-contract offsets on the explicit
 price-reference binding. January delivery with offset +1 selects the February

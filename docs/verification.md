@@ -1,6 +1,6 @@
 # Local verification and continuous integration
 
-## Daily gas quantity rights (D456)
+## Daily gas quantity rights (D457)
 
 Synthetic checks use an isolated stock PostgreSQL 18.7 server, .NET SDK
 10.0.402, Node 24.22.0, Python 3.14.2 and Chrome on arm64 macOS. The financial
@@ -82,7 +82,7 @@ Cold 1,200-day HTTP booking with one or two members and smaller-host capacity
 remain unqualified. The full 1,200-head election HTTP transport was exercised
 after authenticated native publication. See the
 [complete workload measurements](superpowers/specs/2026-11-25-gas-swing-design.md#measured-marked-workloads)
-and [commercial scope](physical-gas-side.md#daily-quantity-rights-d456).
+and [commercial scope](physical-gas-side.md#daily-quantity-rights-d457).
 
 ## Imbalance cash-out (D454)
 

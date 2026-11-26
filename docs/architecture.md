@@ -1,11 +1,11 @@
 # Architecture and domain contracts
 
-D456 binds daily quantity rights to retained gas Instrument memberships. A
+D457 binds daily quantity rights to retained gas Instrument memberships. A
 commercial election reserves the binding's exact native quantity under the
 selected monthly or term constraints. Concrete Sides price their own quantities
 under the supplied scenario. The Instrument counts the remaining joint choice
 once and Trade applies its external size once. Generic risk reprices the same
-contract for each scenario. The [Instrument contract](instrument-contracts.md#daily-quantity-rights-d456)
+contract for each scenario. The [Instrument contract](instrument-contracts.md#daily-quantity-rights-d457)
 describes the cash, coverage and scaling boundaries.
 
 D448 adds exercise rights on a gas Instrument. A right governs explicit
@@ -706,8 +706,10 @@ deployment procedure. Automatic image updates use attested GitHub Release bundle
 and a pinned local pull operator; schema and infrastructure changes require a
 separate qualified baseline (D135). Hosted authentication and collection boundaries are described
 in [hosted pilot operations](hosted-pilot.md); the synthetic local preview stays isolated.
-The bounded browser repair in D455 has an explicit operator-only maintenance
-exception; it does not change automatic release admission.
+The bounded browser repair in D455 and directory reader repair in D456 have
+explicit operator-only maintenance exceptions. Neither changes automatic release
+admission. The physical delivery directory reads only its supported native
+consumers; the complete Blotter retains every product.
 
 D405 adds conservative [CI impact selection](ci-impact.md): shared behavior checks
 run once across the matrix, and pull requests select explicitly declared path

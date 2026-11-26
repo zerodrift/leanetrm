@@ -1,6 +1,6 @@
 # Unit instruments and trade bindings
 
-## Daily quantity rights (D456)
+## Daily quantity rights (D457)
 
 A `SwingQuantityRight` identifies its physical and payment slots, holder,
 and deadlines. Its quantity limits use ratios of one reference day. The pricing
@@ -17,7 +17,7 @@ reported cash retain their separate owners. A missed election marks the
 affected period incomplete. Entry evidence preserves each reason and book
 coverage deduplicates the same binding, source and day. The retained scenario
 inputs include exact market assignments, dated forwards, volatility revisions
-and the selected clocks. See the [gas contract](physical-gas-side.md#daily-quantity-rights-d456).
+and the selected clocks. See the [gas contract](physical-gas-side.md#daily-quantity-rights-d457).
 
 ## Instrument schedule (D446)
 

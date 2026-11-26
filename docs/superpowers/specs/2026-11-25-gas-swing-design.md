@@ -12,10 +12,10 @@ The published baseline is D454 (748b7695). Tasks 1–8 of the
 [implementation plan](../plans/2026-11-25-gas-swing.md) built and exercised a
 narrower profile on that baseline. Its mandatory term budget, lot elections,
 31-day limit and held-money rounding do not implement the contract below.
-D456 implements the reconciled profile on the retained Instrument. The named
+D457 implements the reconciled profile on the retained Instrument. The named
 commercial and numerical contracts below define its scope. See the
-[implementation](../../implementation.md#daily-gas-quantity-rights-d456)
-and [verification](../../verification.md#daily-gas-quantity-rights-d456).
+[implementation](../../implementation.md#daily-gas-quantity-rights-d457)
+and [verification](../../verification.md#daily-gas-quantity-rights-d457).
 
 ## What the trade can state
 

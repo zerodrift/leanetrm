@@ -117,6 +117,14 @@ internal sealed class TradePositionFacts(PreviewDatabase database)
         }
         await RequireReferences(connection,references,ct);
         facts.AddRange(await PhysicalFacts(connection,bookIds,portfolioIds,ct));
+        foreach(var operating in await OperatingPositions.Read(connection,manifest,bookIds,portfolioIds,ct))
+            facts.Add((Integer(operating.Head,"trade_reference"),operating.Fact()));
+        foreach(var rec in await RecPositions.Read(connection,manifest,bookIds,portfolioIds,ct))
+            facts.Add((Integer(rec.Head,"trade_reference"),rec.Fact()));
+        foreach(var option in await HeatRateCallPositions.Read(connection,manifest,bookIds,portfolioIds,ct))
+            facts.Add((Integer(option.Head,"trade_reference"),option.Fact()));
+        foreach(var storage in await GasStoragePositions.Read(connection,manifest,bookIds,portfolioIds,ct))
+            facts.Add((Integer(storage.Head,"trade_reference"),storage.Fact()));
         foreach(var agreement in await GasParkLoanPositions.Read(connection,database,view.CalculationFrame,bookIds,portfolioIds,ct))
             facts.Add((agreement.Agreement.GetProperty("tradeReference").GetInt32(),agreement.Fact()));
         foreach(var custody in await GasParkCustodyPositions.Read(connection,database,view.CalculationFrame,bookIds,portfolioIds,ct))
@@ -135,6 +143,7 @@ internal sealed class TradePositionFacts(PreviewDatabase database)
         RequirePage(offset,limit);
         return Page(await PhysicalFacts(connection,books,portfolios,ct),offset,limit);
     }
+    // Only products with a native consumer on the Physical Operations page belong in this directory.
     private async Task<ImmutableArray<(int Reference,TradePositionFact Position)>> PhysicalFacts(NpgsqlConnection connection,ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct)
     {
         var facts=ImmutableArray.CreateBuilder<(int Reference,TradePositionFact Position)>();
@@ -144,14 +153,6 @@ internal sealed class TradePositionFacts(PreviewDatabase database)
             facts.Add((Integer(lng.Head,"trade_reference"),lng.Fact()));
         foreach(var crude in await CrudePositions.Read(connection,manifest,bookIds,portfolioIds,ct))
             facts.Add((Integer(crude.Head,"trade_reference"),crude.Fact()));
-        foreach(var operating in await OperatingPositions.Read(connection,manifest,bookIds,portfolioIds,ct))
-            facts.Add((Integer(operating.Head,"trade_reference"),operating.Fact()));
-        foreach(var rec in await RecPositions.Read(connection,manifest,bookIds,portfolioIds,ct))
-            facts.Add((Integer(rec.Head,"trade_reference"),rec.Fact()));
-        foreach(var option in await HeatRateCallPositions.Read(connection,manifest,bookIds,portfolioIds,ct))
-            facts.Add((Integer(option.Head,"trade_reference"),option.Fact()));
-        foreach(var storage in await GasStoragePositions.Read(connection,manifest,bookIds,portfolioIds,ct))
-            facts.Add((Integer(storage.Head,"trade_reference"),storage.Fact()));
         return facts.ToImmutable();
     }
     private async Task RequireHeads(NpgsqlConnection connection,Guid[] books,Guid[] nativeTrades,CancellationToken ct)

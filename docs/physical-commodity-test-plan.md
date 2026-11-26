@@ -115,12 +115,12 @@ defines ownership and valuation boundaries.
 | SW07 | Rights remain unexercised, but the selected context lacks the required rights model or market inputs | Complete MTM is unavailable with a structured reason. Fixed-base marking or a zero option contribution cannot masquerade as a complete valuation. |
 | SW08 | Book/reopen rights, compare historical elections before/after a correction, and evaluate different trade sizes | Retain complete executable terms and source lineage; historical knowledge excludes later facts. Qualify scaling against the actual count/aggregate constraints rather than multiplying one-unit option value without proof. |
 
-D456 qualifies the combined count against a constant reference, monthly resets,
+D457 qualifies the combined count against a constant reference, monthly resets,
 off-grid elections, observed deadlines, retained revisions and exact size
 scaling. SW03's separate directional counts, preceding-day comparison and
 ramps remain future policies. The marked profile requires a positive point
 forward and fixed following payments. Qualification for this subset is recorded
-with its [financial and route results](verification.md#daily-gas-quantity-rights-d456).
+with its [financial and route results](verification.md#daily-gas-quantity-rights-d457).
 The other acceptance cases retain their own implementation gates.
 
 ## Gas purchase and linked fees

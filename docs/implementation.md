@@ -1,6 +1,6 @@
 # Current implementation record
 
-## Daily gas quantity rights (D456)
+## Daily gas quantity rights (D457)
 
 Migrations 0403–0405 install retained rights, whole-right election revisions and
 atomic public admission. Partial installation preserves the published composition
@@ -13,7 +13,7 @@ valuation uses a common factor, a fixed six-hour grid and a separate remaining
 choice for each assessable period under the same inception clock. The booked
 ticket, schedule, Blotter, holding, P&L and leased risk jobs consume retained
 terms and evidence. For measured seasonal and annual bounds and unsupported
-geometry, see [verification](verification.md#daily-gas-quantity-rights-d456).
+geometry, see [verification](verification.md#daily-gas-quantity-rights-d457).
 
 ## Imbalance cash-out (D454)
 

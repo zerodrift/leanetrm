@@ -1,6 +1,6 @@
 # Deal ticket
 
-## Gas swing (D456)
+## Gas swing (D457)
 
 On a standalone physical gas ticket, add a swing right, choose its source and
 following payment entries, and enter the daily bounds, planning step, holder,

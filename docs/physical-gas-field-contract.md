@@ -153,7 +153,7 @@ the same gas is not valued twice.
 
 ### Swing rights and elections
 
-D456 binds one daily physical source and its fixed following payments to a
+D457 binds one daily physical source and its fixed following payments to a
 holder, constant positive reference quantity, daily range, planning step, and
 explicit lead hours before each local gas day's start. Choose either operating
 month or term. Lower and upper totals are independently optional. A bound
@@ -165,7 +165,7 @@ The daily range admits exact off-grid elections. The planning step constrains
 undecided modeled choices. Previous-day comparisons, separate up/down budgets,
 ramps, refraction and changing bases require different policies. The point and
 payment restrictions and separate operating quantity selector are documented
-in the [gas contract](physical-gas-side.md#daily-quantity-rights-d456).
+in the [gas contract](physical-gas-side.md#daily-quantity-rights-d457).
 
 The v2 swing election command accepts up to 1,200 dated instructions and requires
 the full retained head set, including days without an election. Its HTTP record
