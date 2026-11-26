@@ -508,12 +508,16 @@ an agent acts only within what its delegating person also holds.
   owned gas write, setup included, requires it.
 
 Trader records and sets up nothing. Binding an automatic action policy still
-needs `RunJobs`, which neither gas role holds. The customer side of a custody
-agreement also needs the gas operations permissions: of the roles that read
-owned gas, only the two gas roles read gas operations, and no role that books
-trades does. A role an installation added by hand is not changed; if it reads
-trades, its holders meet the refusal above until the installation grants it
-the read.
+needs `RunJobs`, which neither gas role holds. A role an installation added by
+hand is not changed; if it reads trades, its holders meet the refusal above
+until the installation grants it the read.
+
+Custody keeps a narrower read. Reading a custody agreement needs
+`ReadGasOperations`, which only the two gas roles hold, while booking one needs
+`BookTrade` and, on the customer side, the owned gas read. A Trader can
+therefore book a custody agreement and not read it, and once a book holds one,
+its Blotter and position reads are refused to every role without
+`ReadGasOperations`. D459 records this and leaves it undecided.
 
 An owned title that funds an accepted futures dispatch can require one linked
 correction: reducing the title first exceeds stock capacity, while replacing the

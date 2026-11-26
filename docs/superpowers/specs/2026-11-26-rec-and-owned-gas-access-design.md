@@ -1,8 +1,12 @@
 # REC inventory and owned gas reach people through installed roles: design
 
-Status: approved by the owner on 26 November 2026. Nothing is built. It is
-the access piece named in the Scheduling by job design, which is published
-separately.
+Status: approved by the owner on 26 November 2026 and built locally under D459
+(migration 0406). The park and loan refusal named under Checks has since been
+run and answers `gas_owned_denied`. Qualification, the independent review and
+what was not run are recorded in
+[verification](../../verification.md#rec-inventory-and-owned-gas-access-d459);
+publication and deployment are separate. It is the access piece named in the
+Scheduling by job design, which is published separately.
 
 ## Intent
 

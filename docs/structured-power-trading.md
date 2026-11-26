@@ -252,8 +252,11 @@ delivery operations, Gas service setup, Contracts administration, Counterparty
 credit, Trade confirmations and Trade supervisor. Facility operations records
 evidence. Contracts administration sets up accounts and transfer destinations,
 because that form lists legal entities and counterparties only to a holder of
-`ReadTradeParties`, which the facility roles do not hold. Trader records and
-sets up nothing. Book and exact party scopes remain enforced. Worker reads retain
+`ReadTradeParties`, which the facility roles do not hold. The retirement form
+takes its beneficiary from the same lists, so a person who holds Facility
+operations alone is offered none and needs a second role that reads trade
+parties to record a retirement on the page. Trader records and sets up
+nothing. Book and exact party scopes remain enforced. Worker reads retain
 their lease/custody restrictions. Waiting or calculation cannot extend authority;
 sources and permissions are checked again before returning/publishing.
 

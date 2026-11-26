@@ -65,8 +65,8 @@ def run_checks(query, manifest, psql=None, environment=None):
           not holders('RunJobs') & {'gas_operator', 'gas_service_admin'})
     check('grants made by hand before the migration are kept, and the migration installs the rest',
           query("SELECT count(*) FROM security.role_permissions p JOIN security.roles r ON r.id=p.role_id WHERE(r.code,p.permission) IN("
-                "('credit_officer','ReadRecInventory'),('credit_officer','ReadGasOwnedHoldings'),('facility_operator','RecordRecInventory'),"
-                "('trader','ReadRecInventory'),('trader','ReadGasOwnedHoldings'));") == '5')
+                "('credit_officer','ReadRecInventory'),('credit_officer','ReadGasOwnedHoldings'),"
+                "('trader','ReadRecInventory'),('trader','ReadGasOwnedHoldings'));") == '4')
     migration = (ROOT / 'db/migrations' / MIGRATION).read_text()
     grants = "SELECT(SELECT count(*) FROM security.role_permissions)::text||' '||(SELECT count(*) FROM security.role_grants)::text;"
     installed = query(grants)
@@ -201,10 +201,10 @@ def run_checks(query, manifest, psql=None, environment=None):
 
 def before_migration(query, migration):
     if migration.name == MIGRATION:
-        # An installation may already have granted some of these by hand; the migration keeps those grants.
+        # An installation may already have granted some of these by hand; the migration keeps those grants. Only reads
+        # of a role the missing-role case below names are granted here, so no later step runs on a hand grant alone.
         query("INSERT INTO security.role_permissions SELECT r.id,g.permission FROM security.roles r JOIN(VALUES"
-              "('credit_officer','ReadRecInventory'),('credit_officer','ReadGasOwnedHoldings'),"
-              "('facility_operator','RecordRecInventory'))g(code,permission) ON g.code=r.code;")
+              "('credit_officer','ReadRecInventory'),('credit_officer','ReadGasOwnedHoldings'))g(code,permission) ON g.code=r.code;")
 
 
 if __name__ == '__main__':

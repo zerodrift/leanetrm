@@ -1,4 +1,7 @@
-"""Which installed roles reach REC inventory and owned gas through the public routes."""
+"""Which installed roles reach REC inventory and owned gas through the public routes.
+
+The owned gas account, its action rules and the park and loan agreement are made first through the native operations,
+by the demo operator and the demo Trader. Each role is then run as one person against the routes."""
 import json
 from uuid import uuid4
 from gas_park_loan_fixture import ParkLoanFixture, literal, rejected
@@ -49,7 +52,7 @@ def run_checks(url, query, manifest):
         return client.call(path, body, expected=403)['code'] == code
 
     # The two demo users make the owned gas fixture as installed: the operator sets up the account and its action
-    # rules, and the Trader books the agreement. Nothing here grants a permission.
+    # rules, and the Trader books the agreement. Neither is given anything its installed roles lack.
     f = ParkLoanFixture(query, {**manifest, 'identityIssuer': 'https://preview.invalid'}, prepared=True, actor='operator')
     f.at, f.day = '2020-12-18T12:00:00Z', '2020-12-18'
     owned, book = f.account('access_loan')
@@ -64,7 +67,8 @@ def run_checks(url, query, manifest):
         returnPolicy='same_quantity_partial_returns_v1', returnTiming='accepted_advance_then_returns_v1', carrying='nominal_mark_v1')
     book_sql = lambda body: f"SELECT security.book_gas_park_loan('{f.catalog}',{literal(body)},'{f.at}')::text;"
     agreement = json.loads(f.call(book_sql(booking), profile='trader'))
-    # Booking needs BookTrade and the owned gas read: a reader who does not book and a person who reads no trades.
+    # Booking needs BookTrade and the owned gas read: a reader of both who does not book is refused as a booker, and a
+    # person who reads neither trades nor owned gas is refused the read.
     for profile, code in (('risk', 'gas_park_loan_denied'), ('viewer', 'gas_owned_denied')):
         rejected(lambda: f.call(book_sql({**booking, 'operationId': str(uuid4())}), profile=profile), code)
 
@@ -192,6 +196,7 @@ def run_checks(url, query, manifest):
 
     # A trade-reading role an installation added by hand lacks the owned gas read until it is granted. Its holders are
     # refused every position read over a book that holds a park and loan agreement, not only the agreement itself.
+    # The read is taken from an installed role for this and put back afterwards.
     role = query("SELECT id FROM security.roles WHERE code='credit_officer';")
     query(f"DELETE FROM security.role_permissions WHERE(role_id,permission)=('{role}','ReadGasOwnedHoldings');")
     try:

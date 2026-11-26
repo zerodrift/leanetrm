@@ -39,7 +39,7 @@ With everything:
 - The REC inventory storage check passes 40 cases. The holders of each of the
   six permissions are exactly the roles D459 names, and the two reads are held
   by exactly the human roles that read trades, plus the agent-only gas role for
-  the owned gas read. Three grants made by hand before the migration are kept.
+  the owned gas read. Two reads granted by hand before the migration are kept.
   Applying the grants again changes no role and gives no person a role, and an
   installation without one of the named roles is told which. The demo operator
   sets up and records. Trader and Risk analyst read the certified inventory and
@@ -91,6 +91,45 @@ PostgreSQL 18.7, Python 3.12.3, Node 24.22.0 and a Debug API build under SDK
 10.0.402. The 203 repository Python unit checks and the repository group also
 pass on arm64 macOS with Python 3.14.2.
 
+An independent adversarial review of the whole change, made without the build
+plan, found no way to make the migration grant more than D459's table, apply
+in part, lose a grant made by hand or touch an agent-only role or a role that
+reads no trades, and found no assertion removed or loosened. It found the
+following, each resolved as stated.
+
+- The storage check also granted Facility operations' record permission by hand
+  before the migration, which hid the migration's own row: with that row
+  removed from a copy of the migration, the check still passed all 40 cases.
+  The hand grant was removed. The check then fails on that copy at its holder
+  assertion and passes on the real migration.
+- The helper that gives an identity a role without a permission copied from
+  grants no longer in force and verified nothing afterwards. A probe gave a
+  person with a current Risk analyst grant and a lapsed Trader grant
+  `AmendTrade` and `BookTrade`. The helper now copies what the identity holds
+  at that moment, refuses an identity that would then hold nothing and asserts
+  the result. The probe passes.
+- The structured trading browser scenario switched demo users without
+  selecting its close again. It now selects it after switching back to the
+  Trader. This was changed by reading; the scenario has not been run.
+- D459 omitted two consequences. The assistant's own trade read is refused over
+  a scope that holds a park and loan agreement. A custody agreement in a book
+  refuses that book's Blotter and position reads to every role without
+  `ReadGasOperations`, the booking Trader included; D459 now records this and
+  leaves it undecided. A probe with the installed roles confirmed its native
+  part: the Trader books the customer side and the provider side, is then
+  refused that agreement and its book's custody directory with
+  `gas_operations_denied`, and a holder of the gas roles reads both. The
+  refusal of the Blotter and positions routes was read from the code.
+- D459 overstated three things, now corrected: the access check covers thirteen
+  roles and the routes named above, not every route; a person who holds
+  Facility operations alone is offered no retirement beneficiary on the page,
+  although a probe showed the native operation accepts that person's
+  retirement; and delegating to the gas agent also needs a role that may use
+  agents.
+
+After these changes the lifecycle, gas-native, gas-browser, portfolio and
+physical groups and the repository group were run again, with the same result.
+
 Not run or not covered:
 
 - No browser suite ran. Chrome's sandbox does not start in these containers,
@@ -100,6 +139,8 @@ Not run or not covered:
 - The park custody routes and `/lifecycle/execute` have no route assertion of
   their own. Holder sets pin who can use custody, and recording is asserted on
   a route that passes the same native gate.
+- No check runs the cash option consumer as an installed Trader, who now reads
+  owned gas; the existing check qualifies it for a person without that read.
 
 ## Daily gas quantity rights (D457)
 
