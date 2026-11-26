@@ -353,7 +353,11 @@ function pvPanelsFor(summaries:readonly Summary[],colors:ReadonlyMap<string,stri
 export function positionChartPanels(summaries:readonly Summary[],holdings:readonly Holding[],colors:ReadonlyMap<string,string>,format:(value:string)=>string):ChartSpec[]{
   const markets=groupsOf(summaries,byMarket),labels=marketLabels(markets),units=unitLabels(markets);
   // Look up the exact measures sharing a market and panel before selecting the point labels.
-  const gasMeasure=(group:PivotGroup)=>group.measure===undefined?gasContractualMeasure:text(group,'measure');
+  const gasMeasure=(group:PivotGroup)=>{
+    const measure=group.measure;
+    if(measure!==gasContractualMeasure&&measure!==gasLifecycleMeasure)throw Error(inconsistent);
+    return measure;
+  };
   const gasMeasures=new Map<string,Set<string>>();
   for(const group of markets){
     if(group.instrumentType!=='physical_gas')continue;

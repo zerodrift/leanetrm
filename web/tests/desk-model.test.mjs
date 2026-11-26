@@ -560,10 +560,10 @@ test('Park and loan displays managed principal and scheduled-plan PV without der
 
 test('physical gas and Park and Loan sharing a market keep distinct quantity chart entries despite their shared badge',()=>{
  const base=fixture.holdings[0],market=JSON.stringify([base.curve]);
- const holding=(instrumentType,quantity)=>({...base,instrumentType,marketKey:market,marketLabel:'Gas forward',direction:'multi_side',quantity});
- const holdings=[holding('physical_gas',null),holding('physical_gas_park_loan','720')];
+ const holding=(instrumentType,measure,quantity)=>({...base,instrumentType,measure,marketKey:market,marketLabel:'Gas forward',direction:'multi_side',quantity});
+ const holdings=[holding('physical_gas','gas_contractual_present_value',null),holding('physical_gas_park_loan','scheduled_plan_present_value_v1','720')];
  const summaries=changed(fixture.summaries,3,groups=>holdings.map(h=>({...groups[0],
-  instrumentType:h.instrumentType,market,marketLabel:h.marketLabel,quantity:h.quantity,tradeCount:1,unvaluedPositions:0})));
+  instrumentType:h.instrumentType,measure:h.measure,market,marketLabel:h.marketLabel,quantity:h.quantity,tradeCount:1,unvaluedPositions:0})));
  const [panel]=positionChartPanels(summaries,holdings,new Map(),format),points=panel.series[0].points;
  assert.equal(points.length,2);
  assert.equal(new Set(points.map(p=>p.x)).size,2);
@@ -755,6 +755,21 @@ test('the quantity chart keeps gas products and physical gas measures distinct i
   assert.throws(()=>positionChartPanels(duplicate,holdings,new Map(),format),/inconsistent desk summary/);
  }
 });
+
+for(const [problem,heldMeasures,summaryMeasures] of [
+ ['missing',['gas_lifecycle_value_v1'],[{}]],
+ ['unknown',['gas_contractual_present_value','gas_lifecycle_value_v1'],
+  [{measure:'gas_contractual_present_value'},{measure:'gas_lifecycle_value_v2'}]],
+]){
+ test(`the quantity chart refuses a physical gas group when its measure is ${problem}`,()=>{
+  const gas={instrumentType:'physical_gas',quantity:null};
+  const summaries=changed(fixture.summaries,3,groups=>summaryMeasures.map(measure=>({...groups[0],...gas,...measure})));
+  const holdings=heldMeasures.map(measure=>({...fixture.holdings[0],...gas,measure,direction:'multi_side'}));
+  assert.throws(()=>positionChartPanels(summaries,holdings,new Map(),format),{
+   message:'The trading workspace returned an inconsistent desk summary. Refresh and try again.',
+  });
+ });
+}
 
 test('a price uses its actual quote denominator rather than the holding lot or capacity unit',()=>{
  const h={currency:'USD',unit:'lot',quoteMultiplier:'10000',priceUnitLabel:'USD/MMBtu'};
