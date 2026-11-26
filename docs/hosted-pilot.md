@@ -283,6 +283,34 @@ Keep the automatic updater stopped. Its receipts must distinguish this manual
 update from attested releases, and a later compatible release requires explicit
 baseline and serving-image reconciliation before the updater is restarted.
 
+## Physical directory maintenance (D456)
+
+The Physical Operations directory selection repair may be backported onto the
+installed D455 image. Require its corresponding protected-branch merge, full CI
+on the exact published backport, and independent review before promotion. This
+is a separate, bounded backend exception; it does not widen D455's browser scope.
+
+Verify the original release attestation, installed D455 filesystem proof and
+operator receipt chain. With the pinned SDK and locked dependencies, reproduce
+the original API assembly and PDB bytes, including their source and build-path
+metadata. Build the corrected assembly with the exact backport source identity.
+The only executable filesystem changes may be `OpenEtrm.Api.dll` and its matching
+`OpenEtrm.Api.pdb` in both the API and worker directories. The worker references
+the API project; leaving its assembly unchanged would split the deployed code.
+Compare all other files and container configuration with the installed image,
+including the preceding browser repair, dependency notices, dependency manifests
+and runtime configuration. Only `org.opencontainers.image.revision`,
+`io.openetrm.maintenance.base`, `io.openetrm.maintenance.contract` and
+`io.openetrm.maintenance.provenance` image labels may change. Retain the build
+commands, toolchain hashes and complete comparison in private operator evidence.
+
+Qualify the corrected application with disposable synthetic resources. Retain
+its separate operator provenance and apply the D455 operation lock, baseline,
+ingress, drain, complete worker cohort and recovery requirements. No candidate
+runs against the production database before the guarded promotion. The previous
+image and manual receipt remain available; the automatic updater stays stopped
+until a compatible attested release is explicitly reconciled.
+
 ## Automated release distribution
 
 The publisher job runs after successful CI for a push to the protected `master`

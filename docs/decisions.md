@@ -213,7 +213,7 @@ remaining bounds are recorded with the executable consumers in the linked contra
 | D132 | Private hosted pilot uses invitation-only local accounts | Immutable principal subjects, supported salted password hashes, one-use expiring invitation digests, secure fixed-life cookies and server-side session revocation replace preview personas. Runtime and authentication database logins remain distinct, cannot own application objects and cannot assume each other or the security owner. Browser/session restarts retain installation identity and encrypted data-protection keys. The initial operator invitation is prepared privately; no default account or password is published. The API binds only an explicit private gateway address; an independent pre-DNAT ingress guard restricts its caller, and the database and collector publish no ports |
 | D133 | Delivery-price collection is separate from forward marks | The bounded managed worker supports PJM hourly DA/RT LMP and ERCOT hourly DAM / fifteen-minute RT settlement-point prices. Exact source definitions retain unit, location and clock foreign keys; complete native intervals are required before a whole job batch can publish. Immutable operator-published operating-day boundaries come from the managed schedule compiler. Daily UTC scheduling wakes the same worker; per-job schedule switches, explicit windows, request rates, limits, service authority, execution fences and durable outcomes govern collection. No inferred forward curve or upstream exposure is created. Refined by D236 |
 | D134 | Collection corrections join the certified knowledge clock | Whole delivery-price batches share the catalog publication gate. Every date-context capture first certifies committed collection batches against retained origin, database identity, timeline, commit tracking and the existing certified watermark. Exact cutoff reads retain context evidence and preserve A-to-B-to-A occurrences. The separate delivery-history operation rejects a bound historical workspace context rather than substituting current reference admissions. A future integrated fixing consumer must pin its selected data explicitly. Refined by D236 |
-| D135 | Hosted application updates use attested GitHub Release bundles and a local pull operator | Only the current protected branch head with successful exact-source CI is admitted. Repository, signer workflow, source ref, commit and run attempt are verified without a server GitHub credential. Installed operator code and Compose remain pinned locally; matching schema, migration, private binding and ingress baselines permit image updates only. Preflight is isolated from public promotion; temporary infrastructure failures retry, deterministic failures quarantine, and interrupted promotion requires explicit reconciliation. Retain active/previous owned images; never infer a safe rollback of financial state. D455 defines one operator-only browser repair exception |
+| D135 | Hosted application updates use attested GitHub Release bundles and a local pull operator | Only the current protected branch head with successful exact-source CI is admitted. Repository, signer workflow, source ref, commit and run attempt are verified without a server GitHub credential. Installed operator code and Compose remain pinned locally; matching schema, migration, private binding and ingress baselines permit image updates only. Preflight is isolated from public promotion; temporary infrastructure failures retry, deterministic failures quarantine, and interrupted promotion requires explicit reconciliation. Retain active/previous owned images; never infer a safe rollback of financial state. D455 and D456 define bounded operator-only repair exceptions |
 | D136 | Scheduled jobs can launch agents, and authorized agents can create recurring schedules, temporary jobs and permitted child work | People, UI/API/MCP and agents share validated operations. Distinct management/launch/business capabilities, explicit bounded delegation and current authorization govern every run; service privileges never flow into launched agents. Durable occurrence/attempt identity, retained contexts, aggregate limits, expiry/cancellation and audit lineage follow the [execution contract](architecture.md#111-schedules-temporary-jobs-and-agent-execution). The bounded protocol is described in D140; full agent execution remains work |
 | D137 | Use Docker Swarm for deployment and image-based agent/container execution | A trusted controller launches approved, digest-pinned execution profiles for admitted jobs. Agents request work through authorized operations, without Docker management or database access. Swarm resource state is separate from durable business state, fencing, current authority and aggregate budgets; see the [Swarm contract](architecture.md#112-docker-swarm-and-image-based-execution). This adds scheduling/controller processes to P01's initial application/database shape. Implementation and deployment migration/qualification remain work |
 | D138 | Implement scheduling as a separately deployable .NET Worker Service in this repository | Reuse managed business/timing/authorization operations over stock PostgreSQL; no Rust scheduler or scheduler database extension is required. The scheduler can run on a separate eligible Swarm node, independently of API restarts. Durable occurrence admission, leases/fencing and recovery support overlapping replicas; node placement or a singleton setting is not a lock. Keep Docker management access in the separate execution controller. This resolves the scheduler implementation choice for D136–D137; the bounded implementation is described in D140 |
@@ -7706,3 +7706,37 @@ explicit recovery. No schema or business-data migration is included. The updater
 stays stopped until a compatible attested release is explicitly reconciled.
 This does not authorize other maintenance changes or establish a new release
 automation framework.
+
+## D456 — Restore the Physical Operations directory boundary
+
+The Physical Operations page has native delivery consumers for physical gas,
+crude and LNG. Its directory reads those products only. Operating rights,
+certificate forwards, heat-rate calls and gas storage remain in the complete
+Blotter position facts and retain their existing product workspaces. Their
+metadata and permissions must not become dependencies of this delivery directory.
+Selection occurs at the managed reader boundary, before pagination; filtering
+an already read mixed result would retain unrelated failure dependencies.
+Current authorization, retained knowledge, exact booking metadata and missing
+supported-source refusals keep their existing contracts.
+
+For this repair only, D135 permits an operator backport on the installed D455
+maintenance source without adopting intervening migrations. D455's browser-only
+exception is otherwise unchanged. The exact backport requires full CI and the
+corresponding repair and decision must be reviewed and merged into the protected
+branch. Reproduce the original API assembly and symbols with the pinned SDK,
+locked dependencies and original build metadata before building the correction.
+Update both shipped copies of that assembly and its matching symbols, including
+the worker's copy. Every other executable, dependency, browser asset, runtime
+configuration and schema file remains byte-identical to the installed image.
+Only the image labels identifying source revision, maintenance base, contract
+and operator provenance may change; executable runtime settings remain exact.
+
+The immutable image derives from the installed D455 image and retains the
+original attestation and intervening operator receipt chain. Record the exact
+source, toolchain, file and image digests privately; the new image is
+operator-qualified, not GitHub-attested. Independent review, isolated artifact
+qualification, installed lock and baseline checks, drained API/worker promotion,
+explicit recovery and updater suspension follow the
+[backend maintenance procedure](hosted-pilot.md#physical-directory-maintenance-d456).
+This exception includes no schema or business-data migration and authorizes no
+other backend change or general maintenance release mechanism.

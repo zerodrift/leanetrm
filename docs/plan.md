@@ -1,5 +1,11 @@
 # Delivery plan and acceptance criteria
 
+D456 restores the Physical Operations directory to its native gas, crude and LNG
+consumers while preserving all products in the Blotter. The mixed-product
+regression covers exact retained paging and independence from unrelated product
+reader authority. Its bounded backend backport requires the
+[separate maintenance qualification](hosted-pilot.md#physical-directory-maintenance-d456).
+
 D455 permits a separately qualified browser-only maintenance update for the
 Blotter chart identity repair. The synthetic regression covers distinct gas
 products sharing a display badge and continued rejection of duplicate groups.
