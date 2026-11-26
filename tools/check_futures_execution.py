@@ -76,10 +76,15 @@ def run_checks(url,query,manifest):
     raw(synthetic+policy_edit+"eligibility_rule='explicit_utc_bound_v1',source_date_offset_seconds=NULL"+target,role='daily_settlement',implementation='fixed_total_cash_execution_pnl_v1')
     raw(synthetic+policy_edit+"eligibility_rule='source_first_trade_instant_v1',source_date_offset_seconds=NULL,eligible_from='2020-11-30T13:00:00Z'"+target,role='daily_settlement',implementation='fixed_total_cash_execution_pnl_v1')
     raw(synthetic+f"ALTER TABLE ref_data.futures_execution_policies DISABLE TRIGGER frozen_definition;DELETE FROM ref_data.futures_execution_policies WHERE revision_id='{rev}' AND series_code='test_gas_202101';",role='daily_settlement')
-    havana=f"ALTER TABLE ref_data.clock_rules DISABLE TRIGGER guard_definition;UPDATE ref_data.clock_rules SET kind='iana',fixed_offset_seconds=NULL,iana_zone='America/Havana',tzdb_version='2026c' WHERE revision_id='{rev}' AND code='test_utc';ALTER TABLE ref_data.futures_milestones DISABLE TRIGGER guard_definition;UPDATE ref_data.futures_milestones SET business_date='2026-10-31' WHERE revision_id='{rev}' AND series_code='test_gas_202101' AND milestone='first_trading';"
+    # Use the observed 2025 fallback. Tzdata 2026f removed the predicted November 2026 fallback.
+    assert query("""
+        SELECT (TIMESTAMPTZ '2025-11-02 04:00:00+00' AT TIME ZONE 'America/Havana') = TIMESTAMP '2025-11-02 00:00:00'
+           AND (TIMESTAMPTZ '2025-11-02 05:00:00+00' AT TIME ZONE 'America/Havana') = TIMESTAMP '2025-11-02 00:00:00';
+    """)=='t','The repeated-midnight fixture requires both historical Havana offsets'
+    havana=f"ALTER TABLE ref_data.clock_rules DISABLE TRIGGER guard_definition;UPDATE ref_data.clock_rules SET kind='iana',fixed_offset_seconds=NULL,iana_zone='America/Havana',tzdb_version='2026c' WHERE revision_id='{rev}' AND code='test_utc';ALTER TABLE ref_data.futures_milestones DISABLE TRIGGER guard_definition;UPDATE ref_data.futures_milestones SET business_date='2025-11-01' WHERE revision_id='{rev}' AND series_code='test_gas_202101' AND milestone='first_trading';"
     for offset in (-14400,-18000):
-        raw(havana+policy_edit+f"source_date_offset_seconds={offset},source_date_tzdb_version='2026c',eligible_from='2026-11-02T12:30:00Z'"+target)
-    raw(havana.replace("business_date='2026-10-31'","business_date='2026-03-07'")+policy_edit+"source_date_offset_seconds=-18000,source_date_tzdb_version='2026c',eligible_from='2026-03-09T12:30:00Z'"+target)
+        raw(havana+policy_edit+f"source_date_offset_seconds={offset},source_date_tzdb_version='2026c',eligible_from='2025-11-03T12:30:00Z'"+target)
+    raw(havana.replace("business_date='2025-11-01'","business_date='2026-03-07'")+policy_edit+"source_date_offset_seconds=-18000,source_date_tzdb_version='2026c',eligible_from='2026-03-09T12:30:00Z'"+target)
     raw(f"DELETE FROM security.reference_catalog_scopes WHERE catalog_id='{r}';")
     raw(historical=True)
     # Authorization must precede reading even malformed economics, rather than

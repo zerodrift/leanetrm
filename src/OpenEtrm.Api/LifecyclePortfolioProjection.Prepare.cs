@@ -96,10 +96,11 @@ internal static partial class LifecyclePortfolioProjection
                 var calibrated=ImmutableDictionary.CreateBuilder<Guid,FuturesOptionMarketBinding>();
                 if(!setup.OptionBindings.IsEmpty)
                 {
-                    var options=setup.OptionBindings.Values.Select(b=>b.Instrument).DistinctBy(i=>i.Id).OrderBy(i=>i.Id).ToArray();
+                    var options=ProjectedOptions(setup.OptionBindings.Values);
                     var retainedOptions=source.Portfolio.Positions.Where(p=>setup.PhysicalOptionValueBindings.ContainsKey(new(p.Owner,p.BindingId))||
                         setup.CashOptionValueBindings.ContainsKey(new(p.Owner,p.BindingId))).Select(p=>p.ValuationId).ToHashSet();
                     var p=opening.Policy.FuturesOptions??throw Error("option_policy","Select the exact option calibration and fallback policy.");
+                    p.Validate();
                     var build=source.Data.Model.Build(source.Snapshot,[..options.SelectMany(o=>{
                         var r=FuturesOptionPricing.Requests(source.Data.Model,o.Series,p.ObservationRole);return new[]{r.Underlying,r.Settlement};}).Distinct()],ct);
                     foreach(var option in options)
@@ -108,7 +109,7 @@ internal static partial class LifecyclePortfolioProjection
                         // reference quote calibration and original carrying.
                         // Their margin/delivery curves are separate inputs.
                         var binding=retainedOptions.Contains(option.Id)?setup.OptionBindings[option.Id]:
-                            FuturesOptionPricing.Prepare(option,build,source.Snapshot,curves[option.Currency],p.ObservationRole,p.Validate(),p.FallbackDeclared,ct);
+                            FuturesOptionPortfolio.Bind(option,build,source.Snapshot,curves[option.Currency],p,ct);
                         calibrated.Add(option.Id,binding);receipts.Add(binding.Receipt);
                     }
                     setup=setup with{OptionBindings=calibrated.ToImmutable()};

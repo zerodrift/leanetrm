@@ -1,3 +1,4 @@
+import {validPricerCalls} from './risk-report.js';
 import {exactNumber} from './exact-number.js';
 import {validateSampleCoverage} from './historical-risk.js';
 import {validatePcaPolicy,validatePcaCalibration,validatePcaPlan,validatePcaFit,validatePcaComparison,type PcaHybridView,type PcaWork} from './pca-hybrid-risk.js';
@@ -45,7 +46,7 @@ export function validateHybridMonteCarlo(report:MonteCarloContainer,v:MonteCarlo
   names.includes('consented_full_pv_fallback')!==x.fallbackApplied||!x.fallbackApplied&&(cost.attemptUnmetered||!same(names,['fitting','validation'])||!h.available))throw bad();
  for(const phase of cost.phases){
   const expected=phase.phase==='fitting'?1+6*v.factors.length+6*p.retainedComponents*p.retainedComponents:phase.phase==='validation'?1+e.validationPaths:1+n;
-  if(!phase.work||phase.work.scenarioCount!==expected||!count(phase.work.unitPricerCalls)||Object.values(phase.work).some(value=>typeof value==='number'&&!count(value)))throw bad();
+  if(!phase.work||phase.work.scenarioCount!==expected||!validPricerCalls(phase.work)||Object.values(phase.work).some(value=>typeof value==='number'&&!count(value)))throw bad();
  }
  validatePcaCalibration(v,p,x.pca);
  if(x.fit){if(!x.pca)throw bad();validatePcaPlan(v,p,x.fit);}

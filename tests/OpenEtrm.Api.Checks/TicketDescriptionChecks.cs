@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Trading;
@@ -24,6 +25,17 @@ internal static class TicketDescriptionChecks
             [new("pv", "PV", null, "money", [])], ["month", "day"], [new("terms", "Terms")], ["new", "booked"]);
         TicketDescription WithTrade(params TicketField[] fields) => valid with { TradeFields = [..fields] };
         TicketDescription WithBuy(params TicketField[] fields) => valid with { Sides = [Kind("buy", fields), valid.Sides[1]] };
+        Check("gas describes repeatable exercise terms, including the physical-only lead and no starting choices",()=>{
+            var description=JsonSerializer.SerializeToElement(GasTicket.Description,JsonSerializerOptions.Web);
+            if(!description.TryGetProperty("repeatableTerms",out var terms))throw new Exception("Missing Exercise right section.");
+            var section=terms.EnumerateArray().Single();
+            var fields=section.GetProperty("fields").EnumerateArray().ToArray();
+            if(section.GetProperty("id").GetString()!="exerciseRights"||section.GetProperty("label").GetString()!="Exercise right"||
+                !fields.Select(f=>f.GetProperty("label").GetString()).SequenceEqual(["Sides covered","Exercise period","Held by","Settlement","Exercise lead in hours"])||
+                fields.Any(f=>!f.GetProperty("required").GetBoolean()||f.GetProperty("lookup").ValueKind!=JsonValueKind.Null)||
+                fields[0].GetProperty("type").GetString()!="multiple_choice"||fields[4].GetProperty("visibleWhen").GetProperty("values")[0].GetString()!="physical")
+                throw new Exception("Unexpected exercise field contract.");
+        });
         Check("a valid description passes unchanged", () => { if (!ReferenceEquals(TicketDescriptions.Validate(valid), valid)) throw new Exception("Instance changed"); });
         Check("ticket dispatch rejects an explicit null draft",()=>
         {

@@ -111,6 +111,12 @@ test('a report that values no option states no option policy, and one that value
  for(const missing of [undefined,null,{...optionPolicy,numericalPolicy:undefined},{...optionPolicy,calibrationFallback:''}])
   assert.deepEqual(optionValuation(run([valuingOptions(missing)])),['Option valuation policy not recorded'],'nothing stands in for a policy the report does not state in full');
  assert.deepEqual(optionValuation(run([valuingOptions(optionPolicy,{inputs:undefined})])),['Option valuation policy not recorded']);
+ // A policy that also names a model for European series states it after the members that govern American series.
+ const european={numericalPolicy:'european_futures_option_black76_v1',calibrationFallback:'option_settlement_at_discounted_intrinsic_v1'};
+ assert.deepEqual(optionValuation(run([valuingOptions({...optionPolicy,european})])),
+  [`${stated(optionPolicy)} · European series: numerical policy ${european.numericalPolicy} · calibration fallback ${european.calibrationFallback}`]);
+ for(const partial of [{numericalPolicy:european.numericalPolicy},{...european,calibrationFallback:''},'european_futures_option_black76_v1',[]])
+  assert.deepEqual(optionValuation(run([valuingOptions({...optionPolicy,european:partial})])),['Option valuation policy not recorded'],'nothing stands in for a European member the report does not state in full');
 });
 test('a retained run opens as the scope’s current report only at the selected close and under the pricing policy the backend says is the stated one',()=>{
  const read=o=>job('read',{result:report([factor('jan',[total()])]),underStatedPricingPolicy:true,...o});
@@ -125,4 +131,11 @@ test('an explicitly selected pricing policy requires the backend report comparis
  assert.equal(opensAsCurrent(saved,'s1','native-gas-v1'),false);
  assert.equal(opensAsCurrent({...saved,underStatedPricingPolicy:false,statedPricingPolicyId:'native-gas-v1'},'s1','native-gas-v1'),true);
  assert.equal(opensAsCurrent({...saved,statedPricingPolicyId:undefined},'s1','base'),false);
+});
+
+test('unassessed cash-out days mark the report as an incomplete subtotal once across factor parts',()=>{
+ const reports=[report([factor('jan',[total()])],{incomplete:true,unassessedDays:2}),report([factor('feb',[total()])],{incomplete:true,unassessedDays:2})];
+ const shown=reportPresentation(run(reports),'delta');
+ assert.equal(shown.state,'incomplete');assert.equal(shown.unassessedDays,2);
+ assert.throws(()=>reportPresentation(run([reports[0],{...reports[1],unassessedDays:3}]),'delta'),/coverage/);
 });

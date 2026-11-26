@@ -1,4 +1,5 @@
 using System.Numerics;
+using OpenEtrm.Shared.Numerics;
 using OpenEtrm.MarketData.Trading;
 
 namespace OpenEtrm.MarketData.Gas;
@@ -13,6 +14,9 @@ public static class GasCashBilling
 {
     public const string Implementation = "gas_final_daily_fixed_cash_v1";
     public const string RoundingImplementation = "currency_minor_units_to_even_v1";
+
+    public static bool SupportsEntry(ExactRatio share,bool hasPart,DateOnly from,DateOnly to,DateOnly sourceFrom,DateOnly sourceTo) =>
+        share==ExactRatio.One&&!hasPart&&from==sourceFrom&&to==sourceTo;
 
     public static GasBillingCalculation Calculate(GasBillingTerms terms, GasSelectedQuantity selected,
         DateTimeOffset at, Money? previousRoundedTotal)

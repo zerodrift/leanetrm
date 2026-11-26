@@ -113,6 +113,14 @@ public static class RiskJobs
         return proof;
     }
 
+    // A retained job recomputes each option series' calibration from its pinned inputs. Its receipts, the numerical
+    // policy of each series' model among them, must be the ones the job retained.
+    internal static void RequireOptionCalibrations(JsonNode? retained,ImmutableArray<OpenEtrm.MarketData.Trading.FuturesOptionCalibrationReceipt> replayed)
+    {
+        if(retained is not JsonArray||!JsonNode.DeepEquals(retained,JsonSerializer.SerializeToNode(replayed,Json)))
+            throw new MarketDataException("risk_option_calibration","The replayed option calibrations differ from the receipts the job retained.");
+    }
+
     internal static void RequireEconomicFrame(JsonNode? retained,PreparedLifecyclePortfolio? prepared)
     {
         if(prepared is null?retained is not null:retained is not JsonObject||!JsonNode.DeepEquals(retained,EconomicFrame(prepared)))

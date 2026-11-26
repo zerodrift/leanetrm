@@ -320,10 +320,7 @@ public sealed record FinancialSwapInstrument : SidedInstrument
             throw new MarketDataException("swap_instrument","Both sides must be normalized to the same exact currency and quantity basis.");
     }
 
-    public override InstrumentValuation PV(SideValuationContext context)
-    {
-        return RequireDiscounting(base.PV(context), Discounting);
-    }
+    protected internal override void RequireAfterValuation(InstrumentValuation value) => RequireDiscounting(value, Discounting);
     internal static InstrumentValuation RequireDiscounting(InstrumentValuation value, bool discounting)
     {
         if (value.Sides.SelectMany(s => ((PaymentSideValuation)s.Value).Payments).Any(p =>

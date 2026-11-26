@@ -29,11 +29,11 @@ class Source extends EventTarget{
 test('permission refresh retires pending reads before temporarily clearing account context',async()=>{
  const nodes=new Map(),node=id=>{if(!nodes.has(id))nodes.set(id,{dataset:{},replaceChildren(){},closest(){return this;}});return nodes.get(id);};
  const noop=()=>{},curveController=new AbortController(),pageController=new AbortController();
- let locationResets=0,parkLoanResets=0,transportResets=0,pointResets=0;const productResets=[];
+ let locationResets=0,parkLoanResets=0,transportResets=0,pointResets=0,markResets=0;const productResets=[];
  const context={currentProfile:'synthetic-reader',viewHistory:[{}],inspectedContexts:new Map([['old',{}]]),navigation:{context:{contextId:'synthetic-retained-context',knownThrough:4}},
   permissions:['ReadMarketData'],marketGeneration:0,curveRead:curveController,pageRead:{controller:pageController},
   $:node,select:node,choose:noop,clearPrices:noop,clearReference:noop,setCurveNames:noop,renderBlotterViews:noop,scheduleWorkspace:undefined,
-  gasLocations:{reset(){locationResets++;}},parkLoan:{reset(){parkLoanResets++;}},transportTicket:{reset(){transportResets++;}},pointTraderMark:{reset(){pointResets++;}}};
+  gasLocations:{reset(){locationResets++;}},parkLoan:{reset(){parkLoanResets++;}},transportTicket:{reset(){transportResets++;}},pointTraderMark:{reset(){pointResets++;}},curveMarks:{reset(){markResets++;}}};
  for(const name of ['recInventory','structuredPower','closeConventionDefaults','lifecycle','physicalOperations','deliverySetup','referenceConsole','curveWorkspace','customCurves',
   'volSurfaces','optionChains','riskJobs','riskViewsNav','facilities','jobs','dashboard','deliveryPrices','intervalSeries','intervalCurves','ppa','gas','crude',
   'lng','gasSetup','crudeSetup','referenceEditor','parties','unitConverter','futures','power','touProducts','schedules','dateEditor','priceSetup',
@@ -46,7 +46,7 @@ test('permission refresh retires pending reads before temporarily clearing accou
  const protocol='async_reads_v1',channelId='10000000-0000-4000-8000-000000000001';
  context.readClient=createAsyncReadClient({getIdentity:()=>({profile:context.currentProfile,context:context.navigation?.context??null}),
   post:async(path,body)=>{
-   if(path.endsWith('/channels'))return {protocol,channelId,profile:context.currentProfile,context:context.navigation.context};
+   if(path.endsWith('/channels'))return {protocol,channelId,profile:context.currentProfile,context:context.navigation.context,admissionWindowMs:230000};
    if(path.endsWith('/cancel'))return {...body,state:'cancellation_requested'};
    submitted=body;return {channelId,requestId:body.requestId,state:'accepted'};
   },createEventSource:()=>stream=new Source()});
@@ -64,6 +64,8 @@ test('permission refresh retires pending reads before temporarily clearing accou
   assert.equal(node('rec-inventory-page').hidden,true,'the previous account REC view must be hidden while access is pending');
   assert.equal(node('physical-power-page').hidden,true,'the previous account power view must be hidden while access is pending');
   assert.equal(node('options-page').hidden,true,'the previous account option view must be hidden while access is pending');
+  assert.equal(markResets,1,'the curve marks view must release the previous account state');
+  assert.equal(node('curve-marks-page').hidden,true,'the previous account curve marks view must be hidden while access is pending');
   assert.equal(pointResets,1,'the market publisher must release the previous account view and retain only its actor-bound recovery');
   assert.equal(context.navigation,undefined,'the new account metadata is still loading');
   stream.emit('response',{protocol,channelId,requestId:submitted.requestId,operation:submitted.operation,state:'completed',snapshotId:submitted.body.snapshotId,result:{curves:[]}});

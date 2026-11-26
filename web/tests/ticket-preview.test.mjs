@@ -73,3 +73,64 @@ test('nonempty composition accepts an explicit null absence reason from normal b
  assert.deepEqual(previewed(empty,{preview:result},{sideGroupsRequired:true,retained:false}).sideGroups,sideGroups);
  assert.throws(()=>previewed(empty,{preview:{...result,sideGroupsReason:'No instrument'}},{sideGroupsRequired:true,retained:false}),/Side memberships/);
 });
+
+test('a refused replacement keeps the displayed exercise schedule and its original currency',()=>{
+ const schedule={...view('1'),groups:[{right:0,from:'2026-11-01',to:'2026-11-02',state:'exercised',forwardSum:'1',counted:'1',inputs:null}]};
+ const first=previewed(empty,{preview:{schedule,summaries,scheduleRefusal:null,quantityUnit:'MMBtu',currency:'USD',links:[]}});
+ const refused=previewed(first,{preview:{schedule:null,summaries:null,scheduleRefusal:{code:'schedule_view',message:'This schedule is unavailable.'},
+  quantityUnit:'GJ',currency:'EUR',links:[]}});
+ assert.equal(refused.schedule,schedule);
+ assert.equal(refused.status.kind,'stale');
+ assert.equal(refused.currency,'USD');
+});
+
+test('a multi-clock ticket retains its priced groups and currency when its combined schedule is unavailable',()=>{
+ const groups=[{right:0,from:'2041-01-01',to:'2041-01-02',state:'exercised',forwardSum:'2000',counted:'2000',inputs:null}];
+ const preview={schedule:null,summaries:null,scheduleRefusal:{code:'schedule_view',message:'The sides keep different gas-day clocks.'},
+  quantityUnit:'MMBtu',currency:'EUR',links:[],groups};
+ const priced=previewed(empty,{preview:{...preview,schedule:view('1'),summaries,scheduleRefusal:null}},{retained:true});
+ const result=previewed(priced,{preview},{retained:true});
+ assert.equal(result.schedule,null);
+ assert.deepEqual(result.groups,groups);
+ assert.equal(result.currency,'EUR');
+ assert.match(result.status.text,/different gas-day clocks/);
+ const failed=previewed(priced,{preview:{...preview,groups:null,scheduleRefusal:{code:'exercise_conflict',message:'Conflicting delivery.'}}},{retained:true});
+ assert.equal(failed.groups,undefined);
+ assert.equal(failed.schedule,null);
+ assert.deepEqual(failed.summaries,[]);
+});
+
+for(const [label,groups,code] of [['a mixed-clock schedule',[],'schedule_view'],['missing exercise marks',null,'exercise_marks']]){
+ test(`an editable draft keeps its last priced grid and summaries after ${label} is refused`,()=>{
+  const oldGroups=groups===null?[{right:0,from:'2041-01-01',to:'2041-01-02',state:'exercised',forwardSum:'2',counted:'2',inputs:null}]:[];
+  const schedule={...view('1'),groups:oldGroups};
+  const first=previewed(empty,{preview:{schedule,summaries,groups:oldGroups,scheduleRefusal:null,quantityUnit:'MMBtu',currency:'USD',links:[]}});
+  const result=previewed(first,{preview:{schedule:null,summaries:null,groups,scheduleRefusal:{code,message:label},quantityUnit:'GJ',currency:'EUR',links:[]}},{retained:false});
+  assert.equal(result.schedule,schedule);
+  assert.deepEqual(result.summaries,summaries);
+  assert.deepEqual([result.quantityUnit,result.currency,result.status.kind],['MMBtu','USD','stale']);
+  assert.match(result.status.text,new RegExp(label));
+  assert.deepEqual(result.groups,[]);
+ });
+}
+
+test('an initial editable mark refusal retains its resolved unit and clears any gridless prior groups',()=>{
+ const missing={schedule:null,summaries:null,groups:null,scheduleRefusal:{code:'exercise_marks',message:'Missing exercise marks.'},quantityUnit:'MMBtu',links:[]};
+ const first=previewed(empty,{preview:missing},{retained:false});
+ assert.equal(first.quantityUnit,'MMBtu');
+ assert.equal(first.schedule,null);
+ assert.equal(first.status.kind,'refused');
+ const group={right:0,from:'2041-01-01',to:'2041-01-02',state:'exercised',forwardSum:'2',counted:'2',inputs:null};
+ const priced=previewed(empty,{preview:{...missing,groups:[group],quantityUnit:'GJ',scheduleRefusal:{code:'schedule_view',message:'Different clocks.'}}},{retained:false});
+ const next=previewed(priced,{preview:missing},{retained:false});
+ assert.equal(next.quantityUnit,'MMBtu');
+ assert.deepEqual(next.groups??[],[]);
+});
+
+test('an initial editable grid refusal keeps the unit and quantity links supplied with the reply',()=>{
+ const links=[{source:'leg-1',target:'leg-2',formula:'gross_less_fraction',fraction:'0.02',receipt:'100',delivery:'98',fuel:'2'}];
+ const reply={schedule:null,summaries:[],groups:[],scheduleRefusal:{code:'schedule_view',message:'Different clocks.'},quantityUnit:'MMBtu',currency:'USD',links};
+ const panel=previewed(empty,{preview:reply},{retained:false});
+ assert.deepEqual(panel.links,links);
+ assert.deepEqual([panel.schedule,panel.quantityUnit,panel.currency,panel.status.kind],[null,'MMBtu','USD','refused']);
+});

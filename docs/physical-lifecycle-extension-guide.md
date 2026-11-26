@@ -41,11 +41,14 @@ not a Side container or a second valuation engine.
 3. Draw the participating objects and their invariants. Keep booked quantity on
    the Trade binding, unit economics on Instrument/Side and peer connections on
    Instrument. Every non-exchange Instrument requires genuine Sides owning its
-   schedules and PV; only futures and futures options are exempt (D417). Independent
-   fees remain separate cash Instruments with their own Sides. A booked physical membership has a DeliverySchedule over retained
-   geometry with distinct operational quantity tracks. Direct entries can own their
-   evidence; shared/imported records retain their source identity/authority and
-   explicit allocations. An independent movement schedule is needed only for a
+   schedules and PV; only futures and futures options are exempt (D417).
+   The D450 gas composition books an independent lump sum or capacity charge
+   as a fixed payment Side membership with its own quantity and days. Fees
+   booked independently in other profiles have their own cash Instruments
+   and Sides. A booked physical membership has a DeliverySchedule over retained
+   geometry with distinct operational quantity tracks. Direct entries can own
+   their evidence. Shared or imported records retain their source identity,
+   authority and explicit allocations. An independent movement schedule is needed only for a
    selected cross-trade/resource consumer. Documents and cash keep their own objects.
    A new commodity label is not sufficient reason for a subclass.
    Treat each booked physical Side and its operational schedule as independently
@@ -151,3 +154,20 @@ has an implemented qualified consumer. Never advertise LNG, NGLs, standalone pow
 PPA accepted cash, general inventory accounting or bank integration because a
 shared interface could accommodate them. Keep drafts local until publication is
 explicitly authorized.
+
+
+## Selected delivery quantity input (D445)
+
+`PhysicalCashState` can carry complete `HeldDayQuantity` rows and independent
+`HeldQuantityMembership` source terms under `selected_delivery_quantity_v1`.
+The shared lifecycle admits exact retained contract coverage, scales linear
+physical/cash rows once and accrues ended days on their selected quantities.
+A cash membership inherits its source's complete days and evidence. Zero selected
+accrual retains recorded cash and can produce an overpaid balance. Schedule views
+and common Side inspection expose the quantity basis and provenance.
+
+Gas supplies the first adapter and native evidence read. Another commodity must
+supply its own explicit saved policy, evidence selection, complete held quantities
+and qualified consumer. It does not add a commodity branch to the lifecycle or
+change a retained Side's economic identity. Nonlinear quantity pricing needs its
+own Side behavior; this scaling contract does not admit it.

@@ -18,8 +18,8 @@ def run_checks(url,query,manifest,run_worker):
           'gasSetupId':cat['gasSetupId'],'discounting':False,'profile':'indexed_gas_composition_v1',
           'physicalSides':[dict(code='gas',pipeline=p['pipeline'],zone=p['zone'],deliveryPoint=p['deliveryPoint'],product=p['product'],direction='receive',
               deliveryFrom='2021-01-01',deliveryTo='2021-03-01',quantityBasis='per_operating_day',quantity='100',link=None)],
-          'cashSides':[dict(code='payment',role='indexed_consideration',direction='pay',source='gas',stage='delivery',price=None,tariffCode=None,paymentAt=None,
-              indexed=dict(index='test_price',observationConvention='daily_published_index_v1',paymentConvention='next_month_day_utc_v1',paymentDay=10,spread='0',forecastCurve=None))]}
+          'cashSides':[dict(code='payment',role='indexed_consideration',share='1',direction='pay',source='gas',stage='delivery',price=None,tariffCode=None,paymentAt=None,
+              indexed=dict(index='synthetic_daily_index',observationConvention='named_index_daily_v1',paymentConvention='next_month_day_utc_v1',paymentDay=10,spread='0',forecastCurve=None))]}
     calendar=next(row['reference'] for row in cat['sideCalendars'] if row['code']=='test_utc_every_day')
     body['physicalSides'][0]['calendarPolicy']=side_calendar_policy(calendar,delivery=True,observation=False,payment=False)
     body['cashSides'][0]['calendarPolicy']=side_calendar_policy(calendar,delivery=True,observation=True,payment=True)
@@ -33,7 +33,7 @@ def run_checks(url,query,manifest,run_worker):
     assert c.call('gas/composition/book',body)==saved
     overview=c.call('trading/gas',dict(context={**context,'convention':'trading_workspace_v1'},tradeId=saved['tradeId'],bindingId=saved['instrumentId'],revision=1,instrumentType='physical_gas'))
     index=overview['indexedCash'][0]
-    assert (index['index_code'],index['observation_convention'],index['payment_convention'],index['payment_day'],index['spread'],index['projection_id'])==('test_price','daily_published_index_v1','next_month_day_utc_v1','10','0',None),index
+    assert (index['index_code'],index['observation_convention'],index['payment_convention'],index['payment_day'],index['spread'],index['projection_id'])==('synthetic_daily_index','named_index_daily_v1','next_month_day_utc_v1','10','0',None),index
     assert next(m for m in overview['components'] if m['role']=='indexed_consideration')['payment_at'] is None
     ticket=c.call('tickets/trade',dict(context=context,tradeId=saved['tradeId'],bindingId=saved['instrumentId'],revision=1))
     assert [s['kind'] for s in ticket['draft']['sides']]==['physical','floating']
@@ -123,9 +123,10 @@ def check_location_purchase_and_sale(c,query,context,catalog,sale_point,calendar
         sides[code]['values'].update(pipeline=point['pipeline'],zone=point['zone'],delivery_point=point['deliveryPoint'],
             product=point['product'],delivery_from='2021-01-01',delivery_to='2021-01-03',quantity_basis='per_operating_day',quantity=quantity)
         sides[code]['calendarPolicy']=side_calendar_policy(calendar,delivery=True,observation=False,payment=False)
-    sides['purchase_payment']['values'].update(cash_stage='delivery',cash_price='2.75',cash_payment_at='2021-02-02T00:00:00Z')
+    sides['purchase_payment']['values'].update(cash_share='1',cash_part='whole',cash_start='2021-01-01',cash_end='2021-01-03',cash_stage='delivery',cash_price='2.75',cash_payment_at='2021-02-02T00:00:00Z')
     sides['purchase_payment']['calendarPolicy']=side_calendar_policy(calendar,delivery=True,observation=False,payment=True)
     sides['sale_payment']['values']={**indexed_ticket['sides'][1]['values'],**sides['sale_payment']['values']}
+    sides['sale_payment']['values'].update(floating_start='2021-01-01',floating_end='2021-01-03')
     sides['sale_payment']['calendarPolicy']=side_calendar_policy(calendar,delivery=True,observation=True,payment=True)
     preview=c.call('tickets/preview',dict(context=context,draft=draft))
     values={s['code']:Fraction(s['presentValue']) for s in preview['sides']}
@@ -139,7 +140,7 @@ def check_location_purchase_and_sale(c,query,context,catalog,sale_point,calendar
     retained={s['code']:s['values'] for s in reopened['draft']['sides']}
     assert retained['purchase']['quantity']=='100' and retained['sale']['quantity']=='97'
     assert (retained['purchase_payment']['cash_source'],retained['purchase_payment']['cash_price'])==('purchase','2.75')
-    assert (retained['sale_payment']['floating_source'],retained['sale_payment']['floating_index'])==('sale','test_price')
+    assert (retained['sale_payment']['floating_source'],retained['sale_payment']['floating_index'])==('sale','synthetic_daily_index')
     print('PASS two-location booking values fixed purchase and indexed sale on their own daily quantities and reopens both payment terms',flush=True)
 
 
@@ -154,7 +155,7 @@ def check_native(query,manifest,saved,body):
         (f"UPDATE trading.side_schedule_rows SET parameters='{{\"numerator\":\"2\",\"denominator\":\"1\"}}' {where} AND local_key='payment/0/quantity';",'gas_index_quantity'),
         (f"UPDATE trading.side_schedule_rows SET value_at=value_at+interval '1 day' {where} AND payment_ordinal=0;",'gas_schedule_completion'),
         (f"UPDATE trading.side_schedule_rows SET parameters='{{\"numerator\":\"1\",\"denominator\":\"1\"}}' {where} AND local_key='payment/0/observation/0/adder';",'gas_index_schedule'),
-        (f"UPDATE market_data.index_fixing_observations SET fixing_at='2021-03-10T00:00:00Z' WHERE(catalog_id,revision_id,index_code,observation_from,observation_to)=('{catalog}','{manifest['revisionId']}','test_price','2021-01-01','2021-01-02');",'gas_index_payment')]:
+        (f"UPDATE market_data.index_fixing_observations SET fixing_at='2021-03-10T00:00:00Z' WHERE(catalog_id,revision_id,index_code,observation_from,observation_to)=('{catalog}','{manifest['revisionId']}','synthetic_daily_index','2021-01-01','2021-01-02');",'gas_index_payment')]:
         query("BEGIN;ALTER TABLE trading.side_schedule_rows DISABLE TRIGGER ALL;ALTER TABLE market_data.index_fixing_observations DISABLE TRIGGER ALL;"+mutation+
               "DO $test$ BEGIN BEGIN "+call+"RAISE EXCEPTION 'malformed_index_accepted';EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'"+code+"' THEN RAISE;END IF;END;END$test$;ROLLBACK;")
     assert query("SELECT has_table_privilege('openetrm_runtime','trading.gas_index_cash_terms','INSERT'),has_function_privilege('openetrm_runtime','trading.require_gas_index_cash_shape(uuid,uuid,trading.gas_component_terms,market_data.gas_valuation_assignments,jsonb)','EXECUTE');")=='f|f'

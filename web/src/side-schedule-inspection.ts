@@ -1,13 +1,14 @@
+import type {DeliveryQuantityEvidence,ExercisePeriod} from './ticket-types.js';
 import {retainedKnowledge} from './read-references.js';
 import {displayPaymentDate} from './payment-date.js';
 import {numberText,sourceLabels} from './schedule-grid.js';
-import {lifecycleLines,quantityBasisText,words as text} from './lifecycle-text.js';
+import {exercisePeriodText,lifecycleLines,quantityBasisText,words as text} from './lifecycle-text.js';
 import {clearTabs,setupTabs} from './side-panel.js';
 type Api=<T>(path:string,body:unknown,signal?:AbortSignal)=>Promise<T>;
 export type SchedulePosition={context:Record<string,unknown>;tradeId:string;bindingId:string;revision:number;instrumentType:string};
 type Lifecycle={delivery:string;due:string|null;cash:string|null;economicClass:string|null;coverage:string|null;unavailableReason:string|null;fulfillment:string|null};
 export type InspectedScheduleRow={key:string;kind:string;deliveryFrom:string|null;deliveryTo:string|null;start:string|null;end:string|null;valueAt:string|null;paymentAt:string|null;paymentTiming?:'instant'|'utc_payment_day'|null;
- quantity:string|null;price:string|null;amount:string|null;discountFactor:string|null;presentValue:string|null;quantityState:string|null;priceStates:string[];lifecycle:Lifecycle;paid:string|null;outstanding:string|null;accrued?:string|null;paidAt?:string|null;finalDetermination?:string|null;quantitySpecification:{code:string}|null;currency:{code:string}|null;priceUnit?:{currency:unknown;quantity:unknown;multiplier:string}|null;priceUnitLabel?:string|null;currencyLabel?:string|null;quantityLabel?:string|null;quoteMultiplier:string|null;operatingDate:string|null};
+ sourceQuantity?:string|null;sourceQuantityStates?:string[];quantityAdjustment?:{contract:string;ratio:string};quantityEvidence?:DeliveryQuantityEvidence[];quantity:string|null;price:string|null;amount:string|null;discountFactor:string|null;presentValue:string|null;quantityState:string|null;priceStates:string[];lifecycle:Lifecycle;exercisePeriods?:ExercisePeriod[];paid:string|null;outstanding:string|null;accrued?:string|null;remaining?:string|null;paidAt?:string|null;finalDetermination?:string|null;quantitySpecification:{code:string}|null;currency:{code:string}|null;priceUnit?:{currency:unknown;quantity:unknown;multiplier:string}|null;priceUnitLabel?:string|null;currencyLabel?:string|null;quantityLabel?:string|null;quoteMultiplier:string|null;operatingDate:string|null};
 type Step={unit?:unknown;currency?:unknown;quoteMultiplier?:string|null;valueUnitLabel?:string|null;key:string;role:string;operation:string;kind:string;value:string|null;presence:string;deliveryFrom:string|null;deliveryTo:string|null;start:string|null;end:string|null;observationFrom:string|null;observationTo:string|null;valueAt:string|null;
  paymentDate:string|null;contractFrom:string|null;contractTo:string|null;fixingAt:string|null;priceStates:string[];inputs:{port:string;key:string}[];bindings:{kind:string;market?:{curve:{code:string}}|null;code?:string|null}[];lineage:{id:string}[];actualBatch?:string|null;actualRevision?:number|null;actualKnownAt?:string|null;parameters?:Record<string,string>};
 type Page={side:string;manifest:string;valuationAt:string;knownAt:string;offset:number;total:number;rows:InspectedScheduleRow[]};
@@ -125,7 +126,7 @@ export function mountSideScheduleInspection(host:HTMLElement,o:{api:Api;position
   const inspect=element('button','Calculation');inspect.type='button';inspect.className='inspection-calculation';inspect.disabled=row.lifecycle.unavailableReason!==null;
   inspect.onclick=()=>void calculation(row,period,0);
   const state=row.lifecycle,currency=row.currencyLabel??row.currency?.code??'';
-  const quantity=lines(number(row.quantity),[row.quantityLabel??row.quantitySpecification?.code??'',quantityBasisText(row.quantityState)]);
+  const quantity=lines(number(row.quantity),[row.quantityLabel??row.quantitySpecification?.code??'',quantityBasisText(row.quantityState),...(row.sourceQuantity!=null?[`Source quantity: ${number(row.sourceQuantity)} · ${(row.sourceQuantityStates??[]).map(s=>(sourceLabels[s]??s).toLowerCase()).join(", ")}`]:[]),...(row.quantityAdjustment?[`Contract: ${number(row.quantityAdjustment.contract)} · selected ratio: ${number(row.quantityAdjustment.ratio)}`]:[]),...(row.quantityEvidence??[]).map(e=>`${e.reference} · ${e.revisionId}`)]);
   const day=row.operatingDate,recorded=day?o.quantityEntry?.days.get(day):undefined;
   if(day&&recorded&&o.quantityEntry){
    const input=element('input');input.className='ticket-cell-input';input.inputMode='decimal';input.placeholder=number(recorded.value);input.disabled=o.quantityEntry.disabled;
@@ -136,7 +137,7 @@ export function mountSideScheduleInspection(host:HTMLElement,o:{api:Api;position
    row.end===null?row.deliveryTo??'—':instant(row.end),paymentCell(row),
    quantity,
    lines(number(row.price),[row.priceUnitLabel??'',row.priceStates.length?'Inputs: '+row.priceStates.map(text).join(', '):'',row.quoteMultiplier?`Quote multiplier: ${row.quoteMultiplier}`:'']),
-   number(row.discountFactor),lines(number(row.amount),[currency]),lines(number(row.presentValue),[currency]),lines(text(state.delivery),lifecycleLines(row,instant)),inspect];
+   number(row.discountFactor),lines(number(row.amount),[currency]),lines(number(row.presentValue),[currency]),lines(text(state.delivery),[...lifecycleLines(row,instant),...(row.exercisePeriods??[]).map(exercisePeriodText)]),inspect];
  }
  // A window's heading, and under the rows of a window that has more, what reads them.
  function frame(part:Part){
@@ -172,7 +173,7 @@ export function mountSideScheduleInspection(host:HTMLElement,o:{api:Api;position
   try{
    const value=await read<Reply<Calculation>>(at.slot,period,row.key,offset,pageRows,mine.signal);if(inspecting!==mine)return;identity(value);const detail=value.page;
    if(value.sideSlot!==at.slot||value.sideId!==at.sideId||value.manifest!==at.manifest||detail.manifest!==at.manifest||detail.contribution!==row.key||detail.valueBasis!=='unit_side_v1'||(value.window??null)!==(period?.id??null))throw Error('The calculation response belongs to another contribution or value basis.');
-   const caption=element('p',`Unit Side calculation · booked quantity scale ${number(detail.tradeQuantityScale)} · signed membership ${detail.membershipNumerator}/${detail.membershipDenominator}. The schedule above shows the resulting holding values.`);
+   const caption=element('p',`Unit Side calculation · booked quantity scale ${number(detail.tradeQuantityScale)} · signed membership ${detail.membershipNumerator}/${detail.membershipDenominator}. The schedule above shows the resulting holding values. ${row.quantityEvidence!==undefined?"It also applies the selected delivery quantities and accrual shown above; the retained unit calculation keeps the contract quantity.":""}`);
    const steps=element('div');steps.className='inspection-steps table-wrap';
    table(steps,['Step','Operation','Type','Value','Delivery from','To','Observation from','To','Value at','Contract from','To','Fixing at','Price state','Source','Inputs','Parameters'],detail.rows.map(step=>[
     step.key,text(step.operation).replace(/^./,c=>c.toUpperCase()),text(step.kind),lines(number(step.value),[step.valueUnitLabel??'']),step.start===null?step.deliveryFrom??'—':instant(step.start),step.end===null?step.deliveryTo??'—':instant(step.end),step.observationFrom??'—',step.observationTo??'—',step.paymentDate?displayPaymentDate(step.paymentDate):instant(step.valueAt),

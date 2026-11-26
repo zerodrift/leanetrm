@@ -295,9 +295,7 @@ public static class RiskWorker
             ??throw new MarketDataException("risk_graph_manifest","The retained job must include its exact resolved scenario coordinates.");
         if(JsonSerializer.Serialize(axes,RiskJobs.Json)!=JsonSerializer.Serialize(CurveRiskAxes.Retained(prepared),RiskJobs.Json))
             throw new MarketDataException("risk_graph_manifest","The requested scenario coordinates differ from their admitted graph targets.");
-        if(job["frame"]!["optionCalibrations"] is not JsonArray calibrations||
-            !JsonNode.DeepEquals(calibrations,JsonSerializer.SerializeToNode(prepared.Portfolio.OptionCalibrations,RiskJobs.Json)))
-            throw new MarketDataException("risk_option_calibration","The replayed option calibrations differ from the receipts the job retained.");
+        RiskJobs.RequireOptionCalibrations(job["frame"]!["optionCalibrations"],prepared.Portfolio.OptionCalibrations);
         if(requiresHistory)
         {
             await using var authority=ScheduleStore.Command(connection,"SELECT risk.check_history($1,$2)",id,lease);

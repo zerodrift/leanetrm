@@ -98,6 +98,25 @@ const string malformed="The request is incomplete or malformed.";
     PostgresException p when p.MessageText.StartsWith("gas_storage_",StringComparison.Ordinal)
         =>(p.SqlState=="42501"?403:p.MessageText.Contains("conflict",StringComparison.Ordinal)||p.MessageText.Contains("stale",StringComparison.Ordinal)?409:422,
             p.MessageText,GasStorageStore.Refusal(p.MessageText)),
+    PostgresException p when p.MessageText=="exercise_election_limit" => (422,p.MessageText,"This trade has reached the command, fact or group revision limit."),
+    PostgresException p when p.MessageText=="exercise_election_conflict" => (409,p.MessageText,"Reload the trade and its current election revisions."),
+    PostgresException p when p.MessageText=="exercise_election_denied" => (403,"access_denied","This account cannot access the selected trade and exercise facts."),
+    PostgresException p when p.MessageText=="exercise_election" => (422,p.MessageText,"Select a retained physical group, its outcome or withdrawal, evidence and an effective UTC instant by exercise."),
+    MarketDataException m when m.Code=="curve_mark_request_conflict" => (409,m.Code,m.Message),
+    MarketDataException m when m.Code=="curve_mark_receipt" => (503,m.Code,m.Message),
+    PostgresException p when p.MessageText.StartsWith("curve_mark_",StringComparison.Ordinal)
+        =>(p.SqlState=="42501"?403:p.MessageText is "curve_mark_stale" or "curve_mark_request_conflict"?409:422,
+            p.MessageText,p.MessageText switch {
+                "curve_mark_owner_changed"=>"Return to the workspace and account that submitted the publication.",
+                "curve_mark_denied"=>"Current market authority no longer permits this operation for the exact source.",
+                "curve_mark_context"=>"Select the certified business date, instant and knowledge cutoff for this source.",
+                "curve_mark_bounds"=>"Choose a page, month range and number of cells within the editor limits.",
+                "curve_mark_source"=>"Select visible outright curves under their exact definition revision.",
+                "curve_mark_pair"=>"Select distinct curves with a common reference revision and quote currency.",
+                "curve_mark_time"=>"A revision cannot take effect before the mark it replaces.",
+                "curve_mark_request_conflict"=>"This request identity already recorded another command.",
+                "curve_mark_stale"=>"Reload the current mark revision before recording a different value.",
+                _=>"Supply exact delivery months, volatilities from 0 to 10 and correlations from -1 to 1."}),
     PostgresException p when p.MessageText.StartsWith("heat_rate_call_",StringComparison.Ordinal)||p.MessageText.StartsWith("spread_mark_",StringComparison.Ordinal)
         =>(p.SqlState=="42501"?403:p.MessageText.Contains("conflict",StringComparison.Ordinal)||p.MessageText.Contains("stale",StringComparison.Ordinal)?409:422,
             p.MessageText,HeatRateCallStore.Refusal(p.MessageText)),
@@ -119,6 +138,8 @@ const string malformed="The request is incomplete or malformed.";
         =>(p.MessageText is "point_trader_mark_stale" or "point_trader_mark_conflict"?409:422,p.MessageText,
             "Retain the exact market point, explicit policy and original request. Refresh changed sources before reviewing a new publication."),
     MarketDataException m when m.Code is "point_trader_mark_owner_changed" or "point_trader_mark_conflict" or "point_trader_mark_stale"=>(409,m.Code,m.Message),
+    Exception when context.Items.ContainsKey("curve_mark_record_attempted")&&e is (NpgsqlException and not PostgresException) or OperationCanceledException
+        =>(503,"curve_mark_outcome_unknown","Retain the publication request and check its status to reconcile the outcome."),
     Exception when context.Items.ContainsKey("point_trader_mark_attempted")&&e is NpgsqlException or OperationCanceledException
         =>(503,"point_trader_mark_outcome_unknown","The publication outcome is unknown. Retain the original request and check its status."),
             ToolRefusal refusal=>(422,refusal.Code,AgentTools.Text(refusal.Code)),
@@ -454,12 +475,15 @@ app.Use(async (context,next)=>
         // A role refusal also names the role and permission as fields, so a page never parses its message.
         object body=e is PostgresException{SqlState:"P0001",MessageText:"agent_role_lacks_permission"} lacking&&AgentAdministration.Lacking(lacking.Hint) is {} lack
             ?new {code,message,role=lack.Role,permission=lack.Permission}:new {code,message};
+        if(e is CurveMarkEditorException editor)body=new{code,message,editor.Key,editor.Address};
         if(e is CloseRiskInputsException closeRisk)body=new{code,message,affectedBindings=closeRisk.AffectedBindings};
         if(e is PostgresException {MessageText:"desk_agreement_ambiguous",Hint:{} selection})
             body=new{code,message,agreementSelection=JsonSerializer.Deserialize<JsonElement>(selection)};
         if(e is GasBookingAgreementException agreement)
             body=new{code,message,confirmation=agreement.Confirmation,agreementSelection=agreement.Selection};
-        if(e is TicketFieldException ticket)body=new{code,message,side=ticket.Side,field=ticket.Field};
+        if(e is TicketFieldException ticket)body=ticket.TermRow is {} row?new{code,message,termRow=row,field=ticket.Field}:new{code,message,side=ticket.Side,field=ticket.Field};
+        if(e is OpenEtrm.MarketData.Gas.GasExerciseTermException term&&apiPath.StartsWithSegments("/api/tickets"))
+            body=new{code,message,termRow=term.Ordinal,field=term.LeadHours?"right_lead_hours":"right_sides"};
         if(e is RiskRunTieException tie)body=new{code,message,definition=tie.Definition,runs=tie.Runs};
         await context.Response.WriteAsJsonAsync(body,CancellationToken.None);
     }
@@ -662,6 +686,7 @@ InputFrame Frame(PreviewSession session,Guid id)
 }
 LifecycleEndpoints.Map(api,database,Locked,Profile,Frame);
 PointTraderMarkEndpoints.Map(api,database,Locked,Profile);
+CurveMarkEditorEndpoints.Map(api,database,Locked,Profile);
 async Task<SessionFramePlan> DiscoverFrames(NpgsqlConnection connection,PreviewSession session,CancellationToken ct,bool reuseRecordedInputs=false)
 {
     if(session.Live is not null)return new([],session.FrameCatalog);
@@ -1801,6 +1826,12 @@ api.MapPost("/physical/power-trades/get",(HttpContext c,StructuredPowerTradeRead
         Results.Ok(await operatingTrades.ReadExact(connection,frame,body.TradeId,ct)));
 });
 
+Task<object> ReadGasMarket(NpgsqlConnection connection,TradingView view,Guid? trade,Func<PreviewData,InputFrame,Task<object>> read,CancellationToken ct)=>
+    tradeReads.ReadBound(connection,view,async()=>{
+        var selected=await PhysicalMarketSelection.Gas.Read(database,connection,view.CalculationFrame,ct,trade);
+        return await read(selected.Data,selected.Frame);
+    },ct);
+
 // Trading pages without a read operation of their own run their store's read on the shared trading read path.
 Task<IResult> FuturesRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConnection,PreviewData,InputFrame,CancellationToken,Task<object>> read,bool scenario=false,Guid? headTrade=null,bool amendmentPreview=false,string? expectedConvention=null,bool dealRisk=false,Guid? gasTrade=null,Guid? crudeTrade=null,Guid? crudeSetup=null,bool gasReferenceChoices=false,Guid? lngTrade=null)
 {
@@ -1823,10 +1854,7 @@ Task<IResult> FuturesRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConne
             return await read(connection,selected.Data,selected.Frame,ct);
         },ct)
         :expectedConvention==PhysicalGasStore.Convention
-        ?tradeReads.ReadBound(connection,view,async()=>{
-            var selected=await PhysicalMarketSelection.Gas.Read(database,connection,view.CalculationFrame,ct,gasTrade);
-            return await read(connection,selected.Data,selected.Frame,ct);
-        },ct)
+        ?ReadGasMarket(connection,view,gasTrade,(data,frame)=>read(connection,data,frame,ct),ct)
         :tradeReads.Read(connection,view,data=>read(connection,data,view.CalculationFrame,ct),ct),scenario,headTrade,amendmentPreview,expectedConvention,dealRisk,
         publicationCheck:expectedConvention==PhysicalLngStore.Convention?(connection,view,ct)=>lngTrade is {} selectedTrade?lngStore.RecheckScope(connection,selectedTrade,ct):lngStore.RecheckReferences(connection,ct):gasReferenceChoices?async(connection,view,ct)=>{
             if(!view.Working)return;
@@ -2111,6 +2139,22 @@ api.MapPost("/spread-marks/record",(HttpContext c,SpreadMarksRecordRequest body)
     var frame=Pin(session,body.Context.SnapshotId).RequireFrame();
     return Results.Ok(await database.WithIdentity(Profile(session),null,(connection,ct)=>heatRateCalls.RecordMarks(connection,frame,body,ct),c.RequestAborted));
 }));
+var curveMarks=new CurveMarkStore(database.Manifest.CatalogId);
+Task<IResult> RecordCurveMarks(HttpContext c,FuturesReadRequest context,Func<NpgsqlConnection,InputFrame,CancellationToken,Task<JsonElement>> write)=>
+    Locked(c,async session=>{
+        if(context is null||Pin(session).Context is not null||context.KnowledgeMode!="current"||context.ContextId is not null)
+            throw new MarketDataException("historical_read_only","Return to working data before marking.");
+        if(context.Convention!=PhysicalGasStore.Convention)throw new MarketDataException("curve_mark_input","Select the gas valuation context.");
+        var frame=Pin(session,context.SnapshotId).RequireFrame();
+        return Results.Ok(await database.WithIdentity(Profile(session),null,(connection,ct)=>write(connection,frame,ct),c.RequestAborted));
+    });
+api.MapPost("/volatility-marks/record",(HttpContext c,VolatilityMarksRecordRequest body)=>RecordCurveMarks(c,body.Context,
+    (connection,frame,ct)=>curveMarks.RecordVolatility(connection,frame,body,ct)));
+api.MapPost("/correlation-marks/record",(HttpContext c,CorrelationMarksRecordRequest body)=>RecordCurveMarks(c,body.Context,
+    (connection,frame,ct)=>curveMarks.RecordCorrelation(connection,frame,body,ct)));
+api.MapPost("/curve-marks/read",(HttpContext c,CurveMarksReadRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("curve_mark_input","Select a financial context."),
+    (connection,view,ct)=>tradeReads.ReadBound(connection,view,async()=>await curveMarks.Read(connection,body,ct),ct),
+    expectedConvention:PhysicalGasStore.Convention));
 Task<IResult> HeatRateCallRead(HttpContext c,FuturesReadRequest context,Func<NpgsqlConnection,TradingView,CancellationToken,Task<object>> work)=>TradingRead(c,
     context??throw new MarketDataException("heat_rate_call_terms","Select the shared financial context."),async(connection,view,ct)=>
     {
@@ -2410,9 +2454,27 @@ api.MapPost("/gas/quantities/record",(HttpContext c,GasDailyWriteRequest body)=>
  return Results.Ok(await gasDaily.Save(connection,Frame(session,body.Context.SnapshotId),body,ct));
 },c.RequestAborted)));
 
+api.MapPost("/gas/exercise/read",(HttpContext c,GasExerciseReadRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("exercise_election","Select a financial context."),
+ (connection,view,ct)=>tradeReads.ReadBound(connection,view,async()=>await GasExerciseStore.Read(connection,database.Manifest.CatalogId,body.TradeId,body.InstrumentId,ct),ct),
+ expectedConvention:PhysicalGasStore.Convention));
+api.MapPost("/gas/exercise/prepare",(HttpContext c,GasExercisePrepareRequest body)=>TradingRead(c,body.RetainedContext(),
+ (connection,view,ct)=>tradeReads.ReadBound(connection,view,async()=>{
+  if(!TradingReadSelection.IsWorking(Session(c),body.Context))throw new MarketDataException("historical_read_only","Return to working data to prepare an exercise election.");
+  var periods=await GasExerciseAction.ReadPeriods(connection,database.Manifest.CatalogId,body.TradeId,body.InstrumentId,body.ExpectedRevision,ct);
+  return new{command=GasExerciseAction.Build(body,periods)};
+ },ct),expectedConvention:PhysicalGasStore.Convention,publicationCheck:(connection,_,ct)=>
+  GasExerciseAction.RequireAuthority(connection,database.Manifest.CatalogId,body.TradeId,body.InstrumentId,ct)));
+api.MapPost("/gas/exercise/record",(HttpContext c,GasExerciseRecordRequest body)=>Locked(c,session=>
+{
+ if(!TradingReadSelection.IsWorking(session,body.Context))throw new MarketDataException("historical_read_only","Return to working data before recording exercise elections.");
+ RequireConvention(body.Context,PhysicalGasStore.Convention);
+ var frame=Frame(session,body.Context.SnapshotId);
+ return database.WithIdentity(Profile(session),"AmendTrade",async(connection,ct)=>Results.Ok(await GasExerciseStore.Record(connection,database.Manifest.CatalogId,body,frame,ct)),c.RequestAborted);
+}));
+
 var gasComposition=new GasCompositionStore(database);
-api.MapPost("/gas/composition/preview",(HttpContext c,GasCompositionRequest body)=>FuturesRead(c,new(body.SnapshotId,body.Convention,body.KnowledgeMode),
- (connection,data,frame,ct)=>gasComposition.Preview(connection,data,frame,body,ct),expectedConvention:PhysicalGasStore.Convention));
+api.MapPost("/gas/composition/preview",(HttpContext c,GasCompositionRequest body)=>FuturesRead(c,new(body.SnapshotId,body.Convention,body.KnowledgeMode,body.PreviewContextId),
+ (connection,data,frame,ct)=>gasComposition.Preview(connection,data,frame,body,ct),expectedConvention:PhysicalGasStore.Convention,gasTrade:body.PreviewTradeId));
 api.MapPost("/gas/composition/editor",(HttpContext c,PhysicalGasEditorRequest body)=>FuturesRead(c,body.Context,
  (connection,data,frame,ct)=>gasComposition.Editor(connection,data,frame,body.TradeId,ct),expectedConvention:PhysicalGasStore.Convention,gasTrade:body.TradeId));
 // A gas booking's outcome by its operation id, for the person who sent it; the composition and ticket bookings share it.
@@ -2472,15 +2534,25 @@ api.MapPost("/tickets/preview",(HttpContext c,TicketPreviewRequest body)=>Ticket
  var context=TicketContext(body.Context);RequireGasBooking(session,context.KnowledgeMode,context.ContextId);RequireConvention(context,PhysicalGasStore.Convention);
  return Results.Ok(await transportTicket.Preview(Profile(session),Frame(session,context.SnapshotId),body,c.RequestAborted));
 }):FuturesRead(c,TicketContext(body.Context),
- (connection,data,frame,ct)=>GasParkCustodyTicket.IsSelected(body.Draft)?parkCustodyTicket.Preview(connection,data,frame,body,ct):TicketDraft.Require(body.Draft).Product==GasParkLoanTicket.Product?parkLoanTicket.Preview(connection,data,frame,body,ct):gasComposition.Preview(connection,data,frame,TicketRequest(body.Draft,body.Context,Guid.Empty,data.DefinitionRevision.RevisionId),ct),expectedConvention:PhysicalGasStore.Convention));
+ (connection,data,frame,ct)=>GasParkCustodyTicket.IsSelected(body.Draft)?parkCustodyTicket.Preview(connection,data,frame,body,ct):TicketDraft.Require(body.Draft).Product==GasParkLoanTicket.Product?parkLoanTicket.Preview(connection,data,frame,body,ct):gasComposition.TicketPreview(connection,data,frame,TicketRequest(body.Draft,body.Context,Guid.Empty,data.DefinitionRevision.RevisionId),ct),expectedConvention:PhysicalGasStore.Convention));
 // A booked trade offers day entries by the record operation's own rule, on the read's working or historical selection.
-api.MapPost("/tickets/trade",(HttpContext c,TicketTradeRequest body)=>body.Product==GasTransportFinancialTicket.Product?
- FinancialTicketRead(c,TicketContext(body.Context),(connection,frame,ct)=>transportTicket.Trade(connection,frame,body,ct)):FuturesRead(c,TicketContext(body.Context),
- (connection,data,frame,ct)=>
- {
-  _=GasTicketStore.Description(body.Product==GasParkCustodyTicket.Product?GasParkLoanTicket.Product:body.Product??GasTicket.Description.Product);
-  return body.Product switch{GasParkCustodyTicket.Product=>parkCustodyTicket.Trade(connection,data,frame,body,ct),GasParkLoanTicket.Product=>parkLoanTicket.Trade(connection,data,frame,body,ct),_=>gasTicket.Trade(connection,data,frame,body,TradingReadSelection.IsWorking(Session(c),body.Context),ct)};
- },expectedConvention:PhysicalGasStore.Convention,gasTrade:body.Product is GasParkLoanTicket.Product or GasParkCustodyTicket.Product?null:body.TradeId));
+api.MapPost("/tickets/trade",(HttpContext c,TicketTradeRequest body)=>
+{
+ var context=TicketContext(body.Context);
+ if(body.Product==GasTransportFinancialTicket.Product)
+  return FinancialTicketRead(c,context,(connection,frame,ct)=>transportTicket.Trade(connection,frame,body,ct));
+ var park=body.Product is GasParkLoanTicket.Product or GasParkCustodyTicket.Product;
+ GasExerciseAction? exercise=null;
+ return TradingRead(c,context,(connection,view,ct)=>ReadGasMarket(connection,view,park?null:body.TradeId,async(data,frame)=>{
+  if(body.Product==GasParkCustodyTicket.Product)return await parkCustodyTicket.Trade(connection,data,frame,body,ct);
+  if(body.Product==GasParkLoanTicket.Product)return await parkLoanTicket.Trade(connection,data,frame,body,ct);
+  _=GasTicketStore.Description(body.Product??GasTicket.Description.Product);
+  var result=await gasTicket.Trade(connection,data,frame,body,view.Working,ct);
+  exercise=result.Exercise;
+  return result.Ticket;
+ },ct),expectedConvention:PhysicalGasStore.Convention,publicationCheck:(connection,_,ct)=>exercise is {Allowed:true}
+  ?GasExerciseAction.RequireAuthority(connection,database.Manifest.CatalogId,exercise.TradeId,exercise.InstrumentId,ct):Task.CompletedTask);
+});
 api.MapPost("/tickets/status",(HttpContext c,TicketStatusRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>
 {
  if(body.Product==GasTransportFinancialTicket.Product)
@@ -2503,17 +2575,23 @@ api.MapPost("/tickets/status",(HttpContext c,TicketStatusRequest body)=>Locked(c
  return Results.Ok(await gasStore.Status(connection,body.OperationId,ct));
 },c.RequestAborted)));
 api.MapPost("/tickets/amend-preview",(HttpContext c,TicketAmendRequest body)=>FuturesRead(c,TicketContext(body.Context),
- (connection,data,frame,ct)=>gasComposition.Preview(connection,data,frame,GasAmendments.Terms(body,Guid.Empty),ct),
+ (connection,data,frame,ct)=>gasComposition.TicketPreview(connection,data,frame,GasAmendments.Terms(body,Guid.Empty),ct),
  expectedConvention:PhysicalGasStore.Convention,gasTrade:body.TradeId,amendmentPreview:true));
 api.MapPost("/tickets/amend",(HttpContext c,TicketAmendRequest body)=>Locked(c,async session=>{
  var context=TicketContext(body.Context);RequireGasBooking(session,context.KnowledgeMode,context.ContextId);RequireConvention(context,PhysicalGasStore.Convention);
  if(body.OperationId is not {} operation||operation==Guid.Empty)throw new MarketDataException("gas_amendment_input","Supply the amendment request identity.");
- return await BookGasComposition(c,session,GasAmendments.Terms(body,operation));
+ var terms=await gasTicket.RetriedRequest(Profile(session),body.Draft,operation,true,(draft,retained)=>GasAmendments.Terms(body with{Draft=draft},operation,retained),c.RequestAborted);
+ return await BookGasComposition(c,session,terms);
 }));
 // Booking maps the draft against the definition revision its booking read resolves for the selected frame.
-api.MapPost("/tickets/book",(HttpContext c,TicketBookRequest body)=>Locked(c,session=>{
+api.MapPost("/tickets/book",(HttpContext c,TicketBookRequest body)=>Locked(c,async session=>{
  var context=TicketContext(body.Context);RequireGasBooking(session,context.KnowledgeMode,context.ContextId);RequireConvention(context,PhysicalGasStore.Convention);
- return TicketDraft.Require(body.Draft).Product==GasTransportFinancialTicket.Product?BookTransport(c,session,body):GasParkCustodyTicket.IsSelected(body.Draft)?BookParkCustody(c,session,body):TicketDraft.Require(body.Draft).Product==GasParkLoanTicket.Product?BookParkLoan(c,session,body):BookGasComposition(c,session,TicketRequest(body.Draft,context,body.OperationId,body.DefinitionRevisionId));
+ if(TicketDraft.Require(body.Draft).Product==GasTransportFinancialTicket.Product)return await BookTransport(c,session,body);
+ if(GasParkCustodyTicket.IsSelected(body.Draft))return await BookParkCustody(c,session,body);
+ if(body.Draft.Product==GasParkLoanTicket.Product)return await BookParkLoan(c,session,body);
+ var terms=await gasTicket.RetriedRequest(Profile(session),body.Draft,body.OperationId,false,
+  (draft,retained)=>GasTicket.Request(draft,context.SnapshotId,context.KnowledgeMode!,body.OperationId,body.DefinitionRevisionId,retained),c.RequestAborted);
+ return await BookGasComposition(c,session,terms);
 }));
 
 async Task<IResult> BookParkLoan(HttpContext c,PreviewSession session,TicketBookRequest body)=>
@@ -3341,7 +3419,7 @@ api.MapGet("/portfolio/risk/parametric/archive",(Func<HttpContext,Task<IResult>>
 api.MapGet("/portfolio/risk/monte-carlo/archive",(Func<HttpContext,Task<IResult>>)(c=>StatisticalArchive(c,"monte_carlo")));
 api.MapGet("/portfolio/risk/historical/archive",(Func<HttpContext,Task<IResult>>)(c=>StatisticalArchive(c,"historical")));
 api.MapGet("/portfolio/risk/statistical/archive",(Func<HttpContext,Task<IResult>>)(c=>StatisticalArchive(c,"statistical")));
-var asyncReads=new AsyncReads(database,app.Lifetime.ApplicationStopping,hosted is not null,app.Logger);
+var asyncReads=new AsyncReads(database,app.Lifetime.ApplicationStopping,hosted is not null,app.Logger,TimeSpan.FromSeconds(processLimits.RequestSeconds));
 asyncReadServices.Add(asyncReads);asyncReads.Map(api,Session,PrepareRead);
 }
 var files=new PhysicalFileProvider(webRoot);

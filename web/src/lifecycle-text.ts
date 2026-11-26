@@ -1,11 +1,20 @@
 import {displayPaymentDate} from './payment-date.js';
-import {numberText} from './schedule-grid.js';
+import type {ExercisePeriod} from './ticket-types.js';
+import {numberText} from './exact-number.js';
 // How started-delivery gas is worded. The backend decides every state, amount and basis; this module only words what it reports.
 export type GasMeasures={unrealized:string;realizedUnsettled:string;total:string;label:string;discounting:string;expectedCash:{dueAt:string;amount:string}[]};
+export type ExerciseState='exercised'|'abandoned'|'undecided'|'undecided_forecast';
+const exerciseStates:Readonly<Record<ExerciseState,string>>={exercised:'exercised',abandoned:'abandoned',undecided:'not yet exercised',undecided_forecast:'awaiting published price'};
+export function exerciseStateText(state:ExerciseState){
+ if(!Object.hasOwn(exerciseStates,state))throw Error('The schedule returned an unknown exercise state.');
+ return exerciseStates[state];
+}
+export const exercisePeriodText=(period:ExercisePeriod)=>`Exercise right ${period.right+1} · ${period.from} to ${period.to} (exclusive) · ${period.status==='contingent'?'contingent':exerciseStateText(period.status)}`;
+
 export type MeasureLine={label:string;value:string};
 // The P&L explain measures: days not yet ended are unrealized; delivered days fixed and not yet paid are realized but unsettled.
 const measureTexts:Readonly<Record<string,string>>={Unrealized:'Unrealized (remaining delivery)',RealizedUnsettled:'Realized, unsettled (delivered, not paid)'};
-export type LifecycleRow={paymentAt:string|null;paid:string|null;outstanding:string|null;paidAt?:string|null;accrued?:string|null;finalDetermination?:string|null;
+export type LifecycleRow={paymentAt:string|null;paid:string|null;outstanding:string|null;paidAt?:string|null;accrued?:string|null;remaining?:string|null;finalDetermination?:string|null;
  lifecycle:{delivery:string;due:string|null;cash:string|null;economicClass:string|null;coverage:string|null;fulfillment:string|null}};
 
 export const words=(value:string|null|undefined)=>{if(!value)return '—';const text=value.replace(/_/g,' ').replace(/([a-z])([A-Z])/g,'$1 $2');return text[0]+text.slice(1).toLowerCase();};
@@ -19,7 +28,7 @@ export function measureLines(m:GasMeasures,currency:string,instant:(at:string)=>
   ...m.expectedCash.map(c=>({label:`Due ${displayPaymentDate(c.dueAt)}`,value:amount(c.amount)}))];
 }
 
-const basisTexts:Readonly<Record<string,string>>={contract_estimate_allocation_pending_v1:'estimated from contract; allocation pending'};
+const basisTexts:Readonly<Record<string,string>>={band_v1:'part of the day quantity',shortfall_v1:'shortfall of the day quantity',contract_estimate_allocation_pending_v1:'estimated from contract; allocation pending',contractual_quantity_v1:'contract quantity',selected_delivery_quantity_v1:'follows selected delivery quantity',allocated_final_v1:'allocated, final',allocated_provisional_v1:'allocated, provisional',scheduled_v1:'scheduled'};
 /** The trade overview's value measure: a started-delivery trade names its measure with its discounting basis, both or neither. */
 export function valueMeasureText(label:string|undefined,discounting:string|undefined){
  if((label===undefined)!==(discounting===undefined))throw Error('A trade’s value measure and its discounting basis come together.');
@@ -38,7 +47,21 @@ export function lifecycleLines(row:LifecycleRow,instant:(at:string|null)=>string
  const paidOn=cash!==null&&paidStates.has(cash)&&row.paidAt?`Paid on ${instant(row.paidAt)}`:'';
  const due=cash!==null&&(unpaid.has(cash)||cash==='PartPaid')&&row.paymentAt!==null?`Due date: ${displayPaymentDate(row.paymentAt)}`:'';
  return [state.due&&`Payment: ${words(state.due)}`,cash&&(physical?'Settlement: not applicable (physical delivery)':`Cash: ${words(cash)}`),
-  row.accrued!=null&&`Accrued: ${numberText(row.accrued)}`,row.paid!==null&&`Paid: ${numberText(row.paid)}`,row.outstanding!==null&&`Outstanding: ${numberText(row.outstanding)}`,paidOn,due,
+  row.accrued!=null&&`Accrued: ${numberText(row.accrued)}`,row.paid!==null&&`Paid: ${numberText(row.paid)}`,row.outstanding!==null&&`Outstanding: ${numberText(row.outstanding)}`,
+  row.remaining!=null&&`To come (unrealized present value): ${numberText(row.remaining)}`,paidOn,due,
   row.finalDetermination!=null&&`Final determination: ${numberText(row.finalDetermination)} · accrual unchanged`,
   state.fulfillment&&`Fulfillment: ${words(state.fulfillment)}`,state.economicClass&&words(state.economicClass),state.coverage&&(measureTexts[state.coverage]??words(state.coverage))].filter((v):v is string=>!!v);
+}
+
+
+const imbalanceStates:Readonly<Record<string,string>>={assessed:'',unassessed:'no statement yet',not_applicable:'day not ended'};
+const imbalanceReasons:Readonly<Record<string,string>>={no_account:'no statement yet · no service account',statement_unavailable:'no eligible statement',preceding_day_unavailable:'preceding day unassessed',partial_first_month:'opening month unassessed',day_not_ended:'day not ended'};
+export function imbalanceStateText(state:string,reason?:string|null){
+ if(!Object.hasOwn(imbalanceStates,state))throw Error('The schedule returned an unknown imbalance state.');
+ if(reason&&!Object.hasOwn(imbalanceReasons,reason))throw Error('The schedule returned an unknown imbalance reason.');
+ return reason?imbalanceReasons[reason]:imbalanceStates[state];
+}
+export function incompleteText(days:number){
+ if(!Number.isSafeInteger(days)||days<0)throw Error('The valuation returned an invalid unassessed-day count.');
+ return days?`incomplete: ${days} unassessed ${days===1?'day':'days'}`:'';
 }

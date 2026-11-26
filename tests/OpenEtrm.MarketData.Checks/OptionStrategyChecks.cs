@@ -43,6 +43,7 @@ internal static class OptionStrategyChecks
         Check("a volatility shift the valuation refuses is the dated curves' refusal", DatedRefusedShift);
         Check("a curve asked for past the legs' instruction cutoff, or at too many prices, is an error and not a refusal", DatedAskedWrongly);
         Check("dated curves are reproducible", DatedReproducible);
+        Check("a strategy of European legs is analysed by the formula and its legs declare no price step", EuropeanLegs);
     }
 
     // The time one request at a stated workload takes through the scenario layers, for the limits a read states.
@@ -257,15 +258,14 @@ internal static class OptionStrategyChecks
     }
 
     // The fixture's series calibrated at a unit discount; the prepared portfolio holds one contract of each solved leg.
-    private static Case Prepare(params int[] contracts)
+    private static Case Prepare(params int[] contracts)=>Prepare([..(contracts.Length==0?[Call,Put]:contracts).Select(Fixture.Option)],Policy);
+    private static Case Prepare(FuturesOptionInstrument[] options,OptionNumericalPolicy policy)
     {
-        if(contracts.Length==0)contracts=[Call,Put];
         var source=Fixture.Snapshot();var model=Fixture.Model();
-        var options=contracts.Select(Fixture.Option).ToArray();
         var requests=options.Select(o=>FuturesOptionPricing.Requests(model,o.Series,FuturesOptionPricing.DailySettlement)).ToArray();
         var built=model.Build(source,[..requests.SelectMany(r=>new[]{r.Underlying,r.Settlement}).Distinct()]);
         var discount=new ExplicitDiscounting(D("1"),DiscountFactorSource.Undiscounted);
-        var bindings=options.ToImmutableDictionary(o=>o.Id,o=>FuturesOptionPricing.Prepare(o,built,source,discount,FuturesOptionPricing.DailySettlement,Policy,true,CancellationToken.None));
+        var bindings=options.ToImmutableDictionary(o=>o.Id,o=>FuturesOptionPricing.Prepare(o,built,source,discount,FuturesOptionPricing.DailySettlement,policy,true,CancellationToken.None));
         var solved=options.Where(o=>bindings[o.Id].Calibration is SolvedVolatility).ToArray();
         var holdings=ValuationPortfolio.FromTrades(FuturesOptionSensitivities.UnitHoldings(solved),new(ValuationMeasure.PresentValue,
             ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null){OptionBindings=bindings});
@@ -298,6 +298,32 @@ internal static class OptionStrategyChecks
         }
         // The later curve of the bought calls and sold puts differs from the earlier one: the clock moved.
         if(curves[0].Points[1].Value==curves[1].Points[1].Value)throw new Exception("The later curve did not move with the clock.");
+    }
+
+    // The fixture's call and put stated as European and calibrated by the formula at a unit discount. Two calls bought and
+    // three puts sold are worth 10,000 × (2 × call − 3 × put) by the Black-76 formula at each price, instant and volatility;
+    // the payoff at expiry reads only the legs' terms, so it is the American legs' payoff.
+    private static void EuropeanLegs()
+    {
+        var formula=OptionNumericalPolicies.Require(OptionNumericalPolicies.Black76);
+        var (europeanCall,europeanPut)=(Fixture.EuropeanOption(Call),Fixture.EuropeanOption(Put));
+        var c=Prepare([europeanCall,europeanPut],formula);var later=Market.At.AddDays(2);var multiplier=L(Market.Multiplier.ToString());
+        ImmutableArray<OptionStrategyLeg> legs=[new(europeanCall,D("2"),D("0.07")),new(europeanPut,D("-3"),D("0.09"))];
+        var prices=new[]{"2.9","3","3.1"};
+        var curves=OptionStrategies.Dated(c.Prepared,c.Bindings,legs,[..prices.Select(D)],[Market.At,later],D("0.05"),CancellationToken.None);
+        if(curves.Length!=2)throw new Exception("Expected one curve per requested instant.");
+        LatticeDecimal Formula(FuturesOptionInstrument option,int contract,string futures,DateTimeOffset at)=>
+            EuropeanFuturesOptionModel.UnitPrice(option.Series.Terms,L(futures),c.Volatility(contract)+L("0.05"),L("1"),at,formula);
+        foreach(var curve in curves)
+            for(var n=0;n<prices.Length;n++)
+                Near(curve.Points[n].Value,multiplier*(L("2")*Formula(europeanCall,Call,prices[n],curve.At)-L("3")*Formula(europeanPut,Put,prices[n],curve.At)),
+                    $"European value at {prices[n]} on {curve.At:O}");
+        if(c.Prepared.DeclaredPriceSteps.Count!=0||c.Bindings.Values.Any(b=>b.TreePrices!=0||b.Policy.Lattice!=OptionLattice.ClosedForm))
+            throw new Exception("European legs declare no price step and price no tree.");
+        ImmutableArray<OptionStrategyLeg> american=[new(Fixture.Option(Call),D("2"),D("0.07")),new(Fixture.Option(Put),D("-3"),D("0.09"))];
+        ImmutableArray<ExactDecimal> expiryPrices=[D("2"),D("3"),D("4")];
+        if(!OptionStrategies.AtExpiry(legs,expiryPrices).Curve.SequenceEqual(OptionStrategies.AtExpiry(american,expiryPrices).Curve))
+            throw new Exception("The payoff at expiry reads only the legs' terms.");
     }
 
     private static void DatedBasePoint()

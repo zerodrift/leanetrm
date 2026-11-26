@@ -1,6 +1,6 @@
 import {cloneRead} from './read-references.js';
 import type {SideCalendarPolicy} from './side-calendar.js';
-import type {TicketChoice,TicketDescription,TicketDraft,TicketField,TicketLookup} from './ticket-types.js';
+import type {ExerciseRightDraft,TicketChoice,TicketDescription,TicketDraft,TicketField,TicketLookup} from './ticket-types.js';
 
 // The state of one deal ticket: the user's values, drawn from a backend description. Every function
 // returns a new state; the description alone says which fields exist, which are editable and what depends on what.
@@ -8,7 +8,7 @@ export type Source={kind:string;label:string};
 export type FieldValue={value:string;looked?:Source;offered?:{value:string;kind:string;label:string}};
 export type TicketSide={kind:string;code:string;values:Record<string,FieldValue>;calendarPolicy?:SideCalendarPolicy};
 // removed holds the codes of the sides taken off the ticket, which no later side is given.
-export type TicketState={description:TicketDescription;trade:Record<string,FieldValue>;sides:TicketSide[];removed:string[];notices:string[];previewSerial:number};
+export type TicketState={description:TicketDescription;trade:Record<string,FieldValue>;sides:TicketSide[];removed:string[];notices:string[];previewSerial:number;exerciseRights?:ExerciseRightDraft[]};
 
 const sideCode=(kind:string,n:number)=>`${kind}-${n}`;
 
@@ -74,12 +74,20 @@ export function resolveChoice(s:TicketState,side:string|null,field:string,choice
  return withValues(s,side,{...valuesOf(s,side),[field]:next});
 }
 
+function exerciseSection(description:TicketDescription,rights:ExerciseRightDraft[]|undefined){
+ const section=description.repeatableTerms?.find(t=>t.id==='exerciseRights');
+ if(rights?.length&&(!section||rights.some(row=>Object.keys(row).some(id=>!section.fields.some(field=>field.id===id)))))
+  throw Error('The ticket description does not preserve the saved exercise right fields.');
+ return section;
+}
+
 // A draft the backend returned, such as a booked trade's, as a ticket whose every value is the person's.
 export function ticketOf(d:TicketDescription,draft:TicketDraft):TicketState{
  if(draft.product!==d.product||draft.version!==d.version)throw new Error(`The draft is for ${draft.product} version ${draft.version}, not ${d.product} version ${d.version}.`);
+ exerciseSection(d,draft.exerciseRights);
  const values=(given:Record<string,string>)=>Object.fromEntries(Object.entries(given).map(([id,value])=>[id,{value}]));
  for(const side of draft.sides)if(!d.sides.some(k=>k.kind===side.kind))throw new Error(`The ticket has no side kind '${side.kind}'.`);
- return {description:d,trade:values(draft.trade),sides:draft.sides.map(x=>({kind:x.kind,code:x.code,...x.calendarPolicy?{calendarPolicy:cloneRead(x.calendarPolicy)}:{},values:values(x.values)})),removed:[],notices:[],previewSerial:0};
+ return {description:d,trade:values(draft.trade),sides:draft.sides.map(x=>({kind:x.kind,code:x.code,...x.calendarPolicy?{calendarPolicy:cloneRead(x.calendarPolicy)}:{},values:values(x.values)})),removed:[],notices:[],previewSerial:0,...draft.exerciseRights?.length?{exerciseRights:cloneRead(draft.exerciseRights)}:{}};
 }
 
 export function applyLookup(s:TicketState,side:string|null,field:string,r:{value:string;source:Source}):TicketState{
@@ -111,7 +119,7 @@ export function addSide(s:TicketState,kind:string):TicketState{
  if(spec.soon)throw new Error(spec.soon);
  if(s.sides.filter(x=>x.kind===kind).length>=spec.max)throw new Error(`A ticket takes at most ${spec.max} ${kind} sides.`);
  for(const limit of s.description.sideLimits)
-  if(limit.kinds.includes(kind)&&s.sides.filter(x=>limit.kinds.includes(x.kind)).length>=limit.max)
+  if(limit.kinds.includes(kind)&&s.sides.filter(x=>limit.kinds.includes(x.kind)).reduce((sum,side)=>sum+(s.description.sides.find(k=>k.kind===side.kind)!.entryCount??1),0)+(spec.entryCount??1)>limit.max)
    throw new Error(`A ticket takes at most ${limit.max} ${limit.kinds.join(' and ')} sides together.`);
  return {...s,sides:[...s.sides,{kind,code:lowestFreeCode(s.sides,s.removed,kind),values:{}}]};
 }
@@ -135,15 +143,29 @@ export function removeSide(s:TicketState,code:string):TicketState{
  return next;
 }
 
+/** Visibility is a backend-declared presentation condition, shared by rendering and serialization. */
+function visible(field:TicketField,value:(key:string)=>unknown){
+ const condition=field.visibleWhen;
+ return !condition||condition.values.some(option=>option===value(condition.field));
+}
+export const fieldVisible=(field:TicketField,values:Record<string,FieldValue>)=>visible(field,id=>values[id]?.value??'');
+export const termValue=(row:ExerciseRightDraft,field:string)=>(row as Record<string,string|string[]|undefined>)[field];
+export const termFieldVisible=(field:TicketField,row:ExerciseRightDraft)=>visible(field,id=>termValue(row,id));
+export const exerciseFieldKey=(row:number,field:string)=>`exerciseRights.${row}.${field}`;
+
 // Editable fields with a value only: soon, info and derived fields never reach the backend.
 function editable(fields:TicketField[],values:Record<string,FieldValue>){
- return Object.fromEntries(fields.filter(f=>f.state==='editable'&&values[f.id]?.value).map(f=>[f.id,values[f.id].value]));
+ return Object.fromEntries(fields.filter(f=>f.state==='editable'&&fieldVisible(f,values)&&values[f.id]?.value).map(f=>[f.id,values[f.id].value]));
 }
 
 export function draftOf(s:TicketState):TicketDraft{
- const d=s.description;
+ const d=s.description,section=exerciseSection(d,s.exerciseRights);
+ const exerciseRights=section&&s.exerciseRights?.map(row=>Object.fromEntries(section.fields.flatMap(f=>{
+  const value=termValue(row,f.id);
+  return f.state==='editable'&&termFieldVisible(f,row)&&value?.length?[[f.id,value]]:[];
+ })));
  return {product:d.product,version:d.version,trade:editable(d.tradeFields,s.trade),
-  sides:s.sides.map(x=>({kind:x.kind,code:x.code,...x.calendarPolicy?{calendarPolicy:cloneRead(x.calendarPolicy)}:{},values:editable(d.sides.find(k=>k.kind===x.kind)!.fields,x.values)}))};
+  sides:s.sides.map(x=>({kind:x.kind,code:x.code,...x.calendarPolicy?{calendarPolicy:cloneRead(x.calendarPolicy)}:{},values:editable(d.sides.find(k=>k.kind===x.kind)!.fields,x.values)})),...exerciseRights?.length?{exerciseRights}:{}};
 }
 
 export function nextPreview(s:TicketState):{state:TicketState;serial:number}{

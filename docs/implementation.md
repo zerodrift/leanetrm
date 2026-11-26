@@ -1,5 +1,165 @@
 # Current implementation record
 
+## Imbalance cash-out (D454)
+
+A gas composition can book a pair of existing daily index payment Sides against
+its physical source's reported operator balance. Exact statement-basis and
+account-netting rules prepare a distinct `ReportedDayQuantity` occurrence input;
+the shared lifecycle values absolute quantities and represents unassessed cash
+as absent. Delivery and ordinary following payments retain their prior values.
+No-cash-out canonical identities remain unchanged.
+
+Migration 0402 stores the typed entry terms, independently admits the complete
+pair, exposes the scoped temporal financial statement read and records atomic
+net settlements linked to directional payments. The ticket authors one pair
+card, reopens two native schedule memberships and displays the backend's daily
+statement evidence in the Imbalance tab. Entry, trade, portfolio and retained
+risk reports carry incomplete-subtotal flags and deduplicated missing-day counts.
+P&L for cash-out bindings carries the complete native gas payment ledger and
+separate opening/closing coverage. Revised payment facts replace their prior
+flow. Joint risk retains coverage on each book's samples and derivatives.
+
+Full gas, trading, managed and frontend qualification passed after independent
+review. Exact check counts and remaining limits are recorded in
+[verification](verification.md#imbalance-cash-out-d454) and the
+[physical gas contract](physical-gas-side.md#imbalance-cash-out-d454).
+
+## Curve Marks Editor (D453)
+
+**Markets → Volatility & correlation** implements editable volatility grids
+and correlation matrices, focused monthly strips, exact draft differences and
+coverage, revision history, and addressed TSV previews. The browser presents
+managed calculations using the existing tables, theme and charts. The narrow
+layout uses a drawer for the inspector.
+
+Migration 0401 reuses the existing mark facts and request receipts and shares a
+private cell recorder with the legacy commands. An editor batch commits under
+one publication lock and returns one receipt. Status can recover the original
+accepted facts under current market authority without the original browser
+frame. Before sending, the editor verifies that the exact command and captured
+context proof can be restored from session storage. A committed publication
+refreshes only matching editor inputs. Financial reads and risk runs retain
+their own refresh and replay contracts.
+
+See the [feature contract](curve-marks-editor.md) and
+[qualification](verification.md#curve-marks-editor-d453).
+
+## Independent gas charges (D450)
+
+Gas composition uses the existing fixed Side for both lump-sum and
+constant daily capacity charges. The immutable owning term retains its
+physical clock and stated daily quantity. The membership represents that
+quantity as an exact ratio of the holding base. Quote multiplier normalization
+preserves the stated cash without rounding. The shared lifecycle builds day states per owning
+slot and applies recorded remittances by exact saved occurrence.
+Legacy no-charge canonical identity and following-payment coverage are
+preserved.
+
+Migration 0399 extends gas component terms, native booking and payment
+admission. It keeps the raw stated price, quantity, clock selector and
+payment terms with the exact authorized versioned references. The native
+writer checks the shape, quote arithmetic and calendars; cash admission
+checks the earned-day boundary and nominal sign. Charges remain independent
+of exercise decisions and outside final daily billing. Migration 0400 checks
+the first owned UTC start for both bases. Future-only replacement requires
+unstarted original and proposed charges, and refuses a recorded payment on
+an original charge regardless of its paid instant.
+
+The shared ticket uses explicit calendar controls, basis-specific labels
+and field refusals. The combined schedule preserves monthly capacity rows
+and counts completions at each native row's end. Each Side inspector
+shows exact retained intervals and cash states. Local verification passed
+18 gas, 20 trading and 81 managed runner workloads. Gas and trading reported
+208 and 489 owned browser checks, and managed reported 804 core checks.
+Independent review of the corrections passed. See the
+[verification record](verification.md#independent-gas-charges-d450) for the
+full qualification results.
+
+## European listed futures options (D449)
+
+A listed futures option product may state European exercise. Its series are valued
+by `european_futures_option_black76_v1`, the Black-76 formula in the project's
+30-digit decimal, calibrated so the base value equals the option's daily settlement
+and held under futures shocks; it declares no price step. The option valuation
+policy names the model in an optional `european` member, and the Blotter, the risk
+catalog, the trading P&L and strategy analysis state the policy that carries it. A
+European series under a policy without the member, on the American tree, or in the
+lifecycle projection and its reference strategies is refused by name.
+
+Migration 0397 admits the style and refuses exercise and assignment before expiry;
+migration 0398 lets a stored volatility surface name the formula's policy for a
+European product. The ticket states Exercise and Settlement, and the lifecycle list
+says why a European option cannot be exercised early. Existing products, bookings,
+events, fits and retained results are unchanged. An expiry on the underlying's last
+trading day and a margined premium are designed and not built. The real-browser
+checks of this increment have not been run; see
+[verification](verification.md#european-futures-options-d449).
+
+## Exercise rights on a gas Instrument (D448)
+
+The retained gas schedule accepts optional rights over disjoint entry sets.
+It gates the ordinary Side rows by each day's decision and adds only undecided
+holder-choice amounts. The existing inherited PV is used by previews, reads,
+the Blotter and interactive and retained risk. Exact scenario reports carry
+group metadata through normal unit valuation reuse. Ordinary Side balances own
+paid cash, and gross exercised group values remain available separately.
+
+Migrations 0392–0396 persist exact right terms and groups, curve/month
+volatility and pair/month correlation marks, and immutable election revisions
+and command receipts. They also admit exact-input volatility shifts in retained
+joint requests and add an authorized read of election authoring predecessors.
+The standalone gas ticket supports new and eligible amended terms. A structurally
+valid missing-mark draft remains bookable or amendable through that ticket
+with an explicit valuation refusal. The booked ticket retains the correction
+action for an unpriced physical exercise. A valued ticket can show its exercise
+groups even when multiple delivery clocks prevent a combined grid.
+The main working Blotter can prepare and record physical elections under
+current authority. Historical and secondary windows remain read-only.
+
+The earlier D448 qualification passed 17 gas, 20 trading and 81 managed
+runner workloads. Gas and trading reported 193 and 489 owned browser checks,
+and managed reported 803 core checks. The complete frontend run and the counting
+conventions are recorded in [verification](verification.md#exercise-rights-on-a-gas-instrument-d448).
+Integrated CI is a separate merge gate.
+
+## Instrument schedules and gas pricing entries (D446–D447)
+
+Every sided Instrument now exposes a cached schedule and its sealed PV delegates
+to that schedule. Plain evaluation preserves Side reuse and product checks;
+retained evaluation supplies occurrence inputs while each Side executes its own
+saved program. Gas owner facts are prepared once into entry day quantities.
+Payment share, band/shortfall and own dates use exact arithmetic, including
+repeating daily quantities, explicit zero and overpaid balances.
+
+Migration 0391 stores reduced shares/parts, admits independent named daily/monthly
+index payments and enforces bounded billing. Native checks independently validate
+request/program agreement, and predecessor function definitions and privileges
+are pinned. Completed old command replay and old identity bytes remain intact.
+The ticket, shared conditional controls and Side inspection expose the terms and
+provenance. Preview, trade, Blotter and queued risk report the same entry values.
+Local verification passes the full managed (80 runner checks), gas (17) and
+trading (20) groups. The fixed benchmark preserves evaluated Side work across
+all six workloads. Results and limitations are in [verification](verification.md).
+Local verification does not publish or deploy the migration.
+
+## Selected gas delivery quantities (D445)
+
+An independent physical membership may save `delivery_schedule_v1`. The gas
+adapter selects final allocation, provisional allocation, scheduled or labelled
+contract fallback under both time cutoffs. It reads manual and adopted facility
+heads together, retains all agreeing evidence, and refuses conflicting winning
+values. The shared held state and in-term lifecycle apply the selected quantities
+to physical value, cash accrual and risk; payments and usage fees inherit their
+source. A correction to zero accrual retains paid cash as an overpaid balance.
+
+Migration 0390 adds the immutable typed term and one authorized valuation read;
+retained schedule shapes and existing trades stay unchanged. Ticket and Side
+schedule views show the choice, selected ranks, provenance and exact quantity
+adjustment. The same policy is accepted by the administrator in-term load. Other
+commodities, fuel links, nonlinear pricing, changed points and separate quantity
+P&L attribution remain unimplemented in this increment. Publication and deployment
+are separate from this local implementation.
+
 ## Structured trades and historical replay
 
 To book a thermal toll, choose the contract that matches its terms under
@@ -155,7 +315,7 @@ foundation with runnable market-data, trading and operational workflows. No
 existing application or production resource is used by its checks.
 
 Current product scope includes futures execution P&L,
-[listed American futures options](futures-options.md), single-period and
+[listed American and European futures options](futures-options.md), single-period and
 [scheduled financial swaps](financial-swap-quantities.md), opt-in
 [swap settlement and P&L](swap-settlement.md), and common
 [PPA/heat-rate portfolio consumers](demo-instruments.md). Bounded physical
@@ -427,7 +587,7 @@ Swap definitions mark Discounting, and common/specialized PV reject conflicting
 policies. Existing market series, observations, explicit derived dependencies and
 immutable scenario risk already separate market inputs from contractual cashflows.
 Physical profiles beyond the bounded gas, crude and LNG contracts, and option
-products other than listed American futures options ([D288](futures-options.md)),
+products other than listed futures options ([D288, D449](futures-options.md)),
 remain unimplemented.
 [Parametric risk](parametric-risk.md) implements native sample covariance and
 one-session delta-normal VaR/ES. D307 adds [full-PV Monte Carlo](monte-carlo-risk.md), with explicit seeded joint

@@ -6,7 +6,7 @@ using OpenEtrm.MarketData.Trading;
 
 internal static class GasUnfixedDeliveryChecks
 {
-    internal static void Run()
+    internal static void Run(Action<SidedInstrument, SideValuationContext>? inspect = null)
     {
         var f=new Fixture();var at=f.Snapshot().ValuationAt;
         var quote=f.Quotes[0] with{Multiplier=ExactDecimal.Parse("2.5")};var unit=PriceUnit.FromQuote(quote);
@@ -76,6 +76,7 @@ internal static class GasUnfixedDeliveryChecks
             var selectedPortfolio=Portfolio(instrument,"40");var selected=RiskEngine.Prepare(model,snapshot,[selectedPortfolio]);
             var context=new UnitValuationContext(snapshot,selectedPortfolio.Setup,selected.Market.Pricing,selected.Contracts[0][0]);
             var value=sided.PV(context.SideContext());
+            inspect?.Invoke(sided, context.SideContext());
             Equal(value.Sides[0].Value.PresentValue,"4.8985");Equal(value.Sides[1].Value.PresentValue,"-2.29775");
             Equal(value.PresentValue,"7.19625");
             var physical=sided.Sides[0].Side.GenerateSchedule().Rows.Single();var payment=sided.Sides[1].Side.GenerateSchedule().Rows.Single();

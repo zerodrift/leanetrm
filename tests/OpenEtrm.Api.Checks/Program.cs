@@ -13,6 +13,7 @@ if(args is ["--point-trader-mark-identity"]){PointTraderMarkIdentityChecks.Run()
 if(args is ["--point-trader-mark-inputs"]){PointTraderMarkInputSelectionChecks.Run();return;}
 if(args is ["--point-trader-mark-commands"]){PointTraderMarkCommandChecks.Run();return;}
 if(args is ["--point-trader-mark-receipts"]){PointTraderMarkReceiptChecks.Run();return;}
+if(args is ["--curve-mark-editor"]){CurveMarkEditorChecks.Run();return;}
 
 if(args is ["--delivery-nomination-batch"]){DeliveryNominationBatchChecks.Run();return;}
 if(args is ["--delivery-workbench"]){DeliveryWorkbenchChecks.Run();return;}
@@ -62,6 +63,7 @@ if(args is ["--option-sensitivity-request"]){OptionSensitivityRequestChecks.Run(
 if(args is ["--option-position-analytics"]){OptionPositionAnalyticsChecks.Run();return;}
 if(args is ["--option-strategy-request"]){OptionStrategyRequestChecks.Run();return;}
 if(args is ["--cash-option-value",var cashOptionPath]){await CashOptionValueChecks.Run(cashOptionPath);return;}
+if(args is ["--european-option-read",var europeanOptionPath]){await EuropeanOptionReadChecks.Run(europeanOptionPath);return;}
 if(args is ["--physical-option-economic",var physicalEconomicPath]){await PhysicalOptionValueChecks.Run(physicalEconomicPath,true);return;}
 if(args is ["--gas-physical-completion-fixture",var completionPath]){await GasPhysicalCompletionFixture.Run(completionPath);return;}
 if(args is ["--gas-physical-projection",var physicalProjectionPath]){await GasPhysicalProjectionChecks.Run(physicalProjectionPath);return;}
@@ -98,6 +100,7 @@ if(args is ["--gas-mixed-correction",var gasMixedCorrection]){await GasQuantityB
 if(args is ["--gas-owned-correction-contract"]){await GasOwnedQuantityCorrectionChecks.Contract();return;}
 if(args is ["--gas-owned-correction-form"]){GasOwnedQuantityFormChecks.Run();return;}
 if(args is ["--gas-lifecycle-agent",var gasAgentPath]){await GasLifecycleAgentChecks.Run(gasAgentPath);return;}
+if(args is ["--gas-charge-clock-boundary",var chargeClockPath]){await GasChargeClockChecks.Run(chargeClockPath);return;}
 if(args is ["--configured-gas-lifecycle-agent",var configuredGasAgentPath]){await GasLifecycleAgentChecks.RunConfigured(configuredGasAgentPath);return;}
 if(args is ["--gas-loan-correction",var gasLoanCorrection]){await GasLoanQuantityCorrectionChecks.Run(gasLoanCorrection);return;}
 if(args is ["--gas-loan-maturity-fee",var gasLoanMaturity]){await GasLoanMaturityFeeChecks.Run(gasLoanMaturity);return;}
@@ -131,12 +134,13 @@ if(args is ["--curve-risk-axes"])
     CurveRiskAxisChecks.Run(new(f.Manifest,f.Definitions,f.References,f.Observations),f.Frame);return;
 }
 if(args is ["--curve-display"]){CurveDisplayChecks.Run();return;}
-if(args is ["--pnl-persistence",var pnlFixture]){await PnlPersistenceChecks.Run(pnlFixture);return;}
+if(args is ["--pnl-persistence",var pnlFixture]){await PnlPersistenceChecks.Run(pnlFixture);await PnlEndpointSourceChecks.Run(pnlFixture);return;}
 if(args is ["--pnl-artifacts"]){PnlArtifactChecks.Run();return;}
 if(args is ["--pnl-factors"]){PnlFactorSelectionChecks.Run();return;}
 if(args is ["--pnl-time"]){PnlTimeSelectionChecks.Run();return;}
 if(args is ["--risk-bump-price-steps"]){RiskBumpPriceStepChecks.Run();return;}
 if(args is ["--option-policy"]){OptionPolicySelectionChecks.Run();return;}
+if(args is ["--european-options"]){EuropeanOptionApiChecks.Run();return;}
 if(args is ["--risk-pricing-policy"]){RiskPricingPolicyChecks.Run();return;}
 if(args is ["--power-close-context",var powerContext]){await PowerCloseContextChecks.Run(powerContext);return;}
 if(args is ["--catalogue-trading",var catalogueFixture]){await CatalogueTradingChecks.Run(catalogueFixture);return;}
@@ -295,6 +299,7 @@ if (args is ["--schedules"])
     PnlTimeSelectionChecks.Run();
     RiskBumpPriceStepChecks.Run();
     OptionPolicySelectionChecks.Run();
+    EuropeanOptionApiChecks.Run();
     RiskPricingPolicyChecks.Run();
     CashOptionPolicyChecks.Run();
     SelectedOptionInputChecks.Run();

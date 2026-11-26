@@ -31,7 +31,8 @@ public static class SurfaceAxes
     {
         axes = [];
         if (surface?.ModelId != VolModels.QuadraticLogMoneyness ||
-            surface.PlotInputs is not { OptionPolicy: OptionNumericalPolicies.CoxRossRubinstein, AxisNumericalPolicy: NumericalPolicy,
+            // A fit states the policy of its product's exercise style: the rebuilt tree for American, the formula for European.
+            surface.PlotInputs is not { OptionPolicy: OptionNumericalPolicies.CoxRossRubinstein or OptionNumericalPolicies.Black76, AxisNumericalPolicy: NumericalPolicy,
                 NormalImplementation: NormalDistribution.ImplementationId } inputs || string.IsNullOrWhiteSpace(inputs.StrikeUnit) ||
             surface.StrikeAxis.IsDefault || surface.Expiries.IsDefault || surface.Series.IsDefault)
             return false;

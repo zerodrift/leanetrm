@@ -21,6 +21,77 @@ application. See [current implementation](../docs/implementation.md) and
 
 Recent schema groups and their contracts:
 
+- [0402](migrations/0402_gas_imbalance_cashout.sql) retains a gas cash-out as two
+  daily index payment entries. Financial reads resolve dated service accounts,
+  statement heads and accepted transfers under business time and knowledge cutoff.
+  A net settlement links immutable directional payments under one exact net fact.
+
+- Gas compositions may retain independent lump sums and daily capacity charges.
+  Each selects a physical membership for its clock and owns its payment quantities
+  and dates. Capacity payments use the selected day of the next UTC month.
+  A recorded payment requires an ended day in its own occurrence. Both charge
+  bases require a representable first UTC start. Future replacement requires
+  unstarted original and proposed charges and no recorded payment on an
+  original charge. [0399](migrations/0399_gas_charge_entries.sql),
+  [0400](migrations/0400_gas_charge_boundaries.sql)
+
+- [0398](migrations/0398_european_option_surfaces.sql) lets a stored volatility
+  surface name `european_futures_option_black76_v1`. The table check admits that
+  id beside the rebuilt tree's; `risk.submit_vol_surface_fit` and
+  `trading.record_vol_surface_revision` accept exactly the policy of the
+  product's exercise style, so an American product still takes only the tree's
+  and a European product only the formula's (D449).
+- [0397](migrations/0397_european_futures_options.sql) admits `european` beside
+  `american` in `ref_data.futures_option_products.exercise_style`, and adds the
+  check that a European product accepts no contrary instructions. The lifecycle
+  proposal and the option event primitive refuse exercise and assignment of a
+  European series with `option_exercise_style`, ahead of their notice and
+  exercise-window tests. No row is rewritten (D449).
+- A physical exercise action compares each saved period with the latest revision
+  known when the ticket opened, including future-effective instructions and
+  withdrawals. Preparing a range requires current amendment authority on the
+  selected trade. [0396](migrations/0396_gas_exercise_action_periods.sql)
+- [0395](migrations/0395_joint_volatility_shifts.sql) admits named scenarios
+  with explicit additive shifts to exact volatility input IDs. A sample has
+  at most 16 price and volatility shifts combined. A volatility-only job
+  retains the shifts in its request and uses an empty curve-axis list.
+  Interactive and leased valuation resolve each ID against the declarations
+  of the portfolio prepared at its retained cutoff.
+- [0394](migrations/0394_gas_exercise_elections.sql) records physical exercise
+  elections by trade, binding, right and group. A batch compares predecessors
+  under the publication lock and retains its actor's first outcome. Repeating a
+  previously recorded fact returns its revision, including after correction.
+  Each trade has the daily quantity profile's limits of 10,000 commands and
+  facts, with up to 1,000 revisions per group. Corrections
+  and withdrawals take effect at their selected instants. Gas valuation and
+  leased risk use the latest effective revision at their certified cutoff.
+  A known future change bounds the period over which valuation inputs can be reused.
+- [0393](migrations/0393_curve_marks.sql) stores revisable curve volatility and
+  curve-pair correlation by exact market definition and delivery month. Curve
+  code order identifies each pair. Recording a matching fact at its original
+  effective instant returns its revision. Gas valuation reads the latest
+  eligible revision under its valuation instant and trading knowledge cutoff.
+  The runtime records marks with market import authority. A leased risk worker
+  reads them under its bound job.
+- [0392](migrations/0392_gas_exercise_rights.sql) stores gas exercise rights with
+  ordered membership slots and half-open delivery groups. Admission derives physical
+  exercise times from the selected sources' first gas-day boundaries and the agreed
+  lead. Automatic cash groups use the latest bound index fixing in the group.
+- [0391](migrations/0391_gas_pricing_entries.sql) stores exact gas payment shares,
+  quantity parts and delivery dates, admits named daily and monthly index payments,
+  and restricts daily fixed billing to whole, full-term payments with share one.
+  Predecessor function definitions and privileges are pinned before patching.
+- [0390](migrations/0390_gas_delivery_quantity_valuation.sql) adds the optional
+  `delivery_schedule_v1` quantity policy to independent physical gas component
+  terms; composition booking accepts it and refuses it beside any quantity link.
+  `security.read_gas_valuation_quantities` returns one visible binding's manual
+  and adopted facility quantity heads under the financial business and knowledge
+  context, to the runtime and to a risk worker inside its leased job scope. A gas
+  ticket may retry a command retained before the field existed (D445).
+- [0389](migrations/0389_operating_role_grants.sql) installs the operating-facility
+  capabilities that 0342 created and granted to no role: Market data editor holds
+  `ManagePhysicalSetup`, and it and every human role that reads trades hold
+  `ReadPhysical` (D444).
 - [0386](migrations/0386_amend_behind_settlement.sql) refuses a swap amendment
   dated before the trade's latest settlement activity unless the account holds
   `AmendBehindSettlement`, and adds the Trade supervisor role that holds it (D442).
@@ -1752,3 +1823,24 @@ four existing functions are patched in place and keep their
 owners and privileges; a function that no longer reads as expected stops the
 migration. `options` joins the pages whose assistant guidance can be configured.
 It requires a qualified schema release.
+
+## Migration 0401 — atomic curve mark batches
+
+The market editor publishes up to 240 supplied volatility cells or correlation
+cells for one exact definition/reference source and effective instant. A changed
+batch appends one trading publication. Every successful command owns one
+actor-scoped receipt. An identical value at the same effective instant
+acknowledges its original revision, including after a correction. Each editor
+receipt records both the accepted revision and the chain head at publication.
+
+The existing single-curve and single-pair commands keep their receipt formats
+and share the private cell recorder with the batch command. Editor cells and
+history qualify facts by certified trading prefix and knowledge time. History
+labels each revision's effective eligibility. The editor checks market read
+authority, requires observation import authority for publication, and recovers
+an owned receipt from its recorded business date, cutoff and database lineage.
+The editor exposes bounded definer operations to the runtime role. The existing
+trade valuation and risk-worker reads retain their own authority boundaries.
+
+See the [editor contract](../docs/curve-marks-editor.md) and
+[verification](../docs/verification.md#curve-marks-editor-d453).

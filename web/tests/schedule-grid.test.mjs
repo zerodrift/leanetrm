@@ -114,3 +114,15 @@ test('an unknown value source is refused',()=>{
  const v=view();v.rows[0].cells['physical-1.quantity']=cell('-2000',['guessed']);
  assert.throws(()=>scheduleGridData(v,description,sides,'instrument','month',shown),{message:'Unknown value source: guessed'});
 });
+
+
+test('selected delivery quantities show their ranks and all backend evidence references',()=>{
+ const v=view();const evidence=[{source:'manual_daily_v1',revisionId:'revision-a',reference:'Synthetic allocation'},
+  {source:'facility_allocation_adoption_v1',revisionId:'revision-b',reference:'Synthetic adopted statement'}];
+ v.rows[1].cells['physical-1.quantity']={value:'980',sources:['allocated_final','delivered'],quantityEvidence:evidence};
+ v.rows[2].cells['physical-1.quantity']={value:'900',sources:['allocated_provisional'],quantityEvidence:[evidence[0]]};
+ const g=scheduleGridData(v,description,sides,'physical-1','day',shown);
+ assert.equal(g.rows[1][1],'980');assert.deepEqual(g.decorations[1][1].sources,['Allocated, final','Delivered']);
+ assert.deepEqual(g.decorations[1][1].evidence,['Synthetic allocation · revision-a','Synthetic adopted statement · revision-b']);
+ assert.deepEqual(g.decorations[2][1].sources,['Allocated, provisional']);
+});

@@ -19,5 +19,5 @@ public sealed record ForwardContract:SidedInstrument
             throw new MarketDataException("forward_definition","A cash-settled forward requires compatible fixed/indexed sides on the same delivery period and payment instant.");
         Discounting=discounting;
     }
-    public override InstrumentValuation PV(SideValuationContext context)=>FinancialSwapInstrument.RequireDiscounting(base.PV(context),Discounting);
+    protected internal override void RequireAfterValuation(InstrumentValuation value)=>FinancialSwapInstrument.RequireDiscounting(value,Discounting);
 }

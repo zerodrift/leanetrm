@@ -7,11 +7,14 @@ public static class ScheduleReferenceKinds
 {public const string Quantity="quantity_specification",Currency="currency";}
 public sealed record ScheduleInspectionLifecycle(string Delivery,string? Due,string? Cash,string? EconomicClass,string? Coverage,string? UnavailableReason)
 {public string? Fulfillment{get;init;}}
+public sealed record ScheduleQuantityAdjustment(string Contract,string Ratio);
 public sealed record ScheduleInspectionRow(string Key,string Operation,string Kind,DateOnly? DeliveryFrom,DateOnly? DeliveryTo,
  DateTimeOffset? Start,DateTimeOffset? End,DateOnly? ObservationFrom,DateOnly? ObservationTo,DateTimeOffset? ValueAt,
  string? Quantity,string? Price,string? Amount,string? DiscountFactor,string? PresentValue,
  string? QuantityState,ImmutableArray<string> PriceStates,ScheduleInspectionLifecycle Lifecycle)
 {
+ [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+ public ImmutableArray<ExerciseSchedulePeriod> ExercisePeriods{get;init;}
  public string? PaymentTiming{get;init;}
  public DateTimeOffset? PaymentAt=>Kind==nameof(ComponentKind.Payment)?ValueAt:null;
  public ReferenceKey? QuantitySpecification{get;init;}
@@ -22,17 +25,32 @@ public sealed record ScheduleInspectionRow(string Key,string Operation,string Ki
  public string? PriceUnitLabel{get;init;}
  public string? CurrencyLabel{get;init;}
  public string? QuantityLabel{get;init;}
+ [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+ public ImmutableArray<DeliveryQuantityEvidence> QuantityEvidence{get;init;}
+ [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+ public ScheduleQuantityAdjustment? QuantityAdjustment{get;init;}
+ [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+ public string? SourceQuantity{get;init;}
+ [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+ public ImmutableArray<string> SourceQuantityStates{get;init;}
  public DateOnly? OperatingDate{get;init;}
  public string? Paid{get;init;}
  public string? Outstanding{get;init;}
  // Started-delivery cash: accrued so far, the latest visible payment instant, and a separately recorded
  // final determination shown beside the accrual, never in place of it.
  public string? Accrued{get;init;}
+ // Unrealized value still to come. Accrued unpaid cash is reported in Outstanding.
+ [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+ public string? Remaining{get;init;}
  public DateTimeOffset? PaidAt{get;init;}
  public string? FinalDetermination{get;init;}
 }
 public sealed record ScheduleInspectionPage(string Side,string Manifest,DateTimeOffset ValuationAt,DateTimeOffset KnownAt,
- int Offset,int Total,ImmutableArray<ScheduleInspectionRow> Rows);
+ int Offset,int Total,ImmutableArray<ScheduleInspectionRow> Rows)
+{
+ [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+ public ImmutableArray<ExerciseGroupReport> Groups{get;init;}
+}
 
 // Read evaluated schedules without regenerating dates or performing pricing.
 public static partial class SideScheduleInspection

@@ -32,8 +32,7 @@ public abstract class PreparedValuationEnvironment
         foreach(var id in ShiftedVolatilityInputs)
         {
             if(!declared.TryGetValue(id,out var input))throw new MarketDataException("risk_dependency","The volatility input is outside the declared valuation closure.");
-            OpenEtrm.Shared.Numerics.SignedRatio.TryParse(VolatilityOffset(id).ToString(),out var offset);
-            if((input.Ratio+offset).Numerator.Sign<0)throw new MarketDataException("scenario_volatility","A shifted volatility cannot be negative.");
+            input.RequireOffset(VolatilityOffset(id));
         }
     }
     internal SidePaymentFactor Discount(DiscountInput input)

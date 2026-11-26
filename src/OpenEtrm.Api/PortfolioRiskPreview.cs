@@ -36,7 +36,7 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
     private static readonly AmountFormat Display=new(12,CashTieRule.ToEven,false,true);
     private static PortfolioValuationPolicy PricingPolicy=>new(CurveModel.NumericalPolicy,RiskEngine.ExactNumericalPolicy,
         FuturesRisk.Implementation,SwapStore.Convention,RateCurveMath.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1,"estimate_until_actual_v1",
-        FuturesOptionValuationPolicy.Release1);
+        FuturesOptionValuationPolicy.Release2);
     internal static PortfolioValuationPolicy AccountingPricingPolicy=>PricingPolicy;
     // Whether a retained run was valued under the pricing policy the catalog states now. A page opens a retained run as a
     // scope's current report only then. A result that states no pricing policy is not.
@@ -77,7 +77,8 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
             numericalPolicy=RiskEngine.ExactNumericalPolicy,pricingPolicy=pricing,
             history=HistoryCapabilities(portfolio),limits=Limits,
             parametric=ParametricCapabilities(),historical=HistoricalCapabilities(),monteCarlo=MonteCarloCapabilities(portfolio),
-            joint=new{convention=PortfolioJointRiskRequest.Version1,scenarioConvention=ConnectedRiskScenarioSet.Independent,bumpConvention=ConnectedRiskBump.Convention,shiftConvention=CurveShift.ParentAdditive,
+            volatilityInputs=portfolio.Markets.SelectMany(m=>m.Connected.UnitContracts).SelectMany(c=>c.Volatility).Distinct().OrderBy(v=>v.Id),
+            joint=new{convention=PortfolioJointRiskRequest.Version1,volatilityShiftConvention=VolatilityShift.ParentAdditive,scenarioConvention=ConnectedRiskScenarioSet.Independent,bumpConvention=ConnectedRiskBump.Convention,shiftConvention=CurveShift.ParentAdditive,
                 derivativeConvention=ConnectedFiniteDifferenceRequest.HalfNominalDouble,maxScenarios=PortfolioJointRisk.MaxScenarios,
                 maxShifts=PortfolioJointRisk.MaxShifts,maxAxes=RiskEngine.MaxSensitivityAxes,maxMixed=RiskEngine.MaxMixedSensitivities,
                 maxResultValues=RiskEngine.MaxJointResultValues,maxOptionTreeNodes=PortfolioJointCalculation.MaximumOptionTreeNodes}};
@@ -264,14 +265,14 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
             currency=Currency(markets,v.Base.Currency),currencyReference=v.Base.Currency,
             deltaUnit=$"{Currency(markets,v.Base.Currency)} / ({Unit(markets,v.Delta.Unit.Factor)})",
             gammaUnit=$"{Currency(markets,v.Base.Currency)} / ({Unit(markets,v.Gamma.Unit.Factor)})²"};
-        return new{detail=run.Detail.ToString(),tradeIds=prepared.Request.TradeIds,convention=Convention,numericalPolicy=RiskEngine.ExactNumericalPolicy,
+        return new{run.UnassessedDays,run.Incomplete,detail=run.Detail.ToString(),tradeIds=prepared.Request.TradeIds,convention=Convention,numericalPolicy=RiskEngine.ExactNumericalPolicy,
             engineVersion=RiskJobs.EngineVersion,displayPolicy=new{implementation="risk_decimal_display_v1",decimalPlaces=12,tieRule="to_even"},
             run.Work,run.SnapshotId,run.ConnectedScenarios,scenario=Scenario(prepared),heldInstruments=run.Positions.Select(p=>(p.DefinitionRevisionId,p.InstrumentId)).Distinct().Count(),
             excludedPositions=prepared.Portfolio.Excluded,
             // Options: each series' calibration receipt, the policy that holds it in every scenario, and how many held positions are in the intrinsic mode.
             scenarioPolicy=prepared.Portfolio.Options is null?null:prepared.Portfolio.Policy.FuturesOptions!.ScenarioPolicy,
             optionCalibrations=prepared.Portfolio.OptionCalibrations,optionWork,
-            fallbackPositions=prepared.Portfolio.OptionModes.Values.Count(mode=>mode==OpenEtrm.MarketData.Options.ImpliedVolatility.FallbackMode),
+            fallbackPositions=prepared.Portfolio.OptionModes.Values.Count(OpenEtrm.MarketData.Options.ImpliedVolatility.IsFallback),
             projectionPolicies=ProjectionPolicyReceipts.For(run.ModelContracts),
             ppaMeasures=run.PpaMeasures,inputs=new{pricingPolicy=run.Policy,ppaReceipts=run.PpaReceipts.Select(PpaPortfolio.Receipt),markets=prepared.Portfolio.Markets.Select(m=>new{definitions=m.Snapshot.Definitions,
                 snapshotId=m.Snapshot.Id,m.Snapshot.ValuationAt,m.Snapshot.MarketCutoff,curveNumericalPolicy=CurveModel.NumericalPolicy,
@@ -282,17 +283,25 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
             factors=prepared.Bumps.Select(b=>new{
                 factor=Factor(markets,run.Factors.Single(f=>f.Axis.Id==b.Axis.Id).Axis),
                 bump=b.Size.ToString(),bumpConvention=ConnectedRiskBump.Convention,
-                totals=run.Risk.Where(r=>r.Factor==b.Axis.Id).Select(r=>new{r.Measure,measureLabel=MeasureLabel(r.Measure),r.BookId,book=Book(r.BookId),
+                totals=run.Risk.Where(r=>r.Factor==b.Axis.Id).Select(r=>new{unassessedDays=run.Totals.Single(t=>t.Measure==r.Measure&&t.BookId==r.BookId&&t.Value.Currency==r.Currency).UnassessedDays,incomplete=run.Totals.Single(t=>t.Measure==r.Measure&&t.BookId==r.BookId&&t.Value.Currency==r.Currency).Incomplete,r.Measure,measureLabel=MeasureLabel(r.Measure),r.BookId,book=Book(r.BookId),
                     values=Values(new(run.Totals.Single(t=>t.Measure==r.Measure&&t.BookId==r.BookId&&t.Value.Currency==r.Currency).Value,
                         r.Up,r.Down,r.UpPnl,r.DownPnl,r.Delta,r.Gamma))}),
                 positions=run.HoldingRisk.Where(r=>r.Factor==b.Axis.Id).Select(r=>
                 {
                     var p=r.Position;var evidence=positions[(p.Owner,p.BindingId)];
-                    var position=JsonSerializer.SerializeToNode(new{p.Owner,p.TradeId,p.BindingId,p.BookId,book=Book(p.BookId),p.ValuationId,evidence.TradeReference,
+                    var position=JsonSerializer.SerializeToNode(new{p.UnassessedDays,p.Incomplete,p.Owner,p.TradeId,p.BindingId,p.BookId,book=Book(p.BookId),p.ValuationId,evidence.TradeReference,
                         evidence.InstrumentReference,evidence.InstrumentType,r.Measure,measureLabel=MeasureLabel(r.Measure),values=Values(p.Values)},RiskJobs.Json)!.AsObject();
                     // A started-delivery gas position reports its named components, which sum to its values, under the same scenarios.
                     if(!p.Components.IsEmpty)position["components"]=JsonSerializer.SerializeToNode(p.Components.ToDictionary(c=>c.Name,c=>new{
                         @base=c.Base.ToExactString(),up=c.Up.ToExactString(),down=c.Down.ToExactString()}),RiskJobs.Json);
+                    if(!p.Entries.IsEmpty)position["entries"]=JsonSerializer.SerializeToNode(p.Entries.Select(e=>new{
+                        e.Slot,e.UnassessedDays,e.Incomplete,@base=e.Base.ToExactString(),up=e.Up.ToExactString(),down=e.Down.ToExactString()}),RiskJobs.Json);
+                    if(p.GroupValues is {} groups)
+                        position["groups"]=JsonSerializer.SerializeToNode(new{@base=groups.Base.Select(ExerciseGroupReport.FromValue),
+                            up=groups.Up.Select(ExerciseGroupReport.FromValue),down=groups.Down.Select(ExerciseGroupReport.FromValue)},RiskJobs.Json);
+                    if(!p.ExerciseGroups.IsEmpty)
+                        position["exerciseContributions"]=JsonSerializer.SerializeToNode(p.ExerciseGroups.Select(g=>new{
+                            g.Group.Right,g.Group.From,g.Group.To,@base=g.Base.ToExactString(),up=g.Up.ToExactString(),down=g.Down.ToExactString()}),RiskJobs.Json);
                     // An option position states the calibration mode it was valued in; no other position has one.
                     if(prepared.Portfolio.OptionModes.TryGetValue((p.TradeId,p.BindingId),out var mode))position["calibrationMode"]=mode;
                     return position;

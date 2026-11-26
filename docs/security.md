@@ -1,5 +1,33 @@
 # Identity and authorization foundation
 
+## Gas cash-out valuation evidence (D454)
+
+Migration 0402 grants `security.read_gas_valuation_balances` to runtime and risk
+worker roles. This bounded security-definer operation requires `ReadTrades`,
+`ReadMarketData`, the visible exact trade/binding and its market sources, and a
+resolved financial context. It discloses only legal-entity-held service accounts
+of that binding's cash-out source. Effective time and knowledge visibility apply
+to accounts, service versions, statement heads and accepted movements.
+
+Worker reads additionally require the active lease and exact job catalog,
+context, valuation instant, book and selected-trade scope. Authority and lease
+are rechecked before disclosure. Missing authority raises SQLSTATE `42501`; it
+cannot be represented as no statements. Financial readers may see this evidence
+without gas-operations permission, as delivery quantity valuation readers do.
+Operating screens retain their separate permission boundary.
+
+Net cash settlement uses the existing authorized gas cash-payment operation
+inside one transaction, with immutable settlement links, exact occurrence/month
+checks, conservation and idempotent command/fact receipts. It records internal
+facts only and does not execute an external payment.
+Direct settlement reads require runtime financial authority, visible trade
+ownership, the settlement's paid instant and its knowledge receipt. Workers have
+no direct settlement-table grant; their valuation reads use the bounded scope.
+Cash-out P&L checks financial authority before and after reading the native
+payment ledger and requires exact agreement with the held payment allocations.
+The balance and accounting reads share `security.require_gas_cashout_binding`,
+which checks the exact binding, current financial authority and worker lease.
+
 Status: current security persistence, scoped role templates and PostgreSQL RLS are
 implemented locally and tested in disposable resources. The private pilot has
 invited human accounts, authenticated sessions and session revocation; see
@@ -58,7 +86,12 @@ read/configure maxima. Each also requires market/trade reads. Neither is assigne
 automatically, and the two writing capabilities are separate. Migration 0386 adds
 the Trade supervisor role, which alone holds `AmendBehindSettlement`: amending a swap
 at an As of before its latest settlement activity (D442). It is not assigned
-automatically. Users & access serves role names/permissions from the stored catalog.
+automatically. Migration 0389 installs the two
+[operating-facility capabilities](operating-facilities.md) that migration 0342 created
+and granted to no role (D444): Market data editor holds `ManagePhysicalSetup`, and it
+and the ten human roles that read trades hold `ReadPhysical`. No agent-only role holds
+either, and no person is assigned a role. Users & access serves role names/permissions
+from the stored catalog.
 
 The initial role-grant trigger kept the agent reader role to agent principals and
 agent principals to it, even for the database owner, while any grant can still be revoked;
@@ -363,6 +396,30 @@ do not preserve revoked access. Actor-owned accepted-command replay/status remai
 current trade-control operations. Discount-default reads additionally retain the
 selected historical reference/market-definition visibility.
 
+
+## Curve mark editor boundary
+
+Setup, validation, history and status use current `ReadMarketData`. Review and
+publication also require `ImportObservations` and working mode. Each operation
+checks its exact definition and reference versions against current authority.
+The editor has its own market-only routes. Trade and risk-worker access remain
+separately scoped.
+
+Working reads register certified coordinates. Historical reads bind the
+retained market context, which suppresses write predecessor evidence and
+publication. The API captures the original authority deadlines before waits
+and rechecks the source and permissions for commit. Native batch admission
+also rechecks after the shared publication lock. A deferred guard checks the
+original deadline for an inserted receipt at commit.
+
+A receipt is scoped to its original actor, workspace, catalog and operation.
+The owner check precedes disclosure of private source coordinates. Status
+reconstructs the original business date, knowledge instant and database
+lineage with current source authority and can succeed after the original
+application session ends. Denial is distinct from an authorized absence.
+The editor exposes narrow operations to the runtime. Direct access to the
+mark writer and private receipt storage remains restricted. See the
+[curve marks editor contract](curve-marks-editor.md#api-and-temporal-contract).
 
 ## Implemented automation boundary
 

@@ -38,7 +38,7 @@ export function gasTicket({evaluate,wait,set},ticket=newTicket){
  // One January delivery per operating day at a synthetic point (A unless named); a quantity of null leaves it to the side's link.
  const physicalTerms=async(code,direction,quantity,{zone='synthetic_gas_zone_a',point='synthetic_gas_point_a'}={})=>{
   for(const [id,value] of [['delivery_from','2021-01-01'],['delivery_to','2021-02-01'],...quantity===null?[]:[['quantity',quantity]]])await set(control(code,id),value);
-  for(const [id,value] of [['direction',direction],['product','test_gas'],['quantity_basis','per_operating_day'],['pipeline','test_pipeline_a'],['zone',zone],['delivery_point',point]])
+  for(const [id,value] of [['direction',direction],['product','test_gas'],['quantity_policy','contract'],['quantity_basis','per_operating_day'],['pipeline','test_pipeline_a'],['zone',zone],['delivery_point',point]])
    await choose(code,id,value);
   await chooseCalendars({evaluate,set,wait},card(code),'test_utc_every_day');
  };

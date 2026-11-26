@@ -57,7 +57,7 @@ internal sealed class OptionLifecycleActions(PreviewDatabase database,Action<Lif
     {
         var rows=await PreviewDatabase.Rows(connection,"""
             SELECT row_to_json(v)::text FROM(
-             SELECT r.trade_id,r.revision,r.option_instrument_id,r.lots,r.execution_at,s.expiry_at,s.instruction_cutoff_at,p.contrary_instructions_allowed,
+             SELECT r.trade_id,r.revision,r.option_instrument_id,r.lots,r.execution_at,s.expiry_at,s.instruction_cutoff_at,p.contrary_instructions_allowed,p.exercise_style,
               tr.reference_number trade_reference,r.book_id,b.name book_name,p.name product_name,
               clock_timestamp()>s.instruction_cutoff_at AS instructions_closed,
               abs(r.lots)-coalesce((SELECT sum(e.lots) FROM trading.futures_option_events e WHERE(e.catalog_id,e.trade_id)=(r.catalog_id,r.trade_id)
@@ -77,8 +77,10 @@ internal sealed class OptionLifecycleActions(PreviewDatabase database,Action<Lif
             var subject=new LifecycleTarget(Kind,row.Id("trade_id"),row.Id("option_instrument_id"));
             if(target is not null&&target!=subject)continue;
             var profiles=await PreviewDatabase.Rows(connection,"SELECT row_to_json(v)::text FROM(SELECT p.*,s.from_at,s.until_at,s.mode,m.delivery_profile_id IS NOT NULL AS requires_gas FROM lifecycle.option_profiles p JOIN settlement_data.futures_margin_policies m ON(m.catalog_id,m.id,m.revision)=(p.catalog_id,p.margin_policy_id,p.margin_policy_revision) JOIN lifecycle.action_policies s ON(s.catalog_id,s.id,s.revision)=(p.catalog_id,p.policy_id,p.policy_revision) WHERE(p.catalog_id,p.trade_id,p.action)=($1,$2,$3) ORDER BY p.revision DESC LIMIT 1)v",[Catalog,subject.ScopeId,action],ct);
-            var reason=row.Number("open_lots").CompareTo(default)<=0?"option_holding_closed":profiles.IsEmpty?"lifecycle_configuration_required":
-                profiles[0].GetProperty("requires_gas").GetBoolean()&&!access.Allows("ReadGasOwnedHoldings")?"lifecycle_gas_access_required":null;
+            // A European holding's exercise or assignment is refused by its style whatever is configured for it.
+            var reason=row.Number("open_lots").CompareTo(default)<=0?"option_holding_closed":FuturesOptionStore.EarlyExerciseRefusal(action,row.Text("exercise_style"))??
+                (profiles.IsEmpty?"lifecycle_configuration_required":
+                profiles[0].GetProperty("requires_gas").GetBoolean()&&!access.Allows("ReadGasOwnedHoldings")?"lifecycle_gas_access_required":null);
             if(reason is null&&(context.AsOf<profiles[0].Instant("from_at")||context.AsOf>=profiles[0].Instant("until_at")))reason="lifecycle_action_window";
             var instruction=action is "option.exercise_instruction" or "option.abandon_instruction";
             var end=instruction?row.Instant("instruction_cutoff_at"):row.Instant("expiry_at");

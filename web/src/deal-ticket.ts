@@ -1,13 +1,15 @@
+import {scheduleMembers} from './ticket-schedule-members.js';
+import {exerciseFieldKey,fieldVisible,termFieldVisible,termValue} from './ticket-model.js';
 import {sideNavigation} from './side-navigation.js';
 import {sideCalendar,referenceCalendarChoices,type SideCalendarPolicy} from './side-calendar.js';
 import {paymentDateInput,displayPaymentDate} from './payment-date.js';
 import {facilityAllocationTrack} from './facility-allocation-track.js';
-import type {FacilityAllocationTrack,ScheduleView,TicketChoice,TicketDescription,TicketField,TicketLink,TicketSummary,TradeActions} from './ticket-types.js';
+import type {ExerciseGroup,ImbalanceReportRow,TicketScheduleEntry,FacilityAllocationTrack,ScheduleView,TicketChoice,TicketDescription,TicketField,TicketLink,TicketSummary,TradeActions} from './ticket-types.js';
 import {addSide,removeSide,type FieldValue,type TicketSide,type TicketState} from './ticket-model.js';
 import {numberText,resolvedUnit,scheduleGridData,scheduleTabs,sideKind,type ScheduleSide} from './schedule-grid.js';
 import {emptyGridLayout,renderDataGrid,sideColour,type GridHandle} from './data-grid.js';
 import {reasonOf} from './ticket-preview.js';
-import {measureLines,type GasMeasures} from './lifecycle-text.js';
+import {imbalanceStateText,incompleteText,exerciseStateText,measureLines,type GasMeasures} from './lifecycle-text.js';
 import {sideCardHeader} from './side-card.js';
 import {localTimeValue} from './user-time.js';
 import {renderInstrumentSides,requireInstrumentSideGroups,type InstrumentSideGroup} from './instrument-sides.js';
@@ -19,6 +21,7 @@ import {ticketFieldGroups,requireSideGroupMappings,type TicketFieldGroup} from '
 export type TicketStatus={kind:'current'|'updating'|'stale'|'refused';text:string};
 export type TicketEvents={calendar?(side:string,policy:SideCalendarPolicy):void;edit(side:string|null,field:string,value:string):void;editLocal(side:string|null,field:string,local:string):void;accept(side:string|null,field:string):void;selectSide(code:string):void;tab(id:string):void;
  level(l:string):void;toggle(row:string,open:boolean):void;addSide(kind:string):void;removeSide(code:string):void;preview():void;book():void;
+ addTerm?():void;editTerm?(row:number,id:string,value:string|string[]):void;removeTerm?(row:number):void;
  enter(side:string,day:string,value:string):void;entryValue(field:string,value:string):void;record():void;cancelEntry():void;checkEntry():void;retryEntry():void;amend?():void};
 // A day's entry in a side's tab, as the person fills in its record: the fields the record takes, their values and choices, whether a record
 // awaits its outcome (then only Check and Retry are offered) or is being sent, and what the last attempt said.
@@ -26,10 +29,10 @@ export type TicketEntry={side:string;day:string;fields:TicketField[];values:Reco
 // fieldErrors and choices are keyed by the field id for a trade field and by "<side code>.<field id>" for a side field. Under the chosen
 // level every schedule row is open but those in `closed`, the rows the person closed. quantityUnit is the unit the schedule's preview resolved,
 // and instant the page's formatter for the instants the ticket shows. links are the schedule's quantity links, and entry the day entry open, if any.
-export type TicketView={state:TicketState;sideLabels?:Readonly<Record<string,string>>;mode:'new'|'booked'|'amend';presentation?:'schedules'|'terms';actions:TradeActions|null;schedule:ScheduleView|null;quantityUnit:string|null;instant:(at:string)=>string;zone:string;previous:ScheduleView|null;summaries:TicketSummary[];
+export type TicketView={scheduleEntries?:TicketScheduleEntry[];imbalanceRows?:ImbalanceReportRow[];unassessedDays?:number;state:TicketState;sideLabels?:Readonly<Record<string,string>>;groupedEntry?:boolean;mode:'new'|'booked'|'amend';presentation?:'schedules'|'terms';actions:TradeActions|null;schedule:ScheduleView|null;quantityUnit:string|null;instant:(at:string)=>string;zone:string;previous:ScheduleView|null;summaries:TicketSummary[];
  links:TicketLink[];entry:TicketEntry|null;sideSchedule?:(host:HTMLElement,side:TicketSide)=>()=>void;facilityAllocations?:FacilityAllocationTrack[];sideGroups?:InstrumentSideGroup[];sideGroupsReason?:string|null;
  // A booked started-delivery gas trade's measures, with the currency its figures are in; none for any other trade.
- measures?:GasMeasures|null;currency?:string;
+ measures?:GasMeasures|null;currency?:string;groups?:ExerciseGroup[];exerciseAction?:(host:HTMLElement)=>void;
 
  status:TicketStatus;fieldErrors:Record<string,string>;choices:Record<string,TicketChoice[]>;selectedSide:string|null;tab:string;level:string;closed:ReadonlySet<string>;on:TicketEvents};
 
@@ -105,16 +108,19 @@ const choiceText=(value:string,unit:string|null,choices:TicketChoice[]|undefined
 
 function fieldRow(o:TicketView,f:TicketField,side:string|null,v:FieldValue|undefined){
  const key=side===null?f.id:`${side}.${f.id}`,value=v?.value??'',entry=o.mode!=='booked',unit=resolvedUnit(f.unit,o.quantityUnit);
+ const labels=f.labelByChoice;
+ const selected=labels&&side!==null?o.state.sides.find(s=>s.code===side)?.values[labels.field]?.value:undefined;
+ const labelText=labels&&selected!==undefined&&Object.hasOwn(labels.labels,selected)?labels.labels[selected]:f.label;
  const row=el('div',`ticket-field ticket-${f.state}`);row.dataset.field=f.id;row.dataset.state=f.state;
- const label=el('span','ticket-label',f.label);label.title=f.meaning;
+ const label=el('span','ticket-label',labelText);label.title=f.meaning;
  const body=el('div','ticket-body');row.append(label,body);
  const chip=()=>{if(entry&&v?.looked){row.classList.add('ticket-looked');body.append(el('span','ticket-chip',v.looked.label));}};
  if(f.state==='soon'){
   // Coming soon: it cannot be entered, holds no value and is never sent; its hover text says what it will do.
-  const control=el('input','ticket-control');control.disabled=true;control.setAttribute('aria-disabled','true');control.setAttribute('aria-label',f.label);control.title=f.soon??'';
+  const control=el('input','ticket-control');control.disabled=true;control.setAttribute('aria-disabled','true');control.setAttribute('aria-label',labelText);control.title=f.soon??'';
   row.title=f.soon??'';body.append(control,soonTag());
  }else if(f.state==='editable'&&entry){
-  chip();body.append(editor(f,value,o.choices[key],next=>o.on.edit(side,f.id,next),o.zone,local=>o.on.editLocal(side,f.id,local)));
+  chip();body.append(editor({...f,label:labelText},value,o.choices[key],next=>o.on.edit(side,f.id,next),o.zone,local=>o.on.editLocal(side,f.id,local)));
   if(unit)body.append(el('span','ticket-unit',unit));
   if(v?.offered)body.append(button('ticket-offer',`Use ${f.type==='payment_date'?displayPaymentDate(v.offered.value):v.offered.value} (${v.offered.label})`,()=>o.on.accept(side,f.id)));
  }else{
@@ -156,16 +162,25 @@ function card(o:TicketView,side:TicketSide,rows:string[]){
  }
  node.append(head,el('div','ticket-band-title','Common to all sides'));
  for(const row of rows){
-  const f=kind.fields.find(x=>x.band===row&&x.state!=='soon');
+  const f=kind.fields.find(x=>x.band===row&&x.state!=='soon'&&fieldVisible(x,side.values));
   // A kind without this term keeps its slot, so the row lines up with the other cards.
   const slot=f?fieldRow(o,f,side.code,side.values[f.id]):el('div','ticket-slot-empty');
   slot.dataset.band=row;node.append(slot);
  }
  const own=el('div','ticket-own');
- for(const f of dependencyOrder(kind.fields.filter(x=>x.band===null&&x.state!=='soon')))own.append(fieldRow(o,f,side.code,side.values[f.id]));
+ for(const f of dependencyOrder(kind.fields.filter(x=>x.band===null&&x.state!=='soon'&&fieldVisible(x,side.values))))own.append(fieldRow(o,f,side.code,side.values[f.id]));
  if(kind.calendarPurposes){
-  const calendar=sideCalendar({id:'ticket-calendar-'+side.code,choices:()=>referenceCalendarChoices(d.sideCalendars??[]),purposes:()=>kind.calendarPurposes!,changed:()=>o.on.calendar?.(side.code,calendar.draft())});
-  calendar.restore(side.calendarPolicy);calendar.sync(o.mode==='booked');own.append(calendar.element);
+  const id='ticket-calendar-'+side.code;
+  const calendar=sideCalendar({id,choices:()=>referenceCalendarChoices(d.sideCalendars??[]),purposes:()=>kind.calendarPurposes!,changed:()=>o.on.calendar?.(side.code,calendar.draft())});
+  calendar.restore(side.calendarPolicy);calendar.sync(o.mode==='booked');
+  const refusal=o.fieldErrors[`${side.code}.calendar_policy`];
+  if(refusal){
+   const error=el('p','ticket-error',refusal);error.id=id+'-error';error.setAttribute('role','alert');
+   calendar.element.dataset.field='calendar_policy';
+   calendar.element.setAttribute('aria-describedby',error.id);
+   calendar.element.append(error);
+  }
+  own.append(calendar.element);
  }
  const reported=o.summaries.find(s=>s.side===side.code);if(reported)own.append(summary(reported));
  const allocations=o.facilityAllocations?.filter(a=>a.sideCode===side.code)??[];
@@ -198,11 +213,16 @@ function strip(o:TicketView,fields:TicketField[]){
  const view=o.schedule,node=el('header','ticket-strip');
  const title=el('div','ticket-title');
  // The panel heading names the product; the strip names only the trade's state.
- title.append(el('strong','ticket-state',o.mode==='amend'?'Amendment':o.mode==='new'?'Draft':!view?'Booked':view.delivered?'Booked · in delivery':'Booked · forward'));
+ const nativeRows=view?.progressBasis==='native_schedule_rows_v1';
+ const started=nativeRows?'Booked · started':'Booked · in delivery';
+ const booked=!view?'Booked':view.delivered?started:'Booked · forward';
+ title.append(el('strong','ticket-state',o.mode==='amend'?'Amendment':o.mode==='new'?'Draft':booked));
  node.append(title,tradeFields(o,fields));
  if(view?.delivered){
   const progress=el('div','ticket-progress'),bar=el('progress');bar.max=view.leaves;bar.value=view.deliveredLeaves;
-  progress.append(bar,el('span','ticket-progress-text',`${view.deliveredLeaves} of ${view.leaves} delivered`),el('span','ticket-valuation',`Valued at ${o.instant(view.valuationAt)}`));
+  if(nativeRows)bar.setAttribute('aria-label','Completed schedule rows');
+  const unit=nativeRows?'schedule rows completed':'delivered';
+  progress.append(bar,el('span','ticket-progress-text',`${view.deliveredLeaves} of ${view.leaves} ${unit}`),el('span','ticket-valuation',`Valued at ${o.instant(view.valuationAt)}`));
   node.append(progress);
  }
  node.append(statusLine(o.status));
@@ -287,6 +307,25 @@ function entryForm(o:TicketView,e:TicketEntry,name:string){
  return node;
 }
 
+// Reported balances and assessed amounts are supplied by the backend; missing amounts stay absent.
+function imbalanceGrid(o:TicketView,content:HTMLElement){
+ const rows=o.imbalanceRows??[];
+ if(!rows.length){content.append(el('p','muted','This trade has no imbalance cash-out.'));return;}
+ const table=el('table','ticket-imbalance'),head=el('thead'),header=el('tr');
+ for(const label of ['Gas day','Entry','Reported balance','Statements','Day state','Quantity','Index','Price','Price state','Amount','Cash','Paid','Outstanding'])header.append(el('th',undefined,label));
+ head.append(header);table.append(head);const body=el('tbody');
+ for(const row of rows){
+  const tr=el('tr');tr.dataset.day=row.day;tr.dataset.entry=row.entry;
+  const amount=(value:string|null)=>value===null?'—':numberText(value);
+  const values:Record<string,string>={day:row.day,entry:row.balanceSide==='owed_to_us'?'Owed to us':'Owed by us',reported:amount(row.reportedBalance),
+   statements:row.statements.map(statement=>statement.status).join(', ')||'—',state:imbalanceStateText(row.state,row.reason),quantity:amount(row.quantity),
+   index:row.index,price:amount(row.price),priceState:row.published?'Published':'Forecast',amount:amount(row.amount),cash:row.cashState==='UnassessedPaid'?'Unassessed · payment recorded':row.cashState.replace(/([a-z])([A-Z])/g,'$1 $2'),paid:amount(row.paid),outstanding:amount(row.outstanding)};
+  for(const [key,value] of Object.entries(values)){const cell=el('td',undefined,value);cell.dataset.column=key;tr.append(cell);}
+  tr.title=row.statements.map(statement=>`${statement.accountId} · ${statement.statementId??'no statement'} · ${statement.evidence}`).join('\n');body.append(tr);
+ }
+ table.append(body);content.append(table);
+}
+
 // Each linked side's receipt, delivery and fuel over the term, exactly as the backend reports them.
 function linksGrid(o:TicketView,content:HTMLElement):GridHandle|undefined{
  if(!o.links.length){content.append(el('p','muted','No side takes its quantity from a link.'));return;}
@@ -312,18 +351,92 @@ function groupedFields(o:TicketView,groups:TicketFieldGroup[],actual:InstrumentS
  return root;
 }
 
+
+function exerciseTerms(o:TicketView){
+ const spec=o.state.description.repeatableTerms?.find(section=>section.id==='exerciseRights'),rights=o.state.exerciseRights??[];
+ const entry=o.mode!=='booked'&&!o.groupedEntry;
+ if(!spec||!entry&&!rights.length)return null;
+ const section=el('section','ticket-exercise-terms');section.dataset.termSection=spec.id;
+ section.append(el('h3',undefined,spec.label));
+ rights.forEach((values,index)=>{
+  const group=el('fieldset','ticket-field-group');group.dataset.termRow=String(index);
+  group.append(el('legend',undefined,`${spec.label} ${index+1}`));
+  const fields=el('div','ticket-trade-fields');group.append(fields);
+  for(const f of spec.fields.filter(f=>termFieldVisible(f,values))){
+   const row=el('label','ticket-field ticket-editable');row.dataset.field=f.id;
+   const label=el('span','ticket-label',f.label);label.title=f.meaning;row.append(label);
+   const saved=termValue(values,f.id),listed=o.choices[f.id];
+   if(!entry){
+    const current=Array.isArray(saved)?saved:saved?[saved]:[];
+    current.forEach((value,n)=>{
+     const text=el('span','ticket-value',choiceText(value,null,listed));
+     if(f.choices!==null){text.dataset.choiceKey=f.id;text.dataset.choiceValue=value;}
+     if(n)row.append(document.createTextNode(', '));row.append(text);
+    });
+   }else if(f.type==='multiple_choice'){
+    const select=el('select','ticket-control');select.multiple=true;select.setAttribute('aria-label',f.label);
+    const selected=Array.isArray(saved)?saved:[];
+    const options=[...listed??[],...selected.filter(value=>!listed?.some(option=>option.value===value)).map(value=>({value,label:value}))];
+    for(const {value,label} of options){const option=new Option(label,value);option.selected=selected.includes(value);select.append(option);}
+    select.onchange=()=>{
+     const next=[...select.selectedOptions].map(option=>option.value);
+     o.on.editTerm?.(index,f.id,[...selected.filter(value=>next.includes(value)),...next.filter(value=>!selected.includes(value))]);
+    };
+    row.append(select);
+   }else{
+    row.append(editor(f,typeof saved==='string'?saved:'',listed,value=>o.on.editTerm?.(index,f.id,value)));
+   }
+   const issue=o.fieldErrors[exerciseFieldKey(index,f.id)]??o.fieldErrors[f.id];
+   if(issue){const error=el('span','ticket-error',issue);error.setAttribute('role','alert');row.append(error);}
+   fields.append(row);
+  }
+  if(entry)group.append(button('ticket-remove-term secondary',`Remove ${spec.label.toLowerCase()} ${index+1}`,()=>o.on.removeTerm?.(index)));
+  section.append(group);
+ });
+ if(entry)section.append(button('ticket-add-term secondary',`Add ${spec.label.toLowerCase()}`,()=>o.on.addTerm?.()));
+ return section;
+}
+
+function exerciseGroups(groups:readonly ExerciseGroup[],currency?:string){
+ const section=el('section','ticket-exercise-groups');
+ section.append(el('h3',undefined,'Exercise groups'));
+ const wrap=el('div','table-wrap'),table=el('table'),head=el('thead'),headers=el('tr'),body=el('tbody');
+ const money=(label:string)=>currency?`${label} (${currency})`:label;
+ for(const label of ['Right','From','To · exclusive','State',money('Forward sum'),money('Gross counted'),'Model inputs']){
+  const th=el('th',undefined,label);th.scope='col';headers.append(th);
+ }
+ head.append(headers);table.append(head,body);wrap.append(table);section.append(wrap);
+ for(const group of groups){
+  const row=el('tr');row.dataset.from=group.from;row.dataset.state=group.state;
+  for(const value of [String(group.right+1),group.from,group.to,exerciseStateText(group.state),numberText(group.forwardSum),numberText(group.counted)])row.append(el('td',undefined,value));
+  const inputs=el('td');row.append(inputs);body.append(row);
+  if(!group.inputs)continue;
+  const detail=el('details');detail.append(el('summary',undefined,'View inputs'));
+  const labels={receives:'Receives',pays:'Pays',certain:'Certain',receivesVolatility:'Receives volatility',paysVolatility:'Pays volatility',correlation:'Correlation',years:'Years'} as const;
+  const list=el('dl');
+  for(const key of Object.keys(labels) as (keyof typeof labels)[]){
+   const value=group.inputs[key];
+   if(value!==null)list.append(el('dt',undefined,labels[key]),el('dd',undefined,numberText(value)));
+  }
+  detail.append(list);inputs.append(detail);
+ }
+ return section;
+}
+
 export function renderTicket(host:HTMLElement,o:TicketView){
  const d=o.state.description,sides=o.state.sides,rows=bandRows(d,[...new Set(sides.map(s=>s.kind))]);
  if(d.sideGroupsRequired!==undefined&&typeof d.sideGroupsRequired!=='boolean')throw Error('Reread the ticket Side composition requirement.');
  const groups=o.sideGroups!==undefined||o.sideGroupsReason!==undefined||d.sideGroupsRequired&&o.mode==='booked'?requireInstrumentSideGroups(o.sideGroups,o.mode==='booked',o.sideGroupsReason):undefined;
  const fields=ticketFieldGroups(d);if(groups)requireSideGroupMappings(groups,fields);
- const named:ScheduleSide[]=sides.map(s=>({kind:s.kind,code:s.code,name:o.sideLabels?.[s.code]??sideName(d,s)}));
+ const cardNames:ScheduleSide[]=sides.map(s=>({kind:s.kind,code:s.code,name:o.sideLabels?.[s.code]??sideName(d,s)}));
+ const scheduled=scheduleMembers(o.state,o.scheduleEntries);
+ const named:ScheduleSide[]=scheduled.map(s=>({kind:s.kind,code:s.code,name:s.name??o.sideLabels?.[s.code]??sideName(d,s)}));
  // The ticket keeps its controls' states itself: a page's busy sweep leaves them as drawn.
  const root=el('div','deal-ticket');root.dataset.mode=o.mode;root.dataset.ownControls='';
  const notices=el('ul','ticket-notices');for(const text of o.state.notices){const n=el('li','ticket-notice',text);n.setAttribute('role','status');notices.append(n);}
  // Narrow containers stack the cards; these chips then jump between the sides.
  const chips=el('nav','ticket-chips');chips.setAttribute('aria-label','Sides');
- for(const s of named){
+ for(const s of cardNames){
   const chip=button('ticket-side-chip',s.name,()=>o.on.selectSide(s.code));chip.setAttribute('aria-pressed',String(o.selectedSide===s.code));
   chip.style.setProperty('--side-colour',sideColour(sideKind(d,s.kind).colour));chips.append(chip);
  }
@@ -343,6 +456,11 @@ export function renderTicket(host:HTMLElement,o:TicketView){
   }
  }
  if(o.presentation==='schedules')root.append(statusLine(o.status));
+ const terms=exerciseTerms(o);if(terms)root.append(terms);
+ const pricedGroups=o.groups??o.schedule?.groups;
+ if(pricedGroups?.length)root.append(exerciseGroups(pricedGroups,o.currency));
+ o.exerciseAction?.(root);
+ if(o.unassessedDays)root.append(el('p','ticket-incomplete',incompleteText(o.unassessedDays)));
  if(o.measures){if(!o.currency)throw Error('The trade measures require their currency.');root.append(measures(o.measures,o.currency,o.instant));}
  if(o.presentation!=='terms')root.append(panel);
  const planned=upcoming(o);
@@ -356,13 +474,14 @@ export function renderTicket(host:HTMLElement,o:TicketView){
    text.textContent=choiceText(text.dataset.choiceValue!,text.dataset.choiceUnit??null,choices[text.dataset.choiceKey!]);text.hidden=!text.textContent;
   }
  }
- const shows=o.tab==='instrument'||sides.some(s=>s.code===o.tab);
+ const shows=o.tab==='instrument'||scheduled.some(s=>s.code===o.tab);
  // A side added since the last preview has no values in its schedule yet; the grid draws the sides it holds.
  const previewed=named.filter(s=>o.schedule&&Object.keys(o.schedule.totals).some(key=>key.startsWith(`${s.code}.`)));
  const unpreviewed=named.find(s=>s.code===o.tab&&!previewed.includes(s));
  if(o.presentation==='terms')return {destroy:()=>host.replaceChildren(),updateBookedChoiceLabels};
- if(o.mode==='booked'&&o.sideSchedule&&sides.some(s=>s.code===o.tab))disposeSide=o.sideSchedule(content,sides.find(s=>s.code===o.tab)!);
+ if(o.mode==='booked'&&o.sideSchedule&&scheduled.some(s=>s.code===o.tab))disposeSide=o.sideSchedule(content,scheduled.find(s=>s.code===o.tab)!);
  else if(o.tab==='links')grid=linksGrid(o,content);
+ else if(o.tab==='imbalance')imbalanceGrid(o,content);
  else if(!shows)content.append(el('p','muted',`${d.tabs.find(t=>t.id===o.tab)?.label??o.tab} is not drawn in this ticket yet.`));
  else if(!o.schedule)content.append(el('p','muted','No schedule yet. Preview the trade to draw it.'));
  else if(unpreviewed)content.append(el('p','muted',`${unpreviewed.name} is not in the last preview yet.`));

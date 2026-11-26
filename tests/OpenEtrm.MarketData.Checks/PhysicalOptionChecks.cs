@@ -37,6 +37,17 @@ internal static class PhysicalOptionChecks
         Near(PhysicalFuturesOptionModel.Price(terms,L("3"),L("5"),calibration,L("0.9"),at,numerical,policy,highThreshold,
             PhysicalOptionTerminal.Automatic,margin,carrying,default).Total,L("0"));
         CollapseAndEarlyExercise();FallbackAndRejections();
+        // The same case with the series stated as European: the reference strategy is qualified for American exercise only.
+        var european=new FuturesOptionTerms(terms.Right,terms.Strike,terms.ExpiryAt,FuturesOptionTerms.European,terms.SettlementMethod);
+        foreach(var tree in new[]{numerical,OptionNumericalPolicies.Require(OptionNumericalPolicies.Black76)})
+        {
+            try{PhysicalFuturesOptionModel.Price(european,L("3"),L("5"),calibration,L("0.9"),at,tree,policy,rule,PhysicalOptionTerminal.Automatic,margin,carrying,CancellationToken.None);
+                throw new Exception("A European series was priced by the physical reference strategy.");}
+            catch(MarketDataException e)when(e.Code=="projection_option_style"){}
+            try{PhysicalFuturesOptionModel.RequiredMarginOccurrences(european,margin,at,tree);throw new Exception("A European series was given the physical reference strategy's margin dues.");}
+            catch(MarketDataException e)when(e.Code=="projection_option_style"){}
+        }
+        Console.WriteLine("PASS a European series is refused with projection_option_style");
         Console.WriteLine("PASS physical option: independent frozen-basis/carrying oracles, selected CRR/LR stopping, native expiry rules, explicit fallback and exact saved VM dues");
 
         void CollapseAndEarlyExercise()

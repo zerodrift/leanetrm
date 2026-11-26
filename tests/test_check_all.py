@@ -55,6 +55,16 @@ def gas_helpers(group, helpers):
 
 
 class CheckAllTests(unittest.TestCase):
+    def test_charge_preview_rejects_other_fixture_suites_before_startup(self):
+        for flag in ('--gas-in-term-check', '--gas-delivery-quantity-check', '--gas-indexed-check'):
+            with self.subTest(flag=flag):
+                result = subprocess.run(
+                    [sys.executable, 'tools/run_preview.py', '--pg-bin', '/unused-pg',
+                     '--dotnet', '/unused-dotnet', '--check', '--gas-charges-check', flag],
+                    cwd=ROOT, capture_output=True, text=True, check=False)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn(f'--gas-charges-check and {flag} use different fixtures', result.stderr)
+
     def test_gas_jobs_separate_native_browser_and_preview_workloads(self):
         self.assertTrue({'gas', 'gas-native', 'gas-browser'}.issubset(GROUPS))
         workloads = {}
@@ -65,14 +75,24 @@ class CheckAllTests(unittest.TestCase):
             workloads[group] = [command for command in commands
                                 if command[0] == sys.executable and command[1].startswith('tools/')]
         previews = workloads['gas']
-        self.assertEqual(len(previews), 7)
+        self.assertEqual(len(previews), 11)
         self.assertTrue(all(command[1] == 'tools/run_preview.py' for command in previews))
         preview_flags = {
             '--gas-basis-demo-check', '--gas-operations-check', '--gas-billing-check',
             '--gas-daily-quantity-check', '--gas-amendments-check', '--gas-indexed-check',
-            '--gas-in-term-check'}
+            '--gas-in-term-check', '--gas-delivery-quantity-check', '--gas-pricing-check', '--gas-exercise-check', '--gas-charges-check', '--gas-imbalance-check'}
         self.assertEqual({part for command in previews for part in command if part in preview_flags},
                          preview_flags)
+        exercise=[command for command in previews if '--gas-exercise-check' in command]
+        self.assertEqual(len(exercise),1)
+        self.assertTrue({'--gas-pricing-check','--browser-check'}.issubset(exercise[0]))
+        charge = [command for command in previews if '--gas-charges-check' in command]
+        self.assertEqual(len(charge), 1)
+        self.assertIn('--browser-check', charge[0])
+        self.assertNotIn('--gas-exercise-check', charge[0])
+        quantity=next(command for command in previews if '--gas-delivery-quantity-check' in command)
+        self.assertIn('--browser-check',quantity)
+        self.assertNotIn('--gas-composition-check',quantity)
         native = workloads['gas-native']
         self.assertEqual(len(native), 24)
         self.assertTrue(all(command[1] != 'tools/run_preview.py' and '--browser' not in command
@@ -535,13 +555,30 @@ class CheckAllTests(unittest.TestCase):
         self.assertIn('--browser-check',crude[0])
         self.assertIn('--browser',crude[0])
 
+    def test_exercise_right_checks_run_once_in_managed_and_all(self):
+        sdk = Path('/selected sdk/dotnet')
+        market = 'tests/OpenEtrm.MarketData.Checks/OpenEtrm.MarketData.Checks.csproj'
+        expected = [str(sdk), 'run', '--no-restore', '--project', market, '--', '--exercise-rights']
+        for group in ('all', *ALL_GROUPS):
+            with self.subTest(group=group):
+                commands = []
+                run_checks(Path('/pg'), sdk, Path('/browser'), group=group,
+                           run=lambda command, **options: commands.append(command))
+                selected = [command for command in commands if '--exercise-rights' in command]
+                self.assertEqual(selected, [expected] if group in ('managed', 'all') else [])
+
     def test_futures_option_checks_run_in_the_gate(self):
         commands = []
         run_checks(Path('/stock postgres/bin'), Path('/managed sdk/dotnet'), Path('/browser executable'),
                    run=lambda command, **options: commands.append(command))
         market = 'tests/OpenEtrm.MarketData.Checks/OpenEtrm.MarketData.Checks.csproj'
         runs = [c for c in commands if '--project' in c and c[c.index('--project') + 1] == market]
-        self.assertEqual([c[c.index('--project') + 2:] for c in runs], [[], ['--', '--futures-options'], ['--', '--spread-options'], ['--', '--vol-surface'], ['--','--calendar-policy'], ['--','--payment-date-policy'], ['--', '--hybrid-monte-carlo-risk'], *[['--',flag] for flag in ('--power-flat','--power-atc','--power-product-averages','--power-interval-quantities','--ppa-sides')]])
+        self.assertEqual([c[c.index('--project') + 2:] for c in runs],
+                         [[], ['--', '--futures-options'], ['--', '--spread-options'], ['--', '--exercise-rights'],
+                          ['--', '--vol-surface'], ['--', '--calendar-policy'], ['--', '--payment-date-policy'],
+                          ['--', '--hybrid-monte-carlo-risk'],
+                          *[['--', flag] for flag in ('--power-flat', '--power-atc', '--power-product-averages',
+                                                      '--power-interval-quantities', '--ppa-sides')]])
         restores = [c for c in commands if 'restore' in c and c[c.index('restore') + 1] == market]
         self.assertEqual(len(restores), 1)
 
@@ -644,7 +681,7 @@ class CheckAllTests(unittest.TestCase):
         self.assertEqual(executed, expected)
         schedule_commands = [c for c in commands if '--project' in c and 'Api.Checks' in c[c.index('--project') + 1]]
         self.assertEqual([c[-2:] for c in schedule_commands],
-                         [['--', flag] for flag in ('--context-resolution', '--read-references', '--schedules', '--power-hedge', '--async-reads', '--assistant-prompts', '--published-clock', '--calendar-authoring', '--gas-ticket', '--historical-risk', '--monte-carlo-risk', '--position-adjustment', '--close-risk', '--automation',
+                         [['--', flag] for flag in ('--context-resolution', '--read-references', '--schedules', '--power-hedge', '--async-reads', '--assistant-prompts', '--published-clock', '--calendar-authoring', '--gas-ticket', '--curve-mark-editor', '--historical-risk', '--monte-carlo-risk', '--position-adjustment', '--close-risk', '--automation',
                            '--live-calculation', '--reference-intake', '--preview-data', '--side-observation-compatibility',
                        '--gas-park-custody','--gas-park-custody-ticket','--gas-park-custody-evidence',
                        '--gas-park-custody-actions','--gas-park-custody-effects','--gas-park-custody-handler',
@@ -778,7 +815,10 @@ class CheckAllTests(unittest.TestCase):
                            ('exchange', '--exchange-check')):
             self.assertEqual(len(previews[name]), 1, name)
             self.assertIn(flag, previews[name][0])
-        self.assertEqual(len(previews['standard']), 2)
+        self.assertEqual(len(previews['standard']), 3)
+        self.assertEqual(group_of('--curve-marks-check'), 'standard')
+        mark_check=next(command for command in previews['standard'] if '--curve-marks-check' in command)
+        self.assertEqual(mark_check[-3:], ('--browser-check', '--browser', '/browser'))
         self.assertEqual(previews['standard'][0][-3:], ('--browser-check', '--browser', '/browser'))
         self.assertFalse(any(flag.endswith('-check') and flag not in ('--check', '--browser-check')
                              for flag in previews['standard'][0]))

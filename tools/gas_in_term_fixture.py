@@ -65,7 +65,9 @@ def add_fixture(reference, market, security, manifest):
             f"INSERT INTO ref_data.commodity_locations VALUES({R},'test_gas','{POINT}');",
             f"INSERT INTO ref_data.pipeline_delivery_points VALUES({R},'test_pipeline_a','synthetic_gas_zone_a','{POINT}');",
             f"INSERT INTO ref_data.gas_delivery_conventions VALUES({R},'test_pipeline_a','synthetic_gas_zone_a','{POINT}','test_gas','synthetic_fixed_central',{DAY_START_MINUTE});"]
-    curve = lambda code, name: f"INSERT INTO market_data.curves VALUES({M},'{code}',{R},'test_gas','test_hub_a','test_gas_outright','test_uniform','test_index_target','direct','fixture','trader_mark','{name}');"
+    def curve(code,name):
+        target='synthetic_in_term_target' if code==LOCATION else 'test_index_target'
+        return f"INSERT INTO market_data.curves VALUES({M},'{code}',{R},'test_gas','test_hub_a','test_gas_outright','test_uniform','{target}','direct','fixture','trader_mark','{name}');"
     definitions = [curve(LOCATION, 'Synthetic hub location index'), curve(SOURCES[0], 'Synthetic daily hub'), curve(SOURCES[1], 'Synthetic daily hub basis'),
                    curve(SOURCES[2], 'Synthetic monthly hub'), curve(SOURCES[3], 'Synthetic monthly hub basis'),
                    f"INSERT INTO market_data.gas_valuation_groups VALUES({M},'synthetic_hub_group',{R},'test_pipeline_a','test_gas','{LOCATION}',0);",
@@ -81,7 +83,7 @@ def add_fixture(reference, market, security, manifest):
                             f"INSERT INTO market_data.series VALUES({M},'{sid}','synthetic_in_term_{n}',{R},'{cid}','test_gas_outright',NULL);"])
         return sid
     def fixing_definition(sid, start, end, at):
-        definitions.append(f"INSERT INTO market_data.index_fixing_observations(catalog_id,revision_id,index_code,observation_from,observation_to,reference_catalog_id,reference_revision_id,quote_code,series_id,source_code,fixing_at,implementation) VALUES({M},'test_price','{start}','{end}',{R},'test_gas_outright','{sid}','fixture','{at}','published_index_observations_v1');")
+        definitions.append(f"INSERT INTO market_data.index_fixing_observations(catalog_id,revision_id,index_code,observation_from,observation_to,reference_catalog_id,reference_revision_id,quote_code,series_id,source_code,fixing_at,implementation) VALUES({M},'synthetic_in_term_index','{start}','{end}',{R},'test_gas_outright','{sid}','fixture','{at}','published_index_observations_v1');")
     observations, pins = [], []
     def observe(n, sid, role, at, value):
         oid = identity('7', 9000000 + n)
@@ -114,6 +116,8 @@ def add_fixture(reference, market, security, manifest):
     period = f"INSERT INTO market_data.revision_periods VALUES ({M},'2020-01-01','2022-01-01');"
     assert market.count(period) == 1
     market = market.replace(period, period.replace("'2022-01-01'", "'2027-02-01'"))
+    refs.extend([f"INSERT INTO ref_data.price_index_definitions SELECT catalog_id,revision_id,'synthetic_in_term_index',commodity_code,location_code,currency_code,quote_unit_code,quote_multiplier,calendar_code FROM ref_data.price_index_definitions WHERE(catalog_id,revision_id,code)=({R},'test_price');",
+                 f"INSERT INTO ref_data.settlement_targets VALUES({R},'synthetic_in_term_target','index','synthetic_in_term_index',NULL);"])
     market = market.replace('UPDATE ref_data.revisions SET', '\n'.join(refs) + '\nUPDATE ref_data.revisions SET', 1)
     market = market.replace('UPDATE market_data.revisions SET', '\n'.join(definitions) + '\nUPDATE market_data.revisions SET', 1)
     market = market.rsplit('COMMIT;', 1)[0] + '\n'.join(observations) + '\nCOMMIT;\n'
@@ -177,6 +181,6 @@ def trade(context, location, books, setup, curve):
             'gasSetupId': setup, 'discounting': False, 'profile': 'indexed_gas_composition_v1',
             'physicalSides': [dict(code='gas', pipeline=location['pipeline'], zone=location['zone'], deliveryPoint=location['deliveryPoint'], product=location['product'],
                                    direction='receive', deliveryFrom=str(TERM[0]), deliveryTo=str(TERM[1]), quantityBasis='per_operating_day', quantity='100', link=None, forecastCurve=forecast, calendarPolicy=side_calendar_policy(calendar,delivery=True,observation=False,payment=False))],
-            'cashSides': [dict(code='payment', role='indexed_consideration', direction='pay', source='gas', stage='delivery', price=None, tariffCode=None, paymentAt=None, calendarPolicy=side_calendar_policy(calendar,delivery=True,observation=True,payment=True),
-                               indexed=dict(index='test_price', observationConvention='daily_published_index_v1', paymentConvention='next_month_day_utc_v1',
+            'cashSides': [dict(code='payment', role='indexed_consideration',share='1', direction='pay', source='gas', stage='delivery', price=None, tariffCode=None, paymentAt=None, calendarPolicy=side_calendar_policy(calendar,delivery=True,observation=True,payment=True),
+                               indexed=dict(index='synthetic_in_term_index', observationConvention='named_index_daily_v1', paymentConvention='next_month_day_utc_v1',
                                             paymentDay=10, spread='0', forecastCurve=forecast))]}

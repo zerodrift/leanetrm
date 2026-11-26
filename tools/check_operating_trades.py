@@ -7,23 +7,24 @@ def run_checks(query, manifest, psql=None, environment=None):
     catalog = manifest['catalogId']
     from preview_fixture import trade_booking, trading_fixture
     query(trading_fixture(catalog))
-    query("INSERT INTO security.role_permissions SELECT id,p FROM security.roles CROSS JOIN "
-        "(VALUES('ReadPhysical'),('ManagePhysicalSetup'))x(p) WHERE code='trader' ON CONFLICT DO NOTHING;")
     passed = 0
     def check(label, condition=True):
         nonlocal passed
         assert condition, label
         passed += 1
         print('PASS operating trades: ' + label, flush=True)
-    def runtime(sql):
+    check('a read grant made by hand before the migration is kept, and the migration installs the rest',
+        query("SELECT count(*) FROM security.role_permissions p JOIN security.roles r ON r.id=p.role_id "
+              "WHERE p.permission='ReadPhysical' AND r.code IN('risk_analyst','trader');")=='2')
+    def runtime(sql, actor='trader'):
         token = query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
-            f"'https://preview.invalid','trader','human_interactive','{manifest['tenantId']}',"
+            f"'https://preview.invalid','{actor}','human_interactive','{manifest['tenantId']}',"
             f"'{manifest['workspaceId']}',NULL,'preview_runtime',120);")
         return ('BEGIN;SET LOCAL SESSION AUTHORIZATION preview_runtime;'
                 f"SELECT security.use_context('{token}');" + sql + 'COMMIT;')
-    def reject(sql, code, auth=False):
+    def reject(sql, code, auth=False, actor='trader'):
         try:
-            query(runtime(sql) if auth else sql)
+            query(runtime(sql, actor) if auth else sql)
         except RuntimeError as error:
             assert code in str(error), str(error)
         else:
@@ -40,7 +41,7 @@ def run_checks(query, manifest, psql=None, environment=None):
         referenceRevisionId=manifest['referenceRevisionId'],facilityCode='test_facility_a',clockCode='test_utc',intervalMinutes=60,powerQuantityCode='test_power_megawatt',
         energyQuantityCode='test_power_quantity',fuelQuantityCode='test_gas_quantity',battery=None,thermal=params,solar=None,implementation='structured_power_facility_v1')
     facility=dict(id=str(uuid4()),version=1,effectiveFrom='2020-01-01T00:00:00Z',effectiveTo='2022-01-01T00:00:00Z',terms=terms)
-    query(runtime(f"SELECT physical.save_power_operating_facility('{catalog}','{uuid4()}',0,{literal(facility)});"))
+    query(runtime(f"SELECT physical.save_power_operating_facility('{catalog}','{uuid4()}',0,{literal(facility)});", 'editor'))
     plan=dict(snapshotId=str(uuid4()),facilityId=facility['id'],facilityVersion=1,grid=dict(operatingDate='2021-01-01',firstInterval=1),
         batteryState=None,batteryDispatch=[],solarRight=None,solarDispatch=[],thermalState=dict(at='2021-01-01T00:00:00Z',commitment='offline',elapsedMinutes=60,
         previousOutputMw='0',startsUsed=0,guaranteedHeatRate='7',guaranteedNoLoadFuelPerHour='0',guaranteedStartupFuel='0',terminalPolicy='require_minimum_times_satisfied',numericalPolicy='thermal_exact_elapsed_quantity_v1'),
@@ -67,7 +68,7 @@ def run_checks(query, manifest, psql=None, environment=None):
         battery=dict(maximumChargeMw='10',maximumDischargeMw='10',minimumStoredMwh='0',maximumStoredMwh='20',chargeEfficiency='0.9',dischargeEfficiency='0.9',
         meterBoundary='grid_side_ac',lossPolicy='zero_auxiliary_and_self_discharge',capacityPolicy='fixed',simultaneousPolicy='prohibited',chargingOrigin='grid',
         throughputPolicy='grid_charge_plus_discharge',maximumThroughputMwh='25'))
-    query(runtime(f"SELECT physical.save_power_operating_facility('{catalog}','{uuid4()}',0,{literal(battery)});"))
+    query(runtime(f"SELECT physical.save_power_operating_facility('{catalog}','{uuid4()}',0,{literal(battery)});", 'editor'))
     bp=dict(snapshotId=str(uuid4()),facilityId=battery['id'],facilityVersion=1,grid=dict(operatingDate='2021-01-01',firstInterval=1),
         batteryState=dict(at='2021-01-01T00:00:00Z',storedMwh='0',cumulativeGridThroughputMwh='0',terminalMinimumMwh='0',terminalMaximumMwh='0'),
         batteryDispatch=[dict(chargeMw='10',dischargeMw='0',availablePowerFraction='1'),dict(chargeMw='0',dischargeMw='8.1',availablePowerFraction='1')],
@@ -86,7 +87,7 @@ def run_checks(query, manifest, psql=None, environment=None):
     changed=json.loads(json.dumps(bp));changed['batteryDispatch'][0]['chargeMw']=10
     reject(selected_evaluate(changed,battery['id']),'operating_booking_number');check('raw numeric scalars cannot replace required exact decimal strings')
     solar=json.loads(json.dumps(facility));solar['id']=str(uuid4());solar['terms'].update(kind='solar',powerQuantityCode=None,fuelQuantityCode=None,thermal=None,solar=dict(stage='delivered'))
-    query(runtime(f"SELECT physical.save_power_operating_facility('{catalog}','{uuid4()}',0,{literal(solar)});"))
+    query(runtime(f"SELECT physical.save_power_operating_facility('{catalog}','{uuid4()}',0,{literal(solar)});", 'editor'))
     sp=dict(snapshotId=str(uuid4()),facilityId=solar['id'],facilityVersion=1,grid=dict(operatingDate='2021-01-01',firstInterval=1),batteryState=None,batteryDispatch=[],thermalState=None,thermalDispatch=[],
         solarRight=dict(forecastAssumption='hypothetical_supplied_forecast_v1',entitlementNumerator='1',entitlementDenominator='2',deliveryBasis='as_produced',paymentBasis='produced_only'),
         solarDispatch=[dict(productionMwh='10',requiredDeliveryMwh=None)],valuation={})
@@ -114,6 +115,13 @@ def run_checks(query, manifest, psql=None, environment=None):
         return f"SELECT security.book_operating_right('{catalog}',{literal(body)},{literal(prepared)},'2020-12-15T12:00:00Z');"
     reject(book(command),'operating_schedule',True)
     check('a complete financial command reaches the explicit missing-stage boundary')
+    for actor in ('risk','editor','viewer','approver','admin'):
+        reject(book(command),'operating_booking_denied',True,actor)
+    check('only the installed booking role reaches operating-right admission')
+    without_read=("BEGIN;DELETE FROM security.role_permissions WHERE permission='ReadPhysical' AND role_id='a0000000-0000-0000-0000-000000000002';"
+        +runtime(book(command)).removeprefix('BEGIN;').removesuffix('COMMIT;')+'ROLLBACK;')
+    reject(without_read,'operating_facility_unavailable')
+    check('a booker without Physical read authority cannot select an operating facility')
     mutations=[('fixed price',lambda v:v['energyPrice'].update(fixedPrice=100)),
         ('variable fee',lambda v:v.update(variablePrice=1,variableQuantityBasis='energy_output')),
         ('access fee',lambda v:v.update(accessPrice=2,accessQuoteCode='test_resource_right_quote',accessFeeBasis='preview_horizon_once_v1')),
@@ -163,6 +171,9 @@ def run_checks(query, manifest, psql=None, environment=None):
 
 
 def before_migration(query,migration):
+    if migration.name=='0389_operating_role_grants.sql':
+        # An installation may already have granted the read capability by hand; the migration keeps that grant.
+        query("INSERT INTO security.role_permissions SELECT id,'ReadPhysical' FROM security.roles WHERE code='risk_analyst';")
     if migration.name=='0356_operating_side_composition.sql':
         from check_fact_anchor_upgrade import run_checks
         run_checks(query,migration,number='0356',guard='operating_composition_upgrade',signatures=(

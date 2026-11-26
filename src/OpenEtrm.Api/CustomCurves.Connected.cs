@@ -109,7 +109,7 @@ public static partial class CustomCurves
         ct.ThrowIfCancellationRequested();
         if(ordinary&&preparationScope?.Find(connection,database,data,snapshot,exact,dependencies) is {} reused)
         {
-            foreach(var lookup in prices.Where(price=>price.Lookup is not null).Select(price=>price.Lookup!).Distinct())
+            foreach(var lookup in prices.Where(price=>price.Lookup is not null&&!price.UsesDeliveryMark).Select(price=>price.Lookup!).Distinct())
                 _=IndexFixingPricing.Resolve(reused.Authority,lookup);
             return reused;
         }
@@ -221,7 +221,7 @@ public static partial class CustomCurves
 
         // A due index fixing is a pricing input even when no projected curve
         // dependency remains. Qualify it before advertising a usable risk graph.
-        foreach(var lookup in prices.Where(price=>price.Lookup is not null).Select(price=>price.Lookup!).Distinct())
+        foreach(var lookup in prices.Where(price=>price.Lookup is not null&&!price.UsesDeliveryMark).Select(price=>price.Lookup!).Distinct())
             _=IndexFixingPricing.Resolve(authority,lookup);
         var observationLookups=prices.Where(price=>price.ContractObservation is not null)
             .Select(price=>price.ContractObservation!).Distinct().ToImmutableArray();

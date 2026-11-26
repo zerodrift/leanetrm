@@ -8,7 +8,7 @@ using OpenEtrm.Shared.Temporal;
 
 internal static class OperatingBookChecks
 {
-    internal static int Run()
+    internal static int Run(Action<SidedInstrument, SideValuationContext>? inspect = null)
     {
         var f=new Fixture();var one=ExactDecimal.Parse("1");var minus=ExactDecimal.Parse("-1");
         var date=new DateOnly(2041,1,1);var end=date.AddMonths(1);var payment=Fixture.Utc("2041-02-18T00:00:00Z");
@@ -82,6 +82,8 @@ internal static class OperatingBookChecks
             setup with{OperatingQuantities=ImmutableDictionary<Guid,OperatingQuantityInputs>.Empty});
         var powerBump=new QuoteBump(new(f.S(7),InputUse.Variable),power.Key,PriceUnit.FromQuote(power),ExactDecimal.Parse("1"),QuoteBump.Convention);
         RetainedProgramSideChecks.Operating(reopened,model,snapshot,powerBump);
+        inspect?.Invoke(right, new SideValuationContext(market, setup.Discounting!).WithOperatingQuantities(cells));
+        inspect?.Invoke(reopened, SideValuationContext.ForRetainedPrograms(market, market, setup.Discounting!));
         var result=RiskEngine.Calculate(model,snapshot,portfolio,[powerBump],RiskEngine.NumericalPolicy);
         var reopenedRisk=RiskEngine.Calculate(model,snapshot,reopenedPortfolio,[powerBump],RiskEngine.NumericalPolicy);
         Equal(reopenedRisk.Factors.Single().Totals.Single().Base,"185");

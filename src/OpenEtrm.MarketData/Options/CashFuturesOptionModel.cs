@@ -38,6 +38,7 @@ public static class CashFuturesOptionModel
         RequirePolicy(policy);ct.ThrowIfCancellationRequested();
         if(terms is null||numerical is null||calibration is not(SolvedVolatility or IntrinsicFallback)||rule is null||!Enum.IsDefined(terminal)||
             margin?.Implementation is not(FuturesMarginPolicy.Version or FuturesMarginPolicy.DeliveryVersion)||margin.Delivery is not null)throw Error();
+        ReferenceFuturesOptionStrategy.RequireQualifiedStyle(terms);
         _=AmericanFuturesOptionModel.ValidateInputs(terms,futures,referenceExpiryDiscount,at,numerical);
         _=rule.Decide(terms.Right,terms.Strike,terms.Strike);
         var nodes=ReferenceFuturesOptionStrategy.NodeMargins(terms,margin,at,numerical);var required=nodes.DistinctBy(o=>o.Id).ToArray();

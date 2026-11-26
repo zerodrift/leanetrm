@@ -3,6 +3,11 @@ using System.Numerics;
 using OpenEtrm.MarketData;
 using OpenEtrm.Security;
 
+if(args is ["--instrument-schedule"]){InstrumentScheduleChecks.Run();return;}
+if(args is ["--gas-composition-pricing"]){GasCompositionPricingChecks.Run();return;}
+if(args is ["--gas-instrument-schedule"]){GasInstrumentScheduleChecks.Run();return;}
+if(args is ["--gas-charges"]){GasChargeChecks.Run();return;}
+if(args is ["--gas-imbalance-cashout"]){GasImbalanceCashoutChecks.Run();return;}
 if(args is ["--instrument-sides"]){InstrumentSideAlignmentChecks.Run();return;}
 if(args is ["--cash-sides"]){CashSideAlignmentChecks.Run();return;}
 if(args is ["--gas-holding-side"]){GasHoldingSideChecks.Run();return;}
@@ -78,6 +83,7 @@ if(args is ["--gas-daily-quantities"]){GasDailyQuantityChecks.Run();return;}
 if(args is ["--physical-gas-quantities"]){PhysicalGasQuantityChecks.Run();return;}
 if(args is ["--physical-gas-side"]){PhysicalGasSideChecks.Run();return;}
 if(args is ["--side-payment-state"]){SidePaymentStateChecks.Run();return;}
+if(args is ["--delivery-quantities"]){DeliveryQuantityChecks.Run();return;}
 if(args is ["--physical-lifecycle"]){PhysicalLifecycleChecks.Run();return;}
 if(args is ["--gas-forward-settlement-example"]){GasForwardSettlementExampleChecks.Run();return;}
 if(args is ["--gas-forward-settlement-example-json"]){Console.WriteLine(GasForwardSettlementExampleChecks.Export());return;}
@@ -98,7 +104,10 @@ if(args is ["--schedule-view"]){ScheduleViewChecks.Run();return;}
 
 if(args is ["--side-block-checks"]){SideBlockExperiment.Check();return;}
 if(args is ["--futures-options"]){FuturesOptionChecks.Run();return;}
+if(args is ["--european-options"]){EuropeanFuturesOptionChecks.Run();return;}
 if(args is ["--spread-options"]){SpreadOptionChecks.Run();HeatRateCallChecks.Run();HeatRateCallScheduleChecks.Run();return;}
+if(args is ["--exercise-mark-pair"]){ExerciseRightChecks.MarkBindings();return;}
+if(args is ["--exercise-rights"]){ExerciseRightChecks.Run();return;}
 if(args is ["--option-calibration-workload"]){FuturesOptionChecks.CalibrationWorkload();return;}
 if(args is ["--vol-surface"]){VolSurfaceChecks.Run();return;}
 if(args is ["--compact-retained"]){CompactRetainedChecks.Run();return;}
@@ -628,6 +637,7 @@ TradingPnlChecks.Run();passed++;
 TradingPnlAttributionChecks.Run();passed++;
 UnpaidCashChecks.Run();passed++;
 PhysicalLifecycleChecks.Run();passed++;
+DeliveryQuantityChecks.Run();passed++;
 GasForwardSettlementExampleChecks.Run();passed++;
 SplicedCurveChecks.Run();passed++;
 CurvePriceBindingChecks.Run();passed++;
@@ -661,6 +671,7 @@ ConnectedPortfolioChecks.Run();
 ValuationEnvironmentChecks.Run();passed++;
 OptionSensitivityChecks.Run();passed++;
 OptionStrategyChecks.Run();passed++;
+EuropeanFuturesOptionChecks.Run();passed++;
 JointScenarioRiskChecks.Run();
 AlignedFactorHistoryChecks.Run();
 ParametricRiskChecks.Run();
@@ -688,6 +699,11 @@ GasParkCustodyChecks.Run();passed++;
 GasTransportCapacityChecks.Run();passed++;
 GasTransportRouteChecks.Run();passed++;
 InstrumentSideAlignmentChecks.Run();passed++;
+InstrumentScheduleChecks.Run();passed++;
+GasInstrumentScheduleChecks.Run();passed++;
+GasChargeChecks.Run();passed++;
+GasImbalanceCashoutChecks.Run();passed++;
+GasCompositionPricingChecks.Run();passed++;
 CashSideAlignmentChecks.Run();passed++;
 GasHoldingSideChecks.Run();passed++;
 GasRightsSideChecks.Run();passed++;

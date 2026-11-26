@@ -81,7 +81,7 @@ internal static class OptionStrategyRead
         var limit=ExactDecimal.Parse(MaxVolatilityShiftPoints.ToString(CultureInfo.InvariantCulture));
         if(body.VolatilityShiftPoints.CompareTo(limit)>0||body.VolatilityShiftPoints.CompareTo(-limit)<0||!body.VolatilityShiftPoints.IsMultipleOf(FuturesOptionSensitivities.VolatilityPoint))
             throw Error("strategy_volatility_shift",$"Shift volatility by at most {MaxVolatilityShiftPoints} points either way, in hundredths of a point.");
-        if(body.Valuation!=FuturesOptionValuationPolicy.Release1)throw new MarketDataException("option_policy","Select the offered option valuation policy in full.");
+        if(body.Valuation!=FuturesOptionValuationPolicy.Release2)throw new MarketDataException("option_policy","Select the offered option valuation policy in full.");
         if(body.ExpiryRule!=OptionStrategies.ExerciseRule)throw Error("strategy_expiry_rule",$"Select the {OptionStrategies.ExerciseRule} rule for what a leg is worth at expiry.");
         if(body.Sensitivities is null)throw new MarketDataException("option_sensitivity_policy","State the option sensitivity selection of the analysis.");
         OptionSurfaceAnalytics.Select(body.Sensitivities.Policy,body.Sensitivities.Bump,body.Sensitivities.VolatilityBump);
@@ -177,7 +177,7 @@ internal static class OptionStrategyRead
                 ["prices"]=prices,["pointCounts"]=new JsonArray([..PointCounts.Select(n=>(JsonNode)n)]),
                 ["instants"]=new JsonArray([..instants.Select(at=>(JsonNode)Instant(at))]),["instantsComplete"]=complete,["instantsBefore"]=Instant(horizon),
                 ["selectedInstants"]=new JsonArray([..instants.Take(1).Select(at=>(JsonNode)Instant(at))]),["volatilityShiftPoints"]="0",
-                ["valuation"]=JsonSerializer.SerializeToNode(FuturesOptionValuationPolicy.Release1,Json),["sensitivities"]=sensitivities,["expiryRule"]=OptionStrategies.ExerciseRule
+                ["valuation"]=JsonSerializer.SerializeToNode(FuturesOptionValuationPolicy.Release2,Json),["sensitivities"]=sensitivities,["expiryRule"]=OptionStrategies.ExerciseRule
             }
         };
     }

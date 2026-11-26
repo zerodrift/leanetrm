@@ -122,7 +122,7 @@ public sealed partial class FuturesOptionStore(PreviewDatabase database)
                     commodity=data.Commodity(s.Request.Curve.Code),underlyingSeries=s.Series.UnderlyingSeries.Code,
                     right=s.Series.Terms.Right.ToString().ToLowerInvariant(),strike=s.Series.Terms.Strike.ToString(),expiryAt=s.Series.Terms.ExpiryAt.ToString("O",CultureInfo.InvariantCulture),
                     lastTradingAt=s.Series.LastTradingAt?.ToString("O",CultureInfo.InvariantCulture),
-                    exerciseStyle=s.Series.Terms.ExerciseStyle,premiumStyle=s.Series.PremiumStyle,contraryInstructionsAllowed=s.Series.ContraryInstructionsAllowed,
+                    exerciseStyle=s.Series.Terms.ExerciseStyle,settlementMethod=s.Series.Terms.SettlementMethod,premiumStyle=s.Series.PremiumStyle,contraryInstructionsAllowed=s.Series.ContraryInstructionsAllowed,
                     multiplier=s.Series.Multiplier.ToString(),currency=Single(data.ReferenceRows("currencies","code",s.Series.Currency.Code)).Text("display_code"),
                     premiumTick=quote.TradingTick.ToString(),minimumPremium=quote.Minimum.ToString(),maximumPremium=quote.Maximum.ToString(),
                     curve=s.Request.Curve.Code,settlementPrice=settlement.ToString(),quoteUnit,priceUnit=data.PriceUnit(s.Request.Curve.Code),deliveryLot,
@@ -186,6 +186,11 @@ public sealed partial class FuturesOptionStore(PreviewDatabase database)
         return holding;
     }
 
+    // A European option is exercised only at expiry, so exercise and assignment are never offered on its holding. The
+    // authorized operations refuse them with the same code.
+    internal static string? EarlyExerciseRefusal(string action,string exerciseStyle)=>
+        action is "option.exercise" or "option.assignment"&&exerciseStyle==OpenEtrm.MarketData.Options.FuturesOptionTerms.European?"option_exercise_style":null;
+
     // The refusal message of each lifecycle code the authorized operations raise.
     public static string? EventRefusal(string code)=>code switch
     {
@@ -194,6 +199,7 @@ public sealed partial class FuturesOptionStore(PreviewDatabase database)
         "option_event_side"=>"Exercise and instructions apply to long holdings; assignment applies to short holdings.",
         "option_lots_exceeded"=>"The event closes more lots than the holding has open.",
         "option_exercise_window"=>"Exercise and assignment run from the trade's execution through the option's expiry date.",
+        "option_exercise_style"=>"A European option is exercised only at expiry.",
         "option_calendar"=>"The event date is not a business day of the underlying's trading calendar, or the calendar does not cover it.",
         "option_expired"=>"This holding has already expired.",
         "option_holding_closed"=>"This holding has no open lots.",

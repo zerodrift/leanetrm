@@ -144,6 +144,8 @@ public sealed record RiskWork(int PositionCount,int UniqueValuations,int UniqueM
     public int RepeatedScopeReferences=>PositionCount-UniqueValuations;
     public long UnitScenarioCandidates=>(long)UniqueValuations*ScenarioCount;
     public long ReusedUnitScenarioValues=>UnitScenarioCandidates-UnitPricerCalls;
+    public int PreparationUnitPricerCalls{get;init;}
+    public long TotalUnitPricerCalls=>(long)UnitPricerCalls+PreparationUnitPricerCalls;
     public int QuantityApplications{get;init;}
     public int PreparationScenarioCount{get;init;}
     public long CurveGraphEvaluatedNodes{get;init;}
@@ -187,20 +189,43 @@ public sealed class PreparedPortfolioRisk
     {Market=market;Portfolios=portfolios;Contracts=contracts;Factors=factors;PriorRebuilt=priorRebuilt;PriorReused=priorReused;PreparationScenarioCount=preparationScenarioCount;}
 }
 public sealed record GroupedRiskRun(Guid SnapshotId,ImmutableArray<RiskRun> Groups,RiskWork Work);
-public sealed record ExactRiskBookTotal(Guid BookId,ExactDealRiskValues Values);
+public sealed record ExactRiskBookTotal(Guid BookId,ExactDealRiskValues Values)
+{
+    public int UnassessedDays { get; init; }
+    public bool Incomplete => UnassessedDays != 0;
+}
 // Components: the instrument's named parts of Value, which sum to it exactly; empty for an instrument without components.
 public sealed record ExactRiskPositionValue(Guid TradeId,Guid BindingId,Guid BookId,Guid ValuationId,ExactMoney Value)
 {
+    public int UnassessedDays { get; init; }
+    public bool Incomplete => UnassessedDays != 0;
+
     public AccountingOwnerKey Owner{get;init;}=new(AccountingOwnerKind.Trade,TradeId);
     public ImmutableArray<ValueComponent> Components{get;init;}=[];
+    public ImmutableArray<ExerciseGroupValue> GroupValues { get; init; } = [];
+    public ImmutableArray<ExerciseGroupContribution> ExerciseGroups { get; init; } = [];
+    public ImmutableArray<InstrumentEntryValue> Entries{get;init;}=[];
 }
 public sealed record ExactRiskPositionResult(Guid TradeId,Guid BindingId,Guid BookId,Guid ValuationId,ExactDealRiskValues Values)
 {
+    public int UnassessedDays { get; init; }
+    public bool Incomplete => UnassessedDays != 0;
+
     public AccountingOwnerKey Owner{get;init;}=new(AccountingOwnerKind.Trade,TradeId);
     public ImmutableArray<ComponentRiskValues> Components{get;init;}=[];
+    public ExerciseScenarioGroupValues? GroupValues { get; init; }
+    public ImmutableArray<ExerciseGroupRiskValues> ExerciseGroups { get; init; } = [];
+    public ImmutableArray<EntryRiskValues> Entries{get;init;}=[];
 }
 // One named component of a position under the base and the two scenarios of a bump.
 public sealed record ComponentRiskValues(string Name,ExactMoney Base,ExactMoney Up,ExactMoney Down);
+public sealed record ExerciseScenarioGroupValues(ImmutableArray<ExerciseGroupValue> Base, ImmutableArray<ExerciseGroupValue> Up, ImmutableArray<ExerciseGroupValue> Down);
+public sealed record ExerciseGroupRiskValues(ExerciseGroupKey Group, ExactMoney Base, ExactMoney Up, ExactMoney Down);
+public sealed record EntryRiskValues(int Slot,ExactMoney Base,ExactMoney Up,ExactMoney Down)
+{
+    public int UnassessedDays { get; init; }
+    public bool Incomplete => UnassessedDays != 0;
+}
 public sealed record ExactBookRiskFactor(QuoteBump Bump,ImmutableArray<ExactRiskBookTotal> Totals,ScenarioWork UpWork,ScenarioWork DownWork)
 {
     public ImmutableArray<ExactRiskPositionResult> Positions{get;init;}=[];

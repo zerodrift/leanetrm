@@ -21,7 +21,7 @@ public static partial class RiskEngine
         var flows=AccountingFlows(prepared,cancellation);var context=prepared.Scenario.Plan.Context;
         var values=CalculateExact(prepared,[],ExactNumericalPolicy,cancellation,RiskDetail.Holdings);
         return new(context.ContextId,values.SnapshotId,context.ValuationAt,context.KnownAt,
-            [..values.Groups.SelectMany(g=>g.BasePositions).Select(p=>new PnlPositionValue(new(p.Owner,p.BindingId,p.BookId),p.Value))],
+            [..values.Groups.SelectMany(g=>g.BasePositions).Select(p=>new PnlPositionValue(new(p.Owner,p.BindingId,p.BookId),p.Value){UnassessedDays=p.UnassessedDays})],
             flows,PnlAccountingCoverage.Complete){ValueSources=[prepared]};
     }
     internal static void RequireActualAccounting(PreparedConnectedPortfolioRisk prepared)

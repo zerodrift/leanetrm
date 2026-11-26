@@ -2983,8 +2983,10 @@ context, current authority and idempotent first outcomes apply throughout.
 
 No live pipeline submission, tariff interpretation, new portfolio imbalance
 instrument, automatic cash-out, invoice/payment execution or accounting is
-introduced by this manual consumer. Qualify the business oracles and complete
-independent review before publication.
+introduced by this manual consumer. D454 adds an explicit cash-out pair on a gas
+trade and a scoped financial read of its statement evidence; transfer cash remains
+outside the portfolio. Qualify the business oracles and complete independent
+review before publication.
 
 ## D340 — Separate physical operations and instrument inspection
 
@@ -5559,7 +5561,11 @@ classified ordinary operations. The page response transport refuses them before
 session resolution, so detachment cannot discard delegated authority guards.
 
 Bound active work, queued requests, identities, serialized responses and channel
-lifetimes. Identical request-ID retries cannot execute twice; conflicting reuse
+lifetimes. The opening receipt advertises the admission window after reserving
+the configured submission deadline, the read budget and both serial publication
+budgets. At that boundary the browser drains submitted reads before opening
+another channel for unsent queued work.
+Identical request-ID retries cannot execute twice; conflicting reuse
 is refused. Cancellation invalidates the consumer immediately while transport
 capacity is released only after server termination or an exact non-admission
 receipt. A cancellation that precedes admission atomically reserves its request
@@ -7014,3 +7020,665 @@ windows. Native intervals and submission times retain their reported precision
 in the selected display zone. On phones, navigation and the selected
 instrument's chooser open on demand. The chooser
 reuses D424's grouped list and retains the working draft.
+
+## D444 — Installed roles set up and read operating facilities
+
+Decided by the owner on 2026-11-22. Migration 0342 created `ReadPhysical` and
+`ManagePhysicalSetup` and granted them to no role (D412). On an installation no
+person could therefore set up an operating facility or read one, or book, read
+or value a thermal toll, battery right or solar right. Only the local preview and
+the checks could, by granting themselves the permissions.
+
+Migration 0389 installs both:
+
+- `ManagePhysicalSetup`: Market data editor. The role already writes the
+  reference data and market definitions a facility version pins, and hosted
+  provisioning gives it to the owner, so a facility can be set up without a
+  change to anyone's roles. A facility save stays one step, with no approver's
+  seal.
+- `ReadPhysical`: Market data editor and every human role that reads trades:
+  Trader, Risk analyst, Facility operations, Facility operating limits, Gas
+  delivery operations, Gas service setup, Contracts administration,
+  Counterparty credit, Trade confirmations and Trade supervisor.
+
+An operating right is a trade. A trade reader without `ReadPhysical` is refused
+the whole position, valuation or risk read of any scope that holds one
+(`operating_position_unavailable`), cannot see or confirm the trade on the
+confirmations desk, and reads a plant's facility report without its installed
+capacity and operating trades. Giving the read to every trade-reading human
+role means that booking the first operating right changes nothing in another
+person's reads. Setup stays with one role.
+
+Unchanged. Viewer, Market data approver, Access administrator and Assistant
+prompt editor read no trades and hold neither permission. The agent-only roles
+hold neither. A read the assistant makes under its own agent role, such as its
+trade-reading tool, is therefore refused over a scope that holds an operating
+right; a workspace page operation runs under the asking person's authority and
+reads what that person reads. Booking still needs `BookTrade`; the supplied-plan
+preview and the hedge report still need `RunScenario`, which only Risk analyst
+holds. The migration assigns no role to any person, keeps a grant an
+installation already made and stops if an installed role is missing. The local
+preview and the operating checks no longer grant themselves these permissions.
+
+The grant follows the role, whoever holds it. A scheduled risk run acts as the
+scheduler's service account, which needs `RunScenario` and so in practice Risk
+analyst, and now reads operating rights. The price collector's service account
+holds Market data editor, but its database login cannot execute the facility
+operations. A role an installation added by hand is not changed, as for earlier
+capabilities; if it reads trades, its holders meet the refusals above until the
+installation grants it `ReadPhysical`.
+
+A later human role that reads trades needs `ReadPhysical` too. The facility
+storage check compares the two sets of roles, and the owned HTTP check runs each
+role as one person against every operating route.
+
+Rejected. Facility operating limits, or a new setup role, for
+`ManagePhysicalSetup`: no person holds either at installation, and an account
+holds at most six roles, which the hosted owner already does. `ReadPhysical` for
+Trader and Risk analyst only: the eight other trade-reading roles would meet the
+refusals above. Whether the whole-read refusal should instead list the right as
+unavailable is not decided here.
+
+## D445 — Selected delivery quantities in the physical lifecycle
+
+A booked physical membership may select `delivery_schedule_v1`. Absence retains
+contract quantity, including every earlier booking. The policy is immutable in
+component terms; recorded quantities remain trade-owned evidence outside Side
+economic identity. Retained schedules and their admission rules do not change.
+Any composition containing a quantity link refuses this policy. The two-location
+entry keeps contract quantity.
+
+The gas adapter selects each day's latest eligible source heads at the financial
+business instant and knowledge cutoff: final allocation, provisional allocation,
+scheduled, then explicitly labelled contract fallback. Nominations and
+confirmations do not change value. Withdrawal removes only that source's current
+head and never revives its predecessor. Manual and adopted facility allocations
+both qualify. Unequal quantities at the winning rank refuse the trade's valuation
+and the complete risk request; equal quantities retain both evidence references.
+Explicit zero remains a quantity.
+
+D446 and D447 move the immutable policy and source relationship into the saved
+Instrument's entry terms and identity. The shared held state contains physical
+owner facts only: complete contract and selected native quantities, source ranks
+and revision evidence. The Instrument schedule derives payment and usage-fee
+days from their physical source. The shared lifecycle scales retained linear
+rows once. For a multi-day contractual
+amount A and total contract quantity Q, the selected amount is A times selected
+quantity divided by Q; accrued and remaining amounts use the selected quantities
+of ended and unended days respectively. This supersedes D360's contract-estimate
+accrual basis only for opted-in memberships. Prices, fixing admission and recorded
+payments keep their contracts. A correction to zero accrual retains a prior
+payment and shows the full overpaid balance; it does not issue a refund.
+
+Both direct reads and portfolio repricing consume this state. Risk uses the same
+pinned quantities for base/up/down scenarios, with trade-specific reuse boundaries.
+The native reader checks the exact visible binding, current source authority and,
+for an ordinary risk worker, its active lease and exact job scope. The facility
+desk's end-of-day context is not a financial valuation instant. Quantity-only P&L
+movement remains in the residual.
+
+The ticket visibly proposes Delivery schedule and requires an explicit choice.
+Older ticket commands may reconstruct an absent field as contract quantity only
+when the current actor owns an existing retained command with current write
+authority. Native staging and publication still compare the original complete
+request; fresh commands and previews require the field.
+Schedules expose selected quantities, ranks and evidence; common Side inspection
+also shows contract quantity and the exact selected ratio. D447 adds exact daily
+band/shortfall entries; broader nonlinear pricing, fuel links, changed delivery
+locations, final indexed billing, independent keep-whole/imbalance positions and
+adoption by other commodities remain separate work.
+
+## D446 — Every sided Instrument values through its schedule
+
+`SidedInstrument.GenerateSchedule()` returns a cached ordered Instrument schedule.
+Its sealed `PV(SideValuationContext)` evaluates that schedule. The plain schedule
+preserves the prior exact sum and context reuse, with explicit before/after
+conditions retaining product refusals. Row inspection remains lazy and belongs
+to the resulting valuation. Futures and exchange-traded futures options receive
+no schedule method; D181 stands.
+
+The saved-program base supplies the overriding schedule. It prepares per-entry
+occurrence inputs, invokes concrete Sides and combines their signed results.
+Each Side computes and inspects its own saved rows; a Side never reads a sibling,
+and the Instrument never runs a Side's program. Only gas changes its quantity
+behavior in this increment. Other product pricing and the audit boundaries in
+the [design](superpowers/specs/2026-11-23-instrument-schedule-and-gas-pricing-design.md#recorded-not-changed-here)
+remain unchanged.
+
+## D447 — Gas pricing is a composition of independent payment Sides
+
+A gas composition admits one to four physical entries, up to seven payment/fee
+entries and at most eight entries in all. Every new payment states a positive
+share. It may cover its own gas-day-aligned subset of its source's term and take
+whole quantity, a band, or a shortfall below a daily level. Levels entered in
+native units are saved as exact reduced ratios of the holding's base quantity;
+share is folded into the membership ratio. A part needs an independent physical
+source and a composition without fuel links. No intermediate rounding is added.
+
+The D445 policy is an immutable physical entry term in Instrument identity.
+Source slots and parts enter identity only when a policy or part is present;
+absent terms preserve legacy canonical bytes. Physical owner facts carry the
+contract and selected quantity under the pinned business/knowledge context.
+An Instrument with a policy or part refuses missing, incomplete or mismatched
+days. A source without a policy supplies contract-labelled days. The Instrument
+schedule applies the part once over the payment's own dates and passes the
+result to its Side. Explicit zero remains valid, including after a payment:
+paid cash is retained as an overpaid balance.
+
+Every gas draft and stored composition supplies its existing physical owner
+relationships to the retained schedule, including contract-quantity payments.
+Lifecycle geometry is per source: another physical entry cannot change its
+quantities or day boundaries. This execution map enters retained schedule
+identity and prepared-context admission while legacy economic bytes stay intact.
+Direct managed callers with quantity terms derive a complete map from their
+declared membership source slots when the map is absent. D448 uses each
+physical entry's native geometry and the declared source of connected cash in
+direct rights calls without a map. Pooled geometry remains for compatible direct
+calls without a map, quantity terms or rights, and in compatible direct rights
+calls for cash without a source slot. Covered payments require a source.
+Dates never imply a source relationship.
+
+New indexed payments choose `point_publications_v1`, `named_index_daily_v1` or
+`named_index_monthly_v1`. Named indexes resolve exactly one curve by index
+settlement target, commodity and quote, and one contract/fixing per gas day.
+Daily contracts cover that day; monthly contracts cover its containing month.
+The fixing series must name that exact projection contract, not merely another
+contract covering the same dates. This gas qualification leaves generic index
+override behavior unchanged.
+Both use the existing delivery-index Side: a known published fixing prices its
+covered days immediately; otherwise rows are labelled forecasts. Ended days
+accrue only on an earned price; unended days remain unrealized. New
+`daily_published_index_v1` bookings refuse. Retained strict bookings keep their
+saved programs and reopen read-only.
+
+Fixed and indexed pricing, fees and physical value share the retained Instrument
+route for draft preview, held preview, trade reads, Blotter and portfolio risk.
+A held preview names an authorized trade/context and must match its saved terms;
+it cannot book or amend. Per-entry report values come from existing signed Side
+contributions, with no extra repricing. Risk still shocks shared scenarios and
+uses deterministic base/up/down PV. Quantity movement stays in P&L residual.
+
+Final daily billing refuses non-unit share, a part or shortened payment dates
+(`gas_billing_input` at the API, `gas_billing_profile` natively). Whole, full-term
+fixed cash remains supported. Native admission independently checks share,
+levels, source, dates, index coverage and exact schedule rows. Original requests
+and completed replay outcomes are not rewritten. A current actor may recover an
+owned predecessor command only under current write authority; changed complete
+commands still meet native hash conflict checks.
+Modern retries must state their required financial fields. Compatibility may
+restore new payment fields only when the retained predecessor request proves
+they were absent; an interrupted request without retained terms must meet current
+payment admission. The earlier contract-only quantity-policy replay remains.
+
+The twelve design calls are adopted: published-as-available pricing; schedule
+reach limited to sided Instruments; saved-program-base ownership; D445 policy
+identity; mandatory day facts for parts; independent/no-fuel parts; exact base
+ratios for daily levels; share in membership and dates on the payment Side;
+eight total entries; unique index-target curve resolution; bounded billing
+refusal; and preservation of the design's read-only audit list. This implements
+the second shared gas pricing building block. D448 adds the supported exercise
+model separately. General formula pricing, transport/storage optionality and
+automated gas closes remain separate work.
+
+## D448 — Exercise rights are terms of an Instrument
+
+The gas exercise right settles architecture section 5.4. A right governs
+explicit, disjoint existing Instrument memberships. Its period, holder,
+settlement (`physical` or `cash_automatic`), exact group dates and exercise
+instants, model and day count belong to Instrument identity. Omit absent rights
+from canonical identity. The Instrument schedule prepares each entry's own held
+quantity on exercised days and zero on abandoned or undecided days. Each Side
+values its own rows and retains its own payment state. Exercise creates no
+option Side, separate option Instrument or trade. D288 and D431 stand.
+
+| Group state | Contribution |
+| --- | --- |
+| `exercised` | Ordinary selected Side rows, with the existing accrual and payment rules |
+| `abandoned` | Zero |
+| `undecided` before exercise | Holder-choice value added to unrealized PV, positive for `us` and negative for `counterparty` |
+| Undecided physical at or after exercise | Refuse with `exercise_determination` |
+| `undecided_forecast` for cash at or after the last fixing instant | Zero-time holder choice on the available prices until every required index price has published |
+
+The installed model is `spread_call_kirk_lognormal_v1` with
+`OptionNumericalPolicies.ActualOver365FixedInstant`
+(`act_365_fixed_instant_v1`). From the holder's perspective,
+A is uncertain receipts, B is uncertain payments, and c is net certain receipts.
+Each group gives the holder the choice between A − B + c and zero. The positive-time
+model uses this table. At zero time it uses intrinsic value.
+
+| Amounts | Holder-choice value |
+| --- | --- |
+| c ≤ 0, A > 0, B > 0 | Call with long A, short B, strike −c |
+| c < 0, A > 0, B = 0 | Call with long A, short −c at zero volatility, strike 0 |
+| c = 0, A > 0, B = 0 | A |
+| c ≤ 0, A = 0 | 0 |
+| c > 0, A > 0, B > 0 | Call with long B, short A, strike c, plus A − B + c |
+| c > 0, A = 0, B > 0 | Call with long B, short c at zero volatility, strike 0, plus c − B |
+| c > 0, B = 0 | A + c |
+
+The call is the installed `KirkSpreadCall.UnitPrice` in `LatticeDecimal`,
+rounded half-even once by `ToExact()`, with parity terms added exactly. The
+thirteen design calls define the supported profile.
+
+1. A right groups by `delivery_day` or `delivery_month`. One exercise across
+   multiple delivery months needs a separately specified strip model and marks.
+2. D431's heat-rate call keeps its existing Side and mark contract.
+3. D450 adds a premium as an independent lump-sum charge on the same trade.
+   A right cannot cover the charge.
+4. Contract-fixed prices and published index fixings are certain. A market mark
+   remains uncertain for exercise pricing regardless of its schedule label.
+5. Physical exercise uses an `exercised` or `abandoned` election. Save the
+   deadline under `lead_before_first_gas_day_v1`. An election must take effect
+   by that deadline. At or after it, an undecided physical group refuses.
+6. Cash automatic exercise waits for every covered index price to publish,
+   including prices on rows with zero taken quantity. From the last fixing
+   instant, the available projection supplies a zero-time forecast until
+   publication, including after the payment due date.
+7. A cash automatic group's exact holder sum must be positive to exercise.
+   An exact zero is abandoned.
+8. Apply the decision to the day quantity. Whole-term payments thus accrue by
+   exercised days while the Side retains the original row and payment facts.
+9. Use one holder-oriented payoff for all admitted groups. Reverse the sign of
+   its contribution when the counterparty holds the right.
+10. At most one uncertain curve per holder leg is admitted. Two uncertain legs
+    must use different curves. An out-of-model group refuses.
+11. Use revisable per-curve volatility and unordered per-pair correlation by
+    delivery month under `curve_marks_log_return_held_v1`. These are pricing
+    bindings outside economic identity. A single uncertain leg needs only its
+    own volatility. Missing required marks refuse. Generic volatility shocks
+    target exact input IDs. The selected correlation revision belongs to the
+    pricing binding and stays held without a shock.
+12. A visible scheduled or allocated delivery on a covered physical membership
+    requires exercise for that day, including when valuation uses contract
+    quantity. A payment on an original covered cash row requires at least one
+    exercised day in that row.
+13. Round each aggregated held A, B and c half-even to 18 decimal places before
+    `HolderChoice` under `exact_rational_half_even_18_v1`. Day quantities, row
+    allocation, forward sums and decided row economics remain exact.
+
+Election revisions keep an exact binding, group, outcome, evidence, effective
+instant, predecessor and knowledge time. Value uses the highest eligible
+revision under both time coordinates. A known future-effective head can limit
+the reuse interval. Authoring reads the latest known head at the retained
+cutoff, including future-effective and withdrawn revisions. The authorized
+writer validates the exact current binding and expected revisions and commits
+the batch atomically. Identical facts and original command retries return their
+recorded outcome under current authority. A rights-only replacement uses a new
+binding and the old facts remain available to its earlier authorized views.
+
+Admission requires explicitly undiscounted valuation and excludes every
+physical quantity link. Group reporting shows gross exercised Forward sum and
+Counted alongside settlement-adjusted Side PV. The admitted gas scope, refusals
+and authorized ticket operations are recorded in the [design](superpowers/specs/2026-11-23-exercise-rights-design.md),
+[physical gas](physical-gas-side.md#exercise-rights-d448) and
+[the deal ticket](deal-ticket.md#gas-exercise-rights-d448).
+
+## D449 — Listed futures options admit European exercise, an expiry on the underlying's last day and a margined premium (European exercise built; the other two designed)
+
+Decided by the owner on 2026-11-23 with the
+[design](superpowers/specs/2026-11-23-futures-option-styles-design.md). European
+exercise is built as migrations 0397 and 0398; its managed, Python, web, database
+and HTTP checks pass, and its real-browser checks have not yet been run
+([verification](verification.md#european-futures-options-d449)). An expiry on the
+underlying's last day and a margined premium are designed and not built. D288 stands
+for American options with premium paid up front that expire before their underlying.
+
+A listed futures option remains one leaf instrument keyed by its exact series
+(D417). Three terms that D288 fixed become stated terms of the versioned reference
+rows. None has a default and none is inferred from another term, the commodity or
+the exchange. Each is admitted by its own migration and can be taken without the
+others.
+
+European exercise. A product row states `american` or `european`. A European
+series is exercised only at expiry, by its product's automatic exercise rule, into
+one underlying future per option at the strike; exercise or assignment before
+expiry is refused with `option_exercise_style`, and a European product does not
+accept contrary instructions. It is valued by
+`european_futures_option_black76_v1`: the Black-76 formula on the underlying
+future's price in the project's fixed-point decimal, calibrated so the base value
+equals the option's daily settlement and held under futures shocks, with no price
+step. The valuation policy names that model in its own member; a scope holding a
+European series under a policy without it is refused with `option_policy`. A
+European series is never valued on the American tree, and the American pricer does
+not change.
+
+Expiry on the underlying's last trading day. The product's expiry rule states its
+relation to the underlying, `before_last_trading` or `on_last_trading_day`, and the
+automatic exercise rule names the price it judges by: the underlying's daily
+settlement on the option's last trading date, or its final contract settlement.
+The second relation and the second price go together, on a cash-settled underlying
+only, and such an option expires at the instant its future stops trading. The
+deciding price is read from the settlement source of the linked future's margin
+policy. Expiry still books a linked future at the strike (D288). A future booked
+by an option event may be executed at the instant its market closes, adopts its
+margin policy in the same transaction and is settled by its own final margin.
+Every existing expiry rule states `before_last_trading`, which is what the earlier
+series check enforced.
+
+Margined premium. A product whose premium is margined is booked with no premium
+cash; the trade price is the execution basis. Its variation margin is kept in the
+futures margin records under a saved option margin policy on the option contract:
+daily determinations against the option's own settlement, and a closing
+determination at zero for the lots an exercise, assignment or expiry closes. The
+journal reads as if recorded in business-time order: a close needs margin
+determined up to it, and a close recorded late restates the margin struck after
+it under a new knowledge time. A holding that has not adopted a policy cannot be
+closed. Under the declared
+`margined_option_open_variation_v1` valuation the option is valued at a unit
+discount and a holding's value is the model value less its settled basis.
+Determined margin, cash due, cash paid and that outstanding variation stay
+separate facts.
+
+No role or permission is added. On a cash-settled underlying a market data editor
+saves margin policies, a trader books and records exercise and expiry, and the
+holders of `AmendTrade` set up actions and determine margin.
+
+Compatibility. No existing row is rewritten. Existing products, series, bookings,
+events, futures margin records, policy hashes and retained results keep their
+meaning. Stating new members in the Blotter's and the risk catalog's pricing
+policy means runs retained under the earlier stated policy remain readable but are
+no longer a scope's current report (D396).
+
+Still refused: options that settle straight to cash, average-price, strip, spread
+and weekly options, an expiry on the last day of a physically delivered future,
+initial margin, and European or margined options in the D401 lifecycle projection
+and its reference strategies.
+
+Settled while building European exercise (2026-11-23), within what the design left
+to the builder:
+
+- The formula's numerical policy states no lattice, a volatility bracket of 0.01 to
+  3 that is never lowered, at most 30 halvings and a discount tolerance of 0.005.
+  The tolerance admits a market rate half a point above the selected curve's for a
+  year, or two points for a quarter. It is a first value and has not been measured
+  against real settlements.
+- The policy's existing model members govern American series only: a policy that
+  names the formula there, or the tree in the European member, is refused with
+  `option_policy`.
+- The style is refused ahead of the exercise-notice test in the proposal and the
+  event primitive, so a European exercise is answered with `option_exercise_style`
+  whatever the product's notice rule states. In the lifecycle list that reason
+  outranks a missing configuration, and the row is shown with the other inactive
+  actions.
+- A stored volatility surface names the numerical policy of its product's exercise
+  style. The fit admission checks it once the caller is known to read the product.
+- A European fallback is pinned to its source instant, as the American fallback is.
+
+## D450 — Gas compositions admit fixed payments that own their quantity
+
+A `charge` membership uses the existing fixed payment Side. Its immutable
+`owned_quantity_v1` term binds its basis, stated daily quantity as an exact
+ratio, and gas-day clock to the Instrument. The booked membership retains
+the matching physical clock slot on the same trade. A charge has no source or stage. Each following
+payment still names its physical owner and stage and covers only that owner's
+days. An Instrument without charges retains its canonical identity.
+
+The seven design calls are adopted.
+
+1. A `lump_sum` has one row of quantity one. Its day is the latest gas day that
+   has ended at the start of the specified UTC payment date.
+2. A `capacity` charge has a row for each calendar month it covers. The
+   quantity is daily capacity times that month's covered day count. Payment is
+   at midnight UTC on the stated day 1–28 of the next month under
+   `next_month_day_utc_v1`, with no holiday adjustment.
+3. Capacity uses one positive daily quantity for the entire stated
+   inclusive-start, exclusive-end term.
+4. The charge takes its exact clock and unit from a named physical Side on
+   the same trade and uses the composition's currency. Both delivery and
+   payment calendar bindings are explicit.
+5. The stated lump sum and daily capacity are independent of trade delivery
+   size. Membership ratios normalize them to the holding base and the Trade
+   scales once.
+6. The stated price is a fixed contractual amount or rate. Booking divides it
+   exactly by the retained quote multiplier to obtain the Side's price
+   literal, keeping the quote, unit and multiplier. An unrepresentable
+   literal refuses. The quote's market price range does not bound contractual
+   charges. Capacity rates are positive. A lump sum can be signed or zero.
+7. The existing fee profiles of other products stand. Transport charges
+   belong to transport's redesign.
+
+Migration 0399 admits the own-day fixed payment shape and its repeated monthly
+occurrences only for charge memberships. Each row accrues by the number of its
+own days ended under its own clock, including days outside all physical
+terms. The shared UTC payment-date rule still requires the payment date to
+be on or after the completion date. If completion falls later on payment day
+1, the last day accrues at the completion instant. The row becomes overdue
+on the following UTC date. Remittance requires at least one earned day at its
+effective instant, and the resolved knowledge cutoff governs its visibility.
+Remittances against a signed lump sum follow the signed membership amount.
+A zero lump sum admits no remittance.
+
+Migration 0400 requires the first owned UTC boundary to be representable
+under the admitted fixed clock. Future-only gas replacement requires the
+first day of every original and proposed charge to start strictly after
+the amendment instant. A recorded payment on any original charge prevents
+replacement, including a known payment effective later. Its receipt and
+allocation stay on their exact instrument binding. A completed request
+replays its first outcome.
+
+Charges count within seven payment Sides and eight total Sides. A lump sum can
+serve as an independent premium on an exercise composition. A right naming a
+charge refuses. Fixed charges have no price dependencies. The gas final
+billing profile refuses charge slots. The deal ticket and retained reads use
+the same exact row and payment terms. See the
+[gas contract](physical-gas-side.md#independent-gas-charges-d450),
+[design](superpowers/specs/2026-11-23-charges-design.md) and
+[local verification](verification.md#independent-gas-charges-d450).
+
+## D451 — A date's source is required before its temporary view is restored
+
+Corrects whole-book P&L runs and states the rule they rely on. Implemented and
+checked on disposable databases
+([verification](verification.md#whole-book-pl-date-sources-d451)).
+
+A request holds one admitted business source at a time (migration 0259), and
+source admission keeps its original read deadline as a commit check (D401,
+[lifecycle projection](lifecycle-projection.md)). A P&L run reads its two dates
+one after the other, each in a temporary view: a savepoint that binds that
+date's context and is restored when the read ends. A run that names no trades
+proves, at each date that holds trades, that its books hold no independently
+owned gas, and that proof admits the date's own exact source inside the view.
+Restoring the view emptied the source slot and left the commit callback of that
+source pending, so every such run was refused at commit with a database denial
+although nothing had been revoked. Runs that name their trades skip the proof
+and were not affected.
+
+The rule, for an admission that declares that its requirement reads state a
+temporary view restores:
+
+- It is required before the restore, while that state exists. A refusal there
+  refuses the request.
+- What outlives the state stays a commit check. The restore leaves no callback
+  to state it removed.
+- A read that fails inside its view returns nothing and leaves no such
+  admission.
+
+The business source is the one admission that declares this. What it keeps for
+commit is its original read deadline with current market and trade access; a
+successor grant does not renew it. Its slot identity and the trading history
+boundary of its context are checked when the view ends. Every other admission
+registered in a view stays pending for commit in full, as before, and so does a
+source admitted outside a view, as lifecycle actions and economic projection
+admit theirs.
+
+The P&L date read is the one consumer. Its final reauthorization binds each date
+again under current authority.
+
+Other admissions registered in a date's view are not declared. Each would be
+refused at commit where its requirement needs that date's bound context. The
+first two below were explored after the change with temporary instrumentation,
+which is not in the tree
+([verification](verification.md#whole-book-pl-dates-without-trades-d452)). No
+run reaches any of these refusals today:
+
+- The service presence proofs of Park and Loan, custody and Transport need
+  their date's read coordinates in the operation, and either a business day
+  that is the UTC date of the date's instant or that date's bound context. The
+  restore removes the coordinates and the binding. At commit the coordinates
+  are there again, because the final reauthorization resolves both dates
+  outside any view, and every date a run can name is on its UTC date: a working
+  snapshot by definition, a recorded close because recording refuses a cutoff
+  on another UTC date ([regional closes](regional-closes.md)). A close stored
+  past that rule with a business day before its UTC date, the one case tried,
+  was refused when its date was read, before a proof was registered. Admitting
+  such closes needs these proofs declared first.
+- The source read of a Park and Loan agreement needs its date's bound context
+  and is refused once the view is restored. Every run that registers it is
+  refused before commit: for accounting coverage while the agreement has value
+  left, because its valuation carries no accounting facts; for the missing gas
+  policy over whole books once the book holds gas; and for its trade scope when
+  a named agreement has nothing left to value. Giving the agreement accounting
+  facts needs this read declared first.
+- The source reads of custody and Transport agreements are of the same kind,
+  read in the code and not run. Neither is registered in a date's view: a run
+  over books that hold either kind of agreement by its closing instant is
+  refused before either date is read (`gas_custody_pnl`,
+  `gas_transport_financial_pnl`).
+
+The economic projection's own copy of the source admission is in no restored
+view and is unchanged. A whole-book date that holds no trades made no owned-gas
+proof; D452 corrects that.
+
+## D452 — A whole-book P&L date proves its books hold no independently owned gas, with or without trades
+
+Corrects whole-book P&L runs over books that hold independently owned gas.
+Implemented and checked on disposable databases
+([verification](verification.md#whole-book-pl-dates-without-trades-d452)).
+
+Whole-book valuation proves that its books hold no independently owned gas, or
+values that gas under an explicitly selected policy
+([owned gas](gas-owned-holdings.md)). A P&L run selects no gas policy, so it
+can only prove absence, and a complete point attests that its books hold
+nothing else ([trading P&L](trading-pnl.md)). A date that holds trades made the
+proof while it was prepared. A date that holds no trades skipped preparation,
+and the proof with it, and was still reported empty with complete coverage. Over
+books that hold gas and no trade at either date, a run was refused as a scope
+with neither holdings nor cash. Where a trade booked after both dates was
+already known and had recorded cash, the run returned a report that listed
+only that cash.
+
+Each date of a run that names no trades now makes the proof, whether or not it
+holds trades. Books that hold independently owned gas are refused with
+`gas_owned_policy_required` at the first date that shows it. A run that names
+its trades makes no proof and claims nothing about its books' gas, as before.
+The proof admits the date's exact source inside its temporary view, under
+D451's rule.
+
+The report offers no gas valuation policy. Books that hold independently owned
+gas are therefore reported only by a run that names its trades, and the
+refusal says so instead of asking for a policy the report cannot take.
+
+## D453 — Curve mark publication is atomic and market scoped
+
+Monthly curve volatility and pair correlation under
+`curve_marks_log_return_held_v1` have one market workspace. Use exact decimal
+strings and retain the existing bounds and independent pair semantics. The
+managed backend owns normalization, validation, draft deltas and coverage.
+
+1. A view pins one exact definition/reference source, business instant and
+   certified knowledge cut. A known fact must meet both the publication prefix
+   and the cutoff. The selected mark also satisfies effective time. A working
+   publisher sees the write predecessor separately. Historical views omit
+   write predecessors.
+2. A batch declares `curve_mark_batch_v1`, one mark kind, exact source and
+   effective instant, an explicit reason and at most 240 unique cells.
+   Migration 0401 adds the batch recorder over the existing facts and
+   requests. Legacy and editor recorders share a private cell operation and one
+   advisory transaction lock. A changed batch appends one publication.
+3. An identical key, value and effective instant acknowledges the original
+   fact without advancing or restoring the head. The receipt identifies the
+   accepted fact and the head at publication. A retried operation returns its
+   original receipt. Review uses a rolled-back savepoint with the same writer.
+4. Editor reads require current market read access. Review and publication also
+   require import authority and working mode. Original deadlines and exact
+   source admission survive waits through commit. Recovery verifies the
+   original actor and workspace and reconstructs durable certified coordinates
+   under current authority. Browser publication and retry use the same
+   recoverable command. Only the matching editor scope refreshes after success.
+
+See the [editor contract](curve-marks-editor.md),
+[security boundary](security.md#curve-mark-editor-boundary) and
+[verification](verification.md#curve-marks-editor-d453).
+
+## D454 — Reported gas balances supply an explicit cash-out pair
+
+A gas composition may name `daily_index_cashout_v1` on an independent physical
+membership. It creates two ordinary named daily index payment entries, received
+for `owed_to_us` and paid for `owed_by_us`, each with a fixed direction and a
+nonnegative absolute quantity. Each entry has its own spread. The pair shares
+its source, index, following-month payment day 1–28, statement basis, account
+netting and statement policy. Explicit calendar bindings remain required.
+The pair counts as two of seven payment Sides and eight total memberships.
+There is no new Side, quantity inferred from delivery, or forecast imbalance.
+
+The ten approved design calls are adopted.
+
+1. Readers with `ReadTrades`, `ReadMarketData` and access to the exact trade and
+   its sources may see the balance evidence used in valuation. Operating
+   screens keep their separate permissions. Workers need their active lease
+   and exact job scope. Missing authority refuses with SQLSTATE `42501`.
+2. The trade explicitly selects `daily_imbalance_v1` or
+   `month_to_date_balance_v1`, and `net_accounts_v1` or `each_account_v1`.
+   Net accounts adds the signed figures before splitting; each account splits
+   each figure before adding. Neither selection is inferred.
+3. Month-to-date differences need the immediately preceding calendar day's
+   assessed account balance. Only day 1 starts from zero. A mid-month term's
+   opening month is unassessed. A correction affects its day and the next day;
+   a gap cannot be bridged to an earlier statement.
+4. An unassessed day has no quantity, accrual or outstanding amount. Its
+   entry, trade, portfolio and risk value is a marked subtotal. Aggregate
+   counts identify each source/day once, not both directions twice.
+5. Withdrawal after payment gives `UnassessedPaid`: the payment remains a
+   fact and accrual stays unknown. An assessed correction to zero or a sign
+   change instead leaves an overpaid balance on the old direction.
+6. A net settlement is one immutable fact linked to the directional payments.
+   Explicit occurrence allocations must conserve its net amount and belong
+   to its month. Zero directional legs create no payment. Same-fact retries
+   return the existing settlement; a different second monthly fact refuses.
+7. Zero price is real zero. Negative index plus spread values with its sign;
+   remittance against that reversed amount is refused by the existing fixed
+   direction rule. A later fixing that crosses zero retains an already recorded
+   payment in its booked direction and shows the resulting overpaid balance.
+8. Only the explicitly booked cash-out enters trade valuation. Rolled gas
+   balances remain in the owned operator-balance product. Transfer cash is
+   still outside the portfolio.
+9. Before a gas day ends its imbalance input is `not_applicable`, with no
+   quantity or amount. After it ends, an eligible statement with an unpublished
+   index uses a labelled price forecast; publication earns the cash.
+10. Statement quantities are absolute in the account's exact native unit.
+    Doubling contract size leaves the cash-out unchanged.
+
+Account identity and service coverage are resolved under business time and the
+knowledge cutoff for each gas day. Select the latest visible statement revision
+first, then apply final-only or provisional-and-final policy. A withdrawn or
+ineligible head never revives an older statement. All in-scope accounts must
+be assessed. Current balance uses the existing reported balance plus accepted
+movements not already included. An accepted transfer makes a month-to-date
+month ambiguous and refuses with `gas_imbalance_transfer`.
+
+The gas adapter prepares neutral `ReportedDayQuantity` inputs. The Instrument
+supplies them through each Side occurrence to the shared physical lifecycle.
+Delivery selection and ordinary payments keep their prior behavior. Terms are
+in economic identity; facts remain trade-owned and temporally resolved. An
+Instrument without cash-out terms keeps its canonical identity. Statement-only
+value changes remain in P&L explain's residual.
+
+For a binding containing this pair, P&L reads the complete latest-known native
+gas cash-payment ledger, including ordinary payments and charges on that binding.
+The first revision of each payment business key identifies its cash flow; later
+revisions replace it. Occurrence allocations must conserve that same owned flow.
+Paid time determines recognition, and knowledge time determines the selected
+revision. Opening and closing unassessed-day counts remain separate on P&L
+positions and totals. Joint risk samples and derivatives retain coverage per book.
+
+Migration 0402 stores the typed terms, admits the pair independently, provides
+`security.read_gas_valuation_balances`, and records net settlement through
+`security.record_gas_cash_settlement`. The ticket has one required, unprefilled
+cash-out card and two exact native schedules. The Imbalance tab shows statement
+heads, state, quantity, price and cash. No transfer cash, external payment or
+accounting action is performed. D339's operating-only statement rule is revised
+only for trades that explicitly book this pair. There is no automatic link to
+an owned operator balance; keeping both for the same gas can double count it.
+See [the contract](physical-gas-side.md#imbalance-cash-out-d454),
+[the design](superpowers/specs/2026-11-24-imbalance-cashout-design.md) and
+[verification](verification.md#imbalance-cash-out-d454).

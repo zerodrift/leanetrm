@@ -5,9 +5,10 @@ using OpenEtrm.MarketData.Risk;
 
 namespace OpenEtrm.MarketData.Trading;
 
-// A listed American option on an exact futures series, valued per option contract.
-// As for FuturesContract, the exact series key is the economic identity; the
-// observation role, calibration and discounting belong to the pricing binding.
+// A listed option on an exact futures series, American or European as its series
+// states, valued per option contract. As for FuturesContract, the exact series key
+// is the economic identity; the observation role, calibration and discounting
+// belong to the pricing binding.
 [EconomicDefinition("FuturesOptionInstrument_v1")]
 public sealed partial record FuturesOptionInstrument : Instrument
 {
@@ -60,13 +61,17 @@ public sealed partial record FuturesOptionInstrument : Instrument
         if(context.PhysicalOptionValue() is {} physical)return DeclarePhysical(context,binding,physical);
         if(context.CashOptionValue() is {} cash)return DeclareCash(context,binding,cash);
         return new(Id, binding.Policy.Id, [binding.Underlying], UnitQuantity.Specification, Currency) { Time = binding.Calibration is SolvedVolatility?
-            ValuationTimeDependency.Between(context.CalculationAt,Series.InstructionCutoffAt is {} cutoff&&cutoff>context.CalculationAt?cutoff:Series.Terms.ExpiryAt):ValuationTimeDependency.Pinned,
+            ValuationTimeDependency.Between(context.CalculationAt,IntervalEnd(context.CalculationAt)):ValuationTimeDependency.Pinned,
             DiscountInputs=[new(new(Id,0,Series.Terms.ExpiryAt,Currency){Timing=ValueTimingKind.Instant},binding.Discounting)],
             Volatility=binding.Calibration is SolvedVolatility solved?[new(binding.Id,solved.Volatility.ToString(),VolatilityInput.Annualized)]:[],
             // The tree's value repeats its pattern once per price step of the underlying. A tree centred on the strike has
-            // none at a unit discount, and an option valued at intrinsic has no lattice.
+            // none at a unit discount, the formula has none, and an option valued at intrinsic has no model.
             PriceSteps=PriceSteps(binding,binding.DiscountToExpiry,context.CalculationAt) };
     }
+    // Where the event-free interval of a solved valuation ends. An American holder's rights change at a stated
+    // instruction cutoff, so the interval ends at one still ahead. A European series is exercised only at expiry.
+    private DateTimeOffset IntervalEnd(DateTimeOffset at)=>Series.Terms.ExerciseStyle==FuturesOptionTerms.American&&
+        Series.InstructionCutoffAt is {} cutoff&&cutoff>at?cutoff:Series.Terms.ExpiryAt;
     public override ImmutableArray<DeclaredPriceStep> ResolvePriceSteps(UnitValuationContext context,UnitPricingContract declaration)
     {
         if(context.PhysicalOptionValue() is not null||context.CashOptionValue() is not null)return [];
@@ -74,7 +79,7 @@ public sealed partial record FuturesOptionInstrument : Instrument
         return binding.Calibration is SolvedVolatility?PriceSteps(binding,LatticeDecimal.From(Discount(context,binding).DiscountFactor),context.CalculationAt):[];
     }
     private static ImmutableArray<DeclaredPriceStep> PriceSteps(FuturesOptionMarketBinding binding,LatticeDecimal factor,DateTimeOffset at)=>
-        binding.Calibration is SolvedVolatility held&&AmericanFuturesOptionModel.PriceStep(binding.Instrument.Series.Terms,binding.BaseFutures,held.Volatility,
+        binding.Calibration is SolvedVolatility held&&FuturesOptionModels.PriceStep(binding.Instrument.Series.Terms,binding.BaseFutures,held.Volatility,
             factor,at,binding.Policy) is {} step?[new(binding.Underlying,step.ToExact())]:[];
 
     // The unit price at the scenario futures price is rounded once, half-even, to
@@ -150,38 +155,34 @@ public sealed record FuturesOptionMarketBinding(Guid Id, FuturesOptionInstrument
     public Guid SnapshotId { get; } = SnapshotId != Guid.Empty ? SnapshotId
         : throw FuturesOptionInstrument.Error("valuation_binding", "A binding needs its calibration snapshot.");
 
-    // Solved: the tree at the held volatility. Fallback: treated as exercised, so
-    // intrinsic at the scenario price plus the base residual, floored at zero.
+    // Solved: the series' model, the tree or the formula, at the held volatility.
+    // Fallback: treated as exercised, so the model's zero-volatility value at the
+    // scenario price, intrinsic for an American series and the scenario's discount
+    // times intrinsic for a European one, plus the base residual, floored at zero.
     public LatticeDecimal UnitPrice(LatticeDecimal futures, DateTimeOffset valuationAt, CancellationToken ct,LatticeDecimal discount,LatticeDecimal? volatility)
     {
         switch (Calibration)
         {
             case SolvedVolatility solved:
-                RecordTreePrice();
-                return AmericanFuturesOptionModel.UnitPrice(Instrument.Series.Terms, futures, volatility??throw FuturesOptionInstrument.Error("risk_dependency","Solved option pricing requires its declared volatility input."), discount, valuationAt, Policy, ct);
+                if (Policy.Lattice != OptionLattice.ClosedForm) RecordTreePrice();
+                return FuturesOptionModels.UnitPrice(Instrument.Series.Terms, futures, volatility??throw FuturesOptionInstrument.Error("risk_dependency","Solved option pricing requires its declared volatility input."), discount, valuationAt, Policy, ct);
             case IntrinsicFallback fallback:
-                return LatticeDecimal.Max(Intrinsic(futures) + fallback.Residual, LatticeDecimal.Parse("0"));
+                return LatticeDecimal.Max(FuturesOptionModels.Floor(Instrument.Series.Terms, futures, discount) + fallback.Residual, LatticeDecimal.Parse("0"));
             default:
                 throw FuturesOptionInstrument.Error("valuation_binding", "Unsupported calibration mode.");
         }
     }
 
-    // Work only: how many tree prices this binding's valuations have evaluated since it was prepared.
+    // Work only: how many tree prices this binding's valuations have evaluated since it was prepared. The formula has no tree.
     public int TreePrices => Volatile.Read(ref trees.Count);
     internal void RecordTreePrice()=>Interlocked.Increment(ref trees.Count);
     private readonly TreeCount trees = new();
     private sealed class TreeCount { public int Count; }
 
-    private LatticeDecimal Intrinsic(LatticeDecimal futures)
-    {
-        var strike = LatticeDecimal.From(Instrument.Series.Terms.Strike);
-        return LatticeDecimal.Max(Instrument.Series.Terms.Right == OptionRight.Call ? futures - strike : strike - futures, LatticeDecimal.Parse("0"));
-    }
-
     public FuturesOptionCalibrationReceipt Receipt => Calibration switch
     {
         SolvedVolatility s => Record(FuturesOptionPricing.SolvedMode, s.Volatility.ToString(), s.Residual, s.Iterations, s.UpperBound.ToString(), null),
-        IntrinsicFallback f => Record(ImpliedVolatility.FallbackMode, null, f.Residual, null, null, f.Intrinsic.ToString()),
+        IntrinsicFallback f => Record(ImpliedVolatility.FallbackModeFor(Instrument.Series.Terms), null, f.Residual, null, null, f.Intrinsic.ToString()),
         _ => throw FuturesOptionInstrument.Error("valuation_binding", "Unsupported calibration mode."),
     };
 
@@ -192,8 +193,9 @@ public sealed record FuturesOptionMarketBinding(Guid Id, FuturesOptionInstrument
 }
 
 // What a run records per option series: its calibration inputs and policies, the
-// mode, and the solved volatility or the fallback intrinsic, with lattice values as
-// exact decimal strings.
+// mode, and the solved volatility or the fallback's zero-volatility value at the base
+// price (intrinsic, discounted for a European series), with lattice values as exact
+// decimal strings.
 public sealed record FuturesOptionCalibrationReceipt(Guid InstrumentId, ReferenceKey Series, string NumericalPolicy, string ScenarioPolicy,
     string BaseFutures, string Settlement, string DiscountToExpiry, string Mode,
     string? Volatility, string Residual, int? Iterations, string? UpperBound, string? Intrinsic);
@@ -228,6 +230,7 @@ public static class FuturesOptionPricing
         OptionCalibration calibration;
         try
         {
+            FuturesOptionModels.RequireStyle(series.Terms, policy);
             calibration = ImpliedVolatility.Solve(series.Terms, optionPrice, futures, discount,
                 LatticeDecimal.From(series.ClearingIncrement), snapshot.ValuationAt, policy, fallbackDeclared, ct);
         }

@@ -1,5 +1,93 @@
 # Delivery plan and acceptance criteria
 
+D454 implements reported-balance cash-out on a gas trade: paired daily index
+payments, explicit statement basis/netting, temporal evidence, unassessed
+subtotals, recorded net settlement and the ticket's Imbalance tab. This replaces
+the proposed scheduled-less-allocated balance building block with operator
+statements. Other cash-out profiles, rolled balances on a trade and transport
+imbalances remain separate work. All eight implementation tasks and the
+independent review are complete; full gas, trading, managed and frontend
+verification passed. See the
+[contract](physical-gas-side.md#imbalance-cash-out-d454) and
+[local qualification](verification.md#imbalance-cash-out-d454).
+
+D453 delivers monthly curve volatility and correlation authoring in the Markets
+workspace. It includes grids, focused strips, historical reads, reviewed atomic
+publication and recovery of an owned receipt. The gas exercise example consumes
+an editor-published mark after an explicit financial refresh. Listed-option
+surfaces and heat-rate-call spread authoring have separate contracts. See the
+[editor contract](curve-marks-editor.md) and
+[qualification](verification.md#curve-marks-editor-d453).
+
+D452 makes each date of a whole-book P&L run prove that its books hold no
+independently owned gas, including a date that holds no trades. Over books that
+hold gas such a run was refused as an empty scope or, with the known cash of a
+later trade, returned a report; it is now refused for the missing gas policy.
+The two other limits D451 listed were explored and no run reaches them today.
+The database and HTTP checks pass; the real-browser checks have not been run.
+See [trading P&L](trading-pnl.md#run-and-save) and
+[verification](verification.md#whole-book-pl-dates-without-trades-d452).
+
+D451 corrects P&L runs over whole books, which were refused at commit. Each
+date's exact source is required before its temporary view is restored, and its
+original read deadline stays a commit check. The database and HTTP checks pass;
+the real-browser checks have not been run. See
+[trading P&L](trading-pnl.md#run-and-save) and
+[verification](verification.md#whole-book-pl-date-sources-d451).
+
+D450 implements independent fixed lump sums and capacity charges on a
+standalone physical gas composition. The owning membership accrues at its
+own gas-day ends, including outside physical delivery. The ticket, native
+admission, exact retained reads, Blotter and risk share the same contract.
+Lump sums can serve as premiums for exercise rights over other memberships.
+Final gas billing retains its ordinary fixed consideration profile. Tariffs,
+balance-based charges, and charges on transport need separate contracts. Local
+verification passed 18 gas, 20 trading and 81 managed runner workloads.
+Independent review passed for the corrections to charge admission, amendments
+and presentation. See
+[gas charges](physical-gas-side.md#independent-gas-charges-d450) and
+[local qualification](verification.md#independent-gas-charges-d450).
+
+D449 admits European exercise on a listed futures option: a product row states
+the style, its series are valued by a Black-76 formula named in the option
+valuation policy, and exercise before expiry is refused. The managed, Python, web,
+database and HTTP checks pass; the real-browser checks have not been run. See
+[futures options](futures-options.md#european-exercise) and
+[verification](verification.md#european-futures-options-d449). An expiry on the
+underlying's last trading day and a margined premium remain designed, not built.
+
+D448 implements exercise rights for explicitly undiscounted gas compositions
+with independent physical sources. Daily and monthly rights use physical
+elections or automatic cash determination.
+Standalone gas booking and eligible amendments, exact held reads, the main
+Blotter, shared scenarios and retained risk implement the same schedule
+contract. See [gas exercise rights](physical-gas-side.md#exercise-rights-d448).
+
+The earlier D448 qualification passed 17 gas, 20 trading and 81 managed
+runner workloads. D450 supplies an independent premium. Strip exercise,
+constrained and path-dependent rights, transport/storage optionality and a
+marks editor need separate work. See the
+[D448 qualification](verification.md#exercise-rights-on-a-gas-instrument-d448).
+
+D446 and D447 implement the Instrument schedule and independent gas pricing
+entries: exact share, daily band/shortfall and partial-term payments, with point,
+named daily or named monthly index pricing. All gas routes use the retained
+Instrument. Existing plain Instrument sums and shared-Side reuse stay unchanged;
+new final-billing profiles, broader formulas, transport/storage optionality and
+the other gas building blocks remain separate work. The local qualification
+and benchmark are recorded in [verification](verification.md).
+
+D445 implements the first [shared gas pricing building block](superpowers/specs/2026-11-23-delivery-quantity-input-design.md):
+selected delivery quantities in the shared physical lifecycle. New independent
+physical memberships can opt in; payment and usage-fee quantities follow their
+source. Existing trades and two-location entry keep contract quantity. Temporal
+selection, ordinary queued risk, provenance and zero-after-payment balances have
+explicit contracts. Local qualification is recorded in [verification](verification.md).
+D447 replaces the weighted-price-term design with independent payment entries.
+D450 adds lump-sum and capacity charge bases. Strip exercise across delivery
+months, other balance profiles and constrained rights remain separate work.
+D454 implements the daily-index cash-out profile from reported balances.
+
 D443 adds **New trade → Gas & LNG → Two-location gas** and **Facilities →
 Pipeline outlook**. Independent purchase and sale tickets can have different
 parties, quantity bases and payment terms. One parent request commits the
@@ -1162,7 +1250,8 @@ retain explicit sibling references
 and distinct base/final valuation modes; the exercise-control accounting choice
 in O13 is still open for options embedded in an instrument. Listed American options
 on NYMEX futures are standalone instruments with their own model and lifecycle
-(D288, [futures options](futures-options.md)).
+(D288, [futures options](futures-options.md)). A listed product may instead state
+European exercise, valued by a Black-76 formula under its own policy member (D449).
 The D210 entry refinement places visual instrument cards between trade details
 and side forms. A selected versioned template populates empty side terms;
 commodity and market selections remain explicit. Each floating side owns its
@@ -2133,6 +2222,10 @@ Extend only after the baseline contracts are demonstrated:
 - Broader calendars, delivery shapes and schedule authoring.
 - Additional option exercise and settlement styles, volatility shocks and
   nonlinear model diagnostics beyond the listed futures and heat-rate call profiles.
+  For listed futures options, European exercise is built and its real-browser
+  checks are still to be run; an expiry on the underlying's last trading day
+  and a margined premium are designed and not built (D449,
+  [design](superpowers/specs/2026-11-23-futures-option-styles-design.md)).
 - Option strategies beyond one expiry (D409 analyses and draws legs of one
   expiry on one underlying future). Strategies across expiries need a declared
   relationship between futures months first; futures legs, saved strategies and

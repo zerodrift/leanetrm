@@ -9,6 +9,11 @@ public sealed record RetainedLngMember : IRetainedProgramMember
 {
     ExactDecimal IRetainedProgramMember.ValuationCoefficient => Coefficient;
     OpenEtrm.Shared.Numerics.ExactRatio? IRetainedProgramMember.ValuationRatio => null;
+    int? IRetainedProgramMember.ValuationSourceSlot => null;
+    string? IRetainedProgramMember.ValuationQuantityPolicy => null;
+    QuantityPart? IRetainedProgramMember.ValuationPart => null;
+    Gas.OwnedQuantity? IRetainedProgramMember.ValuationOwned => null;
+    Gas.ReportedBalanceFollow? IRetainedProgramMember.ValuationBalance => null;
     public Guid SideId { get; }
     public BookedSideProgram Program { get; }
     [IdentityField] public ExactDecimal Coefficient { get; }

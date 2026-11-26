@@ -26,7 +26,7 @@ def run_checks(url, receipt, *, run_worker):
     gas_catalog = c.call('gas/catalog', gas_context)
     location = next(p for p in gas_catalog['locations'] if p['deliveryPoint'] == 'synthetic_gas_point_a')
     reference=next(c['reference'] for c in gas_catalog['sideCalendars'] if c['code']=='test_utc_every_day')
-    cash = lambda code, role, price: {'code': code, 'role': role, 'direction': 'pay', 'source': 'physical', 'stage': 'delivery',
+    cash = lambda code, role, price: {'code': code, 'role': role, 'share': '1', 'direction': 'pay', 'source': 'physical', 'stage': 'delivery',
         'price': price, 'tariffCode': None, 'paymentAt': '2021-02-01T00:00:00Z', 'calendarPolicy':side_calendar_policy(reference,delivery=True,observation=False,payment=True)}
     gas = c.call('gas/composition/book', {**gas_context, **trade_booking(), 'operationId': str(uuid4()), 'bookId': book,
         'gasSetupId': gas_catalog['gasSetupId'], 'definitionRevisionId': location['definitionRevisionId'],

@@ -1,5 +1,171 @@
 # Deal ticket
 
+## Gas imbalance cash-out (D454)
+
+Add side offers **Imbalance cash-out**. One card creates two native payment
+memberships and consumes two of the seven payment slots. Each field is required
+and initially empty: physical source, named daily index, spread owed to us,
+spread owed by us, following-month payment day, statement policy, statement basis
+and account netting. Existing calendar controls remain explicit. Linked sources
+and compositions with fuel links refuse on the source field. Limits count the
+expanded memberships, including ordinary payments and independent charges.
+
+Reopening retains the exact choices. The card's **Owed to us** and **Owed by us**
+schedule tabs inspect the separate native membership slots. The **Imbalance**
+tab shows gas day, direction, reported balance, statement statuses, assessment
+state, quantity, index, price and publication state, amount and recorded cash.
+Missing quantity and amounts display as absent. The heading marks incomplete
+subtotals and the backend's unassessed-day count; row reasons distinguish no
+account, ineligible statement, missing predecessor and a partial opening month.
+A future day says **day not ended**. Withdrawal after payment preserves the paid
+amount with an unassessed state. All values and coverage counts come from the
+backend. A net settlement has a native recording operation; no settlement-entry
+screen is added here.
+
+## Gas charge Side (D450)
+
+**Add side** offers **Charge** on standalone Physical gas tickets. Choose
+**A lump sum** or **A daily capacity** under **Charged on**. Both use an
+explicit **Direction**, **Gas day of**, and **Schedule calendars** with
+delivery and payment bindings. **Gas day of** lists physical Sides from the
+same trade. A sole physical Side is visibly proposed. The charge counts
+toward seven payment Sides and eight total Sides.
+
+| Basis | Entered terms |
+| --- | --- |
+| A lump sum | **Amount** in trade currency and **Payment date** in UTC |
+| A daily capacity | **Rate per unit per day**, **Daily quantity**, **From**, **To · exclusive**, and **Payment day** from 1 through 28 of the following month |
+
+Changing basis clears the amount or rate and uses the selected basis's
+price label. The ticket sends only applicable terms and uses the shared
+calendar control. The API's optional `chargeSides` array contains the
+entry code, basis, direction, price, clock-side code, calendar policy and
+the selected basis's quantity and date fields. When no charges are present
+the ticket omits the array.
+
+Charge booking input refusals carry `gas_composition_input` with the
+responsible Side and field. The basis field identifies an invalid basis
+and charge Side limits. A term entered for the wrong basis identifies its
+own field. Invalid direction, amount/rate, quantity, dates or clock choice
+identify their corresponding fields. A capacity payment day before
+completion's UTC date targets `charge_payment_day`. Exact quote
+representation failures target `charge_price`. A gas-day boundary failure
+keeps `gas_day_boundary` on `charge_clock_side`. Calendar failures target
+`calendar_policy` with their original code
+(`calendar_reference`, `side_calendar_policy`, `side_calendar_conflict`,
+`side_calendar_applicability` or `calendar_coverage`). The shared calendar
+control shows the field error.
+Exercise choices omit charges. A right explicitly naming one refuses on
+`right_sides` with `gas_composition_input`.
+
+Booked Terms show the exact retained charge memberships, directions, stated
+prices, physical clock witnesses and payment coordinates. Capacity Terms
+show the rate in currency per quantity unit per day and the exact daily
+quantity in its unit, along with the payment day and convention. Lump sums
+show the stated amount in trade currency. Each Side inspector shows its exact
+row dates and the accrued, paid, outstanding and unrealized values, including
+**To come (unrealized present value)** beside the nominal cash figures.
+
+On a shared clock the combined Instrument schedule for a composition with
+charges spans the earliest actual start through the latest actual end among
+that month's contributions. Each Side keeps its own grain and exact cells.
+A one-day capacity stub stays monthly and leaves its daily cells blank.
+The Side inspectors keep the exact individual intervals and payment dates.
+Different clocks still prevent a combined grid. The backend supplies
+`progressBasis: "native_schedule_rows_v1"` for the combined charge view.
+Each native contribution counts once and completes at its own interval end.
+**Booked · started** shows **X of Y schedule rows completed** and the
+backend's Delivered and Remaining whole-row figures. For cash earned
+partway through a row, use that Side's lifecycle inspection. A composition
+without charges keeps the existing equal-window month projection and
+leaf-based delivery progress.
+
+## Gas exercise rights (D448)
+
+The standalone Physical gas ticket and its eligible amendment flow offer an
+initially empty **Exercise right** section. Each optional `exerciseRights` row
+contains **Sides covered** (`right_sides`), **Exercise period** (`right_period`),
+**Held by** (`right_holder`) and **Settlement** (`right_settlement`). Physical
+settlement also requires **Exercise lead in hours** (`right_lead_hours`), an
+explicit nonnegative whole number. Cash automatic omits that field. The backend
+provides ordered Side choices and admissible values and saves the group instants.
+A term refusal returns `gas_composition_input` with the zero-based `termRow`
+and `field`. Two-location authoring keeps its existing controls. Retained
+nonempty terms remain visible. A shared adapter refuses a saved right if its
+descriptor cannot preserve the terms when reopening the draft.
+
+New and eligible amendment ticket previews can present structurally admitted
+rights without marks. For the specific `exercise_marks` refusal they retain the
+exact source and quantity unit, supply `scheduleRefusal`, and leave PV, schedule
+and groups null. The ordinary writer still admits the exact terms. Invalid
+fields, stale amendment selections and contextual or authority refusals retain
+their normal errors. Direct gas composition preview and editor return the
+valuation refusal. The exact booked `GasTerms` marks the presence of rights
+with `hasExerciseRights`, so the schedule detail can open the ticket when PV
+is unavailable. The ticket keeps its terms and the applicable exercise action.
+An elapsed undecided physical group can be recorded even when its valuation is
+unavailable.
+
+An authorized user in the main Blotter with working data can use
+**Record exercise** on a booked physical right when
+`actions.recordExercise.allowed` is true.
+A retained or secondary trade window is read-only, and a trader with read
+authority alone can inspect the trade. The schedule detail keeps quantity
+recording read-only. A disabled action exposes neither authoring periods nor
+its read pin. Cash automatic groups use their fixing evidence and offer no
+election action of their own.
+
+Choose one right and an inclusive range of saved group starts, an outcome
+(`exercised` or `abandoned`), evidence and an explicit UTC effective instant.
+The form shows saved deadlines and the last known authoring predecessor and
+its effective instant, including a future-effective head or a withdrawal.
+The form labels a withdrawal with its effective instant. The prepared command
+uses the withdrawal's revision ID as the expected predecessor.
+The original working context, the action's retained `readContextId` and the
+same-session read proof travel to `POST /api/gas/exercise/prepare`. This read
+resolves exact predecessors at the retained cutoff under current AmendTrade.
+The effective instant must be at or after each predecessor and at or before
+each selected deadline. The API rechecks current authority before disclosing
+authoring heads and returns a batch command. `POST /api/gas/exercise/record`
+rechecks the exact current trade, binding, revision and expected election heads
+before writing.
+
+After an unknown response the client sends the same prepared command and
+operation ID. The pending command is scoped to the actor, trade, Instrument
+binding, trade revision and original working context. A writable remount in the
+same tab preserves the pending or cleared state even when a storage write or
+removal fails. A matching receipt clears the pending command. A stale election
+head prompts an explicit refresh and reselection.
+
+Group states, quantity selection, market inputs and valuation refusals are
+recorded in [the gas contract](physical-gas-side.md#exercise-rights-d448).
+
+## Gas payment entry (D447)
+
+Gas admits one to four physical Sides, up to seven payments/fees and eight Sides
+in all. Each payment presents an explicit positive **Share of quantity** starting
+at 1, editable source-bounded dates, and **Quantity part** starting at Whole
+quantity. Up to uses an upper daily level; Above and Shortfall use a lower level;
+Between uses both. The backend maps these choices to exact band/shortfall terms
+and reports fuel-link, level and date refusals on the responsible field.
+
+**Pricing** offers Point publications, Named index, daily and Named index,
+monthly. The backend visibly proposes Point publications for a point with that
+configuration, otherwise Named index, daily with the assigned index. Named
+choices require the visible Pricing index. Old strict-index trades show their
+saved terms read-only. Older whole payments reopen as share 1 and full source
+term; owned retries preserve the original complete command bytes.
+Modern retries must state share, part, active levels, dates and index choices.
+They cannot recover omitted financial choices from a completed command. Only
+fields proven absent in a retained predecessor format receive compatibility
+reconstruction; pending commands still require current payment fields.
+
+A shared backend `visibleWhen` field condition controls presentation, required
+validation and which editable terms are sent. Hidden level/index controls are
+omitted from the request. Business arithmetic stays in managed code. The Side
+schedule shows taken quantity and its part, with source quantity and selection
+rank; signed payable quantities retain their negative display convention.
+
 Status: the description-driven ticket is implemented for physical gas. The local
 manual-entry update (D285) gives PPAs, native swaps, heat-rate swaps and physical
 crude the shared side-card presentation and removes PPA wizard navigation. These
@@ -436,8 +602,9 @@ profile's lifecycle and explicit no-discounting policy are unchanged.
   and maximum, swing range as a percentage of the base quantity, swing notice
   deadline), nomination (cycle, nominating party), heat content in Btu per cubic
   foot and quality specification. The strip shows the planned master agreement
-  force majeure and credit terms. The schedule lists a planned Volume column and
-  an Imbalance tab for nominated and actual quantities, cash-out price and amount.
+  force majeure and credit terms. The schedule lists a planned Volume column. The implemented Imbalance tab
+  shows reported balance cash-out under D454; it does not derive imbalance from
+  nominated or allocated quantities.
   **New trade → Structured** opens dedicated tickets for
   [Gas storage](gas-storage-contract.md) and [Heat-rate call option](heat-rate-call-option.md).
 
@@ -478,8 +645,8 @@ profile's lifecycle and explicit no-discounting policy are unchanged.
   shows the unit its latest preview resolved beside quantities and in the
   schedule headers, and none before a preview.
 - The description reads its side caps from the composition contract
-  (`GasCompositionInstrument`): one to four physical sides, and up to four
-  fixed cash, fee and indexed payment sides together.
+  (`GasCompositionInstrument`): one to four physical sides, and up to seven
+  fixed cash, fee and indexed payment sides together, with eight Sides in all.
 - Current gas limits: a started delivery is refused at booking (an in-term
   trade is loaded by an administrator and shows its delivered days in the
   schedule), up to 1200 operating days with exact monthly source coverage, and
@@ -581,7 +748,18 @@ profile's lifecycle and explicit no-discounting policy are unchanged.
   without refusal, and sends `tickets/book` as a retained request: an unknown
   outcome locks the ticket with Check and Retry, and survives a reload, where
   the Blotter offers to reconcile it.
-- A booked trade's schedule shows each physical day's quantity under the
+- A gas physical Side requires **Valuation quantity**: Contract quantity or
+  Delivery schedule. The latter is a visible editable starting value. A linked
+  composition refuses it on that field. Reopening an earlier trade explicitly
+  shows Contract quantity; the two-location entry keeps that choice locked.
+- Under Delivery schedule (D445), the schedule uses final allocation, provisional
+  allocation, scheduled, then labelled contract fallback for value and accrual.
+  Payment and usage-fee Sides inherit their source selection. Each day shows its
+  rank and evidence; Side inspection also shows contract quantity and the exact
+  selected ratio. The calculation graph remains the retained unit program and
+  explains that the lifecycle applies the displayed quantity adjustment. An
+  accrued amount corrected to zero after payment shows the full overpaid balance.
+- A booked trade on Contract quantity shows each physical day's quantity under the
   operations projection (`operational_projection_v1`, returned as
   `quantityPolicy`): the day's latest allocated, scheduled, confirmed or
   nominated record, tagged with its kind, else the contract's. Amounts stay the

@@ -299,10 +299,19 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
         }
     }
 
+    // A report selects no gas valuation policy, so books that hold independently owned gas are reported only by trade.
     private async Task<Endpoint> Read(NpgsqlConnection connection,TradingView view,TradingPnlRequest request,CancellationToken ct)
     {
-        await using(var save=ScheduleStore.Command(connection,"SAVEPOINT pnl_endpoint"))await save.ExecuteNonQueryAsync(ct);
-        try
+        try{return await ReadView(connection,view,request,ct);}
+        catch(MarketDataException e)when(e.Code=="gas_owned_policy_required")
+        {
+            throw new MarketDataException(e.Code,"These books hold independently owned gas, which a P&L report does not value. Name the trades to report instead.",e);
+        }
+    }
+    // Each date is read in a view of its own. A whole-book date admits its exact source there, and the request's one
+    // source slot is free again for the other date once that source has been required.
+    private Task<Endpoint> ReadView(NpgsqlConnection connection,TradingView view,TradingPnlRequest request,CancellationToken ct)=>
+        database.TemporaryView(connection,"pnl_endpoint",async()=>
         {
             await view.Bind(connection,database.Manifest.CatalogId,ct);
             await TradingContext.Bind(connection,database.Manifest.CatalogId,view.CalculationFrame,view.Context,ct);
@@ -316,7 +325,13 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
             var frame=view.CalculationFrame;var data=await MarketInputSelection.Root(database,connection,frame,ct,referenceScope:ReferenceReadScope.TradeValuation);
             PortfolioValuation.Prepared? prepared=null;
             PnlAccountingPoint? point=null;
-            if(available.Trades.IsEmpty)point=new(view.Context.ContextId!.Value,frame.Id,frame.At,SchedulePreview.ParseAt(view.Context.KnownAt),[],[],PnlAccountingCoverage.Complete);
+            if(available.Trades.IsEmpty)
+            {
+                // An empty point attests complete coverage of its books. A whole-book date proves that they hold no
+                // independently owned gas here, as preparation proves it for a date that holds trades.
+                if(request.TradeIds is null)await GasOwnedPortfolio.RequireScope(connection,database,frame,chosen,configured:false,ct);
+                point=new(view.Context.ContextId!.Value,frame.Id,frame.At,SchedulePreview.ParseAt(view.Context.KnownAt),[],[],PnlAccountingCoverage.Complete);
+            }
             else
             {
                 prepared=await new PortfolioValuation(database).Prepare(connection,data,frame,data.Snapshot(frame),view.Context,chosen,
@@ -325,14 +340,8 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
             }
             await RequireBound(connection,view,ct);
             var cash=await CashPaymentStore.Ledger(connection,database.Manifest.CatalogId,view.CalculationFrame,chosen,request.TradeIds,ct);
-            return new(view,convention,point,prepared,available.Trades,chosen,selectedBooks,cash,request.TradeIds);
-        }
-        finally
-        {
-            await using(var rollback=ScheduleStore.Command(connection,"ROLLBACK TO SAVEPOINT pnl_endpoint"))await rollback.ExecuteNonQueryAsync(ct);
-            await using var release=ScheduleStore.Command(connection,"RELEASE SAVEPOINT pnl_endpoint");await release.ExecuteNonQueryAsync(ct);
-        }
-    }
+            return new Endpoint(view,convention,point,prepared,available.Trades,chosen,selectedBooks,cash,request.TradeIds);
+        },ct);
     // An exact amount as the shared amount display reads it; the page asks the backend for its display text.
     private static object Money(ExactMoney m)=>new{amount=m.ToExactString(),currency=m.Currency};
     private static object Greek(PnlGreekEffect effect)=>new{amount=effect.Amount is null?null:Money(effect.Amount),unavailableEstimates=effect.Unavailable};
@@ -342,7 +351,7 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
     private static object Values(PnlAttributionPosition[] rows)
     {
         var explained=TradingPnlAttribution.Explained(rows);
-        return new{openingValue=Money(Sum(rows,r=>r.Accounting.OpeningValue)),closingValue=Money(Sum(rows,r=>r.Accounting.ClosingValue)),
+        return new{openingUnassessedDays=rows.Sum(r=>r.Accounting.OpeningUnassessedDays),closingUnassessedDays=rows.Sum(r=>r.Accounting.ClosingUnassessedDays),incomplete=rows.Any(r=>r.Accounting.Incomplete),openingValue=Money(Sum(rows,r=>r.Accounting.OpeningValue)),closingValue=Money(Sum(rows,r=>r.Accounting.ClosingValue)),
             valueMovement=Money(Sum(rows,r=>r.Accounting.ValueMovement)),cash=Money(Sum(rows,r=>r.Accounting.PeriodCash)),priorCash=Money(Sum(rows,r=>r.Accounting.PriorCashKnowledgeAdjustment)),
             transfers=Money(Sum(rows,r=>r.Accounting.NonEarningTransfers)),economicPnl=Money(Sum(rows,r=>r.Accounting.EconomicPnl)),
             explained=explained.Amount is null?null:Money(explained.Amount),residual=Money(Sum(rows,r=>r.ResidualValueMovement)),unavailableEstimates=explained.Unavailable};

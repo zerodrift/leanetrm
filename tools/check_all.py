@@ -11,6 +11,7 @@ CHECK_PROJECTS = (
     ('tests/OpenEtrm.MarketData.Checks/OpenEtrm.MarketData.Checks.csproj', ()),
     ('tests/OpenEtrm.MarketData.Checks/OpenEtrm.MarketData.Checks.csproj', ('--futures-options',)),
     ('tests/OpenEtrm.MarketData.Checks/OpenEtrm.MarketData.Checks.csproj', ('--spread-options',)),
+    ('tests/OpenEtrm.MarketData.Checks/OpenEtrm.MarketData.Checks.csproj', ('--exercise-rights',)),
     ('tests/OpenEtrm.MarketData.Checks/OpenEtrm.MarketData.Checks.csproj', ('--vol-surface',)),
     ('tests/OpenEtrm.MarketData.Checks/OpenEtrm.MarketData.Checks.csproj', ('--calendar-policy',)),
     ('tests/OpenEtrm.MarketData.Checks/OpenEtrm.MarketData.Checks.csproj', ('--payment-date-policy',)),
@@ -25,6 +26,7 @@ CHECK_PROJECTS = (
     ('tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj', ('--published-clock',)),
     ('tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj', ('--calendar-authoring',)),
     ('tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj', ('--gas-ticket',)),
+    ('tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj', ('--curve-mark-editor',)),
     ('tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj', ('--historical-risk',)),
     ('tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj', ('--monte-carlo-risk',)),
     ('tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj', ('--position-adjustment',)),
@@ -130,6 +132,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
         ('check_physical_margin_qualification','new physical futures require qualified delivery terms'),
         ('check_lifecycle_option_scheduling','actual option expiry scheduling and linked futures'),
         ('check_lifecycle_option_expiries','historical option expiry and immutable instruction review'),
+        ('check_european_option','European option style, value beside an American series, refused early exercise and expiry'),
         ('check_lifecycle_scheduling','lifecycle scheduler source admission and replay'),
         ('check_lifecycle_scheduled_bookings','scheduled native bookings retain exact lifecycle policies'),
         ('check_gas_source_ancestors','applied gas corrections, pending financial writes and captured source ancestry'),
@@ -267,6 +270,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     preview_check('integrated live calculation and browser',[*preview,'--live-calculation-check','--browser-check','--browser',str(browser)])
     preview_check('private inactive reference intake',[*preview,'--reference-import-check'], suite='reference')
     preview_check('standard preview and browser', [*preview, '--browser-check', '--browser', str(browser)], suite='standard')
+    preview_check('atomic curve marks, market history and editor browser', [*preview, '--curve-marks-check', '--browser-check', '--browser', str(browser)], suite='standard')
     preview_check('runtime context removal, exact replay and worker reconstruction', [*preview,'--ephemeral-context-check','--browser-check','--browser',str(browser)],suite='standard')
     preview_check('context read demand and grouped header', [*preview,'--context-read-check','--browser-check','--browser',str(browser)])
     preview_check('asynchronous workbench reads', [*preview,'--async-workbench-check','--browser-check','--browser',str(browser)])
@@ -284,6 +288,10 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     preview_check('manual gas scheduling, imbalance and request recovery', [*preview, '--gas-operations-check', '--browser-check', '--browser', str(browser)], suite='gas')
     preview_check('final daily gas billing, corrections and request recovery', [*preview, '--gas-billing-check', '--browser-check', '--browser', str(browser)], suite='gas')
     preview_check('physical gas booking, facility allocation, setup and daily quantities', [*preview, '--facility-quantity-check', '--gas-daily-quantity-check', '--gas-composition-check', '--gas-setup-check', '--browser-check', '--browser', str(browser)], suite='gas')
+    preview_check('gas payment entries, named index pricing and exercise rights', [*preview, '--gas-exercise-check', '--gas-pricing-check', '--browser-check', '--browser', str(browser)], suite='gas')
+    preview_check('independent gas charges, payment admission and browser', [*preview, '--gas-charges-check', '--browser-check', '--browser', str(browser)], suite='gas')
+    preview_check('gas imbalance cash-out, statement authority and browser', [*preview, '--gas-imbalance-check', '--browser-check', '--browser', str(browser)], suite='gas')
+    preview_check('selected gas delivery quantities, temporal evidence and retained risk', [*preview, '--gas-delivery-quantity-check', '--browser-check', '--browser', str(browser)], suite='gas')
     preview_check('future gas amendments, immutable revisions and ticket recovery', [*preview, '--gas-amendments-check', '--browser-check', '--browser', str(browser)], suite='gas')
     preview_check('daily indexed gas payments, shared Side inspection and retained risk', [*preview, '--gas-indexed-check', '--browser-check', '--browser', str(browser)], suite='gas')
     preview_check('in-term gas admission, recorded payments and the owner-only in-term load', [*preview, '--gas-in-term-check'], suite='gas')

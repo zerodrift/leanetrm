@@ -9,13 +9,17 @@ namespace OpenEtrm.MarketData.Trading;
 // or a resolver for another Side. Each Side executes only its own saved program.
 internal sealed record RetainedProgramContext(ScheduleMarketSources Sources, CurveBuild Scenario)
 {
-    internal PhysicalLifecycleGeometry? Geometry { get; init; }
+    internal ImmutableArray<PhysicalLifecycleGeometry> Geometries { get; init; }
     internal PhysicalCashState? Cash { get; init; }
     internal RetainedProgramOwner? Owner { get; init; }
     internal RetainedProgramOccurrence? Occurrence { get; init; }
     internal ImmutableArray<SignedRatio> HeldFactors { get; init; } = [];
+    internal ImmutableArray<ImmutableArray<EntryDayQuantity>> EntryDays { get; init; }
+    internal ImmutableArray<ImmutableArray<ReportedDayQuantity>> ReportedDays { get; init; }
+    internal bool CashAutomatic { get; init; }
+    internal QuantityPart? EntryPart { get; init; }
 }
-internal sealed record RetainedProgramOwner(Guid InstrumentId, DefinitionIdentity Definition);
+internal sealed record RetainedProgramOwner(Guid InstrumentId, DefinitionIdentity Definition, string ScheduleIdentity);
 internal sealed record RetainedProgramOccurrence(int Slot, Guid SideId, string ProgramDigest);
 public sealed partial class SideValuationContext
 {
@@ -24,11 +28,12 @@ public sealed partial class SideValuationContext
     {
         internal SideValuationContext Owner { get; } = owner;
         internal Dictionary<int,SideValuationContext> Children { get; } = [];
+        internal SideValuationContext? Exercised { get; set; }
     }
     private RetainedOccurrenceContexts? retainedOccurrences;
     private SideValuationContext? retainedOccurrenceParent;
     internal int RetainedOccurrenceCalculations => retainedOccurrences is {} scopes && ReferenceEquals(scopes.Owner, this)
-        ? scopes.Children.Values.Sum(child => child.EvaluatedSides) : 0;
+        ? scopes.Children.Values.Sum(child => child.EvaluatedSides) + (scopes.Exercised?.EvaluatedSides ?? 0) : 0;
     public static SideValuationContext ForRetainedPrograms(CurveBuild basis,CurveBuild scenario,ISideDiscounting discounting,CancellationToken cancellation=default)
     {
         if(basis is null || scenario is null || !basis.Snapshot.HasSameInputs(scenario.Snapshot))
@@ -47,20 +52,46 @@ public sealed partial class SideValuationContext
         copy.retainedOccurrenceParent=null;
         return copy;
     }
-    internal SideValuationContext ForRetainedOccurrence(int slot, RetainedProgramSide side)
+    private RetainedOccurrenceContexts Occurrences()
+    {
+        if (retainedOccurrences is null || !ReferenceEquals(retainedOccurrences.Owner, this)) retainedOccurrences = new(this);
+        return retainedOccurrences;
+    }
+
+    internal SideValuationContext ExercisedOccurrences()
+    {
+        var scopes = Occurrences();
+        if (scopes.Exercised is not null) return scopes.Exercised;
+        var inputs = RetainedPrograms!;
+        // A hypothetical exercise selects gross obligations. Recorded cash belongs only to the ordinary occurrences.
+        if (inputs.Cash is { Payments.IsEmpty: false } cash)
+        {
+            var gross = new PhysicalCashState(cash.TradeId, cash.BindingId, cash.Quantity, cash.BookId, [],
+                PhysicalCashState.Policy, cash.OwnerDays, cash.Elections, cash.NextElectionEffectiveAt, cash.Balances);
+            return scopes.Exercised = WithRetainedPrograms(inputs with { Cash = gross }).WithBindingState(gross);
+        }
+        return scopes.Exercised = WithRetainedPrograms(inputs);
+    }
+
+    internal SideValuationContext ForRetainedOccurrence(int slot, RetainedProgramSide side, ImmutableArray<ImmutableArray<EntryDayQuantity>> entryDays = default, QuantityPart? part = null, bool cashAutomatic = false)
     {
         if(RetainedPrograms is not { Cash: not null, Owner: not null, Occurrence: null } inputs ||
             inputs.HeldFactors.IsDefault || slot < 0 || slot >= inputs.HeldFactors.Length)
             throw new MarketDataException(PhysicalLifecycle.ContextRefusal, "Select the exact prepared retained membership occurrence.");
-        if(retainedOccurrences is null || !ReferenceEquals(retainedOccurrences.Owner, this)) retainedOccurrences=new(this);
-        if(!retainedOccurrences.Children.TryGetValue(slot, out var child))
+        var scopes = Occurrences();
+        if(!scopes.Children.TryGetValue(slot, out var child))
         {
-            child=WithRetainedPrograms(inputs with { Occurrence=new(slot, side.Id, side.ProgramDigest) });
+            child=WithRetainedPrograms(inputs with { Occurrence=new(slot, side.Id, side.ProgramDigest), EntryDays=entryDays, EntryPart=part, CashAutomatic=cashAutomatic });
             child.retainedOccurrenceParent=this;
-            retainedOccurrences.Children.Add(slot, child);
+            scopes.Children.Add(slot, child);
         }
-        if(child.RetainedPrograms!.Occurrence != new RetainedProgramOccurrence(slot, side.Id, side.ProgramDigest))
+        if(child.RetainedPrograms!.Occurrence != new RetainedProgramOccurrence(slot, side.Id, side.ProgramDigest) || child.RetainedPrograms.EntryPart != part || child.RetainedPrograms.CashAutomatic != cashAutomatic)
             throw new MarketDataException(PhysicalLifecycle.ContextRefusal, "A retained occurrence cannot change its exact Side program.");
+        var previous = child.RetainedPrograms.EntryDays;
+        if(previous.IsDefault != entryDays.IsDefault || !previous.IsDefault &&
+            (previous.Length != entryDays.Length || previous[slot].IsDefault != entryDays[slot].IsDefault ||
+                !previous[slot].IsDefault && !previous[slot].SequenceEqual(entryDays[slot])))
+            throw PhysicalDeliveryQuantities.Invalid("A retained occurrence cannot change its selected entry quantities.");
         return child;
     }
     internal bool IsRegisteredRetainedOccurrence(RetainedProgramSide side) =>
@@ -146,18 +177,23 @@ public sealed record RetainedProgramSchedule : SideSchedule
             throw new MarketDataException("settlement_scope", "A retained Side cannot consume unrelated settlement state.");
         if(inputs.Cash is {} state)
         {
-            if(!ReferenceEquals(context.BindingState, state) || inputs.Geometry is null || inputs.Owner is not { InstrumentId: var ownerId } || ownerId == Guid.Empty ||
+            if(!ReferenceEquals(context.BindingState, state) || inputs.Geometries.IsDefault || inputs.Geometries.Length!=inputs.HeldFactors.Length ||
+                inputs.Geometries.Any(g=>g is null) || inputs.Owner is not { InstrumentId: var ownerId } || ownerId == Guid.Empty ||
                 inputs.Occurrence is not {} occurrence || occurrence.SideId != SideId || occurrence.ProgramDigest != Side.ProgramDigest ||
                 occurrence.Slot < 0 || occurrence.Slot >= inputs.HeldFactors.Length || inputs.HeldFactors[occurrence.Slot].Numerator.IsZero ||
                 !context.IsRegisteredRetainedOccurrence(Side))
                 throw new MarketDataException(PhysicalLifecycle.ContextRefusal, "The Side requires its exact connected gas-day geometry and held cash normalization.");
         }
-        else if(context.BindingState is not null || inputs.Geometry is not null || inputs.Owner is not null || inputs.Occurrence is not null || !inputs.HeldFactors.IsEmpty)
+        else if(context.BindingState is not null || !inputs.Geometries.IsDefault || inputs.Owner is not null || inputs.Occurrence is not null || !inputs.HeldFactors.IsEmpty)
             throw new MarketDataException(PhysicalLifecycle.ContextRefusal, "A held retained Side requires its complete explicit occurrence inputs.");
         // Admission precedes any program execution or price/discount demand.
-        var execution = inputs.Sources.Evaluate(Program, SideId, inputs.Scenario, context.Discounting, context.UnitEvaluation.Cancellation);
+        var execution = inputs.CashAutomatic
+            ? inputs.Sources.EvaluateCashExercise(Program, SideId, inputs.Scenario, context.Discounting, context.UnitEvaluation.Cancellation)
+            : inputs.Sources.Evaluate(Program, SideId, inputs.Scenario, context.Discounting, context.UnitEvaluation.Cancellation);
         var lifecycle = inputs.Cash is {} cash ? PhysicalLifecycle.EvaluateSide(Program, execution, Program.Document.Family == "gas", inputs.Occurrence!.Slot,
-            inputs.HeldFactors[inputs.Occurrence.Slot], inputs.Geometry!, cash, context.Snapshot, Currency) : null;
+            inputs.HeldFactors[inputs.Occurrence.Slot], inputs.Geometries[inputs.Occurrence.Slot], cash, context.Snapshot, Currency,
+            inputs.EntryDays.IsDefault ? default : inputs.EntryDays[inputs.Occurrence.Slot], inputs.CashAutomatic,
+            inputs.ReportedDays.IsDefault ? default : inputs.ReportedDays[inputs.Occurrence.Slot]) : null;
         return new(this, context, execution, lifecycle);
     }
 }
@@ -169,6 +205,15 @@ public sealed record RetainedProgramValuation : SideValuation
         BookedSideEvaluation execution, PhysicalLifecycleValue? lifecycle)
         : base(schedule, context, lifecycle?.Total ?? execution.PresentValue)
     { Execution = execution; Lifecycle = lifecycle; }
+    public SideViewInput ViewInput(string code, ExactDecimal scale, SignedRatio coefficient,
+        ImmutableArray<(string Column,ScheduleViewMeasure Measure)> columns)
+    {
+        ImmutableDictionary<DateOnly,EntryDayQuantity>? selected = null;
+        if(Context.RetainedPrograms is { Occurrence: {} occurrence, EntryDays.IsDefault: false } inputs && !inputs.EntryDays[occurrence.Slot].IsDefault)
+            selected = inputs.EntryDays[occurrence.Slot].ToImmutableDictionary(d => d.Day);
+        return new(code, Execution, ((RetainedProgramSchedule)Schedule).Program, scale, coefficient, columns, FollowedDays: selected, Part: Context.RetainedPrograms?.EntryPart)
+        {ReportedRows=Lifecycle?.Rows.Any(row=>row.ReportedQuantity is not null)==true?Lifecycle.Rows.ToImmutableDictionary(row=>row.DeliveryFrom):null};
+    }
     public override SideScheduleSnapshot InspectSchedule(string manifest, ExactDecimal scale, SignedRatio coefficient, Func<DateOnly, DateTimeOffset> boundary)
     {
         var program = ((RetainedProgramSchedule)Schedule).Program;
@@ -177,7 +222,7 @@ public sealed record RetainedProgramValuation : SideValuation
         if(Lifecycle is null) return SideScheduleSnapshot.FromProgramValue(this, Execution, program, manifest, scale, coefficient, boundary);
         var factor = new SignedRatio(scale.ScaledValue, ExactDecimal.WorkingScale) * coefficient;
         var rows = PhysicalLifecycle.Scale(Lifecycle, factor).Rows;
-        return SideScheduleSnapshot.FromLifecycle(SideId, Snapshot.Id, new(SideId.ToString(), Execution, program, scale, coefficient, []),
+        return SideScheduleSnapshot.FromLifecycle(SideId, Snapshot.Id, ViewInput(SideId.ToString(), scale, coefficient, []),
             rows, ImmutableDictionary<int, ExactMoney>.Empty, boundary);
     }
 }

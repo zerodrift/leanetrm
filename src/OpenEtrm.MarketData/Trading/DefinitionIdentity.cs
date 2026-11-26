@@ -68,12 +68,21 @@ public sealed record DefinitionIdentity(string Version, string Digest, string Ca
             foreach (var field in fields)
             {
                 if(value is IRetainedSideComposition && field.Name == nameof(SidedInstrument.Sides)) continue;
+                if(field.Name == nameof(Gas.RetainedGasInstrument.Rights) &&
+                    value is Gas.RetainedGasInstrument { Rights.IsEmpty: true } or Gas.GasCompositionInstrument { Rights.IsEmpty: true }) continue;
                 if(field.Name==nameof(FloatingSidePeriod.ContractObservations)&&
                     (value is FloatingSidePeriod p&&p.ContractObservations.IsDefaultOrEmpty||value is FloatingProjectionBinding b&&b.ContractObservations.IsDefaultOrEmpty))continue;
                 if (field.Name == nameof(Crude.CrudeValuationAssignment.QuantityEquivalence) &&
                     value is Crude.CrudeValuationAssignment { QuantityEquivalence: null }) continue;
                 if(field.Name==nameof(ProfileQuantity.HourlyFactors)&&value is ProfileQuantity profileIdentity&&profileIdentity.HourlyFactors.IsDefaultOrEmpty)continue;
                 var selected=field.GetValue(value);
+                if(selected is null && value is Gas.RetainedGasMember &&
+                    field.Name is nameof(Gas.RetainedGasMember.SourceSlot) or nameof(Gas.RetainedGasMember.QuantityPolicy)
+                        or nameof(Gas.RetainedGasMember.Part) or nameof(Gas.RetainedGasMember.Owned) or nameof(Gas.RetainedGasMember.Balance)) continue;
+                if(selected is null && value is Gas.GasCompositionRole &&
+                    field.Name is nameof(Gas.GasCompositionRole.Share) or nameof(Gas.GasCompositionRole.Part)
+                        or nameof(Gas.GasCompositionRole.QuantityPolicy) or nameof(Gas.GasCompositionRole.Owned)
+                        or nameof(Gas.GasCompositionRole.ClockSide) or nameof(Gas.GasCompositionRole.Balance)) continue;
                 if(field.Name==nameof(FixedSide.OperatingDefinition)&&selected is null&&value is FixedSide or FloatingSide)continue;
                 writer.WritePropertyName(field.Name);Write(writer,selected);
             }
@@ -118,6 +127,7 @@ public sealed record DefinitionIdentity(string Version, string Digest, string Ca
             Quantity q => ["quantity", q.Amount, q.Specification],
             QuantitySpecification q => ["quantity_specification_v1", q.Key, q.Commodity, q.MeasurementBasis, q.Unit, q.Dimension],
             OpenEtrm.Shared.Numerics.ExactRatio r => ["exact_ratio", r.Numerator.ToString(CultureInfo.InvariantCulture), r.Denominator.ToString(CultureInfo.InvariantCulture)],
+            OpenEtrm.Shared.Numerics.SignedRatio r => ["signed_ratio", r.Numerator.ToString(CultureInfo.InvariantCulture), r.Denominator.ToString(CultureInfo.InvariantCulture)],
             UnitPrice p => ["price", p.Value, p.Unit],
             ExactUnitPrice p => ["exact_unit_price_v1",p.Numerator,p.Denominator,p.Unit],
             PriceUnit u => ["price_unit", u.Currency, u.Quantity, u.Multiplier],

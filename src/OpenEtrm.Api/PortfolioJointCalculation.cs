@@ -37,11 +37,13 @@ internal static class PortfolioJointCalculation
                     parent=RiskEngine.WithShifts(parent,[new(axis.Coordinate,axis.Target,axis.Unit,layer.Size,CurveShift.ParentAdditive)],ct);
             if(joint.Scenarios)
             {
+                var volatilityIds=parent.UnitContracts.SelectMany(c=>c.Volatility).Select(v=>v.Id).ToHashSet();
                 var localSamples=joint.Samples.Select(s=>
                 {
                     var shifts=s.Shifts.Select(x=>CurveRiskAxes.InMarket(x.Axis,market,ct) is {} axis?
                         new CurveShift(axis.Coordinate,axis.Target,axis.Unit,x.Size,CurveShift.ParentAdditive):null).OfType<CurveShift>().ToImmutableArray();
-                    return new ConnectedRiskScenario(s.Id,s.Label,shifts){Unchanged=shifts.IsEmpty};
+                    var volatility=s.Volatility.Where(v=>volatilityIds.Contains(v.InputId)).ToImmutableArray();
+                    return new ConnectedRiskScenario(s.Id,s.Label,shifts){Volatility=volatility,Unchanged=shifts.IsEmpty&&volatility.IsEmpty};
                 }).ToImmutableArray();
                 var set=joint.Request.Scenarios!;
                 var scenarioSet=new ConnectedRiskScenarioSet(set.Id,set.Version,set.Convention,localSamples);
@@ -74,8 +76,8 @@ internal static class PortfolioJointCalculation
             }
         }
         var parts=partitions.ToImmutable();
-        var bases=parts.SelectMany(p=>p.Run.Groups.SelectMany((g,n)=>g.Values.Select(v=>new PortfolioTotal(p.Market.Measures[n],v.BookId,v.Value))))
-            .GroupBy(v=>(v.Measure,v.BookId,v.Value.Currency)).Select(g=>new PortfolioTotal(g.Key.Measure,g.Key.BookId,g.Select(v=>v.Value).Aggregate((a,b)=>a.Add(b)))).ToImmutableArray();
+        var bases=parts.SelectMany(p=>p.Run.Groups.SelectMany((g,n)=>g.Values.Select(v=>new PortfolioTotal(p.Market.Measures[n],v.BookId,v.Value){UnassessedDays=v.UnassessedDays})))
+            .GroupBy(v=>(v.Measure,v.BookId,v.Value.Currency)).Select(g=>new PortfolioTotal(g.Key.Measure,g.Key.BookId,g.Select(v=>v.Value).Aggregate((a,b)=>a.Add(b))){UnassessedDays=g.Sum(v=>v.UnassessedDays)}).ToImmutableArray();
         var samples=joint.Samples.Select((sample,index)=>
         {
             var totals=parts.SelectMany(p=>p.Run.Scenarios[index].Groups.SelectMany(g=>g.Totals.Select(v=>new JointBookValue(p.Market.Measures[g.Group],v.BookId,v.Values))))

@@ -17,5 +17,10 @@ public sealed record VolatilityInput
             throw new MarketDataException("volatility_input","Supply an exact nonnegative annualized series volatility with at most 30 decimal places.");
         Id=id;Value=value;Convention=convention;
     }
+    public void RequireOffset(ExactDecimal offset)
+    {
+        SignedRatio.TryParse(offset.ToString(),out var shift);
+        if((Ratio+shift).Numerator.Sign<0)throw new MarketDataException("scenario_volatility","A shifted volatility cannot be negative.");
+    }
     internal SignedRatio Ratio {get{SignedRatio.TryParse(Value,out var ratio);return ratio;}}
 }

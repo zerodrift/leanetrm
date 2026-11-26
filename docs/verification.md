@@ -1,5 +1,762 @@
 # Local verification and continuous integration
 
+## Imbalance cash-out (D454)
+
+Local qualification uses synthetic trades, the checkout's own API and leased
+worker, and isolated stock PostgreSQL 18.7 databases on macOS arm64. Toolchain:
+.NET SDK 10.0.402, Python 3.13.7, Node 24.22.0 and Chrome. No production resources
+are used. The full gas, trading and managed groups passed sequentially at
+implementation commit `d8b1dc7f`, after the independent adversarial review and
+its fixes. With the pinned tools selected, run from the repository root:
+
+```bash
+for group in gas trading managed; do
+  python3 tools/check_all.py --pg-bin "$PG_BIN" --dotnet "$DOTNET" --browser "$BROWSER" --group "$group" || exit
+done
+```
+
+| Group | Runner `CHECK` workloads | Printed `PASS` checkpoints | Owned browser checks | Completed workers | Databases removed |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Gas | 19 | 1,323 | 213 | 30 | 11 |
+| Trading | 20 | 1,588 | 489 | 20 | 10 |
+| Managed | 81 | 2,905 | — | — | — |
+
+Runner workloads include restores and builds; printed checkpoints include
+repeated setup and migration checks. Gas and trading each qualified an expected
+`risk_graph_manifest` refusal for an altered retained manifest. Managed reported
+806 core checks and 231 gas ticket checks. The dedicated cash-out workload
+reported 103 PASS checkpoints, five browser checks and three completed workers.
+
+Focused qualification passes both exact cash-out oracles: daily +1,190 and
+month-to-date −700, each with one unassessed day. Managed cases cover immediate
+predecessors, month boundaries, mid-month starts, account netting, exact units,
+absolute size, negative and zero prices, paid corrections and paid withdrawal.
+Native/API checks cover complete-pair admission, replay, financial readers
+without gas-operations access, SQLSTATE 42501 outside a worker lease, and pinned
+knowledge on ordinary and queued routes. Net settlement checks conserve +1,830
+and −640 into one +1,190 receipt, preserve its identity on retries and refuse a
+different second monthly settlement.
+
+The full frontend suite passes 2,364 tests with zero skips, using sequential
+files to avoid concurrent owned-browser startup contention on this host. Run
+from the repository root after the web build:
+
+```bash
+node --test --test-concurrency=1 web/tests/*.test.mjs
+```
+
+The dedicated browser workload passes five checks: empty required cash-out
+fields, booking, absent amounts on unknown days, signed daily statement values,
+and exact native Side inspection for both payments. Gas ticket checks pass
+231 cases. Retained overview and Blotter subtotal checks also pass. These are
+local results, not evidence of deployment or production qualification.
+
+Focused regressions retain paid cash when a fixing crosses zero, reject direct
+worker settlement access, and hide a settlement before its paid instant. P&L
+reports the quantity-only −300 residual with no cash, with a 900 receipt, and
+after that receipt is revised to 600. It retains separate endpoint coverage;
+an incomplete zero subtotal stays visible. Joint scenarios and derivatives
+carry distinct coverage for an incomplete cash-out book and a complete book.
+The independent review covered numerical behavior, temporal selection, paid
+corrections, valuation authority and scenario reuse. Its four findings were
+resolved with failing-then-passing regressions before the full qualification
+above. No review findings remain deferred. The review was read-only; the
+verification runs were performed separately by the implementer.
+
+After merging master `b836ef3c` at commit `0207ce82`, the same local environment
+passed `tools/check_all.py --group repository` (five workloads, 186 Python
+unit checks, 36 settlement specification checks and 40 browser-harness checks).
+Separate disposable `tools/run_preview.py` runs passed `--check
+--gas-imbalance-check --browser-check` (103 PASS checkpoints, five browser
+checks and three completed workers) and `--check --cash-pnl-check` (90 PASS
+checkpoints). Both integration databases were removed. These reruns cover the
+merged temporary-view source admission, whole-book owned-gas absence checks,
+cash-out accounting and browser workflow. A separate read-only integration
+review found no issues in their combined authorization and coverage behavior.
+
+The settlement CI follow-up raises the disposable preview's runtime and risk
+worker SQL command budgets from five to 30 seconds. Retained scheduled-swap
+reads exceeded the five-second command budget on shared CI runners. Connection
+and authenticator limits remain five seconds; worker calculation deadlines,
+lease checks and cancellation still apply independently. This is a test and
+local-preview budget adjustment, not a query optimization or a change to hosted
+connection settings. The complete settlement group passes locally with nine
+runner workloads, 252 PASS checkpoints, 101 owned browser checks and three
+completed workers; its disposable database was removed. The checks cover both
+dated-observation worker replay and scheduled-swap Blotter pricing. Independent
+review found no blocking issue in the deadline change.
+
+Billing metadata qualification retains its own five-second SQL command budget.
+Its dedicated measurement process sets that budget before creating the database
+client and verifies it on the opened connection. Exact result comparisons,
+retained input coordinates and metadata-work bounds remain unchanged when the
+general preview uses a longer command budget. At billing fix `467685b0`, the
+full assistant group passed
+12 runner workloads, 1,666 PASS checkpoints and 350 owned browser checks; all
+three preview databases were removed. Repository checks passed again, and an
+independent review found no blocking issue in the measurement's process scope
+or preserved deadline.
+
+Integration with master `cbab62a9` reserves D453 and migration 0401 for the
+curve-mark editor, and D454 and migration 0402 for cash-out. The cash-out
+migration's contents are unchanged. Repository checks passed on the combined
+tree, as did three focused database/API/browser workloads: cash-out (103 PASS
+checkpoints, five browser checks and three workers), curve marks (125 PASS
+checkpoints and 30 browser checks), and physical assistant (153 PASS checkpoints
+and ten browser checks). The last includes all four five-second billing
+measurements. Each preview removed its database. Independent integration review
+found no issues in migration ordering, test dispatch or retained deadlines.
+
+## Curve Marks Editor (D453)
+
+On 2026-11-24 the repository, frontend, managed and database groups passed at
+`0b26568d`, which integrated master `b836ef3c`. After the futures execution
+fixture correction at `3a2eabaf`, the full workspace rerun, gas, trading and
+focused editor checks passed at that revision. The workstation ran macOS arm64
+with stock PostgreSQL 18.7, .NET SDK 10.0.402, Node 24.22.0, Python 3.14.2
+and Chrome 158. The runner used this tree's API, synthetic data and disposable
+databases.
+
+Run the groups with the pinned binaries from the repository root.
+
+```sh
+for group in repository frontend managed database workspace gas trading; do
+  python3 tools/check_all.py --pg-bin "$PG_BIN" --dotnet "$DOTNET" --browser "$BROWSER" --group "$group" || exit
+done
+python3 tools/run_preview.py --pg-bin "$PG_BIN" --dotnet "$DOTNET" \
+  --curve-marks-check --browser-check --browser "$BROWSER" --no-build
+```
+
+The repository group passed 186 Python unit checks, 36 independent settlement
+specification checks, 6 owned-process cleanup checks and 40 browser-readiness
+checks. The standalone dependency check passed.
+
+The frontend group ran the locked install, build and all 2,380 tests with
+zero failures, cancellations or skips. Test files ran serially with the
+existing deadlines. This includes first-publication storage failures, exact
+retry after an uncertain outcome and review timestamp layout.
+
+| Group | Runner workloads | Printed PASS checkpoints | Reported owned browser checks | Disposable previews removed |
+| --- | ---: | ---: | ---: | ---: |
+| Managed | 82 | 2,858 | — | — |
+| Database | 24 | 434 | — | — |
+| Workspace | 20 | 1,686 | 276 | 12 |
+| Gas | 18 | 1,223 | 210 | 10 |
+| Trading | 20 | 1,588 | 489 | 10 |
+
+Workloads include dependency restores and builds. Printed checkpoints include
+setup and migration checks. The managed group reported 805 core checks and
+passed the editor's exact command, draft, addressed clipboard and receipt
+checks. The database group reported 173 combined-schema checks.
+
+The first workspace run stopped at the repeated-midnight futures execution
+fixture. PostgreSQL 18.7 includes tzdata 2026f, which dropped the predicted
+November 2026 fallback in Havana. The fixture now uses the observed November
+2025 transition and checks that both fixed UTC instants map to the same local
+midnight before requiring the two policy refusals. The focused execution
+preview passed 90 checkpoints, including both refusals and the existing
+financial expectations. [PostgreSQL 18.7 release notes](https://www.postgresql.org/docs/18/release-18-7.html)
+
+The gas group completed 27 retained risk jobs. In the editor exercise case, a
+missing January volatility left the call unpriced. The browser published
+`0.5`, and an explicit financial refresh returned the existing four-place
+acceptance value `2947.4419`. The earlier cut still showed missing volatility
+and the retained risk result stayed pinned.
+
+The focused web suite passed all 32 tests with zero failures, cancellations or
+skips. The fresh focused preview passed 123 printed checkpoints, including
+29 real-browser assertions and authenticated HTTP and native checks. Migration
+0401 refused predecessor drift and preserved an overlapping legacy command's
+original receipt. The editor checks exercised market-only admission, both
+time coordinates, atomic rollback, stale predecessors, owner-scoped recovery,
+receipt replay and source revocation. The preview removed its disposable
+database.
+
+Visual inspection covered the 20 × 12 volatility grid, 20-curve correlation
+matrix, scrolled sticky headings, long synthetic labels, review evidence,
+paste refusals, pending recovery and the 390-pixel inspector drawer. The
+browser checks covered reduced motion, exact 12-place values, viewport
+bounds and keyboard navigation in the supported theme.
+
+On 2026-11-25 the full frontend group passed all 2,380 tests with the fixes
+at `cb1b803a`. The focused managed editor checks passed. The focused preview
+passed 125 checkpoints, including 30 browser assertions. A native batch
+published in a non-UTC session returned the same receipt through owner-scoped
+HTTP status and retry. Refused command representations left request, fact
+and publication counts unchanged. Visual
+inspection confirmed distinct column codes on the populated, scrolled matrix.
+The gas exercise preview passed 128 checkpoints, including 21 browser checks,
+and completed four retained risk jobs. Explicit repricing returned `2947.4419`
+and the earlier missing mark and retained risk result stayed pinned.
+
+Independent whole-branch review led to four corrections. The native batch
+writer now requires canonical commands and serializes timestamps in UTC for
+owner-scoped receipt recovery. Visible curve codes distinguish scrolled matrix
+columns, and the documentation records the actual keyboard traversal and tested
+revisions. An independent review of the fixes confirmed all four findings were
+resolved. See the [feature contract](curve-marks-editor.md).
+
+## Whole-book P&L dates without trades (D452)
+
+Checked on synthetic data on 2026-11-24, in the same Linux x86_64 containers as
+D451 below (stock PostgreSQL 18.7, .NET SDK 10.0.402, Python 3.12.3, Debug API
+build), each run on a disposable database built from the whole migration
+sequence and a fresh build. A workstation (macOS arm64) ran the 185 repository
+Python unit checks and the standalone dependency check, which pass.
+
+The new case in `tools/check_recorded_cash.py` records independently owned gas
+in a book of its own through the native gas commands, with title received on
+15 October: the book holds no gas at the 13th and 14th and some at the 15th
+and 16th. With the code before D452, `tools/run_preview.py --check
+--cash-pnl-check` passed 85 checks and stopped at the first run over that book,
+from the 13th to the 16th, which names no trades and whose dates hold none:
+422 `pnl_position`, a scope with neither holdings nor cash.
+
+| Run, with the change | Result |
+| --- | --- |
+| `--check --cash-pnl-check` | passed, 90 PASS lines |
+| the same with named-trade runs also making the proof | fails: the run that names its trade is refused with `gas_owned_policy_required` |
+| `--check --async-workbench-check` | passed, 139 PASS lines |
+| `--check --exchange-check`, which also runs the P&L checks | passed, 430 PASS lines |
+| `--check`, the default owned check | passed, 1,586 PASS lines |
+
+Rerun on 2026-11-24 after merging master at `2ae16e0a`, which took D450 for
+independent gas charges; this entry and D451 below were renumbered then. On the
+merged branch, in the same kind of container: `--check --cash-pnl-check` 90
+PASS lines, `--check --async-workbench-check` 139, `--check --exchange-check`
+430, the default owned check 1,586, and `tools/check_all.py --group managed`
+passed its 81 workloads. The 186 repository Python unit checks, the settlement
+specification and the standalone dependency check pass on the workstation.
+
+What the new case establishes, for runs over the gas book that name no trades:
+
+- From the 13th to the 16th, with no trade at either date, the run is refused
+  at the 16th with `gas_owned_policy_required`, and the refusal says that a P&L
+  report does not value such gas and to name the trades instead.
+- A trade booked at the 16th in that book, with its premium cash recorded, is
+  known to runs between earlier dates. From the 14th to the 15th the run is
+  refused at the 15th, a date that holds the gas and no trade.
+- From the 13th to the 14th, before the gas is held, each date proves its
+  absence and the report lists that trade's cash alone.
+- From the 14th to the 16th the run is refused at the 16th, which holds the
+  trade, after the 14th has made the proof without gas or trades.
+- A run from the 15th to the 16th that names the trade reports it as new and
+  makes no claim about the book's gas.
+- Over a book with no gas, a run whose prior date holds no trade reports that
+  date empty, the trade as new, and is offered for saving.
+
+Before D452, an exploratory run on an interactive preview over books that held
+gas at both dates, neither holding a trade, returned a report listing only a
+later trade's cash.
+
+D451's other remaining limits were explored with temporary instrumentation that
+recorded, after each date's view was restored, which admissions registered in
+it would be refused. It is not in the tree.
+
+- Presence proofs. In P&L runs over the exchange example (options, a whole
+  book and a named trade) they were refused right after the restore
+  (`gas_park_loan_scope`, `gas_transport_financial_context`), because the
+  restore also removes the date's read coordinates. Once those coordinates are
+  resolved again, as the final reauthorization resolves them outside any view,
+  every proof passed: each date was on the UTC date of its instant. A close
+  inserted directly with a business day before its UTC date, which the
+  recording operation refuses, made both runs from it fail with 403
+  `access_denied` while the date's close was read, before any proof was
+  registered. The same runs from a close on its UTC date completed.
+- Park and Loan source read. The Park and Loan native fixture
+  (`tools/check_gas_park_loan.py`, four agreements across five checkpoints
+  each) was extended with a P&L run over each agreement's book, whole and by
+  the agreement's trade. All 40 runs were refused before commit:
+  `pnl_accounting_coverage` while the agreement had value left,
+  `gas_owned_policy_required` over the whole book once it held gas, and
+  `risk_trade_scope` for a named agreement with nothing left to value. The
+  agreement's source read was registered in 44 of their date views. Tried right
+  after each restore it was refused (`gas_owned_context`), and nothing binds a
+  date's context again before commit.
+
+Not established here: no real-browser suite ran, for the reason given under
+D451. The custody and Transport source reads were read in the code, not run.
+The fence functions that make them unreachable have native checks of their own
+(`tools/check_gas_park_custody.py`, `tools/gas_transport_financial_fences.py`);
+no P&L run over books that hold such agreements ran here. The economic
+projection's own source admission was not changed or run.
+
+## Whole-book P&L date sources (D451)
+
+Checked on synthetic data on 2026-11-24. A Linux x86_64 container (Ubuntu
+24.04.5, stock PostgreSQL 18.7, .NET SDK 10.0.402, Python 3.12.3, Debug API
+build) ran the database and HTTP checks, each on a disposable database built
+from the whole migration sequence. A workstation (macOS arm64) ran the 185
+repository Python unit checks and the standalone dependency check, which pass.
+
+Before the change, with only the new whole-book case added,
+`tools/run_preview.py --check --cash-pnl-check` passed the runs that name their
+trades and stopped at the run that names none: 403 `access_denied`, SQLSTATE
+42501.
+
+| Run, in the container with the change | Result |
+| --- | --- |
+| `--check --cash-pnl-check` | passed, 89 PASS lines |
+| the same with the view's requirement of its admissions removed | fails in the native check: an unadmitted source left its view unrequired |
+| the same with a view also taking the admissions registered before it | fails in the native check: a view required an admission that was not its own |
+| `--check --async-workbench-check` | passed, 139 PASS lines |
+| `--check --exchange-check` | passed, 429 PASS lines |
+| `--check`, the default owned check | passed, 1,586 PASS lines |
+| `tools/check_all.py --group managed` | passed, 81 workloads |
+
+What the new cases establish:
+
+- A book of its own holds one option at both dates. The run that names no
+  trades reports the same totals and positions as the run that names that
+  trade, states its scope as all trades in the selected books, and is offered
+  for saving.
+- In one request, each of a saved report's two dates admits its own exact
+  source in a temporary view, and the request commits.
+- A source that was never admitted is refused with `trading_source_denied` when
+  its view ends. That view leaves its ordinary admission pending and none that
+  reads its state.
+- What a restored source keeps for commit refuses an expired original deadline
+  with `futures_margin_denied`.
+- A source admitted before a view, and admitted again inside it, is still
+  admitted after the restore and is required in full at commit.
+- An admission that reads a view's state is required once before each restore
+  and its retained part once at commit. One registered before the view, and an
+  ordinary one registered inside it, are required at commit only, in full.
+
+Not established here: no real-browser suite ran, because the browser's sandbox
+does not start under the container's default security profile, which was left
+as it was. The Risk page's own whole-book run was therefore not exercised in a
+browser. The other check groups were not run for this change. No check lets an
+original deadline lapse between a date's read and the commit of a real run.
+Whole books that hold independently owned gas, and the limits D451 lists as
+remaining, are covered by the next entry above
+([D452](#whole-book-pl-dates-without-trades-d452)).
+
+## Independent gas charges (D450)
+
+Local verification on 2026-11-24 at `e8580a79` uses synthetic trades with
+stock PostgreSQL 18.7 and the checkout's own API and worker. The pinned
+tools are .NET SDK 10.0.402, Python 3.14.2, Node 24.22.0 and Chrome on macOS
+arm64. The gas, trading and managed groups run sequentially through
+`tools/check_all.py`. Integration fixtures provision and remove their own
+databases. With the pinned tools selected, run the groups from the
+repository root.
+
+```bash
+for group in gas trading managed; do
+  python3 tools/check_all.py --pg-bin "$PG_BIN" --dotnet "$DOTNET" --browser "$BROWSER" --group "$group" || exit
+done
+```
+
+All three groups passed. The first trading run stopped at the swap draft's
+curve-read-count assertion and removed its disposable database. The full
+trading rerun at the same commit with the same command and timeouts passed
+both executions of that assertion. The cause of the initial failure is
+unknown.
+
+| Group | Runner `CHECK` workloads | Printed `PASS` checkpoints | Owned browser checks | Completed workers | Databases removed |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Gas | 18 | 1,220 | 208 | 27 | 10 |
+| Trading | 20 | 1,588 | 489 | 20 | 10 |
+| Managed | 81 | 2,809 | — | — | — |
+
+Runner workloads include locked restores and builds. Printed checkpoints
+include repeated setup and migration checks. Browser counts come from the
+owned runner summaries. Each integration group also qualified one worker
+refusal for an altered retained manifest (`risk_graph_manifest`). Managed
+reported 804 core checks and 211 gas ticket checks.
+
+The managed charge checks pin the no-charge identities and unchanged
+following payment values. They exercise exact row shapes and charge
+quantities, a second physical clock, distinct resolved day states across two
+clocks, a term outside physical delivery, partial and overpaid cash, and
+earlier knowledge. The lump sum refuses remittance one microsecond before
+its derived earned day ends and admits it at that boundary, before its
+payment date begins. Capacity payable on day 1 uses the exact completion
+instant later the same day.
+
+The gas charge integration workload reported 118 PASS checkpoints, 15 owned
+browser checks and three completed retained workers. It compares independent
+entry values and position components in previews, exact trades, the Blotter
+and shared scenarios. The held schedule's reference example checks a
+capacity charge of 10,000 units per day at 0.02. After ten days it has −2,000 accrued
+and −4,000 unrealized. A −1,000 remittance leaves −1,000 outstanding then.
+An earlier knowledge view of the same close excludes that remittance.
+Changing delivery size leaves the charge amounts fixed. The workload also
+covers retained workers, a multiplier-two typed price, remittance sign and
+zero-amount refusals, request replay, invalid native shapes, an
+exercise premium with unchanged group value and final billing refusals.
+
+Migration 0400 extends migration 0399's native charge admission to refuse
+the unrepresentable first UTC instant of a local 0001-01-01 day under a
+midnight UTC+14 clock. Native lump-sum and capacity checks stage their
+matching programs with the exact calendar and physical clock. Each accepts
+the adjacent representable day.
+
+Future replacement checks cover a fully paid upfront premium, original and
+proposed capacity starting at the amendment instant, and a known payment
+effective after the amendment. The ticket disables amendment for ineligible
+holdings. Preview, booking preparation and the locked writer also reject a
+started candidate. The checks compare the original revision, binding,
+payment and allocations before and after refusal. A wholly future unpaid
+replacement succeeds and its completed command replays after a payment on
+the new binding.
+
+The browser exercises explicit calendars, cleared basis-dependent price,
+payment day 1–28, booking and exact retained charge Terms. It checks both
+basis-specific labels, blank daily capacity cells, and the accrued,
+outstanding and unrealized amounts through the exact Side inspectors. Saved
+charge Terms show the stated currency, rate unit and capacity unit. The
+inspector identifies the amount to come as unrealized present value.
+The combined schedule includes independent monthly intervals and preserves
+the monthly grain of a one-day capacity stub. Its progress uses the number
+of native rows completed at their own ends. The ordinary projection still
+uses its leaf-based progress, with no native-row basis marker.
+
+The complete frontend suite passed all 2,353 tests with zero skips. It ran
+the frontend build and the following two-worker test invocation from `web`.
+The denomination test uses a multiplier-two quote, an exact 18-decimal-place
+amount and a fractional capacity. A separate presentation test supplies
+−3,925.75 unrealized PV against −4,000 nominal future cash.
+
+```bash
+npm run build
+node --test --test-concurrency=2 tests/*.test.mjs
+```
+
+Independent review confirmed the corrected UTC boundary, amendment and payment
+visibility checks, retained denomination and unrealized present value display.
+The reviewed correction passed the focused preview, three full groups and full
+frontend suite above. Optimizing the bounded repeated calendar reads remains
+deferred. Integrated CI remains a separate gate.
+
+Before publication, merge `75ca8b7e` incorporated the European-option changes
+from master and assigned the unchanged charge migrations 0399 and 0400 and
+the charge decision D450. Independent integration review found no lost
+implementation, check registration or migration predecessor conflict.
+On that combined tree, all 186 repository tests and 81 managed workloads
+passed; the managed run printed 2,857 PASS checkpoints. The charge preview
+passed 118 checkpoints, all 15 owned browser checks and three retained risk
+jobs, then removed its disposable database. This run also qualified both
+renumbered migration predecessor guards. The complete frontend build and
+two-worker suite passed all 2,356 tests with zero failures or skips.
+
+CI exposed a populated operating-upgrade fixture that reconstructed migration
+0356's calendar predecessor from the current helper, retaining migration 0399's
+later charge branch. The fixture now captures the actual four predecessors
+before 0356, verifies legacy quantities, programs and retries under both the
+predecessor and candidate, and atomically restores all current helper definitions.
+This preserves later facility-booking and charge-calendar extensions. Both the
+original guard failure and a current-helper preservation regression were observed
+before their corrections. Independent review passed. The final structured-power
+preview passed 156 checkpoints and all 35 owned browser checks, removed its
+disposable database, and the full repository Python suite passed all 186 tests.
+
+## European futures options (D449)
+
+Qualified on synthetic data in two places on 2026-11-24. A workstation (macOS arm64,
+.NET SDK 10.0.402, Node 24.22.0) ran the checks that need no database. A Linux
+x86_64 container (Ubuntu 24.04.5, PostgreSQL 18.7, .NET SDK 10.0.402, Python 3.12.3)
+ran the database and HTTP checks, each on a disposable database built from the whole
+migration sequence. No real-browser suite has run against a preview: the browser's
+sandbox does not start under the container's default security profile, which was
+left as it was. The capability is described in
+[futures options](futures-options.md#european-exercise).
+
+Every row below ran on the branch with master merged in. Master then held the
+Instrument schedule, gas pricing entries and exercise rights (D446 to D448) and
+their migrations 0391 to 0396; this increment's migrations follow them as 0397 and
+0398.
+
+| Run | Where | Result |
+| --- | --- | --- |
+| `tools/check_all.py --group managed` | workstation | passed, 81 workloads; the rows below marked "in the group" are among them |
+| MarketData checks, default | workstation, in the group | 804 managed core checks passed |
+| MarketData checks `--european-options` | workstation, container | 31 PASS |
+| MarketData checks `--futures-options` | workstation in the group, container | 70 PASS; the pinned risk digests pass with their expected values unedited on both |
+| MarketData checks `--option-sensitivities`, `--option-strategies`, `--vol-surface` | workstation, container | 8, 25 and 22 PASS |
+| MarketData checks `--option-lifecycle-projection`, `--cash-option-model`, `--physical-option`, `--cash-option-binding`, `--physical-option-binding` | workstation | pass, each with its European refusal |
+| MarketData checks `--spread-options`, `--exercise-rights`, `--calendar-policy`, `--payment-date-policy`, `--hybrid-monte-carlo-risk` | workstation, in the group | pass |
+| API checks `--schedules` | workstation in the group, container | 565 PASS |
+| API checks `--option-policy`, `--european-options` | workstation, container | 8 and 4 PASS |
+| API checks `--cash-option-value-policy`, `--physical-option-policy`, `--option-strategy-request`, `--risk-pricing-policy` | workstation | pass |
+| API checks `--historical-risk`, `--monte-carlo-risk`, `--context-resolution`, `--read-references`, `--power-hedge`, `--async-reads`, `--assistant-prompts`, `--published-clock`, `--calendar-authoring`, `--gas-ticket`, `--position-adjustment` | workstation, in the group | pass |
+| API checks `--lifecycle-actions`, `--economic-risk-contract`, `--lifecycle-schedule-contract`, `--gas-owned-setup`, `--shared-native-markets`, `--derivative-methods`, `--gas-accepted-order`, `--lifecycle-residual-currencies`, `--gas-operator-contract` | workstation, in the group | pass |
+| Rates and Shared checks | workstation, in the group | 88 and 51 passed |
+| `python3 -m unittest discover -s tests -p 'test_*.py'` | workstation | 185 OK, with migrations 0397 and 0398 in the numbering check |
+| `npm test --prefix web` | workstation | 2,354 pass |
+| Migrations 0397 and 0398 applied to a database | container | applied at the end of the whole sequence in every run below |
+| `tools/check_european_option.py` and its managed read `--european-option-read` | container | 7 checks pass, alone and as a step of the `lifecycle` group |
+| The same tool on a throwaway copy whose migration 0397 leaves the option event primitive unpatched | container | fails as intended: the primitive records the exercise of a European option |
+| `tools/check_all.py --group database` | container | passed, 434 PASS lines |
+| `tools/run_preview.py --check --exchange-check` without `--browser-check` | container | passed, 427 PASS lines, with the three new assertions of `tools/check_futures_option_storage.py` and the five of `tools/check_vol_surface_storage.py` |
+| `tools/check_all.py --group lifecycle` | container | its 38 steps that need no browser passed, 1,634 PASS lines; the first of its four browser steps stopped when its browser did not start, and the other three did not start |
+| `tests/browser/futures-options.mjs`, the browser part of the `exchange` group and the four browser steps of the `lifecycle` group | nowhere | not run |
+| The other groups of `tools/check_all.py`, as groups | nowhere | not run; the `repository` group's Python suite and the `frontend` group's `npm test` are the workstation rows above |
+| The risk worker's replay of a retained job that holds a European series | nowhere | no check exists |
+
+What the checks that ran establish:
+
+- **The formula.** `EuropeanFuturesOptionChecks` compares the Black-76 formula with the
+  independent 60-digit values of `tests/fixtures/futures-option-oracle.json`: within
+  10⁻²⁷ on its 17 cases, discounted and undiscounted, calls and puts (largest observed
+  difference 1.5 × 10⁻²⁸), and within 10⁻²⁶ on its two wide cases (1.2 × 10⁻²⁷, at
+  a strike of 3,276). Put-call parity holds to the same bound. The arithmetic is
+  integer, and the same checks pass with the same expected values on Linux x86_64.
+  Sixty seconds, and one clock tick, from expiry the value is the discounted intrinsic
+  value or zero with no range error. The value rises with volatility and is never
+  negative; without its floor a call far out of the money read −4 × 10⁻³⁰.
+- **Calibration.** A settlement rounded from each of eight oracle values is repriced
+  within half an increment at a volatility within 0.005 of the oracle's, under a
+  bracket whose top stays 3 where the tree's range would lower it to 1.72. Hand cases
+  with F = 5, K = 3 and D = 0.99: 1.98 and 1.975 fall back with residuals 0 and
+  −0.005, 1.969 is the least admitted and 1.968999 is refused. A market rate of 4.5%
+  against a 4% curve for a year falls back and 5% is refused; for a quarter 6% falls
+  back and 6.5% is refused. An out-of-the-money zero settlement falls back to zero
+  and is refused when the fallback is not declared.
+- **Scenarios.** Through the shared base, up and down valuation a European holding's
+  base value is its settlement within half an increment, its fallback values a shock
+  of 1.25 at 22,483.75 up and zero down by hand arithmetic, and a zero settlement is
+  worth nothing in every scenario. At the oracle's volatility a one-tick revaluation
+  gives the oracle's delta within 10⁻⁶ and gamma within 0.01%; at the calibrated
+  volatility the risk run and the sensitivity layers give delta within 0.001 and
+  gamma and vega within 1%.
+- **No series on the wrong model.** The tree refuses a European series and the
+  formula's policy; the formula refuses an American series and a tree policy; the
+  dispatcher, the solver and the binding refuse a policy that does not price the
+  style with `option_terms`. The five projection and reference-strategy entry points
+  refuse a European series with `projection_option_style`.
+- **Unchanged American values.** The 70 `--futures-options` checks, the sensitivity
+  and strategy checks and four solver outcomes re-read through the shared solver
+  pass with no expected value edited. `Release1` serializes to its earlier bytes.
+- **Policy.** The stated policy is `Release1` plus the `european` member, byte for
+  byte. A European series under `Release1` is refused with `option_policy` and named.
+  On one synthetic future an American and a European call under one policy are
+  calibrated by the tree and the formula, and each receipt names its numerical
+  policy. A retained calibration that recomputes differently, or under the other
+  model, is refused with `risk_option_calibration` by the comparison the worker
+  calls.
+- **Presentation.** The web tests cover the ticket's Exercise and Settlement facts,
+  the lifecycle reason and the Risk heading's European member.
+- **Installed and end to end.** On a database built from the whole migration
+  sequence, `tools/check_european_option.py` lists a synthetic European product, a
+  call and a put at one strike, on a synthetic cash-settled future that also has an
+  American call. The product is stored with no contrary instructions; a trader books
+  it and a settings editor and a principal holding only Trade supervisor cannot.
+  Exercise and assignment before expiry are refused in the proposal with
+  `option_exercise_style` and write nothing. With the proposal's refusal set aside
+  inside one rolled-back transaction, the option event primitive refuses the same
+  exercise itself; on a copy whose primitive is left unpatched that check fails.
+  After the expiry instant the automatic rule exercises the call into its future at
+  the strike under its margin policy and abandons the put. The managed read shows
+  the catalog's style and settlement, the two styles on one future each calibrated
+  by their own model, the European holding worth its settlement, the lifecycle list
+  refusing its exercise by style, a fit of the product naming the formula's policy,
+  and a policy without the European member refusing the book.
+- **Stored rows.** The product table refuses a style other than `american` or
+  `european` and a European product that accepts contrary instructions. A surface
+  revision is recorded only under the policy of its product's style, in both
+  directions, and the table admits the two policy ids and no other.
+
+Not covered by any check: a European series whose expiry lies outside the rate
+curve's pillars (the `discount_coverage` exclusion is the code American series use,
+and no fixture lists a future beyond the curve); a fit of a European product through
+HTTP and the worker, end to end; the risk worker's replay of a retained job that
+holds a European series; and the Gas delivery operations role. Not run: every
+real-browser check of the ticket, the Details panel and the lifecycle list.
+
+One independent adversarial review read the whole change on 2026-11-23 and ran the
+managed option checks. It found that migration 0398 spliced an unparenthesized CASE
+into two PL/pgSQL IF conditions, which would not have compiled; the CASE is now
+parenthesized, `tests/test_migration_spliced_conditions.py` checks it, and the
+migration has since applied. It found that the lifecycle projection refused a
+European holding only after calibrating it and reading its profile; the projection
+now refuses it where it names its options, with a check. It found that the option
+event primitive's refusal was read from its installed definition and never executed;
+the tool now executes it, as described above. The review's minor findings are not
+acted on. It found no path that prices a series on the wrong model and no change to
+American values. Merging master afterwards changed this increment's migration and
+decision numbers and none of its behaviour; the merge was not reviewed separately.
+
+## Exercise rights on a gas Instrument (D448)
+
+Local verification on 2026-11-24 uses the application tree at `f777479d`,
+Python 3.13, stock PostgreSQL 18.7, .NET SDK 10.0.402, Node 24.22.0 and Chrome
+on macOS arm64. The integration groups build and run this checkout's assets
+sequentially with isolated disposable synthetic databases. The three full
+`tools/check_all.py` groups exited 0.
+
+| Group | Runner `CHECK` workloads | Printed `PASS` checkpoints | Owned browser checks | Completed workers | Databases removed |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Gas | 17 | 1,102 | 193 | 24 | 9 |
+| Trading | 20 | 1,588 | 489 | 20 | 10 |
+| Managed | 81 | 2,734 | — | — | — |
+
+Runner workloads include locked restores and builds. Printed checkpoints
+include repeated setup and migration checks and are counted separately from
+the runner's browser and managed summaries. Gas and trading each ran the
+altered-manifest worker case that must terminate with `risk_graph_manifest`.
+The completed-worker column counts successful jobs. The managed core reported
+803 checks. The exercise-right selection emitted 36 PASS checkpoints, the gas
+ticket reported 177 checks, and the listed-option and spread/heat-rate
+selections emitted 70 and 21 PASS checkpoints.
+
+The managed checks exercise every holder-choice case, both holders, put-call
+parity, zero-time value, exact rounding and model refusals. They pin legacy
+no-right identity and trade scaling and check daily and monthly grouping,
+including staggered gas-day boundaries, an exact repeating quantity, and the
+allocation of whole-term cash across groups. They also check retained fixing
+and election deadlines, delivery conflicts on contract-quantity holdings,
+publication on zero-volume rows and a still-live cash forecast after payment
+falls due. Moving the supplied fixing together with the group deadline refuses
+when the booked Side retains the earlier fixing. A three-day monthly group
+uses the monthly observation on each day and a later daily fixing on one day.
+Pricing-binding tests distinguish correlation revisions and preserve pair
+symmetry. Settlement and reuse tests cover paid cash and known election changes. Independent held-value oracles include
+2,947.4419 for the daily fixed-price purchase, −947.4419 when the counterparty
+holds the right and 2,163.3174 for the indexed strike. The worked three-day result preserves the
+exact elected and abandoned amounts alongside the modeled contribution.
+
+The gas integration checks cover native and managed admission, exact physical
+and cash exercise instants, both temporal coordinates, immutable revisions and
+withdrawals, atomic and idempotent batches, current authority and retained
+worker scope. Direct rights-table reads and the terms projection use the
+selected holding and retained cutoff, including for a shared binding. A
+booked-ticket read refuses to publish a pending head after its AmendTrade
+grant expires. In the two-holding Blotter, the ordinary holding keeps its
+price and the conflicting holding keeps its authorized correction action.
+An exclusion at a retained cutoff survives later withdrawal of the delivery fact. Mark receipt replay
+checks the effective instant for both volatility and correlation, including a
+receipt for an identical historical fact. Interactive and retained risk reconcile
+price, volatility and combined scenarios and preserve gross group economics when
+ordinary Side cash is paid. Owned browser checks exercise the standalone
+ticket, absent marks, schedule provenance, the main-window action, read-only
+trade windows and exact retry after losing the response. The combined exercise
+and pricing workload emitted 138 PASS checkpoints, completed 12 retained worker
+runs and reported 24 owned browser checks, five for pricing and 19 for exercise.
+
+The frontend build passed. The full frontend suite ran serially from `web`
+with `node --test --test-concurrency=1 tests/*.test.mjs`. All 2,344 tests
+passed with zero skips. They include a priced multi-clock ticket with an
+unavailable combined schedule, an editable refusal that preserves the last grid
+and its units, an initially unpriced amendment with a visible quantity unit,
+a successful reread after a stale predecessor, and exact recovery when session
+storage is unavailable. The table counts the owned integration browsers
+separately. Integrated CI is a separate merge gate.
+
+## Instrument schedule and independent gas pricing (D446–D447)
+
+Local qualification on 2026-11-23 uses synthetic inputs, disposable stock
+PostgreSQL 18.7, .NET SDK 10.0.402, Node 24.22.0 and Chrome on macOS arm64.
+Each integration group uses a frozen checkout's own API/worker assets and owned database. No production
+resources are used and no publication or deployment is implied.
+
+The managed schedule oracle covers all 27 concrete sided Instrument families,
+ordered memberships and rows, schedule instance reuse, exact independent Side
+sums and shared-Side context reuse. Legacy refusal codes/messages and canonical
+identity literals are pinned. Exact quantity checks include boundaries, explicit
+zero, a repeating daily quantity, incomplete/mismatched held state, partial-term
+exclusion, source-policy labels and a part reduced to zero after paid cash.
+
+The three-day synthetic pricing oracle independently checks every entry in
+Example A (total 2,650) and Example B (accrued unsettled −47,750, unrealized 500,
+total −47,250). With the monthly price unpublished, Example B instead has accrued
+9,250 and unrealized −56,500, retaining the total. Share 1.05 prices 10,500 units
+at 3.20 for 33,600. Doubled holdings/records double each amount exactly.
+
+The pricing HTTP/native suite checks reduced storage, request replay, independent
+native refusals, monthly/daily index qualification, exact partial period totals
+and billing boundaries. Preview, trade, Blotter and queued risk agree by entry;
+earlier-cutoff reads retain prior quantities. Held-preview mismatched terms and
+current-authority failures refuse. Migration checks pin predecessor definition,
+owner, grants and configuration, test an independent caller search path and
+preserve populated predecessor requests.
+
+Review regression checks reject missing modern retry fields and a fixing on a
+different same-date contract. Independent physical sources with overlapping
+terms and different gas clocks accrue only their own payments; both contract and
+delivery-schedule policies pass. Changed source maps refuse prepared-context and
+definition reuse while preserving legacy economic canonical bytes. The HTTP
+suite also verifies the partial-payment case through reads and queued risk.
+
+The full managed group passes 80 runner checks, including 803 managed core
+checks. The full gas group passes 17 runner checks and 173 browser checks;
+the full trading group passes 20 runner checks and 489 browser checks. All three
+groups passed again on application commit `26324396` after the review fixes.
+The ticket suite passes 169 checks and the shared description suite 67. All
+2,328 frontend tests pass with Node test concurrency explicitly bounded at two;
+unbounded attempts hit browser/process-startup timeouts, with no assertions or
+timeouts relaxed. Five pricing browser checks cover conditional levels, fuel-link
+refusal, named monthly booking and signed taken/source quantities. Nine indexed
+browser checks retain the original 59-day amounts and inspection paging.
+
+### Fixed synthetic benchmark
+
+Base `aab2c3e6` and application tip `26324396` ran the same
+`--risk-benchmark` workload in Release on .NET 10.0.13, macOS 26.6.2 arm64,
+14 logical processors. Every workload has 50,000 bindings. Each gets one warm-up
+and five sequential samples with fresh within-run caches. Construction is
+excluded except the portfolio/holding preparation stated by the benchmark;
+the first three timings include per-position reconciliation against an
+independent full-repricing reference. The basis and futures expected-value
+checks run outside their timed sections.
+
+Side work and unit calls below are equal at base and tip. Time and allocation
+columns are base / tip. Allocations are current-thread bytes, including timed
+validation; peak/resident/native memory is not measured.
+
+| Workload | Unique held contracts | Scenarios | Side evaluations, both | Unit calls, both | Median ms, base / tip | Allocated bytes, base / tip |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| repeated | 1 | 3 | 3 | 3 | 457.90 / 468.61 | 502,509,232 / 559,709,776 |
+| shared fanout | 128 | 7 | 388 | 388 | 820.82 / 845.53 | 884,424,448 / 1,024,876,880 |
+| distinct | 5,000 | 3 | 15,000 | 15,000 | 800.26 / 904.39 | 946,337,784 / 1,005,019,504 |
+| multilevel basis books (9) | 9 | 19 | 106 | 53 | 3.08 / 3.98 | 4,481,016 / 4,488,856 |
+| multilevel basis books (216) | 216 | 433 | 2,544 | 1,272 | 257.63 / 349.71 | 1,021,487,104 / 1,023,918,672 |
+| futures books | 1 | 3 | 0 | 3 | 153.01 / 172.47 | 228,780,792 / 228,782,080 |
+
+Exact output parity and unchanged evaluated Side work pass. Timing was measured
+on a shared development host, with isolated integration groups also running;
+these medians do not establish a throughput improvement or regression. This is
+managed calculation work, without database, serialization, authorization or
+service throughput. Shared fan-out uses three factors; the basis cases use nine
+and 216; the other workloads use one.
+
+## Selected gas delivery quantities (D445)
+
+Local qualification on 2026-11-23 uses .NET SDK 10.0.402, stock PostgreSQL 18.7,
+Node 24.22.0 and Chrome on macOS arm64, with isolated disposable databases and
+synthetic observations. The managed verification group, 127 gas ticket checks,
+2,326 frontend tests and the repository verification group pass. All gas preview
+workloads pass, including indexed cash, amendments, facility/daily operations,
+final billing and the administrator's in-term load. The trading verification group
+also passes, including shared booking, retained schedule reuse, cross-commodity
+risk, index fixings, close-out, observation schedules and regional startup.
+
+`DeliveryQuantityChecks` independently checks the four-day worked example:
+unrealized 380, accrued unpaid −6,090 and total −5,710; a +0.10 location shock
+raises unrealized to 570 without changing accrued cash. It checks exact fractions,
+unequal daily contract quantities, mixed policies, complete membership/day
+coverage, source copying, retained-instrument parity and trade-specific reuse.
+Selection checks cover every rank, zero, withdrawals, equal evidence and conflicts.
+
+`tools/check_gas_delivery_quantity.py` passes migration predecessor-drift checks,
+native persistence, earlier-cutoff reads, Blotter/ticket/portfolio parity, queued
+risk replay after a correction, and the ordinary worker's exact catalogue,
+binding, book, trade, time and lease scope. It exercises manual and adopted
+facility allocation conflicts, agreeing sources, independent withdrawals and
+known records that are not yet effective. A real recorded payment remains fully
+overpaid after ended-day quantities correct to zero. Configured usage fees follow
+the selected source. Completed and interrupted legacy ticket commands retain their
+outcomes; changed requests, another actor's retained command and fresh tickets
+without the policy refuse. Malformed retry drafts retain structured refusals.
+
+All five dedicated browser checks pass: the visible Delivery schedule proposal,
+the linked-composition refusal, per-day source labels, evidence references and
+the overpaid cash balance with its exact selected quantity ratio. Independent
+adversarial review covered numerical, temporal, authorization and retained-command
+behavior; its findings are resolved. Migration 0390 and these changes have not
+been published or applied to production by this qualification.
+
 ## Running-trade amendments (D439–D441)
 
 Qualification on 2026-11-21 used .NET SDK 10.0.402, stock PostgreSQL 18.7 and
@@ -5924,3 +6681,50 @@ expired. Separate checks passed an exact non-primary recorded source and an
 expired curve with no eligible output. The 13 owned browser checks passed,
 including selection supersession and late catalog delivery. All 2,244
 frontend tests passed.
+
+## Operating facility and right access (D444)
+
+The checks were run first without migration 0389. The facility storage check and
+the native operating-trade check no longer grant themselves `ReadPhysical` or
+`ManagePhysicalSetup`; both stopped at the Market data editor's first facility
+save with `42501: power_facility_denied`. The owned
+`--structured-power-check` run, at that point still under the preview's own
+grants to Trader and Market data editor, passed the 95 lines of its existing
+flow and stopped when a Risk analyst was refused the facility catalog (403).
+
+With the migration, and with the preview's own grants of the two capabilities
+removed:
+
+- The facility storage check passes 50 cases. Applying the grant again changes
+  nothing, and an installation without one of the named roles is told which and
+  receives no part of it. Setup authority is installed on
+  Market data editor alone, and the roles that read operating facilities are
+  exactly the human roles that read trades plus Market data editor. Trader and
+  Risk analyst read exact versions and the directory and cannot save; Viewer,
+  Market data approver and Access administrator read nothing.
+- The native operating-trade check passes. The editor saves each facility and
+  the trader reaches admission. Risk analyst, Market data editor, Viewer,
+  Market data approver and Access administrator are refused with
+  `operating_booking_denied`, and a booker whose role loses `ReadPhysical` is
+  refused with `operating_facility_unavailable`. A hand grant made before the
+  migration is kept.
+- `--structured-power-check` passes 118 lines. Each of thirteen roles is run as
+  one person against the facility catalog, list, exact read, save, save
+  recovery and supplied-plan preview, and the operating-right catalog,
+  directory, exact read, valuation, review, booking, booking recovery, hedge
+  report and position read. Each role is allowed exactly what D444 lists and
+  refused the rest with 403. The confirmations desk lists the operating right,
+  and a trade reader whose role loses `ReadPhysical` is refused the whole
+  position read of the book that holds it. The preview gives Trader and Market
+  data editor `RunScenario` for its own pages, so the two scenario routes are
+  asserted through the eleven roles it leaves as installed.
+
+These runs used a disposable Linux container with stock PostgreSQL 18.7, Python
+3.12 and a Debug API build under SDK 10.0.402. With the migration the preview's
+default owned check, where the trade-reading roles now hold `ReadPhysical` as
+well, passes 1,584 HTTP and native lines there, and `--scheduled-swap-check`,
+which states the Trade supervisor's permissions exactly, passes 149 lines. The
+182 repository Python unit checks pass. In a running preview a Trader's New
+trade page lists Operating right, and choosing it opens Operating facilities
+with the catalog loaded and setup disabled. The browser suites and the other
+check groups were not run for this change outside CI.

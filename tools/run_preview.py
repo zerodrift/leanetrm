@@ -44,6 +44,12 @@ def main():
     parser.add_argument('--with-gas-operations-demo',action='store_true',help='Seed the synthetic basis example plus manual scheduling and imbalance records')
     parser.add_argument('--gas-operations-check',action='store_true',help='Qualify manual gas requests, acknowledgments and imbalance transfers')
     parser.add_argument('--gas-billing-check',action='store_true',help='Qualify final daily gas cash and retained corrections')
+    parser.add_argument('--curve-marks-check',action='store_true',help='Qualify atomic curve mark batches and certified market history')
+    parser.add_argument('--gas-exercise-check',action='store_true',help='Qualify gas exercise right admission and retained exercise times')
+    parser.add_argument('--gas-imbalance-check',action='store_true',help='Qualify reported-balance cash-out booking, valuation and authority')
+    parser.add_argument('--gas-charges-check', action='store_true', help='Qualify independent gas charges and their retained payment rows')
+    parser.add_argument('--gas-pricing-check',action='store_true',help='Qualify exact gas payment shares, parts, dates and named indexes')
+    parser.add_argument('--gas-delivery-quantity-check',action='store_true',help='Qualify selected delivery quantities in booked valuation and retained risk')
     parser.add_argument('--gas-daily-quantity-check',action='store_true',help='Qualify daily trade-owned quantities, temporal selection and corrections')
     parser.add_argument('--facility-quantity-check',action='store_true',help='Qualify shared facility quantity storage and explicit gas allocations')
     parser.add_argument('--gas-composition-check',action='store_true',help='Qualify multiple gas sides and explicit quantity links')
@@ -146,7 +152,7 @@ def main():
         args.with_regional_seed=True
     if args.with_regional_seed and (args.example!='standard' or args.check and not args.regional_seed_check):
         parser.error('Use --with-regional-seed for the interactive standard preset or --regional-seed-check --check for qualification')
-    if args.ephemeral_context_check: args.check=True
+    if args.ephemeral_context_check or args.curve_marks_check: args.check=True
     if args.historical_pool_check: args.jobs_check=True
     if args.market_dates_benchmark_only:args.market_dates_reads_check=True
     if args.market_dates_reads_check:args.market_dates_check=True
@@ -192,8 +198,14 @@ def main():
     if args.gas_quantity_benchmark: args.gas_daily_quantity_check=True
     if args.with_gas_operations_demo: args.with_gas_basis_demo=True
     if args.gas_billing_check or args.gas_operations_check: args.physical_gas_check=True
-    if args.gas_setup_check or args.gas_composition_check or args.gas_amendments_check or args.gas_indexed_check or args.gas_in_term_check or args.deal_ticket_check or args.gas_daily_quantity_check or args.facility_quantity_check: args.physical_gas_check=True
     if args.gas_in_term_check and args.gas_indexed_check: parser.error('--gas-in-term-check and --gas-indexed-check use different fixtures; run them separately')
+    if args.gas_charges_check:
+        compatible = {'gas_charges_check', 'gas_composition_check', 'gas_pricing_check', 'gas_exercise_check', 'browser_check'}
+        for name, enabled in vars(args).items():
+            if enabled and name.endswith('_check') and name not in compatible:
+                parser.error(f"--gas-charges-check and --{name.replace('_','-')} use different fixtures; run them separately")
+        if args.example!='standard': parser.error('--gas-charges-check requires the standard fixture')
+    if args.gas_setup_check or args.gas_composition_check or args.gas_amendments_check or args.gas_indexed_check or args.gas_in_term_check or args.deal_ticket_check or args.gas_daily_quantity_check or args.gas_delivery_quantity_check or args.gas_imbalance_check or args.gas_charges_check or args.gas_pricing_check or args.gas_exercise_check or args.facility_quantity_check: args.physical_gas_check=True
     if args.demo_instruments_check or args.gas_indexed_check or args.gas_in_term_check: args.check=True
 
     if args.retained_schedule_check or args.physical_gas_check or args.physical_crude_check or args.lng_cargo_check: args.check=True
@@ -205,7 +217,7 @@ def main():
     if args.authoring_browser_suite and not(args.browser_check and args.custom_curves_check):
         parser.error('--authoring-browser-suite requires --custom-curves-check or --price-authoring-check, and --browser-check')
     if args.lifecycle_swap_browser_check and not args.browser_check: parser.error('--lifecycle-swap-browser-check requires --browser-check and --browser')
-    fixing_frames=args.lifecycle_swap_browser_check or args.price_authoring_check or args.gas_operations_check or args.gas_billing_check or gas_demo or args.physical_crude_check or args.lng_cargo_check or args.crude_lifecycle_check or args.with_gas_quantity_dates or args.gas_amendments_check or args.gas_indexed_check or args.gas_daily_quantity_check or args.facility_quantity_check or args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check or args.close_out_drafts_check
+    fixing_frames=args.lifecycle_swap_browser_check or args.price_authoring_check or args.gas_operations_check or args.gas_billing_check or gas_demo or args.physical_crude_check or args.lng_cargo_check or args.crude_lifecycle_check or args.with_gas_quantity_dates or args.gas_amendments_check or args.gas_indexed_check or args.gas_daily_quantity_check or args.gas_delivery_quantity_check or args.gas_imbalance_check or args.gas_charges_check or args.gas_pricing_check or args.gas_exercise_check or args.facility_quantity_check or args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check or args.close_out_drafts_check
 
     if args.blotter_stream_benchmark and (args.output is None or args.output.resolve().is_relative_to(ROOT)):
         parser.error('--blotter-stream-benchmark requires an --output file outside the repository')
@@ -318,17 +330,37 @@ def main():
             from demo_date_plan import compile_plan
             date_plan=compile_plan(dotnet,dll,temporary) if not args.check and not gas_demo else None
             reference,market,security,manifest=fixture(ROOT,fixing_frames=fixing_frames,date_plan=date_plan,window_frames=args.contract_dates_check,publish_clocks=False)
+            if args.curve_marks_check and args.browser_check:
+                from check_curve_marks_http import add_grid_curves
+                market=add_grid_curves(market)
             if args.curve_eligibility_check:
                 from check_curve_eligibility import prepare as prepare_curve_eligibility
                 reference,market,manifest=prepare_curve_eligibility(reference,market,manifest)
             if args.gas_indexed_check:
                 from gas_indexed_fixture import add_fixture
                 reference,market,security,manifest=add_fixture(reference,market,security,manifest)
+            if args.gas_imbalance_check or args.gas_charges_check or args.gas_pricing_check or args.gas_exercise_check:
+                from gas_pricing_fixture import add_fixture as add_pricing_fixture
+                reference,market,security,manifest=add_pricing_fixture(reference,market,security,manifest,exercise_months=args.gas_exercise_check,imbalance_days=args.gas_imbalance_check)
+            if args.gas_charges_check:
+                from check_gas_charges import add_quote_fixture, add_reference_fixture
+                reference,market,security,manifest=add_quote_fixture(reference,market,security,manifest)
+                reference,market,security,manifest=add_reference_fixture(reference,market,security,manifest)
+            if args.gas_delivery_quantity_check:
+                from delivery_quantity_fixture import add_fixture as add_delivery_quantity_fixture
+                reference,market,security,manifest=add_delivery_quantity_fixture(reference,market,security,manifest)
             if args.gas_in_term_check:
                 from gas_in_term_fixture import add_fixture as add_in_term_fixture
                 reference,market,security,manifest=add_in_term_fixture(reference,market,security,manifest)
+        operating_predecessors=None
         query((ROOT/'db/bootstrap.sql').read_text())
         for migration in sorted((ROOT/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
+            if args.gas_imbalance_check and migration.name=='0402_gas_imbalance_cashout.sql':
+                from check_gas_imbalance import upgrade_checks
+                upgrade_checks(query,migration)
+            if args.structured_power_check and migration.name=='0356_operating_side_composition.sql':
+                from check_operating_populated_upgrade import helper_definitions
+                operating_predecessors=helper_definitions(query)
             if migration.name=='0376_runtime_contexts.sql':
                 from check_runtime_context_reset import run_checks as check_context_reset
                 check_context_reset(query,migration)
@@ -369,6 +401,39 @@ def main():
             if migration.name=='0216_in_term_gas_lifecycle.sql':
                 from check_gas_in_term import upgrade_checks as check_in_term_upgrade
                 check_in_term_upgrade(query,migration)
+            if migration.name=='0401_curve_mark_editor.sql' and args.curve_marks_check:
+                from check_curve_marks import check_upgrade_overlap
+                check_upgrade_overlap(query,migration)
+                from check_fact_anchor_upgrade import run_checks as check_curve_upgrade
+                check_curve_upgrade(query,migration,number='0401',guard='curve_mark_editor_upgrade',
+                                    signatures=('trading.record_curve_marks(uuid,jsonb,timestamptz,text)',))
+            if migration.name=='0400_gas_charge_boundaries.sql' and args.gas_charges_check:
+                from check_fact_anchor_upgrade import run_checks as check_boundary_upgrade
+                check_boundary_upgrade(query,migration,number='0400',guard='gas_charge_boundary_upgrade',signatures=(
+                    'security.gas_amendment_refusal(uuid,uuid,integer,uuid,timestamptz)',
+                    'security.write_gas_composition(uuid,jsonb,timestamptz,boolean)',
+                    'trading.save_gas_charge(uuid,uuid,uuid,integer,numeric,jsonb)'))
+            if migration.name=='0399_gas_charge_entries.sql' and args.gas_charges_check:
+                from check_fact_anchor_upgrade import run_checks as check_charge_upgrade
+                check_charge_upgrade(query,migration,number='0399',guard='gas_charge_upgrade',signatures=(
+                    'security.write_gas_composition(uuid,jsonb,timestamptz,boolean)',
+                    'trading.require_gas_program_shape(uuid,uuid,integer,date,date,timestamptz,numeric,numeric,market_data.gas_valuation_assignments,ref_data.gas_delivery_conventions,timestamptz,jsonb,numeric)',
+                    'security.record_gas_cash_payment(uuid,jsonb,timestamptz)',
+                    'trading.request_side_calendar_policy(jsonb,integer)', 'trading.require_gas_cash_payment()'))
+            if migration.name=='0395_joint_volatility_shifts.sql' and args.gas_exercise_check:
+                from check_fact_anchor_upgrade import run_checks as check_volatility_upgrade
+                check_volatility_upgrade(query,migration,number='0395',guard='joint_volatility_upgrade',
+                    signatures=('risk.axis_commands_pre_economic_lifecycle(jsonb)','risk.retain_axes(risk.jobs,jsonb)'))
+            if migration.name=='0392_gas_exercise_rights.sql' and args.gas_exercise_check:
+                from check_fact_anchor_upgrade import run_checks as check_exercise_upgrade
+                check_exercise_upgrade(query,migration,number='0392',guard='gas_exercise_upgrade',
+                    signatures=('security.write_gas_composition(uuid,jsonb,timestamp with time zone,boolean)',))
+            if migration.name=='0391_gas_pricing_entries.sql':
+                from check_gas_pricing import upgrade_checks as check_gas_pricing_upgrade
+                check_gas_pricing_upgrade(query,migration)
+            if migration.name=='0390_gas_delivery_quantity_valuation.sql':
+                from check_gas_delivery_quantity import upgrade_checks as check_delivery_quantity_upgrade
+                check_delivery_quantity_upgrade(query,migration)
             if migration.name=='0221_facility_choices_set_based.sql':
                 from check_facility_quantity_ledger import upgrade_checks as check_facility_choices_upgrade
                 check_facility_choices_upgrade(query,migration)
@@ -673,7 +738,9 @@ def main():
             from swap_fixture import fixture as swap_fixture
             # The valuation-status check reads the last custom-curve close, at which the daily bundle publishes.
             swap_market,swap_manifest=swap_fixture(fixing_frames=fixing_frames,observation_guards=args.side_calendar_check or args.side_observation_check or args.scheduled_swap_check,
-                scheduled_periods=args.side_calendar_check or args.scheduled_swap_check,closes=['2020-12-31T16:00:00Z'] if args.valuation_status_check else (),
+                scheduled_periods=args.side_calendar_check or args.scheduled_swap_check,
+                closes=[*(['2020-12-31T16:00:00Z'] if args.valuation_status_check else []),
+                        *(['2021-01-24T08:00:00Z'] if args.gas_exercise_check else [])],
                 effective_from='2020-12-16' if args.retained_schedule_check else '2020-01-01')
             if args.index_fixing_check:
                 from check_swap_settlement_selection import prepare_daily
@@ -692,11 +759,12 @@ def main():
                 prepare_factor(manifest)
         if security:query(security)
         if args.example=='standard' and (args.structured_power_check or not args.check):
-            query("INSERT INTO security.role_permissions SELECT id,p FROM security.roles CROSS JOIN "
-                  "(VALUES('ReadPhysical'),('ManagePhysicalSetup'),('RunScenario'))x(p) "
+            # Operating facilities and rights use the installed role grants (D444). The preview adds only what no
+            # installed role combines: scenarios for the people on its facility page, and certificate inventory.
+            query("INSERT INTO security.role_permissions SELECT id,'RunScenario' FROM security.roles "
                   "WHERE code='market_data_editor' ON CONFLICT DO NOTHING;")
             query("INSERT INTO security.role_permissions SELECT id,p FROM security.roles CROSS JOIN "
-                  "(VALUES('ReadPhysical'),('RunScenario'),('ReadRecInventory'),('RecordRecInventory'),('ConfigureRecInventory'))x(p) "
+                  "(VALUES('RunScenario'),('ReadRecInventory'),('RecordRecInventory'),('ConfigureRecInventory'))x(p) "
                   "WHERE code='trader' ON CONFLICT DO NOTHING;")
         query(f"SELECT security.initialize_operating_policies('{manifest["tenantId"]}','{manifest["workspaceId"]}');")
         if args.example=='standard' and (gas_demo or not args.check or args.async_workbench_check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check):
@@ -825,7 +893,7 @@ def main():
         # the initial view, so its explicit working selections are never recorded
         # as closes containing contracts that do not exist yet.
         working_days=tuple({frame['at'][:10] for frame in manifest['frames']}) if args.factor_swap_check else (
-            ('2020-12-18',) if args.factor_history_check or args.context_read_check else ())
+            ('2020-12-18',) if args.factor_history_check or args.context_read_check or args.curve_marks_check else ())
         seed_session_closes(query,manifest,working=working_days,input_markets=close_inputs)
         (temporary/'manifest.json').write_text(json.dumps(manifest))
         (temporary/'manifest.json').chmod(0o600)
@@ -844,9 +912,12 @@ def main():
                 reservation.bind(('127.0.0.1',0))
                 port=reservation.getsockname()[1]
         url=f'http://127.0.0.1:{port}'
+        # Retained portfolio reads include exact schedules and current authority.
+        # Give their SQL commands a bounded 30 s on shared CI runners; connection
+        # establishment and authentication retain their separate 5 s limits.
         app_env={**env,'OPENETRM_PREVIEW_ROOT':str(temporary),'OPENETRM_PREVIEW_PORT':str(port),
                  'OPENETRM_PREVIEW_WEB':str(temporary/'web'),
-                 'OPENETRM_PREVIEW_RUNTIME':f'Host={temporary};Port=55439;Database=postgres;Username=preview_runtime;SSL Mode=Disable;Timeout=5;Command Timeout=5;Maximum Pool Size=8',
+                 'OPENETRM_PREVIEW_RUNTIME':f'Host={temporary};Port=55439;Database=postgres;Username=preview_runtime;SSL Mode=Disable;Timeout=5;Command Timeout=30;Maximum Pool Size=8',
                  'OPENETRM_PREVIEW_AUTHENTICATOR':f'Host={temporary};Port=55439;Database=postgres;Username=preview_authenticator;SSL Mode=Disable;Timeout=5;Command Timeout=5;Maximum Pool Size=8',
                  **credential_keys}
         # Exercise transport independently of the launcher's UTC psql sessions.
@@ -884,12 +955,22 @@ def main():
             from check_risk_jobs_db import provision_worker
             provision_worker(query,selected or manifest,login)
             connection=temporary/f'{login}-connection'
-            connection.write_text(f'Host={temporary};Port=55439;Database=postgres;Username={login};SSL Mode=Disable;Timeout=5;Command Timeout=5;Maximum Pool Size=2')
+            connection.write_text(f'Host={temporary};Port=55439;Database=postgres;Username={login};SSL Mode=Disable;Timeout=5;Command Timeout=30;Maximum Pool Size=2')
             connection.chmod(0o600)
             config=temporary/f'{login}.json'
             config.write_text(json.dumps({'connectionFile':str(connection),'leaseSeconds':30,'pollSeconds':1,'timeoutSeconds':timeout}))
             config.chmod(0o600)
             return {**env,'OPENETRM_RISK_WORKER_CONFIG':str(config)}
+        # The private administrator command, run with the authenticator and the dedicated loader login (D360).
+        def admin_load_in_term(request):
+            def private(name,value):
+                path=temporary/name;path.write_text(value);path.chmod(0o600);return str(path)
+            login=lambda user:f'Host={temporary};Port=55439;Database=postgres;Username={user};SSL Mode=Disable;Timeout=5;Command Timeout=30;Maximum Pool Size=2'
+            config=private('gas-in-term-load.json',json.dumps({'manifestFile':str(temporary/'manifest.json'),
+                'authenticatorConnectionFile':private('gas-in-term-authenticator.connection',login('preview_authenticator')),
+                'loaderConnectionFile':private('gas-in-term-loader.connection',login('preview_gas_in_term_loader'))}))
+            return subprocess.run([str(dotnet),str(frozen_dll),'--admin-load-gas-in-term',config,private('gas-in-term-request.json',json.dumps(request))],
+                                  cwd=ROOT,env=env,text=True,capture_output=True,timeout=300)
         def risk_worker_runner(selected=None,login='preview_risk_worker',timeout=60,worker_env=None):
             worker_env=worker_env or prepare_risk_worker(selected,login,timeout)
             def run(measure=False):
@@ -977,7 +1058,7 @@ def main():
         if args.check:
             if args.structured_power_check:
                 from check_structured_power import run_checks as check_structured_power
-                structured=check_structured_power(url,query,manifest)
+                structured=check_structured_power(url,query,manifest,operating_predecessors=operating_predecessors)
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,
@@ -1095,24 +1176,66 @@ def main():
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,'facility':gas_demo_fixture}))
                     subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-basis-demo'],cwd=ROOT,env=env,check=True,timeout=300)
+            elif args.curve_marks_check:
+                from check_curve_marks import run_checks as check_curve_marks
+                check_curve_marks(query,manifest)
+                if args.browser_check:
+                    target=temporary/'curve-marks-browser.json'
+                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                    try:
+                        subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--curve-marks'],cwd=ROOT,env=env,check=True,timeout=300)
+                    finally:
+                        if evidence:=os.environ.get('OPENETRM_MARKS_BROWSER_EVIDENCE'):
+                            destination=Path(evidence).resolve();destination.mkdir(parents=True,exist_ok=True)
+                            for screenshot in temporary.glob('marks-*.png'):shutil.copy2(screenshot,destination/screenshot.name)
+                from check_curve_marks_http import run_checks as check_curve_marks_http
+                check_curve_marks_http(url,query,manifest)
             elif args.gas_in_term_check:
                 from check_gas_in_term import run_checks as check_gas_in_term
                 def browse_in_term(fixture):
                     target=temporary/'browser-target.json';target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,'facility':fixture}))
                     subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-in-term'],cwd=ROOT,env=env,check=True,timeout=300)
-                # The private administrator command, run with the authenticator and the dedicated loader login (D360).
-                def admin_load_in_term(request):
-                    def private(name,value):
-                        path=temporary/name;path.write_text(value);path.chmod(0o600);return str(path)
-                    login=lambda user:f'Host={temporary};Port=55439;Database=postgres;Username={user};SSL Mode=Disable;Timeout=5;Command Timeout=30;Maximum Pool Size=2'
-                    config=private('gas-in-term-load.json',json.dumps({'manifestFile':str(temporary/'manifest.json'),
-                        'authenticatorConnectionFile':private('gas-in-term-authenticator.connection',login('preview_authenticator')),
-                        'loaderConnectionFile':private('gas-in-term-loader.connection',login('preview_gas_in_term_loader'))}))
-                    return subprocess.run([str(dotnet),str(frozen_dll),'--admin-load-gas-in-term',config,private('gas-in-term-request.json',json.dumps(request))],
-                                          cwd=ROOT,env=env,text=True,capture_output=True,timeout=300)
                 check_gas_in_term(url,query,manifest,risk_worker_runner(),admin_load_in_term,browse_in_term if args.browser_check else None)
                 from check_gas_point_in_term import run_checks as check_point_in_term
                 check_point_in_term(url,query,manifest,admin_load_in_term)
+            elif args.gas_imbalance_check or args.gas_charges_check or args.gas_pricing_check or args.gas_exercise_check:
+                run_worker=risk_worker_runner()
+                if args.gas_imbalance_check or args.gas_charges_check or args.gas_pricing_check:
+                    query("CREATE ROLE preview_gas_in_term_loader LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS INHERIT IN ROLE openetrm_runtime,openetrm_gas_in_term_loader;")
+                if args.gas_composition_check:
+                    from check_gas_composition import run_checks as check_gas_composition
+                    check_gas_composition(url,query,manifest,run_worker=run_worker)
+                if args.gas_imbalance_check:
+                    from check_gas_imbalance import run_checks as check_gas_imbalance
+                    check_gas_imbalance(url,query,manifest,run_worker,admin_load_in_term)
+                    if args.browser_check:
+                        from check_gas_imbalance import browser_authority
+                        browser_authority(query,manifest)
+                        target=temporary/'browser-target.json';target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                        subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-imbalance'],cwd=ROOT,env=env,check=True,timeout=300)
+                if args.gas_charges_check:
+                    from check_gas_charges import run_checks as check_gas_charges
+                    def check_charge_boundary(terms):
+                        fixture = temporary/'charge-clock-boundary.json'
+                        fixture.write_text(json.dumps(terms))
+                        subprocess.run([str(dotnet),'run','--project','tests/OpenEtrm.Api.Checks','--','--gas-charge-clock-boundary',str(fixture)],
+                                       cwd=ROOT,env=app_env,check=True,timeout=120)
+                    check_gas_charges(url,query,manifest,run_worker,admin_load_in_term,check_charge_boundary)
+                    if args.browser_check:
+                        target=temporary/'browser-target.json';target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                        subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-charges'],cwd=ROOT,env=env,check=True,timeout=300)
+                if args.gas_pricing_check:
+                    from check_gas_pricing import run_checks as check_gas_pricing
+                    pricing_fixture=check_gas_pricing(url,query,manifest,run_worker,admin_load_in_term)
+                    if args.browser_check:
+                        target=temporary/'browser-target.json';target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,'facility':pricing_fixture}))
+                        subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-pricing'],cwd=ROOT,env=env,check=True,timeout=300)
+                if args.gas_exercise_check:
+                    from check_gas_exercise import run_checks as check_gas_exercise
+                    def browse_exercise(suite,fixture):
+                        target=temporary/'browser-target.json';target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,'facility':fixture}))
+                        subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),suite],cwd=ROOT,env=env,check=True,timeout=300)
+                    check_gas_exercise(url,query,manifest,run_worker,browse_exercise if args.browser_check else None)
             elif args.gas_indexed_check:
                 from check_gas_indexed import run_checks as check_gas_indexed
                 indexed_fixture=check_gas_indexed(url,query,manifest,risk_worker_runner())
@@ -1123,8 +1246,9 @@ def main():
                     subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-indexed'],cwd=ROOT,env=env,check=True,timeout=180)
             elif args.physical_gas_check:
                 from check_physical_gas_preview import run_checks,run_shape_checks
-                run_checks(url,query,manifest)
-                run_shape_checks(query,manifest)
+                if not args.gas_delivery_quantity_check:
+                    run_checks(url,query,manifest)
+                    run_shape_checks(query,manifest)
                 if args.facility_quantity_check:
                     from check_facility_quantity_ledger import run_checks as check_facility_quantities
                     facility_fixture=check_facility_quantities(url,query,manifest)
@@ -1140,8 +1264,11 @@ def main():
                 if args.gas_billing_check:
                     from check_gas_billing import run_checks as check_gas_billing
                     gas_billing_fixture=check_gas_billing(url,query,manifest)
-                run_gas_worker=risk_worker_runner() if args.gas_composition_check or args.gas_amendments_check or args.gas_indexed_check else None
+                run_gas_worker=risk_worker_runner() if args.gas_composition_check or args.gas_amendments_check or args.gas_indexed_check or args.gas_delivery_quantity_check or args.gas_pricing_check else None
 
+                if args.gas_delivery_quantity_check:
+                    from check_gas_delivery_quantity import run_checks as check_gas_delivery_quantity
+                    delivery_quantity_fixture=check_gas_delivery_quantity(url,query,manifest,run_gas_worker)
                 if args.gas_composition_check:
                     from check_gas_composition import run_checks as check_gas_composition
                     check_gas_composition(url,query,manifest,run_worker=run_gas_worker)
@@ -1153,7 +1280,9 @@ def main():
                     check_deal_ticket(url,query,manifest)
                 if args.browser_check:
                     target=temporary/'browser-target.json'
-                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,**({'facility':gas_operations_fixture} if args.gas_operations_check else {'facility':gas_billing_fixture} if args.gas_billing_check else {'facility':facility_fixture} if args.facility_quantity_check else {}),**({'gasAmendment':amendment_fixture} if args.gas_amendments_check else {})}))
+                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,**({'facility':delivery_quantity_fixture} if args.gas_delivery_quantity_check else {'facility':gas_operations_fixture} if args.gas_operations_check else {'facility':gas_billing_fixture} if args.gas_billing_check else {'facility':facility_fixture} if args.facility_quantity_check else {}),**({'gasAmendment':amendment_fixture} if args.gas_amendments_check else {})}))
+                    if args.gas_delivery_quantity_check:
+                        subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-delivery-quantity'],cwd=ROOT,env=env,check=True,timeout=300)
                     if args.gas_operations_check:
                         subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-operations'],cwd=ROOT,env=env,check=True,timeout=180)
                     if args.gas_billing_check:
@@ -1163,7 +1292,8 @@ def main():
 
                     if args.facility_quantity_check:
                         subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--facility-quantities'],cwd=ROOT,env=env,check=True,timeout=300)
-                    subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--physical-gas'],cwd=ROOT,env=env,check=True,timeout=180)
+                    if not args.gas_delivery_quantity_check:
+                        subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--physical-gas'],cwd=ROOT,env=env,check=True,timeout=180)
                     if args.deal_ticket_check:
                         subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--deal-ticket'],cwd=ROOT,env=env,check=True,timeout=300)
                 if args.gas_setup_check:

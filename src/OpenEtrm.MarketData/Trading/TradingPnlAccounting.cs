@@ -4,9 +4,13 @@ using OpenEtrm.MarketData.Risk;
 namespace OpenEtrm.MarketData.Trading;
 
 // These are authorized valuation/ledger projections, never another persisted trade model.
-// AllocationId is the stable native allocation identity, not a payment header or a report-generated key.
+// AllocationId is the stable native cash lineage, never a revising header or a report-generated key.
+// A gas payment belongs wholly to one binding and uses its first native revision's identity.
 // Flows retain all known allocations; recognition by effective time happens only in Compare.
-public sealed record PnlPositionValue(AccountingPositionKey Position,ExactMoney RemainingValue);
+public sealed record PnlPositionValue(AccountingPositionKey Position,ExactMoney RemainingValue)
+{
+    public int UnassessedDays{get;init;}
+}
 public enum PnlAccountingCoverage { RemainingValueOnly=1,Complete }
 public sealed record PnlAccountingPoint(Guid ContextId,Guid SnapshotId,DateTimeOffset At,DateTimeOffset KnownAt,
     ImmutableArray<PnlPositionValue> Positions,ImmutableArray<AccountingFlow> Flows,PnlAccountingCoverage Coverage)
@@ -35,7 +39,12 @@ public sealed record PnlAccountingPoint(Guid ContextId,Guid SnapshotId,DateTimeO
 }
 public sealed record PnlAccountingPosition(AccountingPositionKey Position,ReferenceKey Currency,bool HeldAtOpening,bool HeldAtClosing,
     ExactMoney OpeningValue,ExactMoney ClosingValue,ExactMoney ValueMovement,ExactMoney PeriodCash,
-    ExactMoney PriorCashKnowledgeAdjustment,ExactMoney NonEarningTransfers,ExactMoney EconomicPnl);
+    ExactMoney PriorCashKnowledgeAdjustment,ExactMoney NonEarningTransfers,ExactMoney EconomicPnl)
+{
+    public int OpeningUnassessedDays{get;init;}
+    public int ClosingUnassessedDays{get;init;}
+    public bool Incomplete=>OpeningUnassessedDays!=0||ClosingUnassessedDays!=0;
+}
 public sealed record PnlAccountingReport(PnlAccountingPoint Opening,PnlAccountingPoint Closing,string Policy,
     ImmutableArray<PnlAccountingPosition> Positions);
 
@@ -86,7 +95,7 @@ public static class TradingPnlAccounting
                 .Subtract(Sum(flowsAtOpening[position],AccountingFlowKind.EconomicCash));
             var transfers=Sum(flowsAtClosing[position],AccountingFlowKind.NonEarningTransfer).Subtract(Sum(flowsAtOpening[position],AccountingFlowKind.NonEarningTransfer));
             rows.Add(new(position,currency,prior is not null,current is not null,old,now,movement,period,restated,transfers,
-                movement.Add(period).Add(restated).Subtract(transfers)));
+                movement.Add(period).Add(restated).Subtract(transfers)){OpeningUnassessedDays=prior?.UnassessedDays??0,ClosingUnassessedDays=current?.UnassessedDays??0});
         }
         return new(opening,closing,policy,rows.ToImmutable());
     }
@@ -98,7 +107,7 @@ public static class TradingPnlAccounting
         if(point.Coverage!=PnlAccountingCoverage.Complete)
             throw Error("pnl_accounting_coverage","Full trading P&L requires complete remaining value, signed cash and non-earning transfer coverage.");
         static bool Key(AccountingPositionKey key)=>key.IsValid;
-        if(point.Positions.Any(p=>p is null||!Key(p.Position)||p.RemainingValue is null)||point.Positions.Select(p=>p.Position).Distinct().Count()!=point.Positions.Length)
+        if(point.Positions.Any(p=>p is null||!Key(p.Position)||p.RemainingValue is null||p.UnassessedDays<0)||point.Positions.Select(p=>p.Position).Distinct().Count()!=point.Positions.Length)
             throw Error("pnl_position","Each retained holding requires one distinct exact trade/binding/book value.");
         if(point.Flows.Any(f=>f is null||f.AllocationId==Guid.Empty||f.Revision<=0||!Key(f.Position)||f.Amount is null||!Enum.IsDefined(f.Kind))||
             point.Flows.Select(f=>f.AllocationId).Distinct().Count()!=point.Flows.Length)

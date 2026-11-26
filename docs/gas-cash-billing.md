@@ -1,5 +1,14 @@
 # Final daily gas cash determinations
 
+## Pricing-entry boundary (D447)
+
+Final daily billing requires share one, no quantity part and the full source
+term. A non-unit share, band/shortfall or shorter payment period refuses with
+`gas_billing_input` at the API and `gas_billing_profile` in the native writer.
+This check applies independently of whether the entry's current taken quantity
+happens to equal its source. New named indexed payments remain outside this
+fixed-price determination profile. Valuation accrual is not a final bill.
+
 D338 implements a bounded commercial consumer, `gas_final_daily_fixed_cash_v1`.
 It consumes one completed native gas day and one fixed-price payment or fee
 membership from a retained composed booking. It determines original/correcting
@@ -97,7 +106,8 @@ otherwise enlarge an earlier measurement's RLS inputs. The analyzed layout
 covers the full database's RLS dependencies before recording its baseline.
 Stale small-table estimates can still cause one physical curve scan;
 this is not a history-independent scan or
-latency claim. The ordinary five-second command deadline is unchanged.
+latency claim. Each measurement explicitly selects and verifies its own
+five-second SQL command deadline, independently of the general preview budget.
 
 ## Native operations and UI
 

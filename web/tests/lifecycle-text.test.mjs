@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {measureLines,lifecycleLines,quantityBasisText,valueMeasureText} from '../dist/lifecycle-text.js';
+import {exerciseStateText,measureLines,lifecycleLines,quantityBasisText,valueMeasureText} from '../dist/lifecycle-text.js';
 const instant=at=>'@'+at.slice(0,10);
 const measures={unrealized:'1,445',realizedUnsettled:'-10855',total:'-9410',label:'Unrealized + realized unsettled',discounting:'undiscounted',
  expectedCash:[{dueAt:'2026-11-10T00:00:00Z',amount:'-9300'},{dueAt:'2026-12-10T00:00:00Z',amount:'-9648'}]};
@@ -59,4 +59,45 @@ test('the value measure names its discounting basis, or neither; a half-present 
  assert.equal(valueMeasureText(undefined,undefined),'Contractual PV');
  assert.throws(()=>valueMeasureText('label',undefined),/come together/);
  assert.throws(()=>valueMeasureText(undefined,'undiscounted'),/come together/);
+});
+
+
+test('selected quantities name their saved basis without an internal version identifier',()=>{
+ assert.equal(quantityBasisText('selected_delivery_quantity_v1'),'follows selected delivery quantity');
+ assert.equal(quantityBasisText('allocated_final_v1'),'allocated, final');
+ assert.equal(quantityBasisText('allocated_provisional_v1'),'allocated, provisional');
+ assert.equal(quantityBasisText('scheduled_v1'),'scheduled');
+ assert.equal(quantityBasisText('contractual_quantity_v1'),'contract quantity');
+});
+
+test('quantity parts use plain labels on the native schedule',()=>{
+ assert.equal(quantityBasisText('band_v1'),'part of the day quantity');
+ assert.equal(quantityBasisText('shortfall_v1'),'shortfall of the day quantity');
+});
+
+test('exercise groups show the recorded outcome or the specific decision still awaited',()=>{
+ assert.equal(exerciseStateText('exercised'),'exercised');
+ assert.equal(exerciseStateText('abandoned'),'abandoned');
+ assert.equal(exerciseStateText('undecided'),'not yet exercised');
+ assert.equal(exerciseStateText('undecided_forecast'),'awaiting published price');
+});
+
+test('cash schedules show the supplied unrealized present value to come separately from accrued and outstanding, including zero',()=>{
+ const partial=lifecycleLines(row({lifecycle:{cash:'PartPaid'},accrued:'-2000',paid:'-1000',outstanding:'-1000',amount:'-6000',remaining:'-3925.75'}),instant);
+ assert.deepEqual(partial.filter(line=>/^(Accrued|Paid|Outstanding|To come \(unrealized present value\)):/.test(line)),
+  ['Accrued: -2,000','Paid: -1,000','Outstanding: -1,000','To come (unrealized present value): -3,925.75']);
+ assert.ok(lifecycleLines(row({remaining:'0'}),instant).includes('To come (unrealized present value): 0'));
+ assert.ok(!lifecycleLines(row({remaining:null}),instant).some(line=>line.startsWith('To come')));
+});
+
+test('reported balance states never label an unknown accrual as zero or paid',async()=>{
+ const {imbalanceStateText,incompleteText}=await import('../dist/lifecycle-text.js');
+ assert.equal(imbalanceStateText('assessed'),'');
+ assert.equal(imbalanceStateText('unassessed'),'no statement yet');
+ assert.equal(imbalanceStateText('not_applicable'),'day not ended');
+ assert.equal(imbalanceStateText('unassessed','preceding_day_unavailable'),'preceding day unassessed');
+ assert.equal(incompleteText(4),'incomplete: 4 unassessed days');
+ assert.equal(incompleteText(0),'');
+ const paid=lifecycleLines(row({lifecycle:{cash:'UnassessedPaid'},paid:'900',accrued:null,outstanding:null}),instant);
+ assert.ok(paid.includes('Paid: 900')&&!paid.some(text=>text.startsWith('Accrued:')||text.startsWith('Outstanding:')));
 });

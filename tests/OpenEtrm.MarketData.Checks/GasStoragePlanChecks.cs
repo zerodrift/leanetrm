@@ -12,7 +12,7 @@ using OpenEtrm.Shared.Temporal;
 // Every expected figure is worked by hand here, independently of the implementation's arithmetic.
 internal static class GasStoragePlanChecks
 {
-    public static int Run()
+    public static int Run(Action<SidedInstrument, SideValuationContext>? inspect = null)
     {
         var passed=0;
         void Check(string name,Action action){action();passed++;Console.WriteLine("PASS gas storage: "+name);}
@@ -142,6 +142,8 @@ internal static class GasStoragePlanChecks
             GasStorageInstrument Contract(ImmutableArray<GasStorageDay> plan, ImmutableArray<GasStorageContractDay>? prices=null)=>GasStorageInstrument.Compose(Guid.NewGuid(),entitlement,
                 new(GasDay(1).Start,ExactQuantity.FromQuantity(Q("29000"))),new(Q("0"),Q("100000")),quote,rule,charges,prices??contractDays,plan);
             var instrument=Contract(basePlan);
+            var scheduleMarket = f.Model().Build(f.Snapshot(), instrument.DependenciesAt(f.Snapshot()));
+            inspect?.Invoke(instrument, new SideValuationContext(scheduleMarket, new ExplicitDiscounting(D("1"), DiscountFactorSource.Undiscounted)));
             var setup=new ValuationSetup(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,new ExplicitDiscounting(D("1"),DiscountFactorSource.Undiscounted));
             var portfolio=ValuationPortfolio.FromTrades([new(Guid.NewGuid(),Guid.NewGuid(),[new(Guid.NewGuid(),instrument,instrument.UnitQuantity)])],setup);
             var bump=new QuoteBump(new(f.S(1),InputUse.Variable),quote.Key,PriceUnit.FromQuote(quote),D("0.1"),QuoteBump.Convention);

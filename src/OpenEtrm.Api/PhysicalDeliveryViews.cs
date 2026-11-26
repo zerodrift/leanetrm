@@ -67,11 +67,11 @@ internal static class PhysicalDeliveryViews
                 p.Program.Document.Family=="gas"&&components.Any(m=>m.Text("code")==d.SideCode&&m.Text("slot")==p.Slot.ToString(CultureInfo.InvariantCulture)));
             var component=components.Single(m=>m.Text("slot")==program.Slot.ToString(CultureInfo.InvariantCulture));
             var contract=d.Contract;var selected=d.Selected;
-            var head=selected.RevisionId is {} id?d.Heads.Single(h=>h.Id("id")==id):(System.Text.Json.JsonElement?)null;
+            var status=selected.Status??(selected.RevisionId is {} id?d.Heads.Single(h=>h.Id("id")==id).Text("status"):"contractual");
             var interval=new PhysicalDeliveryInterval(contract.Root,contract.Instruction,contract.Grid,0,contract.Day,contract.Start,contract.End,contract.Quantity);
             return new PhysicalDeliveryRow(d.ObligationId+":"+contract.Day.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),d.SideCode,contract.Day.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),contract.Start,contract.End,
                 Direction(component.Text("direction")),Location(program,"point"),d.DeliveryPoint,contract.Quantity.Specification,units[contract.Quantity.Specification],
-                contract.Quantity.ToExactString(),selected.Quantity.ToExactString(),selected.Kind,head?.Text("status")??"contractual",
+                contract.Quantity.ToExactString(),selected.Quantity.ToExactString(),selected.Kind,status,
                 [..d.Heads.Select(h=>new PhysicalDeliveryHead(h.Id("id"),h.Text("kind"),h.Text("status"),h.OptionalText("quantity"),h.Text("evidence")))],
                 ImmutableDictionary<string,string>.Empty.Add("pipeline",d.Pipeline).Add("zone",d.Zone),Origin(program,interval,d.ObligationId));
         }).ToImmutableArray();

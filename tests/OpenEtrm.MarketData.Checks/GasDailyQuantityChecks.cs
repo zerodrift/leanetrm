@@ -29,7 +29,39 @@ internal static class GasDailyQuantityChecks
   var facility=allocated with{Source="facility_allocation_adoption_v1"};
   Equal(GasDailyQuantitySelection.Select(contract,[facility],"final_facility_allocated_billing_v1",end,new ExactRatio(1000,1)).Quantity,"980");
   Reject(()=>GasDailyQuantitySelection.Select(contract,[facility with{Status="withdrawn"}],"final_facility_allocated_billing_v1",end,new ExactRatio(1000,1)));
+  ValuationSelection(contract,start,end,Observation);
   Console.WriteLine("PASS daily gas quantities: explicit selection, missing billing refusal, zero, finality, causal evidence and exactly-once normalization");
+ }
+ static void ValuationSelection(GasDailyContract contract,DateTimeOffset start,DateTimeOffset end,Func<string,string,string,GasQuantityObservation> observation)
+ {
+  const string policy="delivery_schedule_valuation_v1";var scale=new ExactRatio(1000,1);
+  GasQuantityObservation Manual(string kind,string status,string amount)=>observation(kind,status,amount);
+  GasQuantityObservation Facility(string status,string amount)=>Manual("allocated",status,amount) with{Source="facility_allocation_adoption_v1"};
+  GasSelectedQuantity Pick(params GasQuantityObservation[] heads)=>GasDailyQuantitySelection.Select(contract,[..heads],policy,end,scale);
+  var scheduled=Manual("scheduled","provisional","1050");var final=Manual("allocated","final","980");var provisional=Manual("allocated","provisional","970");
+  Equal(Pick(final,scheduled).Quantity,"980");
+  Equal(Pick(provisional,scheduled).Quantity,"970");
+  Equal(Pick(Manual("nominated","provisional","990"),Manual("confirmed","provisional","988"),scheduled).Quantity,"1050");
+  var fallback=Pick(Manual("nominated","provisional","990"),Manual("confirmed","provisional","988"));
+  Equal(fallback.Quantity,"1000");if(fallback.RevisionId is not null)throw new Exception("Contract fallback must not name a record.");
+  Equal(Pick(scheduled,final with{Status="withdrawn"}).Quantity,"1050");
+  Equal(Pick(Manual("allocated","final","0")).Quantity,"0");
+  Equal(Pick(final,Facility("withdrawn","0")).Quantity,"980");
+  Equal(Pick(final with{Status="withdrawn"},Facility("final","975")).Quantity,"975");
+  Equal(Pick(final with{Status="withdrawn"},Facility("withdrawn","0"),scheduled).Quantity,"1050");
+  Equal(Pick(provisional,Facility("final","960")).Quantity,"960");
+  Equal(GasDailyQuantitySelection.Select(contract,[provisional,scheduled],policy,start,scale).Quantity,"970");
+  Reject(()=>GasDailyQuantitySelection.Select(contract,[final],policy,start,scale));
+  Reject(()=>Pick(final,Facility("final","975")));
+  Reject(()=>Pick(provisional,Facility("provisional","975")));
+  Reject(()=>Pick(final,final with{Id=Guid.NewGuid()}));
+  Reject(()=>Pick(Facility("provisional","970") with{Kind="scheduled"}));
+  var agreed=Facility("final","980");var selected=Pick(final,agreed);
+  Equal(selected.NormalizedQuantity,"0.98");
+  if(!selected.Provenance.Select(p=>p.Id).ToHashSet().SetEquals([final.Id,agreed.Id]))throw new Exception("Equal winners must retain both evidence references.");
+  if(!selected.Provenance.SequenceEqual(Pick(agreed,final).Provenance))throw new Exception("Input order must not choose provenance.");
+  if(selected.Status!="final"||Pick(provisional).Status!="provisional")throw new Exception("The winning allocation rank must be retained.");
+  Console.WriteLine("PASS valuation gas quantities: ranked sources, independent withdrawals, zero and conflicting evidence");
  }
  static void Equal(ExactQuantity q,string text){if(q.ToQuantity().Amount.ToString()!=text)throw new Exception($"Expected {text}, got {q.Numerator}/{q.Denominator}");}
  static void Reject(Action action){try{action();}catch(MarketDataException e)when(e.Code=="gas_quantity_selection"){return;}throw new Exception("Expected quantity-selection refusal");}
