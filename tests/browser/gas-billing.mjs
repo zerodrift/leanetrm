@@ -1,13 +1,12 @@
 import {selectDeliveryFrame,openPhysicalTrade,clickPhysicalTrade} from './physical-operations-grid.mjs';
+import {run as processingScope} from './gas-billing-scope.mjs';
 // A completed physical delivery can be billed even while contractual PV is unavailable.
 export async function run(actions){
  const {command,evaluate,wait,click,set,submit,persona,check,shot,idle,url,fixture}=actions;
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelector('#snapshot')&&"+idle);await persona('trader');
- await selectDeliveryFrame(actions,'2021-01-15T08:');await click('#nav-futures');
+ await selectDeliveryFrame(actions,'2021-01-15T08:');
  const key=fixture.tradeId+':'+fixture.bindingId;
- const row=`[...document.querySelectorAll('#desk-positions .tabulator-row')].find(r=>r.dataset.rowKey===${JSON.stringify(key)})`;
- await wait(`!!(${row})&&`+idle);await evaluate(`${row}.click()`);await wait(idle);
  await click('#nav-physical-operations');await openPhysicalTrade(actions,fixture.tradeId);await wait("!document.querySelector('#physical-operations-tabs-cash').disabled&&"+idle);await click('#physical-operations-tabs-cash');
  const root='.gas-billing',field=name=>root+' [data-billing="'+name+'"]';
  await wait(`document.querySelector(${JSON.stringify(field('claim'))})?.options.length>1`);
@@ -49,7 +48,9 @@ export async function run(actions){
  await click('#physical-operations-tabs-overview');if(await evaluate(shown))await answer('Discard changes');
  await check('leaving the billing widget preserves its original recovery command',"!document.querySelector('#physical-operations-pending').hidden");
  const retainedRequest=await evaluate('JSON.stringify(window.__billingRequests)');
- await set('#close-session',otherSession);await wait(idle);
+ // A context switch refreshes the whole Blotter as well as this workflow. Let
+ // its existing 30-second calculation budget settle, including unavailable PV.
+ await set('#close-session',otherSession);await wait(idle,60000);
  await check('a close-session change retains the original uncertain billing command',`!document.querySelector('#physical-operations-pending').hidden&&JSON.stringify(window.__billingRequests)===${JSON.stringify(retainedRequest)}&&window.__billingRequests.length===1`);
  await wait("!document.querySelector('#physical-operations-status').disabled&&"+idle);await click('#physical-operations-status');await wait("document.querySelector('#physical-operations-pending').hidden&&"+idle);await evaluate('window.fetch=window.__billingFetch;Storage.prototype.setItem=window.__billingPut');
  await selectDeliveryFrame(actions,'2021-01-15T08:');await openPhysicalTrade(actions,fixture.tradeId);await click('#physical-operations-tabs-cash');
@@ -61,7 +62,8 @@ export async function run(actions){
  await check('billing fields fit the viewport','document.documentElement.scrollWidth<=innerWidth');await shot('gas-commercial-correction');
  await evaluate(`document.querySelector(${JSON.stringify(field('evidence'))}).focus();document.querySelector(${JSON.stringify(field('evidence'))}).select()`);await command('Input.insertText',{text:'Synthetic discarded session edit'});
  const discardSession=await evaluate("[...document.querySelector('#close-session').options].find(o=>o.value&&o.value!==document.querySelector('#close-session').value).value");
- await set('#close-session',discardSession);await wait(shown);await answer('Discard changes');
+ await set('#close-session',discardSession);await wait(shown);
+ await evaluate(`[...document.querySelectorAll('${prompt} button')].find(b=>b.textContent==='Discard changes').click()`);await wait(`document.querySelector('${prompt}').hidden&&`+idle,60000);
  await check('explicit discard applies the chosen close session',`(async()=>{const choice=await(await window.workspaceFetch('/api/close-sessions/choice')).json();return document.querySelector('#close-session').value===${JSON.stringify(discardSession)}&&choice.session===${JSON.stringify(savedDefault)};})()`);
-
+ await processingScope(actions);
 }

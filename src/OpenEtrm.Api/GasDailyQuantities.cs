@@ -25,7 +25,15 @@ public sealed class GasDailyQuantities(PreviewDatabase database)
  // One booked trade's daily quantities: each physical side's retained contract days and the quantity the policy selects for them.
  internal sealed record Day(Guid ObligationId,string SideCode,string Pipeline,string Zone,string DeliveryPoint,GasDailyContract Contract,GasSelectedQuantity Selected,JsonElement[] Heads,string? QuantityPolicy=null);
  internal sealed record Selection(JsonElement Header,ImmutableArray<Day> Days,ImmutableArray<JsonElement> History,int HeadCount,ImmutableArray<RetainedSideProgram> Programs,double[] Milliseconds);
- internal async Task<Selection> Select(NpgsqlConnection c,InputFrame frame,Guid trade,string policy,bool includeHistory,CancellationToken ct,Guid? obligation=null,DateOnly? day=null)
+ // These values live only within the caller's one bound read. A billing page
+ // can assess several payments without repeatedly loading the same programs.
+ internal sealed record Inputs(JsonElement Header,ImmutableArray<JsonElement> Obligations,ImmutableArray<JsonElement> Heads,
+  ImmutableArray<JsonElement> History,ILookup<(int,DateOnly),JsonElement>? ValuationHeads,ImmutableArray<RetainedSideProgram> Programs,double[] Milliseconds);
+ internal Task<Selection> Select(NpgsqlConnection c,InputFrame frame,Guid trade,string policy,bool includeHistory,CancellationToken ct,Guid? obligation=null,DateOnly? day=null)=>
+  Select(c,frame.ContextId,frame.At,trade,policy,includeHistory,ct,obligation,day);
+ internal async Task<Selection> Select(NpgsqlConnection c,Guid? contextId,DateTimeOffset at,Guid trade,string policy,bool includeHistory,CancellationToken ct,Guid? obligation=null,DateOnly? day=null)
+  =>Select(await Load(c,contextId,at,trade,policy,includeHistory,ct),at,policy,obligation,day);
+ internal async Task<Inputs> Load(NpgsqlConnection c,Guid? contextId,DateTimeOffset at,Guid trade,string policy,bool includeHistory,CancellationToken ct)
  {
   var timer=Stopwatch.StartNew();var marks=new List<double>();void Mark()=>marks.Add(timer.Elapsed.TotalMilliseconds-marks.Sum());
   await using(var authority=ScheduleStore.Command(c,"SELECT security.require_gas_quantity_trade($1,$2,false)",database.Manifest.CatalogId,trade))await authority.ExecuteNonQueryAsync(ct);
@@ -43,11 +51,17 @@ public sealed class GasDailyQuantities(PreviewDatabase database)
   var valuationHeads=policy==GasDailyQuantitySelection.ValuationPolicy?
    (await GasDeliveryQuantityStore.ReadHeads(c,database.Manifest.CatalogId,trade,header.Id("instrument_id"),ct))
     .ToLookup(h=>(int.Parse(h.Text("slot"),CultureInfo.InvariantCulture),DateWorkspace.Date(h.Text("day")))):null;
+  Mark();
+  var programs=await new RetainedScheduleStore(database).LoadPrograms(c,header.Id("instrument_id"),contextId,at,ct);
+  Mark();
+  return new(header,obligations,heads,history,valuationHeads,programs,[..marks]);
+ }
+ internal static Selection Select(Inputs input,DateTimeOffset at,string policy,Guid? obligation=null,DateOnly? day=null)
+ {
+  var timer=Stopwatch.StartNew();
+  var(header,obligations,heads,history,valuationHeads,programs,marks)=input;
   var byDay=heads.GroupBy(h=>(h.Id("obligation_id"),DateWorkspace.Date(h.Text("day"))))
    .ToDictionary(g=>g.Key,g=>g.ToArray());
-  Mark();
-  var programs=await new RetainedScheduleStore(database).LoadPrograms(c,header.Id("instrument_id"),frame.ContextId,frame.At,ct);
-  Mark();
   var days=ImmutableArray.CreateBuilder<Day>();
   foreach(var o in obligations.Where(o=>obligation is null||o.Id("id")==obligation))
   {
@@ -57,11 +71,10 @@ public sealed class GasDailyQuantities(PreviewDatabase database)
    {
     var matching=byDay.GetValueOrDefault((o.Id("id"),contract.Day),[]);
     var observations=(valuationHeads is null?matching:valuationHeads[(slot,contract.Day)]).Select(h=>new GasQuantityObservation(h.Id("id"),h.Text("kind"),h.Text("status"),ExactQuantity.FromQuantity(new(ExactDecimal.Parse(h.OptionalText("quantity")??"0"),contract.Quantity.Specification)),h.Text("evidence"),h.Text("source"))).ToImmutableArray();
-    days.Add(new(o.Id("id"),o.Text("code"),o.Text("pipeline_code"),o.Text("zone_code"),o.Text("point_code"),contract,GasDailyQuantitySelection.Select(contract,observations,policy,frame.At,scale),matching,o.OptionalText("quantity_policy")));
+    days.Add(new(o.Id("id"),o.Text("code"),o.Text("pipeline_code"),o.Text("zone_code"),o.Text("point_code"),contract,GasDailyQuantitySelection.Select(contract,observations,policy,at,scale),matching,o.OptionalText("quantity_policy")));
    }
   }
-  Mark();
-  return new(header,days.ToImmutable(),history,heads.Length,programs,[..marks]);
+  return new(header,days.ToImmutable(),history,heads.Length,programs,[..marks,timer.Elapsed.TotalMilliseconds]);
  }
  async Task<bool> MayAmend(NpgsqlConnection c,CancellationToken ct)
  {

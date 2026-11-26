@@ -3,6 +3,7 @@ import {renderRegularTable} from './regular-table.js';
 import {zonedInput} from './user-time.js';
 import {JobRequest} from './job-requests.js';
 import {setupPilotClose} from './pilot-close-view.js';
+import {setupGasBillingScope} from './gas-billing-scope.js';
 import {setupLifecycleJobReport} from './lifecycle-job-report.js';
 import {setupPilotCloseReport} from './pilot-close-report.js';
 import {findJob,directoryPage} from './job-target.js';
@@ -27,6 +28,8 @@ export function setupJobs(options:{api:<T>(path:string,body?:unknown)=>Promise<T
   const pilotReport=setupPilotCloseReport(options);
   const lifecycleHost=document.createElement('section');lifecycleHost.className='card';lifecycleHost.hidden=true;get('job-runs').after(lifecycleHost);
   const lifecycleReport=setupLifecycleJobReport(lifecycleHost,options);
+  const gasHost=document.createElement('section');get('job-editor').before(gasHost);
+  const gasScope=setupGasBillingScope(gasHost,{...options,pending:()=>!!pending.command,mutate});
   const editorStatus=document.createElement('p');editorStatus.id='job-edit-status';editorStatus.className='field-help';editorStatus.setAttribute('role','status');get('job-editor-title').after(editorStatus);
   const poolView=setupWorkerPool({...options,scale:(pool,replicas)=>mutate('infrastructure/pool/scale',
     {clusterId:pool.clusterId,expectedVersion:pool.generation,replicas})});
@@ -66,7 +69,7 @@ export function setupJobs(options:{api:<T>(path:string,body?:unknown)=>Promise<T
     const command=pending.command,identity=options.identity();if(!command)return;
     const previouslyUncertain=pending.sending();save();
     try{
-      const body=command.path==='jobs/pilot-close/create'?{...command.body,schedule:{...(command.body.schedule as Record<string,unknown>),requestId:command.operationId}}:{...command.body,requestId:command.operationId};
+      const body=['jobs/pilot-close/create','gas/billing/enroll'].includes(command.path)?{...command.body,schedule:{...(command.body.schedule as Record<string,unknown>),requestId:command.operationId}}:{...command.body,requestId:command.operationId};
       const result=await options.api<Record<string,unknown>>(command.path,body);
       if(identity!==options.identity()||pending.command!==command)return;
       if(command.path==='infrastructure/pool/scale'&&(!result||result.requestId!==command.operationId||
@@ -74,6 +77,7 @@ export function setupJobs(options:{api:<T>(path:string,body?:unknown)=>Promise<T
         throw Object.assign(Error('The pool change has an unconfirmed response. Retry the retained request.'),{code:'response_unknown'});
       if(command.path==='jobs/collection/update'&&(!result||result.requestId!==command.operationId||result.id!==command.body.id||typeof result.generation!=='string'||result.generation===command.body.expectedGeneration||!['name','scheduleEnabled','fromDay','throughDay'].every(key=>result[key]===command.body[key])))
         throw Object.assign(Error('The collection update has an unconfirmed response. Retry the retained request.'),{code:'response_unknown'});
+      if(command.path==='gas/billing/enroll'&&(result?.operationId!==command.operationId||!(result.job as {id?:string})?.id))throw Object.assign(Error('The gas enrollment response is unconfirmed. Retry the retained request.'),{code:'response_unknown'});
       if(['jobs/pilot-close/create',...closeCapturePaths].includes(command.path)&&(!result||result.requestId!==command.operationId||typeof result.id!=='string'||!result.id))
         throw Object.assign(Error('The pilot request has an unconfirmed response. Retry the retained request.'),{code:'response_unknown'});
     }
@@ -161,11 +165,11 @@ export function setupJobs(options:{api:<T>(path:string,body?:unknown)=>Promise<T
     if(identity!==options.identity()||request!==generation||selected!==editing)throw Error('The job selection changed. Refresh before saving.');
     await mutate(editing?'jobs/update':'jobs/create',{...terms,dueAt,expiresAt,...target});
   });};
-  function sync(){pilotClose.sync();get<HTMLButtonElement>('jobs-previous').disabled=options.busy()||!directory||directory.page===0;get<HTMLButtonElement>('jobs-next').disabled=options.busy()||!directory||(directory.page+1)*directoryPage>=directory.total;get<HTMLButtonElement>('collection-jobs-previous').disabled=options.busy()||!directory||directory.collectionJobs.page===0;get<HTMLButtonElement>('collection-jobs-next').disabled=options.busy()||!directory||(directory.collectionJobs.page+1)*directoryPage>=directory.collectionJobs.total;for(const input of get<HTMLFormElement>('job-create').querySelectorAll<HTMLInputElement|HTMLSelectElement|HTMLButtonElement>('input,select,button'))input.disabled=options.busy()||(input.id!=='job-cancel-edit'&&(!!pending.command||!!selected&&!selected.canEdit))||(!!selected&&['job-operation','job-profile'].includes(input.id));for(const input of get<HTMLFormElement>('collection-job-form').querySelectorAll<HTMLInputElement|HTMLSelectElement|HTMLButtonElement>('input,select,button'))input.disabled=options.busy()||(input.id!=='collection-job-close'&&(!!pending.command||!selectedCollection?.canEdit));}
+  function sync(){pilotClose.sync();gasScope.sync();get<HTMLButtonElement>('jobs-previous').disabled=options.busy()||!directory||directory.page===0;get<HTMLButtonElement>('jobs-next').disabled=options.busy()||!directory||(directory.page+1)*directoryPage>=directory.total;get<HTMLButtonElement>('collection-jobs-previous').disabled=options.busy()||!directory||directory.collectionJobs.page===0;get<HTMLButtonElement>('collection-jobs-next').disabled=options.busy()||!directory||(directory.collectionJobs.page+1)*directoryPage>=directory.collectionJobs.total;for(const input of get<HTMLFormElement>('job-create').querySelectorAll<HTMLInputElement|HTMLSelectElement|HTMLButtonElement>('input,select,button'))input.disabled=options.busy()||(input.id!=='job-cancel-edit'&&(!!pending.command||!!selected&&!selected.canEdit))||(!!selected&&['job-operation','job-profile'].includes(input.id));for(const input of get<HTMLFormElement>('collection-job-form').querySelectorAll<HTMLInputElement|HTMLSelectElement|HTMLButtonElement>('input,select,button'))input.disabled=options.busy()||(input.id!=='collection-job-close'&&(!!pending.command||!selectedCollection?.canEdit));}
   // The job a navigation target names, on the page of the directory that lists it, loaded but not yet shown: only a job
   // the person can see here. Following a target runs as one action, so its details open with showJob.
   async function locateJob(id:string){
     return (await findJob(id,async page=>{await load(page);if(!directory)throw Error('The job selection changed. Refresh before continuing.');return directory;})).job;
   }
-  return{load,locateJob,showJob,shown:()=>selected?.id??null,sync,unconfirmed:()=>!!pending.command,contextChanged(){pilotClose.reset();pilotReport.reset();},refresh(){dueInput.refresh();expiryInput.refresh();pilotClose.refresh();pilotReport.refresh();lifecycleReport.refresh();render();sync();},reset(){generation++;clear();pending.clear();pilotClose.reset();pilotReport.reset();try{const stored=sessionStorage.getItem(key());if(stored){const value=JSON.parse(stored);if(['jobs/create','jobs/update','jobs/control','jobs/collection/update','jobs/pilot-close/create',...closeCapturePaths,'infrastructure/availability','infrastructure/resolve','infrastructure/pool/scale'].includes(value.path)&&typeof value.operationId==='string'&&value.body&&typeof value.body==='object')pending.command={...value,uncertain:true};}}catch{/* Invalid browser state cannot grant authority. */}fields();get('job-pending').hidden=!pending.command;sync();}};
+  return{load,locateJob,showJob,shown:()=>selected?.id??null,sync,unconfirmed:()=>!!pending.command,contextChanged(){gasScope.reset();pilotClose.reset();pilotReport.reset();},refresh(){dueInput.refresh();expiryInput.refresh();gasScope.refresh();pilotClose.refresh();pilotReport.refresh();lifecycleReport.refresh();render();sync();},reset(){generation++;clear();pending.clear();gasScope.reset();pilotClose.reset();pilotReport.reset();try{const stored=sessionStorage.getItem(key());if(stored){const value=JSON.parse(stored);if(['jobs/create','jobs/update','jobs/control','jobs/collection/update','jobs/pilot-close/create','gas/billing/enroll',...closeCapturePaths,'infrastructure/availability','infrastructure/resolve','infrastructure/pool/scale'].includes(value.path)&&typeof value.operationId==='string'&&value.body&&typeof value.body==='object')pending.command={...value,uncertain:true};}}catch{/* Invalid browser state cannot grant authority. */}fields();get('job-pending').hidden=!pending.command;sync();}};
 }
