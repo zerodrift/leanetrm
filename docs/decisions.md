@@ -7782,7 +7782,8 @@ whose API does not state all three, and `tools/check_deployment.py` makes the
 same refusal in CI. It checks the limits Docker records, memory and processes
 exactly and processors to a thousandth. A candidate recorded under other limits
 points at the host, not the release, so the deployer backs off without
-quarantining the head. A promoted API under other limits blocks the switch, and
+quarantining the head and journals `HostResourceMismatch` with the differing
+limits. A promoted API under other limits blocks the switch, and
 recovery records the new image as active only once it runs under them. While a
 candidate runs beside the serving API, the host needs memory for twice the API's
 limit plus the database's and the collector's.

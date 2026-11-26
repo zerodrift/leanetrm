@@ -182,6 +182,12 @@ class AdmissionChecks(unittest.TestCase):
         self.assertEqual(command[command.index('--source-ref') + 1], 'refs/heads/master')
         self.assertEqual(command[command.index('--source-digest') + 1], COMMIT)
 
+    def test_a_failure_journals_only_its_classification(self):
+        # Provider and database output, cookies and private configuration stay out of the journal.
+        for error in [deploy.InfrastructureError('private detail'), deploy.ReleaseError('private detail'), OSError('private detail')]:
+            with self.subTest(error=type(error).__name__):
+                self.assertEqual(deploy.failure_line(error), 'DEPLOYMENT_FAILED ' + type(error).__name__)
+
     def test_schema_fingerprint_only_removes_dump_random_restrict_keys(self):
         first = b'--schema\n\\restrict alpha\nCREATE TABLE t(id int);\n\\unrestrict alpha\n'
         second = first.replace(b'alpha', b'beta')
@@ -518,8 +524,12 @@ class StateMachineChecks(unittest.TestCase):
     def test_a_candidate_the_host_records_under_other_limits_backs_off_without_quarantining_the_head(self):
         # The rendered limits were already validated, so a candidate under others points at the host, not the release.
         self.candidate_drift = {'Memory': 1073741824}
-        with self.assertRaisesRegex(deploy.InfrastructureError, 'host'):
+        with self.assertRaises(deploy.HostResourceMismatch) as raised:
             deploy.Deployment(self.settings).run()
+        self.assertIsInstance(raised.exception, deploy.InfrastructureError)
+        # The journal tells this cause from other infrastructure failures and names the differing limit.
+        self.assertEqual(deploy.failure_line(raised.exception), 'DEPLOYMENT_FAILED HostResourceMismatch: the host records the '
+                         'candidate under other limits than the rendered API: Memory 1073741824 (rendered 2147483648)')
         self.assertFalse(any(args[:2] == ['docker', 'start'] for args in self.commands))
         self.assertFalse(self.candidate_exists)
         self.assertEqual(self.promotions, 0)

@@ -84,6 +84,10 @@ class InfrastructureError(RuntimeError):
     pass
 
 
+class HostResourceMismatch(InfrastructureError):
+    """The host records a candidate under other limits than the validated rendered ones: the host's doing, not the release's."""
+
+
 class DeferredDeployment(ReleaseError):
     pass
 
@@ -175,17 +179,29 @@ def resource_flags(resources):
     return ['--memory', str(resources['Memory']), '--cpus', f"{resources['NanoCpus'] / 10 ** 9:g}", '--pids-limit', str(resources['PidsLimit'])]
 
 
-def runs_under(actual, resources):
-    """Whether a container runs under the rendered API's limits: memory and processes exactly, processors to a thousandth,
-    since Compose computes NanoCPUs in single precision."""
+def resource_differences(actual, resources):
+    """The limits a container runs under that differ from the rendered API's: memory and processes exactly, processors to
+    a thousandth, since Compose computes NanoCPUs in single precision."""
     host = actual['HostConfig']
-    return (host.get('Memory') == resources['Memory'] and host.get('PidsLimit') == resources['PidsLimit']
-            and type(host.get('NanoCpus')) is int and abs(host['NanoCpus'] - resources['NanoCpus']) <= 10 ** 6)
+    def differs(name):
+        value = host.get(name)
+        if name == 'NanoCpus':
+            return type(value) is not int or abs(value - resources[name]) > 10 ** 6
+        return value != resources[name]
+    return ', '.join(f'{name} {host.get(name)} (rendered {resources[name]})' for name in resources if differs(name))
 
 
 def require_resources(actual, resources):
     """A promoted or recovered API runs under the rendered API's limits."""
-    require(runs_under(actual, resources), 'container resource limits differ from the rendered API')
+    differences = resource_differences(actual, resources)
+    require(not differences, 'container resource limits differ from the rendered API: ' + differences)
+
+
+def failure_line(error):
+    """A failed run's journal line: only its classification, so provider and database output, cookies and private
+    configuration stay private. A host limits mismatch adds the differing limits, which are the installation's own."""
+    line = 'DEPLOYMENT_FAILED ' + type(error).__name__
+    return line + ': ' + str(error) if isinstance(error, HostResourceMismatch) else line
 
 
 def require_actual(actual, settings, image):
@@ -324,8 +340,8 @@ class Deployment:
         self.save('preflight', candidateId=self.candidate_id)
         # The rendered limits are already valid, so a candidate recorded under others points at the host, not the release:
         # back off rather than quarantine the head.
-        if not runs_under(inspect_container(self.candidate_id), resources):
-            raise InfrastructureError('the host records the candidate under other resource limits than the rendered API')
+        if differences := resource_differences(inspect_container(self.candidate_id), resources):
+            raise HostResourceMismatch('the host records the candidate under other limits than the rendered API: ' + differences)
         command(['docker', 'start', self.candidate_id])
         for attempt in range(15):
             try:
@@ -534,6 +550,5 @@ if __name__ == '__main__':
     try:
         main()
     except Exception as error:
-        # Log only the classification: provider/DB output, cookies and private configuration stay private.
-        print('DEPLOYMENT_FAILED ' + type(error).__name__)
+        print(failure_line(error))
         raise SystemExit(1)

@@ -500,6 +500,10 @@ Before starting:
 - **Command timeouts.** Compare `Command Timeout` in the API's runtime and
   authenticator connection files with the limits to be selected. Sign-out waits
   behind a slow request, and a shorter command timeout answers it with an error.
+- **No interrupted switch.** The deployer's state receipt (`state.json`) shows
+  phase `idle`. Recover any earlier `blocked` switch before step 2: a poll refuses
+  with "operator recovery required" while one is open, and once the new Compose
+  file is installed, recovering that earlier target is held to its limits.
 
 1. **Stop `openetrm-deployment.timer`** before the release carrying D457 is
    published, and keep it stopped until step 5. Way back: start the timer again.
@@ -523,16 +527,29 @@ Before starting:
    deployer. Any other ending leaves the earlier image serving, or, after a
    switch, `blocked` for the recovery above.
    - A candidate the host records under other limits than the rendered ones is
-     the host's doing, not the release's: the deployer removes it, backs off
-     without quarantining the head, and its journal names the host. Check that
-     the daemon applies memory and process limits on this kernel before the next
-     poll.
+     the host's doing, not the release's. The deployer removes it and backs off
+     without quarantining the head, and the journal shows the differing limits,
+     for example `DEPLOYMENT_FAILED HostResourceMismatch: the host records the
+     candidate under other limits than the rendered API: PidsLimit None
+     (rendered 128)` from a daemon that dropped the process limit. Check what the
+     daemon applies: `docker create
+     --network none` any local image with the rendered `--memory`, `--cpus` and
+     `--pids-limit`, read `docker inspect --format '{{.HostConfig.Memory}}
+     {{.HostConfig.NanoCpus}} {{.HostConfig.PidsLimit}}'`, then `docker rm` it. A
+     poll before `retryAfter` in `state.json` prints only `DEPLOYMENT_BACKOFF`; the
+     wait starts at 2 minutes and doubles up to 1 hour. Each retry downloads the
+     release again (up to 768 MiB) and loads and saves its image, so while the
+     timer runs, a mismatch that persists costs that once an hour until the host
+     is fixed.
    - A switch blocked because the promoted API runs under other limits is resolved
      by recreating the API under the installed Compose file,
      `sudo docker compose --env-file /etc/openetrm/compose.env -f /etc/openetrm/release-compose.yaml up -d --no-deps --force-recreate api`,
      confirming that `docker inspect --format '{{.HostConfig.Memory}} {{.HostConfig.NanoCpus}} {{.HostConfig.PidsLimit}}' <API container>`
      shows the rendered limits, and only then running `--recover`, which refuses
-     the new image while they differ.
+     the new image while they differ. If the recreated API still runs under other
+     limits, return to the previous image with the D302 paired rollback and run
+     `--recover`: it records the previous image as active and quarantines the
+     head.
 
    Check before step 4: the deployer's state receipt (`state.json`) names this
    commit as `activeCommit`, and
