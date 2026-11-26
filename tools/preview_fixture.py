@@ -104,7 +104,7 @@ def monthly_value(kind, month, distance=0):
             6:Decimal('7')-d*Decimal('.02'),7:Decimal('29.1')+m*Decimal('.605')-d*Decimal('.05')}[kind]
 
 
-def fixture(root, current_schema=True, fixing_frames=False, date_plan=None, window_frames=False, publish_clocks=True):
+def fixture(root, current_schema=True, fixing_frames=False, date_plan=None, window_frames=False, publish_clocks=True, market_effective_to="2022-01-01"):
     """current_schema=False omits rows that need migrations 0026+ (curve names, TOU products)."""
     def historical(text):
         for old, new in [('2039','2019'),('2040','2020'),('2041','2021'),('2042','2022')]:
@@ -333,7 +333,7 @@ def fixture(root, current_schema=True, fixing_frames=False, date_plan=None, wind
  END IF;
  END $policy$;""")
     market=market.replace('UPDATE ref_data.revisions SET', '\n'.join(extra_ref)+'\nUPDATE ref_data.revisions SET',1)
-    extra_market.append(f"INSERT INTO market_data.revision_periods VALUES ({M},'2020-01-01','2022-01-01');")
+    extra_market.append(f"INSERT INTO market_data.revision_periods VALUES ({M},'2020-01-01','{market_effective_to}');")
     market=market.replace('UPDATE market_data.revisions SET','\n'.join(extra_market)+'\nUPDATE market_data.revisions SET',1)
     market=market.rsplit('COMMIT;',1)[0]+'\n'+'\n'.join(extra_obs)+'\nCOMMIT;\n'
     if current_schema:

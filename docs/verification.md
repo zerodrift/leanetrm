@@ -1,5 +1,107 @@
 # Local verification and continuous integration
 
+## Daily gas quantity rights (D457)
+
+Synthetic checks use an isolated stock PostgreSQL 18.7 server, .NET SDK
+10.0.402, Node 24.22.0, Python 3.14.2 and Chrome on arm64 macOS. The financial
+references distinguish commercial feasibility from grid value. A January
+off-grid election of 1,050 leaves an arithmetic allowance of 30,105 and a
+feasible maximum of 30,100. In the separate three-day example,
+electing 1,050 on the first day gives grid value 365 and continuous optimum
+367.50. The independently enumerated two-decision tree gives the adapted
+value 1,000 × 7/12. Separate
+forced, zero-volatility and incomplete-period cases check exact amounts.
+Distinct booked bindings consuming the same market inputs retain their own
+elections, counts, paid cash and scoped worker reads.
+
+Before the admission and reporting corrections, the normal full runner
+completed 285 top-level commands across all 20 groups.
+The combined run shares installs, restores and builds. These counts include
+only commands executed by `check_all.py --group all`.
+
+| Group | Commands | Group | Commands |
+| --- | ---: | --- | ---: |
+| repository | 5 | frontend | 2 |
+| managed | 84 | database | 16 |
+| workspace | 12 | reference | 14 |
+| standard | 3 | exchange | 1 |
+| assistant | 4 | risk | 5 |
+| trading | 10 | lifecycle | 34 |
+| physical | 24 | gas | 12 |
+| gas-native | 24 | gas-browser | 9 |
+| portfolio | 18 | settlement | 1 |
+| ppa | 6 | recovery | 1 |
+
+The frontend ran 2,405 tests with zero skips. The managed core reported 811
+checks, the gas ticket 237, and the independent swing reference nine cases.
+D433's 19 storage plan and valuation results match the predecessor. Seven
+dedicated D454 checks covered both full row oracles, original identities and
+ordinary entries. The separate CI Compose and Swarm configuration render
+also passed.
+
+The disposable swing preview passed 205 printed checkpoints, including 28
+browser checks, and completed 23 leased jobs. Two bindings with identical
+terms elected 775 and 1,025. The worker retained the respective election
+revisions in every price lane and returned base/up/down PVs
+390/391.1/388.9 and 450/450.9/449.1. The complete-head transport and
+fresh/populated migration, rollback and cash-survival checks used owned
+databases. The shared pricing and binary-exercise preview passed 19
+exercise-right browser checks, two curve-mark checks and five pricing-entry
+checks on the same assets. The D454 preview passed 103 printed checkpoints,
+five browser checks and three leased jobs.
+
+After the admission and reporting corrections and integration of D456, the
+frontend group passed 2,409 tests with zero skips. The managed group completed
+84 commands, including 811 core checks and 238 gas-ticket checks. All 12 gas
+previews passed across a resumed run on the same compiled assets.
+The swing preview passed 207 printed checkpoints, including 28 browser checks,
+and completed 23 leased jobs. One prepared 1,200-day election command with
+500 Unicode scalars per row used 3,811,573 compact UTF-8 bytes. A replay
+padded to exactly 4,194,304 bytes succeeded. An oversized command returned
+the field-specific 413 and preserved all heads. The P&L position showed two
+missing assessments on the same opening source day, one at closing and
+300 in settled cash. Each endpoint counted the shared source day once.
+
+Separate cash/P&L and structured-power previews passed on those assets.
+The latter verified the complete mixed-product Blotter, retained Physical
+Operations pagination and independence from an unrelated storage reader.
+Its browser checks covered 16 structured-power and 19 structured-trading cases.
+
+The six-hour model has finite error. For the 30-day 10,000-unit call at forward
+3.20, strike 3.00 and volatility 0.50, the grid gives 2,948.858186402, the
+independent 45-minute grid 2,947.467404967 and the analytic reference
+2,947.441896610. The three moneyness cases have six-hour and finer error gates
+of 2 and 0.25 held currency units respectively. These gates cover the named
+fixtures. Independent finite-grid recurrence and exact held-size scaling have
+separate checks.
+
+The seasonal and annual service measurements used one physical and one fixed
+payment Side, one trade, positive volatility and concurrency one on a 14-CPU,
+48 GiB host. Per term, two ordinary jobs independently shock the point inputs
+and monthly volatilities. They repeat the pinned base and preparation. The
+90-day term used three distinct contracts, 14 base/child comparisons and 16
+evaluated unit calls. The 365-day monthly-reset term used 12 contracts, 50
+comparisons and 52 calls. Its 48 isolated children fit across two 24-child
+jobs under the normal 32-child limit. The annual commits took 49.992 and
+50.841 seconds. The sampled annual API peak was 1,144,512 KiB, and the point
+and volatility workers peaked at 878,432 and 869,328 KiB. An annual worker
+acknowledged cancellation during retained portfolio preparation and released
+its lease in 0.051 seconds. Exit and administrative verification took another
+0.032 seconds. The numerical kernel has separate in-flight token checks.
+
+The Release kernel has a 512 MiB high-water RSS gate. These ordinary Debug
+fixtures have 2 GiB sampled API and 1 GiB sampled worker gates. The original
+512 MiB service target failed, including in a separate annual API control
+without swing. Diagnostic 384 and 320 MiB heap limits also missed that API
+target. The runtime uses its ordinary GC configuration. The modeled 256 MiB
+workspace, 4,096-bit exact integer limit, 100 million operations, 15-second
+HTTP budget, 60-second claimed job and 30-second renewable lease still apply.
+Cold 1,200-day HTTP booking with one or two members and smaller-host capacity
+remain unqualified. The full 1,200-head election HTTP transport was exercised
+after authenticated native publication. See the
+[complete workload measurements](superpowers/specs/2026-11-25-gas-swing-design.md#measured-marked-workloads)
+and [commercial scope](physical-gas-side.md#daily-quantity-rights-d457).
+
 ## Imbalance cash-out (D454)
 
 Local qualification uses synthetic trades, the checkout's own API and leased

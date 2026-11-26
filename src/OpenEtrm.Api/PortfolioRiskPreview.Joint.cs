@@ -23,10 +23,11 @@ public sealed partial class PortfolioRiskPreview
             .ToDictionary(position=>(position.Owner,position.BindingId),position=>position.UnassessedDays);
         string Book(Guid id)=>prepared.Books.Single(b=>b.Id("id")==id).Text("name");
         var bookCoverage=run.BaseTotals.ToDictionary(total=>(total.Measure,total.BookId,total.Value.Currency),total=>total.UnassessedDays);
-        object BookTotal(string measure,Guid book,ReferenceKey currency,object values)
+        object BookTotal(string measure,Guid book,ReferenceKey currency,object values,int? baseDays=null,int? shockedDays=null)
         {
-            var count=bookCoverage[(measure,book,currency)];
-            return new{measure,measureLabel=MeasureLabel(measure),bookId=book,book=Book(book),unassessedDays=count,incomplete=count!=0,values};
+            var baseCount=baseDays??bookCoverage[(measure,book,currency)];
+            var count=shockedDays??baseCount;
+            return new{measure,measureLabel=MeasureLabel(measure),bookId=book,book=Book(book),baseUnassessedDays=baseCount,unassessedDays=count,incomplete=baseCount!=0||count!=0,values};
         }
         object Value(ExactScenarioValues value)=>new{ @base=value.Base.ToExactString(),value=value.Value.ToExactString(),pnl=value.Pnl.ToExactString(),loss=value.Loss.ToExactString(),
             currency=Currency(markets,value.Base.Currency),currencyReference=value.Base.Currency,
@@ -48,9 +49,16 @@ public sealed partial class PortfolioRiskPreview
         {
             var p=holding.Position;
             var position=Position(p.Owner,p.BindingId,p.BookId,holding.Measure,Value(p.Values));
-            if(p.Groups.IsEmpty)return position;
+            if(p.Groups.IsEmpty&&p.QuantitySwing is null&&!p.Incomplete)return position;
             var row=JsonSerializer.SerializeToNode(position,RiskJobs.Json)!.AsObject();
-            row["groups"]=JsonSerializer.SerializeToNode(new{@base=p.BaseGroups.Select(ExerciseGroupReport.FromValue),
+            row["baseUnassessedDays"]=p.BaseUnassessedDays;
+            row["unassessedDays"]=p.UnassessedDays;
+            row["incomplete"]=p.Incomplete;
+            row["baseMissingAssessments"]=JsonSerializer.SerializeToNode(p.BaseMissingAssessments,RiskJobs.Json);
+            row["missingAssessments"]=JsonSerializer.SerializeToNode(p.MissingAssessments,RiskJobs.Json);
+            if(p.QuantitySwing is {} swing)row["swingRights"]=JsonSerializer.SerializeToNode(new{@base=new[]{SwingRightReport.FromValue(p.BaseQuantitySwing!)},
+                value=new[]{SwingRightReport.FromValue(swing)}},RiskJobs.Json);
+            if(!p.Groups.IsEmpty)row["groups"]=JsonSerializer.SerializeToNode(new{@base=p.BaseGroups.Select(ExerciseGroupReport.FromValue),
                 value=p.Groups.Select(ExerciseGroupReport.FromValue)},RiskJobs.Json);
             return row;
         }
@@ -58,7 +66,7 @@ public sealed partial class PortfolioRiskPreview
         {
             var selected=request.Samples.Single(s=>s.Id==sample.Id);
             return new(sample.Id,sample.Label,selected.Shifts.Select(x=>new{factor=Factor(markets,x.Axis),size=x.Size.ToString()}),
-                sample.Totals.Select(v=>BookTotal(v.Measure,v.BookId,v.Values.Base.Currency,Value(v.Values))),
+                sample.Totals.Select(v=>BookTotal(v.Measure,v.BookId,v.Values.Base.Currency,Value(v.Values),v.BaseUnassessedDays,v.UnassessedDays)),
                 sample.Positions.Select(ScenarioPosition),
                 selected.Volatility.IsEmpty?default:[..selected.Volatility.Select(v=>new PortfolioVolatilityShiftRequest(v.InputId,v.Size.ToString(),v.Convention))]);
         }

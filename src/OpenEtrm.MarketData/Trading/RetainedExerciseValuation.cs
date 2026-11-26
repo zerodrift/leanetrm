@@ -157,7 +157,7 @@ internal sealed class RetainedExerciseValuation
     }
 
     internal sealed record MarkScope(ImmutableArray<(ExerciseGroupKey Group, CurveKey Curve, DateOnly Month)> Inputs,
-        bool HasModel, DateTimeOffset? NextEvent);
+        bool HasModel, DateTimeOffset? NextEvent, ImmutableArray<(CurveKey Curve, DateOnly Month)> SwingMarks);
 
     internal static MarkScope Scope(RetainedGasInstrument instrument, MarketSnapshot snapshot, DateTimeOffset at, PhysicalCashState held)
     {
@@ -198,6 +198,9 @@ internal sealed class RetainedExerciseValuation
                 }
                 else
                 {
+                    if (instrument.Members[slot].Owned is {} owned)
+                        for (var day = row.DeliveryFrom; day <= row.DeliveryTo; day = day.AddDays(1))
+                            Boundary(owned.Clock.Boundary(day));
                     Boundary(PaymentDatePolicy.Start(row.PaymentDate));
                     Boundary(PaymentDatePolicy.OverdueBoundary(row.PaymentAt));
                 }
@@ -226,9 +229,19 @@ internal sealed class RetainedExerciseValuation
         }
         foreach (var group in modeled) Boundary(group.ExerciseAt);
         foreach (var payment in held.KnownPayments(snapshot)) Boundary(payment.PaidAt);
+        var swingMarks = ImmutableArray.CreateBuilder<(CurveKey Curve, DateOnly Month)>();
+        if (instrument.QuantityRight is {} terms)
+        {
+            var swing = new RetainedSwingQuantityValuation(terms, held, snapshot.ValuationAt);
+            var curve = instrument.Sides[terms.PhysicalSlot].Side.Dependencies.Select(d => d.Curve).Distinct().Single();
+            if (swing.NextDeadline is {} deadline) Boundary(deadline);
+            foreach (var day in swing.MarkedDays) swingMarks.Add((curve, new(day.Day.Year, day.Day.Month, 1)));
+            foreach (var election in held.SwingElections) Boundary(election.EffectiveAt);
+            if (held.NextSwingElectionEffectiveAt is {} transition) Boundary(transition);
+        }
         if (firstEvent <= at)
             throw new MarketDataException("valuation_time_coverage", "The calculation clock crosses a retained valuation event.");
-        return new([..used], modeled.Count > 0, firstEvent);
+        return new([..used], modeled.Count > 0, firstEvent, [..swingMarks.Distinct()]);
     }
 
     internal static UnitPricingContract Declare(UnitPricingContract contract, RetainedGasInstrument instrument, UnitValuationContext context)
@@ -237,9 +250,17 @@ internal sealed class RetainedExerciseValuation
             throw PhysicalDeliveryQuantities.Invalid("An exercise right requires its complete held day quantities.");
         var scope = Scope(instrument, context.Snapshot, context.CalculationAt, held);
         var used = scope.Inputs.Select(i => (i.Curve, i.Month)).ToHashSet();
+        foreach (var mark in scope.SwingMarks)
+        {
+            _ = (instrument.Marks ?? throw ExerciseMarks.Missing()).Volatility(mark.Curve, mark.Month);
+            used.Add(mark);
+        }
+        var model = scope.HasModel ? contract.ModelVersion + "/" + ModelPolicy : contract.ModelVersion;
+        if (instrument.HasSwing)
+            model += "/" + SwingPricingBinding.SupportedModel + "/" + instrument.SwingPricingBindings.Single().NumericalPolicy;
         return contract with
         {
-            ModelVersion = !scope.HasModel ? contract.ModelVersion : contract.ModelVersion + "/" + ModelPolicy,
+            ModelVersion = model,
             Time = scope.NextEvent is {} boundary ? ValuationTimeDependency.Between(context.CalculationAt, boundary) : contract.Time,
             Volatility = instrument.Marks is {} marks ? [..marks.OrderedVolatilities.Where(v => used.Contains((v.Curve, v.Month))).Select(v => v.Volatility)] : []
         };

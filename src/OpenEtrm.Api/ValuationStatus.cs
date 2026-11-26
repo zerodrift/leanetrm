@@ -10,7 +10,8 @@ static class ValuationStatus
 {
     // A delivery mark whose expired contract lacks its final settlement is missing market data for that one position (D360).
     public static bool PositionSpecific(string? code)=>code is "source_expired" or "missing_observation" or "index_fixing_missing" or "delivery_mark_final_settlement" or "exercise_marks" or "exercise_determination"
-        or "exercise_conflict" or "exercise_model_scope" or "holder_choice_inputs";
+        or "exercise_conflict" or "exercise_model_scope" or "holder_choice_inputs"
+        or "swing_conflict" or "swing_determination" or "swing_model_scope" or "swing_numerical_scope";
     public static bool PositionSpecific(MarketDataException error)=>PositionSpecific(error.Code);
 
     // Qualifies actual base valuations in blocks; the caller owns their exact

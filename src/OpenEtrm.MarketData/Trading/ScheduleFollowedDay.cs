@@ -6,6 +6,8 @@ namespace OpenEtrm.MarketData.Trading;
 internal sealed record ScheduleSelectedQuantity(SignedRatio Contract,SignedRatio Selected,SignedRatio Taken,SignedRatio Fraction,
     ImmutableArray<DateOnly> Days,ImmutableArray<string> Tags,ImmutableArray<DeliveryQuantityEvidence> Evidence)
 {
+    internal ImmutableArray<MissingDayAssessment> MissingDays { get; init; } = [];
+    internal bool NoSelectedQuantity { get; init; }
     internal static ScheduleSelectedQuantity? Read(SideViewInput side,ScheduleDefinitionRow row,int cell)
     {
         if(side.FollowedDays is not {} selected)return null;
@@ -23,8 +25,12 @@ internal sealed record ScheduleSelectedQuantity(SignedRatio Contract,SignedRatio
         {
             PhysicalLifecycle.ContractQuantity=>"contract",PhysicalLifecycle.ScheduledQuantity=>"scheduled",
             PhysicalLifecycle.AllocatedFinalQuantity=>"allocated_final",PhysicalLifecycle.AllocatedProvisionalQuantity=>"allocated_provisional",
+            PhysicalLifecycle.ElectedQuantity or RetainedSwingQuantityValuation.Undecided => v.Source,
+            RetainedSwingQuantityValuation.Missing or RetainedSwingQuantityValuation.Blocked => "unassessed",
             _=>throw Invalid("A followed schedule requires a supported selected quantity rank.")
-        }).Distinct()], [..values.SelectMany(v=>v.Evidence).Distinct()]);
+        }).Distinct()], [..values.SelectMany(v=>v.Evidence).Distinct()])
+        { NoSelectedQuantity = values.All(v => v.SwingState is not null and not PhysicalLifecycle.ElectedQuantity),
+          MissingDays = [..values.Select(v => v.Missing).OfType<MissingDayAssessment>()] };
     }
     internal static MarketDataException Invalid(string message)=>new("schedule_view",message);
 }

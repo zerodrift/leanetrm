@@ -31,6 +31,9 @@ public abstract record RetainedProgramInstrument<TMember> : SidedInstrument, IRe
     public abstract ImmutableArray<TMember> Members { get; }
     public virtual ImmutableArray<ExerciseRight> Rights => [];
     public virtual ExerciseMarks? Marks => null;
+    public virtual SwingQuantityRight? QuantityRight => null;
+    public bool HasSwing => QuantityRight is not null;
+    public virtual ImmutableArray<SwingPricingBinding> SwingPricingBindings => [];
     internal override bool SupportsSettlement => false;
     internal override bool RequiresNativeProgramMarket => true;
     public override string RetainedScheduleIdentity => "retained_side_programs_v1/" + string.Join('/', Members.Select(m => m.ProgramDigest));
@@ -135,7 +138,7 @@ internal class RetainedInstrumentSchedule<TMember> : InstrumentSchedule where TM
         if(context is null) throw new MarketDataException("side_context", "Supply the exact retained Side valuation context.");
         var hasQuantityTerms = retained.Members.Any(m => m.ValuationQuantityPolicy is not null || m.ValuationPart is not null);
         var hasReportedQuantities = retained.Members.Any(m => m.ValuationBalance is not null);
-        if((hasQuantityTerms || hasReportedQuantities || !retained.Rights.IsEmpty) && context.BindingState is not PhysicalCashState)
+        if((hasQuantityTerms || hasReportedQuantities || !retained.Rights.IsEmpty || retained.HasSwing) && context.BindingState is not PhysicalCashState)
             throw PhysicalDeliveryQuantities.Invalid("An instrument with quantity terms requires its complete held owner-day inputs.");
         if(context.BindingState is PhysicalCashState state)
         {
@@ -204,10 +207,20 @@ internal class RetainedInstrumentSchedule<TMember> : InstrumentSchedule where TM
                 decisions.RequireCompatiblePayments(retained.Members, state, context.Snapshot, ExerciseSettlement.CashAutomatic);
                 groups = [..exercises.SelectMany(exercise => exercise.Values(context, retained.Marks, retained.Currency, quantity.Numerator.Sign))];
             }
-            var entryDays = hasQuantityTerms || !rights.IsEmpty ? EntryQuantities.ForMembers(retained.Members, state,
+            var entryDays = hasQuantityTerms || !rights.IsEmpty || retained.HasSwing ? EntryQuantities.ForMembers(retained.Members, state,
                 decisions is null ? null : decisions.Counted, rights) : default;
+            SwingQuantityRightValue? quantitySwing = null;
+            if (retained.QuantityRight is {} terms)
+            {
+                var swing = new RetainedSwingQuantityValuation(terms, state, context.UnitEvaluation.CalculationAt);
+                var parcels = swing.Entries(entryDays, counterfactual: true);
+                var curve = retained.Sides[terms.PhysicalSlot].Side.Dependencies.Select(d => d.Curve).Distinct().Single();
+                quantitySwing = swing.Evaluate(context, retained.Currency, retained.SwingPricingBindings.Single(), retained.Marks, curve,
+                    slot => EvaluateOccurrence(context.ExercisedOccurrences(), slot, parcels));
+                entryDays = swing.Entries(entryDays, counterfactual: false);
+            }
             ImmutableArray<SideValuation> sides = [..retained.Sides.Select((_, slot) => EvaluateOccurrence(context, slot, entryDays))];
-            var value = new InstrumentValuation(retained, context, sides, groups);
+            var value = new InstrumentValuation(retained, context, sides, groups, quantitySwing);
             retained.RequireAfterValuation(value);
             return value;
         }

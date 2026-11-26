@@ -45,7 +45,14 @@ public sealed record QuantityPart
 }
 
 public sealed record EntryDayQuantity(DateOnly Day, SignedRatio Contract, SignedRatio Selected, SignedRatio Taken,
-    string Source, ImmutableArray<DeliveryQuantityEvidence> Evidence);
+    string Source, ImmutableArray<DeliveryQuantityEvidence> Evidence)
+{
+    internal int SwingSourceSlot { get; init; }
+    internal int SwingRight { get; init; }
+    internal string? SwingState { get; init; }
+    internal MissingDayAssessment? Missing => SwingState is RetainedSwingQuantityValuation.Missing or RetainedSwingQuantityValuation.Blocked
+        ? new(SwingSourceSlot, Day, "swing_right", SwingRight, SwingState) : null;
+}
 
 public static class EntryQuantities
 {

@@ -247,3 +247,52 @@ test('a started-delivery trade draws its measures as separate figures with expec
  assert.equal(byClass(draw({mode:'booked',presentation:'schedules',measures:null,currency:'USD'}),'ticket-measures').length,0);
  assert.equal(byClass(draw(),'ticket-measures').length,0);
 });
+
+test('a swing right renders one remaining value, explicit zero and a read-only intrinsic comparison',()=>{
+ const day={day:'2027-01-01',exerciseAt:'2026-12-31T18:00:00Z',state:'elected',electedQuantity:'0',selectedQuantity:'75',
+  revisionId:'election-a',quantityEvidence:[{source:'scheduled',revisionId:'schedule-b',reference:'selected meter reading'}],
+  operationalRecords:[{kind:'scheduled',status:'accepted',quantity:'75',evidence:{source:'scheduled',revisionId:'schedule-b',reference:'meter-c'}}],
+  forward:'5',physicalPerUnit:null,fixedPerUnit:null,plannedQuantity:null};
+ const period={from:day.day,through:day.day,days:1,limitPeriod:'term',totalBasis:'per_period_v1',changeCount:null,changesUsed:0,
+  appliedLower:'0',appliedUpper:'500',remainingLower:'0',remainingUpper:'500',elected:'0',remainingMinimum:'0',remainingMaximum:'200',
+  planned:null,plannedChanges:null,missingDays:0,blockedDays:0,nextDeadline:null};
+ const swing={right:0,holder:'us',quantityPolicy:'swing_elected_delivery_quantity_v1',counted:'123.45',planningStep:'25',referenceQuantity:'200',dailyMinimum:'0',dailyMaximum:'200',
+  scope:'assessed_open_days',periods:[period],modeledDays:1,unassessedDays:0,nextDeadline:null,comparison:{model:'best_plan_on_forwards_v1',scope:'assessed_forward_plan',plannedDays:1,unassessedDays:0,amount:'98.50'},
+  pricing:{model:'gas_swing_one_factor_lognormal_v1',dayCount:'act_365_fixed_instant_v1',numericalPolicy:'swing_trinomial_6h_unit_reference_v2',marksConvention:'curve_marks_log_return_held_v1'},
+  days:[day],marks:[],forwardInputs:[],work:{factorSteps:0,maximumStates:2,operations:3},estimate:{operations:3,maximumPriceNodes:1,peakBytes:23888}};
+ const host=draw({swingRights:[swing],quantityUnit:'MMBtu',currency:'USD',knownAt:'2026-12-01T02:00:00Z'});
+ assert.equal(host.textContent.split('123.45').length,2);
+ for(const value of ['Elected · 0','75','election-a','schedule-b','selected meter reading','Selected quantity evidence','Intrinsic','98.5','2026-12-01T02:00:00Z'])assert.ok(host.textContent.includes(value),value);
+ const detail=all(host).find(n=>n.tagName==='DETAILS'&&n.textContent.includes('Intrinsic'));
+ assert.ok(detail);assert.equal(controls(detail).length,0);
+ for(const value of ['Counted joint PV','assessed_open_days','best_plan_on_forwards_v1','assessed_forward_plan','No changed-day limit'])
+  assert.ok(host.textContent.includes(value),value);
+ const zero=draw({swingRights:[{...swing,counted:'0',periods:[{...period,changeCount:0,countRule:'differs_from_base_v1'}]}],quantityUnit:'MMBtu',currency:'USD'});
+ assert.ok(zero.textContent.includes('0 USD')&&zero.textContent.includes('0 / 0'));
+ const unknown=draw({swingRights:[{...swing,counted:null,comparison:null,modeledDays:0,unassessedDays:1}],quantityUnit:'MMBtu',currency:'USD'});
+ assert.ok(unknown.textContent.includes('Unassessed'));
+ assert.ok(unknown.textContent.includes('No assessed plan'));
+ const withdrawn={...day,state:'missing_election',selectedQuantity:null,electedQuantity:null,revisionId:'withdrawal-a',
+  commercialEvidence:'Synthetic withdrawal evidence',quantityEvidence:[]};
+ const retained=draw({swingRights:[{...swing,days:[withdrawn]}],quantityUnit:'MMBtu',currency:'USD'});
+ for(const value of ['Withdrawn','withdrawal-a','Synthetic withdrawal evidence','Missing election'])assert.ok(retained.textContent.includes(value),value);
+ const action={allowed:false,reason:'Retained read',days:[{day:day.day,exerciseAt:day.exerciseAt,electedQuantity:null,
+  effectiveRevision:'withdrawal-a',head:'future-head',evidence:'Synthetic withdrawal evidence',state:'missing_election'},
+  {day:'2027-01-02',exerciseAt:'2027-01-01T18:00:00Z',effectiveRevision:null,head:null,electedQuantity:null,evidence:null,state:'period_unassessed'},
+  {day:'2027-02-01',exerciseAt:'2027-01-31T18:00:00Z',effectiveRevision:null,head:null,electedQuantity:null,evidence:null,state:'undecided'}],referenceQuantity:'200',dailyMinimum:'0',dailyMaximum:'200',
+  planningStep:'25',periods:[{...period,elected:'75',remainingMinimum:'25',remainingMaximum:'425'}]};
+ const contract={source:'receipt',referenceQuantity:'200',priceUnit:'USD/MMBtu',days:[day],periodLabels:{period:'Whole term',basis:'Per period',changedDays:'No changed-day limit'},deadlineRule:'lead_before_first_gas_day_v1',leadHours:6,planRule:'best_plan_on_forwards_v1'};
+ for(const priced of [true,false]){
+  const view=draw({mode:'booked',actions:{recordSwing:action,record:{allowed:false},amend:{allowed:false},closeOut:{allowed:false}},
+   swingContract:contract,swingRights:priced?[{...swing,days:[withdrawn]}]:[],quantityUnit:'MMBtu',currency:'USD',knownAt:'2026-12-01T02:00:00Z'});
+  for(const value of ['Withdrawn','withdrawal-a','Synthetic withdrawal evidence','2026-12-01T02:00:00Z'])assert.ok(view.textContent.includes(value),value);
+  if(priced)assert.ok(view.textContent.includes(contract.deadlineRule));
+  if(!priced){
+   const grid=all(view).find(n=>n.getAttribute('aria-label')==='Retained election days');
+   const body=all(grid).find(n=>n.tagName==='TBODY');
+   assert.deepEqual(body.children.map(row=>[row.children[2].textContent,row.children.at(-1).textContent]),
+    [['Withdrawn','Missing election'],['No election','Unassessed period'],['No election','Undecided · contingent']]);
+   for(const value of ['25 – 425','future-head'])assert.ok(view.textContent.includes(value),value);
+  }
+ }
+});

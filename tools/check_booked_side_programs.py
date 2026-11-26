@@ -7,8 +7,9 @@ from native_read_transport import captured_input
 from pathlib import Path
 
 
-def runtime_query(query,manifest,statement,profile='trader',prefix='',commit=True):
+def runtime_query(query,manifest,statement,profile='trader',prefix='',commit=True,attest=None):
     token=query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','{profile}','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',60);")
+    if attest is not None:attest(token)
     return query(f"BEGIN;{prefix}SET LOCAL SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{token}');{statement}"+
                  ('COMMIT;' if commit else 'ROLLBACK;'))
 

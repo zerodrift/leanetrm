@@ -137,6 +137,9 @@ public sealed partial class TradeReads
             "SELECT EXISTS(SELECT 1 FROM trading.gas_exercise_rights WHERE(catalog_id,instrument_id)=($1,$2))",
             database.Manifest.CatalogId,position.Binding);
         var hasExerciseRights=composed&&await rights.ExecuteScalarAsync(ct) is true;
+        await using var swingRights=ScheduleStore.Command(connection,
+            "SELECT EXISTS(SELECT 1 FROM trading.gas_swing_rights WHERE(catalog_id,instrument_id)=($1,$2))",database.Manifest.CatalogId,position.Binding);
+        var hasSwingRights=composed&&await swingRights.ExecuteScalarAsync(ct) is true;
         var history=await PreviewDatabase.Rows(connection,"SELECT row_to_json(x)::text FROM(SELECT r.revision,r.instrument_id,r.actor_id,r.effective_at,a.reason FROM trading.gas_trade_revisions r LEFT JOIN trading.gas_amendment_commands a ON(a.catalog_id,a.operation_id,a.changed)=(r.catalog_id,r.operation_id,true) WHERE(r.catalog_id,r.trade_id)=($1,$2) ORDER BY r.revision DESC)x",[database.Manifest.CatalogId,position.Trade],ct);
         var amend=await GasAmendments.Action(connection,database.Manifest.CatalogId,position.Trade,position.Binding,int.Parse(position.Head.Text("revision"),CultureInfo.InvariantCulture),view.CalculationFrame.At,view.Working,ct);
         var programs=await new RetainedScheduleStore(database).LoadPrograms(connection,position.Binding,view.CalculationFrame.ContextId,view.CalculationFrame.At,ct);
@@ -156,9 +159,10 @@ public sealed partial class TradeReads
                 purchaseReference=TradingReference.Trade(int.Parse(r.Text("purchase_reference"),CultureInfo.InvariantCulture)),
                 saleReference=TradingReference.Trade(int.Parse(r.Text("sale_reference"),CultureInfo.InvariantCulture))}),
             amend,sideGroups=new[]{RetainedInstrumentSidePresentation.Gas(position,programs,components)}};
-        if(!hasExerciseRights)return terms;
+        if(!hasExerciseRights&&!hasSwingRights)return terms;
         var exercise=JsonSerializer.SerializeToNode(terms,RiskJobs.Json)!.AsObject();
-        exercise["hasExerciseRights"]=true;
+        if(hasExerciseRights)exercise["hasExerciseRights"]=true;
+        if(hasSwingRights)exercise["hasSwingRights"]=true;
         return exercise;
     }
     public Task<object> Position(NpgsqlConnection connection,TradingView view,TradePositionReadRequest request,CancellationToken ct)

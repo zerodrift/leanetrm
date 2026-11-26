@@ -59,6 +59,156 @@ internal static class GasTicketChecks
             var saved = JsonSerializer.Deserialize<GasCompositionRequest>(JsonSerializer.Serialize(plain with { ImbalanceCashouts = [pair] }, json), json)!;
             Equal(pair, saved.ImbalanceCashouts!.Value.Single(), "retained cash-out terms");
         });
+        const string swingWire = """[{"side":"RCT","entries":["RCT","PAY"],"holder":"us","planningStep":"100","limitPeriod":"term","totalBasis":"per_period_v1","planRule":"best_plan_on_forwards_v1","deadlineRule":"lead_before_first_gas_day_v1","dailyMinimum":"700","dailyMaximum":"1100","totalMinimum":"3000","totalMaximum":"3100","leadHours":6,"quantityPolicy":"swing_elected_quantity_v1","pricing":{"model":"gas_swing_one_factor_lognormal_v1","dayCount":"act_365_fixed_instant_v1","numericalPolicy":"swing_trinomial_6h_unit_reference_v2","marksConvention":"curve_marks_log_return_held_v1"}}]""";
+        Check("a bounded swing ticket reopens the exact right and its governed source policy",()=>{
+            var json=JsonSerializerOptions.Web;
+            var source=Receipt with{Values=Receipt.Values.SetItem("delivery_to","2027-01-04").SetItem("quantity","1000")};
+            var payment=Cash with{Values=Cash.Values.SetItem("cash_end","2027-01-04")};
+            var plain=Map(Draft(source,payment));
+            var saved=plain with{SwingRights=JsonSerializer.Deserialize<ImmutableArray<GasSwingRightRequest>>(swingWire,json)};
+            var draft=GasTicket.Reopen(saved);
+            Equal("contract",draft.Sides[0].Values["quantity_policy"],"source election fallback");
+            var electedDelivery=draft with{Sides=[draft.Sides[0] with{Values=draft.Sides[0].Values.SetItem("quantity_policy","delivery_schedule_v1")},draft.Sides[1]]};
+            var selected=Map(electedDelivery);
+            Equal("delivery_schedule_v1",selected.PhysicalSides[0].QuantityPolicy,"physical source choice");
+            Equal("swing_elected_delivery_quantity_v1",selected.SwingRights!.Value[0].QuantityPolicy,"derived election semantics");
+            var ordinary=Receipt with{Code="OTHER",Values=Receipt.Values.SetItem("quantity_policy","delivery_schedule_v1")};
+            Equal("delivery_schedule_v1",Map(draft with{Sides=draft.Sides.Add(ordinary)}).PhysicalSides[1].QuantityPolicy,"independent source policy");
+            Equal(true,GasTicket.SameTerms(saved,Map(draft)),"lossless swing ticket");
+            Equal(false,JsonSerializer.SerializeToElement(GasTicket.Reopen(plain),json).TryGetProperty("swingRights",out _),"ordinary draft");
+            var choices=GasTicket.LocalChoices(draft,null,"swing_model")!.Value;
+            Equal(null,GasTicket.ChoiceSet(draft,null,"swing_model",choices).StartingValue,"explicit model");
+            foreach(var field in new[]{"swing_limit_period","swing_plan_rule","swing_deadline_rule","quantity_policy","swing_model","swing_numerical_policy"})
+            {
+                var invalid=JsonSerializer.SerializeToNode(draft,json)!;
+                bool sourceControl=field=="quantity_policy";
+                var owner=sourceControl?invalid["sides"]![0]!["values"]!:invalid["swingRights"]![0]!;
+                owner[field]="unsupported";
+                try{Map(invalid.Deserialize<TicketDraft>(json)!);}
+                catch(TicketFieldException e) when(e.Code==(field is "swing_model" or "swing_numerical_policy"?"swing_model_scope":"swing_right") && e.Field==field &&
+                    (sourceControl?e.Side=="RCT" && e.TermRow is null:e.TermSection=="swingRights" && e.TermRow==0)){continue;}
+                throw new Exception($"Expected a swing refusal on {field}.");
+            }
+            var bad=JsonSerializer.SerializeToNode(draft,json)!;
+            bad["swingRights"]![0]!["swing_total_min"]="-1";
+            try{Map(bad.Deserialize<TicketDraft>(json)!);}
+            catch(TicketFieldException e)when(e.Field=="swing_total_min"&&e.TermRow==0){return;}
+            throw new Exception("The impossible minimum must name the right row and quantity field.");
+        });
+        Check("a swing range preserves all frozen heads and distinguishes zero, withdrawal and off-grid rows",()=>{
+            var context=new FuturesReadRequest(Snapshot,PhysicalGasStore.Convention,"current");
+            var request=new GasSwingPrepareRequest(context,Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),3,Operation,0,
+                new(2027,1,2),new(2027,1,3),"elect","0","us","2026-12-01T00:00:00Z","2026-12-01T06:00:00Z","synthetic instruction");
+            var prior=Guid.NewGuid();
+            var days=Enumerable.Range(1,3).Select(n=>new GasSwingActionDay(new(2027,1,n),new(2026,12,31,0,0,0,TimeSpan.Zero),
+                n==1?prior:null,null,null,null,"undecided")).ToImmutableArray();
+            var action=new GasSwingAction(true,null,request.TradeId,request.InstrumentId,3,request.ReadContextId,0,"us","100","0","1000","1000",
+                [],days);
+            foreach(var invalidEnd in new[]{default(DateOnly), new DateOnly(2027,1,1), new DateOnly(2027,2,1)})
+            {
+                try{action.Build(request with{LastDay=invalidEnd});throw new Exception("Invalid end date was accepted.");}
+                catch(TicketFieldException e)when(e.Field=="lastDay"){}
+            }
+            var batch=action.Build(request);
+            Equal(3,batch.ExpectedHeads.Length,"all retained days");
+            Equal(prior,batch.ExpectedHeads[0].RevisionId,"outside selection head");
+            Equal("2027-01-02,2027-01-03",string.Join(",",batch.Elections.Select(e=>e.Day)),"atomic range");
+            Equal("0",batch.Elections[0].Quantity,"elected zero");
+            Equal(null,action.Build(request with{Decision="withdraw",Quantity=null}).Elections[0].Quantity,"explicit withdrawal");
+            Equal("75",action.Build(request with{Quantity="75"}).Elections[0].Quantity,"off-grid election");
+            try{action.Build(request with{Quantity="1001"});}
+            catch(TicketFieldException e)when(e.Code=="swing_election"&&e.Field=="quantity"&&e.TermRow==1){return;}
+            throw new Exception("An out-of-range election must identify its first selected day.");
+        });
+        Check("the complete expanded swing command fits its UTF-8 record budget",()=>{
+            var from=new DateOnly(2027,1,1);
+            var days=Enumerable.Range(0,1200).Select(i=>new GasSwingActionDay(from.AddDays(i),new(2026,12,31,0,0,0,TimeSpan.Zero),
+                null,null,null,null,"undecided")).ToImmutableArray();
+            var request=new GasSwingPrepareRequest(new(Snapshot,PhysicalGasStore.Convention,"current"),Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),1,Operation,0,
+                from,days[^1].Day,"elect","0","us","2026-12-01T00:00:00Z","2026-12-01T00:00:00Z","Synthetic instruction");
+            var action=new GasSwingAction(true,null,request.TradeId,request.InstrumentId,1,request.ReadContextId,0,"us","100","0","1000","1000",[],days);
+            var swingWireOptions=new Microsoft.AspNetCore.Http.Json.JsonOptions().SerializerOptions;
+            var proof=string.Concat(Enumerable.Repeat("🌱",500));
+            var unicode=action.Build(request with {Evidence=proof});
+            Equal(1200,unicode.Elections.Length,"all Unicode evidence rows fit on the ticket wire");
+            Equal(proof,unicode.Elections[^1].Evidence,"astral evidence preserved");
+
+            // With a fixed row width, the two serialized samples establish the independent byte boundary.
+            // The extra fixture dates exercise the transport guard beyond today's 1,200-day retained geometry.
+            var extended=action with {Days=[..Enumerable.Range(0,1500).Select(i=>days[0] with{Day=from.AddDays(i)})]};
+            var escaped=new string('\u0001',500);
+            var template=extended.Build(request with {LastDay=from});
+            int Bytes(int count)=>JsonSerializer.SerializeToUtf8Bytes(template with {
+                Elections=[..Enumerable.Repeat(template.Elections[0] with {Evidence=escaped},count)]},swingWireOptions).Length;
+            int firstBytes=Bytes(1),rowBytes=Bytes(2)-firstBytes;
+            var last=1+(4*1024*1024-firstBytes)/rowBytes;
+            var near=extended.Build(request with {LastDay=from.AddDays(last-1),Evidence=escaped});
+            Equal(Bytes(last),JsonSerializer.SerializeToUtf8Bytes(near,swingWireOptions).Length,"largest complete range for this evidence");
+            Equal(last,near.Elections.Length,"no split or truncation");
+            try{extended.Build(request with {LastDay=from.AddDays(last),Evidence=escaped});throw new Exception("An expanded command over 4 MiB was prepared.");}
+            catch(TicketFieldException e)when(e.Code=="swing_payload"&&e.Field=="elections"){}
+            var padded=action.Build(request with {Evidence=new string(' ',12000)+"\tSynthetic instruction\u00a0  "});
+            Equal(true,padded.Elections.All(e=>e.Evidence=="\tSynthetic instruction\u00a0"),"only ASCII edge spaces are trimmed");
+        });
+        Check("swing terms round trip and an absent right preserves the wire request", () =>
+        {
+            var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+            var wire = JsonSerializer.SerializeToNode(Map(Draft(Receipt, Cash)), json)!.AsObject();
+            Equal(false, wire.ContainsKey("swingRights"), "absent swing");
+            wire["swingRights"] = System.Text.Json.Nodes.JsonNode.Parse(swingWire);
+            var reopened = JsonSerializer.SerializeToNode(wire.Deserialize<GasCompositionRequest>(json), json)!;
+            Equal(true, System.Text.Json.Nodes.JsonNode.DeepEquals(wire["swingRights"], reopened["swingRights"]), "retained swing terms");
+        });
+        Check("swing lead and pricing inputs require their exact JSON shapes", () =>
+        {
+            var json = new Microsoft.AspNetCore.Http.Json.JsonOptions().SerializerOptions;
+            json.AllowDuplicateProperties = false;
+            var predecessor = Map(Draft(Receipt, Cash));
+            var legacy = JsonSerializer.SerializeToNode(predecessor, json)!.AsObject();
+            legacy.Remove("profile");
+            legacy["PROFILE"] = predecessor.Profile;
+            legacy["legalEntityRevision"] = "4";
+            var rebound = GasCompositionRequestJson.From(JsonSerializer.SerializeToElement(legacy, json), json);
+            Equal((predecessor.Profile, (int?)4), (rebound.Profile, rebound.LegalEntityRevision), "predecessor Web binding");
+            foreach (var malformed in new[] { swingWire.Replace("\"leadHours\":6", "\"leadHours\":\"6\""),
+                swingWire.Replace("leadHours", "LEADHOURS"), swingWire.Replace("marksConvention", "MARKSCONVENTION") })
+            {
+                var wire = JsonSerializer.SerializeToNode(Map(Draft(Receipt, Cash)), json)!.AsObject();
+                wire["swingRights"] = System.Text.Json.Nodes.JsonNode.Parse(malformed);
+                try { wire.Deserialize<GasCompositionRequest>(json); }
+                catch (JsonException) { continue; }
+                throw new Exception("A swing right accepted a malformed lead or property name.");
+            }
+        });
+        Check("the private gas loader applies the same swing section name at its nested composition", () =>
+        {
+            var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+            var command = new GasInTermLoadRequest("synthetic", Map(Draft(Receipt, Cash)));
+            var wire = JsonSerializer.SerializeToNode(command, json)!.AsObject();
+            var composition = wire["composition"]!.AsObject();
+            composition["swingRights"] = System.Text.Json.Nodes.JsonNode.Parse(swingWire);
+            Equal(6, wire.Deserialize<GasInTermLoadRequest>(json)!.Composition.SwingRights!.Value.Single().LeadHours, "operator swing lead");
+            composition.Remove("swingRights");
+            composition["SWINGRIGHTS"] = System.Text.Json.Nodes.JsonNode.Parse(swingWire);
+            try { wire.Deserialize<GasInTermLoadRequest>(json); }
+            catch (JsonException) { return; }
+            throw new Exception("The private gas loader accepted the wrong-case swing section.");
+        });
+        Check("swing command requires explicit heads, quantity or withdrawal, exact party and right", () =>
+        {
+            var wire = """{"context":{"snapshotId":"00000000-0000-0000-0000-000000000051","convention":"physical_gas_fixed_quantity_v4","knowledgeMode":"current"},"tradeId":"00000000-0000-0000-0000-000000000001","instrumentId":"00000000-0000-0000-0000-000000000002","expectedRevision":1,"operationId":"00000000-0000-0000-0000-000000000003","right":0,"expectedHeads":[{"day":"2021-01-31","revisionId":null}],"elections":[{"day":"2021-01-31","quantity":null,"exercisingParty":"us","submittedAt":"2021-01-20T00:00:00Z","effectiveAt":"2021-01-20T00:00:00Z","evidence":"Synthetic withdrawal"}]}""";
+            GasSwingRecordRequest Parse(string input) => GasSwingStore.Request<GasSwingRecordRequest>(JsonSerializer.Deserialize<JsonElement>(input));
+            Equal(null, Parse(wire).Elections.Single().Quantity, "explicit withdrawal");
+            foreach (var invalid in new[] { wire.Replace("\"quantity\":null,", ""), wire.Replace("\"right\":0,", ""),
+                wire.Replace("\"right\":0", "\"RIGHT\":0"), wire.Replace("\"right\":0", "\"right\":\"0\""),
+                wire.Replace(",\"revisionId\":null", ""), wire.Replace("exercisingParty", "holder"),
+                wire.Replace("\"quantity\":null", "\"quantity\":null,\"quantity\":\"0\"") })
+            {
+                try { Parse(invalid); }
+                catch (JsonException) { continue; }
+                throw new Exception("An incomplete or ambiguous swing command was accepted.");
+            }
+        });
         Check("exercise terms round trip and an absent right preserves the wire request",()=>{
             var json=new JsonSerializerOptions(JsonSerializerDefaults.Web);
             var plain=Map(Draft(Receipt,Cash));
@@ -616,7 +766,7 @@ internal static class GasTicketChecks
         {
             string Soon(IEnumerable<TicketField> fields) => string.Join(",", fields.Where(f => f.State == "soon").Select(f => f.Id));
             Equal("force_majeure,credit_terms", Soon(GasTicket.Description.TradeFields), "soon trade fields");
-            Equal("swing_daily_min,swing_daily_max,swing_range,swing_notice_deadline,nomination_cycle,nominating_party,heat_content,quality_spec", Soon(GasTicket.SideKind("physical").Fields), "soon physical fields");
+            Equal("nomination_cycle,nominating_party,heat_content,quality_spec", Soon(GasTicket.SideKind("physical").Fields), "soon physical fields");
             Equal("", string.Join(",", GasTicket.Description.Sides.Where(k => k.Soon is not null).Select(k => k.Kind)), "soon side kinds");
             Equal("volume", string.Join(",", GasTicket.Description.Sides.SelectMany(k => k.Columns).Where(c => c.Soon is not null).Select(c => c.Id)), "soon columns");
             Equal("", string.Join(",", GasTicket.Description.Tabs.Where(t => t.Soon is not null).Select(t => t.Id)), "soon tabs");
@@ -920,7 +1070,7 @@ internal static class GasTicketChecks
         Check("an indexed forecast is qualified on the payment's own term",()=>{
             var indexed=With(With(Indexed,"floating_start","2027-01-15"),"floating_end","2027-01-17");
             var probe=GasTicket.PriceProbe(Open(A(Receipt),indexed),"IDX",catalog,Snapshot,Definition);
-            Equal(("2027-01-15","2027-01-17"),(probe.PhysicalSides[0].DeliveryFrom,probe.PhysicalSides[0].DeliveryTo),"payment forecast coverage");
+            Equal(("2027-01-15","2027-01-17"),(probe.Source.DeliveryFrom,probe.Source.DeliveryTo),"payment forecast coverage");
             var field=GasTicket.Description.Sides.Single(s=>s.Kind=="floating").Fields.Single(f=>f.Id=="floating_forecast_curve");
             Equal(true,field.DependsOn.Contains("floating_start")&&field.DependsOn.Contains("floating_end")&&field.RefreshOn.Contains("floating_pricing"),"forecast refresh inputs");
         });
@@ -1037,9 +1187,12 @@ internal static class GasTicketChecks
         Refuses("ticket_input", "a lookup on a field without one refuses", () => GasTicket.Lookup(Open(A(Receipt)), "RCT", "zone", catalog));
         Check("a market price probe prices the side's own path and term", () =>
         {
+            var terms=Open(A(Receipt),With(Cash,"cash_price",null));
+            Equal(true,GasTicket.RequiresMarketInputs(terms,Cash.Code,"cash_price"),"following price suggestion requires the market");
+            Equal(false,GasTicket.RequiresMarketInputs(Open(A(Receipt),Cash),Cash.Code,"cash_price"),"an explicitly entered price needs no market lookup");
             var probe = GasTicket.PriceProbe(Open(A(Receipt), Cash), "RCT", catalog, Snapshot, Definition);
-            Equal(Setup, probe.GasSetupId, "probe setup"); Equal(0, probe.CashSides.Length, "probe cash");
-            var side = probe.PhysicalSides.Single();
+            Equal(Setup, probe.Terms.GasSetupId, "probe setup"); Equal(0, probe.Terms.CashSides.Length, "probe cash");
+            var side = probe.Source;
             Equal(("RCT", "PA", "ZA1", "P1", "firm", "2027-01-01", "2027-02-01"), (side.Code, side.Pipeline, side.Zone, side.DeliveryPoint, side.Product, side.DeliveryFrom, side.DeliveryTo), "probe path");
             Equal(new TicketSource("market", "Point 1 · close 2020-12-18"), GasTicket.MarketPrice(Open(A(Receipt)), "RCT", catalog, "3.1", new(2020, 12, 18)).Source, "market source");
         });

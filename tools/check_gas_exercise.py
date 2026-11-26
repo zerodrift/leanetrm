@@ -631,7 +631,7 @@ def ticket_authority_expiry(risk,query,manifest,context,saved,pending_head):
     print('PASS booked exercise ticket rechecks expiring authority before publishing future election heads',flush=True)
 
 
-def amend_rights(query,manifest,saved,rights,at):
+def amend_rights(query,manifest,saved,rights,at,*,swing_rights=None,before_commit=''):
     """Stage the unchanged retained Sides through the native API and amend just the right terms."""
     from check_booked_side_programs import runtime_query
     cat=manifest['catalogId']
@@ -641,6 +641,19 @@ def amend_rights(query,manifest,saved,rights,at):
     body=json.loads(query(f"SELECT request FROM trading.trades WHERE(catalog_id,id)=('{cat}','{trade}');"))
     body.update(operationId=op,tradeId=trade,bindingId=inst,expectedRevision=1,reason='Synthetic exercise terms',
                 amendmentPolicy='future_gas_composition_replace_v1',exerciseRights=rights)
+    if swing_rights is not None:
+        body['swingRights']=swing_rights
+    return stage_gas_composition(query,manifest,inst,body,at,before_commit=before_commit)
+
+
+def stage_gas_composition(query,manifest,inst,body,at,*,refusal=None,attest=None,before_commit='',commit=True):
+    """Stage and publish, returning the receipt or the final JSON fixture observation."""
+    from check_booked_side_programs import runtime_query
+    cat=manifest['catalogId']
+    op=body['operationId']
+    trade=body.get('tradeId')
+    admission=f"'AmendTrade','{trade}',{body['expectedRevision']}" if trade else "'BookTrade',NULL,NULL"
+    writer='amend_gas_composition' if trade else 'book_gas_composition'
     headers=json.loads(query(f"""SELECT jsonb_agg(jsonb_build_object('family',s.family,'definitionRevisionId',s.definition_revision_id,
       'referenceCatalogId',s.reference_catalog_id,'referenceRevisionId',s.reference_revision_id,'economicIdentity',s.economic_identity,
       'pricingBindingIdentity',s.pricing_binding_identity,'schemaVersion',h.schema_version,'generatorVersion',h.generator_version,
@@ -651,13 +664,19 @@ def amend_rights(query,manifest,saved,rights,at):
     def literal(value):
         return "'"+json.dumps(value).replace("'","''")+"'::jsonb"
     command=literal(body)
-    stage=''.join(f"SELECT security.begin_side_schedule('{cat}','{op}',{slot},{command},'AmendTrade','{trade}',1,{literal(header)});"
+    stage=''.join(f"SELECT security.begin_side_schedule('{cat}','{op}',{slot},{command},{admission},{literal(header)});"
                   for slot,header in enumerate(headers))
-    result=runtime_query(query,manifest,stage+f"""SELECT security.seal_side_schedule_request('{cat}','{op}','[]');
-      SELECT security.lock_side_schedule_request('{cat}','{op}');
-      WITH amended AS MATERIALIZED(SELECT security.amend_gas_composition('{cat}',{command},'{at}') result)
+    stage+=f"""SELECT security.seal_side_schedule_request('{cat}','{op}','[]');
+      SELECT security.lock_side_schedule_request('{cat}','{op}');"""
+    if refusal:
+        runtime_query(query,manifest,stage+f"""DO $test$ BEGIN
+          PERFORM security.{writer}('{cat}',{command},'{at}');
+          RAISE EXCEPTION 'expected native refusal';
+        EXCEPTION WHEN raise_exception OR insufficient_privilege THEN IF '{refusal}' NOT IN(SQLERRM,SQLSTATE) THEN RAISE;END IF;END$test$;""",commit=False,attest=attest)
+        return
+    result=runtime_query(query,manifest,stage+f"""WITH amended AS MATERIALIZED(SELECT security.{writer}('{cat}',{command},'{at}') result)
       SELECT result FROM amended WHERE CASE WHEN (result->>'unchanged')::boolean THEN true
-       ELSE security.publish_operation_side_schedules('{cat}','{op}')=(result->>'instrumentId')::uuid END;""")
+       ELSE security.publish_operation_side_schedules('{cat}','{op}')=(result->>'instrumentId')::uuid END;"""+before_commit,attest=attest,commit=commit)
     return json.loads(result.splitlines()[-1])
 
 

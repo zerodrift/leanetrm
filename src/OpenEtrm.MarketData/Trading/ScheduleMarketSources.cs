@@ -112,11 +112,19 @@ public sealed partial class ScheduleMarketSources
         var keys=demand.Sources.Select(source=>program.Document.Instructions[source.Instruction].Output)
             .Where(row=>row.Operation=="discount").Select(Key).Distinct().ToImmutableArray();
         var factors=keys.IsEmpty?ImmutableArray<SidePaymentFactor>.Empty:discounting.Resolve(keys,basis.Snapshot);
-        if(factors.IsDefault||factors.Length!=keys.Length||factors.Any(factor=>factor is null||!keys.Contains(factor.Payment)||
-            !factor.Snapshot.HasSameInputs(basis.Snapshot)||!Enum.IsDefined(factor.Source) || !factor.HasValidPaymentDayTerms(context.ValuationAt)||factor.DiscountFactor.CompareTo(default)<=0||
-            factor.Source==DiscountFactorSource.Undiscounted&&factor.DiscountFactor!=ExactDecimal.Parse("1"))||
-            factors.Select(factor=>factor.Payment).Distinct().Count()!=factors.Length)
-            throw new MarketDataException("side_payment_factors","Every requested value date requires exactly one positive factor under the selected context.");
+        var requestedKeys=keys.ToHashSet();
+        var paymentFactors=new Dictionary<SidePaymentKey,SidePaymentFactor>(keys.Length);
+        static MarketDataException InvalidPayment() => new("side_payment_factors",
+            "Every requested value date requires exactly one positive factor under the selected context.");
+        if(factors.IsDefault||factors.Length!=keys.Length)throw InvalidPayment();
+        foreach(var factor in factors)
+        {
+            if(factor is null||!requestedKeys.Remove(factor.Payment)||!factor.Snapshot.HasSameInputs(basis.Snapshot)||
+                !Enum.IsDefined(factor.Source)||!factor.HasValidPaymentDayTerms(context.ValuationAt)||factor.DiscountFactor.CompareTo(default)<=0||
+                factor.Source==DiscountFactorSource.Undiscounted&&factor.DiscountFactor!=ExactDecimal.Parse("1"))
+                throw InvalidPayment();
+            paymentFactors.Add(factor.Payment,factor);
+        }
         foreach(var source in demand.Sources)
         {
             cancellation.ThrowIfCancellationRequested();
@@ -157,7 +165,7 @@ public sealed partial class ScheduleMarketSources
                     switch(row.Operation)
                     {
                         case "discount":
-                            var factor=factors.Single(value=>value.Payment==Key(row));
+                            var factor=paymentFactors[Key(row)];
                             if(factor.Source==DiscountFactorSource.CurrencyDefault)
                             {
                                 if(factor.RateDefinition is null)throw new MarketDataException("side_payment_factors","Currency discounting requires its exact rate evidence.");

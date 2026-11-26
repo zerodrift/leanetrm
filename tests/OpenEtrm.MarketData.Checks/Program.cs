@@ -108,6 +108,11 @@ if(args is ["--european-options"]){EuropeanFuturesOptionChecks.Run();return;}
 if(args is ["--spread-options"]){SpreadOptionChecks.Run();HeatRateCallChecks.Run();HeatRateCallScheduleChecks.Run();return;}
 if(args is ["--exercise-mark-pair"]){ExerciseRightChecks.MarkBindings();return;}
 if(args is ["--exercise-rights"]){ExerciseRightChecks.Run();return;}
+if(args is ["--gas-swing-unit-heap",var heapDays]){GasSwingChecks.UnitWorkload(int.Parse(heapDays),true);return;}
+if(args is ["--gas-swing-unit-workload",var unitDays]){GasSwingChecks.UnitWorkload(int.Parse(unitDays),variant:unitDays=="1"?"prefix":"standard");return;}
+if(args is ["--gas-swing-unit-workload",var days,var variant]){GasSwingChecks.UnitWorkload(int.Parse(days),variant:variant);return;}
+if(args is ["--gas-swing-unit-oracles", var cases, var results]){GasSwingChecks.UnitOracles(cases,results);return;}
+if(args is ["--gas-swing"]){GasSwingChecks.Run();return;}
 if(args is ["--option-calibration-workload"]){FuturesOptionChecks.CalibrationWorkload();return;}
 if(args is ["--vol-surface"]){VolSurfaceChecks.Run();return;}
 if(args is ["--compact-retained"]){CompactRetainedChecks.Run();return;}

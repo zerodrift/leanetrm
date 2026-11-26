@@ -795,6 +795,35 @@ body .tabulator-popup-container{border:1px solid var(--border-strong);background
 .ticket-exercise-groups td{vertical-align:top}
 .ticket-exercise-groups td:nth-child(n+5){font-variant-numeric:tabular-nums}
 .ticket-exercise-action .ticket-field{flex:1 1 170px}
+.ticket-swing-detail{display:grid;gap:12px;min-width:0;background:var(--surface);border:1px solid var(--border-strong);border-radius:8px;padding:14px}
+.swing-heading{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px}
+.swing-heading h3,.swing-quant h4,.swing-facts{margin:0}
+.swing-heading strong,.swing-facts dd,.swing-table td{font-variant-numeric:tabular-nums}
+.swing-heading{align-items:center;border-bottom:1px solid var(--border);padding-bottom:10px}
+.swing-counted{display:grid;gap:2px;text-align:right}
+.swing-counted small,.swing-table caption{font-weight:600}
+.swing-heading strong{font-size:1.35em;line-height:1.15}
+.swing-table table{width:max-content;min-width:100%}
+.swing-table th,.swing-table td:first-child,.swing-table td.numeric{white-space:pre}
+.swing-table td:not(.numeric){max-width:34ch;overflow-wrap:break-word}
+.swing-facts>div{border-inline-start:2px solid var(--border);padding-inline-start:9px}
+.swing-table:focus-visible,.swing-quant summary:focus-visible{outline:2px solid var(--accent-text);outline-offset:-2px}
+.ticket-swing-detail small,.swing-facts dt{color:var(--text-2)}
+.swing-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,145px),1fr));gap:10px 16px}
+.swing-facts dt{font-size:.85em}
+.swing-facts dd{margin:2px 0 0;overflow-wrap:anywhere}
+.swing-table{max-width:100%;min-width:0;overflow:auto}
+.swing-table caption{padding:4px 0;text-align:left;font-weight:600}
+.swing-table td{vertical-align:top;white-space:pre-line}
+.swing-table td.numeric,.swing-table th.numeric{text-align:right}
+.swing-table .elected{color:var(--accent-text)}
+.swing-table .undecided{color:var(--text-2)}
+.swing-quant{min-width:0;border-top:1px solid var(--border);padding-top:8px}
+.swing-quant summary{cursor:pointer;color:var(--accent-text);font-weight:600}
+.swing-quant[open]>:not(summary){margin-top:12px}
+.ticket-swing-action>.swing-facts,.ticket-swing-action>.swing-table{flex:1 1 100%}
+.ticket-swing-action .ticket-field{flex:1 1 170px}
+.ticket-swing-action .ticket-control{width:100%}
 .ticket-exercise-action select{width:100%}
 
 .ticket-foot{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:10px}

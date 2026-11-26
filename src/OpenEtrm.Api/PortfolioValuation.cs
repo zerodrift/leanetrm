@@ -716,8 +716,9 @@ public sealed class PortfolioValuation(PreviewDatabase database)
                     holdingRisk.AddRange(group.BasePositions.Select(p=>new PortfolioHoldingRisk(measure,bump.Axis.Id,
                         new(p.TradeId,p.BindingId,p.BookId,p.ValuationId,Unchanged(p.Value,bump))
                         {UnassessedDays=p.UnassessedDays,Owner=p.Owner,Components=[..p.Components.Select(c=>new ComponentRiskValues(c.Name,c.Value,c.Value,c.Value))],
-                         Entries=[..p.Entries.Select(e=>new EntryRiskValues(e.Slot,e.Value,e.Value,e.Value){UnassessedDays=e.UnassessedDays})],
+                         Entries=[..p.Entries.Select(e=>new EntryRiskValues(e.Slot,e.Value,e.Value,e.Value){UnassessedDays=e.UnassessedDays,MissingAssessments=e.MissingAssessments,UpMissingAssessments=e.MissingAssessments,DownMissingAssessments=e.MissingAssessments})],
                          ExerciseGroups=[..p.ExerciseGroups.Select(g=>new ExerciseGroupRiskValues(g.Group,g.Value,g.Value,g.Value))],
+                         QuantitySwing=p.QuantitySwing is {} swing?(swing,swing,swing):null,
                          GroupValues=p.GroupValues.IsEmpty?null:new(p.GroupValues,p.GroupValues,p.GroupValues)})));
                 }
                 else

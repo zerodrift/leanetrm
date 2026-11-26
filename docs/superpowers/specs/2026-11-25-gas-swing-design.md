@@ -1,0 +1,735 @@
+# Physical gas swing with daily elections and period limits
+
+The [quantity-rights design](2026-11-24-quantity-rights-with-limits-design.md)
+defines the approved quantity contract, election history, deterministic plan and
+storage comparison. This design adds an explicitly selected stochastic valuation.
+The counted result for assessable undecided days is their joint, contingent value.
+The best plan on forwards appears separately with its quantities and value. Both
+use the same rights and the same scenario. A plan creates no election, dispatch,
+cash payment or storage plan record.
+
+The published baseline is D454 (748b7695). Tasks 1–8 of the
+[implementation plan](../plans/2026-11-25-gas-swing.md) built and exercised a
+narrower profile on that baseline. Its mandatory term budget, lot elections,
+31-day limit and held-money rounding do not implement the contract below.
+D457 implements the reconciled profile on the retained Instrument. The named
+commercial and numerical contracts below define its scope. See the
+[implementation](../../implementation.md#daily-gas-quantity-rights-d457)
+and [verification](../../verification.md#daily-gas-quantity-rights-d457).
+
+## What the trade can state
+
+A retained gas Instrument owns one physical `daily_quantity` right. It identifies
+the driving physical slot and every ordinary cash membership taking a constant
+positive share of that quantity. Each Side executes its own whole-term program.
+The holder is `us` or `counterparty`. Exact retained operating dates, source
+schedule and deadline instants identify consecutive whole gas days. Select
+`lead_before_first_gas_day_v1` and a nonnegative integer lead in hours from
+each gas day's start. Compare instants across DST changes.
+
+| Term | Contract |
+| --- | --- |
+| Reference | Positive, constant contract quantity B per operating day on one independent physical source. No fuel link to or from it. |
+| Daily range | Nonnegative minimum a and maximum b with a ≤ B ≤ b. An election can be any supported exact native quantity in this closed interval, including zero when admitted. |
+| Limit period | Explicitly select `delivery_month` or `term`. Month uses the operating date in the retained clock. Each such period owns its own budget and count. |
+| Lower and upper total | Independently optional nonnegative quantities. With either bound select exactly one basis. `per_period_v1` applies it as entered to each period. `per_day_v1` multiplies it by the number of retained days in that period, including elected and elapsed ones. An omitted endpoint is unbounded on that side. |
+| Count | Optional nonnegative integer C per period with explicit rule `differs_from_base_v1`. Each elected or planned quantity different from B uses one day, in either direction. A zero cap is meaningful. The count resets at each selected period boundary and is never prorated. |
+| Planning step | Positive s. Both (B − a)/s and (b − a)/s must be integers. Candidates are a + i·s for i from zero through (b − a)/s. The step determines numerical choices for future decisions. |
+| Selection and pricing | Save explicit election/operational selection, plan rule `best_plan_on_forwards_v1`, one-factor model, numerical policy, day-count, marks convention and no discounting. |
+
+Do not supply a basis for an absent pair of totals or a count rule without its
+count. For a two-sided total the **stated** upper minus lower must be at least one
+step under either basis, before multiplication. For example, per-day bounds
+1,000/1,050 with step 100 refuse even for 30 days. Also check each applied
+period for feasibility, including a short or partial month. Equal minimum
+and maximum totals are outside this contract. Equality of daily endpoints is
+valid if they equal B. With B=1,000, a=850, b=1,150 and s=75 the five planned
+quantities include 1,000. An election of 1,025 and a total of 3,050 are
+legitimate quantities. No absolute amount has to be a multiple of 75.
+
+Retain daily and total quantities and the planning step as exact reduced ratios
+to the source's held B, with exact slot/schedule references. Numerical grid
+geometry is a retained valuation term of this definition. Include it and the
+commercial terms in swing identity, and pin the numerical algorithm/model in
+`SwingPricingBinding`. Omit swing serialization entirely on existing no-swing
+identities. Record absolute election amounts in the same native unit and exact
+input format as other gas quantities. The admitted wire precision is distinct
+from the valuation step. No decimal division followed by a tolerance in
+managed or SQL admission.
+
+The one-factor model admits one positive unadjusted native point curve with a
+unique dated daily or monthly outright lookup for each covered gas day.
+Each following consideration or usage fee is fixed, linear per native unit in
+the same currency and covers the complete term on the driving clock. Refuse
+partial-day/period-total sources, additional quantity parts, missing followers,
+two physical sources inside the right, overlapping rights, floating strikes,
+forecast overrides, implicit conversion and ambiguous/adjusted projections.
+Unrelated charges, sources, disjoint D448 rights and same-source D454 reported
+balance cash-out can coexist under existing composition limits. Balances use
+operator facts and keep both cash-out Sides outside the swing coverage.
+
+The source's quantity-policy selection determines the operating behavior.
+Reuse its existing contract-quantity (no independent policy) and
+`delivery_schedule_v1` choices. On this right, the first selects the elected
+quantity on an elected day. The second applies the existing eligible
+allocation/schedule precedence with the election as fallback. Both ignore
+operational facts on unelected days. For an election of 1,100 and scheduled
+900, budget use is 1,100 in either case. Selected ordinary quantity is 1,100
+without a source policy and 900 under the delivery schedule policy. Without
+an election the same schedule of 900 enters neither PV nor the budget.
+
+Present a single explicit choice at booking. Retain source policy and right
+choice version in identity. Where a retained right/API needs a selection tag,
+map the first choice to `swing_elected_quantity_v1` and the second to
+`swing_elected_delivery_quantity_v1` exactly. A wire form carrying both
+source and derived tag must agree. Do not expose a second independent selector,
+infer a policy from existing records or accept scheduled-only/other policy
+versions. Preserve the published meaning of an absent source policy on trades
+without a swing right.
+
+No simultaneous monthly and term budget, previous-day count, direction-specific
+count, ramp, refraction, changing base, carry-forward, cash penalty or automatic
+election is specified. The contract contains neither a stochastic demand model
+nor a transport or storage entitlement. D433 storage valuation continues to use
+its recorded plan in force.
+
+## Continuous feasibility and reservation
+
+Work in exact ratios throughout, or equivalently in native quantities with the
+same unit. Let D be the full number of retained gas days in this limit period.
+Resolve the **applied** lower and upper endpoints L and U once from the terms.
+Under `per_period_v1` each supplied endpoint equals its stated quantity.
+Under `per_day_v1` each supplied endpoint equals D times its stated rate.
+An absent endpoint supplies no inequality. Only the paired-width admission
+test above compares stated quantities before multiplication. The same L and U
+govern booking, every historical/effective election check, suffix pruning and
+terminal feasibility. They are independent of election and assessment state.
+
+In one period let E be the sum of elections in force, h their number
+different from B and n the number of days without an election. The latter
+includes any missed deadline for the purpose of recording facts. Without a
+count let k=n. With a count, reject h>C and let k=min(n,C−h). The exact interval
+of attainable totals is
+
+    [E + n·B − k·(B−a), E + n·B + k·(b−B)].
+
+Changing up to k of the identical remaining days continuously from their bases
+fills the interval. Intersect it with the applied interval [L,U]. A nonempty
+intersection and valid individual elections are necessary and sufficient. With
+no open days this tests the elected total itself. A cut, allocation, forecast,
+planned schedule or observed delivery cannot change E, h or these bounds.
+
+For a 31-day January with an upper rate of 1,005 per day, U is 31,155.
+An all-base schedule at 1,000 per day totals 31,000 and fits. After a
+1,050 election there are 30 open days and at most 30,105 left for them
+(31,155 − 1,050). At 1,000 each the total becomes 31,050 and still fits.
+The month still has D=31. With daily bounds 900–1,100 and at most two changed
+days, the election consumes one change. The largest feasible remaining total
+is 30,100 even though the arithmetic cap left is 30,105. With s=100 the
+terminal upper index for those 30 open days is floor((31,155−1,050−27,000)/100)=31.
+
+Use the same contract in managed booking, retained reads and native booking and
+recording. A batch first replaces the selected facts for all its touched days,
+then checks each touched period at the union of effective-time boundaries. The
+writer can sweep per-day deltas in E, elected-day count and changed-day count,
+grouped by period and effective instant, including later known revisions. Each
+fresh revision of a day requires an effective instant at or after that day's
+predecessor. At equal instants the higher revision is in force. An exact retry
+returns its original outcome and contributes no delta. Apply
+simultaneous changes before testing. Withdrawals release a day and any count
+slot. Individual intermediate mutations of one batch are never visible.
+The original Monday/Tuesday correction example must refuse even though the
+latest heads alone would admit it.
+
+## Exact forward plan and shared storage search
+
+For an assessable period with n planning days, reserve **all** visible elections
+first, including future delivery dates. Let level z be the sum of the
+chosen integer indices i. At terminal, the total is E + n·a + s·z. Intersect
+the reachable levels with the inward bounds ceil((L−E−n·a)/s) and
+floor((U−E−n·a)/s) for each supplied endpoint. Compute these signed floors
+and ceilings exactly. The count state starts with C−h and a move consumes one
+iff i differs from (B−a)/s. With no count, omit that dimension. With no total,
+omit the accumulated level if it cannot affect admissible moves. Coupled days
+may skip over fixed elections in date order.
+
+The attainable integer totals with at most k changes contain every step from
+the all-base level down to k daily decrements of (B−a)/s and up to k daily
+increments of (b−B)/s. Thus a one-sided bound intersecting the continuous
+range always includes an endpoint of the grid. A two-sided interval at least
+one step wide either contains a grid point or meets a reachable grid endpoint.
+This proof also applies after an off-grid election because E translates the
+entire interval exactly. A failure to find a grid completion after successful
+admission is a structured calculation failure. Never round the election,
+increase the limit or inject a residual off-grid action.
+
+Use `LevelPlanSearch` in `OpenEtrm.Shared/Numerics` for the two actual
+deterministic consumers. It accepts ordered layers, their reachable level and
+optional count coordinates, feasible integer moves with successor coordinates,
+exact integer rewards and feasible terminal coordinates. It returns the best
+integer objective and ordered moves or an explicit infeasible/work result.
+A caller converts exact signed rational day rewards to integer scores with a
+common positive denominator and restores that scale exactly. Apply the caller's
+budget before materializing states/backpointers and bound intermediate integer
+storage. Keep just the two value layers and the chosen move for each reachable
+state/day. A missing successor is infeasible. Zero is a valid reward.
+
+On equal objectives compare the current move by distance to its rest move,
+then by lower move. With optimal suffixes chosen by the same rule this is the
+chronological lexicographic tie rule. Swing's rest is the base index. The
+counterparty holder maximizes its own signed reward. Storage's rest is zero,
+so a withdrawal wins an equal-size tie with injection. The storage adapter
+retains its band-specific asymmetric injection/withdrawal moves, opening
+inventory offset, exact fuel conversions, terminal window, 4,001-level check
+and existing 20,000,000 day/move precheck (including unreachable levels as
+today). It calls `GasStoragePlans.Evaluate` on the returned moves and retains
+`GasStoragePlanProposals.Propose`, its public ID, refusal codes, plan and
+objective. Storage receives no swing states, new model or price tree.
+
+Swing supplies the same feasible moves and successor coordinates to the
+deterministic search and to its price-node induction. The two computations use
+different reward arithmetic and continuation rules. There is no universal
+pricer or change to the listed-option lattice.
+
+## Elections, assessment and retained valuation
+
+Record on the exact visible trade/binding, right, operating day and holder with
+absolute quantity or explicit withdrawal, evidence, submission and effective
+instants. Require timely evidenced submission ≤ effective ≤ retained deadline.
+Publication and booking can be later. A late-booked trade may record an
+acceptance earlier than the binding's economic effective time. Reads still
+require the binding to be visible at their selected business time and knowledge
+cutoff. At a cutoff before recording the acceptance remains unknown. A later
+withdrawal recorded with timely effectiveness can leave the elapsed day
+unassessed. Preserve revision ordering, explicit zero, predecessor identity,
+certified knowledge, highest eligible revision per day and next known transition.
+
+| Selected day | Ordinary covered rows | Remaining right |
+| --- | --- | --- |
+| Elected | Use the accepted commercial amount, or the operating amount selected by its explicit policy. Show both chains of evidence. | Reserve commercial amount and compare it with B for the count. |
+| Unelected, before deadline, assessable | Covered ordinary rows contribute no contingent amount. Display the exact intrinsic comparison quantity as planned. | Include in the holder's joint stochastic decision. |
+| Unelected, at/after deadline | No selected amount or derived accrual. Show the missing election. | Unassessed. |
+| Other unelected day in a period containing a missed day and any stated total or count | No selected quantity or modeled accrual. Show why the period cannot be planned. | Unassessed until eligible facts restore coverage. |
+
+A missed day with daily bounds only affects itself. A missed term-budget day
+affects every other unelected day in the term. A monthly reset isolates later
+months. Elected days, including those later than a missed deadline, continue
+to value. A nominated, scheduled or allocated quantity on an unelected day
+remains an operational fact. It never triggers an election, blocks an eligible
+plan, fills missing coverage or enters ordinary swing PV. Historic and current
+views apply these rules independently.
+
+Source the uncertain physical and certain fixed rewards from concrete Sides'
+counterfactual unit-quantity occurrences; isolate by date and retained occurrence,
+split whole-term linear cash rows only over their contributing days, and apply
+signed memberships/holder perspective once. The ordinary occurrence still
+values elected operating quantities and cash. An early future election values
+as ordinary future delivery at once and accrues cash only under its row's policy.
+Add the holder-signed joint value to unrealized once at the right. Do not add the
+forward plan as ordinary PV or allocate stochastic value to individual entries.
+
+Keep settled cash absolute. New payment on a covered cash occurrence requires
+an elected day in that occurrence and the normal payment checks. Mixed
+whole-term rows expose the assessed subtotal and missing coverage. A correction
+cannot erase a receipt or its native cash-accounting flow. Assess P&L cash
+from the payment lineage even on a swing-only trade without D454 entries. If all qualifying days are subsequently withdrawn,
+retain the paid fact and its evidence, identify unassessed paid coverage when
+applicable, and do not invent a known outstanding accrual. Keep part-paid,
+zero-corrected and overpaid outcomes on known coverage. The action to amend a
+trade with **any** recorded swing election (including one later withdrawn)
+refuses under the existing serialized trade write.
+
+Carry distinct missing commercial days through entry, right, trade, book,
+portfolio, risk and both dates of P&L. Extend D454's incomplete-subtotal path so
+a missing source day is counted once across its followers, including a whole-term
+cash occurrence. Retain the reason/owner of each missing assessment. At aggregate
+levels preserve D454's distinct source-slot/day metric within a binding when
+both assessments are missing on the same date, and show both reasons in the
+details. Different trades retain independent counts. An all-missing period has
+no assessed model or plan value; the sum of known contributions can be zero
+only with its incomplete marker visible. Label the comparison model, planned-day
+count and scope on any comparison subtotal/roll-up; the counted PV has its own
+stochastic scope and coverage. If required market evidence or a numerical
+calculation fails on assessable days, propagate its specific pricing refusal.
+Missing election coverage cannot hide a failure on another assessable period.
+
+## Stochastic model, size and numerical policy
+
+Keep `gas_swing_one_factor_lognormal_v1`, `curve_marks_log_return_held_v1`
+and `act_365_fixed_instant_v1`. The forward for delivery day d is a
+martingale under the selected pricing measure with constant monthly log-return
+volatility σₘ and one common Brownian factor. There is no estimated correlation,
+mean reversion, calibration, interpolation, discounting or missing-mark
+substitution. Assessable days with genuine quantity flexibility require the
+explicit monthly volatility including zero. A missing forward required by a
+Side refuses normally. A continuously forced schedule can be valued exactly on
+forwards with no volatility dependency. Establish this from the commercial
+feasible set, not the number of grid paths. One test can intersect each possible
+current choice with exact future completion intervals for an unchanged day and
+for a changed day consuming one count. Only singleton projections for every day
+prove uniqueness. A coarse grid leaving one plan on a commercially flexible
+period still requires its marks. A selected explicit zero-volatility strip uses
+the exact forward solver. Never choose zero volatility on a missing mark.
+
+The selected numerical policy is
+`swing_trinomial_6h_unit_reference_v2`. The fixed six-hour time grid starts
+at the exact calculation instant. Anchor regular ticks at the first future
+retained deadline's phase. Insert every future retained deadline through the
+last modeled decision into this same clock, including any DST splits and dates
+with fixed elections. This makes the factor clock independent of a month's
+budget and of skipped early decisions. With a calculation before a distant
+first deadline, count the entire prefix. Use one factor from calculation time,
+including across periods whose budgets reset. A later month cannot restart at
+an unconditioned root price on its first day.
+
+For Δ seconds in a transition let h=√(3·21600/(365·86400)),
+p₋=p₊=Δ/129600 and p₀=1−2p₊. Node j moves to j−1,j,j+1.
+For each consumed σ compute its prefix normalizer M₀=1 and
+Mₜ₊₁=Mₜ·(p₋ exp(−σh)+p₀+p₊ exp(σh)).
+The multiplier at (t,j) is exp(σhj)/Mₜ. Keep the same
+`LatticeDecimal` operation order for reproducibility (30-place half-even
+arithmetic). Compute or cache only budgeted arrays, and pin operation order
+if caching. Reject positive-multiplier underflow, excess magnitude or overflow.
+
+Normalize **before model rounding**. For each candidate q use exact Side
+outputs to derive the holder's signed physical and fixed amounts A(q), C(q)
+at one native unit of reference daily quantity, retaining q/B and membership
+shares as exact ratios. Equivalently divide the actual held hypothetical
+amounts by the positive held B exactly once. Round each of these two amounts
+half-even to 18 places at this unit boundary. Immediate model reward is
+rounded A(q) times the conditional multiplier plus rounded C(q). At each
+reachable (time, price node, period level, remaining count), maximize this
+reward plus the expectation of the successor value under the three branches.
+Non-decision times only take the expectation. The last deadline still chooses
+before the terminal constraint. The fixed dates of elections consume no model
+reward. Absent moves/states are infeasible. Equal computed values use the
+base-nearest, lower-second comparison. Choose at the **observed** price node,
+before seeing its child. Deterministic unique schedules and explicit
+zero-volatility valuation use exact rational Side amounts, including values
+smaller than the numerical rounding unit.
+
+At a monthly boundary all admissible terminal states transition to the same
+initial state of the next period at the same factor node, with that month's
+elections and count already reserved. Process monthly problems on consecutive
+layers; no product of monthly histories. Skip unassessed/settled commercial
+decisions while propagating their intervening factor time. Periods proved
+commercially forced and independent periods with all required volatilities
+explicitly zero **must** be stripped before the stochastic recursion.
+Compute their exact unit-reference forward values in the holder's perspective.
+Their expected rewards are additive and their actions cannot constrain another
+period. Keep their elapsed factor time on the clock of any later stochastic
+decisions.
+No such split within a coupled period on the basis of a zero monthly mark alone.
+
+Let V be the normalized root for the remaining stochastic periods and Dᵥ the
+exact sum of the stripped unit-reference values. Use zero for an empty sum.
+The covered remaining-right value in the holder's perspective is exactly
+B × (ToExact(V) + Dᵥ), treating an empty stochastic root as zero. Thus the
+stochastic root rounds once and **only then** is the exact deterministic strip
+added. Apply the held B as an exact rational and restore holder/position signs
+in the existing Trade normalization path. Do not round the scaled money back to 18
+places before recording/reporting exact PV. Exact deterministic and ordinary
+amounts keep their own lifecycle contracts. The same normalized inputs and
+proportionate elections give identical normalized decisions, tree, rounded root
+and plan. Multiplication by actual B then gives exact size homogeneity of
+the covered value, including for 10⁻¹⁸ and 2·10⁻¹⁸. Check rational output
+through all APIs, storage and display boundaries. This is a proof for two
+independently evaluated bindings with proportional commercial and operational
+quantities and cash (or none). A fixed premium and an unchanged absolute
+payment or allocation keep their own amounts. No cross-binding scalar reuse.
+
+Risk applies shared factor scenarios and reprices the whole retained Instrument
+under each affected set of prices and monthly volatilities. No-shock reuse
+requires identical eligible inputs. Retain methodology, grid and limits,
+actual mark and lookup revisions, retained day/election and operational/cash
+facts, binding, scenario, calculation time and resolved cutoff in the normal
+calculation identity. Invalidate prepared inputs at the earliest pending
+deadline, known effective transition or earlier existing boundary. Report finite
+scenario differences and bumps; a changed optimal plan can change the exposure.
+Pinned gas time still limits time-effect attribution.
+
+## Resource admission and qualification targets
+
+`GasQuantityTerms.MaximumOperatingDays` and existing Side schedule/program,
+precision and request-shape contracts remain upstream limits. Within them
+there is no separate 31-day term or 33-choice product limit. Before building
+large arrays, booking checks continuous feasibility and preflights both planning
+and positive-volatility pricing from the explicit booking calculation instant.
+Missing marks do not prevent structural booking and never select a cheaper
+zero-volatility estimate. Use the saved clock, terms and future deadlines only. Pass the authoritative
+booking calculation instant from the owned writer/context to term admission;
+never trust a client-computed work count or wall-clock time.
+For late bookings, bound the future graph even if an elapsed period currently
+has missing elections. Retain the estimate's clock and policy for inspection.
+At valuation preflight again from the actual calculation instant, with exact
+reservations and assessed periods. A valid election writes successfully even
+when its valuation would exceed numerical scope.
+
+For example, with r=(b−a)/s, after d pending choices in a period the coarse
+level bound is 1+d·r with no count. With a count, let K=min(d, remaining
+change allowance). For exactly h changes the cumulative deviation from base
+ranges over at most 1+h·r integers. Sum that bound over h=0..K and, for each
+h, intersect the integer range with exact remaining terminal reachability to
+tighten it. With only a count, use K+1 coordinates. With only daily bounds
+one coordinate suffices. The transition bound is at most (r+1) times the
+pre-decision states, or just the base move when changes are exhausted. At
+monthly boundaries restart at one coordinate; the factor width continues
+growing. Use the smaller sum of bounded feasible action ranges where terminal
+limits restrict fan-out. Do not use candidate-array length as a price-work
+estimate.
+
+The booking estimators in SQL and managed code use the same closed-form or
+bounded streaming integer counts. Count six-hour ticks and inserted deadline
+splits from the selected instant using exact ticks before enumerating layers.
+At time t there are 2t+1 factor nodes. Charge the documented costs below for
+these nodes, including three expectation branches for every successor state
+at nonterminal times plus the actual bounded decision visits. Use the same
+byte-cost table for both estimates, with conservatively sized numeric limbs,
+array overhead, and exact backpointers. Reject a product exceeding the budget
+by checked comparison before forming a machine-sized index. Implement this
+estimator as a versioned resource policy with paired SQL/managed fixtures
+using identical clocks, inputs, charges and refusal coordinates. Booking needs
+no model payoff values or forecast of future elections.
+
+Build sparse layers from reachable coordinates, discarding every state without
+a feasible suffix. Derive feasible action ranges from remaining daily/count and
+terminal bounds before iterating. Count generation itself, including attempted
+and filtered moves. Limit growth incrementally in checked wide arithmetic
+before each allocation/expansion. Do not enumerate the raw Cartesian product
+in order to decide it was too large. Keep two price/value layers, one set of
+per-day plan backpointers and budgeted payoff/normalizer workspace. Stream
+decision-layer payoffs or preflight their entire retained size. Account for
+both successor expectation and choice work at decision nodes.
+
+The v2 numerical policy enforces ceilings of 100,000,000 counted operations
+and 256 MiB of modeled live workspace per right and scenario. The fixture
+qualification separately measures process resident memory. Count topology generation,
+exact plan states and candidate visits, price payoff nodes, normalizer updates,
+probability branches per successor state, and each priced candidate. Count
+full factor layers from inception, including skipped dates. Charge state,
+edge, backpointer, transition and live price arrays, indexes and bounded
+arbitrary-precision limbs/temporary buffers. For the swing numerical policy,
+apply a 4,096-bit ceiling per exact intermediate integer (including reward
+denominators, common-denominator scores, values and arithmetic scratch).
+Precheck operand bit lengths and checked quotient/product bounds before LCM,
+multiplication or score addition. A near-bound exact result may use bounded
+temporary space included in the estimate; no unbounded LCM/product is formed
+to discover its length. Charge at least 512 payload bytes per live 4,096-bit
+integer plus measured object/array/index overhead and scratch multiplicity,
+or a certified smaller operand-width bound. For lattice values use the
+existing 30-digit fixed precision and magnitude below 10²⁴, including the
+implementation's wider transcendental and product temporaries. Measure these
+charges against the actual runtime. Apply swing numerical gates to model/search
+work only. Commercial quantity comparisons and the existing D433 adapter keep
+their own exact admission contracts. Advancing counters/estimates must
+refuse before crossing either ceiling. Report maximum active states, decision
+fan-out, factor steps/nodes and peak live bytes separately. Test each counter,
+a large but sparse term, rejected dense cases and a distant first deadline.
+Retain structured `swing_numerical_scope` with the measured dimension and
+limit; a financial infeasibility has its own code. Never change step, number
+of factors or time resolution to fit. Freeze the actual measured limits with
+the version after independent review. Do not ship if the following gates fail.
+
+| Synthetic qualification workload | Required observation |
+| --- | --- |
+| Seasonal term | 90 days, B=1,000, daily 900–1,100, step 100, at most two changed days, term cap 90,100. Test a 1,050 future-day election as well as the empty history. |
+| Annual monthly resets | 365 days from 2041-01-01, same range/step, at most two changed days each month, per-day maximum 1,005 and no lower total. Use actual month lengths. A first-month missed election leaves later months assessable. |
+| Prices and marked optionality | Fixed 3.00, monthly forwards alternating 2.95/3.05, annualized volatilities alternating 0.20/0.25, first deadline six hours from calculation. Run base, point ±0.01 and vol ±0.01 including changed months. Already elected days alone or a zero-volatility shortcut cannot pass. |
+| Budget boundaries | Prove below/at/over admissions for each frozen ceiling with integer estimator fixtures and at least one actually priced near-limit case. Compare estimated to instrumented counts and high-water memory. Check over-budget failure before large allocation. |
+| End-to-end | Book and read both long terms via the ordinary API/native writer and a real worker. Characterize kernel cold/warm, full retained valuation and job runtime separately. Require ≤120 s per standalone kernel call and ≤512 MiB kernel-process high-water RSS. On the qualification host require ≤2 GiB sampled API RSS and ≤1 GiB sampled RSS for each worker executing the seasonal or annual job. Capture RSS during execution, including the API route sequence and the worker through result commit. |
+| Cancellation | Check cancellation at entry, inside graph construction, exact search, payoffs and priced continuation, at bounded blocks (at most 1,024 candidate/branch visits between polls). On observed in-flight work require cancellation within one second on the measured host. Release buffers and worker state. |
+
+The UTC 365-day fixture gives 1,457 six-hour steps and at most 2,915 price
+nodes in a layer. With at most two changes, each layer needs at most
+1 + 3 + 5 = 9 commercial coordinates before tighter pruning. The analogous
+90-day fixture has 357 steps and at most 715 price nodes. Qualify a DST clock
+separately with its actual inserted times. These arithmetic counts size a
+test; they do not measure elapsed time or memory.
+
+End-to-end gates require the normal HTTP deadline, owned input-frame and
+authority expirations, worker lease and execution budgets to hold through the
+actual result/commit. A kernel under 120 seconds can still fail those gates.
+Optimize the implementation before considering a separately reviewed scoped
+execution-budget change. Never increase global timeouts for this profile.
+
+These are test targets, not measurements or guaranteed throughput. Record exact
+fixture versions, host/build, concurrency, unique contracts, scenarios, actual
+evaluated and reused work, peak live/RSS/allocated bytes and elapsed time.
+For stochastic long fixtures check an independent narrow-state recurrence or
+independent finite-tree value on the same pinned grid. Also check that the
+annual root agrees with the sum of independent monthly optima valued from
+the same inception on the same factor clock, within a derived finite-arithmetic
+rounding envelope. No independent monthly recentering at day one.
+
+### Managed v2 resource charges
+
+The internal booking component returns its authoritative calculation instant and
+version with the structural estimate. It treats every commercially flexible
+period as positive-volatility work. In an elapsed period it drops both aggregate
+endpoints from the estimate because the quantities of missed elections are
+unknown. The level dimension and original count limit still apply. At valuation,
+use exact elected reservations and include price work only for the assessed
+periods left after the mandatory exact strips.
+
+For a period with `n` open days, write `r` for the last daily index and `b` for
+the base index. At depth `d` consider each feasible prefix change count `h`
+from zero to the lesser of `d` and the opening allowance. A flat daily range
+cannot spend a change, so its effective allowance for counting is zero. The prefix level lies
+between `(d-h)b` and `(d-h)b + hr`. With no count, use the single interval
+`[0, dr]`. With `m = n-d` days left and at most `k` available changes, the
+suffix ranges from `(m-k)b` through `(m-k)b + kr`. Intersect the prefix
+with the inward integer terminal endpoints less the opposite suffix endpoints.
+A period without any total omits this level arithmetic entirely.
+An empty intersection contributes zero states. Otherwise charge its inclusive
+width, or one state when the right has no aggregate total. Charge a base move
+when changes are exhausted. For a spendable change, intersect the daily range
+with the terminal bounds after reserving the remaining suffix and allowing
+the full prefix interval. Count the base at most once. This bounds visits
+even when multiple parents can reach the same child. Terminal layers have
+zero outgoing moves. An independent month opens at one coordinate.
+
+Count regular ticks by integer division from the first future retained
+deadline's six-hour phase. Add each off-phase retained deadline at or before
+the decision, including elected and unassessed dates. If successive modeled
+decisions have step indexes `p` and `t`, charge `3(t²-p²)` branches for
+each admissible pre-decision state. This includes the prefix from inception
+when `p=0`. Charge all bounded actions at each of the `2t+1` observed nodes.
+Charge one payoff per node per distinct action index, bounded by the smaller
+of the number of daily indices and the layer's total feasible moves. Charge
+`t` prefix normalizer updates for this decision. Charge four visits per
+commercial state slot and three per candidate for graph creation, exact plan
+and stochastic move preparation. The actual counter charges two candidate
+passes plus the moves compiled for stochastic decisions. Charge one preflight visit per retained calendar day and per prefix change-count interval inspected (including empty intersections) before and after a decision. Charge one visit per
+open day, per factor transition and per cached exponential. Bound the last
+count by the widest factor layer times the number of consumed delivery months.
+
+| Simultaneously charged workspace | Bytes |
+| --- | ---: |
+| Fixed calculation scratch including bounded integer and transcendental temporaries | 32,768 |
+| Each reached commercial state slot across retained layers, including index/range structures, rolling exact scores and backpointers | 4,096 |
+| Each open decision day, including exact unit components, coefficients, layer and plan containers | 8,192 |
+| Each modeled time step, including times, probabilities and the decision index | 256 |
+| Each cached exponential or live lattice value, including its bounded numeric limbs | 96 |
+| Each edge in the largest stochastic decision layer, including ranks, normalized action coefficients, lookup and per-node rewards | 1,536 |
+
+For the two rolling value arrays charge twice the maximum, over decision
+layers, of `(2t+3) × max(before states, after states) × 96` bytes. At a
+monthly boundary the successful terminal states share the next opening value.
+Add all table charges before building the graph, coefficient LCM or price
+arrays. Reject an operation or byte total strictly above 100,000,000 or
+268,435,456 respectively. The corresponding per-layer early bounds are
+65,536 state slots and 100,000,000 candidate visits. Exact arithmetic has a
+4,096-bit per-integer limit. Commercial fact admission is independent of the
+numerical limits. The [portable admission fixtures](../../../tests/fixtures/gas-swing-unit-resource-v2.json)
+fix the adjacent operation, byte and fan-out cases for the native implementation.
+
+### Measured marked workloads
+
+The workload runner starts a fresh ordinary API for each term and a fresh
+worker per job. The annual point and volatility scenarios require two
+separately persisted jobs under the 32-child named-scenario limit. Each job
+uses the same retained inputs and financial base. For each declared month it
+reprices one isolated up and one down shock. All reported measurements used
+one trade binding with two Sides, concurrency one, arm64 macOS 26.6.2,
+14 logical CPUs, 48 GiB of RAM, .NET SDK 10.0.402 and stock PostgreSQL 18.7.
+
+| Ordinary Debug API and worker | 90-day term | 365-day monthly resets |
+| --- | ---: | ---: |
+| Distinct market contracts / children per job | 3 / 6 | 12 / 24 |
+| Two jobs, base-plus-child scenarios / evaluated unit calls including preparations / reused unit scenario values | 14 / 16 / 0 | 50 / 52 / 0 |
+| Booking / first retained read, seconds | 1.123 / 0.780 | 3.748 / 2.836 |
+| Point / volatility job start to result commit, seconds | 3.032 / 3.008 | 49.992 / 50.841 |
+| Execution headroom at result commit, seconds | 56.968 / 56.992 | 10.008 / 9.159 |
+| Lease headroom at result commit, seconds | 26.968 / 26.992 | 20.046 / 29.197 |
+| Original frame authority / request headroom at booking commit, seconds | 58.913 / 59.879 | 56.304 / 58.814 |
+| Both complete jobs, submit through result reads, seconds | 7.789 | 106.693 |
+| API baseline / sampled peak across route sequence, KiB | 210,944 / 487,360 | 211,344 / 1,144,512 |
+| Point / volatility workers, first OS samples, KiB | 2,512 / 3,104 | 2,816 / 3,104 |
+| Sampled point / volatility worker peaks, KiB | 332,640 / 335,600 | 878,432 / 869,328 |
+| Gross managed allocation at last observation, separate runs, MiB (API / point worker / volatility worker) | 517.1 / 244.9 / 254.9 | 1,818.2 / 2,550.3 / 2,947.0 |
+| Held base PV | −1,656.894221623503797 | 535.976104037492649 |
+
+Both jobs committed for both terms under the role-specific thresholds.
+The API process was sampled with `ps` every 70 ms from the first ready
+session through the route sequence. Each fresh worker was sampled every
+50 ms through exit. Each measurement requires a positive RSS observation
+and rejects a missing or invalid live-worker sample. The annual worker
+acknowledged cancellation during portfolio preparation in 0.051 seconds.
+The committed cancellation released its lease and contained no result.
+Worker exit and administrative verification took another 0.032 seconds.
+The cancelled worker peaked at 154,352 KiB. Gross managed allocations
+come from separate ordinary-GC diagnostic processes using
+`GC.GetTotalAllocatedBytes`, through exit for the seasonal roles and through
+the final observed protected stage for the annual roles. The annual API and
+both annual workers exceeded 512 MiB. An earlier seasonal run reached
+614,528 KiB in the API, so the seasonal API can also exceed 512 MiB.
+A separate annual control with the same physical/fixed geometry and 24 point
+children, without a quantity right, reached 702,240 KiB in the ordinary API.
+Its worker peaked at 489,952 KiB. The ordinary base was −150 and each isolated
+shift changed PV by 10 times that month's actual day count.
+
+The role-specific thresholds apply to these two fixtures on this host.
+The shared server-GC runtime sizes its heap for the machine. An ordinary
+annual API read can exceed 512 MiB with no swing numerical work. The
+2 GiB API and 1 GiB worker targets leave headroom over the observed
+ordinary-host peaks and preserve the shared service's existing operational
+settings. The 512 MiB standalone kernel limit, 256 MiB modeled workspace,
+4,096-bit integer limit and 100,000,000-operation ceiling still apply,
+along with the original 15-second request and 60-second job budgets. Separate
+384 MiB and 320 MiB managed heap-limit experiments kept the annual workers
+under 512 MiB, but their APIs peaked at 564,816 and 540,432 KiB respectively.
+**Whole-service operation within 512 MiB remains unqualified.** Smaller
+hosts require separate allocation and runtime qualification.
+
+One independent base kernel in Release took 129/107 ms cold/warm for
+90 days and 750/563 ms for 365 days. Cold/warm managed allocations were
+14,611,624/14,603,496 bytes and 67,880,256/67,872,640 bytes respectively.
+Process high-water RSS from child resource usage was 96,387,072 and
+101,957,632 bytes respectively.
+Annual counted work was 37,500,365 operations against 59,016,138 admitted.
+The actual modeled peak was 14,173,440 bytes against 23,071,872 admitted.
+The compact rolling cells preserve ordered 30-place rounding, use the wide
+representation outside their exact fast paths, and fit the existing
+96-byte value charge. Growth factors retain the original exponential and
+its narrow scaled integer when representable. Ordered prefix normalizers
+are shared only within the same clock, volatility and pricing call.
+
+The near-operation case priced 5,771 prefix ticks, 99,982,598 operations.
+The near-memory case priced 174,729 daily choices, 268,434,400 modeled bytes.
+The adjacent larger cases refuse before allocating the graph or price arrays.
+Annual and seasonal scenario values agree with independently conditioned
+monthly/term optima from the same inception. The workload runner also checks
+the seasonal 1,050 election, one unassessed annual month, real cancellation,
+DST splits and the original lease/authority boundaries.
+
+Cold 1,200-day ordinary booking remains outside the measured HTTP envelope.
+The separate complete-head election transport check used an authenticated
+native publication. The resource policy and measurement fixes received independent scoped review.
+
+## Independent financial oracles
+
+Use all [worked examples](2026-11-24-quantity-rights-with-limits-design.md#worked-example)
+as exact forward-plan acceptance checks. Base 1,000, daily 700–1,100, step 100,
+buy at 3.00, forwards 3.20, 3.05, 3.10 unless specified. Enumerate admissible
+small schedules directly and compare ordered quantities **and** value.
+
+| Case | Daily quantities | Exact value to us |
+| --- | --- | ---: |
+| Daily range alone | 1,100 / 1,100 / 1,100 | 385 |
+| Maximum 3,100 | 1,100 / 900 / 1,100 | 375 |
+| Same maximum and one changed day | 1,100 / 1,000 / 1,000 | 370 |
+| Base schedule comparison | 1,000 / 1,000 / 1,000 | 350 |
+| Maximum 3,100, seller holds | 700 / 700 / 700 | 245 |
+| Sell at 3.00, buyer holds | 1,100 / 900 / 1,100 | −375 |
+| Elect 1,100 first | 1,100 / 900 / 1,100 | 220 elected + 155 planned |
+| Elect 700 first | 700 / 1,100 / 1,100 | 140 elected + 165 planned |
+| Elect 1,050 first | 1,050 / 900 / 1,100 | 365 (continuous optimum 367.50) |
+| Cap 3,150 | 1,100 / 900 / 1,100 | 375 (continuous optimum 377.50) |
+| Equal forwards 3.10, cap 3,100 | 1,000 / 1,000 / 1,100 | 310 |
+| All forwards 3.00 | 1,000 / 1,000 / 1,000 | 0 |
+| Forwards 2.80 / 2.95 / 2.90, lower bound 2,500 | 700 / 1,100 / 700 | −265 |
+| Up 0.01, cap 3,100 | 1,100 / 900 / 1,100 | 406 |
+| Second forward down 0.10, same cap | 1,100 / 700 / 1,100 | 295 |
+| Tenfold size, same ratios | 11,000 / 9,000 / 11,000 | 3,750 |
+
+Retain the other exact bounded-profile values 480 and −450, shared optional
+budget 2,000 and the original operational-cut/early-election examples. In the
+two-decision adapted tree, start at 3, move to 4 or 2 equiprobably, then
+multiply by 4/3 or 2/3 equiprobably. Pay 3 with one 1,000-unit exercise
+available over both dates. The adapted optimum is 1,000·7/12, foresight
+1,000·5/6 and independent calls 1,000·13/12. Compare at the versioned
+normalized output precision. Add a tiny tree with count, monthly reset, an
+off-grid reservation and unequal daily rewards. Enumerate nonanticipating
+policies by observable node/history, including ties and mandatory negative PV.
+
+Use an independent 80-digit recurrence and normalized rounding oracle. Compare
+the production finite grid on the existing ordinary-sized fixtures to 10⁻⁸ in
+held currency. For one optional 10,000-unit choice, 30 days, volatility 0.50
+and (forward, strike) of (3.20,3.00), (3.20,3.50), (3.00,3.00), retain the
+2 currency-unit six-hour analytic error gate and 0.25 gate for an independent
+45-minute comparison. These tolerances are fixture-specific. The fixed-grid
+3.20/3.00 value is about 2,948.858 against analytic 2,947.442. Test size
+homogeneity by exact equality independently of approximation tolerances.
+
+## Persistence, service and presentation
+
+Upgrade the published 0402 schema directly. Revise the unpublished 0403 terms
+and 0404 election migrations in place. They create owner-only swing tables,
+helpers and election operations, preserving the published composition writer.
+Revoke default PUBLIC access and withhold runtime/worker grants. The final
+0405 transaction installs the expanded composition writer and strict dated
+lookup with its legacy wrapper, grants scoped election/term reads and writes,
+and commits all native entry points together. Pin each actual predecessor,
+including the published writer and shape helper, on stock PostgreSQL.
+Ship the matching booking, election and retained-read API DTOs with this chain
+at Task 14. Start the matching API against the completed schema. An ordinary
+caller or direct runtime role cannot book expanded terms between migrations. There is no released integer-lot swing schema to migrate.
+Old local preview databases are disposable. Never apply this rewrite to a populated
+deployment of an unpublished migration. No migration through 0402 changes.
+
+0403 stores selected limit period, optional bounds/basis, count/rule, exact
+ratios to the reference, planning and pricing policy versions on the existing
+immutable right/binding. Preserve exact member, schedule and retained deadline
+foreign keys. 0404 stores absolute quantity or withdrawal on the exact binding
+and removes the derived integer lot from admission, history and receipts.
+A PostgreSQL comparison must use exact integer cross-products or native exact
+common-unit addition/multiplication and signed integer div/mod. Rounded NUMERIC
+division cannot establish ratio equality or inward endpoints. Preserve
+`trading.gas_swing_terms`, `trading.save_gas_swing`,
+`security.write_gas_composition`, owned frame/read/write/replay functions,
+immutable receipts, runtime and worker scope. Guard every replaced predecessor
+body, ACL, owner, search path and execution attributes against the actual
+preceding migration, including any newly touched cash or amendment routine.
+Run drifted-body and drifted-privilege rollback tests and a populated 0402
+upgrade with plain gas, binary rights, cash-out, payments and replay. Keep
+the retained exact-lookup ambiguity refusal scoped to its offending trade.
+Check the published writer and inaccessible swing operations independently at
+0403 and 0404, even on an interrupted upgrade. A failed final transaction
+must leave these restrictions intact.
+
+The record operation takes a bounded nonempty batch, exact expected trade
+revision and the complete distinct expected-head set for the **whole right**
+including nulls. Remove the 31-item limit on both heads and actions. Preflight
+a versioned payload budget allowing the entire head set for the upstream
+1,200-day geometry plus at least one maximum-evidence action. Cover 365-day
+commands with distinct day quantities and complete heads, including a change
+outside the draft range invalidating its predecessor. Applying a timer, paging
+the display or splitting a transport payload must never split an authorized
+atomic batch. Prepare removes leading and trailing ASCII spaces from evidence
+before expanding the range. The complete compact UTF-8 record, including its
+context and all expected heads, must fit within 4 MiB. A first
+`413 swing_payload` refusal leaves the range editable. After an uncertain
+attempt the ticket retains the original command for exact retry. New rows, semantic duplicates, request retries and publication from
+concurrent days obey the same serialized operation and authority-at-commit
+checks as the current swing writer. Recheck input frames, trade/book visibility,
+permission and the original authority deadline after waits and before commit or
+replay. Risk workers use the leased generation and exact scoped read only.
+
+Keep `/api/gas/swing/read`, `/prepare` and `/record` on the same
+backend operation. Prepare retaining the opened read context and operation ID
+supports replay after a lost response. Native record, HTTP and ticket must
+agree on range, continuous feasibility, holder, timing and field coordinates.
+The ticket exposes one field per term, optional endpoints/count, selected
+basis/rule, plan step, deadline and pricing policies with no financial defaults.
+Remove duplicate or placeholder swing range, minimum/maximum and notice fields.
+The schedule shows for each period the applied limits/basis/count rule,
+elected and separately planned totals, changes used/planned, feasible
+remaining interval, coverage and next future deadline. Elected zero, withdrawal,
+unassessed and an assessable contingent day remain visually distinct. Show
+elected and selected operating quantities and their evidence side by side.
+
+Show the assessed joint value once, independent charges/balances, and the
+separately labeled intrinsic schedule and value (including count of planned
+days). Include model/numerical versions, per-unit inputs, numerical bounds,
+elapsed steps/evaluated work, monthly forward/mark provenance and the selected
+cutoff. Never prefill a commercial election from a plan. TypeScript only
+renders backend fields and statuses. Shared browser recovery, accessibility
+and historical/working authority remain part of qualification.
+
+Keep invalid terms, elections, stale heads, infeasible rights,
+unsupported economics, missing marks and exceeded numerical scope distinct
+(`swing_right`, `swing_election`, `swing_election_conflict`,
+`swing_feasibility`, `swing_model_scope`, `exercise_marks`,
+`swing_numerical_scope`). Keep authorization and current lifecycle refusal
+codes. Missing determinations are reported as day coverage. Any missing
+required model input on an assessable scope remains its own valuation refusal.

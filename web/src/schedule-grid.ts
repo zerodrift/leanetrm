@@ -10,7 +10,7 @@ export type ScheduleTab={id:string;label:string;colour:string;soon:string|null};
 export type ScheduleSide={kind:string;code:string;name:string};
 export type CellDecoration={sources:string[];changed:boolean;delivered:boolean;evidence?:string[]};
 export type HeaderGroup={title:string;colour:string;columns:number[]};
-export const sourceLabels:Readonly<Record<string,string>>=Object.freeze({contract:'Contract',fwd:'Fwd',fixed:'Fixed',actual:'Actual',meter:'Meter',forecast:'Forecast',estimated:'Estimated',modeled:'Modeled',contingent:'contingent',
+export const sourceLabels:Readonly<Record<string,string>>=Object.freeze({contract:'Contract',fwd:'Fwd',fixed:'Fixed',actual:'Actual',meter:'Meter',forecast:'Forecast',estimated:'Estimated',modeled:'Modeled',contingent:'contingent',elected:'Elected',undecided:'Undecided',
  nominated:'Nominated',confirmed:'Confirmed',scheduled:'Scheduled',allocated:'Allocated',allocated_final:'Allocated, final',allocated_provisional:'Allocated, provisional',delivered:'Delivered',assessed:'Assessed',unassessed:'Unassessed',not_applicable:'Day not ended'});
 const neutral='neutral',numericMeasures=['quantity','price','money'];
 

@@ -26,6 +26,8 @@ public readonly partial record struct LatticeDecimal : IComparable<LatticeDecima
     private static readonly LatticeDecimal ExpMaximum = Parse("55.262");
     private static readonly LatticeDecimal ExpMinimum = Parse("-70");
     private readonly BigInteger scaled;
+    internal BigInteger ScaledInteger => scaled;
+    internal static LatticeDecimal FromScaledInteger(BigInteger value) => new(value);
 
     private LatticeDecimal(BigInteger value)
     {

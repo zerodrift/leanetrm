@@ -21,6 +21,22 @@ application. See [current implementation](../docs/implementation.md) and
 
 Recent schema groups and their contracts:
 
+- [0405](migrations/0405_gas_swing_point_periods.sql) qualifies the selected swing
+  physical membership against the unique native daily or calendar-month point
+  covering each gas day. The existing schedule proof checks its exact contract,
+  fixing, quote and assignment. Gaps and overlaps refuse.
+- [0404](migrations/0404_gas_swing_elections.sql) records a batch of physical gas
+  swing elections against the complete set of day revisions. Each correction or
+  withdrawal preserves the prior fact. The writer checks the shared volume budget
+  at every effective transition and publishes the receipt and facts together.
+  Financial reads select the latest effective revision known at the cutoff and
+  the next known transition under the trade's current authority.
+- [0403](migrations/0403_gas_swing_rights.sql) retains one physical gas swing
+  right with its source membership, covered slots, exact reference and volume
+  limits in contractual lots, gas-day grid references and deadlines. The separate
+  pricing record pins the selected model, day count, numerical policy and mark
+  convention. The composition writer checks the terms against the sealed Side
+  schedules and compares normalized terms for amendment replay.
 - [0402](migrations/0402_gas_imbalance_cashout.sql) retains a gas cash-out as two
   daily index payment entries. Financial reads resolve dated service accounts,
   statement heads and accepted transfers under business time and knowledge cutoff.

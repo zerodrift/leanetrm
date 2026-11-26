@@ -10,7 +10,7 @@ public sealed record GasInTermLoadConfiguration([property:JsonRequired] string M
     [property:JsonRequired] string LoaderConnectionFile);
 // The ticket's composition request, whose snapshot names a recorded close, and the administrator who loads it.
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record GasInTermLoadRequest([property:JsonRequired] string Administrator,[property:JsonRequired] GasCompositionRequest Composition);
+public sealed record GasInTermLoadRequest([property:JsonRequired] string Administrator,[property:JsonRequired,JsonConverter(typeof(GasCompositionRequestJson))] GasCompositionRequest Composition);
 
 /// <summary>Private operator entry point (D360): a named administrator loads a gas composition already in its delivery
 /// term through the ticket's booking path, on the dedicated loader login. There is no HTTP route.</summary>

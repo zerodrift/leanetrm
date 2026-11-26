@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Trading;
+using OpenEtrm.MarketData.Gas;
 using OpenEtrm.MarketData.Power;
 using OpenEtrm.MarketData.Calculation;
 using OpenEtrm.MarketData.Risk;
@@ -16,6 +17,15 @@ internal static class ScheduleMarketSourceChecks
             [..swap.Floating.GenerateSchedule().Rows.SelectMany(r=>r.Prices).Select(p=>p.Lookup!).Distinct()],[]);
         var factors=new ExplicitDiscounting(ExactDecimal.Parse("0.9"),DiscountFactorSource.Explicit);
         var result=sources.Evaluate(program,swap.Floating.Id,market,factors);
+        foreach (var invalid in new Func<ImmutableArray<SidePaymentFactor>,ImmutableArray<SidePaymentFactor>>[]
+        {
+            rows => [],
+            rows => rows.Add(rows[0]),
+            rows => rows.SetItem(0,rows[0] with {Payment=rows[0].Payment with {SideId=Guid.NewGuid()}}),
+            rows => rows.SetItem(0,rows[0] with {Payment=rows[0].Payment with {PaymentAt=rows[0].Payment.PaymentAt.AddDays(1)}})
+        })
+            Reject("side_payment_factors",()=>sources.Evaluate(program,swap.Floating.Id,market,new AlteredPayments(factors,invalid)));
+        CheckGasAssignments();
         var nativeValued=swap.Floating.PV(new(market,factors));
         Func<DateOnly,DateTimeOffset> utc=day=>new(day.ToDateTime(TimeOnly.MinValue),TimeSpan.Zero);
         var inspected=SideScheduleSnapshot.FromProgramValue(nativeValued,result,program,program.Document.ScheduleManifest,ExactDecimal.Parse("1"),new(1,1),utc);
@@ -133,6 +143,38 @@ internal static class ScheduleMarketSourceChecks
         Reject("side_market_sources",()=>adapter.Evaluate(program,side.Id,native,discount));
         Reject("risk_dependency",()=>Sources(native).Evaluate(program,side.Id,native,discount));
     }
+    private sealed class AlteredPayments(ISideDiscounting original,
+        Func<ImmutableArray<SidePaymentFactor>,ImmutableArray<SidePaymentFactor>> change):ISideDiscounting
+    {
+        public ImmutableArray<SidePaymentFactor> Resolve(ImmutableArray<SidePaymentKey> payments,MarketSnapshot snapshot) =>
+            change(original.Resolve(payments,snapshot));
+    }
+
+    private static void CheckGasAssignments()
+    {
+        var instrument=new GasPricingScheduleFixture().Instrument;
+        var instructions=instrument.Members[0].Program.Document.Instructions;
+        var rows=instructions.Where(i=>i.Bindings.Any(b=>b.Port=="assignment")).ToArray();
+        var instruction=rows[0];
+        var bindings=instruction.Bindings.ToDictionary(b=>b.Port);
+        var row=instruction.Output;
+        var assignment=instrument.Assignments.Single(a=>a.Key==bindings["assignment"].Reference);
+        var lookup=assignment.Lookup;
+        void Check(IEnumerable<GasValuationAssignment> candidates,ScheduleDefinitionRow requested,
+            IReadOnlyDictionary<string,ScheduleDefinitionBinding> bound,IndexPriceLookup selected) =>
+            ScheduleMarketSources.RequireDatedGasAssignment(requested,bound,candidates,selected);
+        Check(instrument.Assignments,row,bindings,lookup);
+        Reject("side_market_sources",()=>Check([],row,bindings,lookup));
+        Reject("side_market_sources",()=>Check([assignment,assignment],row,bindings,lookup));
+        Reject("side_market_sources",()=>Check([assignment],row with {ObservationFrom=row.ObservationFrom!.Value.AddDays(1)},bindings,lookup));
+        var other=instrument.Assignments.First(a=>a!=assignment);
+        Reject("side_market_sources",()=>Check([assignment],row,bindings,other.Lookup));
+        var shape=bindings.ToDictionary();
+        shape["assignment"]=shape["assignment"] with {Coordinate=DefinitionIdentity.For(other).Canonical};
+        Reject("side_market_sources",()=>Check([assignment],row,shape,lookup));
+        Console.WriteLine("PASS immutable retained gas dates, complete assignment shape, unique priced source and payment keys");
+    }
+
     private sealed class ExactBindings:ICurveBindingResolver
     {
         public CurveKey Resolve(LogicalCurveKey key,ResolvedCalculationContext context)=>throw new Exception("Exact references required.");

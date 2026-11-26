@@ -253,6 +253,7 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
                     greekCoverage=rows.SelectMany(r=>r.Contributions).Any(c=>c.Amount is null)?"partial":"selected_price_factors"};
             }).ToArray(),
             positions=listed.Select(p=>new{position=p.Row.Accounting.Position,tradeReference=p.Held?.TradeReference,instrumentReference=p.Held?.InstrumentReference,
+                p.Row.Accounting.OpeningMissingAssessments,p.Row.Accounting.ClosingMissingAssessments,
                 state=p.Row.Accounting.HeldAtOpening?p.Row.Accounting.HeldAtClosing?"continuing":"closed":p.Row.Accounting.HeldAtClosing?"new":"cash_only",values=Values([p.Row]),
                 contributions=p.Row.Contributions.Select(c=>new{c.Formula,label=Greeks.Single(g=>g.Formula==c.Formula).Label,c.Axes,c.Units,c.Estimate,
                     amount=c.Amount is null?null:Money(c.Amount),c.UnavailableReason})}).ToArray(),

@@ -2,7 +2,7 @@ import {displayPaymentDate} from './payment-date.js';
 import type {ExercisePeriod} from './ticket-types.js';
 import {numberText} from './exact-number.js';
 // How started-delivery gas is worded. The backend decides every state, amount and basis; this module only words what it reports.
-export type GasMeasures={unrealized:string;realizedUnsettled:string;total:string;label:string;discounting:string;expectedCash:{dueAt:string;amount:string}[]};
+export type GasMeasures={unrealized:string;realizedUnsettled:string;total:string;label:string;discounting:string;expectedCash:{dueAt:string;amount:string;unassessedDays?:number}[]};
 export type ExerciseState='exercised'|'abandoned'|'undecided'|'undecided_forecast';
 const exerciseStates:Readonly<Record<ExerciseState,string>>={exercised:'exercised',abandoned:'abandoned',undecided:'not yet exercised',undecided_forecast:'awaiting published price'};
 export function exerciseStateText(state:ExerciseState){
@@ -25,7 +25,7 @@ export function measureLines(m:GasMeasures,currency:string,instant:(at:string)=>
  const amount=(value:string)=>`${numberText(value)} ${currency}`;
  return [{label:measureTexts.Unrealized,value:amount(m.unrealized)},{label:measureTexts.RealizedUnsettled,value:amount(m.realizedUnsettled)},{label:m.label,value:amount(m.total)},
   {label:'Discounting',value:m.discounting},{label:'Expected cash by due date · not added to the total',value:''},
-  ...m.expectedCash.map(c=>({label:`Due ${displayPaymentDate(c.dueAt)}`,value:amount(c.amount)}))];
+  ...m.expectedCash.map(c=>({label:`Due ${displayPaymentDate(c.dueAt)}`,value:[amount(c.amount),incompleteText(c.unassessedDays??0)].filter(Boolean).join(' · ')}))];
 }
 
 const basisTexts:Readonly<Record<string,string>>={band_v1:'part of the day quantity',shortfall_v1:'shortfall of the day quantity',contract_estimate_allocation_pending_v1:'estimated from contract; allocation pending',contractual_quantity_v1:'contract quantity',selected_delivery_quantity_v1:'follows selected delivery quantity',allocated_final_v1:'allocated, final',allocated_provisional_v1:'allocated, provisional',scheduled_v1:'scheduled'};

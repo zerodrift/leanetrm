@@ -1,3 +1,4 @@
+import type {SwingReport} from './ticket-swing.js';
 import {publicText} from './market-view.js';
 
 export function node<K extends keyof HTMLElementTagNameMap>(tag:K,text?:string){const n=document.createElement(tag);if(text!==undefined)n.textContent=publicText(text);return n;}
@@ -9,4 +10,14 @@ export function table(headers:string[],rows:(Cells|(()=>Cells))[]){
  function draw(){body.replaceChildren();for(const item of rows.slice(page*100,page*100+100)){const row=node('tr'),cells=typeof item==='function'?item():item;for(const value of cells){const cell=node('td');cell.append(typeof value==='string'?document.createTextNode(publicText(value)):value);row.append(cell);}body.append(row);}previous.disabled=page===0;next.disabled=(page+1)*100>=rows.length;count.textContent=`Rows ${rows.length?page*100+1:0}–${Math.min(rows.length,(page+1)*100)} of ${rows.length}`;}
  previous.onclick=()=>{page--;draw();};next.onclick=()=>{page++;draw();};draw();
  if(rows.length>100){const paging=node('div');paging.className='actions';paging.append(previous,count,next);wrap.append(paging);}return wrap;
+}
+
+export type SwingRiskSample=Pick<SwingReport,'right'|'counted'|'unassessedDays'|'work'>;
+export function swingRiskSamples<Lane extends string>(positions:readonly {tradeReference:string;values:{currency:string};
+ swingRights?:Record<Lane,SwingRiskSample[]>}[],lanes:readonly [Lane,string][]){
+ const rows=positions.flatMap(p=>lanes.flatMap(([lane,label])=>(p.swingRights?.[lane]??[]).map(r=>[
+  p.tradeReference,String(r.right+1),label,r.counted??'Unassessed',p.values.currency,String(r.unassessedDays),String(r.work.operations)])));
+ if(!rows.length)return null;
+ const detail=node('details');detail.className='swing-risk-samples';
+ detail.append(node('summary','Swing right repricing'),table(['Trade','Right','Scenario','Remaining-right value','Currency','Unassessed days','Counted operations'],rows));return detail;
 }

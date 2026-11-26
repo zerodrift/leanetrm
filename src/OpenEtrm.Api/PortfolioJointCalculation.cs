@@ -5,7 +5,7 @@ using OpenEtrm.MarketData.Risk;
 
 namespace OpenEtrm.Api;
 
-internal sealed record JointBookValue(string Measure,Guid BookId,ExactScenarioValues Values);
+internal sealed record JointBookValue(string Measure,Guid BookId,ExactScenarioValues Values,int BaseUnassessedDays,int UnassessedDays);
 internal sealed record JointPositionValue(string Measure,ScenarioPositionValue Position);
 internal sealed record JointSampleValue(string Id,string Label,ImmutableArray<JointBookValue> Totals,ImmutableArray<JointPositionValue> Positions);
 internal sealed record JointDerivativeBook(string Measure,Guid BookId,ExactFiniteDifferenceEstimate Estimate);
@@ -80,8 +80,8 @@ internal static class PortfolioJointCalculation
             .GroupBy(v=>(v.Measure,v.BookId,v.Value.Currency)).Select(g=>new PortfolioTotal(g.Key.Measure,g.Key.BookId,g.Select(v=>v.Value).Aggregate((a,b)=>a.Add(b))){UnassessedDays=g.Sum(v=>v.UnassessedDays)}).ToImmutableArray();
         var samples=joint.Samples.Select((sample,index)=>
         {
-            var totals=parts.SelectMany(p=>p.Run.Scenarios[index].Groups.SelectMany(g=>g.Totals.Select(v=>new JointBookValue(p.Market.Measures[g.Group],v.BookId,v.Values))))
-                .GroupBy(v=>(v.Measure,v.BookId,v.Values.Base.Currency)).Select(g=>new JointBookValue(g.Key.Measure,g.Key.BookId,g.Select(v=>v.Values).Aggregate(Add))).ToImmutableArray();
+            var totals=parts.SelectMany(p=>p.Run.Scenarios[index].Groups.SelectMany(g=>g.Totals.Select(v=>new JointBookValue(p.Market.Measures[g.Group],v.BookId,v.Values,v.BaseUnassessedDays,v.UnassessedDays))))
+                .GroupBy(v=>(v.Measure,v.BookId,v.Values.Base.Currency)).Select(g=>new JointBookValue(g.Key.Measure,g.Key.BookId,g.Select(v=>v.Values).Aggregate(Add),g.Sum(v=>v.BaseUnassessedDays),g.Sum(v=>v.UnassessedDays))).ToImmutableArray();
             var positions=parts.SelectMany(p=>p.Run.Scenarios[index].Groups.SelectMany(g=>g.Positions.Select(v=>new JointPositionValue(p.Market.Measures[g.Group],v)))).ToImmutableArray();
             return new JointSampleValue(sample.Id,sample.Label,totals,positions);
         }).ToImmutableArray();

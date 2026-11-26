@@ -12,6 +12,7 @@ CHECK_PROJECTS = (
     ('tests/OpenEtrm.MarketData.Checks/OpenEtrm.MarketData.Checks.csproj', ('--futures-options',)),
     ('tests/OpenEtrm.MarketData.Checks/OpenEtrm.MarketData.Checks.csproj', ('--spread-options',)),
     ('tests/OpenEtrm.MarketData.Checks/OpenEtrm.MarketData.Checks.csproj', ('--exercise-rights',)),
+    ('tests/OpenEtrm.MarketData.Checks/OpenEtrm.MarketData.Checks.csproj', ('--gas-swing',)),
     ('tests/OpenEtrm.MarketData.Checks/OpenEtrm.MarketData.Checks.csproj', ('--vol-surface',)),
     ('tests/OpenEtrm.MarketData.Checks/OpenEtrm.MarketData.Checks.csproj', ('--calendar-policy',)),
     ('tests/OpenEtrm.MarketData.Checks/OpenEtrm.MarketData.Checks.csproj', ('--payment-date-policy',)),
@@ -88,6 +89,8 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
         check('native power '+argument,[str(dotnet),'run','--no-restore','--project','tests/OpenEtrm.MarketData.Checks/OpenEtrm.MarketData.Checks.csproj','--',argument], suite='managed')
     check('power worker admission',[str(dotnet),'run','--no-restore','--project','tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj','--','--close-risk'], suite='managed')
     check('independent Monte Carlo generator and quantile intervals',[sys.executable,'tools/check_monte_carlo_numerics.py','--dotnet',str(dotnet)], suite='managed')
+    check('independent gas swing finite-grid and analytic references',
+          [sys.executable, 'tools/check_gas_swing_unit_numerics.py', '--dotnet', str(dotnet)], suite='managed')
     worker_project='src/OpenEtrm.Worker/OpenEtrm.Worker.csproj'
     check('locked worker restore',[str(dotnet),'restore',worker_project,'--locked-mode'], suite='managed')
     check('independent worker build',[str(dotnet),'build',worker_project,'--no-restore'], suite='managed')
@@ -290,6 +293,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     preview_check('physical gas booking, facility allocation, setup and daily quantities', [*preview, '--facility-quantity-check', '--gas-daily-quantity-check', '--gas-composition-check', '--gas-setup-check', '--browser-check', '--browser', str(browser)], suite='gas')
     preview_check('gas payment entries, named index pricing and exercise rights', [*preview, '--gas-exercise-check', '--gas-pricing-check', '--browser-check', '--browser', str(browser)], suite='gas')
     preview_check('independent gas charges, payment admission and browser', [*preview, '--gas-charges-check', '--browser-check', '--browser', str(browser)], suite='gas')
+    preview_check('gas swing periods, continuous elections, risk and browser', [*preview, '--gas-swing-check', '--browser-check', '--browser', str(browser)], suite='gas')
     preview_check('gas imbalance cash-out, statement authority and browser', [*preview, '--gas-imbalance-check', '--browser-check', '--browser', str(browser)], suite='gas')
     preview_check('selected gas delivery quantities, temporal evidence and retained risk', [*preview, '--gas-delivery-quantity-check', '--browser-check', '--browser', str(browser)], suite='gas')
     preview_check('future gas amendments, immutable revisions and ticket recovery', [*preview, '--gas-amendments-check', '--browser-check', '--browser', str(browser)], suite='gas')

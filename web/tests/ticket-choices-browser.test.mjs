@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {browserAvailable,withBrowserPage,browserTestTimeout} from './browser-page.mjs';
 
-async function fixture(work,amend=false,lateForecast=false){
+async function fixture(work,amend=false,lateForecast=false,swing=false){
  await withBrowserPage('<div id="host"></div>',async evaluate=>{
   await evaluate(`(async()=>{
    const {setupTicket}=await import('/ticket-controller.js');
@@ -10,6 +10,12 @@ async function fixture(work,amend=false,lateForecast=false){
    const description={product:'synthetic_choices',version:1,rowShape:'flow',tradeFields:[],sideLimits:[],levels:['day'],modes:['new','booked','amend'],tabs:[],tradeColumns:[],
     sides:[{kind:'physical',pill:'Physical',colour:'gas',min:1,initial:1,max:1,soon:null,columns:[{id:'quantity',label:'Quantity',unit:'quantity',measure:'quantity',input:[]}],fields:[field('end','date'),{...field('quantity','decimal'),lookup:'entry_quantity'},field('pipeline'),field('zone','choice',['pipeline']),field('point','choice',['zone']),field('forecast','choice',['end','point'],false)]}]};
    const draft={product:description.product,version:1,trade:{},sides:[{kind:'physical',code:'physical-1',values:{end:'2041-03-01',pipeline:'A',zone:'ZA',point:'PA',forecast:'CURVE'}}]};
+   if(${swing}){
+    description.repeatableTerms=[{id:'swingRights',label:'Swing right',maximumRows:1,fields:[field('swing_side')]}];
+    description.sides[0].max=2;description.sides[0].fields.push({...field('quantity_policy'),refreshOn:['swing_side']});
+    draft.sides[0].values.quantity_policy='delivery_schedule_v1';
+    draft.sides.push({...draft.sides[0],code:'physical-2',values:{...draft.sides[0].values,quantity_policy:'contract'}});
+   }
    if(${lateForecast}){delete draft.sides[0].values.forecast;draft.sides[0].values.quantity='100';}
    const cells={'physical-1.quantity':{value:'100',sources:[]}};
    const preview={source:{definitionRevisionId:'definition-a',referenceCatalogId:'reference-catalog',referenceRevisionId:'reference-a'},schedule:{levels:['day'],valuationAt:'2041-01-01T00:00:00Z',deliveredLeaves:0,leaves:1,delivered:null,remaining:null,totals:cells,rows:[{key:'2041-02-01',parent:null,level:'day',start:'',end:'',operatingDate:null,cells,delivered:false}]},quantityUnit:'MMBtu',summaries:[],links:[],scheduleRefusal:null};
@@ -22,6 +28,14 @@ async function fixture(work,amend=false,lateForecast=false){
     if(path==='tickets/amend')return {operationId:body.operationId,tradeId:'trade',instrumentId:'replacement',revision:2};
     if(path==='tickets/lookup')return {value:'100',source:{kind:'suggestion',label:'Suggested quantity'}};
     if(path==='tickets/choices'){
+     if(body.field==='swing_side')return {choices:body.draft.sides.map(s=>({value:s.code,label:s.code}))};
+     if(body.field==='quantity_policy'){
+      const selected=body.draft.swingRights?.[0]?.swing_side===body.side;
+      const values=selected?['swing_elected_delivery_quantity_v1']:['contract','delivery_schedule_v1'];
+      const current=body.draft.sides.find(s=>s.code===body.side).values.quantity_policy;
+      return {choices:values.map(value=>({value,label:value})),startingValue:null,
+       selectionConflict:current&&!values.includes(current)?'Resolve the valuation quantity on this side.':null};
+     }
      const v=body.draft.sides[0].values;
      const values=body.field==='pipeline'?['A','B']:body.field==='zone'?[v.pipeline==='B'?'ZB':'ZA']:body.field==='point'?[v.zone==='ZB'?'PB':'PA']:${lateForecast}?['assigned']:['CURVE','OTHER'];
      const result={choices:values.map(value=>({value,label:value})),startingValue:values.length===1?{value:values[0],source:{kind:'suggestion',label:'Only eligible choice'}}:null};
@@ -41,6 +55,24 @@ async function fixture(work,amend=false,lateForecast=false){
   await work(evaluate);
  });
 }
+
+test('adding, moving and removing a swing right keeps each explicit physical policy until the person resolves it',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+ await fixture(async evaluate=>{
+  const states=await evaluate(`(async()=>{
+   const cards=()=>[...document.querySelectorAll('.ticket-card [data-field=quantity_policy]')];
+   const state=()=>cards().map(c=>[c.querySelector('select').value,!!c.querySelector('[role=alert]')]);
+   const settle=async()=>{await new Promise(r=>setTimeout(r,160));};
+   document.querySelector('.ticket-add-term').click();await settle();
+   edit('swing_side','physical-1');await settle();const first=state();
+   edit('swing_side','physical-2');await settle();const moved=state();
+   const selected=cards()[1].querySelector('select');selected.value='swing_elected_delivery_quantity_v1';selected.onchange();await settle();const resolved=state();
+   document.querySelector('.ticket-remove-term').click();await settle();return [first,moved,resolved,state()];
+  })()`);
+  assert.deepEqual(states,[
+   [['delivery_schedule_v1',true],['contract',false]],[['delivery_schedule_v1',false],['contract',true]],
+   [['delivery_schedule_v1',false],['swing_elected_delivery_quantity_v1',false]],[['delivery_schedule_v1',false],['swing_elected_delivery_quantity_v1',true]]]);
+ },true,false,true);
+});
 
 test('an amendment term extension retains a still-eligible forecast and location selections',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await fixture(async evaluate=>{

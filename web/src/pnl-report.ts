@@ -1,3 +1,4 @@
+import {words} from './lifecycle-text.js';
 import {node,table,type Cells} from './risk-report-elements.js';
 import {amountText} from './amount-display.js';
 import {compareDecimalStrings} from './analytics-model.js';
@@ -142,7 +143,10 @@ function positionsSection(report:Report,all:Position[]){
  }
  function detail(p:Position){
   const row=node('tr'),cell=node('td');row.className='pnl-detail';cell.colSpan=columns.length;
-  cell.append(table(['Greek','Factor','Contribution'],p.contributions.map((c:Contribution):Cells=>[c.label,pricedOn(c.axes,' × '),c.amount?amount(c.amount):reasons[c.unavailableReason??'']??'Unavailable'])));
+  if(p.contributions.length)cell.append(table(['Greek','Factor','Contribution'],p.contributions.map((c:Contribution):Cells=>[c.label,pricedOn(c.axes,' × '),c.amount?amount(c.amount):reasons[c.unavailableReason??'']??'Unavailable'])));
+  const missing=([['Opening',p.openingMissingAssessments],['Closing',p.closingMissingAssessments]] as const)
+   .flatMap(([endpoint,assessments])=>(assessments??[]).map(a=>[endpoint,String(a.sourceSlot+1),a.day,`${words(a.owner)} ${a.ownerOrdinal+1}`,words(a.reason)]));
+  if(missing.length)cell.append(table(['Endpoint','Source side','Gas day','Assessment owner','Reason'],missing));
   row.append(cell);return row;
  }
  // What a holding's opening Greeks explain: nothing to show when none of its estimates is available, and a mark when some are missing.
@@ -169,7 +173,7 @@ function positionsSection(report:Report,all:Position[]){
   for(const p of listed.slice(page*pageSize,(page+1)*pageSize)){
    const row=node('tr'),id=identity(p),priced=[...new Set(p.contributions.flatMap(c=>c.axes))];
    let holding:string|HTMLElement=name(p);
-   if(p.contributions.length){
+   if(p.contributions.length||p.openingMissingAssessments?.length||p.closingMissingAssessments?.length){
     const control=node('button',name(p));control.type='button';control.className='pnl-holding';control.dataset.holding=id;control.setAttribute('aria-expanded',String(open.has(id)));
     control.onclick=()=>{if(!open.delete(id))open.add(id);draw();};holding=control;
    }

@@ -88,3 +88,9 @@ test('custody unavailable rows state the acceptance or source issue without impl
  assert.match(valuationReason('discount_curve','physical_gas_park_custody'),/fee discount/i);
  assert.throws(()=>valuationReason('missing_observation','physical_gas_park_custody'),/unknown valuation status/);
 });
+
+test('bounded swing valuation refusals remain readable on the physical gas holding',()=>{
+ for(const [code,text] of [['swing_determination','election'],['swing_conflict','commercial'],['swing_model_scope','model'],['swing_numerical_scope','grid']]){
+  assert.match(valuationReason(code,'physical_gas'),new RegExp(text,'i'));
+ }
+});

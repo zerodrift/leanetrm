@@ -26,11 +26,13 @@ internal static class GasExerciseTicket
         Field("right_lead_hours","Exercise lead in hours","Whole hours before the first gas day of the period.","integer")
             with{VisibleWhen=new("right_settlement",["physical"])}]);
 
+    internal static ImmutableArray<TicketChoice> Holders=>[new("us","Us"),new("counterparty","Counterparty")];
+
     internal static ImmutableArray<TicketChoice> Choices(TicketDraft draft,string field)=>field switch
     {
         "right_sides"=>[..draft.Sides.Where(s=>s.Kind is not (GasTicket.Charge or GasTicket.Imbalance)).Select(s=>new TicketChoice(s.Code,s.Code))],
         "right_period"=>[new("delivery_day","Each gas day"),new("delivery_month","Each delivery month")],
-        "right_holder"=>[new("us","Us"),new("counterparty","Counterparty")],
+        "right_holder"=>Holders,
         "right_settlement"=>[new("physical","Physical, by election"),new("cash_automatic","Cash, by published prices")],
         _=>throw new TicketFieldException("ticket_input","The selected exercise field has no choices.",null,field)
     };
