@@ -14,7 +14,8 @@ forced, zero-volatility and incomplete-period cases check exact amounts.
 Distinct booked bindings consuming the same market inputs retain their own
 elections, counts, paid cash and scoped worker reads.
 
-The normal full runner completed 285 top-level commands across all 20 groups.
+Before the admission and reporting corrections, the normal full runner
+completed 285 top-level commands across all 20 groups.
 The combined run shares installs, restores and builds. These counts include
 only commands executed by `check_all.py --group all`.
 
@@ -48,6 +49,23 @@ databases. The shared pricing and binary-exercise preview passed 19
 exercise-right browser checks, two curve-mark checks and five pricing-entry
 checks on the same assets. The D454 preview passed 103 printed checkpoints,
 five browser checks and three leased jobs.
+
+After the admission and reporting corrections and integration of D456, the
+frontend group passed 2,409 tests with zero skips. The managed group completed
+84 commands, including 811 core checks and 238 gas-ticket checks. All 12 gas
+previews passed across a resumed run on the same compiled assets.
+The swing preview passed 207 printed checkpoints, including 28 browser checks,
+and completed 23 leased jobs. One prepared 1,200-day election command with
+500 Unicode scalars per row used 3,811,573 compact UTF-8 bytes. A replay
+padded to exactly 4,194,304 bytes succeeded. An oversized command returned
+the field-specific 413 and preserved all heads. The P&L position showed two
+missing assessments on the same opening source day, one at closing and
+300 in settled cash. Each endpoint counted the shared source day once.
+
+Separate cash/P&L and structured-power previews passed on those assets.
+The latter verified the complete mixed-product Blotter, retained Physical
+Operations pagination and independence from an unrelated storage reader.
+Its browser checks covered 16 structured-power and 19 structured-trading cases.
 
 The six-hour model has finite error. For the 30-day 10,000-unit call at forward
 3.20, strike 3.00 and volatility 0.50, the grid gives 2,948.858186402, the
