@@ -11,7 +11,7 @@ test(`a lost ${kind} refusal releases its exact retry after ${code}`,{skip:!brow
    const base={allowed:true,tradeId:'trade',instrumentId:'binding',expectedRevision:1,readContextId:'held',label:'Record',
     preparePath:'/api/gas/'+kind+'/prepare',recordPath:'/api/gas/'+kind+'/record'};
    const action=kind==='exercise'?{...base,periods:[{right:0,from:day,to:day,exerciseAt:day,previousId:null}],outcomes:[{value:'exercised',label:'Exercised'}]}:
-    {...base,right:0,days:[{day,exerciseAt:day,head:null,effectiveRevision:null,evidence:null,electedQuantity:null}],
+    {...base,right:0,days:[{day,exerciseAt:day,state:'undecided',head:null,effectiveRevision:null,evidence:null,electedQuantity:null}],
      periods:[],planningStep:'1',dailyMinimum:'0',dailyMaximum:'2',referenceQuantity:'1',
      decisions:[{value:'elect',label:'Elect'}],parties:[{value:'us',label:'Us'}]};
    const host=document.querySelector('main'),writes=[];
@@ -168,7 +168,7 @@ test('a swing election keeps zero explicit and retries the same range command af
    const {setupExerciseAction}=await import('/ticket-exercise-action.js');
    const context={snapshotId:'frame',knowledgeMode:'current'};
    const head='saved-head',days=['2041-02-01','2041-02-02','2041-02-03'].map((day,i)=>({day,exerciseAt:'2041-01-31T16:00:00Z',
-    head:i===2?head:null,effectiveRevision:null,electedQuantity:null,evidence:null}));
+    state:'undecided',head:i===2?head:null,effectiveRevision:null,electedQuantity:null,evidence:null}));
    const action={allowed:true,label:'Record swing election',preparePath:'/api/gas/swing/prepare',recordPath:'/api/gas/swing/record',
     tradeId:'trade',instrumentId:'binding',expectedRevision:1,readContextId:'cutoff',right:0,holder:'us',periods:[],planningStep:'100',dailyMinimum:'0',
     dailyMaximum:'1000',referenceQuantity:'1000',
