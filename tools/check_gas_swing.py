@@ -35,6 +35,12 @@ def period_predecessor(query, migration):
     overload_guard(query,migration,'0405','gas_swing_period_upgrade',[WRITER,SHAPE,
         'security.record_gas_cash_payment(uuid,jsonb,timestamptz)','security.gas_amendment_refusal(uuid,uuid,integer,uuid,timestamptz)'])
     check_upgrade_guard(query, migration, number='0405', guard='gas_swing_period_upgrade', signatures=[WRITER, SHAPE, "security.record_gas_cash_payment(uuid,jsonb,timestamptz)", "security.gas_amendment_refusal(uuid,uuid,integer,uuid,timestamptz)"])
+    finalizers=('security.check_operation_seals()','security.finish_operation_read()')
+    check_guard(query,migration.read_text(),'0405','gas_swing_period_upgrade',
+        [(f'REVOKE EXECUTE ON FUNCTION {helper} FROM openetrm_risk_worker;',helper) for helper in finalizers])
+    signatures=','.join(f"'{helper}'::regprocedure" for helper in finalizers)
+    contracts=f"SELECT to_jsonb(p) FROM pg_proc p WHERE oid IN({signatures}) ORDER BY proname"
+    before=query(contracts)
     # Execute the actual final transaction body and force rollback immediately before commit.
     final = migration.read_text()
     try:
@@ -45,6 +51,7 @@ def period_predecessor(query, migration):
         raise AssertionError('forced activation rollback committed')
     from check_gas_swing_upgrade import owner_only_prefix
     owner_only_prefix(query, 'rolled-back 0405')
+    assert query(contracts)==before, 'Rolled-back activation changed the operation finalizers'
     return query(f"SELECT pg_get_functiondef('{SHAPE}'::regprocedure)")
 
 

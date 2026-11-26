@@ -7,19 +7,25 @@ SELECT 1 FROM security.epoch FOR UPDATE;
 
 DO $guard$
 DECLARE predecessor record;p pg_proc;
+ owner_acl constant text='{openetrm_security_owner=X/openetrm_security_owner}';
+ runtime_acl constant text='{openetrm_security_owner=X/openetrm_security_owner,openetrm_runtime=X/openetrm_security_owner}';
+ runtime_worker_acl constant text='{openetrm_security_owner=X/openetrm_security_owner,openetrm_runtime=X/openetrm_security_owner,openetrm_risk_worker=X/openetrm_security_owner}';
+ catalog_path constant text[]=ARRAY['search_path=pg_catalog'];
+ no_jit constant text[]=catalog_path||ARRAY['jit=off'];
 BEGIN
  FOR predecessor IN SELECT * FROM (VALUES
-  ('security.write_gas_composition(uuid,jsonb,timestamptz,boolean)','1918e843d3f761ae794312ab0ce254df33ef0197aedd8004e1893454bc701098',false,1),
-  ('security.record_gas_cash_payment(uuid,jsonb,timestamptz)','13be11b88df674cdc4c978863457a9fa141298cccfb8dd2d7c9d1c57bacebd58',true,1),
-  ('security.gas_amendment_refusal(uuid,uuid,integer,uuid,timestamptz)','465aa7c77e98dd27ed8a897780b535a0b6dc12bae5b134638c4f991c56574faa',true,1),
-  ('trading.require_gas_program_shape(uuid,uuid,integer,date,date,timestamptz,numeric,numeric,market_data.gas_valuation_assignments,ref_data.gas_delivery_conventions,timestamptz,jsonb,numeric,date[],timestamptz[])','dafd10b08d16657446764c27bd196a6b55099692675af9516bbbd537e6484a7b',false,4)
- )v(signature,digest,runtime,overloads) LOOP
+  ('security.write_gas_composition(uuid,jsonb,timestamptz,boolean)','1918e843d3f761ae794312ab0ce254df33ef0197aedd8004e1893454bc701098',owner_acl,no_jit,1),
+  ('security.record_gas_cash_payment(uuid,jsonb,timestamptz)','13be11b88df674cdc4c978863457a9fa141298cccfb8dd2d7c9d1c57bacebd58',runtime_acl,no_jit,1),
+  ('security.gas_amendment_refusal(uuid,uuid,integer,uuid,timestamptz)','465aa7c77e98dd27ed8a897780b535a0b6dc12bae5b134638c4f991c56574faa',runtime_acl,no_jit,1),
+  ('trading.require_gas_program_shape(uuid,uuid,integer,date,date,timestamptz,numeric,numeric,market_data.gas_valuation_assignments,ref_data.gas_delivery_conventions,timestamptz,jsonb,numeric,date[],timestamptz[])','dafd10b08d16657446764c27bd196a6b55099692675af9516bbbd537e6484a7b',owner_acl,no_jit,4),
+  ('security.check_operation_seals()','a3c23e8c1c28583a988aca6ec2277cf5318e31b95e1201c04097f77389a35642',runtime_worker_acl,catalog_path,1),
+  ('security.finish_operation_read()','62acdff0786c77480412213001864b4dbaa5910af61d07bcbf833ea5fe61a650',runtime_worker_acl,catalog_path,1)
+ )v(signature,digest,acl,config,overloads) LOOP
   SELECT * INTO p FROM pg_proc WHERE oid=to_regprocedure(predecessor.signature);
   IF p.oid IS NULL OR encode(sha256(convert_to(pg_get_functiondef(p.oid),'UTF8')),'hex')<>predecessor.digest
-   OR p.proowner<>'openetrm_security_owner'::regrole OR p.proacl::text IS DISTINCT FROM
-     (CASE WHEN predecessor.runtime THEN '{openetrm_security_owner=X/openetrm_security_owner,openetrm_runtime=X/openetrm_security_owner}' ELSE '{openetrm_security_owner=X/openetrm_security_owner}' END)
+   OR p.proowner<>'openetrm_security_owner'::regrole OR p.proacl::text IS DISTINCT FROM predecessor.acl
    OR (SELECT count(*) FROM pg_proc q WHERE(q.pronamespace,q.proname)=(p.pronamespace,p.proname))<>predecessor.overloads
-   OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog','jit=off'] OR NOT p.prosecdef OR p.proisstrict OR p.proleakproof OR p.provolatile<>'v' OR p.proparallel<>'u'
+   OR p.proconfig IS DISTINCT FROM predecessor.config OR NOT p.prosecdef OR p.proisstrict OR p.proleakproof OR p.provolatile<>'v' OR p.proparallel<>'u'
   THEN RAISE EXCEPTION 'gas_swing_period_upgrade: unexpected helper %',predecessor.signature;END IF;
  END LOOP;
 END$guard$;
@@ -138,6 +144,26 @@ ALTER FUNCTION security.commit_gas_swing_booking_frame() OWNER TO openetrm_secur
 REVOKE ALL ON FUNCTION security.commit_gas_swing_booking_frame() FROM PUBLIC;
 CREATE CONSTRAINT TRIGGER commit_frame AFTER INSERT OR UPDATE ON security.gas_swing_booking_frames DEFERRABLE INITIALLY DEFERRED
  FOR EACH ROW WHEN (NEW.admitted) EXECUTE FUNCTION security.commit_gas_swing_booking_frame();
+
+-- Flush financial seals with their sources present, then flush the source
+-- release. The frame proof belongs to the transaction until its actual commit.
+DO $finalization$
+DECLARE change record;definition text;
+BEGIN
+ FOR change IN SELECT * FROM (VALUES
+  ('security.check_operation_seals()',
+   $old$c.conname='read_sources_released')$old$,
+   $new$c.conname='read_sources_released')
+   AND NOT(c.conrelid='security.gas_swing_booking_frames'::regclass AND c.conname='commit_frame')$new$),
+  ('security.finish_operation_read()','SET CONSTRAINTS ALL IMMEDIATE',
+   'SET CONSTRAINTS security.read_sources_released IMMEDIATE')
+ ) v(signature,anchor,replacement) LOOP
+  definition=pg_get_functiondef(change.signature::regprocedure);
+  IF (length(definition)-length(replace(definition,change.anchor,'')))/length(change.anchor)<>1
+  THEN RAISE EXCEPTION 'gas_swing_period_upgrade: patch mismatch %',change.signature;END IF;
+  EXECUTE replace(definition,change.anchor,change.replacement);
+ END LOOP;
+END$finalization$;
 
 DO $patch$
 DECLARE definition text=pg_get_functiondef('security.write_gas_composition(uuid,jsonb,timestamptz,boolean)'::regprocedure);c record;

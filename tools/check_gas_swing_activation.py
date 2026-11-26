@@ -64,6 +64,61 @@ def booking_fields(client,query,manifest,base):
     print('PASS native/composition/ticket field coordinates for period, plan, deadline and source selection; grid, width, count, basis, cap and fan-out refusals',flush=True)
 
 
+def finalized_frame_booking(query,manifest,instrument,native,at,attest,before):
+    from check_gas_exercise import stage_gas_composition
+    # Observe the transaction's private evidence using only the disposable
+    # fixture owner's read access. Finalization and commit run as the caller.
+    finish="""SELECT security.finish_operation_read();
+      SELECT security.check_operation_seals();
+      SELECT security.finish_operation_read();
+      SET LOCAL SESSION AUTHORIZATION DEFAULT;
+      """
+    live=f"""EXISTS(SELECT FROM security.gas_swing_booking_frames f
+      JOIN security.request_contexts q ON q.id=f.request_id
+      WHERE f.operation_id='{native['operationId']}' AND f.admitted
+      AND q.backend_pid=pg_backend_pid() AND q.transaction_id=pg_current_xact_id_if_assigned()
+      AND clock_timestamp()<f.authority_until AND f.authority_until<q.expires_at)"""
+    runtime='SET LOCAL SESSION AUTHORIZATION preview_runtime;'
+    observed=stage_gas_composition(query,manifest,instrument,native,at,attest=attest,
+        before_commit=finish+f'SELECT to_jsonb({live});'+runtime,commit=False)
+    assert query('SELECT count(*) FROM trading.trades')==before
+    assert observed is True, 'Finalization must retain the live original frame until commit'
+    print('PASS repeated operation finalization retains the live frame and rolls back cleanly',flush=True)
+    finalized=finish+f"""DO $test$ BEGIN IF NOT {live} THEN
+      RAISE EXCEPTION 'missing live frame after finalization';END IF;END$test$;"""+runtime
+    try:
+        stage_gas_composition(query,manifest,instrument,native,at,
+            attest=lambda token:attest(token,lifetime=4),before_commit="SELECT pg_sleep(4);")
+    except RuntimeError as error:
+        assert 'commit_gas_swing_booking_frame()' in str(error),error
+    else:
+        raise AssertionError('An expired frame admission committed.')
+    assert query('SELECT count(*) FROM trading.trades')==before
+    # The raw disposable connection ends with COMMIT immediately after this
+    # check, just as the managed caller does. Its transport adds no finalizer.
+    def raw(sql):
+        return query.raw('\\set VERBOSITY verbose\n'+sql)
+    cat=manifest['catalogId']
+    current=f"""DO $test$ BEGIN
+      IF security.trading_access('{cat}','BookTrade') IS NOT TRUE
+        OR security.trading_access('{cat}','ReadTrades') IS NOT TRUE
+        OR security.market_access('{cat}','ReadMarketData') IS NOT TRUE
+      THEN RAISE EXCEPTION 'expected current publication authority';END IF;
+      END$test$;"""
+    try:
+        stage_gas_composition(raw,manifest,instrument,native,at,
+            attest=lambda token:attest(token,lifetime=4),before_commit=finalized+'SELECT pg_sleep(4);'+current)
+    except RuntimeError as error:
+        assert '42501:' in str(error) and 'commit_gas_swing_booking_frame()' in str(error),error
+    else:
+        raise AssertionError('Expected the original frame deadline to refuse commit after finalization.')
+    assert query('SELECT count(*) FROM trading.trades')==before
+    print('PASS expired original frame refused at commit after finalization with current publication authority and unchanged trade count',flush=True)
+    receipt=stage_gas_composition(query,manifest,instrument,native,at,attest=attest,before_commit=finalized)
+    assert query(f"SELECT count(*) FROM security.gas_swing_booking_frames WHERE operation_id='{native['operationId']}' AND admitted")=='0'
+    return receipt
+
+
 def session_frames(client,query,manifest,body,booked):
     import json
     from check_booked_side_programs import runtime_query
@@ -106,15 +161,7 @@ def session_frames(client,query,manifest,body,booked):
                               (dict(native,snapshotId=str(uuid4())),working['at'],attest)]:
         stage_gas_composition(query,manifest,booked['instrumentId'],proposed,at,refusal='swing_booking_frame',attest=proof)
     assert query('SELECT count(*) FROM trading.trades')==before
-    try:
-        stage_gas_composition(query,manifest,booked['instrumentId'],native,working['at'],
-            attest=lambda token:attest(token,lifetime=4),commit_delay=4)
-    except RuntimeError as error:
-        assert 'commit_gas_swing_booking_frame()' in str(error),error
-    else:
-        raise AssertionError('An expired frame admission committed.')
-    assert query('SELECT count(*) FROM trading.trades')==before
-    receipt=stage_gas_composition(query,manifest,booked['instrumentId'],native,working['at'],attest=attest)
+    receipt=finalized_frame_booking(query,manifest,booked['instrumentId'],native,working['at'],attest,before)
     wire=json.dumps(native).replace("'","''")
     replay=runtime_query(query,manifest,f"SELECT security.book_gas_composition('{cat}','{wire}'::jsonb,'{working['at']}');")
     assert json.loads(replay.splitlines()[-1])==receipt

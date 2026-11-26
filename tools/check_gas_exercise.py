@@ -646,8 +646,8 @@ def amend_rights(query,manifest,saved,rights,at,*,swing_rights=None):
     return stage_gas_composition(query,manifest,inst,body,at)
 
 
-def stage_gas_composition(query,manifest,inst,body,at,*,refusal=None,attest=None,commit_delay=0):
-    """Book or amend through the public native staging and publication APIs."""
+def stage_gas_composition(query,manifest,inst,body,at,*,refusal=None,attest=None,before_commit='',commit=True):
+    """Stage and publish, returning the receipt or the final JSON fixture observation."""
     from check_booked_side_programs import runtime_query
     cat=manifest['catalogId']
     op=body['operationId']
@@ -674,10 +674,9 @@ def stage_gas_composition(query,manifest,inst,body,at,*,refusal=None,attest=None
           RAISE EXCEPTION 'expected native refusal';
         EXCEPTION WHEN raise_exception OR insufficient_privilege THEN IF '{refusal}' NOT IN(SQLERRM,SQLSTATE) THEN RAISE;END IF;END$test$;""",commit=False,attest=attest)
         return
-    wait=f"SELECT pg_sleep({commit_delay});" if commit_delay else ''
     result=runtime_query(query,manifest,stage+f"""WITH amended AS MATERIALIZED(SELECT security.{writer}('{cat}',{command},'{at}') result)
       SELECT result FROM amended WHERE CASE WHEN (result->>'unchanged')::boolean THEN true
-       ELSE security.publish_operation_side_schedules('{cat}','{op}')=(result->>'instrumentId')::uuid END;"""+wait,attest=attest)
+       ELSE security.publish_operation_side_schedules('{cat}','{op}')=(result->>'instrumentId')::uuid END;"""+before_commit,attest=attest,commit=commit)
     return json.loads(result.splitlines()[-1])
 
 
