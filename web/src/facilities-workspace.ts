@@ -6,8 +6,9 @@ import {setupTransportCapacity} from './transport-capacity-view.js';
 import {setupTransportRoutes} from './transport-routes-view.js';
 import {setupDeliveryWorkbench,type DeliveryWorkbenchOptions} from './delivery-workbench-view.js';
 import {setupTabs} from './side-panel.js';
+import {facilityViews,facilityViewSections,facilityViewOf,facilitySectionNames,type FacilitySection,type FacilityView} from './facilities-views.js';
 
-type Section='trades'|'outlook'|'quantities'|'definitions'|'activity'|'transport'|'route'|'gas-delivery'|'crude-delivery';
+type Section=FacilitySection;
 type Options=Parameters<typeof setupFacilityQuantities>[0]&Pick<DeliveryWorkbenchOptions,'nominationContext'|'nativeDeliveryReason'|'openNativeDelivery'>&{permission:(name:string)=>boolean};
 type Consumer={load:(id?:string)=>Promise<void>;sync:()=>void;edited:()=>boolean;unconfirmed:()=>boolean;leave:()=>boolean|Promise<boolean>;refresh:()=>void;reset:()=>void};
 
@@ -37,9 +38,9 @@ export function setupFacilities(o:Options){
  consumers.outlook=setupPipelineOutlook(hosts.outlook,o,next=>void o.act(async()=>{section=next;show();await active().load();o.changed();}));
  consumers.trades=setupFacilityTrades(hosts.trades,o);
  const active=()=>consumers[section];
- const sections:[Section,string][]=[['trades','Trades and volumes'],['outlook','Pipeline outlook'],['definitions','Facility definitions'],['activity','Physical activity'],['quantities','Quantities & allocations'],['transport','Transport capacity'],['route','Transport route plans'],['gas-delivery','Gas delivery'],['crude-delivery','Crude delivery']];
+ // Tabs are built in the order of the sidebar's views (facilities-views.ts), each view's sections together.
+ const sections:[Section,string][]=facilityViews.flatMap(view=>facilityViewSections[view].map(id=>[id,facilitySectionNames[id]] as [Section,string]));
  const picker=document.createElement('select');picker.id='facilities-section-picker';picker.setAttribute('aria-label','Facilities workspace');picker.setAttribute('aria-controls',content.id);
- for(const [id,label] of sections)picker.add(new Option(label,id));
  navigation.before(picker);
  function chooseSection(next:Section){
   tabs.mark(section);picker.value=section;
@@ -49,7 +50,18 @@ export function setupFacilities(o:Options){
  const tabs=setupTabs(navigation,sections,{label:'Facilities workspace',panel:content,selected:section,select:next=>chooseSection(next as Section)});
  picker.onchange=()=>chooseSection(picker.value as Section);
  for(const [id]of sections)navigation.querySelector<HTMLButtonElement>('#'+navigation.id+'-'+id)!.dataset.facilitiesView=id;
- function show(){tabs.mark(section);picker.value=section;for(const [id,host]of Object.entries(hosts))host.hidden=id!==(section==='definitions'?'activity':section);if(section==='definitions'||section==='activity')operations.show(section);}
+ const tab=(id:Section)=>navigation.querySelector<HTMLButtonElement>('#'+navigation.id+'-'+id)!;
+ // The tab row and the picker list the sections of the view the shown section belongs to. The other tabs stay in the document,
+ // hidden, so an exact section can still be opened from elsewhere; the view then follows it.
+ function show(){
+  const listed=facilityViewSections[facilityViewOf(section)];
+  tabs.mark(section);
+  for(const [id]of sections)tab(id).hidden=!listed.includes(id);
+  navigation.hidden=picker.hidden=listed.length<2;
+  picker.replaceChildren(...listed.map(id=>new Option(facilitySectionNames[id],id)));picker.value=section;
+  for(const [id,host]of Object.entries(hosts))host.hidden=id!==(section==='definitions'?'activity':section);if(section==='definitions'||section==='activity')operations.show(section);
+ }
+ const firstOf=(view:FacilityView)=>facilityViewSections[view].find(available)??null;
  show();
  return{
   canReadTrades:()=>available('trades'),
@@ -64,6 +76,12 @@ export function setupFacilities(o:Options){
   },
   sync(){for(const consumer of unique())consumer.sync();picker.disabled=o.busy();for(const item of picker.options)item.disabled=!available(item.value as Section);for(const button of navigation.querySelectorAll<HTMLButtonElement>('button'))button.disabled=o.busy()||!available(button.dataset.facilitiesView as Section);},
   section:()=>section,selected:()=>section==='quantities'?quantities.selected():null,
+  view:()=>facilityViewOf(section),
+  viewAvailable:(view:FacilityView)=>facilityViewSections[view].some(available),
+  // Arriving from another page: shows the view's first permitted section without reading. The page's own load reads it.
+  prepareView(view:FacilityView){const next=firstOf(view);if(next&&facilityViewOf(section)!==view){section=next;show();}},
+  // On the page: moves to the view through the shown section's leave guard, as a tab does.
+  chooseView(view:FacilityView){const next=firstOf(view);if(next&&facilityViewOf(section)!==view)chooseSection(next);},
   edited:()=>unique().some(consumer=>consumer.edited()),leave:()=>active().leave(),refresh:()=>active().refresh(),
   reset(){for(const consumer of unique())consumer.reset();if(!available(section))section=initial();show();},
  };

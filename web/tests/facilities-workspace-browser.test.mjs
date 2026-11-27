@@ -70,7 +70,7 @@ test('a Transport-only reader opens entitlement capacity without hidden physical
  assert.equal(await evaluate('workspace.section()'),'transport');
  assert.deepEqual(await evaluate('calls.map(call=>call.path)'),['gas/transport/capacity/directory']);
  assert.equal(await evaluate("document.querySelector('#transport-capacity-workspace').hidden"),false);
- assert.match(await evaluate("document.querySelector('[data-facilities-view=transport]').textContent"),/Transport capacity/);
+ assert.match(await evaluate("document.querySelector('[data-facilities-view=transport]').textContent"),/Capacity/);
  const denied=await evaluate("workspace.open('definitions').then(()=>'',error=>error.message)");
  assert.match(denied,/permission/i);
  assert.deepEqual(await evaluate('calls.map(call=>call.path)'),['gas/transport/capacity/directory']);
@@ -99,7 +99,7 @@ test('Route plans open and retain their operating context without hidden capacit
  assert.equal(await evaluate('workspace.section()'),'route');
  assert.deepEqual(await evaluate('calls.map(call=>call.path)'),['gas/transport/routes/directory','gas/transport/routes/directory']);
  assert.equal(await evaluate("document.querySelector('#transport-routes-workspace').hidden"),false);
- assert.match(await evaluate("document.querySelector('[data-facilities-view=route]').textContent"),/Transport route plans/);
+ assert.match(await evaluate("document.querySelector('[data-facilities-view=route]').textContent"),/Route plans/);
 }));
 
 test('an unknown route request keeps its recovery and blocks new capacity writes after the route source is denied',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(markup,async evaluate=>{
@@ -117,4 +117,30 @@ test('an unknown route request keeps its recovery and blocks new capacity writes
  assert.equal(await evaluate("document.querySelector('[data-transport-command=define]').disabled"),true);
  assert.equal(await evaluate("document.querySelector('[data-transport-routes=status]').disabled"),false);
  assert.deepEqual(await evaluate('calls.map(call=>call.path)'),['gas/transport/routes/directory','gas/transport/capacity/directory']);
+}));
+
+test('Facilities shows the tabs of the view its section belongs to',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(markup,async evaluate=>{
+ await evaluate(`(async()=>{
+  window.errors=[];
+  const context={contextId:'synthetic-context',effectiveOn:'2032-03-14',knownAt:'2032-03-14T20:00:00Z'};
+  const api=async path=>{if(path==='facilities/quantities/directory')return{ownerId:'opaque-owner',context,at:'2032-03-14T23:59:59Z',ledgers:[],choices:[],hasMore:false,choicesTruncated:false,canRecord:true,canConfigure:true};throw Error('Unexpected '+path);};
+  window.workspace=(await import('/facilities-workspace.js')).setupFacilities({api,act:async work=>{try{await work();}catch(error){errors.push(error.message);}},busy:()=>false,zone:()=> 'UTC',identity:()=> 'synthetic-operator',context:()=>({effectiveOn:'2032-03-14',knowledgeMode:'current',retained:null,convention:'facility_business_date_end_utc_v1'}),permission:()=>true,changed(){},tradeInspection:()=>null,openTrade:async()=>{}});
+  await workspace.load();
+  window.tabs=()=>[...document.querySelectorAll('[data-facilities-view]')].filter(b=>!b.hidden).map(b=>b.dataset.facilitiesView);
+  window.picks=()=>[...document.querySelector('#facilities-section-picker').options].map(o=>o.value);
+ })()`);
+ assert.equal(await evaluate('workspace.view()'),'facilities');
+ assert.deepEqual(await evaluate('tabs()'),['quantities','activity','trades','definitions']);
+ assert.deepEqual(await evaluate('picks()'),['quantities','activity','trades','definitions']);
+ assert.equal(await evaluate("document.querySelector('#facilities-workspace-tabs').hidden"),false);
+ await evaluate("workspace.prepareView('facilities-transport')");
+ assert.equal(await evaluate('workspace.section()'),'gas-delivery');
+ assert.equal(await evaluate('workspace.view()'),'facilities-transport');
+ assert.deepEqual(await evaluate('tabs()'),['gas-delivery','route','transport']);
+ await evaluate("workspace.prepareView('facilities-position')");
+ assert.equal(await evaluate('workspace.section()'),'outlook');
+ assert.equal(await evaluate("document.querySelector('#facilities-workspace-tabs').hidden"),true,'one section needs no tab row');
+ assert.equal(await evaluate("document.querySelector('#facilities-section-picker').hidden"),true);
+ assert.equal(await evaluate("workspace.viewAvailable('facilities-crude')"),true);
+ assert.deepEqual(await evaluate('errors'),[]);
 }));
