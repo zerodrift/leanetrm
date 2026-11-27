@@ -2796,8 +2796,10 @@ Arbitrary page controls, generated UI and business-effect walkthrough steps rema
 
 Full operation discovery resolves against one read-local route-metadata snapshot
 (D328), removing repeated grouped-route construction without extending the agent's
-read limit. Other read latency and the security epoch hold described in D245 remain
-separate work; this change is not a general read-performance qualification.
+read limit. Reads and approved commands resolve in routing's collection of the
+application's routes (D461) and no longer rebuild them. Other read latency and the security epoch
+hold described in D245 remain separate work; this change is not a general
+read-performance qualification.
 
 ### Unified catalogue and regional close sessions (D369)
 

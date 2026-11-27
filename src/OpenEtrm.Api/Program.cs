@@ -588,7 +588,7 @@ var partyReads=new PartyReads(database);
 var tradeReads=new TradeReads(database);
 var liveContexts=new LiveContexts(database,changes,new JsonSerializerOptions{PropertyNamingPolicy=JsonNamingPolicy.CamelCase});
 var assistantWorkspace=new AssistantWorkspace(database,turnScope,turnScope=="exchange"?"/examples/exchange/api":"/api",app.Services,
-    ()=>((IEndpointRouteBuilder)app).DataSources.SelectMany(source=>source.Endpoints),app.Services.GetRequiredService<IHttpContextAccessor>());
+    AssistantWorkspace.Routes(app.Services),app.Services.GetRequiredService<IHttpContextAccessor>());
 database.AssistantRequest=()=>app.Services.GetRequiredService<IHttpContextAccessor>().HttpContext?.Features.Get<AssistantInvocation>();
 async Task<string[]> CurrentPermissions(NpgsqlConnection connection,CancellationToken ct)
 {

@@ -8098,3 +8098,47 @@ and position reads to every other trade reader, the narrowing D444 rejected for
 operating rights. New roles for REC and gas inventory: no person would hold them
 at installation, and the six-role limit makes them hard to add, as D444 found
 for a new setup role.
+
+## D461 — Assistant operations resolve in routing's collection of the application's routes
+
+The owner asked on 2026-11-27 for the assistant's route rebuilding to be removed;
+the mechanism below is the maintainer's choice.
+
+D328 gave full discovery one read-local snapshot of route metadata. The adapter
+still read the application's grouped route sources for every other resolution:
+once to invoke an operation and again to validate its input. Each such read
+builds every route. An approval therefore built all 518 routes twice, about three
+seconds on an idle four-core container, before its command transaction began;
+the database work of an approval is about 70 ms. Each assistant read paid the
+same kind of cost.
+
+The adapter now resolves operations in routing's application-wide collection of
+endpoints. Routing builds that collection on its first read, from the same route
+sources the router matches, and again only when a route source changes. It is a
+second table beside the router's own, so an invoked operation runs an equivalent
+endpoint (the same pattern, metadata, filters and handler), not the router's
+object. D328's read-local snapshot in discovery remains and no longer costs a
+rebuild. This supersedes D328's sentence that later reads obtain freshly built
+endpoints.
+
+Limits. The first resolution after a start still builds every route once. The
+collection is empty until the host starts; an operation resolved then would be
+refused as unavailable, and no assistant operation runs before a request. Routes
+mapped after the host starts are not seen, by this collection or by the router;
+the application maps none. The managed D328 check injects its own route source,
+so it now shows only that the adapter caches nothing of the source it is given.
+The application's own choice of source is exercised by the workspace HTTP checks,
+which do not bound its cost.
+
+Unchanged: the closed operation catalog, exact path-and-method resolution, the
+refusal of an operation with no route, current permissions on every read, the
+guards before and after an approved command, retained contexts, read and turn
+limits. The adapter keeps no cache of its own, and neither authority nor business
+data is cached. There is no new tool, result shape, grant, runtime version or
+migration.
+
+Rejected. A snapshot owned by the adapter: it is constructed while routes are
+still being mapped, so it would need its own rule for when the table is complete
+and for keeping it current, which routing already has. One snapshot per invoked
+operation: it halves the rebuild and keeps the rest. Building the collection
+when the host starts: no supported consumer needs the first call's cost removed.

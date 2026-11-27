@@ -2073,6 +2073,23 @@ retaining command approval effects; its browser follows full discovery with
 native New swap navigation. Use the existing `--assistant-workspace-check
 --browser-check` command below. These checks use synthetic disposable resources.
 
+D461's managed regression starts an application with the operation catalog mapped
+under a route group and runs full discovery three times. It allows one build per
+route in total and fails on the prior source, which built 630 routes for three
+discoveries of 210 operations. It covers discovery only, and it injects the same
+route source the application uses rather than checking the application's wiring.
+D328's regression above injects its own source; its fresh-endpoint assertion now
+shows only that the adapter caches nothing of the source it is given.
+On an idle four-core container with PostgreSQL 18.7, before the change, statement
+logging of one approval showed about 70 ms of database work and a 3.06-second gap
+before the command transaction; timing of the adapter attributed that gap to two
+enumerations of 1.3–1.8 s each over 518 routes. After the change
+`--assistant-workspace-check --browser-check` passes 90 integration and 44 browser
+checks. In it one approval, not the first assistant call of the process, takes
+0.11 s where it took 3.0–3.1 s, the turn that reads nine retained reports takes
+15 s where it took 58 s, and the integration checks take 51 s where they took
+2 min 59 s. These are single local runs, not a benchmark.
+
 D325–D326 add actual frontend-report / prompt-API / SQL catalog parity, empty
 identity-only asks and immutable prompt pins for Dashboard, crude setup and Vol
 surfaces. Managed checks reject browser values and Blotter-only fields on these
