@@ -168,6 +168,9 @@ bundle acquisition from a local endpoint passed and admitted identical bytes.
 Installation and an isolated database start passed in two disposable
 containers, each with `python3`, `sudo` and `curl` added: cold in the pinned
 base image, and offline from the warm cache in a fully upgraded Ubuntu 24.04
-image holding PGDG `libpq5` and `libpq-dev` 19.0, which apt retained. These are
-local results. They do not include a hosted runner, whose installed packages
-differ, or publication of the bundles.
+image holding PGDG `libpq5` and `libpq-dev` 19.0, which apt retained. Those are
+local results. The hosted `Dependency cache qualification` workflow then passed
+for this lock on 2026-11-27 in
+[run 46068514108](https://github.com/zerodrift/leanetrm/actions/runs/46068514108)
+at commit `d49ebddbb152a5297faa6921f12f57d98fb4053b`. The bundles for this lock
+are not published.
