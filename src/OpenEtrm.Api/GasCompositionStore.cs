@@ -649,11 +649,14 @@ public sealed class GasCompositionStore(PreviewDatabase database)
  internal Task<GasCompositionValue> Value(NpgsqlConnection c,PreviewData data,InputFrame frame,GasCompositionExecution execution,CancellationToken ct,
   IReadOnlyDictionary<string,ImmutableDictionary<DateOnly,(ExactQuantity Quantity,string Kind)>>? recorded=null,CustomCurves.SavedVersions? savedVersions=null)=>
   Value(c,data,frame,execution.Members,execution.Quantity,null,execution.Terms.GasSetupId,execution.Programs,true,ct,recorded,held:execution,savedVersions:savedVersions);
+ internal async Task<GasCompositionExecution> Load(NpgsqlConnection c,PreviewData data,InputFrame frame,Guid trade,CancellationToken ct)=>
+  await Load(c,data,frame,(await GasPositions.Read(c,database.Manifest,[],[],ct,trade:trade)).SingleOrDefault()??throw Invalid("The selected gas position is unavailable."),ct);
+ // The trade of a position its caller has already read under this frame's bound context: its authorized head is not read a second time.
  // programs, when the caller already loaded the trade's retained programs under this frame, are used in place of loading them again.
- internal async Task<GasCompositionExecution> Load(NpgsqlConnection c,PreviewData data,InputFrame frame,Guid trade,CancellationToken ct,
+ internal async Task<GasCompositionExecution> Load(NpgsqlConnection c,PreviewData data,InputFrame frame,GasPosition selected,CancellationToken ct,
   ImmutableArray<RetainedSideProgram>? programs=null)
  {
-  var selected=(await GasPositions.Read(c,database.Manifest,[],[],ct,trade:trade)).SingleOrDefault()??throw Invalid("The selected gas position is unavailable.");
+  var trade=selected.Trade;
   var header=(await PreviewDatabase.Rows(c,"SELECT row_to_json(x)::text FROM(SELECT r.*,i.definition_revision_id,i.gas_setup_id,trading.gas_exercise_terms(r.catalog_id,r.instrument_id) exercise_rights,trading.gas_swing_terms(r.catalog_id,r.instrument_id) swing_terms,CASE WHEN r.revision=1 AND t.operation_id=r.operation_id THEN t.request ELSE a.request END request FROM trading.gas_trade_revisions r JOIN trading.gas_instruments i USING(catalog_id,instrument_id) JOIN trading.trades t ON(t.catalog_id,t.id)=(r.catalog_id,r.trade_id) LEFT JOIN trading.gas_amendment_commands a ON(a.catalog_id,a.operation_id,a.trade_id,a.result_revision,a.changed)=(r.catalog_id,r.operation_id,r.trade_id,r.revision,true) WHERE(r.catalog_id,r.trade_id,r.instrument_id,r.revision)=($1,$2,$3,$4) AND i.composition)x",[database.Manifest.CatalogId,trade,selected.Binding,int.Parse(selected.Head.Text("revision"),CultureInfo.InvariantCulture)],ct)).SingleOrDefault();
   if(header.ValueKind!=JsonValueKind.Object)throw Invalid("The composed gas trade is unavailable.");
   var rows=await PreviewDatabase.Rows(c,"SELECT row_to_json(x)::text FROM trading.gas_component_terms x WHERE(catalog_id,instrument_id)=($1,$2) ORDER BY slot",[database.Manifest.CatalogId,header.Id("instrument_id")],ct);

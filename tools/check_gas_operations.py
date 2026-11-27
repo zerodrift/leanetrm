@@ -1,5 +1,6 @@
 from check_physical_operations import january_delivery_frame
 """Synthetic manual gas scheduling and independent statement imbalance lifecycle."""
+from contextlib import contextmanager
 from uuid import uuid4
 from preview_client import PreviewClient, initial_frame
 from preview_fixture import trade_booking
@@ -48,6 +49,21 @@ def check_confirmation_agreements(client, query, manifest, booking):
     print('PASS separate confirmations retain their chosen agreements and recover one group receipt', flush=True)
 
 
+@contextmanager
+def counted_revision_reads(query):
+    """Counts the gas trade revisions on which runtime reads evaluate row security, across sessions."""
+    query("""CREATE SEQUENCE public.synthetic_gas_revision_reads;
+        CREATE FUNCTION public.synthetic_gas_revision_read() RETURNS boolean LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+        SET search_path=pg_catalog AS $count$BEGIN PERFORM nextval('public.synthetic_gas_revision_reads');RETURN true;END$count$;
+        CREATE POLICY synthetic_gas_revision_read ON trading.gas_trade_revisions AS RESTRICTIVE FOR SELECT TO openetrm_runtime
+        USING(public.synthetic_gas_revision_read());""")
+    try:
+        yield lambda: int(query("SELECT CASE WHEN is_called THEN last_value ELSE 0 END FROM public.synthetic_gas_revision_reads;"))
+    finally:
+        query("""DROP POLICY synthetic_gas_revision_read ON trading.gas_trade_revisions;
+            DROP FUNCTION public.synthetic_gas_revision_read();DROP SEQUENCE public.synthetic_gas_revision_reads;""")
+
+
 def run_checks(url, query, manifest):
     c=PreviewClient(url);c.bootstrap();c.call('profile',{'profile':'trader'})
     principal=query("SELECT principal_id FROM security.identity_bindings WHERE issuer='https://preview.invalid' AND subject='trader';")
@@ -58,6 +74,9 @@ def run_checks(url, query, manifest):
     after={**before,'snapshotId':january_delivery_frame(workspace)}
     catalog=c.call('gas/catalog',before);point=next(p for p in catalog['locations'] if p['deliveryPoint']=='synthetic_gas_point_a')
     reference=next(item['reference'] for item in catalog['sideCalendars'] if item['code']=='test_utc_every_day')
+    def details(trade_id):
+        instrument=query(f"SELECT instrument_id FROM trading.gas_trade_revisions WHERE trade_id='{trade_id}' AND revision=1;")
+        return c.call('trading/gas',{'context':{**before,'convention':'trading_workspace_v1'},'tradeId':trade_id,'bindingId':instrument,'revision':1,'instrumentType':'physical_gas'})
 
     # Both confirmation structures use native gas tickets and one retained group receipt.
     from copy import deepcopy
@@ -100,9 +119,7 @@ def run_checks(url, query, manifest):
         another=PreviewClient(url);another.bootstrap();another.call('profile',{'profile':'risk'})
         assert another.call('tickets/gas-locations/status',{'requestId':command['operationId']})=={'found':False}
         for trade_id in set((receipt['purchaseTradeId'],receipt['saleTradeId'])):
-            instrument=query(f"SELECT instrument_id FROM trading.gas_trade_revisions WHERE trade_id='{trade_id}' AND revision=1;")
-            position=c.call('trading/gas',{'context':{**before,'convention':'trading_workspace_v1'},'tradeId':trade_id,'bindingId':instrument,'revision':1,'instrumentType':'physical_gas'})
-            link=position['confirmations'][0]
+            [link]=details(trade_id)['confirmations']
             assert link['purchaseTradeId']==receipt['purchaseTradeId'] and link['saleTradeId']==receipt['saleTradeId']
         amended=deepcopy(command)
         amended['tickets'][0]['draft']['sides'][0]['values']['quantity']='26'
@@ -116,7 +133,16 @@ def run_checks(url, query, manifest):
     terms={**before,**trade_booking(),'operationId':str(uuid4()),'bookId':catalog['books'][0]['id'],'definitionRevisionId':point['definitionRevisionId'],'gasSetupId':catalog['gasSetupId'],'discounting':False,'profile':'fixed_gas_composition_v1',
       'physicalSides':[{'code':'receipt','pipeline':point['pipeline'],'zone':point['zone'],'deliveryPoint':point['deliveryPoint'],'product':point['product'],'direction':'receive','deliveryFrom':'2021-01-01','deliveryTo':'2021-01-03','quantityBasis':'per_operating_day','quantity':'100','link':None,'calendarPolicy':side_calendar_policy(reference,delivery=True,observation=False,payment=False)}],
       'cashSides':[{'code':'payment','role':'consideration','share':'1','direction':'pay','source':'receipt','stage':'delivery','price':'3','tariffCode':None,'paymentAt':'2021-02-02T00:00:00Z','calendarPolicy':side_calendar_policy(reference,delivery=True,observation=False,payment=True)}]}
-    booked=[c.call('gas/composition/book',{**terms,'operationId':str(uuid4())}) for _ in range(2)]
+    # A position's details show its own location booking. Trades outside that booking add no revision reads.
+    with counted_revision_reads(query) as revisions_read:
+        def linked_details():
+            started=revisions_read();shown=details(receipt['saleTradeId'])['confirmations']
+            return shown,revisions_read()-started
+        confirmations,reads=linked_details()
+        booked=[c.call('gas/composition/book',{**terms,'operationId':str(uuid4())}) for _ in range(2)]
+        unchanged,reads_after=linked_details()
+        assert unchanged==confirmations and reads_after<=reads,(reads,reads_after)
+    print(f'PASS a linked gas position reads {reads_after} trade revisions for its details; two unrelated bookings add none',flush=True)
     trades=[b['tradeId'] for b in booked];day='2021-01-01'
     obligations=[c.call('gas/quantities/read',dict(context=after,tradeId=t,selectionPolicy='operational_projection_v1'))['rows'][0]['obligationId'] for t in trades]
     def state(trade=trades[0],context=after):

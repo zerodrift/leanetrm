@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {browserPageActions} from './owned-browser.mjs';
-import {blotterAt,gasTicket,openBookedPosition,openBookedSchedules} from './gas-ticket.mjs';
+import {blotterAt,blotterShowsLatest,gasTicket,openBookedPosition,openBookedSchedules} from './gas-ticket.mjs';
 
 function fixture(readyAt,{selectionError}={}){
  let elapsed=0;const edits=[];
@@ -198,4 +198,54 @@ test('a caller wait cannot pass a stuck position, hidden panel or stuck schedule
  await assert.rejects(f.open(30000),/Timed out after 30000ms/);
  assert.deepEqual(f.clicks,[0]);
  assert.equal(f.elapsed(),30000);
+});
+
+// A recorded election leaves the server one version ahead of the Blotter. The page is idle until its update check finds that,
+// busy while it values the book again, and asks about the new version only once its update has ended. Its first request after
+// an election can still name the version before it, which it had not asked about while the election's form was open.
+function versionFixture({updateAt=500,shownAt=12500,status=200,values='complete',closeAt=0}={}){
+ let now=0;const requests=[];
+ const window={
+  get watched(){return {context:{snapshotId:now>=closeAt?'synthetic-close':'earlier-close',convention:'trading_workspace_v1'},
+   version:now>=shownAt?'after':now>=250?'before':'earlier'};},
+  async workspaceFetch(path,init={}){
+   requests.push({at:now,path,method:init.method??'GET',token:init.headers?.['X-Preview-CSRF'],body:init.body});
+   if(path==='/api/bootstrap?includeFrames=false')return {ok:true,json:async()=>({csrfToken:'synthetic-token'})};
+   return {ok:status===200,status,json:async()=>({version:'after'})};
+  },
+ };
+ const document={body:{getAttribute:()=>now>=updateAt&&now<shownAt-250?'true':'false'},
+  querySelector:selector=>selector==='#snapshot'?{value:'synthetic-close'}:selector==='#futures-page'?{dataset:{pricingState:values}}:null};
+ const evaluate=async expression=>Function('document','window',`return ${expression}`)(document,window);
+ const actions={evaluate,...browserPageActions(evaluate,{now:()=>now,pause:async ms=>{now+=ms;}})};
+ return {settle:()=>blotterShowsLatest(actions,'window.watched',30000),requests,elapsed:()=>now};
+}
+
+test('a recorded election is not settled while the idle Blotter still shows the version before it',async()=>{
+ const f=versionFixture();
+ await f.settle();
+ assert.equal(f.elapsed(),12500);
+ assert.deepEqual(f.requests.at(-1),{at:0,path:'/api/trading/freshness',method:'POST',token:'synthetic-token',
+  body:JSON.stringify({snapshotId:'synthetic-close',convention:'trading_workspace_v1'})});
+});
+
+test('the version is read for the close on display, once the Blotter watches it',async()=>{
+ const f=versionFixture({closeAt:1000});
+ await f.settle();
+ assert.equal(f.elapsed(),12500);
+ assert.deepEqual(f.requests.map(r=>[r.at,r.path]),[[1000,'/api/bootstrap?includeFrames=false'],[1000,'/api/trading/freshness']]);
+ assert.equal(f.requests.at(-1).body,JSON.stringify({snapshotId:'synthetic-close',convention:'trading_workspace_v1'}));
+});
+
+test('a Blotter that never shows the recorded version, or whose update failed, is refused',async()=>{
+ for(const options of [{updateAt:Infinity,shownAt:Infinity},{values:'failed'}]){
+  const f=versionFixture(options);
+  await assert.rejects(f.settle(),/Timed out after 30000ms/);
+ }
+});
+
+test('a refused version read is reported and never taken as settled',async()=>{
+ const f=versionFixture({status:503});
+ await assert.rejects(f.settle(),/Blotter version read returned 503/);
+ assert.equal(f.elapsed(),0);
 });
