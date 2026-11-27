@@ -4387,7 +4387,7 @@ All master pushes remain full because the updater admits a release only for the
 exact current branch head; a documentation push must not strand earlier runtime
 changes. Pull requests never publish an application release.
 
-The job installs stock PostgreSQL 18.6 from the reviewed package lock and uses
+The job installs stock PostgreSQL 18.7 from the reviewed package lock and uses
 the runner's Chrome. [Dependency caches](ci-dependencies.md) cover NuGet, npm and
 verified PostgreSQL packages, including Ubuntu runtime dependencies. The producer
 verifies signed archives once; consumer jobs verify pinned hashes and perform

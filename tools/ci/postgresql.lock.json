@@ -1,11 +1,11 @@
 {
   "format": 1,
   "platform": "ubuntu-24.04-amd64",
-  "postgres_version": "18.6",
+  "postgres_version": "18.7",
   "bundle": {
-    "file": "postgresql-18.6-ubuntu-24.04-amd64.tar.gz",
-    "size": 49036394,
-    "sha256": "9811dcf4143854ae693f3f502abf3f4da9f7d222ab5e6f7d09656f93fe64e18e"
+    "file": "postgresql-18.7-ubuntu-24.04-amd64.tar.gz",
+    "size": 49742622,
+    "sha256": "717dc19a68c3b7d601ec48a5c68ea253acc7ec955edd3660f8c5d895ea3e0ab1"
   },
   "packages": [
     {
@@ -119,15 +119,15 @@
       "source_version": "1.23-5.1build1"
     },
     {
-      "file": "libgssapi-krb5-2_1.20.1-6ubuntu2.10_amd64.deb",
-      "url": "https://archive.ubuntu.com/ubuntu/pool/main/k/krb5/libgssapi-krb5-2_1.20.1-6ubuntu2.10_amd64.deb",
-      "size": 142830,
-      "sha256": "0d4a0187bcdbbe3e6a10bfa574100087d12052d0d0ef28614fd6210021c587b2",
+      "file": "libgssapi-krb5-2_1.20.1-6ubuntu2.12_amd64.deb",
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/k/krb5/libgssapi-krb5-2_1.20.1-6ubuntu2.12_amd64.deb",
+      "size": 142820,
+      "sha256": "c55fd903e1906f38fc9ccf7ecc4f1f38c72a9a417ae2a4642cdcbfd53b3b7677",
       "package": "libgssapi-krb5-2",
-      "version": "1.20.1-6ubuntu2.10",
+      "version": "1.20.1-6ubuntu2.12",
       "architecture": "amd64",
       "source": "krb5",
-      "source_version": "1.20.1-6ubuntu2.10"
+      "source_version": "1.20.1-6ubuntu2.12"
     },
     {
       "file": "libicu74_74.2-1ubuntu3.1_amd64.deb",
@@ -163,15 +163,15 @@
       "source_version": "4.10000-1"
     },
     {
-      "file": "libk5crypto3_1.20.1-6ubuntu2.10_amd64.deb",
-      "url": "https://archive.ubuntu.com/ubuntu/pool/main/k/krb5/libk5crypto3_1.20.1-6ubuntu2.10_amd64.deb",
-      "size": 81944,
-      "sha256": "273f7cc95a68d927d7f71c3e78b7717a16a8d86e646a206bae7bf797150ae9db",
+      "file": "libk5crypto3_1.20.1-6ubuntu2.12_amd64.deb",
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/k/krb5/libk5crypto3_1.20.1-6ubuntu2.12_amd64.deb",
+      "size": 81932,
+      "sha256": "418e89e180a4869997c1e67c3a60c0288e47ff2c86da64a48acc6a2ae87a1622",
       "package": "libk5crypto3",
-      "version": "1.20.1-6ubuntu2.10",
+      "version": "1.20.1-6ubuntu2.12",
       "architecture": "amd64",
       "source": "krb5",
-      "source_version": "1.20.1-6ubuntu2.10"
+      "source_version": "1.20.1-6ubuntu2.12"
     },
     {
       "file": "libkeyutils1_1.6.3-3build1_amd64.deb",
@@ -196,26 +196,26 @@
       "source_version": "31+20240202-2ubuntu7.2"
     },
     {
-      "file": "libkrb5-3_1.20.1-6ubuntu2.10_amd64.deb",
-      "url": "https://archive.ubuntu.com/ubuntu/pool/main/k/krb5/libkrb5-3_1.20.1-6ubuntu2.10_amd64.deb",
-      "size": 347568,
-      "sha256": "60b48c5a3233f1d8caba30d6573edc8e131911ab6d63adcd664f7cbe62708362",
+      "file": "libkrb5-3_1.20.1-6ubuntu2.12_amd64.deb",
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/k/krb5/libkrb5-3_1.20.1-6ubuntu2.12_amd64.deb",
+      "size": 347734,
+      "sha256": "54b88e9bb6a98d6f4792948d6d87a1fdcfbcfef2b98498b59d71208c3cdf2c66",
       "package": "libkrb5-3",
-      "version": "1.20.1-6ubuntu2.10",
+      "version": "1.20.1-6ubuntu2.12",
       "architecture": "amd64",
       "source": "krb5",
-      "source_version": "1.20.1-6ubuntu2.10"
+      "source_version": "1.20.1-6ubuntu2.12"
     },
     {
-      "file": "libkrb5support0_1.20.1-6ubuntu2.10_amd64.deb",
-      "url": "https://archive.ubuntu.com/ubuntu/pool/main/k/krb5/libkrb5support0_1.20.1-6ubuntu2.10_amd64.deb",
-      "size": 34942,
-      "sha256": "9224ede3246a82a845ea97652ecfae57f88e8d8f520d8a186f9157167574fb34",
+      "file": "libkrb5support0_1.20.1-6ubuntu2.12_amd64.deb",
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/k/krb5/libkrb5support0_1.20.1-6ubuntu2.12_amd64.deb",
+      "size": 35984,
+      "sha256": "f13093e6ef78a4af392ae67106a329783b2703fa51b5b32d25f7ec335fc15f76",
       "package": "libkrb5support0",
-      "version": "1.20.1-6ubuntu2.10",
+      "version": "1.20.1-6ubuntu2.12",
       "architecture": "amd64",
       "source": "krb5",
-      "source_version": "1.20.1-6ubuntu2.10"
+      "source_version": "1.20.1-6ubuntu2.12"
     },
     {
       "file": "libldap2_2.6.10+dfsg-0ubuntu0.24.04.1_amd64.deb",
@@ -251,15 +251,15 @@
       "source_version": "5.38.2-3.2ubuntu0.7"
     },
     {
-      "file": "libpq5_18.6-1.pgdg24.04+2_amd64.deb",
-      "url": "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-18/libpq5_18.6-1.pgdg24.04%2b2_amd64.deb",
-      "size": 264072,
-      "sha256": "b487c5ed2ceb9244c6a9d6ae65818ed6707c3c44a2e14488394ae4194c52c53b",
+      "file": "libpq5_18.7-1.pgdg24.04+5_amd64.deb",
+      "url": "https://apt.postgresql.org/pub/repos/apt/pool/18/p/postgresql-18/libpq5_18.7-1.pgdg24.04%2b5_amd64.deb",
+      "size": 265024,
+      "sha256": "ab9b4d418864e631e1cf9ef5fc3ff3b2d856d268b8ceffa1fb3ba51544826a70",
       "package": "libpq5",
-      "version": "18.6-1.pgdg24.04+2",
+      "version": "18.7-1.pgdg24.04+5",
       "architecture": "amd64",
       "source": "postgresql-18",
-      "source_version": "18.6-1.pgdg24.04+2"
+      "source_version": "18.7-1.pgdg24.04+5"
     },
     {
       "file": "libreadline8t64_8.2-4build1_amd64.deb",
@@ -295,15 +295,37 @@
       "source_version": "2.1.28+dfsg1-5ubuntu3.1"
     },
     {
-      "file": "libsystemd-shared_255.4-1ubuntu8.18_amd64.deb",
-      "url": "https://archive.ubuntu.com/ubuntu/pool/main/s/systemd/libsystemd-shared_255.4-1ubuntu8.18_amd64.deb",
-      "size": 2077180,
-      "sha256": "20210e06618cfc824b19ebc0e2163d72cd57509d947fa71aad8d53d78b808caa",
+      "file": "libsystemd-shared_255.4-1ubuntu8.19_amd64.deb",
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/s/systemd/libsystemd-shared_255.4-1ubuntu8.19_amd64.deb",
+      "size": 2078218,
+      "sha256": "f1da40ee32321000740cabe5cb4fe339350b8e83f2e98d0568695011fd4ec3eb",
       "package": "libsystemd-shared",
-      "version": "255.4-1ubuntu8.18",
+      "version": "255.4-1ubuntu8.19",
       "architecture": "amd64",
       "source": "systemd",
-      "source_version": "255.4-1ubuntu8.18"
+      "source_version": "255.4-1ubuntu8.19"
+    },
+    {
+      "file": "libsystemd0_255.4-1ubuntu8.19_amd64.deb",
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/s/systemd/libsystemd0_255.4-1ubuntu8.19_amd64.deb",
+      "size": 436534,
+      "sha256": "341983d7034366a9c2f34c2288805404802f2011032ffcdbcadb3194edbf161e",
+      "package": "libsystemd0",
+      "version": "255.4-1ubuntu8.19",
+      "architecture": "amd64",
+      "source": "systemd",
+      "source_version": "255.4-1ubuntu8.19"
+    },
+    {
+      "file": "libudev1_255.4-1ubuntu8.19_amd64.deb",
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/s/systemd/libudev1_255.4-1ubuntu8.19_amd64.deb",
+      "size": 178270,
+      "sha256": "bab9dc308d71f6a5d7b91a50503ff3de70d49bcdad5e3aacfcbf951c88bb9260",
+      "package": "libudev1",
+      "version": "255.4-1ubuntu8.19",
+      "architecture": "amd64",
+      "source": "systemd",
+      "source_version": "255.4-1ubuntu8.19"
     },
     {
       "file": "liburing2_2.5-1build1_amd64.deb",
@@ -405,48 +427,48 @@
       "source_version": "5.38.2-3.2ubuntu0.7"
     },
     {
-      "file": "postgresql-18_18.6-1.pgdg24.04+2_amd64.deb",
-      "url": "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-18/postgresql-18_18.6-1.pgdg24.04%2b2_amd64.deb",
-      "size": 7576708,
-      "sha256": "c0773357df8769abb70e92722196d9b53422d71c0f29a4f39c834b94276cfa3d",
+      "file": "postgresql-18_18.7-1.pgdg24.04+5_amd64.deb",
+      "url": "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-18/postgresql-18_18.7-1.pgdg24.04%2b5_amd64.deb",
+      "size": 7657644,
+      "sha256": "2cb84cff0a725659c598993990a27227cea22ab69219efaad9600bb01ef54ed3",
       "package": "postgresql-18",
-      "version": "18.6-1.pgdg24.04+2",
+      "version": "18.7-1.pgdg24.04+5",
       "architecture": "amd64",
       "source": "postgresql-18",
-      "source_version": "18.6-1.pgdg24.04+2"
+      "source_version": "18.7-1.pgdg24.04+5"
     },
     {
-      "file": "postgresql-client-18_18.6-1.pgdg24.04+2_amd64.deb",
-      "url": "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-18/postgresql-client-18_18.6-1.pgdg24.04%2b2_amd64.deb",
-      "size": 2114236,
-      "sha256": "b9d10d99a73bf7aa375be2fe36626c40499cfdf553d0ad174674a88a1b256b43",
+      "file": "postgresql-client-18_18.7-1.pgdg24.04+5_amd64.deb",
+      "url": "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-18/postgresql-client-18_18.7-1.pgdg24.04%2b5_amd64.deb",
+      "size": 2118696,
+      "sha256": "15d01aed36b9faf84765e113cc658e24aa5b8ec47ec7d012b49d0564f1993679",
       "package": "postgresql-client-18",
-      "version": "18.6-1.pgdg24.04+2",
+      "version": "18.7-1.pgdg24.04+5",
       "architecture": "amd64",
       "source": "postgresql-18",
-      "source_version": "18.6-1.pgdg24.04+2"
+      "source_version": "18.7-1.pgdg24.04+5"
     },
     {
-      "file": "postgresql-client-common_295.pgdg24.04+1_all.deb",
-      "url": "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-common/postgresql-client-common_295.pgdg24.04%2b1_all.deb",
-      "size": 48892,
-      "sha256": "a2aedba55ff9a8dcc2f88e7bc5a814c7d8564c1c818a9ba1ee234d46e9db9b6a",
+      "file": "postgresql-client-common_297.pgdg24.04+1_all.deb",
+      "url": "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-common/postgresql-client-common_297.pgdg24.04%2b1_all.deb",
+      "size": 48992,
+      "sha256": "01c7d14b3cf73a67c7ec68be5b43751ff722bfd46f7bada887944b1493f648f0",
       "package": "postgresql-client-common",
-      "version": "295.pgdg24.04+1",
+      "version": "297.pgdg24.04+1",
       "architecture": "all",
       "source": "postgresql-common",
-      "source_version": "295.pgdg24.04+1"
+      "source_version": "297.pgdg24.04+1"
     },
     {
-      "file": "postgresql-common_295.pgdg24.04+1_all.deb",
-      "url": "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-common/postgresql-common_295.pgdg24.04%2b1_all.deb",
-      "size": 108080,
-      "sha256": "a1df771f6f97aa5a8257e9720ad98e6edcf5f65e52d1a9f64bc2d16465ae74e4",
+      "file": "postgresql-common_297.pgdg24.04+1_all.deb",
+      "url": "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-common/postgresql-common_297.pgdg24.04%2b1_all.deb",
+      "size": 108180,
+      "sha256": "cb5abb222b58f976f34dc43a5db4476b35dc566580579ede5e5246a00909569c",
       "package": "postgresql-common",
-      "version": "295.pgdg24.04+1",
+      "version": "297.pgdg24.04+1",
       "architecture": "all",
       "source": "postgresql-common",
-      "source_version": "295.pgdg24.04+1"
+      "source_version": "297.pgdg24.04+1"
     },
     {
       "file": "readline-common_8.2-4build1_all.deb",
@@ -471,37 +493,37 @@
       "source_version": "1.1.2ubuntu1"
     },
     {
-      "file": "systemd-dev_255.4-1ubuntu8.18_all.deb",
-      "url": "https://archive.ubuntu.com/ubuntu/pool/main/s/systemd/systemd-dev_255.4-1ubuntu8.18_all.deb",
-      "size": 107102,
-      "sha256": "08a19c4b503e54945510fac8db363782095b7cd68f017ffc60e758f24d4c82d3",
+      "file": "systemd-dev_255.4-1ubuntu8.19_all.deb",
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/s/systemd/systemd-dev_255.4-1ubuntu8.19_all.deb",
+      "size": 107504,
+      "sha256": "f476e942684b1dc5a17ddfc5f375047bcdfe50f9ef57a43dcd74a18c93906622",
       "package": "systemd-dev",
-      "version": "255.4-1ubuntu8.18",
+      "version": "255.4-1ubuntu8.19",
       "architecture": "all",
       "source": "systemd",
-      "source_version": "255.4-1ubuntu8.18"
+      "source_version": "255.4-1ubuntu8.19"
     },
     {
-      "file": "systemd_255.4-1ubuntu8.18_amd64.deb",
-      "url": "https://archive.ubuntu.com/ubuntu/pool/main/s/systemd/systemd_255.4-1ubuntu8.18_amd64.deb",
-      "size": 3474856,
-      "sha256": "ba37e7dc1e33690d94a1063543d27f9b17c013a20791c3315b2423fbf9e7ae7b",
+      "file": "systemd_255.4-1ubuntu8.19_amd64.deb",
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/s/systemd/systemd_255.4-1ubuntu8.19_amd64.deb",
+      "size": 3475692,
+      "sha256": "40d77b8e62d3d2524ca1c4a9dbcfcd946c11ee730d859207d290b988952bcce7",
       "package": "systemd",
-      "version": "255.4-1ubuntu8.18",
+      "version": "255.4-1ubuntu8.19",
       "architecture": "amd64",
       "source": "systemd",
-      "source_version": "255.4-1ubuntu8.18"
+      "source_version": "255.4-1ubuntu8.19"
     },
     {
-      "file": "tzdata_2026e-0ubuntu0.24.04.1_all.deb",
-      "url": "https://archive.ubuntu.com/ubuntu/pool/main/t/tzdata/tzdata_2026e-0ubuntu0.24.04.1_all.deb",
-      "size": 282136,
-      "sha256": "2f6794a7f31753fc947d9ac02ff03ea46510f34864f9d132a93d7b105e3c4447",
+      "file": "tzdata_2026f-0ubuntu0.24.04.1_all.deb",
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/t/tzdata/tzdata_2026f-0ubuntu0.24.04.1_all.deb",
+      "size": 283204,
+      "sha256": "9e6592d18ebbe2ac04f931089bb1d01836fc9702eb2514e3ad4a65eac5b50ca3",
       "package": "tzdata",
-      "version": "2026e-0ubuntu0.24.04.1",
+      "version": "2026f-0ubuntu0.24.04.1",
       "architecture": "all",
       "source": "tzdata",
-      "source_version": "2026e-0ubuntu0.24.04.1"
+      "source_version": "2026f-0ubuntu0.24.04.1"
     },
     {
       "file": "ucf_3.0043+nmu1_all.deb",
@@ -516,8 +538,8 @@
     }
   ],
   "source_bundle": {
-    "file": "postgresql-18.6-ubuntu-24.04-amd64-sources.tar.gz",
-    "size": 166721877,
-    "sha256": "c8e952fc21f6effb16f3e5b9c5f1593900fb91da238485017ee4719bab65f75e"
+    "file": "postgresql-18.7-ubuntu-24.04-amd64-sources.tar.gz",
+    "size": 167293678,
+    "sha256": "a992da4b900c5fc2286008d70c47ed83148c67fa87c51b0f57144f0871805527"
   }
 }
