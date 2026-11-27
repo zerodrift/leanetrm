@@ -65,7 +65,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
         check('locked regional seed restore',[str(dotnet),'restore','tools/OpenEtrm.Seed/OpenEtrm.Seed.csproj','--locked-mode'],suite=regional_group)
         check('regional seed build',[str(dotnet),'build','tools/OpenEtrm.Seed/OpenEtrm.Seed.csproj','--no-restore'],suite=regional_group)
     check('owned process cleanup', [sys.executable, 'tools/check_owned_process.py'])
-    check('owned browser readiness', ['node', '--test', 'tests/browser/owned-browser.test.mjs', 'tests/browser/gas-ticket.test.mjs'])
+    check('owned browser readiness', ['node', '--test', 'tests/browser/owned-browser.test.mjs', 'tests/browser/gas-ticket.test.mjs', 'tests/browser/gas-swing.test.mjs'])
     # Each integration checkout builds its own assets; shared behavior checks
     # execute only in their named groups.
     if group in ('database', *GROUPS):

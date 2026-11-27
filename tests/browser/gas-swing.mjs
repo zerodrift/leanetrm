@@ -7,6 +7,17 @@ const days=['2021-01-31','2021-02-01','2021-02-02'];
 const policy='delivery_schedule_v1';
 const model='gas_swing_one_factor_lognormal_v1',grid='swing_trinomial_6h_unit_reference_v2';
 
+// A Blotter refresh can rebuild the ticket after the page reports idle.
+// Find and scroll in one evaluation, then require that same visible node after painting.
+export function revealSwingReview({wait},selector){
+ return wait(`new Promise(resolve=>{
+  const target=${at(selector)};
+  if(!target?.checkVisibility())return resolve(false);
+  target.scrollIntoView({block:"center"});
+  requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(target===${at(selector)}&&target.checkVisibility())));
+ })`,30000);
+}
+
 export async function run(actions){
  const {command,evaluate,wait,set,click,check,persona,idle,url,fixture,shot,fitsWidth}=actions;
  const screen=(width,height)=>command('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<600});
@@ -14,7 +25,7 @@ export async function run(actions){
   for(const type of ['keyDown','keyUp'])await command('Input.dispatchKeyEvent',{
    type,key,code:key,windowsVirtualKeyCode:code,...(key==='Enter'&&type==='keyDown'?{text:'\r'}:{})});
  };
- const reveal=selector=>evaluate('new Promise(resolve=>{'+at(selector)+'.scrollIntoView({block:"center"});requestAnimationFrame(()=>requestAnimationFrame(resolve));})');
+ const reveal=selector=>revealSwingReview(actions,selector);
  await screen(1440,1000);await command('Page.navigate',{url});
  await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);await persona('trader');
  await blotterAt(actions,await decemberClose(evaluate));await newTrade(actions,'gas');
