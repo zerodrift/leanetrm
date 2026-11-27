@@ -143,15 +143,24 @@ public sealed partial class TradeReads
         var history=await PreviewDatabase.Rows(connection,"SELECT row_to_json(x)::text FROM(SELECT r.revision,r.instrument_id,r.actor_id,r.effective_at,a.reason FROM trading.gas_trade_revisions r LEFT JOIN trading.gas_amendment_commands a ON(a.catalog_id,a.operation_id,a.changed)=(r.catalog_id,r.operation_id,true) WHERE(r.catalog_id,r.trade_id)=($1,$2) ORDER BY r.revision DESC)x",[database.Manifest.CatalogId,position.Trade],ct);
         var amend=await GasAmendments.Action(connection,database.Manifest.CatalogId,position.Trade,position.Binding,int.Parse(position.Head.Text("revision"),CultureInfo.InvariantCulture),view.CalculationFrame.At,view.Working,ct);
         var programs=await new RetainedScheduleStore(database).LoadPrograms(connection,position.Binding,view.CalculationFrame.ContextId,view.CalculationFrame.At,ct);
+        // The trade's location booking is found from the trade's own revisions, by either of the booking's two operations.
+        // Filtering the joined purchase and sale revisions by trade instead leaves the planner to pair every gas revision
+        // with every trade reference and to look a revision up under row security for each pair.
         var confirmations=await PreviewDatabase.Rows(connection,"""
+            WITH own AS MATERIALIZED(SELECT catalog_id,operation_id FROM trading.gas_trade_revisions WHERE(catalog_id,trade_id)=($1,$2)),
+            booked AS MATERIALIZED(
+             SELECT b.catalog_id,b.agreements,b.purchase_operation,b.sale_operation
+             FROM own JOIN trading.gas_location_bookings b ON(b.catalog_id,b.purchase_operation)=(own.catalog_id,own.operation_id)
+             UNION
+             SELECT b.catalog_id,b.agreements,b.purchase_operation,b.sale_operation
+             FROM own JOIN trading.gas_location_bookings b ON(b.catalog_id,b.sale_operation)=(own.catalog_id,own.operation_id))
             SELECT row_to_json(x)::text FROM(
              SELECT b.agreements,p.trade_id AS purchase_id,s.trade_id AS sale_id,pr.reference_number AS purchase_reference,sr.reference_number AS sale_reference
-             FROM trading.gas_location_bookings b
+             FROM booked b
              JOIN trading.gas_trade_revisions p ON(p.catalog_id,p.operation_id)=(b.catalog_id,b.purchase_operation)
              JOIN trading.gas_trade_revisions s ON(s.catalog_id,s.operation_id)=(b.catalog_id,b.sale_operation)
              JOIN trading.trade_references pr ON(pr.catalog_id,pr.trade_id)=(p.catalog_id,p.trade_id)
              JOIN trading.trade_references sr ON(sr.catalog_id,sr.trade_id)=(s.catalog_id,s.trade_id)
-             WHERE b.catalog_id=$1 AND $2 IN(p.trade_id,s.trade_id)
             ) x
             """,[database.Manifest.CatalogId,position.Trade],ct);
         var terms=new{head=position.Head,physical=position.Physical,components,indexedCash,facilityAllocations,history,

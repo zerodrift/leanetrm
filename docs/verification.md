@@ -1,5 +1,77 @@
 # Local verification and continuous integration
 
+## Gas trade details and Blotter updates in the swing browser checks
+
+On 26 and 27 November 2026 (UTC) the gas swing browser checks failed in four
+hosted runs. Three timed out in a ten-second wait for the page to be idle, at
+three different steps; the fourth timed out at one of those steps in the
+60-second wait for the open trade's election days. Whenever a trade or an
+election is recorded, the Blotter finds a new version, values its book again
+and reads the open trade's details again. The page is busy throughout,
+disables the controls it draws, and then draws the open trade's ticket again.
+The checks went on as soon as an election's row was drawn.
+
+The cause was measured on the swing preview's own fixture at its browser step:
+41 physical gas trades and no two-location booking at the 18 December 2020
+close, 42 trades and 44 revisions once the checks have booked theirs. A Debug
+API and stock PostgreSQL 18.7 ran in a Linux container limited to four
+processors; Chrome 158 drove the page from another machine with every request
+and the page's busy state recorded; PostgreSQL logged statements, lock waits
+and the executed plan of slow statements. Each read is one base valuation
+without a scenario. Memory was not measured. These are measurements of one
+synthetic fixture on one machine, not a throughput claim.
+
+| Read on an otherwise idle host, three times each | Before | After |
+| --- | ---: | ---: |
+| One gas trade's details (`trading/gas`) | 2.33 s | 0.14–0.22 s |
+| Blotter values for every book (`trading/workspace`) | 6.98–7.07 s | 4.92–5.29 s |
+
+- The details read spent nearly all its time in one statement, which selected
+  the trade's two-location booking by the trade of either confirmation. Its
+  executed plan paired the 44 revisions with the 42 trade references and looked
+  a revision up under row security for each pair: 1,848 index scans and 2.30 s,
+  with no booking to find. The statement now starts from the selected trade's
+  own revisions and finds a booking by either of its operations.
+- One Blotter read ran about 1,290 statements. For each composed gas position
+  it repeated the authorized position read it had already made for all of
+  them; a composition now loads from the position its caller read, and the
+  read runs about 820. The same repeated read is gone from the held portfolio,
+  a Side schedule, the booked ticket and the preparation of a swing election.
+- No statement waited for a lock. The cancelled query (SQLSTATE 57014) in the
+  failed runs' diagnostics is a read the page abandoned when the checks moved
+  on: 22 requests ended that way in a run that passed.
+
+With the host busy with other work, the same container took 11 to 15 s for a
+Blotter read before the change, twice cancelled at the 15-second request limit,
+and 3 to 7 s for the details, so one update kept the page busy for 16 to 22 s.
+The gaps between the same steps in the hosted runs put an update there at 10 to
+20 s, where a step took about 2.5 s without one. An update starts within a
+quarter of a second of the ticket's redraw, so whether the next click met it
+was a matter of milliseconds: at that speed the previous checks also passed
+once, in 169 s.
+
+Holding the checks' next click until the page was busy made that order
+certain. The previous checks then failed as in one of the hosted runs, with
+the ten-second timeout while restoring the dock after the recovered range. The
+Blotter asks for changes to a version only after its update to that version
+has ended, so the changed checks read the version the server has after each
+recorded election and wait until the page asks about it with its values
+complete, then for the ticket to be drawn again. With the same hold armed they
+passed all 28, against the previous API at that speed through seven updates of
+13.8 to 16.7 s and against the changed API slowed likewise through seven of
+9.3 to 12.1 s, and the hold found no update left to meet. Against the changed
+API on the idle host they passed in 100 s, through seven updates of 5.2 to
+5.7 s. The whole swing preview then passed 207 printed checkpoints, 28 of them
+in the browser, and completed 23 leased jobs.
+
+The Blotter still values gas positions one after another, so its read remains
+the larger part of an update and grows with the book.
+
+The gas operations preview now requires that the details of a trade in a
+two-location booking read no more gas trade revisions once two unrelated trades
+are booked: 7 before and after, where the previous statement read 60 and then
+94.
+
 ## REC inventory and owned gas access (D460)
 
 The checks were run first without migration 0411. The REC inventory storage

@@ -1,5 +1,5 @@
 import {newTrade} from './new-trade.mjs';
-import {blotterAt,bookedTicket,closeOn,decemberClose,gasTicket,openBookedPosition,openBookedSchedules,q} from './gas-ticket.mjs';
+import {blotterAt,blotterShowsLatest,bookedTicket,closeOn,decemberClose,gasTicket,openBookedPosition,openBookedSchedules,q} from './gas-ticket.mjs';
 
 const at=selector=>'document.querySelector('+q(selector)+')';
 const all=selector=>'[...document.querySelectorAll('+q(selector)+')]';
@@ -39,7 +39,9 @@ export async function run(actions){
  await t.until(t.current());
  await evaluate(`{const send=window.fetch;window.swingWrites=[];window.swingPrepares=[];
    window.fetch=async(input,init)=>{
-    const path=String(input),response=await send(input,init);
+    const path=String(input);
+    if(path==='/api/trading/changes')window.swingWatched=JSON.parse(init.body);
+    const response=await send(input,init);
     if(path==='/api/tickets/book'&&response.ok)window.swingBooked=await response.clone().json();
     if(path==='/api/gas/swing/prepare'&&response.ok){
      window.swingPrepares.push((await response.clone().json()).command);
@@ -107,7 +109,11 @@ export async function run(actions){
  };
  const submit=()=>click(form+' .ticket-submit-swing',60000);
  const focused=id=>'document.activeElement==='+at(input(id))+'&&document.activeElement.getAttribute("aria-invalid")==="true"';
- const shown=(i,state)=>wait(all(detail+' [aria-label="Daily elections and delivery"] tbody tr')+'['+i+']?.cells[2].textContent==='+q(state)+'&&!'+at(form)+'&&'+idle,60000);
+ // A recorded election is settled once the Blotter shows its version and has drawn the trade's ticket again.
+ const shown=async(i,state)=>{
+  const drawn=all(detail+' [aria-label="Daily elections and delivery"] tbody tr')+'['+i+']?.cells[2].textContent==='+q(state)+'&&!'+at(form)+'&&'+idle;
+  await wait(drawn,60000);await blotterShowsLatest(actions,'window.swingWatched',60000);await wait(drawn,60000);
+ };
  await open();await check('the priced ticket’s action shows the same three contingent days as the booked schedule',
   all(form+' [aria-label="Retained election days"] tbody tr')+'.map(r=>r.cells[r.cells.length-1].textContent).join("|")==='+
   all(detail+' [aria-label="Daily elections and delivery"] tbody tr')+'.map(r=>r.cells[r.cells.length-1].textContent).join("|")');
@@ -131,7 +137,8 @@ export async function run(actions){
   at(input('quantity'))+'.value==="1000"&&!'+at(input('quantity'))+'.hasAttribute("aria-invalid")');
  await set(input('lastDay'),days[1]);await evaluate('window.loseSwingReply=true');await submit();
  await wait(at(retry)+'?.checkVisibility()&&!'+at(retry)+'.disabled',60000);
- await click('#position-details-tabs-terms');await wait('!'+at(bookedTicket));
+ // Leaving the ticket releases the Blotter update that its unanswered command held back.
+ await click('#position-details-tabs-terms',60000);await wait('!'+at(bookedTicket));
  await openBookedSchedules(actions,30000);await wait(at(retry)+'?.checkVisibility()&&!'+at(retry)+'.disabled',60000);
  await check('remount offers recovery for the original range and disables a replacement',at(trigger)+'.disabled&&!'+at(form));
  await click(retry,60000);await wait('!'+at(retry)+'&&'+at(trigger)+'?.checkVisibility()&&!'+at(trigger)+'.disabled',60000);
