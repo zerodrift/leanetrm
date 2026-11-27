@@ -7222,3 +7222,27 @@ which states the Trade supervisor's permissions exactly, passes 149 lines. The
 trade page lists Operating right, and choosing it opens Operating facilities
 with the catalog loaded and setup disabled. The browser suites and the other
 check groups were not run for this change outside CI.
+
+## Schema fingerprint without dump versions (D461)
+
+The behavior checks were written first and failed against the earlier function.
+Two synthetic dumps that differ only in their `\restrict` key and header version
+lines had different fingerprints; a `\restrict` line inside a function body
+could change without changing the fingerprint; and an empty dump, text around
+the dump, a missing header line or a different closing key were all accepted.
+With the change `python3 -m unittest tests.test_release_deployment` passes 41
+checks. They also require that a changed definition, and a version line or a
+pair of them inside a definition, still change the fingerprint.
+
+The function was run on two real schema dumps of one disposable database
+holding `db/bootstrap.sql` and 411 migrations, taken under the pinned
+`postgres:18.6-bookworm` and `postgres:18.7-bookworm` images. The earlier
+function gave two fingerprints. This one gives one, changes when one character
+of a definition changes, and refuses a truncated dump. The recording command in
+the [hosted guide](hosted-pilot.md#automated-release-distribution) was run
+against that database in a disposable 18.7 container and printed the same
+fingerprint; with no database to dump it failed instead of printing one.
+
+Not run: `tools/check_release_docker.py`, which records and checks a
+fingerprint against a running release; a database on another major release; and
+any installation's own re-recording.
