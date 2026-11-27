@@ -22,8 +22,11 @@ def run_checks(Client, check):
     check('role choices carry unique stored display names', all(isinstance(r.get('name'), str) and r['name'].strip() for r in directory['roles'])
           and len({r['name'] for r in directory['roles']}) == len(directory['roles']))
     operational_roles = {'facility_operator', 'facility_limits_admin', 'gas_operator', 'gas_service_admin', 'trade_supervisor'} | bilateral_roles
-    check('operating, supervisory and bilateral roles start unassigned to existing members',
-          all(operational_roles.isdisjoint(m['roles']) for m in directory['members']))
+    operator_roles = {'facility_operator', 'facility_limits_admin', 'gas_operator', 'gas_service_admin', 'contracts_officer'}
+    operator = [m for m in directory['members'] if m['login'] == 'operator']
+    check('the demo operator holds the five operating roles, and no other existing member holds an operating, supervisory or bilateral role',
+          len(operator) == 1 and set(operator[0]['roles']) == operator_roles
+          and all(operational_roles.isdisjoint(m['roles']) for m in directory['members'] if m['login'] != 'operator'))
     context = dict(effectiveOn='2020-12-18', knowledgeMode='current', retained=None,
                    convention='facility_business_date_end_utc_v1')
     for role, login, records, configures in [('facility_operator', 'synthetic_facility_operator', True, False),

@@ -2,7 +2,7 @@
 from copy import deepcopy
 from uuid import uuid4
 from exact_values import fraction
-from preview_client import initial_frame
+from preview_client import PreviewClient, initial_frame
 
 
 def run_checks(client, query, manifest):
@@ -54,17 +54,20 @@ def run_checks(client, query, manifest):
     client.call(route + 'book', command, expected=422)
     client.call('market/current', {})
     dates = dict(effectiveOn='2020-12-15', knowledgeMode='current', retained=None, convention='rec_business_date_end_utc_v1')
-    directory = client.call('rec/directory', {'context': dates})
+    operator = PreviewClient(client.url); operator.bootstrap(); operator.call('profile', {'profile': 'operator'})
+    readonly = client.call('rec/directory', {'context': dates})
+    assert readonly['canConfigure'] is False and readonly['canRecord'] is False, 'A Trader reads REC inventory and changes nothing'
+    directory = operator.call('rec/directory', {'context': dates})
     owner = directory['ownerId']; account_id = str(uuid4()); at = '2020-12-15T16:00:00Z'
     account = dict(context=dates, requestId=str(uuid4()), ownerId=owner, accountId=account_id, bookId=book['id'],
         legalEntityId=entity['id'], legalEntityRevision=entity['revision'], referenceCatalogId=catalog['referenceCatalogId'],
         referenceRevisionId=catalog['referenceRevisionId'], registryCode='fixture', registryAccountReference='SYNTHETIC-HTTP-OWNED', effectiveAt=at)
-    receipt = client.call('rec/account', account)
-    assert client.call('rec/account', account) == receipt
+    receipt = operator.call('rec/account', account)
+    assert operator.call('rec/account', account) == receipt
     destination = dict(context=dates, requestId=str(uuid4()), ownerId=owner, destinationId=str(uuid4()),
         counterpartyId=party['id'], counterpartyRevision=party['revision'], referenceCatalogId=catalog['referenceCatalogId'],
         referenceRevisionId=catalog['referenceRevisionId'], registryCode='fixture', registryAccountReference='SYNTHETIC-HTTP-DELIVERY', effectiveAt=at)
-    client.call('rec/destination', destination)
+    operator.call('rec/destination', destination)
     lot = str(uuid4())
     def record(action, generation, date_context=dates, effective_at=at):
         return dict(context=date_context, requestId=str(uuid4()), ownerId=owner, accountId=account_id,
@@ -72,26 +75,28 @@ def run_checks(client, query, manifest):
     incoming = dict(kind='receipt', lotId=lot, productCode=terms['productCode'], registryLotReference='SYNTHETIC-HTTP-LOT',
         vintageFrom=terms['vintageFrom'], vintageTo=terms['vintageTo'], **{'from':'0','to':'100'}, receiptKind='issuance',
         evidenceSource='fixture', evidenceReference='SYNTHETIC-HTTP-ISSUANCE')
-    issue = record(incoming, 0); issued = client.call('rec/record', issue)
-    assert client.call('rec/record', issue) == issued
+    issue = record(incoming, 0); issued = operator.call('rec/record', issue)
+    assert operator.call('rec/record', issue) == issued
+    assert client.call('rec/record', issue, expected=403)['code'] == 'access_denied'
+    assert client.call('rec/account', account, expected=403)['code'] == 'access_denied'
     holding = client.call('rec/read', dict(context=dates, accountId=account_id))
     delivery = next(d for d in holding['deliveryChoices'] if d['tradeId'] == saved['tradeId'])
     assert fraction(delivery['remaining']) == 60
     allocate = record(dict(kind='allocate', lotId=lot, **{'from':'0','to':'60'}, deliveryId=delivery['id']), 1)
-    allocated = client.call('rec/record', allocate)
+    allocated = operator.call('rec/record', allocate)
     retire = dict(kind='retire', lotId=lot, **{'from':'60','to':'100'}, beneficiaryKind='legal_entity', beneficiaryId=entity['id'],
         beneficiaryRevision=entity['revision'], purposeCode='synthetic_voluntary', evidenceSource='fixture', evidenceReference='SYNTHETIC-HTTP-RETIREMENT')
     invalid_retire = deepcopy(retire); invalid_retire.update({'from':'0','to':'1'})
-    client.call('rec/record', record(invalid_retire, 2), expected=422)
-    client.call('rec/record', record(retire, 2))
+    operator.call('rec/record', record(invalid_retire, 2), expected=422)
+    operator.call('rec/record', record(retire, 2))
     transfer = dict(kind='transfer', lotId=lot, **{'from':'0','to':'60'}, allocationId=allocated['factId'], allocationRevision=allocated['revision'],
         destinationId=destination['destinationId'], evidenceSource='fixture', evidenceReference='SYNTHETIC-HTTP-TRANSFER')
-    early = client.call('rec/record', record(transfer, 3), expected=422)
+    early = operator.call('rec/record', record(transfer, 3), expected=422)
     assert early['code'] == 'rec_delivery_window'
     delivery_dates = dict(dates, effectiveOn='2021-01-15')
     sent = record(transfer, 3, delivery_dates, '2021-01-15T12:00:00Z')
-    transferred = client.call('rec/record', sent)
-    assert client.call('rec/status', dict(requestId=sent['requestId'], ownerId=owner)) == transferred
+    transferred = operator.call('rec/record', sent)
+    assert operator.call('rec/status', dict(requestId=sent['requestId'], ownerId=owner)) == transferred
     final = client.call('rec/read', dict(context=delivery_dates, accountId=account_id))
     balance = next(b for b in final['balances'] if b['productCode'] == terms['productCode'])
     assert fraction(balance['available']) == 0 and fraction(balance['allocated']) == 0
@@ -112,7 +117,7 @@ def run_checks(client, query, manifest):
     browser_receipt = deepcopy(incoming)
     browser_receipt.update(lotId=browser_lot, registryLotReference='SYNTHETIC-HTTP-BROWSER-LOT',
         evidenceReference='SYNTHETIC-HTTP-BROWSER-ISSUANCE', **{'from':str(first),'to':str(first+100)})
-    client.call('rec/record', record(browser_receipt, final['generation'], delivery_dates, '2021-01-15T16:00:00Z'))
+    operator.call('rec/record', record(browser_receipt, final['generation'], delivery_dates, '2021-01-15T16:00:00Z'))
     browser_holding = client.call('rec/read', dict(context=delivery_dates, accountId=account_id))
     browser_delivery = next(d for d in browser_holding['deliveryChoices'] if d['tradeId'] == browser_trade['tradeId'])
     assert fraction(browser_delivery['remaining']) == 100
@@ -122,17 +127,17 @@ def run_checks(client, query, manifest):
     # admits at most one sixty-certificate allocation.
     other_account = deepcopy(account)
     other_account.update(requestId=str(uuid4()), accountId=str(uuid4()), registryAccountReference='SYNTHETIC-HTTP-OTHER-OWNED')
-    client.call('rec/account', other_account)
+    operator.call('rec/account', other_account)
     other_lot = str(uuid4()); other_receipt = deepcopy(incoming)
     other_receipt.update(lotId=other_lot, registryLotReference='SYNTHETIC-HTTP-CAPACITY-LOT', evidenceReference='SYNTHETIC-HTTP-CAPACITY-ISSUANCE')
     other_issue = record(other_receipt, 0, delivery_dates, '2021-01-15T16:00:00Z')
     other_issue['accountId'] = other_account['accountId']
-    other_issued = client.call('rec/record', other_issue)
+    other_issued = operator.call('rec/record', other_issue)
     import json
     from concurrent.futures import ThreadPoolExecutor
     def signed(sql):
         token = query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
-            f"'https://preview.invalid','trader','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',120);")
+            f"'https://preview.invalid','operator','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',120);")
         return ('BEGIN;SET LOCAL SESSION AUTHORIZATION preview_runtime;'
             f"SELECT security.use_context('{token}');" + sql + 'COMMIT;')
     race_inputs = [(account_id, browser_lot, first, browser_holding['generation']),
@@ -157,7 +162,7 @@ def run_checks(client, query, manifest):
     release = record(dict(kind='release',lotId=winning_lot, **{'from':str(winning_first),'to':str(winning_first+60)},
         allocationId=allocated_race['factId'],allocationRevision=allocated_race['revision']),allocated_race['generation'],delivery_dates,'2021-01-15T16:00:00Z')
     release['accountId'] = winning_account
-    client.call('rec/record',release)
+    operator.call('rec/record',release)
     browser_holding = client.call('rec/read', dict(context=delivery_dates, accountId=account_id))
     browser_delivery = next(d for d in browser_holding['deliveryChoices'] if d['tradeId'] == browser_trade['tradeId'])
     assert fraction(browser_delivery['remaining']) == 100

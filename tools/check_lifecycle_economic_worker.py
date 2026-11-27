@@ -59,7 +59,8 @@ def worker_checks(query, manifest, fixture, *, submit_mode='--economic-worker-su
     shutil.copytree(ROOT/'tests/OpenEtrm.Api.Checks/bin/Debug/net10.0',frozen)
     binary_stamps={p.name:p.read_bytes() for p in frozen.glob('OpenEtrm.*.dll')}
     login='synthetic_economic_worker';without_gas='synthetic_economic_no_gas_worker'
-    provision_worker(query,manifest,login);provision_worker(query,manifest,without_gas)
+    # Risk analyst reads owned gas as installed (D460); the second worker is the one that does not.
+    provision_worker(query,manifest,login);provision_worker(query,manifest,without_gas,without=('ReadGasOwnedHoldings',))
     role=str(uuid4());tenant=manifest['tenantId'];workspace=manifest['workspaceId']
     query(f"INSERT INTO security.roles(id,code,name) VALUES('{role}','synthetic_economic_gas_reader','Synthetic economic gas reader');"
           f"INSERT INTO security.role_permissions VALUES('{role}','ReadGasOwnedHoldings');"

@@ -385,7 +385,12 @@ audit as history.
   or job execution permission. The version requests those four permissions in
   addition to its tools' permissions. A user's actual current permissions must
   cover the complete request, even when their allowed role supplies only the
-  workspace tools and another assigned role supplies gas access.
+  workspace tools and another assigned role supplies gas access. As installed
+  (D460), a person holds both gas permissions the role needs only through Gas
+  delivery operations or Gas service setup. Trader and Risk analyst read owned
+  gas and do not record it. The agent reader role holds neither: a read the
+  assistant makes under it, such as its trade-reading tool, is refused over a
+  scope that holds a park and loan agreement.
 - Saving a draft does not activate its operating role. Publish changes the
   additional principal grant under exclusive control-table admission and ends
   existing delegations when that role changes. Switching back requires a fresh

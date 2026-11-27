@@ -1,5 +1,183 @@
 # Local verification and continuous integration
 
+## REC inventory and owned gas access (D460)
+
+The checks were run first without migration 0411. The REC inventory storage
+check stopped at its first holder assertion, `every human role that reads
+trades reads REC inventory, and no other role does`. The owned
+`--structured-power-check` run, with the preview's own grant of the REC
+permissions to Trader removed, passed the 112 lines of its existing flow and
+stopped when the Trader's REC directory read answered 403 `access_denied`. The
+new `--inventory-access-check` run stopped when the demo operator's first owned
+gas write was refused with `gas_owned_denied`. `--scheduled-swap-check`, with
+the two reads added to the Trade supervisor's pinned list, failed that
+assertion after 133 lines.
+
+With the migration and before any check identity changed, seven checks failed.
+Each asserts what a person or worker without the owned gas read is refused, and
+Risk analyst and Trader now hold that read, as does every check worker, because
+a worker is provisioned as a Risk analyst:
+
+- the lifecycle economic worker check: the worker meant to lack the read held
+  it;
+- the cash lifecycle valuation check: `This exact cash consumer must be
+  qualified without gas authority.`;
+- the physical option value check: `synthetic_read_was_accepted`;
+- the lifecycle risk scope and risk jobs checks: a job expected to be refused
+  `risk_job_denied` was accepted;
+- the gas principal carrying check: `Principal metadata bypassed native gas
+  authority.`;
+- the Park and Loan check: `A Risk reader without current gas authority was
+  offered independent gas ownership.`
+
+None passed unchanged. Each identity that must lack the read now holds one role
+made in the check, a copy of what it held without the read. No assertion
+changed.
+
+With everything:
+
+- The REC inventory storage check passes 40 cases. The holders of each of the
+  six permissions are exactly the roles D460 names, and the two reads are held
+  by exactly the human roles that read trades, plus the agent-only gas role for
+  the owned gas read. Two reads granted by hand before the migration are kept.
+  Applying the grants again changes no role and gives no person a role, and an
+  installation without one of the named roles is told which. The demo operator
+  sets up and records. Trader and Risk analyst read the certified inventory and
+  the directory. Viewer, Market data editor, Market data approver and Access
+  administrator read neither. Trader records and sets up nothing. Recording
+  without the setup permission and setup without the record permission each
+  stay refused.
+- `--inventory-access-check` passes its fourteen lines. The demo operator sets
+  up an owned gas account and binds four manual action rules, and the demo
+  Trader books a park and loan agreement on it, in the standard preview with
+  no other input and no grant. A Risk analyst is refused that booking with
+  `gas_park_loan_denied` and a Viewer with `gas_owned_denied`. Each of thirteen
+  roles is then run as one person against the REC directory, account read,
+  command outcome, account setup, destination setup and evidence routes, and
+  against the owned gas read, setup choices, evidence, account setup with a
+  manual action rule, the positions of the book that holds the agreement and
+  the risk setup. Each role is allowed exactly what D460 lists and refused the
+  rest with 403: `access_denied` on the reads and the REC writes,
+  `gas_owned_denied` on the owned gas writes. Contracts administration alone is
+  offered REC setup and Facility operations alone REC recording. Gas service
+  setup, holding no trade-party read, saves an owned gas account and its rule,
+  and Gas delivery operations records and is refused setup. Only Risk analyst
+  is offered the pricing policy that includes independent gas holdings. A
+  trade reader whose role loses the owned gas read is refused the whole
+  positions read of that book with 403 `gas_owned_denied`, and reads it again
+  once the role holds the read.
+- `--structured-power-check` passes the 123 lines of its HTTP part. In the REC
+  HTTP check the operator sets up accounts and destinations and records
+  evidence, the Trader reads what the operator recorded, and the Trader's own
+  record and setup requests answer 403 `access_denied`.
+- `--scheduled-swap-check` passes 151 lines and the preview's default owned
+  check 1,587, where the demo operator holds exactly its five roles and no
+  other existing member holds an operating, supervisory or bilateral role.
+- Six of the seven checks above pass. The seventh, the cash lifecycle valuation
+  check, passes its native part, including the line that it holds no gas
+  authority, and stops where its browser must start.
+
+Every command of nineteen check groups was then run, 422 in all: repository,
+managed, database, workspace, reference, standard, exchange, assistant, risk,
+trading, lifecycle, physical, gas, gas-native, gas-browser, portfolio,
+settlement, ppa and recovery. 350 commands passed as written. The 53 preview
+commands that end in a browser suite were run without that suite and passed.
+The 19 helpers that need a browser were run as written; each passed its native
+part and stopped where its browser must start. No command failed. The frontend
+group was not run.
+
+These runs used disposable Linux containers (Ubuntu 24.04.5, x86-64) with stock
+PostgreSQL 18.7, Python 3.12.3, Node 24.22.0 and a Debug API build under SDK
+10.0.402. The 203 repository Python unit checks and the repository group also
+pass on arm64 macOS with Python 3.14.2.
+
+An independent adversarial review of the whole change, made without the build
+plan, found no way to make the migration grant more than D460's table, apply
+in part, lose a grant made by hand or touch an agent-only role or a role that
+reads no trades, and found no assertion removed or loosened. It found the
+following, each resolved as stated.
+
+- The storage check also granted Facility operations' record permission by hand
+  before the migration, which hid the migration's own row: with that row
+  removed from a copy of the migration, the check still passed all 40 cases.
+  The hand grant was removed. The check then fails on that copy at its holder
+  assertion and passes on the real migration.
+- The helper that gives an identity a role without a permission copied from
+  grants no longer in force and verified nothing afterwards. A probe gave a
+  person with a current Risk analyst grant and a lapsed Trader grant
+  `AmendTrade` and `BookTrade`. The helper now copies what the identity holds
+  at that moment, refuses an identity that would then hold nothing and asserts
+  the result. The probe passes.
+- The structured trading browser scenario switched demo users without
+  selecting its close again. It now selects it after switching back to the
+  Trader. This was changed by reading. The scenario first ran in the CI run
+  described below, and passed.
+- D460 omitted two consequences. The assistant's own trade read is refused over
+  a scope that holds a park and loan agreement. A custody agreement in a book
+  refuses that book's Blotter and position reads to every role without
+  `ReadGasOperations`, the booking Trader included; D460 now records this and
+  leaves it undecided. A probe with the installed roles confirmed its native
+  part: the Trader books the customer side and the provider side, is then
+  refused that agreement and its book's custody directory with
+  `gas_operations_denied`, and a holder of the gas roles reads both. The
+  refusal of the Blotter and positions routes was read from the code.
+- D460 overstated three things, now corrected: the access check covers thirteen
+  roles and the routes named above, not every route; a person who holds
+  Facility operations alone is offered no retirement beneficiary on the page,
+  although a probe showed the native operation accepts that person's
+  retirement; and delegating to the gas agent also needs a role that may use
+  agents.
+
+After these changes the lifecycle, gas-native, gas-browser, portfolio and
+physical groups and the repository group were run again, with the same result.
+
+All of this ran before the hosted capacity change (D458) reached master. With
+that change brought in, the seven groups that hold every check this change
+adds or edits were run again in containers of the same image, in the same way:
+lifecycle, gas-native, gas-browser, portfolio, physical, standard and
+settlement, 170 commands. 142 passed as written, the 10 preview commands that
+end in a browser suite passed without it, and the 18 helpers that need a
+browser passed their native part and stopped where their browser must start.
+No command failed, and every command printed as many passed lines as before.
+The repository group and the repository's Python unit checks, now 211, pass on
+arm64 macOS.
+
+CI then ran all twenty groups on that tree, the first run of any browser suite
+on this change. Nineteen passed, among them the frontend group and the groups
+that run the structured trading scenario this change edits and the cash
+lifecycle valuation browser check. The gas group stopped in the swing browser
+suite, which timed out while a booked schedule opened. Without this change,
+master's own run on the same base stopped at the same line, and its run on the
+billing change stopped in the same suite at another step. The five gas
+commands after the swing suite did not run.
+
+The daily gas billing change (D459) then reached master with migrations 0406
+to 0410, so this change's migration became 0411 and its decision D460. With
+master brought in again, the same seven groups and the gas group, which holds
+the billing preview check, were run again in the same way, 190 commands. 151
+passed as written, the 21 preview commands that end in a browser suite passed
+without it, and the 18 helpers that need a browser passed their native part
+and stopped where their browser must start. No command failed. Every command
+printed as many passed lines as in its group's last run, except the billing
+preview check, which the billing change extended from 97 lines to 114. The
+repository group and the 211 Python unit checks pass on arm64 macOS.
+
+Not run or not covered:
+
+- No browser suite ran in these containers. Chrome's sandbox does not start in
+  them, and it was not relaxed. CI ran them once, on the hosted capacity base,
+  as described above. No browser suite has run with the billing change brought
+  in, and the gas commands after the swing suite have never run with theirs.
+- The frontend group, outside that CI run.
+- After the billing change was brought in: the managed, database, workspace,
+  reference, exchange, assistant, risk, trading, ppa and recovery groups. They
+  ran before the hosted capacity change and in that CI run.
+- The park custody routes and `/lifecycle/execute` have no route assertion of
+  their own. Holder sets pin who can use custody, and recording is asserted on
+  a route that passes the same native gate.
+- No check runs the cash option consumer as an installed Trader, who now reads
+  owned gas; the existing check qualifies it for a person without that read.
+
 ## Daily gas billing and processing (D459)
 
 Initial qualification used synthetic contracts, this tree's API and disposable

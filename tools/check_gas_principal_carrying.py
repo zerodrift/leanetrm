@@ -9,6 +9,7 @@ import subprocess
 from check_reference_editing import main
 from check_gas_futures_delivery import checks as delivery_checks
 from check_lifecycle_actions import fixture as action_fixture
+from role_fixture import hold_without, person
 
 def fixture(root):
     return action_fixture(root,rate_inputs=[('2026-12-31',Decimal('0.04')),('2027-06-30',Decimal('0.045'))])
@@ -45,6 +46,8 @@ def checks(query,manifest,*,carrying):
         "p.proowner='openetrm_security_owner'::regrole AND p.proconfig=ARRAY['search_path=pg_catalog'] AND "
         "p.proargnames=ARRAY['catalog','context','at_time','books'] AND p.pronargdefaults=0 "
         "FROM pg_proc p WHERE oid='security.read_gas_owned_profile_holdings(uuid,uuid,timestamptz,uuid[])'::regprocedure;")=='t'
+    # Risk analyst reads owned gas as installed (D460); this refusal is about a reader who does not.
+    hold_without(query,manifest,person(query,issuer,'risk'),'ReadGasOwnedHoldings')
     try:call(prefix+f"SELECT security.read_gas_owned_profile_holdings({args});",'risk')
     except RuntimeError as error:assert any(code in str(error) for code in ('access_denied','gas_owned_denied')),str(error)
     else:raise AssertionError('Principal metadata bypassed native gas authority.')
