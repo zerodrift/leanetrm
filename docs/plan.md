@@ -1,5 +1,16 @@
 # Delivery plan and acceptance criteria
 
+D459 implements [daily gas entry billing and scoped processing](gas-cash-billing.md):
+retained shares, daily bands/shortfalls and payment dates; exact reconciliation;
+gas-native one-off lifecycle work; and bounded recurring book/date assessment
+through the existing job worker. Jobs offers explicit preview, once/recurring
+enrollment, pause and retained results. Each cycle reassesses the complete fixed
+window, including late old-day evidence. It does not maintain an incremental
+change feed or move the window implicitly. Qualification is recorded in
+[verification](verification.md#daily-gas-billing-and-processing-d459).
+Indexed/monthly/multisource billing, invoices, accounting, receipt/fuel billing,
+exercise/swing-dependent final cash and automatic corrections remain separate.
+
 D458 raises the hosted API's memory limit above the measured peak of a demo
 dataset's whole load: 2,231 MiB resident on two processors with no heap limit.
 Its risk worker peaked at 1,003 MiB, at the hosted demo's host-level 1 GB limit;
@@ -104,7 +115,7 @@ D446 and D447 implement the Instrument schedule and independent gas pricing
 entries: exact share, daily band/shortfall and partial-term payments, with point,
 named daily or named monthly index pricing. All gas routes use the retained
 Instrument. Existing plain Instrument sums and shared-Side reuse stay unchanged;
-new final-billing profiles, broader formulas, transport/storage optionality and
+broader final-billing profiles, formulas, transport/storage optionality and
 the other gas building blocks remain separate work. The local qualification
 and benchmark are recorded in [verification](verification.md).
 

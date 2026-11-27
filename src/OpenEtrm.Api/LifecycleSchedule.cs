@@ -8,15 +8,16 @@ using OpenEtrm.MarketData.Trading;
 namespace OpenEtrm.Api;
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record LifecycleScheduleDefinition(Guid CloseId,LifecycleTarget Target,string Action,Guid OccurrenceId,Guid PolicyId,int PolicyRevision,
+public sealed record LifecycleScheduleDefinition([property:JsonRequired]Guid? CloseId,LifecycleTarget Target,string Action,Guid OccurrenceId,Guid PolicyId,int PolicyRevision,
     string KnowledgePolicy,string SettingsPolicy,string InputPolicy,LifecycleScheduleSettings Settings)
 {
     public const string CurrentKnowledge="current_knowledge_at_execution_v1",SourceKnownSettings="source_known_exact_action_settings_v1",
         SourceOnly="source_derived_only_no_cash_corrections_v1";
     internal void Validate()
     {
-        if(CloseId==Guid.Empty||Settings is null||Target is null||Target.ScopeId==Guid.Empty||Target.BindingId==Guid.Empty||
-            Target.Handler is not("futures" or "listed_option" or "financial_swap" or "gas_owned")||string.IsNullOrWhiteSpace(Action)||
+        if(Settings is null||Target is null||Target.ScopeId==Guid.Empty||Target.BindingId==Guid.Empty||
+            (Target.Handler=="gas_billing" ? CloseId is not null : CloseId is null||CloseId==Guid.Empty)||
+            Target.Handler is not("futures" or "listed_option" or "financial_swap" or "gas_billing" or "gas_owned")||string.IsNullOrWhiteSpace(Action)||
             OccurrenceId==Guid.Empty||PolicyId==Guid.Empty||PolicyRevision<1||KnowledgePolicy!=CurrentKnowledge||SettingsPolicy!=SourceKnownSettings||InputPolicy!=SourceOnly)
             throw new MarketDataException("lifecycle_schedule_source","Choose an exact recorded close, native target and occurrence, saved action policy and explicit source-only scheduling policies.");
         Settings.Validate(Target.Handler);
@@ -27,15 +28,37 @@ public sealed record LifecycleScheduleDefinition(Guid CloseId,LifecycleTarget Ta
 public sealed record LifecycleScheduleSettings(int TradeRevision,[property:JsonRequired]int? OptionProfileRevision,[property:JsonRequired]Guid? SwapProfileId,
     [property:JsonRequired]int? SwapProfileRevision,[property:JsonRequired]Guid? MarginPolicyId,[property:JsonRequired]int? MarginPolicyRevision)
 {
+    [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]
+    public GasBillingScheduleSource? GasSource {get;init;}
     internal void Validate(string handler)
     {
-        var valid=TradeRevision>0&&(handler switch{
+        var valid=TradeRevision>0&&(handler=="gas_billing"||GasSource is null)&&(handler switch{
             "futures"=>OptionProfileRevision is null&&SwapProfileId is null&&SwapProfileRevision is null&&MarginPolicyId is {} margin&&margin!=Guid.Empty&&MarginPolicyRevision>0,
             "listed_option"=>OptionProfileRevision>0&&SwapProfileId is null&&SwapProfileRevision is null&&MarginPolicyId is {} margin&&margin!=Guid.Empty&&MarginPolicyRevision>0,
             "financial_swap"=>OptionProfileRevision is null&&SwapProfileId is {} swap&&swap!=Guid.Empty&&SwapProfileRevision>0&&MarginPolicyId is null&&MarginPolicyRevision is null,
+            "gas_billing"=>GasSource is not null&&OptionProfileRevision is null&&SwapProfileId is null&&SwapProfileRevision is null&&MarginPolicyId is null&&MarginPolicyRevision is null,
             _=>false});
         if(!valid)throw new MarketDataException("lifecycle_schedule_source","Retain the exact selected trade and product setting versions, including explicit unused choices.");
+        GasSource?.Validate();
     }
+}
+
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record GasBillingScheduleSource([property:JsonRequired]int CashSlot,string Day,string ProcessingConvention,string BusinessDate,string EvaluationAt,
+    string SelectionPolicy,string BillingProfile,[property:JsonRequired]int DecimalPlaces,string RoundingPolicy,string ScheduledPolicy)
+{
+    internal void Validate()
+    {
+        _=GasBillingOperatingStore.ValidateContext(new(ProcessingConvention,BusinessDate,EvaluationAt,"current",null));
+        _=DateWorkspace.Date(Day);
+        if(CashSlot<0||DecimalPlaces is <0 or >12||
+            SelectionPolicy is not(OpenEtrm.MarketData.Gas.GasDailyQuantitySelection.BillingPolicy or OpenEtrm.MarketData.Gas.GasDailyQuantitySelection.FacilityBillingPolicy)||
+            BillingProfile is not(OpenEtrm.MarketData.Gas.GasCashBilling.Implementation or OpenEtrm.MarketData.Gas.GasCashBilling.EntryImplementation)||
+            RoundingPolicy!=OpenEtrm.MarketData.Gas.GasCashBilling.RoundingImplementation||ScheduledPolicy!=OpenEtrm.MarketData.Gas.GasBillingReconciliation.ManualScheduled)
+            throw new MarketDataException("lifecycle_schedule_source","Choose explicit qualified daily billing and reconciliation policies.");
+    }
+    internal GasBillingSelection Selection(LifecycleScheduleDefinition definition)=>new(definition.Target.ScopeId,definition.Settings.TradeRevision,
+        CashSlot,Day,SelectionPolicy,BillingProfile,DecimalPlaces,RoundingPolicy);
 }
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
@@ -115,7 +138,7 @@ public static class LifecycleScheduleJobs
         request.Schedule.ValidateSchedule();request.Definition.Validate();
         if(request.Schedule.Operation!=Operation||request.Schedule.TimeoutSeconds>RuntimeSet.MaxReadSeconds||request.Schedule.IntervalSeconds is not null||request.Schedule.ProfileId is not null||request.Schedule.ProfileVersion is not null||
             !TradingInstant.IsSupported(request.Schedule.DueAt)||!TradingInstant.IsSupported(request.Schedule.ExpiresAt)||
-            (request.Definition.Target.Handler,request.Definition.Action) is not(("futures","futures.margin") or("listed_option","option.expiry") or("financial_swap","swap.determine")))throw Invalid();
+            (request.Definition.Target.Handler,request.Definition.Action) is not(("futures","futures.margin") or("listed_option","option.expiry") or("financial_swap","swap.determine") or("gas_billing","gas.bill_daily")))throw Invalid();
         static MarketDataException Invalid()=>new("lifecycle_schedule_source","Choose one exact recorded close and source-derived native occurrence, with an explicit one-off execution schedule.");
     }
 }

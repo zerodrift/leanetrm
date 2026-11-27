@@ -16,8 +16,14 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await click('#gs-keep');await click('#gs-save');
  const draft=await evaluate("document.querySelector('#gs-version').value");
  await check('saving creates a reviewable draft and leaves publication to the approver',"document.querySelector('#gs-status').textContent.includes('Draft saved')&&document.querySelector('#gs-publish').disabled");
+ await set('#gs-tab','paths');
+ const paths=await evaluate("[...document.querySelector('#gs-row').options].map(o=>o.textContent).sort()");
+ await set('#gs-tab','groups');
+ const previewPaths="[...document.querySelectorAll('#gs-preview tbody tr')].map(row=>{const c=[...row.cells].map(cell=>cell.textContent);return c[0]+' / '+c[1]+' / '+c[2]+' · '+c[3];}).sort()";
  await set('#gs-from','2021-01-01');await set('#gs-to','2021-02-01');await click('#gs-validate');
- await check('validation previews shared pricing and meter coverage for each point',"document.querySelector('#gs-validation').textContent.includes('passed')&&document.querySelectorAll('#gs-preview tbody tr').length===5&&document.querySelector('#gs-preview').textContent.includes('local_gas')&&document.querySelector('#gs-preview').textContent.includes('-0.15')");
+ await check('validation previews shared pricing and meter coverage for each configured point',
+  `document.querySelector('#gs-validation').textContent.includes('passed')&&${paths.length}>0&&JSON.stringify(${previewPaths})===${JSON.stringify(JSON.stringify(paths))}&&document.querySelector('#gs-preview').textContent.includes('local_gas')&&document.querySelector('#gs-preview').textContent.includes('-0.15')`,
+  `({validation:document.querySelector('#gs-validation').textContent,paths:${previewPaths}})`);
  await persona('approver');await open();await click(`[data-gas-draft="${draft}"]`);
  await set('#gs-from','2021-01-01');await set('#gs-to','2021-02-01');await click('#gs-validate');
  await check('the approver reviews immutable fields and can publish the validated version',"document.querySelector('#gs-field-adjustment').disabled&&!document.querySelector('#gs-publish').disabled");

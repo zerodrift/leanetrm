@@ -2325,6 +2325,20 @@ var gasStore=new PhysicalGasStore(database);
 api.MapPost("/gas/catalog",(HttpContext c,FuturesReadRequest body)=>FuturesRead(c,body,
  (connection,data,frame,ct)=>gasStore.CatalogRead(connection,data,frame,ct),expectedConvention:PhysicalGasStore.Convention));
 var gasBilling=new GasCashBillingStore(database);
+var gasBillingOperating=new GasBillingOperatingStore(database);
+api.MapPost("/gas/billing/worklist",(HttpContext c,GasBillingWorklistRequest body)=>Locked(c,session=>
+ database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>Results.Ok(await gasBillingOperating.Worklist(connection,body,session.MarketContext,ct)),c.RequestAborted)));
+api.MapPost("/gas/billing/operating-preview",(HttpContext c,GasBillingOperatingPreviewRequest body)=>Locked(c,session=>
+ database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>Results.Ok(await gasBillingOperating.Preview(connection,body,session.MarketContext,ct)),c.RequestAborted)));
+api.MapPost("/gas/billing/enrollment-choices",(HttpContext c,GasBillingOperatingContext body)=>Locked(c,session=>
+ database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>Results.Ok(await GasBillingEnrollmentJobs.Choices(connection,database,body,session.MarketContext,ct)),c.RequestAborted)));
+api.MapPost("/gas/billing/enrollment-preview",(HttpContext c,GasBillingEnrollmentPreview body)=>Locked(c,session=>
+ database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>Results.Ok(await GasBillingEnrollmentJobs.Preview(connection,database,body,session.MarketContext,ct)),c.RequestAborted)));
+api.MapPost("/gas/billing/enroll",(HttpContext c,GasBillingEnrollmentRequest body)=>Locked(c,session=>
+{
+ if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Enroll gas processing in the current workspace.");
+ return database.WithIdentity(Profile(session),"RunJobs",async(connection,ct)=>Results.Ok((await GasBillingEnrollmentJobs.Save(connection,database,body,ct)).Outcome),c.RequestAborted);
+}));
 api.MapPost("/gas/billing/read",(HttpContext c,GasBillingReadRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("gas_billing_context","Supply the selected billing context."),
  (connection,view,ct)=>tradeReads.ReadBound(connection,view,()=>gasBilling.Read(connection,view.CalculationFrame,body,ct),ct),expectedConvention:PhysicalGasStore.Convention));
 api.MapPost("/gas/billing/preview",(HttpContext c,GasBillingPreviewRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("gas_billing_context","Supply the selected billing context."),

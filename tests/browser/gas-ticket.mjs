@@ -7,9 +7,26 @@ const ticketWaitMs=30000;
 export const q=JSON.stringify;
 export const newTicket='#gas-ticket .deal-ticket',bookedTicket='#position-details .deal-ticket[data-mode=booked]';
 
-export async function openBookedSchedules({wait,click}){
- await wait("document.querySelector('#position-details-tabs-schedules')&&!document.querySelector('#position-details').hidden&&"+idle);
- await click('#position-details-tabs-schedules');
+// A refresh may start between debugger evaluations. Check readiness and click
+// together, then require the exact binding and displayed trade before proceeding.
+export async function openBookedPosition({wait},key,milliseconds){
+ const position='#desk-positions [data-row-key="'+key+'"] .desk-reference';
+ await wait(`(()=>{const row=document.querySelector(${q(position)});
+  if(!row?.checkVisibility()||!(${idle}))return false;
+  row.click();return true;
+ })()`,milliseconds);
+ await wait(`(()=>{const row=document.querySelector(${q(position)}),panel=document.querySelector('#position-details');
+  return row?.closest('[data-row-key]')?.getAttribute('aria-current')==='true'&&panel?.checkVisibility()&&
+   panel.querySelector('.side-panel-reference')?.textContent===row.textContent&&(${idle});
+ })()`,milliseconds);
+}
+
+export async function openBookedSchedules({wait},milliseconds){
+ await wait(`(()=>{const tab=document.querySelector('#position-details-tabs-schedules');
+  if(!tab?.checkVisibility()||tab.disabled||document.querySelector('#position-details').hidden||!(${idle}))return false;
+  tab.click();return true;
+ })()`,milliseconds);
+ await wait(idle,milliseconds);
 }
 
 export function gasTicket({evaluate,wait,set},ticket=newTicket){

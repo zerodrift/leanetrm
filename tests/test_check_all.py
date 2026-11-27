@@ -697,7 +697,7 @@ class CheckAllTests(unittest.TestCase):
                            '--gas-transport-financial-ticket','--gas-transport-financial-positions',
                            '--gas-transport-financial-adapters','--gas-transport-financial-labels','--gas-transport-financial-setup',
                            '--point-trader-mark-identity','--point-trader-mark-inputs','--point-trader-mark-commands','--point-trader-mark-receipts',
-                           '--lifecycle-actions','--economic-risk-contract','--lifecycle-schedule-contract','--gas-owned-setup',
+                       '--lifecycle-actions','--economic-risk-contract','--lifecycle-schedule-contract','--gas-billing-operating','--gas-billing-enrollment','--gas-owned-setup',
                           '--shared-native-markets','--derivative-methods','--gas-accepted-order','--lifecycle-residual-currencies','--gas-operator-contract')])
         self.assertTrue(any('--historical-risk-check' in c and '--browser-check' in c for c in commands))
         self.assertTrue(any('--monte-carlo-risk-check' in c and '--with-exchange' in c and '--browser-check' in c for c in commands))

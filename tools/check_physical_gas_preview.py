@@ -5,7 +5,7 @@ from preview_client import PreviewClient, initial_frame
 from preview_fixture import gas_purchase, held_gas_measures
 
 
-def run_checks(url,query=None,manifest=None):
+def run_checks(url,query=None,manifest=None,*,extra_locations=0):
     """A gas purchase of one physical side, its payment and a usage fee: the trade a single-point booking is, entered as its composition."""
     c = PreviewClient(url); c.bootstrap(); c.call('profile', {'profile': 'trader'})
     workspace=c.call('workspace'); frame = initial_frame(workspace,'2020-12-18')
@@ -14,7 +14,7 @@ def run_checks(url,query=None,manifest=None):
     assignment = next(p for p in catalog['locations'] if p['deliveryPoint']=='synthetic_gas_point_a')
     assert assignment['valuation']['group']=='synthetic_gas_group_a', 'Location must disclose its shared valuation group'
     assert assignment['clock']=='test_utc' and 'clock' not in assignment['valuation']
-    assert len(catalog['locations'])==5, 'Each physical path appears once, independently of six forward months'
+    assert len(catalog['locations'])==5+extra_locations, 'Each physical path appears once, independently of six forward months'
     body = gas_purchase(context, catalog)
     preview = lambda b, expected=200: c.call('gas/composition/preview', b, expected=expected)
     pv = lambda b: Decimal(preview(b)['presentValue'])
@@ -77,7 +77,7 @@ def run_checks(url,query=None,manifest=None):
     print('PASS physical gas: PV100 purchase oracle, points, gas days, tariffs, directions, retained booking, idempotency, temporal scope and authority',flush=True)
 
 
-def run_shape_checks(query, manifest):
+def run_shape_checks(query, manifest, *, extra_locations=0):
     """Alter only owned disposable rows inside rolled-back subtransactions."""
     catalog=manifest['catalogId']
     from check_booked_side_programs import runtime_query
@@ -139,7 +139,7 @@ def run_shape_checks(query, manifest):
     # A display-only reference revision must preserve and prove the physical hierarchy.
     reference=manifest['referenceCatalogId'];source=manifest['referenceRevisionId'];draft=str(uuid4())
     runtime_query(query,manifest,f"SELECT security.save_reference_display_edit('{reference}','{source}','{source}','{draft}','locations','synthetic_gas_point_a','{{\"name\":\"Renamed synthetic delivery point\"}}'::jsonb);",profile='editor')
-    assert query(f"SELECT (SELECT count(*) FROM ref_data.pipeline_zones WHERE(catalog_id,revision_id)=('{reference}','{draft}')),(SELECT count(*) FROM ref_data.pipeline_delivery_points WHERE(catalog_id,revision_id)=('{reference}','{draft}')),(SELECT count(*) FROM ref_data.gas_delivery_conventions WHERE(catalog_id,revision_id)=('{reference}','{draft}'));")=='3|6|5', 'Display edits must preserve PZL relationships'
+    assert query(f"SELECT (SELECT count(*) FROM ref_data.pipeline_zones WHERE(catalog_id,revision_id)=('{reference}','{draft}')),(SELECT count(*) FROM ref_data.pipeline_delivery_points WHERE(catalog_id,revision_id)=('{reference}','{draft}')),(SELECT count(*) FROM ref_data.gas_delivery_conventions WHERE(catalog_id,revision_id)=('{reference}','{draft}'));")==f'3|{6+extra_locations}|{5+extra_locations}', 'Display edits must preserve PZL relationships'
     assert query(f"SELECT count(*) FROM ref_data.gas_meter_assignments WHERE(catalog_id,revision_id)=('{reference}','{draft}');")=='4', 'Display edits must retain dated meter bindings'
     # Inject corruption only in the owned disposable draft; normal reference rows cannot be changed.
     query(f"BEGIN; ALTER TABLE ref_data.gas_delivery_conventions DISABLE TRIGGER guard_definition; ALTER TABLE ref_data.pipeline_delivery_points DISABLE TRIGGER guard_definition; DELETE FROM ref_data.gas_delivery_conventions WHERE(catalog_id,revision_id,point_code)=('{reference}','{draft}','synthetic_gas_point_unpriced'); DELETE FROM ref_data.pipeline_delivery_points WHERE(catalog_id,revision_id,point_code)=('{reference}','{draft}','synthetic_gas_point_unpriced'); ALTER TABLE ref_data.pipeline_delivery_points ENABLE TRIGGER guard_definition; ALTER TABLE ref_data.gas_delivery_conventions ENABLE TRIGGER guard_definition; COMMIT;")

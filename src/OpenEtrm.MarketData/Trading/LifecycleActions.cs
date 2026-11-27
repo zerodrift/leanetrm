@@ -26,7 +26,7 @@ public static class LifecycleActionCatalog
 {
     public static void RequireAutomatic(string action)
     {
-        if(action is not ("option.expiry" or "swap.determine" or "futures.margin"))
+        if(action is not ("option.expiry" or "swap.determine" or "futures.margin" or "gas.bill_daily"))
             throw new MarketDataException("lifecycle_automation_unsupported","This product action requires explicit operator evidence or instruction.");
     }
 }

@@ -1,5 +1,147 @@
 # Local verification and continuous integration
 
+## Daily gas billing and processing (D459)
+
+Initial qualification used synthetic contracts, this tree's API and disposable
+stock PostgreSQL databases over Swing baseline `ea9e8eb4`. Tools were .NET SDK
+10.0.402, Python 3.13.7, Node 24.22.0 and Chrome on macOS arm64. The initial
+results and measurements below establish local capability, not production
+throughput or deployment qualification.
+
+The initial managed group passed 86 runner workloads. The complete frontend suite
+passed 2,403 tests with no failures or skips; the Python suite passed 187 tests. Focused
+native/API checks pass daily entry billing, explicit processing clocks, shared
+`gas.bill_daily` actions and recurring scope processing. Fresh installation and
+guarded migration checks cover 0406, 0407, 0408 and 0410, including changed native
+definitions, owners, privileges and configuration. Migration 0409 adds the
+bounded readers without replacing predecessor functions.
+
+A populated `ea9e8eb4` billing fixture also passes the complete migration chain.
+Its three determinations and eight command receipts retain every original column
+after each migration. All seven receipts owned by the ordinary trader replay
+through determine and status with their original outcomes; claims and history
+remain unchanged and no duplicate financial or command rows are created.
+A second populated baseline preserves eight jobs, eight profiles, eight runs,
+ten creation receipts, 24 admissions and four manual/review/automatic results
+after each migration. All ten creation requests and four retained result reports
+replay unchanged under fresh ordinary trader authority, without additional rows.
+
+Independent cash oracles cover share 0.4 on 80 at 2.25 = 72, band 30–70 = 90,
+shortfall below 100 = 45, a payable correction from 72 to 54 = credit 18,
+and half-even totals 1.005 → 1.00 and 1.015 → 1.02. Quantity thresholds,
+held basis, shares and quote multipliers apply once. Tests preserve the old
+profile, exact original receipts, concurrent correction identity and historical
+views. Missing scheduled evidence differs from explicit zero; only a complete
+reconciliation match permits an automatic original. Covered exercise and Swing
+payments refuse ordinary billing, while disjoint payments remain eligible.
+
+Native scheduler checks reject unrelated discovery writes, forged assessments,
+cross-scope sources and financial publication without a terminal result.
+Two claimers admit one run. Continuations and children retain the first cut;
+later scans revisit late old-day evidence and expose corrections for review.
+Tests cover paused/blocked owner quota, retained backpressure, versioned scope
+updates, superseded child cancellation, recurring phase and distinct bill counts
+after child replay. Native billing reads also retain exact booked terms after the
+original setup period has ended.
+
+The full native automation workload passes. Shared futures margin, scheduled
+option expiry, swap determination and swap economic replay also pass with
+unchanged financial deadlines. An independent
+baseline/candidate comparison completes the five futures lifecycle cases in
+11.30–22.37 seconds on the candidate, against 11.35–21.19 seconds on the baseline,
+under their existing 30-second limit. Native/API Swing and facility-gas regressions
+pass. A separate gas-basis browser workload times out at its initial ten-second
+Blotter wait on both the committed baseline and candidate; that workload is not
+claimed as passing here.
+
+The selected billing metadata workload passes all four custom/generic-plan and
+fresh/analyzed-growth comparisons under its independent five-second SQL command
+budget. Adding 512 unrelated curves preserves the exact certified result and row
+order. Fresh-growth metadata tuples are 4,650 → 5,162, entirely accounted for by
+the extra curve rows. After analysis, totals are 10,175 → 10,163 for custom plans
+and 9,835 → 9,823 for generic plans. These are measured native tuple counts for
+that fixture, not general latency or throughput promises.
+
+Independent adversarial review covered arithmetic, source selection, historical
+cuts, current authority, async execution, recovery and migration boundaries.
+Its findings were resolved with failing-then-passing regressions, including
+timezone review invalidation, distinguishable policy choices and replay-safe
+determination counts. No material review finding remains deferred.
+
+The combined commercial billing browser workflow passes 27 checks, including
+original/correction recovery, edit guards and eight Jobs checks: explicit policy selection,
+visible old-day corrections, retained uncertain enrollment, exact retry, pause,
+separate assessment/bill results, and desktop/narrow viewport containment.
+The runner's subsequent general physical-gas entry workload times out at its
+30-second Blotter pricing wait, so the aggregate browser command is not fully
+passing. This remains a release check alongside the baseline gas-basis timeout
+above. Financial deadlines were not extended; the billing browser allows context
+refreshes to settle within their existing calculation budget.
+
+Reconciliation checks preserve an explicitly supplied 25-hour interval. The
+current gas booking profile itself requires fixed-offset delivery clocks;
+daylight-saving booking and recurring-calendar behavior are not qualified by
+that managed interval check.
+
+With the pinned tools selected, focused integration is reproducible from the
+repository root:
+
+```bash
+python3 tools/run_preview.py --pg-bin "$PG_BIN" --dotnet "$DOTNET" --gas-billing-check --browser-check --browser "$BROWSER"
+python3 tools/check_automation.py --pg-bin "$PG_BIN" --dotnet "$DOTNET"
+```
+
+The measured discovery workload uses one small book and 120 distinct contracts
+with 120 distinct instrument bindings, 31 gas days and two payments each.
+The larger scope contains 7,290 quantity facts: 3,720 scheduled and 3,570 final.
+It assesses 7,440 daily cash/reconciliation candidates with zero PV scenarios,
+yielding 7,140 ready items and 300 waiting for final evidence. Each page retains
+the first page's exact input cut and no occurrence appears twice.
+
+| Workload | Candidates | Pages | Elapsed | Median page | Maximum page | Observed API RSS |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 contract × 2 days × 2 payments | 4 | 1 | 0.749 s | 0.742 s | 0.742 s | 354.6 MiB |
+| 120 contracts × 31 days × 2 payments | 7,440 | 930 | 760.867 s | 0.781 s | 2.995 s | 364.6 MiB |
+
+This run used stock PostgreSQL 18.1 on an M4 Pro with 14 logical CPUs and
+macOS 26.6.2. Fixture setup is excluded. The API and database were warm, and other
+isolated qualification processes were running on the host. PostgreSQL's
+asynchronously published counters observed 929 page-reader calls totaling
+276.15 seconds, 1,019 input-reader calls totaling 164.63 seconds, and 1,019
+component-reader calls totaling 36.40 seconds. Those counters can lag the final
+request; their nested times are not a complete database wall-time measurement.
+The largest response was 16,995 bytes. RSS was sampled from the API process;
+the managed platform's worker peak-memory counter was unavailable.
+
+Execution was measured separately: one discovery run and four original financial
+children completed in 30.390 seconds, including five check-process startups.
+Managed discovery took 8.836 seconds; individual financial processing took
+4.569–4.686 seconds. A separate maximum-sized page assessed eight occurrences
+and dispatched four children in 8.860 managed seconds under the existing
+30-second deadline. That sample's children were cancelled without executing;
+it does not establish execution throughput for all 7,440 candidates. An old-day
+final revision from 100 to 98 was reassessed in 0.385 seconds and exposed the
+expected −294 payment and reconciliation difference.
+
+Run the synthetic workload with `tools/run_preview.py --gas-billing-benchmark`
+and the same `--pg-bin` and `--dotnet` arguments. Its output identifies discovery,
+actual execution, database counters, memory availability and environment
+separately. Larger books, sustained worker throughput and production operating
+capacity remain unqualified.
+
+Integration with merged Swing baseline `6a09aeda` was then qualified using the
+same pinned tools. Both managed check projects built without warnings. Nine
+managed workloads passed, including 811 core checks, 238 gas-ticket checks,
+billing operating/enrollment contracts and shared lifecycle/automation checks.
+The full frontend suite passed 2,412 tests with zero skips; all 202 Python tests
+passed. Fresh billing migration guards, native/API billing and recurring scope
+checks, and all 27 commercial billing browser checks passed. The subsequent
+general physical-gas workload still timed out at the same 30-second Blotter
+pricing wait with SQL cancellation, so the aggregate browser gate remains open.
+All five billing migrations are unchanged from the earlier reviewed packet.
+Independent integration review confirmed that Swing's final commit checks retain
+billing receipt/scan/child seals and discovery-worker write restrictions.
+
 ## Daily gas quantity rights (D457)
 
 Synthetic checks use an isolated stock PostgreSQL 18.7 server, .NET SDK

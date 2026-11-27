@@ -1,5 +1,14 @@
 # Architecture and domain contracts
 
+D459 adds [daily gas entry billing and scoped processing](gas-cash-billing.md).
+An explicit successor profile uses retained shares, daily quantity parts and
+payment dates. Reconciliation compares exact contract, schedule and final facts;
+automatic originals require a complete match. Gas-native lifecycle sources carry
+their own processing clock, without a financial close. Versioned book/date scopes
+reassess in bounded pages under one occurrence-owned cut, dispatching existing
+one-off lifecycle jobs. Discovery has no quantity or financial write authority.
+Corrections remain reviewed; invoice and accounting consumers remain separate.
+
 D457 binds daily quantity rights to retained gas Instrument memberships. A
 commercial election reserves the binding's exact native quantity under the
 selected monthly or term constraints. Concrete Sides price their own quantities
