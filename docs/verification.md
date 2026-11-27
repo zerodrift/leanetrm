@@ -110,7 +110,8 @@ following, each resolved as stated.
   the result. The probe passes.
 - The structured trading browser scenario switched demo users without
   selecting its close again. It now selects it after switching back to the
-  Trader. This was changed by reading; the scenario has not been run.
+  Trader. This was changed by reading. The scenario first ran in the CI run
+  described below, and passed.
 - D460 omitted two consequences. The assistant's own trade read is refused over
   a scope that holds a park and loan agreement. A custody agreement in a book
   refuses that book's Blotter and position reads to every role without
@@ -141,15 +142,36 @@ No command failed, and every command printed as many passed lines as before.
 The repository group and the repository's Python unit checks, now 211, pass on
 arm64 macOS.
 
+CI then ran all twenty groups on that tree, the first run of any browser suite
+on this change. Nineteen passed, among them the frontend group and the groups
+that run the structured trading scenario this change edits and the cash
+lifecycle valuation browser check. The gas group stopped in the swing browser
+suite, which timed out while a booked schedule opened. Without this change,
+master's own run on the same base stopped at the same line, and its run on the
+billing change stopped in the same suite at another step. The five gas
+commands after the swing suite did not run.
+
+The daily gas billing change (D459) then reached master with migrations 0406
+to 0410, so this change's migration became 0411 and its decision D460. With
+master brought in again, the same seven groups and the gas group, which holds
+the billing preview check, were run again in the same way, 190 commands. 151
+passed as written, the 21 preview commands that end in a browser suite passed
+without it, and the 18 helpers that need a browser passed their native part
+and stopped where their browser must start. No command failed. Every command
+printed as many passed lines as in its group's last run, except the billing
+preview check, which the billing change extended from 97 lines to 114. The
+repository group and the 211 Python unit checks pass on arm64 macOS.
+
 Not run or not covered:
 
-- No browser suite ran. Chrome's sandbox does not start in these containers,
-  and it was not relaxed. This includes the structured trading scenario this
-  change edits and the cash lifecycle valuation browser check. CI runs them.
-- The frontend group.
-- After the hosted capacity change was brought in: the managed, database,
-  workspace, reference, exchange, assistant, risk, trading, gas, ppa and
-  recovery groups. They ran before it.
+- No browser suite ran in these containers. Chrome's sandbox does not start in
+  them, and it was not relaxed. CI ran them once, on the hosted capacity base,
+  as described above. No browser suite has run with the billing change brought
+  in, and the gas commands after the swing suite have never run with theirs.
+- The frontend group, outside that CI run.
+- After the billing change was brought in: the managed, database, workspace,
+  reference, exchange, assistant, risk, trading, ppa and recovery groups. They
+  ran before the hosted capacity change and in that CI run.
 - The park custody routes and `/lifecycle/execute` have no route assertion of
   their own. Holder sets pin who can use custody, and recording is asserted on
   a route that passes the same native gate.
