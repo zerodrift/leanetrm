@@ -7,6 +7,16 @@ import {aiTabs} from './agent-settings.js';
 // Product bookings, from the Blotter's new trade panel and its positions; the setup pages, from the Reference Data console's menu.
 // Reference Data's entry is the list of its console's areas (console-menu.ts).
 export type NavigationGroup={id:'overview'|'trading'|'markets'|'risk'|'scheduling'|'reference'|'administration';label:string;pages:readonly string[];opened?:readonly string[]};
+// Scheduling's entries by desk, each in the order its work is done. The sidebar shows one desk at a time (scheduling-desks.ts).
+// Trade deliveries is one page listed by three desks; it reads the trades of the desk shown.
+export type DeskId='gas'|'power'|'crude'|'lng';
+export type Desk={id:DeskId;label:string;pages:readonly string[]};
+export const schedulingDesks:readonly Desk[]=[
+ {id:'gas',label:'Gas',pages:['facilities-position','physical-operations','facilities-transport','facilities']},
+ {id:'power',label:'Power',pages:['rec-inventory']},
+ {id:'crude',label:'Crude',pages:['physical-operations','facilities-crude']},
+ {id:'lng',label:'LNG',pages:['physical-operations']},
+];
 export const navigationGroups:readonly NavigationGroup[]=[
  {id:'overview',label:'Overview',pages:['dashboard']},
  {id:'trading',label:'Trading',pages:['new-trade','futures','options','lifecycle','physical-power'],opened:['ppa','gas','crude']},
