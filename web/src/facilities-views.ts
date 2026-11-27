@@ -26,16 +26,18 @@ export const facilityViewAvailable=(view:FacilityView,has:(...rights:string[])=>
 
 // Navigation only: the sidebar's Facilities entries. An entry is marked while Facilities shows a section of its view, whichever
 // route opened that section. From another page an entry opens Facilities through the existing guards and takes effect once the
-// page has moved. `open` and `choose` settle when their navigation has finished or been refused; a refused leave changes nothing
-// and leaves no chosen view behind. Arriving without a chosen entry shows the view `fallback` names, if any.
-export function setupFacilityViews(o:{view:()=>FacilityView;choose:(view:FacilityView)=>Promise<void>|void;prepare:(view:FacilityView)=>void;open:()=>Promise<void>|void;onPage:()=>boolean;busy:()=>boolean;available:(view:FacilityView)=>boolean;fallback:()=>FacilityView|undefined}){
+// page has moved: `open` calls `arrive` as its navigation moves the page, and only then is the view chosen, so a question still
+// open for another entry cannot take it. `open` and `choose` settle when their navigation has finished or been refused; a refused
+// leave changes nothing. Arriving without a chosen entry shows the view `fallback` names, if any.
+export function setupFacilityViews(o:{view:()=>FacilityView;choose:(view:FacilityView)=>Promise<void>|void;prepare:(view:FacilityView)=>void;open:(arrive:()=>void)=>Promise<void>|void;onPage:()=>boolean;busy:()=>boolean;available:(view:FacilityView)=>boolean;fallback:()=>FacilityView|undefined}){
  const button=(view:FacilityView)=>document.getElementById('nav-'+view) as HTMLButtonElement;
  let wanted:FacilityView|undefined,shown=false;
  function sync(){for(const view of facilityViews){button(view).disabled=o.busy();button(view).classList.toggle('active',shown&&view===o.view());}}
- async function open(view:FacilityView){
+ // `arrive` is a caller's own step at the same moment, such as the desk that lists the entry.
+ async function open(view:FacilityView,arrive?:()=>void){
   if(o.busy()||!o.available(view))return;
   if(o.onPage()){if(view!==o.view())await o.choose(view);return;}
-  wanted=view;try{await o.open();}finally{if(wanted===view)wanted=undefined;}
+  try{await o.open(()=>{wanted=view;arrive?.();});}finally{if(wanted===view)wanted=undefined;}
  }
  for(const view of facilityViews)button(view).onclick=()=>void open(view);
  return {sync,open,

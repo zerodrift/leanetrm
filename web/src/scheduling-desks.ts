@@ -12,9 +12,11 @@ export function deskFor(entry:string,current:DeskId|null,permissions:string[]):D
 }
 
 // Navigation only: which desk's entries the Scheduling group lists. Choosing a desk opens its first entry through that entry's own
-// guards and takes effect once the page has moved. `open` settles when that navigation has finished or been refused; a refused
-// leave changes nothing and leaves no chosen desk behind. Only the desk's identifier is remembered, per tab, workspace and account.
-export function setupSchedulingDesks(o:{permissions:()=>string[];owner:()=>string;storage:()=>DeskStorage;open:(entry:string)=>Promise<void>|void;busy:()=>boolean}){
+// guards and takes effect once the page has moved: `open` calls `arrive` as its navigation moves the page, and only then is the desk
+// chosen, so a question still open for another desk cannot take it. `open` settles when that navigation has finished or been
+// refused; a refused leave changes nothing. `may` lets the app hold a desk back. Only the desk's identifier is remembered, per tab,
+// workspace and account.
+export function setupSchedulingDesks(o:{permissions:()=>string[];owner:()=>string;storage:()=>DeskStorage;open:(entry:string,arrive:()=>void)=>Promise<void>|void;may:(desk:DeskId,entry:string)=>boolean;busy:()=>boolean}){
  const root=document.getElementById('scheduling-desks')!,entries=[...new Set(schedulingDesks.flatMap(desk=>desk.pages))];
  let desk:DeskId|null=null,wanted:DeskId|undefined;
  function draw(){
@@ -30,8 +32,8 @@ export function setupSchedulingDesks(o:{permissions:()=>string[];owner:()=>strin
  }
  async function choose(d:Desk){
   if(o.busy()||d.id===desk)return;
-  const first=d.pages.find(page=>pageAvailable(page,o.permissions()));if(first===undefined)return;
-  wanted=d.id;try{await o.open(first);}finally{if(wanted===d.id)wanted=undefined;}
+  const first=d.pages.find(page=>pageAvailable(page,o.permissions()));if(first===undefined||!o.may(d.id,first))return;
+  try{await o.open(first,()=>{wanted=d.id;});}finally{if(wanted===d.id)wanted=undefined;}
  }
  function set(next:DeskId|null){
   if(next===null||next===desk)return;

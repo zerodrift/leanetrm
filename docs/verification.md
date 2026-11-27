@@ -7,7 +7,7 @@ Python 3.13, Node 24.22.3 and Chrome for Testing 158 as the browser. Node is a
 patch ahead of the pinned 24.22.0. The complete `tools/check_all.py` was not
 run.
 
-- `npm test` in `web`, with browser tests: 2,427 of 2,437 pass. The ten
+- `npm test` in `web`, with browser tests: 2,434 of 2,444 pass. The ten
   failures are the typed day quantity tests of `deal-ticket-browser.test.mjs`.
   They fail identically on the commit before this change with this browser and
   touch no changed code.
@@ -20,7 +20,8 @@ run.
   pass, opening Trade deliveries on the Crude desk.
 - `--structured-power-check --browser-check`: 16 structured-power and 19
   structured-trading browser checks pass. This run preceded the review fixes
-  below and was not repeated after them.
+  below and was not repeated after them. The frontend, gas and crude runs above
+  are from after both reviews.
 
 An independent static review of the change examined access, leave guards,
 state and the backend read. It found no account able to reach more or less than
@@ -30,6 +31,13 @@ unconfirmed facility definition reopening on Physical activity; walkthrough
 steps failing to find an entry of another desk; reload moving to another desk;
 and the title of a hidden page being rewritten after access ends. The section
 permission rules now have one definition used by the tabs and the sidebar.
+
+A second review of the merged branch reproduced three defects in a browser,
+each fixed here with a failing test first: an unconfirmed physical request did
+not keep Trade deliveries on its desk; an account reading trades alone was sent
+from Storage & allocations to the Crude desk; and a second desk chosen while a
+leave question was open cost the first choice its desk. The second was also
+confirmed in the running application as the preview's trader profile.
 
 Not verified here: a person's check of the layout at phone width and with the
 sidebar collapsed, where the switcher is not drawn; the remaining browser and

@@ -8126,7 +8126,11 @@ request without a desk still refuses in that case.
 
 Moving between entries, sections or desks goes through the existing leave guard
 of what is left. A desk chosen in the switcher takes effect once the page has
-moved, and a refused leave leaves no chosen desk or view behind. On reload the
+moved: the desk or view is set by the navigation that moves the page, so a
+question still open for another choice cannot take it, and a refused leave
+leaves nothing behind. While a physical request is unconfirmed, Trade deliveries
+stays on that request's desk until it is checked or retried. A section the
+account may not open gives way to another tab of the same view. On reload the
 desk is restored and Facilities opens on a view of that desk. A walkthrough step
 that goes to an entry of another desk points at that desk's control. With the
 sidebar collapsed the switcher is not drawn; expand it to change desk.

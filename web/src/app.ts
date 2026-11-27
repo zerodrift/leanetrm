@@ -437,7 +437,7 @@ async function setPage(next:string){
   $('page-title').title=$('page-title').textContent??'';
   for(const name of ['lifecycle','physical-operations','physical-power','rec-inventory','dashboard','delivery','interval-series','curve-marks','vol-surfaces','options','admin','ai','jobs'])$('nav-'+name).classList.toggle('active',next===name);
   const inConsole=pageGroup(next)==='Reference Data';
-  riskViewsNav.page(next);facilityViewsNav.page(next);desks.page(schedulingEntry()??next);deliverySetup.show(next);curveWorkspace.show(next);referenceConsole.show(next,next==='reference'?referenceTable||undefined:undefined,pageView(next));
+  riskViewsNav.page(next);facilityViewsNav.page(next);if(next==='physical-operations'){const held=physicalOperations.pendingDesk();if(held)desks.want(held);}desks.page(schedulingEntry()??next);deliverySetup.show(next);curveWorkspace.show(next);referenceConsole.show(next,next==='reference'?referenceTable||undefined:undefined,pageView(next));
   // Curve builder has the title for its curve.
   $('page-title').classList.toggle('sr-only',next==='custom-curves');$('page-heading-slot').hidden=next!=='custom-curves';
 
@@ -1794,15 +1794,18 @@ $('nav-new-trade').onclick=()=>{
   },contextDirty?'discards':'page');
 };
 const readsContext=['rec-inventory','physical-power','lifecycle','physical-operations','crude-setup','gas-setup','gas','crude','dashboard','market','curve-definitions','custom-curves','vol-surfaces','curve-marks','options','delivery','interval-curves','power','reference','configuration','schedules','parties','futures'];
-const navigate=(next:string)=>()=>leaving(async()=>{if(contextDirty&&readsContext.includes(next))await applyContext();await showPage(next);},contextDirty&&readsContext.includes(next)?'discards':'page');
+// `arrive` runs as the move begins, after its leave question is answered: a view or desk chosen with the move is set there.
+const navigate=(next:string,arrive?:()=>void)=>()=>leaving(async()=>{if(contextDirty&&readsContext.includes(next))await applyContext();arrive?.();await showPage(next);},contextDirty&&readsContext.includes(next)?'discards':'page');
 const riskViewsNav=setupRiskViews({show:view=>{riskJobs.showView(view);text('page-title',riskViewNames[view]);$('page-title').title=riskViewNames[view];syncControls();},open:()=>navigate('risk')(),onPage:()=>page==='risk',busy:()=>busy,available:()=>pageAvailable('risk',permissions)});
-const facilityViewsNav=setupFacilityViews({view:()=>facilities.view(),choose:view=>facilities.chooseView(view),prepare:view=>facilities.prepareView(view),open:()=>navigate('facilities')(),onPage:()=>page==='facilities',busy:()=>busy,
+const facilityViewsNav=setupFacilityViews({view:()=>facilities.view(),choose:view=>facilities.chooseView(view),prepare:view=>facilities.prepareView(view),open:arrive=>navigate('facilities',arrive)(),onPage:()=>page==='facilities',busy:()=>busy,
  available:view=>pageAvailable(view,permissions)&&facilities.viewAvailable(view),
  // Arriving without a chosen entry, such as on reload: a view of the desk shown, when the shown section is not one of that desk's.
  fallback:()=>{const desk=schedulingDesks.find(d=>d.id===desks.current());return desk&&!desk.pages.includes(facilities.view())?facilityViews.find(view=>desk.pages.includes(view)&&facilities.viewAvailable(view)):undefined;}});
 // The Scheduling entry the app shows, or null on a page outside Scheduling or while that page is not shown, as after access ends.
 const schedulingEntry=()=>(page==='facilities'||page==='physical-operations'||page==='rec-inventory')&&!$(page+'-page').hidden?page==='facilities'?facilities.view():page:null;
-const desks=setupSchedulingDesks({permissions:()=>permissions,owner:()=>administrationScope+':'+exampleId+':'+currentProfile,storage:()=>sessionStorage,open:entry=>isFacilityView(entry)?facilityViewsNav.open(entry):navigate(entry)(),busy:()=>busy});
+const desks=setupSchedulingDesks({permissions:()=>permissions,owner:()=>administrationScope+':'+exampleId+':'+currentProfile,storage:()=>sessionStorage,open:(entry,arrive)=>isFacilityView(entry)?facilityViewsNav.open(entry,arrive):navigate(entry,arrive)(),busy:()=>busy,
+ // An unconfirmed physical request keeps Trade deliveries on its own desk until it is checked or retried.
+ may:(desk,entry)=>{const held=entry==='physical-operations'?physicalOperations.pendingDesk():null;if(held===null||held===desk)return true;notice('Check or retry the retained physical request before opening another desk’s deliveries.');return false;}});
 // Trade deliveries is Cargoes on the LNG desk. The eyebrow names the desk beside the group.
 const deliveriesName=()=>desks.current()==='lng'?'Cargoes':'Trade deliveries';
 function syncScheduling(){

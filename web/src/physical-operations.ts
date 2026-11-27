@@ -116,5 +116,8 @@ export function setupPhysicalOperations(root:HTMLElement,o:{api:Api;act:(work:()
  return{load:()=>load(),async open(target:PhysicalDeliveryTarget){
   if(!target||!target.tradeId||!target.bindingId||!Number.isSafeInteger(target.revision)||target.revision<1||!['physical_gas','physical_crude'].includes(target.instrumentType)||target.tab!=='delivery')throw Error('Choose an exact supported native delivery target.');
   if(await leave())await load(cloneRead(target));
- },sync,leave,edited:()=>edited()||!!pending.command,selected:()=>selected,shown,reset(){generation++;reading=false;asking?.abort();asking=undefined;clearWidgets();positions=[];selected=undefined;tab='overview';pending.clear();identity='';clearGrid();filters=undefined;clearInstrument();message.textContent='';},async refresh(){if(await leave())await load();}};
+ },sync,leave,
+  // The desk whose deliveries an unconfirmed request belongs to. Its status and retry controls are shown with that desk's trades only.
+  pendingDesk:():'gas'|'crude'|null=>{restore();const path=pending.command?.path;if(path===undefined)return null;if(isCrudeOperation(path))return 'crude';if(path.startsWith('gas/'))return 'gas';throw Error('The retained physical request belongs to no desk.');},
+  edited:()=>edited()||!!pending.command,selected:()=>selected,shown,reset(){generation++;reading=false;asking?.abort();asking=undefined;clearWidgets();positions=[];selected=undefined;tab='overview';pending.clear();identity='';clearGrid();filters=undefined;clearInstrument();message.textContent='';},async refresh(){if(await leave())await load();}};
 }

@@ -156,3 +156,28 @@ test('Facilities shows the tabs of the view its section belongs to',{skip:!brows
  assert.equal(await evaluate("workspace.viewAvailable('facilities-crude')"),true);
  assert.deepEqual(await evaluate('errors'),[]);
 }));
+
+test('a reader of trades alone opens Storage & allocations on a tab of that view',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(markup,async evaluate=>{
+ await evaluate(`(async()=>{
+  window.rights=[];
+  const api=async path=>{throw Error('Synthetic unread '+path);};
+  window.workspace=(await import('/facilities-workspace.js')).setupFacilities({api,act:async work=>{try{await work();}catch{}},busy:()=>false,zone:()=> 'UTC',identity:()=> 'synthetic-reader',context:()=>({effectiveOn:'2032-03-14',knowledgeMode:'current',retained:null,convention:'facility_business_date_end_utc_v1'}),permission:name=>rights.includes(name),changed(){},tradeInspection:()=>null,openTrade:async()=>{}});
+  rights=['ReadMarketData','ReadTrades'];
+  workspace.prepareView('facilities');await workspace.load().catch(()=>{});
+ })()`);
+ assert.equal(await evaluate('workspace.view()'),'facilities');
+ assert.equal(await evaluate('workspace.section()'),'trades');
+}));
+
+test('a section the account may not open gives way to another tab of the same view',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(markup,async evaluate=>{
+ await evaluate(`(async()=>{
+  window.rights=[];
+  const api=async path=>{throw Error('Synthetic unread '+path);};
+  window.workspace=(await import('/facilities-workspace.js')).setupFacilities({api,act:async work=>{try{await work();}catch{}},busy:()=>false,zone:()=> 'UTC',identity:()=> 'synthetic-reader',context:()=>({effectiveOn:'2032-03-14',knowledgeMode:'current',retained:null,convention:'facility_business_date_end_utc_v1'}),permission:name=>rights.includes(name),changed(){},tradeInspection:()=>null,openTrade:async()=>{}});
+  rights=['ReadMarketData','ReadTrades'];
+  await workspace.load().catch(()=>{});window.loaded=workspace.section();
+  rights=[];workspace.reset();rights=['ReadMarketData','ReadTrades'];workspace.reset();
+ })()`);
+ assert.equal(await evaluate('loaded'),'trades','reload keeps Storage & allocations for a reader of trades alone');
+ assert.equal(await evaluate('workspace.section()'),'trades');
+}));

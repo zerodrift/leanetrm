@@ -4,8 +4,8 @@ import {withBrowserPage,browserAvailable,browserTestTimeout} from './browser-pag
 
 const entries=['facilities-position','physical-operations','facilities-transport','facilities','facilities-crude','rec-inventory'];
 const html='<div id="scheduling-desks" hidden></div>'+entries.map(entry=>`<button id="nav-${entry}">${entry}</button>`).join('');
-const setup=`(async()=>{window.opened=[];window.blocked=false;window.rights=['ReadMarketData','ReadTrades','ReadGasOperations'];window.saved={};
- window.desks=(await import('/scheduling-desks.js')).setupSchedulingDesks({permissions:()=>rights,owner:()=>'synthetic-owner',storage:()=>({getItem:key=>saved[key]??null,setItem:(key,value)=>{saved[key]=value;}}),open:entry=>{opened.push(entry);return new Promise(resolve=>{window.settle=resolve;});},busy:()=>blocked});
+const setup=`(async()=>{window.opened=[];window.calls=[];window.refused=[];window.blocked=false;window.rights=['ReadMarketData','ReadTrades','ReadGasOperations'];window.saved={};
+ window.desks=(await import('/scheduling-desks.js')).setupSchedulingDesks({permissions:()=>rights,owner:()=>'synthetic-owner',storage:()=>({getItem:key=>saved[key]??null,setItem:(key,value)=>{saved[key]=value;}}),open:(entry,arrive)=>{opened.push(entry);return new Promise(resolve=>{calls.push({arrive,settle:resolve});});},may:desk=>!refused.includes(desk),busy:()=>blocked});
  window.listed=()=>[...document.querySelectorAll('[id^=nav-]')].filter(b=>!b.hidden).map(b=>b.id.slice(4));
  window.pressed=()=>[...document.querySelectorAll('#scheduling-desks button')].filter(b=>b.getAttribute('aria-pressed')==='true').map(b=>b.textContent);})()`;
 const browser={skip:!browserAvailable,timeout:browserTestTimeout};
@@ -22,7 +22,7 @@ test('choosing a desk opens its first entry and changes desk only when the page 
  await evaluate(setup);await evaluate("desks.start();desks.page('physical-operations');document.querySelector('#scheduling-desk-crude').click()");
  assert.deepEqual(await evaluate('opened'),['physical-operations']);
  assert.equal(await evaluate('desks.current()'),'gas','a refused leave changes nothing');
- await evaluate("desks.page('physical-operations')");
+ await evaluate("calls[0].arrive();desks.page('physical-operations')");
  assert.equal(await evaluate('desks.current()'),'crude');
  assert.deepEqual(await evaluate('pressed()'),['Crude']);
  assert.deepEqual(await evaluate('listed()'),['physical-operations','facilities-crude']);
@@ -30,10 +30,22 @@ test('choosing a desk opens its first entry and changes desk only when the page 
 }));
 test('a refused leave leaves no desk behind for a later navigation',browser,()=>withBrowserPage(html,async evaluate=>{
  await evaluate(setup);await evaluate("desks.start();desks.page('physical-operations');document.querySelector('#scheduling-desk-crude').click()");
- await evaluate("settle();new Promise(resolve=>setTimeout(resolve,0))");
+ await evaluate("calls[0].settle();new Promise(resolve=>setTimeout(resolve,0))");
  await evaluate("desks.page('physical-operations')");
  assert.equal(await evaluate('desks.current()'),'gas');
  assert.deepEqual(await evaluate('pressed()'),['Gas']);
+}));
+test('a second choice made while the first still asks does not take the first one\'s desk',browser,()=>withBrowserPage(html,async evaluate=>{
+ await evaluate(setup);await evaluate("desks.start();desks.page('physical-operations');document.querySelector('#scheduling-desk-crude').click();document.querySelector('#scheduling-desk-lng').click()");
+ assert.deepEqual(await evaluate('opened'),['physical-operations','physical-operations']);
+ await evaluate("calls[1].settle();new Promise(resolve=>setTimeout(resolve,0))");
+ await evaluate("calls[0].arrive();desks.page('physical-operations')");
+ assert.equal(await evaluate('desks.current()'),'crude','the navigation that moved the page carries its own desk');
+}));
+test('a desk the app holds back is not opened',browser,()=>withBrowserPage(html,async evaluate=>{
+ await evaluate(setup);await evaluate("desks.start();refused=['crude'];document.querySelector('#scheduling-desk-crude').click();document.querySelector('#scheduling-desk-power').click()");
+ assert.deepEqual(await evaluate('opened'),['rec-inventory']);
+ assert.equal(await evaluate('desks.current()'),'gas');
 }));
 test('an entry on another desk is reached through that desk\'s control',browser,()=>withBrowserPage(html,async evaluate=>{
  await evaluate(setup);await evaluate('desks.start()');
