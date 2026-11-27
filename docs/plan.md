@@ -1,5 +1,15 @@
 # Delivery plan and acceptance criteria
 
+D461 implements [final daily billing of gas payments on a named index](gas-cash-billing.md#indexed-profile-d461):
+one reviewed determination for each payment and gas day from the final accepted
+quantity and the final published fixing plus the booked spread, with the fixing
+retained by foreign key and a corrected fixing billed under its own cause. The
+fixing is selected by knowledge cutoff, without a market close. Qualification is
+recorded in [verification](verification.md#indexed-gas-billing-d461).
+Point-publication pricing, a monthly bill or invoice, automatic indexed billing,
+right-dependent payments, a list of billed days whose fixing was later corrected
+and reconciliation with accrued value remain separate.
+
 D459 implements [daily gas entry billing and scoped processing](gas-cash-billing.md):
 retained shares, daily bands/shortfalls and payment dates; exact reconciliation;
 gas-native one-off lifecycle work; and bounded recurring book/date assessment

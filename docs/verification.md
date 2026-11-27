@@ -1,5 +1,75 @@
 # Local verification and continuous integration
 
+## Indexed gas billing (D461)
+
+Run on 27 November 2026 in a Linux container limited to four processors, with
+.NET SDK 10.0.402, stock PostgreSQL 18.7, Node 24.22 and headless Chromium. All
+data is synthetic. These are local results, not accounting compliance or
+production activation.
+
+| Check | Result |
+| --- | --- |
+| `dotnet run --project tests/OpenEtrm.MarketData.Checks -- --gas-cash-billing` | Passed: the design's worked examples, by hand-computed amounts |
+| `tools/run_preview.py --check --gas-pricing-check` | Passed: 100 printed checks, including the indexed billing check and migration 0412's guard |
+| `tools/run_preview.py --check --gas-billing-check` | Passed: 116 printed checks; fixed and entry billing unchanged, and migration 0412's guard |
+| `tools/check_all.py --group repository` | Passed |
+| `tools/check_all.py --group managed` | Passed, 2,954 printed checks, before the review corrections below |
+| `tools/check_all.py --group frontend` | 2,405 of 2,415 passed, including the indexed billing panel test |
+
+The ten frontend failures are the typed day-quantity tests of
+`web/tests/deal-ticket-browser.test.mjs`. They fail identically on an
+unmodified copy of master in this container and pass in hosted CI, which drives
+Chrome. This change does not touch the deal ticket.
+
+`tools/check_gas_billing_indexed.py` runs inside the pricing preview, whose
+fixture publishes final daily fixings of 3.30 and 3.10 and a final monthly
+fixing of 3.00. Through the native operations it covers:
+
+- a daily-index original of 98 at 3.30 plus 0.05, payable 328.30 and due on the
+  tenth of the next month; a 0.4 share and a 30 to 70 band on the monthly index;
+  a received payment;
+- refusal of both fixed profiles on an indexed payment, of a day that has not
+  ended, and of a request that names no fixing or another observation;
+- direct calls of the writer with a forged amount, a forged exact amount and
+  another day's fixing, each refused with its own code;
+- request retry, a fresh request and another actor, each given the existing
+  determination;
+- a fixing corrected to 3.31: contribution 0.98 under `index_fixing_correction`,
+  each quantity cause refused; then a quantity corrected to 100: contribution
+  6.72 under a quantity cause, the fixing cause refused;
+- a zero quantity billed, then its fixing corrected twice: the head is the last
+  correction and the zero-contribution correction is recorded;
+- an earlier knowledge view keeping the original fixing and single
+  determination;
+- discovery reporting every indexed day as terms it does not bill, and
+  discovery and the processing preview refusing the profile.
+
+Independent adversarial review found nothing blocking. Its findings and their
+resolution:
+
+- The writer would have recorded a determination on a superseded fixing when
+  called directly with a context that did not yet know the correction. A check
+  reproduced it (`superseded_fixing_recorded`). The writer now refuses a fixing
+  that has any correction with `gas_billing_context`, and the check passes.
+- The store assumed the fixing's finality and quote. The reader now returns the
+  publication state, and the selector requires the fixing's quote to be the
+  payment's.
+- The processing preview accepted the indexed profile; it now refuses it. The
+  fixing reader now requires an indexed delivery payment. The selector no
+  longer relabels a missing definition as a missing fixing; a day outside the
+  payment's rows reads `gas_billing_interval`.
+- Missing checks were added: another actor, a monthly-index determination and
+  a zero-contribution correction. A preliminary head and two unrelated
+  originals on one series are refused by the selector but not exercised
+  natively, because the fixture cannot publish either.
+- Every billing preview's review hash changes with this increment, so a
+  fixed-price review in flight across the upgrade refuses as stale and is
+  previewed again.
+
+Not run locally on this change: the other gas previews, the assistant, trading,
+lifecycle and remaining groups, and the gas billing browser checks. Hosted CI
+runs them.
+
 ## Gas trade details and Blotter updates in the swing browser checks
 
 On 26 and 27 November 2026 (UTC) the gas swing browser checks failed in four

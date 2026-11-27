@@ -20,7 +20,9 @@ public sealed record GasBillingPreviewRequest(FuturesReadRequest Context, Guid T
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record GasBillingDetermineRequest(GasBillingPreviewRequest Preview, Guid OperationId, string PreviewHash, [property: JsonRequired] Guid SourceId,
     [property: JsonRequired] Guid? ExpectedPreviousId, [property: JsonRequired] string? CorrectionDueAt,
-    [property: JsonRequired] string? Reason, string Evidence);
+    [property: JsonRequired] string? Reason, string Evidence,
+    // Named only by an indexed determination, so every fixed request keeps its retained wire form.
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? FixingObservationId = null);
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record GasBillingSelection(Guid TradeId, int ExpectedRevision, [property: JsonRequired] int CashSlot, string Day,
@@ -39,7 +41,9 @@ public sealed class GasCashBillingStore(PreviewDatabase database)
     static int Int(JsonElement row, string name) => int.Parse(row.Text(name), CultureInfo.InvariantCulture);
     internal sealed record Prepared(Guid ContextId, Guid SourceId, Guid? PreviousId,
         GasBillingCalculation Calculation, string Hash, DateTimeOffset DueAt, bool AlreadyDetermined,
-        GasBillingReconciliation Reconciliation);
+        GasBillingReconciliation Reconciliation, IndexedPricing? Indexed = null);
+    // The fixing an indexed determination reviews, with the booked spread and the unit price they give.
+    internal sealed record IndexedPricing(GasBillingFixing Fixing, Guid? CorrectsId, string IndexCode, UnitPrice Spread, UnitPrice Price);
 
     public static GasBillingPreviewRequest RequirePreview(GasBillingDetermineRequest request) =>
         request.Preview is { Context: not null } preview ? preview :
@@ -65,6 +69,12 @@ public sealed class GasCashBillingStore(PreviewDatabase database)
         new ExactRatio(BigInteger.Parse(row.Text("share_n")),BigInteger.Parse(row.Text("share_d"))),row.OptionalText("part_kind") is not null,
         DateWorkspace.Date(row.Text("delivery_from")),DateWorkspace.Date(row.Text("delivery_to")),DateWorkspace.Date(row.Text("source_from")),DateWorkspace.Date(row.Text("source_to")));
     static bool RightDependent(JsonElement row) => row.GetProperty("right_dependent").GetBoolean();
+    static bool Indexed(JsonElement row) => row.Text("role") == "indexed_consideration";
+    // A named daily or monthly index publishes one fixing for each payment day. Other index conventions need their own profile.
+    static bool NamedIndex(JsonElement row) => row.OptionalText("observation_convention") is "named_index_daily_v1" or "named_index_monthly_v1";
+    static bool Billable(JsonElement row) => row.Text("stage") == "delivery" && !RightDependent(row) && (!Indexed(row) || NamedIndex(row));
+    static string[] Profiles(JsonElement row) => Indexed(row) ? [GasCashBilling.IndexedImplementation]
+        : SupportedEntry(row) ? [GasCashBilling.Implementation, GasCashBilling.EntryImplementation] : [GasCashBilling.EntryImplementation];
     static bool InTerm(JsonElement row, DateOnly day) =>
         day >= DateWorkspace.Date(row.Text("delivery_from")) && day < DateWorkspace.Date(row.Text("delivery_to"));
     static GasBillingEntryTerms EntryTerms(JsonElement row)
@@ -114,17 +124,18 @@ public sealed class GasCashBillingStore(PreviewDatabase database)
             sideCode = d.SideCode, day = d.Contract.Day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
             d.Contract.Start, d.Contract.End, price = m.OptionalText("price"), currency = m.Text("currency_code"),
             decimalPlaces = Int(m, "display_minor_units"), direction = Int(m, "direction"),
-            supported = m.Text("stage") == "delivery" && m.Text("role")!="indexed_consideration" && !RightDependent(m), completed = frame.At >= d.Contract.End,
-            refusal = RightDependent(m) ? "gas_billing_rights" : m.Text("stage") != "delivery" || m.Text("role") == "indexed_consideration" ? "gas_billing_profile" : null,
-            profiles = SupportedEntry(m) ? new[] { GasCashBilling.Implementation, GasCashBilling.EntryImplementation } : new[] { GasCashBilling.EntryImplementation },
-            entryDescription = m.Text("role") != "indexed_consideration" ? EntryDescription(m) : null
+            supported = Billable(m), completed = frame.At >= d.Contract.End,
+            refusal = RightDependent(m) ? "gas_billing_rights" : Billable(m) ? null : "gas_billing_profile",
+            profiles = Profiles(m), entryDescription = EntryDescription(m),
+            index = Indexed(m) ? new { code = m.OptionalText("index_code"), convention = m.Text("observation_convention"), spread = m.Text("spread") } : null
         })).ToArray();
         return new { body.TradeId, expectedRevision = Int(header, "revision"), claims,
             determinations = data.GetProperty("history"),
-            profile = GasCashBilling.Implementation, profiles = new[] { GasCashBilling.Implementation, GasCashBilling.EntryImplementation },
-            roundingPolicy = GasCashBilling.RoundingImplementation,
+            profile = GasCashBilling.Implementation,
+            profiles = new[] { GasCashBilling.Implementation, GasCashBilling.EntryImplementation, GasCashBilling.IndexedImplementation },
+            roundingPolicy = GasCashBilling.RoundingImplementation, fixingPolicy = GasCashBilling.FixingPolicy,
             quantityPolicies = new[] { GasDailyQuantitySelection.BillingPolicy, GasDailyQuantitySelection.FacilityBillingPolicy },
-            correctionReasons = new[] { "late_actuals", "quantity_correction", "allocation_correction" },
+            correctionReasons = new[] { "late_actuals", "quantity_correction", "allocation_correction", "index_fixing_correction" },
             canWrite = await daily.RecordRefusal(c, body.Context is { KnowledgeMode: "current", ContextId: null }, ct) is null,
             scope = "commercial_daily_cash_only", valuationEffect = "contractual_pv_unchanged" };
     }
@@ -135,7 +146,7 @@ public sealed class GasCashBillingStore(PreviewDatabase database)
     internal async Task<Prepared> Prepare(NpgsqlConnection c, GasBillingView view, GasBillingSelection request, CancellationToken ct,
         ImmutableArray<JsonElement> components = default, BillingInputs? inputs = null)
     {
-        if (request.Profile is not (GasCashBilling.Implementation or GasCashBilling.EntryImplementation) || request.RoundingPolicy != GasCashBilling.RoundingImplementation ||
+        if (request.Profile is not (GasCashBilling.Implementation or GasCashBilling.EntryImplementation or GasCashBilling.IndexedImplementation) || request.RoundingPolicy != GasCashBilling.RoundingImplementation ||
             request.SelectionPolicy is not (GasDailyQuantitySelection.BillingPolicy or GasDailyQuantitySelection.FacilityBillingPolicy))
             throw Error("gas_billing_policy", "Select explicit final quantity, daily fixed cash and currency-rounding policies.");
         var component = (components.IsDefault ? await Components(c, request.TradeId, view, ct) : components).SingleOrDefault(m => Int(m, "slot") == request.CashSlot);
@@ -143,8 +154,9 @@ public sealed class GasCashBillingStore(PreviewDatabase database)
             throw Error("gas_billing_rights", "Exercise-dependent payments and quantity sources require a separately qualified billing profile.");
         if(component.ValueKind==JsonValueKind.Object && request.Profile == GasCashBilling.Implementation && !SupportedEntry(component))
             throw Error("gas_billing_input","This billing profile requires a whole, full-term payment with share one.");
-        if (component.ValueKind != JsonValueKind.Object || component.Text("stage") != "delivery" || component.Text("role")=="indexed_consideration")
-            throw Error("gas_billing_profile", "This profile bills a retained fixed-price delivery component. Receipt and fuel stages require another qualified profile.");
+        var indexed = request.Profile == GasCashBilling.IndexedImplementation;
+        if (component.ValueKind != JsonValueKind.Object || component.Text("stage") != "delivery" || Indexed(component) != indexed || indexed && !NamedIndex(component))
+            throw Error("gas_billing_profile", "Fixed profiles bill a retained fixed-price delivery component, and the indexed profile a payment on a named daily or monthly index. Other stages and index conventions require another qualified profile.");
         if (Int(component, "revision") != request.ExpectedRevision)
             throw Error("gas_billing_conflict", "Refresh the current booked revision.");
         if (request.DecimalPlaces != Int(component, "display_minor_units"))
@@ -158,11 +170,12 @@ public sealed class GasCashBillingStore(PreviewDatabase database)
         var unit = new PriceUnit(new(reference, component.Text("currency_code")), new(reference, component.Text("quantity_code")), ExactDecimal.Parse(component.Text("multiplier")));
         var previous = inputs.History.SingleOrDefault(row => Int(row, "cash_slot") == request.CashSlot && DateWorkspace.Date(row.Text("day")) == day);
         var previousId = previous.ValueKind == JsonValueKind.Object ? previous.Id("id") : (Guid?)null;
-        var paymentAt = TradingInstant.Parse(component.Text("payment_at"), "gas_billing_input");
-        var terms = new GasBillingTerms(source.Contract, new(ExactDecimal.Parse(component.Text("price")), unit),
+        (IndexedPricing Indexed, DateTimeOffset PaymentAt)? pricing = indexed ? await ReadIndexed(c, view, request, component, unit, ct) : null;
+        var paymentAt = pricing?.PaymentAt ?? TradingInstant.Parse(component.Text("payment_at"), "gas_billing_input");
+        var terms = new GasBillingTerms(source.Contract, pricing?.Indexed.Price ?? new(ExactDecimal.Parse(component.Text("price")), unit),
             ExactDecimal.Parse(component.Text("direction")), paymentAt, request.DecimalPlaces, request.RoundingPolicy);
         var previousTotal = previousId is null ? null : new Money(ExactDecimal.Parse(previous.Text("rounded_total")), unit.Currency);
-        var value = request.Profile == GasCashBilling.EntryImplementation
+        var value = request.Profile != GasCashBilling.Implementation
             ? GasCashBilling.CalculateEntry(terms, EntryTerms(component), source.Selected, view.At, previousTotal)
             : GasCashBilling.Calculate(terms, source.Selected, view.At, previousTotal);
         var manualHeads = inputs.ManualHeads.Where(h => h.Id("obligation_id") == source.ObligationId && DateWorkspace.Date(h.Text("day")) == day);
@@ -180,11 +193,25 @@ public sealed class GasCashBillingStore(PreviewDatabase database)
         {
             request.TradeId, request.ExpectedRevision, request.CashSlot, request.Day, request.Profile, request.SelectionPolicy,
             request.DecimalPlaces, request.RoundingPolicy, view.Id, view.At, component, source.Contract,
-            source.Selected.RevisionId, source.Selected.Quantity, previousId, value, reconciliation
+            source.Selected.RevisionId, source.Selected.Quantity, previousId, value, reconciliation,
+            fixingObservationId = pricing?.Indexed.Fixing.ObservationId
         }, Json)));
         return new(view.ContextId,
             source.Selected.RevisionId!.Value, previousId, value, hash, paymentAt,
-            previousId is not null && (previous.OptionalText("manual_revision_id") ?? previous.OptionalText("facility_target_id")) == source.Selected.RevisionId.Value.ToString(), reconciliation);
+            previousId is not null && (previous.OptionalText("manual_revision_id") ?? previous.OptionalText("facility_target_id")) == source.Selected.RevisionId.Value.ToString()
+                && previous.OptionalText("fixing_observation_id") == pricing?.Indexed.Fixing.ObservationId.ToString(), reconciliation, pricing?.Indexed);
+    }
+    // The database selects the payment day's fixing head under the view's knowledge; a day without exactly one final head refuses there.
+    async Task<(IndexedPricing Indexed, DateTimeOffset PaymentAt)> ReadIndexed(NpgsqlConnection c, GasBillingView view, GasBillingSelection request,
+        JsonElement component, PriceUnit unit, CancellationToken ct)
+    {
+        var row = await LifecycleNative.Read(c, "SELECT security.read_gas_billing_fixing($1,$2,$3,$4,$5,$6)::text", ct,
+            database.Manifest.CatalogId, request.TradeId, request.CashSlot, DateWorkspace.Date(request.Day), view.ContextId, view.At);
+        var fixing = new GasBillingFixing(row.Id("observationId"), new(ExactDecimal.Parse(row.Text("value")), unit),
+            TradingInstant.Parse(row.Text("observedAt"), "gas_billing_fixing"), row.Text("publicationState") == "final");
+        var spread = new UnitPrice(ExactDecimal.Parse(component.Text("spread")), unit);
+        var price = GasCashBilling.IndexedPrice(fixing, spread, TradingInstant.Parse(row.Text("fixingAt"), "gas_billing_fixing"), view.At);
+        return (new(fixing, row.OptionalId("correctsId"), row.Text("indexCode"), spread, price), TradingInstant.Parse(row.Text("paymentAt"), "gas_billing_fixing"));
     }
     public async Task<object> Preview(NpgsqlConnection c, InputFrame frame, GasBillingPreviewRequest request, CancellationToken ct)
     {
@@ -193,7 +220,9 @@ public sealed class GasCashBillingStore(PreviewDatabase database)
             amount = p.Calculation.Amount.Amount.ToString(), contribution = p.Calculation.Contribution.Amount.ToString(),
             exactAmount = p.Calculation.ExactAmount.ToExactString(), currency = p.Calculation.Amount.Currency.Code,
             contractualDueAt = p.DueAt, request.Profile, request.SelectionPolicy, request.RoundingPolicy,
-            alreadyDetermined = p.AlreadyDetermined, reconciliation = ReconciliationView(p.Reconciliation), scope = "commercial_daily_cash_only" };
+            alreadyDetermined = p.AlreadyDetermined, reconciliation = ReconciliationView(p.Reconciliation), scope = "commercial_daily_cash_only",
+            fixing = p.Indexed is not {} i ? null : new { observationId = i.Fixing.ObservationId, value = i.Fixing.Value.Value.ToString(), observedAt = i.Fixing.ObservedAt,
+                correctsId = i.CorrectsId, index = i.IndexCode, spread = i.Spread.Value.ToString(), unitPrice = i.Price.Value.ToString(), policy = GasCashBilling.FixingPolicy } };
     }
     internal static object ReconciliationView(GasBillingReconciliation r) => new
     {
@@ -211,11 +240,12 @@ public sealed class GasCashBillingStore(PreviewDatabase database)
         await using (var replay = ScheduleStore.Command(c, "SELECT security.replay_gas_billing($1,$2,$3::jsonb)::text", database.Manifest.CatalogId, request.OperationId, payload))
             if (await replay.ExecuteScalarAsync(ct) is string old) return JsonSerializer.Deserialize<JsonElement>(old);
         var p = await TradingBookingRead.Run(database, c, frame, (_, pinned) => Prepare(c, pinned, body, ct), ct);
-        if (p.SourceId != request.SourceId || p.Hash != request.PreviewHash) throw Error("gas_billing_stale_preview", "Billing inputs or the accepted determination changed. Preview and review the current result.");
+        if (p.SourceId != request.SourceId || p.Indexed?.Fixing.ObservationId != request.FixingObservationId || p.Hash != request.PreviewHash) throw Error("gas_billing_stale_preview", "Billing inputs or the accepted determination changed. Preview and review the current result.");
         if (request.ExpectedPreviousId != p.PreviousId) throw Error("gas_billing_conflict", "Retain the reviewed predecessor.");
         if (request.CorrectionDueAt is {} due) _ = TradingInstant.Parse(due, "gas_billing_correction");
         var calculation = JsonSerializer.Serialize(new { sourceId = p.SourceId, amount = p.Calculation.Amount.Amount.ToString(),
-            numerator = p.Calculation.ExactAmount.Numerator, denominator = p.Calculation.ExactAmount.Denominator }, Json);
+            numerator = p.Calculation.ExactAmount.Numerator, denominator = p.Calculation.ExactAmount.Denominator,
+            fixingObservationId = p.Indexed?.Fixing.ObservationId }, Json);
         await using var command = ScheduleStore.Command(c, "SELECT security.record_gas_billing($1,$2::jsonb,$3,$4,$5::jsonb)::text",
             database.Manifest.CatalogId, payload, frame.At, p.ContextId, calculation);
         return JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);

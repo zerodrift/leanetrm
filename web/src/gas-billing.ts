@@ -6,10 +6,12 @@ import {zonedInput} from './user-time.js';
 import {displayInstant} from './market-view.js';
 import {displayPaymentDate} from './payment-date.js';
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
-type Claim={cashSlot:number;code:string;role:string;stage:string;sideCode:string;day:string;price:string;currency:string;decimalPlaces:number;supported:boolean;completed:boolean;refusal?:string|null;profiles?:string[];entryDescription?:string|null};
+type IndexTerms={code:string|null;convention:string;spread:string};
+type Claim={cashSlot:number;code:string;role:string;stage:string;sideCode:string;day:string;price:string|null;index?:IndexTerms|null;currency:string;decimalPlaces:number;supported:boolean;completed:boolean;refusal?:string|null;profiles?:string[];entryDescription?:string|null};
 type Fact={id:string;cash_slot:number;day:string;ordinal:number;rounded_total:string;contribution:string;currency_code:string;due_at:string;reason:string|null;evidence:string};
 type View={expectedRevision:number;canWrite:boolean;profile:string;profiles?:string[];roundingPolicy:string;quantityPolicies:string[];correctionReasons:string[];claims:Claim[];determinations:Fact[]};
-type Preview={previewHash:string;sourceId:string;previousId:string|null;amount:string;contribution:string;currency:string;contractualDueAt:string;alreadyDetermined:boolean;
+type Fixing={observationId:string;value:string;correctsId:string|null;index:string;spread:string;unitPrice:string};
+type Preview={previewHash:string;sourceId:string;fixing?:Fixing|null;previousId:string|null;amount:string;contribution:string;currency:string;contractualDueAt:string;alreadyDetermined:boolean;
  reconciliation?:{status:string;contractual:string;scheduled:string|null;final:string|null;scheduledLessContract:string|null;finalLessScheduled:string|null}};
 export type GasBillingWorkflow={busy:()=>boolean;pending:()=>RequestCommand|undefined;queue:(command:RequestCommand)=>Promise<void>;changed:()=>void};
 
@@ -52,7 +54,7 @@ export function setupGasBilling(host:HTMLElement,o:{api:Api;context:()=>Record<s
  function claimChanged(){
   const selected=get<HTMLSelectElement>('claim').value;
   const claim=selected===''?undefined:view?.claims[Number(selected)];
-  options('profile',(claim?.profiles??view?.profiles??(view?[view.profile]:[])).map(p=>[p,p==='gas_final_daily_entry_cash_v1'?'Final daily entry cash · retained share and quantity part':'Final daily fixed cash']),get<HTMLSelectElement>('profile').value);
+  options('profile',(claim?.profiles??view?.profiles??(view?[view.profile]:[])).map(p=>[p,p==='gas_final_daily_entry_cash_v1'?'Final daily entry cash · retained share and quantity part':p==='gas_final_daily_indexed_cash_v1'?'Final daily indexed cash · final published fixing plus spread':'Final daily fixed cash']),get<HTMLSelectElement>('profile').value);
   get('entry-terms').textContent=claim?.entryDescription??'';
  }
  async function read(){
@@ -60,7 +62,7 @@ export function setupGasBilling(host:HTMLElement,o:{api:Api;context:()=>Record<s
   const epoch=++generation;busy=true;sync();
   try{
    const data=await o.api<View>('gas/billing/read',{context:o.context(),tradeId:o.tradeId});if(disposed||o.actor()!==owner||epoch!==generation)return;
-   view=data;options('claim',data.claims.map((c,i)=>[String(i),`${c.day} · ${c.sideCode} / ${c.code} · ${c.price} ${c.currency}${!c.supported?(c.refusal==='gas_billing_rights'?' · exercise-dependent billing unavailable':' · '+c.stage+' billing unavailable'):!c.completed?' · delivery not completed':''}`,!c.supported||!c.completed]),get<HTMLSelectElement>('claim').value);
+   view=data;options('claim',data.claims.map((c,i)=>[String(i),`${c.day} · ${c.sideCode} / ${c.code} · ${c.index?`${c.index.code??'point publications'} index, spread ${c.index.spread}`:c.price} ${c.currency}${!c.supported?(c.refusal==='gas_billing_rights'?' · exercise-dependent billing unavailable':c.index&&c.stage==='delivery'?' · billing unavailable for this index convention':' · '+c.stage+' billing unavailable'):!c.completed?' · delivery not completed':''}`,!c.supported||!c.completed]),get<HTMLSelectElement>('claim').value);
    options('policy',data.quantityPolicies.map(p=>[p,p==='final_allocated_billing_v1'?'Manual final allocation':'Accepted facility allocation']),get<HTMLSelectElement>('policy').value);
    claimChanged();
    options('rounding',[[data.roundingPolicy,'Currency minor units · ties to even']],get<HTMLSelectElement>('rounding').value);
@@ -88,8 +90,8 @@ export function setupGasBilling(host:HTMLElement,o:{api:Api;context:()=>Record<s
    const reason=get<HTMLSelectElement>('reason').value,evidence=get<HTMLInputElement>('evidence').value;
    if(p.previousId&&(!reason||!due.value))throw Error('Choose the correction reason and its due time, then preview again.');
    const correctionDueAt=p.previousId?await time.instant():null;if(disposed||o.actor()!==owner||epoch!==generation)return;
-   reviewed={preview:request,previewHash:p.previewHash,sourceId:p.sourceId,expectedPreviousId:p.previousId,correctionDueAt,reason:p.previousId?reason:null,evidence};
-   const review=get('review');review.hidden=false;review.textContent=`Restated amount: ${p.amount} ${p.currency}\nNew contribution: ${p.contribution} ${p.currency}\nDue: ${correctionDueAt?displayInstant(correctionDueAt,o.zone()):displayPaymentDate(p.contractualDueAt)}\nCause: ${p.previousId?reason:'Original'}\nEvidence: ${evidence}`;
+   reviewed={preview:request,previewHash:p.previewHash,sourceId:p.sourceId,expectedPreviousId:p.previousId,correctionDueAt,reason:p.previousId?reason:null,evidence,...(p.fixing?{fixingObservationId:p.fixing.observationId}:{})};
+   const review=get('review');review.hidden=false;review.textContent=`${p.fixing?`Final fixing: ${p.fixing.value} on ${p.fixing.index}${p.fixing.correctsId?' (corrects an earlier fixing)':''}\nSpread: ${p.fixing.spread}\nUnit price: ${p.fixing.unitPrice}\n`:''}Restated amount: ${p.amount} ${p.currency}\nNew contribution: ${p.contribution} ${p.currency}\nDue: ${correctionDueAt?displayInstant(correctionDueAt,o.zone()):displayPaymentDate(p.contractualDueAt)}\nCause: ${p.previousId?reason:'Original'}\nEvidence: ${evidence}`;
    if(p.reconciliation){const r=p.reconciliation;review.textContent+=`\nReconciliation: ${r.status}\nContractual: ${r.contractual} · scheduled: ${r.scheduled??'Unavailable'} · final: ${r.final??'Unavailable'}\nScheduled less contract: ${r.scheduledLessContract??'Unavailable'} · final less scheduled: ${r.finalLessScheduled??'Unavailable'}`;}
    message.textContent='Review the amount and supporting terms, then accept.';
   }catch(error){if(!disposed)message.textContent=String(error);}

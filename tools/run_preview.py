@@ -501,6 +501,13 @@ def main():
                 from check_fact_anchor_upgrade import run_checks as check_billing_enrollment_upgrade
                 signatures=tuple(re.findall(r"\('([^']+)','[0-9a-f]{64}','\{",migration.read_text()))
                 check_billing_enrollment_upgrade(query,migration,number='0410',guard='gas_billing_enrollment_upgrade',signatures=signatures)
+            if migration.name=='0412_gas_indexed_billing.sql' and (args.gas_billing_check or args.gas_pricing_check):
+                from check_fact_anchor_upgrade import run_checks as check_indexed_billing_upgrade
+                check_indexed_billing_upgrade(query,migration,number='0412',guard='gas_indexed_billing_upgrade',signatures=(
+                    'security.validate_gas_billing_request(jsonb)',
+                    'security.replay_gas_billing(uuid,uuid,jsonb)',
+                    'security.record_gas_billing(uuid,jsonb,timestamp with time zone,uuid,jsonb)',
+                    'security.read_gas_billing_components(uuid,uuid,uuid,timestamp with time zone)'))
             if migration.name=='0400_gas_charge_boundaries.sql' and args.gas_charges_check:
                 from check_fact_anchor_upgrade import run_checks as check_boundary_upgrade
                 check_boundary_upgrade(query,migration,number='0400',guard='gas_charge_boundary_upgrade',signatures=(
@@ -1341,6 +1348,8 @@ def main():
                 if args.gas_pricing_check:
                     from check_gas_pricing import run_checks as check_gas_pricing
                     pricing_fixture=check_gas_pricing(url,query,manifest,run_worker,admin_load_in_term)
+                    from check_gas_billing_indexed import run_checks as check_gas_billing_indexed
+                    check_gas_billing_indexed(url,query,manifest)
                     if args.browser_check:
                         target=temporary/'browser-target.json';target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,'facility':pricing_fixture}))
                         subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-pricing'],cwd=ROOT,env=env,check=True,timeout=300)

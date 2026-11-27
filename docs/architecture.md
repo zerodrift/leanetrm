@@ -1,5 +1,14 @@
 # Architecture and domain contracts
 
+D461 adds [final daily billing of gas payments on a named index](gas-cash-billing.md#indexed-profile-d461).
+An explicitly selected profile bills one payment day from the final accepted
+quantity and the final published fixing plus the booked spread. The fixing is
+the head of its correction chain at the operation's knowledge cutoff; no close,
+snapshot selection, mark or forecast chooses or replaces it. The determination
+retains the observation, and the native writer selects it independently and
+checks the exact amount. A corrected fixing is a reviewed correction with its
+own cause. Scheduled processing does not bill indexed payments.
+
 D459 adds [daily gas entry billing and scoped processing](gas-cash-billing.md).
 An explicit successor profile uses retained shares, daily quantity parts and
 payment dates. Reconciliation compares exact contract, schedule and final facts;

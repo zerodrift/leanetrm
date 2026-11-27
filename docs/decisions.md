@@ -8098,3 +8098,58 @@ and position reads to every other trade reader, the narrowing D444 rejected for
 operating rights. New roles for REC and gas inventory: no person would hold them
 at installation, and the six-role limit makes them hard to add, as D444 found
 for a new setup role.
+
+## D461 — Final daily billing of gas payments on a named index
+
+Policies selected by the owner on 2026-11-27: named daily and named monthly
+indexes; one determination for each payment and gas day, rounded once; a
+corrected fixing billed as a reviewed correction with its own cause.
+
+Add the explicitly selected `gas_final_daily_indexed_cash_v1`. It bills one
+completed gas day of an `indexed_consideration` delivery payment stated on
+`named_index_daily_v1` or `named_index_monthly_v1`: the taken final quantity,
+times the retained share, times the final fixing plus the booked spread, times
+the quote multiplier and direction, rounded once to the currency's minor unit,
+ties to even. Share, daily band or shortfall and payment dates are consumed as
+D459's entry profile consumes them. The original is due at the retained
+`next_month_day_utc_v1` instant. Each payment has one family of profiles: the
+fixed profiles refuse an indexed payment and this profile a fixed one.
+
+The fixing is selected under `final_fixing_head_v1`. The payment day's retained
+fixing binding names the exact series and source. Of their `index_fixing`
+observations observed between the fixing instant and the billing instant, and
+known within the operation's market prefix and knowledge cutoff, the one with
+no such successor is the head. It must be alone and final; otherwise the day
+refuses with `gas_billing_fixing`. No close, pin, mark or forecast selects or
+replaces it. A snapshot's selection of observations for valuation therefore does
+not choose the billed fixing; the knowledge cutoff does.
+
+The determination retains the observation by foreign key. A determination is
+unique for each pair of quantity source and fixing; a fixed determination has no
+fixing and keeps one determination for each quantity source. The determine
+request names the reviewed fixing beside the reviewed quantity source, required
+for this profile and refused for the others. The native writer selects the head
+itself, requires it to be the reviewed observation and checks the exact amount by
+cross-multiplication before the rounding.
+
+A changed quantity source takes `late_actuals`, `quantity_correction` or
+`allocation_correction`, whether or not the fixing also changed. The same
+quantity source with a newer fixing takes `index_fixing_correction`. Either cause
+on the other case refuses. Nothing is restated automatically.
+
+Scheduled daily processing does not bill an indexed payment: its request names
+no fixing, the daily billing action refuses the profile, and a scope keeps
+reporting such a payment as terms it does not bill.
+
+Rejected. Using the valuation's accrued amount as the bill: it follows the
+membership's quantity policy and the selected snapshot's pins, and D360 states it
+is not a bill. Requiring a market close: D459 gave billing its own processing
+clock. Freezing the first fixing: a bill on a corrected price would stay wrong
+until a successor profile existed. One bill for each delivery month: a different
+rounding contract with its own rules for incomplete months.
+
+Point-publication pricing, a monthly bill or invoice, automatic indexed billing,
+right-dependent payments, a list of billed days whose fixing was later corrected
+and reconciliation with accrued value remain separate consumers. See
+[the design](superpowers/specs/2026-11-27-indexed-gas-billing-design.md) and
+[the contract](gas-cash-billing.md#indexed-profile-d461).

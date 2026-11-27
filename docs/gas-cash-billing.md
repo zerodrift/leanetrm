@@ -11,6 +11,45 @@ the held basis, applies share and quote multiplier once, then rounds once.
 Neither profile admits indexed, receipt/fuel, monthly cumulative or multisource
 billing. Valuation accrual is not a final bill.
 
+## Indexed profile (D461)
+
+`gas_final_daily_indexed_cash_v1` bills one completed gas day of a delivery
+payment priced on a named daily or named monthly index. The amount is the taken
+final quantity, times the retained share, times the final published fixing plus
+the booked spread, times the quote multiplier and direction, rounded once. Share,
+daily band or shortfall and payment dates behave as in the entry profile. An
+original is due at the payment's retained next-month instant. A payment has one
+family of profiles: the fixed profiles refuse an indexed payment, and this
+profile refuses a fixed one. Payments on point publications, and payments
+governed by an exercise or swing right, are not billable.
+
+The fixing is selected under `final_fixing_head_v1`: of the published
+observations of the payment day's retained series and source that are known at
+the operation's knowledge cutoff and observed between the fixing instant and the
+billing instant, the one with no known successor. It must be alone and final.
+A missing, preliminary or ambiguous fixing refuses with `gas_billing_fixing`.
+No market close or snapshot selection chooses the fixing, and no forecast or
+mark replaces it. A monthly index gives every gas day of its month the same
+fixing, so those days wait for its publication.
+
+The preview shows the fixing, the spread and the unit price. Accepting names the
+reviewed fixing, `fixingObservationId`, beside the reviewed quantity source. The
+determination retains the observation by foreign key. The native writer selects
+the head itself, requires it to be the reviewed observation, and checks the exact
+amount before the rounding.
+
+A later corrected fixing changes nothing until it is reviewed. The preview then
+shows the new head and its contribution. A correction on the same quantity
+source and a newer fixing takes the cause `index_fixing_correction`; a changed
+quantity source takes one of the quantity causes, whether or not the fixing also
+changed. The other cause refuses in each case. An earlier knowledge view keeps
+the fixing and determinations it knew.
+
+Scheduled daily processing does not bill an indexed payment, and the daily
+billing action refuses this profile. A bill is not reconciled with the
+valuation's accrued amount, which follows the membership's quantity policy and
+its snapshot. A month's daily bills are not a monthly invoice.
+
 Payments controlled by an exercise or swing right, including through their
 physical source, refuse new ordinary fixed billing before and after election.
 A disjoint right does not disable another supported payment. Accepted command
