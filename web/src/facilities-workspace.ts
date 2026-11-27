@@ -6,7 +6,7 @@ import {setupTransportCapacity} from './transport-capacity-view.js';
 import {setupTransportRoutes} from './transport-routes-view.js';
 import {setupDeliveryWorkbench,type DeliveryWorkbenchOptions} from './delivery-workbench-view.js';
 import {setupTabs} from './side-panel.js';
-import {facilityViews,facilityViewSections,facilityViewOf,facilitySectionNames,type FacilitySection,type FacilityView} from './facilities-views.js';
+import {facilityViews,facilityViewSections,facilityViewOf,facilitySectionNames,facilitySectionAvailable,type FacilitySection,type FacilityView} from './facilities-views.js';
 
 type Section=FacilitySection;
 type Options=Parameters<typeof setupFacilityQuantities>[0]&Pick<DeliveryWorkbenchOptions,'nominationContext'|'nativeDeliveryReason'|'openNativeDelivery'>&{permission:(name:string)=>boolean};
@@ -22,7 +22,7 @@ export function setupFacilities(o:Options){
  hosts.quantities.append(...root.childNodes);content.append(...Object.values(hosts));root.append(navigation,content);
  const has=(...rights:string[])=>rights.every(o.permission);
  const physicalAllowed=()=>has('ReadMarketData','ReadTrades','ReadFacilityQuantities'),transportAllowed=()=>has('ReadMarketData','ReadTrades','ReadGasOperations');
- const available=(next:Section)=>next==='trades'?has('ReadTrades','ReadMarketData'):next==='gas-delivery'||next==='outlook'||next==='transport'||next==='route'?transportAllowed():next==='crude-delivery'?has('ReadMarketData','ReadTrades'):physicalAllowed();
+ const available=(next:Section)=>facilitySectionAvailable(next,has);
  const initial=():Section=>physicalAllowed()?'quantities':transportAllowed()?'transport':available('crude-delivery')?'crude-delivery':'quantities';
  let section:Section=initial();const consumers={} as Record<Section,Consumer>;
  const unique=()=>[...new Set(Object.values(consumers))];
@@ -42,13 +42,14 @@ export function setupFacilities(o:Options){
  const sections:[Section,string][]=facilityViews.flatMap(view=>facilityViewSections[view].map(id=>[id,facilitySectionNames[id]] as [Section,string]));
  const picker=document.createElement('select');picker.id='facilities-section-picker';picker.setAttribute('aria-label','Facilities workspace');picker.setAttribute('aria-controls',content.id);
  navigation.before(picker);
- function chooseSection(next:Section){
+ // Settles when the move has finished or been refused.
+ function chooseSection(next:Section):Promise<void>{
   tabs.mark(section);picker.value=section;
-  if(next===section||o.busy()||!available(next))return;
-  void o.act(async()=>{if(!await active().leave())return;section=next;show();await active().load();o.changed();});
+  if(next===section||o.busy()||!available(next))return Promise.resolve();
+  return o.act(async()=>{if(!await active().leave())return;section=next;show();await active().load();o.changed();});
  }
- const tabs=setupTabs(navigation,sections,{label:'Facilities workspace',panel:content,selected:section,select:next=>chooseSection(next as Section)});
- picker.onchange=()=>chooseSection(picker.value as Section);
+ const tabs=setupTabs(navigation,sections,{label:'Facilities workspace',panel:content,selected:section,select:next=>void chooseSection(next as Section)});
+ picker.onchange=()=>void chooseSection(picker.value as Section);
  for(const [id]of sections)navigation.querySelector<HTMLButtonElement>('#'+navigation.id+'-'+id)!.dataset.facilitiesView=id;
  const tab=(id:Section)=>navigation.querySelector<HTMLButtonElement>('#'+navigation.id+'-'+id)!;
  // The tab row and the picker list the sections of the view the shown section belongs to. The other tabs stay in the document,
@@ -72,7 +73,7 @@ export function setupFacilities(o:Options){
   },
   async load(ledgerId?:string,rememberSelection=true){for(const consumer of unique())consumer.sync();
    if(ledgerId!==undefined){if(!physicalAllowed())throw Error('Facility quantity read permission is required.');section='quantities';show();await quantities.load(ledgerId,rememberSelection);}
-   else{const recovering=sections.find(([id])=>consumers[id].unconfirmed());if(recovering)section=recovering[0]==='definitions'?operations.recoverySection():recovering[0];else if(!available(section))section=initial();show();await active().load();}
+   else{const recovering=sections.find(([id])=>consumers[id].unconfirmed());if(recovering)section=consumers[recovering[0]]===operations?operations.recoverySection():recovering[0];else if(!available(section))section=initial();show();await active().load();}
   },
   sync(){for(const consumer of unique())consumer.sync();picker.disabled=o.busy();for(const item of picker.options)item.disabled=!available(item.value as Section);for(const button of navigation.querySelectorAll<HTMLButtonElement>('button'))button.disabled=o.busy()||!available(button.dataset.facilitiesView as Section);},
   section:()=>section,selected:()=>section==='quantities'?quantities.selected():null,
@@ -81,7 +82,7 @@ export function setupFacilities(o:Options){
   // Arriving from another page: shows the view's first permitted section without reading. The page's own load reads it.
   prepareView(view:FacilityView){const next=firstOf(view);if(next&&facilityViewOf(section)!==view){section=next;show();}},
   // On the page: moves to the view through the shown section's leave guard, as a tab does.
-  chooseView(view:FacilityView){const next=firstOf(view);if(next&&facilityViewOf(section)!==view)chooseSection(next);},
+  chooseView(view:FacilityView):Promise<void>{const next=firstOf(view);return next&&facilityViewOf(section)!==view?chooseSection(next):Promise.resolve();},
   edited:()=>unique().some(consumer=>consumer.edited()),leave:()=>active().leave(),refresh:()=>active().refresh(),
   reset(){for(const consumer of unique())consumer.reset();if(!available(section))section=initial();show();},
  };

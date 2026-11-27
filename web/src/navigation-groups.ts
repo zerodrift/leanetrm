@@ -1,4 +1,5 @@
 import {aiTabs} from './agent-settings.js';
+import {facilityViewAvailable,isFacilityView} from './facilities-views.js';
 
 // The sidebar's groups in order, each with the pages it lists. A page is named by the id of its entry (`nav-<page>`),
 // a sidebar button or a view inside its workspace; the group's
@@ -37,13 +38,11 @@ export function pageGroup(page:string):string{
 // Whether an account's sidebar lists a page. The server still authorizes every read and write.
 export function pageAvailable(page:string,permissions:string[]):boolean{
  const has=(...needed:string[])=>needed.every(permission=>permissions.includes(permission));
+ // A view of Facilities is listed when one of its sections may be opened, by the rule the workspace's tabs use.
+ if(isFacilityView(page))return facilityViewAvailable(page,has);
  switch(page){
   case 'rec-inventory':return has('ReadMarketData','ReadTrades');
   case 'physical-power':return has('ReadMarketData','ReadPhysical');
-  // Views of Facilities (facilities-views.ts). Each rule is the gate of its sections in facilities-workspace.ts.
-  case 'facilities-position':case 'facilities-transport':return has('ReadMarketData','ReadTrades','ReadGasOperations');
-  case 'facilities-crude':return has('ReadMarketData','ReadTrades');
-  case 'facilities':return has('ReadMarketData','ReadTrades');
   // Options and Vol surfaces read option products, which trade readers see.
   case 'lifecycle':case 'physical-operations':case 'new-trade':case 'futures':case 'options':case 'ppa':case 'gas':case 'crude':case 'vol-surfaces':return has('ReadMarketData','ReadTrades');
   case 'dashboard':case 'market':case 'curve-marks':case 'custom-curves':case 'curve-definitions':case 'delivery':case 'interval-series':case 'interval-curves':

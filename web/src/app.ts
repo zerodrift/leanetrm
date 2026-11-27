@@ -94,8 +94,8 @@ import {setupShortcutEditor} from './shortcut-view.js';
 import {apiRefusal,readRefusal} from './api-refusal.js';
 import {setupTouProducts} from './tou-products.js';
 import {validateMarketNavigation,navigationGroups,navigationCategories,navigationCurveKind,curveConfigurationAction,type MarketNavigation,type FrameSummary,type CurveConfiguration} from './market-navigation.js';
-import {navigationGroups as sidebarGroups,pageGroup,pageAvailable,firstPage} from './navigation-groups.js';
-import {setupFacilityViews,facilityViewNames} from './facilities-views.js';
+import {navigationGroups as sidebarGroups,schedulingDesks,pageGroup,pageAvailable,firstPage} from './navigation-groups.js';
+import {setupFacilityViews,facilityViewNames,facilityViews,isFacilityView} from './facilities-views.js';
 import {setupSchedulingDesks} from './scheduling-desks.js';
 import {pagePresentationTarget} from './assistant-walkthroughs.js';
 import {setupAssistant} from './assistant-panel.js';
@@ -383,7 +383,8 @@ async function mayLeaveForDialog(notDone:string,move:Move='discards'){
   return false;
 }
 // Runs `work` as an action, once the person has agreed to leave what the page holds. A discarded curve that the work then failed to leave is read again.
-function leaving(work:()=>Promise<void>,move:Move='discards'){void (async()=>{if(busy)return;if(await mayLeave(move))await act(work);})();}
+// Settles when the move has finished or been refused.
+function leaving(work:()=>Promise<void>,move:Move='discards'):Promise<void>{return (async()=>{if(busy)return;if(await mayLeave(move))await act(work);})();}
 function action(name:string,run:()=>Promise<void>){const button=el('button',name);button.disabled=busy;button.type='button';button.onclick=()=>void act(run);return button;}
 function decimalTick(){if(!workspace||!curve||listedCurve().marketType!=='futures')return undefined;return val(row('quote_specifications','code',val(selectedCurve(),'quote_code'),true),'clearing_increment');}
 function table(target:string,headers:string[],rows:(string|HTMLElement)[][],numeric:number[]=[],displayRows?:string[][],onRowActivate?:(index:number)=>void){
@@ -1427,7 +1428,7 @@ const physicalOperations=setupPhysicalOperations($('physical-operations-page'),{
 const facilities=setupFacilities({api,act,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+exampleId+':'+currentProfile,permission:can,
  nominationContext:()=>!contextDirty&&!historicalContext()&&select('snapshot').value?{snapshotId:select('snapshot').value,convention:'physical_gas_fixed_quantity_v4',knowledgeMode:'current',contextId:null}:null,
  nativeDeliveryReason:()=>contextDirty?'Apply the changed context before opening native delivery operations.':!select('snapshot').value?'Choose a financial close in the Blotter before opening native delivery operations.':null,
- openNativeDelivery:async target=>{if(busy||!await mayLeave('page'))return;await act(async()=>{if(contextDirty||!select('snapshot').value)throw Error('Apply an explicit financial close before opening native delivery operations.');desks.want(target.instrumentType==='physical_crude'?'crude':'gas');await setPage('physical-operations');await physicalOperations.open(target);});},
+ openNativeDelivery:async target=>{if(busy||!await mayLeave('page'))return;await act(async()=>{if(contextDirty||!select('snapshot').value)throw Error('Apply an explicit financial close before opening native delivery operations.');desks.want(({physical_gas:'gas',physical_crude:'crude'} as const)[target.instrumentType]);await setPage('physical-operations');await physicalOperations.open(target);});},
  context:()=>{if(contextDirty)throw Error('Apply the changed context before reading facilities.');return {effectiveOn:$<HTMLInputElement>('date-context-on').value,knowledgeMode:historicalContext()?'retained':'current',retained:historicalContext()??null,convention:'facility_business_date_end_utc_v1'};},
  changed:()=>syncUnloadQuestion(),tradeInspection:()=>select('snapshot').value?null:'Choose a market close in the Blotter before opening trades. Facility quantities do not select a price close.',openTrade:async(id,revision)=>{if(!await mayLeave())return;await act(async()=>{await setPage('futures');await futures.load();await futures.openTrade(id,'physical_gas',revision);});}});
 const pointTraderMark=setupPointTraderMark($('point-trader-mark'),{api,act,busy:()=>busy,zone:()=>prefs.timeZone,
@@ -1796,22 +1797,25 @@ const readsContext=['rec-inventory','physical-power','lifecycle','physical-opera
 const navigate=(next:string)=>()=>leaving(async()=>{if(contextDirty&&readsContext.includes(next))await applyContext();await showPage(next);},contextDirty&&readsContext.includes(next)?'discards':'page');
 const riskViewsNav=setupRiskViews({show:view=>{riskJobs.showView(view);text('page-title',riskViewNames[view]);$('page-title').title=riskViewNames[view];syncControls();},open:()=>navigate('risk')(),onPage:()=>page==='risk',busy:()=>busy,available:()=>pageAvailable('risk',permissions)});
 const facilityViewsNav=setupFacilityViews({view:()=>facilities.view(),choose:view=>facilities.chooseView(view),prepare:view=>facilities.prepareView(view),open:()=>navigate('facilities')(),onPage:()=>page==='facilities',busy:()=>busy,
- available:view=>pageAvailable(view,permissions)&&facilities.viewAvailable(view)});
-// The Scheduling entry the app shows, or null on a page outside Scheduling.
-const schedulingEntry=()=>page==='facilities'?facilities.view():page==='physical-operations'||page==='rec-inventory'?page:null;
-const desks=setupSchedulingDesks({permissions:()=>permissions,owner:()=>administrationScope+':'+exampleId+':'+currentProfile,storage:()=>sessionStorage,open:entry=>$('nav-'+entry).click(),busy:()=>busy});
+ available:view=>pageAvailable(view,permissions)&&facilities.viewAvailable(view),
+ // Arriving without a chosen entry, such as on reload: a view of the desk shown, when the shown section is not one of that desk's.
+ fallback:()=>{const desk=schedulingDesks.find(d=>d.id===desks.current());return desk&&!desk.pages.includes(facilities.view())?facilityViews.find(view=>desk.pages.includes(view)&&facilities.viewAvailable(view)):undefined;}});
+// The Scheduling entry the app shows, or null on a page outside Scheduling or while that page is not shown, as after access ends.
+const schedulingEntry=()=>(page==='facilities'||page==='physical-operations'||page==='rec-inventory')&&!$(page+'-page').hidden?page==='facilities'?facilities.view():page:null;
+const desks=setupSchedulingDesks({permissions:()=>permissions,owner:()=>administrationScope+':'+exampleId+':'+currentProfile,storage:()=>sessionStorage,open:entry=>isFacilityView(entry)?facilityViewsNav.open(entry):navigate(entry)(),busy:()=>busy});
 // Trade deliveries is Cargoes on the LNG desk. The eyebrow names the desk beside the group.
 const deliveriesName=()=>desks.current()==='lng'?'Cargoes':'Trade deliveries';
 function syncScheduling(){
   const entry=schedulingEntry();if(entry)desks.follow(entry);
   const name=deliveriesName(),nav=$('nav-physical-operations');
   if(nav.title!==name){nav.title=name;nav.setAttribute('aria-label',name);nav.querySelector('.nav-text')!.textContent=name;}
-  if(page==='physical-operations'&&$('page-title').textContent!==name){text('page-title',name);$('page-title').title=name;}
-  const section=(pageGroup(page)+(entry&&desks.label()?' · '+desks.label():'')).toUpperCase();
+  if(!entry)return;
+  if(entry==='physical-operations'&&$('page-title').textContent!==name){text('page-title',name);$('page-title').title=name;}
+  const section=(pageGroup(page)+(desks.label()?' · '+desks.label():'')).toUpperCase();
   if($('page-section').textContent!==section)text('page-section',section);
 }
 // Facilities is one page: its title is the view its shown section belongs to, and follows a section opened from anywhere.
-function syncFacilitiesTitle(){if(page!=='facilities')return;const name=facilityViewNames[facilities.view()];if($('page-title').textContent!==name){text('page-title',name);$('page-title').title=name;}}
+function syncFacilitiesTitle(){if(page!=='facilities'||$('facilities-page').hidden)return;const name=facilityViewNames[facilities.view()];if($('page-title').textContent!==name){text('page-title',name);$('page-title').title=name;}}
 for(const name of ['lifecycle','physical-operations','physical-power','rec-inventory','dashboard','vol-surfaces','curve-marks','options','delivery','interval-series','jobs','admin','ai','futures'])
 
   $('nav-'+name).onclick=navigate(name);
@@ -2037,7 +2041,9 @@ const assistant=setupAssistant({launcherHidden:()=>prefs.assistantHidden,launche
     if(step.kind==='go'){
       // A ticket is opened from the Blotter's own button where the Blotter is shown, and from New trade's sidebar entry anywhere else.
       const id=step.target.page.startsWith('blotter_new_')?(page==='futures'&&!futures.entry()?'futures-new':'nav-new-trade'):step.target.page.startsWith('blotter')?'nav-futures':'nav-'+webPage(step.target.page);
-      const control=$(id);return control?.getClientRects().length&&!control.closest('[hidden]')?control:null;
+      const control=$(id);if(control?.getClientRects().length&&!control.closest('[hidden]'))return control;
+      // A Scheduling entry of another desk is reached through that desk's control.
+      const chip=id.startsWith('nav-')?desks.chip(id.slice(4)):null;return chip?.getClientRects().length&&!chip.closest('[hidden]')?chip:null;
     }
     return page==='futures'?futures.presentationLocate(step):pagePresentationTarget(main);
   },

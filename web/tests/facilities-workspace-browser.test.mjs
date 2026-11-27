@@ -58,6 +58,18 @@ test('reloading Facilities exposes an original native request even when its sele
  assert.equal(await evaluate("document.querySelector('[data-facility-ops=retry]').disabled"),false,'retry retains its own original source and native authority independently of a new read');
 }));
 
+test('reloading Facilities returns an unconfirmed definition to Definitions',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(markup,async evaluate=>{
+ await evaluate(`(async()=>{
+  const context={effectiveOn:'2032-03-14',knowledgeMode:'current',retained:null,convention:'facility_business_date_end_utc_v1'},command={path:'facilities/operations/record',operationId:'synthetic-definition',label:'Original definition',body:{context,ownerId:'original-owner',effectiveAt:'2032-03-14T08:00:00Z',command:{kind:'define',facilityId:null}},uncertain:true};
+  sessionStorage.setItem('openetrm.facility.operations.request.synthetic-operator',JSON.stringify(command));window.errors=[];
+  const api=async()=>{throw Object.assign(Error('Synthetic source unavailable'),{code:'access_denied'});};
+  window.workspace=(await import('/facilities-workspace.js')).setupFacilities({api,act:async work=>{try{await work();}catch(error){errors.push(error.message);}},busy:()=>false,zone:()=> 'UTC',identity:()=> 'synthetic-operator',context:()=>context,permission:()=>true,changed(){},tradeInspection:()=>null,openTrade:async()=>{}});
+  await workspace.load().catch(error=>errors.push(error.message));workspace.sync();
+ })()`);
+ assert.equal(await evaluate('workspace.section()'),'definitions');
+ assert.equal(await evaluate("document.querySelector('[data-facility-ops=pending]').hidden"),false);
+}));
+
 test('a Transport-only reader opens entitlement capacity without hidden physical-facility reads',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(markup,async evaluate=>{
  await evaluate(`(async()=>{
   window.calls=[];window.errors=[];

@@ -5,7 +5,7 @@ import {withBrowserPage,browserAvailable,browserTestTimeout} from './browser-pag
 const entries=['facilities-position','physical-operations','facilities-transport','facilities','facilities-crude','rec-inventory'];
 const html='<div id="scheduling-desks" hidden></div>'+entries.map(entry=>`<button id="nav-${entry}">${entry}</button>`).join('');
 const setup=`(async()=>{window.opened=[];window.blocked=false;window.rights=['ReadMarketData','ReadTrades','ReadGasOperations'];window.saved={};
- window.desks=(await import('/scheduling-desks.js')).setupSchedulingDesks({permissions:()=>rights,owner:()=>'synthetic-owner',storage:()=>({getItem:key=>saved[key]??null,setItem:(key,value)=>{saved[key]=value;}}),open:entry=>opened.push(entry),busy:()=>blocked});
+ window.desks=(await import('/scheduling-desks.js')).setupSchedulingDesks({permissions:()=>rights,owner:()=>'synthetic-owner',storage:()=>({getItem:key=>saved[key]??null,setItem:(key,value)=>{saved[key]=value;}}),open:entry=>{opened.push(entry);return new Promise(resolve=>{window.settle=resolve;});},busy:()=>blocked});
  window.listed=()=>[...document.querySelectorAll('[id^=nav-]')].filter(b=>!b.hidden).map(b=>b.id.slice(4));
  window.pressed=()=>[...document.querySelectorAll('#scheduling-desks button')].filter(b=>b.getAttribute('aria-pressed')==='true').map(b=>b.textContent);})()`;
 const browser={skip:!browserAvailable,timeout:browserTestTimeout};
@@ -27,6 +27,20 @@ test('choosing a desk opens its first entry and changes desk only when the page 
  assert.deepEqual(await evaluate('pressed()'),['Crude']);
  assert.deepEqual(await evaluate('listed()'),['physical-operations','facilities-crude']);
  assert.equal(await evaluate('saved["openetrm:desk:v1:synthetic-owner"]'),'crude');
+}));
+test('a refused leave leaves no desk behind for a later navigation',browser,()=>withBrowserPage(html,async evaluate=>{
+ await evaluate(setup);await evaluate("desks.start();desks.page('physical-operations');document.querySelector('#scheduling-desk-crude').click()");
+ await evaluate("settle();new Promise(resolve=>setTimeout(resolve,0))");
+ await evaluate("desks.page('physical-operations')");
+ assert.equal(await evaluate('desks.current()'),'gas');
+ assert.deepEqual(await evaluate('pressed()'),['Gas']);
+}));
+test('an entry on another desk is reached through that desk\'s control',browser,()=>withBrowserPage(html,async evaluate=>{
+ await evaluate(setup);await evaluate('desks.start()');
+ assert.equal(await evaluate("desks.chip('rec-inventory').id"),'scheduling-desk-power');
+ assert.equal(await evaluate("desks.chip('facilities-crude').id"),'scheduling-desk-crude');
+ assert.equal(await evaluate("desks.chip('physical-operations')"),null,'the shown desk lists it');
+ assert.equal(await evaluate("desks.chip('market')"),null);
 }));
 test('the desk follows an entry opened by another route, and a page outside Scheduling keeps it',browser,()=>withBrowserPage(html,async evaluate=>{
  await evaluate(setup);await evaluate("desks.start();desks.follow('rec-inventory')");

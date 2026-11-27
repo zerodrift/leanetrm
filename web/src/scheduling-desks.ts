@@ -12,9 +12,9 @@ export function deskFor(entry:string,current:DeskId|null,permissions:string[]):D
 }
 
 // Navigation only: which desk's entries the Scheduling group lists. Choosing a desk opens its first entry through that entry's own
-// guards and takes effect once the page has moved; a refused leave changes nothing. Only the desk's identifier is remembered,
-// per tab, workspace and account.
-export function setupSchedulingDesks(o:{permissions:()=>string[];owner:()=>string;storage:()=>DeskStorage;open:(entry:string)=>void;busy:()=>boolean}){
+// guards and takes effect once the page has moved. `open` settles when that navigation has finished or been refused; a refused
+// leave changes nothing and leaves no chosen desk behind. Only the desk's identifier is remembered, per tab, workspace and account.
+export function setupSchedulingDesks(o:{permissions:()=>string[];owner:()=>string;storage:()=>DeskStorage;open:(entry:string)=>Promise<void>|void;busy:()=>boolean}){
  const root=document.getElementById('scheduling-desks')!,entries=[...new Set(schedulingDesks.flatMap(desk=>desk.pages))];
  let desk:DeskId|null=null,wanted:DeskId|undefined;
  function draw(){
@@ -23,10 +23,15 @@ export function setupSchedulingDesks(o:{permissions:()=>string[];owner:()=>strin
   root.replaceChildren(...desks.map(d=>{
    const button=document.createElement('button');button.type='button';button.id='scheduling-desk-'+d.id;button.className='nav-desk';button.textContent=d.label;
    button.setAttribute('aria-pressed',String(d.id===desk));button.disabled=o.busy();
-   button.onclick=()=>{if(o.busy()||d.id===desk)return;const first=d.pages.find(page=>pageAvailable(page,o.permissions()));if(first===undefined)return;wanted=d.id;o.open(first);};
+   button.onclick=()=>void choose(d);
    return button;
   }));
   for(const entry of entries)(document.getElementById('nav-'+entry) as HTMLElement).hidden=!pageAvailable(entry,o.permissions())||desk===null||!lists(desk,entry);
+ }
+ async function choose(d:Desk){
+  if(o.busy()||d.id===desk)return;
+  const first=d.pages.find(page=>pageAvailable(page,o.permissions()));if(first===undefined)return;
+  wanted=d.id;try{await o.open(first);}finally{if(wanted===d.id)wanted=undefined;}
  }
  function set(next:DeskId|null){
   if(next===null||next===desk)return;
@@ -46,7 +51,9 @@ export function setupSchedulingDesks(o:{permissions:()=>string[];owner:()=>strin
   page(entry:string){const chosen=wanted;wanted=undefined;if(!entries.includes(entry))return;set(chosen!==undefined&&lists(chosen,entry)?chosen:deskFor(entry,desk,o.permissions()));},
   // Called when the entry shown may have changed without a page move, such as a Facilities section opened from elsewhere.
   follow(entry:string){if(entries.includes(entry))set(deskFor(entry,desk,o.permissions()));},
-  // The desk an exact target belongs to, used by the next page move.
+  // The control of the desk that lists an entry the shown desk does not, for a guide that points at where the entry is reached.
+  chip(entry:string){const next=deskFor(entry,desk,o.permissions());return next!==null&&next!==desk?document.getElementById('scheduling-desk-'+next):null;},
+  // The desk an exact target belongs to, used by the page move that directly follows.
   want(next:DeskId){wanted=next;},
   sync(){for(const button of root.querySelectorAll('button'))button.disabled=o.busy();},
  };
