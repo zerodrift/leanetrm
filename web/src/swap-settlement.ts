@@ -34,7 +34,7 @@ export function setupSwapSettlement(options:{api:Api;act:(work:()=>Promise<void>
  const openingLabel=node('p'),bridge=node('div');bridge.id='swap-settlement-bridge';pnl.append(node('h3','Trading P&L reconciliation'),baseline);label(pnl,'Opening market snapshot',openingSnapshot);pnl.append(captureOpening,openingLabel);label(pnl,'Contractual changes valued under',contractPolicy);pnl.append(reconcile,bridge);
  pnl.append(node('p','Closing-context v1 values prior and revised terms in the closing market. New-trade economics, amendments and continuing economics reconcile to total trading P&L; payments and netting do not create earnings. Book transfers and unsupported transformations are refused.'));
  root.append(heading,status,error,refresh,summary,node('h3','Contractual payment occurrences'),payments,evidence,node('h3','Determined balances and adjustments'),balances,
-  actionHelp,...(options.lifecycle?[navigate]:[node('p','Open Lifecycle under Scheduling in the main workspace.')]),node('h3','Cash history'),cashHistory,pnl);shelf.append(root);
+  actionHelp,...(options.lifecycle?[navigate]:[node('p','Open Lifecycle under Trading in the main workspace.')]),node('h3','Cash history'),cashHistory,pnl);shelf.append(root);
  let detail:Detail|undefined,tradeId:string|undefined,selectedKey='',generation=0;
  let opening:{tradeId:string;context:Context;asOf:string}|undefined;
  const key=()=>JSON.stringify(options.context()),context=()=>({...options.context(),convention:'independent_side_financial_swap_v2'});

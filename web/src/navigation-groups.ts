@@ -9,10 +9,10 @@ import {aiTabs} from './agent-settings.js';
 export type NavigationGroup={id:'overview'|'trading'|'markets'|'risk'|'scheduling'|'reference'|'administration';label:string;pages:readonly string[];opened?:readonly string[]};
 export const navigationGroups:readonly NavigationGroup[]=[
  {id:'overview',label:'Overview',pages:['dashboard']},
- {id:'trading',label:'Trading',pages:['new-trade','futures','options'],opened:['ppa','gas','crude']},
+ {id:'trading',label:'Trading',pages:['new-trade','futures','options','lifecycle','physical-power'],opened:['ppa','gas','crude']},
  {id:'markets',label:'Markets',pages:['market','delivery','interval-series','curve-marks','vol-surfaces','interval-curves']},
  {id:'risk',label:'Risk',pages:['risk','risk-pnl','risk-scenarios','risk-var','risk-runs']},
- {id:'scheduling',label:'Scheduling',pages:['lifecycle','physical-operations','facilities','physical-power','rec-inventory']},
+ {id:'scheduling',label:'Scheduling',pages:['physical-operations','facilities','rec-inventory']},
  {id:'reference',label:'Reference Data',pages:['reference'],opened:['curve-definitions','custom-curves','configuration','schedules','power','parties','gas-setup','crude-setup']},
  {id:'administration',label:'Administration',pages:['jobs','admin','ai']},
 ];

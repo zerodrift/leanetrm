@@ -19,10 +19,10 @@ test('every page belongs to exactly one group and Overview comes first',()=>{
 test('the groups and their pages keep the sidebar order',()=>{
  assert.deepEqual(navigationGroups.map(g=>[g.id,g.label,[...g.pages]]),[
   ['overview','Overview',['dashboard']],
-  ['trading','Trading',['new-trade','futures','options']],
+  ['trading','Trading',['new-trade','futures','options','lifecycle','physical-power']],
   ['markets','Markets',['market','delivery','interval-series','curve-marks','vol-surfaces','interval-curves']],
   ['risk','Risk',['risk','risk-pnl','risk-scenarios','risk-var','risk-runs']],
-  ['scheduling','Scheduling',['lifecycle','physical-operations','facilities','physical-power','rec-inventory']],
+  ['scheduling','Scheduling',['physical-operations','facilities','rec-inventory']],
   ['reference','Reference Data',['reference']],
   ['administration','Administration',['jobs','admin','ai']]]);
 });
@@ -160,8 +160,8 @@ test('Reference Data lists the areas of its console, in the console\'s order and
   consoleAreas.map(a=>({...a,same:true})));
 });
 
-test('operating facilities reuse Scheduling with exact physical read permission',()=>{
- assert.equal(pageGroup('physical-power'),'Scheduling');
+test('operating facilities are a Trading page with exact physical read permission',()=>{
+ assert.equal(pageGroup('physical-power'),'Trading');
  assert.equal(navigationGroups.filter(group=>group.pages.includes('physical-power')).length,1);
  assert.equal(navigationGroups.some(group=>group.id==='physical'),false);
  assert.equal(pageAvailable('physical-power',['ReadMarketData','ReadPhysical']),true);
