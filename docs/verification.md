@@ -12,8 +12,9 @@ production activation.
 | `dotnet run --project tests/OpenEtrm.MarketData.Checks -- --gas-cash-billing` | Passed: the design's worked examples, by hand-computed amounts |
 | `tools/run_preview.py --check --gas-pricing-check` | Passed: 100 printed checks, including the indexed billing check and migration 0412's guard |
 | `tools/run_preview.py --check --gas-billing-check` | Passed: 116 printed checks; fixed and entry billing unchanged, and migration 0412's guard |
+| `tools/run_preview.py --check --gas-billing-check --browser-check` | Passed: 163 printed checks, with the billing panel driven in the browser |
 | `tools/check_all.py --group repository` | Passed |
-| `tools/check_all.py --group managed` | Passed, 2,954 printed checks, before the review corrections below |
+| `tools/check_all.py --group managed` | Passed, 2,954 printed checks |
 | `tools/check_all.py --group frontend` | 2,405 of 2,415 passed, including the indexed billing panel test |
 
 The ten frontend failures are the typed day-quantity tests of
@@ -66,9 +67,8 @@ resolution:
   fixed-price review in flight across the upgrade refuses as stale and is
   previewed again.
 
-Not run locally on this change: the other gas previews, the assistant, trading,
-lifecycle and remaining groups, and the gas billing browser checks. Hosted CI
-runs them.
+Not run locally on this change: the other gas previews and the assistant,
+trading, lifecycle and remaining groups. Hosted CI runs them.
 
 ## Gas trade details and Blotter updates in the swing browser checks
 
