@@ -597,3 +597,53 @@ Before starting:
 Risk history reads, risk job submissions and a whole-firm Blotter read at a close
 stay slow on the demo dataset on two processors; the longer limits only stop them
 being cancelled at 15 s. Their speed is an open performance item.
+
+## Database patch image (PostgreSQL 18.7)
+
+`deploy/compose.yaml` pins the stock `postgres:18.7-bookworm` image by its index
+digest in place of 18.6, the patch release CI verifies under the
+[dependency lock](ci-dependencies.md). The change is infrastructure. A release
+carrying it has a Compose hash that differs from an installed 18.6 baseline, so
+the updater quarantines that head unless `openetrm-deployment.timer` is stopped
+before the release is published and the Compose file and its `composeSha256` are
+installed as in steps 1 and 2 of [Hosted capacity](#hosted-capacity-d458). The
+updater switches only the API with `--no-deps`, and a database restart during a
+switch blocks further automatic switches. A serving database therefore stays on
+18.6 until its container is recreated from the installed file. Once that file
+is installed, a `docker compose up` that names `api` without `--no-deps`, or
+names no service, recreates the database on 18.7. Run none outside the window.
+
+Moving between 18 patch releases needs no dump and restore. A disposable check
+initialized the 18.6 image with this file's database settings, wrote synthetic
+rows, stopped the server cleanly and started the 18.7 image on the same data
+directory. The system identifier, data checksums, commit timestamp tracking and
+UTC setting were unchanged, the rows read back identically, `pg_checksums`
+reported no bad block, and both images report collation version 2.36. A second
+check did the same after applying `db/bootstrap.sql` and all 411 migrations: the
+18.7 server started without error and reported the same index inventory.
+
+The 18.7 release notes ask for a `REINDEX` of btree indexes on `bpchar` columns
+declared without a length, of `pg_trgm` GiST indexes, and of GIN indexes
+suspected of earlier damage. The migrated schema has only btree indexes, no
+`bpchar` column and no extension other than `plpgsql`, so its definition
+requires none. They also name TOAST indexes damaged by an earlier `REINDEX
+CONCURRENTLY`. That depends on what was run on the installation, not on the
+schema; nothing in this repository runs it. The notes say incremental backups
+taken before the update should not be trusted; an installation that uses them
+takes a new full backup afterwards.
+
+The recorded `schemaSha256` does not survive the change. The updater hashes
+`pg_dump --schema-only` output, whose header names the server and `pg_dump`
+versions. On the migrated disposable database those two lines were the only
+difference between the images, and the fingerprints differed. Until the
+operator records the fingerprint of the 18.7 database, each head the updater
+tries fails with "database schema drift requires operator review" and is
+quarantined.
+
+The installation's own window is not qualified here. As for a schema window,
+stop the API and background writers and retain a verified backup before
+recreating the database container. Before restoring the updater, confirm the
+server version, the unchanged system identifier and public readiness, compare
+the schema dump with the one taken before the change, and record the new
+`schemaSha256`. An installation using the optional worker database transport
+also confirms that its `DATABASE_ADDRESS` still reaches the recreated container.
