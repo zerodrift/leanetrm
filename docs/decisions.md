@@ -7894,7 +7894,60 @@ measured; a longer limit only stops them being cancelled. Making them faster is
 an open performance item. Nothing takes effect until the operator follows
 [hosted capacity](hosted-pilot.md#hosted-capacity-d458).
 
-## D459 — Installed roles read, record and set up REC inventory and owned gas
+## D459 — Daily gas entry billing and bounded scope processing
+
+Retain `gas_final_daily_fixed_cash_v1` and add the explicitly selected
+`gas_final_daily_entry_cash_v1` for one fixed delivery payment, one physical
+source and one completed native gas day. The latter consumes the payment's
+retained share, daily band/shortfall and own dates. Apply held-basis thresholds,
+share and quote multiplier once and round the complete daily cash once.
+Corrections retain the existing rounded-total difference and explicit cause/due
+contract. The native writer independently verifies the exact source and amount.
+Exercise/swing-dependent payments and their governed sources refuse new ordinary
+fixed billing; disjoint payments and accepted receipt acknowledgements remain.
+
+Reconciliation compares exact contractual, manually scheduled and selected final
+quantities for the same obligation/day/unit. Missing evidence is not zero. The
+first automatic-original policy requires a complete exact match; differences
+remain review items without changing final quantities or payment arithmetic.
+The shared `gas.bill_daily` action reuses this producer and native cash owner.
+
+Gas processing uses `gas_processing_instant_utc_v1`: an explicit UTC evaluation
+instant on an explicit processing business date, independent of the older target
+gas day. Its scheduled source has no financial close. Exact booked readers use
+the selected visible trade head, retained schedules and original reference keys,
+including after the catalogue's original effective period. D435's original input
+cut, deadline, current authority and ephemeral runtime contexts still apply.
+The existing fixed-offset gas booking boundary remains. Daylight-saving delivery
+clocks need their own qualified booking and operating contract.
+
+Use `gas_billing_scope_reassessment_v1` for recurring processing of an explicit
+fixed book/date scope. Every cycle reassesses the complete scope, including late
+old-day inputs and waiting evidence. An incremental certified change feed is not
+required or implemented. This trades repeat read work for a complete bounded
+enumeration with no unqualified change-source dependency. Limits are 64 books,
+366 dates and eight occurrences per page, with explicit smaller dispatch limits.
+The first scan admission supplies all continuation and child input coordinates.
+
+Existing `automation.jobs/runs` own execution. Product enrollment revisions,
+scope, cursor, assessments and child relationships have exact native keys; no
+second queue, generic event log or persisted context store is introduced.
+Discovery cannot create unrelated jobs or write financial/quantity facts.
+Verified page results, child admission and cursor movement commit together with
+the terminal discovery receipt. Financial children retain the existing atomic
+effect/receipt/result boundary, semantic cash identity and owner/service limits.
+Owner quota backpressure preserves undispatched work. Recurrence preserves the
+cycle's original due-time phase; updates cancel affected pending children.
+
+Jobs requires explicit policies and preview before once/recurring enrollment.
+Reports distinguish assessments, proposals and distinct native determinations,
+including after child replay. Corrections remain manual/reviewed. Indexed,
+monthly, multisource, receipt/fuel and right-dependent billing, invoices,
+accounting and automatic correction policy remain separate consumers.
+See [the contract](gas-cash-billing.md) and
+[qualification](verification.md#daily-gas-billing-and-processing-d459).
+
+## D460 — Installed roles read, record and set up REC inventory and owned gas
 
 Decided by the owner on 2026-11-26. Migration 0344 created `ReadRecInventory`,
 `RecordRecInventory` and `ConfigureRecInventory` and granted them to no role.
@@ -7908,7 +7961,7 @@ out of everyone's reach. Only the local preview and the checks could use them,
 by granting themselves the permissions. Operating facilities had the same gap
 until D444.
 
-Migration 0406 installs all six:
+Migration 0411 installs all six:
 
 - `ReadRecInventory` and `ReadGasOwnedHoldings`: every human role that reads
   trades, which are Trader, Risk analyst, Facility operations, Facility

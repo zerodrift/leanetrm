@@ -1,4 +1,4 @@
--- REC inventory and owned gas reach people through the installed roles (D459).
+-- REC inventory and owned gas reach people through the installed roles (D460).
 -- Migration 0344 created the three REC inventory permissions and granted them to no role. Migration 0265 created the
 -- three owned gas permissions; two were held only by the agent-only Gas lifecycle operator role (0305), and an agent
 -- acts only within what its delegating person also holds. So on an installation no person could read, record or set up

@@ -21,14 +21,14 @@ application. See [current implementation](../docs/implementation.md) and
 
 Recent schema groups and their contracts:
 
-- [0406](migrations/0406_inventory_role_grants.sql) installs the REC inventory
+- [0411](migrations/0411_inventory_role_grants.sql) installs the REC inventory
   capabilities that 0344 created and granted to no role, and the owned gas
   capabilities that 0265 created: the agent-only Gas lifecycle operator role held
   two of them (0305) and no role held the third. Every human role that reads
   trades holds `ReadRecInventory` and `ReadGasOwnedHoldings`. Facility operations
   holds `RecordRecInventory` and Contracts administration `ConfigureRecInventory`.
   Gas delivery operations and Gas service setup hold `RecordGasOwnedHoldings`, and
-  Gas service setup holds `ConfigureGasOwnedHoldings` (D459).
+  Gas service setup holds `ConfigureGasOwnedHoldings` (D460).
 - [0405](migrations/0405_gas_swing_point_periods.sql) qualifies the selected swing
   physical membership against the unique native daily or calendar-month point
   covering each gas day. The existing schedule proof checks its exact contract,

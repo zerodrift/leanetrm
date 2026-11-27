@@ -85,6 +85,7 @@ def main():
     parser.add_argument('--with-gas-operations-demo',action='store_true',help='Seed the synthetic basis example plus manual scheduling and imbalance records')
     parser.add_argument('--gas-operations-check',action='store_true',help='Qualify manual gas requests, acknowledgments and imbalance transfers')
     parser.add_argument('--gas-billing-check',action='store_true',help='Qualify final daily gas cash and retained corrections')
+    parser.add_argument('--gas-billing-benchmark',action='store_true',help='Measure 7,440 synthetic billing candidates and a separate four-child execution sample')
     parser.add_argument('--curve-marks-check',action='store_true',help='Qualify atomic curve mark batches and certified market history')
     parser.add_argument('--gas-swing-workload-check',action='store_true',help='Measure the marked seasonal and annual swing through booking and leased risk jobs')
     parser.add_argument('--gas-swing-workload-days',type=int,choices=(90,365),help='Measure one term in a fresh preview')
@@ -249,6 +250,7 @@ def main():
     if args.crude_lifecycle_check or args.crude_setup_check: args.physical_crude_check=True
     if args.gas_quantity_benchmark: args.gas_daily_quantity_check=True
     if args.with_gas_operations_demo: args.with_gas_basis_demo=True
+    if args.gas_billing_benchmark: args.gas_billing_check=True
     if args.gas_billing_check or args.gas_operations_check: args.physical_gas_check=True
     if args.gas_in_term_check and args.gas_indexed_check: parser.error('--gas-in-term-check and --gas-indexed-check use different fixtures; run them separately')
     if args.gas_charges_check:
@@ -314,7 +316,7 @@ def main():
         subprocess.run(['npm','run','build','--prefix','web'],cwd=ROOT,env=env,check=True,timeout=60)
         subprocess.run([str(dotnet),'restore','src/OpenEtrm.Api','--locked-mode'],cwd=ROOT,env=env,check=True,timeout=120)
         subprocess.run([str(dotnet),'build','src/OpenEtrm.Api','--no-restore'],cwd=ROOT,env=env,check=True,timeout=120)
-        if args.gas_swing_check:
+        if args.gas_swing_check or args.gas_billing_check:
             subprocess.run([str(dotnet),'restore','tests/OpenEtrm.Api.Checks','--locked-mode'],cwd=ROOT,env=env,check=True,timeout=120)
             subprocess.run([str(dotnet),'build','tests/OpenEtrm.Api.Checks','--no-restore'],cwd=ROOT,env=env,check=True,timeout=120)
         if args.with_regional_seed:
@@ -404,6 +406,9 @@ def main():
             if args.gas_swing_check:
                 from gas_swing_fixture import add_fixture as add_swing_fixture
                 reference,market,security,manifest=add_swing_fixture(reference,market,security,manifest)
+            if args.gas_billing_check:
+                from delivery_quantity_fixture import add_fixture as add_billing_swing_fixture
+                reference,market,security,manifest=add_billing_swing_fixture(reference,market,security,manifest,price='3.10',prefix='synthetic_billing_swing',number=192000,start_minute=0,months=(('2021-01-01','2021-02-01'),))
             if args.gas_charges_check:
                 from check_gas_charges import add_quote_fixture, add_reference_fixture
                 reference,market,security,manifest=add_quote_fixture(reference,market,security,manifest)
@@ -473,6 +478,29 @@ def main():
                 from check_fact_anchor_upgrade import run_checks as check_curve_upgrade
                 check_curve_upgrade(query,migration,number='0401',guard='curve_mark_editor_upgrade',
                                     signatures=('trading.record_curve_marks(uuid,jsonb,timestamptz,text)',))
+            if migration.name=='0406_gas_daily_entry_billing.sql' and args.gas_billing_check:
+                from check_fact_anchor_upgrade import run_checks as check_billing_entry_upgrade
+                check_billing_entry_upgrade(query,migration,number='0406',guard='gas_billing_entry_upgrade',
+                    signatures=('security.record_gas_billing(uuid,jsonb,timestamp with time zone,uuid,jsonb)',))
+            if migration.name=='0407_gas_billing_lifecycle.sql' and args.gas_billing_check:
+                from check_fact_anchor_upgrade import run_checks as check_billing_lifecycle_upgrade
+                check_billing_lifecycle_upgrade(query,migration,number='0407',guard='gas_billing_lifecycle_upgrade',signatures=(
+                    'security.validate_gas_billing_request(jsonb)',
+                    'security.record_gas_billing(uuid,jsonb,timestamp with time zone,uuid,jsonb)',
+                    'lifecycle.finish_command_pre_schedule_scope(uuid,uuid,text,jsonb,text,timestamp with time zone)'))
+            if migration.name=='0408_gas_billing_schedule.sql' and args.gas_billing_check:
+                from check_fact_anchor_upgrade import run_checks as check_billing_schedule_upgrade
+                check_billing_schedule_upgrade(query,migration,number='0408',guard='gas_billing_schedule_upgrade',signatures=(
+                    'automation.lifecycle_definition(automation.lifecycle_profiles)',
+                    'automation.require_lifecycle_settings(automation.lifecycle_profiles)',
+                    'automation.create_lifecycle_job(uuid,jsonb)',
+                    'automation.admit_occurrence_inputs()',
+                    'automation.capture_lifecycle_source()',
+                    'automation.require_lifecycle_action_scope(uuid,text,jsonb,boolean)'))
+            if migration.name=='0410_gas_billing_enrollments.sql' and args.gas_billing_check:
+                from check_fact_anchor_upgrade import run_checks as check_billing_enrollment_upgrade
+                signatures=tuple(re.findall(r"\('([^']+)','[0-9a-f]{64}','\{",migration.read_text()))
+                check_billing_enrollment_upgrade(query,migration,number='0410',guard='gas_billing_enrollment_upgrade',signatures=signatures)
             if migration.name=='0400_gas_charge_boundaries.sql' and args.gas_charges_check:
                 from check_fact_anchor_upgrade import run_checks as check_boundary_upgrade
                 check_boundary_upgrade(query,migration,number='0400',guard='gas_charge_boundary_upgrade',signatures=(
@@ -825,7 +853,7 @@ def main():
                 prepare_factor(manifest)
         if security:query(security)
         if args.example=='standard' and (args.structured_power_check or not args.check):
-            # Operating facilities and rights (D444) and certificate inventory (D459) use the installed role grants.
+            # Operating facilities and rights (D444) and certificate inventory (D460) use the installed role grants.
             # The preview adds only scenarios for the people on its facility page.
             query("INSERT INTO security.role_permissions SELECT id,'RunScenario' FROM security.roles "
                   "WHERE code IN('market_data_editor','trader') ON CONFLICT DO NOTHING;")
@@ -1364,8 +1392,8 @@ def main():
             elif args.physical_gas_check:
                 from check_physical_gas_preview import run_checks,run_shape_checks
                 if not args.gas_delivery_quantity_check:
-                    run_checks(url,query,manifest)
-                    run_shape_checks(query,manifest)
+                    run_checks(url,query,manifest,extra_locations=1 if args.gas_billing_check else 0)
+                    run_shape_checks(query,manifest,extra_locations=1 if args.gas_billing_check else 0)
                 if args.facility_quantity_check:
                     from check_facility_quantity_ledger import run_checks as check_facility_quantities
                     facility_fixture=check_facility_quantities(url,query,manifest)
@@ -1380,7 +1408,7 @@ def main():
                     gas_operations_fixture=check_gas_operations(url,query,manifest)
                 if args.gas_billing_check:
                     from check_gas_billing import run_checks as check_gas_billing
-                    gas_billing_fixture=check_gas_billing(url,query,manifest)
+                    gas_billing_fixture=check_gas_billing(url,query,manifest,dotnet=dotnet,benchmark=args.gas_billing_benchmark,api_pid=child.pid)
                 run_gas_worker=risk_worker_runner() if args.gas_composition_check or args.gas_amendments_check or args.gas_indexed_check or args.gas_delivery_quantity_check or args.gas_pricing_check else None
 
                 if args.gas_delivery_quantity_check:
@@ -1403,7 +1431,7 @@ def main():
                     if args.gas_operations_check:
                         subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-operations'],cwd=ROOT,env=env,check=True,timeout=180)
                     if args.gas_billing_check:
-                        subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-billing'],cwd=ROOT,env=env,check=True,timeout=180)
+                        subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-billing'],cwd=ROOT,env=env,check=True,timeout=300)
                     if args.gas_amendments_check:
                         subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-amendments'],cwd=ROOT,env=env,check=True,timeout=180)
 

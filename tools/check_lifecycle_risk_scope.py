@@ -31,7 +31,7 @@ def checks(query, manifest):
     physical_checks(query, manifest)
     catalog,tenant,workspace=(manifest[k]for k in ('catalogId','tenantId','workspaceId'))
     issuer=manifest['identityIssuer'];at='2026-10-16T16:00:00Z';day='2026-10-16'
-    # Risk analyst reads owned gas as installed (D459); this check is about a reader and workers who do not.
+    # Risk analyst reads owned gas as installed (D460); this check is about a reader and workers who do not.
     hold_without(query,manifest,person(query,issuer,'risk'),'ReadGasOwnedHoldings')
     def literal(value):return "'"+json.dumps(value).replace("'","''")+"'::jsonb"
     def user(sql,profile='risk'):

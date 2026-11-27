@@ -6,10 +6,11 @@ import {zonedInput} from './user-time.js';
 import {displayInstant} from './market-view.js';
 import {displayPaymentDate} from './payment-date.js';
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
-type Claim={cashSlot:number;code:string;role:string;stage:string;sideCode:string;day:string;price:string;currency:string;decimalPlaces:number;supported:boolean;completed:boolean};
+type Claim={cashSlot:number;code:string;role:string;stage:string;sideCode:string;day:string;price:string;currency:string;decimalPlaces:number;supported:boolean;completed:boolean;refusal?:string|null;profiles?:string[];entryDescription?:string|null};
 type Fact={id:string;cash_slot:number;day:string;ordinal:number;rounded_total:string;contribution:string;currency_code:string;due_at:string;reason:string|null;evidence:string};
-type View={expectedRevision:number;canWrite:boolean;profile:string;roundingPolicy:string;quantityPolicies:string[];correctionReasons:string[];claims:Claim[];determinations:Fact[]};
-type Preview={previewHash:string;sourceId:string;previousId:string|null;amount:string;contribution:string;currency:string;contractualDueAt:string;alreadyDetermined:boolean};
+type View={expectedRevision:number;canWrite:boolean;profile:string;profiles?:string[];roundingPolicy:string;quantityPolicies:string[];correctionReasons:string[];claims:Claim[];determinations:Fact[]};
+type Preview={previewHash:string;sourceId:string;previousId:string|null;amount:string;contribution:string;currency:string;contractualDueAt:string;alreadyDetermined:boolean;
+ reconciliation?:{status:string;contractual:string;scheduled:string|null;final:string|null;scheduledLessContract:string|null;finalLessScheduled:string|null}};
 export type GasBillingWorkflow={busy:()=>boolean;pending:()=>RequestCommand|undefined;queue:(command:RequestCommand)=>Promise<void>;changed:()=>void};
 
 export function setupGasBilling(host:HTMLElement,o:{api:Api;context:()=>Record<string,unknown>;tradeId:string;actor:()=>string;zone:()=>string;readOnly?:boolean;workflow?:GasBillingWorkflow}){
@@ -20,7 +21,7 @@ export function setupGasBilling(host:HTMLElement,o:{api:Api;context:()=>Record<s
  <label>Final quantity source<select data-billing="policy" required></select><small>Choose final manual allocation or an accepted facility allocation.</small></label></div></fieldset>
  <fieldset><legend>Calculation</legend><div class="schedule-fields">
  <label>Billing profile<select data-billing="profile" required></select><small>Calculate each day and cash component, then its change from the prior determination.</small></label>
- <label>Currency rounding<select data-billing="rounding" required></select><small>Use the booked currency’s minor units, with ties to even.</small></label></div></fieldset>
+ <label>Currency rounding<select data-billing="rounding" required></select><small>Use the booked currency’s minor units, with ties to even.</small></label></div><p data-billing="entry-terms"></p></fieldset>
  <fieldset class="billing-evidence"><legend>Evidence &amp; correction</legend><div class="schedule-fields">
  <label class="billing-evidence-source">Review evidence<input data-billing="evidence" maxlength="500" required><small>The statement or review supporting this determination.</small></label>
  <label>Correction reason<select data-billing="reason"></select><small>Required for corrections. This does not select accounting treatment.</small></label>
@@ -48,14 +49,20 @@ export function setupGasBilling(host:HTMLElement,o:{api:Api;context:()=>Record<s
   const select=get<HTMLSelectElement>(name);select.replaceChildren(new Option('Choose…',''),...values.map(([value,label,disabled])=>{const option=new Option(label,value);option.disabled=!!disabled;return option;}));
   if(values.some(([value])=>value===previous))select.value=previous;
  }
+ function claimChanged(){
+  const selected=get<HTMLSelectElement>('claim').value;
+  const claim=selected===''?undefined:view?.claims[Number(selected)];
+  options('profile',(claim?.profiles??view?.profiles??(view?[view.profile]:[])).map(p=>[p,p==='gas_final_daily_entry_cash_v1'?'Final daily entry cash · retained share and quantity part':'Final daily fixed cash']),get<HTMLSelectElement>('profile').value);
+  get('entry-terms').textContent=claim?.entryDescription??'';
+ }
  async function read(){
   if(disposed||o.actor()!==owner)return;
   const epoch=++generation;busy=true;sync();
   try{
    const data=await o.api<View>('gas/billing/read',{context:o.context(),tradeId:o.tradeId});if(disposed||o.actor()!==owner||epoch!==generation)return;
-   view=data;options('claim',data.claims.map((c,i)=>[String(i),`${c.day} · ${c.sideCode} / ${c.code} · ${c.price} ${c.currency}${!c.supported?' · TBD: '+c.stage+' billing':!c.completed?' · delivery not completed':''}`,!c.supported||!c.completed]),get<HTMLSelectElement>('claim').value);
+   view=data;options('claim',data.claims.map((c,i)=>[String(i),`${c.day} · ${c.sideCode} / ${c.code} · ${c.price} ${c.currency}${!c.supported?(c.refusal==='gas_billing_rights'?' · exercise-dependent billing unavailable':' · '+c.stage+' billing unavailable'):!c.completed?' · delivery not completed':''}`,!c.supported||!c.completed]),get<HTMLSelectElement>('claim').value);
    options('policy',data.quantityPolicies.map(p=>[p,p==='final_allocated_billing_v1'?'Manual final allocation':'Accepted facility allocation']),get<HTMLSelectElement>('policy').value);
-   options('profile',[[data.profile,'Final daily fixed cash']],get<HTMLSelectElement>('profile').value);
+   claimChanged();
    options('rounding',[[data.roundingPolicy,'Currency minor units · ties to even']],get<HTMLSelectElement>('rounding').value);
    options('reason',data.correctionReasons.map(r=>[r,r.replaceAll('_',' ')]),get<HTMLSelectElement>('reason').value);
    get('zone').textContent='Display timezone: '+o.zone()+'. Corrections require an explicit due time.';
@@ -66,6 +73,7 @@ export function setupGasBilling(host:HTMLElement,o:{api:Api;context:()=>Record<s
  }
  function changed(){generation++;reviewed=undefined;get('review').hidden=true;sync();}
  form.addEventListener('input',changed);form.addEventListener('change',changed);
+ get<HTMLSelectElement>('claim').addEventListener('change',claimChanged);
  form.onsubmit=event=>{event.preventDefault();void preview();};
  async function preview(){
   if(!view||!writable()||busy||workflow?.busy())return;
@@ -82,6 +90,7 @@ export function setupGasBilling(host:HTMLElement,o:{api:Api;context:()=>Record<s
    const correctionDueAt=p.previousId?await time.instant():null;if(disposed||o.actor()!==owner||epoch!==generation)return;
    reviewed={preview:request,previewHash:p.previewHash,sourceId:p.sourceId,expectedPreviousId:p.previousId,correctionDueAt,reason:p.previousId?reason:null,evidence};
    const review=get('review');review.hidden=false;review.textContent=`Restated amount: ${p.amount} ${p.currency}\nNew contribution: ${p.contribution} ${p.currency}\nDue: ${correctionDueAt?displayInstant(correctionDueAt,o.zone()):displayPaymentDate(p.contractualDueAt)}\nCause: ${p.previousId?reason:'Original'}\nEvidence: ${evidence}`;
+   if(p.reconciliation){const r=p.reconciliation;review.textContent+=`\nReconciliation: ${r.status}\nContractual: ${r.contractual} · scheduled: ${r.scheduled??'Unavailable'} · final: ${r.final??'Unavailable'}\nScheduled less contract: ${r.scheduledLessContract??'Unavailable'} · final less scheduled: ${r.finalLessScheduled??'Unavailable'}`;}
    message.textContent='Review the amount and supporting terms, then accept.';
   }catch(error){if(!disposed)message.textContent=String(error);}
   finally{busy=false;if(!disposed)sync();}

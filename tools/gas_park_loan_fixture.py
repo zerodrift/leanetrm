@@ -42,7 +42,7 @@ class ParkLoanFixture:
                   "CROSS JOIN security.permissions p WHERE r.permission='AmendTrade' AND p.code IN "
                   "('ReadGasOwnedHoldings','RecordGasOwnedHoldings','ConfigureGasOwnedHoldings','RunScenario') "
                   "ON CONFLICT DO NOTHING;")
-            # Risk analyst reads owned gas as installed (D459); the native checks read as a Risk reader who does not.
+            # Risk analyst reads owned gas as installed (D460); the native checks read as a Risk reader who does not.
             hold_without(query, manifest, person(query, manifest['identityIssuer'], 'risk'), 'ReadGasOwnedHoldings')
         self.terms = json.loads(query(
             "SELECT jsonb_build_object('quantity',q.quantity_code,'currency',q.currency_code,'location',c.location_code)::text "

@@ -67,7 +67,7 @@ def checks(query, manifest, read_policy_checks=None):
     query(catalogue_fixture(manifest, 'https://preview.invalid'))
     sql_session(query, manifest, 'synthetic_lifecycle_risk', 'test_business', '16:00', ['future'], [])
     sql_session(query, manifest, 'synthetic_alternative_risk', 'test_business', '17:00', ['future'], [])
-    # Risk analyst reads owned gas as installed (D459); this check is about a reader and workers who do not.
+    # Risk analyst reads owned gas as installed (D460); this check is about a reader and workers who do not.
     provision_worker(query, manifest, 'synthetic_lifecycle_worker', without=('ReadGasOwnedHoldings',))
     hold_without(query, manifest, person(query, 'https://preview.invalid', 'risk'), 'ReadGasOwnedHoldings')
     def literal(value):

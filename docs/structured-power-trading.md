@@ -211,7 +211,7 @@ references. Destinations bind exact counterparty versions and registry accounts.
 Registry, product, class, program, eligibility assignment, evidence source and
 retirement purpose references are typed and versioned. Public examples are
 explicitly synthetic. Migration 0344 grants its capabilities to no role;
-migration 0406 grants them to installed roles (D459).
+migration 0411 grants them to installed roles (D460).
 
 Serial bounds are integer strings describing half-open ranges `[from,to)`.
 Receipt evidence establishes ownership; allocation reserves an eligible range
@@ -246,7 +246,7 @@ All new tables use forced RLS and bounded authorized functions. Booking requires
 current trade authority; operating reads also require physical-read authority.
 Inventory read, evidence recording and account/destination configuration have
 separate `ReadRecInventory`, `RecordRecInventory` and `ConfigureRecInventory`
-capabilities. As installed (D459), every human role that reads trades holds the
+capabilities. As installed (D460), every human role that reads trades holds the
 read: Trader, Risk analyst, Facility operations, Facility operating limits, Gas
 delivery operations, Gas service setup, Contracts administration, Counterparty
 credit, Trade confirmations and Trade supervisor. Facility operations records

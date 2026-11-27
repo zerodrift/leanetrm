@@ -386,7 +386,7 @@ audit as history.
   addition to its tools' permissions. A user's actual current permissions must
   cover the complete request, even when their allowed role supplies only the
   workspace tools and another assigned role supplies gas access. As installed
-  (D459), a person holds both gas permissions the role needs only through Gas
+  (D460), a person holds both gas permissions the role needs only through Gas
   delivery operations or Gas service setup. Trader and Risk analyst read owned
   gas and do not record it. The agent reader role holds neither: a read the
   assistant makes under it, such as its trade-reading tool, is refused over a

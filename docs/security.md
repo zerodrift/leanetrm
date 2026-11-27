@@ -91,10 +91,10 @@ automatically. Migration 0389 installs the two
 [operating-facility capabilities](operating-facilities.md) that migration 0342 created
 and granted to no role (D444): Market data editor holds `ManagePhysicalSetup`, and it
 and the ten human roles that read trades hold `ReadPhysical`. No agent-only role holds
-either, and no person is assigned a role. Migration 0406 installs the three
+either, and no person is assigned a role. Migration 0411 installs the three
 [REC inventory capabilities](structured-power-trading.md#authority-history-and-recovery)
 that migration 0344 created and granted to no role, and the three
-[owned gas capabilities](gas-owned-holdings.md) that migration 0265 created (D459).
+[owned gas capabilities](gas-owned-holdings.md) that migration 0265 created (D460).
 The ten human roles that read trades hold `ReadRecInventory` and
 `ReadGasOwnedHoldings`. Facility operations holds `RecordRecInventory` and Contracts
 administration holds `ConfigureRecInventory`. Gas delivery operations and Gas service

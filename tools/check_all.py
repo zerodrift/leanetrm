@@ -250,7 +250,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     for kind in ('physical','cash'):
         check('native '+kind+' option models in the application',[sys.executable,'tools/check_lifecycle_valuation_browser.py',
             '--pg-bin',str(pg_bin),'--dotnet',str(dotnet),'--browser',str(browser),'--kind',kind,'--no-build'],suite='lifecycle')
-    for flag in ('--lifecycle-actions','--economic-risk-contract','--lifecycle-schedule-contract','--gas-owned-setup',
+    for flag in ('--lifecycle-actions','--economic-risk-contract','--lifecycle-schedule-contract','--gas-billing-operating','--gas-billing-enrollment','--gas-owned-setup',
         '--shared-native-markets','--derivative-methods','--gas-accepted-order','--lifecycle-residual-currencies','--gas-operator-contract'):
         check('managed lifecycle '+flag,[str(dotnet),'run','--no-restore','--project',
             'tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj','--',flag], suite='managed')

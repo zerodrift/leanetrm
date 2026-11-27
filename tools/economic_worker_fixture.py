@@ -9,7 +9,7 @@ from check_risk_jobs_db import provision_worker
 
 
 def provision(query,manifest,login,*,permissions):
-    # Risk analyst reads owned gas as installed (D459); this worker holds it only where `permissions` says so.
+    # Risk analyst reads owned gas as installed (D460); this worker holds it only where `permissions` says so.
     provision_worker(query,manifest,login,without=('ReadGasOwnedHoldings',))
     for permission in permissions:
         assert permission in ('ReadGasOwnedHoldings',)

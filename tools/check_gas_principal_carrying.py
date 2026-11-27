@@ -46,7 +46,7 @@ def checks(query,manifest,*,carrying):
         "p.proowner='openetrm_security_owner'::regrole AND p.proconfig=ARRAY['search_path=pg_catalog'] AND "
         "p.proargnames=ARRAY['catalog','context','at_time','books'] AND p.pronargdefaults=0 "
         "FROM pg_proc p WHERE oid='security.read_gas_owned_profile_holdings(uuid,uuid,timestamptz,uuid[])'::regprocedure;")=='t'
-    # Risk analyst reads owned gas as installed (D459); this refusal is about a reader who does not.
+    # Risk analyst reads owned gas as installed (D460); this refusal is about a reader who does not.
     hold_without(query,manifest,person(query,issuer,'risk'),'ReadGasOwnedHoldings')
     try:call(prefix+f"SELECT security.read_gas_owned_profile_holdings({args});",'risk')
     except RuntimeError as error:assert any(code in str(error) for code in ('access_denied','gas_owned_denied')),str(error)

@@ -1,13 +1,21 @@
 # Final daily gas cash determinations
 
-## Pricing-entry boundary (D447)
+## Pricing-entry profiles (D447, D459)
 
-Final daily billing requires share one, no quantity part and the full source
-term. A non-unit share, band/shortfall or shorter payment period refuses with
-`gas_billing_input` at the API and `gas_billing_profile` in the native writer.
-This check applies independently of whether the entry's current taken quantity
-happens to equal its source. New named indexed payments remain outside this
-fixed-price determination profile. Valuation accrual is not a final bill.
+`gas_final_daily_fixed_cash_v1` retains its original boundary: share one, no
+quantity part and the complete source term. The explicitly selected
+`gas_final_daily_entry_cash_v1` additionally consumes the booked share, daily
+band or shortfall, and payment-specific delivery dates. It applies the existing
+quantity-part behavior to the held native final quantity, scales thresholds by
+the held basis, applies share and quote multiplier once, then rounds once.
+Neither profile admits indexed, receipt/fuel, monthly cumulative or multisource
+billing. Valuation accrual is not a final bill.
+
+Payments controlled by an exercise or swing right, including through their
+physical source, refuse new ordinary fixed billing before and after election.
+A disjoint right does not disable another supported payment. Accepted command
+and source-fact acknowledgements remain available under current authority;
+eligibility changes do not rewrite their outcomes.
 
 D338 implements a bounded commercial consumer, `gas_final_daily_fixed_cash_v1`.
 It consumes one completed native gas day and one fixed-price payment or fee
@@ -86,11 +94,13 @@ accounting period state remain outside this commercial contract.
 
 ## Selected metadata reads (D355)
 
-`GasCashBillingStore.Components` starts with every visible revision of the exact
-trade and follows its component, obligation, assignment, curve, quote and currency
-keys through parameterized joins. Ordinary row policies and the trading-context
-publication recheck remain in force. This preserves retained terms, native text,
-cardinality and slot ordering; it does not choose a newer revision or add a fallback.
+D459 selects the latest trade revision visible at the supplied effective time
+and knowledge cutoff. The billing readers follow that binding's exact component,
+obligation, schedule, quote and currency relationships. Their retained schedule
+proof authorizes the booked definitions after the original catalogue period has
+ended; no current definition or mark substitutes for them. Manual and accepted
+facility heads, scheduled quantities and cash history use the same explicit cut.
+Current read authority and the original deadline remain commit checks.
 
 The owned `--physical-assistant-check` consumer runs the actual managed billing
 read at one certified context before and after adding 512 unrelated synthetic
@@ -119,6 +129,10 @@ five-second SQL command deadline, independently of the general preview budget.
   retained operation ID, cause/due terms and evidence.
 - `gas/billing/status`: recover that actor's original operation outcome under
   current authority.
+- `gas/billing/worklist`, `operating-preview`: bounded discovery and review using
+  an explicit processing clock, independently of a market close.
+- `gas/billing/enrollment-choices`, `enrollment-preview`, `enroll`: authorized
+  book/policy choices, candidate inspection and versioned scheduled scope.
 
 Open **Scheduling → Physical operations**, select Natural gas and the booked
 instrument, then choose **Billing & corrections**.
@@ -137,6 +151,65 @@ Migration 0205 and `turns_v18` introduced the billing admission boundary;
 [the current workspace runtime](assistant-workspace.md) includes its later page
 aliases. Retained earlier requests remain replayable; deployment and
 provider/tool consent remain separate from local qualification.
+
+## Reconciliation and scheduled processing (D459)
+
+Reconciliation compares contractual, recorded scheduled and selected final
+quantities for the same owned obligation, native interval, unit and delivery
+stage. It retains exact differences and source identities. Missing scheduled
+evidence is unavailable, including when the final quantity is explicitly zero.
+A variance is an observation; it neither modifies the final quantity nor changes
+the payment formula. Reviewed billing can use a valid final quantity with a
+variance. Automatic originals require all three quantities to match exactly.
+
+The shared `gas.bill_daily` action uses the same managed calculation and native
+writer as interactive billing. Its source names the exact trade revision,
+payment, gas day, policy versions, currency precision and processing clock.
+`gas_processing_instant_utc_v1` requires an explicit UTC instant on the selected
+processing business date. The target gas day may be older. A market close is
+neither required nor accepted as a substitute. Source-only jobs never choose a
+correction's cause or cash due instant.
+The current booking profile admits fixed-offset delivery clocks. Discovery uses
+their retained native boundaries; this increment does not qualify daylight-saving
+delivery clocks or a general business-calendar scheduler.
+
+**Jobs → Daily gas processing** requires explicit books, a fixed delivery window,
+saved action policy and mode, source/rounding policies, readiness delay and
+execution limits. Preview is required before Run once or Enroll recurring.
+Changing a selection, identity, context or display timezone invalidates review.
+An uncertain enrollment retains the original request ID and exact body for retry.
+
+`gas_billing_scope_reassessment_v1` visits the complete selected scope each cycle;
+it is not an incremental source-change cursor or a rolling date window. Each
+cycle revisits waiting days, late old-day inputs, withdrawals and visible trade
+heads. The scope is 1–64 books and 1–366 gas dates, with 1–8 occurrences per page
+and an explicit dispatch limit no larger than the page. A readiness delay of
+0–86,400 seconds is measured from each retained native day end. These bounds are
+admission limits, not a production throughput guarantee.
+
+The first admitted cut and processing clock belong to the complete scan and its
+children. Continuations and retries reconstruct fresh runtime contexts from those
+coordinates. A later cycle captures a new cut. Cursor advancement, verified
+assessments, child admission and the parent's terminal result commit together.
+The discovery worker cannot write financial/quantity facts or create unrelated
+jobs. Each admitted child uses the existing lifecycle worker and commits its
+native receipt and terminal result atomically under its own original deadline.
+
+Jobs retain their ordinary owner/delegator/service intersection and owner quota
+of 64 active, paused, blocked or running jobs. A full queue retains the cursor
+and retries discovery after 60 seconds; ordinary continuations wait one second.
+A once-only scope completes after the last page. Recurrence follows the original
+cycle due-time phase, rather than accumulating continuation delays. Pause stops
+new dispatch. Already admitted children retain their own controls and expiry.
+A versioned scope update refuses while affected work is running and cancels
+superseded pending children before starting reassessment.
+
+Reports distinguish assessed states, queued children, review proposals and
+distinct native bills. Replaying a child acknowledges its original bill without
+increasing the bill count. A finished scan is a partial assessment: waiting data,
+unsupported terms, refused sources, reconciliation differences and corrections
+remain visible. A proposal is reopened through Billing & corrections for a fresh
+review; it is not a recorded determination.
 
 ## Qualification and remaining work
 

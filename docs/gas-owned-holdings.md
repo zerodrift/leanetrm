@@ -481,8 +481,8 @@ Gas and ends old delegations when that choice changes. A fresh user grant must
 cover the version's exact gas and tool permissions. The reader role remains;
 neither selecting Gas nor publishing it supplies the user's missing gas rights.
 
-Migration 0406 gives the three owned gas permissions to roles people hold
-(D459). Until then the agent-only role above was the only holder of the read
+Migration 0411 gives the three owned gas permissions to roles people hold
+(D460). Until then the agent-only role above was the only holder of the read
 and record permissions and no role held the setup permission, so on an
 installation no person could use owned gas, and no agent could either, because
 an agent acts only within what its delegating person also holds.
@@ -517,7 +517,7 @@ Custody keeps a narrower read. Reading a custody agreement needs
 `BookTrade` and, on the customer side, the owned gas read. A Trader can
 therefore book a custody agreement and not read it, and once a book holds one,
 its Blotter and position reads are refused to every role without
-`ReadGasOperations`. D459 records this and leaves it undecided.
+`ReadGasOperations`. D460 records this and leaves it undecided.
 
 An owned title that funds an accepted futures dispatch can require one linked
 correction: reducing the title first exceeds stock capacity, while replacing the

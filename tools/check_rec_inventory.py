@@ -4,7 +4,7 @@ from pathlib import Path
 from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
-MIGRATION = '0406_inventory_role_grants.sql'
+MIGRATION = '0411_inventory_role_grants.sql'
 
 
 def run_checks(query, manifest, psql=None, environment=None):

@@ -107,7 +107,7 @@ def checks(query,manifest,*,economic=False,native_child=False,solved=False,margi
     query(catalogue_fixture(manifest,issuer))
     query("INSERT INTO security.role_permissions SELECT role_id,'RunScenario' FROM security.role_permissions WHERE permission='AmendTrade' ON CONFLICT DO NOTHING;")
     query("INSERT INTO security.role_permissions SELECT role_id,'ReadTrades' FROM security.role_permissions WHERE permission='WriteMarketDefinitions' ON CONFLICT DO NOTHING;")
-    # Trader reads owned gas as installed (D459); this consumer is qualified for a person who does not.
+    # Trader reads owned gas as installed (D460); this consumer is qualified for a person who does not.
     hold_without(query,manifest,person(query,issuer,'trader'),'ReadGasOwnedHoldings')
     def literal(value):return "'"+json.dumps(value).replace("'","''")+"'::jsonb"
     def call(sql,profile='trader'):
