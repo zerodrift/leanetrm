@@ -171,6 +171,13 @@ class WorkflowCacheTests(unittest.TestCase):
         self.assertNotIn('curl', recipe)
         self.assertNotIn('--allow-unauthenticated', recipe)
 
+    def test_producer_sources_offer_the_pinned_major_client_library_component(self):
+        # Since PostgreSQL 19, libpq5 at the current 18 server revision is
+        # published only in PGDG component 18, not in main.
+        stanzas = (ROOT / 'tools/ci/postgresql.sources').read_text().split('\n\n')
+        pgdg, = (s for s in stanzas if 'apt.postgresql.org' in s)
+        self.assertIn('Components: main 18\n', pgdg + '\n')
+
 
 class InstalledPackageTests(unittest.TestCase):
     def test_only_server_and_client_are_requested_without_forcing_library_upgrades(self):
