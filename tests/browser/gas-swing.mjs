@@ -70,7 +70,7 @@ export async function run(actions){
  await check('both covered Sides read on one line in a desktop term field',
   `(()=>{const [a,b]=${all(covered)};return a?.textContent==='physical-1'&&b?.textContent==='cash-1'&&
    Math.abs(a.getBoundingClientRect().top-b.getBoundingClientRect().top)<2;})()`);
- await click('#blotter-dock [data-maximize=details]');
+ await click('#blotter-dock [data-maximize=details]',30000);
  // Begin on the focusable daily schedule; the rest of the quant review uses native keyboard navigation.
  await evaluate(at(detail+' [aria-label="Daily elections and delivery"]')+'.focus()');await key('Tab',9);
  await check('Tab reaches the quant disclosure from the daily schedule','document.activeElement==='+at(drawer+' summary'));
@@ -141,7 +141,8 @@ export async function run(actions){
    return first.status===200&&retry.status===200&&JSON.stringify(command)===JSON.stringify(first.body)&&
     first.wire===retry.wire&&JSON.stringify(first.outcome)===JSON.stringify(retry.outcome)&&first.body.operationId===command.operationId&&command.expectedHeads.length===3&&command.expectedHeads.every(h=>h.revisionId===null)&&
     command.elections.map(e=>e.day+'='+e.quantity).join(',')==='2021-01-31=1000,2021-02-01=1000';})()`);
- await click('#blotter-dock [data-maximize=details]');await openTrade(fixture.optionalTrade);
+ // The preceding election refresh may still be loading the complete Blotter.
+ await click('#blotter-dock [data-maximize=details]',30000);await openTrade(fixture.optionalTrade);
  await open();await chooseDays(days[0],days[0],'elect','0');await submit();await shown(0,'Elected · 0');
  await check('the optional right displays the explicit zero with commercial evidence',at(detail)+'.textContent.includes("Synthetic browser instruction")&&window.swingWrites.at(-1).body.elections[0].quantity==="0"');
  await open();await chooseDays(days[0],days[0],'withdraw');await submit();await shown(0,'Withdrawn');
@@ -189,7 +190,7 @@ export async function run(actions){
  const matches=root=>'JSON.stringify('+assessed(root)+')==='+q(JSON.stringify(expected));
  await check('the unpriced ticket retains the withdrawal and distinguishes missed, blocked and open days',
   matches(detail)+'&&'+at(bookedTicket+' .ticket-status')+'.textContent.includes("exercise_marks")&&'+at(detail)+'.textContent.includes('+q(coverage.withdrawal)+')',assessed(detail));
- await click('#blotter-dock [data-maximize=details]');
+ await click('#blotter-dock [data-maximize=details]',30000);
  await reveal(detail+' [aria-label="Retained election days"]');await shot('swing-unpriced-coverage');
  await open();await check('the election form retains the same three day assessments',matches(form),assessed(form));
 }
