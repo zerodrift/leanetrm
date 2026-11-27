@@ -1,5 +1,16 @@
 # Delivery plan and acceptance criteria
 
+D461 lists [Scheduling one desk at a time](physical-workspace.md#scheduling-desks-d461):
+Gas, Power, Crude or LNG, each with entries that are views of the existing
+Facilities and Physical operations pages. Lifecycle and Operating facilities are
+Trading pages. The physical directory lists one desk's trades on request.
+Left for later: opening a Side and day's delivery work from the gas day
+position, the gas stage names, a crude position across trades, the
+installation's enabled desks, a Power scheduling entry beyond REC inventory,
+and back-navigation to Trades and volumes or the position view. The designs are
+[Scheduling by desk](superpowers/specs/2026-11-27-scheduling-workspace-design.md)
+and [product scope and desks](superpowers/specs/2026-11-27-product-scope-and-desks-design.md).
+
 D459 implements [daily gas entry billing and scoped processing](gas-cash-billing.md):
 retained shares, daily bands/shortfalls and payment dates; exact reconciliation;
 gas-native one-off lifecycle work; and bounded recurring book/date assessment

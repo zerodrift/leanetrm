@@ -145,7 +145,7 @@ that has never used a desk can leave it off; one that has must keep it on.
 - `docs/architecture.md`: the desk list, the setting and the refusal rule.
 - `docs/plan.md`: gas and power scheduling come first; the deferred crude, LNG
   and shipping work is recorded so that narrowing the focus loses nothing.
-- `docs/decisions.md`: the next decision id (D461 unless another lands first).
+- `docs/decisions.md`: the next decision id. D461 records Scheduling by desk.
 - `docs/hosted-pilot.md`: the new required configuration value.
 
 ## Delivery order

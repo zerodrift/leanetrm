@@ -49,7 +49,7 @@
 | `web/src/facilities-views.ts` (new), `web/src/facilities-workspace.ts`, `web/src/side-panel.ts`, `web/tests/facilities-views.test.mjs` (new), `web/tests/side-panel-tabs-browser.test.mjs` (new), `web/tests/facilities-workspace-browser.test.mjs`, `tests/browser/gas-entry-outlook.mjs` | Facilities sections grouped into views | 3 |
 | `web/src/facilities-views.ts`, `web/src/navigation-groups.ts`, `web/src/index.html`, `web/src/app.ts`, `web/tests/facilities-views-browser.test.mjs` (new), `web/tests/navigation-groups.test.mjs`, `tests/browser/physical-crude.mjs` | Sidebar entries for the views | 4 |
 | `web/src/scheduling-desks.ts` (new), `web/src/navigation-groups.ts`, `web/src/physical-operations.ts`, `web/src/index.html`, `web/src/app.css`, `web/src/app.ts`, `web/tests/scheduling-desks.test.mjs` (new), `web/tests/scheduling-desks-browser.test.mjs` (new), `web/tests/physical-operations-browser.test.mjs` | The desk switcher | 5 |
-| `tests/browser/physical-workspace.mjs` | One end-to-end scenario | 6 |
+| `tests/browser/gas-operations.mjs` | One end-to-end scenario | 6 |
 | `docs/decisions.md`, `docs/plan.md`, `docs/physical-workspace.md`, `docs/delivery-workbench.md`, `docs/gas-facility-desk.md`, `docs/operating-facilities.md`, `docs/structured-power-trading.md`, `docs/frontend-wiring.md`, both specs | Documents and the decision | 7 |
 
 ---
@@ -871,10 +871,10 @@ git commit -s -m "Show Scheduling one desk at a time"
 
 ### Task 6: One end-to-end scenario
 
-`tests/browser/physical-workspace.mjs` already opens Physical operations and Facilities in the running application. Add checks there; read the file first and follow its `check(name, expression)` idiom.
+`tests/browser/gas-operations.mjs` opens Physical operations as a gas operator in a fixture that holds trades. Add checks there, directly after it first opens the page; read the file first and follow its `check(name, expression)` idiom.
 
 **Files:**
-- Modify: `tests/browser/physical-workspace.mjs`
+- Modify: `tests/browser/gas-operations.mjs`
 
 - [ ] **Step 1: Add the checks**
 

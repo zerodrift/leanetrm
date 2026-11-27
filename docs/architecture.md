@@ -1,5 +1,11 @@
 # Architecture and domain contracts
 
+D461 arranges the Scheduling sidebar group by desk. The entries are presentation
+views of the existing Facilities and Physical operations pages; page identity,
+permissions and every write are unchanged. `physical/operations/directory`
+accepts an optional `desk` and selects that desk's trades on the server. See
+[Scheduling desks](physical-workspace.md#scheduling-desks-d461).
+
 D459 adds [daily gas entry billing and scoped processing](gas-cash-billing.md).
 An explicit successor profile uses retained shares, daily quantity parts and
 payment dates. Reconciliation compares exact contract, schedule and final facts;

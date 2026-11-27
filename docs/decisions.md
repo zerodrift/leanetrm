@@ -8098,3 +8098,41 @@ and position reads to every other trade reader, the narrowing D444 rejected for
 operating rights. New roles for REC and gas inventory: no person would hold them
 at installation, and the six-role limit makes them hard to add, as D444 found
 for a new setup role.
+
+## D461 — Scheduling lists one desk at a time
+
+Decided by the owner on 2026-11-27. The Scheduling sidebar group shows the
+entries of one desk: Gas, Power, Crude or LNG. Gas lists Gas day position, Trade
+deliveries, Nominations & transport and Storage & allocations. Power lists REC
+inventory. Crude lists Trade deliveries and Receipts & dispatches. LNG lists
+Cargoes. A switcher offers each desk that has an entry the account can open.
+Lifecycle and Operating facilities are Trading pages. This amends the page list
+of D367.
+
+The entries are views of the existing Facilities and Physical operations pages.
+Facilities' nine sections are grouped into four views and renamed as tabs:
+Nominations, Route plans, Capacity, Allocations, Physical activity, Trades and
+volumes and Definitions. Physical operations is named Trade deliveries, and
+Cargoes on the LNG desk. Page identifiers, addresses, permissions, assistant
+page names and reports, and every write are unchanged. Each sidebar entry is
+listed under the permissions its sections already required.
+
+`physical/operations/directory` accepts an optional `desk` of `gas`, `crude` or
+`lng` and returns that desk's trades. A request without a desk returns every
+physical trade as before. Another value is refused with `position_desk`. The
+browser does not filter trades. A desk's read reads that desk's trades alone, so
+it does not fail when another desk's booking metadata cannot be read; the
+request without a desk still refuses in that case.
+
+Moving between entries, sections or desks goes through the existing leave guard
+of what is left. A desk chosen in the switcher takes effect once the page has
+moved, and a refused leave leaves no chosen desk or view behind. On reload the
+desk is restored and Facilities opens on a view of that desk. A walkthrough step
+that goes to an entry of another desk points at that desk's control. With the
+sidebar collapsed the switcher is not drawn; expand it to change desk.
+
+This does not add the link from a gas day position row to its delivery work,
+rename the gas delivery stages, read a crude position across trades, restore
+Trades and volumes or the position view on back-navigation, or let an
+installation choose its desks. The gas and power product scope and the
+installation's enabled desks are proposed separately and are not decided here.

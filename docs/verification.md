@@ -1,5 +1,40 @@
 # Local verification and continuous integration
 
+## Scheduling desks (D461, local)
+
+Run on 27 November 2026 on arm64 macOS with .NET SDK 10.0.402, PostgreSQL 18.7,
+Python 3.13, Node 24.22.3 and Chrome for Testing 158 as the browser. Node is a
+patch ahead of the pinned 24.22.0. The complete `tools/check_all.py` was not
+run.
+
+- `npm test` in `web`, with browser tests: 2,427 of 2,437 pass. The ten
+  failures are the typed day quantity tests of `deal-ticket-browser.test.mjs`.
+  They fail identically on the commit before this change with this browser and
+  touch no changed code.
+- `tools/run_preview.py --check --gas-operations-check --browser-check`: the
+  native checks pass, including the directory by desk; 29 manual gas delivery
+  and 20 physical gas browser checks pass. The gas scenario switches desks,
+  checks each desk's entries, title and eyebrow, and reads the `desk` each
+  directory request sends.
+- `--crude-lifecycle-check --browser-check`: 50 physical crude browser checks
+  pass, opening Trade deliveries on the Crude desk.
+- `--structured-power-check --browser-check`: 16 structured-power and 19
+  structured-trading browser checks pass. This run preceded the review fixes
+  below and was not repeated after them.
+
+An independent static review of the change examined access, leave guards,
+state and the backend read. It found no account able to reach more or less than
+before. It found, and this change fixes with a failing test first: a desk or
+view chosen before a refused leave being applied by a later navigation; an
+unconfirmed facility definition reopening on Physical activity; walkthrough
+steps failing to find an entry of another desk; reload moving to another desk;
+and the title of a hidden page being rewritten after access ends. The section
+permission rules now have one definition used by the tabs and the sidebar.
+
+Not verified here: a person's check of the layout at phone width and with the
+sidebar collapsed, where the switcher is not drawn; the remaining browser and
+database suites; hosted deployment.
+
 ## Gas trade details and Blotter updates in the swing browser checks
 
 On 26 and 27 November 2026 (UTC) the gas swing browser checks failed in four

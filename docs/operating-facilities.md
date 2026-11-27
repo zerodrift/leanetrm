@@ -7,7 +7,7 @@ pricing, lost-response recovery, leave guards and account isolation. The
 [saved trading, hedging and inventory continuation](structured-power-trading.md)
 defines its additional native and GUI contracts separately.
 
-Scheduling → Operating facilities attaches supported operating parameters to
+Trading → Operating facilities attaches supported operating parameters to
 an existing reference location. A facility specification, a contractual operating
 right, the supplied plan and hedge trades remain separate. Thermal generation,
 battery storage and solar output rights share common Side valuation while their

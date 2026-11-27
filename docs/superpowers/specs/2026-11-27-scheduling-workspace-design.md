@@ -1,6 +1,6 @@
 # Scheduling by desk, for schedulers and operations
 
-Status: proposed design, approved direction, not implemented.
+Status: step 1 implemented (D461). Step 2 not implemented.
 
 Depends on [product scope and desks](2026-11-27-product-scope-and-desks-design.md),
 which defines a desk and which desks an installation runs.

@@ -1,6 +1,6 @@
 # Gas facility trading desk
 
-A commercial facility profile identifies a physical site, its pricing points and the published definitions used for booking. Open **Facilities → Trades and volumes** to select a profile, inspect its pricing and ratchets, and open a linked trade in the Blotter. Choose a business date for capacity in force and a delivery window for volume. The end of the volume window is exclusive.
+A commercial facility profile identifies a physical site, its pricing points and the published definitions used for booking. Open **Scheduling → Gas → Storage & allocations → Trades and volumes** to select a profile, inspect its pricing and ratchets, and open a linked trade in the Blotter. Choose a business date for capacity in force and a delivery window for volume. The end of the volume window is exclusive.
 
 ## Set up a bilateral desk
 
