@@ -35,7 +35,7 @@ test('permission refresh retires pending reads before temporarily clearing accou
   $:node,select:node,choose:noop,clearPrices:noop,clearReference:noop,setCurveNames:noop,renderBlotterViews:noop,scheduleWorkspace:undefined,
   gasLocations:{reset(){locationResets++;}},parkLoan:{reset(){parkLoanResets++;}},transportTicket:{reset(){transportResets++;}},pointTraderMark:{reset(){pointResets++;}},curveMarks:{reset(){markResets++;}}};
  for(const name of ['recInventory','structuredPower','closeConventionDefaults','lifecycle','physicalOperations','deliverySetup','referenceConsole','curveWorkspace','customCurves',
-  'volSurfaces','optionChains','riskJobs','riskViewsNav','facilities','jobs','dashboard','deliveryPrices','intervalSeries','intervalCurves','ppa','gas','crude',
+  'volSurfaces','optionChains','riskJobs','riskViewsNav','facilities','facilityViewsNav','jobs','dashboard','deliveryPrices','intervalSeries','intervalCurves','ppa','gas','crude',
   'lng','gasSetup','crudeSetup','referenceEditor','parties','unitConverter','futures','power','touProducts','schedules','dateEditor','priceSetup',
   'curveDefinitions','administration','aiSettings','agentGrants','referenceNavigation','marketCalendar','accessPolicy','assistantPolicy'])
   context[name]={reset:noop,invalidate:noop,clear:noop};
