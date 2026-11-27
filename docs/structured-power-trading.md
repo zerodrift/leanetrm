@@ -210,7 +210,8 @@ registry client. Accounts bind exact books, legal entities and registry account
 references. Destinations bind exact counterparty versions and registry accounts.
 Registry, product, class, program, eligibility assignment, evidence source and
 retirement purpose references are typed and versioned. Public examples are
-explicitly synthetic; migration installation grants no operational capability.
+explicitly synthetic. Migration 0344 grants its capabilities to no role;
+migration 0411 grants them to installed roles (D460).
 
 Serial bounds are integer strings describing half-open ranges `[from,to)`.
 Receipt evidence establishes ownership; allocation reserves an eligible range
@@ -245,7 +246,17 @@ All new tables use forced RLS and bounded authorized functions. Booking requires
 current trade authority; operating reads also require physical-read authority.
 Inventory read, evidence recording and account/destination configuration have
 separate `ReadRecInventory`, `RecordRecInventory` and `ConfigureRecInventory`
-capabilities. Book and exact party scopes remain enforced. Worker reads retain
+capabilities. As installed (D460), every human role that reads trades holds the
+read: Trader, Risk analyst, Facility operations, Facility operating limits, Gas
+delivery operations, Gas service setup, Contracts administration, Counterparty
+credit, Trade confirmations and Trade supervisor. Facility operations records
+evidence. Contracts administration sets up accounts and transfer destinations,
+because that form lists legal entities and counterparties only to a holder of
+`ReadTradeParties`, which the facility roles do not hold. The retirement form
+takes its beneficiary from the same lists, so a person who holds Facility
+operations alone is offered none and needs a second role that reads trade
+parties to record a retirement on the page. Trader records and sets up
+nothing. Book and exact party scopes remain enforced. Worker reads retain
 their lease/custody restrictions. Waiting or calculation cannot extend authority;
 sources and permissions are checked again before returning/publishing.
 

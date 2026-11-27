@@ -481,6 +481,44 @@ Gas and ends old delegations when that choice changes. A fresh user grant must
 cover the version's exact gas and tool permissions. The reader role remains;
 neither selecting Gas nor publishing it supplies the user's missing gas rights.
 
+Migration 0411 gives the three owned gas permissions to roles people hold
+(D460). Until then the agent-only role above was the only holder of the read
+and record permissions and no role held the setup permission, so on an
+installation no person could use owned gas, and no agent could either, because
+an agent acts only within what its delegating person also holds.
+
+- **Read.** `ReadGasOwnedHoldings` is held by every human role that reads
+  trades: Trader, Risk analyst, Facility operations, Facility operating
+  limits, Gas delivery operations, Gas service setup, Contracts administration,
+  Counterparty credit, Trade confirmations and Trade supervisor. A holder reads
+  owned gas accounts, their setup choices and park and loan agreements. Once a
+  book holds a park and loan agreement, a trade reader without the read is
+  refused the whole Blotter and position read of that book
+  (`gas_owned_denied`), which is why the read is this wide. Trader books a park
+  and loan agreement, which needs `BookTrade` and the read. Risk analyst, who
+  runs scenarios, is offered the pricing policy that includes independent gas
+  holdings; a complete portfolio calculation over a book that holds owned gas
+  must select it.
+- **Record.** `RecordGasOwnedHoldings` is held by Gas delivery operations and
+  Gas service setup. It records the owned gas actions and their evidence.
+- **Set up.** `ConfigureGasOwnedHoldings` is held by Gas service setup alone.
+  It saves owned gas accounts, action rules, mark bindings, projection profiles
+  and futures delivery profiles, and the action policies of the gas action
+  kinds. Gas service setup also holds the record permission because every
+  owned gas write, setup included, requires it.
+
+Trader records and sets up nothing. Binding an automatic action policy still
+needs `RunJobs`, which neither gas role holds. A role an installation added by
+hand is not changed; if it reads trades, its holders meet the refusal above
+until the installation grants it the read.
+
+Custody keeps a narrower read. Reading a custody agreement needs
+`ReadGasOperations`, which only the two gas roles hold, while booking one needs
+`BookTrade` and, on the customer side, the owned gas read. A Trader can
+therefore book a custody agreement and not read it, and once a book holds one,
+its Blotter and position reads are refused to every role without
+`ReadGasOperations`. D460 records this and leaves it undecided.
+
 An owned title that funds an accepted futures dispatch can require one linked
 correction: reducing the title first exceeds stock capacity, while replacing the
 dispatch allocation first leaves its applied title source unreconciled. The

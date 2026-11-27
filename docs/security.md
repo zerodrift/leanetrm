@@ -53,7 +53,7 @@ service/agent credential issuance and rotation remain work;
 credential rotation should preserve principal identity. Never log raw credentials
 or capability tokens. There are no seeded users, passwords, grants or universal
 administrator accounts in the migrations. The owned disposable preview fixture
-separately provisions six clearly labeled synthetic test identities and scoped
+separately provisions seven clearly labeled synthetic test identities and scoped
 grants; these never establish a production login boundary.
 
 ## Common roles and scoped authority
@@ -79,7 +79,8 @@ Later migrations add [agent-only swap settlement](../db/migrations/0109_swap_set
 the [Gas delivery operations and Gas service setup roles](gas-delivery-operations.md).
 The former reads and records manual gas operations; the latter reads operations
 and configures service accounts. Both include market/trade reads, and neither
-is assigned automatically. The two agent-only roles remain separately managed.
+is assigned automatically. The three agent-only roles (Agent reader, Swap settlement
+operator and Gas lifecycle operator) remain separately managed.
 Facility operations can read/record shared quantities and allocation plans;
 facility operating limits can
 read/configure maxima. Each also requires market/trade reads. Neither is assigned
@@ -90,14 +91,22 @@ automatically. Migration 0389 installs the two
 [operating-facility capabilities](operating-facilities.md) that migration 0342 created
 and granted to no role (D444): Market data editor holds `ManagePhysicalSetup`, and it
 and the ten human roles that read trades hold `ReadPhysical`. No agent-only role holds
-either, and no person is assigned a role. Users & access serves role names/permissions
-from the stored catalog.
+either, and no person is assigned a role. Migration 0411 installs the three
+[REC inventory capabilities](structured-power-trading.md#authority-history-and-recovery)
+that migration 0344 created and granted to no role, and the three
+[owned gas capabilities](gas-owned-holdings.md) that migration 0265 created (D460).
+The ten human roles that read trades hold `ReadRecInventory` and
+`ReadGasOwnedHoldings`. Facility operations holds `RecordRecInventory` and Contracts
+administration holds `ConfigureRecInventory`. Gas delivery operations and Gas service
+setup hold `RecordGasOwnedHoldings`, and Gas service setup holds
+`ConfigureGasOwnedHoldings`. No agent-only role changes, and no person is assigned a
+role. Users & access serves role names/permissions from the stored catalog.
 
 The initial role-grant trigger kept the agent reader role to agent principals and
 agent principals to it, even for the database owner, while any grant can still be revoked;
 migration 0066 fails, revoking nothing, if an agent principal already holds a current
 role. Migration 0109 subsequently permits the separately delegated agent-only
-swap settlement role; human role assignment still refuses both agent-only roles.
+swap settlement role; human role assignment still refuses every agent-only role.
 An agent principal created through Users & access before 0066 therefore holds no
 current role and has no authority; Users & access still lists it but no longer changes
 it, and it is not an agent of agent administration. Users & access lists agents and the

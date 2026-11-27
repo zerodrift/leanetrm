@@ -77,7 +77,7 @@ if(hostedAuthentication is not null)hostedAuthentication.SignedOut=(digest,subje
     foreach(var registry in pageRegistries)registry.Retire(digest);
 };
 
-var profiles=new[] { new {id="viewer",name="Viewer",description="Read only"},new {id="editor",name="Market Data Editor",description="Read and correct synthetic prices"},new {id="approver",name="Market Data Approver",description="Read and publish schedule definitions"},new {id="admin",name="Access Administrator",description="Manage workspace identities and roles"},new {id="trader",name="Trader",description="Book and inspect synthetic futures holdings"},new {id="risk",name="Risk Analyst",description="Inspect holdings and run shared market scenarios"} };
+var profiles=new[] { new {id="viewer",name="Viewer",description="Read only"},new {id="editor",name="Market Data Editor",description="Read and correct synthetic prices"},new {id="approver",name="Market Data Approver",description="Read and publish schedule definitions"},new {id="admin",name="Access Administrator",description="Manage workspace identities and roles"},new {id="trader",name="Trader",description="Book and inspect synthetic futures holdings"},new {id="risk",name="Risk Analyst",description="Inspect holdings and run shared market scenarios"},new {id="operator",name="Operator",description="Record and set up REC inventory, facility quantities and gas operations"} };
 
 const string malformed="The request is incomplete or malformed.";
 // The HTTP status, code and message an API failure is reported with: as an error body, or as the error frame of a started Blotter stream.

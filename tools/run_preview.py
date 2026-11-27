@@ -115,6 +115,7 @@ def main():
     parser.add_argument('--no-build', action='store_true', help='Use already-built assets')
     parser.add_argument('--check', action='store_true', help='Run HTTP integration checks, then clean up')
     parser.add_argument('--structured-power-check',action='store_true',help='Qualify saved operating facilities and supplied-plan power previews in an owned database')
+    parser.add_argument('--inventory-access-check',action='store_true',help='Qualify which installed roles reach REC inventory and owned gas through the public routes')
     parser.add_argument('--power-actual-check',action='store_true',help='Qualify exact collected-price interval settlement sources')
     parser.add_argument('--interval-series-check',action='store_true',help='Qualify audited interval series storage and API')
     parser.add_argument('--close-risk-lease-check',action='store_true',help='Qualify renewable risk ownership, real long completion and recovery faults')
@@ -208,6 +209,9 @@ def main():
     if args.structured_power_check:
         args.check=True
         if args.example!='standard':parser.error('--structured-power-check requires the standard fixture')
+    if args.inventory_access_check:
+        args.check=True
+        if args.example!='standard':parser.error('--inventory-access-check requires the standard fixture')
     # The benchmark reads the fixture the asynchronous workbench check owns.
     if args.page_read_benchmark:args.async_workbench_check=True
     if args.async_workbench_check:
@@ -702,7 +706,7 @@ def main():
         if args.ephemeral_context_check:
             from check_ephemeral_contexts import check_schema
             check_schema(query)
-        if args.example=='standard' and(args.structured_power_check or not args.check):
+        if args.example=='standard' and(args.structured_power_check or args.inventory_access_check or not args.check):
             from rec_fixture import extend as extend_rec
             reference,market,security,manifest=extend_rec(reference,market,security,manifest)
         if args.check:
@@ -849,13 +853,10 @@ def main():
                 prepare_factor(manifest)
         if security:query(security)
         if args.example=='standard' and (args.structured_power_check or not args.check):
-            # Operating facilities and rights use the installed role grants (D444). The preview adds only what no
-            # installed role combines: scenarios for the people on its facility page, and certificate inventory.
+            # Operating facilities and rights (D444) and certificate inventory (D460) use the installed role grants.
+            # The preview adds only scenarios for the people on its facility page.
             query("INSERT INTO security.role_permissions SELECT id,'RunScenario' FROM security.roles "
-                  "WHERE code='market_data_editor' ON CONFLICT DO NOTHING;")
-            query("INSERT INTO security.role_permissions SELECT id,p FROM security.roles CROSS JOIN "
-                  "(VALUES('RunScenario'),('ReadRecInventory'),('RecordRecInventory'),('ConfigureRecInventory'))x(p) "
-                  "WHERE code='trader' ON CONFLICT DO NOTHING;")
+                  "WHERE code IN('market_data_editor','trader') ON CONFLICT DO NOTHING;")
         query(f"SELECT security.initialize_operating_policies('{manifest["tenantId"]}','{manifest["workspaceId"]}');")
         if args.example=='standard' and (gas_demo or not args.check or args.async_workbench_check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check):
             from factor_history_fixture import seed as seed_history
@@ -1169,6 +1170,9 @@ def main():
                     for suite in ('--structured-power','--structured-trading'):
                         browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),suite],cwd=ROOT,env=env,start_new_session=True)
                         if browser_process.wait(timeout=300):raise RuntimeError('Owned structured power browser checks failed: '+suite)
+            elif args.inventory_access_check:
+                from check_inventory_access_http import run_checks as check_inventory_access
+                check_inventory_access(url,query,manifest)
             elif args.page_read_benchmark:
                 from benchmark_page_reads import run_benchmark as run_page_read_benchmark
                 print('PAGE_READS='+json.dumps(run_page_read_benchmark(url,query,manifest,dotnet=dotnet,api_pid=child.pid)),flush=True)
