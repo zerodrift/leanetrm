@@ -1,5 +1,5 @@
 import {chooseCalendars} from './side-calendars.mjs';
-import {openPhysicalTrade,selectDeliveryFrame} from './physical-operations-grid.mjs';
+import {openPhysicalTrade,openTradeDeliveries,selectDeliveryFrame} from './physical-operations-grid.mjs';
 import {run as inventorySales} from './crude-inventory-sales.mjs';
 import {newTrade,closeNewTrade} from './new-trade.mjs';
 import {captureSideTerms,retainedSideTerms,sideCards,sidePhone} from './instrument-side-qualification.mjs';
@@ -44,7 +44,7 @@ export async function run(actions){
  const chooseJanuary=()=>selectDeliveryFrame(actions,'2021-01-15T08:');
  const capFacts=()=>evaluate(`{if(!window.crudeFactPages){window.crudeFactPages=[];const original=window.fetch;window.fetch=(path,init)=>{if(String(path).endsWith('/physical/operations/directory')&&init?.body){const body=JSON.parse(init.body);body.limit=2;window.crudeFactPages.push(body);return original(path,{...init,body:JSON.stringify(body)});}return original(path,init);};}}`);
  const openFacts=async()=>{
-  await click('#nav-physical-operations');await wait("!document.querySelector('#physical-operations-refresh').disabled&&"+idle);
+  await openTradeDeliveries(actions,'crude');await wait("!document.querySelector('#physical-operations-refresh').disabled&&"+idle);
   await openPhysicalTrade(actions,await evaluate("JSON.parse(sessionStorage.getItem('crude-browser-receipt')).tradeId"));await wait("!document.querySelector('#physical-operations-tabs-delivery').disabled&&"+idle);await click('#physical-operations-tabs-delivery');await wait(operationsVisible+"&&"+idle);
  };
  await capFacts();await chooseJanuary();await openFacts();

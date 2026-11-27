@@ -10,6 +10,10 @@ async function clickRow({evaluate,wait,idle},host,match){
  }
  throw Error('The expected authorized grid row was not found: '+host);
 }
+// Opens Trade deliveries under a Scheduling desk. A desk that is already shown is not chosen again, so its entry is opened.
+export async function openTradeDeliveries({evaluate,click},desk){
+ await click(await evaluate(`document.querySelector('#scheduling-desk-${desk}').getAttribute('aria-pressed')==='true'`)?'#nav-physical-operations':'#scheduling-desk-'+desk);
+}
 export async function clickPhysicalTrade(actions,tradeId){await actions.wait("!document.querySelector('#physical-operations-refresh').disabled&&"+actions.idle);await clickRow(actions,'#physical-operations-trades',`r.dataset.rowKey.startsWith(${JSON.stringify(tradeId+':')})`);}
 export async function openPhysicalTrade(actions,tradeId){await clickPhysicalTrade(actions,tradeId);await actions.wait("!document.querySelector('#physical-operations-instrument').hidden&&!document.querySelector('#physical-operations-refresh').disabled&&"+actions.idle);}
 export async function openGasDelivery(actions,day,side){
