@@ -2501,9 +2501,9 @@ api.MapPost("/gas/swing/prepare",(HttpContext c,JsonElement request)=>
   if(!TradingReadSelection.IsWorking(Session(c),body.Context))throw new MarketDataException("historical_read_only","Return to working data to prepare a swing election.");
   await GasSwingAction.RequireAuthority(connection,authority!,body.TradeId,body.InstrumentId,ct);
   var selected=TradePositionSelection.From(new(body.Context,body.TradeId,body.InstrumentId,body.ExpectedRevision,GasPositions.Type));
-  _=(await GasPositions.Read(connection,database.Manifest,[],[],ct,selected)).Single();
-  var held=await new GasCompositionStore(database).Load(connection,data,frame,body.TradeId,ct);
-  if(held.InstrumentId!=body.InstrumentId||held.SwingRights.IsEmpty)throw new MarketDataException("swing_election_conflict","Refresh the selected swing trade revision.");
+  var position=(await GasPositions.Read(connection,database.Manifest,[],[],ct,selected)).Single();
+  var held=await new GasCompositionStore(database).Load(connection,data,frame,position,ct);
+  if(held.SwingRights.IsEmpty)throw new MarketDataException("swing_election_conflict","Refresh the selected swing trade revision.");
   var action=await GasSwingAction.Read(connection,database,held,frame,body.ExpectedRevision,null,authority,ct);
   return new{command=action.Build(body)};
  },ct),expectedConvention:PhysicalGasStore.Convention,publicationCheck:(connection,_,ct)=>

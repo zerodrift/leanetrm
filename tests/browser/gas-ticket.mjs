@@ -29,6 +29,23 @@ export async function openBookedSchedules({wait},milliseconds){
  await wait(idle,milliseconds);
 }
 
+// Whenever a trade or an election is recorded, the Blotter finds a new version within moments, values its book again and draws
+// the open trade again: the page is idle until that update starts, and its controls are disabled while it runs. The Blotter
+// asks for changes to a version only after its update to that version has ended. `watched` reads the body of the page's latest
+// trading/changes request: wait until it is about the close on display and names the version the server now has, with the
+// values complete, so that no later step meets the update and a failed update is not taken for one.
+export async function blotterShowsLatest({evaluate,wait},watched,milliseconds){
+ await wait(`${watched}?.context.snapshotId===document.querySelector('#snapshot').value`,milliseconds);
+ const latest=await evaluate(`(async()=>{
+  const token=(await(await window.workspaceFetch('/api/bootstrap?includeFrames=false')).json()).csrfToken;
+  const response=await window.workspaceFetch('/api/trading/freshness',{method:'POST',
+   headers:{'Content-Type':'application/json','X-Preview-CSRF':token},body:JSON.stringify(${watched}.context)});
+  if(!response.ok)throw Error('The Blotter version read returned '+response.status);
+  return (await response.json()).version;
+ })()`);
+ await wait(`${watched}.version===${q(latest)}&&document.querySelector('#futures-page').dataset.pricingState==='complete'&&${idle}`,milliseconds);
+}
+
 export function gasTicket({evaluate,wait,set},ticket=newTicket){
  const card=(code,root=ticket)=>`${root} .ticket-card[data-side="${code}"]`;
  const field=(code,id)=>`${code===null?ticket+' :is(.ticket-strip,.ticket-ownership)':card(code)} .ticket-field[data-field="${id}"]`;

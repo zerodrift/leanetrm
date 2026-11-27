@@ -14,7 +14,7 @@ internal static class BookedScheduleSources
   },async(c,view,selected,slot,side,ct)=>{
    var source=await PhysicalMarketSelection.Gas.Read(database,c,view.CalculationFrame,ct,selected.TradeId);var store=new GasCompositionStore(database);
    var p=(await GasPositions.Read(c,database.Manifest,[],[],ct,selected)).Single();
-   var execution=p.Head.GetProperty("composition").GetBoolean()?await store.Load(c,source.Data,source.Frame,selected.TradeId,ct):await store.LoadSinglePoint(c,source.Data,source.Frame,selected.TradeId,ct);
+   var execution=p.Head.GetProperty("composition").GetBoolean()?await store.Load(c,source.Data,source.Frame,p,ct):await store.LoadSinglePoint(c,source.Data,source.Frame,selected.TradeId,ct);
    if(execution.InstrumentId!=selected.BindingId)throw TradePositionSelection.Unavailable();
    return await store.InspectSchedule(c,source.Data,source.Frame,execution,slot,ct);
   }),

@@ -150,7 +150,7 @@ public sealed class GasTicketStore(PreviewDatabase database)
    var selection=await daily.Select(c,frame,body.TradeId,QuantityPolicy,false,ct);
    recorded=selection.Days.Where(d=>d.Selected.RevisionId is not null).GroupBy(d=>d.SideCode)
     .ToDictionary(g=>g.Key,g=>g.ToImmutableDictionary(d=>d.Contract.Day,d=>(d.Selected.Quantity,d.Selected.Kind)));
-   execution=await composition.Load(c,data,frame,body.TradeId,ct,selection.Programs);
+   execution=await composition.Load(c,data,frame,position,ct,selection.Programs);
   }
   else execution=await composition.LoadSinglePoint(c,data,frame,body.TradeId,ct);
   var terms=execution.Terms;
