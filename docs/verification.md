@@ -1,5 +1,28 @@
 # Local verification and continuous integration
 
+## Assistant page reporting (D468)
+
+Qualified locally on 2026-11-28 with synthetic providers/data and disposable
+stock PostgreSQL 18.7 on macOS, .NET SDK 10.0.402, Node 24.22.3 and Chrome for
+Testing 158.0.8127.88. The browser used an owned temporary profile. These are
+targeted checks, not a full release run or a real-model task benchmark.
+
+| Check | Result |
+| --- | --- |
+| `OpenEtrm.Api.Checks -- --assistant-workspace` | Passes page admission, optional desk/mismatch validation, digest, selection, walkthrough and existing financial-summary checks. |
+| `tools/run_preview.py --check --assistant-workspace-check --browser-check` with explicit installed PostgreSQL, .NET and browser paths | 108 assistant workspace integration checks and 44 browser workflow checks pass. Migration 0415 refuses predecessor definition/privilege drift and accepts an independent caller search path. |
+| Targeted `node --test --test-concurrency=1` for `assistant-*.test.mjs`, `facilities-*.test.mjs`, `gas-operations-browser.test.mjs` and `physical-operations-browser.test.mjs`, with `CHROME_BIN` set | 146 pass, none skipped. |
+| `python3.13 -m unittest discover -s tests -p test_check_all.py` | 48 pass. |
+| Frontend build and `git diff --check` | Pass. |
+
+The new behavior checks failed before their fixes: cross-page selection,
+subview/desk identity, Date rules dispatch, unsupported-page disclosure,
+question-state provenance, delayed/failed delivery refresh, late widget removal
+and Back restoration. Browser/API/prompt catalogs agree on every reported page.
+The [coverage audit](assistant-workspace.md#page-identity-and-observation-d468)
+distinguishes missing readers and controls from the reporting defects corrected
+here. No live financial refresh policy, model guidance or deployment was changed.
+
 ## Issue reports (D467)
 
 Run locally on 2026-11-27 and 2026-11-28 (UTC) on macOS with stock PostgreSQL 18

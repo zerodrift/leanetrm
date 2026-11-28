@@ -7,6 +7,18 @@ const daily={expectedRevision:1,canWrite:true,rows:[{obligationId:'obligation',s
 daily.delivery=gasDeliveryFixture(daily);
 const view={permissions:{canConfigure:true,canRecord:true},nominationProfile:'manual_confirmed_ceiling_v1',imbalanceProfile:'paired_offsetting_imbalance_v1',roundingPolicy:'currency_minor_units_to_even_v1',statementPolicies:['final_statement_balance_v1'],balances:[{accountId:'account',amount:null,refusal:'Missing statement'}],state:{accounts:[account],nominations:[],statements:[],agreements:[],responses:[],movements:[],nominationApplications:[],imbalanceApplications:[],heads:[]}};
 
+test('a delayed and failed delivery refresh immediately clears the reported row and publishes completion',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<div id="host"></div>',async evaluate=>{
+ await evaluate(`(async()=>{const {setupGasOperations}=await import('/gas-operations.js');window.holdRead=false;window.notices=[];
+ const api=async path=>{if(path==='gas/quantities/read'){if(holdRead)return new Promise((resolve,reject)=>window.failRead=reject);return ${JSON.stringify(daily)}}return ${JSON.stringify(view)}};
+ window.widget=setupGasOperations(document.querySelector('#host'),{api,context:()=>({snapshotId:'header',knowledgeMode:'current'}),tradeId:'trade',actor:()=> 'operator',zone:()=> 'UTC',workflow:{busy:()=>false,pending:()=>undefined,queue:async()=>{},changed(){notices.push({shown:window.widget?.shown()??null,pending:window.widget?.pending()??true})}}});
+ for(let i=0;i<100&&widget.pending();i++)await new Promise(r=>setTimeout(r,10));})()`);
+ assert.equal(await evaluate('notices.at(-1).shown.day'),'2021-01-01');
+ const loading=await evaluate("(()=>{holdRead=true;document.querySelector('[data-ops=refresh]').click();return {actual:widget.shown()??null,reported:notices.at(-1)}})()");
+ assert.deepEqual(loading,{actual:null,reported:{shown:null,pending:true}});
+ const failed=await evaluate("(async()=>{failRead(Error('Synthetic read failure'));for(let i=0;i<100&&widget.pending();i++)await new Promise(r=>setTimeout(r,10));return {reported:notices.at(-1),message:document.querySelector('[data-ops=message]').textContent}})()");
+ assert.deepEqual(failed.reported,{shown:null,pending:false});assert.match(failed.message,/Synthetic read failure/);
+}));
+
 test('the manual desk groups four stages, selects sole references and pins every read to its supplied context',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<div id="host"></div>',async evaluate=>{
  const result=await evaluate(`(async()=>{const {setupGasOperations}=await import('/gas-operations.js');const calls=[];let busy=false,pending,mode='current';
  const api=async(path,body)=>{calls.push({path,body});return path==='gas/quantities/read'?${JSON.stringify(daily)}:${JSON.stringify(view)}};

@@ -39,6 +39,7 @@ static class PageReports
         ["blotter_new_transport"]=Unsupported("New Transport agreement"),
         ["facility_definitions"]=Unsupported("Facility definitions"),["facility_activity"]=Unsupported("Physical facility activity"),["transport_capacity"]=Unsupported("Transport capacity"),["transport_route_plans"]=Unsupported("Transport route plans"),
         ["delivery_workbench_gas"]=Unsupported("Gas delivery workbench"),["delivery_workbench_crude"]=Unsupported("Crude delivery workbench"),
+        ["facility_outlook"]=Unsupported("Gas day position"),["facility_trades"]=Unsupported("Trades and volumes"),["curve_definitions"]=Unsupported("Curve definitions"),
         ["lifecycle"]=Workspace("Lifecycle"),["physical_operations"]=Workspace("Physical operations"),["facility_quantities"]=new("read_workspace_page",["workspace.page_v1"],"Facilities",false),["gas_setup"]=Workspace("Gas delivery setup"),["crude_setup"]=Workspace("Crude delivery setup"),["physical_gas"]=Unsupported("Physical gas bookings"),["physical_crude"]=Unsupported("Physical crude bookings"),["risk_jobs"]=Workspace("Risk"),["delivery_prices"]=Workspace("Delivery prices"),["interval_series"]=Workspace("Interval data"),
         ["interval_curves"]=Workspace("Hourly / sub-hourly curves"),["users_access"]=Workspace("Users & access"),["settings_ai"]=Workspace("AI settings")
     }.ToImmutableDictionary(StringComparer.Ordinal);
@@ -208,9 +209,15 @@ static class PageReports
     // none of them. They identify what the page shows; the assistant reads them with its own authorized operations.
     static void PhysicalSelection(JsonElement selection)
     {
-        var input=new ToolInput(selection);input.Exactly("tradeId","bindingId","revision","instrumentType","tab","day","obligationId","stage");
+        var input=new ToolInput(selection);
+        // Retained reports may predate desk identity. Absence stays unspecified, never an inferred desk.
+        var desk=selection.TryGetProperty("desk",out _)?input.Choice("desk","gas","crude","lng"):null;
+        if(desk is not null&&!input.Has("tradeId")){input.Exactly("desk");return;}
+        string[] fields=["tradeId","bindingId","revision","instrumentType","tab","day","obligationId","stage"];
+        input.Exactly(desk is null?fields:[..fields,"desk"]);
         _=input.Id("tradeId");_=input.Id("bindingId");_=input.Whole("revision",1,int.MaxValue);
         var kind=input.Choice("instrumentType","physical_gas","physical_crude","physical_lng");
+        if(desk is not null&&kind!="physical_"+desk)throw ToolInput.Invalid();
         var tab=input.Choice("tab",kind=="physical_gas"?["overview","delivery","cash"]:["overview","delivery"]);
         if(kind=="physical_gas"&&tab=="delivery"&&input.Has("day"))
         {

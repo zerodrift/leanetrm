@@ -1,5 +1,12 @@
 # Architecture and domain contracts
 
+D468 corrects [assistant page identity and observation](assistant-workspace.md#page-identity-and-observation-d468):
+reports name the displayed subview and physical desk, failed refreshes invalidate
+selection, and tool results distinguish question-time metadata from an unobserved
+destination. Browser observations never replace native authorization or the
+question's pinned financial context. Live action receipts and release-bound help
+remain proposed work.
+
 D467 adds [issue reports](issue-reports.md), the first operation whose effect is
 in an external tracker. The request is retained before anything is sent,
 dispatch is admitted once under current authority, and an outcome the tracker
@@ -2774,6 +2781,11 @@ tool evidence as appropriate, not secrets or private model reasoning. Define
 retention and redaction policies for prompts, tool payloads and provider logs.
 
 ## 10. AI and external-agent interfaces
+
+The [page-assistance proposal](assistant-tools-design.md) (P45) applies these
+boundaries to observed actions in the attached tab and application help. Browser
+research and Python are deferred. D468 records the implemented reporting
+corrections; the larger observation/help mechanisms remain proposed work.
 
 Each business operation defines a versioned identifier, description, input/output
 schema, required capability, scope, temporal context, validation behavior,

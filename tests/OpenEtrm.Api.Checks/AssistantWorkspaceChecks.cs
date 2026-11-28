@@ -28,10 +28,10 @@ static class AssistantWorkspaceChecks
 
         DiscoveryWork();
         RoutingTableWork().GetAwaiter().GetResult();
-        foreach(var page in new[]{"physical_operations","dashboard","crude_setup","vol_surfaces","options","facility_quantities"})
+        foreach(var page in new[]{"physical_operations","dashboard","crude_setup","vol_surfaces","options","facility_quantities","facility_outlook","facility_trades","curve_definitions"})
         {
             PageReports.Require(JsonSerializer.SerializeToElement(new{page,selection=new{}}));
-            if((page is "dashboard" or "vol_surfaces" or "options")&&(PageReports.Dispatch(JsonSerializer.SerializeToElement(new{page,selection=new{}})) is not null||PageReports.Opens(page)))
+            if((page is "dashboard" or "vol_surfaces" or "options" or "facility_outlook" or "facility_trades" or "curve_definitions")&&(PageReports.Dispatch(JsonSerializer.SerializeToElement(new{page,selection=new{}})) is not null||PageReports.Opens(page)))
                 throw new Exception("An identity-only page gained a reader or navigation target.");
             foreach(var invalid in new[]{"{\"value\":\"918273\"}","{}"})
             foreach(var extra in invalid=="{}"?new[]{",\"layout\":{}",",\"view\":{}",",\"focus\":{}"}:new[]{""})
@@ -121,12 +121,14 @@ static class AssistantWorkspaceChecks
             ["tab"]="delivery",["day"]="2020-12-19",["obligationId"]=Guid.NewGuid(),["stage"]=1};
         JsonElement Report(Dictionary<string,object?> selection)=>JsonSerializer.SerializeToElement(new{page="physical_operations",selection});
         Dictionary<string,object?> With(string key,object? value)=>new(gas){[key]=value};
+        foreach(var desk in new[]{"gas","crude","lng"})PageReports.Require(Report(new(){["desk"]=desk}));
         foreach(var valid in new[]{gas,new(gas){["day"]=null,["obligationId"]=null,["stage"]=null},
+            new(gas){["desk"]="gas"},
             new(gas){["tab"]="overview",["day"]=null,["obligationId"]=null,["stage"]=null},
             new(gas){["instrumentType"]="physical_crude",["tab"]="delivery",["day"]=null,["obligationId"]=null,["stage"]=null}})
             PageReports.Require(Report(valid));
         var missing=new Dictionary<string,object?>(gas);missing.Remove("stage");
-        foreach(var invalid in new[]{missing,new(gas){["value"]="918273"},With("tradeId","TR-000009"),With("revision",0),With("instrumentType","future"),
+        foreach(var invalid in new[]{missing,new(gas){["value"]="918273"},new(gas){["desk"]="crude"},new(gas){["desk"]="power"},new(gas){["desk"]=null},new(){["desk"]="gas",["day"]="2020-12-19"},With("tradeId","TR-000009"),With("revision",0),With("instrumentType","future"),
             With("tab","risk"),With("day","19/12/2020"),With("stage",4),With("obligationId","side"),
             With("obligationId",null),With("stage",null),new(gas){["tab"]="cash"},new(gas){["day"]=null},new(gas){["instrumentType"]="physical_crude"}})
         {

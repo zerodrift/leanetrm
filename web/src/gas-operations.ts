@@ -163,7 +163,7 @@ export function setupGasOperations(host:HTMLElement,o:{api:Api;context:()=>Recor
  }catch(error){if(valid(epoch)){view=undefined;message.textContent=String(error);
   readRefusal=(error as {code?:string}).code==='access_denied'?'Your roles do not permit gas operations for this delivery.':'Gas operations for this day did not load. Refresh delivery rows to try again.';}}}
  async function read(){
-  if(disposed||o.actor()!==owner)return;daily=undefined;clearRows();const epoch=beginRead();
+  if(disposed||o.actor()!==owner)return;daily=undefined;clearRows();const epoch=beginRead();workflow?.changed();
   try{const data=await o.api<GasQuantityView>('gas/quantities/read',{context:o.context(),tradeId:o.tradeId,selectionPolicy:'operational_projection_v1',includeHistory:false});if(!valid(epoch))return;
    const delivery=readPhysicalDelivery(data.delivery,{tradeId:o.tradeId,revision:data.expectedRevision});
    if(delivery.rows.length!==data.rows.length||delivery.rows.some((r,i)=>r.key!==gasDeliveryKey(data.rows[i])))throw Error('The delivery rows do not match their native recording scope.');
@@ -171,7 +171,7 @@ export function setupGasOperations(host:HTMLElement,o:{api:Api;context:()=>Recor
    selectedKey=data.rows.some(r=>gasDeliveryKey(r)===selectedKey)?selectedKey:data.rows.length===1?gasDeliveryKey(data.rows[0]):undefined;drawRows();workflow?.changed();
    if(!selectedDelivery()){message.textContent='Select a delivery row to work with its day and side.';return;}await loadOperations(epoch);
   }catch(error){if(valid(epoch)){view=undefined;message.textContent=String(error);}}
-  finally{if(valid(epoch)){busy=false;sync();}}
+  finally{if(valid(epoch)){busy=false;sync();workflow?.changed();}}
  }
  get('refresh').onclick=()=>{if(busy||workflow?.busy()||workflow?.pending())return;edits.clear();invalidate();void read();};void read();
  // The selected delivery row and stage, as the page reports them to the assistant.

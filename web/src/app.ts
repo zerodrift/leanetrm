@@ -101,7 +101,7 @@ import {setupSchedulingDesks} from './scheduling-desks.js';
 import {setupSchedulingRoadmap} from './scheduling-roadmap.js';
 import {pagePresentationTarget} from './assistant-walkthroughs.js';
 import {setupAssistant} from './assistant-panel.js';
-import {pageReport,webPage,type TradeShown,type PageState,type PageContext,type Place} from './assistant-pages.js';
+import {pageReport,webPage,facilityReportSection,type TradeShown,type PageState,type PageContext,type Place,type PhysicalDesk} from './assistant-pages.js';
 import {readPages,type Target,type TargetContext} from './assistant-events.js';
 import {readCurveShapes,curvesPerRead} from './curve-shapes.js';
 import {batchReads} from './batch-reads.js';
@@ -1455,7 +1455,7 @@ const facilities=setupFacilities({api,act,busy:()=>busy,zone:()=>prefs.timeZone,
  nativeDeliveryReason:()=>contextDirty?'Apply the changed context before opening native delivery operations.':!select('snapshot').value?'Choose a financial close in the Blotter before opening native delivery operations.':null,
  openNativeDelivery,
  context:()=>{if(contextDirty)throw Error('Apply the changed context before reading facilities.');return {effectiveOn:$<HTMLInputElement>('date-context-on').value,knowledgeMode:historicalContext()?'retained':'current',retained:historicalContext()??null,convention:'facility_business_date_end_utc_v1'};},
- changed:()=>syncUnloadQuestion(),tradeInspection:()=>select('snapshot').value?null:'Choose a market close in the Blotter before opening trades. Facility quantities do not select a price close.',openTrade:async(id,revision)=>{if(!await mayLeave())return;await act(async()=>{await setPage('futures');await futures.load();await futures.openTrade(id,'physical_gas',revision);});}});
+ changed:()=>{syncUnloadQuestion();assistant.sync();},tradeInspection:()=>select('snapshot').value?null:'Choose a market close in the Blotter before opening trades. Facility quantities do not select a price close.',openTrade:async(id,revision)=>{if(!await mayLeave())return;await act(async()=>{await setPage('futures');await futures.load();await futures.openTrade(id,'physical_gas',revision);});}});
 const pointTraderMark=setupPointTraderMark($('point-trader-mark'),{api,act,busy:()=>busy,zone:()=>prefs.timeZone,
  identity:()=>administrationScope+':'+exampleId+':'+currentProfile,permission:can,historical:()=>contextDirty||!!historicalContext()||!!navigation?.live,
  selection:pointValueSelection,changed:()=>{if(initialWorkspaceReady){syncUnloadQuestion();assistant.sync();}},applyFrame:applyPointInputs});
@@ -1710,7 +1710,7 @@ const pageView=(next:string)=>next==='configuration'?priceSetup.view():next==='s
 // any other move asks about the edits it leaves.
 function openView(next:string,view:string){
   if(next==='schedules'&&page==='schedules'&&!contextDirty){
-    const name=consoleViewName(next,view);scheduleWorkspace?.show(view as ScheduleView);text('page-title',name);$('page-title').title=name;referenceConsole.show(next,undefined,view);return;
+    const name=consoleViewName(next,view);scheduleWorkspace?.show(view as ScheduleView);text('page-title',name);$('page-title').title=name;referenceConsole.show(next,undefined,view);assistant.sync();return;
   }
   leaving(async()=>{
     if(contextDirty&&readsContext.includes(next))await applyContext();
@@ -1874,13 +1874,14 @@ $('curve-power').onclick=navigate('power');
 function pageState():PageState{
   switch(page){
     case 'market':return {page,curve:curve||null,tab:prefs.tab};
-    case 'curve-definitions':return {page:'market',curve:null,tab:prefs.tab};
+    case 'curve-definitions':return {page};
+    case 'schedules':return {page,scheduleView:scheduleWorkspace?.view()};
     case 'power':return {page,frame:!!select('snapshot').value};
     case 'reference':return {page,...referenceSelection(shownReference)};
     case 'parties':return {page,kind:select('party-kind').value};
     case 'futures':return {page,...futures.report()};
     case 'lifecycle':return {page};
-    case 'physical-operations':return {page,physical:physicalOperations.shown()};
+    case 'physical-operations':return {page,physical:physicalOperations.shown(),desk:physicalOperations.desk()};
     case 'rec-inventory':{const businessDate=recInventory.businessDate();return {page,...(businessDate?{businessDate}:{})};}
     case 'physical-power':return {page};
     case 'facilities':return {page,businessDate:$<HTMLInputElement>('date-context-on').value,facilityLedger:facilities.selected(),facilitySection:facilities.section()};
@@ -1892,7 +1893,7 @@ function pageState():PageState{
     case 'delivery':return {page,assistant:deliveryPrices.assistant()};
     case 'interval-series':return {page,assistant:intervalSeries.assistant()};
     case 'interval-curves':return {page,assistant:intervalCurves.assistant()};
-    case 'dashboard':case 'configuration':case 'schedules':case 'admin':case 'ai':case 'vol-surfaces':case 'curve-marks':case 'options':return {page};
+    case 'dashboard':case 'configuration':case 'admin':case 'ai':case 'vol-surfaces':case 'curve-marks':case 'options':return {page};
     default:throw Error('This page could not load. Please refresh.');
   }
 }
@@ -1942,8 +1943,9 @@ function unsaved(){
 async function showTarget(report:string,selection:Record<string,unknown>|null,kind?:Target['kind'],signal?:AbortSignal){
   signal?.throwIfAborted();
   const next=webPage(report);
-  // Contract definitions are the schedules page's date rules; its own report opens the view it last showed.
+  // Each date destination opens the exact view its reader describes.
   if(report==='contract_definitions'){scheduleWorkspace?.show('contracts');await showPage('schedules');return;}
+  if(report==='schedules'){scheduleWorkspace?.show('exchange');await showPage('schedules');return;}
   if(report==='blotter_new_trade'||report==='blotter_new_future'||report==='blotter_new_swap'){
     if(futures.poppedOut())throw Error('Bring the Blotter back to this window before opening a ticket here.');
     await setPage('futures');signal?.throwIfAborted();
@@ -2047,13 +2049,21 @@ async function selectRetained(contextId:string,sourceTurnId?:string){
 }
 // Back restores the place a move left: its knowledge and frame, then its page and what that showed.
 async function restorePlace(origin:Place){
+  let desk:PhysicalDesk|undefined;
+  if(origin.report.page==='physical_operations'&&origin.report.selection.desk!==undefined){
+    const selected=origin.report.selection.desk;
+    if(selected!=='gas'&&selected!=='crude'&&selected!=='lng')throw Error('The original scheduling desk is not supported.');
+    if(deliveriesHeld(selected))throw Error('Check or retry the retained physical request before opening another desk’s deliveries.');
+    desk=selected;
+  }
   const c=origin.context;
   if(c.mode!=='unapplied')await selectContext(c.mode==='current'?{mode:'current',contextId:null,frameId:c.frameId,businessDate:c.businessDate}:{mode:'retained',contextId:c.contextId,frameId:c.frameId});
+  if(desk!==undefined)desks.want(desk);
   if(origin.page==='facilities'){
     await setPage('facilities');
     if(origin.report.page==='facility_quantities')await facilities.load(origin.report.selection.ledgerId as string|null??'',false);
     else{
-      const section=({facility_definitions:'definitions',facility_activity:'activity',transport_capacity:'transport',transport_route_plans:'route',delivery_workbench_gas:'gas-delivery',delivery_workbench_crude:'crude-delivery'} as const)[origin.report.page as 'facility_definitions'|'facility_activity'|'transport_capacity'|'transport_route_plans'|'delivery_workbench_gas'|'delivery_workbench_crude'];
+      const section=facilityReportSection(origin.report.page);
       if(!section)throw Error('The original operations workspace is not supported.');
       await facilities.open(section);
     }

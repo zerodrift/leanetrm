@@ -3,8 +3,10 @@ export function assistantPageCases(){
   const blotter={page:'futures',risk:false,trade:null,entry:null,lens:'values',view:{mode:'trades',bookIds:[],portfolioIds:[],groupBy:[],measures:[]},pane:{details:false,charts:false},poppedOut:false};
   return [
     ['curves',{page:'market',curve:null,tab:'prices'}],
+    ['curve_definitions',{page:'curve-definitions'}],
     ['power_tous',{page:'power',frame:true}],
-    ['schedules',{page:'schedules'}],
+    ['schedules',{page:'schedules',scheduleView:'exchange'}],
+    ['contract_definitions',{page:'schedules',scheduleView:'contracts'}],
     ['reference_data',{page:'reference',table:'units',search:''}],
     ['parties',{page:'parties',kind:'counterparty'}],
     ['jobs',{page:'jobs',job:null}],
@@ -21,6 +23,8 @@ export function assistantPageCases(){
     ['risk_jobs',{page:'risk',view:'risk'}],
     ['physical_power',{page:'physical-power'}],
     ['facility_definitions',{page:'facilities',facilitySection:'definitions'}],
+    ['facility_outlook',{page:'facilities',facilitySection:'outlook'}],
+    ['facility_trades',{page:'facilities',facilitySection:'trades'}],
     ['facility_activity',{page:'facilities',facilitySection:'activity'}],
     ['transport_capacity',{page:'facilities',facilitySection:'transport'}],
     ['transport_route_plans',{page:'facilities',facilitySection:'route'}],

@@ -11,8 +11,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   if(control.protocol!=='http:'||control.hostname!=='127.0.0.1'||!control.port)throw Error('Use the owned synthetic provider.');
   const script=async answers=>{if(!(await fetch(new URL('/respond',control),{method:'POST',body:JSON.stringify(answers)})).ok)throw Error('Synthetic provider refused the script.');};
   const side=await sideSession(url);
-  // The retained contract_definitions catalog entry navigates to Date rules; Contract pricing and Publications have no report contract.
-  const reportPages=(await side.call('settings/ai/page-prompts')).pages.filter(page=>page.kind==='page').map(page=>page.id).filter(id=>id!=='contract_definitions').sort();
+  // Each installed report has a UI representative; Contract pricing and Publications have no report contract.
+  const reportPages=(await side.call('settings/ai/page-prompts')).pages.filter(page=>page.kind==='page').map(page=>page.id).sort();
   const agent=(await side.call('settings/ai/agents')).agents.find(a=>a.name.includes('workspace operations'));
   if(!agent)throw Error('The workspace fixture must publish its explicitly enabled guide.');
   await side.call('profile',{profile:'trader'});
@@ -41,7 +41,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await command('Page.navigate',{url});await wait(idle);await persona('admin');await click('#nav-ai');await click('#ai-tab-agents');
   const reportCatalog=`import('/assistant-pages.js').then(({pageReport,reportedPages})=>{
     const cases=${JSON.stringify(assistantPageCases())},expected=cases.map(([page])=>page).sort();
-    const labels=reportedPages.filter(page=>page!=='contract_definitions').sort(),admitted=${JSON.stringify(reportPages)};
+    const labels=reportedPages.toSorted(),admitted=${JSON.stringify(reportPages)};
     const wrongReports=cases.map(([page,state])=>({page,actual:pageReport(state).page})).filter(row=>row.actual!==row.page);
     return {matched:JSON.stringify(expected)===JSON.stringify(labels)&&JSON.stringify(expected)===JSON.stringify(admitted)&&wrongReports.length===0,
       missingRepresentatives:labels.filter(page=>!expected.includes(page)),unexpectedRepresentatives:expected.filter(page=>!labels.includes(page)),
