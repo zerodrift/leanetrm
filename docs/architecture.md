@@ -1,5 +1,22 @@
 # Architecture and domain contracts
 
+D465 adds [monthly gas bills](gas-monthly-bills.md). A bill is an immutable
+document over one trade's existing daily cash determinations for a complete
+delivery month; a later determination goes on a linked adjustment note. A
+document creates no payable and rounds nothing, each determination is on at
+most one document, and pay and receive totals are never netted. The scope is
+an explicitly selected, retained policy.
+
+D464 adds [final daily billing of index-priced gas payments](gas-cash-billing.md#indexed-profile-d464),
+on a named daily or monthly index or on point publications.
+An explicitly selected profile bills one payment day from the final accepted
+quantity and the final published fixing plus the booked spread. The fixing is
+the head of its correction chain at the operation's knowledge cutoff; no close,
+snapshot selection, mark or forecast chooses or replaces it. The determination
+retains the observation, and the native writer selects it independently and
+checks the exact amount. A corrected fixing is a reviewed correction with its
+own cause. Scheduled processing does not bill indexed payments.
+
 D462 adds informational [Scheduling workflow placeholders](scheduling-roadmap.md)
 for each desk. They describe unimplemented contribution areas and create no
 business operations, financial policies or installation capabilities.

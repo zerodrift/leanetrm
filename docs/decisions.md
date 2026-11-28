@@ -8221,3 +8221,151 @@ that reads like a version line or a key, which hides text inside definitions;
 hashing an unrecognized dump whole, which lets a baseline be recorded from it
 silently; and normalizing more of the dump, for which no difference has been
 observed.
+
+## D464 — Final daily billing of index-priced gas payments
+
+Policies selected by the owner on 2026-11-27, with point publications added on
+2026-11-28: named daily and named monthly indexes and point publications; one
+determination for each payment and gas day, rounded once; a
+corrected fixing billed as a reviewed correction with its own cause.
+
+Add the explicitly selected `gas_final_daily_indexed_cash_v1`. It bills one
+completed gas day of an `indexed_consideration` delivery payment stated on
+`named_index_daily_v1`, `named_index_monthly_v1` or `point_publications_v1`: the
+taken final quantity,
+times the retained share, times the final fixing plus the booked spread, times
+the quote multiplier and direction, rounded once to the currency's minor unit,
+ties to even. Share, daily band or shortfall and payment dates are consumed as
+D459's entry profile consumes them. The original is due at the retained
+`next_month_day_utc_v1` instant. Each payment has one family of profiles: the
+fixed profiles refuse an indexed payment and this profile a fixed one.
+
+The fixing is selected under `final_fixing_head_v1`. The payment day's retained
+fixing binding names the exact series and source. Of their `index_fixing`
+observations observed between the fixing instant and the billing instant, and
+known within the operation's market prefix and knowledge cutoff, the one with
+no such successor is the head. It must be alone and final; otherwise the day
+refuses with `gas_billing_fixing`. No close, pin, mark or forecast selects or
+replaces it. A snapshot's selection of observations for valuation therefore does
+not choose the billed fixing; the knowledge cutoff does.
+
+The determination retains the observation by foreign key. A determination is
+unique for each pair of quantity source and fixing; a fixed determination has no
+fixing and keeps one determination for each quantity source. The determine
+request names the reviewed fixing beside the reviewed quantity source, required
+for this profile and refused for the others. The native writer selects the head
+itself, requires it to be the reviewed observation and checks the exact amount by
+cross-multiplication before the rounding.
+
+A changed quantity source takes `late_actuals`, `quantity_correction` or
+`allocation_correction`, whether or not the fixing also changed. The same
+quantity source with a newer fixing takes `index_fixing_correction`. Either cause
+on the other case refuses. Nothing is restated automatically.
+
+Scheduled daily processing does not bill an indexed payment: its request names
+no fixing, the daily billing action refuses the profile, and a scope keeps
+reporting such a payment as terms it does not bill.
+
+Rejected. Using the valuation's accrued amount as the bill: it follows the
+membership's quantity policy and the selected snapshot's pins, and D360 states it
+is not a bill. Requiring a market close: D459 gave billing its own processing
+clock. Freezing the first fixing: a bill on a corrected price would stay wrong
+until a successor profile existed. One bill for each delivery month: a different
+rounding contract with its own rules for incomplete months.
+
+Point publications price from the same retained fixing: the location's dated
+periods selected each day's index at booking, and the payment row kept it. They
+were first left out on a mistaken reading that they used another source.
+
+A monthly bill or invoice, automatic indexed billing, right-dependent payments,
+a list of billed days whose fixing was later corrected and reconciliation with
+accrued value remain separate consumers. See
+[the design](superpowers/specs/2026-11-27-indexed-gas-billing-design.md) and
+[the contract](gas-cash-billing.md#indexed-profile-d464).
+
+## D465 — A monthly gas bill is a document over one trade's daily determinations
+
+Policies selected by the owner on 2026-11-28: a document's amounts are the sums
+of its daily determinations; one trade and one delivery month, gross; a bill is
+issued only for a complete month; a determination made after the bill goes on a
+linked adjustment note.
+
+A bill covers every final daily determination of one trade and calendar month
+of gas days under the explicitly selected, retained scope policy
+`gas_trade_month_gross_v1`. A line is one determination and carries its
+contribution. A determination is on at most one document, so issuing creates no
+second payable. Nothing is rounded again. Payments we pay and payments we
+receive are totalled separately in their booked direction and never netted.
+
+The month is complete when every retained gas day that each billable payment
+covers has a determination. A billable payment is one final billing can
+determine. Every other payment is named as not covered, with its reason, on
+each read. Ordinal one is the bill; each later ordinal is an adjustment note
+over the determinations no document yet carries. Documents and lines are
+immutable. The native writer assembles the document itself under the
+operation's context and requires it to equal the reviewed one. A request names
+what it reviewed by a digest of the document's determinations, so a fresh
+request is answered with an existing document only when that document has
+exactly those lines. Issuing is a reviewed operation; a scheduled run cannot
+issue.
+
+Rejected. One once-rounded monthly total: D464 chose daily rounding, and a
+second amount for the same obligation needs a rule for which one is payable.
+Void and reissue, as crude invoices do: the accounting boundary records a
+correction as a separate credit linked to the invoice, and voiding is ordered
+against recorded payments. A partial bill for an incomplete month: several
+documents for a month need ordering rules of their own. A bill for each
+counterparty and month, or a netted amount, as a per-bill option: scope and
+netting are terms of the agreement with the counterparty and need a typed
+election there.
+
+Counterparty-level bills, netting, a rendered or exported document, numbering,
+matching recorded payments, billing an amended trade and accounting remain
+separate consumers. The Billing & corrections tab reviews and issues these
+documents; it draws the reads and computes no amount. See
+[the design](superpowers/specs/2026-11-28-gas-monthly-bill-design.md) and
+[the contract](gas-monthly-bills.md).
+
+## D466 — Assistant operations resolve in routing's collection of the application's routes
+
+The owner asked on 2026-11-27 for the assistant's route rebuilding to be removed;
+the mechanism below is the maintainer's choice.
+
+D328 gave full discovery one read-local snapshot of route metadata. The adapter
+still read the application's grouped route sources for every other resolution:
+once to invoke an operation and again to validate its input. Each such read
+builds every route. An approval therefore built all 518 routes twice, about three
+seconds on an idle four-core container, before its command transaction began;
+the database work of an approval is about 70 ms. Each assistant read paid the
+same kind of cost.
+
+The adapter now resolves operations in routing's application-wide collection of
+endpoints. Routing builds that collection on its first read, from the same route
+sources the router matches, and again only when a route source changes. It is a
+second table beside the router's own, so an invoked operation runs an equivalent
+endpoint (the same pattern, metadata, filters and handler), not the router's
+object. D328's read-local snapshot in discovery remains and no longer costs a
+rebuild. This supersedes D328's sentence that later reads obtain freshly built
+endpoints.
+
+Limits. The first resolution after a start still builds every route once. The
+collection is empty until the host starts; an operation resolved then would be
+refused as unavailable, and no assistant operation runs before a request. Routes
+mapped after the host starts are not seen, by this collection or by the router;
+the application maps none. The managed D328 check injects its own route source,
+so it now shows only that the adapter caches nothing of the source it is given.
+The application's own choice of source is exercised by the workspace HTTP checks,
+which do not bound its cost.
+
+Unchanged: the closed operation catalog, exact path-and-method resolution, the
+refusal of an operation with no route, current permissions on every read, the
+guards before and after an approved command, retained contexts, read and turn
+limits. The adapter keeps no cache of its own, and neither authority nor business
+data is cached. There is no new tool, result shape, grant, runtime version or
+migration.
+
+Rejected. A snapshot owned by the adapter: it is constructed while routes are
+still being mapped, so it would need its own rule for when the table is complete
+and for keeping it current, which routing already has. One snapshot per invoked
+operation: it halves the rebuild and keeps the rest. Building the collection
+when the host starts: no supported consumer needs the first call's cost removed.

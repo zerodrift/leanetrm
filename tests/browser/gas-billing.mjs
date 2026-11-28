@@ -1,11 +1,13 @@
 import {selectDeliveryFrame,openPhysicalTrade,clickPhysicalTrade} from './physical-operations-grid.mjs';
 import {run as processingScope} from './gas-billing-scope.mjs';
+import {run as monthlyBill} from './gas-bills.mjs';
 // A completed physical delivery can be billed even while contractual PV is unavailable.
 export async function run(actions){
  const {command,evaluate,wait,click,set,submit,persona,check,shot,idle,url,fixture}=actions;
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelector('#snapshot')&&"+idle);await persona('trader');
  await selectDeliveryFrame(actions,'2021-01-15T08:');
+ await monthlyBill(actions);
  const key=fixture.tradeId+':'+fixture.bindingId;
  await click('#nav-physical-operations');await openPhysicalTrade(actions,fixture.tradeId);await wait("!document.querySelector('#physical-operations-tabs-cash').disabled&&"+idle);await click('#physical-operations-tabs-cash');
  const root='.gas-billing',field=name=>root+' [data-billing="'+name+'"]';

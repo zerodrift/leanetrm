@@ -4,6 +4,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
 
+from authority_wait import lock_holder
+
 
 def run_checks(query, manifest):
     catalog, source, tenant, workspace = [manifest[k] for k in
@@ -146,21 +148,27 @@ def run_checks(query, manifest):
     # Natural authority expiry during each admission lock wait must be checked
     # against the trusted clock after the lock, even for an exact replay.
     lock_key=f"hashtextextended('{catalog}'||'{source}'||'{tenant}'||'{workspace}',730849147)"
-    def after_wait(lock_sql, work):
+    def after_wait(lock_sql, work, expiring=None):
+        # The grants of an `expiring` principal start a two-second term once the lock is held, which is then kept
+        # until the work has waited for it within that term. Without one the lock is held for a fixed time.
         with ThreadPoolExecutor(max_workers=1) as pool:
-            blocker=pool.submit(query, f"SET application_name='reference_lock_check';BEGIN;{lock_sql};SELECT pg_sleep(1.5);COMMIT;")
+            blocker=pool.submit(query, lock_holder('reference_lock_check',lock_sql,"(SELECT bool_and(granted_to<=clock_timestamp()) "
+                f"FROM security.role_grants WHERE principal_id='{expiring}' AND workspace_id='{workspace}')") if expiring else
+                f"SET application_name='reference_lock_check';BEGIN;{lock_sql};SELECT pg_sleep(1.5);COMMIT;")
             deadline=time.monotonic()+3
             while query("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name='reference_lock_check' AND wait_event='PgSleep');") != 't':
                 assert time.monotonic()<deadline, 'Owned reference blocker did not acquire its lock'
                 time.sleep(.01)
             try:
+                if expiring:
+                    query(f"UPDATE security.role_grants SET granted_to=clock_timestamp()+interval '2 seconds' WHERE principal_id='{expiring}' AND workspace_id='{workspace}';")
                 work()
             finally:
                 blocker.result()
-    for lock_sql in [f"SELECT id FROM security.principals WHERE id='{editor}' FOR UPDATE",f"SELECT pg_advisory_xact_lock({lock_key})"]:
-        query(f"UPDATE security.role_grants SET granted_to=clock_timestamp()+interval '0.5 seconds' WHERE principal_id='{editor}' AND workspace_id='{workspace}';")
+    # The principal row is held without its key, so issuing the editor's request context does not wait for it.
+    for lock_sql in [f"SELECT id FROM security.principals WHERE id='{editor}' FOR NO KEY UPDATE",f"SELECT pg_advisory_xact_lock({lock_key})"]:
         try:
-            after_wait(lock_sql, lambda: rejected(save,'reference_denied'))
+            after_wait(lock_sql, lambda: rejected(save,'reference_denied'), expiring=editor)
         finally:
             query(f"UPDATE security.role_grants SET granted_to='9999-12-31' WHERE principal_id='{editor}' AND workspace_id='{workspace}';")
     # A draft insertion that already holds the revision share lock must finish
@@ -176,9 +184,8 @@ def run_checks(query, manifest):
     # rather than make an already-admitted authority successful after expiry.
     expiring = str(uuid4())
     save(operation_id=expiring,base=second,values={'name':'Synthetic expired approval'})
-    query(f"UPDATE security.role_grants SET granted_to=clock_timestamp()+interval '0.5 seconds' WHERE principal_id='{approver}' AND workspace_id='{workspace}';")
     try:
-        after_wait(f"SELECT id FROM ref_data.revisions WHERE catalog_id='{catalog}' AND id='{expiring}' FOR UPDATE",lambda:rejected(lambda:call('approver',f"SELECT security.apply_reference_display('{catalog}','{source}','{expiring}','{uuid4()}',2)"),'reference_denied'))
+        after_wait(f"SELECT id FROM ref_data.revisions WHERE catalog_id='{catalog}' AND id='{expiring}' FOR UPDATE",lambda:rejected(lambda:call('approver',f"SELECT security.apply_reference_display('{catalog}','{source}','{expiring}','{uuid4()}',2)"),'reference_denied'),expiring=approver)
     finally:
         query(f"UPDATE security.role_grants SET granted_to='9999-12-31' WHERE principal_id='{approver}' AND workspace_id='{workspace}';")
     assert query(f"SELECT state FROM ref_data.revisions WHERE catalog_id='{catalog}' AND id='{expiring}';") == 'draft'

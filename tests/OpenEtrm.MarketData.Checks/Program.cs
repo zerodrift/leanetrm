@@ -79,6 +79,7 @@ if(args is ["--physical-crude-side"]){PhysicalCrudeSideChecks.Run();return;}
 if(args is ["--lng-cargo"]){LngCargoChecks.Run();return;}
 if(args is ["--gas-delivery-operations"]){GasDeliveryOperationsChecks.Run();return;}
 if(args is ["--gas-cash-billing"]){GasCashBillingChecks.Run();return;}
+if(args is ["--gas-monthly-bill"]){GasMonthlyBillChecks.Run();return;}
 if(args is ["--gas-daily-quantities"]){GasDailyQuantityChecks.Run();return;}
 if(args is ["--physical-gas-quantities"]){PhysicalGasQuantityChecks.Run();return;}
 if(args is ["--physical-gas-side"]){PhysicalGasSideChecks.Run();return;}
@@ -648,6 +649,7 @@ SplicedCurveChecks.Run();passed++;
 CurvePriceBindingChecks.Run();passed++;
 GasDailyQuantityChecks.Run();passed++;
 GasCashBillingChecks.Run();passed++;
+GasMonthlyBillChecks.Run();passed++;
 GasDeliveryOperationsChecks.Run();passed++;
 ScheduleViewChecks.Run();passed++;
 passed += SnapshotInputChecks.Run();

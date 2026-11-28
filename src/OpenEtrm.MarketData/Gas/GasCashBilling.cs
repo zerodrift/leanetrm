@@ -9,6 +9,8 @@ public sealed record GasBillingTerms(GasDailyContract Day, UnitPrice Price, Exac
 public sealed record GasBillingCalculation(ExactMoney ExactAmount, Money Amount, Money Contribution);
 public sealed record GasBillingEntryTerms(DateOnly From, DateOnly To, ExactRatio Share,
     QuantityPart? Part, SignedRatio HeldBaseQuantity);
+// The published observation selected for one payment day. Final is the observation's own publication state.
+public sealed record GasBillingFixing(Guid ObservationId, UnitPrice Value, DateTimeOffset ObservedAt, bool Final);
 
 // One cash membership and one retained native day. This does not recognize title,
 // create an invoice/payment, or replace contractual portfolio valuation.
@@ -16,7 +18,20 @@ public static class GasCashBilling
 {
     public const string Implementation = "gas_final_daily_fixed_cash_v1";
     public const string EntryImplementation = "gas_final_daily_entry_cash_v1";
+    public const string IndexedImplementation = "gas_final_daily_indexed_cash_v1";
+    public const string FixingPolicy = "final_fixing_head_v1";
     public const string RoundingImplementation = "currency_minor_units_to_even_v1";
+
+    // The unit price an indexed payment bills for one gas day: its final published fixing plus the booked spread,
+    // unrounded. A forecast, a preliminary publication or a fixing outside its publication window is not a price.
+    public static UnitPrice IndexedPrice(GasBillingFixing fixing, UnitPrice spread, DateTimeOffset fixingAt, DateTimeOffset at)
+    {
+        if (fixing is null || spread is null || fixing.Value is null || fixing.ObservationId == Guid.Empty || !fixing.Final ||
+            !TradingInstant.IsSupported(fixing.ObservedAt) || fixing.ObservedAt < fixingAt || fixing.ObservedAt > at ||
+            fixing.Value.Unit != spread.Unit)
+            throw new MarketDataException("gas_billing_fixing", "Supply the payment day's final published fixing and the booked spread in the same quote.");
+        return fixing.Value.Add(spread);
+    }
 
     public static bool SupportsEntry(ExactRatio share,bool hasPart,DateOnly from,DateOnly to,DateOnly sourceFrom,DateOnly sourceTo) =>
         share==ExactRatio.One&&!hasPart&&from==sourceFrom&&to==sourceTo;

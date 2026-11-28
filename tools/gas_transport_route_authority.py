@@ -1,5 +1,6 @@
 """Route read/write admissions retain current scope and original deadlines."""
 from concurrent.futures import ThreadPoolExecutor
+from authority_wait import lock_holder
 import json
 import time
 from uuid import uuid4
@@ -38,7 +39,9 @@ def authority(f,refuses,route,operation,body):
         with ThreadPoolExecutor(max_workers=1) as pool:
             lock=None
             if mode!='commit':
-                lock=pool.submit(q,"SET application_name='synthetic_route_expiry';BEGIN;SELECT pg_advisory_xact_lock(730849102);SELECT pg_sleep(7);COMMIT;")
+                # The lock is kept until the operation has waited for it under the first grant and the successor is active.
+                lock=pool.submit(q,lock_holder('synthetic_route_expiry','SELECT pg_advisory_xact_lock(730849102)',
+                    f"(SELECT granted_to<=clock_timestamp() FROM security.role_grants WHERE id='{first}')",f"(SELECT granted_from<=clock_timestamp() FROM security.role_grants WHERE id='{successor}')"))
                 until=time.monotonic()+5
                 while q("SELECT count(*) FROM pg_locks l JOIN pg_stat_activity a ON a.pid=l.pid WHERE a.application_name='synthetic_route_expiry' AND l.locktype='advisory' AND l.granted;")!='1':
                     assert time.monotonic()<until;time.sleep(.02)

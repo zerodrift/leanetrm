@@ -1,5 +1,23 @@
 # Delivery plan and acceptance criteria
 
+D465 implements [monthly gas bills](gas-monthly-bills.md) for one trade: a bill
+over a complete delivery month's daily determinations and linked adjustment
+notes for later ones, gross, with separate pay and receive totals and no new
+rounding. Billing & corrections reviews and issues them. Counterparty-level
+bills and netting need a typed election on the agreement; a rendered or
+exported document, payment matching and accounting remain separate.
+
+D464 implements [final daily billing of index-priced gas payments](gas-cash-billing.md#indexed-profile-d464),
+on a named daily or monthly index or on point publications:
+one reviewed determination for each payment and gas day from the final accepted
+quantity and the final published fixing plus the booked spread, with the fixing
+retained by foreign key and a corrected fixing billed under its own cause. The
+fixing is selected by knowledge cutoff, without a market close. Qualification is
+recorded in [verification](verification.md#indexed-gas-billing-d464).
+A monthly bill or invoice, automatic indexed billing, right-dependent payments,
+a list of billed days whose fixing was later corrected and reconciliation with
+accrued value remain separate.
+
 D462 adds a desk-specific **Planned workflows** panel and the
 [Scheduling contribution roadmap](scheduling-roadmap.md). Crude parcels,
 pipeline movements, tank inventory across trades, shipping and time charters
@@ -2814,8 +2832,10 @@ Arbitrary page controls, generated UI and business-effect walkthrough steps rema
 
 Full operation discovery resolves against one read-local route-metadata snapshot
 (D328), removing repeated grouped-route construction without extending the agent's
-read limit. Other read latency and the security epoch hold described in D245 remain
-separate work; this change is not a general read-performance qualification.
+read limit. Reads and approved commands resolve in routing's collection of the
+application's routes (D466) and no longer rebuild them. Other read latency and the security epoch
+hold described in D245 remain separate work; this change is not a general
+read-performance qualification.
 
 ### Unified catalogue and regional close sessions (D369)
 

@@ -309,11 +309,12 @@ const string malformed="The request is incomplete or malformed.";
     PostgresException p when p.SqlState=="P0001" && GasAmendments.Message(p.MessageText) is {} message => (p.MessageText=="gas_revision_conflict"?409:422,p.MessageText,message),
     PostgresException p when p.MessageText=="gas_location_input" => (422,p.MessageText,"The native trades must match the selected confirmations and exact booking context."),
     PostgresException p when p.MessageText=="gas_location_denied" => (403,"access_denied","The selected account cannot access this gas booking."),
-    PostgresException p when p.MessageText is "gas_location_conflict" or "gas_conflict" or "gas_setup_conflict" or "gas_quantity_conflict" or "gas_billing_conflict" => (409,p.MessageText,"This operation already belongs to different terms or ownership."),
+    PostgresException p when p.MessageText is "gas_location_conflict" or "gas_conflict" or "gas_setup_conflict" or "gas_quantity_conflict" or "gas_billing_conflict" or "gas_bill_conflict" => (409,p.MessageText,"This operation already belongs to different terms or ownership."),
     PostgresException p when p.SqlState is "23505" or "23514" or "23503" or "22P02" or "22003" or "22007" or "22008" && apiPath.StartsWithSegments("/api/gas/billing") => (422,"gas_billing_input","Supply compatible exact source, cash terms and a new correction occurrence."),
+    PostgresException p when p.SqlState is "23505" or "23514" or "23503" or "22P02" or "22003" or "22007" or "22008" && apiPath.StartsWithSegments("/api/gas/bills") => (422,"gas_bill_input","Supply an exact trade, delivery month, scope policy and reviewed document."),
 
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("gas_",StringComparison.Ordinal) => (422,p.MessageText,"The gas operation requires complete compatible terms and retained schedules."),
-    MarketDataException m when m.Code is "gas_billing_conflict" or "gas_billing_stale_preview" or "gas_operations_conflict" or "gas_operations_stale_preview" => (409,m.Code,m.Message),
+    MarketDataException m when m.Code is "gas_billing_conflict" or "gas_billing_stale_preview" or "gas_bill_conflict" or "gas_bill_stale_preview" or "gas_operations_conflict" or "gas_operations_stale_preview" => (409,m.Code,m.Message),
     MarketDataException m when m.Code=="catalogue_conflict" => (409,m.Code,m.Message),
     MarketDataException m => (422,m.Code,m.Message),
     PostgresException p when p.SqlState=="P0001" && p.MessageText=="risk_job_denied" => (403,"access_denied","Current authority does not permit this risk job operation."),
@@ -588,7 +589,7 @@ var partyReads=new PartyReads(database);
 var tradeReads=new TradeReads(database);
 var liveContexts=new LiveContexts(database,changes,new JsonSerializerOptions{PropertyNamingPolicy=JsonNamingPolicy.CamelCase});
 var assistantWorkspace=new AssistantWorkspace(database,turnScope,turnScope=="exchange"?"/examples/exchange/api":"/api",app.Services,
-    ()=>((IEndpointRouteBuilder)app).DataSources.SelectMany(source=>source.Endpoints),app.Services.GetRequiredService<IHttpContextAccessor>());
+    AssistantWorkspace.Routes(app.Services),app.Services.GetRequiredService<IHttpContextAccessor>());
 database.AssistantRequest=()=>app.Services.GetRequiredService<IHttpContextAccessor>().HttpContext?.Features.Get<AssistantInvocation>();
 async Task<string[]> CurrentPermissions(NpgsqlConnection connection,CancellationToken ct)
 {
@@ -2347,6 +2348,16 @@ api.MapPost("/gas/billing/status",(HttpContext c,FuturesStatusRequest body)=>Loc
 api.MapPost("/gas/billing/determine",(HttpContext c,GasBillingDetermineRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"AmendTrade",async(connection,ct)=>{
  if(!TradingReadSelection.IsWorking(session,GasCashBillingStore.RequirePreview(body).Context))throw new MarketDataException("historical_read_only","Return to working data before determining billing.");
  return Results.Ok(await gasBilling.Determine(connection,Frame(session,body.Preview.Context.SnapshotId),body,ct));
+},c.RequestAborted)));
+var gasBills=new GasBillStore(database);
+api.MapPost("/gas/bills/read",(HttpContext c,GasBillReadRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("gas_bill_context","Supply the selected bill context."),
+ (connection,view,ct)=>tradeReads.ReadBound(connection,view,()=>gasBills.Read(connection,view.CalculationFrame,body,ct),ct),expectedConvention:PhysicalGasStore.Convention));
+api.MapPost("/gas/bills/preview",(HttpContext c,GasBillPreviewRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("gas_bill_context","Supply the selected bill context."),
+ (connection,view,ct)=>tradeReads.ReadBound(connection,view,()=>gasBills.Preview(connection,view.CalculationFrame,body,ct),ct),expectedConvention:PhysicalGasStore.Convention));
+api.MapPost("/gas/bills/status",(HttpContext c,FuturesStatusRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"AmendTrade",async(connection,ct)=>Results.Ok(await gasBills.Status(connection,body.OperationId,ct)),c.RequestAborted)));
+api.MapPost("/gas/bills/issue",(HttpContext c,GasBillIssueRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"AmendTrade",async(connection,ct)=>{
+ if(body.Preview?.Context is not {} selected||!TradingReadSelection.IsWorking(session,selected))throw new MarketDataException("historical_read_only","Return to working data before issuing a bill.");
+ return Results.Ok(await gasBills.Issue(connection,Frame(session,selected.SnapshotId),body,ct));
 },c.RequestAborted)));
 var gasOperations=new GasDeliveryOperationsStore(database);
 api.MapPost("/gas/operations/read",(HttpContext c,GasOperationsReadRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("gas_operations_context","Supply the header context."),

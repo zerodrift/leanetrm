@@ -72,6 +72,9 @@ public sealed class GasBillingOperatingStore(PreviewDatabase database)
     public async Task<object> Preview(NpgsqlConnection c, GasBillingOperatingPreviewRequest request, ScheduleContext? selected, CancellationToken ct)
     {
         if (request.Selection is null) throw Invalid();
+        // The processing clock reviews no fixing, so an indexed payment is previewed in Billing & corrections only.
+        if (request.Selection.Profile == GasCashBilling.IndexedImplementation)
+            throw new MarketDataException("gas_billing_profile", "The processing preview does not bill an indexed payment. Review it in Billing & corrections.");
         var scope = await Resolve(c, request.Context, selected, ct);
         var p = await Prepare(c, scope, request.Selection, ct);
         return new { context = scope.Context, evaluationAt = scope.At, previewHash = p.Hash, sourceId = p.SourceId, previousId = p.PreviousId,

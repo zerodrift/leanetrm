@@ -3,6 +3,7 @@ import copy
 import hashlib
 import json
 from uuid import uuid4
+from authority_wait import lock_holder
 from check_reference_editing import main
 
 
@@ -273,7 +274,9 @@ def run_checks(query, manifest):
         counts=json.loads(work[-1])
         assert counts=={'side_calendar_cutoff':1,'reference_access':1,'market_access':1},counts
         errors=[];results=[]
-        holder=Thread(target=blocking_query,args=("SET application_name='synthetic_proof_holder';BEGIN;LOCK TABLE market_data.market_knowledge_receipts IN ACCESS EXCLUSIVE MODE;SELECT pg_sleep(4);COMMIT;",))
+        # The lock is kept until the reader has waited for it with its grants and they have ended.
+        holder=Thread(target=blocking_query,args=(lock_holder('synthetic_proof_holder','LOCK TABLE market_data.market_knowledge_receipts IN ACCESS EXCLUSIVE MODE',
+            f"(SELECT bool_and(granted_to<=clock_timestamp()) FROM security.role_grants WHERE id IN({ids}))"),))
         holder.start();deadline=time.monotonic()+3
         while query("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name='synthetic_proof_holder' AND wait_event='PgSleep');")!='t':
             if time.monotonic()>deadline:raise AssertionError('The synthetic proof relation lock was not acquired')
