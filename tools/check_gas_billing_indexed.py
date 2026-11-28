@@ -190,6 +190,12 @@ def run_checks(url, query, manifest):
     assert (unchanged['amount'], unchanged['contribution'], unchanged['previousId']) == ('0', '0', zero['determinationId'])
     assert unchanged['determinationId'] != zero['determinationId']
 
+    # A monthly bill expects exactly the payment days billing can determine: four indexed payments over three gas days,
+    # of which three payment days are determined.
+    (billing_month,) = c.call('gas/bills/read', dict(context=after, tradeId=trade))['months']
+    assert (billing_month['state'], len(billing_month['missing'])) == ('incomplete', 9), billing_month
+    assert not {(1, '2021-01-13'), (2, '2021-01-13'), (1, '2021-01-14')} & {(m['cashSlot'], m['day']) for m in billing_month['missing']}
+
     # The earlier knowledge view keeps the original fixing, quantity and single determination.
     earlier = c.call('gas/billing/read', dict(context=retained, tradeId=trade))
     assert [row['id'] for row in earlier['determinations']] == [original['determinationId']]

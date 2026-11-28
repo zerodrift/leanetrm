@@ -119,6 +119,8 @@ def run_checks(url, query=None, manifest=None, *, dotnet=None, benchmark=False, 
         rights_checks(c,query,manifest,terms,before,after)
         swing_checks(c,query,manifest,terms,before,after)
         entry_checks(c,query,manifest,terms,after,dotnet=dotnet)
+        from check_gas_bills import bill_checks
+        bill_checks(c,query,manifest,terms,before,after,url)
         from check_gas_billing_enrollment import run_checks as enrollment_checks
         enrollment = enrollment_checks(c,query,manifest,terms,after,dotnet=dotnet)
         if benchmark:
