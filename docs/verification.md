@@ -7255,3 +7255,26 @@ sandbox's network proxy settings to `gh`.
 
 Not run: a database on another major release, and any installation's own
 re-recording.
+
+## Worker RSS sampling at start
+
+The risk group failed once on a pull request that did not touch it, in
+[run 46086789647](https://github.com/zerodrift/leanetrm/actions/runs/46086789647/job/140798306846),
+with `Invalid worker RSS sample ... reading '0 R'`. `measure_worker` in
+`tools/run_preview.py` takes its first `ps` sample as soon as it has started the
+worker and refused zero RSS from any process that was not exiting. A started
+process has no resident pages until it first runs. Reading `/proc/<pid>/stat`
+straight after starting a child gave state `R` with zero RSS in 52 of 300 starts
+on four processors and in 291 of 300 pinned to one, and state `D` with zero RSS
+once.
+
+The sampler now accepts zero RSS in state `R` or `D` until the worker's first
+positive sample. After that sample such a reading is still refused as a lost
+one, zero RSS in any other live state is refused at any time, and a worker that
+exits without a positive sample still has no measurement. The behavior checks
+were written first and failed; `python3 -m unittest
+tests.test_check_gas_swing_numerics` passes 13 checks. On one processor shared
+with six busy loops, 60 real short workers gave the earlier sampler the same
+`'0 R'` refusal once and the changed sampler 60 measurements.
+
+Only Linux was observed. The rule adds no state for another system.
