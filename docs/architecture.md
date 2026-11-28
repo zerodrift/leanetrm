@@ -1,13 +1,13 @@
 # Architecture and domain contracts
 
-D464 adds [monthly gas bills](gas-monthly-bills.md). A bill is an immutable
+D465 adds [monthly gas bills](gas-monthly-bills.md). A bill is an immutable
 document over one trade's existing daily cash determinations for a complete
 delivery month; a later determination goes on a linked adjustment note. A
 document creates no payable and rounds nothing, each determination is on at
 most one document, and pay and receive totals are never netted. The scope is
 an explicitly selected, retained policy.
 
-D463 adds [final daily billing of index-priced gas payments](gas-cash-billing.md#indexed-profile-d463),
+D464 adds [final daily billing of index-priced gas payments](gas-cash-billing.md#indexed-profile-d464),
 on a named daily or monthly index or on point publications.
 An explicitly selected profile bills one payment day from the final accepted
 quantity and the final published fixing plus the booked spread. The fixing is

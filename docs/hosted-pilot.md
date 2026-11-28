@@ -346,7 +346,7 @@ The schema fingerprint is the SHA-256 of the schema inside the database's
 `pg_dump --schema-only` output: everything after the header and before the
 closing `\unrestrict` line. The opening banner, the random `\restrict` key and
 the two header lines that name the server and `pg_dump` versions are left out
-(D465). A dump in any other form is refused. A `schemaSha256` recorded by an
+(D463). A dump in any other form is refused. A `schemaSha256` recorded by an
 earlier `deploy_release.py` matches nothing under this one. With the timer
 stopped, record it again when installing this deployer. `DATABASE_CONTAINER` is
 the value in `/etc/openetrm/compose.env`, and the last argument is the
@@ -654,10 +654,10 @@ Whether the recorded `schemaSha256` survives the change depends on the
 installed deployer. The schema dump's header names the server and `pg_dump`
 versions, and on the migrated disposable database those two lines were the only
 difference between the images besides the random key. A deployer from before
-D465 hashes them. Once the database is on 18.7 its recorded fingerprint no
+D463 hashes them. Once the database is on 18.7 its recorded fingerprint no
 longer matches, and each head the updater tries fails its schema check and is
 quarantined until the fingerprint is recorded again. The journal names only the
-error class, so this reads the same as real schema drift. The D465 deployer
+error class, so this reads the same as real schema drift. The D463 deployer
 leaves the two lines out, so the fingerprint it records is the same under both
 images.
 
@@ -666,6 +666,6 @@ stop the API and background writers and retain a verified backup before
 recreating the database container. Before restoring the updater, confirm the
 server version, the unchanged system identifier and public readiness, and
 compare the schema dump with the one taken before the change. Record
-`schemaSha256` again unless the D465 deployer and a fingerprint it produced are
+`schemaSha256` again unless the D463 deployer and a fingerprint it produced are
 already installed. An installation using the optional worker database transport
 also confirms that its `DATABASE_ADDRESS` still reaches the recreated container.

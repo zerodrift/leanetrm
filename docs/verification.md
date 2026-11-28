@@ -1,6 +1,6 @@
 # Local verification and continuous integration
 
-## Monthly gas bills in Billing & corrections (D464)
+## Monthly gas bills in Billing & corrections (D465)
 
 Run on 28 November 2026 in a Linux container limited to four processors, with
 .NET SDK 10.0.402, stock PostgreSQL 18.7, Node 24.22 and headless Chromium. All
@@ -44,7 +44,7 @@ and the three limits listed under
 [the screen](gas-monthly-bills.md#screen). Not run locally: the other browser
 previews and groups. Hosted CI runs them.
 
-## Monthly gas bills (D464)
+## Monthly gas bills (D465)
 
 Run on 28 November 2026 in a Linux container limited to four processors, with
 .NET SDK 10.0.402, stock PostgreSQL 18.7 and Node 24.22. All data is synthetic.
@@ -129,7 +129,7 @@ reasons other than rights, authority revoked during a wait, and the refusal of
 a scheduled run. Not run locally on this change: the browser checks other than
 the ephemeral context check, and the other groups. Hosted CI runs them.
 
-## Indexed gas billing (D463)
+## Indexed gas billing (D464)
 
 Run on 27 November 2026 in a Linux container limited to four processors, with
 .NET SDK 10.0.402, stock PostgreSQL 18.7, Node 24.22 and headless Chromium. All
@@ -7652,7 +7652,7 @@ trade page lists Operating right, and choosing it opens Operating facilities
 with the catalog loaded and setup disabled. The browser suites and the other
 check groups were not run for this change outside CI.
 
-## Schema fingerprint without dump versions (D465)
+## Schema fingerprint without dump versions (D463)
 
 The behavior checks were written first and failed against the earlier function.
 Two synthetic dumps that differ only in their `\restrict` key and header version

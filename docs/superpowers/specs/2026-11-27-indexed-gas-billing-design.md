@@ -1,10 +1,10 @@
 # Final daily billing of index-priced gas payments: design
 
-Status: built under D463 on 27 November 2026. The owner selected the three
+Status: built under D464 on 27 November 2026. The owner selected the three
 policies under [Selected policies](#selected-policies); the rest is the
 maintainer's design, corrected after an independent review. See
-[the contract](../../gas-cash-billing.md#indexed-profile-d463) and
-[local qualification](../../verification.md#indexed-gas-billing-d463).
+[the contract](../../gas-cash-billing.md#indexed-profile-d464) and
+[local qualification](../../verification.md#indexed-gas-billing-d464).
 
 ## Intent
 

@@ -1,6 +1,6 @@
 # Monthly gas bills
 
-D464 adds a monthly document over one gas trade's
+D465 adds a monthly document over one gas trade's
 [final daily cash determinations](gas-cash-billing.md): a bill for a complete
 delivery month, and adjustment notes for determinations made after it. A
 document is a record of which determinations it covers. It creates no payable,
@@ -143,7 +143,7 @@ through the functions above.
 
 ## Qualification and remaining work
 
-See [verification](verification.md#monthly-gas-bills-d464). There is no
+See [verification](verification.md#monthly-gas-bills-d465). There is no
 assistant operation. Counterparty-level bills,
 netting, a rendered or exported document, document numbering, matching
 recorded payments to documents, voiding, partial bills and accounting remain
