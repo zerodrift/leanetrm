@@ -76,10 +76,11 @@ CREATE CONSTRAINT TRIGGER conserved_gas_bill AFTER INSERT ON trading.gas_bills
 
 -- gas_trade_month_gross_v1: the payments of one retained instrument a bill covers. A billable payment is one final
 -- billing can determine; every other payment is named with the reason it is not covered.
+-- Late-bound, as the billing functions are: an installation may create the swing tables after this migration.
 CREATE FUNCTION security.gas_bill_payments(catalog uuid,instrument uuid)
  RETURNS TABLE(slot integer,code text,role text,direction integer,reason text)
- LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
- SELECT m.slot,m.code::text,m.role,m.direction,
+ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$BEGIN
+ RETURN QUERY SELECT m.slot,m.code::text,m.role,m.direction,
   CASE WHEN m.role NOT IN('consideration','fee','indexed_consideration') THEN 'payment_kind'
    WHEN m.stage IS DISTINCT FROM 'delivery' THEN 'stage'
    WHEN EXISTS(SELECT 1 FROM trading.gas_exercise_right_entries e WHERE(e.catalog_id,e.instrument_id)=(m.catalog_id,m.instrument_id) AND e.slot IN(m.slot,m.source_slot))
@@ -89,8 +90,8 @@ CREATE FUNCTION security.gas_bill_payments(catalog uuid,instrument uuid)
     WHERE(t.catalog_id,t.instrument_id,t.slot)=(m.catalog_id,m.instrument_id,m.slot)
      AND t.observation_convention IN('named_index_daily_v1','named_index_monthly_v1','point_publications_v1')) THEN 'index_convention'
   END
- FROM trading.gas_component_terms m WHERE(m.catalog_id,m.instrument_id)=(catalog,instrument) AND m.role<>'physical'
-$$;
+ FROM trading.gas_component_terms m WHERE(m.catalog_id,m.instrument_id)=(catalog,instrument) AND m.role<>'physical';
+END$$;
 ALTER FUNCTION security.gas_bill_payments(uuid,uuid) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION security.gas_bill_payments(uuid,uuid) FROM PUBLIC;
 

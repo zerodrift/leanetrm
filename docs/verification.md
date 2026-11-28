@@ -66,11 +66,24 @@ findings and their resolution:
 The corrected checks passed on their first run after these changes; apart from
 the first finding, their failure beforehand was not separately observed.
 
+Hosted CI then failed the gas group while installing migration 0413: the gas
+swing preview creates the swing tables after every later migration, and the
+function that lists a trade's billable payments was written in plain SQL, which
+is checked against those tables when it is created. It is now late-bound, as
+the billing functions are. `tools/run_preview.py --check --gas-swing-check`
+passed locally afterwards (179 printed checks), and the billing preview again
+(117).
+
+Hosted CI also failed the standard group once in the ephemeral context browser
+check, which read an element of a reloaded page before the new document had
+loaded. That check now waits for the reloaded document. It passes locally; the
+race itself was seen only in hosted CI.
+
 Not exercised natively: a month holding an earlier instrument's
 determinations, mixed currency, a term spanning several months, not-covered
 reasons other than rights, authority revoked during a wait, and the refusal of
-a scheduled run. Not run locally on this change: the browser checks and the
-other groups. Hosted CI runs them.
+a scheduled run. Not run locally on this change: the browser checks other than
+the ephemeral context check, and the other groups. Hosted CI runs them.
 
 ## Indexed gas billing (D461)
 
