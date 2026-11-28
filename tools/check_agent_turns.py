@@ -1473,8 +1473,10 @@ def run_checks(url, query, psql, manifest, environment, dotnet):
                   {**pins, 'swapMarketSelections': {'not-a-uuid': []}}, {**pins, 'swapMarketSelections': {str(uuid4()): [1]}}):
         contexts.runtime('trader', refused(f'PERFORM {pin_sql(as_of, pins=wrong)};', 'turn_input'))
     before = contexts_count()
-    # The patterns read the same whatever the session's string-literal setting.
-    pinned = as_person('trader', f'SET standard_conforming_strings=off;SELECT {pin_sql(as_of, pins=pins)}::text;')['turn']
+    # PostgreSQL 19 keeps standard strings enabled; the retained-pin validators
+    # still enforce the same exact input contract.
+    query(expect('SET standard_conforming_strings=off;', '0A000'))
+    pinned = as_person('trader', f'SELECT {pin_sql(as_of, pins=pins)}::text;')['turn']
     check("a retained context is pinned as named with the As of frame's exact pins, capturing nothing: an instant this database reads, a "
           'name, its observations and the ones it froze among them, its curve-contract and swap market selections, all as canonical uuids, '
           'and whether it resolves the latest correction',
@@ -1703,7 +1705,7 @@ def run_checks(url, query, psql, manifest, environment, dotnet):
                   {**reading, 'access': json.dumps([{'access': 'market_access', 'catalogId': catalog.replace('-', ''), 'permission': 'ReadMarketData'}])},
                   {**reading, 'access': json.dumps({'access': 'market_access', 'catalogId': catalog, 'permission': 'ReadMarketData'})}):
         step_refused('turn_input', looping, **wrong)
-    query('SET SESSION AUTHORIZATION preview_runtime;SET standard_conforming_strings=off;'
+    query('SET SESSION AUTHORIZATION preview_runtime;'
           + refused(f"PERFORM {step_sql(looping, **{**reading, 'operation': 'market-data.curves_v1'})};", 'turn_input'))
     check("a step names one of the version's tools and a code if any; a read names a versioned operation, an instant from its call's close "
           'until now and each market, reference, trades or parties access it ran under in a catalog of that kind; a refusal before any read '

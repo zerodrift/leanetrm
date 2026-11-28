@@ -92,7 +92,10 @@ timeline needs a separately reviewed continuity policy.
    Inventory the cluster's databases: the row proof covers the connected
    application database. Another database containing application data requires
    its own preservation proof or refusal before cutover; `pg_upgrade` affects
-   the whole cluster.
+   the whole cluster. Check every database, including templates, for large
+   objects: they are outside the user-table row proof. The current application
+   has no large-object consumer; refuse any such objects unless their contents
+   receive a separately reviewed preservation proof.
 2. Take and validate a recoverable backup. Fence public writes, stop collectors,
    schedulers and workers, and drain database clients. Preserve their prior
    enabled/disabled states. Keep the automatic release timer stopped.
