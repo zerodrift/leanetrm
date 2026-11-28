@@ -1,6 +1,6 @@
 # Local verification and continuous integration
 
-## Issue reports (D461)
+## Issue reports (D463)
 
 Run locally on 2026-11-27 on macOS with stock PostgreSQL 18 and the pinned .NET
 SDK, against disposable databases, synthetic data and a loopback synthetic
@@ -43,6 +43,115 @@ Not run: `tools/check_all.py` as a whole, which refuses the locally installed
 Node 24.22.3 against the pinned 24.22.0; the browser suites; the frontend
 tests, since no browser source changed; the remaining preview groups; and CI.
 No hosted installation is qualified by this evidence.
+
+## Transport capacity navigation after Scheduling views (D461)
+
+The physical CI group failed because its Transport capacity browser scenario
+opened Storage & allocations and assumed Capacity was the initial section.
+The scenario now opens Nominations & transport and selects Capacity explicitly.
+Its access assertion also checks that the Capacity workspace is visible and
+the corresponding sidebar entry is active. Application behavior and permission
+checks are unchanged.
+
+After that failure, the corrected scenario passes all 65 browser checks and
+its native database postconditions. The remaining Transport route scenario
+passes all 55 browser checks and its native postconditions; the delivery
+workbench HTTP and browser checks also pass. These local runs used the pinned
+Node 24.22.0, Chrome for Testing 158, Python 3.13.18, .NET SDK 10.0.402 and
+PostgreSQL 18.7 on arm64 macOS, with separate disposable synthetic databases.
+
+## Scheduling roadmap and desk controls (D462, local)
+
+Run on 27 November 2026 on arm64 macOS with the pinned Node 24.22.0,
+Chrome for Testing 158, Python 3.13.18, .NET SDK 10.0.402 and PostgreSQL 18.7.
+The application check used this tree's API and assets with an owned disposable
+database and synthetic data.
+
+- `npm run build --prefix web` passes.
+- `node --test --test-concurrency=1` passes 108 focused checks, with no skips:
+  navigation groups, Scheduling desks, Facilities views and workspace,
+  Physical operations and grid, tab navigation, account refresh, assistant
+  walkthroughs, theme, workspace layout, roadmap and desk layout. The new
+  roadmap/layout files are `scheduling-roadmap-browser.test.mjs` and
+  `scheduling-layout-browser.test.mjs` under `web/tests`.
+- The checked-in `tests/browser/scheduling-roadmap.mjs` scenario passes all
+  eleven checks against the running isolated preview. It covers all four
+  desks, the limited trade-reader view, hiding the roadmap outside Scheduling,
+  opening the roadmap without changing the operating page, and phone menu
+  dismissal for both page changes and Facilities section changes. The scenario
+  is also called by `physical-workspace.mjs`; the full enclosing suite was not
+  run for this increment.
+- Browser geometry checks pass at widths 1280, 1000 and 390. Visual inspection
+  of the 1280 and 390 views and the collapsed desktop sidebar confirms that
+  desk controls fit one row, Scheduling labels remain readable, and the
+  roadmap cards stack within the phone viewport.
+
+The layout and roadmap checks failed before implementation. Independent review
+identified an assistant presentation target being displaced by the roadmap and
+stale roadmap visibility while new access was pending. Failing regressions
+preceded both fixes. Phone checks also reproduced a menu left open by desk
+navigation. Review of that fix found event-order interactions with controls
+becoming busy and a leave prompt receiving focus. A regression using the real
+leave prompt verifies Keep editing focus and Escape cancellation. The menu now
+closes during capture, before the destination handles the click; existing leave
+and pending-command decisions remain in the destination. Final independent
+review has no remaining findings in this increment.
+
+This verifies presentation and navigation only. It does not implement or qualify
+the workflows marked TBD. The complete frontend and `tools/check_all.py` suites,
+new commodity operations and hosted deployment were not run for this increment.
+
+## Scheduling desks (D461, local)
+
+Run on 27 November 2026 on arm64 macOS with .NET SDK 10.0.402, PostgreSQL 18.7,
+Python 3.13, Node 24.22.3 and Chrome for Testing 158 as the browser. Node is a
+patch ahead of the pinned 24.22.0. The complete `tools/check_all.py` was not
+run.
+
+- `npm test` in `web`, with browser tests: 2,438 of 2,448 pass. The ten
+  failures are the typed day quantity tests of `deal-ticket-browser.test.mjs`.
+  They fail identically on the commit before this change with this browser and
+  touch no changed code.
+- `tools/run_preview.py --check --gas-operations-check --browser-check`: the
+  native checks pass, including the directory by desk; 29 manual gas delivery
+  and 20 physical gas browser checks pass. The gas scenario switches desks,
+  checks each desk's entries, title and eyebrow, and reads the `desk` each
+  directory request sends.
+- `--crude-lifecycle-check --browser-check`: 50 physical crude browser checks
+  pass, opening Trade deliveries on the Crude desk.
+- `--structured-power-check --browser-check`: 16 structured-power and 19
+  structured-trading browser checks pass. This run preceded the review fixes
+  below and was not repeated after them. The frontend, gas and crude runs above
+  are from after every review below.
+- `tools/check_delivery_workbench_http.py` with the browser passes, including
+  the crude delivery link's handoff to the exact trade.
+
+An independent static review of the change examined access, leave guards,
+state and the backend read. It found no account able to reach more or less than
+before. It found, and this change fixes with a failing test first: a desk or
+view chosen before a refused leave being applied by a later navigation; an
+unconfirmed facility definition reopening on Physical activity; walkthrough
+steps failing to find an entry of another desk; reload moving to another desk;
+and the title of a hidden page being rewritten after access ends. The section
+permission rules now have one definition used by the tabs and the sidebar.
+
+A second review of the merged branch reproduced three defects in a browser,
+each fixed here with a failing test first: an unconfirmed physical request did
+not keep Trade deliveries on its desk; an account reading trades alone was sent
+from Storage & allocations to the Crude desk; and a second desk chosen while a
+leave question was open cost the first choice its desk. The second was also
+confirmed in the running application as the preview's trader profile.
+
+A third review found the pending-request hold too wide and too late, fixed the
+same way: a desk other than the request's now opens on an entry of its own that
+is not Trade deliveries, and an exact delivery link to another desk's trade is
+refused with the reason before its page is left. The first was confirmed in the
+running application with a synthetic retained gas request: from Power, Crude
+opens on Receipts & dispatches and LNG is refused with the reason.
+
+Not verified here: a person's check of the layout at phone width and with the
+sidebar collapsed, where the switcher is not drawn; the remaining browser and
+database suites; hosted deployment.
 
 ## Gas trade details and Blotter updates in the swing browser checks
 
@@ -2159,6 +2268,28 @@ loop and rejects legacy runtime admission. The complete command below includes
 this owned browser gate in the assistant partition. Optional
 `OPENETRM_ASSISTANT_BROWSER_EVIDENCE` copies synthetic screenshots outside the tree.
 No complete release verification or publication is implied by targeted local runs.
+
+The workspace check for a delegation that ends during a held command no longer
+arms a three-second term and sleeps. An approval spends about three seconds in
+the API before its command transaction begins: two route-table enumerations of
+1.3–1.8 s each over 518 endpoints on an idle four-core container, against about
+70 ms of database work. The armed term could therefore end before the command's
+first guard, and the check stopped on a denial it had not staged; the unchanged
+check stopped that way on its first idle local run. The fixture now keeps the
+term until the command is observed waiting on the held membership row inside
+`security.apply_administration`, then moves `granted_to` to the instant of that
+write. The held command owns the epoch row, so that one statement runs with
+ordinary triggers skipped; this is fixture staging in place of the clock, not a
+supported control change. `--assistant-workspace-check` then passes its 90
+integration checks, and passes again with twelve CPU-bound processes started
+around the scenario, which stretched it to 12.4 s. It fails, with the command
+committed, against a scratch build whose final guard is removed and against
+`assistant.turn_authorized` comparing the term with `now()`. Those runs used
+PostgreSQL 18.7 without the browser suite. With six CPU-bound processes for the
+whole run the suite stopped earlier, at the 20-second turn deadline of the Risk
+page read. Other suites still arm a two- or three-second term before a held
+operation (`Contexts.expiring` and the asynchronous read, market date and
+storage authority checks); they were not changed.
 
 The native volatility-fit admission regression runs with
 `python3 tools/check_vol_surface_admission_expiry.py --pg-bin /path/to/postgres/bin`.
@@ -4396,7 +4527,7 @@ All master pushes remain full because the updater admits a release only for the
 exact current branch head; a documentation push must not strand earlier runtime
 changes. Pull requests never publish an application release.
 
-The job installs stock PostgreSQL 18.6 from the reviewed package lock and uses
+The job installs stock PostgreSQL 18.7 from the reviewed package lock and uses
 the runner's Chrome. [Dependency caches](ci-dependencies.md) cover NuGet, npm and
 verified PostgreSQL packages, including Ubuntu runtime dependencies. The producer
 verifies signed archives once; consumer jobs verify pinned hashes and perform

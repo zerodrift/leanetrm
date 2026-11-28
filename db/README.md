@@ -26,7 +26,7 @@ Recent schema groups and their contracts:
   request identity, single dispatch admission and explicit resolution of
   unconfirmed outcomes. The six human role templates hold `SubmitIssueReports`
   and Access administrator holds `ManageIssueReporting`; the agent reader role
-  holds neither (D461).
+  holds neither (D463).
 - [0411](migrations/0411_inventory_role_grants.sql) installs the REC inventory
   capabilities that 0344 created and granted to no role, and the owned gas
   capabilities that 0265 created: the agent-only Gas lifecycle operator role held

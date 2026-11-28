@@ -1,7 +1,7 @@
 # Issue reports
 
 A signed-in person can send a report about the software to the installation's
-issue tracker and get back the issue's number and link (D461). This document
+issue tracker and get back the issue's number and link (D463). This document
 records what is implemented, its contracts and what remains.
 
 "Ticket" already means the deal ticket in this application, so the feature is
@@ -295,7 +295,7 @@ Run from the repository root with stock PostgreSQL 18 and the pinned .NET SDK.
 connected to the synthetic tracker, to try the screens by hand.
 
 All use synthetic data and disposable resources. Results are recorded in
-[verification](verification.md#issue-reports-d461).
+[verification](verification.md#issue-reports-d463).
 
 Not covered by a check: an installation with no tracker connection, concurrent
 requests, and the 24-hour roll-off of the daily limit. The synthetic tracker

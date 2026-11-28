@@ -155,7 +155,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
    ${term('Settlement price')}===${q(chosen.settlementPrice)}&&${term('Value per contract')}===${q(option.unitPresentValue+' '+option.currency)}`,
   `[document.querySelector('.side-panel-figure .kpi-value')?.title,${term('Settlement price')},${term('Value per contract')}]`);
  await check('working Details sends new exercise, assignment and expiry actions to the saved-policy workspace',
-  "!!document.querySelector('#option-open-lifecycle')&&!document.querySelector('#option-exercise')&&!document.querySelector('#option-exercise-lots')&&document.querySelector('.option-lifecycle').textContent.includes('Scheduling → Lifecycle')");
+  "!!document.querySelector('#option-open-lifecycle')&&!document.querySelector('#option-exercise')&&!document.querySelector('#option-exercise-lots')&&document.querySelector('.option-lifecycle').textContent.includes('Trading → Lifecycle')");
  await picture({command},'option-blotter');
  // A switched account selects no market date by default (D334), so it opens the same example inputs.
  // A role without booking authority reads the same holding with every lifecycle action off, and the backend's reason why.
@@ -188,7 +188,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
  const popup=await tab(target.targetId);await popup.command('Emulation.setDeviceMetricsOverride',{width:1180,height:1400,deviceScaleFactor:1,mobile:false});
  await popup.wait("document.body.getAttribute('aria-busy')==='false'&&!!document.querySelector('.option-lifecycle')",30000);
  await check('the position window retains open lots while new actions use the shared workspace',q(await popup.evaluate(
-  `${term('Open lots')}==='2'&&!document.querySelector('#option-exercise')&&!document.querySelector('#option-exercise-lots')&&document.querySelector('.option-lifecycle').textContent.includes('Scheduling')`)));
+  `${term('Open lots')}==='2'&&!document.querySelector('#option-exercise')&&!document.querySelector('#option-exercise-lots')&&document.querySelector('.option-lifecycle').textContent.includes('Trading')`)));
  await picture(popup,'option-window');await command('Target.closeTarget',{targetId:target.targetId});await popup.close();
  // Reuse one explicitly saved native v2 policy for this exact future, book and
  // legal owner. Configuration is separate from the observed exercise below.

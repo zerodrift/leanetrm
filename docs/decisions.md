@@ -8099,7 +8099,80 @@ operating rights. New roles for REC and gas inventory: no person would hold them
 at installation, and the six-role limit makes them hard to add, as D444 found
 for a new setup role.
 
-## D461 — People send issue reports to the installation's tracker
+## D461 — Scheduling lists one desk at a time
+
+Decided by the owner on 2026-11-27. The Scheduling sidebar group shows the
+entries of one desk: Gas, Power, Crude or LNG. Gas lists Gas day position, Trade
+deliveries, Nominations & transport and Storage & allocations. Power lists REC
+inventory. Crude lists Trade deliveries and Receipts & dispatches. LNG lists
+Cargoes. A switcher offers each desk that has an entry the account can open.
+Lifecycle and Operating facilities are Trading pages. This amends the page list
+of D367.
+
+The entries are views of the existing Facilities and Physical operations pages.
+Facilities' nine sections are grouped into four views and renamed as tabs:
+Nominations, Route plans, Capacity, Allocations, Physical activity, Trades and
+volumes and Definitions. Physical operations is named Trade deliveries, and
+Cargoes on the LNG desk. Page identifiers, addresses, permissions, assistant
+page names and reports, and every write are unchanged. Each sidebar entry is
+listed under the permissions its sections already required.
+
+`physical/operations/directory` accepts an optional `desk` of `gas`, `crude` or
+`lng` and returns that desk's trades. A request without a desk returns every
+physical trade as before. Another value is refused with `position_desk`. The
+browser does not filter trades. A desk's read reads that desk's trades alone, so
+it does not fail when another desk's booking metadata cannot be read; the
+request without a desk still refuses in that case.
+
+Moving between entries, sections or desks goes through the existing leave guard
+of what is left. A desk chosen in the switcher takes effect once the page has
+moved: the desk or view is set by the navigation that moves the page, so a
+question still open for another choice cannot take it, and a refused leave
+leaves nothing behind. While a physical request is unconfirmed, Trade deliveries
+stays on that request's desk until it is checked or retried. Another desk still
+opens on an entry of its own that is not Trade deliveries, and an exact delivery
+link to another desk's trade is refused with the reason before its page is left.
+A section the
+account may not open gives way to another tab of the same view. On reload the
+desk is restored and Facilities opens on a view of that desk. A walkthrough step
+that goes to an entry of another desk points at that desk's control. With the
+sidebar collapsed the switcher is not drawn; expand it to change desk.
+
+This does not add the link from a gas day position row to its delivery work,
+rename the gas delivery stages, read a crude position across trades, restore
+Trades and volumes or the position view on back-navigation, or let an
+installation choose its desks. The gas and power product scope and the
+installation's enabled desks are proposed separately and are not decided here.
+
+## D462 — Show planned Scheduling workflows by desk
+
+Each Scheduling page offers a collapsed Planned workflows panel for the desk
+shown. It describes missing workflows, labels each TBD and gives a contributor
+a starting point. Crude lists cargo parcels and liftings, pipeline movements,
+tank inventory and blending across trades, voyages and freight, time charters,
+laytime and demurrage, and rail and truck movements. LNG lists cargo actuals and
+reconciliation, terminal operations and the three shipping areas. Gas lists
+pipeline connections and storage statements. Power lists schedules and dispatch
+and transmission scheduling. The installer and contributor contract is recorded
+in the [Scheduling roadmap](scheduling-roadmap.md).
+
+These are descriptions of unimplemented workflows, with no committed delivery
+dates. They are not pages, disabled operations or installation capabilities.
+Opening the panel performs no business read or write. It follows the desk only
+after the existing guarded navigation changes the view, and is hidden outside
+Scheduling or when access to the page ends. Existing page identifiers,
+permissions, assistant operations and financial behavior are unchanged.
+
+This extends D461's presentation. The generic Additional workflows line is
+replaced by the desk's explicit gaps. The four desk controls fit one row and
+Scheduling labels wrap rather than truncate. On a phone the menu closes before
+the chosen entry handles its click, preserving a leave question's focus and
+keyboard cancellation. It does not implement marine
+operations, a pipeline movement ledger, a crude position across trades, power
+scheduling or a setting to enable desks. Each such operation still needs its
+own supported contract, synthetic acceptance examples and qualification.
+
+## D463 — People send issue reports to the installation's tracker
 
 Requested by the owner on 2026-11-27: the application should be able to file an
 issue on the project's public tracker, with an administrator choosing whether a

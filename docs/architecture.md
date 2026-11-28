@@ -1,12 +1,22 @@
 # Architecture and domain contracts
 
-D461 adds [issue reports](issue-reports.md), the first operation whose effect is
+D463 adds [issue reports](issue-reports.md), the first operation whose effect is
 in an external tracker. The request is retained before anything is sent,
 dispatch is admitted once under current authority, and an outcome the tracker
 did not confirm stays uncertain until it is found by its marker or the person
 resolves it. The connection is private installation configuration for one
 repository. The assistant can draft a report as an approval-required command;
 only the person's authorization submits it.
+
+D462 adds informational [Scheduling workflow placeholders](scheduling-roadmap.md)
+for each desk. They describe unimplemented contribution areas and create no
+business operations, financial policies or installation capabilities.
+
+D461 arranges the Scheduling sidebar group by desk. The entries are presentation
+views of the existing Facilities and Physical operations pages; page identity,
+permissions and every write are unchanged. `physical/operations/directory`
+accepts an optional `desk` and selects that desk's trades on the server. See
+[Scheduling desks](physical-workspace.md#scheduling-desks-d461).
 
 D459 adds [daily gas entry billing and scoped processing](gas-cash-billing.md).
 An explicit successor profile uses retained shares, daily quantity parts and
@@ -717,7 +727,9 @@ an unmodified relational database, not a database fork or a private platform SDK
 The [CI dependency contract](ci-dependencies.md) keeps locked NuGet/npm restores
 and verifies pinned PostgreSQL package bytes on every cache hit and miss. Gitea
 may serve the reviewed bundle; the same public packages remain independently
-obtainable without a private service or signing-key download in consumer jobs.
+obtainable without a private service or signing-key download in consumer jobs
+until the public archives remove a superseded pinned revision, which requires a
+reviewed lock refresh.
 A private pilot may be hosted at leanetrm.com under the separately approved
 deployment procedure. Automatic image updates use attested GitHub Release bundles
 and a pinned local pull operator; schema and infrastructure changes require a

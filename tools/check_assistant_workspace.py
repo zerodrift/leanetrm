@@ -351,8 +351,13 @@ def run_checks(url, query, manifest, fake, trap, psql, environment, tracker):
     check('one assistant turn reads nine independent selected report inputs without inheriting browser transport state',
           [result.get('data',{}).get('id') for result in report_results]==[job['id'] for job in risk_jobs]
           and query(f"SELECT context_id IS NULL AND pins IS NULL FROM assistant.turns WHERE id='{report_turn['id']}';")=='t')
-    # A proposal can expire while its ordinary command waits, without any role or epoch change. Its final guard must
-    # roll back both the account mutation and the approval receipt rather than commit under the human's lasting role.
+    # A proposal's delegation can end while its ordinary command waits, without any role or epoch change. The final
+    # guard must then roll back both the account mutation and the approval receipt rather than commit under the
+    # human's lasting role. A term set to end on the clock before the request is sent can end before the first guard,
+    # and that denial proves nothing, so the term keeps its length until the command is seen held past that guard.
+    # A write then stands in for the clock: it moves the term's end to its own instant. The command holds the epoch,
+    # which admits no control change until it ends, so the write skips the triggers, among them the one that advances
+    # the epoch. Its instant follows the command's start, so a guard that read transaction time would commit and fail here.
     # The administrative directory names its user records; the exact expected head is read from the owned fixture.
     expected = int(query(f"SELECT version FROM security.workspace_memberships WHERE principal_id='{target['id']}';"))
     expiring_command = {'operation': 'admin.update_v1', 'inputJson': json.dumps({'body': {'operationId': str(uuid4()), 'id': target['id'], 'expectedVersion': expected,
@@ -360,18 +365,20 @@ def run_checks(url, query, manifest, fake, trap, psql, environment, tracker):
     expires_turn, _, _ = ask([('propose_page_action', expiring_command)])
     delegation = query(f"SELECT delegation_id FROM assistant.turns WHERE id='{expires_turn['id']}';")
     previous_expiry = query(f"SELECT granted_to::text FROM security.agent_delegations WHERE id='{delegation}';")
-    query(f"UPDATE security.agent_delegations SET granted_to=clock_timestamp()+interval '3 seconds' WHERE id='{delegation}';")
     try:
         with ThreadPoolExecutor(max_workers=1) as executor:
             def blocked():
                 future = executor.submit(owner.call, 'assistant/actions/authorize', {'turnId': expires_turn['id'], 'step': 1}, expected=403)
                 try:
-                    waiting(query, 1, 'security.apply_administration')
+                    # An approval takes seconds to prepare its command before the command's transaction begins. The
+                    # wait ends within the request's own 20 seconds, leaving it time to answer.
+                    waiting(query, 1, 'security.apply_administration', timeout=15)
                 except AssertionError:
                     if future.done():
                         raise AssertionError(('authorization returned before the held command', future.result()))
                     raise
-                time.sleep(3.1)
+                query("BEGIN;SET LOCAL session_replication_role=replica;"
+                      f"UPDATE security.agent_delegations SET granted_to=clock_timestamp() WHERE id='{delegation}';COMMIT;")
                 return future
             future = holding(psql, environment, f"SELECT principal_id FROM security.workspace_memberships WHERE principal_id='{target['id']}' FOR UPDATE", blocked)
             future.result(timeout=10)

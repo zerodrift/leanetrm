@@ -2731,9 +2731,9 @@ api.MapPost("/gas/park-custody/setup",(HttpContext c,LifecycleDiscoveryRequest b
 api.MapPost("/gas/park-custody/evidence/status",(HttpContext c,GasParkCustodyEvidenceRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"RecordGasOperations",
  async(connection,ct)=>Results.Ok(await GasParkCustodyEvidenceStore.Status(connection,database,body,ct)),c.RequestAborted)));
 
-api.MapPost("/physical/operations/directory",(HttpContext c,TradingPositionsRequest body)=>TradingRead(c,
+api.MapPost("/physical/operations/directory",(HttpContext c,PhysicalDirectoryRequest body)=>TradingRead(c,
  body.Context??throw new MarketDataException("position_facts","Supply the selected header context."),
- (connection,view,ct)=>tradeReads.PhysicalPositions(connection,view,body.BookIds,body.PortfolioIds,body.Offset,body.Limit,ct),expectedConvention:TradingBlotter.Convention));
+ (connection,view,ct)=>tradeReads.PhysicalPositions(connection,view,body.BookIds,body.PortfolioIds,body.Desk,body.Offset,body.Limit,ct),expectedConvention:TradingBlotter.Convention));
 // The foreground reuse check and the update waiter share the exact authorization/selection contract.
 Task<string> BlotterVersion(PreviewSession session,FuturesReadRequest body,CancellationToken cancellation)=>
  database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>
