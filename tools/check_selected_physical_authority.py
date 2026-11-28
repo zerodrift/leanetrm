@@ -88,8 +88,7 @@ def configured(query,manifest,setup):
         finally:
             changing.result()
             query("INSERT INTO security.role_permissions SELECT * FROM jsonb_populate_recordset(NULL::security.role_permissions,"+literal(json.loads(permissions))+") ON CONFLICT DO NOTHING;")
-    with successor_grants(query,manifest,'trader','ReadGasOwnedHoldings',issuer=issuer) as roles:
-        query(f"UPDATE security.role_grants SET granted_to=clock_timestamp()-interval '1 second' WHERE role_id=(SELECT id FROM security.roles WHERE code='{roles}_a');")
+    with successor_grants(query,manifest,'trader','ReadGasOwnedHoldings',issuer=issuer,lapsed=True):
         _,read=managed('discovery',request,False,True);read()
     agent,delegation,role=(str(uuid4()) for _ in range(3))
     delegated=query(f"""BEGIN;

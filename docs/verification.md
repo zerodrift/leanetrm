@@ -2238,6 +2238,31 @@ the exact native source helpers it updates. These checks preserve the existing
 recorded-close calendar restrictions rather than qualifying broader close sessions.
 It also inserts separate privileged synthetic contexts with inconsistent prefixes
 to prove refusal, without modifying immutable records or the database software.
+
+`successor_grants` in `tools/check_futures_margin_adoption.py` gives these checks
+an original grant that ends three seconds into its term and a successor that
+starts as it ends. It wrote both on entry, so the block's actor, at eight call
+sites a `dotnet run` process that takes 0.7–0.9 s to start on an idle four-core
+container, had to be admitted within three seconds of entry. A later actor was
+admitted by the successor, was not refused, and the check blamed the product.
+The helper now writes the grants once another session waits for the security
+epoch, which every admission takes first: it holds the epoch until then, so the
+term starts at the actor's admission and the original grant is still a clock
+term kept at that admission. A block in which nothing waits fails. Sixteen call
+sites use this. Three keep the entry timing, because a pause starts before
+their actor is admitted or the actor reads its authority before its first epoch
+wait. One, which ended the original grant by a write before starting its actor,
+now asks for an original grant that has already ended. With 3.5 s injected
+before the actor of `check_trading_business_date.py`, the prior helper stops
+with "A successor grant extended the original source admission" and the changed
+one passes. The twelve check scripts that reach the helper's call sites pass with
+the change on PostgreSQL 18.7: the margin adoption and projection source checks,
+trading business dates, lifecycle actions, swaps, scheduling and projection
+horizon, selected physical authority, gas projection scope, gas fee terms, and
+the loan and mixed gas quantity reconciliations. Other scripts reach the helper
+only through those modules and were not run. The term now covers the time from
+the actor's admission to the point where its operation keeps its deadline; that
+was not measured under load.
 These are native/managed checks. The [remaining lifecycle gates](lifecycle-delivery.md)
 include whole-portfolio/worker, physical delivery and HTTP/agent/browser workflows.
 
