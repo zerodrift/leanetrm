@@ -235,13 +235,13 @@ function lifecycleTransport(actor:string,trade:string){
 // recoverable here; new actions use the policy-bound workspace.
 function lifecycle(host:HTMLElement,api:Api,h:Holding,o:OptionHost){
  const box=section('Lifecycle');box.classList.add('option-lifecycle');box.dataset.ownControls='';host.append(box);
- box.append(el('p','field-help','Review exercise, assignment and expiry with the saved action policies in Scheduling → Lifecycle.'));
+ box.append(el('p','field-help','Review exercise, assignment and expiry with the saved action policies in Trading → Lifecycle.'));
  const owner=o.actor(),transport=lifecycleTransport(owner,h.tradeId);
  let command=restoreTradeRequest(transport.read()),checking=false,alive=true,notFound=false;
  const current=()=>alive&&o.actor()===owner;
  const said=el('p','field-help');said.setAttribute('role','status');
  const open=el('button','secondary','Open Lifecycle');open.id='option-open-lifecycle';open.type='button';open.onclick=()=>{if(current()&&!command)o.lifecycle?.();};
- if(o.lifecycle)box.append(open);else box.append(el('p','field-help','Open Lifecycle under Scheduling in the main workspace.'));
+ if(o.lifecycle)box.append(open);else box.append(el('p','field-help','Open Lifecycle under Trading in the main workspace.'));
  const check=el('button','secondary','Check earlier request');check.id='option-lifecycle-status';check.type='button';
  const dismiss=el('button','secondary','Dismiss unrecorded request');dismiss.id='option-lifecycle-dismiss';dismiss.type='button';
  function sync(){

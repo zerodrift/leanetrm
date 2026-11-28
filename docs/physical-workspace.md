@@ -226,9 +226,43 @@ separate; source references and policy versions are retained independently, and
 updates cannot rewrite posted history. This is a design contract, not an
 implemented journal or standards-compliance engine.
 
+## Scheduling desks (D461)
+
+The Scheduling sidebar group lists one desk at a time. A switcher offers each
+desk that has an entry the account can open, and remembers the choice per tab,
+workspace and account. With one such desk no switcher is drawn.
+
+| Desk | Entry | Page and sections |
+| --- | --- | --- |
+| Gas | Gas day position | Facilities · Pipeline outlook |
+| Gas | Trade deliveries | Physical operations, gas trades |
+| Gas | Nominations & transport | Facilities · Nominations, Route plans, Capacity |
+| Gas | Storage & allocations | Facilities · Allocations, Physical activity, Trades and volumes, Definitions |
+| Power | REC inventory | REC inventory |
+| Crude | Trade deliveries | Physical operations, crude trades |
+| Crude | Receipts & dispatches | Facilities · Crude delivery workbench |
+| LNG | Cargoes | Physical operations, LNG trades |
+
+Facilities and Physical operations remain one page each. An entry is a view:
+it sets which Facilities tabs are shown, or which desk's trades Physical
+operations reads. The tabs of other views stay in the document, hidden, so an
+exact section can still be opened from the storage ticket, the outlook's links,
+back-navigation or the assistant; the sidebar entry and the desk then follow the
+section shown. Each sidebar entry has the permission gate of its sections, so no
+account reaches more or less than before. Assistant page names and reports are
+unchanged.
+
+Choosing a desk opens its first permitted entry through that entry's own leave
+guard and takes effect once the page has moved. A refused leave changes nothing.
+Trade deliveries sends the shown desk with `physical/operations/directory`; the
+server selects the trades. The eyebrow above the page title names the group and
+the desk.
+
+Lifecycle and Operating facilities are listed under Trading.
+
 ## Manual gas delivery desk
 
-The separate **Physical operations** sidebar page contains the
+**Scheduling → Gas → Trade deliveries**, the Physical operations page, contains the
 [manual delivery desk](gas-delivery-operations.md). Booked gas instruments have
 Overview, Delivery and Billing & corrections tabs. Four stages compose service
 setup/submission, external responses/adoption, actual allocations/statements and
@@ -254,7 +288,10 @@ pagination. Missing held metadata refuses the directory rather than erasing the
 instrument. Gas has a four-stage workflow and a separate billing tab. Crude reuses
 its existing certified receipt/inventory/dispatch/invoice/payment workflow. LNG
 conventions are inspectable; its operational workflow and unsupported commodity
-families are visibly TBD. Facilities & delivery retains facility setup and shared
+families are unimplemented. The desk's **Planned workflows** panel names its
+TBD operations and points contributors to the
+[installer and contributor guide](scheduling-roadmap.md) (D462).
+Facilities & delivery retains facility setup and shared
 quantity allocation scopes.
 
 The workspace owns one actor-scoped retained native command, separate from its

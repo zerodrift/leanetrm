@@ -6,8 +6,8 @@ import {pageReport,webPage,lookingAt} from '../dist/assistant-pages.js';
 
 const context={contextId:'10000000-0000-0000-0000-000000000001',asOf:'2026-11-02T01:30:00Z',businessDate:'2026-11-01',snapshotId:'20000000-0000-0000-0000-000000000001'};
 const offer={target:{handler:'listed_option',scopeId:'30000000-0000-0000-0000-000000000001',bindingId:'40000000-0000-0000-0000-000000000001'},action:'option.exercise',label:'Exercise',occurrenceId:'50000000-0000-0000-0000-000000000001',at:context.asOf,before:null,eligible:true,reason:null,revision:1,stateVersion:2,subject:{reference:'TR-000001',product:'Synthetic gas call',bookId:'60000000-0000-0000-0000-000000000001',book:'Synthetic book'},policyId:'70000000-0000-0000-0000-000000000001',policyRevision:3,selection:{evidenceId:'00000000-0000-0000-0000-000000000000',lots:null,expectedEventVersion:2,profileRevision:4},requiredInputs:['evidenceId','lots'],availableQuantity:'2'};
-test('Lifecycle has one Scheduling destination for authorized readers and an exact assistant page',()=>{
- assert.equal(pageGroup('lifecycle'),'Scheduling');assert.equal(pageAvailable('lifecycle',['ReadMarketData','ReadTrades']),true);assert.equal(pageAvailable('lifecycle',['ReadMarketData']),false);
+test('Lifecycle has one Trading destination for authorized readers and an exact assistant page',()=>{
+ assert.equal(pageGroup('lifecycle'),'Trading');assert.equal(pageAvailable('lifecycle',['ReadMarketData','ReadTrades']),true);assert.equal(pageAvailable('lifecycle',['ReadMarketData']),false);
  assert.deepEqual(pageReport({page:'lifecycle'}),{page:'lifecycle',selection:{}});assert.equal(webPage('lifecycle'),'lifecycle');
 });
 test('review carries the certified business date and explicit observed terms without modifying the native offer',()=>{

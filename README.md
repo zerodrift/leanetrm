@@ -66,8 +66,9 @@ recorded in [the plan](docs/plan.md).
   Incoterms and fixed consideration. Retained trading views and interactive/queued
   risk support contractual PV before loading starts; cargo actuals and settlement
   remain work. See [the bounded cargo contract](docs/physical-lng.md)
-- **Physical operations:** gas and crude workflows have a dedicated Operations
-  workspace. Gas, crude and LNG share a read-only delivery grid with native
+- **Physical operations:** gas and crude workflows are worked under
+  **Scheduling**, which lists one desk at a time: Gas, Power, Crude or LNG.
+  Gas, crude and LNG share a read-only delivery grid with native
   intervals, quantities and source status; LNG operational actions remain TBD.
   The delivery workbench links chosen gas routes to booked delivery quantities and
   can prepare reviewed batches of manual nominations. See [physical operations](docs/physical-workspace.md),
