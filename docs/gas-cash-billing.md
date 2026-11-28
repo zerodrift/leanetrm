@@ -176,7 +176,7 @@ five-second SQL command deadline, independently of the general preview budget.
 - `gas/billing/enrollment-choices`, `enrollment-preview`, `enroll`: authorized
   book/policy choices, candidate inspection and versioned scheduled scope.
 
-Open **Scheduling → Physical operations**, select Natural gas and the booked
+Open **Scheduling → Gas → Trade deliveries**, select the booked
 instrument, then choose **Billing & corrections**.
 The billing panel remains available after delivery starts even when contractual
 PV is unavailable. Select the claim, final source, billing profile and rounding
