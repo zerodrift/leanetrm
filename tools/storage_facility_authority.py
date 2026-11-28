@@ -1,5 +1,6 @@
 """Independent authority, publication-wait and immutable-witness probes."""
 from concurrent.futures import ThreadPoolExecutor
+from authority_wait import lock_holder
 import json
 import time
 from uuid import uuid4
@@ -161,15 +162,17 @@ def checks(fixture, facility, plan_operation, plan_body, accepted, historical, b
         businessKey='synthetic_expired_observation', expectedPreviousId=None, observedAt='2021-01-15T00:00:00Z', quantity='1',
         evidence='Synthetic authority expiry must leave no observation')
     selected_context = fixture.capture()
-    query(f"UPDATE security.role_grants SET granted_to=clock_timestamp()+interval '0.75 seconds' WHERE id='{grant}';")
     try:
         with ThreadPoolExecutor(max_workers=1) as pool:
-            blocker = pool.submit(query, "SET application_name='storage_facility_authority_wait';BEGIN;SELECT pg_advisory_xact_lock(730849102);SELECT pg_sleep(2);COMMIT;")
+            # The term starts once the lock is held, and the lock is kept until the command has waited for it within the term.
+            blocker = pool.submit(query, lock_holder('storage_facility_authority_wait', 'SELECT pg_advisory_xact_lock(730849102)',
+                f"(SELECT granted_to<=clock_timestamp() FROM security.role_grants WHERE id='{grant}')"))
             try:
                 deadline = time.monotonic() + 3
                 while query("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name='storage_facility_authority_wait' AND wait_event='PgSleep');") != 't':
                     assert time.monotonic() < deadline
                     time.sleep(.01)
+                query(f"UPDATE security.role_grants SET granted_to=clock_timestamp()+interval '2 seconds' WHERE id='{grant}';")
                 rejected(lambda: fixture.record(command, context=selected_context), 'storage_facility_denied')
             finally:
                 blocker.result()

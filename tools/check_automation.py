@@ -12,6 +12,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
 
+from authority_wait import lock_holder
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -123,22 +125,26 @@ def checks(query, worker_once=None, controller_once=None):
     reject(lambda:query(f"SET SESSION AUTHORIZATION automation_test_worker;SELECT automation.finish_run('{claim['id']}',NULL,NULL,true,NULL,NULL);"),'job_fence')
     def finish(c):
         return query(f"SET SESSION AUTHORIZATION automation_test_worker; SELECT automation.finish_run('{c['id']}',{c['fence']},'{c['workerId']}',true,NULL,NULL);")
-    def wait_behind_job_lock(work,table='jobs',identifier=job):
+    def wait_behind_job_lock(term,ended,work,table='jobs',identifier=job):
+        # The term starts once the lock is held, and the lock is kept until the work has waited for it within the term.
         with ThreadPoolExecutor(max_workers=1) as pool:
-            blocker = pool.submit(query, f"SET application_name='automation_lock_check';BEGIN;SELECT id FROM automation.{table} WHERE id='{identifier}' FOR UPDATE;SELECT pg_sleep(1.5);COMMIT;")
+            blocker = pool.submit(query, lock_holder('automation_lock_check',f"SELECT id FROM automation.{table} WHERE id='{identifier}' FOR UPDATE",ended))
             deadline = time.monotonic()+3
             while query("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name='automation_lock_check' AND wait_event='PgSleep');") != 't':
                 assert time.monotonic()<deadline, 'Owned blocker did not acquire its lock'
                 time.sleep(.01)
             try:
+                query(term)
                 work()
             finally:
                 blocker.result()
+    def grants_ended(principal):
+        return f"(SELECT bool_and(granted_to<=clock_timestamp()) FROM security.role_grants WHERE principal_id='{principal}')"
     # Natural expiry while waiting for the exact job lock cannot retain admission authority.
     waiting=create('bob',{**request,'requestId':str(uuid4()),'dueAt':query("SELECT (clock_timestamp()+interval '10 minutes')::text;")})
-    query(f"UPDATE security.role_grants SET granted_to=clock_timestamp()+interval '0.5 seconds' WHERE principal_id='{bob}';")
     try:
-        wait_behind_job_lock(lambda:reject(lambda:edit('bob',{**edit_request,'requestId':str(uuid4()),'id':waiting['id'],'expectedVersion':waiting['version']}),'job_denied'),identifier=waiting['id'])
+        wait_behind_job_lock(f"UPDATE security.role_grants SET granted_to=clock_timestamp()+interval '2 seconds' WHERE principal_id='{bob}';",grants_ended(bob),
+            lambda:reject(lambda:edit('bob',{**edit_request,'requestId':str(uuid4()),'id':waiting['id'],'expectedVersion':waiting['version']}),'job_denied'),identifier=waiting['id'])
     finally:
         query(f"UPDATE security.role_grants SET granted_to='9999-12-31' WHERE principal_id='{bob}';")
     user('bob',f"SELECT automation.control_job('{json.dumps(dict(requestId=str(uuid4()),id=waiting['id'],action='cancel',expectedVersion=waiting['version']))}'::jsonb)")
@@ -153,8 +159,8 @@ def checks(query, worker_once=None, controller_once=None):
     reject(lambda:edit('bob',collision_edit),'job_input')
     changed=edit('bob',{**collision_edit,'requestId':str(uuid4()),'dueAt':next_due})
     user('bob',f"SELECT automation.control_job('{json.dumps(dict(requestId=str(uuid4()),id=changed['id'],action='cancel',expectedVersion=changed['version']))}'::jsonb)")
-    query(f"UPDATE automation.runs SET lease_until=clock_timestamp()+interval '0.5 seconds' WHERE id='{replacement['id']}';")
-    wait_behind_job_lock(lambda: reject(lambda: finish(replacement), 'job_fence'))
+    wait_behind_job_lock(f"UPDATE automation.runs SET lease_until=clock_timestamp()+interval '2 seconds' WHERE id='{replacement['id']}';",
+        f"(SELECT lease_until<=clock_timestamp() FROM automation.runs WHERE id='{replacement['id']}')",lambda: reject(lambda: finish(replacement), 'job_fence'))
     reject(lambda: finish(claim), 'job_fence')
     cancel = control('admin', 'cancel', resumed['version'])
     assert cancel['state'] == 'cancelled'
@@ -276,9 +282,9 @@ def checks(query, worker_once=None, controller_once=None):
     assert rejected['mustStop'] and rejected['launchPrepared']
     reject(lambda:finish(rejected),'job_fence')
     def expired_worker_wait(sql,table,identifier):
-        query(f"UPDATE security.role_grants SET granted_to=clock_timestamp()+interval '0.5 seconds' WHERE principal_id='{worker}';")
         try:
-            wait_behind_job_lock(lambda:reject(lambda:query('SET SESSION AUTHORIZATION automation_test_worker;'+sql),'worker_denied'),table,identifier)
+            wait_behind_job_lock(f"UPDATE security.role_grants SET granted_to=clock_timestamp()+interval '2 seconds' WHERE principal_id='{worker}';",grants_ended(worker),
+                lambda:reject(lambda:query('SET SESSION AUTHORIZATION automation_test_worker;'+sql),'worker_denied'),table,identifier)
         finally:
             query(f"UPDATE security.role_grants SET granted_to='9999-12-31' WHERE principal_id='{worker}';")
     expired_worker_wait(f"SELECT automation.record_service('{rejected['id']}','{rejected['workerId']}',{rejected['fence']},'syntheticservice0000000001');",'runs',rejected['id'])

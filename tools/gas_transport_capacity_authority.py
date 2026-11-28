@@ -2,6 +2,7 @@
 import json
 import time
 from concurrent.futures import ThreadPoolExecutor
+from authority_wait import lock_holder
 from uuid import uuid4
 
 from gas_transport_capacity_fixture import literal
@@ -61,7 +62,9 @@ def authority(f, rejected):
     for mode in ['record','status']:
         source=f.capture()
         with ThreadPoolExecutor(max_workers=1) as pool:
-            lock=pool.submit(q,"SET application_name='synthetic_transport_expiry';BEGIN;SELECT pg_advisory_xact_lock(730849102);SELECT pg_sleep(7);COMMIT;")
+            # The lock is kept until the operation has waited for it under the first grant and the successor is active.
+            lock=pool.submit(q,lock_holder('synthetic_transport_expiry','SELECT pg_advisory_xact_lock(730849102)',
+                f"(SELECT granted_to<=clock_timestamp() FROM security.role_grants WHERE id='{first}')",f"(SELECT granted_from<=clock_timestamp() FROM security.role_grants WHERE id='{successor}')"))
             until=time.monotonic()+5
             while q("SELECT count(*) FROM pg_locks l JOIN pg_stat_activity a ON a.pid=l.pid WHERE a.application_name='synthetic_transport_expiry' AND l.locktype='advisory' AND l.granted;")!='1':
                 assert time.monotonic()<until
@@ -119,7 +122,10 @@ def scope_entry_waits(f,rejected):
         source=f.capture()
         temporary,first,successor=[str(uuid4()) for _ in range(3)]
         with ThreadPoolExecutor(max_workers=1) as pool:
-            blocker=pool.submit(q,"SET application_name='synthetic_capacity_entry_scope';BEGIN;LOCK TABLE security.market_catalog_scopes IN ACCESS EXCLUSIVE MODE;SELECT pg_sleep(8);COMMIT;")
+            # With a first grant the lock is kept until the operation has waited for it under that grant and the successor is active.
+            scope='LOCK TABLE security.market_catalog_scopes IN ACCESS EXCLUSIVE MODE'
+            blocker=pool.submit(q,f"SET application_name='synthetic_capacity_entry_scope';BEGIN;{scope};SELECT pg_sleep(8);COMMIT;" if mode.endswith('_missing') else
+                lock_holder('synthetic_capacity_entry_scope',scope,f"(SELECT granted_to<=clock_timestamp() FROM security.role_grants WHERE id='{first}')",f"(SELECT granted_from<=clock_timestamp() FROM security.role_grants WHERE id='{successor}')"))
             until=time.monotonic()+5
             while q("SELECT count(*) FROM pg_stat_activity WHERE application_name='synthetic_capacity_entry_scope' AND wait_event='PgSleep';")!='1':
                 assert time.monotonic()<until

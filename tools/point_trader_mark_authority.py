@@ -2,6 +2,7 @@
 import json
 import time
 from concurrent.futures import ThreadPoolExecutor
+from authority_wait import lock_holder
 from uuid import uuid4
 
 from point_trader_mark_fixture import literal
@@ -12,8 +13,8 @@ def authority(f, rejected):
     role = q("SELECT id FROM security.roles WHERE code='market_data_editor';")
     actor = q("SELECT principal_id FROM security.identity_bindings WHERE subject='editor';")
 
-    def install(permission, missing):
-        temporary, first, successor = [str(uuid4()) for _ in range(3)]
+    def install(permission, missing, ids):
+        temporary, first, successor = ids
         initial = '' if missing else f"INSERT INTO security.role_grants VALUES('{first}','{actor}','{temporary}','{manifest['tenantId']}','{manifest['workspaceId']}',clock_timestamp()-interval '1 second',clock_timestamp()+interval '2 seconds',false);"
         q(f"BEGIN;DELETE FROM security.role_permissions WHERE(role_id,permission)=('{role}','{permission}');"
             f"INSERT INTO security.roles VALUES('{temporary}','synthetic_point_timer_{temporary[:8]}','Synthetic original market admission');"
@@ -37,12 +38,15 @@ def authority(f, rejected):
         before = f.publication_heads()
         with ThreadPoolExecutor(max_workers=1) as pool:
             lock = 'LOCK TABLE security.market_catalog_scopes IN ACCESS EXCLUSIVE MODE;' if mode == 'record' else 'SELECT pg_advisory_xact_lock(730849102);'
-            blocker = pool.submit(q, "SET application_name='synthetic_point_scope_wait';BEGIN;" + lock + "SELECT pg_sleep(7);COMMIT;")
+            # With a first grant the lock is kept until the operation has waited for it under that grant and the successor is active.
+            temporary, first, successor = ids = [str(uuid4()) for _ in range(3)]
+            blocker = pool.submit(q, "SET application_name='synthetic_point_scope_wait';BEGIN;" + lock + "SELECT pg_sleep(7);COMMIT;" if missing else
+                lock_holder('synthetic_point_scope_wait', lock.rstrip(';'), f"(SELECT granted_to<=clock_timestamp() FROM security.role_grants WHERE id='{first}')", f"(SELECT granted_from<=clock_timestamp() FROM security.role_grants WHERE id='{successor}')"))
             limit = time.monotonic() + 5
             while q("SELECT count(*) FROM pg_stat_activity WHERE application_name='synthetic_point_scope_wait' AND wait_event='PgSleep';") != '1':
                 assert time.monotonic() < limit, 'The owned lock did not become active.'
                 time.sleep(.02)
-            ids = install(permission, missing)
+            install(permission, missing, ids)
             epoch = q('SELECT generation FROM security.epoch;')
             try:
                 if mode == 'record':
