@@ -177,7 +177,8 @@ five-second SQL command deadline, independently of the general preview budget.
   book/policy choices, candidate inspection and versioned scheduled scope.
 
 Open **Scheduling → Gas → Trade deliveries**, select the booked
-instrument, then choose **Billing & corrections**.
+instrument, then choose **Billing & corrections**. The same tab holds
+[monthly bills](gas-monthly-bills.md#screen) below the daily determinations.
 The billing panel remains available after delivery starts even when contractual
 PV is unavailable. Select the claim, final source, billing profile and rounding
 contract; preview, review and accept. Corrections require their explicit cause

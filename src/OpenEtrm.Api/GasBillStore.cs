@@ -101,7 +101,8 @@ public sealed class GasBillStore(PreviewDatabase database)
                 cashSlot = Int(p, "slot"), code = p.Text("code"), role = p.Text("role"), direction = Int(p, "direction"),
                 covered = p.OptionalText("reason") is null, reason = p.OptionalText("reason")
             }),
-            months, scope = "commercial_document_only"
+            months, scope = "commercial_document_only",
+            canWrite = await new GasDailyQuantities(database).RecordRefusal(c, body.Context is { KnowledgeMode: "current", ContextId: null }, ct) is null
         };
     }
 

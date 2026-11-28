@@ -1,5 +1,49 @@
 # Local verification and continuous integration
 
+## Monthly gas bills in Billing & corrections (D464)
+
+Run on 28 November 2026 in a Linux container limited to four processors, with
+.NET SDK 10.0.402, stock PostgreSQL 18.7, Node 24.22 and headless Chromium. All
+data is synthetic. These are local results, not production activation.
+
+| Check | Result |
+| --- | --- |
+| `tools/run_preview.py --check --gas-billing-check --browser-check` | Passed: 168 printed checks. A complete month is reviewed and issued as a bill in the browser, beside the daily determinations |
+| `web/tests/gas-bills-browser.test.mjs` | Passed: 5 tests |
+| `web/tests/physical-operations-browser.test.mjs`, `trade-requests.test.mjs`, `gas-billing-browser.test.mjs` | Passed |
+| `tools/check_all.py --group repository` | Passed |
+| `tools/check_all.py --group frontend` | 2,454 of 2,464 passed |
+
+The ten frontend failures are the typed day-quantity tests of
+`deal-ticket-browser.test.mjs`. They fail identically on an unmodified copy of
+master in this container and pass in hosted CI. This change does not touch the
+deal ticket.
+
+An independent review of the panel found no path to a wrong or doubly issued
+document: the writer refuses every stale or altered request the screen can
+send. It found these defects, each now covered by a check that failed first:
+
+- A later review that offered no document, or failed, left the earlier review
+  on screen and its request sendable. The daily determination panel had the
+  same defect: its check sent the earlier request. Both now withdraw the review
+  before asking again.
+- Recording a determination or issuing a document rebuilt the tab and
+  discarded what was entered in the other panel without asking. Both panels
+  are now read again in place and the other panel's inputs are kept.
+- The screen named any unknown document kind an adjustment note, labelled any
+  scope policy as the trade-month scope, and numbered adjustment notes itself.
+  Unknown terms are now shown as the read named them, and documents carry the
+  retained sequence.
+- Checks that proved nothing were replaced: one passed for any refusal code,
+  and one exercised an option the application never set.
+
+Not exercised: an adjustment note in the browser scenario, which issues a bill
+only; recovery of a lost reply to `gas/bills/issue` end to end in the browser,
+which the daily determination covers through the same retained request card;
+and the three limits listed under
+[the screen](gas-monthly-bills.md#screen). Not run locally: the other browser
+previews and groups. Hosted CI runs them.
+
 ## Monthly gas bills (D464)
 
 Run on 28 November 2026 in a Linux container limited to four processors, with

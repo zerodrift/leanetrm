@@ -114,13 +114,14 @@ def run_checks(url, query=None, manifest=None, *, dotnet=None, benchmark=False, 
         runtime_query(query,manifest,"DO $$BEGIN IF EXISTS(SELECT 1 FROM trading.gas_cash_determinations) THEN RAISE EXCEPTION 'billing_authority_bypassed';END IF;END$$;",profile='viewer',prefix=wide,commit=False)
         query("DO $$BEGIN UPDATE trading.gas_cash_determinations SET rounded_total=42;RAISE EXCEPTION 'mutable billing';EXCEPTION WHEN SQLSTATE '55000' THEN NULL;END$$;")
     assert c.call('gas/composition/editor',dict(context=before,tradeId=trade))['valuation']['presentValue']==original_pv
+    bills=None
     if query:
         from check_gas_billing_entries import rights_checks, swing_checks, entry_checks
         rights_checks(c,query,manifest,terms,before,after)
         swing_checks(c,query,manifest,terms,before,after)
         entry_checks(c,query,manifest,terms,after,dotnet=dotnet)
         from check_gas_bills import bill_checks
-        bill_checks(c,query,manifest,terms,before,after,url)
+        bills=bill_checks(c,query,manifest,terms,before,after,url)
         from check_gas_billing_enrollment import run_checks as enrollment_checks
         enrollment = enrollment_checks(c,query,manifest,terms,after,dotnet=dotnet)
         if benchmark:
@@ -129,4 +130,4 @@ def run_checks(url, query=None, manifest=None, *, dotnet=None, benchmark=False, 
     c.call('profile',{'profile':'risk'})
     c.call('gas/billing/determine',adjust,expected=403)
     print('PASS gas billing: final day, missing evidence, 300→294 correction, fee sign, zero, history, stale review, retries, semantic duplicates and current authority')
-    return dict(tradeId=trade,bindingId=query(f"SELECT instrument_id FROM trading.gas_trade_revisions WHERE trade_id='{trade}' AND revision=1;"),context=after,originalId=original['determinationId'],correctionId=updated['determinationId'],gasScope=enrollment)
+    return dict(tradeId=trade,bindingId=query(f"SELECT instrument_id FROM trading.gas_trade_revisions WHERE trade_id='{trade}' AND revision=1;"),context=after,originalId=original['determinationId'],correctionId=updated['determinationId'],gasScope=enrollment,bills=bills)

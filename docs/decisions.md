@@ -8269,8 +8269,9 @@ counterparty and month, or a netted amount, as a per-bill option: scope and
 netting are terms of the agreement with the counterparty and need a typed
 election there.
 
-Counterparty-level bills, netting, a screen, a rendered or exported document,
-numbering, matching recorded payments, billing an amended trade and accounting
-remain separate consumers. See
+Counterparty-level bills, netting, a rendered or exported document, numbering,
+matching recorded payments, billing an amended trade and accounting remain
+separate consumers. The Billing & corrections tab reviews and issues these
+documents; it draws the reads and computes no amount. See
 [the design](superpowers/specs/2026-11-28-gas-monthly-bill-design.md) and
 [the contract](gas-monthly-bills.md).

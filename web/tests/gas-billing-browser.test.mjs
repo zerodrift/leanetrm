@@ -38,6 +38,19 @@ test('an indexed claim names its index, reviews the fixing, spread and unit pric
  assert.deepEqual(result.keys,['correctionDueAt','evidence','expectedPreviousId','fixingObservationId','preview','previewHash','reason','sourceId']);
 }));
 
+test('a later review that offers nothing to accept withdraws the earlier review',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<div id="host"></div>',async evaluate=>{
+ const result=await evaluate(`(async()=>{const {setupGasBilling}=await import('/gas-billing.js');let already=false,sent=0;
+  const reviewed={previewHash:'reviewed',sourceId:'source',previousId:null,amount:'-300',contribution:'-300',currency:'usd',contractualDueAt:'2021-02-02T00:00:00Z'};
+  const api=async path=>path==='gas/billing/read'?${JSON.stringify(view)}:{...reviewed,alreadyDetermined:already};
+  setupGasBilling(document.querySelector('#host'),{api,context:()=>({}),tradeId:'synthetic',actor:()=> 'operator',zone:()=> 'UTC',workflow:{busy:()=>false,pending:()=>undefined,changed(){},async queue(){sent++;}}});
+  const tick=()=>new Promise(r=>setTimeout(r,0));await tick();const root=document.querySelector('.gas-billing'),confirm=root.querySelector('[data-billing=confirm]');
+  for(const [name,value] of [['claim','0'],['policy','final_allocated_billing_v1'],['profile','gas_final_daily_fixed_cash_v1'],['rounding','currency_minor_units_to_even_v1'],['evidence','Synthetic review']])root.querySelector('[data-billing='+name+']').value=value;
+  root.querySelector('form').requestSubmit();await tick();const first=!confirm.hidden;
+  already=true;root.querySelector('form').requestSubmit();await tick();const second=!confirm.hidden,reviewHidden=root.querySelector('[data-billing=review]').hidden;confirm.click();await tick();
+  return {first,second,reviewHidden,sent};})()`);
+ assert.deepEqual(result,{first:true,second:false,reviewHidden:true,sent:0});
+}));
+
 test('a handed request winning at acceptance cannot strand the billing form busy',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<div id="host"></div>',async evaluate=>{
  const result=await evaluate(`(async()=>{const {setupGasBilling}=await import('/gas-billing.js');let queued=0;
   const api=async path=>path==='gas/billing/read'?${JSON.stringify(view)}:{previewHash:'reviewed',sourceId:'source',previousId:null,amount:'-300',contribution:'-300',currency:'usd',contractualDueAt:'2021-02-02T00:00:00Z',alreadyDetermined:false};

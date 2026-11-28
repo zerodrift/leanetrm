@@ -92,6 +92,47 @@ incomplete month, an empty document and a mixed currency. At commit the
 database also requires every document to have lines, to follow its predecessor
 and to state the digest and totals of exactly those lines.
 
+## Screen
+
+Open **Scheduling → Gas → Trade deliveries**, select the booked instrument and
+choose **Billing & corrections**. **Monthly bills** follows the daily
+determinations it gathers.
+
+- Each payment of the trade is listed as covered or not covered, with the
+  reason.
+- Each delivery month is offered with its state. An incomplete month states
+  how many payment days lack a determination; reviewing it names them and
+  offers nothing to issue. An issued month, and a month the read refuses for
+  this view, cannot be selected.
+- Select the month, the bill scope and the review evidence, then review. The
+  review states the document's kind, its two totals and every line. Editing an
+  input, asking for another review or refreshing withdraws the review.
+- Issuing sends exactly the reviewed request through the workspace's retained
+  request card, so an unknown outcome can be checked or retried.
+- Issued documents and their lines are listed below with their sequence, the
+  document's retained ordinal within its trade and month. It is not a document
+  number. A read-only or historical view shows them and offers no review.
+- Recording a determination or issuing a document reads both panels of the tab
+  again. The inputs of the panel that did not send the request are kept.
+
+The screen draws what the reads return and computes no amount. A state,
+document kind or scope policy it does not know is shown as the read named it.
+`gas/bills/read` also returns `canWrite`: the context is working data and the
+account may amend trades. It is not a promise that a document can be issued;
+the writer decides.
+
+Limits of the screen:
+
+- A working view whose business time precedes the trade's latest revision can
+  review a document that the writer then refuses with `gas_bill_conflict`.
+  The read does not say so beforehand.
+- A line is labelled with the payment the current trade revision has at the
+  line's cash slot. After an amendment that changes the trade's payments, a
+  line of an earlier document can carry the current payment's label.
+- A retained request whose original never committed, and whose month another
+  account has since changed, can only be checked or retried. It cannot be
+  discarded from the screen. Daily determinations behave the same.
+
 ## Persistence
 
 Migration 0413 adds `trading.gas_bills`, `trading.gas_bill_lines` and
@@ -102,8 +143,8 @@ through the functions above.
 
 ## Qualification and remaining work
 
-See [verification](verification.md#monthly-gas-bills-d464). There is no screen
-and no assistant operation in this increment. Counterparty-level bills,
+See [verification](verification.md#monthly-gas-bills-d464). There is no
+assistant operation. Counterparty-level bills,
 netting, a rendered or exported document, document numbering, matching
 recorded payments to documents, voiding, partial bills and accounting remain
 separate consumers.
