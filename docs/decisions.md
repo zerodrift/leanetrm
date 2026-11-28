@@ -8099,7 +8099,7 @@ operating rights. New roles for REC and gas inventory: no person would hold them
 at installation, and the six-role limit makes them hard to add, as D444 found
 for a new setup role.
 
-## D461 — Final daily billing of index-priced gas payments
+## D463 — Final daily billing of index-priced gas payments
 
 Policies selected by the owner on 2026-11-27, with point publications added on
 2026-11-28: named daily and named monthly indexes and point publications; one
@@ -8158,9 +8158,9 @@ A monthly bill or invoice, automatic indexed billing, right-dependent payments,
 a list of billed days whose fixing was later corrected and reconciliation with
 accrued value remain separate consumers. See
 [the design](superpowers/specs/2026-11-27-indexed-gas-billing-design.md) and
-[the contract](gas-cash-billing.md#indexed-profile-d461).
+[the contract](gas-cash-billing.md#indexed-profile-d463).
 
-## D462 — A monthly gas bill is a document over one trade's daily determinations
+## D464 — A monthly gas bill is a document over one trade's daily determinations
 
 Policies selected by the owner on 2026-11-28: a document's amounts are the sums
 of its daily determinations; one trade and one delivery month, gross; a bill is
@@ -8186,7 +8186,7 @@ request is answered with an existing document only when that document has
 exactly those lines. Issuing is a reviewed operation; a scheduled run cannot
 issue.
 
-Rejected. One once-rounded monthly total: D461 chose daily rounding, and a
+Rejected. One once-rounded monthly total: D463 chose daily rounding, and a
 second amount for the same obligation needs a rule for which one is payable.
 Void and reissue, as crude invoices do: the accounting boundary records a
 correction as a separate credit linked to the invoice, and voiding is ordered

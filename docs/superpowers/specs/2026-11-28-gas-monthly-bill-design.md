@@ -1,15 +1,15 @@
 # Monthly gas bill for one trade: design
 
-Status: built under D462 on 28 November 2026. The owner selected the four
+Status: built under D464 on 28 November 2026. The owner selected the four
 policies under [Selected policies](#selected-policies); the rest is the
 maintainer's design, corrected after an independent review. See
 [the contract](../../gas-monthly-bills.md) and
-[local qualification](../../verification.md#monthly-gas-bills-d462).
+[local qualification](../../verification.md#monthly-gas-bills-d464).
 
 ## Intent
 
 Final gas billing determines cash one payment and one gas day at a time
-(D338, D459, D461). Nothing gathers those determinations into the document a
+(D338, D459, D463). Nothing gathers those determinations into the document a
 counterparty is sent for a delivery month, and nothing says which
 determinations a document already covers.
 
@@ -20,7 +20,7 @@ determination that already exists.
 
 ## Where this sits
 
-D461 rejected one once-rounded bill for each delivery month as "a different
+D463 rejected one once-rounded bill for each delivery month as "a different
 rounding contract with its own rules for incomplete months" and left a monthly
 bill as a separate consumer. The lifecycle design describes the planned
 `Invoice` as "a commercial document over eligible existing obligations";

@@ -25,14 +25,14 @@ Recent schema groups and their contracts:
   adjustment notes for one trade. A document's lines are existing daily cash
   determinations, each on at most one document, with separate pay and receive
   totals. The writer assembles each document itself and issues a bill only for
-  a complete month (D462).
+  a complete month (D464).
 - [0412](migrations/0412_gas_indexed_billing.sql) adds final daily billing of gas
   payments on a named daily or monthly index or on point publications. A
   determination retains the
   published fixing observation that priced it and is unique for each quantity
   source and fixing. The writer selects the fixing head under the operation's
   knowledge, requires it to be the reviewed observation and checks the exact
-  amount. A corrected fixing takes its own correction cause (D461).
+  amount. A corrected fixing takes its own correction cause (D463).
 - [0411](migrations/0411_inventory_role_grants.sql) installs the REC inventory
   capabilities that 0344 created and granted to no role, and the owned gas
   capabilities that 0265 created: the agent-only Gas lifecycle operator role held

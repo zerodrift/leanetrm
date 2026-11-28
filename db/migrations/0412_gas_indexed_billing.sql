@@ -1,4 +1,4 @@
--- Final daily billing of gas payments priced on a named daily or monthly index or on point publications (D461).
+-- Final daily billing of gas payments priced on a named daily or monthly index or on point publications (D463).
 BEGIN;
 SET LOCAL search_path=pg_catalog;
 SET LOCAL lock_timeout='5s';
