@@ -38,7 +38,16 @@ def directory_checks(client, context, query, expected_trade, manifest):
     finally:
         query('DROP POLICY physical_ops_hide_gas_metadata ON trading.gas_instruments;')
     assert client.call('physical/operations/directory',request)['positions']==directory['positions']
-    print('PASS physical operations directory: retained metadata, no PV fields, hidden exact sources refuse without erasing held positions',flush=True)
+    # A desk lists its own instrument type; no desk lists every physical trade, exactly as before.
+    assert directory['nextOffset'] is None,'this fixture must fit one page for the comparison below'
+    for desk,kind in (('gas','physical_gas'),('crude','physical_crude'),('lng','physical_lng')):
+        scoped=client.call('physical/operations/directory',{**request,'desk':desk})
+        assert scoped['positions']==[p for p in directory['positions'] if p['instrumentType']==kind],desk
+        assert scoped['total']==len(scoped['positions']) and scoped['nextOffset'] is None,desk
+    assert client.call('physical/operations/directory',{**request,'desk':None})['positions']==directory['positions']
+    refused=client.call('physical/operations/directory',{**request,'desk':'power'},expected=422)
+    assert refused['code']=='position_desk',refused
+    print('PASS physical operations directory: retained metadata, no PV fields, hidden exact sources refuse without erasing held positions; a desk lists only its own trades',flush=True)
 
 
 def contract_delivery_checks(client, path, request, quantity, start, end, capability, query, manifest):

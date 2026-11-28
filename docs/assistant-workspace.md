@@ -107,7 +107,7 @@ There is no arbitrary URL, HTTP client, SQL or execution tool.
 
 Discovery resolves the authorized catalog against one read-local snapshot of the
 application's route metadata (D328). Every resolution, in discovery, a read or an
-approved command, uses routing's collection of the application's routes (D461).
+approved command, uses routing's collection of the application's routes (D463).
 Routing builds it on its first read, where reading the grouped route sources
 built every route on each read.
 Each discovery still checks current permissions and reads the turn's retained
