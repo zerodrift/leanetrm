@@ -1,18 +1,29 @@
 import {aiTabs} from './agent-settings.js';
+import {facilityViewAvailable,isFacilityView} from './facilities-views.js';
 
 // The sidebar's groups in order, each with the pages it lists. A page is named by the id of its entry (`nav-<page>`),
 // a sidebar button or a view inside its workspace; the group's
 // label is the eyebrow above the page title. New trade is a presentation of the Blotter's page (D421), as Risk's entries are views of
-// Risk. `opened` are a group's pages that another page opens instead of the sidebar:
+// Risk, and Facilities' entries are views of Facilities. `opened` are a group's pages that another page opens instead of the sidebar:
 // Product bookings, from the Blotter's new trade panel and its positions; the setup pages, from the Reference Data console's menu.
 // Reference Data's entry is the list of its console's areas (console-menu.ts).
 export type NavigationGroup={id:'overview'|'trading'|'markets'|'risk'|'scheduling'|'reference'|'administration';label:string;pages:readonly string[];opened?:readonly string[]};
+// Scheduling's entries by desk, each in the order its work is done. The sidebar shows one desk at a time (scheduling-desks.ts).
+// Trade deliveries is one page listed by three desks; it reads the trades of the desk shown.
+export type DeskId='gas'|'power'|'crude'|'lng';
+export type Desk={id:DeskId;label:string;pages:readonly string[]};
+export const schedulingDesks:readonly Desk[]=[
+ {id:'gas',label:'Gas',pages:['facilities-position','physical-operations','facilities-transport','facilities']},
+ {id:'power',label:'Power',pages:['rec-inventory']},
+ {id:'crude',label:'Crude',pages:['physical-operations','facilities-crude']},
+ {id:'lng',label:'LNG',pages:['physical-operations']},
+];
 export const navigationGroups:readonly NavigationGroup[]=[
  {id:'overview',label:'Overview',pages:['dashboard']},
- {id:'trading',label:'Trading',pages:['new-trade','futures','options'],opened:['ppa','gas','crude']},
+ {id:'trading',label:'Trading',pages:['new-trade','futures','options','lifecycle','physical-power'],opened:['ppa','gas','crude']},
  {id:'markets',label:'Markets',pages:['market','delivery','interval-series','curve-marks','vol-surfaces','interval-curves']},
  {id:'risk',label:'Risk',pages:['risk','risk-pnl','risk-scenarios','risk-var','risk-runs']},
- {id:'scheduling',label:'Scheduling',pages:['lifecycle','physical-operations','facilities','physical-power','rec-inventory']},
+ {id:'scheduling',label:'Scheduling',pages:['facilities-position','physical-operations','facilities-transport','facilities','facilities-crude','rec-inventory']},
  {id:'reference',label:'Reference Data',pages:['reference'],opened:['curve-definitions','custom-curves','configuration','schedules','power','parties','gas-setup','crude-setup']},
  {id:'administration',label:'Administration',pages:['jobs','admin','ai']},
 ];
@@ -27,10 +38,11 @@ export function pageGroup(page:string):string{
 // Whether an account's sidebar lists a page. The server still authorizes every read and write.
 export function pageAvailable(page:string,permissions:string[]):boolean{
  const has=(...needed:string[])=>needed.every(permission=>permissions.includes(permission));
+ // A view of Facilities is listed when one of its sections may be opened, by the rule the workspace's tabs use.
+ if(isFacilityView(page))return facilityViewAvailable(page,has);
  switch(page){
   case 'rec-inventory':return has('ReadMarketData','ReadTrades');
   case 'physical-power':return has('ReadMarketData','ReadPhysical');
-  case 'facilities':return has('ReadMarketData','ReadTrades');
   // Options and Vol surfaces read option products, which trade readers see.
   case 'lifecycle':case 'physical-operations':case 'new-trade':case 'futures':case 'options':case 'ppa':case 'gas':case 'crude':case 'vol-surfaces':return has('ReadMarketData','ReadTrades');
   case 'dashboard':case 'market':case 'curve-marks':case 'custom-curves':case 'curve-definitions':case 'delivery':case 'interval-series':case 'interval-curves':

@@ -11,6 +11,11 @@ namespace OpenEtrm.Api;
 public sealed record TradingPositionsRequest([property:JsonRequired] FuturesReadRequest Context,
     [property:JsonRequired] ImmutableArray<Guid> BookIds,[property:JsonRequired] ImmutableArray<Guid> PortfolioIds,
     [property:JsonRequired] int Offset,[property:JsonRequired] int Limit);
+// The physical directory alone accepts a Scheduling desk. No desk lists every physical trade.
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record PhysicalDirectoryRequest([property:JsonRequired] FuturesReadRequest Context,
+    [property:JsonRequired] ImmutableArray<Guid> BookIds,[property:JsonRequired] ImmutableArray<Guid> PortfolioIds,
+    [property:JsonRequired] int Offset,[property:JsonRequired] int Limit,string? Desk=null);
 public sealed record TradePositionFact(Guid TradeId,Guid BindingId,int Revision,string TradeReference,Guid BookId,string Book,
     string InstrumentType,string? MarketLabel,string? DeliveryFrom,string? DeliveryTo,string? BookedQuantity,string? BookedUnit);
 public sealed record TradePositionsPage(ImmutableArray<TradePositionFact> Positions,int Total,int? NextOffset);
@@ -116,7 +121,7 @@ internal sealed class TradePositionFacts(PreviewDatabase database)
             Add(row,"ppa",null,Utc(binding,"coverage_from"),Utc(binding,"coverage_to"),RequiredText(binding,"quantity"),RequiredText(header,"unit"));
         }
         await RequireReferences(connection,references,ct);
-        facts.AddRange(await PhysicalFacts(connection,bookIds,portfolioIds,ct));
+        facts.AddRange(await PhysicalFacts(connection,bookIds,portfolioIds,null,ct));
         foreach(var operating in await OperatingPositions.Read(connection,manifest,bookIds,portfolioIds,ct))
             facts.Add((Integer(operating.Head,"trade_reference"),operating.Fact()));
         foreach(var rec in await RecPositions.Read(connection,manifest,bookIds,portfolioIds,ct))
@@ -138,20 +143,22 @@ internal sealed class TradePositionFacts(PreviewDatabase database)
             facts.GroupBy(p=>p.Position.TradeId).Any(g=>g.Select(p=>p.Position.InstrumentType).Distinct().Count()!=1))throw Missing();
         return Page(facts.ToImmutable(),offset,limit);
     }
-    internal async Task<TradePositionsPage> Physical(NpgsqlConnection connection,ImmutableArray<Guid> books,ImmutableArray<Guid> portfolios,int offset,int limit,CancellationToken ct)
+    internal async Task<TradePositionsPage> Physical(NpgsqlConnection connection,ImmutableArray<Guid> books,ImmutableArray<Guid> portfolios,string? desk,int offset,int limit,CancellationToken ct)
     {
         RequirePage(offset,limit);
-        return Page(await PhysicalFacts(connection,books,portfolios,ct),offset,limit);
+        if(desk is not(null or "gas" or "crude" or "lng"))
+            throw new MarketDataException("position_desk","Choose the gas, crude or lng desk, or omit the desk to list every physical trade.");
+        return Page(await PhysicalFacts(connection,books,portfolios,desk,ct),offset,limit);
     }
     // Only products with a native consumer on the Physical Operations page belong in this directory.
-    private async Task<ImmutableArray<(int Reference,TradePositionFact Position)>> PhysicalFacts(NpgsqlConnection connection,ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct)
+    private async Task<ImmutableArray<(int Reference,TradePositionFact Position)>> PhysicalFacts(NpgsqlConnection connection,ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,string? desk,CancellationToken ct)
     {
         var facts=ImmutableArray.CreateBuilder<(int Reference,TradePositionFact Position)>();
-        foreach(var gas in await GasPositions.Read(connection,manifest,bookIds,portfolioIds,ct))
+        if(desk is null or "gas")foreach(var gas in await GasPositions.Read(connection,manifest,bookIds,portfolioIds,ct))
             facts.Add((Integer(gas.Head,"trade_reference"),gas.Fact()));
-        foreach(var lng in await LngPositions.Read(connection,manifest,bookIds,portfolioIds,ct))
+        if(desk is null or "lng")foreach(var lng in await LngPositions.Read(connection,manifest,bookIds,portfolioIds,ct))
             facts.Add((Integer(lng.Head,"trade_reference"),lng.Fact()));
-        foreach(var crude in await CrudePositions.Read(connection,manifest,bookIds,portfolioIds,ct))
+        if(desk is null or "crude")foreach(var crude in await CrudePositions.Read(connection,manifest,bookIds,portfolioIds,ct))
             facts.Add((Integer(crude.Head,"trade_reference"),crude.Fact()));
         return facts.ToImmutable();
     }

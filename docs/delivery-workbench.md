@@ -33,7 +33,9 @@ retained once and linked to targets through exact relationships.
 
 ## Operating views
 
-Facilities exposes Gas delivery workbench and Crude delivery workbench using the
+Facilities exposes Gas delivery workbench and Crude delivery workbench, listed as
+**Scheduling → Gas → Nominations & transport → Nominations** and **Scheduling →
+Crude → Receipts & dispatches** (D461), using the
 shared described-operation shell, operation fields, inspection tables, activity
 timeline, constraint presentation and retained-request recovery. Native adapters
 provide every amount, policy, permitted action and reference choice. The browser
