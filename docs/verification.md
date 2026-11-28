@@ -2209,6 +2209,28 @@ this owned browser gate in the assistant partition. Optional
 `OPENETRM_ASSISTANT_BROWSER_EVIDENCE` copies synthetic screenshots outside the tree.
 No complete release verification or publication is implied by targeted local runs.
 
+The workspace check for a delegation that ends during a held command no longer
+arms a three-second term and sleeps. An approval spends about three seconds in
+the API before its command transaction begins: two route-table enumerations of
+1.3–1.8 s each over 518 endpoints on an idle four-core container, against about
+70 ms of database work. The armed term could therefore end before the command's
+first guard, and the check stopped on a denial it had not staged; the unchanged
+check stopped that way on its first idle local run. The fixture now keeps the
+term until the command is observed waiting on the held membership row inside
+`security.apply_administration`, then moves `granted_to` to the instant of that
+write. The held command owns the epoch row, so that one statement runs with
+ordinary triggers skipped; this is fixture staging in place of the clock, not a
+supported control change. `--assistant-workspace-check` then passes its 90
+integration checks, and passes again with twelve CPU-bound processes started
+around the scenario, which stretched it to 12.4 s. It fails, with the command
+committed, against a scratch build whose final guard is removed and against
+`assistant.turn_authorized` comparing the term with `now()`. Those runs used
+PostgreSQL 18.7 without the browser suite. With six CPU-bound processes for the
+whole run the suite stopped earlier, at the 20-second turn deadline of the Risk
+page read. Other suites still arm a two- or three-second term before a held
+operation (`Contexts.expiring` and the asynchronous read, market date and
+storage authority checks); they were not changed.
+
 The native volatility-fit admission regression runs with
 `python3 tools/check_vol_surface_admission_expiry.py --pg-bin /path/to/postgres/bin`.
 It uses an owned stock PostgreSQL cluster and synthetic fixtures. Both request
