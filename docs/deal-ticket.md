@@ -786,8 +786,8 @@ profile's lifecycle and explicit no-discounting policy are unchanged.
 - The native ticket contract may describe day-entry capabilities, but Blotter
   and separate trade windows mount booked tickets read-only. Side schedules
   contains schedule inspection only. Daily quantity entry, current source-head
-  review and retained-command recovery belong in **Scheduling → Physical
-  operations → Delivery**. The native `gas/quantities` operations retain
+  review and retained-command recovery belong in **Scheduling → Gas → Trade
+  deliveries → Delivery**. The native `gas/quantities` operations retain
   their explicit revision, kind, status, evidence and historical-write checks.
 - The preview and the booked read return `links`: for each linked physical
   side its source, target, formula, fraction and the receipt, delivery and fuel

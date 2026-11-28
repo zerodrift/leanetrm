@@ -9,7 +9,25 @@ export async function run(actions){
  const key=fixture.tradeId+':'+fixture.bindingId,row=`[...document.querySelectorAll('#desk-positions .tabulator-row')].find(r=>r.dataset.rowKey===${JSON.stringify(key)})`;
  await wait(`!!(${row})&&`+idle);await evaluate(`${row}.click()`);await wait("document.querySelector('#position-details-tabs-schedules')&&"+idle);await click('#position-details-tabs-schedules');
  await check('Side schedules contains only schedule inspection, with no physical work forms',"!document.querySelector('.gas-operations')&&!document.querySelector('.gas-billing')&&!document.querySelector('.ticket-cell-input')");
- await click('#nav-physical-operations');await openPhysicalTrade(actions,fixture.tradeId);
+ await click('#nav-physical-operations');await wait("!document.querySelector('#physical-operations-page').hidden&&"+idle);
+ // Scheduling lists one desk at a time. Each desk's Trade deliveries reads that desk's trades.
+ const entries="[...document.querySelectorAll('#nav-group-scheduling .nav-item')].filter(b=>!b.hidden).map(b=>b.id).join('|')";
+ const eyebrow=desk=>`document.querySelector('#page-section').textContent==='SCHEDULING · ${desk}'`,pressed=desk=>`document.querySelector('#scheduling-desk-${desk}').getAttribute('aria-pressed')==='true'&&`+idle;
+ await check('Scheduling shows the Gas desk with its entries in the order of the work, and Lifecycle under Trading',
+  "[...document.querySelectorAll('#scheduling-desks button')].map(b=>b.textContent).join('|')==='Gas|Power|Crude|LNG'&&document.querySelector('#scheduling-desk-gas').getAttribute('aria-pressed')==='true'&&"+entries+"==='nav-facilities-position|nav-physical-operations|nav-facilities-transport|nav-facilities'&&document.querySelector('#nav-group-trading').contains(document.querySelector('#nav-lifecycle'))&&document.querySelector('#page-title').textContent==='Trade deliveries'&&"+eyebrow('GAS'),entries);
+ await evaluate("window.__deskReads=[];{const send=window.fetch;window.fetch=(path,options)=>{if(String(path).endsWith('/physical/operations/directory'))__deskReads.push(JSON.parse(options.body).desk);return send(path,options);};}");
+ await click('#scheduling-desk-crude');await wait(pressed('crude'));
+ await check('the Crude desk lists its own entries and reads its own trades',entries+"==='nav-physical-operations|nav-facilities-crude'&&"+eyebrow('CRUDE')+"&&__deskReads.at(-1)==='crude'&&document.querySelector('#page-title').textContent==='Trade deliveries'","({entries:"+entries+",reads:__deskReads})");
+ await click('#scheduling-desk-lng');await wait(pressed('lng'));
+ await check('Trade deliveries is Cargoes on the LNG desk',"document.querySelector('#page-title').textContent==='Cargoes'&&document.querySelector('#nav-physical-operations .nav-text').textContent==='Cargoes'&&__deskReads.at(-1)==='lng'&&"+eyebrow('LNG'),'__deskReads');
+ await click('#scheduling-desk-gas');await wait(pressed('gas'));
+ await click('#nav-facilities-transport');await wait("!document.querySelector('#facilities-page').hidden&&"+idle);
+ const tabs="[...document.querySelectorAll('[data-facilities-view]')].filter(b=>!b.hidden).map(b=>b.textContent).join('|')";
+ await check('Nominations & transport shows its three tabs and marks its entry',"document.querySelector('#page-title').textContent==='Nominations & transport'&&"+tabs+"==='Nominations|Route plans|Capacity'&&document.querySelector('#nav-facilities-transport').classList.contains('active')&&!document.querySelector('#nav-facilities').classList.contains('active')",tabs);
+ await click('#nav-facilities-position');await wait("document.querySelector('#page-title').textContent==='Gas day position'&&"+idle);
+ await check('Gas day position is one view with no tab row',"document.querySelector('#facilities-workspace-tabs').hidden&&!document.querySelector('#outlook-filters').hidden&&"+eyebrow('GAS'));
+ await click('#nav-physical-operations');await wait("!document.querySelector('#physical-operations-page').hidden&&__deskReads.at(-1)==='gas'&&"+idle);
+ await openPhysicalTrade(actions,fixture.tradeId);
  await wait("document.querySelector('#physical-operations-tabs-overview')?.getAttribute('aria-selected')==='true'&&document.querySelector('#physical-operations-view').textContent.includes('Pipeline')&&"+idle);
  await check('physical operations starts with an instrument overview without requiring PV',"document.querySelector('#physical-operations-view').textContent.includes('Pipeline')&&[...document.querySelectorAll('#physical-operations-view .side-term')].some(r=>r.querySelector('dt').textContent==='Quantity'&&r.querySelector('dd').textContent.startsWith('100 '))&&document.querySelector('#physical-operations-message').textContent===''&&!document.querySelector('.gas-operations')");
  await click('#physical-operations-tabs-delivery');
