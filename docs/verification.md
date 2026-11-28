@@ -1,5 +1,21 @@
 # Local verification and continuous integration
 
+## Transport capacity navigation after Scheduling views (D461)
+
+The physical CI group failed because its Transport capacity browser scenario
+opened Storage & allocations and assumed Capacity was the initial section.
+The scenario now opens Nominations & transport and selects Capacity explicitly.
+Its access assertion also checks that the Capacity workspace is visible and
+the corresponding sidebar entry is active. Application behavior and permission
+checks are unchanged.
+
+After that failure, the corrected scenario passes all 65 browser checks and
+its native database postconditions. The remaining Transport route scenario
+passes all 55 browser checks and its native postconditions; the delivery
+workbench HTTP and browser checks also pass. These local runs used the pinned
+Node 24.22.0, Chrome for Testing 158, Python 3.13.18, .NET SDK 10.0.402 and
+PostgreSQL 18.7 on arm64 macOS, with separate disposable synthetic databases.
+
 ## Scheduling roadmap and desk controls (D462, local)
 
 Run on 27 November 2026 on arm64 macOS with the pinned Node 24.22.0,
