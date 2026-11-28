@@ -229,4 +229,3 @@ def point_checks(c, context, trade):
     assert c.call('gas/billing/determine', request) == determined
     assert c.call('gas/billing/preview', preview)['alreadyDetermined']
     print('PASS point publication billing: the location period\'s retained daily fixing bills an ended day, with retry and replay', flush=True)
-
