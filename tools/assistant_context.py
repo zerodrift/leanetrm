@@ -73,9 +73,9 @@ def holding(psql, environment, lock, work, ending='ROLLBACK'):
         holder.wait(timeout=10)
 
 
-def waiting(query, count, operation):
-    """Returns once `count` backends running `operation` wait on a lock."""
-    deadline = time.monotonic() + 4
+def waiting(query, count, operation, timeout=4):
+    """Returns once `count` backends running `operation` wait on a lock, or fails after `timeout` seconds."""
+    deadline = time.monotonic() + timeout
     while query(f"SELECT count(*) FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE '%{operation}(%';") != str(count):
         assert time.monotonic() < deadline, f'{count} request(s) did not reach {operation}'
         time.sleep(.05)
