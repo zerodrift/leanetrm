@@ -2496,6 +2496,40 @@ page read. Other suites still arm a two- or three-second term before a held
 operation (`Contexts.expiring` and the asynchronous read, market date and
 storage authority checks); they were not changed.
 
+Thirteen check files staged authority that ends during a lock wait with a lock
+holder that slept a fixed time and a term written beforehand. An operation that
+started late was refused at its first guard with the code the check expects, so
+the check passed without the operation having waited. `lock_holder` in
+`tools/authority_wait.py` replaces those holders: it keeps its lock until some
+other session has waited for it while the authority was live, and until the
+scenario's release condition holds, which for a successor grant is that grant
+being active. It fails as soon as the authority has ended with no session
+waiting, or a session first waits without live authority. Any waiting session
+counts, so one reference editing scenario now holds the principal row without
+its key: held with it, the session that issues the request context waited
+instead of the operation. The terms remain clock terms, now written once the
+lock is held; the 0.5- and 0.75-second terms are two seconds, and the first
+grant of the curve mark request is two seconds where it was 1.2.
+
+With a one-second delay injected before the operation, the prior reference
+editing check passes all 28 checks; with 2.5 s injected, the changed one stops
+with "The authority ended before any session waited". The changed checks pass
+on PostgreSQL 18.7: automation, reference editing, side calendar policies,
+storage facility, gas owned holdings, park and loan, park custody, transport
+capacity, route and financial, point trader marks, and curve marks through the
+application.
+
+Not changed. Scenarios without a first grant keep their fixed holder; by
+reading, four of those seven operations are refused before they reach the held
+lock, so their check lines claim a wait that does not happen. Single-session
+scenarios that pause inside their own transaction have no holder: the regional
+seed sign-in and role expiry, with 700 ms terms and a broad refusal, still pass
+when started late, and the commit modes of the transport checks leave a short
+window before their successor starts. They could wait on a private lock held
+the same way. In three scenarios the operation waits before its authority is
+first read, by the product's design, so waiting with live grants shows only
+that it started in time.
+
 The native volatility-fit admission regression runs with
 `python3 tools/check_vol_surface_admission_expiry.py --pg-bin /path/to/postgres/bin`.
 It uses an owned stock PostgreSQL cluster and synthetic fixtures. Both request

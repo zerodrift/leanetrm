@@ -4,6 +4,7 @@ import os
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
+from authority_wait import lock_holder
 from uuid import uuid4
 
 from gas_transport_financial_fixture import literal
@@ -101,8 +102,8 @@ def authority(f, trade, rejected):
         finally:
             q(f"INSERT INTO security.reference_catalog_scopes SELECT(jsonb_populate_record(NULL::security.reference_catalog_scopes,{literal(scope)})).*;")
 
-    def install(permission, *, missing=False):
-        temporary, first, successor = [str(uuid4()) for _ in range(3)]
+    def install(permission, *, missing=False, ids=None):
+        temporary, first, successor = ids or [str(uuid4()) for _ in range(3)]
         original = '' if missing else f"INSERT INTO security.role_grants VALUES('{first}','{actor}','{temporary}','{manifest['tenantId']}','{manifest['workspaceId']}',clock_timestamp()-interval '1 second',clock_timestamp()+interval '2 seconds',false);"
         q(f"BEGIN;DELETE FROM security.role_permissions WHERE(role_id,permission)=('{role}','{permission}');"
             f"INSERT INTO security.roles VALUES('{temporary}','synthetic_financial_timer_{temporary[:8]}','Synthetic financial original admission');"
@@ -127,12 +128,16 @@ def authority(f, trade, rejected):
         accepted_mark = f.read_financial(trade)['mark']['id']
         table = 'security.reference_catalog_scopes' if permission == 'ReadMarketData' or mode.startswith('capacity') else 'security.market_catalog_scopes'
         with ThreadPoolExecutor(max_workers=1) as pool:
-            blocker = pool.submit(q, f"SET application_name='synthetic_financial_scope_wait';BEGIN;LOCK TABLE {table} IN ACCESS EXCLUSIVE MODE;SELECT pg_sleep(7);COMMIT;")
+            # With a first grant the lock is kept until the operation has waited for it under that grant and the successor is active.
+            temporary, first, successor = ids = [str(uuid4()) for _ in range(3)]
+            scope = f'LOCK TABLE {table} IN ACCESS EXCLUSIVE MODE'
+            blocker = pool.submit(q, f"SET application_name='synthetic_financial_scope_wait';BEGIN;{scope};SELECT pg_sleep(7);COMMIT;" if mode.endswith('_missing') else
+                lock_holder('synthetic_financial_scope_wait', scope, f"(SELECT granted_to<=clock_timestamp() FROM security.role_grants WHERE id='{first}')", f"(SELECT granted_from<=clock_timestamp() FROM security.role_grants WHERE id='{successor}')"))
             until = time.monotonic() + 5
             while q("SELECT count(*) FROM pg_stat_activity WHERE application_name='synthetic_financial_scope_wait' AND wait_event='PgSleep';") != '1':
                 assert time.monotonic() < until
                 time.sleep(.02)
-            ids = install(permission, missing=mode.endswith('_missing'))
+            install(permission, missing=mode.endswith('_missing'), ids=ids)
             generation = q('SELECT generation FROM security.epoch;')
             try:
                 if mode.startswith('capacity'):

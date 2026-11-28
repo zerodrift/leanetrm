@@ -2,6 +2,7 @@
 import json
 import time
 from concurrent.futures import ThreadPoolExecutor
+from authority_wait import lock_holder
 from uuid import uuid4
 from check_reference_editing import main
 from gas_park_custody_fixture import CustodyFixture, PROFILE, fixture
@@ -357,7 +358,10 @@ def checks(query, manifest):
     owned_role, grant_one, grant_two = str(uuid4()), str(uuid4()), str(uuid4())
     actor = query("SELECT principal_id FROM security.identity_bindings WHERE subject='trader';")
     with ThreadPoolExecutor(max_workers=1) as pool:
-        blocker = pool.submit(query, "SET application_name='synthetic_custody_deadline';BEGIN;SELECT pg_advisory_xact_lock(730849102);SELECT pg_sleep(8);COMMIT;")
+        # The lock is kept until the booking has waited for it under the first grant and the successor is active.
+        blocker = pool.submit(query, lock_holder('synthetic_custody_deadline', 'SELECT pg_advisory_xact_lock(730849102)',
+            f"(SELECT granted_to<=clock_timestamp() FROM security.role_grants WHERE id='{grant_one}')",
+            f"(SELECT granted_from<=clock_timestamp() FROM security.role_grants WHERE id='{grant_two}')"))
         ready_by = time.monotonic() + 5
         while query("SELECT count(*) FROM pg_locks l JOIN pg_stat_activity a ON a.pid=l.pid WHERE a.application_name='synthetic_custody_deadline' AND l.locktype='advisory' AND l.granted;") != '1':
             assert time.monotonic() < ready_by, 'Owned publication-lock fixture did not become ready.'

@@ -1,5 +1,6 @@
 """Independent source, authority and unsupported-correction counterexamples."""
 from concurrent.futures import ThreadPoolExecutor
+from authority_wait import lock_holder
 import json
 import time
 
@@ -38,17 +39,19 @@ def checks(f, booking, booked, accepted, operation, original_context, advance, r
     grants_until = f.query(f"SELECT granted_to FROM security.role_grants WHERE role_id='{role}' AND principal_id="
         "(SELECT principal_id FROM security.identity_bindings WHERE issuer='https://preview.invalid' AND subject='trader');")
     command_count = f.query(f"SELECT count(*) FROM trading.gas_park_loan_commands WHERE catalog_id='{catalog}';")
-    f.query(f"UPDATE security.role_grants SET granted_to=clock_timestamp()+interval '0.75 seconds' WHERE role_id='{role}' AND principal_id="
-        "(SELECT principal_id FROM security.identity_bindings WHERE issuer='https://preview.invalid' AND subject='trader');")
+    granted = (f"role_id='{role}' AND principal_id="
+        "(SELECT principal_id FROM security.identity_bindings WHERE issuer='https://preview.invalid' AND subject='trader')")
     try:
         with ThreadPoolExecutor(max_workers=1) as pool:
-            blocked = pool.submit(f.query, "SET application_name='park_loan_authority_wait';BEGIN;"
-                "SELECT pg_advisory_xact_lock(730849102);SELECT pg_sleep(2);COMMIT;")
+            # The term starts once the lock is held, and the lock is kept until the command has waited for it within the term.
+            blocked = pool.submit(f.query, lock_holder('park_loan_authority_wait', 'SELECT pg_advisory_xact_lock(730849102)',
+                f"(SELECT granted_to<=clock_timestamp() FROM security.role_grants WHERE {granted})"))
             deadline = time.monotonic() + 3
             while f.query("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name='park_loan_authority_wait' AND wait_event='PgSleep');") != 't':
                 assert time.monotonic() < deadline
                 time.sleep(.01)
             try:
+                f.query(f"UPDATE security.role_grants SET granted_to=clock_timestamp()+interval '2 seconds' WHERE {granted};")
                 rejected(lambda: command('advance', advance, context=original_context), 'gas_owned_denied')
             finally:
                 blocked.result()
