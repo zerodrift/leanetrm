@@ -8232,3 +8232,46 @@ a list of billed days whose fixing was later corrected and reconciliation with
 accrued value remain separate consumers. See
 [the design](superpowers/specs/2026-11-27-indexed-gas-billing-design.md) and
 [the contract](gas-cash-billing.md#indexed-profile-d463).
+
+## D464 — A monthly gas bill is a document over one trade's daily determinations
+
+Policies selected by the owner on 2026-11-28: a document's amounts are the sums
+of its daily determinations; one trade and one delivery month, gross; a bill is
+issued only for a complete month; a determination made after the bill goes on a
+linked adjustment note.
+
+A bill covers every final daily determination of one trade and calendar month
+of gas days under the explicitly selected, retained scope policy
+`gas_trade_month_gross_v1`. A line is one determination and carries its
+contribution. A determination is on at most one document, so issuing creates no
+second payable. Nothing is rounded again. Payments we pay and payments we
+receive are totalled separately in their booked direction and never netted.
+
+The month is complete when every retained gas day that each billable payment
+covers has a determination. A billable payment is one final billing can
+determine. Every other payment is named as not covered, with its reason, on
+each read. Ordinal one is the bill; each later ordinal is an adjustment note
+over the determinations no document yet carries. Documents and lines are
+immutable. The native writer assembles the document itself under the
+operation's context and requires it to equal the reviewed one. A request names
+what it reviewed by a digest of the document's determinations, so a fresh
+request is answered with an existing document only when that document has
+exactly those lines. Issuing is a reviewed operation; a scheduled run cannot
+issue.
+
+Rejected. One once-rounded monthly total: D463 chose daily rounding, and a
+second amount for the same obligation needs a rule for which one is payable.
+Void and reissue, as crude invoices do: the accounting boundary records a
+correction as a separate credit linked to the invoice, and voiding is ordered
+against recorded payments. A partial bill for an incomplete month: several
+documents for a month need ordering rules of their own. A bill for each
+counterparty and month, or a netted amount, as a per-bill option: scope and
+netting are terms of the agreement with the counterparty and need a typed
+election there.
+
+Counterparty-level bills, netting, a rendered or exported document, numbering,
+matching recorded payments, billing an amended trade and accounting remain
+separate consumers. The Billing & corrections tab reviews and issues these
+documents; it draws the reads and computes no amount. See
+[the design](superpowers/specs/2026-11-28-gas-monthly-bill-design.md) and
+[the contract](gas-monthly-bills.md).

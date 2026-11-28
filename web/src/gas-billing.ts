@@ -81,6 +81,8 @@ export function setupGasBilling(host:HTMLElement,o:{api:Api;context:()=>Record<s
   if(!view||!writable()||busy||workflow?.busy())return;
   const epoch=++generation,context=cloneRead(o.context()),claim=view.claims[Number(get<HTMLSelectElement>('claim').value)];
   if(!claim||!claim.supported||!claim.completed)return;
+  // An earlier review is withdrawn before another is asked for: what comes back may offer nothing to accept.
+  reviewed=undefined;get('review').hidden=true;
   const request={context,tradeId:o.tradeId,expectedRevision:view.expectedRevision,cashSlot:claim.cashSlot,day:claim.day,
    selectionPolicy:get<HTMLSelectElement>('policy').value,profile:get<HTMLSelectElement>('profile').value,decimalPlaces:claim.decimalPlaces,roundingPolicy:get<HTMLSelectElement>('rounding').value};
   busy=true;sync();
@@ -103,8 +105,10 @@ export function setupGasBilling(host:HTMLElement,o:{api:Api;context:()=>Record<s
   busy=true;sync();
   void(async()=>{try{await workflow.queue(command);}catch(error){if(!disposed)message.textContent=String(error);}finally{busy=false;if(!disposed){reviewed=undefined;get('review').hidden=true;sync();}}})();
  };
- get('refresh').onclick=()=>{if(busy||workflow?.busy()||workflow?.pending())return;if(edits.edited()){form.reset();edits.clear();changed();}void read();};
+ // Reads again under the current context. A review is withdrawn either way; the inputs are kept unless they are discarded.
+ function refresh(discard:boolean){if(discard){form.reset();edits.clear();}changed();return read();}
+ get('refresh').onclick=()=>{if(busy||workflow?.busy()||workflow?.pending())return;void refresh(edits.edited());};
  if(workflow?.pending())message.textContent='A trade request awaits its original outcome. Use Check status or Retry above this workspace.';
  void read();
- return {sync,pending:()=>!!workflow?.pending()||busy,unsaved:()=>edits.edited(),destroy(){disposed=true;generation++;root.remove();}};
+ return {sync,refresh,pending:()=>!!workflow?.pending()||busy,unsaved:()=>edits.edited(),destroy(){disposed=true;generation++;root.remove();}};
 }

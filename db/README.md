@@ -21,6 +21,11 @@ application. See [current implementation](../docs/implementation.md) and
 
 Recent schema groups and their contracts:
 
+- [0413](migrations/0413_gas_monthly_bills.sql) adds monthly gas bills and
+  adjustment notes for one trade. A document's lines are existing daily cash
+  determinations, each on at most one document, with separate pay and receive
+  totals. The writer assembles each document itself and issues a bill only for
+  a complete month (D464).
 - [0412](migrations/0412_gas_indexed_billing.sql) adds final daily billing of gas
   payments on a named daily or monthly index or on point publications. A
   determination retains the

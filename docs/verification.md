@@ -1,5 +1,134 @@
 # Local verification and continuous integration
 
+## Monthly gas bills in Billing & corrections (D464)
+
+Run on 28 November 2026 in a Linux container limited to four processors, with
+.NET SDK 10.0.402, stock PostgreSQL 18.7, Node 24.22 and headless Chromium. All
+data is synthetic. These are local results, not production activation.
+
+| Check | Result |
+| --- | --- |
+| `tools/run_preview.py --check --gas-billing-check --browser-check` | Passed: 168 printed checks. A complete month is reviewed and issued as a bill in the browser, beside the daily determinations |
+| `web/tests/gas-bills-browser.test.mjs` | Passed: 5 tests |
+| `web/tests/physical-operations-browser.test.mjs`, `trade-requests.test.mjs`, `gas-billing-browser.test.mjs` | Passed |
+| `tools/check_all.py --group repository` | Passed |
+| `tools/check_all.py --group frontend` | 2,454 of 2,464 passed |
+
+The ten frontend failures are the typed day-quantity tests of
+`deal-ticket-browser.test.mjs`. They fail identically on an unmodified copy of
+master in this container and pass in hosted CI. This change does not touch the
+deal ticket.
+
+An independent review of the panel found no path to a wrong or doubly issued
+document: the writer refuses every stale or altered request the screen can
+send. It found these defects, each now covered by a check that failed first:
+
+- A later review that offered no document, or failed, left the earlier review
+  on screen and its request sendable. The daily determination panel had the
+  same defect: its check sent the earlier request. Both now withdraw the review
+  before asking again.
+- Recording a determination or issuing a document rebuilt the tab and
+  discarded what was entered in the other panel without asking. Both panels
+  are now read again in place and the other panel's inputs are kept.
+- The screen named any unknown document kind an adjustment note, labelled any
+  scope policy as the trade-month scope, and numbered adjustment notes itself.
+  Unknown terms are now shown as the read named them, and documents carry the
+  retained sequence.
+- Checks that proved nothing were replaced: one passed for any refusal code,
+  and one exercised an option the application never set.
+
+Not exercised: an adjustment note in the browser scenario, which issues a bill
+only; recovery of a lost reply to `gas/bills/issue` end to end in the browser,
+which the daily determination covers through the same retained request card;
+and the three limits listed under
+[the screen](gas-monthly-bills.md#screen). Not run locally: the other browser
+previews and groups. Hosted CI runs them.
+
+## Monthly gas bills (D464)
+
+Run on 28 November 2026 in a Linux container limited to four processors, with
+.NET SDK 10.0.402, stock PostgreSQL 18.7 and Node 24.22. All data is synthetic.
+These are local results, not accounting compliance or production activation.
+
+| Check | Result |
+| --- | --- |
+| `dotnet run --project tests/OpenEtrm.MarketData.Checks -- --gas-monthly-bill` | Passed: the design's worked example, by hand-summed totals |
+| `tools/run_preview.py --check --gas-billing-check` | Passed: 117 printed checks, including the monthly bill check |
+| `tools/run_preview.py --check --gas-pricing-check` | Passed: 100 printed checks; an indexed trade's expected payment days |
+| `tools/check_all.py --group repository` | Passed |
+| `tools/check_all.py --group managed` | Passed, 2,955 printed checks, before the review corrections to the store and migration |
+
+`tools/check_gas_bills.py` runs inside the billing preview on a trade that
+receives 100 a day on 1 and 2 January 2021, pays 3.00 and receives a fee of
+0.10. Through the native operations it covers:
+
+- an incomplete month, its missing payment days, and its refusal;
+- a bill of five lines over a day corrected before issue, pay total −594.00 and
+  receive total +20.00, with no amount across the two;
+- direct calls of the writer with a forged pay total, a forged receive total
+  and a digest of other lines, each refused with its own code;
+- request retry, status recovery, a fresh request and another actor, each
+  given the existing bill; a different evidence text refused;
+- a review of other lines naming no predecessor, refused rather than answered
+  with the bill;
+- a determination recorded between review and acceptance, refusing the stale
+  review; then an adjustment note of two lines, pay +6.00 and receive −0.20;
+- a direct call with nothing left to issue, refused;
+- unchanged determination rows and contractual value across issuing;
+- one line for each determination, totals equal to line sums by direction, an
+  immutable document, and a refused second line for a documented
+  determination;
+- the knowledge view captured before the bill still showing a ready month and
+  no document, and a working view whose business time precedes the documents
+  shown as refused with `gas_bill_later_document`;
+- an account without `AmendTrade` refused;
+- a trade whose payments an exercise right governs: both payments not covered,
+  no month, and a preview refused with `gas_bill_scope`.
+
+Independent adversarial review found one blocking contract defect and no path
+to a wrong amount, a doubly billed determination or a second document. Its
+findings and their resolution:
+
+- A fresh request was answered with the existing document after its
+  predecessor whatever lines it had reviewed. The earlier check showed it: a
+  reviewed adjustment note returned the bill. A request now carries a digest of
+  the determinations it reviewed, the document retains its own, and a request
+  is answered with an existing document only when they are equal.
+- A working view whose business time precedes a month's document previewed a
+  document the writer could never accept. Reads now report such months and
+  refuse them by name.
+- Reads listed only the months the current revision delivers in. They now list
+  every month with an expected day, a determination or a document.
+- The writer compared currency only across a note's own lines; it now also
+  requires the bill's. The status reader checks authority again before
+  disclosing that an operation is unknown. A commit-time check requires each
+  document to have lines, follow its predecessor and state the digest and
+  totals of exactly those lines. A scheduled run's context cannot issue.
+- The check's stale review was a forged hash only, and its unchanged
+  determinations test compared a variable with itself. Both are replaced.
+
+The corrected checks passed on their first run after these changes; apart from
+the first finding, their failure beforehand was not separately observed.
+
+Hosted CI then failed the gas group while installing migration 0413: the gas
+swing preview creates the swing tables after every later migration, and the
+function that lists a trade's billable payments was written in plain SQL, which
+is checked against those tables when it is created. It is now late-bound, as
+the billing functions are. `tools/run_preview.py --check --gas-swing-check`
+passed locally afterwards (179 printed checks), and the billing preview again
+(117).
+
+Hosted CI also failed the standard group once in the ephemeral context browser
+check, which read an element of a reloaded page before the new document had
+loaded. That check now waits for the reloaded document. It passes locally; the
+race itself was seen only in hosted CI.
+
+Not exercised natively: a month holding an earlier instrument's
+determinations, mixed currency, a term spanning several months, not-covered
+reasons other than rights, authority revoked during a wait, and the refusal of
+a scheduled run. Not run locally on this change: the browser checks other than
+the ephemeral context check, and the other groups. Hosted CI runs them.
+
 ## Indexed gas billing (D463)
 
 Run on 27 November 2026 in a Linux container limited to four processors, with
