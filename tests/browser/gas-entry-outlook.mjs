@@ -30,7 +30,7 @@ export async function checkGasEntryOutlook(actions){
  await wait("document.querySelector('#outlook-period').value==='day'&&document.querySelector('.outlook-report').innerText.includes('2021-01-01')&&"+idle);
  await usePhoneViewport();
  await check('phone opens with the report visible and full navigation is available on demand',
-  fitsWidth+"&&document.querySelector('#sidebar-menus').getBoundingClientRect().height===0&&document.querySelector('#facilities-section-picker').checkVisibility()&&document.querySelector('#facilities-section-picker').value==='outlook'");
+  fitsWidth+"&&document.querySelector('#sidebar-menus').getBoundingClientRect().height===0&&!document.querySelector('#facilities-section-picker').checkVisibility()&&document.querySelector('#outlook-filters').checkVisibility()");
  await click('#sidebar-toggle');await check('phone menu opens by keyboard-accessible control',"document.querySelector('#sidebar-toggle').getAttribute('aria-expanded')==='true'&&document.querySelector('#nav-facilities').checkVisibility()");await click('#sidebar-toggle');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:960,deviceScaleFactor:1,mobile:false});
  await blotterAt(actions,await decemberClose(evaluate));await click('#nav-facilities');await click('[data-facilities-view=outlook]');

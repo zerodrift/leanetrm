@@ -330,7 +330,7 @@ listed futures options and physical LNG. Physical gas opens the deal ticket, who
 operations delegate to the composition's preview, booking, amendment, status and
 idempotent recovery operations; the other forms use their own. A confirmed booking refreshes
 the common Blotter and opens its exact position when uniquely identified. A booked
-composition's day quantities are recorded in Scheduling → Physical operations →
+composition's day quantities are recorded in Scheduling → Gas → Trade deliveries →
 Delivery; Side schedules remains read-only. PPA lifecycle operations remain native
 and open in the same panel. Unknown booking outcomes block replacement requests and
 retain the actor-owned command across ticket remounts, including when supplementary
