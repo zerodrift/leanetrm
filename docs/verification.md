@@ -67,6 +67,14 @@ resolution:
   fixed-price review in flight across the upgrade refuses as stale and is
   previewed again.
 
+Point publications were admitted on 28 November. In the in-term preview
+(`--gas-in-term-check`, 110 printed checks) the location-priced trade's claim was
+first refused with `gas_billing_profile`. With the convention admitted, 97 final
+on 4 November 2026 at that day's retained daily fixing of 3.19 bills 309.43, due
+10 December, and its retry and replay return the first result. A day on the
+location's monthly period is not exercised: the fixture's December has not
+started.
+
 Not run locally on this change: the other gas previews and the assistant,
 trading, lifecycle and remaining groups. Hosted CI runs them.
 

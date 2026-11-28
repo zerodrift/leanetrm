@@ -33,11 +33,15 @@ valuation accrual is derived at read time and is not a bill.
 
 ## Selected policies
 
-The owner selected these on 27 November 2026.
+The owner selected these on 27 November 2026, and added point publications to
+the first on 28 November.
 
-1. **Index kinds.** Payments on a named daily index (`named_index_daily_v1`)
-   and on a named monthly index (`named_index_monthly_v1`). Both resolve one
-   published fixing for each gas day.
+1. **Index kinds.** Payments on a named daily index (`named_index_daily_v1`),
+   on a named monthly index (`named_index_monthly_v1`) and on point
+   publications (`point_publications_v1`). All three retain one published
+   fixing for each gas day. Point publications were first left out on the
+   maintainer's mistaken reading that they price from a different source;
+   their payment rows retain the same fixing binding.
 2. **Rounding.** One determination for each payment and gas day, rounded once
    to the currency's minor unit, ties to even
    (`currency_minor_units_to_even_v1`). The sum of a month's daily bills can
@@ -67,8 +71,7 @@ The owner selected these on 27 November 2026.
 
 ## Non-goals
 
-- Payments priced on point publications (`point_publications_v1`), and the
-  retired `daily_published_index_v1` convention. Both keep refusing with
+- The retired `daily_published_index_v1` convention. It keeps refusing with
   `gas_billing_profile`.
 - A monthly or cumulative bill, its rounding, and an invoice or credit note.
 - Automatic billing. Scheduled daily processing keeps reporting indexed
@@ -103,8 +106,8 @@ A payment is billable under this profile when all of these hold on the latest
 trade revision visible at the selected business time and knowledge cutoff:
 
 - its role is `indexed_consideration` and its stage is `delivery`;
-- its `trading.gas_index_cash_terms` row states `named_index_daily_v1` or
-  `named_index_monthly_v1`;
+- its `trading.gas_index_cash_terms` row states `named_index_daily_v1`,
+  `named_index_monthly_v1` or `point_publications_v1`;
 - neither it nor its physical source is controlled by an exercise or swing
   right;
 - the gas day lies inside the payment's own delivery dates and has ended at
@@ -130,7 +133,10 @@ Each retained payment row already names its fixing: the booking stored, per
 gas day, the index, the observation interval, the series and the source
 (`trading.side_schedule_bindings`, port `fixing`). For a daily index the
 interval is the gas day's contract; for a monthly index it is the calendar
-month containing the day, so every day of a month names the same fixing.
+month containing the day, so every day of a month names the same fixing. A
+payment on point publications states no index of its own: its location's dated
+periods selected a daily or monthly index for each gas day at booking, and that
+day's row retains the result.
 
 The profile selects the fixing under one policy, `final_fixing_head_v1`:
 

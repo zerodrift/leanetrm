@@ -70,9 +70,10 @@ public sealed class GasCashBillingStore(PreviewDatabase database)
         DateWorkspace.Date(row.Text("delivery_from")),DateWorkspace.Date(row.Text("delivery_to")),DateWorkspace.Date(row.Text("source_from")),DateWorkspace.Date(row.Text("source_to")));
     static bool RightDependent(JsonElement row) => row.GetProperty("right_dependent").GetBoolean();
     static bool Indexed(JsonElement row) => row.Text("role") == "indexed_consideration";
-    // A named daily or monthly index publishes one fixing for each payment day. Other index conventions need their own profile.
-    static bool NamedIndex(JsonElement row) => row.OptionalText("observation_convention") is "named_index_daily_v1" or "named_index_monthly_v1";
-    static bool Billable(JsonElement row) => row.Text("stage") == "delivery" && !RightDependent(row) && (!Indexed(row) || NamedIndex(row));
+    // These conventions retain one published fixing for each payment day: a named daily or monthly index, or the index
+    // its location's dated periods select. The retired strict daily convention needs its own profile.
+    static bool RetainedFixing(JsonElement row) => row.OptionalText("observation_convention") is "named_index_daily_v1" or "named_index_monthly_v1" or "point_publications_v1";
+    static bool Billable(JsonElement row) => row.Text("stage") == "delivery" && !RightDependent(row) && (!Indexed(row) || RetainedFixing(row));
     static string[] Profiles(JsonElement row) => Indexed(row) ? [GasCashBilling.IndexedImplementation]
         : SupportedEntry(row) ? [GasCashBilling.Implementation, GasCashBilling.EntryImplementation] : [GasCashBilling.EntryImplementation];
     static bool InTerm(JsonElement row, DateOnly day) =>
@@ -155,8 +156,8 @@ public sealed class GasCashBillingStore(PreviewDatabase database)
         if(component.ValueKind==JsonValueKind.Object && request.Profile == GasCashBilling.Implementation && !SupportedEntry(component))
             throw Error("gas_billing_input","This billing profile requires a whole, full-term payment with share one.");
         var indexed = request.Profile == GasCashBilling.IndexedImplementation;
-        if (component.ValueKind != JsonValueKind.Object || component.Text("stage") != "delivery" || Indexed(component) != indexed || indexed && !NamedIndex(component))
-            throw Error("gas_billing_profile", "Fixed profiles bill a retained fixed-price delivery component, and the indexed profile a payment on a named daily or monthly index. Other stages and index conventions require another qualified profile.");
+        if (component.ValueKind != JsonValueKind.Object || component.Text("stage") != "delivery" || Indexed(component) != indexed || indexed && !RetainedFixing(component))
+            throw Error("gas_billing_profile", "Fixed profiles bill a retained fixed-price delivery component, and the indexed profile a payment on a named daily or monthly index or on point publications. Other stages and index conventions require another qualified profile.");
         if (Int(component, "revision") != request.ExpectedRevision)
             throw Error("gas_billing_conflict", "Refresh the current booked revision.");
         if (request.DecimalPlaces != Int(component, "display_minor_units"))

@@ -1,4 +1,4 @@
--- Final daily billing of gas payments priced on a named daily or monthly index (D461).
+-- Final daily billing of gas payments priced on a named daily or monthly index or on point publications (D461).
 BEGIN;
 SET LOCAL search_path=pg_catalog;
 SET LOCAL lock_timeout='5s';
@@ -114,7 +114,7 @@ DECLARE h trading.gas_trade_revisions;until_at timestamptz;fx record;BEGIN
  PERFORM security.read_instrument_side_schedule_headers(catalog,h.instrument_id,context,as_of);
  IF NOT EXISTS(SELECT 1 FROM trading.gas_index_cash_terms t JOIN trading.gas_component_terms m USING(catalog_id,instrument_id,slot)
   WHERE(t.catalog_id,t.instrument_id,t.slot)=(catalog,h.instrument_id,cash) AND(m.role,m.stage)=('indexed_consideration','delivery')
-  AND t.observation_convention IN('named_index_daily_v1','named_index_monthly_v1')) THEN RAISE EXCEPTION 'gas_billing_profile';END IF;
+  AND t.observation_convention IN('named_index_daily_v1','named_index_monthly_v1','point_publications_v1')) THEN RAISE EXCEPTION 'gas_billing_profile';END IF;
  SELECT * INTO fx FROM security.gas_billing_fixing(catalog,h.instrument_id,cash,flow_day,context,as_of);
  IF security.market_access(catalog,'ReadMarketData') IS NOT TRUE THEN RAISE EXCEPTION 'gas_billing_denied' USING ERRCODE='42501';END IF;
  PERFORM lifecycle.require_read(catalog,until_at);
@@ -268,7 +268,7 @@ BEGIN
  IF indexed THEN
   -- The database selects the fixing itself; the reviewed identity must be that head.
   SELECT * INTO index_terms FROM trading.gas_index_cash_terms t WHERE(t.catalog_id,t.instrument_id,t.slot)=(catalog,head.instrument_id,cash);
-  IF index_terms.observation_convention IS NULL OR index_terms.observation_convention NOT IN('named_index_daily_v1','named_index_monthly_v1')
+  IF index_terms.observation_convention IS NULL OR index_terms.observation_convention NOT IN('named_index_daily_v1','named_index_monthly_v1','point_publications_v1')
    THEN RAISE EXCEPTION 'gas_billing_profile';END IF;
   IF security.market_access(catalog,'ReadMarketData') IS NOT TRUE THEN RAISE EXCEPTION 'gas_billing_denied' USING ERRCODE='42501';END IF;
   SELECT * INTO fx FROM security.gas_billing_fixing(catalog,head.instrument_id,cash,flow_day,context,as_of);

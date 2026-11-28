@@ -197,3 +197,36 @@ def run_checks(url, query, manifest):
     assert (seen['amount'], seen['fixing']['observationId'], seen['alreadyDetermined']) == ('-328.3', DAILY_FIXING, True), seen
     print('PASS indexed gas billing: final fixing plus spread, share and band on a monthly index, reviewed fixing and quantity corrections '
           'with their own causes, immutable originals and the earlier knowledge view', flush=True)
+
+
+def point_checks(c, context, trade):
+    """A payment on point publications bills from the fixing its location's dated periods retained for the day.
+
+    The in-term fixture receives 100 a day and pays the location's daily index, fixed at 3.19 for 4 November 2026,
+    with no spread, on the tenth of the next month. December, on the location's monthly period, has not started.
+    """
+    read = c.call('gas/billing/read', dict(context=context, tradeId=trade))
+    claims = {row['day']: row for row in read['claims']}
+    claim = claims['2026-11-04']
+    assert claim['supported'] and claim['completed'] and claim['profiles'] == [INDEXED] and claim['refusal'] is None, claim
+    assert claim['index'] == dict(code=None, convention='point_publications_v1', spread='0'), claim
+    assert claims['2026-12-15']['supported'] and not claims['2026-12-15']['completed']
+    obligation = c.call('gas/quantities/read', dict(context=context, tradeId=trade, selectionPolicy='operational_projection_v1'))['rows'][0]['obligationId']
+    c.call('gas/quantities/record', dict(context=context, tradeId=trade, expectedRevision=read['expectedRevision'], operationId=str(uuid4()),
+        obligationId=obligation, day='2026-11-04', quantity='97', kind='allocated', status='final', expectedPreviousId=None,
+        evidence='Synthetic final allocation'))
+    preview = dict(context=context, tradeId=trade, expectedRevision=read['expectedRevision'], cashSlot=claim['cashSlot'], day='2026-11-04',
+                   selectionPolicy='final_allocated_billing_v1', profile=INDEXED, decimalPlaces=2, roundingPolicy='currency_minor_units_to_even_v1')
+    value = c.call('gas/billing/preview', preview)
+    assert (value['amount'], value['contribution'], value['previousId']) == ('-309.43', '-309.43', None), value
+    assert (value['fixing']['value'], value['fixing']['spread'], value['fixing']['unitPrice'], value['fixing']['index']) == ('3.19', '0', '3.19', 'synthetic_in_term_index'), value
+    assert value['contractualDueAt'][:10] == '2026-12-10'
+    request = dict(preview=preview, operationId=str(uuid4()), previewHash=value['previewHash'], sourceId=value['sourceId'],
+                   fixingObservationId=value['fixing']['observationId'], expectedPreviousId=None, correctionDueAt=None, reason=None,
+                   evidence='Synthetic point publication billing review')
+    determined = c.call('gas/billing/determine', request)
+    assert (determined['amount'], determined['contribution']) == ('-309.43', '-309.43')
+    assert c.call('gas/billing/determine', request) == determined
+    assert c.call('gas/billing/preview', preview)['alreadyDetermined']
+    print('PASS point publication billing: the location period\'s retained daily fixing bills an ended day, with retry and replay', flush=True)
+

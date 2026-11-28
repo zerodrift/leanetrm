@@ -1,6 +1,7 @@
 # Architecture and domain contracts
 
-D461 adds [final daily billing of gas payments on a named index](gas-cash-billing.md#indexed-profile-d461).
+D461 adds [final daily billing of index-priced gas payments](gas-cash-billing.md#indexed-profile-d461),
+on a named daily or monthly index or on point publications.
 An explicitly selected profile bills one payment day from the final accepted
 quantity and the final published fixing plus the booked spread. The fixing is
 the head of its correction chain at the operation's knowledge cutoff; no close,

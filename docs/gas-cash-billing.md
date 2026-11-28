@@ -14,14 +14,17 @@ billing. Valuation accrual is not a final bill.
 ## Indexed profile (D461)
 
 `gas_final_daily_indexed_cash_v1` bills one completed gas day of a delivery
-payment priced on a named daily or named monthly index. The amount is the taken
+payment priced on a named daily index, a named monthly index or point
+publications. The amount is the taken
 final quantity, times the retained share, times the final published fixing plus
 the booked spread, times the quote multiplier and direction, rounded once. Share,
 daily band or shortfall and payment dates behave as in the entry profile. An
 original is due at the payment's retained next-month instant. A payment has one
 family of profiles: the fixed profiles refuse an indexed payment, and this
-profile refuses a fixed one. Payments on point publications, and payments
-governed by an exercise or swing right, are not billable.
+profile refuses a fixed one. Payments governed by an exercise or swing right,
+and the retired strict daily index convention, are not billable. A payment on
+point publications bills from the index its location's dated periods selected
+for that gas day at booking.
 
 The fixing is selected under `final_fixing_head_v1`: of the published
 observations of the payment day's retained series and source that are known at

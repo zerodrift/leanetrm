@@ -22,7 +22,8 @@ application. See [current implementation](../docs/implementation.md) and
 Recent schema groups and their contracts:
 
 - [0412](migrations/0412_gas_indexed_billing.sql) adds final daily billing of gas
-  payments on a named daily or monthly index. A determination retains the
+  payments on a named daily or monthly index or on point publications. A
+  determination retains the
   published fixing observation that priced it and is unique for each quantity
   source and fixing. The writer selects the fixing head under the operation's
   knowledge, requires it to be the reviewed observation and checks the exact

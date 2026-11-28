@@ -8099,15 +8099,17 @@ operating rights. New roles for REC and gas inventory: no person would hold them
 at installation, and the six-role limit makes them hard to add, as D444 found
 for a new setup role.
 
-## D461 — Final daily billing of gas payments on a named index
+## D461 — Final daily billing of index-priced gas payments
 
-Policies selected by the owner on 2026-11-27: named daily and named monthly
-indexes; one determination for each payment and gas day, rounded once; a
+Policies selected by the owner on 2026-11-27, with point publications added on
+2026-11-28: named daily and named monthly indexes and point publications; one
+determination for each payment and gas day, rounded once; a
 corrected fixing billed as a reviewed correction with its own cause.
 
 Add the explicitly selected `gas_final_daily_indexed_cash_v1`. It bills one
 completed gas day of an `indexed_consideration` delivery payment stated on
-`named_index_daily_v1` or `named_index_monthly_v1`: the taken final quantity,
+`named_index_daily_v1`, `named_index_monthly_v1` or `point_publications_v1`: the
+taken final quantity,
 times the retained share, times the final fixing plus the booked spread, times
 the quote multiplier and direction, rounded once to the currency's minor unit,
 ties to even. Share, daily band or shortfall and payment dates are consumed as
@@ -8148,8 +8150,12 @@ clock. Freezing the first fixing: a bill on a corrected price would stay wrong
 until a successor profile existed. One bill for each delivery month: a different
 rounding contract with its own rules for incomplete months.
 
-Point-publication pricing, a monthly bill or invoice, automatic indexed billing,
-right-dependent payments, a list of billed days whose fixing was later corrected
-and reconciliation with accrued value remain separate consumers. See
+Point publications price from the same retained fixing: the location's dated
+periods selected each day's index at booking, and the payment row kept it. They
+were first left out on a mistaken reading that they used another source.
+
+A monthly bill or invoice, automatic indexed billing, right-dependent payments,
+a list of billed days whose fixing was later corrected and reconciliation with
+accrued value remain separate consumers. See
 [the design](superpowers/specs/2026-11-27-indexed-gas-billing-design.md) and
 [the contract](gas-cash-billing.md#indexed-profile-d461).
