@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Npgsql;
 using OpenEtrm.MarketData;
@@ -84,6 +85,14 @@ static class IssueReports
             ??await Current(database,profile,body.Id,ct),
         _=>throw new MarketDataException("issue_report_input","Choose resend or abandon.")
     };
+
+    // A reviewed draft of an issue report names the public repository it would be posted to, so the person
+    // authorizing it knows. Every other reviewed command is returned as it is.
+    public static JsonObject Destination(JsonObject review,GitHubIssues? tracker)
+    {
+        if(review["page"]?.GetValue<string>()==Page)review["publishesTo"]=tracker?.Repository;
+        return review;
+    }
 
     static GitHubIssues Configured(GitHubIssues? tracker)=>
         tracker??throw new MarketDataException("issue_tracker_unconfigured",Text("issue_tracker_unconfigured"));

@@ -64,7 +64,7 @@ operations answer `issue_tracker_unconfigured`. Every member is required:
 | `apiVersion` | The dated REST API version to request |
 | `connectSeconds` | 1 to 10 |
 | `responseSeconds` | 5 to 60; bounds one whole exchange, token included |
-| `maximumResponseBytes` | 1,048,576 to 16,777,216; one page of a hundred issues must fit |
+| `maximumResponseBytes` | 2,097,152 to 16,777,216; one page of a listing must fit |
 
 The API does not start with a file that is incomplete, a key that is not a
 private RSA key, or a key file others can read.
@@ -82,6 +82,9 @@ deployment whose serving API names it is refused.
 
 ## Operations
 
+Each report is returned with its state, attempt, issue number and link, error
+code and `decisions`: what its owner may still decide, as the server sees it.
+
 All require a signed-in human acting for themselves. An agent's delegated
 context is refused.
 
@@ -98,9 +101,9 @@ The six human role templates hold `SubmitIssueReports`. Access administrator
 holds `ManageIssueReporting`. The agent reader role holds neither.
 
 A report has a `kind` (`bug`, `request` or `question`), a single-line `title` of
-at most 120 characters and a `body` of at most 4,000. Each must contain
-something other than space. Control characters and characters that reorder a
-line are refused; a body may hold line breaks and tabs. The issue's title is the
+at most 120 characters and a `body` of at most 4,000. Each must contain a
+visible character. Control characters and characters that reorder or break a
+line invisibly are refused; a body may hold tabs and line breaks. The issue's title is the
 report's title. Its body is `Kind: <kind>`, the report's body and a hidden
 marker line, with nothing else added.
 
@@ -116,8 +119,9 @@ the name `issue_reports`, from whatever page the person is on.
 
 The assistant cannot submit. It prepares the draft with `propose_page_action`,
 and nothing reaches the tracker. The person opens **Review assistant proposal**,
-reads the exact kind, title and body, ticks the authorization and presses
-**Authorize change**. The ordinary submission then runs under the person's own
+which names the repository and says the report will be public there, reads the
+exact kind, title and body, ticks the authorization and presses **Authorize
+change**. The ordinary submission then runs under the person's own
 sign-in, with every check above, and answers with the issue's number and link.
 Authorizing the same draft again answers with that first outcome: the draft's
 request identity is derived from its turn and step.
@@ -135,7 +139,8 @@ installed for issue reports.
 ## Screens
 
 **Report an issue** is a button in the page header for anyone holding
-`SubmitIssueReports`. It opens a dialog with:
+`SubmitIssueReports`, in an installation that has a tracker connection. It opens
+a dialog with:
 
 - the repository the report goes to, and that it is public;
 - a kind with no preselected choice, a title and a description;
@@ -143,13 +148,15 @@ installed for issue reports.
 - the person's reports, each with what happened to it and, for a created issue,
   its link.
 
-An unconfirmed report offers **Look for it in the tracker**, **Send it again**
-and **Give it up**. A report that was never sent offers only the last. When the
-installation has no tracker connection, or the workspace has not turned
-reporting on, the dialog says so and offers no form.
+Each report offers the decisions the server lists for it: **Look for it in the
+tracker**, **Send it again** and **Give it up** for an unconfirmed report, and
+only the last for one that was never sent. When the workspace has not turned
+reporting on, the dialog says so and offers no form. What the person has typed
+stays in the form while they act on another report.
 
 A request whose answer is lost keeps its identity in the browser session, so
-**Retry original request** cannot create a second issue.
+**Retry original request** cannot create a second issue. It is released when
+the server answers that it never retained the request.
 
 **Issue reporting**, on Users & access, is the policy form for a holder of
 `ManageIssueReporting`: off or on, the daily limit, the current version and
@@ -178,8 +185,10 @@ A request moves through these states.
 | `abandoned` | The person gave it up | yes |
 
 1. **Request.** The request identity is scoped to the workspace and the person.
-   The same identity and content return the retained report in its current
-   state. Different content under the same identity is `issue_report_conflict`.
+   The same identity with the same kind, title and body returns the retained
+   report in its current state, also after the installation changed its
+   repository. Different content under the same identity is
+   `issue_report_conflict`.
    A new request needs the policy to be on and the person to be under the daily
    limit. It retains the policy version and the repository it was made for.
 2. **Admission.** In its own transaction, immediately before the tracker is
@@ -189,9 +198,12 @@ A request moves through these states.
 3. **Send.** The adapter creates the issue under its own time bound. Neither the
    caller leaving nor the request's time limit interrupts it.
 4. **Outcome.** The answer is recorded for that attempt. An outcome is a fact
-   about a request already sent, so it is recorded whatever the policy or the
-   person's permissions have since become. A `submitted` outcome is accepted
-   only with the configured repository's own page for that issue number.
+   about a request already sent, so recording it checks neither the policy nor
+   the issue report permission. It still needs the person's session, and on the
+   assistant's path the authorization of the draft. If either was withdrawn
+   during the exchange the outcome is not recorded, the report becomes
+   uncertain, and the lookup finds its issue. A `submitted` outcome is accepted
+   only with the retained repository's own page for that issue number.
 
 The daily limit counts every request of the last 24 hours except one abandoned
 before it was ever sent. Failed reports count: each one called the tracker.
@@ -228,11 +240,12 @@ exists. The report's issue is therefore the oldest marked issue created since
 five minutes before the request. A later copy is newer, and an older issue
 edited to carry the marker was created too early.
 
-The adapter lists the repository's issues by creation time, newest first, a
-hundred to a page. The listing is complete at the first issue created before
-that moment, or at a short page. After five pages without reaching either it is
-`incomplete`, and so is any page that cannot be read exactly. A marked issue
-counts only when the listing was complete.
+The adapter lists the repository's issues and pull requests by creation time,
+newest first, twenty to a page. The listing is complete at the first one created
+before that moment, or at a short page. After fifteen pages without reaching
+either it is `incomplete`, and so is any page that cannot be read exactly or
+exceeds the byte bound. A marked issue counts only when the listing was
+complete.
 
 ### Reading the tracker's answer
 
@@ -265,12 +278,16 @@ created.
 - The assistant's draft is written by a model that may have read the
   installation's data in the same conversation. The control is the person's
   review of the exact text; nothing checks it for business detail.
-- The screens have unit tests for what they show and offer. They have no
-  browser-suite scenario yet.
+- The screens have unit tests for what they show and offer, and were tried by
+  hand in a preview, including at a width of 390 px. They have no browser-suite
+  scenario yet.
+- The assistant's review cannot be the target of a walkthrough step.
 - Only the latest attempt's admission time and code are retained for a report.
   There is no per-attempt history.
-- A repository in which more than 500 issues were created after a report cannot
-  complete that report's lookup. The report can still be abandoned.
+- A repository in which more than 300 issues and pull requests were created
+  after a report cannot complete that report's lookup, and neither can one where
+  a page of twenty exceeds the byte bound. Anyone who can post to a public
+  tracker can cause either. The report stays uncertain and can be abandoned.
 - A resend waits two minutes, but the tracker itself may complete or list an
   earlier request later than that. The lookup before a resend narrows this
   window; it does not close it.

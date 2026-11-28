@@ -18,13 +18,13 @@ static class IssueTrackerChecks
     public static async Task Run()
     {
         using var key=RSA.Create(2048);
-        var settings=new IssueTrackerSettings(Repository,"synthetic-app",42,"/synthetic/private-key.pem","2022-11-28",2,5,1048576);
+        var settings=new IssueTrackerSettings(Repository,"synthetic-app",42,"/synthetic/private-key.pem","2022-11-28",2,5,2097152);
         settings.Validate();
         Require(!settings.ToString().Contains("private-key",StringComparison.Ordinal),"settings never print the key location");
         foreach(var invalid in new[]{settings with{Repository="synthetic-owner"},settings with{Repository="a/b/c"},settings with{Repository="synthetic-owner/.."},
             settings with{Repository=Repository+"\n"},settings with{AppId=" "},settings with{AppId="synthetic-app\n"},settings with{InstallationId=0},
             settings with{PrivateKeyFile="relative.pem"},settings with{ApiVersion="latest"},settings with{ApiVersion="2022-11-28\n"},settings with{ConnectSeconds=0},
-            settings with{ResponseSeconds=4},settings with{ResponseSeconds=61},settings with{MaximumResponseBytes=65536}})
+            settings with{ResponseSeconds=4},settings with{ResponseSeconds=61},settings with{MaximumResponseBytes=1048576}})
         {
             try{invalid.Validate();throw new Exception("Accepted incomplete tracker settings");}
             catch(MarketDataException e) when(e.Code=="issue_tracker_configuration"){}
@@ -83,7 +83,7 @@ static class IssueTrackerChecks
         Require(await Create(new Tracker(key){CreateFault=new HttpRequestException(HttpRequestError.ResponseEnded)})==uncertain,"a response lost after sending is uncertain");
         var started=DateTimeOffset.UtcNow;
         Require(await Create(new Tracker(key){Silent=true})==uncertain&&DateTimeOffset.UtcNow-started<TimeSpan.FromSeconds(15),"a tracker that never answers is uncertain within the configured bound");
-        Require(await Create(new Tracker(key,(HttpStatusCode.Created,"{\"number\":17,\"html_url\":\""+IssueUrl+"\",\"padding\":\""+new string('x',1100000)+"\"}")))==uncertain,"an answer over the byte bound is not read as confirmation");
+        Require(await Create(new Tracker(key,(HttpStatusCode.Created,"{\"number\":17,\"html_url\":\""+IssueUrl+"\",\"padding\":\""+new string('x',2200000)+"\"}")))==uncertain,"an answer over the byte bound is not read as confirmation");
 
         // A later attempt follows one that may have created the issue. It looks for the marker first, creates
         // only when the listing is complete without it, and settles as failed only after both.
@@ -103,19 +103,19 @@ static class IssueTrackerChecks
         // The lookup reads issues created since shortly before the request, newest first, to the first older one.
         var lookup=new Tracker(key,(HttpStatusCode.OK,Listed((17,Marked,false,1))));
         Require(await Find(lookup)==new IssueLookup(IssueReportOutcome.Submitted(17,IssueUrl),true),"the marked issue is found");
-        Require(lookup.Requests[1]=="GET /repos/synthetic-owner/synthetic-tracker/issues?state=all&since=2040-01-02T02:59:05Z&sort=created&direction=desc&per_page=100&page=1","the listing starts shortly before the request was retained and is read newest first");
+        Require(lookup.Requests[1]=="GET /repos/synthetic-owner/synthetic-tracker/issues?state=all&since=2040-01-02T02:59:05Z&sort=created&direction=desc&per_page=20&page=1","the listing starts shortly before the request was retained and is read newest first");
         Require(await Find(new Tracker(key,(HttpStatusCode.OK,"[]")))==new IssueLookup(null,true),"a complete listing without the marker says so");
         // The marker is public once its issue exists. A later copy and an older issue edited to carry it are not the report's issue.
         Require(await Find(new Tracker(key,(HttpStatusCode.OK,Listed((20,Marked,false,10),(17,Marked,false,1),(3,Marked,false,-1440)))))==new IssueLookup(IssueReportOutcome.Submitted(17,IssueUrl),true),"the oldest marked issue created since the request is the report's");
         Require(await Find(new Tracker(key,(HttpStatusCode.OK,Listed((3,Marked,false,-1440)))))==new IssueLookup(null,true),"an issue created before the request never matches");
-        var page=Enumerable.Range(1,99).Select(i=>(1000-i,"unrelated",false,1)).Append((5,"unrelated",false,-1440)).ToArray();
+        var page=Enumerable.Range(1,19).Select(i=>(1000-i,"unrelated",false,1)).Append((5,"unrelated",false,-1440)).ToArray();
         var bounded=new Tracker(key,(HttpStatusCode.OK,Listed(page)));
         Require(await Find(bounded)==new IssueLookup(null,true)&&bounded.Requests.Count==2,"the listing ends at the first issue older than the request");
-        var full=Listed(Enumerable.Range(1,100).Select(i=>(i,"unrelated",false,1)).ToArray());
-        var endless=new Tracker(key,Enumerable.Repeat((HttpStatusCode.OK,full),5).ToArray());
-        Require(await Find(endless)==new IssueLookup(null,false)&&endless.Requests.Count==6,"more than five pages of newer issues is reported as incomplete, not as absence");
-        var first=Listed(Enumerable.Range(1,99).Select(i=>(i+100,"unrelated",false,2)).Prepend((17,Marked,false,3)).ToArray());
-        Require(await Find(new Tracker(key,Enumerable.Repeat((HttpStatusCode.OK,full),4).Prepend((HttpStatusCode.OK,first)).ToArray()))==new IssueLookup(null,false),"a marked issue in a listing that was not read to its end is not yet the report's");
+        var full=Listed(Enumerable.Range(1,20).Select(i=>(i,"unrelated",false,1)).ToArray());
+        var endless=new Tracker(key,Enumerable.Repeat((HttpStatusCode.OK,full),15).ToArray());
+        Require(await Find(endless)==new IssueLookup(null,false)&&endless.Requests.Count==16,"more than fifteen pages of newer issues is reported as incomplete, not as absence");
+        var first=Listed(Enumerable.Range(1,19).Select(i=>(i+100,"unrelated",false,2)).Prepend((17,Marked,false,3)).ToArray());
+        Require(await Find(new Tracker(key,Enumerable.Repeat((HttpStatusCode.OK,full),14).Prepend((HttpStatusCode.OK,first)).ToArray()))==new IssueLookup(null,false),"a marked issue in a listing that was not read to its end is not yet the report's");
         foreach(var unusable in new[]{(HttpStatusCode.Forbidden,"{}"),(HttpStatusCode.OK,"{}"),(HttpStatusCode.OK,"[17]"),(HttpStatusCode.OK,"[{\"number\":17}]"),
             (HttpStatusCode.OK,"[{\"number\":17,\"created_at\":\"soon\",\"body\":\"x\"}]"),
             (HttpStatusCode.OK,Listed((17,Marked,false,1)).Replace("synthetic-tracker/issues/17","another-tracker/issues/17"))})

@@ -25,12 +25,14 @@ END$$;
 CREATE FUNCTION assistant.is_issue_report_policy(mode text,daily_limit integer) RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
  SELECT coalesce(mode='disabled' AND daily_limit IS NULL OR mode='review_required' AND daily_limit BETWEEN 1 AND 50,false);
 $$;
--- Text a person can read as written: something other than space, no control characters and no characters that
--- reorder the line. A title is one line; a body may also hold line breaks and tabs.
+-- Text a person can read as written: at least one visible character, no control characters and no characters
+-- that reorder or break the line invisibly. A title is one line; a body may also hold tabs and line breaks.
 CREATE FUNCTION assistant.is_issue_report_content(kind text,title text,body text,repository text) RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
  SELECT coalesce(kind IN('bug','request','question')
-  AND length(title) BETWEEN 1 AND 120 AND title~'[^[:space:]]' AND title!~'[\u0001-\u001F\u007F-\u009F\u200E\u200F\u202A-\u202E\u2066-\u2069]'
-  AND length(body) BETWEEN 1 AND 4000 AND body~'[^[:space:]]' AND body!~'[\u0001-\u0008\u000B-\u001F\u007F-\u009F\u200E\u200F\u202A-\u202E\u2066-\u2069]'
+  AND length(title) BETWEEN 1 AND 120 AND title!~'[\u0001-\u001F\u007F-\u009F\u061C\u200E\u200F\u2028-\u202E\u2066-\u2069]'
+  AND length(body) BETWEEN 1 AND 4000 AND body!~'[\u0001-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u061C\u200E\u200F\u2028-\u202E\u2066-\u2069]'
+  AND title~'[^\u0009-\u000D\u0020\u00A0\u1680\u2000-\u200D\u202F\u205F\u2060\u3000\uFEFF]'
+  AND body~'[^\u0009-\u000D\u0020\u00A0\u1680\u2000-\u200D\u202F\u205F\u2060\u3000\uFEFF]'
   AND repository~'^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}$' AND repository!~'/[.]{1,2}$',false);
 $$;
 -- The tracker's own page for one issue of one repository. The tracker may spell the repository in another case.
@@ -95,7 +97,9 @@ CREATE FUNCTION assistant.issue_report_policy_view(v assistant.issue_report_poli
 $$;
 CREATE FUNCTION assistant.issue_report_view(x assistant.issue_reports) RETURNS jsonb LANGUAGE sql STABLE SET search_path=pg_catalog AS $$
  SELECT jsonb_build_object('id',x.id,'requestId',x.request_id,'kind',x.kind,'title',x.title,'repository',x.repository,'state',x.state,'attempt',x.attempt,
-  'issueNumber',x.issue_number,'issueUrl',x.issue_url,'errorCode',x.error_code,'requestedAt',x.requested_at,'settledAt',x.settled_at);
+  'issueNumber',x.issue_number,'issueUrl',x.issue_url,'errorCode',x.error_code,'requestedAt',x.requested_at,'settledAt',x.settled_at,
+  -- What the person may still decide about it, so no caller restates the state rules.
+  'decisions',CASE x.state WHEN 'uncertain' THEN '["look","resend","abandon"]'::jsonb WHEN 'pending' THEN '["abandon"]'::jsonb ELSE '[]'::jsonb END);
 $$;
 -- A dispatch admitted more than two minutes ago with no recorded outcome may or may not have reached the tracker.
 -- The sender's whole exchange is bounded well inside that window.
@@ -165,7 +169,9 @@ BEGIN
  c:=assistant.issue_report_actor('SubmitIssueReports');
  SELECT * INTO previous FROM assistant.issue_reports s WHERE(s.tenant_id,s.workspace_id,s.actor_id,s.request_id)=(c.tenant_id,c.workspace_id,c.actor_id,request);
  IF FOUND THEN
-  IF(previous.kind,previous.title,previous.body,previous.repository) IS DISTINCT FROM(category,subject,description,tracker) THEN RAISE EXCEPTION 'issue_report_conflict';END IF;
+  -- The request is the person's kind, title and body. The repository is the installation's, so a later change of
+  -- it does not turn a retry into a conflict: the retry answers with the report as retained.
+  IF(previous.kind,previous.title,previous.body) IS DISTINCT FROM(category,subject,description) THEN RAISE EXCEPTION 'issue_report_conflict';END IF;
   RETURN assistant.issue_report_view(assistant.own_issue_report(c,previous.id));
  END IF;
  head:=assistant.issue_report_policy(c.tenant_id,c.workspace_id);

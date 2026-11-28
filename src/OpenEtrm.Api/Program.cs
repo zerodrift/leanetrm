@@ -640,7 +640,7 @@ api.MapGet("/bootstrap",async (HttpContext context,IAntiforgery antiforgery,bool
         var identity=hosted is null?null:HostedAuthentication.Current(context);
         if(identity is not null){if(session.Profile is not null&&session.Profile!=identity.Subject)throw new PreviewDeniedException();session.Profile=identity.Subject;}
         object response=new {asyncReadProtocol=AsyncReadChannel.Protocol,mode=database.Manifest.Mode,runId,notice=hosted is null?"Disposable synthetic workspace. Test identities are simulations, not production sign-in.":"Private pilot workspace. Financial capability is limited to the supported product conventions.",profiles=identity is null?profiles:profiles.Take(0).Append(new{id=identity.Subject,name=identity.Name,description="Signed-in account"}).ToArray(),
-        requestDeadlines=processLimits.RequestDeadlines,processLimits=processLimits.Digest,profile=session.Profile,customProfiles=session.CustomProfiles.Select(p=>new{id=p.Key,name=p.Value}).ToArray(),csrfToken=antiforgery.GetAndStoreTokens(context).RequestToken,frames=includeFrames?session.PersistentFrames.Where(f=>f.PpaBundle is null && f.ContextId==session.MarketContext?.ContextId).OrderBy(f=>f.At).ToArray():[],
+        requestDeadlines=processLimits.RequestDeadlines,issueTracker=issueTracker is not null,processLimits=processLimits.Digest,profile=session.Profile,customProfiles=session.CustomProfiles.Select(p=>new{id=p.Key,name=p.Value}).ToArray(),csrfToken=antiforgery.GetAndStoreTokens(context).RequestToken,frames=includeFrames?session.PersistentFrames.Where(f=>f.PpaBundle is null && f.ContextId==session.MarketContext?.ContextId).OrderBy(f=>f.At).ToArray():[],
         catalogId=database.Manifest.CatalogId,tenantId=database.Manifest.TenantId,workspaceId=database.Manifest.WorkspaceId};
         if(includeAccess)
         {
@@ -3274,7 +3274,7 @@ api.MapPost("/assistant/turns/ask",(HttpContext c,AskRequest body)=>Locked(c,ses
 }));
 api.MapPost("/assistant/actions/review",(HttpContext c,CurveProposalRequest body)=>Locked(c,session=>
     database.WithIdentity(Profile(session),AssistantOperations.Permission,async(connection,ct)=>
-        Results.Ok(assistantWorkspace.Review(await assistantWorkspace.Recorded(connection,body.TurnId,body.Step,ct),body.TurnId,body.Step)),c.RequestAborted)));
+        Results.Ok(IssueReports.Destination(assistantWorkspace.Review(await assistantWorkspace.Recorded(connection,body.TurnId,body.Step,ct),body.TurnId,body.Step),issueTracker)),c.RequestAborted)));
 // Only a separate authenticated, CSRF-protected human request reaches this endpoint. The body identifies a retained
 // proposal, never accepts a replacement operation/payload, and the original business handler reauthorizes the save.
 api.MapPost("/assistant/actions/authorize",(HttpContext c,CurveProposalRequest body)=>Locked(c,async session=>

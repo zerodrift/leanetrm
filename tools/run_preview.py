@@ -1053,7 +1053,7 @@ def main():
             tracker_key.chmod(0o600)
             tracker_config=temporary/'issue-tracker.json'
             tracker_config.write_text(json.dumps(dict(repository=issue_tracker.repository,appId='synthetic-app',installationId=42,privateKeyFile=str(tracker_key),
-                                                      apiVersion='2022-11-28',connectSeconds=2,responseSeconds=10,maximumResponseBytes=1048576)))
+                                                      apiVersion='2022-11-28',connectSeconds=2,responseSeconds=10,maximumResponseBytes=2097152)))
             tracker_config.chmod(0o600)
             api_env={**api_env,'OPENETRM_ISSUE_TRACKER_CONFIG':str(tracker_config),'OPENETRM_ISSUE_TRACKER_CHECK_ENDPOINT':issue_tracker.url}
         child=subprocess.Popen([str(dotnet),str(frozen_dll),'--local-preview'],cwd=ROOT,env=api_env,stdout=log,stderr=subprocess.STDOUT)

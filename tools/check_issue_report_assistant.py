@@ -36,6 +36,7 @@ def run_checks(ask, check, admin, owner, trader, tracker):
     review = owner.call('assistant/actions/review', reference)
     check('Review shows the exact report the tracker would receive',
           review['operation'] == SUBMIT and {k: review['body'][k] for k in ('kind', 'title', 'body')} == {'kind': 'bug', 'title': TITLE, 'body': BODY}
+          and review['publishesTo'] == tracker.repository
           and owner.call('assistant/actions/review', reference) == review and tracker.requests == [])
     trader.call('assistant/actions/review', reference, expected=404)
     trader.call('assistant/actions/authorize', reference, expected=404)

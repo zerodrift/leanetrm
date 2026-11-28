@@ -26,13 +26,13 @@ public sealed partial record IssueTrackerSettings([property:JsonRequired]string 
     public override string ToString()=>"Issue tracker connection (credentials hidden)";
 
     // ResponseSeconds bounds a whole exchange, token included, so it always ends well inside the two minutes
-    // after which the database treats an unrecorded dispatch as uncertain. A page of a hundred issues must fit
-    // the byte bound, or no lookup could ever be read to its end.
+    // after which the database treats an unrecorded dispatch as uncertain. A listing page must fit the byte
+    // bound, or no lookup could ever be read to its end.
     public void Validate()
     {
         if(Repository is null||!RepositoryName().IsMatch(Repository)||AppId is null||!AppIdentity().IsMatch(AppId)||InstallationId<1
             ||PrivateKeyFile is null||!Path.IsPathFullyQualified(PrivateKeyFile)||ApiVersion is null||!Version().IsMatch(ApiVersion)
-            ||ConnectSeconds is <1 or >10||ResponseSeconds is <5 or >60||MaximumResponseBytes is <1024*1024 or >16*1024*1024)
+            ||ConnectSeconds is <1 or >10||ResponseSeconds is <5 or >60||MaximumResponseBytes is <2*1024*1024 or >16*1024*1024)
             throw new MarketDataException("issue_tracker_configuration","Supply the repository, app identity, private key file, API version and bounded timeouts explicitly.");
     }
 
@@ -64,7 +64,8 @@ public sealed record IssueLookup(IssueReportOutcome? Issue,bool Complete);
 sealed class GitHubIssues(HttpMessageHandler handler,IssueTrackerSettings settings,RSA key)
 {
     const string Origin="https://api.github.com";
-    const int PageSize=100,LookupPages=5;
+    // Small pages, so that one page of long issues still fits the byte bound.
+    const int PageSize=20,LookupPages=15;
     // The tracker's clock and this one may differ; a listing starts this long before the request was retained.
     static readonly TimeSpan ClockAllowance=TimeSpan.FromMinutes(5);
     readonly HttpMessageInvoker http=new(handler,false);

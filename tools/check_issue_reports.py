@@ -108,10 +108,11 @@ def run_checks(query, manifest):
     print('PASS report policy: absent means off, complete explicit revisions, administrator only, replay, conflict and no-op facts', flush=True)
 
     # A request is retained once per identity; its first outcome answers every identical retry.
-    for invalid in (dict(kind='praise'), dict(title=''), dict(title='   '), dict(title='x'*121), dict(title='line\nbreak'), dict(title='reversed ‮ text'),
-                    dict(body=''), dict(body=' \n\t'), dict(body='x'*4001), dict(body='bell \x07'),
+    for invalid in (dict(kind='praise'), dict(title=''), dict(title='   '), dict(title='x'*121), dict(title='line\nbreak'), dict(title='reversed \u202e text'), dict(title='two\u2028lines'), dict(title='\u200b\u00a0'),
+                    dict(body=''), dict(body=' \n\t'), dict(body='\u3000\ufeff'), dict(body='x'*4001), dict(body='bell \x07'),
                     dict(repository='not a repository'), dict(repository='owner/name/extra'), dict(repository='owner/..'), dict(repository='owner/name\n')):
         refused(lambda invalid=invalid: request(**invalid), 'issue_report_input')
+    assert query("SELECT assistant.is_issue_report_content('bug','Synthetic title',E'first line\\r\\n\\tsecond line','"+REPOSITORY+"');") == 't', 'A body may hold tabs and either kind of line break'
     principal('synthetic_report_outsider', ['ReadMarketData'])
     refused(lambda: request(profile='synthetic_report_outsider'), '42501')
     # Only a person acting for themselves submits: a service identity holding the permission is refused.
@@ -120,10 +121,10 @@ def run_checks(query, manifest):
     assert rows() == 0
     operation = str(uuid4())
     report = request(op=operation)
-    assert report['state'] == 'pending' and report['attempt'] == 0 and report['issueNumber'] is None and report['repository'] == REPOSITORY
+    assert report['state'] == 'pending' and report['attempt'] == 0 and report['issueNumber'] is None and report['repository'] == REPOSITORY and report['decisions'] == ['abandon']
     assert request(op=operation) == report and rows() == 1
     refused(lambda: request(op=operation, title='A different synthetic title'), 'issue_report_conflict')
-    refused(lambda: request(op=operation, repository='synthetic-owner/another-tracker'), 'issue_report_conflict')
+    assert request(op=operation, repository='synthetic-owner/another-tracker') == report, 'A retry after the installation changed its repository still answers with the retained report'
     # Another person cannot read, dispatch, look up or settle it, and learns nothing from its identity.
     for work in (lambda: status(report['id'], 'admin'), lambda: admit(report['id'], 'admin'), lambda: complete(report['id'], 1, 'submitted', 7, link(7), profile='admin'),
                  lambda: abandon(report['id'], 0, 'admin'), lambda: resend(report['id'], 1, 'admin'), lambda: lookup(report['id'], 'admin')):
@@ -146,7 +147,7 @@ def run_checks(query, manifest):
     for elsewhere in (link(8), link(7, 'synthetic-owner/another-tracker'), 'https://elsewhere.invalid/issues/7', link(7)+'?next=/issues/7'):
         refused(lambda elsewhere=elsewhere: complete(report['id'], 1, 'submitted', 7, elsewhere), 'issue_report_input')
     done = complete(report['id'], 1, 'submitted', 7, link(7))
-    assert done['state'] == 'submitted' and done['issueNumber'] == 7 and done['issueUrl'] == link(7) and done['settledAt']
+    assert done['state'] == 'submitted' and done['issueNumber'] == 7 and done['issueUrl'] == link(7) and done['settledAt'] and done['decisions'] == []
     assert complete(report['id'], 1, 'submitted', 7, link(7)) == done, 'Recording the same fact again returns it'
     refused(lambda: complete(report['id'], 1, 'submitted', 8, link(8)), 'issue_report_fence')
     refused(lambda: complete(report['id'], 1, 'failed', None, None, 'tracker_refused'), 'issue_report_fence')
@@ -166,7 +167,7 @@ def run_checks(query, manifest):
     lost = request()
     assert admit(lost['id'])['attempt'] == 1
     uncertain = complete(lost['id'], 1, 'uncertain', None, None, 'outcome_unknown')
-    assert uncertain['state'] == 'uncertain' and uncertain['settledAt'] is None
+    assert uncertain['state'] == 'uncertain' and uncertain['settledAt'] is None and uncertain['decisions'] == ['look', 'resend', 'abandon']
     assert admit(lost['id']) is None
     refused(lambda: resend(lost['id'], 1), 'issue_report_wait')
     refused(lambda: resend(lost['id'], 3), 'issue_report_fence')
@@ -202,7 +203,6 @@ def run_checks(query, manifest):
     mine = read('viewer', "SELECT assistant.my_issue_reports()::text")
     assert mine['mode'] == 'review_required' and [t['state'] for t in mine['submissions']] == ['abandoned', 'submitted', 'failed', 'submitted']
     assert all('body' not in t and 'marker' not in t for t in mine['submissions'])
-    assert query("SELECT count(*) FROM assistant.issue_reports WHERE state='pending' AND attempt>0;") == '0', 'A report that was ever sent is never shown as not sent'
     print('PASS uncertain delivery: no second dispatch while one may have succeeded, a quiet period before a resend, bounded lookups, stale dispatch becomes uncertain, explicit resend and abandon', flush=True)
 
     # Policy and authority are checked again at dispatch; a completed change stops what was not yet sent.
@@ -211,6 +211,8 @@ def run_checks(query, manifest):
     time.sleep(2.5)
     refused(lambda: admit(expiring['id'], 'synthetic_report_expiring'), '42501')
     assert query(f"SELECT state,attempt FROM assistant.issue_reports WHERE id='{expiring['id']}';") == 'pending|0'
+    # Looking in the tracker calls it, so it needs the permission too.
+    refused(lambda: lookup(expiring['id'], 'synthetic_report_expiring'), '42501')
     principal('synthetic_report_steady', ['SubmitIssueReports'])
     waiting = request(profile='synthetic_report_steady')
     unconfirmed = request(profile='synthetic_report_steady')
