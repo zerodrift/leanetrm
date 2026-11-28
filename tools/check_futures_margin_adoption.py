@@ -31,27 +31,63 @@ INSERT INTO market_data.curve_members SELECT catalog_id,revision_id,'future_alte
 
 
 @contextmanager
-def successor_grants(query, manifest, profile, permission, issuer='https://preview.invalid'):
+def successor_grants(query, manifest, profile, permission, issuer='https://preview.invalid', from_entry=False, lapsed=False):
+    """Gives `profile` `permission` through an original grant that ends three seconds into its term, or with `lapsed`
+    has already ended, and a successor grant that starts three seconds into it. The term starts once any other
+    session waits for the security epoch, which every admission takes first, so the start-up of the block's actor
+    falls outside it; until then the profile lacks the permission, and a block in which nothing waits fails.
+    `from_entry` starts the term on entry instead, for a block that pauses before its actor is admitted or whose
+    actor reads its authority before it first waits for the epoch."""
     tenant, workspace = manifest['tenantId'], manifest['workspaceId']
     principal = query(f"SELECT principal_id FROM security.identity_bindings WHERE issuer='{issuer}' AND subject='{profile}';")
     saved_permissions = query(f"SELECT jsonb_agg(to_jsonb(p)) FROM security.role_permissions p WHERE p.permission='{permission}' "
                               f"AND p.role_id IN(SELECT role_id FROM security.role_grants WHERE principal_id='{principal}');")
     role_a, role_b, grant_a, grant_b = (str(uuid4()) for _ in range(4))
     app = 'margin_authority_'+uuid4().hex
-    query(f"BEGIN;INSERT INTO security.roles VALUES('{role_a}','{app}_a','Synthetic initial margin authority'),"
-          f"('{role_b}','{app}_b','Synthetic successor margin authority');"
-          f"DELETE FROM security.role_permissions WHERE permission='{permission}' AND role_id IN(SELECT role_id FROM security.role_grants WHERE principal_id='{principal}');"
-          f"INSERT INTO security.role_permissions VALUES('{role_a}','{permission}'),('{role_b}','{permission}');"
-          f"INSERT INTO security.role_grants VALUES('{grant_a}','{principal}','{role_a}','{tenant}','{workspace}',clock_timestamp()-interval '1 day',clock_timestamp()+interval '3 seconds',false),"
-          f"('{grant_b}','{principal}','{role_b}','{tenant}','{workspace}',clock_timestamp()+interval '3 seconds',clock_timestamp()+interval '100 seconds',false);COMMIT;")
-    try:
-        yield app
-    finally:
-        restored_permissions = saved_permissions.replace("'", "''")
-        query(f"BEGIN;DELETE FROM security.role_grants WHERE id IN('{grant_a}','{grant_b}');"
-              f"DELETE FROM security.role_permissions WHERE role_id IN('{role_a}','{role_b}');"
-              f"DELETE FROM security.roles WHERE id IN('{role_a}','{role_b}');"
-              f"INSERT INTO security.role_permissions SELECT * FROM jsonb_populate_recordset(NULL::security.role_permissions,'{restored_permissions}'::jsonb) ON CONFLICT DO NOTHING;COMMIT;")
+    roles = (f"INSERT INTO security.roles VALUES('{role_a}','{app}_a','Synthetic initial margin authority'),"
+             f"('{role_b}','{app}_b','Synthetic successor margin authority');"
+             f"DELETE FROM security.role_permissions WHERE permission='{permission}' AND role_id IN(SELECT role_id FROM security.role_grants WHERE principal_id='{principal}');"
+             f"INSERT INTO security.role_permissions VALUES('{role_a}','{permission}'),('{role_b}','{permission}');")
+    original_end = "clock_timestamp()-interval '1 second'" if lapsed else "clock_timestamp()+interval '3 seconds'"
+    grants = (f"INSERT INTO security.role_grants VALUES('{grant_a}','{principal}','{role_a}','{tenant}','{workspace}',clock_timestamp()-interval '1 day',{original_end},false),"
+              f"('{grant_b}','{principal}','{role_b}','{tenant}','{workspace}',clock_timestamp()+interval '3 seconds',clock_timestamp()+interval '100 seconds',false);")
+    term_session = f"FROM pg_stat_activity WHERE application_name='{app}_term'"
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        term = None
+        try:
+            if from_entry:
+                query(f"BEGIN;{roles}{grants}COMMIT;")
+            else:
+                query(f"BEGIN;{roles}COMMIT;")
+                # This session holds the epoch, so nothing is admitted, until another session waits for it.
+                term = pool.submit(query, f"SET application_name='{app}_term';BEGIN;SELECT 1 FROM security.epoch WHERE id=true FOR UPDATE;"
+                    "DO $$DECLARE until_at timestamptz=clock_timestamp()+interval '25 seconds';BEGIN LOOP PERFORM pg_stat_clear_snapshot();"
+                    "EXIT WHEN EXISTS(SELECT 1 FROM pg_stat_activity WHERE pg_backend_pid()=ANY(pg_blocking_pids(pid)));"
+                    "IF clock_timestamp()>=until_at THEN RAISE EXCEPTION 'No session waited for the successor grants';END IF;"
+                    f"PERFORM pg_sleep(.01);END LOOP;END$$;{grants}COMMIT;")
+                deadline = time.monotonic()+5
+                while query(f"SELECT pid {term_session} AND wait_event='PgSleep';") == '':
+                    assert time.monotonic() < deadline and not term.done(), 'The successor grants did not hold the security epoch'
+                    time.sleep(.02)
+            yield app
+            if term is not None:
+                assert term.done(), 'No session waited for the successor grants'
+                term.result()
+        except BaseException as error:
+            # A term that failed while the block ran explains the block's own failure.
+            failure = term.exception() if term is not None and term.done() else None
+            if failure is not None and failure is not error:
+                raise error from failure
+            raise
+        finally:
+            if term is not None and not term.done():
+                query(f"SELECT pg_cancel_backend(pid) {term_session};")
+                term.exception()
+            restored_permissions = saved_permissions.replace("'", "''")
+            query(f"BEGIN;DELETE FROM security.role_grants WHERE id IN('{grant_a}','{grant_b}');"
+                  f"DELETE FROM security.role_permissions WHERE role_id IN('{role_a}','{role_b}');"
+                  f"DELETE FROM security.roles WHERE id IN('{role_a}','{role_b}');"
+                  f"INSERT INTO security.role_permissions SELECT * FROM jsonb_populate_recordset(NULL::security.role_permissions,'{restored_permissions}'::jsonb) ON CONFLICT DO NOTHING;COMMIT;")
 
 
 def checks(query, manifest):
@@ -345,7 +381,7 @@ def checks(query, manifest):
     # A later pre-existing grant cannot extend an already admitted operation.
     # The real relation wait proves expiry occurs after admission, not before it.
 
-    with successor_grants(query, manifest, 'trader', 'AmendTrade') as app:
+    with successor_grants(query, manifest, 'trader', 'AmendTrade', from_entry=True) as app:
         with ThreadPoolExecutor(max_workers=2) as pool:
             holder = pool.submit(query, f"SET application_name='{app}_holder';BEGIN;LOCK TABLE settlement_data.futures_margin_commands IN ACCESS EXCLUSIVE MODE;SELECT pg_sleep(6);COMMIT;")
             deadline = time.monotonic()+2
