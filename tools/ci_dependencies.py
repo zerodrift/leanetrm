@@ -37,7 +37,7 @@ def validate_url(url):
 
 def validate_lock(lock):
     if (lock['format'] != 1 or lock['platform'] != 'ubuntu-24.04-amd64'
-            or not re.fullmatch(r'18\.[0-9]+', lock['postgres_version'])
+            or not re.fullmatch(r'19\.[0-9]+', lock['postgres_version'])
             or not 1 <= len(lock['packages']) <= 200):
         raise ValueError('Unsupported PostgreSQL dependency lock')
     validate_file_record(lock['bundle'], '.tar.gz')
@@ -121,7 +121,7 @@ def select_installation(lock, packages, *, run=subprocess.run):
     """Request only the pinned server/client; let apt select necessary dependencies."""
     selected = []
     for record, path in zip(lock['packages'], packages, strict=True):
-        if record['package'] not in ('postgresql-18', 'postgresql-client-18'):
+        if record['package'] not in ('postgresql-19', 'postgresql-client-19'):
             continue
         current = run(['dpkg-query', '-W', '-f=${db:Status-Status}\t${Version}', record['package']],
                       capture_output=True, text=True, check=False)
@@ -178,7 +178,7 @@ def install_packages(lock, packages):
             subprocess.run([*apt, '-o', 'APT::Update::Error-Mode=any', 'update'], check=True)
             subprocess.run([*apt, '--no-download', '--no-remove', '--no-install-recommends', 'install', '-y',
                             *(str(path.resolve()) for path in selected)], check=True)
-    version = subprocess.check_output(['/usr/lib/postgresql/18/bin/postgres', '--version'], text=True)
+    version = subprocess.check_output(['/usr/lib/postgresql/19/bin/postgres', '--version'], text=True)
     if not version.startswith(f'postgres (PostgreSQL) {lock["postgres_version"]} '):
         raise ValueError('Installed PostgreSQL version differs from the dependency lock')
 

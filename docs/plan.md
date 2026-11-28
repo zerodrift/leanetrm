@@ -1,5 +1,12 @@
 # Delivery plan and acceptance criteria
 
+D468 adds [PostgreSQL 19 qualification and major-upgrade continuity](postgresql-upgrade.md).
+Fresh installations and CI select stock 19.0. Existing 18 installations require
+an independently reviewed copy upgrade, exact schema/data/sequence preservation,
+retained commit evidence, explicit physical admission and a recoverable old
+cluster. Changing the Compose image alone does not perform that transition.
+Other major-version transitions require their own qualification.
+
 D465 implements [monthly gas bills](gas-monthly-bills.md) for one trade: a bill
 over a complete delivery month's daily determinations and linked adjustment
 notes for later ones, gross, with separate pay and receive totals and no new

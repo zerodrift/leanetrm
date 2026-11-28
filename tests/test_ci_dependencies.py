@@ -23,7 +23,7 @@ class DependencyCacheTests(unittest.TestCase):
         self.root = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.cache = self.root / 'cache'
         self.payloads = {'server.deb': b'synthetic server', 'library.deb': b'synthetic library'}
-        self.lock = {'format': 1, 'platform': 'ubuntu-24.04-amd64', 'postgres_version': '18.6',
+        self.lock = {'format': 1, 'platform': 'ubuntu-24.04-amd64', 'postgres_version': '19.0',
                      'packages': [{'file': name, 'sha256': digest(data), 'size': len(data),
                                    'package': name[:-4], 'version': '1.0', 'architecture': 'amd64',
                                    'url': 'https://archive.example/' + name}
@@ -155,7 +155,7 @@ class WorkflowCacheTests(unittest.TestCase):
 
     def test_postgresql_consumers_verify_bytes_on_hits_and_misses(self):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()
-        step = workflow.split('      - name: Verify and install PostgreSQL 18\n')[1].split('      - name: ')[0]
+        step = workflow.split('      - name: Verify and install PostgreSQL 19\n')[1].split('      - name: ')[0]
         self.assertIn("if: matrix.group != 'repository' && matrix.group != 'frontend' && matrix.group != 'managed'", step)
         self.assertNotIn('cache-hit', step)
         self.assertIn('python3 tools/ci_dependencies.py', step)
@@ -172,21 +172,20 @@ class WorkflowCacheTests(unittest.TestCase):
         self.assertNotIn('--allow-unauthenticated', recipe)
 
     def test_producer_sources_offer_the_pinned_major_client_library_component(self):
-        # Since PostgreSQL 19, libpq5 at the current 18 server revision is
-        # published only in PGDG component 18, not in main.
+        # Keep the selected major's client-library component available alongside main.
         stanzas = (ROOT / 'tools/ci/postgresql.sources').read_text().split('\n\n')
         pgdg, = (s for s in stanzas if 'apt.postgresql.org' in s)
-        self.assertIn('Components: main 18\n', pgdg + '\n')
+        self.assertIn('Components: main 19\n', pgdg + '\n')
 
 
 class InstalledPackageTests(unittest.TestCase):
     def test_only_server_and_client_are_requested_without_forcing_library_upgrades(self):
-        packages = [{'package': name, 'version': '2'} for name in ('postgresql-18', 'postgresql-client-18', 'libc6', 'libpq5')]
+        packages = [{'package': name, 'version': '2'} for name in ('postgresql-19', 'postgresql-client-19', 'libc6', 'libpq5')]
         paths = [Path('/cache') / (p['package'] + '.deb') for p in packages]
-        installed = {'postgresql-client-18': '1', 'libc6': '1', 'libpq5': '3'}
+        installed = {'postgresql-client-19': '1', 'libc6': '1', 'libpq5': '3'}
         def run(command, **kwargs):
             if command[0] == 'dpkg-query':
-                self.assertIn(command[-1], ('postgresql-18', 'postgresql-client-18'))
+                self.assertIn(command[-1], ('postgresql-19', 'postgresql-client-19'))
                 version = installed.get(command[-1])
                 return subprocess.CompletedProcess(command, 0 if version else 1,
                                                    'installed\t' + version if version else '')
@@ -196,10 +195,10 @@ class InstalledPackageTests(unittest.TestCase):
         self.assertEqual(select_installation({'packages': packages}, paths, run=run), paths[:2])
 
     def test_incompatible_newer_server_is_refused_before_installation(self):
-        packages = [{'package': 'postgresql-18', 'version': '18.6-1'}]
+        packages = [{'package': 'postgresql-19', 'version': '19.0-1'}]
         def run(command, **kwargs):
             if command[0] == 'dpkg-query':
-                return subprocess.CompletedProcess(command, 0, 'installed\t18.7-1')
+                return subprocess.CompletedProcess(command, 0, 'installed\t19.1-1')
             return subprocess.CompletedProcess(command, 0)
         with self.assertRaises(ValueError):
             select_installation({'packages': packages}, [Path('/cache/server.deb')], run=run)

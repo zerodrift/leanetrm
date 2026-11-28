@@ -9,7 +9,7 @@ outputs are restored as dependencies.
 
 ## PostgreSQL admission
 
-`tools/ci/postgresql.lock.json` pins stock PostgreSQL 18.7 for Ubuntu 24.04 amd64,
+`tools/ci/postgresql.lock.json` pins stock PostgreSQL 19.0 for Ubuntu 24.04 amd64,
 its server/client package revision, and each dependency's exact public URL,
 size and SHA-256. The immutable binary bundle and matching source bundle have
 their own SHA-256 pins. The reviewed lock in the checkout is the trust anchor;
@@ -61,17 +61,15 @@ Ubuntu repositories use the stock image's Ubuntu archive keyring. Signed-index
 refresh errors fail the build. No private package source is needed.
 
 The producer requests the server, the client and `libpq5` at the one selected
-revision. Since PostgreSQL 19, PGDG's `main` component publishes that release's
-`libpq5` and no longer receives new PostgreSQL 18 builds of the library; the
-build matching the current 18 server revision is published in component `18`.
-`tools/ci/postgresql.sources` therefore enables `main 18`. The selected revision
-must be one the current signed index offers for all three packages.
+revision. `tools/ci/postgresql.sources` enables `main 19`. The selected revision
+must be one the current signed index offers for all three packages; a newer
+library from another major does not substitute for that producer input.
 
 Run from the repository root, writing generated artifacts outside the checkout:
 
 ```sh
 docker build --platform linux/amd64 \
-  --build-arg POSTGRES_PACKAGE_VERSION=18.7-1.pgdg24.04+5 \
+  --build-arg POSTGRES_PACKAGE_VERSION=19.0-2.pgdg24.04+1 \
   -f tools/ci/postgresql.Dockerfile -t openetrm-ci-bundle:review .
 docker create --name openetrm-ci-bundle-export openetrm-ci-bundle:review
 docker cp openetrm-ci-bundle-export:/out /tmp/openetrm-ci-bundle
@@ -172,5 +170,14 @@ image holding PGDG `libpq5` and `libpq-dev` 19.0, which apt retained. Those are
 local results. The hosted `Dependency cache qualification` workflow then passed
 for this lock on 2026-11-27 in
 [run 46068514108](https://github.com/zerodrift/leanetrm/actions/runs/46068514108)
-at commit `d49ebddbb152a5297faa6921f12f57d98fb4053b`. The bundles for this lock
-are not published.
+at commit `d49ebddbb152a5297faa6921f12f57d98fb4053b`. Those 18.7 bundles were
+not published.
+
+The PostgreSQL 19.0 lock was produced on 2026-11-28 for revision
+`19.0-2.pgdg24.04+1`. Two independent producer runs against signed repository
+indexes reproduced its 48-package lock and both binary and source bundles byte
+for byte. Cold public acquisition, a warm verification with downloads prohibited,
+and offline installation plus isolated server startup in a disposable pinned
+Ubuntu 24.04 container passed. The recurring real 18-to-19 copy
+upgrade regression uses two pinned stock Docker images, so it does not depend
+on an unpinned old server being present on a runner.

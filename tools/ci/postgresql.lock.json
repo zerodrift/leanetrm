@@ -1,11 +1,11 @@
 {
   "format": 1,
   "platform": "ubuntu-24.04-amd64",
-  "postgres_version": "18.7",
+  "postgres_version": "19.0",
   "bundle": {
-    "file": "postgresql-18.7-ubuntu-24.04-amd64.tar.gz",
-    "size": 49742622,
-    "sha256": "717dc19a68c3b7d601ec48a5c68ea253acc7ec955edd3660f8c5d895ea3e0ab1"
+    "file": "postgresql-19.0-ubuntu-24.04-amd64.tar.gz",
+    "size": 50192914,
+    "sha256": "c1b5df1b00dd890c743d805c2febd43bcb473bccb4ef0d0290a5153adff7687a"
   },
   "packages": [
     {
@@ -251,15 +251,15 @@
       "source_version": "5.38.2-3.2ubuntu0.7"
     },
     {
-      "file": "libpq5_18.7-1.pgdg24.04+5_amd64.deb",
-      "url": "https://apt.postgresql.org/pub/repos/apt/pool/18/p/postgresql-18/libpq5_18.7-1.pgdg24.04%2b5_amd64.deb",
-      "size": 265024,
-      "sha256": "ab9b4d418864e631e1cf9ef5fc3ff3b2d856d268b8ceffa1fb3ba51544826a70",
+      "file": "libpq5_19.0-2.pgdg24.04+1_amd64.deb",
+      "url": "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-19/libpq5_19.0-2.pgdg24.04%2b1_amd64.deb",
+      "size": 261612,
+      "sha256": "d1fce6ced54ff6ced4f8f4ef04d2f5519007a26286731571cfc195406301f31f",
       "package": "libpq5",
-      "version": "18.7-1.pgdg24.04+5",
+      "version": "19.0-2.pgdg24.04+1",
       "architecture": "amd64",
-      "source": "postgresql-18",
-      "source_version": "18.7-1.pgdg24.04+5"
+      "source": "postgresql-19",
+      "source_version": "19.0-2.pgdg24.04+1"
     },
     {
       "file": "libreadline8t64_8.2-4build1_amd64.deb",
@@ -427,26 +427,26 @@
       "source_version": "5.38.2-3.2ubuntu0.7"
     },
     {
-      "file": "postgresql-18_18.7-1.pgdg24.04+5_amd64.deb",
-      "url": "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-18/postgresql-18_18.7-1.pgdg24.04%2b5_amd64.deb",
-      "size": 7657644,
-      "sha256": "2cb84cff0a725659c598993990a27227cea22ab69219efaad9600bb01ef54ed3",
-      "package": "postgresql-18",
-      "version": "18.7-1.pgdg24.04+5",
+      "file": "postgresql-19_19.0-2.pgdg24.04+1_amd64.deb",
+      "url": "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-19/postgresql-19_19.0-2.pgdg24.04%2b1_amd64.deb",
+      "size": 8045112,
+      "sha256": "9eab8a15beb9d54b181bb14670602552abb68cb502512c1b0e8741f9b9e7791e",
+      "package": "postgresql-19",
+      "version": "19.0-2.pgdg24.04+1",
       "architecture": "amd64",
-      "source": "postgresql-18",
-      "source_version": "18.7-1.pgdg24.04+5"
+      "source": "postgresql-19",
+      "source_version": "19.0-2.pgdg24.04+1"
     },
     {
-      "file": "postgresql-client-18_18.7-1.pgdg24.04+5_amd64.deb",
-      "url": "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-18/postgresql-client-18_18.7-1.pgdg24.04%2b5_amd64.deb",
-      "size": 2118696,
-      "sha256": "15d01aed36b9faf84765e113cc658e24aa5b8ec47ec7d012b49d0564f1993679",
-      "package": "postgresql-client-18",
-      "version": "18.7-1.pgdg24.04+5",
+      "file": "postgresql-client-19_19.0-2.pgdg24.04+1_amd64.deb",
+      "url": "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-19/postgresql-client-19_19.0-2.pgdg24.04%2b1_amd64.deb",
+      "size": 2184568,
+      "sha256": "92cb001d8fe485449a02e8646a13a561a632104e5bacf0cbb70c0bff9013e04e",
+      "package": "postgresql-client-19",
+      "version": "19.0-2.pgdg24.04+1",
       "architecture": "amd64",
-      "source": "postgresql-18",
-      "source_version": "18.7-1.pgdg24.04+5"
+      "source": "postgresql-19",
+      "source_version": "19.0-2.pgdg24.04+1"
     },
     {
       "file": "postgresql-client-common_297.pgdg24.04+1_all.deb",
@@ -538,8 +538,8 @@
     }
   ],
   "source_bundle": {
-    "file": "postgresql-18.7-ubuntu-24.04-amd64-sources.tar.gz",
-    "size": 167293678,
-    "sha256": "a992da4b900c5fc2286008d70c47ed83148c67fa87c51b0f57144f0871805527"
+    "file": "postgresql-19.0-ubuntu-24.04-amd64-sources.tar.gz",
+    "size": 168106231,
+    "sha256": "085e7e4bf208809228eee1b7753b0d433839104059dc47b4227340b03508e408"
   }
 }

@@ -497,11 +497,12 @@ def run_checks(url, query, psql, manifest, environment, admin, viewer, again):
     for name in UNSAFE_NAMES:
         query(expect(f"UPDATE assistant.models SET display_name='{name}',version=version+1 WHERE id={model};", '23514'))
     check('even for the owner, a stored display name follows the same rule')
-    # A session without standard conforming strings must read the rule's escapes the same way.
-    lax = 'SET standard_conforming_strings=off;'
-    query(lax + expect(f"UPDATE assistant.models SET display_name='{UNSAFE_NAMES[0]}',version=version+1 WHERE id={model};", '23514'))
-    check('both rules hold in a session without standard conforming strings',
-          query(lax + "SELECT assistant.is_display_name('Synthetic model') AND assistant.is_terms_text('Synthetic terms');") == 't')
+    # PostgreSQL 19 permanently enables standard strings; explicit E literals
+    # still exercise backslash interpretation at the storage boundary.
+    query(expect("SET standard_conforming_strings=off;", '0A000'))
+    query(expect(f"UPDATE assistant.models SET display_name=E'Synthetic\\nmodel',version=version+1 WHERE id={model};", '23514'))
+    check('standard strings stay enabled and explicit escaped controls are refused',
+          query("SELECT current_setting('standard_conforming_strings')='on' AND assistant.is_display_name('Synthetic model') AND assistant.is_terms_text('Synthetic terms');") == 't')
     for statement in (f"UPDATE assistant.price_revisions SET output=1 WHERE model_id={model} AND kind='rates';",
                       f"DELETE FROM assistant.price_revisions WHERE model_id={model};",
                       # Advancing the version leaves only the identity rule to refuse these changes.

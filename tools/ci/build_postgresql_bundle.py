@@ -18,15 +18,15 @@ def digest(path):
 
 
 def main(version):
-    if not re.fullmatch(r'18\.[0-9]+-[A-Za-z0-9.+~]+', version):
-        raise ValueError('Select an exact PostgreSQL 18 Debian package version')
+    if not re.fullmatch(r'19\.[0-9]+-[A-Za-z0-9.+~]+', version):
+        raise ValueError('Select an exact PostgreSQL 19 Debian package version')
     apt = ['apt-get', '-o', 'APT::Update::Error-Mode=any',
            '-o', 'Dir::Etc::sourcelist=/build/postgresql.sources',
            '-o', 'Dir::Etc::sourceparts=-', '-o', 'Dir::State::lists=/build/lists',
            '-o', 'Dir::State::status=/build/base-status', '-o', 'Dir::Cache::archives=/build/archives']
     subprocess.run([*apt, 'update'], check=True)
     selection = ['--no-install-recommends', '--download-only', 'install', '-y',
-                 f'postgresql-18={version}', f'postgresql-client-18={version}', f'libpq5={version}']
+                 f'postgresql-19={version}', f'postgresql-client-19={version}', f'libpq5={version}']
     uris = subprocess.check_output([*apt, '--print-uris', *selection], text=True)
     subprocess.run([*apt, *selection], check=True)
     sources = {}

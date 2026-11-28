@@ -1,7 +1,7 @@
 name: ${DEPLOYMENT_PROJECT:?}
 services:
   database:
-    image: postgres:18.7-bookworm@sha256:e742a2668255221388004f3a42b6150a2103f5054ab3a4a93ae9e4f01e551c35
+    image: postgres:19.0-bookworm@sha256:f8b826440669ad283328d2ac8326682539eddd91867904ad5abf4ec19269d241
     container_name: ${DATABASE_CONTAINER:?}
     restart: unless-stopped
     environment:
@@ -14,7 +14,7 @@ services:
     # The API's pools hold at most 46 connections (docs/ai-assistant.md §11), beside the collector and operator sessions.
     command: [postgres, -c, track_commit_timestamp=on, -c, timezone=UTC, -c, max_connections=80]
     volumes:
-      - ${STATE_ROOT:?}/postgres18:/var/lib/postgresql
+      - ${STATE_ROOT:?}/postgres19:/var/lib/postgresql
       - ${PRIVATE_ROOT:?}/database-owner:/run/secrets/database-owner:ro
     networks: [database]
     shm_size: 256mb

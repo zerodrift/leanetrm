@@ -96,7 +96,7 @@ jobs:
           printf '#!/bin/sh\necho "Unexpected PostgreSQL download" >&2\nexit 1\n' > "$RUNNER_TEMP/no-download/curl"
           chmod +x "$RUNNER_TEMP/no-download/curl"
           PATH="$RUNNER_TEMP/no-download:$PATH" python3 tools/ci_dependencies.py --cache "$DEPENDENCY_CACHE/postgresql"
-          /usr/lib/postgresql/18/bin/initdb -D "$RUNNER_TEMP/cache-check-db" --no-locale --encoding=UTF8
-          /usr/lib/postgresql/18/bin/pg_ctl -D "$RUNNER_TEMP/cache-check-db" -l "$RUNNER_TEMP/cache-check-db.log" -o "-c listen_addresses='' -c unix_socket_directories='$RUNNER_TEMP' -c track_commit_timestamp=on" -w start
-          trap '/usr/lib/postgresql/18/bin/pg_ctl -D "$RUNNER_TEMP/cache-check-db" -m immediate -w stop' EXIT
-          /usr/lib/postgresql/18/bin/psql -X -h "$RUNNER_TEMP" -d postgres -v ON_ERROR_STOP=1 -c "SELECT version(); SHOW track_commit_timestamp;"
+          /usr/lib/postgresql/19/bin/initdb -D "$RUNNER_TEMP/cache-check-db" --no-locale --encoding=UTF8
+          /usr/lib/postgresql/19/bin/pg_ctl -D "$RUNNER_TEMP/cache-check-db" -l "$RUNNER_TEMP/cache-check-db.log" -o "-c listen_addresses='' -c unix_socket_directories='$RUNNER_TEMP' -c track_commit_timestamp=on" -w start
+          trap '/usr/lib/postgresql/19/bin/pg_ctl -D "$RUNNER_TEMP/cache-check-db" -m immediate -w stop' EXIT
+          /usr/lib/postgresql/19/bin/psql -X -h "$RUNNER_TEMP" -d postgres -v ON_ERROR_STOP=1 -c "SELECT version(); SHOW track_commit_timestamp;"

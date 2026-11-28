@@ -8369,3 +8369,27 @@ still being mapped, so it would need its own rule for when the table is complete
 and for keeping it current, which routing already has. One snapshot per invoked
 operation: it halves the rebuild and keeps the rest. Building the collection
 when the host starts: no supported consumer needs the first call's cost removed.
+
+## D468 — PostgreSQL 19 preserves explicit catalog lineage through an admitted copy upgrade
+
+Stock PostgreSQL 19.0 is the selected fresh-installation and CI database. An
+existing 18 installation needs a separately qualified major upgrade: native
+`pg_upgrade` changes physical system identity and discards commit timestamps.
+Neither an image swap nor rewriting retained source fields satisfies historical
+replay.
+
+Existing catalogs keep their original source tuple. Private immutable upgrade
+proofs bind it to one verified physical successor and retain exact full-XID
+commit times from native metadata or existing exact immutable receipts. Current
+authority and ordinary certification remain mandatory. New catalogs use the
+successor's native identity. Schema, all persistent rows, sequence allocators,
+transaction evidence and the selected proof must be verified before admission.
+Preparation attempts have explicit request IDs, so an aborted attempt can remain
+immutable while a later attempt seals new source writes.
+
+This changes source-identity admission only for the explicit 18-to-19 transition.
+It introduces no guessed knowledge time, publication recertification bypass,
+financial fallback, retained-input rewrite or automatic failover. The deployment
+operator still verifies the current physical system identity independently.
+Other major transitions and recovery timelines remain separate decisions.
+See the [contract, operator sequence and qualification](postgresql-upgrade.md).

@@ -1,5 +1,12 @@
 # Architecture and domain contracts
 
+D468 qualifies an explicit [PostgreSQL 18 to 19 transition](postgresql-upgrade.md).
+Existing catalogs retain their source lineage and immutable owner coordinates;
+a private continuity receipt binds that lineage to one verified successor
+physical database. Exact full-transaction commit times are retained before the
+native metadata is lost. New catalogs use the successor's physical identity.
+Current authority, publication certification and historical cutoffs are unchanged.
+
 D465 adds [monthly gas bills](gas-monthly-bills.md). A bill is an immutable
 document over one trade's existing daily cash determinations for a complete
 delivery month; a later determination goes on a linked adjustment note. A
