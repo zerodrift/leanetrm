@@ -87,14 +87,26 @@ test('physical receipt recovery keeps a request unless its native outcome matche
   [{path:'gas/operations/configure',operationId:'op',body:{preview:{tradeId:'gas',kind:'service'}}},{operationId:'op',tradeId:'gas',kind:'service',id:'terms'}],
   [{path:'gas/operations/record',operationId:'op',body:{preview:{tradeId:'gas',kind:'nomination'}}},{operationId:'op',tradeId:'gas',kind:'nomination',id:'request'}],
   [{path:'gas/billing/determine',operationId:'op',body:{preview:{tradeId:'gas'}}},{operationId:'op',tradeId:'gas',determinationId:'cash'}],
+  [{path:'gas/bills/issue',operationId:'op',body:{preview:{tradeId:'gas'}}},{operationId:'op',tradeId:'gas',billId:'bill'}],
   [{path:'gas/quantities/record',operationId:'op',body:{tradeId:'gas',obligationId:'receipt'}},{operationId:'op',tradeId:'gas',obligationId:'receipt',revisionId:'daily',revision:2}],
   [{path:'crude/operations/invoice/issue',operationId:'op',body:{tradeId:'crude'}},{operationId:'op',tradeId:'crude',eventId:'invoice',version:2}]
  ];
  for(const [command,receipt] of samples){
   assert.doesNotThrow(()=>requirePhysicalReceipt(command,receipt),command.path);
-  for(const bad of [null,{}, {found:true}, {...receipt,operationId:'different'}, {...receipt,tradeId:'different'}, {...receipt,id:undefined,revisionId:undefined,eventId:undefined,determinationId:undefined}])
+  for(const bad of [null,{}, {found:true}, {...receipt,operationId:'different'}, {...receipt,tradeId:'different'}, {...receipt,id:undefined,revisionId:undefined,eventId:undefined,determinationId:undefined,billId:undefined}])
    assert.throws(()=>requirePhysicalReceipt(command,bad),/retained status/,command.path);
  }
  assert.throws(()=>requirePhysicalReceipt(samples[0][0],{...samples[0][1],kind:'nomination'}),/retained status/);
- assert.throws(()=>requirePhysicalReceipt(samples[3][0],{...samples[3][1],obligationId:'delivery'}),/retained status/);
+ assert.throws(()=>requirePhysicalReceipt(samples[4][0],{...samples[4][1],obligationId:'delivery'}),/retained status/);
+});
+
+test('a monthly gas bill request is a lifecycle command with its own status, refusals and retry rule',async()=>{
+ const {isLifecycleCommand,tradeStatusPath,knownTradeRejection,releasesRetained,retryAllowed}=await import('../dist/trade-requests.js');
+ assert.equal(isLifecycleCommand('gas/bills/issue'),true);assert.equal(tradeStatusPath('gas/bills/issue'),'gas/bills/status');
+ assert.equal(knownTradeRejection('gas_bill_incomplete'),true);assert.equal(releasesRetained('gas/bills/issue','gas_bill_incomplete',false),true);
+ // A refused retry says nothing of the original, whose outcome only its status recovers.
+ assert.equal(releasesRetained('gas/bills/issue','gas_bill_incomplete',true),false);
+ assert.equal(retryAllowed('gas/bills/issue',{canAmendTrades:true}),true);assert.equal(retryAllowed('gas/bills/issue',{canBook:true}),false);
+ const {restoreTradeRequest}=await import('../dist/pending-command.js');
+ assert.equal(restoreTradeRequest({path:'gas/bills/issue',operationId:'op',body:{preview:{tradeId:'gas'}},label:'Gas bill'}).path,'gas/bills/issue');
 });

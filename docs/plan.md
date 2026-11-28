@@ -3,9 +3,9 @@
 D464 implements [monthly gas bills](gas-monthly-bills.md) for one trade: a bill
 over a complete delivery month's daily determinations and linked adjustment
 notes for later ones, gross, with separate pay and receive totals and no new
-rounding. Native operations only. Counterparty-level bills and netting need a
-typed election on the agreement; a screen, a rendered or exported document,
-payment matching and accounting remain separate.
+rounding. Billing & corrections reviews and issues them. Counterparty-level
+bills and netting need a typed election on the agreement; a rendered or
+exported document, payment matching and accounting remain separate.
 
 D463 implements [final daily billing of index-priced gas payments](gas-cash-billing.md#indexed-profile-d463),
 on a named daily or monthly index or on point publications:

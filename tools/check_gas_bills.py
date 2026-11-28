@@ -54,7 +54,7 @@ def bill_checks(c, query, manifest, terms, before, after, url):
         return [(line['cashSlot'], line['day'], line['amount']) for line in document['lines']]
 
     scope = read()
-    assert (scope['scopePolicy'], scope['amountPolicy']) == (POLICY, 'sum_of_daily_determinations_v1')
+    assert (scope['scopePolicy'], scope['amountPolicy'], scope['canWrite']) == (POLICY, 'sum_of_daily_determinations_v1', True)
     assert [(p['cashSlot'], p['covered'], p['reason']) for p in scope['payments']] == [(PAYMENT, True, None), (FEE, True, None)], scope['payments']
     every_day = [dict(cashSlot=slot, day=day) for slot in (PAYMENT, FEE) for day in ('2021-01-01', '2021-01-02')]
     assert (month()['state'], month()['missing'], month()['documents']) == ('incomplete', every_day, [])
@@ -174,6 +174,7 @@ def bill_checks(c, query, manifest, terms, before, after, url):
     viewer.call('gas/bills/issue', {**accept(change), 'preview': {**reviewed(), 'context': watching}}, expected=403)
 
     # The view captured before the bill still sees a ready month, no document and nothing documented.
+    assert read(retained)['canWrite'] is False
     earlier = month(retained)
     assert (earlier['state'], earlier['documents']) == ('ready', [])
     assert c.call('gas/bills/preview', reviewed(retained))['document']['payTotal'] == '-594'
@@ -187,5 +188,13 @@ def bill_checks(c, query, manifest, terms, before, after, url):
     unbillable = c.call('gas/bills/read', dict(context=after, tradeId=ruled))
     assert [(p['covered'], p['reason']) for p in unbillable['payments']] == [(False, 'rights'), (False, 'rights')] and unbillable['months'] == [], unbillable
     assert c.call('gas/bills/preview', {**reviewed(), 'tradeId': ruled}, expected=422)['code'] == 'gas_bill_scope'
+    # A second trade is left with a complete, unbilled month for the browser to review and issue.
+    ready = deepcopy(terms); ready['operationId'] = str(uuid4())
+    trade = c.call('gas/composition/book', ready)['tradeId']
+    obligation = c.call('gas/quantities/read', dict(context=after, tradeId=trade, selectionPolicy='operational_projection_v1'))['rows'][0]['obligationId']
+    for day in ('2021-01-01', '2021-01-02'):
+        final(day, '100'); determine(PAYMENT, day); determine(FEE, day)
+    assert month()['state'] == 'ready'
     print('PASS gas monthly bill: incomplete month refused with its missing days, bill over every determination with separate totals, '
           'forged and stale reviews refused, replay and another actor, linked adjustment note, immutable documents and earlier views', flush=True)
+    return dict(tradeId=trade)

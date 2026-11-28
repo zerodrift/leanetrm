@@ -81,8 +81,9 @@ The owner selected these on 28 November 2026.
 - Charges, imbalance cash-out, receipt and fuel stages, and payments governed
   by an exercise or swing right. They have no determinations.
 - Accounting entries and tax.
-- A screen. This increment adds the native operations and their checks; the
-  Billing & corrections panel follows as its own increment.
+- A screen. This increment adds the native operations and their checks. The
+  Billing & corrections panel followed as its own increment; see
+  [the contract](../../gas-monthly-bills.md#screen).
 - Assistant operations.
 
 ## Anti-goals
