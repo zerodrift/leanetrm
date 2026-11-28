@@ -247,7 +247,7 @@ COPY --from=old /usr/share/doc/postgresql-client-18 /usr/share/doc/postgresql-cl
         start(18)
         query((ROOT / 'db/bootstrap.sql').read_text())
         journal = sorted((ROOT / 'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql'))
-        migration = next(path for path in journal if path.name.startswith('0414_'))
+        migration = next(path for path in journal if path.name == '0415_postgresql19_continuity.sql')
         query('\n'.join(path.read_text() for path in journal if path < migration))
         for alteration in (
             'GRANT EXECUTE ON FUNCTION security.checked_commit_time(xid8) TO PUBLIC;',

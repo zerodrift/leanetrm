@@ -9,7 +9,7 @@ grant. Bootstrap refuses an existing application schema; upgrading an installed
 database preserves its migration ledger and existing ACL provenance.
 
 Existing PostgreSQL 18 installations use the explicit
-[19 upgrade contract](../docs/postgresql-upgrade.md), including migration 0414,
+[19 upgrade contract](../docs/postgresql-upgrade.md), including migration 0415,
 exact commit evidence and physical continuity admission. Changing the server
 image alone does not upgrade an installed database.
 
@@ -26,6 +26,12 @@ application. See [current implementation](../docs/implementation.md) and
 
 Recent schema groups and their contracts:
 
+- [0414](migrations/0414_issue_reports.sql) adds [issue reports](../docs/issue-reports.md):
+  immutable workspace policy revisions, one retained report per person and
+  request identity, single dispatch admission and explicit resolution of
+  unconfirmed outcomes. The six human role templates hold `SubmitIssueReports`
+  and Access administrator holds `ManageIssueReporting`; the agent reader role
+  holds neither (D467).
 - [0413](migrations/0413_gas_monthly_bills.sql) adds monthly gas bills and
   adjustment notes for one trade. A document's lines are existing daily cash
   determinations, each on at most one document, with separate pay and receive

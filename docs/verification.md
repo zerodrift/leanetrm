@@ -1,5 +1,65 @@
 # Local verification and continuous integration
 
+## Issue reports (D467)
+
+Run locally on 2026-11-27 and 2026-11-28 (UTC) on macOS with stock PostgreSQL 18
+and the pinned .NET SDK, against disposable databases, synthetic data and a
+loopback synthetic tracker, on the branch after its last merge of master. No
+real tracker was called.
+
+Each new check was written before the code it exercises and failed first: the
+storage check on the missing permissions, the adapter check on the missing
+types, the HTTP check on the missing routes, and the assistant check on the
+missing catalog entry.
+
+| Check | Result |
+| --- | --- |
+| `tools/check_issue_reports.py` | Passes its four groups: policy, requests, uncertain delivery, dispatch authority |
+| `OpenEtrm.Api.Checks -- --issue-tracker` | Passes |
+| `tools/run_preview.py --issue-report-check` | Passes its three groups through the six routes |
+| `tools/run_preview.py --check --assistant-workspace-check` | Passes, 216 lines, including the assistant's draft, Review naming the repository, one issue on authorization, replay and a draft refused after the policy was disabled |
+| `tools/run_preview.py --check --assistant-check` | Passes, 903 lines, after two expected updates |
+| `tools/run_preview.py --check` | Passes, 1,587 lines |
+| `OpenEtrm.Api.Checks -- --assistant-prompts`, `-- --assistant-workspace` | Pass unchanged |
+| `python -m unittest discover -s tests` | 215 tests pass, including the deployment guard for the tracker check endpoint and the check registration |
+| `node --test web/tests/*.test.mjs` | See below |
+
+The two updates to `tools/check_model_providers.py` follow from migration 0414
+adding to the `assistant` schema: the count of tables forcing row security goes
+from 35 to 38, and the ten issue report operations join the list of functions
+the runtime may execute. The same check now also asserts that an agent's
+delegated context is refused for submitting a report and for reading the
+policy. `web/tests/account-read-refresh.test.mjs` names the two new browser
+modules, which an account change now resets.
+
+The frontend suite was run in full before the last merge of master, and the
+tests for these screens and for the assistant's workspace again after it. The
+full run had 2,461 tests: 2,451 pass and 10 fail. The ten are the
+"typed day quantity" tests of `deal-ticket-browser.test.mjs`, which fail the
+same way on untouched master with the locally installed browser; nothing in
+this change touches the deal ticket. CI decides them.
+
+Two independent adversarial reviews read the change and reported findings. The
+first covered the storage, handler and adapter, and ran its own experiments:
+authorization, single admission and the absence of a second issue without an
+explicit resend held, and its most serious finding was that a resend could
+settle a report as `failed` while the earlier attempt's issue existed. The
+second covered those fixes, the assistant's path and the browser screens by
+reading: it found no defect in the storage, adapter or assistant path, and its
+confirmed findings were in the screens and in this record. The findings of both
+are resolved in the code and covered by the checks above, except those kept as
+known limits in the [contract](issue-reports.md#known-limits). The last fixes
+have not themselves been reviewed again.
+
+The screens were tried by hand in a preview connected to the synthetic tracker:
+saving the policy, sending a report, the outcome and the report's link, the
+policy card leaving with its page, and the header at a width of 390 px.
+
+Not run: `tools/check_all.py` as a whole, which refuses the locally installed
+Node 24.22.3 against the pinned 24.22.0; the browser suites; and the remaining
+preview groups. CI is the full gate. No hosted installation is qualified by
+this evidence.
+
 ## Monthly gas bills in Billing & corrections (D465)
 
 Run on 28 November 2026 in a Linux container limited to four processors, with

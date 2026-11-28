@@ -10,7 +10,7 @@ database. An image replacement cannot upgrade its data directory.
 
 Stock `pg_upgrade` changes the physical system identifier and does not preserve
 native commit timestamps. Both were previously required directly by historical
-read admission. Migration `0414_postgresql19_continuity.sql` makes the transition
+read admission. Migration `0415_postgresql19_continuity.sql` makes the transition
 explicit without changing financial facts, known times or retained job inputs.
 
 For an existing catalog, `knowledge_clocks.system_identifier` and `timeline_id`
@@ -87,7 +87,7 @@ timeline needs a separately reviewed continuity policy.
 ## Operator sequence
 
 1. Verify the exact source release, migration journal, database identity,
-   dependency images, permissions and available storage. Qualify migration 0414
+   dependency images, permissions and available storage. Qualify migration 0415
    and the full copy upgrade on isolated resources before touching production.
    Inventory the cluster's databases: the row proof covers the connected
    application database. Another database containing application data requires

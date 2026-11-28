@@ -317,6 +317,12 @@ class EgressFenceChecks(unittest.TestCase):
         with self.assertRaisesRegex(deploy.ReleaseError, 'check endpoint'):
             deploy.require_actual(actual, {}, actual['Image'])
 
+    def test_a_serving_api_naming_an_issue_tracker_check_endpoint_is_refused(self):
+        actual = {'Image': 'sha256:' + 'b' * 64, 'State': {'Running': True}, 'Config': {'User': '1654:1654', 'Env': [
+            'OPENETRM_HOSTED_CONFIG=/run/private/host.json', 'OPENETRM_ISSUE_TRACKER_CHECK_ENDPOINT=http://127.0.0.1:9']}}
+        with self.assertRaisesRegex(deploy.ReleaseError, 'check endpoint'):
+            deploy.require_actual(actual, {}, actual['Image'])
+
 
 class StateMachineChecks(unittest.TestCase):
     def setUp(self):

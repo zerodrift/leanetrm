@@ -65,6 +65,10 @@ await using var agentWorker=new AgentWorker(workerHolder,workerWrites,app.Logger
 var custody=hosted is null?CredentialCustody.FromEnvironment():new CredentialCustody(hosted.CredentialKeyFile,hosted.CredentialRetryKeyFile);
 var adapter=new ModelAdapters(ModelTransport.Handler(checkEndpoint,TimeSpan.FromSeconds(processLimits.ProviderConnectSeconds)),new(TimeSpan.FromSeconds(processLimits.ProviderIdleSeconds),processLimits.ProviderResponseBytes));
 var providerTests=new ProviderTests(custody,agentWorker,adapter,app.Logger);
+// The installation's issue tracker connection, absent unless its private file is named (docs/issue-reports.md). Only
+// owned checks set the check endpoint, under the same loopback rule as the provider's.
+var issueTracker=IssueTrackerSettings.FromEnvironment() is {} trackerSettings
+    ?GitHubIssues.Open(trackerSettings,ModelTransport.CheckEndpoint(Environment.GetEnvironmentVariable("OPENETRM_ISSUE_TRACKER_CHECK_ENDPOINT"))):null;
 // The live event stream's subscriptions, which the worker tells of what it publishes (§8).
 var turnStreams=new TurnStreams();
 await using var turnWorker=new TurnWorker(agentWorker,custody,adapter,turnStreams,app.Logger);
@@ -158,6 +162,9 @@ const string malformed="The request is incomplete or malformed.";
         =>(409,p.MessageText,"These settings or this request changed. Reload the current version, or retry the original request."),
     PostgresException p when p.SqlState=="P0001"&&p.MessageText is "operating_policy_input" or "user_preferences_input"
         =>(422,p.MessageText,"Supply the complete supported settings within the stated bounds."),
+    PostgresException p when p.SqlState=="P0001"&&p.MessageText.StartsWith("issue_report",StringComparison.Ordinal)
+        =>(IssueReports.Status(p.MessageText),p.MessageText,IssueReports.Text(p.MessageText)),
+    MarketDataException m when m.Code is "issue_tracker_unconfigured"||m.Code.StartsWith("issue_report",StringComparison.Ordinal)=>(IssueReports.Status(m.Code),m.Code,m.Message),
     PostgresException p when p.SqlState=="P0001"&&p.MessageText=="operating_policy_missing"
         =>(409,p.MessageText,"The workspace operating policy must be explicitly provisioned before this operation."),
     PostgresException p when p.SqlState=="P0001"&&p.MessageText=="page_prompt_required"=>(409,p.MessageText,"Configure the provider-test question in Settings → AI → Prompts before running a test."),
@@ -634,7 +641,7 @@ api.MapGet("/bootstrap",async (HttpContext context,IAntiforgery antiforgery,bool
         var identity=hosted is null?null:HostedAuthentication.Current(context);
         if(identity is not null){if(session.Profile is not null&&session.Profile!=identity.Subject)throw new PreviewDeniedException();session.Profile=identity.Subject;}
         object response=new {asyncReadProtocol=AsyncReadChannel.Protocol,mode=database.Manifest.Mode,runId,notice=hosted is null?"Disposable synthetic workspace. Test identities are simulations, not production sign-in.":"Private pilot workspace. Financial capability is limited to the supported product conventions.",profiles=identity is null?profiles:profiles.Take(0).Append(new{id=identity.Subject,name=identity.Name,description="Signed-in account"}).ToArray(),
-        requestDeadlines=processLimits.RequestDeadlines,processLimits=processLimits.Digest,profile=session.Profile,customProfiles=session.CustomProfiles.Select(p=>new{id=p.Key,name=p.Value}).ToArray(),csrfToken=antiforgery.GetAndStoreTokens(context).RequestToken,frames=includeFrames?session.PersistentFrames.Where(f=>f.PpaBundle is null && f.ContextId==session.MarketContext?.ContextId).OrderBy(f=>f.At).ToArray():[],
+        requestDeadlines=processLimits.RequestDeadlines,issueTracker=issueTracker is not null,processLimits=processLimits.Digest,profile=session.Profile,customProfiles=session.CustomProfiles.Select(p=>new{id=p.Key,name=p.Value}).ToArray(),csrfToken=antiforgery.GetAndStoreTokens(context).RequestToken,frames=includeFrames?session.PersistentFrames.Where(f=>f.PpaBundle is null && f.ContextId==session.MarketContext?.ContextId).OrderBy(f=>f.At).ToArray():[],
         catalogId=database.Manifest.CatalogId,tenantId=database.Manifest.TenantId,workspaceId=database.Manifest.WorkspaceId};
         if(includeAccess)
         {
@@ -1803,6 +1810,18 @@ api.MapGet("/settings/operating-policies",async Task<IResult>(HttpContext c)=>aw
     async(connection,ct)=>Results.Ok(await OperatingPolicies.Directory(connection,ct)),c.RequestAborted)));
 api.MapPost("/settings/operating-policies",(HttpContext c,SaveOperatingPolicyRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),OperatingPolicies.PermissionFor(body.Kind),
     async(connection,ct)=>Results.Ok(await OperatingPolicies.Save(connection,body,ct)),c.RequestAborted,OperatingPolicies.AdmissionFor(body.Kind))));
+api.MapGet("/settings/issue-reports",async Task<IResult>(HttpContext c)=>await Locked(c,session=>database.WithIdentity(Profile(session),IssueReports.Manage,
+    async(connection,ct)=>Results.Ok(await IssueReports.Policy(connection,issueTracker,ct)),c.RequestAborted)));
+api.MapPost("/settings/issue-reports",(HttpContext c,SaveIssueReportPolicyRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),IssueReports.Manage,
+    async(connection,ct)=>Results.Ok(await IssueReports.SavePolicy(connection,body,ct)),c.RequestAborted)));
+api.MapGet("/issue-reports",async Task<IResult>(HttpContext c)=>await Locked(c,session=>database.WithIdentity(Profile(session),IssueReports.Submit,
+    async(connection,ct)=>Results.Ok(await IssueReports.Mine(connection,issueTracker,ct)),c.RequestAborted)));
+api.MapPost("/issue-reports",(HttpContext c,SubmitIssueReportRequest body)=>Locked(c,async session=>
+    Results.Ok(await IssueReports.Request(database,Profile(session),issueTracker,body,c.RequestAborted))));
+api.MapPost("/issue-reports/reconcile",(HttpContext c,IssueReportReference body)=>Locked(c,async session=>
+    Results.Ok(await IssueReports.Reconcile(database,Profile(session),issueTracker,body,c.RequestAborted))));
+api.MapPost("/issue-reports/resolve",(HttpContext c,ResolveIssueReportRequest body)=>Locked(c,async session=>
+    Results.Ok(await IssueReports.Resolve(database,Profile(session),issueTracker,body,c.RequestAborted))));
 api.MapGet("/settings/preferences",async Task<IResult>(HttpContext c)=>await Locked(c,session=>database.WithIdentity(Profile(session),null,
     async(connection,ct)=>Results.Ok(await UserPreferences.Read(connection,turnScope,ct)),c.RequestAborted)));
 api.MapPost("/settings/preferences",(HttpContext c,SaveUserPreferencesRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),null,
@@ -3266,7 +3285,7 @@ api.MapPost("/assistant/turns/ask",(HttpContext c,AskRequest body)=>Locked(c,ses
 }));
 api.MapPost("/assistant/actions/review",(HttpContext c,CurveProposalRequest body)=>Locked(c,session=>
     database.WithIdentity(Profile(session),AssistantOperations.Permission,async(connection,ct)=>
-        Results.Ok(assistantWorkspace.Review(await assistantWorkspace.Recorded(connection,body.TurnId,body.Step,ct),body.TurnId,body.Step)),c.RequestAborted)));
+        Results.Ok(IssueReports.Destination(assistantWorkspace.Review(await assistantWorkspace.Recorded(connection,body.TurnId,body.Step,ct),body.TurnId,body.Step),issueTracker)),c.RequestAborted)));
 // Only a separate authenticated, CSRF-protected human request reaches this endpoint. The body identifies a retained
 // proposal, never accepts a replacement operation/payload, and the original business handler reauthorizes the save.
 api.MapPost("/assistant/actions/authorize",(HttpContext c,CurveProposalRequest body)=>Locked(c,async session=>

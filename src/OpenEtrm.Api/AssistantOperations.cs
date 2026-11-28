@@ -119,6 +119,9 @@ internal static class AssistantOperations
         Add("settings_ai","ManageAgents",true,"!settings/ai/agents","settings/ai/agents/create settings/ai/agents/save settings/ai/agents/publish settings/ai/agents/retire");
         Add("settings_ai","ReadModelUsage",true,"!settings/ai/usage settings/ai/usage/report","settings/ai/usage/export");
         Add("settings_ai","ManageAssistantPrompts",true,"!settings/ai/page-prompts","settings/ai/page-prompts/save");
+        // A person reports an issue from whatever page they are on, so these belong to no page of their own.
+        // Looking a report up, resending it, giving it up and the workspace policy stay the person's own controls.
+        Add(IssueReports.Page,IssueReports.Submit,true,"!issue-reports","issue-reports");
         return result.AsReadOnly();
     }
     public static AssistantOperation? Find(string id)=>Catalog.SingleOrDefault(o=>o.Id==id);
