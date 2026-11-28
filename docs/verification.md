@@ -7243,6 +7243,15 @@ the [hosted guide](hosted-pilot.md#automated-release-distribution) was run
 against that database in a disposable 18.7 container and printed the same
 fingerprint; with no database to dump it failed instead of printing one.
 
-Not run: `tools/check_release_docker.py`, which records and checks a
-fingerprint against a running release; a database on another major release; and
-any installation's own re-recording.
+`tools/check_release_docker.py` was then run with this deployer against the
+attested release of master head `32921f1ab48e4a622179e62ebef745158d836d1f`,
+with the release of `da0b3c2250c064b0eb7ef8a393b6ece58e75f8b7` as the previous
+image and both previous-image options `named`. It recorded the fingerprint from
+the release's stock 18.7 database after the release's migrations, and the
+deployment's own baseline check accepted it. The check passed: attestation,
+candidate preflight, promotion, unchanged database and data, the repeat run and
+the paired rollback. The only local adaptation was a wrapper that passed the
+sandbox's network proxy settings to `gh`.
+
+Not run: a database on another major release, and any installation's own
+re-recording.
