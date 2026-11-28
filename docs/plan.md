@@ -1,5 +1,12 @@
 # Delivery plan and acceptance criteria
 
+D469 adds [PostgreSQL 19 qualification and major-upgrade continuity](postgresql-upgrade.md).
+Fresh installations and CI select stock 19.0. Existing 18 installations require
+an independently reviewed copy upgrade, exact schema/data/sequence preservation,
+retained commit evidence, explicit physical admission and a recoverable old
+cluster. Changing the Compose image alone does not perform that transition.
+Other major-version transitions require their own qualification.
+
 D468 corrects [assistant page reports](assistant-workspace.md#page-identity-and-observation-d468)
 and refresh notifications, with explicit digest coverage and question-time
 provenance. Physical page reader composition, typed delivery controls with

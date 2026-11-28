@@ -230,7 +230,7 @@ Contact: Joe Isaac, [joe@trustygenius.com](mailto:joe@trustygenius.com) or
 ## Quickstart
 
 You need the .NET SDK pinned in `global.json`, Node with npm (version in
-`.node-version`), Python 3.12+ with assertions enabled and PostgreSQL 18.
+`.node-version`), Python 3.12+ with assertions enabled and PostgreSQL 19.
 CI runs on Ubuntu 24.04.
 
 ```sh

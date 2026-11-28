@@ -1,5 +1,7 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Numerics;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using Npgsql;
 using OpenEtrm.MarketData;
@@ -32,32 +34,42 @@ internal sealed class GasPipelineOutlookStore(PreviewDatabase database)
         var business=new OperationalBusinessContext(database);
         var scope=await business.Resolve(c,request.Context,selected,"gas_outlook_context",ct);
         await business.BindResolved(c,scope,ct);
-        var positions=await GasPositions.Read(c,database.Manifest,[],[],ct);
+        bool InWindow(JsonElement member)=>DateWorkspace.Date(member.Text("delivery_from"))<to&&DateWorkspace.Date(member.Text("delivery_to"))>from;
+        var positions=(await GasPositions.Read(c,database.Manifest,[],[],ct))
+            .Where(p=>p.Physical.Any(InWindow)).ToArray();
+        var obligationsByTrade=new Dictionary<Guid,ImmutableArray<JsonElement>>();
+        foreach(var position in positions.Where(p=>p.Head.GetProperty("composition").GetBoolean()))
+        {
+            var held=await PreviewDatabase.Rows(c,Obligations,[database.Manifest.CatalogId,position.Trade,
+                int.Parse(position.Head.Text("revision"),CultureInfo.InvariantCulture),position.Binding],ct);
+            if(held.Length!=position.Physical.Length)throw new MarketDataException("gas_outlook_source","Each physical Side requires its exact retained obligation.");
+            obligationsByTrade.Add(position.Trade,held);
+        }
+        // One bound history read covers the exact resolved obligations. Planning
+        // this protected join once per trade dominates a multi-trade outlook.
+        var submissions=obligationsByTrade.Count>0?await PreviewDatabase.Rows(c,"""
+            SELECT row_to_json(x)::text FROM (
+             SELECT DISTINCT ON (s.obligation_id,r.day) s.obligation_id,r.day,r.id,r.quantity::text AS quantity,
+               jsonb_agg(jsonb_build_object('externalReference',n.external_reference,'submittedAt',n.submitted_at,'accountId',n.account_id)
+                         ORDER BY n.external_reference,n.id) AS requests
+             FROM trading.gas_quantity_series s JOIN trading.gas_quantity_revisions r ON (r.catalog_id,r.series_id)=(s.catalog_id,s.id)
+             JOIN trading.gas_nomination_requests n ON (n.catalog_id,n.nomination_id,n.day)=(r.catalog_id,r.id,r.day)
+             WHERE s.catalog_id=$1 AND s.obligation_id=ANY($2::uuid[]) AND s.kind='nominated' AND r.day>=$3 AND r.day<$4
+             GROUP BY s.obligation_id,r.day,r.id,r.quantity,r.revision ORDER BY s.obligation_id,r.day,r.revision DESC
+            ) x
+            """,[database.Manifest.CatalogId,obligationsByTrade.Values.SelectMany(items=>items).Select(o=>o.Id("id")).ToArray(),from,to],ct):[];
+        var submittedHeads=submissions.ToDictionary(h=>(h.Id("obligation_id"),DateWorkspace.Date(h.Text("day"))));
         var schedules=new RetainedScheduleStore(database);var quantities=new GasDailyQuantities(database);
         var rows=new List<GasOutlookOccurrence>();var sources=new List<object>();var operatingDays=new HashSet<(Guid Obligation,DateOnly Day)>();
         foreach(var position in positions)
         {
-            var physical=position.Physical.Where(m=>DateWorkspace.Date(m.Text("delivery_from"))<to&&DateWorkspace.Date(m.Text("delivery_to"))>from).ToArray();
-            if(physical.Length==0)continue;
+            var physical=position.Physical.Where(InWindow).ToArray();
             var trade=position.Trade;var instrument=position.Binding;
             var revision=int.Parse(position.Head.Text("revision"),CultureInfo.InvariantCulture);
             var composed=position.Head.GetProperty("composition").GetBoolean();
-            var obligations=composed?await PreviewDatabase.Rows(c,Obligations,[database.Manifest.CatalogId,trade,revision,instrument],ct):[];
-            if(composed&&obligations.Length!=position.Physical.Length)throw new MarketDataException("gas_outlook_source","Each physical Side requires its exact retained obligation.");
+            var obligations=composed?obligationsByTrade[trade]:[];
             var programs=await schedules.LoadPrograms(c,instrument,scope.Context.ContextId,scope.At,ct);
             var heads=composed?await quantities.QuantityRows(c,trade,"heads",false,ct):[];
-            var submissions=composed?await PreviewDatabase.Rows(c,"""
-                SELECT row_to_json(x)::text FROM (
-                 SELECT DISTINCT ON (s.obligation_id,r.day) s.obligation_id,r.day,r.id,r.quantity::text AS quantity,
-                   jsonb_agg(jsonb_build_object('externalReference',n.external_reference,'submittedAt',n.submitted_at,'accountId',n.account_id)
-                             ORDER BY n.external_reference,n.id) AS requests
-                 FROM trading.gas_quantity_series s JOIN trading.gas_quantity_revisions r ON (r.catalog_id,r.series_id)=(s.catalog_id,s.id)
-                 JOIN trading.gas_nomination_requests n ON (n.catalog_id,n.nomination_id,n.day)=(r.catalog_id,r.id,r.day)
-                 WHERE s.catalog_id=$1 AND s.obligation_id=ANY($2::uuid[]) AND s.kind='nominated' AND r.day>=$3 AND r.day<$4
-                 GROUP BY s.obligation_id,r.day,r.id,r.quantity,r.revision ORDER BY s.obligation_id,r.day,r.revision DESC
-                ) x
-                """,[database.Manifest.CatalogId,obligations.Select(o=>o.Id("id")).ToArray(),from,to],ct):[];
-            var submittedHeads=submissions.ToDictionary(h=>(h.Id("obligation_id"),DateWorkspace.Date(h.Text("day"))));
             var byDay=heads.ToLookup(h=>(h.Id("obligation_id"),DateWorkspace.Date(h.Text("day"))));
             var booked=ScheduleNumber.Parse(position.Head.Text("quantity"));
             foreach(var member in physical)

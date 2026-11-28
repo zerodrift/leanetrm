@@ -3,10 +3,15 @@
 For a fresh database, run [bootstrap.sql](bootstrap.sql) as the actual role that
 will create migration objects, before applying migrations in order. It establishes
 the explicit seven-rights table-owner ACL reviewed by the migration guards on
-stock PostgreSQL 18. Runtime grants and published migration files are independent
+stock PostgreSQL 19. Runtime grants and published migration files are independent
 of this bootstrap. Additional maintenance privileges require an explicit operator
 grant. Bootstrap refuses an existing application schema; upgrading an installed
 database preserves its migration ledger and existing ACL provenance.
+
+Existing PostgreSQL 18 installations use the explicit
+[19 upgrade contract](../docs/postgresql-upgrade.md), including migration 0416,
+exact commit evidence and physical continuity admission. Changing the server
+image alone does not upgrade an installed database.
 
 The [migrations directory](migrations/) lists the complete schema in application
 order, starting with [0001_reference_data.sql](migrations/0001_reference_data.sql).
@@ -313,7 +318,7 @@ calls drained; the publication gate does not replace draining old function bodie
 The attested release includes this bootstrap as `bootstrap.sql` at its root.
 
 [0001_reference_data.sql](migrations/0001_reference_data.sql) is the first migration.
-It requires stock PostgreSQL 18 and installs no extensions. This is a
+It requires stock PostgreSQL 19 and installs no extensions. This is a
 storage foundation, not a complete application schema or a runnable service.
 
 The original migration created 28 tables covering the following families.

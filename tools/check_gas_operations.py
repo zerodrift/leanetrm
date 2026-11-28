@@ -188,6 +188,10 @@ def run_checks(url, query, manifest):
     waiting=next(b for b in original['balances'] if b['accountId']==accounts[0]['id'])
     assert waiting['amount'] is None and 'Awaiting' in waiting['reason']
     assert any(s['scheduled'] is None for s in original['sources'] if s['tradeId']==trades[1])
+    submitted_sources=[s for s in original['sources'] if s['submitted'] is not None]
+    assert len(submitted_sources)==1 and submitted_sources[0]['tradeId']==trades[0],submitted_sources
+    assert [(r['externalReference'],r['accountId']) for r in submitted_sources[0]['requests']]==[('synthetic-nomination',accounts[0]['id'])]
+    assert all(s['requests'] is None for s in original['sources'] if s['tradeId']!=trades[0])
     row=next(r for r in outlook() if r['path']['point']==point['deliveryPoint'] and r['path']['direction']=='receive')
     assert row['scheduled']['reportedQuantity']=='90' and row['nominated']['reportedQuantity']=='100' and row['submitted']['reportedQuantity']=='100',row
     retained=state()['context'];historic={**after,'knowledgeMode':'retained','contextId':retained['contextId']}

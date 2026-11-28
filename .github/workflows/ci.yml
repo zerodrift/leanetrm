@@ -72,7 +72,7 @@ jobs:
         with:
           path: ${{ runner.temp }}/postgresql-dependencies
           key: ${{ runner.os }}-${{ runner.arch }}-postgresql-v1-${{ hashFiles('tools/ci/postgresql.lock.json') }}
-      - name: Verify and install PostgreSQL 18
+      - name: Verify and install PostgreSQL 19
         if: matrix.group != 'repository' && matrix.group != 'frontend' && matrix.group != 'managed'
         shell: bash
         env:
@@ -91,8 +91,8 @@ jobs:
           node --version
           npm --version
           python3 --version
-          if [ -x /usr/lib/postgresql/18/bin/postgres ]; then
-            /usr/lib/postgresql/18/bin/postgres --version
+          if [ -x /usr/lib/postgresql/19/bin/postgres ]; then
+            /usr/lib/postgresql/19/bin/postgres --version
           fi
           google-chrome --version
           dpkg-query -W tzdata libicu74
@@ -103,7 +103,7 @@ jobs:
         shell: bash
         run: |
           python3 tools/check_all.py --group "${{ matrix.group }}" \
-            --pg-bin /usr/lib/postgresql/18/bin \
+            --pg-bin /usr/lib/postgresql/19/bin \
             --dotnet "$(command -v dotnet)" \
             --browser "$(command -v google-chrome)"
 

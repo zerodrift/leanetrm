@@ -1,5 +1,12 @@
 # Architecture and domain contracts
 
+D469 qualifies an explicit [PostgreSQL 18 to 19 transition](postgresql-upgrade.md).
+Existing catalogs retain their source lineage and immutable owner coordinates;
+a private continuity receipt binds that lineage to one verified successor
+physical database. Exact full-transaction commit times are retained before the
+native metadata is lost. New catalogs use the successor's physical identity.
+Current authority, publication certification and historical cutoffs are unchanged.
+
 D468 corrects [assistant page identity and observation](assistant-workspace.md#page-identity-and-observation-d468):
 reports name the displayed subview and physical desk, failed refreshes invalidate
 selection, and tool results distinguish question-time metadata from an unobserved

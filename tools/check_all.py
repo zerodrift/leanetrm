@@ -58,6 +58,8 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
 
     check('verification runner', [sys.executable, '-m', 'unittest', 'discover',
                                   '-s', 'tests', '-p', 'test_*.py'])
+    check('PostgreSQL major upgrade and retained history',
+          [sys.executable, 'tools/check_postgresql_upgrade.py'], suite='recovery')
     check('independent settlement specification', [sys.executable, '-m', 'unittest', 'discover', '-s', 'specs/settlement', '-v'])
     check('standalone dependencies', [sys.executable, 'tools/check_standalone.py'])
     if group in ('all','reference','trading'):
