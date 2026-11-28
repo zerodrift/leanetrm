@@ -122,10 +122,13 @@ def scope_entry_waits(f,rejected):
         source=f.capture()
         temporary,first,successor=[str(uuid4()) for _ in range(3)]
         with ThreadPoolExecutor(max_workers=1) as pool:
-            # With a first grant the lock is kept until the operation has waited for it under that grant and the successor is active.
-            scope='LOCK TABLE security.market_catalog_scopes IN ACCESS EXCLUSIVE MODE'
-            blocker=pool.submit(q,f"SET application_name='synthetic_capacity_entry_scope';BEGIN;{scope};SELECT pg_sleep(8);COMMIT;" if mode.endswith('_missing') else
-                lock_holder('synthetic_capacity_entry_scope',scope,f"(SELECT granted_to<=clock_timestamp() FROM security.role_grants WHERE id='{first}')",f"(SELECT granted_from<=clock_timestamp() FROM security.role_grants WHERE id='{successor}')"))
+            # The lock is kept until the operation has waited for it, under its first grant if it has one, and the
+            # successor is active. A producer without entry authority does not reach the scope: its lock is timed.
+            scope='LOCK TABLE security.market_catalog_scopes IN ACCESS EXCLUSIVE MODE';waits=mode!='record_missing'
+            blocker=pool.submit(q,lock_holder('synthetic_capacity_entry_scope',scope,
+                'false' if mode.endswith('_missing') else f"(SELECT granted_to<=clock_timestamp() FROM security.role_grants WHERE id='{first}')",
+                f"(SELECT granted_from<=clock_timestamp() FROM security.role_grants WHERE id='{successor}')") if waits else
+                f"SET application_name='synthetic_capacity_entry_scope';BEGIN;{scope};SELECT pg_sleep(8);COMMIT;")
             until=time.monotonic()+5
             while q("SELECT count(*) FROM pg_stat_activity WHERE application_name='synthetic_capacity_entry_scope' AND wait_event='PgSleep';")!='1':
                 assert time.monotonic()<until
@@ -140,7 +143,8 @@ def scope_entry_waits(f,rejected):
             generation=q('SELECT generation FROM security.epoch;')
             try:
                 # The scope-table lock leaves grant tables free. Missing entry
-                # authority is -infinity; a later grant cannot promote it.
+                # authority is -infinity; a grant that starts during the status
+                # read's wait cannot promote it, and the producer is refused.
                 if mode.endswith('_missing'):
                     assert f.call("SELECT security.authority_until('ConfigureGasServices')='-infinity'::timestamptz;")=='t'
                 else:
@@ -162,7 +166,7 @@ def scope_entry_waits(f,rejected):
                     f"INSERT INTO security.role_permissions VALUES('{role}','ConfigureGasServices');COMMIT;")
     recovered=json.loads(f.call(f"SELECT security.gas_transport_capacity_status('{f.catalog}','{operation}')::text;"))
     assert recovered['found'] and recovered['outcome']==original
-    print('PASS initial scope waits preserve expired or missing original conditional producer/status authority with active successor grants and unchanged epoch; absent recovery retains base authority only.',flush=True)
+    print('PASS initial scope waits preserve expired producer/status authority and missing status authority with active successor grants and unchanged epoch; a producer without entry authority is refused; absent recovery retains base authority only.',flush=True)
 
 
 def directory_scope(f,rejected):

@@ -128,11 +128,16 @@ def authority(f, trade, rejected):
         accepted_mark = f.read_financial(trade)['mark']['id']
         table = 'security.reference_catalog_scopes' if permission == 'ReadMarketData' or mode.startswith('capacity') else 'security.market_catalog_scopes'
         with ThreadPoolExecutor(max_workers=1) as pool:
-            # With a first grant the lock is kept until the operation has waited for it under that grant and the successor is active.
+            # The lock is kept until the operation has waited for it, under its first grant if it has one, and the
+            # successor is active. A write or capacity choice without entry authority is refused before the scope, by
+            # the product's entry check: its lock is timed and must still be held when the refusal returns.
             temporary, first, successor = ids = [str(uuid4()) for _ in range(3)]
             scope = f'LOCK TABLE {table} IN ACCESS EXCLUSIVE MODE'
-            blocker = pool.submit(q, f"SET application_name='synthetic_financial_scope_wait';BEGIN;{scope};SELECT pg_sleep(7);COMMIT;" if mode.endswith('_missing') else
-                lock_holder('synthetic_financial_scope_wait', scope, f"(SELECT granted_to<=clock_timestamp() FROM security.role_grants WHERE id='{first}')", f"(SELECT granted_from<=clock_timestamp() FROM security.role_grants WHERE id='{successor}')"))
+            waits = mode not in ('record_missing', 'capacity_missing')
+            blocker = pool.submit(q, lock_holder('synthetic_financial_scope_wait', scope,
+                'false' if mode.endswith('_missing') else f"(SELECT granted_to<=clock_timestamp() FROM security.role_grants WHERE id='{first}')",
+                f"(SELECT granted_from<=clock_timestamp() FROM security.role_grants WHERE id='{successor}')") if waits else
+                f"SET application_name='synthetic_financial_scope_wait';BEGIN;{scope};SELECT pg_sleep(7);COMMIT;")
             until = time.monotonic() + 5
             while q("SELECT count(*) FROM pg_stat_activity WHERE application_name='synthetic_financial_scope_wait' AND wait_event='PgSleep';") != '1':
                 assert time.monotonic() < until
@@ -154,13 +159,14 @@ def authority(f, trade, rejected):
                     f.query=q.raw
                     try:rejected(lambda: f.record_financial(body, context=context), 'gas_transport_financial_denied')
                     finally:f.query=q
+                assert waits or not blocker.done(), 'An operation without entry authority waited for the scope.'
                 blocker.result(timeout=15)
                 assert q('SELECT generation FROM security.epoch;') == generation
                 assert f.call(f"SELECT security.has_permission('{permission}');") == 't'
             finally:
                 blocker.result(timeout=15)
                 restore(permission, ids)
-    print('PASS real exact-reference/base-scope waits preserve original read/status/write/capacity-choice authority; expired or absent entry grants never become successor authority, with unchanged epoch.', flush=True)
+    print('PASS real exact-reference/base-scope waits preserve original read/status/write/capacity-choice authority; expired or absent entry grants never become successor authority, with unchanged epoch; a write or capacity choice without entry authority is refused before the scope.', flush=True)
 
     body = proposal('Synthetic finite accepted mark for recovery')
     context = f.capture()
